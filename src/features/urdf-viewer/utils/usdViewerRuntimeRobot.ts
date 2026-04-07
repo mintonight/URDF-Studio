@@ -1,11 +1,18 @@
 import { JointType } from '@/types';
+import {
+  unwrapContinuousJointAngle,
+  wrapContinuousJointAngle,
+} from '@/shared/utils/continuousJointAngle';
 import type { ViewerRobotDataResolution } from './viewerRobotData';
 
-type RuntimeJointInfo = {
-  angleDeg?: number;
-  lowerLimitDeg?: number;
-  upperLimitDeg?: number;
-} | null | undefined;
+type RuntimeJointInfo =
+  | {
+      angleDeg?: number;
+      lowerLimitDeg?: number;
+      upperLimitDeg?: number;
+    }
+  | null
+  | undefined;
 
 type LinkRotationControllerLike = {
   apply: (renderInterface?: unknown, options?: Record<string, unknown>) => unknown;
@@ -60,18 +67,28 @@ export function createUsdViewerRuntimeRobot({
         joint.limit.lower,
         joint.limit.upper,
       );
+      const initialJointAngle =
+        typeof joint.angle === 'number' && Number.isFinite(joint.angle) ? joint.angle : 0;
+      const runtimeJointAngle = degreesToRadians(jointInfo?.angleDeg);
       const runtimeJoint = {
         id: jointId,
         name: joint.name || jointId,
         type: joint.type,
         jointType: joint.type,
+        parentLinkId: joint.parentLinkId,
         child: { name: joint.childLinkId },
+        parent: { name: joint.parentLinkId },
         ignoreLimits: false,
         limit: {
           ...joint.limit,
           ...resolvedLimits,
         },
-        angle: degreesToRadians(jointInfo?.angleDeg) ?? joint.angle ?? 0,
+        angle:
+          joint.type === JointType.CONTINUOUS
+            ? runtimeJointAngle !== undefined
+              ? unwrapContinuousJointAngle(runtimeJointAngle, initialJointAngle)
+              : initialJointAngle
+            : (runtimeJointAngle ?? joint.angle ?? 0),
         setJointValue(nextValue: number) {
           const numericValue = Number(nextValue);
           if (!Number.isFinite(numericValue)) {
@@ -80,6 +97,10 @@ export function createUsdViewerRuntimeRobot({
 
           const previousAngle = Number(this.angle);
           let resolvedAngle = numericValue;
+          const controllerAngle =
+            joint.type === JointType.CONTINUOUS
+              ? wrapContinuousJointAngle(numericValue)
+              : numericValue;
 
           if (childLinkPath && joint.type !== JointType.FIXED) {
             if (Number.isFinite(previousAngle) && Math.abs(previousAngle - numericValue) <= 1e-8) {
@@ -88,10 +109,16 @@ export function createUsdViewerRuntimeRobot({
 
             const updatedJointInfo = linkRotationController.setJointAngleForLink(
               childLinkPath,
-              (numericValue * 180) / Math.PI,
+              (controllerAngle * 180) / Math.PI,
               { emitSelectionChanged: false },
             );
-            resolvedAngle = degreesToRadians(updatedJointInfo?.angleDeg) ?? numericValue;
+            const runtimeResolvedAngle = degreesToRadians(updatedJointInfo?.angleDeg);
+            resolvedAngle =
+              joint.type === JointType.CONTINUOUS
+                ? runtimeResolvedAngle !== undefined
+                  ? unwrapContinuousJointAngle(runtimeResolvedAngle, numericValue)
+                  : numericValue
+                : (runtimeResolvedAngle ?? numericValue);
             requestRender?.();
             scheduleDecorationRefresh?.();
           }

@@ -97,8 +97,8 @@ samp {
   --ui-settings-shell: #f3f4f6;
   --ui-settings-card: #f9fafb;
   --ui-settings-muted: #eef2f7;
-  --ui-settings-accent: #3b82f6;
-  --ui-settings-accent-soft: rgba(59, 130, 246, 0.12);
+  --ui-settings-accent: #007aff;
+  --ui-settings-accent-soft: rgba(0, 122, 255, 0.12);
 
   /* IDE preview colors */
   --ui-code-tag: #2563eb;
@@ -167,11 +167,11 @@ html[data-lang='zh'] {
   --ui-slider-thumb-shadow-active: 0 3px 8px rgba(0, 0, 0, 0.48), 0 8px 18px rgba(0, 0, 0, 0.56);
 
   /* Settings modal surfaces */
-  --ui-settings-shell: #111827;
-  --ui-settings-card: #172033;
-  --ui-settings-muted: #202b3f;
-  --ui-settings-accent: #60a5fa;
-  --ui-settings-accent-soft: rgba(96, 165, 250, 0.16);
+  --ui-settings-shell: #151518;
+  --ui-settings-card: #1c1c1e;
+  --ui-settings-muted: #2c2c2e;
+  --ui-settings-accent: #0a84ff;
+  --ui-settings-accent-soft: rgba(10, 132, 255, 0.14);
 
   /* IDE preview colors */
   --ui-code-tag: #93c5fd;
@@ -403,6 +403,11 @@ body {
 }
 
 /* Custom scrollbar for panels */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 transparent;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -419,6 +424,10 @@ body {
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
   min-height: 56px;
+}
+
+.dark .custom-scrollbar {
+  scrollbar-color: #475569 transparent;
 }
 
 .dark ::-webkit-scrollbar-thumb {

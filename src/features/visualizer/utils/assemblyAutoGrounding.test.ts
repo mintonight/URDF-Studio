@@ -5,6 +5,7 @@ import * as THREE from 'three';
 
 import { DEFAULT_LINK, JointType, type AssemblyState, type RobotState } from '@/types';
 import {
+  buildAssemblyAutoGroundMeshSignatureMap,
   createInitialAssemblyAutoGroundTrackingState,
   resolveAssemblyAutoGrounding,
   resolveReadyAssemblyAutoGroundComponentIds,
@@ -235,6 +236,24 @@ function createPivot(lowestZ: number, x = 0, name?: string): THREE.Group {
   return pivot;
 }
 
+function createNestedPivot({
+  lowestZ,
+  parentX = 0,
+  parentZ = 0,
+  name,
+}: {
+  lowestZ: number;
+  parentX?: number;
+  parentZ?: number;
+  name?: string;
+}): THREE.Group {
+  const parent = new THREE.Group();
+  parent.position.set(parentX, 0, parentZ);
+  const pivot = createPivot(lowestZ, 0, name);
+  parent.add(pivot);
+  return pivot;
+}
+
 test('resolveAssemblyAutoGrounding returns one-shot z corrections for individually transformable components only', () => {
   const result = resolveAssemblyAutoGrounding({
     robot: createRobotState(),
@@ -298,6 +317,29 @@ test('resolveAssemblyAutoGrounding honors component filters and non-zero ground 
   assert.ok(Math.abs(result.adjustments[0]!.transform.position.z - 0.17) < 1e-6);
 });
 
+test('resolveAssemblyAutoGrounding measures nested component pivots with ancestor transforms', () => {
+  const result = resolveAssemblyAutoGrounding({
+    robot: createRobotState(),
+    assemblyState: createAssemblyState(),
+    jointPivots: {
+      '__workspace_world__::component::comp_grounded': createPivot(0),
+      '__workspace_world__::component::comp_floating': createNestedPivot({
+        lowestZ: 0.05,
+        parentX: 0.4,
+        parentZ: 0.25,
+        name: '__workspace_world__::component::comp_floating',
+      }),
+    },
+    groundPlaneOffset: 0,
+  });
+
+  assert.deepEqual(result.measuredComponentIds, ['comp_grounded', 'comp_floating']);
+  assert.equal(result.adjustments.length, 1);
+  assert.equal(result.adjustments[0]?.componentId, 'comp_floating');
+  assert.ok(result.adjustments[0]);
+  assert.ok(Math.abs(result.adjustments[0]!.transform.position.z - 0.05) < 1e-6);
+});
+
 test('resolveNextAssemblyAutoGroundTrackingState only marks newly added components as pending', () => {
   const initialAssemblyState = createAssemblyState();
   const initializedState = resolveNextAssemblyAutoGroundTrackingState({
@@ -350,6 +392,7 @@ test('resolveNextAssemblyAutoGroundTrackingState only marks newly added componen
   });
 
   assert.deepEqual([...nextState.pendingComponentIds], ['comp_new']);
+  assert.deepEqual([...nextState.settledMeshSignatureByComponentId.keys()], []);
 });
 
 test('resolveReadyAssemblyAutoGroundComponentIds waits for only the pending component mesh keys', () => {
@@ -367,4 +410,63 @@ test('resolveReadyAssemblyAutoGroundComponentIds waits for only the pending comp
   });
 
   assert.deepEqual(readyComponentIds, ['comp_floating']);
+});
+
+test('buildAssemblyAutoGroundMeshSignatureMap groups mesh load keys per visible component', () => {
+  const assemblyState = createAssemblyState();
+
+  const meshSignatureMap = buildAssemblyAutoGroundMeshSignatureMap({
+    assemblyState,
+    meshLoadKeys: [
+      'grounded_root|visual|primary|0|meshes/grounded-body.dae',
+      'grounded_root|visual|primary|1|meshes/grounded-leg.dae',
+      'floating_root|visual|primary|0|meshes/floating-body.dae',
+      'unknown_root|visual|primary|0|meshes/ignored.dae',
+    ],
+  });
+
+  assert.equal(
+    meshSignatureMap.get('comp_grounded'),
+    [
+      'grounded_root|visual|primary|0|meshes/grounded-body.dae',
+      'grounded_root|visual|primary|1|meshes/grounded-leg.dae',
+    ].join('\u0000'),
+  );
+  assert.equal(
+    meshSignatureMap.get('comp_floating'),
+    'floating_root|visual|primary|0|meshes/floating-body.dae',
+  );
+  assert.equal(meshSignatureMap.get('comp_missing'), '');
+  assert.equal(meshSignatureMap.has('comp_hidden'), false);
+});
+
+test('resolveNextAssemblyAutoGroundTrackingState prunes settled signatures for removed components', () => {
+  const previousState = createInitialAssemblyAutoGroundTrackingState();
+  previousState.initialized = true;
+  previousState.knownComponentIds = new Set(['comp_grounded', 'comp_removed']);
+  previousState.pendingComponentIds = new Set(['comp_grounded', 'comp_removed']);
+  previousState.settledMeshSignatureByComponentId = new Map([
+    ['comp_grounded', 'grounded-signature'],
+    ['comp_removed', 'removed-signature'],
+  ]);
+
+  const nextState = resolveNextAssemblyAutoGroundTrackingState({
+    previousState,
+    assemblyState: createAssemblyState(),
+  });
+
+  assert.deepEqual([...nextState.knownComponentIds].sort(), [
+    'comp_bridged',
+    'comp_floating',
+    'comp_grounded',
+    'comp_hidden',
+    'comp_missing',
+  ]);
+  assert.deepEqual(
+    [...nextState.pendingComponentIds],
+    ['comp_grounded', 'comp_floating', 'comp_bridged', 'comp_hidden', 'comp_missing'],
+  );
+  assert.deepEqual(Array.from(nextState.settledMeshSignatureByComponentId.entries()), [
+    ['comp_grounded', 'grounded-signature'],
+  ]);
 });

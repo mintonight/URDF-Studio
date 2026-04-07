@@ -11,6 +11,29 @@ export interface MeshResolutionStateSnapshot {
   resolvedKeys: Set<string>;
 }
 
+export function reconcileResolvedMeshLoadKeys({
+  currentResolvedKeys,
+  expectedMeshLoadKeySet,
+  expectedSignature,
+}: {
+  currentResolvedKeys: ReadonlySet<string>;
+  expectedMeshLoadKeySet: ReadonlySet<string>;
+  expectedSignature: string;
+}): MeshResolutionStateSnapshot {
+  const nextResolvedKeys = new Set<string>();
+
+  for (const meshLoadKey of currentResolvedKeys) {
+    if (expectedMeshLoadKeySet.has(meshLoadKey)) {
+      nextResolvedKeys.add(meshLoadKey);
+    }
+  }
+
+  return {
+    signature: expectedSignature,
+    resolvedKeys: nextResolvedKeys,
+  };
+}
+
 export function mergeResolvedMeshLoadKeys({
   currentResolvedKeys,
   currentSignature,

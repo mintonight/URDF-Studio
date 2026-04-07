@@ -362,6 +362,8 @@ export function extractJointRecordsFromLayerText(layerText) {
         const lowerLimitDeg = toFiniteNumberLocal(body.match(/physics:lowerLimit\s*=\s*([-+0-9.eE]+)/i)?.[1]);
         const upperLimitDeg = toFiniteNumberLocal(body.match(/physics:upperLimit\s*=\s*([-+0-9.eE]+)/i)?.[1]);
         const axisLocal = parseVector3FromTupleLiteral(body.match(/urdf:axisLocal\s*=\s*\(([^)]+)\)/i)?.[1] || "");
+        const closedLoopId = String(body.match(/urdf:closedLoopId\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
+        const closedLoopType = String(body.match(/urdf:closedLoopType\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
         const urdfJointType = String(body.match(/urdf:jointType\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
         const originXyz = parseVector3FromTupleLiteral((body.match(/urdf:originXyz\s*=\s*\(([^)]+)\)/i)?.[1]
             || body.match(/physics:localPos0\s*=\s*\(([^)]+)\)/i)?.[1]
@@ -380,6 +382,8 @@ export function extractJointRecordsFromLayerText(layerText) {
             axisLocal,
             lowerLimitDeg: lowerLimitDeg === undefined ? null : lowerLimitDeg,
             upperLimitDeg: upperLimitDeg === undefined ? null : upperLimitDeg,
+            closedLoopId: closedLoopId || null,
+            closedLoopType: closedLoopType || null,
             originXyz,
             originQuatWxyz,
             localPos1,

@@ -6,6 +6,7 @@ import {
   computeGeometryVolume,
   computeInertialDerivedValues,
   computeLinkDensity,
+  scaleInertiaTensorForMassChange,
 } from './inertialDerived.ts';
 
 test('computes primitive geometry volume', () => {
@@ -41,7 +42,7 @@ test('computes density from summed collision primitive volumes', () => {
 
   assert.equal(density.source, 'collision');
   assert.ok(density.value !== null);
-  assert.ok(Math.abs(density.value - (10 / (1 + Math.PI * 0.5 * 0.5 * 2))) < 1e-9);
+  assert.ok(Math.abs(density.value - 10 / (1 + Math.PI * 0.5 * 0.5 * 2)) < 1e-9);
 });
 
 test('does not compute density for mesh-based collision geometry', () => {
@@ -116,4 +117,32 @@ test('recomposes the inertia tensor from derived principal moments and axes', ()
   assert.ok(Math.abs(recomposed.iyy - inertial.inertia.iyy) < 1e-6);
   assert.ok(Math.abs(recomposed.iyz - inertial.inertia.iyz) < 1e-6);
   assert.ok(Math.abs(recomposed.izz - inertial.inertia.izz) < 1e-6);
+});
+
+test('scales inertia tensor linearly when link mass changes under a uniform-density assumption', () => {
+  const estimate = scaleInertiaTensorForMassChange(
+    {
+      mass: 2,
+      inertia: {
+        ixx: 1,
+        ixy: 0.25,
+        ixz: 0,
+        iyy: 3,
+        iyz: -0.5,
+        izz: 4,
+      },
+    },
+    5,
+  );
+
+  assert.ok(estimate);
+  assert.equal(estimate.scale, 2.5);
+  assert.deepEqual(estimate.inertia, {
+    ixx: 2.5,
+    ixy: 0.625,
+    ixz: 0,
+    iyy: 7.5,
+    iyz: -1.25,
+    izz: 10,
+  });
 });

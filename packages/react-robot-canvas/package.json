@@ -44,7 +44,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "node ../../node_modules/vite/bin/vite.js build -c ./vite.config.ts && node ../../node_modules/typescript/bin/tsc -p ./tsconfig.types.json && node ../../scripts/rewrite_dts_aliases.mjs ./dist/types && node ./scripts/postbuild.mjs",
+    "build": "vite build -c ./vite.config.ts && tsc -p ./tsconfig.types.json && node ../../scripts/rewrite_dts_aliases.mjs ./dist/types && node ./scripts/postbuild.mjs",
     "prepack": "npm run build",
     "pack:dry-run": "npm pack --dry-run"
   }

@@ -3,6 +3,7 @@ import { type RobotImportResult, resolveRobotFileData } from '@/core/parsers';
 import { pickPreferredUsdRootFile } from '@/core/parsers/usd/usdFormatUtils';
 import { getVisualGeometryEntries } from '@/core/robot';
 import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
+import { buildStandaloneImportAssetWarning } from '@/app/utils/importPackageAssetReferences.ts';
 
 const PACKAGE_REFERENCE_PATTERN = /package:\/\/([^/\s"'<>]+)/g;
 
@@ -60,6 +61,14 @@ export function isUrdfSelfContainedInImportBundle(
   filePool: RobotFile[] = [],
 ): boolean {
   if (file.format !== 'urdf') return false;
+
+  const standaloneAssetWarning = buildStandaloneImportAssetWarning(
+    file,
+    filePool.filter((candidate) => candidate.format === 'mesh').map((candidate) => candidate.name),
+  );
+  if (standaloneAssetWarning) {
+    return false;
+  }
 
   const referencedPackages = collectReferencedPackageNames(file.content);
   if (referencedPackages.length === 0) return true;

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <path id="b" d="M-7-145H7l7 27h-28z" />
+  </defs>
+  <g transform="translate(256 256) scale(1.35)">
+    <g fill="#00d4aa">
+      <circle r="120" />
+      <use href="#b" />
+      <use href="#b" transform="rotate(22.5)" />
+      <use href="#b" transform="rotate(45)" />
+      <use href="#b" transform="rotate(67.5)" />
+      <use href="#b" transform="rotate(90)" />
+      <use href="#b" transform="rotate(112.5)" />
+      <use href="#b" transform="rotate(135)" />
+      <use href="#b" transform="rotate(157.5)" />
+      <use href="#b" transform="rotate(180)" />
+      <use href="#b" transform="rotate(202.5)" />
+      <use href="#b" transform="rotate(225)" />
+      <use href="#b" transform="rotate(247.5)" />
+      <use href="#b" transform="rotate(270)" />
+      <use href="#b" transform="rotate(292.5)" />
+      <use href="#b" transform="rotate(315)" />
+      <use href="#b" transform="rotate(337.5)" />
+    </g>
+    <circle r="75" fill="#1a1a2e" />
+    <g fill="#00d4aa">
+      <rect x="-60" y="-12" width="75" height="24" rx="12" />
+      <path d="M20-30 60 0 20 30z" />
+    </g>
+  </g>
+</svg>

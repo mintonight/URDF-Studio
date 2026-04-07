@@ -2,11 +2,11 @@
  * App Layout Component
  * Main application layout with Header and workspace area
  */
-import React, { useRef, useCallback, useEffect, useState } from 'react';
+import React, { useRef, useCallback, useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Header } from './components/Header';
 import { AppLayoutOverlays } from './components/AppLayoutOverlays';
-import { DocumentLoadingOverlay } from './components/DocumentLoadingOverlay';
+import { ConnectedDocumentLoadingOverlay } from './components/ConnectedDocumentLoadingOverlay';
 import { FileDropOverlay } from './components/FileDropOverlay';
 import { ImportPreparationOverlay } from './components/ImportPreparationOverlay';
 import { SnapshotDialog } from './components/SnapshotDialog';
@@ -18,7 +18,7 @@ import {
 import { preloadSourceCodeEditorRuntime } from './utils/sourceCodeEditorLoader';
 import type { HeaderAction } from './components/header/types';
 import { TreeEditor } from '@/features/robot-tree';
-import { PropertyEditor } from '@/features/property-editor/components/PropertyEditor';
+import { PropertyEditor } from '@/features/property-editor';
 import {
   getCurrentUsdViewerSceneSnapshot,
   prepareUsdExportCacheFromSnapshot,
@@ -30,17 +30,20 @@ import {
 } from '@/features/urdf-viewer';
 import {
   useAppLayoutEffects,
+  useAssemblyComponentPreparation,
   useCollisionOptimizationWorkflow,
+  useEditableSourcePatches,
   useLibraryFileActions,
   usePreparedUsdViewerAssets,
+  useSourceCodeEditorWarmup,
   useViewerOrchestration,
   useWorkspaceMutations,
+  useWorkspaceOverlayActions,
+  useWorkspaceModeTransitions,
   useWorkspaceSourceSync,
 } from './hooks';
-import type { ImportPreparationOverlayState } from './hooks/useFileImport';
 import {
   parseEditableRobotSourceWithWorker,
-  prepareAssemblyComponentWithWorker,
   resolveRobotFileDataWithWorker,
 } from './hooks/robotImportWorkerBridge';
 import {
@@ -63,11 +66,12 @@ import {
   useCollisionTransformStore,
 } from '@/store';
 import { generateURDF } from '@/core/parsers';
-import { analyzeAssemblyConnectivity, buildAssemblyComponentIdentity } from '@/core/robot';
+import { analyzeAssemblyConnectivity } from '@/core/robot';
 import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
 import { rewriteRobotMeshPathsForSource } from '@/core/parsers/meshPathUtils';
 import type {
   BridgeJoint,
+  InteractionSelection,
   RobotData,
   RobotFile,
   UrdfJoint,
@@ -87,22 +91,13 @@ import {
   shouldIgnoreStaleViewerDocumentLoadEvent,
   shouldIgnoreViewerLoadRegressionAfterReadySameFile,
 } from './utils/documentLoadFlow';
-import { waitForNextPaint } from './utils/waitForNextPaint';
 import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
 import type { DocumentLoadState, DocumentLoadStatus } from '@/store/assetsStore';
-import { BRIDGE_PREVIEW_ID } from '@/features/assembly/utils/bridgePreview';
-import { resolveAssemblyViewerComponentSelection } from '@/features/assembly/utils/bridgeSelection';
-import {
-  appendMJCFChildBodyToSource,
-  appendMJCFBodyCollisionGeomToSource,
-  canPatchMJCFEditableSource,
-  removeMJCFBodyCollisionGeomFromSource,
-  removeMJCFBodyFromSource,
-  renameMJCFEntitiesInSource,
-  updateMJCFBodyCollisionGeomInSource,
-  type MJCFRenameOperation,
-} from './utils/mjcfEditableSourcePatch';
+import { toDocumentLoadLifecycleState } from '@/store/assetsStore';
+import { BRIDGE_PREVIEW_ID, resolveAssemblyViewerComponentSelection } from '@/features/assembly';
 import { markUnsavedChangesBaselineSaved } from './utils/unsavedChangesBaseline';
+import { buildStandaloneImportAssetWarning } from './utils/importPackageAssetReferences';
+import { buildPropertyEditorSelectionContext } from './utils/propertyEditorSelectionContext';
 
 interface UsdPersistenceBaseline {
   fileName: string | null;
@@ -234,6 +229,7 @@ export function AppLayout({
     motorLibrary,
     availableFiles,
     selectedFile,
+    documentLoadState,
     allFileContents,
     setAvailableFiles,
     setSelectedFile,
@@ -246,7 +242,6 @@ export function AppLayout({
     renameRobotFolder,
     clearRobotLibrary,
     getUsdPreparedExportCache,
-    documentLoadState,
     setDocumentLoadState,
   } = useAssetsStore(
     useShallow((state) => ({
@@ -254,6 +249,7 @@ export function AppLayout({
       motorLibrary: state.motorLibrary,
       availableFiles: state.availableFiles,
       selectedFile: state.selectedFile,
+      documentLoadState: state.documentLoadState,
       allFileContents: state.allFileContents,
       setAvailableFiles: state.setAvailableFiles,
       setSelectedFile: state.setSelectedFile,
@@ -266,9 +262,12 @@ export function AppLayout({
       renameRobotFolder: state.renameRobotFolder,
       clearRobotLibrary: state.clearRobotLibrary,
       getUsdPreparedExportCache: state.getUsdPreparedExportCache,
-      documentLoadState: state.documentLoadState,
       setDocumentLoadState: state.setDocumentLoadState,
     })),
+  );
+  const documentLoadLifecycleState = useMemo(
+    () => toDocumentLoadLifecycleState(documentLoadState),
+    [documentLoadState],
   );
 
   // Robot Store
@@ -350,7 +349,6 @@ export function AppLayout({
   const usdPersistenceBaselineRef = useRef<UsdPersistenceBaseline>(EMPTY_USD_PERSISTENCE_BASELINE);
   const usdPreparedExportCacheRequestIdRef = useRef(0);
   const proModeRoundtripSessionRef = useRef<ProModeRoundtripSession | null>(null);
-  const sourceCodeEditorRuntimeWarmupPromiseRef = useRef<Promise<void> | null>(null);
   const [pendingViewerToolMode, setPendingViewerToolMode] = useState<ToolMode | null>(null);
   const [isBridgeModalOpen, setIsBridgeModalOpen] = useState(false);
   const [isCollisionOptimizerOpen, setIsCollisionOptimizerOpen] = useState(false);
@@ -358,8 +356,6 @@ export function AppLayout({
   const [isSnapshotCapturing, setIsSnapshotCapturing] = useState(false);
   const [shouldRenderBridgeModal, setShouldRenderBridgeModal] = useState(false);
   const [bridgePreview, setBridgePreview] = useState<BridgeJoint | null>(null);
-  const [assemblyComponentPreparationOverlay, setAssemblyComponentPreparationOverlay] =
-    useState<ImportPreparationOverlayState | null>(null);
   const clearSelection = useCallback(() => {
     setSelection({ type: null, id: null });
     clearAssemblySelection();
@@ -368,8 +364,8 @@ export function AppLayout({
   const isSelectedUsdHydrating = shouldUseEmptyRobotForUsdHydration({
     selectedFileFormat: selectedFile?.format ?? null,
     selectedFileName: selectedFile?.name ?? null,
-    documentLoadStatus: documentLoadState.status,
-    documentLoadFileName: documentLoadState.fileName,
+    documentLoadStatus: documentLoadLifecycleState.status,
+    documentLoadFileName: documentLoadLifecycleState.fileName,
   });
 
   useEffect(() => {
@@ -380,6 +376,25 @@ export function AppLayout({
 
     pendingUsdHydrationFileRef.current = selectedFile.name;
   }, [isSelectedUsdHydrating, selectedFile]);
+
+  const {
+    assemblyComponentPreparationOverlay,
+    prepareAssemblyComponentForInsert,
+    showAssemblyComponentPreparationOverlay,
+    clearAssemblyComponentPreparationOverlay,
+    activateInsertedAssemblyComponent,
+    insertAssemblyComponentIntoWorkspace,
+  } = useAssemblyComponentPreparation({
+    assemblyState,
+    availableFiles,
+    assets,
+    allFileContents,
+    t,
+    addComponent,
+    focusOn,
+    selectComponent,
+    setSelection,
+  });
 
   const queueUsdPreparedExportCacheBuild = useCallback(
     (args: {
@@ -534,175 +549,157 @@ export function AppLayout({
     usdPersistenceBaselineRef.current = EMPTY_USD_PERSISTENCE_BASELINE;
   }, [selectedFile?.format]);
 
-  const updateProModeRoundtripBaseline = useCallback((generatedFileName: string | null) => {
-    const nextAssemblyState = useAssemblyStore.getState().assemblyState;
-    const mergedRobotData = nextAssemblyState
-      ? buildExportableAssemblyRobotData(nextAssemblyState)
-      : null;
-    if (!mergedRobotData) {
-      proModeRoundtripSessionRef.current = null;
-      return false;
+  const {
+    emptyRobot,
+    robot,
+    viewerRobot,
+    sourceSceneAssemblyComponentId,
+    shouldRenderAssembly,
+    workspaceAssemblyRenderFailureReason,
+    jointAngleState,
+    jointMotionState,
+    showVisual,
+    urdfContentForViewer,
+    viewerSourceFormat,
+    viewerSourceFilePath,
+    workspaceViewerMjcfSourceFile,
+    sourceCodeContent,
+    sourceCodeDocumentFlavor,
+    sourceCodeFileName,
+    filePreview,
+    previewRobot,
+    previewFileName,
+    handlePreviewFile,
+    handleClosePreview,
+  } = useWorkspaceSourceSync({
+    assemblyState,
+    assemblyRevision,
+    assemblyBridgePreview: bridgePreview,
+    assemblySelection,
+    sidebarTab,
+    getMergedRobotData,
+    selection,
+    robotName,
+    robotLinks,
+    robotJoints,
+    rootLinkId,
+    robotMaterials,
+    closedLoopConstraints,
+    isCodeViewerOpen,
+    selectedFile,
+    setSelectedFile,
+    availableFiles,
+    allFileContents,
+    setAvailableFiles,
+    setAllFileContents,
+    originalUrdfContent,
+    isSelectedUsdHydrating,
+    assets,
+    getUsdPreparedExportCache,
+    setOriginalUrdfContent,
+  });
+
+  const workspaceAssemblyRenderFailureRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!shouldRenderAssembly || !workspaceAssemblyRenderFailureReason) {
+      workspaceAssemblyRenderFailureRef.current = null;
+      return;
     }
 
-    proModeRoundtripSessionRef.current = {
-      baselineSnapshot: createRobotSourceSnapshot({
-        ...mergedRobotData,
-        selection: { type: null, id: null },
-      }),
-      generatedFileName,
-    };
+    if (workspaceAssemblyRenderFailureRef.current === workspaceAssemblyRenderFailureReason) {
+      return;
+    }
 
-    return true;
-  }, []);
+    workspaceAssemblyRenderFailureRef.current = workspaceAssemblyRenderFailureReason;
 
-  const prepareAssemblyComponentForInsert = useCallback(
-    async (
-      file: RobotFile,
-      options: {
-        existingComponentIds?: Iterable<string>;
-        existingComponentNames?: Iterable<string>;
-        preResolvedRobotData?: RobotData | null;
-      } = {},
-    ) => {
-      const liveAssemblyState = useAssemblyStore.getState().assemblyState;
-      const identity = buildAssemblyComponentIdentity({
-        fileName: file.name,
-        existingComponentIds:
-          options.existingComponentIds ?? Object.keys(liveAssemblyState?.components ?? {}),
-        existingComponentNames:
-          options.existingComponentNames ??
-          Object.values(liveAssemblyState?.components ?? {}).map((component) => component.name),
-      });
-      const existingPlacementComponents = Object.values(liveAssemblyState?.components ?? {}).map(
-        (component) => ({
-          renderableBounds: component.renderableBounds ?? null,
-          transform: component.transform ?? null,
-          robotData: component.renderableBounds ? null : component.robot,
-        }),
-      );
+    const message =
+      workspaceAssemblyRenderFailureReason === 'missing-viewer-merged-robot-data'
+        ? t.workspaceAssemblyRenderFailedViewerData
+        : t.workspaceAssemblyRenderFailedMergedData;
 
-      return prepareAssemblyComponentWithWorker(file, {
-        availableFiles,
-        assets,
-        allFileContents,
-        usdRobotData: options.preResolvedRobotData ?? null,
-        existingPlacementComponents,
-        componentId: identity.componentId,
-        rootName: identity.displayName,
-      });
-    },
-    [allFileContents, assets, availableFiles],
-  );
+    scheduleFailFastInDev(
+      `[Workspace] Failed to build renderable assembly robot data: ${workspaceAssemblyRenderFailureReason}`,
+      {
+        assemblyRevision,
+        componentCount: assemblyState ? Object.keys(assemblyState.components).length : 0,
+        selectedFile: selectedFile?.name ?? null,
+      },
+    );
+    showToast(message, 'info');
+  }, [
+    assemblyRevision,
+    assemblyState,
+    selectedFile,
+    shouldRenderAssembly,
+    showToast,
+    t.workspaceAssemblyRenderFailedMergedData,
+    t.workspaceAssemblyRenderFailedViewerData,
+    workspaceAssemblyRenderFailureReason,
+  ]);
 
-  const buildAssemblyComponentPreparationOverlayState = useCallback(
-    (file: RobotFile, stage: 'prepare' | 'add' | 'ground'): ImportPreparationOverlayState => {
-      const fileLabel = file.name.split('/').pop() ?? file.name;
+  const previewFile = previewFileName
+    ? (availableFiles.find((file) => file.name === previewFileName) ?? null)
+    : null;
 
-      if (stage === 'ground') {
-        return {
-          label: t.loadingRobot,
-          detail: fileLabel,
-          progress: 0.92,
-          statusLabel: '3/3',
-          stageLabel: t.groundingAssemblyComponent,
-        };
-      }
+  const viewerAssets = usePreparedUsdViewerAssets({
+    assemblyState,
+    assets,
+    availableFiles,
+    getUsdPreparedExportCache,
+    shouldRenderAssembly,
+  });
 
-      if (stage === 'add') {
-        return {
-          label: t.loadingRobot,
-          detail: fileLabel,
-          progress: 0.72,
-          statusLabel: '2/3',
-          stageLabel: t.addingAssemblyComponentToWorkspace,
-        };
-      }
+  useEffect(() => {
+    if (sidebarTab !== 'workspace' || !assemblyState) {
+      clearAssemblySelection();
+      return;
+    }
 
-      return {
-        label: t.loadingRobot,
-        detail: fileLabel,
-        progress: 0.36,
-        statusLabel: '1/3',
-        stageLabel: t.preparingAssemblyComponent,
-      };
-    },
-    [
-      t.addingAssemblyComponentToWorkspace,
-      t.groundingAssemblyComponent,
-      t.loadingRobot,
-      t.preparingAssemblyComponent,
-    ],
-  );
+    if (
+      assemblySelection.type === 'component' &&
+      (!assemblySelection.id || !assemblyState.components[assemblySelection.id])
+    ) {
+      clearAssemblySelection();
+    }
+  }, [
+    assemblySelection.id,
+    assemblySelection.type,
+    assemblyState,
+    clearAssemblySelection,
+    sidebarTab,
+  ]);
 
-  const showAssemblyComponentPreparationOverlay = useCallback(
-    (file: RobotFile, stage: 'prepare' | 'add' | 'ground') => {
-      setAssemblyComponentPreparationOverlay(
-        buildAssemblyComponentPreparationOverlayState(file, stage),
-      );
-    },
-    [buildAssemblyComponentPreparationOverlayState],
-  );
-
-  const clearAssemblyComponentPreparationOverlay = useCallback(() => {
-    setAssemblyComponentPreparationOverlay(null);
-  }, []);
-
-  const activateInsertedAssemblyComponent = useCallback(
-    (component: { id: string; robot: { rootLinkId: string } }) => {
-      setSelection({ type: null, id: null });
-      selectComponent(component.id);
-      if (component.robot.rootLinkId) {
-        focusOn(component.robot.rootLinkId);
-      }
-    },
-    [focusOn, selectComponent, setSelection],
-  );
-
-  const insertAssemblyComponentIntoWorkspace = useCallback(
-    async (
-      file: RobotFile,
-      options: {
-        preResolvedRobotData?: RobotData | null;
-      } = {},
-    ) => {
-      showAssemblyComponentPreparationOverlay(file, 'prepare');
-      await waitForNextPaint();
-
-      const preparedComponent = await prepareAssemblyComponentForInsert(file, {
-        preResolvedRobotData: options.preResolvedRobotData ?? null,
-      });
-
-      showAssemblyComponentPreparationOverlay(file, 'add');
-      await waitForNextPaint();
-
-      const component = addComponent(file, {
-        availableFiles,
-        assets,
-        allFileContents,
-        preResolvedRobotData: options.preResolvedRobotData ?? null,
-        preparedComponent,
-      });
-      if (!component) {
-        throw new Error(`Failed to add assembly component: ${file.name}`);
-      }
-
-      activateInsertedAssemblyComponent(component);
-
-      showAssemblyComponentPreparationOverlay(file, 'ground');
-      await waitForNextPaint();
-
-      return component;
-    },
-    [
-      activateInsertedAssemblyComponent,
-      addComponent,
-      allFileContents,
-      assets,
-      availableFiles,
-      prepareAssemblyComponentForInsert,
-      showAssemblyComponentPreparationOverlay,
-    ],
-  );
+  const {
+    updateProModeRoundtripBaseline,
+    handleRequestSwitchTreeEditorToStructure,
+    handleSwitchTreeEditorToProMode,
+  } = useWorkspaceModeTransitions({
+    previewFile,
+    selectedFile,
+    availableFiles,
+    allFileContents,
+    assets,
+    getUsdPreparedExportCache,
+    robotName,
+    robotLinks,
+    robotJoints,
+    rootLinkId,
+    robotMaterials,
+    closedLoopConstraints,
+    setRobot,
+    setSelection,
+    showToast,
+    t,
+    handleClosePreview,
+    prepareAssemblyComponentForInsert,
+    activateInsertedAssemblyComponent,
+    addComponent,
+    initAssembly,
+    onLoadRobot,
+    pendingUsdAssemblyFileRef,
+    proModeRoundtripSessionRef,
+  });
 
   const handleRobotDataResolved = useCallback(
     (result: ViewerRobotDataResolution) => {
@@ -918,404 +915,6 @@ export function AppLayout({
     ],
   );
 
-  const {
-    emptyRobot,
-    robot,
-    viewerRobot,
-    sourceSceneAssemblyComponentId,
-    shouldRenderAssembly,
-    workspaceAssemblyRenderFailureReason,
-    jointAngleState,
-    jointMotionState,
-    showVisual,
-    urdfContentForViewer,
-    viewerSourceFormat,
-    viewerSourceFilePath,
-    workspaceViewerMjcfSourceFile,
-    sourceCodeContent,
-    sourceCodeDocumentFlavor,
-    sourceCodeFileName,
-    filePreview,
-    previewRobot,
-    previewFileName,
-    handlePreviewFile,
-    handleClosePreview,
-  } = useWorkspaceSourceSync({
-    assemblyState,
-    assemblyRevision,
-    assemblyBridgePreview: bridgePreview,
-    assemblySelection,
-    sidebarTab,
-    getMergedRobotData,
-    selection,
-    robotName,
-    robotLinks,
-    robotJoints,
-    rootLinkId,
-    robotMaterials,
-    closedLoopConstraints,
-    isCodeViewerOpen,
-    selectedFile,
-    setSelectedFile,
-    availableFiles,
-    allFileContents,
-    setAvailableFiles,
-    setAllFileContents,
-    originalUrdfContent,
-    isSelectedUsdHydrating,
-    assets,
-    getUsdPreparedExportCache,
-    setOriginalUrdfContent,
-  });
-
-  const workspaceAssemblyRenderFailureRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!shouldRenderAssembly || !workspaceAssemblyRenderFailureReason) {
-      workspaceAssemblyRenderFailureRef.current = null;
-      return;
-    }
-
-    if (workspaceAssemblyRenderFailureRef.current === workspaceAssemblyRenderFailureReason) {
-      return;
-    }
-
-    workspaceAssemblyRenderFailureRef.current = workspaceAssemblyRenderFailureReason;
-
-    const message =
-      workspaceAssemblyRenderFailureReason === 'missing-viewer-merged-robot-data'
-        ? t.workspaceAssemblyRenderFailedViewerData
-        : t.workspaceAssemblyRenderFailedMergedData;
-
-    scheduleFailFastInDev(
-      `[Workspace] Failed to build renderable assembly robot data: ${workspaceAssemblyRenderFailureReason}`,
-      {
-        assemblyRevision,
-        componentCount: assemblyState ? Object.keys(assemblyState.components).length : 0,
-        selectedFile: selectedFile?.name ?? null,
-      },
-    );
-    showToast(message, 'info');
-  }, [
-    assemblyRevision,
-    assemblyState,
-    selectedFile,
-    shouldRenderAssembly,
-    showToast,
-    t.workspaceAssemblyRenderFailedMergedData,
-    t.workspaceAssemblyRenderFailedViewerData,
-    workspaceAssemblyRenderFailureReason,
-  ]);
-
-  const previewFile = previewFileName
-    ? (availableFiles.find((file) => file.name === previewFileName) ?? null)
-    : null;
-
-  const viewerAssets = usePreparedUsdViewerAssets({
-    assemblyState,
-    assets,
-    availableFiles,
-    getUsdPreparedExportCache,
-    shouldRenderAssembly,
-  });
-
-  useEffect(() => {
-    if (sidebarTab !== 'workspace' || !assemblyState) {
-      clearAssemblySelection();
-      return;
-    }
-
-    if (
-      assemblySelection.type === 'component' &&
-      (!assemblySelection.id || !assemblyState.components[assemblySelection.id])
-    ) {
-      clearAssemblySelection();
-    }
-  }, [
-    assemblySelection.id,
-    assemblySelection.type,
-    assemblyState,
-    clearAssemblySelection,
-    sidebarTab,
-  ]);
-
-  const switchTreeEditorToStructure = useCallback(() => {
-    handleClosePreview();
-    useUIStore.getState().setSidebarTab('structure');
-    proModeRoundtripSessionRef.current = null;
-    return 'switched' as const;
-  }, [handleClosePreview]);
-
-  const generateWorkspaceUrdfFromProMode = useCallback(
-    (options: { switchToStructure?: boolean } = {}) => {
-      const { switchToStructure = false } = options;
-      const assemblyStoreState = useAssemblyStore.getState();
-      const connectivity = analyzeAssemblyConnectivity(assemblyStoreState.assemblyState);
-      const activeFile = previewFile ?? selectedFile;
-
-      if (connectivity.hasDisconnectedComponents) {
-        showToast(t.generateWorkspaceUrdfDisconnected, 'info');
-        return false;
-      }
-
-      const mergedRobotData = resolveWorkspaceGeneratedUrdfRobotData({
-        assemblyState: assemblyStoreState.assemblyState,
-        activeFile,
-        availableFiles,
-        assets,
-        allFileContents,
-        usdRobotData:
-          activeFile?.format === 'usd'
-            ? (getUsdPreparedExportCache(activeFile.name)?.robotData ?? null)
-            : null,
-      });
-
-      if (!mergedRobotData) {
-        showToast(t.generateWorkspaceUrdfUnavailable, 'info');
-        return false;
-      }
-
-      const assetsState = useAssetsStore.getState();
-      const session = proModeRoundtripSessionRef.current;
-      const { file, robot, snapshot } = createGeneratedWorkspaceUrdfFile({
-        assemblyName:
-          assemblyStoreState.assemblyState?.name ||
-          mergedRobotData.name ||
-          robotName ||
-          'workspace',
-        mergedRobotData,
-        availableFiles: assetsState.availableFiles,
-        preferredFileName: session?.generatedFileName,
-      });
-      const existingFile =
-        assetsState.availableFiles.find((entry) => entry.name === file.name) ?? null;
-      const nextFile: RobotFile = existingFile ? { ...existingFile, ...file } : file;
-      const nextAvailableFiles = existingFile
-        ? assetsState.availableFiles.map((entry) => (entry.name === file.name ? nextFile : entry))
-        : [...assetsState.availableFiles, nextFile];
-
-      assetsState.setAvailableFiles(nextAvailableFiles);
-      assetsState.setAllFileContents({
-        ...assetsState.allFileContents,
-        [file.name]: file.content,
-      });
-      assetsState.setSelectedFile(nextFile);
-      assetsState.setOriginalUrdfContent(file.content);
-      assetsState.setOriginalFileFormat('urdf');
-      assetsState.setDocumentLoadState({
-        status: 'ready',
-        fileName: file.name,
-        format: 'urdf',
-        error: null,
-        phase: null,
-        message: null,
-        progressPercent: 100,
-        loadedCount: null,
-        totalCount: null,
-      });
-
-      setRobot(robot, {
-        resetHistory: true,
-        label: 'Generate workspace URDF',
-      });
-      setSelection({ type: null, id: null });
-      handleClosePreview();
-
-      if (switchToStructure) {
-        useUIStore.getState().setSidebarTab('structure');
-        proModeRoundtripSessionRef.current = null;
-      } else {
-        proModeRoundtripSessionRef.current = {
-          baselineSnapshot: snapshot,
-          generatedFileName: file.name,
-        };
-      }
-
-      showToast(
-        t.generateWorkspaceUrdfSuccess.replace('{name}', file.name.split('/').pop() || file.name),
-        'success',
-      );
-      return true;
-    },
-    [
-      allFileContents,
-      assets,
-      availableFiles,
-      getUsdPreparedExportCache,
-      handleClosePreview,
-      previewFile,
-      robotName,
-      selectedFile,
-      setRobot,
-      setSelection,
-      showToast,
-      t.generateWorkspaceUrdfDisconnected,
-      t.generateWorkspaceUrdfSuccess,
-      t.generateWorkspaceUrdfUnavailable,
-    ],
-  );
-
-  const handleRequestSwitchTreeEditorToStructure = useCallback(
-    (intent: 'direct' | 'generate' | 'skip-generate') => {
-      if (useUIStore.getState().sidebarTab !== 'workspace') {
-        return switchTreeEditorToStructure();
-      }
-
-      if (intent === 'generate') {
-        return generateWorkspaceUrdfFromProMode({ switchToStructure: true })
-          ? 'switched'
-          : 'blocked';
-      }
-
-      const session = proModeRoundtripSessionRef.current;
-      if (!session) {
-        return switchTreeEditorToStructure();
-      }
-
-      const activeWorkspaceSourceFile = previewFile ?? selectedFile;
-      const currentWorkspaceSourceSnapshot = createRobotSemanticSnapshot({
-        name: robotName,
-        links: robotLinks,
-        joints: robotJoints,
-        rootLinkId,
-        materials: robotMaterials,
-        closedLoopConstraints,
-      });
-      const latestAssemblyState = useAssemblyStore.getState().assemblyState;
-      if (intent === 'skip-generate') {
-        return switchTreeEditorToStructure();
-      }
-
-      return shouldPromptGenerateWorkspaceUrdfOnStructureSwitch({
-        assemblyState: latestAssemblyState,
-        activeFile: activeWorkspaceSourceFile,
-        sourceSnapshot: currentWorkspaceSourceSnapshot,
-        sourceRobotData:
-          activeWorkspaceSourceFile?.format === 'usd'
-            ? (getUsdPreparedExportCache(activeWorkspaceSourceFile.name)?.robotData ?? null)
-            : null,
-        baselineSnapshot: session.baselineSnapshot,
-      })
-        ? ('needs-generate-confirm' as const)
-        : switchTreeEditorToStructure();
-    },
-    [
-      closedLoopConstraints,
-      generateWorkspaceUrdfFromProMode,
-      getUsdPreparedExportCache,
-      previewFile,
-      robotJoints,
-      robotLinks,
-      robotMaterials,
-      robotName,
-      rootLinkId,
-      selectedFile,
-      switchTreeEditorToStructure,
-    ],
-  );
-
-  const handleSwitchTreeEditorToProMode = useCallback(() => {
-    const activeFile = previewFile ?? selectedFile;
-    const currentAssemblyState = useAssemblyStore.getState().assemblyState;
-    const activeGeneratedFileName = isGeneratedWorkspaceUrdfFileName(activeFile?.name)
-      ? (activeFile?.name ?? null)
-      : null;
-
-    if (
-      !shouldReseedSingleComponentAssemblyFromActiveFile({
-        assemblyState: currentAssemblyState,
-        activeFile,
-      })
-    ) {
-      updateProModeRoundtripBaseline(activeGeneratedFileName);
-      return;
-    }
-
-    proModeRoundtripSessionRef.current = null;
-
-    if (!activeFile) {
-      return;
-    }
-
-    void (async () => {
-      let preResolvedRobotData =
-        activeFile.format === 'usd'
-          ? (getUsdPreparedExportCache(activeFile.name)?.robotData ?? null)
-          : null;
-
-      if (activeFile.format === 'usd' && !preResolvedRobotData) {
-        const fallbackSceneSnapshot = getCurrentUsdViewerSceneSnapshot({
-          stageSourcePath: activeFile.name,
-        });
-        const preparedCache = fallbackSceneSnapshot
-          ? prepareUsdExportCacheFromSnapshot(fallbackSceneSnapshot, { fileName: activeFile.name })
-          : null;
-
-        if (!preparedCache?.robotData) {
-          pendingUsdAssemblyFileRef.current = activeFile;
-          onLoadRobot(activeFile);
-          return;
-        }
-
-        useAssetsStore.getState().setUsdPreparedExportCache(activeFile.name, preparedCache);
-        preResolvedRobotData = preparedCache.robotData;
-      }
-
-      const preparedComponent = await prepareAssemblyComponentForInsert(activeFile, {
-        existingComponentIds: [],
-        existingComponentNames: [],
-        preResolvedRobotData,
-      });
-
-      initAssembly(currentAssemblyState?.name || robotName || 'assembly');
-
-      const component = addComponent(activeFile, {
-        availableFiles,
-        assets,
-        allFileContents,
-        preResolvedRobotData,
-        preparedComponent,
-      });
-
-      if (!component) {
-        scheduleFailFastInDev(
-          'AppLayout:handleSwitchTreeEditorToProMode',
-          new Error(`Failed to reseed Professional mode assembly with "${activeFile.name}".`),
-        );
-        return;
-      }
-
-      activateInsertedAssemblyComponent(component);
-      updateProModeRoundtripBaseline(activeGeneratedFileName);
-      markUnsavedChangesBaselineSaved('assembly');
-    })().catch((error) => {
-      scheduleFailFastInDev(
-        'AppLayout:handleSwitchTreeEditorToProMode',
-        error instanceof Error
-          ? error
-          : new Error(`Failed to resolve Professional mode source from "${activeFile.name}".`),
-      );
-      showToast(`Failed to sync Professional mode assembly source: ${activeFile.name}`, 'info');
-    });
-  }, [
-    addComponent,
-    allFileContents,
-    assets,
-    availableFiles,
-    getUsdPreparedExportCache,
-    getCurrentUsdViewerSceneSnapshot,
-    initAssembly,
-    onLoadRobot,
-    prepareUsdExportCacheFromSnapshot,
-    previewFile,
-    prepareAssemblyComponentForInsert,
-    robotName,
-    selectedFile,
-    activateInsertedAssemblyComponent,
-    showToast,
-    updateProModeRoundtripBaseline,
-  ]);
-
   const handleViewerDocumentLoadEvent = useCallback(
     (event: ViewerDocumentLoadEvent) => {
       const liveAssetsState = useAssetsStore.getState();
@@ -1365,6 +964,7 @@ export function AppLayout({
             : null,
         phase: event.phase ?? null,
         message: event.message ?? null,
+        progressMode: event.progressMode ?? null,
         progressPercent: event.progressPercent ?? null,
         loadedCount: event.loadedCount ?? null,
         totalCount: event.totalCount ?? null,
@@ -1386,6 +986,7 @@ export function AppLayout({
         currentDocumentLoadState.error !== nextDocumentLoadState.error ||
         currentDocumentLoadState.phase !== nextDocumentLoadState.phase ||
         currentDocumentLoadState.message !== nextDocumentLoadState.message ||
+        currentDocumentLoadState.progressMode !== nextDocumentLoadState.progressMode ||
         currentDocumentLoadState.progressPercent !== nextDocumentLoadState.progressPercent ||
         currentDocumentLoadState.loadedCount !== nextDocumentLoadState.loadedCount ||
         currentDocumentLoadState.totalCount !== nextDocumentLoadState.totalCount
@@ -1414,8 +1015,14 @@ export function AppLayout({
     ],
   );
 
+  // Keep drag-time joint previews scoped to the active viewer runtime. Feeding them
+  // through AppLayout forces the tree and property sidebars into high-frequency re-render.
   const previewContextRobot = previewRobot ?? robot;
   const isPreviewingWorkspaceSource = Boolean(previewRobot);
+  const propertyEditorSelectionContext = useMemo(
+    () => buildPropertyEditorSelectionContext(previewContextRobot, assemblyState),
+    [assemblyState, previewContextRobot],
+  );
 
   const {
     handleSelect,
@@ -1434,11 +1041,15 @@ export function AppLayout({
   });
   const trySelectViewerAssemblyComponent = useCallback(
     (nextSelection: {
-      type: 'link' | 'joint';
+      type: Exclude<InteractionSelection['type'], null>;
       id: string;
       subType?: 'visual' | 'collision';
       objectIndex?: number;
     }) => {
+      if (nextSelection.type === 'tendon') {
+        return false;
+      }
+
       if (!shouldRenderAssembly || !assemblyState) {
         return false;
       }
@@ -1463,7 +1074,7 @@ export function AppLayout({
         return;
       }
 
-      if (trySelectViewerAssemblyComponent({ type, id, subType })) {
+      if (type !== 'tendon' && trySelectViewerAssemblyComponent({ type, id, subType })) {
         return;
       }
 
@@ -1512,438 +1123,22 @@ export function AppLayout({
   const clearPendingCollisionTransform = useCollisionTransformStore(
     (state) => state.clearPendingCollisionTransform,
   );
-  const patchEditableSourceAddChild = useCallback(
-    ({
-      sourceFileName,
-      parentLinkName,
-      linkName,
-      joint,
-    }: {
-      sourceFileName?: string | null;
-      parentLinkName: string;
-      linkName: string;
-      joint: UrdfJoint;
-    }) => {
-      const targetFileName = sourceFileName ?? selectedFile?.name;
-      if (!targetFileName) {
-        return;
-      }
-
-      const targetFile =
-        selectedFile?.name === targetFileName
-          ? selectedFile
-          : (availableFiles.find((file) => file.name === targetFileName) ?? null);
-
-      if (!canPatchMJCFEditableSource(targetFile)) {
-        return;
-      }
-
-      try {
-        const nextContent = appendMJCFChildBodyToSource({
-          sourceContent: targetFile.content,
-          parentBodyName: parentLinkName,
-          childBodyName: linkName,
-          joint,
-        });
-
-        if (selectedFile?.name === targetFile.name && selectedFile.content !== nextContent) {
-          setSelectedFile({
-            ...selectedFile,
-            content: nextContent,
-          });
-        }
-
-        if (
-          availableFiles.some(
-            (entry) => entry.name === targetFile.name && entry.content !== nextContent,
-          )
-        ) {
-          setAvailableFiles(
-            availableFiles.map((entry) =>
-              entry.name === targetFile.name ? { ...entry, content: nextContent } : entry,
-            ),
-          );
-        }
-
-        if (allFileContents[targetFile.name] !== nextContent) {
-          setAllFileContents({
-            ...allFileContents,
-            [targetFile.name]: nextContent,
-          });
-        }
-      } catch (error) {
-        console.error(
-          `Failed to patch MJCF source after adding child body to "${targetFileName}".`,
-          error,
-        );
-        showToast(`Failed to patch MJCF source for ${targetFileName}`, 'info');
-      }
-    },
-    [
-      allFileContents,
-      availableFiles,
-      selectedFile,
-      setAllFileContents,
-      setAvailableFiles,
-      setSelectedFile,
-      showToast,
-    ],
-  );
-  const patchEditableSourceDeleteSubtree = useCallback(
-    ({ sourceFileName, linkName }: { sourceFileName?: string | null; linkName: string }) => {
-      const targetFileName = sourceFileName ?? selectedFile?.name;
-      if (!targetFileName) {
-        return;
-      }
-
-      const targetFile =
-        selectedFile?.name === targetFileName
-          ? selectedFile
-          : (availableFiles.find((file) => file.name === targetFileName) ?? null);
-
-      if (!canPatchMJCFEditableSource(targetFile)) {
-        return;
-      }
-
-      try {
-        const nextContent = removeMJCFBodyFromSource(targetFile.content, linkName);
-
-        if (selectedFile?.name === targetFile.name && selectedFile.content !== nextContent) {
-          setSelectedFile({
-            ...selectedFile,
-            content: nextContent,
-          });
-        }
-
-        if (
-          availableFiles.some(
-            (entry) => entry.name === targetFile.name && entry.content !== nextContent,
-          )
-        ) {
-          setAvailableFiles(
-            availableFiles.map((entry) =>
-              entry.name === targetFile.name ? { ...entry, content: nextContent } : entry,
-            ),
-          );
-        }
-
-        if (allFileContents[targetFile.name] !== nextContent) {
-          setAllFileContents({
-            ...allFileContents,
-            [targetFile.name]: nextContent,
-          });
-        }
-      } catch (error) {
-        console.error(
-          `Failed to patch MJCF source after deleting subtree "${linkName}" from "${targetFileName}".`,
-          error,
-        );
-        showToast(`Failed to patch MJCF source for ${targetFileName}`, 'info');
-      }
-    },
-    [
-      allFileContents,
-      availableFiles,
-      selectedFile,
-      setAllFileContents,
-      setAvailableFiles,
-      setSelectedFile,
-      showToast,
-    ],
-  );
-  const patchEditableSourceAddCollisionBody = useCallback(
-    ({
-      sourceFileName,
-      linkName,
-      geometry,
-    }: {
-      sourceFileName?: string | null;
-      linkName: string;
-      geometry: UrdfLink['collision'];
-    }) => {
-      const targetFileName = sourceFileName ?? selectedFile?.name;
-      if (!targetFileName) {
-        return;
-      }
-
-      const targetFile =
-        selectedFile?.name === targetFileName
-          ? selectedFile
-          : (availableFiles.find((file) => file.name === targetFileName) ?? null);
-
-      if (!canPatchMJCFEditableSource(targetFile)) {
-        return;
-      }
-
-      try {
-        const nextContent = appendMJCFBodyCollisionGeomToSource({
-          sourceContent: targetFile.content,
-          bodyName: linkName,
-          geometry,
-        });
-
-        if (selectedFile?.name === targetFile.name && selectedFile.content !== nextContent) {
-          setSelectedFile({
-            ...selectedFile,
-            content: nextContent,
-          });
-        }
-
-        if (
-          availableFiles.some(
-            (entry) => entry.name === targetFile.name && entry.content !== nextContent,
-          )
-        ) {
-          setAvailableFiles(
-            availableFiles.map((entry) =>
-              entry.name === targetFile.name ? { ...entry, content: nextContent } : entry,
-            ),
-          );
-        }
-
-        if (allFileContents[targetFile.name] !== nextContent) {
-          setAllFileContents({
-            ...allFileContents,
-            [targetFile.name]: nextContent,
-          });
-        }
-      } catch (error) {
-        console.error(
-          `Failed to patch MJCF source after adding collision geom to "${targetFileName}".`,
-          error,
-        );
-        showToast(`Failed to patch MJCF source for ${targetFileName}`, 'info');
-      }
-    },
-    [
-      allFileContents,
-      availableFiles,
-      selectedFile,
-      setAllFileContents,
-      setAvailableFiles,
-      setSelectedFile,
-      showToast,
-    ],
-  );
-  const patchEditableSourceDeleteCollisionBody = useCallback(
-    ({
-      sourceFileName,
-      linkName,
-      objectIndex,
-    }: {
-      sourceFileName?: string | null;
-      linkName: string;
-      objectIndex: number;
-    }) => {
-      const targetFileName = sourceFileName ?? selectedFile?.name;
-      if (!targetFileName) {
-        return;
-      }
-
-      const targetFile =
-        selectedFile?.name === targetFileName
-          ? selectedFile
-          : (availableFiles.find((file) => file.name === targetFileName) ?? null);
-
-      if (!canPatchMJCFEditableSource(targetFile)) {
-        return;
-      }
-
-      try {
-        const nextContent = removeMJCFBodyCollisionGeomFromSource(
-          targetFile.content,
-          linkName,
-          objectIndex,
-        );
-
-        if (selectedFile?.name === targetFile.name && selectedFile.content !== nextContent) {
-          setSelectedFile({
-            ...selectedFile,
-            content: nextContent,
-          });
-        }
-
-        if (
-          availableFiles.some(
-            (entry) => entry.name === targetFile.name && entry.content !== nextContent,
-          )
-        ) {
-          setAvailableFiles(
-            availableFiles.map((entry) =>
-              entry.name === targetFile.name ? { ...entry, content: nextContent } : entry,
-            ),
-          );
-        }
-
-        if (allFileContents[targetFile.name] !== nextContent) {
-          setAllFileContents({
-            ...allFileContents,
-            [targetFile.name]: nextContent,
-          });
-        }
-      } catch (error) {
-        console.error(
-          `Failed to patch MJCF source after deleting collision geom from "${targetFileName}".`,
-          error,
-        );
-        showToast(`Failed to patch MJCF source for ${targetFileName}`, 'info');
-      }
-    },
-    [
-      allFileContents,
-      availableFiles,
-      selectedFile,
-      setAllFileContents,
-      setAvailableFiles,
-      setSelectedFile,
-      showToast,
-    ],
-  );
-  const patchEditableSourceUpdateCollisionBody = useCallback(
-    ({
-      sourceFileName,
-      linkName,
-      objectIndex,
-      geometry,
-    }: {
-      sourceFileName?: string | null;
-      linkName: string;
-      objectIndex: number;
-      geometry: UrdfLink['collision'];
-    }) => {
-      const targetFileName = sourceFileName ?? selectedFile?.name;
-      if (!targetFileName) {
-        return;
-      }
-
-      const targetFile =
-        selectedFile?.name === targetFileName
-          ? selectedFile
-          : (availableFiles.find((file) => file.name === targetFileName) ?? null);
-
-      if (!canPatchMJCFEditableSource(targetFile)) {
-        return;
-      }
-
-      try {
-        const nextContent = updateMJCFBodyCollisionGeomInSource(
-          targetFile.content,
-          linkName,
-          objectIndex,
-          geometry,
-        );
-
-        if (selectedFile?.name === targetFile.name && selectedFile.content !== nextContent) {
-          setSelectedFile({
-            ...selectedFile,
-            content: nextContent,
-          });
-        }
-
-        if (
-          availableFiles.some(
-            (entry) => entry.name === targetFile.name && entry.content !== nextContent,
-          )
-        ) {
-          setAvailableFiles(
-            availableFiles.map((entry) =>
-              entry.name === targetFile.name ? { ...entry, content: nextContent } : entry,
-            ),
-          );
-        }
-
-        if (allFileContents[targetFile.name] !== nextContent) {
-          setAllFileContents({
-            ...allFileContents,
-            [targetFile.name]: nextContent,
-          });
-        }
-      } catch (error) {
-        console.error(
-          `Failed to patch MJCF source after updating collision geom in "${targetFileName}".`,
-          error,
-        );
-        showToast(`Failed to patch MJCF source for ${targetFileName}`, 'info');
-      }
-    },
-    [
-      allFileContents,
-      availableFiles,
-      selectedFile,
-      setAllFileContents,
-      setAvailableFiles,
-      setSelectedFile,
-      showToast,
-    ],
-  );
-  const patchEditableSourceRenameEntities = useCallback(
-    ({
-      sourceFileName,
-      operations,
-    }: {
-      sourceFileName?: string | null;
-      operations: MJCFRenameOperation[];
-    }) => {
-      const targetFileName = sourceFileName ?? selectedFile?.name;
-      if (!targetFileName || !operations.length) {
-        return;
-      }
-
-      const targetFile =
-        selectedFile?.name === targetFileName
-          ? selectedFile
-          : (availableFiles.find((file) => file.name === targetFileName) ?? null);
-
-      if (!canPatchMJCFEditableSource(targetFile)) {
-        return;
-      }
-
-      try {
-        const nextContent = renameMJCFEntitiesInSource(targetFile.content, operations);
-
-        if (selectedFile?.name === targetFile.name && selectedFile.content !== nextContent) {
-          setSelectedFile({
-            ...selectedFile,
-            content: nextContent,
-          });
-        }
-
-        if (
-          availableFiles.some(
-            (entry) => entry.name === targetFile.name && entry.content !== nextContent,
-          )
-        ) {
-          setAvailableFiles(
-            availableFiles.map((entry) =>
-              entry.name === targetFile.name ? { ...entry, content: nextContent } : entry,
-            ),
-          );
-        }
-
-        if (allFileContents[targetFile.name] !== nextContent) {
-          setAllFileContents({
-            ...allFileContents,
-            [targetFile.name]: nextContent,
-          });
-        }
-      } catch (error) {
-        console.error(
-          `Failed to patch MJCF source after renaming entities in "${targetFileName}".`,
-          error,
-        );
-        showToast(`Failed to patch MJCF source for ${targetFileName}`, 'info');
-      }
-    },
-    [
-      allFileContents,
-      availableFiles,
-      selectedFile,
-      setAllFileContents,
-      setAvailableFiles,
-      setSelectedFile,
-      showToast,
-    ],
-  );
+  const {
+    patchEditableSourceAddChild,
+    patchEditableSourceDeleteSubtree,
+    patchEditableSourceAddCollisionBody,
+    patchEditableSourceDeleteCollisionBody,
+    patchEditableSourceUpdateCollisionBody,
+    patchEditableSourceRenameEntities,
+  } = useEditableSourcePatches({
+    selectedFile,
+    availableFiles,
+    allFileContents,
+    setSelectedFile,
+    setAvailableFiles,
+    setAllFileContents,
+    showToast,
+  });
 
   const {
     handleNameChange,
@@ -2015,81 +1210,33 @@ export function AppLayout({
     t,
   });
 
-  const handleAddComponent = useCallback(
-    (file: RobotFile) => {
-      const preResolvedRobotData =
-        file.format === 'usd' ? (getUsdPreparedExportCache(file.name)?.robotData ?? null) : null;
-
-      if (file.format === 'usd' && !preResolvedRobotData) {
-        showAssemblyComponentPreparationOverlay(file, 'prepare');
-        pendingUsdAssemblyFileRef.current = file;
-        onLoadRobot(file);
-        return;
-      }
-
-      void insertAssemblyComponentIntoWorkspace(file, {
-        preResolvedRobotData,
-      })
-        .then((component) => {
-          showToast(t.addedComponent.replace('{name}', component.name), 'success');
-        })
-        .catch((error) => {
-          scheduleFailFastInDev(
-            'AppLayout:handleAddComponent',
-            error instanceof Error
-              ? error
-              : new Error(`Failed to resolve assembly component "${file.name}".`),
-          );
-          showToast(`Failed to add assembly component: ${file.name}`, 'info');
-        })
-        .finally(() => {
-          clearAssemblyComponentPreparationOverlay();
-        });
+  const {
+    handleAddComponent,
+    handleCreateBridge,
+    handleCloseBridgeModal,
+    handleBridgePreviewChange,
+    handleCreateBridgeCommit,
+    handleOpenCollisionOptimizer,
+    handleOpenMeasureTool,
+  } = useWorkspaceOverlayActions({
+    getUsdPreparedExportCache,
+    onLoadRobot,
+    setPendingUsdAssemblyFile: (file) => {
+      pendingUsdAssemblyFileRef.current = file;
     },
-    [
-      clearAssemblyComponentPreparationOverlay,
-      getUsdPreparedExportCache,
-      insertAssemblyComponentIntoWorkspace,
-      onLoadRobot,
-      showAssemblyComponentPreparationOverlay,
-      showToast,
-      t,
-    ],
-  );
-
-  const handleCreateBridge = useCallback(() => {
-    setBridgePreview(null);
-    setShouldRenderBridgeModal(true);
-    void loadBridgeCreateModalModule();
-    setIsBridgeModalOpen(true);
-  }, []);
-
-  const handleCloseBridgeModal = useCallback(() => {
-    setBridgePreview(null);
-    setIsBridgeModalOpen(false);
-  }, []);
-
-  const handleBridgePreviewChange = useCallback((nextPreview: BridgeJoint | null) => {
-    setBridgePreview(nextPreview);
-  }, []);
-
-  const handleCreateBridgeCommit = useCallback(
-    (params: Parameters<typeof addBridge>[0]) => {
-      setBridgePreview(null);
-      return addBridge(params);
-    },
-    [addBridge],
-  );
-
-  const handleOpenCollisionOptimizer = useCallback(() => {
-    void loadCollisionOptimizationDialogModule();
-    setIsCollisionOptimizerOpen(true);
-  }, []);
-
-  const handleOpenMeasureTool = useCallback(() => {
-    setViewConfig((prev) => ({ ...prev, showToolbar: true }));
-    setPendingViewerToolMode('measure');
-  }, [setViewConfig]);
+    insertAssemblyComponentIntoWorkspace,
+    showAssemblyComponentPreparationOverlay,
+    clearAssemblyComponentPreparationOverlay,
+    showToast,
+    t,
+    setBridgePreview,
+    setShouldRenderBridgeModal,
+    setIsBridgeModalOpen,
+    addBridge,
+    setIsCollisionOptimizerOpen,
+    setViewConfig,
+    setPendingViewerToolMode,
+  });
 
   const {
     collisionOptimizationSource,
@@ -2249,52 +1396,48 @@ export function AppLayout({
     onFileDrop,
     onDropError: () => showToast(t.failedToProcessFiles, 'info'),
   });
+  const handleSourceCodeEditorPreloadError = useCallback((error: unknown) => {
+    console.error('[AppLayout] Failed to preload source code editor runtime:', error);
+  }, []);
 
-  const warmSourceCodeEditorRuntime = useCallback(() => {
-    prefetchSourceCodeEditor();
-
-    if (!sourceCodeEditorRuntimeWarmupPromiseRef.current) {
-      sourceCodeEditorRuntimeWarmupPromiseRef.current = preloadSourceCodeEditorRuntime().catch(
-        (error) => {
-          sourceCodeEditorRuntimeWarmupPromiseRef.current = null;
-          console.error('[AppLayout] Failed to preload source code editor runtime:', error);
-        },
-      );
-    }
-
-    return sourceCodeEditorRuntimeWarmupPromiseRef.current;
-  }, [prefetchSourceCodeEditor]);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      void warmSourceCodeEditorRuntime();
-    }, 1200);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [warmSourceCodeEditorRuntime]);
-
-  const handleOpenCodeViewer = useCallback(() => {
-    if (isSelectedUsdHydrating) {
-      showToast(t.usdLoadInProgress, 'info');
-      return;
-    }
-
-    void warmSourceCodeEditorRuntime();
-    setIsCodeViewerOpen(true);
-  }, [
+  const { handleOpenCodeViewer, handlePrefetchCodeViewer } = useSourceCodeEditorWarmup({
     isSelectedUsdHydrating,
     setIsCodeViewerOpen,
     showToast,
-    t.usdLoadInProgress,
-    warmSourceCodeEditorRuntime,
-  ]);
-
-  const handlePrefetchCodeViewer = useCallback(() => {
-    void warmSourceCodeEditorRuntime();
-  }, [warmSourceCodeEditorRuntime]);
+    usdLoadInProgressMessage: t.usdLoadInProgress,
+    preloadRuntime: preloadSourceCodeEditorRuntime,
+    prefetchSourceCodeEditor,
+    onPreloadError: handleSourceCodeEditorPreloadError,
+  });
 
   const handlePreviewFileWithFeedback = useCallback(
     (file: RobotFile) => {
+      const standaloneImportAssetWarning = buildStandaloneImportAssetWarning(
+        file,
+        Object.keys(assets),
+      );
+      if (standaloneImportAssetWarning) {
+        const assetLabel =
+          standaloneImportAssetWarning.missingAssetPaths.length > 3
+            ? `${standaloneImportAssetWarning.missingAssetPaths.slice(0, 3).join(', ')}, …`
+            : standaloneImportAssetWarning.missingAssetPaths.join(', ');
+        const warningMessage = t.importPackageAssetBundleHint.replace('{assets}', assetLabel);
+
+        setDocumentLoadState({
+          status: 'error',
+          fileName: file.name,
+          format: file.format,
+          error: warningMessage,
+          phase: null,
+          message: null,
+          progressPercent: null,
+          loadedCount: null,
+          totalCount: null,
+        });
+        showToast(warningMessage, 'info');
+        return;
+      }
+
       setDocumentLoadState({
         status: 'loading',
         fileName: file.name,
@@ -2532,16 +1675,16 @@ export function AppLayout({
             pendingViewerToolMode={pendingViewerToolMode}
             onConsumePendingViewerToolMode={() => setPendingViewerToolMode(null)}
             viewerReloadKey={viewerReloadKey}
-            documentLoadState={documentLoadState}
+            documentLoadState={documentLoadLifecycleState}
           />
-          {(previewFileName ?? selectedFile?.name) &&
-          documentLoadState.fileName === (previewFileName ?? selectedFile?.name) ? (
-            <DocumentLoadingOverlay state={documentLoadState} lang={lang} />
-          ) : null}
+          <ConnectedDocumentLoadingOverlay
+            lang={lang}
+            targetFileName={previewFileName ?? selectedFile?.name ?? null}
+          />
         </div>
 
         <PropertyEditor
-          robot={previewContextRobot}
+          robot={propertyEditorSelectionContext.robot}
           onUpdate={handleUpdate}
           onSelect={handleSelectWithAssemblyClear}
           onHover={handleHover}
@@ -2554,6 +1697,7 @@ export function AppLayout({
           collapsed={sidebar.rightCollapsed}
           onToggle={() => toggleSidebar('right')}
           readOnlyMessage={isPreviewingWorkspaceSource ? t.previewReadOnlyHint : undefined}
+          jointTypeLocked={Boolean(propertyEditorSelectionContext.selectedClosedLoopBridge)}
         />
       </div>
 

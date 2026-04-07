@@ -5,7 +5,15 @@
  */
 import React from 'react';
 import { ChevronRight, ChevronLeft } from 'lucide-react';
-import type { RobotState, AppMode, UrdfLink, MotorSpec, Theme } from '@/types';
+import type {
+  AppMode,
+  InteractionSelection,
+  MotorSpec,
+  RobotMjcfInspectionTendonSummary,
+  RobotState,
+  Theme,
+  UrdfLink,
+} from '@/types';
 import { resolveJointKey, resolveLinkKey } from '@/core/robot';
 import { translations } from '@/shared/i18n';
 import type { Language } from '@/store';
@@ -16,13 +24,18 @@ import {
 } from './FormControls';
 import { LinkProperties } from './LinkProperties';
 import { JointProperties } from './JointProperties';
+import { TendonProperties } from './TendonProperties';
 
 export interface PropertyEditorProps {
   robot: RobotState;
   onUpdate: (type: 'link' | 'joint', id: string, data: unknown) => void;
-  onSelect?: (type: 'link' | 'joint', id: string, subType?: 'visual' | 'collision') => void;
+  onSelect?: (
+    type: Exclude<InteractionSelection['type'], null>,
+    id: string,
+    subType?: 'visual' | 'collision',
+  ) => void;
   onHover?: (
-    type: 'link' | 'joint' | null,
+    type: InteractionSelection['type'],
     id: string | null,
     subType?: 'visual' | 'collision',
   ) => void;
@@ -35,6 +48,7 @@ export interface PropertyEditorProps {
   onToggle?: () => void;
   theme: Theme;
   readOnlyMessage?: string;
+  jointTypeLocked?: boolean;
 }
 
 export const PropertyEditor: React.FC<PropertyEditorProps> = ({
@@ -49,16 +63,22 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
   collapsed,
   onToggle,
   readOnlyMessage,
+  jointTypeLocked = false,
 }) => {
   const { selection } = robot;
   const isLink = selection.type === 'link';
+  const isJoint = selection.type === 'joint';
+  const isTendon = selection.type === 'tendon';
   const resolvedSelectionId = selection.id
     ? isLink
       ? resolveLinkKey(robot.links, selection.id)
-      : resolveJointKey(robot.joints, selection.id)
+      : isJoint
+        ? resolveJointKey(robot.joints, selection.id)
+        : selection.id
     : null;
   const resolvedRobot = React.useMemo<RobotState>(() => {
     if (!resolvedSelectionId) return robot;
+    if (!isLink && !isJoint) return robot;
     return {
       ...robot,
       selection: {
@@ -66,13 +86,24 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
         id: resolvedSelectionId,
       },
     };
-  }, [resolvedSelectionId, robot]);
-  const data = resolvedSelectionId
-    ? isLink
-      ? resolvedRobot.links[resolvedSelectionId]
-      : resolvedRobot.joints[resolvedSelectionId]
-    : null;
+  }, [isJoint, isLink, resolvedSelectionId, robot]);
+  const linkData = resolvedSelectionId && isLink ? resolvedRobot.links[resolvedSelectionId] : null;
+  const jointData =
+    resolvedSelectionId && isJoint ? resolvedRobot.joints[resolvedSelectionId] : null;
+  const tendonData =
+    resolvedSelectionId && isTendon
+      ? (robot.inspectionContext?.mjcf?.tendons.find(
+          (entry) => entry.name === resolvedSelectionId,
+        ) ?? null)
+      : null;
+  const data: UrdfLink | typeof jointData | RobotMjcfInspectionTendonSummary | null =
+    linkData ?? jointData ?? tendonData;
   const t = translations[lang];
+  const emptyStateMessage =
+    readOnlyMessage ??
+    (lang === 'zh'
+      ? '选择连杆、关节或肌腱以查看属性。'
+      : 'Select a link, joint, or tendon to inspect its properties.');
 
   const { displayWidth, isDragging, handleResizeMouseDown } = useResizablePanel(collapsed);
 
@@ -124,7 +155,13 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
             {data && (
               <div className="ml-1.5 flex min-w-0 flex-1 items-center gap-1.5">
                 <span
-                  className={`ui-static-copy-guard rounded-md px-1.5 py-px text-[9px] font-semibold capitalize tracking-[0.02em] shrink-0 ${isLink ? 'bg-system-blue/10 dark:bg-system-blue/20 text-system-blue' : 'bg-orange-100 dark:bg-orange-900/25 text-orange-700 dark:text-orange-300'}`}
+                  className={`ui-static-copy-guard rounded-md px-1.5 py-px text-[9px] font-semibold capitalize tracking-[0.02em] shrink-0 ${
+                    isLink
+                      ? 'bg-system-blue/10 dark:bg-system-blue/20 text-system-blue'
+                      : isJoint
+                        ? 'bg-orange-100 dark:bg-orange-900/25 text-orange-700 dark:text-orange-300'
+                        : 'bg-emerald-100 dark:bg-emerald-900/25 text-emerald-700 dark:text-emerald-300'
+                  }`}
                 >
                   {resolvedRobot.selection.type}
                 </span>
@@ -136,15 +173,13 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
           {/* Content */}
           {!data || isReadOnlyPreview ? (
             <div className="w-full flex-1 flex items-center justify-center p-8 text-text-tertiary text-center">
-              <p className="ui-static-copy-guard text-[11px] leading-5">
-                {readOnlyMessage ?? t.selectLinkOrJoint}
-              </p>
+              <p className="ui-static-copy-guard text-[11px] leading-5">{emptyStateMessage}</p>
             </div>
           ) : (
             <div className="w-full flex-1 overflow-y-auto custom-scrollbar p-1 space-y-1.5">
               {isLink ? (
                 <LinkProperties
-                  data={data as UrdfLink}
+                  data={linkData as UrdfLink}
                   robot={resolvedRobot}
                   mode={mode}
                   selection={resolvedRobot.selection}
@@ -155,17 +190,20 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
                   t={t}
                   lang={lang}
                 />
-              ) : (
+              ) : isJoint ? (
                 <JointProperties
-                  data={data}
+                  data={jointData as NonNullable<typeof jointData>}
                   mode={mode}
                   selection={resolvedRobot.selection}
                   onUpdate={onUpdate}
                   motorLibrary={motorLibrary}
                   t={t}
                   lang={lang}
+                  jointTypeLocked={jointTypeLocked}
                 />
-              )}
+              ) : tendonData ? (
+                <TendonProperties data={tendonData} lang={lang} />
+              ) : null}
             </div>
           )}
         </div>

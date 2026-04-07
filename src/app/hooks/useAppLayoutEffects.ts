@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 import { getDroppedFiles } from '@/features/file-io';
-import type { RobotState } from '@/types';
+import type { InteractionSelection, RobotState } from '@/types';
 import { preloadSourceCodeEditor } from '@/app/utils/sourceCodeEditorLoader';
 import { useActiveHistory } from './useActiveHistory';
 
 interface LayoutSelection {
-  type: 'link' | 'joint' | null;
+  type: InteractionSelection['type'];
   id: string | null;
 }
 
 interface UseAppLayoutEffectsParams {
-  robot: Pick<RobotState, 'links' | 'joints'>;
+  robot: Pick<RobotState, 'links' | 'joints' | 'inspectionContext'>;
   selection: LayoutSelection;
   clearSelection: () => void;
   onFileDrop: (files: File[]) => void;
@@ -70,9 +70,12 @@ export function useAppLayoutEffects({
   useEffect(() => {
     if (!selection.id || !selection.type) return;
 
-    const exists = selection.type === 'link'
-      ? robot.links[selection.id]
-      : robot.joints[selection.id];
+    const exists =
+      selection.type === 'link'
+        ? robot.links[selection.id]
+        : selection.type === 'joint'
+          ? robot.joints[selection.id]
+          : robot.inspectionContext?.mjcf?.tendons.some((tendon) => tendon.name === selection.id);
 
     if (!exists) {
       clearSelection();
@@ -104,81 +107,93 @@ export function useAppLayoutEffects({
     };
   }, [cancelPendingDragLeaveCheck, clearFileDragState]);
 
-  const handleDragEnter = useCallback((event: DragEvent) => {
-    if (!containsFiles(event.dataTransfer)) return;
+  const handleDragEnter = useCallback(
+    (event: DragEvent) => {
+      if (!containsFiles(event.dataTransfer)) return;
 
-    event.preventDefault();
-    event.stopPropagation();
+      event.preventDefault();
+      event.stopPropagation();
 
-    cancelPendingDragLeaveCheck();
-    setIsFileDragActive(true);
-  }, [cancelPendingDragLeaveCheck]);
-
-  const handleDragOver = useCallback((event: DragEvent) => {
-    if (!containsFiles(event.dataTransfer)) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = 'copy';
-    cancelPendingDragLeaveCheck();
-
-    if (!isFileDragActive) {
+      cancelPendingDragLeaveCheck();
       setIsFileDragActive(true);
-    }
-  }, [cancelPendingDragLeaveCheck, isFileDragActive]);
+    },
+    [cancelPendingDragLeaveCheck],
+  );
 
-  const handleDragLeave = useCallback((event: DragEvent) => {
-    if (!containsFiles(event.dataTransfer)) return;
+  const handleDragOver = useCallback(
+    (event: DragEvent) => {
+      if (!containsFiles(event.dataTransfer)) return;
 
-    event.preventDefault();
-    event.stopPropagation();
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = 'copy';
+      cancelPendingDragLeaveCheck();
 
-    const nextTarget = event.relatedTarget;
-    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
-      return;
-    }
-
-    const currentTarget = event.currentTarget;
-    const { clientX, clientY } = event;
-
-    if (
-      clientX <= 0
-      || clientY <= 0
-      || clientX >= window.innerWidth
-      || clientY >= window.innerHeight
-    ) {
-      clearFileDragState();
-      return;
-    }
-
-    cancelPendingDragLeaveCheck();
-    dragLeaveFrameRef.current = window.requestAnimationFrame(() => {
-      dragLeaveFrameRef.current = null;
-      const pointTarget = document.elementFromPoint(clientX, clientY);
-      if (!(pointTarget instanceof Node) || !currentTarget.contains(pointTarget)) {
-        setIsFileDragActive(false);
+      if (!isFileDragActive) {
+        setIsFileDragActive(true);
       }
-    });
-  }, [cancelPendingDragLeaveCheck, clearFileDragState]);
+    },
+    [cancelPendingDragLeaveCheck, isFileDragActive],
+  );
 
-  const handleDrop = useCallback(async (event: DragEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    cancelPendingDragLeaveCheck();
-    setIsFileDragActive(false);
+  const handleDragLeave = useCallback(
+    (event: DragEvent) => {
+      if (!containsFiles(event.dataTransfer)) return;
 
-    if (!event.dataTransfer.items) return;
+      event.preventDefault();
+      event.stopPropagation();
 
-    try {
-      const files = await getDroppedFiles(event.dataTransfer.items);
-      if (files.length > 0) {
-        onFileDrop(files);
+      const nextTarget = event.relatedTarget;
+      if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+        return;
       }
-    } catch (error) {
-      console.error('Failed to process dropped files:', error);
-      onDropError();
-    }
-  }, [cancelPendingDragLeaveCheck, onDropError, onFileDrop]);
+
+      const currentTarget = event.currentTarget;
+      const { clientX, clientY } = event;
+
+      if (
+        clientX <= 0 ||
+        clientY <= 0 ||
+        clientX >= window.innerWidth ||
+        clientY >= window.innerHeight
+      ) {
+        clearFileDragState();
+        return;
+      }
+
+      cancelPendingDragLeaveCheck();
+      dragLeaveFrameRef.current = window.requestAnimationFrame(() => {
+        dragLeaveFrameRef.current = null;
+        const pointTarget = document.elementFromPoint(clientX, clientY);
+        if (!(pointTarget instanceof Node) || !currentTarget.contains(pointTarget)) {
+          setIsFileDragActive(false);
+        }
+      });
+    },
+    [cancelPendingDragLeaveCheck, clearFileDragState],
+  );
+
+  const handleDrop = useCallback(
+    async (event: DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelPendingDragLeaveCheck();
+      setIsFileDragActive(false);
+
+      if (!event.dataTransfer.items) return;
+
+      try {
+        const files = await getDroppedFiles(event.dataTransfer.items);
+        if (files.length > 0) {
+          onFileDrop(files);
+        }
+      } catch (error) {
+        console.error('Failed to process dropped files:', error);
+        onDropError();
+      }
+    },
+    [cancelPendingDragLeaveCheck, onDropError, onFileDrop],
+  );
 
   const prefetchSourceCodeEditor = useCallback(() => {
     void preloadSourceCodeEditor();

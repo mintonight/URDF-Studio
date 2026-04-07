@@ -1,7 +1,5 @@
 import type { ViewerDocumentLoadEvent } from '../types';
 
-const USD_BOOTSTRAP_HANDOFF_PROGRESS_PERCENT = 96;
-
 export function normalizeUsdBootstrapDocumentLoadEvent(
   event: ViewerDocumentLoadEvent,
   options: {
@@ -16,10 +14,10 @@ export function normalizeUsdBootstrapDocumentLoadEvent(
     status: 'loading',
     phase: 'finalizing-scene',
     message: null,
-    progressPercent: USD_BOOTSTRAP_HANDOFF_PROGRESS_PERCENT,
+    progressMode: 'indeterminate',
+    progressPercent: null,
     loadedCount: null,
     totalCount: null,
     error: null,
   };
 }
-

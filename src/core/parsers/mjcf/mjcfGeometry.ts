@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 import { findAssetByPath } from '@/core/loaders';
 import { createMatteMaterial } from '@/core/utils/materialFactory';
 import type { MJCFMesh } from './mjcfUtils';
@@ -55,6 +56,47 @@ function normalizeScale(scale?: number[]): [number, number, number] | null {
   }
 
   return [scale[0] ?? 1, scale[1] ?? scale[0] ?? 1, scale[2] ?? scale[0] ?? 1];
+}
+
+function collectInlineMeshPoints(vertices?: number[]): THREE.Vector3[] {
+  const uniquePoints = new Map<string, THREE.Vector3>();
+
+  for (let index = 0; index + 2 < (vertices?.length ?? 0); index += 3) {
+    const x = vertices?.[index] ?? 0;
+    const y = vertices?.[index + 1] ?? 0;
+    const z = vertices?.[index + 2] ?? 0;
+    const key = `${x},${y},${z}`;
+    if (!uniquePoints.has(key)) {
+      uniquePoints.set(key, new THREE.Vector3(x, y, z));
+    }
+  }
+
+  return Array.from(uniquePoints.values());
+}
+
+export function createInlineMJCFMeshObject(meshDef: MJCFMesh): THREE.Object3D | null {
+  const points = collectInlineMeshPoints(meshDef.vertices);
+  if (points.length < 3) {
+    return null;
+  }
+
+  let geometry: THREE.BufferGeometry;
+  if (points.length === 3) {
+    geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(
+        points.flatMap((point) => [point.x, point.y, point.z]),
+        3,
+      ),
+    );
+    geometry.setIndex([0, 1, 2]);
+    geometry.computeVertexNormals();
+  } else {
+    geometry = new ConvexGeometry(points);
+  }
+
+  return new THREE.Mesh(geometry, createDefaultMaterial());
 }
 
 export function applyMeshAssetTransform(
@@ -352,6 +394,19 @@ export async function createGeometryMesh(
       const meshDef = meshMap.get(geom.mesh);
       if (!meshDef) {
         throw createMJCFGeometryError('Mesh not defined in assets', geom.mesh);
+      }
+
+      if (meshDef.vertices?.length) {
+        const inlineMesh = createInlineMJCFMeshObject(meshDef);
+        if (!inlineMesh) {
+          throw createMJCFGeometryError('Inline mesh could not be constructed', geom.mesh);
+        }
+
+        return applyMeshAssetTransform(inlineMesh, meshDef);
+      }
+
+      if (!meshDef.file) {
+        throw createMJCFGeometryError('Mesh file metadata is missing', geom.mesh);
       }
 
       const assetUrl = resolveMJCFAssetUrl(meshDef.file, assets, sourceFileDir);

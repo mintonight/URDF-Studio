@@ -3,10 +3,11 @@ import React from 'react';
 interface CheckboxProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
-  label?: string;
+  label?: React.ReactNode;
   disabled?: boolean;
   className?: string;
   indeterminate?: boolean;
+  ariaLabel?: string;
 }
 
 export const Checkbox: React.FC<CheckboxProps> = ({
@@ -16,9 +17,12 @@ export const Checkbox: React.FC<CheckboxProps> = ({
   disabled = false,
   className = '',
   indeterminate = false,
+  ariaLabel,
 }) => {
   return (
-    <label className={`inline-flex items-center gap-2 cursor-pointer select-none ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}>
+    <label
+      className={`inline-flex items-center gap-2 cursor-pointer select-none ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
+    >
       <div className="relative flex items-center">
         <input
           type="checkbox"
@@ -26,6 +30,7 @@ export const Checkbox: React.FC<CheckboxProps> = ({
           checked={checked}
           onChange={(e) => !disabled && onChange(e.target.checked)}
           disabled={disabled}
+          aria-label={ariaLabel}
           ref={(input) => {
             if (input) input.indeterminate = indeterminate;
           }}
@@ -36,13 +41,18 @@ export const Checkbox: React.FC<CheckboxProps> = ({
           stroke="currentColor"
           viewBox="0 0 24 24"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.75" d="M5 13l4 4L19 7" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2.75"
+            d="M5 13l4 4L19 7"
+          />
         </svg>
       </div>
-      {label && (
-        <span className="text-xs font-medium text-text-primary">
-          {label}
-        </span>
+      {typeof label === 'string' || typeof label === 'number' ? (
+        <span className="text-xs font-medium text-text-primary">{label}</span>
+      ) : (
+        (label ?? null)
       )}
     </label>
   );

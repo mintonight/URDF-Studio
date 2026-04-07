@@ -1,5 +1,12 @@
 import { Quaternion, Vector3 } from 'three';
-import type { InteractionHelperKind, RobotFile, RobotState, UrdfJoint, UrdfLink } from '@/types';
+import type {
+  InteractionHelperKind,
+  InteractionSelection,
+  RobotFile,
+  RobotState,
+  UrdfJoint,
+  UrdfLink,
+} from '@/types';
 import { getLatestUsdStageLoadDebugEntry } from './usdStageLoadDebug';
 
 type HighlightMode = 'link' | 'collision';
@@ -32,20 +39,8 @@ interface AppRegressionHandlers {
     preparedUsdCacheKeysByFile: Record<string, string[]>;
   };
   getInteractionState: () => {
-    selection: {
-      type: 'link' | 'joint' | null;
-      id: string | null;
-      subType?: 'visual' | 'collision';
-      objectIndex?: number;
-      helperKind?: InteractionHelperKind;
-    };
-    hoveredSelection: {
-      type: 'link' | 'joint' | null;
-      id: string | null;
-      subType?: 'visual' | 'collision';
-      objectIndex?: number;
-      helperKind?: InteractionHelperKind;
-    };
+    selection: InteractionSelection;
+    hoveredSelection: InteractionSelection;
   };
   loadRobotByName: (fileName: string) => Promise<{ loaded: boolean; selectedFile: string | null }>;
 }
@@ -133,20 +128,8 @@ interface RegressionSnapshot {
   selectedFile: { name: string; format: string } | null;
   store: ReturnType<typeof summarizeRobotState> | null;
   interaction: {
-    selection: {
-      type: 'link' | 'joint' | null;
-      id: string | null;
-      subType: 'visual' | 'collision' | null;
-      objectIndex: number | null;
-      helperKind: InteractionHelperKind | null;
-    };
-    hoveredSelection: {
-      type: 'link' | 'joint' | null;
-      id: string | null;
-      subType: 'visual' | 'collision' | null;
-      objectIndex: number | null;
-      helperKind: InteractionHelperKind | null;
-    };
+    selection: ReturnType<typeof summarizeInteractionSelection>;
+    hoveredSelection: ReturnType<typeof summarizeInteractionSelection>;
   } | null;
   viewer: ViewerControllerSnapshot | null;
   runtime: ReturnType<typeof summarizeRuntimeRobot> | null;
@@ -176,6 +159,7 @@ export interface RegressionDebugApi {
   getProjectedInteractionTargets: () => RegressionProjectedInteractionTarget[];
   getAssetDebugState: () => RegressionAssetDebugState;
   getRuntimeSceneTransforms: () => ReturnType<typeof summarizeRuntimeSceneTransforms> | null;
+  setBeforeUnloadPromptEnabled: (enabled: boolean) => { ok: boolean; enabled: boolean };
   loadRobotByName: (fileName: string) => Promise<{ loaded: boolean; snapshot: RegressionSnapshot }>;
   setViewerFlags: (flags: RegressionViewerFlags) => { ok: boolean };
   setViewerToolMode: (toolMode: string) => {
@@ -218,6 +202,32 @@ let runtimeRobot: any | null = null;
 let runtimeRevision = 0;
 let projectedInteractionTargetsProvider: (() => RegressionProjectedInteractionTarget[]) | null =
   null;
+let regressionBeforeUnloadPromptSuppressed = false;
+const regressionBeforeUnloadPromptListeners = new Set<(suppressed: boolean) => void>();
+
+export function isRegressionBeforeUnloadPromptSuppressed(): boolean {
+  return regressionBeforeUnloadPromptSuppressed;
+}
+
+export function subscribeRegressionBeforeUnloadPromptSuppression(
+  listener: (suppressed: boolean) => void,
+): () => void {
+  regressionBeforeUnloadPromptListeners.add(listener);
+  return () => {
+    regressionBeforeUnloadPromptListeners.delete(listener);
+  };
+}
+
+export function setRegressionBeforeUnloadPromptSuppressed(suppressed: boolean): void {
+  if (regressionBeforeUnloadPromptSuppressed === suppressed) {
+    return;
+  }
+
+  regressionBeforeUnloadPromptSuppressed = suppressed;
+  regressionBeforeUnloadPromptListeners.forEach((listener) => {
+    listener(suppressed);
+  });
+}
 
 function toFixedArray(
   value: { x?: number; y?: number; z?: number } | [number, number, number] | undefined | null,
@@ -351,18 +361,7 @@ function summarizeRobotState(robotState: RobotState) {
   };
 }
 
-function summarizeInteractionSelection(
-  selection:
-    | {
-        type: 'link' | 'joint' | null;
-        id: string | null;
-        subType?: 'visual' | 'collision';
-        objectIndex?: number;
-        helperKind?: InteractionHelperKind;
-      }
-    | null
-    | undefined,
-) {
+function summarizeInteractionSelection(selection: InteractionSelection | null | undefined) {
   return {
     type: selection?.type ?? null,
     id: selection?.id ?? null,
@@ -859,6 +858,10 @@ export function installRegressionDebugApi(targetWindow: Window): void {
       };
     },
     getRuntimeSceneTransforms: () => summarizeRuntimeSceneTransforms(runtimeRobot),
+    setBeforeUnloadPromptEnabled: (enabled: boolean) => {
+      setRegressionBeforeUnloadPromptSuppressed(!enabled);
+      return { ok: true, enabled };
+    },
     loadRobotByName: async (fileName: string) => {
       if (!appHandlers) {
         throw new Error('Regression app handlers are not registered.');

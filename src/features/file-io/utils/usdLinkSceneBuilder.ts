@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 import type { RobotState, UrdfJoint, UrdfLink, UrdfVisual } from '../../../types/index.ts';
-import { getVisualGeometryEntries } from '@/core/robot';
+import { getVisualGeometryEntries, resolveVisualMaterialOverride } from '@/core/robot';
 import {
   buildColladaRootNormalizationHints,
   type ColladaRootNormalizationHints,
@@ -29,14 +29,32 @@ const resolveLinkMaterialEntry = (
   robot: RobotState,
   link: UrdfLink,
   visual: UrdfVisual,
+  options: { isPrimaryVisual: boolean },
 ): UsdMaterialMetadata => {
-  const entry = robot.materials?.[link.id]
-    || robot.materials?.[link.name]
-    || {};
+  const resolvedMaterial = resolveVisualMaterialOverride(robot, link, visual, {
+    isPrimaryVisual: options.isPrimaryVisual,
+  });
+
+  if (resolvedMaterial.source === 'authored') {
+    return {
+      color: resolvedMaterial.color || undefined,
+      texture: resolvedMaterial.texture || undefined,
+    };
+  }
+
+  if (resolvedMaterial.source === 'legacy-link') {
+    return {
+      color:
+        resolvedMaterial.color ||
+        (resolvedMaterial.texture ? '#ffffff' : undefined) ||
+        visual.color ||
+        undefined,
+      texture: resolvedMaterial.texture || undefined,
+    };
+  }
 
   return {
-    color: entry.color || (entry.texture ? '#ffffff' : visual.color || undefined),
-    texture: entry.texture || undefined,
+    color: visual.color || undefined,
   };
 };
 
@@ -63,11 +81,7 @@ const createJointLocalMatrix = (joint: UrdfJoint): THREE.Matrix4 => {
   );
 
   const motionMatrix = new THREE.Matrix4();
-  const axis = new THREE.Vector3(
-    joint.axis?.x ?? 1,
-    joint.axis?.y ?? 0,
-    joint.axis?.z ?? 0,
-  );
+  const axis = new THREE.Vector3(joint.axis?.x ?? 1, joint.axis?.y ?? 0, joint.axis?.z ?? 0);
   if (axis.lengthSq() <= 1e-12) {
     axis.set(1, 0, 0);
   } else {
@@ -84,12 +98,14 @@ const createJointLocalMatrix = (joint: UrdfJoint): THREE.Matrix4 => {
       axis.z * (typeof joint.angle === 'number' ? joint.angle : 0),
     );
   } else if ((jointType === 'ball' || jointType === 'floating') && joint.quaternion) {
-    motionMatrix.makeRotationFromQuaternion(new THREE.Quaternion(
-      joint.quaternion.x,
-      joint.quaternion.y,
-      joint.quaternion.z,
-      joint.quaternion.w,
-    ));
+    motionMatrix.makeRotationFromQuaternion(
+      new THREE.Quaternion(
+        joint.quaternion.x,
+        joint.quaternion.y,
+        joint.quaternion.z,
+        joint.quaternion.w,
+      ),
+    );
   } else {
     motionMatrix.identity();
   }
@@ -97,14 +113,12 @@ const createJointLocalMatrix = (joint: UrdfJoint): THREE.Matrix4 => {
   return originMatrix.multiply(motionMatrix);
 };
 
-const getVisuals = (link: UrdfLink): UrdfVisual[] => {
-  return getVisualGeometryEntries(link).map((entry) => entry.geometry);
-};
-
 const getCollisionVisuals = (link: UrdfLink): UrdfVisual[] => {
   return [
     ...(getGeometryType(link.collision?.type) === GEOMETRY_TYPES.NONE ? [] : [link.collision]),
-    ...((link.collisionBodies || []).filter((body) => getGeometryType(body.type) !== GEOMETRY_TYPES.NONE)),
+    ...(link.collisionBodies || []).filter(
+      (body) => getGeometryType(body.type) !== GEOMETRY_TYPES.NONE,
+    ),
   ];
 };
 
@@ -150,13 +164,16 @@ const buildLinkSceneNode = async (
   };
   await onLinkVisit?.(link);
 
-  const visuals = getVisuals(link);
+  const visuals = getVisualGeometryEntries(link);
   if (visuals.length > 0) {
     const visualsScope = new THREE.Group();
     visualsScope.name = 'visuals';
 
-    for (const [index, visual] of visuals.entries()) {
-      const materialState = resolveLinkMaterialEntry(robot, link, visual);
+    for (const [index, visualEntry] of visuals.entries()) {
+      const visual = visualEntry.geometry;
+      const materialState = resolveLinkMaterialEntry(robot, link, visual, {
+        isPrimaryVisual: visualEntry.bodyIndex === null,
+      });
       const visualNode = await buildUsdVisualSceneNode({
         visual,
         role: 'visual',
@@ -237,7 +254,8 @@ export const buildUsdLinkSceneRoot = async ({
   colladaRootNormalizationHints,
   onLinkVisit,
 }: BuildUsdLinkSceneRootOptions): Promise<THREE.Group> => {
-  const resolvedHints = colladaRootNormalizationHints ?? buildColladaRootNormalizationHints(robot.links);
+  const resolvedHints =
+    colladaRootNormalizationHints ?? buildColladaRootNormalizationHints(robot.links);
   return buildLinkSceneNode(
     robot,
     robot.rootLinkId,

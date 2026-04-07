@@ -14,13 +14,15 @@ export interface MJCFCompilerSettings {
   fitaabb: boolean;
   inertiafromgeom: 'false' | 'true' | 'auto';
   inertiagrouprange?: [number, number];
+  boundinertia?: number;
 }
 
 export type MJCFMeshInertiaMode = 'legacy' | 'shell' | 'exact' | 'convex';
 
 export interface MJCFMesh {
   name: string;
-  file: string;
+  file?: string;
+  vertices?: number[];
   scale?: number[];
   refpos?: [number, number, number];
   refquat?: [number, number, number, number];
@@ -125,7 +127,7 @@ export interface MJCFDefaultsRegistry {
 }
 
 const MJCF_ROOT_PATTERN =
-  /^\s*(?:<\?xml[\s\S]*?\?>\s*)?(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE[\s\S]*?>\s*)*<mujoco\b/i;
+  /^\s*(?:<\?xml[\s\S]*?\?>\s*)?(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE[\s\S]*?>\s*)*<(?:mujoco|mujocoinclude)\b/i;
 
 export function looksLikeMJCFDocument(content: string): boolean {
   if (!content) {
@@ -133,6 +135,80 @@ export function looksLikeMJCFDocument(content: string): boolean {
   }
 
   return MJCF_ROOT_PATTERN.test(content.slice(0, 2048));
+}
+
+function repairMissingAttributeWhitespace(content: string): string {
+  return content
+    .replace(/"(?=[A-Za-z_][\w:.-]*=)/g, '" ')
+    .replace(/'(?=[A-Za-z_][\w:.-]*=)/g, "' ");
+}
+
+export interface ParsedMJCFXmlDocumentResult {
+  doc: Document | null;
+  parseErrorText: string | null;
+  recovered: boolean;
+}
+
+function parseXmlDocument(content: string): {
+  doc: Document | null;
+  parseErrorText: string | null;
+} {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(content, 'text/xml');
+    const parseError = doc.querySelector('parsererror');
+    if (parseError) {
+      return {
+        doc: null,
+        parseErrorText: parseError.textContent?.trim() || 'unknown parse error',
+      };
+    }
+
+    return {
+      doc,
+      parseErrorText: null,
+    };
+  } catch (error) {
+    return {
+      doc: null,
+      parseErrorText: error instanceof Error ? error.message : 'unknown parse error',
+    };
+  }
+}
+
+export function parseMJCFXmlDocument(content: string): ParsedMJCFXmlDocumentResult {
+  const initial = parseXmlDocument(content);
+  if (initial.doc) {
+    return {
+      doc: initial.doc,
+      parseErrorText: null,
+      recovered: false,
+    };
+  }
+
+  const repairedContent = repairMissingAttributeWhitespace(content);
+  if (repairedContent === content) {
+    return {
+      doc: null,
+      parseErrorText: initial.parseErrorText,
+      recovered: false,
+    };
+  }
+
+  const repaired = parseXmlDocument(repairedContent);
+  if (repaired.doc) {
+    return {
+      doc: repaired.doc,
+      parseErrorText: null,
+      recovered: true,
+    };
+  }
+
+  return {
+    doc: null,
+    parseErrorText: repaired.parseErrorText ?? initial.parseErrorText,
+    recovered: false,
+  };
 }
 
 export function parseNumbers(str: string | null): number[] {
@@ -162,6 +238,7 @@ export function parseCompilerSettings(doc: Document): MJCFCompilerSettings {
   let fitaabb = false;
   let inertiafromgeom: 'false' | 'true' | 'auto' = 'auto';
   let inertiagrouprange: [number, number] | undefined;
+  let boundinertia: number | undefined;
 
   for (const compiler of compilers) {
     const rawAngle = compiler.getAttribute('angle');
@@ -215,6 +292,12 @@ export function parseCompilerSettings(doc: Document): MJCFCompilerSettings {
     if (rawInertiaGroupRange.length >= 2) {
       inertiagrouprange = [rawInertiaGroupRange[0] ?? 0, rawInertiaGroupRange[1] ?? 0];
     }
+
+    const rawBoundInertia = compiler.getAttribute('boundinertia');
+    if (rawBoundInertia !== null) {
+      const parsedBoundInertia = parseFloat(rawBoundInertia);
+      boundinertia = Number.isFinite(parsedBoundInertia) ? parsedBoundInertia : undefined;
+    }
   }
 
   const effectiveMeshdir = meshdir ?? assetdir;
@@ -230,6 +313,7 @@ export function parseCompilerSettings(doc: Document): MJCFCompilerSettings {
     fitaabb,
     inertiafromgeom,
     inertiagrouprange,
+    boundinertia,
   };
 }
 
@@ -783,22 +867,22 @@ export function parseMeshAssets(
       const meshAttrs = resolveElementAttributes(defaults, 'mesh', meshEl);
       let name = meshEl.getAttribute('name') || meshAttrs.name;
       let file = meshEl.getAttribute('file') || meshAttrs.file;
+      const vertex = meshEl.getAttribute('vertex') || meshAttrs.vertex;
+      const vertices = parseNumbers(vertex || null);
+      const hasInlineVertices = vertices.length >= 9;
 
-      if (!file) {
+      if (!file && !hasInlineVertices) {
         meshIndex += 1;
         return;
       }
 
-      if (settings?.meshdir && !file.startsWith('/') && !file.includes(':')) {
+      if (file && settings?.meshdir && !file.startsWith('/') && !file.includes(':')) {
         const prefix = settings.meshdir.endsWith('/') ? settings.meshdir : `${settings.meshdir}/`;
         file = `${prefix}${file}`;
       }
 
       if (!name) {
-        const fileName = file.split('/').pop()?.split('\\').pop() || '';
-        const lastDotIndex = fileName.lastIndexOf('.');
-        name =
-          (lastDotIndex > 0 ? fileName.slice(0, lastDotIndex) : fileName) || `mesh_${meshIndex}`;
+        name = file ? deriveAssetName(file, 'mesh', meshIndex) : `mesh_${meshIndex}`;
       }
 
       const scale = parseNumbers(meshAttrs.scale || null);
@@ -814,7 +898,8 @@ export function parseMeshAssets(
           : undefined;
       meshMap.set(name, {
         name,
-        file,
+        file: file || undefined,
+        vertices: hasInlineVertices ? vertices : undefined,
         scale: scale.length >= 3 ? scale : undefined,
         refpos: refpos.length >= 3 ? [refpos[0] ?? 0, refpos[1] ?? 0, refpos[2] ?? 0] : undefined,
         refquat,

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import type { Theme } from '@/types';
 import type { SnapshotCaptureAction } from '@/shared/components/3d/scene/snapshotConfig';
 import { STUDIO_ENVIRONMENT_INTENSITY } from '@/shared/components/3d';
-import { WorkspaceCanvas } from '@/app/components/WorkspaceCanvas';
+import { WorkspaceCanvas } from '@/shared/components/3d';
 
 interface VisualizerCanvasProps {
   theme: Theme;

@@ -2,7 +2,7 @@ import { memo, type ReactNode, type RefObject } from 'react';
 import * as THREE from 'three';
 import type { Language } from '@/shared/i18n';
 import { STUDIO_ENVIRONMENT_INTENSITY, type SnapshotCaptureAction } from '@/shared/components/3d';
-import { WorkspaceCanvas } from '@/app/components/WorkspaceCanvas';
+import { WorkspaceCanvas } from '@/shared/components/3d';
 
 interface URDFViewerCanvasProps {
   lang: Language;

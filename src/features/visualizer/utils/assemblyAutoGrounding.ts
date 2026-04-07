@@ -22,6 +22,7 @@ export interface AssemblyAutoGroundTrackingState {
   initialized: boolean;
   knownComponentIds: Set<string>;
   pendingComponentIds: Set<string>;
+  settledMeshSignatureByComponentId: Map<string, string>;
 }
 
 interface ResolveAssemblyAutoGroundingOptions {
@@ -51,7 +52,46 @@ export function createInitialAssemblyAutoGroundTrackingState(): AssemblyAutoGrou
     initialized: false,
     knownComponentIds: new Set<string>(),
     pendingComponentIds: new Set<string>(),
+    settledMeshSignatureByComponentId: new Map<string, string>(),
   };
+}
+
+export function buildAssemblyAutoGroundMeshSignatureMap({
+  assemblyState,
+  meshLoadKeys,
+}: {
+  assemblyState: AssemblyState | null | undefined;
+  meshLoadKeys: readonly string[];
+}): Map<string, string> {
+  const componentMeshSignatureMap = new Map<string, string>();
+
+  if (!assemblyState) {
+    return componentMeshSignatureMap;
+  }
+
+  const componentMeshLoadKeyMap = buildAssemblyComponentMeshLoadKeyMap({
+    assemblyState,
+    meshLoadKeys,
+  });
+
+  Object.values(assemblyState.components).forEach((component) => {
+    if (component.visible === false) {
+      return;
+    }
+
+    const componentMeshLoadKeys = componentMeshLoadKeyMap.get(component.id);
+    if (!componentMeshLoadKeys || componentMeshLoadKeys.size === 0) {
+      componentMeshSignatureMap.set(component.id, '');
+      return;
+    }
+
+    componentMeshSignatureMap.set(
+      component.id,
+      Array.from(componentMeshLoadKeys).sort().join('\u0000'),
+    );
+  });
+
+  return componentMeshSignatureMap;
 }
 
 export function resolveNextAssemblyAutoGroundTrackingState({
@@ -72,11 +112,13 @@ export function resolveNextAssemblyAutoGroundTrackingState({
       initialized: true,
       knownComponentIds: liveComponentIds,
       pendingComponentIds: new Set<string>(),
+      settledMeshSignatureByComponentId: new Map<string, string>(),
     };
   }
 
   const nextKnownComponentIds = new Set<string>();
   const nextPendingComponentIds = new Set<string>();
+  const nextSettledMeshSignatureByComponentId = new Map<string, string>();
 
   previousState.knownComponentIds.forEach((componentId) => {
     if (liveComponentIds.has(componentId)) {
@@ -86,6 +128,11 @@ export function resolveNextAssemblyAutoGroundTrackingState({
   previousState.pendingComponentIds.forEach((componentId) => {
     if (liveComponentIds.has(componentId)) {
       nextPendingComponentIds.add(componentId);
+    }
+  });
+  previousState.settledMeshSignatureByComponentId.forEach((meshSignature, componentId) => {
+    if (liveComponentIds.has(componentId)) {
+      nextSettledMeshSignatureByComponentId.set(componentId, meshSignature);
     }
   });
 
@@ -100,6 +147,7 @@ export function resolveNextAssemblyAutoGroundTrackingState({
     initialized: true,
     knownComponentIds: nextKnownComponentIds,
     pendingComponentIds: nextPendingComponentIds,
+    settledMeshSignatureByComponentId: nextSettledMeshSignatureByComponentId,
   };
 }
 

@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { GeometryType, type UrdfLink } from '@/types';
 import { useSelectionStore } from '@/store/selectionStore';
-import { GeometryRenderer } from './GeometryRenderer';
+import { GeometryRenderer, shouldGeometryCastShadows } from './GeometryRenderer';
 
 function withSilencedR3fDomWarnings(run: () => string) {
   const originalConsoleError = console.error;
@@ -15,6 +15,8 @@ function withSilencedR3fDomWarnings(run: () => string) {
     'Received `true` for a non-boolean attribute `visible`.',
     'React does not recognize the `userData` prop on a DOM element.',
     '<boxGeometry /> is using incorrect casing.',
+    'React does not recognize the `castShadow` prop on a DOM element.',
+    'React does not recognize the `receiveShadow` prop on a DOM element.',
   ];
 
   console.error = (...args: unknown[]) => {
@@ -83,6 +85,7 @@ test('GeometryRenderer renders editor visual geometry without unresolved legacy 
 
   assert.match(markup, /boxgeometry/i);
   assert.match(markup, /group/i);
+  assert.equal(shouldGeometryCastShadows(false), true);
 });
 
 test('GeometryRenderer hides collision geometry when the parent link is hidden', () => {
@@ -112,7 +115,7 @@ test('GeometryRenderer hides collision geometry when the parent link is hidden',
   assert.equal(markup, '');
 });
 
-test('GeometryRenderer defers visible collision primitives until the owning component is released', () => {
+test('GeometryRenderer keeps collision primitives out of the shadow pass', () => {
   useSelectionStore.getState().clearHover();
   useSelectionStore.getState().clearSelection();
 
@@ -127,15 +130,38 @@ test('GeometryRenderer defers visible collision primitives until the owning comp
         modelOpacity: 1,
         interactionLayerPriority: ['collision'],
         assets: {},
-        collisionRevealComponentId: 'comp_alpha',
-        revealedCollisionComponentIds: new Set<string>(),
         isSelected: false,
         onLinkClick: () => {},
       }),
     ),
   );
 
-  assert.equal(markup, '');
+  assert.equal(shouldGeometryCastShadows(true), false);
+});
+
+test('GeometryRenderer keeps collision primitives visible even when mesh readiness tracking is active', () => {
+  useSelectionStore.getState().clearHover();
+  useSelectionStore.getState().clearSelection();
+
+  const markup = withSilencedR3fDomWarnings(() =>
+    renderToStaticMarkup(
+      React.createElement(GeometryRenderer, {
+        isCollision: true,
+        link: createLink(),
+        mode: 'editor',
+        showGeometry: true,
+        showCollision: true,
+        modelOpacity: 1,
+        interactionLayerPriority: ['collision'],
+        assets: {},
+        readyCollisionMeshLoadKeys: new Set<string>(),
+        isSelected: false,
+        onLinkClick: () => {},
+      }),
+    ),
+  );
+
+  assert.match(markup, /boxgeometry/i);
 });
 
 test('GeometryRenderer defers visible collision mesh rendering until the mesh is ready', () => {

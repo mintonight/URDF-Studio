@@ -20,21 +20,25 @@ test('resolveImportedAssetPath keeps package assets rooted at the package name',
 
 test('resolveImportedAssetPath keeps sdf model assets rooted at the model name', () => {
   assert.equal(
-    resolveImportedAssetPath(
-      'model://bus_stop/meshes/base_link.dae',
-      'bus_stop/model.sdf',
-    ),
+    resolveImportedAssetPath('model://bus_stop/meshes/base_link.dae', 'bus_stop/model.sdf'),
     'bus_stop/meshes/base_link.dae',
   );
 });
 
 test('resolveImportedAssetPath still resolves relative mesh paths against the source directory', () => {
   assert.equal(
-    resolveImportedAssetPath(
-      'meshes/wheel.dae',
-      'scout_description/urdf/scout_mini.urdf',
-    ),
+    resolveImportedAssetPath('meshes/wheel.dae', 'scout_description/urdf/scout_mini.urdf'),
     'scout_description/urdf/meshes/wheel.dae',
+  );
+});
+
+test('resolveImportedAssetPath preserves deep parent traversal for myosuite-style MJCF asset paths', () => {
+  assert.equal(
+    resolveImportedAssetPath(
+      '../../../../simhive/myo_sim/../myo_sim/meshes/humerus.stl',
+      'myosuite-main/myosuite/envs/myo/assets/hand/myohand_pen.xml',
+    ),
+    'myosuite-main/myosuite/simhive/myo_sim/meshes/humerus.stl',
   );
 });
 
@@ -53,7 +57,10 @@ test('normalizeTexturePathForExport keeps nested relative texture folders stable
 });
 
 test('rewriteUrdfAssetPathsForExport preserves go2 multi-material visuals while rewriting asset roots', () => {
-  const source = fs.readFileSync('test/unitree_ros/robots/go2_description/urdf/go2_description.urdf', 'utf8');
+  const source = fs.readFileSync(
+    'test/unitree_ros/robots/go2_description/urdf/go2_description.urdf',
+    'utf8',
+  );
 
   const rewritten = rewriteUrdfAssetPathsForExport(source, {
     exportRobotName: 'go2_description',

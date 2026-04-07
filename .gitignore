@@ -20,6 +20,8 @@ scripts/mujoco/*
 !scripts/generate_inspection_criteria.mjs
 !scripts/generate_urdf_schema_metadata.mjs
 !scripts/rewrite_dts_aliases.mjs
+!scripts/omx_tmux_grid.sh
+!scripts/omx_tmux_grid.test.mjs
 !scripts/versioning/
 scripts/versioning/*
 !scripts/versioning/bump.mjs
@@ -28,9 +30,14 @@ scripts/versioning/*
 !.github/workflows/
 .github/workflows/*
 !.github/workflows/quality.yml
+!.github/dependabot.yml
 output/
 tmp/
 .playwright-mcp/
+log/latest
+log/latest_*
+log/list_*/
+log/version-check_*/
 .eslintcache
 docs/plans/
 public/__codex_anymal_c_dir/
@@ -45,3 +52,7 @@ AGENTS.md
 .uv-cache/
 __pycache__/
 *.py[cod]
+!scripts/regression/validate_import_fixture_matrix.ts
+!scripts/regression/validate_unitree_ros_usda_browser_smoke.mjs
+!scripts/regression/validate_unitree_selected_browser.mjs
+!scripts/regression/validate_unitree_ros_usda_selected_browser.mjs

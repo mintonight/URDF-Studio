@@ -130,12 +130,13 @@ function colorToHex(color: THREE.Color | undefined): string | undefined {
     return undefined;
   }
 
+  const srgbColor = new THREE.Color(color.r, color.g, color.b).convertLinearToSRGB();
   const toChannel = (value: number) =>
     Math.max(0, Math.min(255, Math.round(value * 255)))
       .toString(16)
       .padStart(2, '0');
 
-  return `#${toChannel(color.r)}${toChannel(color.g)}${toChannel(color.b)}`;
+  return `#${toChannel(srgbColor.r)}${toChannel(srgbColor.g)}${toChannel(srgbColor.b)}`;
 }
 
 function isColorLike(color: unknown): color is THREE.Color {
@@ -1278,5 +1279,6 @@ export const __mjcfMeshExportInternals = {
   isBufferGeometryLike,
   isColorLike,
   getMaterialColor,
+  colorToHex,
   createBakedVariantMesh,
 };

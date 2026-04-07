@@ -258,7 +258,7 @@ test('updateComponentTransform clones the transform and tracks undo redo history
 
   store.undo();
   assert.deepEqual(useAssemblyStore.getState().assemblyState?.components[component.id]?.transform, {
-    position: { x: 0, y: 0, z: 0 },
+    position: { x: 0, y: 0, z: 0.25 },
     rotation: { r: 0, p: 0, y: 0 },
   });
 
@@ -349,7 +349,7 @@ test('addComponent falls back to a fresh identity when a prepared component beco
   assert.equal(component?.robot.rootLinkId, 'comp_component_1_base_link');
 });
 
-test('addComponent keeps the first component anchored and places later components beside it on the ground', () => {
+test('addComponent grounds the first component and places later components beside it on the ground', () => {
   resetAssemblyStore();
 
   const store = useAssemblyStore.getState();
@@ -380,7 +380,7 @@ test('addComponent keeps the first component anchored and places later component
   assert.ok(first, 'first component should be created');
   assert.ok(second, 'second component should be created');
   assert.deepEqual(first?.transform, {
-    position: { x: 0, y: 0, z: 0 },
+    position: { x: 0, y: 0, z: 0.25 },
     rotation: { r: 0, p: 0, y: 0 },
   });
   assert.ok(second?.transform, 'second component should receive an explicit initial transform');
@@ -400,6 +400,143 @@ test('addComponent keeps the first component anchored and places later component
     'later component should be lifted so its lowest point rests on the ground',
   );
   assert.deepEqual(second.transform.rotation, { r: 0, p: 0, y: 0 });
+});
+
+test('addComponent queues newly inserted components for visual auto-ground by default', () => {
+  resetAssemblyStore();
+
+  const store = useAssemblyStore.getState();
+  store.initAssembly('pending-auto-ground');
+
+  const component = store.addComponent(
+    {
+      name: 'robots/demo/floating.urdf',
+      format: 'urdf',
+      content: '<robot name="floating" />',
+    },
+    {
+      preResolvedImportResult: createReadyImportResult(),
+    },
+  );
+
+  assert.ok(component, 'component should be created before checking the auto-ground queue');
+  assert.deepEqual(useAssemblyStore.getState().pendingAutoGroundComponentIds, [component.id]);
+
+  store.consumePendingAutoGroundComponentIds([component.id]);
+  assert.deepEqual(useAssemblyStore.getState().pendingAutoGroundComponentIds, []);
+});
+
+test('addComponent can skip visual auto-ground queue for seed workspace components', () => {
+  resetAssemblyStore();
+
+  const store = useAssemblyStore.getState();
+  store.initAssembly('seed-component');
+
+  const component = store.addComponent(
+    {
+      name: 'robots/demo/seed.urdf',
+      format: 'urdf',
+      content: '<robot name="seed" />',
+    },
+    {
+      preResolvedImportResult: createReadyImportResult(),
+      queueAutoGround: false,
+    },
+  );
+
+  assert.ok(component, 'seed component should still be created');
+  assert.deepEqual(
+    useAssemblyStore.getState().pendingAutoGroundComponentIds,
+    [],
+    'seed components should preserve their authored transform without delayed auto-ground replay',
+  );
+});
+
+test('updateComponentTransform consumes pending visual auto-ground for authored component moves', () => {
+  resetAssemblyStore();
+
+  const store = useAssemblyStore.getState();
+  store.initAssembly('pending-authored-transform');
+
+  const component = store.addComponent(
+    {
+      name: 'robots/demo/authored.urdf',
+      format: 'urdf',
+      content: '<robot name="authored" />',
+    },
+    {
+      preResolvedImportResult: createReadyImportResult(),
+    },
+  );
+
+  assert.ok(component, 'component should be created before moving it');
+  assert.deepEqual(useAssemblyStore.getState().pendingAutoGroundComponentIds, [component.id]);
+
+  store.updateComponentTransform(component.id, {
+    position: { x: 1, y: 2, z: 3 },
+    rotation: { r: 0, p: 0, y: 0.5 },
+  });
+
+  assert.deepEqual(
+    useAssemblyStore.getState().pendingAutoGroundComponentIds,
+    [],
+    'authoring a component transform should cancel any deferred visual auto-ground',
+  );
+});
+
+test('addBridge consumes pending visual auto-ground for the aligned child component', () => {
+  resetAssemblyStore();
+
+  const store = useAssemblyStore.getState();
+  store.initAssembly('pending-bridge-alignment');
+
+  const parent = store.addComponent(
+    {
+      name: 'robots/demo/parent.urdf',
+      format: 'urdf',
+      content: '<robot name="parent" />',
+    },
+    {
+      preResolvedImportResult: createReadyImportResult(),
+    },
+  );
+  const child = store.addComponent(
+    {
+      name: 'robots/demo/child.urdf',
+      format: 'urdf',
+      content: '<robot name="child" />',
+    },
+    {
+      preResolvedImportResult: createReadyImportResult(),
+    },
+  );
+
+  assert.ok(parent, 'parent component should be created');
+  assert.ok(child, 'child component should be created');
+
+  store.consumePendingAutoGroundComponentIds([parent.id]);
+  assert.deepEqual(useAssemblyStore.getState().pendingAutoGroundComponentIds, [child.id]);
+
+  store.addBridge({
+    name: 'parent_child_bridge',
+    parentComponentId: parent.id,
+    parentLinkId: parent.robot.rootLinkId,
+    childComponentId: child.id,
+    childLinkId: child.robot.rootLinkId,
+    joint: {
+      type: JointType.FIXED,
+      origin: {
+        xyz: { x: 0, y: 0, z: 0 },
+        rpy: { r: 0, p: 0, y: 0 },
+      },
+    },
+  });
+
+  assert.deepEqual(
+    useAssemblyStore.getState().pendingAutoGroundComponentIds,
+    [],
+    'bridge-aligned child components should not be re-grounded after their authored bridge transform is applied',
+  );
 });
 
 test('addComponent uses prepared renderable bounds for mesh component grounding', () => {

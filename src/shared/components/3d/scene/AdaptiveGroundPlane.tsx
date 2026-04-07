@@ -4,6 +4,7 @@ import { computeVisibleMeshBounds } from '@/shared/utils/threeBounds';
 import type { Theme } from '@/types';
 import { GroundShadowPlane } from './GroundShadowPlane';
 import { ReferenceGrid } from './ReferenceGrid';
+import { useWorkspaceCanvasInteractionState } from './interactionQuality';
 import {
   areGroundPlaneLayoutsEqual,
   resolveGroundPlaneLayout,
@@ -24,6 +25,7 @@ export function AdaptiveGroundPlane({
   showShadow = false,
 }: AdaptiveGroundPlaneProps) {
   const scene = useThree((state) => state.scene);
+  const isInteracting = useWorkspaceCanvasInteractionState();
   const [layout, setLayout] = useState<GroundPlaneLayout>(() => resolveGroundPlaneLayout(null));
   const layoutRef = useRef(layout);
   const lastRefreshAtRef = useRef(Number.NEGATIVE_INFINITY);
@@ -39,11 +41,21 @@ export function AdaptiveGroundPlane({
   }, [scene]);
 
   useLayoutEffect(() => {
+    if (isInteracting) {
+      return;
+    }
     refreshLayout();
-  }, [refreshLayout]);
+  }, [isInteracting, refreshLayout]);
 
   useFrame((state) => {
-    if ((state.clock.elapsedTime - lastRefreshAtRef.current) < GROUND_LAYOUT_REFRESH_INTERVAL_SECONDS) {
+    if (isInteracting) {
+      return;
+    }
+
+    if (
+      state.clock.elapsedTime - lastRefreshAtRef.current <
+      GROUND_LAYOUT_REFRESH_INTERVAL_SECONDS
+    ) {
       return;
     }
 

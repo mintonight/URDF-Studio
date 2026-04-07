@@ -9,11 +9,30 @@ import { loadMJCFToThreeJS } from './mjcfLoader.ts';
 import { disposeTransientObject3D } from './mjcfLoadLifecycle.ts';
 import {
   clearParsedMJCFModelCache,
+  getParsedMJCFModelError,
   getParsedMJCFModelCacheSize,
   parseMJCFModel,
 } from './mjcfModel.ts';
 import { parseMJCF } from './mjcfParser.ts';
 import { computeLinkWorldMatrices } from '@/core/robot';
+
+function waitForNextMacrotask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function waitForCondition(
+  predicate: () => boolean,
+  timeoutMs = 500,
+  intervalMs = 5,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error('Timed out while waiting for condition');
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
 
 function installDomGlobals(): void {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { contentType: 'text/html' });
@@ -46,6 +65,25 @@ test('parseMJCFModel cache can be cleared explicitly', () => {
 
   clearParsedMJCFModelCache(xml);
   assert.equal(getParsedMJCFModelCacheSize(), 0);
+});
+
+test('loadMJCFToThreeJS surfaces the MJCF parse failure reason', async () => {
+  installDomGlobals();
+  clearParsedMJCFModelCache();
+
+  const invalidXml = `
+    <robot name="not-mjcf">
+      <link name="base_link" />
+    </robot>
+  `;
+
+  assert.equal(parseMJCFModel(invalidXml), null);
+  assert.equal(getParsedMJCFModelError(invalidXml), 'No <mujoco> root element found.');
+
+  await assert.rejects(
+    () => loadMJCFToThreeJS(invalidXml, {}, ''),
+    /Failed to parse MJCF model document: No <mujoco> root element found\./,
+  );
 });
 
 test('parseMJCF releases parsed model cache after import completes', () => {
@@ -89,6 +127,177 @@ test('loadMJCFToThreeJS releases parsed model cache after scene construction', a
   disposeTransientObject3D(root);
 });
 
+test('loadMJCFToThreeJS preserves runtime joint parent-child metadata for implicit fixed MJCF bodies', async () => {
+  installDomGlobals();
+  clearParsedMJCFModelCache();
+
+  const root = await loadMJCFToThreeJS(
+    `
+        <mujoco model="runtime-joint-link-metadata">
+          <worldbody>
+            <body name="base_link">
+              <body name="lower_leg">
+                <joint name="knee_joint" type="hinge" axis="0 0 1" />
+                <geom type="box" size="0.05 0.05 0.05" />
+                <body name="tool_link" pos="0 0 0.1">
+                  <geom type="box" size="0.02 0.02 0.02" />
+                </body>
+              </body>
+            </body>
+          </worldbody>
+        </mujoco>
+    `,
+    {},
+  );
+
+  const joints =
+    (root as THREE.Object3D & { joints?: Record<string, Record<string, unknown>> }).joints ?? {};
+
+  assert.equal(joints.knee_joint?.parentLinkId, 'base_link');
+  assert.equal(joints.knee_joint?.childLinkId, 'lower_leg');
+  assert.equal((joints.knee_joint?.parentLink as { name?: string } | undefined)?.name, 'base_link');
+  assert.equal((joints.knee_joint?.child as { name?: string } | undefined)?.name, 'lower_leg');
+
+  assert.ok(joints.lower_leg_to_tool_link);
+  assert.equal(joints.lower_leg_to_tool_link?.jointType, 'fixed');
+  assert.equal(joints.lower_leg_to_tool_link?.parentLinkId, 'lower_leg');
+  assert.equal(joints.lower_leg_to_tool_link?.childLinkId, 'tool_link');
+  assert.equal(
+    (joints.lower_leg_to_tool_link?.parentLink as { name?: string } | undefined)?.name,
+    'lower_leg',
+  );
+  assert.equal(
+    (joints.lower_leg_to_tool_link?.child as { name?: string } | undefined)?.name,
+    'tool_link',
+  );
+
+  disposeTransientObject3D(root);
+});
+
+test('loadMJCFToThreeJS exposes MJCF tendon visualization metadata on the runtime root', async () => {
+  installDomGlobals();
+  clearParsedMJCFModelCache();
+
+  const root = await loadMJCFToThreeJS(
+    `
+        <mujoco model="runtime-tendon-visualization">
+          <worldbody>
+            <body name="base_link">
+              <site name="site_a" pos="0 0 0" rgba="1 0 0 1" />
+              <site name="site_b" pos="0 0 0.2" rgba="1 0 0 1" />
+            </body>
+          </worldbody>
+          <tendon>
+            <spatial name="guide" rgba="1 0 0 1">
+              <site site="site_a" />
+              <site site="site_b" />
+            </spatial>
+          </tendon>
+        </mujoco>
+    `,
+    {},
+  );
+
+  assert.deepEqual(root.userData.__mjcfTendonsData, [
+    {
+      name: 'guide',
+      rgba: [1, 0, 0, 1],
+      attachmentRefs: ['site_a', 'site_b'],
+    },
+  ]);
+
+  disposeTransientObject3D(root);
+});
+
+test('loadMJCFToThreeJS reports ready before deferred textures finish and applies textures asynchronously', async (t) => {
+  installDomGlobals();
+  clearParsedMJCFModelCache();
+
+  const originalLoadAsync = THREE.TextureLoader.prototype.loadAsync;
+  let resolveTexture: ((texture: THREE.Texture<HTMLImageElement>) => void) | null = null;
+
+  THREE.TextureLoader.prototype.loadAsync = async function mockLoadAsync(
+    _url: string,
+    _onProgress?: (event: ProgressEvent<EventTarget>) => void,
+  ): Promise<THREE.Texture<HTMLImageElement>> {
+    return await new Promise<THREE.Texture<HTMLImageElement>>((resolve) => {
+      resolveTexture = resolve;
+    });
+  };
+
+  t.after(() => {
+    THREE.TextureLoader.prototype.loadAsync = originalLoadAsync;
+  });
+
+  const progressPhases: string[] = [];
+  let asyncSceneMutationCount = 0;
+  const loadPromise = loadMJCFToThreeJS(
+    `
+        <mujoco model="strict-texture-ready">
+          <asset>
+            <texture name="carbon" file="assets/carbon.png" type="2d" />
+            <material name="carbon_fibre" texture="carbon" />
+          </asset>
+          <worldbody>
+            <body name="base_link">
+              <geom type="box" size="0.1 0.1 0.1" material="carbon_fibre" />
+            </body>
+          </worldbody>
+        </mujoco>
+    `,
+    {
+      'assets/carbon.png': 'mock://assets/carbon.png',
+    },
+    '',
+    (progress) => {
+      progressPhases.push(progress.phase);
+    },
+    {
+      onAsyncSceneMutation: () => {
+        asyncSceneMutationCount += 1;
+      },
+    },
+  );
+
+  const root = await Promise.race([
+    loadPromise,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('MJCF loader did not become ready in time')), 200);
+    }),
+  ]);
+
+  assert.ok(root);
+  assert.ok(progressPhases.includes('finalizing-scene'));
+  assert.equal(progressPhases.at(-1), 'ready');
+  assert.equal(asyncSceneMutationCount, 0);
+
+  const hasMappedTexture = () => {
+    let mapped = false;
+    root.traverse((node: any) => {
+      if (mapped || !node?.isMesh) {
+        return;
+      }
+      const materials = Array.isArray(node.material) ? node.material : [node.material];
+      mapped = materials.some(
+        (material: (THREE.Material & { map?: THREE.Texture | null }) | null | undefined) =>
+          (material?.map ?? null) !== null,
+      );
+    });
+    return mapped;
+  };
+  assert.equal(hasMappedTexture(), false);
+
+  const resolvedTexture = new THREE.Texture() as THREE.Texture<HTMLImageElement>;
+  resolvedTexture.needsUpdate = true;
+  assert.ok(resolveTexture);
+  resolveTexture?.(resolvedTexture);
+
+  await waitForCondition(() => asyncSceneMutationCount > 0);
+  await waitForCondition(hasMappedTexture);
+
+  disposeTransientObject3D(root);
+});
+
 test('loadMJCFToThreeJS rejects missing mesh assets instead of creating placeholders', async () => {
   installDomGlobals();
   clearParsedMJCFModelCache();
@@ -113,6 +322,61 @@ test('loadMJCFToThreeJS rejects missing mesh assets instead of creating placehol
   );
 
   assert.equal(getParsedMJCFModelCacheSize(), 0);
+});
+
+test('loadMJCFToThreeJS renders inline vertex mesh assets without external files', async () => {
+  installDomGlobals();
+  clearParsedMJCFModelCache();
+
+  const root = await loadMJCFToThreeJS(
+    `
+        <mujoco model="inline-mesh-runtime">
+          <asset>
+            <mesh
+              name="pyramid"
+              vertex="0 6 0  0 -6 0  0.5 6 0  0.5 -6 0  0.5 6 0.5  0.5 -6 0.5"
+            />
+          </asset>
+          <worldbody>
+            <body name="base_link">
+              <geom type="mesh" mesh="pyramid" />
+            </body>
+          </worldbody>
+        </mujoco>
+    `,
+    {},
+  );
+
+  const inlineMesh = root.getObjectByProperty('isMesh', true);
+  assert.ok(inlineMesh instanceof THREE.Mesh);
+  assert.ok(inlineMesh.geometry instanceof THREE.BufferGeometry);
+  assert.ok(inlineMesh.geometry.getAttribute('position')?.count > 0);
+
+  const parsedRobot = parseMJCF(`
+        <mujoco model="inline-mesh-robot">
+          <asset>
+            <mesh
+              name="pyramid"
+              vertex="0 6 0  0 -6 0  0.5 6 0  0.5 -6 0  0.5 6 0.5  0.5 -6 0.5"
+            />
+          </asset>
+          <worldbody>
+            <body name="base_link">
+              <geom type="mesh" mesh="pyramid" />
+            </body>
+          </worldbody>
+        </mujoco>
+    `);
+
+  assert.equal(parsedRobot.links.base_link.visual.type, GeometryType.MESH);
+  assert.equal(parsedRobot.links.base_link.visual.meshPath, undefined);
+  assert.equal(parsedRobot.links.base_link.visual.assetRef, 'pyramid');
+  assert.deepEqual(parsedRobot.links.base_link.visual.mjcfMesh, {
+    name: 'pyramid',
+    vertices: [0, 6, 0, 0, -6, 0, 0.5, 6, 0, 0.5, -6, 0, 0.5, 6, 0.5, 0.5, -6, 0.5],
+  });
+
+  disposeTransientObject3D(root);
 });
 
 test('parseMJCF preserves equality connect constraints as closed-loop metadata', () => {
@@ -151,6 +415,233 @@ test('parseMJCF preserves equality connect constraints as closed-loop metadata',
     format: 'mjcf',
     body1Name: 'link_a',
     body2Name: 'link_b',
+  });
+});
+
+test('parseMJCF re-bases equality connect anchors when the MJCF joint pivot is offset inside the body frame', () => {
+  installDomGlobals();
+
+  const robot = parseMJCF(`
+        <mujoco model="offset-connect-constraint">
+          <compiler angle="radian" autolimits="true" />
+          <worldbody>
+            <body name="base">
+              <body name="link_a">
+                <joint name="joint_a" type="hinge" pos="1 0 0" axis="0 0 1" />
+              </body>
+              <body name="link_b" pos="1 2 0">
+                <joint name="joint_b" type="hinge" axis="0 0 1" />
+              </body>
+            </body>
+          </worldbody>
+          <equality>
+            <connect body1="link_a" body2="link_b" anchor="1 1 0" />
+          </equality>
+        </mujoco>
+    `);
+
+  assert.ok(robot);
+  assert.equal(robot.closedLoopConstraints?.length, 1);
+
+  const [constraint] = robot.closedLoopConstraints ?? [];
+  assert.ok(constraint);
+  assert.equal(constraint.type, 'connect');
+  assert.deepEqual(constraint.anchorLocalA, { x: 0, y: 1, z: 0 });
+  assert.deepEqual(constraint.anchorLocalB, { x: 0, y: -1, z: 0 });
+  assert.deepEqual(constraint.anchorWorld, { x: 1, y: 1, z: 0 });
+
+  const linkWorldMatrices = computeLinkWorldMatrices(robot);
+  const anchorWorldA = new THREE.Vector3(
+    constraint.anchorLocalA.x,
+    constraint.anchorLocalA.y,
+    constraint.anchorLocalA.z,
+  ).applyMatrix4(linkWorldMatrices[constraint.linkAId]);
+  const anchorWorldB = new THREE.Vector3(
+    constraint.anchorLocalB.x,
+    constraint.anchorLocalB.y,
+    constraint.anchorLocalB.z,
+  ).applyMatrix4(linkWorldMatrices[constraint.linkBId]);
+
+  assert.ok(anchorWorldA.distanceTo(anchorWorldB) <= 1e-9);
+});
+
+test('parseMJCF promotes fixed-range two-site spatial tendons to distance closed-loop metadata', () => {
+  installDomGlobals();
+
+  const robot = parseMJCF(`
+        <mujoco model="distance-tendon-constraint">
+          <compiler angle="radian" autolimits="true" />
+          <worldbody>
+            <body name="base">
+              <body name="link_a">
+                <joint name="joint_a" type="hinge" axis="0 0 1" />
+                <site name="tip_a" pos="1 0 0" />
+              </body>
+              <body name="link_b">
+                <joint name="joint_b" type="hinge" axis="0 0 1" />
+                <site name="tip_b" pos="1 0 0" />
+              </body>
+            </body>
+          </worldbody>
+          <tendon>
+            <spatial name="closing_bar" range="0 0.000001">
+              <site site="tip_a" />
+              <site site="tip_b" />
+            </spatial>
+          </tendon>
+        </mujoco>
+    `);
+
+  assert.ok(robot.closedLoopConstraints);
+  assert.equal(robot.closedLoopConstraints?.length, 1);
+
+  const [constraint] = robot.closedLoopConstraints ?? [];
+  assert.ok(constraint);
+  assert.equal(constraint.type, 'distance');
+  assert.equal(constraint.linkAId, 'link_a');
+  assert.equal(constraint.linkBId, 'link_b');
+  assert.deepEqual(constraint.anchorLocalA, { x: 1, y: 0, z: 0 });
+  assert.deepEqual(constraint.anchorLocalB, { x: 1, y: 0, z: 0 });
+  assert.ok(Math.abs(((constraint as { restDistance?: number }).restDistance ?? 0) - 0) <= 1e-9);
+  assert.deepEqual(constraint.source, {
+    format: 'mjcf',
+    body1Name: 'link_a',
+    body2Name: 'link_b',
+  });
+});
+
+test('parseMJCF re-bases spatial tendon anchors when the MJCF joint pivot is offset inside the body frame', () => {
+  installDomGlobals();
+
+  const robot = parseMJCF(`
+        <mujoco model="offset-site-tendon">
+          <compiler angle="radian" autolimits="true" />
+          <worldbody>
+            <body name="base">
+              <body name="link_a">
+                <joint name="joint_a" type="hinge" pos="1 0 0" axis="0 0 1" />
+                <site name="tip_a" pos="1 1 0" />
+              </body>
+              <body name="link_b" pos="0 2 0">
+                <joint name="joint_b" type="hinge" pos="1 0 0" axis="0 0 1" />
+                <site name="tip_b" pos="1 -1 0" />
+              </body>
+            </body>
+          </worldbody>
+          <tendon>
+            <spatial name="closing_bar" range="0 0.000001">
+              <site site="tip_a" />
+              <site site="tip_b" />
+            </spatial>
+          </tendon>
+        </mujoco>
+    `);
+
+  assert.ok(robot);
+  assert.equal(robot.closedLoopConstraints?.length, 1);
+
+  const [constraint] = robot.closedLoopConstraints ?? [];
+  assert.ok(constraint);
+  assert.equal(constraint.type, 'distance');
+  if (constraint.type !== 'distance') {
+    assert.fail('expected a distance constraint');
+  }
+
+  assert.deepEqual(constraint.anchorLocalA, { x: 0, y: 1, z: 0 });
+  assert.deepEqual(constraint.anchorLocalB, { x: 0, y: -1, z: 0 });
+  assert.deepEqual(constraint.anchorWorld, { x: 1, y: 1, z: 0 });
+
+  const linkWorldMatrices = computeLinkWorldMatrices(robot);
+  const anchorWorldA = new THREE.Vector3(
+    constraint.anchorLocalA.x,
+    constraint.anchorLocalA.y,
+    constraint.anchorLocalA.z,
+  ).applyMatrix4(linkWorldMatrices[constraint.linkAId]);
+  const anchorWorldB = new THREE.Vector3(
+    constraint.anchorLocalB.x,
+    constraint.anchorLocalB.y,
+    constraint.anchorLocalB.z,
+  ).applyMatrix4(linkWorldMatrices[constraint.linkBId]);
+
+  assert.ok(anchorWorldA.distanceTo(anchorWorldB) <= 1e-9);
+});
+
+test('parseMJCF maps fixed-length two-site spatial tendons to distance closed-loop metadata', () => {
+  installDomGlobals();
+
+  const robot = parseMJCF(`
+        <mujoco model="spatial-tendon-loop">
+          <worldbody>
+            <body name="base">
+              <body name="left_link">
+                <joint name="left_joint" type="slide" axis="1 0 0" />
+                <site name="left_site" pos="0 0 0" />
+              </body>
+              <body name="right_link" pos="0.4 0 0">
+                <joint name="right_joint" type="slide" axis="1 0 0" />
+                <site name="right_site" pos="0 0 0" />
+              </body>
+            </body>
+          </worldbody>
+          <tendon>
+            <spatial range="0.4 0.400001">
+              <site site="left_site" />
+              <site site="right_site" />
+            </spatial>
+          </tendon>
+        </mujoco>
+    `);
+
+  assert.ok(robot);
+  assert.equal(robot.closedLoopConstraints?.length, 1);
+
+  const [constraint] = robot.closedLoopConstraints ?? [];
+  assert.ok(constraint);
+  assert.equal(constraint.type, 'distance');
+  if (constraint.type !== 'distance') {
+    assert.fail('expected a distance constraint');
+  }
+
+  assert.equal(constraint.linkAId, 'left_link');
+  assert.equal(constraint.linkBId, 'right_link');
+  assert.equal(constraint.restDistance, 0.4);
+  assert.deepEqual(constraint.anchorLocalA, { x: 0, y: 0, z: 0 });
+  assert.deepEqual(constraint.anchorLocalB, { x: 0, y: 0, z: 0 });
+  assert.deepEqual(constraint.anchorWorld, { x: 0, y: 0, z: 0 });
+  assert.deepEqual(constraint.source, {
+    format: 'mjcf',
+    body1Name: 'left_link',
+    body2Name: 'right_link',
+  });
+});
+
+test('parseMJCF maps linear equality joint constraints to ref-aware mimic metadata', () => {
+  installDomGlobals();
+
+  const robot = parseMJCF(`
+        <mujoco model="joint-equality-mimic">
+          <compiler angle="radian" />
+          <worldbody>
+            <body name="base">
+              <body name="leader_link">
+                <joint name="leader_joint" type="hinge" ref="0.2" />
+              </body>
+              <body name="follower_link">
+                <joint name="follower_joint" type="hinge" ref="-0.3" />
+              </body>
+            </body>
+          </worldbody>
+          <equality>
+            <joint joint1="follower_joint" joint2="leader_joint" polycoef="0.1 2 0 0 0" />
+          </equality>
+        </mujoco>
+    `);
+
+  assert.ok(robot);
+  assert.deepEqual(robot.joints.follower_joint?.mimic, {
+    joint: 'leader_joint',
+    multiplier: 2,
+    offset: -0.6,
   });
 });
 
@@ -381,7 +872,13 @@ test('parseMJCFModel exposes site and tendon metadata without changing joint act
             </body>
           </worldbody>
           <tendon>
-            <spatial name="finger_tendon" range="0 1">
+            <spatial
+              name="finger_tendon"
+              range="0 1"
+              group="4"
+              stiffness="12"
+              springlength="0.2"
+            >
               <site site="tip_site" />
               <site site="frame_site" />
             </spatial>
@@ -413,7 +910,11 @@ test('parseMJCFModel exposes site and tendon metadata without changing joint act
   assert.ok(tendon);
   assert.equal(tendon.type, 'spatial');
   assert.equal(tendon.limited, true);
+  assert.equal(tendon.group, 4);
   assert.equal(tendon.width, 0.03);
+  assert.equal(tendon.stiffness, 12);
+  assert.equal(tendon.springlength, 0.2);
+  assert.deepEqual(tendon.rgba, [0, 1, 0, 1]);
   assert.deepEqual(tendon.attachments, [
     { type: 'site', ref: 'tip_site' },
     { type: 'site', ref: 'frame_site' },
@@ -431,6 +932,31 @@ test('parseMJCFModel exposes site and tendon metadata without changing joint act
   assert.deepEqual(jointActuators[0]?.forcerange, [-5, 5]);
   assert.equal(jointActuators[0]?.ctrllimited, true);
   assert.equal(jointActuators[0]?.forcelimited, true);
+});
+
+test('parseMJCF preserves rebased MJCF site metadata on imported links', () => {
+  installDomGlobals();
+
+  const robot = parseMJCF(`
+        <mujoco model="site-link-metadata">
+          <worldbody>
+            <body name="base_link">
+              <joint name="base_joint" type="hinge" pos="0 0 0.2" axis="0 0 1" range="-1 1" />
+              <site name="attachment_site" pos="0 0 0.3" />
+            </body>
+          </worldbody>
+        </mujoco>
+    `);
+
+  assert.ok(robot);
+  const baseLink = robot.links.base_link;
+  assert.ok(baseLink);
+  assert.equal(baseLink.mjcfSites?.length, 1);
+  assert.equal(baseLink.mjcfSites?.[0]?.name, 'attachment_site');
+  assert.ok(baseLink.mjcfSites?.[0]?.pos);
+  assert.ok(Math.abs(baseLink.mjcfSites?.[0]?.pos?.[0] ?? 0) < 1e-9);
+  assert.ok(Math.abs(baseLink.mjcfSites?.[0]?.pos?.[1] ?? 0) < 1e-9);
+  assert.ok(Math.abs((baseLink.mjcfSites?.[0]?.pos?.[2] ?? 0) - 0.1) < 1e-9);
 });
 
 test('parseMJCFModel expands frame-wrapped bodies and frame childclass-scoped joints', () => {
@@ -574,12 +1100,28 @@ test('parseMJCF preserves mjcf-specific hfield and sdf geom types without foldin
   assert.ok(hfieldRobot);
   assert.equal(hfieldRobot.links.base_link.visual.type, GeometryType.HFIELD);
   assert.equal(hfieldRobot.links.base_link.visual.assetRef, 'terrain_patch');
+  assert.equal(hfieldRobot.links.base_link.collision.type, GeometryType.HFIELD);
+  assert.equal(hfieldRobot.links.base_link.collision.assetRef, 'terrain_patch');
   assert.deepEqual(hfieldRobot.links.base_link.visual.dimensions, {
     x: 4,
     y: 6,
     z: 0.5,
   });
   assert.deepEqual(hfieldRobot.links.base_link.visual.mjcfHfield, {
+    name: 'terrain_patch',
+    file: 'terrain.png',
+    contentType: undefined,
+    nrow: undefined,
+    ncol: undefined,
+    size: {
+      radiusX: 2,
+      radiusY: 3,
+      elevationZ: 0.4,
+      baseZ: 0.1,
+    },
+    elevation: undefined,
+  });
+  assert.deepEqual(hfieldRobot.links.base_link.collision.mjcfHfield, {
     name: 'terrain_patch',
     file: 'terrain.png',
     contentType: undefined,
@@ -670,11 +1212,12 @@ test('parseMJCF attaches MJCF-specific inspection context for AI review', () => 
 
   const robot = parseMJCF(`
         <mujoco model="inspection-context">
-          <default>
+          <default class="main">
             <site type="sphere" size="0.01" />
+            <tendon width="0.02" rgba="0 1 0 1" />
           </default>
           <worldbody>
-            <body name="base_link">
+            <body name="base_link" childclass="main">
               <site name="tool_center" pos="0 0 0.1" />
               <body name="finger_link">
                 <joint name="finger_joint" type="hinge" axis="0 1 0" range="-0.5 0.5" />
@@ -702,12 +1245,64 @@ test('parseMJCF attaches MJCF-specific inspection context for AI review', () => 
   ]);
   assert.deepEqual(robot.inspectionContext?.mjcf?.tendons, [
     {
+      className: undefined,
+      group: undefined,
       name: 'finger_tendon',
       type: 'spatial',
       limited: undefined,
       range: undefined,
+      width: 0.02,
+      stiffness: undefined,
+      springlength: undefined,
+      rgba: [0, 1, 0, 1],
       attachmentRefs: ['tool_center'],
+      attachments: [
+        {
+          type: 'site',
+          ref: 'tool_center',
+          sidesite: undefined,
+          divisor: undefined,
+          coef: undefined,
+        },
+      ],
       actuatorNames: ['finger_tendon_motor'],
+    },
+  ]);
+});
+
+test('parseMJCF uses underscore-based stable names for anonymous MJCF bodies and sites', () => {
+  installDomGlobals();
+
+  const xml = `
+        <mujoco model="anonymous-generated-names">
+          <worldbody>
+            <body>
+              <geom type="box" size="0.1 0.2 0.3" />
+              <site pos="0 0 0.1" />
+            </body>
+            <body>
+              <geom type="sphere" size="0.1" />
+            </body>
+          </worldbody>
+        </mujoco>
+    `;
+
+  const parsedModel = parseMJCFModel(xml);
+  assert.ok(parsedModel);
+  assert.equal(parsedModel.worldBody.children[0]?.name, 'world_body_0');
+  assert.equal(parsedModel.worldBody.children[0]?.geoms[0]?.name, 'world_body_0_geom_0');
+  assert.equal(parsedModel.worldBody.children[0]?.sites[0]?.name, 'world_body_0_site_0');
+  assert.equal(parsedModel.worldBody.children[1]?.name, 'world_body_1');
+
+  const robot = parseMJCF(xml);
+  assert.ok(robot);
+  assert.equal(robot.rootLinkId, 'world');
+  assert.ok(robot.links['world_body_0']);
+  assert.deepEqual(robot.inspectionContext?.mjcf?.bodiesWithSites, [
+    {
+      bodyId: 'world_body_0',
+      siteCount: 1,
+      siteNames: ['world_body_0_site_0'],
     },
   ]);
 });

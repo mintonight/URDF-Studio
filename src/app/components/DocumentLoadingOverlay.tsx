@@ -45,14 +45,12 @@ function resolveStageLabel(state: DocumentLoadState, lang: Language): string | n
   }
 }
 
-export function DocumentLoadingOverlay({
-  state,
-  lang,
-}: DocumentLoadingOverlayProps) {
-  const shouldRender = state.status === 'loading'
-    || state.status === 'hydrating'
-    || (state.status === 'error' && Boolean(state.error))
-    || (state.status === 'ready' && Boolean(state.message));
+export function DocumentLoadingOverlay({ state, lang }: DocumentLoadingOverlayProps) {
+  const shouldRender =
+    state.status === 'loading' ||
+    state.status === 'hydrating' ||
+    (state.status === 'error' && Boolean(state.error)) ||
+    (state.status === 'ready' && Boolean(state.message));
 
   if (!shouldRender) {
     return null;
@@ -67,18 +65,27 @@ export function DocumentLoadingOverlay({
     loadedCount: state.loadedCount,
     totalCount: state.totalCount,
   });
-  const progressPercent = state.status === 'error'
-    ? 0
-    : state.status === 'ready' && state.message
-      ? 100
-      : state.progressPercent;
+  const overlayProgressMode =
+    state.status === 'error' || (state.status === 'ready' && state.message)
+      ? 'percent'
+      : useIndeterminateStreamingProgress
+        ? 'indeterminate'
+        : (state.progressMode ?? null);
+  const progressPercent =
+    state.status === 'error'
+      ? 0
+      : state.status === 'ready' && state.message
+        ? 100
+        : state.progressPercent;
   const loadingHudState = buildLoadingHudState({
+    phase: state.status === 'ready' && state.message ? 'ready' : state.phase,
+    progressMode: overlayProgressMode,
     loadedCount: useIndeterminateStreamingProgress ? null : state.loadedCount,
     totalCount: useIndeterminateStreamingProgress ? null : state.totalCount,
     progressPercent,
     fallbackDetail: useIndeterminateStreamingProgress
       ? t.loadingRobotParsingInitialMeshes
-      : stageLabel ?? t.loadingRobotPreparing,
+      : (stageLabel ?? t.loadingRobotPreparing),
   });
   const detailSource = state.error?.trim() || state.message?.trim() || loadingHudState.detail;
   const detail = detailSource === stageLabel ? '' : detailSource;
@@ -93,6 +100,7 @@ export function DocumentLoadingOverlay({
           title={t.loadingRobot}
           detail={detail}
           progress={loadingHudState.progress}
+          progressMode={loadingHudState.progressMode}
           statusLabel={isResultState ? null : loadingHudState.statusLabel}
           stageLabel={stageLabel}
           delayMs={0}

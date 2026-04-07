@@ -1,20 +1,22 @@
 import * as THREE from 'three';
 import { resolveLinkKey } from '@/core/robot';
-import type { UrdfLink } from '@/types';
+import type { InteractionHelperKind, UrdfLink } from '@/types';
 import type { MeasureAnchorMode, MeasureTarget } from './measurements.ts';
 import {
   createMeasureTarget,
   getLinkCenterOfMassLocal,
   getLinkMeasurePoint,
+  getLinkFrameWorldPoint,
   getObjectWorldCenter,
 } from './measurements.ts';
 import type { ViewerRobotDataResolution } from './viewerRobotData.ts';
 
 export interface MeasureSelectionLike {
-  type: 'link' | 'joint' | null;
+  type: 'link' | 'joint' | 'tendon' | null;
   id: string | null;
   subType?: 'visual' | 'collision';
   objectIndex?: number;
+  helperKind?: InteractionHelperKind;
 }
 
 export interface ResolveUsdMeasureTargetOptions {
@@ -24,16 +26,41 @@ export interface ResolveUsdMeasureTargetOptions {
 }
 
 function findRobotLinkObject(robotModel: THREE.Object3D, linkName: string): THREE.Object3D | null {
-  const links = (robotModel as THREE.Object3D & {
-    links?: Record<string, THREE.Object3D>;
-  }).links;
+  const links = (
+    robotModel as THREE.Object3D & {
+      links?: Record<string, THREE.Object3D>;
+    }
+  ).links;
   if (links?.[linkName]) {
     return links[linkName];
   }
 
   let found: THREE.Object3D | null = null;
   robotModel.traverse((child) => {
-    if (!found && (child as THREE.Object3D & { isURDFLink?: boolean }).isURDFLink && child.name === linkName) {
+    if (
+      !found &&
+      (child as THREE.Object3D & { isURDFLink?: boolean }).isURDFLink &&
+      child.name === linkName
+    ) {
+      found = child;
+    }
+  });
+
+  return found;
+}
+
+function findRobotJointObject(
+  robotModel: THREE.Object3D,
+  jointName: string,
+): THREE.Object3D | null {
+  let found: THREE.Object3D | null = null;
+  robotModel.traverse((child) => {
+    if (
+      !found &&
+      ((child as THREE.Object3D & { isURDFJoint?: boolean }).isURDFJoint ||
+        child.type === 'URDFJoint') &&
+      child.name === jointName
+    ) {
       found = child;
     }
   });
@@ -59,15 +86,22 @@ function getEffectiveMeasureSelection(
     return null;
   }
 
+  if (selection.type === 'tendon') {
+    return null;
+  }
+
   if (
-    fallbackSelection?.type === selection.type
-    && fallbackSelection.id === selection.id
-    && (selection.subType === undefined || selection.objectIndex === undefined)
+    fallbackSelection?.type === selection.type &&
+    fallbackSelection.id === selection.id &&
+    (selection.subType === undefined ||
+      selection.objectIndex === undefined ||
+      selection.helperKind === undefined)
   ) {
     return {
       ...selection,
       subType: selection.subType ?? fallbackSelection.subType,
       objectIndex: selection.objectIndex ?? fallbackSelection.objectIndex,
+      helperKind: selection.helperKind ?? fallbackSelection.helperKind,
     };
   }
 
@@ -76,6 +110,37 @@ function getEffectiveMeasureSelection(
 
 function getSelectionObjectType(selection: MeasureSelectionLike): 'visual' | 'collision' {
   return selection.subType === 'collision' ? 'collision' : 'visual';
+}
+
+function resolveMeasureAnchorMode(
+  helperKind: InteractionHelperKind | undefined,
+  anchorMode: MeasureAnchorMode,
+): MeasureAnchorMode {
+  switch (helperKind) {
+    case 'center-of-mass':
+    case 'inertia':
+      return 'centerOfMass';
+    case 'origin-axes':
+      return 'frame';
+    default:
+      return anchorMode;
+  }
+}
+
+function getLinkIkHandleWorldPoint(linkObject?: THREE.Object3D | null): THREE.Vector3 | null {
+  const ikHandle = (
+    linkObject as
+      | (THREE.Object3D & {
+          userData?: { __ikHandle?: THREE.Object3D };
+        })
+      | null
+  )?.userData?.__ikHandle;
+  if (!ikHandle) {
+    return null;
+  }
+
+  ikHandle.updateMatrixWorld(true);
+  return ikHandle.getWorldPosition(new THREE.Vector3());
 }
 
 function resolveRobotLinkData(
@@ -87,14 +152,17 @@ function resolveRobotLinkData(
     return null;
   }
 
-  const resolvedLinkKey = resolveLinkKey(robotLinks, identity)
-    ?? resolveLinkKey(robotLinks, linkObject?.name)
-    ?? null;
+  const resolvedLinkKey =
+    resolveLinkKey(robotLinks, identity) ?? resolveLinkKey(robotLinks, linkObject?.name) ?? null;
   if (resolvedLinkKey) {
     return robotLinks[resolvedLinkKey] ?? null;
   }
 
-  return Object.values(robotLinks).find((link) => link.name === identity || link.name === linkObject?.name) ?? null;
+  return (
+    Object.values(robotLinks).find(
+      (link) => link.name === identity || link.name === linkObject?.name,
+    ) ?? null
+  );
 }
 
 function resolveRobotRuntimeLinkObject(
@@ -153,14 +221,13 @@ function resolveUsdLinkPath(
   return resolution.childLinkPathByJointId[selection.id || ''] ?? null;
 }
 
-function pickUsdMeasureMesh(
-  meshes: THREE.Mesh[],
-  objectIndex: number,
-): THREE.Mesh | null {
-  return meshes.find((mesh) => mesh.userData?.usdObjectIndex === objectIndex)
-    ?? meshes[objectIndex]
-    ?? meshes[0]
-    ?? null;
+function pickUsdMeasureMesh(meshes: THREE.Mesh[], objectIndex: number): THREE.Mesh | null {
+  return (
+    meshes.find((mesh) => mesh.userData?.usdObjectIndex === objectIndex) ??
+    meshes[objectIndex] ??
+    meshes[0] ??
+    null
+  );
 }
 
 function resolveUsdLinkData(
@@ -172,9 +239,11 @@ function resolveUsdLinkData(
     return directLink;
   }
 
-  return Object.values(resolution.robotData.links).find((link) => (
-    link.id === linkId || link.name === linkId
-  )) ?? null;
+  return (
+    Object.values(resolution.robotData.links).find(
+      (link) => link.id === linkId || link.name === linkId,
+    ) ?? null
+  );
 }
 
 export function resolveRobotMeasureTargetFromSelection(
@@ -192,17 +261,37 @@ export function resolveRobotMeasureTargetFromSelection(
     ? selectionOrFallback
     : (robotLinksOrSelection as MeasureSelectionLike | undefined);
   const fallback = hasRobotLinks
-    ? (
-      typeof fallbackSelectionOrAnchorMode === 'string'
-        ? undefined
-        : fallbackSelectionOrAnchorMode
-    )
+    ? typeof fallbackSelectionOrAnchorMode === 'string'
+      ? undefined
+      : fallbackSelectionOrAnchorMode
     : selectionOrFallback;
-  const effectiveAnchorMode = typeof fallbackSelectionOrAnchorMode === 'string'
-    ? fallbackSelectionOrAnchorMode
-    : anchorMode;
+  const effectiveAnchorMode =
+    typeof fallbackSelectionOrAnchorMode === 'string' ? fallbackSelectionOrAnchorMode : anchorMode;
   const effectiveSelection = getEffectiveMeasureSelection(selection, fallback);
-  if (!robot || effectiveSelection?.type !== 'link' || !effectiveSelection.id) {
+  if (!robot || !effectiveSelection?.type || !effectiveSelection.id) {
+    return null;
+  }
+
+  const resolvedAnchorMode = resolveMeasureAnchorMode(
+    effectiveSelection.helperKind,
+    effectiveAnchorMode,
+  );
+
+  if (effectiveSelection.type === 'joint') {
+    const jointObject = findRobotJointObject(robot, effectiveSelection.id);
+    if (!jointObject) {
+      return null;
+    }
+
+    return createMeasureTarget({
+      linkName: effectiveSelection.id,
+      objectType: 'visual',
+      objectIndex: 0,
+      point: getLinkFrameWorldPoint(jointObject),
+    });
+  }
+
+  if (effectiveSelection.type !== 'link') {
     return null;
   }
 
@@ -214,13 +303,32 @@ export function resolveRobotMeasureTargetFromSelection(
 
   const objectType = getSelectionObjectType(effectiveSelection);
   const objectIndex = effectiveSelection.objectIndex ?? 0;
-  const resolvedLinkData = linkData ?? resolveRobotLinkData(robotLinks, effectiveSelection.id, linkObject);
+  const resolvedLinkData =
+    linkData ?? resolveRobotLinkData(robotLinks, effectiveSelection.id, linkObject);
+
+  if (effectiveSelection.helperKind === 'ik-handle') {
+    const ikHandlePoint = getLinkIkHandleWorldPoint(linkObject);
+    if (ikHandlePoint) {
+      return createMeasureTarget({
+        linkName: effectiveSelection.id,
+        objectType,
+        objectIndex,
+        point: ikHandlePoint,
+      });
+    }
+  }
 
   return createMeasureTarget({
     linkName: effectiveSelection.id,
     objectType,
     objectIndex,
-    point: getLinkMeasurePoint(linkObject, resolvedLinkData, effectiveAnchorMode, objectType, objectIndex),
+    point: getLinkMeasurePoint(
+      linkObject,
+      resolvedLinkData,
+      resolvedAnchorMode,
+      objectType,
+      objectIndex,
+    ),
   });
 }
 
@@ -236,6 +344,8 @@ export function resolveUsdMeasureTargetFromSelection(
     return null;
   }
 
+  const resolvedAnchorMode = resolveMeasureAnchorMode(effectiveSelection.helperKind, anchorMode);
+
   const linkId = resolveUsdLinkId(resolution, effectiveSelection);
   const linkPath = resolveUsdLinkPath(resolution, effectiveSelection);
   if (!linkId || !linkPath) {
@@ -250,7 +360,7 @@ export function resolveUsdMeasureTargetFromSelection(
     ? new THREE.Vector3().setFromMatrixPosition(linkWorldMatrix)
     : null;
 
-  if (anchorMode === 'centerOfMass' && linkWorldMatrix) {
+  if (resolvedAnchorMode === 'centerOfMass' && linkWorldMatrix) {
     const centerOfMassLocal = getLinkCenterOfMassLocal(linkData);
     if (centerOfMassLocal) {
       return createMeasureTarget({
@@ -262,7 +372,7 @@ export function resolveUsdMeasureTargetFromSelection(
     }
   }
 
-  if ((anchorMode === 'frame' || anchorMode === 'centerOfMass') && linkFramePoint) {
+  if ((resolvedAnchorMode === 'frame' || resolvedAnchorMode === 'centerOfMass') && linkFramePoint) {
     return createMeasureTarget({
       linkName: linkId,
       objectType,
@@ -271,15 +381,17 @@ export function resolveUsdMeasureTargetFromSelection(
     });
   }
 
-  const meshes = options.meshesByLinkKey.get(`${linkPath}:${objectType}`) || [];
-  const targetMesh = pickUsdMeasureMesh(meshes, objectIndex);
-  if (targetMesh) {
-    return createMeasureTarget({
-      linkName: linkId,
-      objectType,
-      objectIndex,
-      point: getObjectWorldCenter(targetMesh),
-    });
+  if (resolvedAnchorMode === 'geometry') {
+    const meshes = options.meshesByLinkKey.get(`${linkPath}:${objectType}`) || [];
+    const targetMesh = pickUsdMeasureMesh(meshes, objectIndex);
+    if (targetMesh) {
+      return createMeasureTarget({
+        linkName: linkId,
+        objectType,
+        objectIndex,
+        point: getObjectWorldCenter(targetMesh),
+      });
+    }
   }
 
   if (linkFramePoint) {

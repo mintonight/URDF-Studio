@@ -203,6 +203,12 @@ function createDynamicChainComponent(componentId: string, name: string) {
           },
           axis: { x: 0, y: 0, z: 1 },
           limit: { lower: -1.2, upper: 1.6, effort: 20, velocity: 4 },
+          safetyController: {
+            softLowerLimit: -0.8,
+            softUpperLimit: 1.1,
+            kPosition: 12,
+            kVelocity: 3.5,
+          },
           angle: 0.4,
         },
         [wristSlideJointId]: {
@@ -218,6 +224,12 @@ function createDynamicChainComponent(componentId: string, name: string) {
           },
           axis: { x: 1, y: 0, z: 0 },
           limit: { lower: -0.1, upper: 0.5, effort: 12, velocity: 2 },
+          safetyController: {
+            softLowerLimit: -0.04,
+            softUpperLimit: 0.2,
+            kPosition: 5,
+            kVelocity: 1.5,
+          },
           angle: 0.2,
         },
         [sensorMountJointId]: {
@@ -397,14 +409,30 @@ test('mergeAssembly reroots a dynamic child subtree when a bridge targets a non-
   assert.equal(merged.rootLinkId, 'comp_parent_base_link');
   assert.deepEqual(merged.joints.comp_child_shoulder_joint.axis, { x: 0, y: 0, z: -1 });
   assert.deepEqual(merged.joints.comp_child_wrist_slide_joint.axis, { x: -1, y: 0, z: 0 });
-  assert.deepEqual(
-    merged.joints.comp_child_shoulder_joint.limit,
-    originalChildRobot.joints.comp_child_shoulder_joint.limit,
-  );
-  assert.deepEqual(
-    merged.joints.comp_child_wrist_slide_joint.limit,
-    originalChildRobot.joints.comp_child_wrist_slide_joint.limit,
-  );
+  assert.deepEqual(merged.joints.comp_child_shoulder_joint.limit, {
+    lower: -1.6,
+    upper: 1.2,
+    effort: originalChildRobot.joints.comp_child_shoulder_joint.limit?.effort ?? 0,
+    velocity: originalChildRobot.joints.comp_child_shoulder_joint.limit?.velocity ?? 0,
+  });
+  assert.deepEqual(merged.joints.comp_child_wrist_slide_joint.limit, {
+    lower: -0.5,
+    upper: 0.1,
+    effort: originalChildRobot.joints.comp_child_wrist_slide_joint.limit?.effort ?? 0,
+    velocity: originalChildRobot.joints.comp_child_wrist_slide_joint.limit?.velocity ?? 0,
+  });
+  assert.deepEqual(merged.joints.comp_child_shoulder_joint.safetyController, {
+    softLowerLimit: -1.1,
+    softUpperLimit: 0.8,
+    kPosition: originalChildRobot.joints.comp_child_shoulder_joint.safetyController?.kPosition,
+    kVelocity: originalChildRobot.joints.comp_child_shoulder_joint.safetyController?.kVelocity,
+  });
+  assert.deepEqual(merged.joints.comp_child_wrist_slide_joint.safetyController, {
+    softLowerLimit: -0.2,
+    softUpperLimit: 0.04,
+    kPosition: originalChildRobot.joints.comp_child_wrist_slide_joint.safetyController?.kPosition,
+    kVelocity: originalChildRobot.joints.comp_child_wrist_slide_joint.safetyController?.kVelocity,
+  });
 
   assert.equal(merged.joints.comp_child_wrist_slide_joint.parentLinkId, 'comp_child_tool_link');
   assert.equal(merged.joints.comp_child_wrist_slide_joint.childLinkId, 'comp_child_elbow_link');
@@ -577,16 +605,93 @@ test('mergeAssembly fails fast when a link would end up with multiple parent joi
 
   assert.throws(
     () => mergeAssembly(assemblyState),
-    /Cannot merge assembly "duplicate-parent-merge" because link "comp_child_base_link" would have multiple parent joints: bridge_left_child, bridge_right_child/,
+    /Cannot merge assembly "duplicate-parent-merge" because component "comp_child" would have multiple parent bridges: comp_left -> comp_child, comp_right -> comp_child/,
   );
 });
 
-test('mergeAssembly fails fast when visible bridges create a cycle with no root link', () => {
+test('mergeAssembly converts a cyclic bridge into a closed-loop constraint while preserving a rooted tree', () => {
   const leftComponent = createSingleLinkComponent('comp_left', 'left');
   const rightComponent = createSingleLinkComponent('comp_right', 'right');
 
   const assemblyState: AssemblyState = {
     name: 'cyclic-assembly-merge',
+    transform: {
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { r: 0, p: 0, y: 0 },
+    },
+    components: {
+      [leftComponent.id]: leftComponent,
+      [rightComponent.id]: rightComponent,
+    },
+    bridges: {
+      bridge_left_right: {
+        id: 'bridge_left_right',
+        name: 'bridge_left_right',
+        parentComponentId: leftComponent.id,
+        parentLinkId: `${leftComponent.id}_base_link`,
+        childComponentId: rightComponent.id,
+        childLinkId: `${rightComponent.id}_base_link`,
+        joint: {
+          ...DEFAULT_JOINT,
+          id: 'bridge_left_right',
+          name: 'bridge_left_right',
+          type: JointType.FIXED,
+          parentLinkId: `${leftComponent.id}_base_link`,
+          childLinkId: `${rightComponent.id}_base_link`,
+          origin: {
+            xyz: { x: 1, y: 0, z: 0 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+        },
+      },
+      bridge_right_left: {
+        id: 'bridge_right_left',
+        name: 'bridge_right_left',
+        parentComponentId: rightComponent.id,
+        parentLinkId: `${rightComponent.id}_base_link`,
+        childComponentId: leftComponent.id,
+        childLinkId: `${leftComponent.id}_base_link`,
+        joint: {
+          ...DEFAULT_JOINT,
+          id: 'bridge_right_left',
+          name: 'bridge_right_left',
+          type: JointType.FIXED,
+          parentLinkId: `${rightComponent.id}_base_link`,
+          childLinkId: `${leftComponent.id}_base_link`,
+          origin: {
+            xyz: { x: -1, y: 0, z: 0 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+        },
+      },
+    },
+  };
+
+  const merged = mergeAssembly(assemblyState);
+
+  assert.equal(merged.rootLinkId, 'comp_left_base_link');
+  assert.ok(merged.joints.bridge_left_right);
+  assert.equal(merged.joints.bridge_right_left, undefined);
+  assert.ok(merged.closedLoopConstraints);
+  assert.equal(merged.closedLoopConstraints?.length, 1);
+  assert.deepEqual(merged.closedLoopConstraints?.[0], {
+    id: 'bridge_right_left',
+    type: 'connect',
+    linkAId: 'comp_right_base_link',
+    linkBId: 'comp_left_base_link',
+    anchorLocalA: { x: -1, y: 0, z: 0 },
+    anchorLocalB: { x: 0, y: 0, z: 0 },
+    anchorWorld: { x: 0, y: 0, z: 0 },
+    source: undefined,
+  });
+});
+
+test('mergeAssembly rejects a non-fixed bridge that would close a component cycle', () => {
+  const leftComponent = createSingleLinkComponent('comp_left', 'left');
+  const rightComponent = createSingleLinkComponent('comp_right', 'right');
+
+  const assemblyState: AssemblyState = {
+    name: 'unsupported-cyclic-motion-bridge',
     transform: {
       position: { x: 0, y: 0, z: 0 },
       rotation: { r: 0, p: 0, y: 0 },
@@ -623,7 +728,7 @@ test('mergeAssembly fails fast when visible bridges create a cycle with no root 
           ...DEFAULT_JOINT,
           id: 'bridge_right_left',
           name: 'bridge_right_left',
-          type: JointType.FIXED,
+          type: JointType.REVOLUTE,
           parentLinkId: `${rightComponent.id}_base_link`,
           childLinkId: `${leftComponent.id}_base_link`,
         },
@@ -633,6 +738,6 @@ test('mergeAssembly fails fast when visible bridges create a cycle with no root 
 
   assert.throws(
     () => mergeAssembly(assemblyState),
-    /Cannot merge assembly "cyclic-assembly-merge" because the merged joint graph has no root link; the assembly contains a cycle/,
+    /Cannot merge assembly "unsupported-cyclic-motion-bridge" because bridge "bridge_right_left" would close a cycle with joint type "revolute". Only fixed cyclic bridges can be converted into closed-loop constraints\./,
   );
 });

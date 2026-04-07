@@ -6,6 +6,7 @@ import {
   collisionBaseMaterial,
   configureCollisionOverlayMaterial,
   createCollisionOverlayMaterial,
+  createHighlightOverrideMaterial,
   enhanceMaterials,
   enhanceSingleMaterial,
 } from './materials';
@@ -25,7 +26,7 @@ test('enhanceSingleMaterial preserves OBJ vertex colors for baked export meshes'
   assert.equal(enhancedMaterial instanceof THREE.MeshStandardMaterial, true);
   assert.equal(enhancedMaterial.vertexColors, true);
   assert.equal(enhancedMaterial.toneMapped, false);
-  assert.equal(enhancedMaterial.color.getHexString(), 'ffffff');
+  assert.equal(enhancedMaterial.color.getHexString(), 'f7f7f7');
 });
 
 test('enhanceSingleMaterial keeps textured materials in exact-color mode', () => {
@@ -39,7 +40,33 @@ test('enhanceSingleMaterial keeps textured materials in exact-color mode', () =>
 
   assert.equal(enhancedMaterial instanceof THREE.MeshStandardMaterial, true);
   assert.equal(enhancedMaterial.map, texture);
-  assert.equal(enhancedMaterial.toneMapped, false);
+  assert.equal(enhancedMaterial.toneMapped, true);
+});
+
+test('createHighlightOverrideMaterial gives MJCF tendon visuals a high-contrast hover overlay', () => {
+  const sourceMaterial = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#ff0000'),
+    opacity: 1,
+    transparent: false,
+  });
+  sourceMaterial.userData.isMjcfTendonMaterial = true;
+  sourceMaterial.emissive = new THREE.Color('#220000');
+  sourceMaterial.emissiveIntensity = 0.05;
+
+  const highlightedMaterial = createHighlightOverrideMaterial(
+    sourceMaterial,
+    'visual',
+  ) as THREE.MeshStandardMaterial;
+
+  assert.equal(highlightedMaterial.transparent, true);
+  assert.equal(highlightedMaterial.depthTest, false);
+  assert.equal(highlightedMaterial.depthWrite, false);
+  assert.equal(highlightedMaterial.opacity, 1);
+  assert.ok(highlightedMaterial.color.r >= sourceMaterial.color.r);
+  assert.ok(highlightedMaterial.color.g > sourceMaterial.color.g);
+  assert.ok(highlightedMaterial.color.b > sourceMaterial.color.b);
+  assert.ok(highlightedMaterial.emissiveIntensity >= 0.9);
+  assert.equal(highlightedMaterial.userData.isHighlightOverrideMaterial, true);
 });
 
 test('enhanceSingleMaterial preserves layered collada depth state for coplanar overlays', () => {
@@ -69,11 +96,7 @@ test('enhanceMaterials keeps G1-class visual meshes in the shared shadow pass', 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     'position',
-    new THREE.Float32BufferAttribute([
-      0, 0, 0,
-      1, 0, 0,
-      0, 1, 0,
-    ], 3),
+    new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
   );
 
   const triangleCount = 51410;
@@ -85,10 +108,7 @@ test('enhanceMaterials keeps G1-class visual meshes in the shared shadow pass', 
   }
   geometry.setIndex(new THREE.BufferAttribute(index, 1));
 
-  const mesh = new THREE.Mesh(
-    geometry,
-    new THREE.MeshPhongMaterial({ color: 0xa0a0a0 }),
-  );
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({ color: 0xa0a0a0 }));
 
   mesh.castShadow = false;
   mesh.receiveShadow = false;

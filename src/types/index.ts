@@ -18,6 +18,9 @@ export * from './inspection';
 // UI types
 export * from './ui';
 
+// Viewer orchestration types
+export * from './viewer';
+
 // USD runtime/cache types
 export * from './usd';
 

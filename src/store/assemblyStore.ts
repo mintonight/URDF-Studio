@@ -31,7 +31,11 @@ import {
   cloneAssemblyTransform,
   IDENTITY_ASSEMBLY_TRANSFORM,
 } from '@/core/robot/assemblyTransforms';
-import { resolveAlignedAssemblyComponentTransformForBridge } from '@/core/robot/assemblyBridgeAlignment';
+import {
+  resolveAlignedAssemblyComponentTransformForBridge,
+  resolveAssemblyComponentLinkId,
+} from '@/core/robot/assemblyBridgeAlignment';
+import { wouldBridgeCreateUnsupportedAssemblyCycle } from '@/core/robot/assemblyBridgeTopology';
 import { failFastInDev } from '@/core/utils/runtimeDiagnostics';
 
 interface AssemblyContext {
@@ -40,6 +44,7 @@ interface AssemblyContext {
   allFileContents?: Record<string, string>;
   preResolvedImportResult?: RobotImportResult | null;
   preResolvedRobotData?: RobotData | null;
+  queueAutoGround?: boolean;
   preparedComponent?: {
     componentId: string;
     displayName: string;
@@ -128,6 +133,8 @@ interface AssemblyActions {
   setAssembly: (state: AssemblyState | null) => void;
   initAssembly: (name?: string) => void;
   exitAssembly: () => void;
+  consumePendingAutoGroundComponentIds: (componentIds: Iterable<string>) => void;
+  clearPendingAutoGroundComponentIds: () => void;
 
   addComponent: (file: RobotFile, context?: AssemblyContext) => AssemblyComponent | null;
   removeComponent: (id: string) => void;
@@ -205,6 +212,9 @@ const createChangeLogEntry = (label: string): ChangeLogEntry => ({
   label,
 });
 
+const buildAssemblyBridgeId = (): string =>
+  `bridge_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
 function createAssemblyHistorySnapshotEntry(
   snapshot: AssemblySnapshot,
 ): AssemblyHistorySnapshotEntry {
@@ -270,10 +280,101 @@ function applyAssemblyHistoryEntry(
   return cloneAssemblySnapshot(entry);
 }
 
+function appendPendingAutoGroundComponentId(
+  pendingComponentIds: string[],
+  componentId: string,
+): void {
+  if (!pendingComponentIds.includes(componentId)) {
+    pendingComponentIds.push(componentId);
+  }
+}
+
+function removePendingAutoGroundComponentIds(
+  pendingComponentIds: string[],
+  componentIds: Iterable<string>,
+): void {
+  const pendingComponentIdSet = new Set(componentIds);
+  if (pendingComponentIdSet.size === 0) {
+    return;
+  }
+
+  for (let index = pendingComponentIds.length - 1; index >= 0; index -= 1) {
+    if (pendingComponentIdSet.has(pendingComponentIds[index])) {
+      pendingComponentIds.splice(index, 1);
+    }
+  }
+}
+
+function assertStructuralBridgeCanBeApplied(
+  assembly: AssemblyState,
+  bridge: BridgeJoint,
+  options?: { ignoreBridgeId?: string },
+): void {
+  const parentComponent = assembly.components[bridge.parentComponentId];
+  if (!parentComponent) {
+    throw new Error(
+      `Cannot apply bridge "${bridge.id}" because parent component "${bridge.parentComponentId}" does not exist.`,
+    );
+  }
+
+  const childComponent = assembly.components[bridge.childComponentId];
+  if (!childComponent) {
+    throw new Error(
+      `Cannot apply bridge "${bridge.id}" because child component "${bridge.childComponentId}" does not exist.`,
+    );
+  }
+
+  if (bridge.parentComponentId === bridge.childComponentId) {
+    throw new Error(
+      `Cannot apply bridge "${bridge.id}" because parent and child component are both "${bridge.parentComponentId}".`,
+    );
+  }
+
+  if (!resolveAssemblyComponentLinkId(parentComponent, bridge.parentLinkId)) {
+    throw new Error(
+      `Cannot apply bridge "${bridge.id}" because parent link "${bridge.parentLinkId}" does not exist on component "${bridge.parentComponentId}".`,
+    );
+  }
+
+  if (!resolveAssemblyComponentLinkId(childComponent, bridge.childLinkId)) {
+    throw new Error(
+      `Cannot apply bridge "${bridge.id}" because child link "${bridge.childLinkId}" does not exist on component "${bridge.childComponentId}".`,
+    );
+  }
+
+  const conflictingIncomingBridgeIds = Object.values(assembly.bridges)
+    .filter((existingBridge) => existingBridge.id !== options?.ignoreBridgeId)
+    .filter((existingBridge) => existingBridge.childComponentId === bridge.childComponentId)
+    .filter((existingBridge) =>
+      Boolean(resolveAssemblyComponentLinkId(childComponent, existingBridge.childLinkId)),
+    )
+    .map((existingBridge) => existingBridge.id);
+
+  if (conflictingIncomingBridgeIds.length > 0) {
+    throw new Error(
+      `Cannot apply bridge "${bridge.id}" because child component "${bridge.childComponentId}" already has an incoming bridge: ${conflictingIncomingBridgeIds.join(', ')}.`,
+    );
+  }
+
+  if (
+    wouldBridgeCreateUnsupportedAssemblyCycle(
+      Object.values(assembly.bridges),
+      bridge,
+      bridge.joint.type,
+      options,
+    )
+  ) {
+    throw new Error(
+      `Cannot apply bridge "${bridge.id}" because it would close a cycle with joint type "${bridge.joint.type}". Only fixed cyclic bridges can be converted into closed-loop constraints.`,
+    );
+  }
+}
+
 export const useAssemblyStore = create<
   {
     assemblyState: AssemblyState | null;
     assemblyRevision: number;
+    pendingAutoGroundComponentIds: string[];
     _history: AssemblyHistoryState;
     _activity: ChangeLogEntry[];
   } & AssemblyActions
@@ -329,11 +430,15 @@ export const useAssemblyStore = create<
     return {
       assemblyState: null,
       assemblyRevision: 0,
+      pendingAutoGroundComponentIds: [],
       _history: { past: [], future: [] },
       _activity: [],
 
       setAssembly: (state) => {
         applyAssemblyMutation('Load assembly state', () => cloneAssemblySnapshot(state));
+        set((storeState) => {
+          storeState.pendingAutoGroundComponentIds = [];
+        });
       },
 
       initAssembly: (name = 'assembly') => {
@@ -343,15 +448,37 @@ export const useAssemblyStore = create<
           components: {},
           bridges: {},
         }));
+        set((storeState) => {
+          storeState.pendingAutoGroundComponentIds = [];
+        });
       },
 
       exitAssembly: () => {
         applyAssemblyMutation('Exit assembly', () => null);
+        set((storeState) => {
+          storeState.pendingAutoGroundComponentIds = [];
+        });
+      },
+
+      consumePendingAutoGroundComponentIds: (componentIds) => {
+        set((storeState) => {
+          removePendingAutoGroundComponentIds(
+            storeState.pendingAutoGroundComponentIds,
+            componentIds,
+          );
+        });
+      },
+
+      clearPendingAutoGroundComponentIds: () => {
+        set((storeState) => {
+          storeState.pendingAutoGroundComponentIds = [];
+        });
       },
 
       addComponent: (file, context = {}) => {
         const state = get().assemblyState;
         const preparedComponent = context.preparedComponent;
+        const queueAutoGround = context.queueAutoGround ?? true;
         const existingComponentIds = state ? Object.keys(state.components) : [];
         const existingComponentNames = state
           ? Object.values(state.components).map((component) => component.name)
@@ -424,7 +551,7 @@ export const useAssemblyStore = create<
           visible: true,
         };
 
-        applyAssemblyMutation('Add assembly component', (draft) => {
+        const didAddComponent = applyAssemblyMutation('Add assembly component', (draft) => {
           const nextDraft = draft ?? {
             name: 'assembly',
             transform: cloneAssemblyTransform(IDENTITY_ASSEMBLY_TRANSFORM),
@@ -434,6 +561,14 @@ export const useAssemblyStore = create<
           nextDraft.components[identity.componentId] = component;
           return draft ? undefined : nextDraft;
         });
+        if (didAddComponent && queueAutoGround) {
+          set((storeState) => {
+            appendPendingAutoGroundComponentId(
+              storeState.pendingAutoGroundComponentIds,
+              identity.componentId,
+            );
+          });
+        }
 
         return component;
       },
@@ -451,6 +586,9 @@ export const useAssemblyStore = create<
               delete draft.bridges[bridgeId];
             }
           });
+        });
+        set((storeState) => {
+          removePendingAutoGroundComponentIds(storeState.pendingAutoGroundComponentIds, [id]);
         });
       },
 
@@ -519,6 +657,9 @@ export const useAssemblyStore = create<
           },
           { skipHistory: options?.skipHistory },
         );
+        set((storeState) => {
+          removePendingAutoGroundComponentIds(storeState.pendingAutoGroundComponentIds, [id]);
+        });
       },
 
       updateComponentRobot: (id, robotUpdates, options) => {
@@ -587,7 +728,7 @@ export const useAssemblyStore = create<
       },
 
       addBridge: (params) => {
-        const id = `bridge_${Date.now()}`;
+        const id = buildAssemblyBridgeId();
         const fullJoint: UrdfJoint = {
           ...DEFAULT_JOINT,
           id,
@@ -622,6 +763,7 @@ export const useAssemblyStore = create<
             components: {},
             bridges: {},
           };
+          assertStructuralBridgeCanBeApplied(nextDraft, bridge);
           nextDraft.bridges[id] = bridge;
           const alignedTransform = resolveAlignedAssemblyComponentTransformForBridge(
             nextDraft,
@@ -634,6 +776,11 @@ export const useAssemblyStore = create<
             }
           }
           return draft ? undefined : nextDraft;
+        });
+        set((storeState) => {
+          removePendingAutoGroundComponentIds(storeState.pendingAutoGroundComponentIds, [
+            params.childComponentId,
+          ]);
         });
 
         return bridge;
@@ -648,6 +795,12 @@ export const useAssemblyStore = create<
       },
 
       updateBridge: (id, updates, options) => {
+        const currentBridge = get().assemblyState?.bridges[id] as BridgeJoint | undefined;
+        const shouldRealignChild = currentBridge
+          ? shouldRecomputeBridgeAlignedChildTransform(currentBridge, updates)
+          : false;
+        const nextChildComponentId =
+          updates.childComponentId ?? currentBridge?.childComponentId ?? null;
         applyAssemblyMutation(
           options?.label ?? 'Update bridge joint',
           (draft) => {
@@ -657,25 +810,33 @@ export const useAssemblyStore = create<
                 bridge,
                 updates,
               );
-              Object.assign(bridge, updates);
-              if (updates.name) {
-                bridge.joint.name = updates.name;
-              }
-              if (updates.parentLinkId) {
-                bridge.joint.parentLinkId = updates.parentLinkId;
-              }
-              if (updates.childLinkId) {
-                bridge.joint.childLinkId = updates.childLinkId;
-              }
-              if (updates.joint?.parentLinkId) {
-                bridge.parentLinkId = updates.joint.parentLinkId;
-              }
-              if (updates.joint?.childLinkId) {
-                bridge.childLinkId = updates.joint.childLinkId;
-              }
-              if (!updates.name && updates.joint?.name) {
-                bridge.name = updates.joint.name;
-              }
+              const nextBridge: BridgeJoint = {
+                ...bridge,
+                ...updates,
+                name: updates.name ?? updates.joint?.name ?? bridge.name,
+                parentLinkId:
+                  updates.joint?.parentLinkId ?? updates.parentLinkId ?? bridge.parentLinkId,
+                childLinkId:
+                  updates.joint?.childLinkId ?? updates.childLinkId ?? bridge.childLinkId,
+                joint: {
+                  ...bridge.joint,
+                  ...(updates.joint ?? {}),
+                  name: updates.name ?? updates.joint?.name ?? bridge.joint.name,
+                  parentLinkId:
+                    updates.joint?.parentLinkId ??
+                    updates.parentLinkId ??
+                    bridge.joint.parentLinkId,
+                  childLinkId:
+                    updates.joint?.childLinkId ?? updates.childLinkId ?? bridge.joint.childLinkId,
+                },
+              };
+
+              assertStructuralBridgeCanBeApplied(draft, nextBridge, {
+                ignoreBridgeId: bridge.id,
+              });
+
+              Object.assign(bridge, nextBridge);
+
               if (shouldRealignChild) {
                 const alignedTransform = resolveAlignedAssemblyComponentTransformForBridge(
                   draft,
@@ -692,6 +853,13 @@ export const useAssemblyStore = create<
           },
           { skipHistory: options?.skipHistory },
         );
+        if (shouldRealignChild && nextChildComponentId) {
+          set((storeState) => {
+            removePendingAutoGroundComponentIds(storeState.pendingAutoGroundComponentIds, [
+              nextChildComponentId,
+            ]);
+          });
+        }
       },
 
       undo: () => {

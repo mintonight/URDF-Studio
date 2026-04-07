@@ -22,6 +22,8 @@ function resolveCandidateLayer(
 ): ViewerInteractiveLayer | null {
   if (candidate.targetKind === 'helper') {
     switch (candidate.helperKind) {
+      case 'ik-handle':
+        return 'ik-handle';
       case 'origin-axes':
         return 'origin-axes';
       case 'joint-axis':
@@ -46,9 +48,7 @@ function resolveCandidateLayer(
   return null;
 }
 
-function getCandidateObject(
-  candidate: ResolvedHoverInteractionCandidate,
-): THREE.Object3D | null {
+function getCandidateObject(candidate: ResolvedHoverInteractionCandidate): THREE.Object3D | null {
   return candidate.highlightTarget ?? candidate.linkObject ?? null;
 }
 
@@ -116,23 +116,30 @@ function getInteractionScore(
 ): number {
   const interactionLayer = resolveCandidateLayer(candidate);
   const candidateObject = getCandidateObject(candidate);
-  const layerPriorityScore = getInteractionLayerPriorityScore(interactionLayer, interactionLayerPriority);
+  const layerPriorityScore = getInteractionLayerPriorityScore(
+    interactionLayer,
+    interactionLayerPriority,
+  );
   const helperBias = layerPriorityScore === 0 && candidate.targetKind === 'helper' ? 100_000 : 0;
   const overlayBias = hasOverlayPresentation(candidateObject) ? 10_000 : 0;
-  const screenSpaceHelperBias = candidate.screenSpaceProjected ? SCREEN_SPACE_PROJECTED_HELPER_BIAS : 0;
+  const screenSpaceHelperBias = candidate.screenSpaceProjected
+    ? SCREEN_SPACE_PROJECTED_HELPER_BIAS
+    : 0;
 
-  return layerPriorityScore
-    + helperBias
-    + overlayBias
-    + screenSpaceHelperBias
-    + getEffectiveRenderOrder(candidateObject)
-    - supportSurfacePenalty;
+  return (
+    layerPriorityScore +
+    helperBias +
+    overlayBias +
+    screenSpaceHelperBias +
+    getEffectiveRenderOrder(candidateObject) -
+    supportSurfacePenalty
+  );
 }
 
-function isSupportSurfaceGeometryCandidate(
-  candidate: ResolvedHoverInteractionCandidate,
-): boolean {
-  return candidate.targetKind === 'geometry' && isHoverSupportSurface(getCandidateObject(candidate));
+function isSupportSurfaceGeometryCandidate(candidate: ResolvedHoverInteractionCandidate): boolean {
+  return (
+    candidate.targetKind === 'geometry' && isHoverSupportSurface(getCandidateObject(candidate))
+  );
 }
 
 function shouldDeprioritizeSupportSurfaceCandidate(
@@ -143,10 +150,11 @@ function shouldDeprioritizeSupportSurfaceCandidate(
     return false;
   }
 
-  return candidates.some((otherCandidate) =>
-    otherCandidate !== candidate
-    && !isSupportSurfaceGeometryCandidate(otherCandidate)
-    && otherCandidate.distance + SUPPORT_SURFACE_FOREGROUND_DISTANCE_EPSILON < candidate.distance,
+  return candidates.some(
+    (otherCandidate) =>
+      otherCandidate !== candidate &&
+      !isSupportSurfaceGeometryCandidate(otherCandidate) &&
+      otherCandidate.distance + SUPPORT_SURFACE_FOREGROUND_DISTANCE_EPSILON < candidate.distance,
   );
 }
 
@@ -158,12 +166,16 @@ export function resolveHoverInteractionResolution(
     const leftScore = getInteractionScore(
       left,
       interactionLayerPriority,
-      shouldDeprioritizeSupportSurfaceCandidate(left, candidates) ? SUPPORT_SURFACE_HOVER_PENALTY : 0,
+      shouldDeprioritizeSupportSurfaceCandidate(left, candidates)
+        ? SUPPORT_SURFACE_HOVER_PENALTY
+        : 0,
     );
     const rightScore = getInteractionScore(
       right,
       interactionLayerPriority,
-      shouldDeprioritizeSupportSurfaceCandidate(right, candidates) ? SUPPORT_SURFACE_HOVER_PENALTY : 0,
+      shouldDeprioritizeSupportSurfaceCandidate(right, candidates)
+        ? SUPPORT_SURFACE_HOVER_PENALTY
+        : 0,
     );
 
     if (leftScore !== rightScore) {

@@ -28,12 +28,8 @@ import {
   PROJECT_VERSION,
 } from './projectArchive';
 import { buildUsdPreparedExportCacheEntries } from './projectUsdPreparedExportCaches';
-import {
-  buildProjectArchiveBlob,
-} from './projectArchiveZip';
-import {
-  buildProjectArchiveBlobWithWorker,
-} from './projectArchiveWorkerBridge';
+import { buildProjectArchiveBlob } from './projectArchiveZip';
+import { buildProjectArchiveBlobWithWorker } from './projectArchiveWorkerBridge';
 import type { ProjectArchiveEntryData } from './projectArchiveWorkerTransfer';
 import {
   stripTransientJointMotionFromJoint,
@@ -49,10 +45,7 @@ const AXIS_EXPORT_TYPES = new Set<JointType>([
   JointType.PLANAR,
 ]);
 
-const FULL_LIMIT_EXPORT_TYPES = new Set<JointType>([
-  JointType.REVOLUTE,
-  JointType.PRISMATIC,
-]);
+const FULL_LIMIT_EXPORT_TYPES = new Set<JointType>([JointType.REVOLUTE, JointType.PRISMATIC]);
 
 const EFFORT_VELOCITY_LIMIT_EXPORT_TYPES = new Set<JointType>([JointType.CONTINUOUS]);
 const DYNAMICS_EXPORT_TYPES = new Set<JointType>([
@@ -125,8 +118,10 @@ type ProjectHistorySnapshot<T> = {
 const MAX_HISTORY = 50;
 const MAX_ACTIVITY_LOG = 200;
 
-const clampHistoryEntries = <T>(entries: T[] | undefined): T[] => (entries ?? []).slice(-MAX_HISTORY);
-const clampFutureEntries = <T>(entries: T[] | undefined): T[] => (entries ?? []).slice(0, MAX_HISTORY);
+const clampHistoryEntries = <T>(entries: T[] | undefined): T[] =>
+  (entries ?? []).slice(-MAX_HISTORY);
+const clampFutureEntries = <T>(entries: T[] | undefined): T[] =>
+  (entries ?? []).slice(0, MAX_HISTORY);
 
 type ProjectAssetEntry = {
   logicalPath: string;
@@ -252,11 +247,17 @@ const generateBridgeXml = (bridges: Record<string, BridgeJoint>): string => {
     }
 
     if (
-      DYNAMICS_EXPORT_TYPES.has(joint.type)
-      && joint.dynamics
-      && (joint.dynamics.damping !== 0 || joint.dynamics.friction !== 0)
+      DYNAMICS_EXPORT_TYPES.has(joint.type) &&
+      joint.dynamics &&
+      (joint.dynamics.damping !== 0 || joint.dynamics.friction !== 0)
     ) {
       xml += `      <dynamics damping="${joint.dynamics.damping}" friction="${joint.dynamics.friction}" />\n`;
+    }
+
+    if (joint.hardware?.hardwareInterface) {
+      xml += '      <hardware>\n';
+      xml += `        <hardwareInterface>${joint.hardware.hardwareInterface}</hardwareInterface>\n`;
+      xml += '      </hardware>\n';
     }
 
     if (joint.mimic?.joint) {
@@ -301,7 +302,9 @@ const getReferencedMeshes = (robot: RobotData): Set<string> => {
 };
 
 const formatProjectProgressLabel = (value: string | null | undefined): string => {
-  const normalized = String(value || '').trim().replace(/\\/g, '/');
+  const normalized = String(value || '')
+    .trim()
+    .replace(/\\/g, '/');
   if (!normalized) {
     return '';
   }
@@ -316,9 +319,7 @@ const formatProjectProgressLabel = (value: string | null | undefined): string =>
 
 const joinArchivePath = (...segments: Array<string | null | undefined>): string =>
   normalizeArchivePath(
-    segments
-      .filter((segment) => typeof segment === 'string' && segment.length > 0)
-      .join('/'),
+    segments.filter((segment) => typeof segment === 'string' && segment.length > 0).join('/'),
   );
 
 const setProjectArchiveEntry = (
@@ -339,7 +340,9 @@ const writeReferencedMeshesToFolder = async (
 ): Promise<ProjectExportWarning[]> => {
   const writtenPaths = new Set<string>();
   const warnings: ProjectExportWarning[] = [];
-  const meshPaths = Array.from(getReferencedMeshes(robot)).filter((meshPath) => !skipMeshPaths?.has(meshPath));
+  const meshPaths = Array.from(getReferencedMeshes(robot)).filter(
+    (meshPath) => !skipMeshPaths?.has(meshPath),
+  );
   const totalMeshes = meshPaths.length;
   let completedMeshes = 0;
 
@@ -384,11 +387,7 @@ const writeReferencedMeshesToFolder = async (
           throw new Error(`HTTP ${response.status}`);
         }
         const blob = await response.blob();
-        setProjectArchiveEntry(
-          archiveEntries,
-          joinArchivePath(folderPath, exportPath),
-          blob,
-        );
+        setProjectArchiveEntry(archiveEntries, joinArchivePath(folderPath, exportPath), blob);
       } catch (error) {
         console.error(`[ProjectExport] Failed to package mesh "${meshPath}"`, error);
         warnings.push({
@@ -445,11 +444,9 @@ const writeTextLibraryFiles = (
     const content = file.content || allFileContents[file.name] || '';
     if (content.length === 0) {
       const normalizedName = file.name.replace(/^\/+/, '');
-      const hasBlobBackedUsdSource = file.format === 'usd' && Boolean(
-        file.blobUrl
-        || assetMap[normalizedName]
-        || assetMap[`/${normalizedName}`],
-      );
+      const hasBlobBackedUsdSource =
+        file.format === 'usd' &&
+        Boolean(file.blobUrl || assetMap[normalizedName] || assetMap[`/${normalizedName}`]);
 
       if (STRICT_PROJECT_LIBRARY_SOURCE_FORMATS.has(file.format) || !hasBlobBackedUsdSource) {
         throw new Error(`Missing library source content for project export: ${file.name}`);
@@ -522,7 +519,11 @@ const writePackedAssets = async (
   );
 
   assetEntries.sort((left, right) => left.logicalPath.localeCompare(right.logicalPath));
-  setProjectArchiveEntry(archiveEntries, PROJECT_ASSET_MANIFEST_FILE, JSON.stringify(assetEntries, null, 2));
+  setProjectArchiveEntry(
+    archiveEntries,
+    PROJECT_ASSET_MANIFEST_FILE,
+    JSON.stringify(assetEntries, null, 2),
+  );
   return {
     assetEntries,
     warnings,
@@ -563,15 +564,8 @@ async function buildProjectArchiveEntries(params: ExportProjectParams): Promise<
   archiveEntries: ProjectArchiveEntries;
   warnings: ProjectExportWarning[];
 }> {
-  const {
-    name,
-    uiState,
-    assetsState,
-    robotState,
-    assemblyState,
-    getMergedRobotData,
-    onProgress,
-  } = params;
+  const { name, uiState, assetsState, robotState, assemblyState, getMergedRobotData, onProgress } =
+    params;
 
   const emitPhaseProgress = (
     phase: ProjectExportProgressPhase,
@@ -591,9 +585,13 @@ async function buildProjectArchiveEntries(params: ExportProjectParams): Promise<
   const warnings: ProjectExportWarning[] = [];
   const currentAssembly = stripTransientAssemblyState(assemblyState.present);
   const currentRobot = stripTransientJointMotionFromRobotData(robotState.present);
-  const packedAssets = await writePackedAssets(archiveEntries, assetsState.assets, ({ completed, total, label }) => {
-    emitPhaseProgress('assets', completed, total, label);
-  });
+  const packedAssets = await writePackedAssets(
+    archiveEntries,
+    assetsState.assets,
+    ({ completed, total, label }) => {
+      emitPhaseProgress('assets', completed, total, label);
+    },
+  );
   warnings.push(...packedAssets.warnings);
   assertNoProjectExportWarnings(packedAssets.warnings);
   const assetEntries = packedAssets.assetEntries;
@@ -605,7 +603,12 @@ async function buildProjectArchiveEntries(params: ExportProjectParams): Promise<
     metadataProgressTotal,
     assetsState.availableFiles[0]?.name ?? PROJECT_ALL_FILE_CONTENTS_FILE,
   );
-  writeTextLibraryFiles(archiveEntries, assetsState.availableFiles, assetsState.assets, assetsState.allFileContents);
+  writeTextLibraryFiles(
+    archiveEntries,
+    assetsState.availableFiles,
+    assetsState.assets,
+    assetsState.allFileContents,
+  );
   emitPhaseProgress(
     'metadata',
     1,
@@ -617,12 +620,7 @@ async function buildProjectArchiveEntries(params: ExportProjectParams): Promise<
     PROJECT_ALL_FILE_CONTENTS_FILE,
     JSON.stringify(assetsState.allFileContents, null, 2),
   );
-  emitPhaseProgress(
-    'metadata',
-    2,
-    metadataProgressTotal,
-    PROJECT_ALL_FILE_CONTENTS_FILE,
-  );
+  emitPhaseProgress('metadata', 2, metadataProgressTotal, PROJECT_ALL_FILE_CONTENTS_FILE);
   const usdPreparedExportCacheEntries = await buildUsdPreparedExportCacheEntries(
     assetsState.usdPreparedExportCaches,
   );
@@ -634,38 +632,48 @@ async function buildProjectArchiveEntries(params: ExportProjectParams): Promise<
     PROJECT_MOTOR_LIBRARY_FILE,
     JSON.stringify(assetsState.motorLibrary, null, 2),
   );
-  emitPhaseProgress(
-    'metadata',
-    3,
-    metadataProgressTotal,
-    PROJECT_USD_PREPARED_EXPORT_CACHES_FILE,
-  );
+  emitPhaseProgress('metadata', 3, metadataProgressTotal, PROJECT_USD_PREPARED_EXPORT_CACHES_FILE);
 
   if (assetsState.originalUrdfContent) {
-    setProjectArchiveEntry(archiveEntries, PROJECT_ORIGINAL_URDF_FILE, assetsState.originalUrdfContent);
+    setProjectArchiveEntry(
+      archiveEntries,
+      PROJECT_ORIGINAL_URDF_FILE,
+      assetsState.originalUrdfContent,
+    );
   }
 
   const serializedRobotHistory: ProjectHistorySnapshot<RobotData> = {
     present: currentRobot,
-    past: clampHistoryEntries(robotState.history.past).map((snapshot) => stripTransientJointMotionFromRobotData(snapshot)),
-    future: clampFutureEntries(robotState.history.future).map((snapshot) => stripTransientJointMotionFromRobotData(snapshot)),
+    past: clampHistoryEntries(robotState.history.past).map((snapshot) =>
+      stripTransientJointMotionFromRobotData(snapshot),
+    ),
+    future: clampFutureEntries(robotState.history.future).map((snapshot) =>
+      stripTransientJointMotionFromRobotData(snapshot),
+    ),
     activity: normalizeActivityLog(robotState.activity),
   };
-  setProjectArchiveEntry(archiveEntries, PROJECT_ROBOT_HISTORY_FILE, JSON.stringify(serializedRobotHistory, null, 2));
+  setProjectArchiveEntry(
+    archiveEntries,
+    PROJECT_ROBOT_HISTORY_FILE,
+    JSON.stringify(serializedRobotHistory, null, 2),
+  );
 
   const serializedAssemblyHistory: ProjectHistorySnapshot<AssemblyState | null> = {
     present: currentAssembly,
-    past: clampHistoryEntries(assemblyState.history.past).map((snapshot) => stripTransientAssemblyState(snapshot)),
-    future: clampFutureEntries(assemblyState.history.future).map((snapshot) => stripTransientAssemblyState(snapshot)),
+    past: clampHistoryEntries(assemblyState.history.past).map((snapshot) =>
+      stripTransientAssemblyState(snapshot),
+    ),
+    future: clampFutureEntries(assemblyState.history.future).map((snapshot) =>
+      stripTransientAssemblyState(snapshot),
+    ),
     activity: normalizeActivityLog(assemblyState.activity),
   };
-  setProjectArchiveEntry(archiveEntries, PROJECT_ASSEMBLY_HISTORY_FILE, JSON.stringify(serializedAssemblyHistory, null, 2));
-  emitPhaseProgress(
-    'metadata',
-    4,
-    metadataProgressTotal,
+  setProjectArchiveEntry(
+    archiveEntries,
     PROJECT_ASSEMBLY_HISTORY_FILE,
+    JSON.stringify(serializedAssemblyHistory, null, 2),
   );
+  emitPhaseProgress('metadata', 4, metadataProgressTotal, PROJECT_ASSEMBLY_HISTORY_FILE);
 
   const manifest: ProjectManifest = {
     version: PROJECT_VERSION,
@@ -741,14 +749,31 @@ async function buildProjectArchiveEntries(params: ExportProjectParams): Promise<
     componentPlans.forEach(({ component, meshPaths }) => {
       const componentFolderPath = joinArchivePath('components', component.id);
 
-      setProjectArchiveEntry(archiveEntries, joinArchivePath(componentFolderPath, 'state.json'), JSON.stringify(component.robot, null, 2));
-      setProjectArchiveEntry(archiveEntries, joinArchivePath(componentFolderPath, 'README.md'), COMPONENT_README_EN);
-      setProjectArchiveEntry(archiveEntries, joinArchivePath(componentFolderPath, 'README_ZH.md'), COMPONENT_README_ZH);
+      setProjectArchiveEntry(
+        archiveEntries,
+        joinArchivePath(componentFolderPath, 'state.json'),
+        JSON.stringify(component.robot, null, 2),
+      );
+      setProjectArchiveEntry(
+        archiveEntries,
+        joinArchivePath(componentFolderPath, 'README.md'),
+        COMPONENT_README_EN,
+      );
+      setProjectArchiveEntry(
+        archiveEntries,
+        joinArchivePath(componentFolderPath, 'README_ZH.md'),
+        COMPONENT_README_ZH,
+      );
 
-      const sourceFile = assetsState.availableFiles.find((file) => file.name === component.sourceFile);
-      const sourceContent = sourceFile?.content || assetsState.allFileContents[component.sourceFile] || '';
+      const sourceFile = assetsState.availableFiles.find(
+        (file) => file.name === component.sourceFile,
+      );
+      const sourceContent =
+        sourceFile?.content || assetsState.allFileContents[component.sourceFile] || '';
       if (!sourceFile || sourceContent.length === 0) {
-        throw new Error(`Missing component source content for project export: ${component.sourceFile}`);
+        throw new Error(
+          `Missing component source content for project export: ${component.sourceFile}`,
+        );
       }
       setProjectArchiveEntry(
         archiveEntries,
@@ -835,16 +860,28 @@ async function buildProjectArchiveEntries(params: ExportProjectParams): Promise<
   } else {
     const mergedRobot = currentAssembly
       ? buildExportableAssemblyRobotData(currentAssembly)
-      : getMergedRobotData() ?? robotState.present;
+      : (getMergedRobotData() ?? robotState.present);
 
     if (mergedRobot) {
       const mainRobotFolderPath = joinArchivePath('components', 'main_robot');
       const totalComponentTasks = 1 + getReferencedMeshes(mergedRobot).size;
       emitPhaseProgress('components', 0, totalComponentTasks, mergedRobot.name || 'main_robot');
 
-      setProjectArchiveEntry(archiveEntries, joinArchivePath(mainRobotFolderPath, 'state.json'), JSON.stringify(mergedRobot, null, 2));
-      setProjectArchiveEntry(archiveEntries, joinArchivePath(mainRobotFolderPath, 'README.md'), COMPONENT_README_EN);
-      setProjectArchiveEntry(archiveEntries, joinArchivePath(mainRobotFolderPath, 'README_ZH.md'), COMPONENT_README_ZH);
+      setProjectArchiveEntry(
+        archiveEntries,
+        joinArchivePath(mainRobotFolderPath, 'state.json'),
+        JSON.stringify(mergedRobot, null, 2),
+      );
+      setProjectArchiveEntry(
+        archiveEntries,
+        joinArchivePath(mainRobotFolderPath, 'README.md'),
+        COMPONENT_README_EN,
+      );
+      setProjectArchiveEntry(
+        archiveEntries,
+        joinArchivePath(mainRobotFolderPath, 'README_ZH.md'),
+        COMPONENT_README_ZH,
+      );
       emitPhaseProgress('components', 1, totalComponentTasks, mergedRobot.name || 'main_robot');
 
       const meshWarnings = await writeReferencedMeshesToFolder(
@@ -869,12 +906,16 @@ async function buildProjectArchiveEntries(params: ExportProjectParams): Promise<
   }
 
   if (currentAssembly && Object.keys(currentAssembly.bridges).length > 0) {
-    setProjectArchiveEntry(archiveEntries, 'bridges/bridge.xml', generateBridgeXml(currentAssembly.bridges));
+    setProjectArchiveEntry(
+      archiveEntries,
+      'bridges/bridge.xml',
+      generateBridgeXml(currentAssembly.bridges),
+    );
   }
 
   const mergedRobot = currentAssembly
     ? buildExportableAssemblyRobotData(currentAssembly)
-    : getMergedRobotData() ?? robotState.present;
+    : (getMergedRobotData() ?? robotState.present);
   if (mergedRobot) {
     emitPhaseProgress('output', 0, 1, mergedRobot.name);
     const robotForExport = {
@@ -893,12 +934,25 @@ async function buildProjectArchiveEntries(params: ExportProjectParams): Promise<
 
     emitPhaseProgress('output', 0, totalOutputTasks, `${mergedRobot.name}.urdf`);
 
-    setProjectArchiveEntry(archiveEntries, joinArchivePath('output', `${mergedRobot.name}.urdf`), generateURDF(robotForExport, false));
+    setProjectArchiveEntry(
+      archiveEntries,
+      joinArchivePath('output', `${mergedRobot.name}.urdf`),
+      generateURDF(robotForExport, false),
+    );
     completedOutputTasks += 1;
     emitPhaseProgress('output', completedOutputTasks, totalOutputTasks, `${mergedRobot.name}.urdf`);
-    setProjectArchiveEntry(archiveEntries, joinArchivePath('output', `${mergedRobot.name}_extended.urdf`), generateURDF(robotForExport, true));
+    setProjectArchiveEntry(
+      archiveEntries,
+      joinArchivePath('output', `${mergedRobot.name}_extended.urdf`),
+      generateURDF(robotForExport, true),
+    );
     completedOutputTasks += 1;
-    emitPhaseProgress('output', completedOutputTasks, totalOutputTasks, `${mergedRobot.name}_extended.urdf`);
+    emitPhaseProgress(
+      'output',
+      completedOutputTasks,
+      totalOutputTasks,
+      `${mergedRobot.name}_extended.urdf`,
+    );
     setProjectArchiveEntry(
       archiveEntries,
       joinArchivePath('output', `${mergedRobot.name}.xml`),
@@ -910,7 +964,11 @@ async function buildProjectArchiveEntries(params: ExportProjectParams): Promise<
     );
     completedOutputTasks += 1;
     emitPhaseProgress('output', completedOutputTasks, totalOutputTasks, `${mergedRobot.name}.xml`);
-    setProjectArchiveEntry(archiveEntries, joinArchivePath('output', 'bom.csv'), generateBOM(robotForExport, uiState.lang as 'en' | 'zh'));
+    setProjectArchiveEntry(
+      archiveEntries,
+      joinArchivePath('output', 'bom.csv'),
+      generateBOM(robotForExport, uiState.lang as 'en' | 'zh'),
+    );
     completedOutputTasks += 1;
     emitPhaseProgress('output', completedOutputTasks, totalOutputTasks, 'bom.csv');
 
@@ -978,7 +1036,9 @@ export async function exportProject(params: ExportProjectParams): Promise<Export
   };
 }
 
-export async function exportProjectWithWorker(params: ExportProjectParams): Promise<ExportProjectResult> {
+export async function exportProjectWithWorker(
+  params: ExportProjectParams,
+): Promise<ExportProjectResult> {
   const { name, onProgress } = params;
   const emitPhaseProgress = (
     phase: ProjectExportProgressPhase,

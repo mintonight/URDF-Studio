@@ -219,7 +219,12 @@ test('handleViewerSelect routes inertial helpers to the physics tab without pinn
 
   hook.handleViewerSelect('link', 'base_link', undefined, 'center-of-mass');
 
-  assert.deepEqual(nextSelection, { type: 'link', id: 'base_link', subType: undefined });
+  assert.deepEqual(nextSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: undefined,
+    helperKind: 'center-of-mass',
+  });
   assert.deepEqual(nextHoveredSelection, { type: null, id: null });
   assert.equal(useUIStore.getState().detailLinkTab, 'physics');
   assert.equal(useUIStore.getState().panelSections.property_editor_link_inertial, false);

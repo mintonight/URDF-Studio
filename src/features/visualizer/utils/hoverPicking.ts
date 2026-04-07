@@ -14,7 +14,9 @@ export interface VisualizerHoverTarget {
 export const VISUALIZER_HOVER_TARGET_KEY = '__visualizerHoverTarget';
 export const VISUALIZER_INTERACTIVE_LAYER_KEY = '__visualizerInteractiveLayer';
 
-type VisualizerObjectHit = Pick<THREE.Intersection<THREE.Object3D>, 'object' | 'distance'>;
+type VisualizerObjectHit = Pick<THREE.Intersection<THREE.Object3D>, 'object' | 'distance'> & {
+  point?: THREE.Vector3;
+};
 
 interface VisualizerHoverResolutionOptions {
   interactionLayerPriority?: readonly VisualizerInteractiveLayer[];
@@ -39,6 +41,10 @@ interface ResolvedVisualizerHit {
 const SUPPORT_SURFACE_HOVER_PENALTY = 10_000_000;
 const SUPPORT_SURFACE_FOREGROUND_DISTANCE_EPSILON = 1e-3;
 const HELPER_FOREGROUND_DISTANCE_EPSILON = 1e-3;
+const INERTIA_OUTLINE_EDGE_BAND_RATIO = 0.12;
+const MIN_INERTIA_OUTLINE_EDGE_BAND = 0.015;
+const MAX_INERTIA_OUTLINE_EDGE_BAND = 0.08;
+const INERTIA_SURFACE_EPSILON = 1e-4;
 
 function hasPickableMaterial(material: THREE.Material | THREE.Material[] | undefined): boolean {
   if (!material) {
@@ -272,6 +278,10 @@ function collectResolvedVisualizerHits(
       continue;
     }
 
+    if (!shouldAcceptVisualizerHit(hit, target)) {
+      continue;
+    }
+
     resolvedHits.push({
       distance: hit.distance,
       object: hitObject,
@@ -282,6 +292,68 @@ function collectResolvedVisualizerHits(
   }
 
   return resolvedHits;
+}
+
+function shouldAcceptVisualizerHit(
+  hit: VisualizerObjectHit,
+  target: VisualizerHoverTarget,
+): boolean {
+  if (target.helperKind !== 'inertia' || !(hit.object as THREE.Mesh).isMesh || !hit.point) {
+    return true;
+  }
+
+  const mesh = hit.object as THREE.Mesh;
+  const geometry = mesh.geometry as THREE.BufferGeometry | undefined;
+  if (!geometry) {
+    return true;
+  }
+
+  if (geometry.boundingBox === null) {
+    geometry.computeBoundingBox();
+  }
+
+  const boundingBox = geometry.boundingBox;
+  if (!boundingBox) {
+    return true;
+  }
+
+  const localPoint = mesh.worldToLocal(hit.point.clone());
+  const centerX = (boundingBox.min.x + boundingBox.max.x) * 0.5;
+  const centerY = (boundingBox.min.y + boundingBox.max.y) * 0.5;
+  const centerZ = (boundingBox.min.z + boundingBox.max.z) * 0.5;
+  const halfExtents = [
+    Math.max((boundingBox.max.x - boundingBox.min.x) * 0.5, 0),
+    Math.max((boundingBox.max.y - boundingBox.min.y) * 0.5, 0),
+    Math.max((boundingBox.max.z - boundingBox.min.z) * 0.5, 0),
+  ];
+  const distancesToFace = [
+    halfExtents[0] - Math.abs(localPoint.x - centerX),
+    halfExtents[1] - Math.abs(localPoint.y - centerY),
+    halfExtents[2] - Math.abs(localPoint.z - centerZ),
+  ];
+
+  let surfaceAxis = 0;
+  for (let index = 1; index < distancesToFace.length; index += 1) {
+    if (distancesToFace[index] < distancesToFace[surfaceAxis]) {
+      surfaceAxis = index;
+    }
+  }
+
+  if (distancesToFace[surfaceAxis] > INERTIA_SURFACE_EPSILON) {
+    return true;
+  }
+
+  const otherMargins = distancesToFace.filter((_, index) => index !== surfaceAxis);
+  const outlineDistance = Math.min(...otherMargins);
+  const positiveHalfExtents = halfExtents.filter((value) => value > 0);
+  const smallestHalfExtent = positiveHalfExtents.length > 0 ? Math.min(...positiveHalfExtents) : 0;
+  const edgeBand = THREE.MathUtils.clamp(
+    smallestHalfExtent * INERTIA_OUTLINE_EDGE_BAND_RATIO,
+    MIN_INERTIA_OUTLINE_EDGE_BAND,
+    MAX_INERTIA_OUTLINE_EDGE_BAND,
+  );
+
+  return outlineDistance <= edgeBand;
 }
 
 function shouldDeprioritizeSupportSurfaceHit(
@@ -361,11 +433,26 @@ export function resolveVisualizerInteractionTargetFromHits(
   options: VisualizerHoverResolutionOptions = {},
 ): VisualizerHoverTarget | null {
   const directTarget = getVisualizerHoverTarget(object);
-  if (directTarget) {
+  const resolvedTarget = findNearestVisualizerTargetFromHits(hits, options);
+
+  // Mesh inertia helpers use a visual fill plus an outline, so let the
+  // narrowed hit list decide whether the user was actually targeting the
+  // visible helper edge instead of blindly trusting the first mesh hit.
+  if (
+    directTarget &&
+    !(directTarget.helperKind === 'inertia' && (object as THREE.Mesh | null)?.isMesh)
+  ) {
+    // When multiple helpers overlap, the front-most event target is not
+    // enough. Re-run helper/helper conflicts through the shared hit resolver
+    // so interaction-layer priority can pick the intended helper.
+    if (directTarget.helperKind && resolvedTarget?.helperKind) {
+      return resolvedTarget;
+    }
+
     return directTarget;
   }
 
-  return findNearestVisualizerTargetFromHits(hits, options);
+  return resolvedTarget;
 }
 
 export function findNearestVisualizerHoverTarget(

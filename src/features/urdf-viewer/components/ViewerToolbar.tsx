@@ -269,38 +269,29 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
         const isActive = activeMode === tool.id;
         const Icon = tool.icon;
         return (
-          <div key={tool.id} className="group relative">
-            <IconButton
-              onClick={() => setMode(tool.id as ToolMode)}
-              variant="toolbar"
-              isActive={isActive}
-              aria-label={tool.label}
-              title={tool.label}
-            >
-              <Icon className="h-4 w-4" />
-            </IconButton>
-            <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 -translate-x-1/2 whitespace-nowrap rounded border border-border-black bg-element-active px-2 py-1 text-[10px] text-text-primary opacity-0 shadow-md transition-opacity duration-75 group-hover:opacity-100">
-              {tool.label}
-            </span>
-          </div>
+          <IconButton
+            key={tool.id}
+            onClick={() => setMode(tool.id as ToolMode)}
+            variant="toolbar"
+            isActive={isActive}
+            aria-label={tool.label}
+            title={tool.label}
+          >
+            <Icon className="h-4 w-4" />
+          </IconButton>
         );
       })}
       {onClose && (
         <>
           <div className="mx-1 h-4 w-px bg-border-black" />
-          <div className="group relative">
-            <IconButton
-              onClick={onClose}
-              variant="close"
-              aria-label={t.closeToolbar}
-              title={t.closeToolbar}
-            >
-              <X className="h-4 w-4" />
-            </IconButton>
-            <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 -translate-x-1/2 whitespace-nowrap rounded border border-border-black bg-element-active px-2 py-1 text-[10px] text-text-primary opacity-0 shadow-md transition-opacity duration-75 group-hover:opacity-100">
-              {t.closeToolbar}
-            </span>
-          </div>
+          <IconButton
+            onClick={onClose}
+            variant="close"
+            aria-label={t.closeToolbar}
+            title={t.closeToolbar}
+          >
+            <X className="h-4 w-4" />
+          </IconButton>
         </>
       )}
     </>

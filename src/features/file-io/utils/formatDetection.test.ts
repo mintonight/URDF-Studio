@@ -22,11 +22,25 @@ test('detectFormat classifies sdf documents by extension and content', () => {
   assert.equal(isRobotDefinitionFile('model.sdf'), true);
 });
 
-test('asset and mesh classification includes gltf bundles used by folder imports', () => {
+test('detectFormat classifies MuJoCo include fragments as mjcf', () => {
+  const content = `<?xml version="1.0"?>
+<mujocoinclude>
+  <asset>
+    <mesh name="bin_mesh" file="bin.stl" />
+  </asset>
+</mujocoinclude>`;
+
+  assert.equal(detectFormat(content, 'bin_asset.xml'), 'mjcf');
+  assert.equal(isRobotDefinitionFile('bin_asset.xml'), true);
+});
+
+test('asset and mesh classification includes legacy msh files and gltf bundles used by folder imports', () => {
+  assert.equal(isAssetFile('robot/meshes/base.msh'), true);
   assert.equal(isAssetFile('robot/meshes/base.gltf'), true);
   assert.equal(isAssetFile('robot/meshes/base.glb'), true);
   assert.equal(isAssetFile('robot/meshes/base.vtk'), true);
   assert.equal(isAssetFile('robot/meshes/base.bin'), true);
+  assert.equal(isMeshFile('robot/meshes/base.msh'), true);
   assert.equal(isMeshFile('robot/meshes/base.gltf'), true);
   assert.equal(isMeshFile('robot/meshes/base.glb'), true);
   assert.equal(isMeshFile('robot/meshes/base.vtk'), true);

@@ -133,7 +133,8 @@ test('buildUsdLinkSceneRoot builds visual and collision scopes with joint-author
   assert.equal(baseVisual.userData.usdMaterial.texture, 'textures/base_color.png');
   assert.equal(baseVisual.getObjectByName('box')?.userData.usdDisplayColor, '#12ab34');
   assert.equal(visuals.children[1]?.name, 'visual_1');
-  assert.equal(visuals.children[1]?.getObjectByName('sphere')?.userData.usdDisplayColor, '#12ab34');
+  assert.equal(visuals.children[1]?.userData.usdMaterial?.texture, undefined);
+  assert.equal(visuals.children[1]?.getObjectByName('sphere')?.userData.usdDisplayColor, '#f97316');
 
   const childLink = root.getObjectByName('link1');
   assert.ok(childLink instanceof THREE.Group);

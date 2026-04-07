@@ -214,9 +214,35 @@ test('parses mesh asset refquat and refpos metadata', () => {
   assert.deepEqual(meshes.get('finger'), {
     name: 'finger',
     file: 'finger.stl',
+    vertices: undefined,
     scale: undefined,
     refpos: [1, 2, 3],
     refquat: [0, 0, 0, 1],
+    inertia: undefined,
+  });
+});
+
+test('parses inline mesh assets without external files', () => {
+  const doc = parseXmlDocument(`
+        <mujoco model="inline-mesh">
+          <asset>
+            <mesh
+              name="pyramid"
+              vertex="0 6 0  0 -6 0  0.5 6 0  0.5 -6 0  0.5 6 0.5  0.5 -6 0.5"
+            />
+          </asset>
+        </mujoco>
+    `);
+
+  const meshes = parseMeshAssets(doc);
+
+  assert.deepEqual(meshes.get('pyramid'), {
+    name: 'pyramid',
+    file: undefined,
+    vertices: [0, 6, 0, 0, -6, 0, 0.5, 6, 0, 0.5, -6, 0, 0.5, 6, 0.5, 0.5, -6, 0.5],
+    scale: undefined,
+    refpos: undefined,
+    refquat: undefined,
     inertia: undefined,
   });
 });

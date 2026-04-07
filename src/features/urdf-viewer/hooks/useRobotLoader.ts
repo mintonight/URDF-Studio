@@ -3,6 +3,7 @@ import type { RefObject } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { buildRuntimeRobotFromState, URDFLoader } from '@/core/parsers/urdf/loader';
+import { normalizeLoadingProgress } from '@/shared/components/3d/loadingHudState';
 import { disposeObject3D } from '../utils/dispose';
 import {
   alignRobotToGroundBeforeFirstMount,
@@ -52,6 +53,7 @@ function waitForLoadingHudPaint(invalidate?: () => void): Promise<void> {
 
 interface RobotLoadingProgress {
   phase: RobotLoadingPhase;
+  progressMode?: ViewerDocumentLoadEvent['progressMode'];
   loadedCount?: number | null;
   totalCount?: number | null;
   progressPercent?: number | null;
@@ -74,6 +76,7 @@ export interface UseRobotLoaderOptions {
   onRobotLoaded?: (robot: THREE.Object3D) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   groundPlaneOffset?: number;
+  showMjcfWorldLink?: boolean;
 }
 
 export interface UseRobotLoaderResult {
@@ -98,15 +101,7 @@ function normalizeExternalDocumentLoadEvent(
     return event;
   }
 
-  return {
-    ...event,
-    // AppLayout only needs phase ownership plus terminal ready/error
-    // semantics. Streaming every mesh-level progress tick into the global
-    // document load store makes large MJCF imports excessively chatty.
-    progressPercent: null,
-    loadedCount: null,
-    totalCount: null,
-  };
+  return normalizeLoadingProgress<ViewerDocumentLoadEvent>(event);
 }
 
 function createLoadingDispatchKey(
@@ -133,6 +128,7 @@ export function useRobotLoader({
   onRobotLoaded,
   onDocumentLoadEvent,
   groundPlaneOffset = 0,
+  showMjcfWorldLink = false,
 }: UseRobotLoaderOptions): UseRobotLoaderResult {
   const sourceFileDir = getSourceFileDirectory(sourceFilePath);
   const resolvedSourceFormat = resolveViewerRobotSourceFormat(urdfContent, sourceFormat);
@@ -170,6 +166,7 @@ export function useRobotLoader({
   // Refs for visibility state (used in loading callback)
   const showVisualRef = useRef(showVisual);
   const showCollisionRef = useRef(showCollision);
+  const showMjcfWorldLinkRef = useRef(showMjcfWorldLink);
   const showCollisionAlwaysOnTopRef = useRef(showCollisionAlwaysOnTop);
   const initialJointAnglesRef = useRef(initialJointAngles);
 
@@ -197,6 +194,9 @@ export function useRobotLoader({
   useEffect(() => {
     showCollisionRef.current = showCollision;
   }, [showCollision]);
+  useEffect(() => {
+    showMjcfWorldLinkRef.current = showMjcfWorldLink;
+  }, [showMjcfWorldLink]);
   useEffect(() => {
     showCollisionAlwaysOnTopRef.current = showCollisionAlwaysOnTop;
   }, [showCollisionAlwaysOnTop]);
@@ -528,18 +528,18 @@ export function useRobotLoader({
       try {
         setIsLoading(true);
         publishLoadingDispatch(
-          {
+          normalizeLoadingProgress<RobotLoadingProgress>({
             phase: 'preparing-scene',
             progressPercent: null,
-          },
-          {
+          }),
+          normalizeLoadingProgress<ViewerDocumentLoadEvent>({
             status: 'loading',
             phase: 'preparing-scene',
             progressPercent: null,
             loadedCount: null,
             totalCount: null,
             message: null,
-          },
+          }),
         );
         setError(null);
         invalidate?.();
@@ -565,6 +565,7 @@ export function useRobotLoader({
             sourceFormat: resolvedSourceFormat,
             showCollision: showCollisionRef.current,
             showVisual: showVisualRef.current,
+            showMjcfWorldLink: showMjcfWorldLinkRef.current,
             showCollisionAlwaysOnTop: showCollisionAlwaysOnTopRef.current,
             urdfMaterials,
             robotLinks,
@@ -636,14 +637,17 @@ export function useRobotLoader({
           }
 
           setIsLoading(false);
-          publishLoadingDispatch(null, {
-            status: 'ready',
-            phase: 'ready',
-            progressPercent: 100,
-            loadedCount: null,
-            totalCount: null,
-            message: null,
-          });
+          publishLoadingDispatch(
+            null,
+            normalizeLoadingProgress({
+              status: 'ready',
+              phase: 'ready',
+              progressPercent: 100,
+              loadedCount: null,
+              totalCount: null,
+              message: null,
+            }),
+          );
           setError(null);
           invalidate();
           if (wasMountedBeforeFinalize) {
@@ -667,29 +671,30 @@ export function useRobotLoader({
               const normalizedProgress =
                 nextProgress.phase === 'ready'
                   ? null
-                  : {
+                  : normalizeLoadingProgress<RobotLoadingProgress>({
                       phase: nextProgress.phase,
                       loadedCount: nextProgress.loadedCount ?? null,
                       totalCount: nextProgress.totalCount ?? null,
                       progressPercent: nextProgress.progressPercent ?? null,
-                    };
+                    });
               if (nextProgress.phase !== 'ready') {
                 publishLoadingDispatch(
                   normalizedProgress,
-                  {
+                  normalizeLoadingProgress<ViewerDocumentLoadEvent>({
                     status: 'loading',
                     phase: nextProgress.phase,
                     progressPercent: nextProgress.progressPercent ?? null,
                     loadedCount: nextProgress.loadedCount ?? null,
                     totalCount: nextProgress.totalCount ?? null,
                     message: null,
-                  },
+                  }),
                   { defer: true },
                 );
               }
             },
             {
               abortSignal: abortController,
+              onAsyncSceneMutation: () => invalidate(),
             },
           );
 
@@ -727,20 +732,20 @@ export function useRobotLoader({
             }
 
             publishLoadingDispatch(
-              {
+              normalizeLoadingProgress<RobotLoadingProgress>({
                 phase: 'streaming-meshes',
                 loadedCount: Math.min(itemsLoaded, adjustedTotalCount),
                 totalCount: adjustedTotalCount,
                 progressPercent: null,
-              },
-              {
+              }),
+              normalizeLoadingProgress<ViewerDocumentLoadEvent>({
                 status: 'loading',
                 phase: 'streaming-meshes',
                 progressPercent: null,
                 loadedCount: Math.min(itemsLoaded, adjustedTotalCount),
                 totalCount: adjustedTotalCount,
                 message: null,
-              },
+              }),
               { defer: true },
             );
           };
@@ -749,20 +754,24 @@ export function useRobotLoader({
             if (!abortController.aborted && isMountedRef.current) {
               const currentProgress =
                 pendingLoadingDispatchRef.current?.progress ?? lastPublishedProgressRef.current;
-              const nextProgress: RobotLoadingProgress = {
-                phase: 'finalizing-scene',
-                loadedCount: currentProgress?.totalCount ?? currentProgress?.loadedCount ?? null,
-                totalCount: currentProgress?.totalCount ?? null,
-                progressPercent: currentProgress?.totalCount ? 100 : 96,
-              };
-              publishLoadingDispatch(nextProgress, {
-                status: 'loading',
-                phase: nextProgress.phase,
-                progressPercent: nextProgress.progressPercent ?? null,
-                loadedCount: nextProgress.loadedCount ?? null,
-                totalCount: nextProgress.totalCount ?? null,
-                message: null,
-              });
+              const nextProgress: RobotLoadingProgress =
+                normalizeLoadingProgress<RobotLoadingProgress>({
+                  phase: 'finalizing-scene',
+                  loadedCount: currentProgress?.loadedCount ?? null,
+                  totalCount: currentProgress?.totalCount ?? null,
+                  progressPercent: currentProgress?.progressPercent ?? null,
+                });
+              publishLoadingDispatch(
+                nextProgress,
+                normalizeLoadingProgress<ViewerDocumentLoadEvent>({
+                  status: 'loading',
+                  phase: nextProgress.phase,
+                  progressPercent: nextProgress.progressPercent ?? null,
+                  loadedCount: nextProgress.loadedCount ?? null,
+                  totalCount: nextProgress.totalCount ?? null,
+                  message: null,
+                }),
+              );
             }
             void finalizeLoadedRobot(robotModel);
           };
@@ -840,18 +849,25 @@ export function useRobotLoader({
         if (robotModel && isMountedRef.current) {
           const currentProgress =
             pendingLoadingDispatchRef.current?.progress ?? lastPublishedProgressRef.current;
-          const nextProgress = currentProgress ?? {
-            phase: 'finalizing-scene',
-            progressPercent: 96,
-          };
-          publishLoadingDispatch(nextProgress, {
-            status: 'loading',
-            phase: 'finalizing-scene',
-            progressPercent: nextProgress.progressPercent ?? 96,
-            loadedCount: nextProgress.loadedCount ?? null,
-            totalCount: nextProgress.totalCount ?? null,
-            message: null,
-          });
+          const nextProgress =
+            currentProgress ??
+            normalizeLoadingProgress<RobotLoadingProgress>({
+              phase: 'finalizing-scene',
+              loadedCount: null,
+              totalCount: null,
+              progressPercent: null,
+            });
+          publishLoadingDispatch(
+            nextProgress,
+            normalizeLoadingProgress<ViewerDocumentLoadEvent>({
+              status: 'loading',
+              phase: 'finalizing-scene',
+              progressPercent: nextProgress.progressPercent ?? null,
+              loadedCount: nextProgress.loadedCount ?? null,
+              totalCount: nextProgress.totalCount ?? null,
+              message: null,
+            }),
+          );
           void finalizeLoadedRobot(robotModel);
         } else if (robotModel) {
           // Aborted or unmounted after load but before we could use it
@@ -866,6 +882,7 @@ export function useRobotLoader({
           publishLoadingDispatch(null, {
             status: 'error',
             phase: null,
+            progressMode: null,
             progressPercent: null,
             loadedCount: null,
             totalCount: null,

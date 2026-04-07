@@ -8,6 +8,10 @@ import {
   createObjectFromSerializedObjData,
   loadSerializedObjModelData,
 } from '@/core/loaders/objParseWorkerBridge';
+import {
+  createGeometryFromSerializedMshData,
+  parseMshGeometryData,
+} from '@/core/loaders/mshGeometryData';
 import { createGeometryFromSerializedStlData } from '@/core/loaders/stlGeometryData';
 import { loadSerializedStlGeometryData } from '@/core/loaders/stlParseWorkerBridge';
 import { prepareMeshSurfaceForSingleSidedRendering } from '@/core/loaders';
@@ -133,6 +137,27 @@ const loadCachedMJCFMeshAsset = async (
     if (extension === 'stl') {
       const serializedGeometry = await loadSerializedStlGeometryData(assetUrl);
       const geometry = createGeometryFromSerializedStlData(serializedGeometry);
+      if (abortSignal?.aborted) {
+        geometry.dispose();
+        throwIfMJCFLoadAborted(abortSignal);
+      }
+      return {
+        createInstance: () => new THREE.Mesh(geometry, createDefaultMaterial()),
+        disposeSource: () => geometry.dispose(),
+      };
+    }
+
+    if (extension === 'msh') {
+      const response = await fetch(assetUrl);
+      if (!response.ok) {
+        throw createMJCFMeshLoadError(
+          filePath,
+          `Failed to fetch legacy msh asset (${response.status} ${response.statusText})`,
+        );
+      }
+
+      const serializedGeometry = parseMshGeometryData(await response.arrayBuffer());
+      const geometry = createGeometryFromSerializedMshData(serializedGeometry);
       if (abortSignal?.aborted) {
         geometry.dispose();
         throwIfMJCFLoadAborted(abortSignal);

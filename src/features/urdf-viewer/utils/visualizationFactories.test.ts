@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { Material, Mesh } from 'three';
+import * as THREE from 'three';
+import type { LineSegments, Material, Mesh } from 'three';
 
-import { createOriginAxes } from './visualizationFactories.ts';
+import { ignoreRaycast } from '@/shared/utils/three/ignoreRaycast';
+import { narrowLineRaycast } from '@/shared/utils/three/narrowLineRaycast';
+import { createInertiaBox, createOriginAxes } from './visualizationFactories.ts';
 
 function collectMeshMaterials(originAxes: ReturnType<typeof createOriginAxes>) {
   const materials: Material[] = [];
@@ -35,4 +38,17 @@ test('createOriginAxes defaults to participating in depth occlusion', () => {
     assert.equal(material.depthWrite, true);
     assert.equal(material.transparent, false);
   });
+});
+
+test('createInertiaBox keeps fill visual-only and uses the outline for narrow picking', () => {
+  const inertiaBox = createInertiaBox(1, 2, 3, new THREE.Quaternion());
+  const fillMesh = inertiaBox.children.find((child) => (child as Mesh).isMesh) as Mesh | undefined;
+  const outline = inertiaBox.children.find((child) => (child as LineSegments).isLineSegments) as
+    | LineSegments
+    | undefined;
+
+  assert.ok(fillMesh, 'inertia box should include a filled mesh');
+  assert.ok(outline, 'inertia box should include an outline');
+  assert.equal(fillMesh?.raycast, ignoreRaycast);
+  assert.equal(outline?.raycast, narrowLineRaycast);
 });

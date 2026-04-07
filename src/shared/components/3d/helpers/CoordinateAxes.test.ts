@@ -9,6 +9,16 @@ test('ThickerAxes can render with default opacity-dependent depthWrite resolutio
   });
 });
 
+test('ThickerAxes accepts interactive hover and selection affordance props', () => {
+  assert.doesNotThrow(() => {
+    ThickerAxes({
+      interactive: true,
+      hovered: true,
+      selected: true,
+    });
+  });
+});
+
 test('WorldOriginAxes can render with default props', () => {
   assert.doesNotThrow(() => {
     WorldOriginAxes({});

@@ -19,6 +19,7 @@ test('MeshAssetNode routes STL assets to STLRenderer', () => {
 
     assert.equal(element.type, STLRenderer);
     assert.equal(element.props.url, 'blob:stl');
+    assert.equal(element.props.enableShadows, true);
   } finally {
     material.dispose();
   }
@@ -39,6 +40,7 @@ test('MeshAssetNode routes OBJ assets with the derived base directory', () => {
     assert.equal(element.props.url, 'blob:obj');
     assert.equal(element.props.color, '#abcdef');
     assert.equal(element.props.assetBaseDir, 'robots/go2/meshes/');
+    assert.equal(element.props.enableShadows, true);
   } finally {
     material.dispose();
   }
@@ -59,15 +61,18 @@ test('MeshAssetNode routes Collada and GLTF assets with material preservation fl
     assert.equal(daeElement.type, DAERenderer);
     assert.equal(daeElement.props.normalizeRoot, true);
     assert.equal(daeElement.props.preserveOriginalMaterial, true);
+    assert.equal(daeElement.props.enableShadows, true);
 
     const gltfElement = MeshAssetNode({
       meshPath: 'meshes/visual.glb',
       assets: { 'meshes/visual.glb': 'blob:gltf' },
       material: gltfMaterial,
+      enableShadows: false,
       preserveOriginalMaterial: true,
     }) as React.ReactElement<React.ComponentProps<typeof GLTFRenderer>>;
     assert.equal(gltfElement.type, GLTFRenderer);
     assert.equal(gltfElement.props.preserveOriginalMaterial, true);
+    assert.equal(gltfElement.props.enableShadows, false);
   } finally {
     daeMaterial.dispose();
     gltfMaterial.dispose();

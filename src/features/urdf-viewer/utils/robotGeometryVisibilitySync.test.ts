@@ -41,6 +41,7 @@ test('syncRobotGeometryVisibility skips hidden collider subtrees while still syn
 
   const changed = syncRobotGeometryVisibility({
     robot,
+    sourceFormat: 'urdf',
     showCollision: false,
     showVisual: true,
   });
@@ -83,11 +84,13 @@ test('syncRobotGeometryVisibility applies collision overlays without re-enabling
 
   const changedFirstPass = syncRobotGeometryVisibility({
     robot,
+    sourceFormat: 'urdf',
     showCollision: true,
     showVisual: false,
   });
   const changedSecondPass = syncRobotGeometryVisibility({
     robot,
+    sourceFormat: 'urdf',
     showCollision: true,
     showVisual: false,
   });
@@ -129,6 +132,7 @@ test('syncRobotGeometryVisibility hides collisions when the parent link is hidde
         visible: false,
       },
     },
+    sourceFormat: 'urdf',
     showCollision: true,
     showVisual: true,
   });
@@ -157,6 +161,7 @@ test('syncRobotGeometryVisibility respects non-topmost collision rendering mode'
 
   const changed = syncRobotGeometryVisibility({
     robot,
+    sourceFormat: 'urdf',
     showCollision: true,
     showVisual: false,
     showCollisionAlwaysOnTop: false,
@@ -167,4 +172,44 @@ test('syncRobotGeometryVisibility respects non-topmost collision rendering mode'
   assert.equal(collisionMesh.material, collisionBaseMaterial);
   assert.equal(collisionMesh.renderOrder, COLLISION_STANDARD_RENDER_ORDER);
   assert.equal(collisionBaseMaterial.depthTest, true);
+});
+
+test('syncRobotGeometryVisibility hides MJCF world visuals and collisions even without semantic robot link data', () => {
+  const robot = new THREE.Group();
+  const worldLink = new URDFLink();
+  worldLink.name = 'world';
+
+  const visualGroup = new URDFVisual();
+  visualGroup.userData.isVisualGroup = true;
+  const visualMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: 0x999999 }),
+  );
+  visualMesh.userData.isVisual = true;
+  visualGroup.add(visualMesh);
+
+  const collisionGroup = new THREE.Group();
+  (collisionGroup as any).isURDFCollider = true;
+  const collisionMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.1),
+    new THREE.MeshBasicMaterial({ color: 0xffffff }),
+  );
+  collisionGroup.add(collisionMesh);
+
+  worldLink.add(visualGroup);
+  worldLink.add(collisionGroup);
+  robot.add(worldLink);
+
+  const changed = syncRobotGeometryVisibility({
+    robot,
+    sourceFormat: 'mjcf',
+    showCollision: true,
+    showVisual: true,
+    showMjcfWorldLink: false,
+  });
+
+  assert.equal(changed, true);
+  assert.equal(visualGroup.visible, false);
+  assert.equal(visualMesh.visible, false);
+  assert.equal(collisionGroup.visible, false);
 });

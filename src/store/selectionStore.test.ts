@@ -112,6 +112,34 @@ test('hover state updates when helper identity changes on the same link', () => 
   });
 });
 
+test('hover state updates when the highlighted object changes on the same link', () => {
+  resetSelectionStore();
+
+  const state = useSelectionStore.getState();
+  state.setHoveredSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+    highlightObjectId: 101,
+  });
+  state.setHoveredSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+    highlightObjectId: 202,
+  });
+
+  assert.deepEqual(useSelectionStore.getState().hoveredSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+    highlightObjectId: 202,
+  });
+});
+
 test('empty string ids are normalized to the empty selection state', () => {
   resetSelectionStore();
 

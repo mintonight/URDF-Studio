@@ -2,11 +2,7 @@ import * as THREE from 'three';
 
 import type { ViewerHelperKind, ViewerInteractiveLayer } from '../types';
 import type { ViewerRobotDataResolution } from './viewerRobotData';
-import {
-  hasPickableMaterial,
-  isSelectableHelperObject,
-  isVisibleInHierarchy,
-} from './pickFilter';
+import { hasPickableMaterial, isSelectableHelperObject, isVisibleInHierarchy } from './pickFilter';
 
 export type UsdInteractiveGeometryRole = 'visual' | 'collision';
 
@@ -73,15 +69,18 @@ function resolveHelperKind(object: THREE.Object3D | null): ViewerHelperKind | nu
   while (current) {
     const explicitHelperKind = current.userData?.viewerHelperKind;
     if (
-      explicitHelperKind === 'center-of-mass'
-      || explicitHelperKind === 'inertia'
-      || explicitHelperKind === 'origin-axes'
-      || explicitHelperKind === 'joint-axis'
+      explicitHelperKind === 'ik-handle' ||
+      explicitHelperKind === 'center-of-mass' ||
+      explicitHelperKind === 'inertia' ||
+      explicitHelperKind === 'origin-axes' ||
+      explicitHelperKind === 'joint-axis'
     ) {
       return explicitHelperKind;
     }
 
     switch (current.name) {
+      case '__ik_handle__':
+        return 'ik-handle';
       case '__com_visual__':
         return 'center-of-mass';
       case '__inertia_box__':
@@ -103,6 +102,8 @@ function resolveHelperKind(object: THREE.Object3D | null): ViewerHelperKind | nu
 
 function resolveHelperLayer(helperKind: ViewerHelperKind): ViewerInteractiveLayer {
   switch (helperKind) {
+    case 'ik-handle':
+      return 'ik-handle';
     case 'origin-axes':
       return 'origin-axes';
     case 'joint-axis':
@@ -142,10 +143,12 @@ function resolveHelperJointId(
   object: THREE.Object3D,
   resolution: ViewerRobotDataResolution,
 ): string | null {
-  const helperWithJointId = findAncestor(object, (candidate) => (
-    typeof candidate.userData?.usdJointId === 'string'
-      && candidate.userData.usdJointId.trim().length > 0
-  ));
+  const helperWithJointId = findAncestor(
+    object,
+    (candidate) =>
+      typeof candidate.userData?.usdJointId === 'string' &&
+      candidate.userData.usdJointId.trim().length > 0,
+  );
   if (helperWithJointId) {
     return helperWithJointId.userData.usdJointId.trim();
   }
@@ -155,9 +158,11 @@ function resolveHelperJointId(
     return null;
   }
 
-  return Object.entries(resolution.childLinkPathByJointId).find(([, candidateLinkPath]) => (
-    normalizeUsdPathToken(candidateLinkPath) === linkPath
-  ))?.[0] ?? null;
+  return (
+    Object.entries(resolution.childLinkPathByJointId).find(
+      ([, candidateLinkPath]) => normalizeUsdPathToken(candidateLinkPath) === linkPath,
+    )?.[0] ?? null
+  );
 }
 
 function resolveHelperLinkId(
@@ -229,7 +234,10 @@ function getInteractionScore<TMeta>(
   candidate: UsdInteractionCandidate<TMeta>,
   interactionLayerPriority: readonly ViewerInteractiveLayer[] | undefined,
 ): number {
-  const layerPriorityScore = getInteractionLayerPriorityScore(candidate.layer, interactionLayerPriority);
+  const layerPriorityScore = getInteractionLayerPriorityScore(
+    candidate.layer,
+    interactionLayerPriority,
+  );
   const helperBias = layerPriorityScore === 0 && candidate.kind === 'helper' ? 100_000 : 0;
   const overlayBias = hasOverlayPresentation(candidate.object) ? 10_000 : 0;
 
@@ -262,12 +270,7 @@ export function resolvePreferredUsdGeometryRole(options: {
   showCollision: boolean;
   showCollisionAlwaysOnTop: boolean;
 }): UsdInteractiveGeometryRole | null {
-  const {
-    interactionLayerPriority,
-    showVisual,
-    showCollision,
-    showCollisionAlwaysOnTop,
-  } = options;
+  const { interactionLayerPriority, showVisual, showCollision, showCollisionAlwaysOnTop } = options;
 
   if (interactionLayerPriority && interactionLayerPriority.length > 0) {
     for (const layer of interactionLayerPriority) {
@@ -343,6 +346,7 @@ export function isUsdPickableHelperObject(object: THREE.Object3D | null): boolea
     return false;
   }
 
-  const material = (object as THREE.Mesh & { material?: THREE.Material | THREE.Material[] }).material;
+  const material = (object as THREE.Mesh & { material?: THREE.Material | THREE.Material[] })
+    .material;
   return material === undefined || hasPickableMaterial(material);
 }

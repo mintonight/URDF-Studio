@@ -1,9 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BackSide, BoxGeometry, DoubleSide, FrontSide, Group, MeshPhysicalMaterial } from 'three';
+import { BackSide, BoxGeometry, Color, DoubleSide, FrontSide, Group, MeshPhysicalMaterial, SRGBColorSpace } from 'three';
 
 import { isCoplanarOffsetMaterial } from '../../../../../core/loaders/coplanarMaterialOffset.ts';
 import { HydraMesh } from './HydraMesh.js';
+
+function assertColorClose(actual: Color, expected: Color, epsilon = 1e-6) {
+    assert.ok(Math.abs(actual.r - expected.r) <= epsilon, `expected r=${actual.r} to be close to ${expected.r}`);
+    assert.ok(Math.abs(actual.g - expected.g) <= epsilon, `expected g=${actual.g} to be close to ${expected.g}`);
+    assert.ok(Math.abs(actual.b - expected.b) <= epsilon, `expected b=${actual.b} to be close to ${expected.b}`);
+}
 
 const createHydraInterfaceStub = () => ({
     config: {
@@ -30,6 +36,8 @@ test('HydraMesh defaults to front-face culling and honors sidedness updates', ()
         : hydraMesh._mesh.material;
 
     assert.ok(material);
+    assert.equal(material.isMeshStandardMaterial, true);
+    assert.notEqual(material.isMeshPhysicalMaterial, true);
     assert.equal(material.side, FrontSide);
 
     hydraMesh.setDoubleSided(true);
@@ -46,6 +54,20 @@ test('HydraMesh defaults to front-face culling and honors sidedness updates', ()
 
     hydraMesh.setCullStyle('nothing');
     assert.equal(material.side, DoubleSide);
+});
+
+test('HydraMesh interprets displayColor constant values as SRGB-authored colors', () => {
+    const hydraMesh = new HydraMesh('Mesh', '/robot/base_link/mesh', createHydraInterfaceStub());
+    const material = Array.isArray(hydraMesh._mesh.material)
+        ? hydraMesh._mesh.material[0]
+        : hydraMesh._mesh.material;
+
+    hydraMesh.setDisplayColor([1, 0.5, 0.2], 'constant');
+
+    const expectedColor = new Color().setRGB(1, 0.5, 0.2, SRGBColorSpace);
+    assert.ok(material);
+    assert.equal(material.vertexColors, false);
+    assertColorClose(material.color, expectedColor);
 });
 
 test('HydraMesh stabilizes coincident visual proto meshes on the same link', () => {

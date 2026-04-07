@@ -20,6 +20,7 @@ import {
   type UnifiedTransformControlsProps,
   type UniversalOwner,
 } from './unified-transform-controls/helpers';
+import { clearControlPointerState } from './unified-transform-controls/pointerState';
 
 export {
   VISUALIZER_UNIFIED_GIZMO_SIZE,
@@ -84,6 +85,8 @@ export const UnifiedTransformControls = forwardRef<any, UnifiedTransformControls
       const releasedRotate = forceReleaseTransformControl(effectiveRotateRef.current);
 
       if (releasedTranslate || releasedRotate) {
+        clearControlPointerState(translateRef.current);
+        clearControlPointerState(effectiveRotateRef.current);
         universalOwnerRef.current = null;
       }
 
@@ -112,23 +115,10 @@ export const UnifiedTransformControls = forwardRef<any, UnifiedTransformControls
     }, [defaultControls]);
 
     const clearHoveredAxes = useCallback(() => {
-      if (
-        translateRef.current &&
-        !translateRef.current.dragging &&
-        translateRef.current.axis !== null
-      ) {
-        translateRef.current.axis = null;
+      clearControlPointerState(translateRef.current);
+      if (effectiveRotateRef.current !== translateRef.current) {
+        clearControlPointerState(effectiveRotateRef.current);
       }
-
-      if (
-        effectiveRotateRef.current &&
-        effectiveRotateRef.current !== translateRef.current &&
-        !effectiveRotateRef.current.dragging &&
-        effectiveRotateRef.current.axis !== null
-      ) {
-        effectiveRotateRef.current.axis = null;
-      }
-
       universalOwnerRef.current = null;
     }, [effectiveRotateRef]);
 
@@ -164,10 +154,11 @@ export const UnifiedTransformControls = forwardRef<any, UnifiedTransformControls
 
     const handleControlMouseUp = useCallback(
       (event: any) => {
+        clearHoveredAxes();
         restoreDefaultControls();
         onMouseUp?.(event);
       },
-      [onMouseUp, restoreDefaultControls],
+      [clearHoveredAxes, onMouseUp, restoreDefaultControls],
     );
 
     const handleControlDraggingChanged = useCallback(
@@ -175,12 +166,13 @@ export const UnifiedTransformControls = forwardRef<any, UnifiedTransformControls
         if (event?.value) {
           suppressDefaultControls();
         } else {
+          clearHoveredAxes();
           restoreDefaultControls();
         }
 
         onDraggingChanged?.(event);
       },
-      [onDraggingChanged, restoreDefaultControls, suppressDefaultControls],
+      [clearHoveredAxes, onDraggingChanged, restoreDefaultControls, suppressDefaultControls],
     );
 
     useEffect(() => {

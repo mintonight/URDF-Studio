@@ -3,12 +3,7 @@ import assert from 'node:assert/strict';
 
 import * as THREE from 'three';
 
-import {
-  DEFAULT_JOINT,
-  DEFAULT_LINK,
-  GeometryType,
-  JointType,
-} from '@/types';
+import { DEFAULT_JOINT, DEFAULT_LINK, GeometryType, JointType } from '@/types';
 import { createOriginMatrix } from '@/core/robot/kinematics';
 import type { ViewerRobotDataResolution } from './viewerRobotData';
 import { hydrateUsdViewerRobotResolutionFromRuntime } from './usdRuntimeRobotHydration.ts';
@@ -24,7 +19,11 @@ function composeMatrix(
   );
 }
 
-function assertMatrixClose(actualOrigin: Parameters<typeof createOriginMatrix>[0], expectedMatrix: THREE.Matrix4, message: string): void {
+function assertMatrixClose(
+  actualOrigin: Parameters<typeof createOriginMatrix>[0],
+  expectedMatrix: THREE.Matrix4,
+  message: string,
+): void {
   const actualMatrix = createOriginMatrix(actualOrigin);
   const actualElements = actualMatrix.elements;
   const expectedElements = expectedMatrix.elements;
@@ -40,10 +39,18 @@ function assertMatrixClose(actualOrigin: Parameters<typeof createOriginMatrix>[0
 test('hydrateUsdViewerRobotResolutionFromRuntime syncs runtime link and mesh transforms into exportable robot data', () => {
   const baseWorld = composeMatrix({ x: 0, y: 0, z: 0 });
   const childWorld = composeMatrix({ x: 1, y: 2, z: 3 }, { r: 0.05, p: 0.1, y: 0.15 });
-  const visualPrimaryWorld = childWorld.clone().multiply(composeMatrix({ x: 0.4, y: 0.5, z: 0.6 }, { r: 0.02, p: 0.03, y: 0.04 }));
-  const visualAttachmentWorld = childWorld.clone().multiply(composeMatrix({ x: -0.2, y: 0.3, z: 0.7 }, { r: 0.1, p: 0, y: 0 }));
-  const collisionPrimaryWorld = childWorld.clone().multiply(composeMatrix({ x: 0.1, y: 0.2, z: 0.3 }, { r: 0, p: 0.08, y: 0 }));
-  const collisionSecondaryWorld = childWorld.clone().multiply(composeMatrix({ x: 0.5, y: 0.6, z: 0.7 }, { r: 0, p: 0, y: 0.2 }));
+  const visualPrimaryWorld = childWorld
+    .clone()
+    .multiply(composeMatrix({ x: 0.4, y: 0.5, z: 0.6 }, { r: 0.02, p: 0.03, y: 0.04 }));
+  const visualAttachmentWorld = childWorld
+    .clone()
+    .multiply(composeMatrix({ x: -0.2, y: 0.3, z: 0.7 }, { r: 0.1, p: 0, y: 0 }));
+  const collisionPrimaryWorld = childWorld
+    .clone()
+    .multiply(composeMatrix({ x: 0.1, y: 0.2, z: 0.3 }, { r: 0, p: 0.08, y: 0 }));
+  const collisionSecondaryWorld = childWorld
+    .clone()
+    .multiply(composeMatrix({ x: 0.5, y: 0.6, z: 0.7 }, { r: 0, p: 0, y: 0.2 }));
 
   const resolution: ViewerRobotDataResolution = {
     stageSourcePath: '/robots/demo/runtime.usd',
@@ -224,24 +231,134 @@ test('hydrateUsdViewerRobotResolutionFromRuntime syncs runtime link and mesh tra
   );
 });
 
+test('hydrateUsdViewerRobotResolutionFromRuntime repositions inertial origin when the runtime link frame moves', () => {
+  const baseWorld = composeMatrix({ x: 0, y: 0, z: 0 });
+  const previousJointOrigin = {
+    xyz: { x: 0.25, y: -0.15, z: 0.4 },
+    rpy: { r: 0.03, p: -0.02, y: 0.01 },
+  };
+  const previousJointMatrix = composeMatrix(previousJointOrigin.xyz, previousJointOrigin.rpy);
+  const runtimeChildWorld = composeMatrix(
+    { x: 1.2, y: 2.1, z: -0.7 },
+    { r: 0.08, p: 0.04, y: -0.12 },
+  );
+
+  const inertialOrigin = {
+    xyz: { x: 0.35, y: -0.25, z: 0.5 },
+    rpy: { r: 0.02, p: 0.06, y: -0.03 },
+  };
+
+  const resolution: ViewerRobotDataResolution = {
+    stageSourcePath: '/robots/demo/runtime_inertial.usd',
+    linkIdByPath: {
+      '/Robot/base_link': 'base_link',
+      '/Robot/arm_link': 'arm_link',
+    },
+    linkPathById: {
+      base_link: '/Robot/base_link',
+      arm_link: '/Robot/arm_link',
+    },
+    jointPathById: {
+      arm_joint: '/Robot/joints/arm_joint',
+    },
+    childLinkPathByJointId: {
+      arm_joint: '/Robot/arm_link',
+    },
+    parentLinkPathByJointId: {
+      arm_joint: '/Robot/base_link',
+    },
+    robotData: {
+      name: 'runtime_inertial',
+      rootLinkId: 'base_link',
+      links: {
+        base_link: {
+          ...DEFAULT_LINK,
+          id: 'base_link',
+          name: 'base_link',
+          visible: true,
+          visual: {
+            ...DEFAULT_LINK.visual,
+            type: GeometryType.NONE,
+          },
+          collision: {
+            ...DEFAULT_LINK.collision,
+            type: GeometryType.NONE,
+          },
+        },
+        arm_link: {
+          ...DEFAULT_LINK,
+          id: 'arm_link',
+          name: 'arm_link',
+          visible: true,
+          visual: {
+            ...DEFAULT_LINK.visual,
+            type: GeometryType.NONE,
+          },
+          collision: {
+            ...DEFAULT_LINK.collision,
+            type: GeometryType.NONE,
+          },
+          inertial: {
+            ...DEFAULT_LINK.inertial,
+            mass: 4.2,
+            origin: inertialOrigin,
+          },
+        },
+      },
+      joints: {
+        arm_joint: {
+          ...DEFAULT_JOINT,
+          id: 'arm_joint',
+          name: 'arm_joint',
+          type: JointType.FIXED,
+          parentLinkId: 'base_link',
+          childLinkId: 'arm_link',
+          origin: previousJointOrigin,
+          axis: { x: 0, y: 0, z: 1 },
+        },
+      },
+    },
+  };
+
+  const hydrated = hydrateUsdViewerRobotResolutionFromRuntime(resolution, null, {
+    getPreferredLinkWorldTransform: (linkPath: string) => {
+      if (linkPath === '/Robot/base_link') return baseWorld.clone();
+      if (linkPath === '/Robot/arm_link') return runtimeChildWorld.clone();
+      return null;
+    },
+    getWorldTransformForPrimPath: () => null,
+  });
+
+  assertMatrixClose(
+    hydrated.robotData.joints.arm_joint.origin,
+    baseWorld.clone().invert().multiply(runtimeChildWorld.clone()),
+    'joint origin should match the runtime child link transform',
+  );
+  assertMatrixClose(
+    hydrated.robotData.links.arm_link.inertial.origin,
+    runtimeChildWorld
+      .clone()
+      .invert()
+      .multiply(previousJointMatrix.clone())
+      .multiply(createOriginMatrix(inertialOrigin)),
+    'inertial origin should stay attached to the link when the link frame is realigned to runtime data',
+  );
+});
+
 test('hydrateUsdViewerRobotResolutionFromRuntime synthesizes attachment visuals and collision bodies for extra mesh descriptors in a single authored scope', () => {
   const baseWorld = composeMatrix({ x: 1.5, y: -0.5, z: 0.25 }, { r: 0.02, p: -0.03, y: 0.04 });
-  const primaryVisualWorld = baseWorld.clone().multiply(composeMatrix(
-    { x: 0.2, y: 0.1, z: 0.3 },
-    { r: 0.01, p: 0.02, y: 0.03 },
-  ));
-  const extraVisualWorld = baseWorld.clone().multiply(composeMatrix(
-    { x: -0.35, y: 0.45, z: 0.6 },
-    { r: 0.04, p: -0.01, y: 0.05 },
-  ));
-  const primaryCollisionWorld = baseWorld.clone().multiply(composeMatrix(
-    { x: 0.12, y: -0.08, z: 0.18 },
-    { r: 0.02, p: 0.01, y: -0.03 },
-  ));
-  const extraCollisionWorld = baseWorld.clone().multiply(composeMatrix(
-    { x: -0.22, y: 0.16, z: 0.42 },
-    { r: -0.01, p: 0.03, y: 0.04 },
-  ));
+  const primaryVisualWorld = baseWorld
+    .clone()
+    .multiply(composeMatrix({ x: 0.2, y: 0.1, z: 0.3 }, { r: 0.01, p: 0.02, y: 0.03 }));
+  const extraVisualWorld = baseWorld
+    .clone()
+    .multiply(composeMatrix({ x: -0.35, y: 0.45, z: 0.6 }, { r: 0.04, p: -0.01, y: 0.05 }));
+  const primaryCollisionWorld = baseWorld
+    .clone()
+    .multiply(composeMatrix({ x: 0.12, y: -0.08, z: 0.18 }, { r: 0.02, p: 0.01, y: -0.03 }));
+  const extraCollisionWorld = baseWorld
+    .clone()
+    .multiply(composeMatrix({ x: -0.22, y: 0.16, z: 0.42 }, { r: -0.01, p: 0.03, y: 0.04 }));
 
   const resolution: ViewerRobotDataResolution = {
     stageSourcePath: '/robots/demo/grouped_scope.usd',
@@ -307,14 +424,17 @@ test('hydrateUsdViewerRobotResolutionFromRuntime synthesizes attachment visuals 
   };
 
   const hydrated = hydrateUsdViewerRobotResolutionFromRuntime(resolution, snapshot as any, {
-    getPreferredLinkWorldTransform: (linkPath: string) => (
-      linkPath === '/Robot/base_link' ? baseWorld.clone() : null
-    ),
+    getPreferredLinkWorldTransform: (linkPath: string) =>
+      linkPath === '/Robot/base_link' ? baseWorld.clone() : null,
     getWorldTransformForPrimPath: (primPath: string) => {
-      if (primPath === '/Robot/base_link/visuals/visual_0/Scene/ros_body1') return primaryVisualWorld.clone();
-      if (primPath === '/Robot/base_link/visuals/visual_0/Scene/ros_body1_1') return extraVisualWorld.clone();
-      if (primPath === '/Robot/base_link/collisions/collision_0/Scene/collider') return primaryCollisionWorld.clone();
-      if (primPath === '/Robot/base_link/collisions/collision_0/Scene/collider_1') return extraCollisionWorld.clone();
+      if (primPath === '/Robot/base_link/visuals/visual_0/Scene/ros_body1')
+        return primaryVisualWorld.clone();
+      if (primPath === '/Robot/base_link/visuals/visual_0/Scene/ros_body1_1')
+        return extraVisualWorld.clone();
+      if (primPath === '/Robot/base_link/collisions/collision_0/Scene/collider')
+        return primaryCollisionWorld.clone();
+      if (primPath === '/Robot/base_link/collisions/collision_0/Scene/collider_1')
+        return extraCollisionWorld.clone();
       return null;
     },
   });
@@ -337,14 +457,23 @@ test('hydrateUsdViewerRobotResolutionFromRuntime synthesizes attachment visuals 
     'extra collision descriptor should hydrate onto a synthetic collision body',
   );
 
-  const attachmentLink = Object.values(hydrated.robotData.links).find((link) => (
-    link.id !== 'base_link'
-    && link.visual.type === GeometryType.MESH
-    && (link.inertial?.mass || 0) === 0
-  ));
-  assert.ok(attachmentLink, 'expected a synthetic visual attachment link for the extra mesh descriptor');
-  const attachmentJoint = Object.values(hydrated.robotData.joints).find((joint) => joint.childLinkId === attachmentLink?.id);
-  assert.ok(attachmentJoint, 'expected a fixed joint anchoring the synthetic visual attachment link');
+  const attachmentLink = Object.values(hydrated.robotData.links).find(
+    (link) =>
+      link.id !== 'base_link' &&
+      link.visual.type === GeometryType.MESH &&
+      (link.inertial?.mass || 0) === 0,
+  );
+  assert.ok(
+    attachmentLink,
+    'expected a synthetic visual attachment link for the extra mesh descriptor',
+  );
+  const attachmentJoint = Object.values(hydrated.robotData.joints).find(
+    (joint) => joint.childLinkId === attachmentLink?.id,
+  );
+  assert.ok(
+    attachmentJoint,
+    'expected a fixed joint anchoring the synthetic visual attachment link',
+  );
   assert.equal(attachmentJoint?.type, JointType.FIXED);
   assert.equal(attachmentJoint?.parentLinkId, 'base_link');
   assert.equal(hydrated.childLinkPathByJointId[attachmentJoint!.id], '/Robot/base_link');
@@ -447,14 +576,12 @@ test('hydrateUsdViewerRobotResolutionFromRuntime preserves the B2 leg mesh basis
 test('hydrateUsdViewerRobotResolutionFromRuntime composes authored approximation offsets with runtime prim transforms', () => {
   const baseWorld = composeMatrix({ x: 0, y: 0, z: 0 });
   const childWorld = composeMatrix({ x: 1, y: -2, z: 3 }, { r: 0.02, p: -0.04, y: 0.06 });
-  const visualPrimWorld = childWorld.clone().multiply(composeMatrix(
-    { x: 0.5, y: 0.25, z: -0.75 },
-    { r: 0.1, p: 0.05, y: -0.02 },
-  ));
-  const collisionPrimWorld = childWorld.clone().multiply(composeMatrix(
-    { x: -0.3, y: 0.4, z: 0.2 },
-    { r: -0.03, p: 0.08, y: 0.11 },
-  ));
+  const visualPrimWorld = childWorld
+    .clone()
+    .multiply(composeMatrix({ x: 0.5, y: 0.25, z: -0.75 }, { r: 0.1, p: 0.05, y: -0.02 }));
+  const collisionPrimWorld = childWorld
+    .clone()
+    .multiply(composeMatrix({ x: -0.3, y: 0.4, z: 0.2 }, { r: -0.03, p: 0.08, y: 0.11 }));
 
   const authoredVisualOrigin = {
     xyz: { x: 0.2, y: -0.1, z: 0.35 },
@@ -586,10 +713,7 @@ test('hydrateUsdViewerRobotResolutionFromRuntime composes authored approximation
 });
 
 test('hydrateUsdViewerRobotResolutionFromRuntime preserves authored root world transforms via a synthetic world root', () => {
-  const rootWorld = composeMatrix(
-    { x: 0.35, y: -0.4, z: 0.8 },
-    { r: 0.11, p: -0.07, y: 0.23 },
-  );
+  const rootWorld = composeMatrix({ x: 0.35, y: -0.4, z: 0.8 }, { r: 0.11, p: -0.07, y: 0.23 });
 
   const resolution: ViewerRobotDataResolution = {
     stageSourcePath: '/robots/demo/root_pose.usd',
@@ -626,9 +750,8 @@ test('hydrateUsdViewerRobotResolutionFromRuntime preserves authored root world t
   };
 
   const hydrated = hydrateUsdViewerRobotResolutionFromRuntime(resolution, null, {
-    getPreferredLinkWorldTransform: (linkPath: string) => (
-      linkPath === '/Robot/base_link' ? rootWorld.clone() : null
-    ),
+    getPreferredLinkWorldTransform: (linkPath: string) =>
+      linkPath === '/Robot/base_link' ? rootWorld.clone() : null,
     getWorldTransformForPrimPath: () => null,
   });
 
@@ -642,11 +765,12 @@ test('hydrateUsdViewerRobotResolutionFromRuntime preserves authored root world t
   assert.equal(worldLink.collision.type, GeometryType.NONE);
   assert.equal(worldLink.inertial?.mass, 0);
 
-  const rootAnchorJoint = Object.values(hydrated.robotData.joints).find((joint) => (
-    joint.parentLinkId === 'world'
-    && joint.childLinkId === 'base_link'
-    && joint.type === JointType.FIXED
-  ));
+  const rootAnchorJoint = Object.values(hydrated.robotData.joints).find(
+    (joint) =>
+      joint.parentLinkId === 'world' &&
+      joint.childLinkId === 'base_link' &&
+      joint.type === JointType.FIXED,
+  );
 
   assert.ok(rootAnchorJoint, 'expected a synthetic fixed joint from world to base_link');
   assertMatrixClose(
@@ -658,26 +782,21 @@ test('hydrateUsdViewerRobotResolutionFromRuntime preserves authored root world t
 
 test('hydrateUsdViewerRobotResolutionFromRuntime maps folded semantic child prims onto their real child links', () => {
   const torsoWorld = composeMatrix({ x: 1, y: 2, z: 3 }, { r: 0.01, p: 0.02, y: 0.03 });
-  const headWorld = torsoWorld.clone().multiply(composeMatrix(
-    { x: 0.5, y: -0.25, z: 0.75 },
-    { r: 0.04, p: 0.05, y: 0.06 },
-  ));
-  const torsoVisualWorld = torsoWorld.clone().multiply(composeMatrix(
-    { x: 0.1, y: 0.2, z: 0.3 },
-    { r: 0.07, p: 0.08, y: 0.09 },
-  ));
-  const headVisualWorld = headWorld.clone().multiply(composeMatrix(
-    { x: -0.4, y: 0.3, z: 0.2 },
-    { r: -0.02, p: 0.01, y: 0.03 },
-  ));
-  const torsoCollisionWorld = torsoWorld.clone().multiply(composeMatrix(
-    { x: 0.15, y: -0.05, z: 0.25 },
-    { r: 0, p: 0.04, y: 0.02 },
-  ));
-  const headCollisionWorld = headWorld.clone().multiply(composeMatrix(
-    { x: 0.05, y: 0.06, z: -0.07 },
-    { r: 0.03, p: -0.01, y: 0.02 },
-  ));
+  const headWorld = torsoWorld
+    .clone()
+    .multiply(composeMatrix({ x: 0.5, y: -0.25, z: 0.75 }, { r: 0.04, p: 0.05, y: 0.06 }));
+  const torsoVisualWorld = torsoWorld
+    .clone()
+    .multiply(composeMatrix({ x: 0.1, y: 0.2, z: 0.3 }, { r: 0.07, p: 0.08, y: 0.09 }));
+  const headVisualWorld = headWorld
+    .clone()
+    .multiply(composeMatrix({ x: -0.4, y: 0.3, z: 0.2 }, { r: -0.02, p: 0.01, y: 0.03 }));
+  const torsoCollisionWorld = torsoWorld
+    .clone()
+    .multiply(composeMatrix({ x: 0.15, y: -0.05, z: 0.25 }, { r: 0, p: 0.04, y: 0.02 }));
+  const headCollisionWorld = headWorld
+    .clone()
+    .multiply(composeMatrix({ x: 0.05, y: 0.06, z: -0.07 }, { r: 0.03, p: -0.01, y: 0.02 }));
 
   const resolution: ViewerRobotDataResolution = {
     stageSourcePath: '/robots/demo/folded_child.usd',
@@ -784,8 +903,10 @@ test('hydrateUsdViewerRobotResolutionFromRuntime maps folded semantic child prim
     getWorldTransformForPrimPath: (primPath: string) => {
       if (primPath === '/Robot/torso_link/visuals/torso_link/mesh') return torsoVisualWorld.clone();
       if (primPath === '/Robot/torso_link/visuals/head_link/mesh') return headVisualWorld.clone();
-      if (primPath === '/Robot/torso_link/collisions/torso_link/mesh') return torsoCollisionWorld.clone();
-      if (primPath === '/Robot/torso_link/collisions/head_link/mesh') return headCollisionWorld.clone();
+      if (primPath === '/Robot/torso_link/collisions/torso_link/mesh')
+        return torsoCollisionWorld.clone();
+      if (primPath === '/Robot/torso_link/collisions/head_link/mesh')
+        return headCollisionWorld.clone();
       return null;
     },
   });
@@ -818,14 +939,12 @@ test('hydrateUsdViewerRobotResolutionFromRuntime falls back to RobotData kinemat
     rpy: { r: 0.02, p: 0.03, y: 0.04 },
   };
   const childLinkWorld = composeMatrix(childJointOrigin.xyz, childJointOrigin.rpy);
-  const visualWorld = childLinkWorld.clone().multiply(composeMatrix(
-    { x: 0.1, y: 0.2, z: 0.3 },
-    { r: 0.05, p: -0.02, y: 0.01 },
-  ));
-  const collisionWorld = childLinkWorld.clone().multiply(composeMatrix(
-    { x: -0.2, y: 0.15, z: 0.05 },
-    { r: 0.03, p: 0.04, y: -0.01 },
-  ));
+  const visualWorld = childLinkWorld
+    .clone()
+    .multiply(composeMatrix({ x: 0.1, y: 0.2, z: 0.3 }, { r: 0.05, p: -0.02, y: 0.01 }));
+  const collisionWorld = childLinkWorld
+    .clone()
+    .multiply(composeMatrix({ x: -0.2, y: 0.15, z: 0.05 }, { r: 0.03, p: 0.04, y: -0.01 }));
 
   const resolution: ViewerRobotDataResolution = {
     stageSourcePath: '/robots/demo/kinematic_fallback.usd',

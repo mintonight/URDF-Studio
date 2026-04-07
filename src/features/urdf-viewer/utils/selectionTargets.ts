@@ -20,7 +20,7 @@ export interface ResolvedSelectionHit extends ResolvedSelectionTarget {
 }
 
 export interface ResolvedInteractionSelectionHit {
-  type: 'link' | 'joint';
+  type: 'link' | 'joint' | 'tendon';
   id: string;
   subType?: 'visual' | 'collision';
   objectIndex?: number;
@@ -67,6 +67,22 @@ function isTaggedVisualObject(object: THREE.Object3D | null): boolean {
       object.userData?.isVisual === true ||
       object.userData?.geometryRole === 'visual'),
   );
+}
+
+function resolveMjcfTendonName(hitObject: THREE.Object3D): string | null {
+  const tendonNode = findAncestor(
+    hitObject,
+    (candidate) =>
+      candidate.userData?.isMjcfTendon === true &&
+      typeof candidate.userData?.mjcfTendonName === 'string' &&
+      candidate.userData.mjcfTendonName.trim().length > 0,
+  );
+
+  if (!tendonNode) {
+    return null;
+  }
+
+  return tendonNode.userData.mjcfTendonName.trim();
 }
 
 function resolveGeometrySubType(
@@ -173,9 +189,24 @@ function isJointAxisHelperObject(object: THREE.Object3D | null): boolean {
 }
 
 function resolveHelperKind(object: THREE.Object3D | null): ViewerHelperKind | undefined {
+  const explicitHelperRoot = findAncestor(
+    object,
+    (candidate) =>
+      candidate.userData?.viewerHelperKind === 'ik-handle' ||
+      candidate.userData?.viewerHelperKind === 'center-of-mass' ||
+      candidate.userData?.viewerHelperKind === 'inertia' ||
+      candidate.userData?.viewerHelperKind === 'origin-axes' ||
+      candidate.userData?.viewerHelperKind === 'joint-axis',
+  );
+
+  if (explicitHelperRoot?.userData?.viewerHelperKind) {
+    return explicitHelperRoot.userData.viewerHelperKind as ViewerHelperKind;
+  }
+
   const helperRoot = findAncestor(
     object,
     (candidate) =>
+      candidate.name === '__ik_handle__' ||
       candidate.name === '__com_visual__' ||
       candidate.name === '__inertia_box__' ||
       candidate.name === '__origin_axes__' ||
@@ -184,6 +215,8 @@ function resolveHelperKind(object: THREE.Object3D | null): ViewerHelperKind | un
   );
 
   switch (helperRoot?.name) {
+    case '__ik_handle__':
+      return 'ik-handle';
     case '__com_visual__':
       return 'center-of-mass';
     case '__inertia_box__':
@@ -308,6 +341,19 @@ export function resolveInteractionSelectionHit(
   robot: THREE.Object3D | null,
   hitObject: THREE.Object3D,
 ): ResolvedInteractionSelectionHit | null {
+  const mjcfTendonName = resolveMjcfTendonName(hitObject);
+  if (mjcfTendonName) {
+    const resolvedLink = resolveHitLinkTarget(robot, hitObject);
+    return {
+      type: 'tendon',
+      id: mjcfTendonName,
+      targetKind: 'geometry',
+      linkId: resolvedLink?.linkId,
+      linkObject: resolvedLink?.linkObject,
+      highlightTarget: hitObject,
+    };
+  }
+
   if (isSelectableHelperObject(hitObject)) {
     const helperKind = resolveHelperKind(hitObject);
     if (isJointAxisHelperObject(hitObject)) {

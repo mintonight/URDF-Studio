@@ -43,6 +43,15 @@ export interface MjcfHfieldAsset {
   elevation?: number[];
 }
 
+export interface MjcfMeshAsset {
+  name?: string;
+  file?: string;
+  vertices?: number[];
+  scale?: [number, number, number];
+  refpos?: [number, number, number];
+  refquat?: [number, number, number, number];
+}
+
 export interface UrdfVisual {
   name?: string;
   type: GeometryType;
@@ -52,6 +61,7 @@ export interface UrdfVisual {
   authoredMaterials?: UrdfVisualMaterial[];
   meshPath?: string; // For later detailed design
   assetRef?: string; // MJCF-only asset reference (e.g. hfield name or sdf mesh asset)
+  mjcfMesh?: MjcfMeshAsset;
   mjcfHfield?: MjcfHfieldAsset;
   origin: UrdfOrigin; // Offset relative to link frame
   verbose?: string;

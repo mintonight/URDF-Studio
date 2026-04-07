@@ -3,13 +3,13 @@
 import * as THREE from 'three';
 import { getCollisionGeometryEntries } from '@/core/robot';
 import type { RobotFile } from '@/types';
-import { disposeObject3D } from '@/shared/utils/three/dispose';
+import { normalizeLoadingProgress } from '@/shared/components/3d/loadingHudState';
+import { disposeObject3D, disposeWebGLRenderer } from '@/shared/utils/three/dispose';
 import {
   WORKSPACE_DEFAULT_CAMERA_FOV,
   WORKSPACE_DEFAULT_CAMERA_POSITION,
   WORKSPACE_DEFAULT_CAMERA_UP,
 } from '@/shared/components/3d/scene/constants.ts';
-import { getLowestMeshZ } from '@/shared/utils';
 import { LinkRotationController } from '../runtime/viewer/link-rotation.js';
 import type { PreparedUsdPreloadFile } from '../utils/usdStageOpenPreparation.ts';
 import { preloadUsdStageEntries } from '../utils/usdStagePreloadExecution.ts';
@@ -17,13 +17,14 @@ import { shouldUseUsdCollisionVisualProxy } from '../utils/usdCollisionVisualPro
 import {
   buildPreparedUsdStageOpenCacheKey,
   clearPreparedUsdStageOpenCache,
-  loadPreparedUsdStageOpenDataOnMainThread,
+  loadPreparedUsdStageOpenDataInline,
 } from '../utils/preparedUsdStageOpenCache.ts';
 import type { ViewerDocumentLoadEvent, UsdLoadingProgress } from '../types';
 import { hydrateUsdViewerRobotResolutionFromRuntime } from '../utils/usdRuntimeRobotHydration.ts';
 import { resolveUsdSceneRobotResolution } from '../utils/usdSceneRobotResolution.ts';
 import { toVirtualUsdPath } from '../utils/usdPreloadSources.ts';
 import { resolveUsdGroundAlignmentSettleDelaysMs } from '../utils/usdGroundAlignmentDelays.ts';
+import { alignUsdSceneRootToGround } from '../utils/usdGroundAlignment.ts';
 import { shouldSettleUsdGroundAlignmentAfterInitialLoad } from '../utils/usdGroundAlignmentPolicy.ts';
 import {
   disposeUsdDriver,
@@ -57,13 +58,16 @@ import {
   type UsdWorkerOrbitState,
 } from '../utils/usdWorkerOrbit.ts';
 import {
+  createUsdOffscreenGroundShadowPlane,
   createUsdOffscreenLightRig,
   createUsdOffscreenStudioEnvironment,
   disposeUsdOffscreenLightRig,
+  syncUsdOffscreenGroundShadowPlane,
   syncUsdOffscreenLightRigWithCamera,
   type UsdOffscreenLightRig,
   type UsdOffscreenStudioEnvironmentHandle,
 } from '../utils/usdOffscreenLighting.ts';
+import { resolveCameraFollowLightingStyle } from '@/shared/components/3d/scene/constants.ts';
 import {
   computeCameraFrame,
   computeVisibleBounds,
@@ -161,6 +165,7 @@ let controls: WorkerControls | null = null;
 let currentOrbit: UsdWorkerOrbitState | null = null;
 let offscreenLightRig: UsdOffscreenLightRig | null = null;
 let offscreenStudioEnvironment: UsdOffscreenStudioEnvironmentHandle | null = null;
+let offscreenGroundShadowPlane: THREE.Mesh | null = null;
 let currentDriver: unknown = null;
 let activePointer: ActivePointerState | null = null;
 let currentLoadGeneration = 0;
@@ -509,18 +514,32 @@ function emitDocumentLoadEvent(event: ViewerDocumentLoadEvent): void {
 }
 
 function emitLoadingProgress(progress: UsdLoadingProgress): void {
+  const normalizedProgress =
+    progress.phase === 'ready'
+      ? normalizeLoadingProgress<UsdLoadingProgress>({
+          phase: 'finalizing-scene',
+          progressMode: 'indeterminate',
+          message: progress.message ?? null,
+          progressPercent: null,
+          loadedCount: null,
+          totalCount: null,
+        })
+      : normalizeLoadingProgress<UsdLoadingProgress>(progress);
   postWorkerMessage({
     type: 'progress',
-    progress,
+    progress: normalizedProgress,
   });
-  emitDocumentLoadEvent({
-    status: 'loading',
-    phase: progress.phase,
-    message: progress.message ?? null,
-    progressPercent: progress.progressPercent ?? null,
-    loadedCount: progress.loadedCount ?? null,
-    totalCount: progress.totalCount ?? null,
-  });
+  emitDocumentLoadEvent(
+    normalizeLoadingProgress<ViewerDocumentLoadEvent>({
+      status: 'loading',
+      phase: normalizedProgress.phase,
+      message: normalizedProgress.message ?? null,
+      progressMode: normalizedProgress.progressMode,
+      progressPercent: normalizedProgress.progressPercent ?? null,
+      loadedCount: normalizedProgress.loadedCount ?? null,
+      totalCount: normalizedProgress.totalCount ?? null,
+    }),
+  );
 }
 
 function emitWorkerLoadingStep(
@@ -1188,7 +1207,10 @@ function disposeStageResources(): void {
   runtime?.usdFsHelper.clearStageFiles(usdRoot ?? null);
 }
 
-function createWorkerRenderer(canvas: OffscreenCanvas): THREE.WebGLRenderer {
+function createWorkerRenderer(
+  canvas: OffscreenCanvas,
+  theme: 'light' | 'dark',
+): THREE.WebGLRenderer {
   const nextRenderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true,
@@ -1200,13 +1222,16 @@ function createWorkerRenderer(canvas: OffscreenCanvas): THREE.WebGLRenderer {
   nextRenderer.setSize(runtimeWindow.innerWidth, runtimeWindow.innerHeight, false);
   nextRenderer.outputColorSpace = THREE.SRGBColorSpace;
   nextRenderer.toneMapping = THREE.NeutralToneMapping;
-  nextRenderer.toneMappingExposure = 1.0;
+  nextRenderer.toneMappingExposure = resolveCameraFollowLightingStyle(theme).toneMappingExposure;
+  nextRenderer.shadowMap.enabled = true;
+  nextRenderer.shadowMap.autoUpdate = true;
+  nextRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
   nextRenderer.setClearColor(0x000000, 0);
 
   return nextRenderer;
 }
 
-function initializeSceneGraph(canvas: OffscreenCanvas): void {
+function initializeSceneGraph(canvas: OffscreenCanvas, theme: 'light' | 'dark'): void {
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(
     WORKSPACE_DEFAULT_CAMERA_FOV,
@@ -1226,9 +1251,12 @@ function initializeSceneGraph(canvas: OffscreenCanvas): void {
     update: () => false,
   };
 
-  renderer = createWorkerRenderer(canvas);
-  offscreenLightRig = createUsdOffscreenLightRig(scene);
-  offscreenStudioEnvironment = createUsdOffscreenStudioEnvironment(scene, renderer);
+  renderer = createWorkerRenderer(canvas, theme);
+  offscreenLightRig = createUsdOffscreenLightRig(scene, theme);
+  offscreenStudioEnvironment = createUsdOffscreenStudioEnvironment(scene, renderer, theme);
+  offscreenGroundShadowPlane = createUsdOffscreenGroundShadowPlane(theme);
+  syncUsdOffscreenGroundShadowPlane(offscreenGroundShadowPlane, groundPlaneOffset);
+  scene.add(offscreenGroundShadowPlane);
   runtimeWindow.scene = scene;
   runtimeWindow.camera = camera;
   runtimeWindow.renderer = renderer;
@@ -1373,36 +1401,15 @@ function applyGroundAlignment(): void {
     return;
   }
 
-  let lowestVisualZ = getLowestMeshZ(usdRoot, {
-    includeInvisible: false,
-    includeVisual: true,
-    includeCollision: false,
+  const aligned = alignUsdSceneRootToGround(usdRoot, groundPlaneOffset, {
+    includeCollisionAsFallback: isCollisionVisualProxyActive(),
   });
 
-  if (lowestVisualZ === null) {
-    if (isCollisionVisualProxyActive()) {
-      lowestVisualZ = getLowestMeshZ(usdRoot, {
-        includeInvisible: false,
-        includeVisual: false,
-        includeCollision: true,
-      });
-    }
-  }
-
-  if (lowestVisualZ === null) {
-    lowestVisualZ = getLowestMeshZ(usdRoot, {
-      includeInvisible: true,
-      includeVisual: !isCollisionVisualProxyActive(),
-      includeCollision: isCollisionVisualProxyActive(),
-    });
-  }
-
-  if (lowestVisualZ === null) {
+  if (!aligned) {
     return;
   }
 
-  usdRoot.position.z += groundPlaneOffset - lowestVisualZ;
-  usdRoot.updateMatrixWorld(true);
+  syncUsdOffscreenGroundShadowPlane(offscreenGroundShadowPlane, groundPlaneOffset);
 }
 
 function applyRuntimeVisibility(): void {
@@ -1725,7 +1732,8 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
     status: 'loading',
     phase: 'checking-path',
     message: null,
-    progressPercent: 0,
+    progressMode: 'indeterminate',
+    progressPercent: null,
     loadedCount: null,
     totalCount: null,
   });
@@ -1777,7 +1785,7 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
         preparedStageOpenCacheHit,
       },
       run: async () =>
-        await loadPreparedUsdStageOpenDataOnMainThread(
+        await loadPreparedUsdStageOpenDataInline(
           message.sourceFile,
           stageOpenContext.availableFiles,
           stageOpenContext.assets,
@@ -2004,14 +2012,17 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
       },
     });
 
-    emitDocumentLoadEvent({
-      status: 'ready',
-      phase: 'ready',
-      message: null,
-      progressPercent: 100,
-      loadedCount: null,
-      totalCount: null,
-    });
+    emitDocumentLoadEvent(
+      normalizeLoadingProgress<ViewerDocumentLoadEvent>({
+        status: 'ready',
+        phase: 'ready',
+        progressMode: 'percent',
+        message: null,
+        progressPercent: 100,
+        loadedCount: null,
+        totalCount: null,
+      }),
+    );
   } catch (error) {
     disposeStageResources();
     if (!isLoadGenerationActive(loadGeneration)) {
@@ -2245,8 +2256,18 @@ function disposeWorkerStage(): void {
   offscreenLightRig = null;
   offscreenStudioEnvironment?.dispose();
   offscreenStudioEnvironment = null;
+  if (scene && offscreenGroundShadowPlane) {
+    scene.remove(offscreenGroundShadowPlane);
+  }
+  offscreenGroundShadowPlane?.geometry?.dispose();
+  if (Array.isArray(offscreenGroundShadowPlane?.material)) {
+    offscreenGroundShadowPlane.material.forEach((material) => material.dispose());
+  } else {
+    offscreenGroundShadowPlane?.material?.dispose();
+  }
+  offscreenGroundShadowPlane = null;
 
-  renderer?.dispose();
+  disposeWebGLRenderer(renderer, { forceContextLoss: true });
   renderer = null;
   scene = null;
   camera = null;
@@ -2305,25 +2326,31 @@ workerScope.addEventListener('message', (event: MessageEvent<UsdOffscreenViewerW
 
   switch (message.type) {
     case 'init': {
-      emitDocumentLoadEvent({
-        status: 'loading',
-        phase: 'checking-path',
-        message: 'Offscreen worker booted.',
-        progressPercent: 0,
-        loadedCount: null,
-        totalCount: null,
-      });
+      emitDocumentLoadEvent(
+        normalizeLoadingProgress<ViewerDocumentLoadEvent>({
+          status: 'loading',
+          phase: 'checking-path',
+          message: 'Offscreen worker booted.',
+          progressMode: 'indeterminate',
+          progressPercent: null,
+          loadedCount: null,
+          totalCount: null,
+        }),
+      );
       syncViewportMetrics(message.width, message.height, message.devicePixelRatio);
-      initializeSceneGraph(message.canvas);
+      initializeSceneGraph(message.canvas, message.theme);
       applyInitialInteractionState(message.initialInteractionState);
-      emitDocumentLoadEvent({
-        status: 'loading',
-        phase: 'initializing-renderer',
-        message: 'Offscreen renderer initialized.',
-        progressPercent: 0,
-        loadedCount: null,
-        totalCount: null,
-      });
+      emitDocumentLoadEvent(
+        normalizeLoadingProgress<ViewerDocumentLoadEvent>({
+          status: 'loading',
+          phase: 'initializing-renderer',
+          message: 'Offscreen renderer initialized.',
+          progressMode: 'indeterminate',
+          progressPercent: null,
+          loadedCount: null,
+          totalCount: null,
+        }),
+      );
       void loadUsdStageIntoWorker(message);
       return;
     }
@@ -2360,10 +2387,19 @@ workerScope.addEventListener('message', (event: MessageEvent<UsdOffscreenViewerW
     }
     case 'set-ground-offset': {
       groundPlaneOffset = message.groundPlaneOffset;
+      syncUsdOffscreenGroundShadowPlane(offscreenGroundShadowPlane, groundPlaneOffset);
       if (shouldSettleGroundAlignmentAfterLoad) {
         scheduleGroundAlignmentSettlePasses(currentLoadGeneration, currentSourceFileName);
       } else {
         renderScene();
+      }
+      return;
+    }
+    case 'auto-fit-ground': {
+      applyGroundAlignment();
+      renderScene();
+      if (shouldSettleGroundAlignmentAfterLoad) {
+        scheduleGroundAlignmentSettlePasses(currentLoadGeneration, currentSourceFileName);
       }
       return;
     }

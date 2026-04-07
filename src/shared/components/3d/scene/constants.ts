@@ -23,6 +23,45 @@ export const LIGHTING_CONFIG = {
   cameraSoftFrontIntensityDark: 0.3,
 } as const;
 
+export const GROUND_SHADOW_STYLE = {
+  light: {
+    color: '#000000',
+    opacity: 0.08,
+  },
+  dark: {
+    color: '#000000',
+    opacity: 0.2,
+  },
+} as const;
+
+export const GROUND_SHADOW_RENDER_ORDER = -110;
+export const GROUND_SHADOW_Z_OFFSET = -0.0015;
+
+export function resolveCameraFollowLightingStyle(theme: 'light' | 'dark') {
+  return {
+    ambientIntensity: theme === 'light' ? 0.37 : 0.34,
+    hemisphereIntensity: theme === 'light' ? 0.43 : 0.4,
+    staticDirectionalScale: theme === 'light' ? 0.76 : 0.8,
+    rimDirectionalScale: 0.38,
+    mainLightIntensity:
+      (theme === 'light' ? 0.5 : LIGHTING_CONFIG.mainLightIntensity) *
+      (theme === 'light' ? 0.76 : 0.8),
+    cameraKeyIntensity:
+      theme === 'light'
+        ? LIGHTING_CONFIG.cameraKeyPriorityIntensityLight
+        : LIGHTING_CONFIG.cameraKeyPriorityIntensityDark,
+    cameraFillIntensity:
+      theme === 'light'
+        ? LIGHTING_CONFIG.cameraFillIntensityLight
+        : LIGHTING_CONFIG.cameraFillIntensityDark,
+    cameraSoftFrontIntensity:
+      theme === 'light'
+        ? LIGHTING_CONFIG.cameraSoftFrontIntensityLight
+        : LIGHTING_CONFIG.cameraSoftFrontIntensityDark,
+    toneMappingExposure: theme === 'light' ? 0.98 : 1.0,
+  } as const;
+}
+
 export const STUDIO_ENVIRONMENT_INTENSITY = {
   viewer: {
     light: 0.3,

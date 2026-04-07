@@ -9,11 +9,17 @@ import {
   collectVisualizerCollisionMeshPreloadSpecs,
   resolveVisualizerCollisionMeshPrewarmConcurrency,
 } from '../utils/visualizerMeshLoading';
+import { sortCollisionPreloadSpecs } from '../utils/collisionRevealScheduling';
 
 interface UseCollisionMeshPrewarmOptions {
   active: boolean;
   assets: Record<string, string>;
+  hoveredLinkId?: string | null;
+  prioritizedComponentIds?: readonly (string | null | undefined)[];
   robot: RobotState;
+  rootLinkId?: string | null;
+  selectedLinkId?: string | null;
+  visibleComponentIdByLinkId?: ReadonlyMap<string, string>;
 }
 
 interface CollisionMeshPrewarmState {
@@ -25,12 +31,35 @@ interface CollisionMeshPrewarmState {
 export function useCollisionMeshPrewarm({
   active,
   assets,
+  hoveredLinkId,
+  prioritizedComponentIds,
   robot,
+  rootLinkId,
+  selectedLinkId,
+  visibleComponentIdByLinkId,
 }: UseCollisionMeshPrewarmOptions): CollisionMeshPrewarmState {
   const isInteracting = useWorkspaceCanvasInteractionState();
-  const preloadSpecs = React.useMemo(
+  const basePreloadSpecs = React.useMemo(
     () => collectVisualizerCollisionMeshPreloadSpecs({ robot, assets }),
     [assets, robot],
+  );
+  const preloadSpecs = React.useMemo(
+    () =>
+      sortCollisionPreloadSpecs(basePreloadSpecs, {
+        hoveredLinkId,
+        prioritizedComponentIds,
+        rootLinkId,
+        selectedLinkId,
+        visibleComponentIdByLinkId,
+      }),
+    [
+      basePreloadSpecs,
+      hoveredLinkId,
+      prioritizedComponentIds,
+      rootLinkId,
+      selectedLinkId,
+      visibleComponentIdByLinkId,
+    ],
   );
   const preloadSignature = React.useMemo(
     () =>

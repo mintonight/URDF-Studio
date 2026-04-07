@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   getViewerRobotSourceFormat,
+  resolvePreferredViewerRobotSourceFormat,
   resolveViewerRobotSourceFormat,
 } from './sourceFormat';
 
@@ -25,4 +26,11 @@ test('resolveViewerRobotSourceFormat keeps MJCF explicit and auto-detects MJCF c
   assert.equal(resolveViewerRobotSourceFormat('<mujoco model="demo" />', 'mjcf'), 'mjcf');
   assert.equal(resolveViewerRobotSourceFormat('<mujoco model="demo" />', 'auto'), 'mjcf');
   assert.equal(resolveViewerRobotSourceFormat('<robot name="demo" />', 'auto'), 'urdf');
+});
+
+test('resolvePreferredViewerRobotSourceFormat keeps explicit viewer overrides ahead of source file format', () => {
+  assert.equal(resolvePreferredViewerRobotSourceFormat('urdf', 'mjcf'), 'urdf');
+  assert.equal(resolvePreferredViewerRobotSourceFormat('auto', 'mjcf'), 'auto');
+  assert.equal(resolvePreferredViewerRobotSourceFormat(undefined, 'mjcf'), 'mjcf');
+  assert.equal(resolvePreferredViewerRobotSourceFormat(undefined, 'usd'), 'auto');
 });

@@ -24,6 +24,7 @@ interface AssemblyTransformControlsProps {
   onAssemblyTransform?: (transform: AssemblyTransform) => void;
   onComponentTransform?: (componentId: string, transform: AssemblyTransform) => void;
   onBridgeTransform?: (bridgeId: string, origin: UrdfOrigin) => void;
+  onSourceSceneComponentTransform?: (componentId: string, transform: AssemblyTransform) => void;
   onTransformPendingChange?: (pending: boolean) => void;
 }
 
@@ -83,6 +84,7 @@ export const AssemblyTransformControls = memo(function AssemblyTransformControls
   onAssemblyTransform,
   onComponentTransform,
   onBridgeTransform,
+  onSourceSceneComponentTransform,
   onTransformPendingChange,
 }: AssemblyTransformControlsProps) {
   const setHoverFrozen = useSelectionStore((state) => state.setHoverFrozen);
@@ -198,12 +200,16 @@ export const AssemblyTransformControls = memo(function AssemblyTransformControls
     }
 
     if (dragBaseline.sourceSceneComponent) {
-      if (!dragBaseline.componentId || !sourceSceneComponentRoot || !onComponentTransform) {
+      if (
+        !dragBaseline.componentId ||
+        !sourceSceneComponentRoot ||
+        !onSourceSceneComponentTransform
+      ) {
         return;
       }
 
       sourceSceneComponentRoot.updateMatrix();
-      onComponentTransform(
+      onSourceSceneComponentTransform(
         dragBaseline.componentId,
         decomposeTransformMatrix(sourceSceneComponentRoot.matrix),
       );
@@ -234,6 +240,7 @@ export const AssemblyTransformControls = memo(function AssemblyTransformControls
     onAssemblyTransform,
     onBridgeTransform,
     onComponentTransform,
+    onSourceSceneComponentTransform,
     sourceSceneComponentRoot,
   ]);
 

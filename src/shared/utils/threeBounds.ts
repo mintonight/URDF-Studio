@@ -14,6 +14,13 @@ interface VisibleMeshBoundsOptions {
 type MeshRole = 'visual' | 'collision' | 'unknown';
 const GROUND_PLANE_BOUND_OBJECT_NAMES = new Set(['ReferenceGrid', 'GroundShadowPlane']);
 
+function refreshWorldMatrices(root: THREE.Object3D): void {
+  // Nested component pivots are often measured directly instead of from the scene
+  // root. Refresh ancestors first so world-space bounds are based on current parent
+  // transforms rather than stale matrixWorld values.
+  root.updateWorldMatrix(true, true);
+}
+
 function isRuntimeUrdfNode(object: THREE.Object3D | null): boolean {
   return Boolean(
     object &&
@@ -81,7 +88,7 @@ export function getLowestMeshZ(root: THREE.Object3D, options?: LowestMeshZOption
   const worldBox = new THREE.Box3();
   let lowestZ = Number.POSITIVE_INFINITY;
 
-  root.updateMatrixWorld(true);
+  refreshWorldMatrices(root);
 
   const visitNode = (obj: THREE.Object3D) => {
     if (shouldIgnoreBoundsAncestor(obj)) return;
@@ -141,7 +148,7 @@ export function alignObjectLowestPointToZ(
   }
 
   root.position.z += targetZ - minZ;
-  root.updateMatrixWorld(true);
+  refreshWorldMatrices(root);
   return targetZ;
 }
 
@@ -159,7 +166,7 @@ export function computeVisibleMeshBounds(
   const worldBox = new THREE.Box3();
   let hasBounds = false;
 
-  root.updateMatrixWorld(true);
+  refreshWorldMatrices(root);
 
   const visitNode = (obj: THREE.Object3D) => {
     if (shouldIgnoreBoundsAncestor(obj, { includeGroundPlaneHelpers })) {

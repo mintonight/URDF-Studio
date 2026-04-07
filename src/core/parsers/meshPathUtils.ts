@@ -114,13 +114,11 @@ export const resolveImportedAssetPath = (
   normalized = normalized.replace(/^[A-Za-z]:\//, '');
   normalized = normalized.replace(/^\/+/, '');
   normalized = normalized.replace(/^(\.\/)+/, '');
-  normalized = normalizeRelativePath(normalized);
-
-  if (!normalized) return raw;
 
   const sourceDir = getSourceFileDirectory(sourceFilePath);
-  if (!sourceDir) return normalized;
-  if (normalized.startsWith(sourceDir)) return normalized;
+  if (!normalized) return raw;
+  if (!sourceDir) return normalizeRelativePath(normalized);
+  if (normalized.startsWith(sourceDir)) return normalizeRelativePath(normalized);
 
   return normalizeRelativePath(`${sourceDir}${normalized}`);
 };
@@ -169,7 +167,9 @@ export const rewriteRobotMeshPathsForSource = <T extends RobotWithLinks>(
         rewriteMeshGeometryForSource(body, sourceFilePath),
       );
 
-      const bodiesChanged = rewrittenBodies.some((body, index) => body !== link.visualBodies?.[index]);
+      const bodiesChanged = rewrittenBodies.some(
+        (body, index) => body !== link.visualBodies?.[index],
+      );
       if (bodiesChanged) {
         nextVisualBodies = rewrittenBodies;
       }
@@ -180,7 +180,9 @@ export const rewriteRobotMeshPathsForSource = <T extends RobotWithLinks>(
         rewriteMeshGeometryForSource(body, sourceFilePath),
       );
 
-      const bodiesChanged = rewrittenBodies.some((body, index) => body !== link.collisionBodies?.[index]);
+      const bodiesChanged = rewrittenBodies.some(
+        (body, index) => body !== link.collisionBodies?.[index],
+      );
       if (bodiesChanged) {
         nextCollisionBodies = rewrittenBodies;
       }
@@ -354,7 +356,8 @@ function buildUrdfTextureExportFilename(
     return texturePath;
   }
 
-  const normalizedPath = normalizeTexturePathForExport(texturePath) || texturePath.replace(/\\/g, '/');
+  const normalizedPath =
+    normalizeTexturePathForExport(texturePath) || texturePath.replace(/\\/g, '/');
   return useRelativePaths
     ? `textures/${normalizedPath}`
     : `package://${exportRobotName}/textures/${normalizedPath}`;
@@ -370,9 +373,11 @@ function rewriteXmlTagFilenameAttribute(
     'gi',
   );
 
-  return xml.replace(tagPattern, (_match, prefix, quote, filename, closingQuote) => (
-    `${prefix}${quote}${rewritePath(filename)}${closingQuote}`
-  ));
+  return xml.replace(
+    tagPattern,
+    (_match, prefix, quote, filename, closingQuote) =>
+      `${prefix}${quote}${rewritePath(filename)}${closingQuote}`,
+  );
 }
 
 /**
@@ -387,16 +392,12 @@ export function rewriteUrdfAssetPathsForExport(
     return urdfContent;
   }
 
-  const withRewrittenMeshes = rewriteXmlTagFilenameAttribute(
-    urdfContent,
-    'mesh',
-    (meshPath) => buildUrdfMeshExportFilename(meshPath, options),
+  const withRewrittenMeshes = rewriteXmlTagFilenameAttribute(urdfContent, 'mesh', (meshPath) =>
+    buildUrdfMeshExportFilename(meshPath, options),
   );
 
-  return rewriteXmlTagFilenameAttribute(
-    withRewrittenMeshes,
-    'texture',
-    (texturePath) => buildUrdfTextureExportFilename(texturePath, options),
+  return rewriteXmlTagFilenameAttribute(withRewrittenMeshes, 'texture', (texturePath) =>
+    buildUrdfTextureExportFilename(texturePath, options),
   );
 }
 
@@ -453,7 +454,7 @@ export const buildMeshLookupCandidates = (meshPath: string): string[] => {
  */
 export const resolveMeshAssetUrl = (
   meshPath: string,
-  assets: Record<string, string>
+  assets: Record<string, string>,
 ): string | null => {
   const candidates = buildMeshLookupCandidates(meshPath);
   if (candidates.length === 0) return null;

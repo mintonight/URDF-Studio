@@ -8,16 +8,18 @@ import React, { useMemo } from 'react';
 import { Eye, Box, Waypoints } from 'lucide-react';
 import type { DetailLinkTab, RobotState, AppMode, MotorSpec, UrdfLink } from '@/types';
 import { translations } from '@/shared/i18n';
-import { useUIStore, type Language } from '@/store';
+import { useUIStore, type Language, type MassInertiaChangeBehavior } from '@/store';
 import { MAX_PROPERTY_DECIMALS, formatNumberWithMaxDecimals } from '@/core/utils/numberPrecision';
 import {
   composeInertiaTensorFromDerivedValues,
   computeInertialDerivedValues,
   computeLinkDensity,
+  scaleInertiaTensorForMassChange,
+  type InertiaTensorComponents,
 } from '@/shared/utils/inertialDerived';
+import { Button, Checkbox, Dialog, SegmentedControl } from '@/shared/components/ui';
 import {
   CollapsibleSection,
-  InputGroup,
   InlineInputGroup,
   NumberInput,
   PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS,
@@ -41,12 +43,86 @@ const DEFAULT_PRINCIPAL_AXES = [
   { x: 0, y: 0, z: 1 },
 ] as const;
 
+type ResolvedMassInertiaBehavior = Exclude<MassInertiaChangeBehavior, 'ask'>;
+
+interface PendingMassInertiaDecision {
+  linkSnapshot: UrdfLink;
+  nextMass: number;
+  scaledEstimate: ReturnType<typeof scaleInertiaTensorForMassChange>;
+}
+
+interface FloatingMassInertiaNotice {
+  message: string;
+  tone: 'info' | 'success';
+}
+
 const formatReadonlyNumber = (value: number | null | undefined): string => {
   if (value === null || value === undefined || !Number.isFinite(value)) {
     return 'N/A';
   }
 
   return formatNumberWithMaxDecimals(value, MAX_PROPERTY_DECIMALS);
+};
+
+const fillTemplate = (template: string, replacements: Record<string, string>): string =>
+  Object.entries(replacements).reduce(
+    (result, [key, value]) => result.replaceAll(`{${key}}`, value),
+    template,
+  );
+
+const formatMassValue = (value: number): string =>
+  formatNumberWithMaxDecimals(value, MAX_PROPERTY_DECIMALS);
+
+const formatInertiaTensorSummary = (inertia: InertiaTensorComponents): string => {
+  const diagonalSummary = `ixx=${formatReadonlyNumber(inertia.ixx)}, iyy=${formatReadonlyNumber(
+    inertia.iyy,
+  )}, izz=${formatReadonlyNumber(inertia.izz)}`;
+  const hasOffDiagonalTerms = [inertia.ixy, inertia.ixz, inertia.iyz].some(
+    (value) => Math.abs(value) > 1e-9,
+  );
+
+  if (!hasOffDiagonalTerms) {
+    return diagonalSummary;
+  }
+
+  return `${diagonalSummary}; ixy=${formatReadonlyNumber(inertia.ixy)}, ixz=${formatReadonlyNumber(
+    inertia.ixz,
+  )}, iyz=${formatReadonlyNumber(inertia.iyz)}`;
+};
+
+const buildMassInertiaNotice = (
+  t: (typeof translations)['en'],
+  linkName: string,
+  nextMass: number,
+  behavior: ResolvedMassInertiaBehavior,
+  scaledEstimate: ReturnType<typeof scaleInertiaTensorForMassChange>,
+): FloatingMassInertiaNotice => {
+  if (behavior === 'reestimate' && scaledEstimate) {
+    return {
+      message: fillTemplate(t.massChangeInertiaReestimatedNotice, {
+        name: linkName,
+        tensor: formatInertiaTensorSummary(scaledEstimate.inertia),
+      }),
+      tone: 'success',
+    };
+  }
+
+  if (behavior === 'reestimate') {
+    return {
+      message: fillTemplate(t.massChangeInertiaFallbackNotice, {
+        name: linkName,
+      }),
+      tone: 'info',
+    };
+  }
+
+  return {
+    message: fillTemplate(t.massChangeInertiaPreservedNotice, {
+      name: linkName,
+      mass: formatMassValue(nextMass),
+    }),
+    tone: 'info',
+  };
 };
 
 const DetailGeometryTabButton = ({
@@ -63,14 +139,15 @@ const DetailGeometryTabButton = ({
   <button
     type="button"
     onClick={onClick}
-    className={`relative flex flex-1 items-center justify-center gap-1 rounded-t-lg border-x border-t py-1 text-[10px] font-semibold transition-all ${
+    title={label}
+    className={`relative flex min-w-0 flex-1 items-center justify-center gap-1 overflow-hidden rounded-t-lg border-x border-t px-1 py-1 text-[10px] font-semibold transition-all ${
       isActive
         ? 'z-10 -mb-px border-border-black bg-panel-bg pb-1.5 text-system-blue dark:bg-segmented-active'
         : 'border-transparent bg-transparent text-text-tertiary hover:bg-element-hover hover:text-text-secondary'
     }`}
   >
-    <Icon className="h-3 w-3" />
-    {label}
+    <Icon className="h-3 w-3 shrink-0" />
+    <span className="min-w-0 truncate leading-tight">{label}</span>
   </button>
 );
 
@@ -116,7 +193,17 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
 }) => {
   const linkTab = useUIStore((state) => state.detailLinkTab);
   const setDetailLinkTab = useUIStore((state) => state.setDetailLinkTab);
+  const massInertiaChangeBehavior = useUIStore((state) => state.massInertiaChangeBehavior);
+  const setMassInertiaChangeBehavior = useUIStore((state) => state.setMassInertiaChangeBehavior);
   const inertial = data.inertial ?? DEFAULT_INERTIAL;
+  const noticeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pendingMassInertiaDecision, setPendingMassInertiaDecision] =
+    React.useState<PendingMassInertiaDecision | null>(null);
+  const [selectedMassInertiaBehavior, setSelectedMassInertiaBehavior] =
+    React.useState<ResolvedMassInertiaBehavior>('reestimate');
+  const [rememberMassInertiaBehavior, setRememberMassInertiaBehavior] = React.useState(false);
+  const [floatingMassInertiaNotice, setFloatingMassInertiaNotice] =
+    React.useState<FloatingMassInertiaNotice | null>(null);
   const densityResult = useMemo(() => computeLinkDensity(data), [data]);
   const derivedInertial = useMemo(
     () => computeInertialDerivedValues(data.inertial),
@@ -156,6 +243,110 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
     });
   };
 
+  const showFloatingMassInertiaNotice = React.useCallback((notice: FloatingMassInertiaNotice) => {
+    if (noticeTimerRef.current) {
+      clearTimeout(noticeTimerRef.current);
+    }
+
+    setFloatingMassInertiaNotice(notice);
+    noticeTimerRef.current = setTimeout(() => {
+      setFloatingMassInertiaNotice(null);
+      noticeTimerRef.current = null;
+    }, 5000);
+  }, []);
+
+  React.useEffect(() => {
+    return () => {
+      if (noticeTimerRef.current) {
+        clearTimeout(noticeTimerRef.current);
+      }
+    };
+  }, []);
+
+  React.useEffect(() => {
+    setPendingMassInertiaDecision(null);
+    setRememberMassInertiaBehavior(false);
+    setSelectedMassInertiaBehavior('reestimate');
+  }, [data.id]);
+
+  const applyMassChange = React.useCallback(
+    (
+      linkSnapshot: UrdfLink,
+      nextMass: number,
+      behavior: ResolvedMassInertiaBehavior,
+      scaledEstimate: ReturnType<typeof scaleInertiaTensorForMassChange>,
+      options?: { remember?: boolean },
+    ) => {
+      const nextInertial = {
+        ...(linkSnapshot.inertial ?? DEFAULT_INERTIAL),
+        mass: nextMass,
+        ...(behavior === 'reestimate' && scaledEstimate ? { inertia: scaledEstimate.inertia } : {}),
+      };
+
+      onUpdate('link', linkSnapshot.id, {
+        ...linkSnapshot,
+        inertial: nextInertial,
+      });
+
+      if (options?.remember) {
+        setMassInertiaChangeBehavior(behavior);
+      }
+
+      showFloatingMassInertiaNotice(
+        buildMassInertiaNotice(t, linkSnapshot.name, nextMass, behavior, scaledEstimate),
+      );
+    },
+    [onUpdate, setMassInertiaChangeBehavior, showFloatingMassInertiaNotice, t],
+  );
+
+  const handleMassChange = React.useCallback(
+    (nextMass: number) => {
+      if (Math.abs(nextMass - inertial.mass) <= 1e-12) {
+        return;
+      }
+
+      const preferredBehavior = massInertiaChangeBehavior;
+      const scaledEstimate = scaleInertiaTensorForMassChange(inertial, nextMass);
+
+      if (preferredBehavior === 'ask') {
+        setPendingMassInertiaDecision({
+          linkSnapshot: data,
+          nextMass,
+          scaledEstimate,
+        });
+        setSelectedMassInertiaBehavior(scaledEstimate ? 'reestimate' : 'preserve');
+        setRememberMassInertiaBehavior(false);
+        return;
+      }
+
+      applyMassChange(data, nextMass, preferredBehavior, scaledEstimate);
+    },
+    [applyMassChange, data, inertial, massInertiaChangeBehavior],
+  );
+
+  const handleConfirmMassInertiaDecision = React.useCallback(() => {
+    if (!pendingMassInertiaDecision) {
+      return;
+    }
+
+    applyMassChange(
+      pendingMassInertiaDecision.linkSnapshot,
+      pendingMassInertiaDecision.nextMass,
+      selectedMassInertiaBehavior,
+      pendingMassInertiaDecision.scaledEstimate,
+      {
+        remember: rememberMassInertiaBehavior,
+      },
+    );
+    setPendingMassInertiaDecision(null);
+    setRememberMassInertiaBehavior(false);
+  }, [
+    applyMassChange,
+    pendingMassInertiaDecision,
+    rememberMassInertiaBehavior,
+    selectedMassInertiaBehavior,
+  ]);
+
   const nameField = (
     <InlineInputGroup label={t.name} labelWidthClassName="w-11">
       <input
@@ -174,16 +365,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
       storageKey="property_editor_link_inertial"
     >
       <InlineInputGroup label={t.mass} labelWidthClassName="w-16">
-        <NumberInput
-          value={inertial.mass}
-          min={0}
-          onChange={(v: number) =>
-            onUpdate('link', selection.id!, {
-              ...data,
-              inertial: { ...inertial, mass: v },
-            })
-          }
-        />
+        <NumberInput value={inertial.mass} min={0} commitOnBlurOnly onChange={handleMassChange} />
       </InlineInputGroup>
 
       <div className="mb-1 overflow-hidden rounded-md border border-border-black/60">
@@ -196,6 +378,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
             positionValue={inertial.origin?.xyz || { x: 0, y: 0, z: 0 }}
             rotationValue={inertial.origin?.rpy || { r: 0, p: 0, y: 0 }}
             compact={false}
+            rotationQuickStepDegrees={90}
             onPositionChange={(xyz) =>
               onUpdate('link', selection.id!, {
                 ...data,
@@ -254,11 +437,13 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
       storageKey="property_editor_link_derived_values"
     >
       <InlineInputGroup label={densityLabel} labelWidthClassName="w-16" align="start">
-        <ReadonlyValueField>{formatReadonlyNumber(densityResult.value)}</ReadonlyValueField>
+        <ReadonlyValueField className="min-w-0 w-full overflow-hidden truncate">
+          {formatReadonlyNumber(densityResult.value)}
+        </ReadonlyValueField>
       </InlineInputGroup>
 
       <InlineInputGroup label={t.diagonalInertia} labelWidthClassName="w-16" align="start">
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid min-w-0 w-full grid-cols-3 gap-1.5">
           {diagonalInertiaLabels.map((label, index) => (
             <div key={label} className="flex min-w-0 items-center gap-1.5">
               <span className={`${PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS} w-4 justify-center`}>
@@ -285,7 +470,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
         align="start"
         className="mb-0"
       >
-        <div className="space-y-1.5">
+        <div className="min-w-0 w-full space-y-1.5">
           <ReadonlyVectorStatHeader />
           {principalAxisLabels.map((label, index) => {
             const axis = principalAxes[index];
@@ -376,6 +561,97 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
           {inertialSection}
         </DetailGeometryTabPanel>
       </div>
+
+      <Dialog
+        isOpen={Boolean(pendingMassInertiaDecision)}
+        onClose={() => {
+          setPendingMassInertiaDecision(null);
+          setRememberMassInertiaBehavior(false);
+        }}
+        title={t.massChangeInertiaDialogTitle}
+        width="w-[520px]"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setPendingMassInertiaDecision(null);
+                setRememberMassInertiaBehavior(false);
+              }}
+            >
+              {t.cancel}
+            </Button>
+            <Button type="button" onClick={handleConfirmMassInertiaDecision}>
+              {t.confirm}
+            </Button>
+          </div>
+        }
+      >
+        {pendingMassInertiaDecision ? (
+          <div className="space-y-3">
+            <p className="text-sm leading-6 text-text-secondary">
+              {fillTemplate(t.massChangeInertiaDialogMessage, {
+                name: pendingMassInertiaDecision.linkSnapshot.name,
+                mass: formatMassValue(pendingMassInertiaDecision.nextMass),
+              })}
+            </p>
+
+            <div className="space-y-2">
+              <SegmentedControl<ResolvedMassInertiaBehavior>
+                size="sm"
+                value={selectedMassInertiaBehavior}
+                onChange={setSelectedMassInertiaBehavior}
+                options={[
+                  {
+                    value: 'preserve',
+                    label: t.massChangeInertiaKeep,
+                  },
+                  {
+                    value: 'reestimate',
+                    label: t.massChangeInertiaReestimate,
+                    disabled: !pendingMassInertiaDecision.scaledEstimate,
+                  },
+                ]}
+              />
+              <div className="rounded-xl border border-border-black bg-element-bg/60 px-3 py-2.5">
+                <div className="text-xs font-semibold text-text-primary">
+                  {selectedMassInertiaBehavior === 'preserve'
+                    ? t.massChangeInertiaKeepDescription
+                    : t.massChangeInertiaReestimateDescription}
+                </div>
+                {selectedMassInertiaBehavior === 'reestimate' &&
+                !pendingMassInertiaDecision.scaledEstimate ? (
+                  <div className="mt-1.5 text-[11px] leading-5 text-danger">
+                    {t.massChangeInertiaReestimateUnavailable}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <Checkbox
+              checked={rememberMassInertiaBehavior}
+              onChange={setRememberMassInertiaBehavior}
+              label={t.massChangeInertiaRememberChoice}
+            />
+          </div>
+        ) : null}
+      </Dialog>
+
+      {floatingMassInertiaNotice ? (
+        <div className="pointer-events-none fixed bottom-4 right-4 z-[140] max-w-[min(28rem,calc(100vw-2rem))] animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <div className="flex items-start gap-2 rounded-2xl border border-border-black bg-panel-bg px-3 py-2.5 shadow-xl dark:shadow-black/40">
+            <div
+              className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${
+                floatingMassInertiaNotice.tone === 'success' ? 'bg-emerald-500' : 'bg-system-blue'
+              }`}
+            />
+            <div className="text-xs font-semibold leading-5 text-text-primary">
+              {floatingMassInertiaNotice.message}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 };

@@ -3,8 +3,27 @@ import {
   MJCF_COMPILER_ANGLE_SCOPE_ATTR,
   MJCF_COMPILER_EULERSEQ_SCOPE_ATTR,
 } from './mjcfCompilerScope';
+import { parseMJCFXmlDocument } from './mjcfUtils';
 
 type MJCFFileMap = Record<string, string>;
+
+export type MJCFSourceResolutionIssueKind =
+  | 'missing_include'
+  | 'unresolved_template_placeholder'
+  | 'circular_include'
+  | 'included_xml_parse_failed'
+  | 'missing_attached_model_asset'
+  | 'missing_attached_model_file'
+  | 'circular_attach'
+  | 'attached_xml_parse_failed'
+  | 'missing_attached_body';
+
+export interface MJCFSourceResolutionIssue {
+  kind: MJCFSourceResolutionIssueKind;
+  sourceFilePath: string;
+  reference: string;
+  detail: string;
+}
 
 interface IndexedMJCFFileMap {
   fileMap: MJCFFileMap;
@@ -14,9 +33,12 @@ interface IndexedMJCFFileMap {
 
 const indexedFileMapCache = new WeakMap<RobotFile[], IndexedMJCFFileMap>();
 const resolvedSourceCache = new WeakMap<RobotFile[], WeakMap<RobotFile, ResolvedMJCFSource>>();
+export const MJCF_SOURCE_FILE_SCOPE_ATTR = 'data-urdf-studio-source-file';
+const MJCF_TEMPLATE_PLACEHOLDER_TOKENS = ['OBJECT_NAME'] as const;
 
 function normalizePath(path: string): string {
   const slashNormalized = path.replace(/\\/g, '/').replace(/\/+/g, '/');
+  const hasLeadingSlash = slashNormalized.startsWith('/');
   const parts = slashNormalized.split('/').filter(Boolean);
   const resolved: string[] = [];
 
@@ -29,7 +51,12 @@ function normalizePath(path: string): string {
     resolved.push(part);
   }
 
-  return resolved.join('/');
+  const normalized = resolved.join('/');
+  if (!normalized) {
+    return hasLeadingSlash ? '/' : '';
+  }
+
+  return hasLeadingSlash ? `/${normalized}` : normalized;
 }
 
 function getBasePath(path: string): string {
@@ -86,7 +113,11 @@ function getResolvedSourceMemo(files: RobotFile[]): WeakMap<RobotFile, ResolvedM
   return memo;
 }
 
-function resolveFileInMap(filename: string, indexedFileMap: IndexedMJCFFileMap, basePath: string): string | null {
+function resolveFileInMap(
+  filename: string,
+  indexedFileMap: IndexedMJCFFileMap,
+  basePath: string,
+): string | null {
   const normalizedFilename = normalizePath(filename.trim());
   if (!normalizedFilename) {
     return null;
@@ -95,10 +126,20 @@ function resolveFileInMap(filename: string, indexedFileMap: IndexedMJCFFileMap, 
   const normalizedBasePath = normalizePath(basePath);
 
   if (normalizedBasePath) {
+    const isAbsoluteBase = normalizedBasePath.startsWith('/');
     const baseParts = normalizedBasePath.split('/').filter(Boolean);
     for (let i = baseParts.length; i >= 0; i -= 1) {
       const prefix = baseParts.slice(0, i).join('/');
-      const tryPath = normalizePath(prefix ? `${prefix}/${normalizedFilename}` : normalizedFilename);
+      const scopedBase = prefix
+        ? isAbsoluteBase
+          ? `/${prefix}`
+          : prefix
+        : isAbsoluteBase
+          ? '/'
+          : '';
+      const tryPath = normalizePath(
+        scopedBase ? `${scopedBase}/${normalizedFilename}` : normalizedFilename,
+      );
       const found = indexedFileMap.byNormalized.get(tryPath);
       if (found) {
         return found;
@@ -114,14 +155,28 @@ function resolveFileInMap(filename: string, indexedFileMap: IndexedMJCFFileMap, 
   return null;
 }
 
-function parseXml(content: string): Document | null {
-  try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(content, 'text/xml');
-    return doc.querySelector('parsererror') ? null : doc;
-  } catch {
+function detectMJCFTemplatePlaceholder(reference: string): string | null {
+  const normalizedReference = reference.replace(/\\/g, '/').trim();
+  if (!normalizedReference) {
     return null;
   }
+
+  for (const token of MJCF_TEMPLATE_PLACEHOLDER_TOKENS) {
+    if (
+      normalizedReference === token ||
+      normalizedReference.startsWith(`${token}/`) ||
+      normalizedReference.endsWith(`/${token}`) ||
+      normalizedReference.includes(`/${token}/`)
+    ) {
+      return token;
+    }
+  }
+
+  return null;
+}
+
+function parseXml(content: string): Document | null {
+  return parseMJCFXmlDocument(content).doc;
 }
 
 function getCombinedCompilerAttributes(doc: Document): {
@@ -194,6 +249,34 @@ function applyAssetDirectory(filePath: string, directory: string): string {
   }
 
   return normalizePath(`${normalizedDirectory}/${trimmed}`);
+}
+
+function pushResolutionIssue(
+  issues: MJCFSourceResolutionIssue[],
+  issue: MJCFSourceResolutionIssue,
+): void {
+  issues.push(issue);
+}
+
+function annotateImportedNodeSourceScope(node: Node, sourceFilePath: string): void {
+  if (node.nodeType !== 1) {
+    return;
+  }
+
+  (node as Element).setAttribute(MJCF_SOURCE_FILE_SCOPE_ATTR, sourceFilePath);
+}
+
+function stripMJCFSourceScopeAnnotations(content: string): string {
+  const doc = parseXml(content);
+  if (!doc) {
+    return content;
+  }
+
+  doc.querySelectorAll(`[${MJCF_SOURCE_FILE_SCOPE_ATTR}]`).forEach((element) => {
+    element.removeAttribute(MJCF_SOURCE_FILE_SCOPE_ATTR);
+  });
+
+  return new XMLSerializer().serializeToString(doc);
 }
 
 function prefixAttachedModelDocument(doc: Document, prefix: string): void {
@@ -276,6 +359,8 @@ function expandIncludesRecursive(
   content: string,
   indexedFileMap: IndexedMJCFFileMap,
   basePath: string,
+  currentFilePath: string,
+  issues: MJCFSourceResolutionIssue[],
   includeStack: string[] = [],
 ): string {
   const doc = parseXml(content);
@@ -291,9 +376,28 @@ function expandIncludesRecursive(
       return;
     }
 
+    const templatePlaceholder = detectMJCFTemplatePlaceholder(includePath);
+    if (templatePlaceholder) {
+      console.error(`[MJCF] Include file still contains template placeholder: ${includePath}`);
+      pushResolutionIssue(issues, {
+        kind: 'unresolved_template_placeholder',
+        sourceFilePath: currentFilePath,
+        reference: includePath,
+        detail: `Referenced MJCF include "${includePath}" from "${currentFilePath}" still contains template placeholder "${templatePlaceholder}". Replace "${templatePlaceholder}" with a concrete object directory before import.`,
+      });
+      includeEl.remove();
+      return;
+    }
+
     const resolvedPath = resolveFileInMap(includePath, indexedFileMap, basePath);
     if (!resolvedPath) {
       console.error(`[MJCF] Include file not found: ${includePath}`);
+      pushResolutionIssue(issues, {
+        kind: 'missing_include',
+        sourceFilePath: currentFilePath,
+        reference: includePath,
+        detail: `Referenced MJCF include "${includePath}" could not be resolved from "${currentFilePath}".`,
+      });
       includeEl.remove();
       return;
     }
@@ -301,6 +405,12 @@ function expandIncludesRecursive(
     const normalizedResolvedPath = normalizePath(resolvedPath);
     if (includeStack.includes(normalizedResolvedPath)) {
       console.error(`[MJCF] Circular include detected: ${normalizedResolvedPath}`);
+      pushResolutionIssue(issues, {
+        kind: 'circular_include',
+        sourceFilePath: currentFilePath,
+        reference: includePath,
+        detail: `Circular MJCF include detected while resolving "${includePath}" from "${currentFilePath}".`,
+      });
       includeEl.remove();
       return;
     }
@@ -309,11 +419,19 @@ function expandIncludesRecursive(
       indexedFileMap.fileMap[resolvedPath],
       indexedFileMap,
       getBasePath(resolvedPath),
+      resolvedPath,
+      issues,
       [...includeStack, normalizedResolvedPath],
     );
 
     const includedDoc = parseXml(includedContent);
     if (!includedDoc) {
+      pushResolutionIssue(issues, {
+        kind: 'included_xml_parse_failed',
+        sourceFilePath: resolvedPath,
+        reference: includePath,
+        detail: `Resolved MJCF include "${includePath}" from "${currentFilePath}" could not be parsed as XML.`,
+      });
       includeEl.remove();
       return;
     }
@@ -326,7 +444,9 @@ function expandIncludesRecursive(
     }
 
     Array.from(includedRoot.childNodes).forEach((child) => {
-      parent.insertBefore(doc.importNode(child, true), includeEl);
+      const importedChild = doc.importNode(child, true);
+      annotateImportedNodeSourceScope(importedChild, resolvedPath);
+      parent.insertBefore(importedChild, includeEl);
     });
 
     includeEl.remove();
@@ -339,6 +459,8 @@ function expandAttachedModelsRecursive(
   content: string,
   indexedFileMap: IndexedMJCFFileMap,
   basePath: string,
+  currentFilePath: string,
+  issues: MJCFSourceResolutionIssue[],
   attachStack: string[] = [],
 ): string {
   const doc = parseXml(content);
@@ -379,6 +501,12 @@ function expandAttachedModelsRecursive(
     const modelFile = modelAssetByName.get(modelName);
     if (!modelFile) {
       console.error(`[MJCF] Attached model asset not found: ${modelName}`);
+      pushResolutionIssue(issues, {
+        kind: 'missing_attached_model_asset',
+        sourceFilePath: currentFilePath,
+        reference: modelName,
+        detail: `Attached MJCF model asset "${modelName}" referenced from "${currentFilePath}" is missing.`,
+      });
       attachEl.remove();
       return;
     }
@@ -386,6 +514,12 @@ function expandAttachedModelsRecursive(
     const resolvedPath = resolveFileInMap(modelFile, indexedFileMap, basePath);
     if (!resolvedPath) {
       console.error(`[MJCF] Attached model file not found: ${modelFile}`);
+      pushResolutionIssue(issues, {
+        kind: 'missing_attached_model_file',
+        sourceFilePath: currentFilePath,
+        reference: modelFile,
+        detail: `Attached MJCF model file "${modelFile}" referenced from "${currentFilePath}" could not be resolved.`,
+      });
       attachEl.remove();
       return;
     }
@@ -393,6 +527,12 @@ function expandAttachedModelsRecursive(
     const normalizedResolvedPath = normalizePath(resolvedPath);
     if (attachStack.includes(normalizedResolvedPath)) {
       console.error(`[MJCF] Circular attach detected: ${normalizedResolvedPath}`);
+      pushResolutionIssue(issues, {
+        kind: 'circular_attach',
+        sourceFilePath: currentFilePath,
+        reference: modelFile,
+        detail: `Circular MJCF attach detected while resolving "${modelFile}" from "${currentFilePath}".`,
+      });
       attachEl.remove();
       return;
     }
@@ -401,10 +541,18 @@ function expandAttachedModelsRecursive(
       indexedFileMap.fileMap[resolvedPath],
       indexedFileMap,
       getBasePath(resolvedPath),
+      resolvedPath,
+      issues,
       [...attachStack, normalizedResolvedPath],
     );
     const attachedDoc = parseXml(attachedContent);
     if (!attachedDoc) {
+      pushResolutionIssue(issues, {
+        kind: 'attached_xml_parse_failed',
+        sourceFilePath: resolvedPath,
+        reference: modelFile,
+        detail: `Resolved attached MJCF model "${modelFile}" from "${currentFilePath}" could not be parsed as XML.`,
+      });
       attachEl.remove();
       return;
     }
@@ -412,11 +560,18 @@ function expandAttachedModelsRecursive(
     prefixAttachedModelDocument(attachedDoc, prefix);
 
     const prefixedBodyName = prefixIdentifier(bodyName, prefix);
-    const attachedRootBody = Array.from(attachedDoc.querySelectorAll('worldbody body'))
-      .find((bodyEl) => bodyEl.getAttribute('name')?.trim() === prefixedBodyName);
+    const attachedRootBody = Array.from(attachedDoc.querySelectorAll('worldbody body')).find(
+      (bodyEl) => bodyEl.getAttribute('name')?.trim() === prefixedBodyName,
+    );
 
     if (!attachedRootBody) {
       console.error(`[MJCF] Attached body not found: ${bodyName} in ${resolvedPath}`);
+      pushResolutionIssue(issues, {
+        kind: 'missing_attached_body',
+        sourceFilePath: resolvedPath,
+        reference: bodyName,
+        detail: `Attached MJCF body "${bodyName}" was not found inside "${resolvedPath}".`,
+      });
       attachEl.remove();
       return;
     }
@@ -433,22 +588,32 @@ function expandAttachedModelsRecursive(
       attachedRootBody.setAttribute(MJCF_COMPILER_ANGLE_SCOPE_ATTR, attachedCompilerAttrs.angle);
     }
     if (attachedCompilerAttrs.eulerseq) {
-      attachedRootBody.setAttribute(MJCF_COMPILER_EULERSEQ_SCOPE_ATTR, attachedCompilerAttrs.eulerseq);
+      attachedRootBody.setAttribute(
+        MJCF_COMPILER_EULERSEQ_SCOPE_ATTR,
+        attachedCompilerAttrs.eulerseq,
+      );
     }
 
     attachedMujoco.querySelectorAll(':scope > default').forEach((defaultEl) => {
-      hostMujoco.insertBefore(doc.importNode(defaultEl, true), insertionAnchor);
+      const importedDefault = doc.importNode(defaultEl, true);
+      annotateImportedNodeSourceScope(importedDefault, resolvedPath);
+      hostMujoco.insertBefore(importedDefault, insertionAnchor);
     });
 
     attachedMujoco.querySelectorAll(':scope > asset').forEach((assetEl) => {
       const assetClone = doc.importNode(assetEl, true) as Element;
-      Array.from(assetClone.querySelectorAll(':scope > model')).forEach((modelEl) => modelEl.remove());
+      Array.from(assetClone.querySelectorAll(':scope > model')).forEach((modelEl) =>
+        modelEl.remove(),
+      );
       if (assetClone.children.length > 0) {
+        annotateImportedNodeSourceScope(assetClone, resolvedPath);
         hostMujoco.insertBefore(assetClone, insertionAnchor);
       }
     });
 
-    attachEl.parentNode?.insertBefore(doc.importNode(attachedRootBody, true), attachEl);
+    const importedBody = doc.importNode(attachedRootBody, true);
+    annotateImportedNodeSourceScope(importedBody, resolvedPath);
+    attachEl.parentNode?.insertBefore(importedBody, attachEl);
     attachEl.remove();
   });
 
@@ -459,10 +624,26 @@ function expandMJCFSource(
   content: string,
   indexedFileMap: IndexedMJCFFileMap,
   basePath: string,
+  currentFilePath: string,
+  issues: MJCFSourceResolutionIssue[],
   expansionStack: string[] = [],
 ): string {
-  const included = expandIncludesRecursive(content, indexedFileMap, basePath, expansionStack);
-  return expandAttachedModelsRecursive(included, indexedFileMap, basePath, expansionStack);
+  const included = expandIncludesRecursive(
+    content,
+    indexedFileMap,
+    basePath,
+    currentFilePath,
+    issues,
+    expansionStack,
+  );
+  return expandAttachedModelsRecursive(
+    included,
+    indexedFileMap,
+    basePath,
+    currentFilePath,
+    issues,
+    expansionStack,
+  );
 }
 
 export function prefixMJCFSourceIdentifiers(content: string, prefix: string): string {
@@ -511,9 +692,11 @@ export function prefixMJCFSourceIdentifiers(content: string, prefix: string): st
 
 export interface ResolvedMJCFSource {
   content: string;
+  validationContent: string;
   sourceFile: RobotFile;
   effectiveFile: RobotFile;
   basePath: string;
+  issues: MJCFSourceResolutionIssue[];
 }
 
 export function resolveMJCFSource(file: RobotFile, files: RobotFile[]): ResolvedMJCFSource {
@@ -525,16 +708,29 @@ export function resolveMJCFSource(file: RobotFile, files: RobotFile[]): Resolved
 
   const indexedFileMap = getIndexedMJCFFileMap(files);
   const selectedBasePath = getBasePath(file.name);
+  const issues: MJCFSourceResolutionIssue[] = [];
+  const validationContent = expandMJCFSource(
+    file.content,
+    indexedFileMap,
+    selectedBasePath,
+    file.name,
+    issues,
+    [normalizePath(file.name)],
+  );
   const resolved = {
-    content: expandMJCFSource(file.content, indexedFileMap, selectedBasePath, [normalizePath(file.name)]),
+    content: stripMJCFSourceScopeAnnotations(validationContent),
+    validationContent,
     sourceFile: file,
     effectiveFile: file,
     basePath: selectedBasePath,
+    issues,
   };
   memo.set(file, resolved);
   return resolved;
 }
 
 export function processMJCFIncludes(content: string, files: RobotFile[], basePath = ''): string {
-  return expandMJCFSource(content, getIndexedMJCFFileMap(files), basePath);
+  return stripMJCFSourceScopeAnnotations(
+    expandMJCFSource(content, getIndexedMJCFFileMap(files), basePath, basePath, [], []),
+  );
 }

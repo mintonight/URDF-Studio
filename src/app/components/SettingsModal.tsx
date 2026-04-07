@@ -127,7 +127,7 @@ function SettingsSection({ icon, title, children, actions }: SettingsSectionProp
     <section className="overflow-hidden rounded-[10px] border border-border-black bg-settings-card/95">
       <div className="flex min-h-10 items-center justify-between gap-3 border-b border-border-black/70 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[7px] border border-border-black bg-panel-bg text-settings-accent">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[7px] border border-border-black bg-panel-bg text-text-secondary">
             {icon}
           </span>
           <h3 className="truncate text-[11px] font-semibold tracking-[0.06em] text-text-secondary uppercase">
@@ -181,7 +181,7 @@ function SettingsNavButton({ item, isActive, onSelect }: SettingsNavButtonProps)
       onClick={() => onSelect(item.key)}
       className={`relative flex w-full items-center gap-2 rounded-[8px] px-2.5 py-2 text-left transition-colors ${
         isActive
-          ? 'bg-settings-accent-soft text-text-primary'
+          ? 'bg-panel-bg/90 text-text-primary ring-1 ring-border-black/60'
           : 'text-text-secondary hover:bg-panel-bg/75 hover:text-text-primary'
       }`}
     >
@@ -319,7 +319,7 @@ function SettingsCodePreview({
     <div className="overflow-hidden rounded-[10px] border border-border-black bg-panel-bg">
       <div className="flex items-center justify-between border-b border-border-black bg-settings-muted px-2.5 py-1.5">
         <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-settings-accent" />
+          <span className="h-2 w-2 rounded-full bg-text-tertiary/70" />
           <span className="text-[10px] font-medium text-text-secondary">preview.urdf</span>
         </div>
         <span className="text-[10px] text-text-tertiary">XML</span>
@@ -385,6 +385,7 @@ export function SettingsModal() {
     showImportWarning,
     setShowImportWarning,
     showWorldOriginAxes,
+    showMjcfWorldGeometry,
     showUsageGuide,
     setViewOption,
     fontSize,
@@ -408,6 +409,7 @@ export function SettingsModal() {
       showImportWarning: state.showImportWarning,
       setShowImportWarning: state.setShowImportWarning,
       showWorldOriginAxes: state.viewOptions.showAxes,
+      showMjcfWorldGeometry: state.viewOptions.showMjcfWorldLink,
       showUsageGuide: state.viewOptions.showUsageGuide,
       setViewOption: state.setViewOption,
       fontSize: state.fontSize,
@@ -683,6 +685,11 @@ export function SettingsModal() {
                 onChange={(checked) => setViewOption('showAxes', checked)}
               />
               <ToggleRow
+                label={t.showMjcfWorldGeometry}
+                checked={showMjcfWorldGeometry}
+                onChange={(checked) => setViewOption('showMjcfWorldLink', checked)}
+              />
+              <ToggleRow
                 label={t.showUsageGuide}
                 checked={showUsageGuide}
                 onChange={(checked) => setViewOption('showUsageGuide', checked)}
@@ -808,7 +815,7 @@ export function SettingsModal() {
             className="flex min-h-11 cursor-move select-none items-center justify-between gap-3 border-b border-border-black bg-panel-bg/95 px-3.5 py-2.5"
           >
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="rounded-[7px] border border-border-black bg-settings-card p-1.25 text-settings-accent">
+              <div className="rounded-[7px] border border-border-black bg-settings-card p-1.25 text-text-secondary">
                 <Settings className="h-3.5 w-3.5" strokeWidth={SETTINGS_ICON_STROKE_WIDTH} />
               </div>
               <div className="flex min-w-0 items-baseline gap-2">
@@ -845,8 +852,16 @@ export function SettingsModal() {
               </div>
             </aside>
 
-            <section className="overflow-hidden rounded-[12px] border border-border-black bg-panel-bg">
-              <div className="min-h-0 flex-1 overflow-y-auto bg-panel-bg p-3">{detailPane}</div>
+            <section
+              data-testid="settings-detail-pane"
+              className="flex min-h-0 flex-col overflow-hidden rounded-[12px] border border-border-black bg-panel-bg"
+            >
+              <div
+                data-testid="settings-detail-scroll"
+                className="custom-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-panel-bg p-3 [scrollbar-gutter:stable]"
+              >
+                {detailPane}
+              </div>
             </section>
           </div>
         </div>

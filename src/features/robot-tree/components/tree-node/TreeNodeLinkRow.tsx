@@ -6,6 +6,8 @@ import {
   getTreeConnectorElbowClass,
   getTreeConnectorElbowStyle,
   resolveTreeRowStateClass,
+  TREE_LINK_NAME_TEXT_CLASS,
+  TREE_RENAME_INPUT_BASE_CLASS,
 } from './presentation';
 
 interface TreeNodeLinkRowProps {
@@ -81,17 +83,19 @@ export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
   onToggleVisibility,
   onAddChild,
 }: TreeNodeLinkRowProps) {
-  const selectedLinkActionClass = 'text-system-blue hover:bg-system-blue/15 hover:text-system-blue-hover dark:hover:bg-system-blue/25';
+  const selectedLinkActionClass =
+    'text-system-blue hover:bg-system-blue/15 hover:text-system-blue-hover dark:hover:bg-system-blue/25';
 
   return (
     <div
-      className={`relative flex items-center py-0.5 px-2 mx-1 my-0.5 rounded-md transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer group'} ${
-        resolveTreeRowStateClass('text-text-primary dark:text-text-secondary', {
+      className={`relative flex items-center py-0.5 px-2 mx-1 my-0.5 rounded-md transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer group'} ${resolveTreeRowStateClass(
+        'text-text-primary dark:text-text-secondary',
+        {
           isHovered,
           isSelected,
           isAttentionHighlighted,
-        })
-      }`}
+        },
+      )}`}
       onClick={readOnly ? undefined : onSelect}
       onDoubleClick={readOnly ? undefined : onFocus}
       onContextMenu={readOnly ? undefined : onOpenContextMenu}
@@ -110,11 +114,13 @@ export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
       <button
         type="button"
         className={`w-5 h-5 flex items-center justify-center shrink-0 mr-0.5 rounded
-          ${hasExpandableContent
-            ? (isSelected || isHovered || isAttentionHighlighted)
-              ? 'hover:bg-system-blue/15 dark:hover:bg-system-blue/25 cursor-pointer transition-colors'
-              : 'hover:bg-element-hover cursor-pointer transition-colors'
-            : ''}`}
+          ${
+            hasExpandableContent
+              ? isSelected || isHovered || isAttentionHighlighted
+                ? 'hover:bg-system-blue/15 dark:hover:bg-system-blue/25 cursor-pointer transition-colors'
+                : 'hover:bg-element-hover cursor-pointer transition-colors'
+              : ''
+          }`}
         onClick={(event) => {
           event.stopPropagation();
           if (hasExpandableContent) {
@@ -125,19 +131,27 @@ export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
         title={`${isExpanded ? t.hide : t.show} ${linkName || linkId}`}
         disabled={!hasExpandableContent}
       >
-        {hasExpandableContent
-          && (isExpanded ? (
-            <ChevronDown size={11} className={isSelected ? 'text-text-secondary' : 'text-text-tertiary'} />
+        {hasExpandableContent &&
+          (isExpanded ? (
+            <ChevronDown
+              size={11}
+              className={isSelected ? 'text-text-secondary' : 'text-text-tertiary'}
+            />
           ) : (
-            <ChevronRight size={11} className={isSelected ? 'text-text-secondary' : 'text-text-tertiary'} />
+            <ChevronRight
+              size={11}
+              className={isSelected ? 'text-text-secondary' : 'text-text-tertiary'}
+            />
           ))}
       </button>
 
       <div
         className={`w-4 h-4 rounded flex items-center justify-center mr-1 shrink-0 border transition-colors
-          ${(isSelected || isHovered || isAttentionHighlighted)
-            ? 'bg-system-blue/15 dark:bg-system-blue/20 border-system-blue/25 dark:border-system-blue/30'
-            : 'bg-system-blue/10 dark:bg-system-blue/12 border-transparent'}`}
+          ${
+            isSelected || isHovered || isAttentionHighlighted
+              ? 'bg-system-blue/15 dark:bg-system-blue/20 border-system-blue/25 dark:border-system-blue/30'
+              : 'bg-system-blue/10 dark:bg-system-blue/12 border-transparent'
+          }`}
       >
         <Box size={10} className="text-system-blue" />
       </div>
@@ -156,7 +170,7 @@ export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
               onCancelRenaming();
             }
           }}
-          className={`text-xs font-medium flex-1 min-w-0 px-1 py-0.5 rounded border outline-none transition-colors ${
+          className={`${TREE_LINK_NAME_TEXT_CLASS} ${TREE_RENAME_INPUT_BASE_CLASS} ${
             isSelected
               ? 'bg-panel-bg border-border-strong text-text-primary focus:border-system-blue'
               : 'bg-input-bg border-border-strong text-text-primary focus:border-system-blue'
@@ -165,7 +179,7 @@ export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
       ) : (
         <div className="flex items-center gap-1 min-w-0">
           <span
-            className="text-xs font-medium whitespace-nowrap select-none truncate"
+            className={`${TREE_LINK_NAME_TEXT_CLASS} whitespace-nowrap select-none truncate`}
             onDoubleClick={readOnly ? undefined : onNameDoubleClick}
             onDragStart={(event) => event.preventDefault()}
             title={linkName}

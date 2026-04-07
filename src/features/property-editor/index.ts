@@ -9,3 +9,17 @@ export { CollisionOptimizationDialog } from './components/CollisionOptimizationD
 
 // Types
 export type { PropertyEditorProps } from './components/PropertyEditor';
+export {
+  analyzeCollisionOptimization,
+  applyCollisionOptimizationOperationsToLinks,
+  buildCollisionOptimizationOperations,
+  collectCollisionTargets,
+  countSameLinkOverlapWarnings,
+  resolveDetailLinkTabAfterGeometrySelection,
+  resolveDetailLinkTabAfterViewerMeshSelect,
+} from './utils';
+export type {
+  CollisionOptimizationOperation,
+  CollisionOptimizationSource,
+  CollisionTargetRef,
+} from './utils';

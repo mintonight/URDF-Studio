@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Theme } from '@/types';
-import { LIGHTING_CONFIG } from './constants';
+import { LIGHTING_CONFIG, resolveCameraFollowLightingStyle } from './constants';
+import { useSnapshotRenderActive } from './SnapshotRenderContext';
 import { resolveEffectiveTheme } from './themeUtils';
 
 interface SceneLightingProps {
@@ -33,42 +34,33 @@ export function SceneLighting({
   );
 
   const effectiveTheme = resolveEffectiveTheme(theme);
-  const shouldUseShadows = enableShadows && (cameraFollowPrimary || effectiveTheme !== 'light');
+  const snapshotRenderActive = useSnapshotRenderActive();
+  const cameraFollowStyle = resolveCameraFollowLightingStyle(effectiveTheme);
+  const shouldUseShadows =
+    snapshotRenderActive || (enableShadows && (cameraFollowPrimary || effectiveTheme !== 'light'));
   const resolvedShadowMapSize = shadowMapSize ?? (cameraFollowPrimary ? 1024 : 768);
-  const staticDirectionalScale = cameraFollowPrimary
-    ? (effectiveTheme === 'light' ? 0.76 : 0.8)
-    : 1;
-  const rimDirectionalScale = cameraFollowPrimary ? 0.38 : staticDirectionalScale;
+  const staticDirectionalScale = cameraFollowPrimary ? cameraFollowStyle.staticDirectionalScale : 1;
+  const rimDirectionalScale = cameraFollowPrimary
+    ? cameraFollowStyle.rimDirectionalScale
+    : staticDirectionalScale;
   const ambientIntensity = cameraFollowPrimary
-    ? (effectiveTheme === 'light' ? 0.37 : 0.34)
-    : (effectiveTheme === 'light' ? 0.74 : LIGHTING_CONFIG.ambientIntensity);
+    ? cameraFollowStyle.ambientIntensity
+    : effectiveTheme === 'light'
+      ? 0.74
+      : LIGHTING_CONFIG.ambientIntensity;
   const hemisphereIntensity = cameraFollowPrimary
-    ? (effectiveTheme === 'light' ? 0.43 : 0.4)
-    : (effectiveTheme === 'light' ? 0.56 : LIGHTING_CONFIG.hemisphereIntensity);
+    ? cameraFollowStyle.hemisphereIntensity
+    : effectiveTheme === 'light'
+      ? 0.56
+      : LIGHTING_CONFIG.hemisphereIntensity;
   const cameraKeyIntensity = cameraFollowPrimary
-    ? (
-      effectiveTheme === 'light'
-        ? LIGHTING_CONFIG.cameraKeyPriorityIntensityLight
-        : LIGHTING_CONFIG.cameraKeyPriorityIntensityDark
-    )
-    : (
-      effectiveTheme === 'light'
-        ? LIGHTING_CONFIG.cameraKeyIntensityLight
-        : LIGHTING_CONFIG.cameraKeyIntensityDark
-    );
-  const cameraFillIntensity = cameraFollowPrimary
-    ? (
-      effectiveTheme === 'light'
-        ? LIGHTING_CONFIG.cameraFillIntensityLight
-        : LIGHTING_CONFIG.cameraFillIntensityDark
-    )
-    : 0;
+    ? cameraFollowStyle.cameraKeyIntensity
+    : effectiveTheme === 'light'
+      ? LIGHTING_CONFIG.cameraKeyIntensityLight
+      : LIGHTING_CONFIG.cameraKeyIntensityDark;
+  const cameraFillIntensity = cameraFollowPrimary ? cameraFollowStyle.cameraFillIntensity : 0;
   const cameraSoftFrontIntensity = cameraFollowPrimary
-    ? (
-      effectiveTheme === 'light'
-        ? LIGHTING_CONFIG.cameraSoftFrontIntensityLight
-        : LIGHTING_CONFIG.cameraSoftFrontIntensityDark
-    )
+    ? cameraFollowStyle.cameraSoftFrontIntensity
     : 0;
 
   useEffect(() => {
@@ -83,10 +75,20 @@ export function SceneLighting({
     scene.receiveShadow = true;
     gl.toneMapping = cameraFollowPrimary ? THREE.NeutralToneMapping : THREE.ACESFilmicToneMapping;
     gl.toneMappingExposure = cameraFollowPrimary
-      ? (effectiveTheme === 'light' ? 0.98 : 1.0)
-      : (effectiveTheme === 'light' ? 1.08 : 1.1);
+      ? cameraFollowStyle.toneMappingExposure
+      : effectiveTheme === 'light'
+        ? 1.08
+        : 1.1;
     gl.outputColorSpace = THREE.SRGBColorSpace;
-  }, [cameraFollowPrimary, effectiveTheme, gl, scene, shouldUseShadows]);
+  }, [
+    cameraFollowPrimary,
+    cameraFollowStyle.toneMappingExposure,
+    effectiveTheme,
+    gl,
+    scene,
+    shouldUseShadows,
+    snapshotRenderActive,
+  ]);
 
   useEffect(() => {
     const keyLight = cameraKeyLightRef.current;
@@ -116,8 +118,8 @@ export function SceneLighting({
     if (!keyLight || !softFrontLight || !fillRightLight || !fillLeftLight) return;
 
     if (
-      lastCameraPositionRef.current.equals(camera.position)
-      && lastCameraQuaternionRef.current.equals(camera.quaternion)
+      lastCameraPositionRef.current.equals(camera.position) &&
+      lastCameraQuaternionRef.current.equals(camera.quaternion)
     ) {
       return;
     }
@@ -132,10 +134,9 @@ export function SceneLighting({
     keyLight.target.position.copy(cameraTargetRef.current);
     keyLight.target.updateMatrixWorld();
 
-    softFrontLight.position.copy(camera.position).addScaledVector(
-      cameraUpRef.current.set(0, 1, 0).applyQuaternion(camera.quaternion),
-      1.0,
-    );
+    softFrontLight.position
+      .copy(camera.position)
+      .addScaledVector(cameraUpRef.current.set(0, 1, 0).applyQuaternion(camera.quaternion), 1.0);
     softFrontLight.position.addScaledVector(cameraDirectionRef.current, 0.35);
     softFrontLight.target.position.copy(cameraTargetRef.current);
     softFrontLight.target.updateMatrixWorld();
@@ -143,14 +144,16 @@ export function SceneLighting({
     cameraRightRef.current.set(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
     cameraUpRef.current.set(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
 
-    fillRightLight.position.copy(camera.position)
+    fillRightLight.position
+      .copy(camera.position)
       .addScaledVector(cameraRightRef.current, 2.8)
       .addScaledVector(cameraUpRef.current, 1.7)
       .addScaledVector(cameraDirectionRef.current, 0.6);
     fillRightLight.target.position.copy(cameraTargetRef.current);
     fillRightLight.target.updateMatrixWorld();
 
-    fillLeftLight.position.copy(camera.position)
+    fillLeftLight.position
+      .copy(camera.position)
       .addScaledVector(cameraRightRef.current, -2.8)
       .addScaledVector(cameraUpRef.current, 1.7)
       .addScaledVector(cameraDirectionRef.current, 0.6);
@@ -174,7 +177,12 @@ export function SceneLighting({
       <directionalLight
         name="MainLight"
         position={LIGHTING_CONFIG.mainLightPosition}
-        intensity={(effectiveTheme === 'light' ? 0.5 : LIGHTING_CONFIG.mainLightIntensity) * staticDirectionalScale}
+        intensity={
+          cameraFollowPrimary
+            ? cameraFollowStyle.mainLightIntensity
+            : (effectiveTheme === 'light' ? 0.5 : LIGHTING_CONFIG.mainLightIntensity) *
+              staticDirectionalScale
+        }
         color="#ffffff"
         castShadow={shouldUseShadows}
         shadow-mapSize-width={resolvedShadowMapSize}

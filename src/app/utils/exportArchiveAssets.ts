@@ -1,8 +1,11 @@
 import JSZip from 'jszip';
 
 import { findAssetByPath } from '@/core/loaders';
-import { normalizeMeshPathForExport, normalizeTexturePathForExport } from '@/core/parsers/meshPathUtils';
-import { getVisualGeometryEntries } from '@/core/robot';
+import {
+  normalizeMeshPathForExport,
+  normalizeTexturePathForExport,
+} from '@/core/parsers/meshPathUtils';
+import { collectGeometryTexturePaths, getVisualGeometryEntries } from '@/core/robot';
 import { compressSTLBlob } from '@/core/stl-compressor';
 import { GeometryType, type RobotState, type UrdfLink } from '@/types';
 
@@ -18,11 +21,7 @@ interface AddRobotAssetsToZipOptions {
   compressOptions?: CompressOptions;
   extraMeshFiles?: Map<string, Blob>;
   skipMeshPaths?: ReadonlySet<string>;
-  onProgress?: (progress: {
-    completed: number;
-    total: number;
-    currentFile: string;
-  }) => void;
+  onProgress?: (progress: { completed: number; total: number; currentFile: string }) => void;
 }
 
 export type RobotAssetPackagingFailureCode =
@@ -61,6 +60,9 @@ export function collectRobotAssetReferences(robot: RobotState): {
       if (entry.geometry.type === GeometryType.MESH && entry.geometry.meshPath) {
         meshPaths.add(entry.geometry.meshPath);
       }
+      collectGeometryTexturePaths(entry.geometry).forEach((texturePath) => {
+        texturePaths.add(texturePath);
+      });
     });
     if (link.collision && link.collision.type === GeometryType.MESH && link.collision.meshPath) {
       meshPaths.add(link.collision.meshPath);
@@ -239,15 +241,17 @@ export async function addRobotAssetsToZip({
   });
 
   let completed = 0;
-  await Promise.all(tasks.map(async (task) => {
-    await task.run();
-    completed += 1;
-    onProgress?.({
-      completed,
-      total,
-      currentFile: task.currentFile,
-    });
-  }));
+  await Promise.all(
+    tasks.map(async (task) => {
+      await task.run();
+      completed += 1;
+      onProgress?.({
+        completed,
+        total,
+        currentFile: task.currentFile,
+      });
+    }),
+  );
 
   return {
     totalTasks: total,

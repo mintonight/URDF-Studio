@@ -15,6 +15,14 @@ export interface PreparedRobotImportWorkerDispatch<TOptions> {
 const objectIdentityTokens = new WeakMap<object, number>();
 let nextObjectIdentityToken = 1;
 
+function normalizeSourceLookupPath(filePath: string): string {
+  return filePath.replace(/\\/g, '/').trim().replace(/^\/+/, '').split('?')[0];
+}
+
+function hasInlineSourceContent(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 function getObjectIdentityToken(value: unknown): number {
   if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
     return 0;
@@ -92,12 +100,59 @@ function filterAvailableFiles(
   return filtered;
 }
 
+function buildMissingUrdfSourceContextSnapshot(
+  file: RobotFile,
+  options: ResolveRobotFileDataOptions,
+): RobotImportWorkerContextSnapshot | null {
+  if (file.format !== 'urdf' || hasInlineSourceContent(file.content)) {
+    return null;
+  }
+
+  const normalizedTargetPath = normalizeSourceLookupPath(file.name);
+  if (!normalizedTargetPath) {
+    return null;
+  }
+
+  const matchedAvailableFile = (options.availableFiles ?? []).find(
+    (candidate) =>
+      candidate.format === 'urdf' &&
+      hasInlineSourceContent(candidate.content) &&
+      normalizeSourceLookupPath(candidate.name) === normalizedTargetPath,
+  );
+
+  const matchedTextEntry = Object.entries(options.allFileContents ?? {}).find(
+    ([path, content]) =>
+      hasInlineSourceContent(content) && normalizeSourceLookupPath(path) === normalizedTargetPath,
+  );
+
+  const contextSnapshot: RobotImportWorkerContextSnapshot = {
+    ...(matchedAvailableFile ? { availableFiles: [matchedAvailableFile] } : {}),
+    ...(matchedTextEntry
+      ? { allFileContents: { [matchedTextEntry[0]]: matchedTextEntry[1] } }
+      : {}),
+  };
+
+  return hasContextSnapshotContent(contextSnapshot) ? contextSnapshot : null;
+}
+
 export function buildResolveRobotImportWorkerDispatch(
   file: RobotFile,
   options: ResolveRobotFileDataOptions = {},
 ): PreparedRobotImportWorkerDispatch<ResolveRobotFileDataOptions> {
   switch (file.format) {
-    case 'urdf':
+    case 'urdf': {
+      const contextSnapshot = buildMissingUrdfSourceContextSnapshot(file, options);
+      return {
+        options: {},
+        contextCacheKey: contextSnapshot
+          ? buildContextCacheKey('resolve', file, {
+              availableFiles: options.availableFiles,
+              allFileContents: options.allFileContents,
+            })
+          : null,
+        contextSnapshot,
+      };
+    }
     case 'mesh':
       return {
         options: {},

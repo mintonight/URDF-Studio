@@ -30,6 +30,7 @@ import type { Theme } from '@/types';
 import { useUIStore, type CodeEditorFontFamily, type Language } from '@/store';
 import { DraggableWindow } from '@/shared/components';
 import { useDraggableWindow } from '@/shared/hooks';
+import { Tooltip } from '@/shared/components/ui';
 import type { SourceCodeDocumentFlavor } from '../types';
 import type { MonacoInstance } from '../utils/monacoLoader';
 import {
@@ -750,50 +751,56 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
       headerActions={
         <div className="flex items-center gap-1">
           {!isReadOnly ? (
+            <Tooltip content={t.saveTooltip} side="bottom">
+              <button
+                onClick={() => {
+                  void handleApply('manual');
+                }}
+                disabled={!isDirty || isApplying}
+                className={`${HEADER_PRIMARY_ACTION_CLASS} ${
+                  isDirty || isApplying
+                    ? 'bg-system-blue-solid text-white hover:bg-system-blue-hover'
+                    : 'cursor-not-allowed bg-transparent text-text-tertiary'
+                }`}
+                type="button"
+              >
+                {isApplying ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Save className="h-3 w-3" />
+                )}
+                <span>{t.save}</span>
+              </button>
+            </Tooltip>
+          ) : null}
+          <Tooltip
+            content={isEquivalentMjcfPreview ? t.previewDownloadTooltip : t.downloadTooltip}
+            side="bottom"
+          >
             <button
-              onClick={() => {
-                void handleApply('manual');
-              }}
-              disabled={!isDirty || isApplying}
-              className={`${HEADER_PRIMARY_ACTION_CLASS} ${
-                isDirty || isApplying
-                  ? 'bg-system-blue-solid text-white hover:bg-system-blue-hover'
-                  : 'cursor-not-allowed bg-transparent text-text-tertiary'
+              onClick={handleDownload}
+              className={`${HEADER_ACTION_CLASS} ${
+                isEquivalentMjcfPreview ? 'cursor-not-allowed opacity-60' : ''
               }`}
-              title={t.saveTooltip}
+              disabled={isEquivalentMjcfPreview}
               type="button"
             >
-              {isApplying ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Save className="h-3 w-3" />
-              )}
-              <span>{t.save}</span>
+              <Download className="h-3.5 w-3.5" />
+              <span>{t.download}</span>
             </button>
-          ) : null}
-          <button
-            onClick={handleDownload}
-            className={`${HEADER_ACTION_CLASS} ${
-              isEquivalentMjcfPreview ? 'cursor-not-allowed opacity-60' : ''
-            }`}
-            title={isEquivalentMjcfPreview ? t.previewDownloadTooltip : t.downloadTooltip}
-            disabled={isEquivalentMjcfPreview}
-            type="button"
-          >
-            <Download className="h-3.5 w-3.5" />
-            <span>{t.download}</span>
-          </button>
-          <button
-            onClick={handleCopy}
-            className={`${HEADER_ACTION_CLASS} ${
-              copied ? 'bg-element-hover text-system-blue' : ''
-            }`}
-            title={t.copyTooltip}
-            type="button"
-          >
-            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-            <span>{copied ? t.copied : t.copy}</span>
-          </button>
+          </Tooltip>
+          <Tooltip content={t.copyTooltip} side="bottom">
+            <button
+              onClick={handleCopy}
+              className={`${HEADER_ACTION_CLASS} ${
+                copied ? 'bg-element-hover text-system-blue' : ''
+              }`}
+              type="button"
+            >
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              <span>{copied ? t.copied : t.copy}</span>
+            </button>
+          </Tooltip>
         </div>
       }
       className={`fixed z-[220] flex flex-col overflow-hidden rounded-lg border border-border-black bg-panel-bg text-text-primary shadow-2xl ${
@@ -868,29 +875,30 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
         <div className="flex items-center gap-3">
           {documentMeta.supportsValidation ? (
             validationErrors.length > 0 ? (
-              <button
-                className="flex items-center gap-1.5 text-amber-600 transition-colors hover:text-amber-500 dark:text-amber-400"
-                onClick={() => {
-                  const firstError = validationErrors[0];
-                  if (!editorRef.current || !firstError) {
-                    return;
-                  }
+              <Tooltip content={t.jumpToProblem} side="bottom">
+                <button
+                  className="flex items-center gap-1.5 text-amber-600 transition-colors hover:text-amber-500 dark:text-amber-400"
+                  onClick={() => {
+                    const firstError = validationErrors[0];
+                    if (!editorRef.current || !firstError) {
+                      return;
+                    }
 
-                  editorRef.current.revealLineInCenter(firstError.line);
-                  editorRef.current.setPosition({
-                    lineNumber: firstError.line,
-                    column: firstError.column || 1,
-                  });
-                  editorRef.current.focus();
-                }}
-                title={t.jumpToProblem}
-                type="button"
-              >
-                <AlertCircle className="h-3 w-3" />
-                <span>
-                  {validationErrors.length} {t.problems}
-                </span>
-              </button>
+                    editorRef.current.revealLineInCenter(firstError.line);
+                    editorRef.current.setPosition({
+                      lineNumber: firstError.line,
+                      column: firstError.column || 1,
+                    });
+                    editorRef.current.focus();
+                  }}
+                  type="button"
+                >
+                  <AlertCircle className="h-3 w-3" />
+                  <span>
+                    {validationErrors.length} {t.problems}
+                  </span>
+                </button>
+              </Tooltip>
             ) : (
               <div className="flex items-center gap-1.5 text-success dark:text-success">
                 <CheckCircle className="h-3 w-3" />

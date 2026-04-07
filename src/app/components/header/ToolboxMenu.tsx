@@ -1,12 +1,5 @@
 import React from 'react';
-import {
-  Activity,
-  ArrowUpRight,
-  Box,
-  RefreshCw,
-  Ruler,
-  ScanSearch,
-} from 'lucide-react';
+import { Activity, ArrowUpRight, Box, RefreshCw, Ruler, ScanSearch } from 'lucide-react';
 import type { TranslationKeys } from '@/shared/i18n/types';
 import { useEffectiveTheme } from '@/shared/hooks/useEffectiveTheme';
 
@@ -41,11 +34,12 @@ function ToolboxItemCard({
   onHoverStart: (item: ToolboxItem) => void;
   onHoverEnd: () => void;
 }) {
-  const iconToneClassName = item.tone === 'primary'
-    ? `${isActive ? 'border-system-blue-solid bg-system-blue-solid text-white scale-[1.04]' : 'text-system-blue'} group-hover:border-system-blue-solid group-hover:bg-system-blue-solid group-hover:text-white group-hover:scale-[1.04] group-focus-visible:border-system-blue-solid group-focus-visible:bg-system-blue-solid group-focus-visible:text-white group-focus-visible:scale-[1.04]`
-    : item.tone === 'logo'
-      ? `${isActive ? 'border-system-blue/35 bg-system-blue/10 scale-[1.04]' : 'overflow-hidden'} group-hover:border-system-blue/35 group-hover:bg-system-blue/10 group-hover:scale-[1.04] group-focus-visible:border-system-blue/35 group-focus-visible:bg-system-blue/10 group-focus-visible:scale-[1.04]`
-      : `${isActive ? 'border-system-blue/35 bg-system-blue/10 text-system-blue scale-[1.04]' : 'text-text-secondary'} group-hover:border-system-blue/35 group-hover:bg-system-blue/10 group-hover:text-system-blue group-hover:scale-[1.04] group-focus-visible:border-system-blue/35 group-focus-visible:bg-system-blue/10 group-focus-visible:text-system-blue group-focus-visible:scale-[1.04]`;
+  const iconToneClassName =
+    item.tone === 'primary'
+      ? `${isActive ? 'border-system-blue-solid bg-system-blue-solid text-white scale-[1.04]' : 'text-system-blue'} group-hover:border-system-blue-solid group-hover:bg-system-blue-solid group-hover:text-white group-hover:scale-[1.04] group-focus-visible:border-system-blue-solid group-focus-visible:bg-system-blue-solid group-focus-visible:text-white group-focus-visible:scale-[1.04]`
+      : item.tone === 'logo'
+        ? `${isActive ? 'border-system-blue/35 bg-system-blue/10 scale-[1.04]' : 'overflow-hidden'} group-hover:border-system-blue/35 group-hover:bg-system-blue/10 group-hover:scale-[1.04] group-focus-visible:border-system-blue/35 group-focus-visible:bg-system-blue/10 group-focus-visible:scale-[1.04]`
+        : `${isActive ? 'border-system-blue/35 bg-system-blue/10 text-system-blue scale-[1.04]' : 'text-text-secondary'} group-hover:border-system-blue/35 group-hover:bg-system-blue/10 group-hover:text-system-blue group-hover:scale-[1.04] group-focus-visible:border-system-blue/35 group-focus-visible:bg-system-blue/10 group-focus-visible:text-system-blue group-focus-visible:scale-[1.04]`;
 
   return (
     <button
@@ -98,14 +92,16 @@ export function ToolboxMenu({
 }: ToolboxMenuProps) {
   const [hoveredItemKey, setHoveredItemKey] = React.useState<string | null>(null);
   const effectiveTheme = useEffectiveTheme();
-  const motrixLogoSrc = effectiveTheme === 'dark'
-    ? '/logos/motrix-logo-white.svg'
-    : '/logos/motrix-logo.svg';
+  const motrixLogoSrc =
+    effectiveTheme === 'dark' ? '/logos/motrix-logo-white.svg' : '/logos/motrix-logo.svg';
 
-  const openExternal = React.useCallback((url: string) => {
-    onClose();
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }, [onClose]);
+  const openExternal = React.useCallback(
+    (url: string) => {
+      onClose();
+      window.open(url, '_blank', 'noopener,noreferrer');
+    },
+    [onClose],
+  );
 
   const openAI = React.useCallback(() => {
     onClose();
@@ -157,6 +153,15 @@ export function ToolboxMenu({
       tone: 'neutral',
     },
     {
+      key: 'step2urdf',
+      title: t.step2urdf,
+      description: t.step2urdfDesc,
+      icon: <img src="/logos/step2urdf-logo.svg" alt="" className="h-5 w-5 object-contain" />,
+      onClick: () => openExternal('https://step2urdf.top/'),
+      external: true,
+      tone: 'logo',
+    },
+    {
       key: 'motrix',
       title: t.motrix,
       description: t.motrixDesc,
@@ -187,7 +192,7 @@ export function ToolboxMenu({
 
   const hoveredItem = React.useMemo(
     () => items.find((item) => item.key === hoveredItemKey) ?? null,
-    [items, hoveredItemKey]
+    [items, hoveredItemKey],
   );
 
   return (
@@ -201,7 +206,9 @@ export function ToolboxMenu({
               item={item}
               isActive={hoveredItemKey === item.key}
               onHoverStart={(nextItem) => setHoveredItemKey(nextItem.key)}
-              onHoverEnd={() => setHoveredItemKey((currentKey) => (currentKey === item.key ? null : currentKey))}
+              onHoverEnd={() =>
+                setHoveredItemKey((currentKey) => (currentKey === item.key ? null : currentKey))
+              }
             />
           ))}
         </div>

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const repoRoot = process.cwd();
+const checkMode = process.argv.includes('--check');
 const sourcePath = path.join(repoRoot, 'src/features/ai-assistant/config/aiPromptTemplates.md');
 const outputPath = path.join(
   repoRoot,
@@ -63,4 +64,12 @@ export const AI_PROMPT_TEMPLATES = {
 } as const;
 `;
 
-fs.writeFileSync(outputPath, generatedModule);
+if (checkMode) {
+  const currentOutput = fs.existsSync(outputPath) ? fs.readFileSync(outputPath, 'utf8') : '';
+  if (currentOutput !== generatedModule) {
+    console.error(`Generated prompt templates are stale: ${outputPath}`);
+    process.exitCode = 1;
+  }
+} else {
+  fs.writeFileSync(outputPath, generatedModule);
+}

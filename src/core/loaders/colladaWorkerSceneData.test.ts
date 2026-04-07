@@ -130,3 +130,19 @@ test('createSceneFromSerializedColladaData resolves blob-relative Collada textur
     'expected blob-relative Collada texture URL to be remapped through the asset manager',
   );
 });
+
+test('createSceneFromSerializedColladaData applies Collada unit meter scaling for Aliengo calf truth', () => {
+  const daePath = 'test/unitree_ros/robots/aliengo_description/meshes/calf.dae';
+  const colladaText = fs.readFileSync(daePath, 'utf8');
+  const serializedScene = parseColladaSceneData(colladaText, daePath);
+  const restoredScene = createSceneFromSerializedColladaData(serializedScene);
+  const bounds = new THREE.Box3().setFromObject(restoredScene);
+  const size = new THREE.Vector3();
+  bounds.getSize(size);
+
+  assert.equal(serializedScene.unitScale, 0.0254);
+  assert.ok(
+    size.z < 0.5,
+    `expected Aliengo calf mesh to stay near URDF truth scale after applying unit meter, got z=${size.z}`,
+  );
+});

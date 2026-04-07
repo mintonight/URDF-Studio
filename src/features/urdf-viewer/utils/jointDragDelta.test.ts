@@ -14,14 +14,14 @@ test('uses the projected plane angle when the camera is facing the joint plane',
   );
 });
 
-test('keeps trusting the projected plane angle even when the view is nearly edge-on', () => {
+test('switches to tangent dragging when the joint plane is nearly edge-on', () => {
   assert.equal(
     resolveRevoluteDragDelta({
       worldDelta: 0.03,
       tangentDelta: -0.12,
       planeFacingRatio: 0.08,
     }),
-    0.03,
+    -0.12,
   );
 });
 

@@ -6,6 +6,13 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -13,10 +20,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -26,14 +33,8 @@ jobs:
         env:
           HUSKY: 0
 
-      - name: Check formatting
-        run: npm run format:check
+      - name: Run fast verification lane
+        run: npm run verify:fast
 
-      - name: Run linters
-        run: npm run lint
-
-      - name: Type-check stable runtime scope
-        run: npm run typecheck:quality
-
-      - name: Build application
-        run: npm run build
+      - name: Build react-robot-canvas workspace package
+        run: npm run build:package:react-robot-canvas

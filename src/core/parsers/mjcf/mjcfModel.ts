@@ -5,6 +5,7 @@ import {
   parseMaterialAssets,
   parseMeshAssets,
   parseMJCFDefaults,
+  parseMJCFXmlDocument,
   parseOrientationAsQuat,
   parseTextureAssets,
   parseNumbers,
@@ -19,6 +20,11 @@ import {
   type MJCFMesh,
   type MJCFTexture,
 } from './mjcfUtils';
+import {
+  buildGeneratedMjcfBodyPath,
+  buildGeneratedMjcfGeomName,
+  buildGeneratedMjcfSiteName,
+} from './mjcfGeneratedNames';
 
 export interface MJCFModelGeom {
   name?: string;
@@ -97,6 +103,7 @@ export interface MJCFModelTendon {
   sourceName?: string;
   className?: string;
   classQName?: string;
+  group?: number;
   type: 'fixed' | 'spatial';
   limited?: boolean;
   range?: [number, number];
@@ -120,6 +127,13 @@ export interface MJCFModelConnectConstraint {
   body1: string;
   body2: string;
   anchor: [number, number, number];
+}
+
+export interface MJCFModelJointEqualityConstraint {
+  name?: string;
+  joint1: string;
+  joint2: string;
+  polycoef: [number, number, number, number, number];
 }
 
 export interface MJCFModelBody {
@@ -147,15 +161,22 @@ export interface ParsedMJCFModel {
   tendonActuators: MJCFModelActuator[];
   tendonMap: Map<string, MJCFModelTendon>;
   connectConstraints: MJCFModelConnectConstraint[];
+  jointEqualityConstraints: MJCFModelJointEqualityConstraint[];
   worldBody: MJCFModelBody;
 }
 
+interface CachedParsedMJCFModelEntry {
+  model: ParsedMJCFModel | null;
+  error: string | null;
+}
+
 const PARSED_MODEL_CACHE_LIMIT = 24;
-const parsedModelCache = new Map<string, ParsedMJCFModel | null>();
+const parsedModelCache = new Map<string, CachedParsedMJCFModelEntry>();
 
 function rememberParsedModel(
   xmlContent: string,
   parsedModel: ParsedMJCFModel | null,
+  error: string | null = null,
 ): ParsedMJCFModel | null {
   if (!parsedModelCache.has(xmlContent) && parsedModelCache.size >= PARSED_MODEL_CACHE_LIMIT) {
     const oldestKey = parsedModelCache.keys().next().value;
@@ -164,7 +185,10 @@ function rememberParsedModel(
     }
   }
 
-  parsedModelCache.set(xmlContent, parsedModel);
+  parsedModelCache.set(xmlContent, {
+    model: parsedModel,
+    error,
+  });
   return parsedModel;
 }
 
@@ -179,6 +203,14 @@ export function clearParsedMJCFModelCache(xmlContent?: string): void {
 
 export function getParsedMJCFModelCacheSize(): number {
   return parsedModelCache.size;
+}
+
+export function getParsedMJCFModelError(xmlContent: string): string | null {
+  if (!parsedModelCache.has(xmlContent)) {
+    parseMJCFModel(xmlContent);
+  }
+
+  return parsedModelCache.get(xmlContent)?.error ?? null;
 }
 
 function directChildren(element: Element, tagName: string): Element[] {
@@ -459,6 +491,40 @@ function parseConnectConstraints(mujocoElement: Element): MJCFModelConnectConstr
   return constraints;
 }
 
+function parseJointEqualityConstraints(mujocoElement: Element): MJCFModelJointEqualityConstraint[] {
+  const constraints: MJCFModelJointEqualityConstraint[] = [];
+  const defaultPolycoef: [number, number, number, number, number] = [0, 1, 0, 0, 0];
+
+  directChildren(mujocoElement, 'equality').forEach((equalityElement) => {
+    directChildren(equalityElement, 'joint').forEach((jointElement) => {
+      const isActive = parseBooleanAttribute(jointElement.getAttribute('active') ?? undefined);
+      if (isActive === false) {
+        return;
+      }
+
+      const joint1 = jointElement.getAttribute('joint1')?.trim() || '';
+      const joint2 = jointElement.getAttribute('joint2')?.trim() || '';
+      if (!joint1 || !joint2) {
+        return;
+      }
+
+      const parsedPolycoef = parseNumbers(jointElement.getAttribute('polycoef'));
+      const polycoef = defaultPolycoef.map((defaultValue, index) =>
+        Number.isFinite(parsedPolycoef[index]) ? parsedPolycoef[index]! : defaultValue,
+      ) as [number, number, number, number, number];
+
+      constraints.push({
+        name: jointElement.getAttribute('name') || undefined,
+        joint1,
+        joint2,
+        polycoef,
+      });
+    });
+  });
+
+  return constraints;
+}
+
 function resolveChildDefaultsClassQName(
   defaults: MJCFDefaultsRegistry,
   element: Element,
@@ -591,7 +657,7 @@ function parseSiteElement(
   }
 
   const site: MJCFModelSite = {
-    name: sourceSiteName || `${bodyPath}::site[${siteIndex}]`,
+    name: sourceSiteName || buildGeneratedMjcfSiteName(bodyPath, siteIndex),
     sourceName: sourceSiteName,
     className: siteClassQName?.split('/').pop() || siteElement.getAttribute('class') || undefined,
     classQName: siteClassQName,
@@ -723,6 +789,13 @@ function parseTendonMap(
       rgba: toRgbaTuple(tendonAttrs.rgba),
       attachments,
     };
+
+    if (tendonAttrs.group != null && tendonAttrs.group !== '') {
+      const parsedGroup = parseFloat(tendonAttrs.group);
+      if (Number.isFinite(parsedGroup)) {
+        tendon.group = parsedGroup;
+      }
+    }
 
     if (tendonAttrs.width != null && tendonAttrs.width !== '') {
       const parsedWidth = parseFloat(tendonAttrs.width);
@@ -880,7 +953,7 @@ function parseGeomElement(
   }
 
   const geom: MJCFModelGeom = {
-    name: sourceGeomName || `${bodyPath}::geom[${geomIndex}]`,
+    name: sourceGeomName || buildGeneratedMjcfGeomName(bodyPath, geomIndex),
     sourceName: sourceGeomName,
     className: geomClassQName?.split('/').pop() || geomElement.getAttribute('class') || undefined,
     classQName: geomClassQName,
@@ -1181,10 +1254,6 @@ function toRgbaTuple(str: string | undefined): [number, number, number, number] 
   return [rgba[0], rgba[1], rgba[2], rgba[3] ?? 1];
 }
 
-function buildStableBodyName(parentPath: string, siblingIndex: number): string {
-  return `${parentPath}/body[${siblingIndex}]`;
-}
-
 function buildGeneratedJointName(jointIndex: number): string {
   return `joint_${jointIndex}`;
 }
@@ -1249,7 +1318,7 @@ function parseBody(
   const bodyAttrs = resolveElementAttributes(defaults, 'body', bodyElement, activeClassQName);
   const bodyCompilerSettings = resolveCompilerSettingsForElement(bodyElement, compilerSettings);
   const sourceName = bodyElement.getAttribute('name') || bodyAttrs.name || undefined;
-  const bodyPath = sourceName || buildStableBodyName(parentPath, siblingIndex);
+  const bodyPath = sourceName || buildGeneratedMjcfBodyPath(parentPath, siblingIndex);
   const childDefaultsClassQName = resolveChildDefaultsClassQName(
     defaults,
     bodyElement,
@@ -1338,22 +1407,27 @@ function parseBody(
 
 export function parseMJCFModel(xmlContent: string): ParsedMJCFModel | null {
   if (parsedModelCache.has(xmlContent)) {
-    return parsedModelCache.get(xmlContent) ?? null;
+    return parsedModelCache.get(xmlContent)?.model ?? null;
   }
 
   try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(xmlContent, 'text/xml');
-    const parseError = doc.querySelector('parsererror');
-    if (parseError) {
-      console.error('[MJCF] XML parsing error:', parseError.textContent);
-      return rememberParsedModel(xmlContent, null);
+    const { doc, parseErrorText, recovered } = parseMJCFXmlDocument(xmlContent);
+    if (!doc) {
+      console.error('[MJCF] XML parsing error:', parseErrorText ?? 'unknown parse error');
+      return rememberParsedModel(
+        xmlContent,
+        null,
+        parseErrorText ? `XML parsing error: ${parseErrorText}` : 'XML parsing error.',
+      );
+    }
+    if (recovered) {
+      console.warn('[MJCF] Recovered malformed XML by repairing missing attribute whitespace.');
     }
 
     const mujocoElement = doc.querySelector('mujoco');
     if (!mujocoElement) {
       console.error('[MJCF] No <mujoco> root element found');
-      return rememberParsedModel(xmlContent, null);
+      return rememberParsedModel(xmlContent, null, 'No <mujoco> root element found.');
     }
 
     const compilerSettings = parseCompilerSettings(doc);
@@ -1363,10 +1437,11 @@ export function parseMJCFModel(xmlContent: string): ParsedMJCFModel | null {
     const materialMap = parseMaterialAssets(doc, defaults);
     const textureMap = parseTextureAssets(doc, compilerSettings, defaults);
     const connectConstraints = parseConnectConstraints(mujocoElement);
+    const jointEqualityConstraints = parseJointEqualityConstraints(mujocoElement);
     const worldbodyElements = directChildren(mujocoElement, 'worldbody');
     if (worldbodyElements.length === 0) {
       console.error('[MJCF] No <worldbody> element found');
-      return null;
+      return rememberParsedModel(xmlContent, null, 'No <worldbody> element found.');
     }
     const jointIndexRef = { value: 0 };
 
@@ -1431,22 +1506,31 @@ export function parseMJCFModel(xmlContent: string): ParsedMJCFModel | null {
       );
     });
 
-    return rememberParsedModel(xmlContent, {
-      modelName: mujocoElement.getAttribute('model') || 'mjcf_robot',
-      compilerSettings,
-      defaults,
-      meshMap,
-      hfieldMap,
-      materialMap,
-      textureMap,
-      actuatorMap,
-      tendonActuators,
-      tendonMap,
-      connectConstraints,
-      worldBody,
-    });
+    return rememberParsedModel(
+      xmlContent,
+      {
+        modelName: mujocoElement.getAttribute('model') || 'mjcf_robot',
+        compilerSettings,
+        defaults,
+        meshMap,
+        hfieldMap,
+        materialMap,
+        textureMap,
+        actuatorMap,
+        tendonActuators,
+        tendonMap,
+        connectConstraints,
+        jointEqualityConstraints,
+        worldBody,
+      },
+      null,
+    );
   } catch (error) {
     console.error('[MJCF] Failed to parse MJCF model:', error);
-    return rememberParsedModel(xmlContent, null);
+    return rememberParsedModel(
+      xmlContent,
+      null,
+      error instanceof Error ? error.message : 'Unknown MJCF parse error.',
+    );
   }
 }

@@ -161,6 +161,26 @@ test('isUrdfSelfContainedInImportBundle accepts folder imports whose repo root d
   assert.equal(isUrdfSelfContainedInImportBundle(urdfFile, [urdfFile, meshFile]), true);
 });
 
+test('isUrdfSelfContainedInImportBundle rejects relative mesh references that are missing from the import bundle', () => {
+  const urdfFile = createRobotFile(
+    'google_barkour_v0/barkour_v0.urdf',
+    'urdf',
+    `<?xml version="1.0"?>
+<robot name="barkour">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/body.stl" />
+      </geometry>
+    </visual>
+  </link>
+</robot>`,
+  );
+  const meshFile = createRobotFile('google_barkour_v0/assets/body.stl', 'mesh');
+
+  assert.equal(isUrdfSelfContainedInImportBundle(urdfFile, [urdfFile, meshFile]), false);
+});
+
 test('pickPreferredMjcfImportFile prefers direct robot definitions over wrapper scenes without relying on names', () => {
   const robotFile = createRobotFile(
     'demo_bundle/robot_model.xml',
@@ -237,6 +257,19 @@ test('pickPreferredImportFile prefers the richer MJCF source-of-truth over a sel
   const preferredFile = pickPreferredImportFile(files, files);
 
   assert.equal(preferredFile?.name, 'test/mujoco_menagerie-main/google_barkour_vb/barkour_vb.xml');
+});
+
+test('pickPreferredImportFile prefers MJCF when a MuJoCo folder ships an export-only URDF sidecar', () => {
+  const files = loadImportableRobotFilesFromDirectory(
+    'test/awesome_robot_descriptions_repos/mujoco_menagerie/google_barkour_v0',
+  );
+
+  const preferredFile = pickPreferredImportFile(files, files);
+
+  assert.equal(
+    preferredFile?.name,
+    'test/awesome_robot_descriptions_repos/mujoco_menagerie/google_barkour_v0/barkour_v0.xml',
+  );
 });
 
 test('pickPreferredImportFile prefers the richest self-contained URDF over helper subassemblies in talos-data', () => {

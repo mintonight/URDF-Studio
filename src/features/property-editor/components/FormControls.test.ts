@@ -6,7 +6,7 @@ import { createRoot, Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { useUIStore } from '@/store';
-import { NumberInput, ReadonlyVectorStatRow } from './FormControls.tsx';
+import { InlineInputGroup, NumberInput, ReadonlyVectorStatRow } from './FormControls.tsx';
 import { TransformFields } from './TransformFields.tsx';
 import type { EulerRadiansValue } from '../utils/rotationFormat.ts';
 
@@ -24,17 +24,22 @@ function installDom() {
   });
 
   (globalThis as { HTMLElement?: typeof HTMLElement }).HTMLElement = dom.window.HTMLElement;
-  (globalThis as { HTMLInputElement?: typeof HTMLInputElement }).HTMLInputElement = dom.window.HTMLInputElement;
+  (globalThis as { HTMLInputElement?: typeof HTMLInputElement }).HTMLInputElement =
+    dom.window.HTMLInputElement;
   (globalThis as { Node?: typeof Node }).Node = dom.window.Node;
   (globalThis as { Event?: typeof Event }).Event = dom.window.Event;
   (globalThis as { MouseEvent?: typeof MouseEvent }).MouseEvent = dom.window.MouseEvent;
-  (globalThis as { PointerEvent?: typeof PointerEvent }).PointerEvent = dom.window.PointerEvent ?? dom.window.MouseEvent;
+  (globalThis as { PointerEvent?: typeof PointerEvent }).PointerEvent =
+    dom.window.PointerEvent ?? dom.window.MouseEvent;
   (globalThis as { InputEvent?: typeof InputEvent }).InputEvent = dom.window.InputEvent;
   (globalThis as { FocusEvent?: typeof FocusEvent }).FocusEvent = dom.window.FocusEvent;
   (globalThis as { KeyboardEvent?: typeof KeyboardEvent }).KeyboardEvent = dom.window.KeyboardEvent;
-  (globalThis as { getComputedStyle?: typeof getComputedStyle }).getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
-  (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window);
-  (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window);
+  (globalThis as { getComputedStyle?: typeof getComputedStyle }).getComputedStyle =
+    dom.window.getComputedStyle.bind(dom.window);
+  (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame =
+    dom.window.requestAnimationFrame.bind(dom.window);
+  (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame =
+    dom.window.cancelAnimationFrame.bind(dom.window);
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
   if (!('attachEvent' in dom.window.HTMLElement.prototype)) {
@@ -223,10 +228,12 @@ test('pointer down applies the first step immediately before pointer up', async 
     const increaseButton = getStepperButton(container, 'Increase Radius');
 
     await act(async () => {
-      increaseButton.dispatchEvent(new PointerEvent('pointerdown', {
-        bubbles: true,
-        pointerId: 1,
-      }));
+      increaseButton.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          pointerId: 1,
+        }),
+      );
     });
 
     assert.equal(getCommittedValue(container), '1.1');
@@ -269,10 +276,12 @@ test('min clamps positive-only values during stepper and typed edits', async () 
     const decreaseButton = getStepperButton(container, 'Decrease Radius');
 
     await act(async () => {
-      decreaseButton.dispatchEvent(new PointerEvent('pointerdown', {
-        bubbles: true,
-        pointerId: 2,
-      }));
+      decreaseButton.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          pointerId: 2,
+        }),
+      );
     });
 
     assert.equal(getCommittedValue(container), '0');
@@ -305,23 +314,71 @@ test('TransformFields defaults to inline axis labels for position and rotation r
       );
     });
 
-    const xLabel = Array.from(container.querySelectorAll('span'))
-      .find((node) => node.textContent === 'X');
+    const xLabel = Array.from(container.querySelectorAll('span')).find(
+      (node) => node.textContent === 'X',
+    );
     assert.ok(xLabel, 'position X label should render');
     assert.match(
-      (xLabel.parentElement as HTMLElement).style.gridTemplateColumns,
-      /max-content/,
-      'position labels should share the same row as their inputs',
+      xLabel.className,
+      /\btruncate\b/,
+      'position axis labels should truncate instead of forcing the inline row wider',
+    );
+    assert.match(
+      xLabel.parentElement?.className ?? '',
+      /\bmin-w-0\b/,
+      'position axis rows should remain shrinkable inside the transform grid',
     );
 
-    const rollLabel = Array.from(container.querySelectorAll('span'))
-      .find((node) => node.textContent === 'Roll');
+    const rollLabel = Array.from(container.querySelectorAll('span')).find(
+      (node) => node.textContent === 'Roll',
+    );
     assert.ok(rollLabel, 'rotation roll label should render');
     assert.match(
-      (rollLabel.parentElement as HTMLElement).style.gridTemplateColumns,
-      /max-content/,
-      'rotation labels should share the same row as their inputs',
+      rollLabel.className,
+      /\btruncate\b/,
+      'rotation axis labels should truncate instead of forcing the inline row wider',
     );
+    assert.match(
+      rollLabel.parentElement?.className ?? '',
+      /\bmin-w-0\b/,
+      'rotation axis rows should remain shrinkable inside the transform grid',
+    );
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('InlineInputGroup keeps labels content-sized while preserving a single-line input row', async () => {
+  const { dom, container, root } = createComponentRoot();
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(
+          InlineInputGroup,
+          {
+            label: 'Direction',
+            labelWidthClassName: 'w-16 whitespace-nowrap',
+          },
+          React.createElement('input', {
+            type: 'text',
+            value: '1 (Normal)',
+            readOnly: true,
+          }),
+        ),
+      );
+    });
+
+    const label = container.querySelector('label');
+    assert.ok(label, 'inline input label should render');
+    assert.equal(label.style.width, 'fit-content');
+
+    const row = label.parentElement;
+    assert.ok(row, 'inline input row should render');
+    assert.match(row.className, /\bflex-nowrap\b/);
+    assert.match(row.className, /\bmin-w-0\b/);
+
+    const content = row.querySelector('div.min-w-0.flex-1');
+    assert.ok(content, 'inline input content slot should keep flex growth');
   } finally {
     await destroyComponentRoot(dom, root);
   }
@@ -348,8 +405,12 @@ test('TransformFields renders per-axis rotation rows with compact +/-90 shortcut
     assert.equal(container.querySelectorAll('button[aria-label$="decrease 90°"]').length, 3);
     assert.equal(container.querySelector('button[aria-label="Roll increase 180°"]'), null);
     assert.equal(container.querySelector('button[aria-label="Roll reset 0°"]'), null);
-    const rollInput = container.querySelector('input[aria-label="Roll"]') as HTMLInputElement | null;
-    const pitchInput = container.querySelector('input[aria-label="Pitch"]') as HTMLInputElement | null;
+    const rollInput = container.querySelector(
+      'input[aria-label="Roll"]',
+    ) as HTMLInputElement | null;
+    const pitchInput = container.querySelector(
+      'input[aria-label="Pitch"]',
+    ) as HTMLInputElement | null;
     const yawInput = container.querySelector('input[aria-label="Yaw"]') as HTMLInputElement | null;
     assert.ok(rollInput);
     assert.ok(pitchInput);
@@ -459,8 +520,12 @@ test('TransformFields renders per-axis radian rotation rows with compact +/-π/2
     assert.equal(container.textContent?.includes('-π/2'), true);
     assert.equal(container.textContent?.includes('+π/2'), true);
 
-    const rollInput = container.querySelector('input[aria-label="Roll"]') as HTMLInputElement | null;
-    const pitchInput = container.querySelector('input[aria-label="Pitch"]') as HTMLInputElement | null;
+    const rollInput = container.querySelector(
+      'input[aria-label="Roll"]',
+    ) as HTMLInputElement | null;
+    const pitchInput = container.querySelector(
+      'input[aria-label="Pitch"]',
+    ) as HTMLInputElement | null;
     const yawInput = container.querySelector('input[aria-label="Yaw"]') as HTMLInputElement | null;
     assert.ok(rollInput);
     assert.ok(pitchInput);

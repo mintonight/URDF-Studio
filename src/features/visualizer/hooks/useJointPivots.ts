@@ -15,8 +15,8 @@ export interface JointPivotsState {
  * Used for TransformControls to manipulate joint positions
  */
 export function useJointPivots(
-  selectionType?: 'link' | 'joint',
-  selectionId?: string
+  selectionType?: 'link' | 'joint' | 'tendon',
+  selectionId?: string,
 ): JointPivotsState {
   const [jointPivots, setJointPivots] = useState<Record<string, THREE.Group | null>>({});
   const [jointMotions, setJointMotions] = useState<Record<string, THREE.Group | null>>({});

@@ -8,6 +8,7 @@ import { JSDOM } from 'jsdom';
 
 import { DEFAULT_LINK, JointType, type RobotData, type UrdfJoint } from '@/types';
 import { useRobotStore, useAssemblyStore } from '@/store';
+import { setRegressionBeforeUnloadPromptSuppressed } from '@/shared/debug/regressionBridge';
 
 import { useUnsavedChangesPrompt } from './useUnsavedChangesPrompt.ts';
 
@@ -147,6 +148,7 @@ function createRobotData(): RobotData {
 }
 
 function resetStoresToBaseline() {
+  setRegressionBeforeUnloadPromptSuppressed(false);
   useAssemblyStore.setState({
     assemblyState: null,
     _history: { past: [], future: [] },
@@ -232,6 +234,46 @@ test('useUnsavedChangesPrompt only warns for persistent robot edits', async () =
     assert.equal(dispatchBeforeUnload(), true);
   } finally {
     rendered.cleanup();
+    setRegressionBeforeUnloadPromptSuppressed(false);
+    await new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), 0);
+    });
+    void domEnvironment;
+  }
+});
+
+test('useUnsavedChangesPrompt can suppress beforeunload warnings for regression automation', async () => {
+  const domEnvironment = installDomEnvironment();
+  resetStoresToBaseline();
+
+  const rendered = renderHook();
+
+  try {
+    flushSync(() => {
+      const currentLink = useRobotStore.getState().links.tool_link;
+      useRobotStore.getState().updateLink('tool_link', {
+        collision: {
+          ...currentLink.collision,
+          dimensions: { x: 1.25, y: 0.5, z: 0.3 },
+        },
+      });
+    });
+
+    assert.equal(rendered.hook.hasUnsavedChanges, true);
+    assert.equal(dispatchBeforeUnload(), false);
+
+    flushSync(() => {
+      setRegressionBeforeUnloadPromptSuppressed(true);
+    });
+    assert.equal(dispatchBeforeUnload(), true);
+
+    flushSync(() => {
+      setRegressionBeforeUnloadPromptSuppressed(false);
+    });
+    assert.equal(dispatchBeforeUnload(), false);
+  } finally {
+    rendered.cleanup();
+    setRegressionBeforeUnloadPromptSuppressed(false);
     await new Promise<void>((resolve) => {
       setTimeout(() => resolve(), 0);
     });

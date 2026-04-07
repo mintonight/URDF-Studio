@@ -3,9 +3,14 @@ import * as THREE from 'three';
 import { URDFJoint as RuntimeURDFJoint } from '@/core/parsers/urdf/loader';
 import { parseThreeColorWithOpacity } from '@/core/utils/color.ts';
 import { disposeObject3D, disposeMaterial } from './dispose';
-import { COLLISION_OVERLAY_RENDER_ORDER, collisionBaseMaterial, createMatteMaterial } from './materials';
+import {
+  COLLISION_OVERLAY_RENDER_ORDER,
+  collisionBaseMaterial,
+  createMatteMaterial,
+} from './materials';
 import { SHARED_MATERIALS } from '../constants';
 import { DEFAULT_RPY, DEFAULT_VEC3 } from './robotLoaderDiff';
+import { syncMjcfTendonVisualMeshMap } from './mjcfTendonVisualMeshMap';
 import type { UrdfJoint, UrdfVisual as LinkGeometry } from '@/types';
 
 function normalizeVisualColorOverride(color: string | undefined): string | undefined {
@@ -13,7 +18,10 @@ function normalizeVisualColorOverride(color: string | undefined): string | undef
   return trimmed ? trimmed : undefined;
 }
 
-export function applyOriginToGroup(group: THREE.Object3D, origin: LinkGeometry['origin'] | undefined): void {
+export function applyOriginToGroup(
+  group: THREE.Object3D,
+  origin: LinkGeometry['origin'] | undefined,
+): void {
   const xyz = origin?.xyz || DEFAULT_VEC3;
   const rpy = origin?.rpy || DEFAULT_RPY;
 
@@ -22,7 +30,10 @@ export function applyOriginToGroup(group: THREE.Object3D, origin: LinkGeometry['
   group.quaternion.setFromEuler(new THREE.Euler(rpy.r, rpy.p, rpy.y, 'ZYX'));
 }
 
-export function applyOriginToJoint(joint: RuntimeURDFJoint, origin: UrdfJoint['origin'] | undefined): void {
+export function applyOriginToJoint(
+  joint: RuntimeURDFJoint,
+  origin: UrdfJoint['origin'] | undefined,
+): void {
   const xyz = origin?.xyz || DEFAULT_VEC3;
   const rpy = origin?.rpy || DEFAULT_RPY;
 
@@ -60,7 +71,10 @@ export function disposeTempMaterialMap(materials: Map<string, THREE.Material>): 
   });
 }
 
-export function findRobotLinkObject(robotModel: THREE.Object3D, linkName: string): THREE.Object3D | null {
+export function findRobotLinkObject(
+  robotModel: THREE.Object3D,
+  linkName: string,
+): THREE.Object3D | null {
   const links = (robotModel as any).links as Record<string, THREE.Object3D> | undefined;
   if (links?.[linkName]) return links[linkName];
 
@@ -93,7 +107,7 @@ export function updateVisualMaterial(
 
   const update = (mat: THREE.Material): THREE.Material => {
     const map = (mat as any).map || null;
-    const effectiveOpacity = overrideOpacity ?? (mat.opacity ?? 1);
+    const effectiveOpacity = overrideOpacity ?? mat.opacity ?? 1;
     const next = createMatteMaterial({
       color: parsedColorOverride.color,
       opacity: effectiveOpacity,
@@ -210,4 +224,11 @@ export function rebuildLinkMeshMapForLink(
   linkMeshMapRef.current.delete(collisionKey);
   if (visualMeshes.length > 0) linkMeshMapRef.current.set(visualKey, visualMeshes);
   if (collisionMeshes.length > 0) linkMeshMapRef.current.set(collisionKey, collisionMeshes);
+
+  let robotRoot: THREE.Object3D = linkObject;
+  while (robotRoot.parent) {
+    robotRoot = robotRoot.parent;
+  }
+
+  syncMjcfTendonVisualMeshMap(linkMeshMapRef.current, robotRoot, linkName);
 }

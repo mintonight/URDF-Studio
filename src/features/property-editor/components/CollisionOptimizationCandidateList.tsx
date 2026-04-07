@@ -1,17 +1,13 @@
-import { ArrowRight, CheckSquare2, Square } from 'lucide-react';
-import { GeometryType } from '@/types';
+import { ArrowRight } from 'lucide-react';
+import { Checkbox } from '@/shared/components/ui';
+import { GeometryType, type InteractionSelection } from '@/types';
 import type {
   CollisionOptimizationCandidate,
   CollisionTargetRef,
 } from '../utils/collisionOptimization';
 import { createCollisionOptimizationCandidateKey } from '../utils/collisionOptimization';
 
-interface CollisionSelection {
-  type: 'link' | 'joint' | null;
-  id: string | null;
-  subType?: 'visual' | 'collision';
-  objectIndex?: number;
-}
+type CollisionSelection = InteractionSelection;
 
 export interface CollisionOptimizationCandidateListLabels {
   clearAll: string;
@@ -41,10 +37,12 @@ function isFocusedTarget(
   selection: CollisionSelection | undefined,
   target: CollisionTargetRef,
 ): boolean {
-  return selection?.type === 'link'
-    && selection.id === target.linkId
-    && selection.subType === 'collision'
-    && (selection.objectIndex ?? 0) === target.objectIndex;
+  return (
+    selection?.type === 'link' &&
+    selection.id === target.linkId &&
+    selection.subType === 'collision' &&
+    (selection.objectIndex ?? 0) === target.objectIndex
+  );
 }
 
 function getPrimitiveMonogram(type: GeometryType | null | undefined): string {
@@ -113,7 +111,9 @@ function FlowSourceChip({
       </div>
 
       <div className="min-w-0 flex items-center gap-0.75">
-        <span className="truncate text-[9px] font-semibold text-text-primary">{target.linkName}</span>
+        <span className="truncate text-[9px] font-semibold text-text-primary">
+          {target.linkName}
+        </span>
         {slotLabel ? (
           <span className="shrink-0 rounded-full border border-border-black bg-element-bg px-1.25 py-0.5 text-[6.5px] font-medium text-text-tertiary">
             {slotLabel}
@@ -174,32 +174,31 @@ export function CollisionOptimizationCandidateList({
             className={`rounded-lg border px-1.25 py-0.75 transition-colors ${toneClass}`}
           >
             <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                aria-label={isChecked ? labels.clearAll : labels.selectedCount}
-                disabled={!candidate.eligible}
-                onClick={() => {
+              <Checkbox
+                checked={isChecked}
+                onChange={() => {
                   if (!candidate.eligible) {
                     return;
                   }
                   onActivateCandidate?.(candidateKey, candidate);
                   onToggleCandidate(candidateKey);
                 }}
-                className={`mt-0.5 shrink-0 rounded-md p-0.25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
-                  candidate.eligible
-                    ? 'text-system-blue'
-                    : 'cursor-not-allowed text-text-tertiary/60'
-                }`}
-              >
-                {isChecked ? <CheckSquare2 className="h-3.25 w-3.25" /> : <Square className="h-3.25 w-3.25" />}
-              </button>
+                disabled={!candidate.eligible}
+                ariaLabel={isChecked ? labels.clearAll : labels.selectedCount}
+                className="mt-0.5 shrink-0"
+              />
 
               <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                 <div className="flex min-w-0 items-center gap-0.75 overflow-hidden">
                   {sources.map((source, index) => (
-                    <div key={source.id} className="flex min-w-0 items-center gap-0.75 overflow-hidden">
+                    <div
+                      key={source.id}
+                      className="flex min-w-0 items-center gap-0.75 overflow-hidden"
+                    >
                       {index > 0 ? (
-                        <span className="shrink-0 text-[8px] font-semibold text-text-tertiary">+</span>
+                        <span className="shrink-0 text-[8px] font-semibold text-text-tertiary">
+                          +
+                        </span>
                       ) : null}
                       <FlowSourceChip
                         target={source}
@@ -246,14 +245,14 @@ export function CollisionOptimizationCandidateList({
                         </div>
                       </div>
 
-                      <span className={`shrink-0 rounded-full border px-1.25 py-0.5 text-[6px] font-medium ${
-                        candidate.eligible
-                          ? 'border-system-blue/20 bg-panel-bg text-system-blue'
-                          : 'border-border-black bg-panel-bg text-text-tertiary'
-                      }`}>
-                        {candidate.secondaryTarget
-                          ? `${sources.length} Links`
-                          : statusLabel}
+                      <span
+                        className={`shrink-0 rounded-full border px-1.25 py-0.5 text-[6px] font-medium ${
+                          candidate.eligible
+                            ? 'border-system-blue/20 bg-panel-bg text-system-blue'
+                            : 'border-border-black bg-panel-bg text-text-tertiary'
+                        }`}
+                      >
+                        {candidate.secondaryTarget ? `${sources.length} Links` : statusLabel}
                       </span>
                     </div>
                   </button>

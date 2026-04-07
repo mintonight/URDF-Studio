@@ -9,6 +9,7 @@ import {
 import {
   GeometryType,
   JointType,
+  type RobotClosedLoopConstraint,
   type RobotState,
   type UrdfJoint,
   type UrdfLink,
@@ -49,7 +50,8 @@ const DYNAMICS_EXPORT_TYPES = new Set<JointType>([
 const IDENTITY_SCALE = new THREE.Vector3(1, 1, 1);
 
 const formatScalar = (value: number) => formatNumberWithMaxDecimals(value, MAX_PROPERTY_DECIMALS);
-const formatShape = (value: number) => formatNumberWithMaxDecimals(value, MAX_GEOMETRY_DIMENSION_DECIMALS);
+const formatShape = (value: number) =>
+  formatNumberWithMaxDecimals(value, MAX_GEOMETRY_DIMENSION_DECIMALS);
 
 function escapeXml(value: string): string {
   return String(value)
@@ -88,12 +90,14 @@ function matrixToPose(matrix: THREE.Matrix4): Pose {
 }
 
 function isIdentityPose(pose: Pose, epsilon = 1e-9): boolean {
-  return Math.abs(pose.xyz.x) <= epsilon
-    && Math.abs(pose.xyz.y) <= epsilon
-    && Math.abs(pose.xyz.z) <= epsilon
-    && Math.abs(pose.rpy.r) <= epsilon
-    && Math.abs(pose.rpy.p) <= epsilon
-    && Math.abs(pose.rpy.y) <= epsilon;
+  return (
+    Math.abs(pose.xyz.x) <= epsilon &&
+    Math.abs(pose.xyz.y) <= epsilon &&
+    Math.abs(pose.xyz.z) <= epsilon &&
+    Math.abs(pose.rpy.r) <= epsilon &&
+    Math.abs(pose.rpy.p) <= epsilon &&
+    Math.abs(pose.rpy.y) <= epsilon
+  );
 }
 
 function formatPose(pose: Pose): string {
@@ -140,9 +144,11 @@ function resolveVisualColor(
     return visual.authoredMaterials?.find((material) => material.color)?.color;
   }
 
-  return robot.materials?.[link.id]?.color
-    || robot.materials?.[link.name]?.color
-    || visual.authoredMaterials?.find((material) => material.color)?.color;
+  return (
+    robot.materials?.[link.id]?.color ||
+    robot.materials?.[link.name]?.color ||
+    visual.authoredMaterials?.find((material) => material.color)?.color
+  );
 }
 
 function buildMeshUri(meshPath: string, packageName: string): string {
@@ -205,27 +211,19 @@ function generateGeometryXml(geometry: UrdfVisual, packageName: string): string 
     ];
 
     const scale = geometry.dimensions;
-    const hasCustomScale = Math.abs(scale.x - 1) > 1e-9
-      || Math.abs(scale.y - 1) > 1e-9
-      || Math.abs(scale.z - 1) > 1e-9;
+    const hasCustomScale =
+      Math.abs(scale.x - 1) > 1e-9 || Math.abs(scale.y - 1) > 1e-9 || Math.abs(scale.z - 1) > 1e-9;
     if (hasCustomScale) {
       lines.push(
         `            <scale>${formatShape(scale.x)} ${formatShape(scale.y)} ${formatShape(scale.z)}</scale>`,
       );
     }
 
-    lines.push(
-      '          </mesh>',
-      '        </geometry>',
-    );
+    lines.push('          </mesh>', '        </geometry>');
     return lines.join('\n');
   }
 
-  return [
-    '        <geometry>',
-    '          <empty/>',
-    '        </geometry>',
-  ].join('\n');
+  return ['        <geometry>', '          <empty/>', '        </geometry>'].join('\n');
 }
 
 function generateMaterialXml(color?: string): string {
@@ -271,7 +269,9 @@ function generateCollisionXml(
   collisionIndex: number,
   packageName: string,
 ): string {
-  const lines = [`      <collision name="${escapeXml(`${link.name}_collision_${collisionIndex}`)}">`];
+  const lines = [
+    `      <collision name="${escapeXml(`${link.name}_collision_${collisionIndex}`)}">`,
+  ];
   if (!isIdentityPose(collision.origin)) {
     lines.push(`        <pose>${formatPose(collision.origin)}</pose>`);
   }
@@ -324,9 +324,7 @@ function buildLinkWorldMatrices(robot: RobotState): Map<string, THREE.Matrix4> {
     matrices.set(robot.rootLinkId, identity.clone());
   }
 
-  const queue = robot.rootLinkId && robot.links[robot.rootLinkId]
-    ? [robot.rootLinkId]
-    : [];
+  const queue = robot.rootLinkId && robot.links[robot.rootLinkId] ? [robot.rootLinkId] : [];
 
   while (queue.length > 0) {
     const parentId = queue.shift();
@@ -338,7 +336,10 @@ function buildLinkWorldMatrices(robot: RobotState): Map<string, THREE.Matrix4> {
         return;
       }
 
-      matrices.set(joint.childLinkId, parentMatrix.clone().multiply(poseToMatrix(joint.origin as Pose)));
+      matrices.set(
+        joint.childLinkId,
+        parentMatrix.clone().multiply(poseToMatrix(joint.origin as Pose)),
+      );
       queue.push(joint.childLinkId);
     });
   }
@@ -352,7 +353,10 @@ function buildLinkWorldMatrices(robot: RobotState): Map<string, THREE.Matrix4> {
     }
 
     const parentMatrix = matrices.get(joint.parentLinkId) ?? identity;
-    matrices.set(joint.childLinkId, parentMatrix.clone().multiply(poseToMatrix(joint.origin as Pose)));
+    matrices.set(
+      joint.childLinkId,
+      parentMatrix.clone().multiply(poseToMatrix(joint.origin as Pose)),
+    );
   });
 
   Object.keys(robot.links).forEach((linkId) => {
@@ -365,7 +369,9 @@ function buildLinkWorldMatrices(robot: RobotState): Map<string, THREE.Matrix4> {
 }
 
 function generateJointXml(joint: UrdfJoint): string {
-  const lines = [`    <joint name="${escapeXml(joint.name || joint.id)}" type="${escapeXml(joint.type)}">`];
+  const lines = [
+    `    <joint name="${escapeXml(joint.name || joint.id)}" type="${escapeXml(joint.type)}">`,
+  ];
   if (joint.parentLinkId) {
     lines.push(`      <parent>${escapeXml(joint.parentLinkId)}</parent>`);
   }
@@ -373,7 +379,9 @@ function generateJointXml(joint: UrdfJoint): string {
 
   if (AXIS_EXPORT_TYPES.has(joint.type) && joint.axis) {
     lines.push('      <axis>');
-    lines.push(`        <xyz>${formatScalar(joint.axis.x)} ${formatScalar(joint.axis.y)} ${formatScalar(joint.axis.z)}</xyz>`);
+    lines.push(
+      `        <xyz>${formatScalar(joint.axis.x)} ${formatScalar(joint.axis.y)} ${formatScalar(joint.axis.z)}</xyz>`,
+    );
 
     if (LIMIT_EXPORT_TYPES.has(joint.type) && joint.limit) {
       const limitLines: string[] = [];
@@ -397,12 +405,9 @@ function generateJointXml(joint: UrdfJoint): string {
     }
 
     if (
-      DYNAMICS_EXPORT_TYPES.has(joint.type)
-      && joint.dynamics
-      && (
-        Math.abs(joint.dynamics.damping) > 1e-9
-        || Math.abs(joint.dynamics.friction) > 1e-9
-      )
+      DYNAMICS_EXPORT_TYPES.has(joint.type) &&
+      joint.dynamics &&
+      (Math.abs(joint.dynamics.damping) > 1e-9 || Math.abs(joint.dynamics.friction) > 1e-9)
     ) {
       lines.push('        <dynamics>');
       if (Math.abs(joint.dynamics.damping) > 1e-9) {
@@ -421,6 +426,29 @@ function generateJointXml(joint: UrdfJoint): string {
   return lines.join('\n');
 }
 
+function generateClosedLoopJointXml(constraint: RobotClosedLoopConstraint): string | null {
+  if (constraint.type !== 'connect') {
+    return null;
+  }
+
+  const jointName = escapeXml(
+    constraint.id || `${constraint.linkAId}_${constraint.linkBId}_closed_loop`,
+  );
+  const childLinkId = escapeXml(constraint.linkBId);
+  const anchorLocalB: Pose = {
+    xyz: { ...constraint.anchorLocalB },
+    rpy: { r: 0, p: 0, y: 0 },
+  };
+
+  return [
+    `    <joint name="${jointName}" type="ball">`,
+    `      <parent>${escapeXml(constraint.linkAId)}</parent>`,
+    `      <child>${childLinkId}</child>`,
+    `      <pose relative_to="${childLinkId}">${formatPose(anchorLocalB)}</pose>`,
+    '    </joint>',
+  ].join('\n');
+}
+
 export function generateSDF(robot: RobotState, options: GenerateSDFOptions = {}): string {
   const packageName = (options.packageName || robot.name || 'robot').trim() || 'robot';
   const modelName = (robot.name || packageName).trim() || 'robot';
@@ -434,14 +462,18 @@ export function generateSDF(robot: RobotState, options: GenerateSDFOptions = {})
   ];
 
   Object.values(robot.links).forEach((link) => {
-    const linkPose = matrixToPose(linkMatrices.get(link.id || link.name) ?? new THREE.Matrix4().identity());
+    const linkPose = matrixToPose(
+      linkMatrices.get(link.id || link.name) ?? new THREE.Matrix4().identity(),
+    );
     lines.push(`    <link name="${escapeXml(link.name || link.id)}">`);
     if (!isIdentityPose(linkPose)) {
       lines.push(`      <pose>${formatPose(linkPose)}</pose>`);
     }
 
     getVisualGeometryEntries(link).forEach((entry, index) => {
-      lines.push(generateVisualXml(robot, link, entry.geometry, index, packageName, entry.bodyIndex == null));
+      lines.push(
+        generateVisualXml(robot, link, entry.geometry, index, packageName, entry.bodyIndex == null),
+      );
     });
 
     getCollisionGeometryEntries(link).forEach((entry, index) => {
@@ -459,12 +491,14 @@ export function generateSDF(robot: RobotState, options: GenerateSDFOptions = {})
   Object.values(robot.joints).forEach((joint) => {
     lines.push(generateJointXml(joint));
   });
+  (robot.closedLoopConstraints || []).forEach((constraint) => {
+    const closedLoopXml = generateClosedLoopJointXml(constraint);
+    if (closedLoopXml) {
+      lines.push(closedLoopXml);
+    }
+  });
 
-  lines.push(
-    '  </model>',
-    '</sdf>',
-    '',
-  );
+  lines.push('  </model>', '</sdf>', '');
 
   return lines.join('\n');
 }

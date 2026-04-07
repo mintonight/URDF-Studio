@@ -3,6 +3,7 @@ import type { ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { type AppMode, GeometryType, UrdfLink, UrdfVisual } from '@/types';
 import { MeshAssetNode } from '@/shared/components/3d';
+import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
 import { useSelectionStore } from '@/store/selectionStore';
 import { DEFAULT_VISUAL_COLOR } from '@/core/robot/constants';
 import {
@@ -63,6 +64,10 @@ interface ActiveGeometryRendererProps extends GeometryRendererProps {
   visibilityState: ReturnType<typeof resolveGeometryVisibilityState>;
 }
 
+export function shouldGeometryCastShadows(isCollision: boolean): boolean {
+  return !isCollision;
+}
+
 /**
  * GeometryRenderer - Renders visual or collision geometry for a link
  * Handles different geometry types: Box, Cylinder, Sphere/Ellipsoid, Capsule,
@@ -78,8 +83,6 @@ export const GeometryRenderer = memo<GeometryRendererProps>(function GeometryRen
   geometryData,
   geometryId,
   objectIndex,
-  collisionRevealComponentId,
-  revealedCollisionComponentIds,
   prewarmedCollisionMeshLoadKeys,
   readyCollisionMeshLoadKeys,
   ...props
@@ -108,20 +111,13 @@ export const GeometryRenderer = memo<GeometryRendererProps>(function GeometryRen
     readyCollisionMeshLoadKeys &&
     !readyCollisionMeshLoadKeys.has(meshLoadKey),
   );
-  const isDeferredVisibleCollisionComponent = Boolean(
-    isCollision &&
-    showCollision &&
-    collisionRevealComponentId &&
-    revealedCollisionComponentIds &&
-    !revealedCollisionComponentIds.has(collisionRevealComponentId),
-  );
   const visibilityState = isPrewarmedHiddenCollision
     ? {
         shouldRender: true,
         visible: false,
         interactive: false,
       }
-    : isDeferredVisibleCollisionComponent || isDeferredVisibleCollisionMesh
+    : isDeferredVisibleCollisionMesh
       ? {
           shouldRender: false,
           visible: false,
@@ -213,6 +209,7 @@ const ActiveGeometryRenderer = memo<ActiveGeometryRendererProps>(function Active
     }
     onMeshResolved?.(meshLoadKey);
   }, [isPrewarmedHiddenCollision, meshLoadKey, onMeshResolved, onPrewarmedMeshResolved]);
+  const snapshotRenderActive = useSnapshotRenderActive();
   const hoverTarget = useMemo(
     () => createGeometryHoverTargetSelection(link.id, geometrySubType, objectIndex),
     [geometrySubType, link.id, objectIndex],
@@ -233,22 +230,28 @@ const ActiveGeometryRenderer = memo<ActiveGeometryRendererProps>(function Active
 
   // Interaction States
   const isVisualHighlight =
-    !isCollision && isSelected && (selectionSubType === 'visual' || !selectionSubType);
-  const isCollisionHighlight = isCollision && isSelected && selectionSubType === 'collision';
+    !snapshotRenderActive &&
+    !isCollision &&
+    isSelected &&
+    (selectionSubType === 'visual' || !selectionSubType);
+  const isCollisionHighlight =
+    !snapshotRenderActive && isCollision && isSelected && selectionSubType === 'collision';
 
   // Collision styling - Purple wireframe default
   const colColor = '#a855f7'; // Purple-500
 
   // Opacity: Higher if selected or hovered
+  const effectiveHovered = snapshotRenderActive ? false : isHovered;
+
   const matOpacity = resolveVisualizerMaterialOpacity({
     isCollision,
-    isHovered,
+    isHovered: effectiveHovered,
     isSelected: isCollision ? isCollisionHighlight : isVisualHighlight,
     modelOpacity,
   });
 
   // Wireframe: Fill if selected or hovered (for collision)
-  const matWireframe = isCollision ? !isCollisionHighlight && !isHovered : false;
+  const matWireframe = isCollision ? !isCollisionHighlight && !effectiveHovered : false;
 
   const baseColor = isCollision ? colColor : color || DEFAULT_VISUAL_COLOR;
 
@@ -261,7 +264,7 @@ const ActiveGeometryRenderer = memo<ActiveGeometryRendererProps>(function Active
   let finalColor = baseColor;
   if (isVisualHighlight) finalColor = selectionColorVisual;
   else if (isCollisionHighlight) finalColor = selectionColorCollision;
-  else if (isHovered) finalColor = isCollision ? hoverColorCollision : hoverColorVisual;
+  else if (effectiveHovered) finalColor = isCollision ? hoverColorCollision : hoverColorVisual;
 
   // Emissive Logic
   let emissiveColor = '#000000';
@@ -273,7 +276,7 @@ const ActiveGeometryRenderer = memo<ActiveGeometryRendererProps>(function Active
   } else if (isCollisionHighlight) {
     emissiveColor = '#86198f';
     emissiveIntensity = 0.5;
-  } else if (isHovered) {
+  } else if (effectiveHovered) {
     emissiveColor = isCollision ? '#d946ef' : '#3b82f6';
     emissiveIntensity = 0.3;
   }
@@ -361,6 +364,8 @@ const ActiveGeometryRenderer = memo<ActiveGeometryRendererProps>(function Active
       ),
     },
   };
+  const shadowEnabled = shouldGeometryCastShadows(isCollision);
+  const shadowProps = { castShadow: shadowEnabled, receiveShadow: shadowEnabled };
 
   let geometryNode: ReactNode;
   const radialSegments = useLegacySkeletonVisualStyle ? 8 : 32;
@@ -375,14 +380,14 @@ const ActiveGeometryRenderer = memo<ActiveGeometryRendererProps>(function Active
   if (type === GeometryType.BOX) {
     // Unit box (1×1×1) scaled to target dimensions
     geometryNode = (
-      <mesh scale={[dimensions.x, dimensions.y, dimensions.z]}>
+      <mesh scale={[dimensions.x, dimensions.y, dimensions.z]} {...shadowProps}>
         <boxGeometry args={[1, 1, 1, boxSegments, boxSegments, boxSegments]} />
         <primitive object={material} attach="material" />
       </mesh>
     );
   } else if (type === GeometryType.PLANE) {
     geometryNode = (
-      <mesh scale={[dimensions.x || 1, dimensions.y || 1, 1]}>
+      <mesh scale={[dimensions.x || 1, dimensions.y || 1, 1]} {...shadowProps}>
         <planeGeometry args={[1, 1, boxSegments, boxSegments]} />
         <primitive object={material} attach="material" />
       </mesh>
@@ -396,6 +401,7 @@ const ActiveGeometryRenderer = memo<ActiveGeometryRendererProps>(function Active
       <mesh
         rotation={meshRotation}
         scale={[dimensions.x, dimensions.y, dimensions.z || dimensions.x]}
+        {...shadowProps}
       >
         <cylinderGeometry args={[1, 1, 1, radialSegments, 1]} />
         <primitive object={material} attach="material" />
@@ -408,7 +414,7 @@ const ActiveGeometryRenderer = memo<ActiveGeometryRendererProps>(function Active
     const sy = dimensions.y || sx;
     const sz = dimensions.z || sx;
     geometryNode = (
-      <mesh scale={[sx, sy, sz]}>
+      <mesh scale={[sx, sy, sz]} {...shadowProps}>
         <sphereGeometry args={[1, radialSegments, radialSegments]} />
         <primitive object={material} attach="material" />
       </mesh>
@@ -420,7 +426,7 @@ const ActiveGeometryRenderer = memo<ActiveGeometryRendererProps>(function Active
     meshRotation = [-Math.PI / 2, 0, 0];
     const cylinderLength = Math.max(0, dimensions.y - 2 * dimensions.x);
     geometryNode = (
-      <mesh rotation={meshRotation}>
+      <mesh rotation={meshRotation} {...shadowProps}>
         <capsuleGeometry
           args={[dimensions.x, cylinderLength, radialSegments / 2, radialSegments]}
         />
@@ -433,7 +439,7 @@ const ActiveGeometryRenderer = memo<ActiveGeometryRendererProps>(function Active
       !useLegacySkeletonVisualStyle &&
       !isVisualHighlight &&
       !isCollisionHighlight &&
-      !isHovered &&
+      !effectiveHovered &&
       !color &&
       modelOpacity >= 0.999;
 
@@ -444,6 +450,7 @@ const ActiveGeometryRenderer = memo<ActiveGeometryRendererProps>(function Active
           assets={assets}
           material={material}
           color={finalColor}
+          enableShadows={!isCollision}
           scale={dimensions}
           normalizeRoot={shouldNormalizeColladaGeometry(
             meshPath,
@@ -453,13 +460,13 @@ const ActiveGeometryRenderer = memo<ActiveGeometryRendererProps>(function Active
           preserveOriginalMaterial={preserveOriginalMaterial}
           onResolved={handleMeshResolved}
           missingContent={
-            <mesh>
+            <mesh {...shadowProps}>
               <boxGeometry args={[0.1, 0.1, 0.1]} />
               <meshStandardMaterial color={isCollision ? 'red' : 'gray'} wireframe />
             </mesh>
           }
           unknownContent={
-            <mesh>
+            <mesh {...shadowProps}>
               <boxGeometry args={[0.1, 0.1, 0.1]} />
               <primitive object={material} attach="material" />
             </mesh>

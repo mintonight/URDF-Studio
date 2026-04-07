@@ -6,7 +6,7 @@ import { HydraInstancer } from './HydraInstancer.js';
 import { HydraMaterial } from './HydraMaterial.js';
 import { HydraMesh } from './HydraMesh.js';
 import { getDefaultMaterial } from './default-material-state.js';
-import { HYDRA_UNIFIED_MATERIAL_DEFAULTS } from './material-defaults.js';
+import { createHydraColorFromTuple, HYDRA_UNIFIED_MATERIAL_DEFAULTS } from './material-defaults.js';
 const { buildProtoPrimPathCandidates, clamp01, createMatrixFromXformOp, debugInstancer, debugMaterials, debugMeshes, debugPrims, debugTextures, defaultGrayComponent, disableMaterials, disableTextures, extractPrimPathFromMaterialBindingWarning, extractReferencePrimTargets, extractScopeBodyText, extractUsdAssetReferencesFromLayerText, getActiveMaterialBindingWarningOwner, getAngleInRadians, getCollisionGeometryTypeFromUrdfElement, getExpectedPrimTypesForCollisionProto, getExpectedPrimTypesForProtoType, getMatrixMaxElementDelta, getPathBasename, getPathWithoutRoot, getRawConsoleMethod, getRootPathFromPrimPath, getSafePrimTypeName, hasNonZeroTranslation, hydraCallbackErrorCounts, installMaterialBindingApiWarningInterceptor, isIdentityQuaternion, isLikelyDefaultGrayMaterial, isLikelyInverseTransform, isMaterialBindingApiWarningMessage, isMatrixApproximatelyIdentity, isNonZero, isPotentiallyLargeBaseAssetPath, logHydraCallbackError, materialBindingRepairMaxLayerTextLength, materialBindingWarningHandlers, maxHydraCallbackErrorLogsPerMethod, nearlyEqual, normalizeHydraPath, normalizeUsdPathToken, parseGuideCollisionReferencesFromLayerText, parseProtoMeshIdentifier, parseUrdfMaterialMetadataFromLayerText, parseUrdfTruthFromText, parseVector3Text, parseXformOpFallbacksFromLayerText, rawConsoleError, rawConsoleWarn, registerMaterialBindingApiWarningHandler, remapRootPathIfNeeded, resolveUrdfTruthFileNameForStagePath, resolveUsdAssetPath, setActiveMaterialBindingWarningOwner, shouldAllowLargeBaseAssetScan, stringifyConsoleArgs, toArrayLike, toColorArray, toFiniteNumber, toFiniteQuaternionWxyzTuple, toFiniteVector2Tuple, toFiniteVector3Tuple, toMatrixFromUrdfOrigin, toQuaternionWxyzFromRpy, transformEpsilon, wrapHydraCallbackObject } = Shared;
 const COLLISION_SEGMENT_PATTERN = /(?:^|\/)coll(?:isions?|iders?)(?:$|[/.])/i;
 function normalizeDescriptorSectionName(sectionName) {
@@ -200,6 +200,75 @@ function findUrdfMaterialMetadataForDescriptor(materialMetadataByPrimPath, descr
     return null;
 }
 export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps {
+    stageShaderRequiresPhysicalMaterial(shaderPrim) {
+        if (!shaderPrim)
+            return false;
+        const candidateAttributeNames = [
+            'inputs:clearcoat',
+            'inputs:coat',
+            'inputs:coat_weight',
+            'inputs:clearcoatRoughness',
+            'inputs:clearcoat_roughness',
+            'inputs:coat_roughness',
+            'inputs:clearcoatNormalScale',
+            'inputs:clearcoat_normal_scale',
+            'inputs:specular',
+            'inputs:specular_constant',
+            'inputs:specularIntensity',
+            'inputs:specular_intensity',
+            'inputs:specularColor',
+            'inputs:specular_color',
+            'inputs:ior',
+            'inputs:indexOfRefraction',
+            'inputs:index_of_refraction',
+            'inputs:transmission',
+            'inputs:transmission_weight',
+            'inputs:thickness',
+            'inputs:thickness_constant',
+            'inputs:attenuationDistance',
+            'inputs:attenuation_distance',
+            'inputs:attenuationColor',
+            'inputs:attenuation_color',
+            'inputs:sheen',
+            'inputs:sheen_weight',
+            'inputs:sheenColor',
+            'inputs:sheen_color',
+            'inputs:sheenRoughness',
+            'inputs:sheen_roughness',
+            'inputs:iridescence',
+            'inputs:iridescence_weight',
+            'inputs:iridescenceIOR',
+            'inputs:iridescence_ior',
+            'inputs:anisotropy',
+            'inputs:anisotropy_level',
+            'inputs:anisotropyRotation',
+            'inputs:anisotropy_rotation',
+            'inputs:clearcoat_texture',
+            'inputs:clearcoatRoughness_texture',
+            'inputs:clearcoat_roughness_texture',
+            'inputs:clearcoatNormal_texture',
+            'inputs:clearcoat_normal_texture',
+            'inputs:specularColor_texture',
+            'inputs:specular_color_texture',
+            'inputs:specular_texture',
+            'inputs:specularIntensity_texture',
+            'inputs:specular_intensity_texture',
+            'inputs:transmission_texture',
+            'inputs:transmission_weight_texture',
+            'inputs:thickness_texture',
+            'inputs:thickness_constant_texture',
+            'inputs:sheenColor_texture',
+            'inputs:sheen_color_texture',
+            'inputs:sheenRoughness_texture',
+            'inputs:sheen_roughness_texture',
+            'inputs:anisotropy_texture',
+            'inputs:iridescence_texture',
+            'inputs:iridescence_weight_texture',
+            'inputs:iridescenceThickness_texture',
+            'inputs:iridescence_thickness_texture',
+        ];
+        return candidateAttributeNames.some((attributeName) => this.readPrimAttribute(shaderPrim, [attributeName]) !== undefined);
+    }
     applyStageFallbackMaterialParameters(material, shaderPrim) {
         if (!material || !shaderPrim)
             return;
@@ -227,6 +296,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             'inputs:albedo',
             'inputs:albedo_constant',
         ], 'color', {
+            colorSpace: SRGBColorSpace,
             treatAsSrgbWhenMatchingMaterialName: treatNamedHexDiffuseAsSrgb,
         });
         const roughnessAssigned = this.applyStageFallbackScalarInput(material, shaderPrim, [
@@ -339,7 +409,9 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         this.applyStageFallbackColorInput(material, shaderPrim, [
             'inputs:specularColor',
             'inputs:specular_color',
-        ], 'specularColor');
+        ], 'specularColor', {
+            colorSpace: SRGBColorSpace,
+        });
         this.applyStageFallbackColorInput(material, shaderPrim, [
             'inputs:attenuationColor',
             'inputs:attenuation_color',
@@ -353,6 +425,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             'inputs:emissive_color',
             'inputs:emissive_color_constant',
         ], 'emissive', {
+            colorSpace: SRGBColorSpace,
             requireValue: emissiveEnabled === true || emissiveEnabled === undefined,
         });
         if (emissiveColor && emissiveEnabled === false) {
@@ -535,7 +608,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             return null;
         if (options.requireValue === false)
             return color;
-        let nextColor = new Color().fromArray(color);
+        let nextColor = createHydraColorFromTuple(color, options.colorSpace || null);
         const inferredHex = this.inferColorHexFromMaterialName(material?.name);
         if (Number.isFinite(inferredHex)
             && color.every((channel) => Math.abs(channel - 1) <= 1e-4)

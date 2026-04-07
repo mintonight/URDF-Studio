@@ -313,17 +313,20 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
           <span className="font-mono text-text-tertiary">Esc / Del</span>
         </div>
 
-        <div className="rounded-md border border-border-black/60 bg-element-bg px-1.5 py-[5px] text-[9px] leading-[1.45] text-text-secondary">
-          <div className="mb-1 text-[10px] font-semibold tracking-[0.02em] text-text-tertiary">
+        <div className="flex items-center gap-1.5 rounded-md border border-border-black/60 bg-element-bg px-1.5 py-1">
+          <span className="shrink-0 text-[10px] font-semibold tracking-[0.02em] text-text-tertiary">
             {t.measureAnchorMode}
+          </span>
+          <div className="min-w-0 flex-1 flex justify-end">
+            <SegmentedControl
+              size="xs"
+              stretch={false}
+              className="max-w-full [&>button]:!gap-0.5 [&>button]:!px-1.5 [&>button]:!py-0.5 [&>button]:min-h-5 [&>button]:whitespace-nowrap"
+              options={measureAnchorOptions}
+              value={measureAnchorMode}
+              onChange={(value) => setMeasureAnchorMode(value)}
+            />
           </div>
-          <SegmentedControl
-            className="mb-1"
-            options={measureAnchorOptions}
-            value={measureAnchorMode}
-            onChange={(value) => setMeasureAnchorMode(value)}
-          />
-          {t.measureInstruction1}
         </div>
 
         <div className="rounded-md border border-border-black/60 bg-panel-bg p-1">

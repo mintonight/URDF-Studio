@@ -7,7 +7,9 @@ import type {
   InteractionHelperKind,
   InteractionSelection,
   JointQuaternion,
+  LoadingProgressMode,
   RobotFile,
+  RobotState,
   Theme,
   UrdfJoint,
   UrdfLink,
@@ -35,6 +37,7 @@ export type ToolMode =
 export type ViewerSceneMode = 'editor';
 export type ViewerHelperKind = InteractionHelperKind;
 export type ViewerInteractiveLayer =
+  | 'ik-handle'
   | 'visual'
   | 'collision'
   | 'origin-axes'
@@ -60,6 +63,7 @@ export type UsdLoadingPhase =
 export interface UsdLoadingProgress {
   phase: UsdLoadingPhase;
   message?: string | null;
+  progressMode?: LoadingProgressMode | null;
   progressPercent?: number | null;
   loadedCount?: number | null;
   totalCount?: number | null;
@@ -70,6 +74,7 @@ export interface ViewerDocumentLoadEvent {
   status: 'loading' | 'ready' | 'error';
   phase?: ViewerLoadingPhase | null;
   message?: string | null;
+  progressMode?: LoadingProgressMode | null;
   progressPercent?: number | null;
   loadedCount?: number | null;
   totalCount?: number | null;
@@ -95,7 +100,7 @@ export type MeasureTargetResolver = (
 export interface ViewerRuntimeStageBridge {
   onRobotResolved?: (robot: any | null) => void;
   onSelectionChange?: (
-    type: 'link' | 'joint',
+    type: Exclude<InteractionSelection['type'], null>,
     id: string,
     subType?: 'visual' | 'collision',
     helperKind?: ViewerHelperKind,
@@ -125,7 +130,7 @@ export interface URDFViewerProps {
   lang: Language;
   mode?: ViewerSceneMode;
   onSelect?: (
-    type: 'link' | 'joint',
+    type: Exclude<InteractionSelection['type'], null>,
     id: string,
     subType?: 'visual' | 'collision',
     helperKind?: ViewerHelperKind,
@@ -137,11 +142,12 @@ export interface URDFViewerProps {
     objectType: 'visual' | 'collision',
   ) => void;
   onHover?: (
-    type: 'link' | 'joint' | null,
+    type: InteractionSelection['type'],
     id: string | null,
     subType?: 'visual' | 'collision',
     objectIndex?: number,
     helperKind?: ViewerHelperKind,
+    highlightObjectId?: number,
   ) => void;
   onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
   theme: Theme;
@@ -149,6 +155,10 @@ export interface URDFViewerProps {
   hoveredSelection?: InteractionSelection;
   robotLinks?: Record<string, UrdfLink>;
   robotJoints?: Record<string, UrdfJoint>;
+  ikRobotState?: Pick<
+    RobotState,
+    'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'
+  > | null;
   focusTarget?: string | null;
   showVisual?: boolean;
   setShowVisual?: (show: boolean) => void;
@@ -190,19 +200,22 @@ export interface RobotModelProps {
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   showCollision?: boolean;
   showVisual?: boolean;
+  showIkHandles?: boolean;
+  showIkHandlesAlwaysOnTop?: boolean;
   showCollisionAlwaysOnTop?: boolean;
   onSelect?: (
-    type: 'link' | 'joint',
+    type: Exclude<InteractionSelection['type'], null>,
     id: string,
     subType?: 'visual' | 'collision',
     helperKind?: ViewerHelperKind,
   ) => void;
   onHover?: (
-    type: 'link' | 'joint' | null,
+    type: InteractionSelection['type'],
     id: string | null,
     subType?: 'visual' | 'collision',
     objectIndex?: number,
     helperKind?: ViewerHelperKind,
+    highlightObjectId?: number,
   ) => void;
   onMeshSelect?: (
     linkId: string,
@@ -215,6 +228,11 @@ export interface RobotModelProps {
   initialJointAngles?: Record<string, number>;
   registerSceneRefresh?: (refreshScene: (() => void) | null) => void;
   setIsDragging?: (dragging: boolean) => void;
+  onIkPreviewKinematicOverrides?: (
+    jointAngles: Record<string, number>,
+    jointQuaternions: Record<string, ViewerJointMotionStateValue['quaternion']>,
+  ) => void;
+  onClearIkPreviewKinematicOverrides?: () => void;
   setActiveJoint?: (jointName: string | null) => void;
   justSelectedRef?: React.RefObject<boolean>;
   t: (typeof translations)['en'];
@@ -227,10 +245,15 @@ export interface RobotModelProps {
   showOrigins?: boolean;
   showOriginsOverlay?: boolean;
   originSize?: number;
+  showMjcfSites?: boolean;
   showJointAxes?: boolean;
   showJointAxesOverlay?: boolean;
   jointAxisSize?: number;
   modelOpacity?: number;
+  ikRobotState?: Pick<
+    RobotState,
+    'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'
+  > | null;
   robotLinks?: Record<string, UrdfLink>;
   robotJoints?: Record<string, UrdfJoint>;
   focusTarget?: string | null;

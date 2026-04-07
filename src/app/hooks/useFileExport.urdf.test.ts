@@ -9,7 +9,15 @@ import { JSDOM } from 'jsdom';
 
 import { useFileExport, type ExportActionRequired } from './useFileExport.ts';
 import { useAssemblyStore, useAssetsStore, useRobotStore, useUIStore } from '@/store';
-import { DEFAULT_JOINT, DEFAULT_LINK, GeometryType, JointType, type AssemblyState, type RobotData, type RobotFile } from '@/types';
+import {
+  DEFAULT_JOINT,
+  DEFAULT_LINK,
+  GeometryType,
+  JointType,
+  type AssemblyState,
+  type RobotData,
+  type RobotFile,
+} from '@/types';
 import type { ExportDialogConfig } from '@/features/file-io';
 
 function restoreGlobalProperty<T extends keyof typeof globalThis>(
@@ -326,6 +334,51 @@ function createRobotData(rootId: string, rootName: string): RobotData {
   };
 }
 
+function createClosedLoopRobotData(robotName: string): RobotData {
+  const baseLinkId = `${robotName}_base_link`;
+  const closingLinkId = `${robotName}_closing_link`;
+  const robot = createRobotData(baseLinkId, robotName);
+
+  robot.links[closingLinkId] = {
+    ...DEFAULT_LINK,
+    id: closingLinkId,
+    name: closingLinkId,
+    visual: {
+      ...DEFAULT_LINK.visual,
+      type: GeometryType.BOX,
+      dimensions: { x: 0.08, y: 0.08, z: 0.08 },
+    },
+    collision: {
+      ...DEFAULT_LINK.collision,
+      type: GeometryType.BOX,
+      dimensions: { x: 0.08, y: 0.08, z: 0.08 },
+    },
+  };
+
+  robot.joints[`${robotName}_hinge_joint`] = {
+    ...DEFAULT_JOINT,
+    id: `${robotName}_hinge_joint`,
+    name: `${robotName}_hinge_joint`,
+    type: JointType.REVOLUTE,
+    parentLinkId: baseLinkId,
+    childLinkId: closingLinkId,
+  };
+
+  robot.closedLoopConstraints = [
+    {
+      id: `${robotName}_closed_loop_constraint`,
+      type: 'connect',
+      linkAId: baseLinkId,
+      linkBId: closingLinkId,
+      anchorWorld: { x: 0, y: 0, z: 0 },
+      anchorLocalA: { x: 0, y: 0, z: 0 },
+      anchorLocalB: { x: 0, y: 0, z: 0 },
+    },
+  ];
+
+  return robot;
+}
+
 function createAssemblyState(): AssemblyState {
   return {
     name: 'demo_workspace',
@@ -377,6 +430,48 @@ function installDisconnectedWorkspaceAssembly() {
   });
 }
 
+function installClosedLoopWorkspaceAssembly() {
+  installDisconnectedWorkspaceAssembly();
+
+  useAssemblyStore.setState((state) => ({
+    assemblyState: state.assemblyState
+      ? {
+          ...state.assemblyState,
+          components: {
+            ...state.assemblyState.components,
+            comp_left: {
+              ...state.assemblyState.components.comp_left,
+              robot: createClosedLoopRobotData('left_arm'),
+            },
+          },
+        }
+      : null,
+  }));
+}
+
+test('useFileExport rejects URDF export when the current robot contains closed-loop constraints', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  useRobotStore.getState().resetRobot(createClosedLoopRobotData('closed_loop_robot'));
+
+  const downloadMocks = installDownloadMocks();
+  const rendered = renderHook();
+
+  try {
+    await assert.rejects(
+      rendered.hook.handleExportWithConfig(createUrdfExportConfig()),
+      /closed-loop constraint/,
+    );
+
+    assert.equal(downloadMocks.clicked, false, 'closed-loop URDF export should not download');
+  } finally {
+    rendered.cleanup();
+    downloadMocks.restore();
+    await settleDomTasks();
+    domEnvironment.restore();
+  }
+});
+
 test('useFileExport requires an explicit disconnected-workspace decision before exporting a single URDF', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
@@ -388,13 +483,44 @@ test('useFileExport requires an explicit disconnected-workspace decision before 
   try {
     const result = await rendered.hook.handleExportWithConfig(createUrdfExportConfig());
 
-    assert.equal(downloadMocks.clicked, false, 'single URDF export should not download when the workspace is disconnected');
+    assert.equal(
+      downloadMocks.clicked,
+      false,
+      'single URDF export should not download when the workspace is disconnected',
+    );
     assert.deepEqual(result.actionRequired satisfies ExportActionRequired | undefined, {
       type: 'disconnected-workspace-urdf',
       componentCount: 2,
       connectedGroupCount: 2,
       exportName: 'demo_workspace',
     });
+  } finally {
+    rendered.cleanup();
+    downloadMocks.restore();
+    await settleDomTasks();
+    domEnvironment.restore();
+  }
+});
+
+test('useFileExport blocks disconnected workspace URDF export before suggesting multi-URDF packaging when a component is closed-loop', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  installClosedLoopWorkspaceAssembly();
+
+  const downloadMocks = installDownloadMocks();
+  const rendered = renderHook();
+
+  try {
+    await assert.rejects(
+      rendered.hook.handleExportWithConfig(createUrdfExportConfig()),
+      /closed-loop constraint/,
+    );
+
+    assert.equal(
+      downloadMocks.clicked,
+      false,
+      'closed-loop workspace URDF export should not trigger any download',
+    );
   } finally {
     rendered.cleanup();
     downloadMocks.restore();
@@ -415,7 +541,10 @@ test('useFileExport can package every workspace component as its own URDF zip pa
     await rendered.hook.handleExportDisconnectedWorkspaceUrdfBundle(createUrdfExportConfig());
 
     assert.equal(downloadMocks.clicked, true, 'expected a multi-URDF archive download');
-    assert.match(downloadMocks.appendedAnchor?.download ?? '', /demo_workspace_components_urdf\.zip$/);
+    assert.match(
+      downloadMocks.appendedAnchor?.download ?? '',
+      /demo_workspace_components_urdf\.zip$/,
+    );
     assert.ok(downloadMocks.capturedBlob, 'expected the generated archive to be captured');
 
     const archive = await JSZip.loadAsync(await downloadMocks.capturedBlob.arrayBuffer());
@@ -430,10 +559,41 @@ test('useFileExport can package every workspace component as its own URDF zip pa
       'right component URDF should be packaged even when hidden',
     );
 
-    const leftUrdf = await archive.file('demo_workspace/components/left_arm/left_arm.urdf')?.async('string');
-    const rightUrdf = await archive.file('demo_workspace/components/right_arm/right_arm.urdf')?.async('string');
+    const leftUrdf = await archive
+      .file('demo_workspace/components/left_arm/left_arm.urdf')
+      ?.async('string');
+    const rightUrdf = await archive
+      .file('demo_workspace/components/right_arm/right_arm.urdf')
+      ?.async('string');
     assert.match(leftUrdf ?? '', /<robot name="left_arm">/);
     assert.match(rightUrdf ?? '', /<robot name="right_arm">/);
+  } finally {
+    rendered.cleanup();
+    downloadMocks.restore();
+    await settleDomTasks();
+    domEnvironment.restore();
+  }
+});
+
+test('useFileExport rejects multi-URDF packaging when any disconnected workspace component is closed-loop', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  installClosedLoopWorkspaceAssembly();
+
+  const downloadMocks = installDownloadMocks();
+  const rendered = renderHook();
+
+  try {
+    await assert.rejects(
+      rendered.hook.handleExportDisconnectedWorkspaceUrdfBundle(createUrdfExportConfig()),
+      /closed-loop constraint/,
+    );
+
+    assert.equal(
+      downloadMocks.clicked,
+      false,
+      'multi-URDF export should stop before downloading when a component is closed-loop',
+    );
   } finally {
     rendered.cleanup();
     downloadMocks.restore();
@@ -480,7 +640,11 @@ test('useFileExport still allows a single URDF export when workspace components 
     const result = await rendered.hook.handleExportWithConfig(createUrdfExportConfig());
 
     assert.equal(result.actionRequired, undefined);
-    assert.equal(downloadMocks.clicked, true, 'connected assembly should export a single URDF archive');
+    assert.equal(
+      downloadMocks.clicked,
+      true,
+      'connected assembly should export a single URDF archive',
+    );
     assert.match(downloadMocks.appendedAnchor?.download ?? '', /demo_workspace_urdf\.zip$/);
   } finally {
     rendered.cleanup();

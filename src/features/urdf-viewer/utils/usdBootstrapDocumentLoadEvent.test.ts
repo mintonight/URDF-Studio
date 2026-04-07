@@ -27,6 +27,7 @@ test('normalizeUsdBootstrapDocumentLoadEvent keeps bootstrap progress in finaliz
   const event: ViewerDocumentLoadEvent = {
     status: 'ready',
     phase: 'ready',
+    progressMode: 'percent',
     progressPercent: 100,
     loadedCount: 12,
     totalCount: 12,
@@ -41,7 +42,8 @@ test('normalizeUsdBootstrapDocumentLoadEvent keeps bootstrap progress in finaliz
     {
       status: 'loading',
       phase: 'finalizing-scene',
-      progressPercent: 96,
+      progressMode: 'indeterminate',
+      progressPercent: null,
       loadedCount: null,
       totalCount: null,
       message: null,
@@ -49,4 +51,3 @@ test('normalizeUsdBootstrapDocumentLoadEvent keeps bootstrap progress in finaliz
     },
   );
 });
-

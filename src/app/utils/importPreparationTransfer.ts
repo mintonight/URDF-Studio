@@ -1,5 +1,6 @@
 import type {
   PreparedImportBlobFile,
+  PreparedDeferredImportAssetFile,
   PreparedImportPayload,
   PreparedImportLibraryFile,
   PreparedImportTextFile,
@@ -16,6 +17,7 @@ export interface PreparedImportTransferFile {
 export interface PreparedImportWorkerPayload {
   robotFiles: RobotFile[];
   assetFiles: PreparedImportTransferFile[];
+  deferredAssetFiles: PreparedDeferredImportAssetFile[];
   usdSourceFiles: PreparedImportTransferFile[];
   libraryFiles: PreparedImportLibraryFile[];
   textFiles: PreparedImportTextFile[];
@@ -31,14 +33,16 @@ interface SerializedPreparedImportPayload {
 async function serializeTransferFiles(
   files: PreparedImportBlobFile[],
 ): Promise<{ files: PreparedImportTransferFile[]; transferables: ArrayBuffer[] }> {
-  const serializedFiles = await Promise.all(files.map(async (file) => {
-    const bytes = await file.blob.arrayBuffer();
-    return {
-      name: file.name,
-      mimeType: file.blob.type,
-      bytes,
-    };
-  }));
+  const serializedFiles = await Promise.all(
+    files.map(async (file) => {
+      const bytes = await file.blob.arrayBuffer();
+      return {
+        name: file.name,
+        mimeType: file.blob.type,
+        bytes,
+      };
+    }),
+  );
 
   return {
     files: serializedFiles,
@@ -65,6 +69,7 @@ export async function serializePreparedImportPayloadForWorker(
     payload: {
       robotFiles: payload.robotFiles,
       assetFiles: serializedAssetFiles.files,
+      deferredAssetFiles: payload.deferredAssetFiles,
       usdSourceFiles: serializedUsdSourceFiles.files,
       libraryFiles: payload.libraryFiles,
       textFiles: payload.textFiles,
@@ -84,6 +89,7 @@ export function hydratePreparedImportPayloadFromWorker(
   return {
     robotFiles: payload.robotFiles,
     assetFiles: hydrateTransferFiles(payload.assetFiles),
+    deferredAssetFiles: payload.deferredAssetFiles,
     usdSourceFiles: hydrateTransferFiles(payload.usdSourceFiles),
     libraryFiles: payload.libraryFiles,
     textFiles: payload.textFiles,

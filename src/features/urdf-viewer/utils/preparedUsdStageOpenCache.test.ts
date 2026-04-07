@@ -5,7 +5,7 @@ import type { RobotFile } from '@/types';
 import {
   buildPreparedUsdStageOpenCacheKey,
   clearPreparedUsdStageOpenCache,
-  loadPreparedUsdStageOpenDataOnMainThread,
+  loadPreparedUsdStageOpenDataInline,
   loadPreparedUsdStageOpenDataFromWorker,
   loadPreparedUsdStageOpenDataCached,
 } from './preparedUsdStageOpenCache.ts';
@@ -201,9 +201,9 @@ test('loadPreparedUsdStageOpenDataCached reuses semantically identical inputs ev
   assert.strictEqual(secondResult, firstResult);
 });
 
-test('worker and main-thread stage-open caches stay isolated for the same USD input', async () => {
+test('worker and inline stage-open caches stay isolated for the same USD input', async () => {
   let workerLoadCount = 0;
-  let mainThreadLoadCount = 0;
+  let inlineLoadCount = 0;
 
   const workerResult = await loadPreparedUsdStageOpenDataFromWorker(
     demoSourceFile,
@@ -225,19 +225,19 @@ test('worker and main-thread stage-open caches stay isolated for the same USD in
     },
   );
 
-  const mainThreadResult = await loadPreparedUsdStageOpenDataOnMainThread(
+  const inlineResult = await loadPreparedUsdStageOpenDataInline(
     demoSourceFile,
     demoAvailableFiles,
     demoAssets,
     async () => {
-      mainThreadLoadCount += 1;
+      inlineLoadCount += 1;
       return {
         stageSourcePath: '/robots/go2/usd/go2.usd',
         criticalDependencyPaths: [],
         preloadFiles: [
           {
             path: '/robots/go2/usd/go2.usd',
-            blob: new Blob(['main-thread-root']),
+            blob: new Blob(['inline-root']),
             error: null,
           },
         ],
@@ -246,8 +246,8 @@ test('worker and main-thread stage-open caches stay isolated for the same USD in
   );
 
   assert.equal(workerLoadCount, 1);
-  assert.equal(mainThreadLoadCount, 1);
-  assert.notStrictEqual(mainThreadResult, workerResult);
+  assert.equal(inlineLoadCount, 1);
+  assert.notStrictEqual(inlineResult, workerResult);
 });
 
 test('buildPreparedUsdStageOpenCacheKey ignores unrelated sibling USD files and assets', () => {

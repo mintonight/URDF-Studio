@@ -28,6 +28,7 @@ export interface UsdOffscreenViewerInitRequest {
   width: number;
   height: number;
   devicePixelRatio: number;
+  theme: 'light' | 'dark';
   active: boolean;
   groundPlaneOffset: number;
   showVisual: boolean;
@@ -97,6 +98,10 @@ export interface UsdOffscreenViewerSetActiveRequest {
   active: boolean;
 }
 
+export interface UsdOffscreenViewerAutoFitGroundRequest {
+  type: 'auto-fit-ground';
+}
+
 export interface UsdOffscreenViewerSetInteractionStateRequest {
   type: 'set-interaction-state';
   toolMode: UsdOffscreenViewerInteractionState['toolMode'];
@@ -134,6 +139,7 @@ export type UsdOffscreenViewerWorkerRequest =
   | UsdOffscreenViewerWheelRequest
   | UsdOffscreenViewerSetVisibilityRequest
   | UsdOffscreenViewerSetGroundOffsetRequest
+  | UsdOffscreenViewerAutoFitGroundRequest
   | UsdOffscreenViewerSetActiveRequest
   | UsdOffscreenViewerSetInteractionStateRequest
   | UsdOffscreenViewerSetJointAngleRequest

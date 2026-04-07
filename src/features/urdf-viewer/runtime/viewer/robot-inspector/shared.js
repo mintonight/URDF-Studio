@@ -354,6 +354,8 @@ export function extractJointRecordsFromLayerText(layerText) {
         const axisToken = normalizeAxisToken(body.match(/physics:axis\s*=\s*"?([A-Za-z]+)"?/i)?.[1] || "X");
         const lowerLimitDeg = toFiniteNumber(body.match(/physics:lowerLimit\s*=\s*([-+0-9.eE]+)/i)?.[1]);
         const upperLimitDeg = toFiniteNumber(body.match(/physics:upperLimit\s*=\s*([-+0-9.eE]+)/i)?.[1]);
+        const closedLoopId = String(body.match(/urdf:closedLoopId\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
+        const closedLoopType = String(body.match(/urdf:closedLoopType\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
         records.push({
             jointName: jointBlock.jointName,
             jointTypeName: jointBlock.jointTypeName,
@@ -362,6 +364,8 @@ export function extractJointRecordsFromLayerText(layerText) {
             axisToken,
             lowerLimitDeg,
             upperLimitDeg,
+            closedLoopId: closedLoopId || null,
+            closedLoopType: closedLoopType || null,
         });
     }
     return records;

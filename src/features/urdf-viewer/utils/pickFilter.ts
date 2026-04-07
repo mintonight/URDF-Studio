@@ -27,6 +27,10 @@ function isRuntimeUrdfNode(object: THREE.Object3D | null): boolean {
   );
 }
 
+function isMjcfTendonVisualizationNode(object: THREE.Object3D | null): boolean {
+  return object?.userData?.isMjcfTendon === true || object?.userData?.isMjcfTendonsGroup === true;
+}
+
 export function isSelectableHelperNode(object: THREE.Object3D | null): boolean {
   return object?.userData?.isSelectableHelper === true;
 }
@@ -57,6 +61,11 @@ export function isInternalHelperObject(object: THREE.Object3D | null): boolean {
   let current: THREE.Object3D | null = object;
 
   while (current) {
+    if (isMjcfTendonVisualizationNode(current)) {
+      current = current.parent;
+      continue;
+    }
+
     if (isSelectableHelperNode(current)) {
       current = current.parent;
       continue;

@@ -120,6 +120,15 @@ export interface UsdLinkDynamicsEntry {
   principalAxesLocalWxyz?: ArrayLike<number> | null;
 }
 
+export interface UsdClosedLoopConstraintEntry {
+  id?: string | null;
+  constraintType?: string | null;
+  linkAPath?: string | null;
+  linkBPath?: string | null;
+  anchorLocalA?: ArrayLike<number> | null;
+  anchorLocalB?: ArrayLike<number> | null;
+}
+
 export interface UsdRobotMetadataSnapshot {
   stageSourcePath?: string | null;
   source?: string;
@@ -129,6 +138,7 @@ export interface UsdRobotMetadataSnapshot {
   linkParentPairs?: ArrayLike<[string, string | null]>;
   jointCatalogEntries?: ArrayLike<UsdJointCatalogEntry>;
   linkDynamicsEntries?: ArrayLike<UsdLinkDynamicsEntry>;
+  closedLoopConstraintEntries?: ArrayLike<UsdClosedLoopConstraintEntry>;
   meshCountsByLinkPath?: Record<string, UsdMeshCountsEntry>;
 }
 

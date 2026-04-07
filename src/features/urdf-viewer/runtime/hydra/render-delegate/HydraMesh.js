@@ -1,10 +1,10 @@
 // @ts-nocheck
-import { BackSide, BoxGeometry, BufferGeometry, CapsuleGeometry, CylinderGeometry, DoubleSide, Float32BufferAttribute, FrontSide, Matrix4, Mesh, MeshPhysicalMaterial, Quaternion, SkinnedMesh, SphereGeometry, Uint32BufferAttribute, Vector3, } from 'three';
+import { BackSide, BoxGeometry, BufferGeometry, CapsuleGeometry, Color, CylinderGeometry, DoubleSide, Float32BufferAttribute, FrontSide, Matrix4, Mesh, MeshPhysicalMaterial, Quaternion, SkinnedMesh, SphereGeometry, SRGBColorSpace, Uint32BufferAttribute, Vector3, } from 'three';
 import * as Shared from './shared.js';
 import { mitigateCoplanarMaterialZFighting } from '../../../../../core/loaders/coplanarMaterialOffset.shared.js';
 import { stackCoincidentVisualRoots } from '../../../../../core/loaders/visualMeshStacking.ts';
 import { getDefaultMaterial } from './default-material-state.js';
-import { createUnifiedHydraPhysicalMaterial } from './material-defaults.js';
+import { createUnifiedHydraStandardMaterial, setHydraColorFromTuple } from './material-defaults.js';
 const { buildProtoPrimPathCandidates, clamp01, createMatrixFromXformOp, debugInstancer, debugMaterials, debugMeshes, debugPrims, debugTextures, defaultGrayComponent, disableMaterials, disableTextures, extractPrimPathFromMaterialBindingWarning, extractReferencePrimTargets, extractScopeBodyText, extractUsdAssetReferencesFromLayerText, getActiveMaterialBindingWarningOwner, getAngleInRadians, getCollisionGeometryTypeFromUrdfElement, getExpectedPrimTypesForCollisionProto, getExpectedPrimTypesForProtoType, getMatrixMaxElementDelta, getPathBasename, getPathWithoutRoot, getRawConsoleMethod, getRootPathFromPrimPath, getSafePrimTypeName, hasNonZeroTranslation, hydraCallbackErrorCounts, installMaterialBindingApiWarningInterceptor, isIdentityQuaternion, isLikelyDefaultGrayMaterial, isLikelyInverseTransform, isMaterialBindingApiWarningMessage, isMatrixApproximatelyIdentity, isNonZero, isPotentiallyLargeBaseAssetPath, logHydraCallbackError, materialBindingRepairMaxLayerTextLength, materialBindingWarningHandlers, maxHydraCallbackErrorLogsPerMethod, nearlyEqual, normalizeHydraPath, normalizeUsdPathToken, parseGuideCollisionReferencesFromLayerText, parseProtoMeshIdentifier, parseUrdfTruthFromText, parseVector3Text, parseXformOpFallbacksFromLayerText, rawConsoleError, rawConsoleWarn, registerMaterialBindingApiWarningHandler, remapRootPathIfNeeded, resolveUrdfTruthFileNameForStagePath, resolveUsdAssetPath, setActiveMaterialBindingWarningOwner, shouldAllowLargeBaseAssetScan, stringifyConsoleArgs, toArrayLike, toColorArray, toFiniteNumber, toFiniteQuaternionWxyzTuple, toFiniteVector2Tuple, toFiniteVector3Tuple, toMatrixFromUrdfOrigin, toQuaternionWxyzFromRpy, transformEpsilon, wrapHydraCallbackObject } = Shared;
 const HYDRA_SYNC_PROFILE_FROM_QUERY = false;
 const PREFER_HYDRA_COLLISION_GEOMETRY = true;
@@ -96,7 +96,7 @@ class HydraMesh {
         this._decomposeScratchPositionB = new Vector3();
         this._decomposeScratchQuaternionB = new Quaternion();
         this._decomposeScratchScaleB = new Vector3();
-        let material = createUnifiedHydraPhysicalMaterial({
+        let material = createUnifiedHydraStandardMaterial({
             side: FrontSide,
             // envMap: hydraInterface.config.envMap,
         });
@@ -1313,9 +1313,23 @@ class HydraMesh {
         for (const material of materials) {
             if (!material || !material.color || material.map)
                 continue;
-            material.color.setRGB(override[0], override[1], override[2]);
+            setHydraColorFromTuple(material.color, override, SRGBColorSpace);
             material.needsUpdate = true;
         }
+    }
+    _linearizeDisplayColorBuffer(buffer) {
+        if (!(buffer instanceof Float32Array) || buffer.length < 3) {
+            return buffer;
+        }
+        const scratchColor = new Color();
+        const safeLength = buffer.length - (buffer.length % 3);
+        for (let colorIndex = 0; colorIndex < safeLength; colorIndex += 3) {
+            scratchColor.setRGB(buffer[colorIndex], buffer[colorIndex + 1], buffer[colorIndex + 2], SRGBColorSpace);
+            buffer[colorIndex] = scratchColor.r;
+            buffer[colorIndex + 1] = scratchColor.g;
+            buffer[colorIndex + 2] = scratchColor.b;
+        }
+        return buffer;
     }
     _nowMs() {
         return (typeof performance !== "undefined" && typeof performance.now === "function")
@@ -2129,7 +2143,7 @@ class HydraMesh {
         }
         //console.log("setting subset material: ", this._id, sections)
         const previousMaterial = Array.isArray(this._mesh.material) ? this._mesh.material.find(Boolean) : this._mesh.material;
-        const fallbackMaterial = previousMaterial || this._materials.find(Boolean) || getDefaultMaterial() || createUnifiedHydraPhysicalMaterial({
+        const fallbackMaterial = previousMaterial || this._materials.find(Boolean) || getDefaultMaterial() || createUnifiedHydraStandardMaterial({
             side: FrontSide,
         });
         const hasExplicitBaseMaterial = Boolean(previousMaterial
@@ -2280,7 +2294,8 @@ class HydraMesh {
         }
         this._colors = null;
         if (interpolation === 'constant') {
-            this._mesh.material.color = new Color().fromArray(data);
+            this._mesh.material.vertexColors = false;
+            this._mesh.material.color = setHydraColorFromTuple(new Color(), data, SRGBColorSpace);
         }
         else if (interpolation === 'vertex') {
             // Per-vertex buffer attribute
@@ -2289,7 +2304,11 @@ class HydraMesh {
                 // Reset the pink debugging color
                 this._mesh.material.color = new Color(0xffffff);
             }
-            this._colors = this._toStableFloat32Array(data);
+            const stableColors = this._toStableFloat32Array(data);
+            if (!stableColors)
+                return;
+            this._colors = stableColors === data ? stableColors.slice(0) : stableColors;
+            this._linearizeDisplayColorBuffer(this._colors);
             if (!this._colors)
                 return;
             this.updateOrder(this._colors, 'color');

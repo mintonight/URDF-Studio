@@ -4,9 +4,7 @@ import type { URDFViewerProps } from '../types';
 
 interface HoverSelectionSyncProps {
   enabled?: boolean;
-  onHoverSelectionChange: (
-    hoveredSelection?: URDFViewerProps['selection']
-  ) => void;
+  onHoverSelectionChange: (hoveredSelection?: URDFViewerProps['selection']) => void;
 }
 
 export function HoverSelectionSync({
@@ -24,6 +22,7 @@ export function HoverSelectionSync({
     hoveredSelection?.subType,
     hoveredSelection?.objectIndex,
     hoveredSelection?.helperKind,
+    hoveredSelection?.highlightObjectId,
     onHoverSelectionChange,
   ]);
 

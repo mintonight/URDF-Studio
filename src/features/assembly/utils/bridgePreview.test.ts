@@ -73,6 +73,7 @@ test('buildBridgePreview keeps continuous joints limited to effort and velocity 
     childComponentId: 'comp_b',
     childLinkId: 'tool_link',
     jointType: JointType.CONTINUOUS,
+    hardwareInterface: 'velocity',
     originXyz: { x: 0, y: 0, z: 0 },
     axis: { x: 0, y: 0, z: 1 },
     limitLower: -1.57,
@@ -91,4 +92,5 @@ test('buildBridgePreview keeps continuous joints limited to effort and velocity 
   });
   assert.equal('lower' in (preview?.joint.limit ?? {}), false);
   assert.equal('upper' in (preview?.joint.limit ?? {}), false);
+  assert.equal(preview?.joint.hardware.hardwareInterface, 'velocity');
 });

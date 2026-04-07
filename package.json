@@ -21,8 +21,8 @@
   "scripts": {
     "inspection-criteria:generate": "node scripts/generate_inspection_criteria.mjs",
     "ai-prompts:generate": "node scripts/generate_ai_prompt_templates.mjs && node scripts/generate_inspection_criteria.mjs",
-    "dev": "npm run ai-prompts:generate && vite",
-    "build": "npm run ai-prompts:generate && vite build",
+    "dev": "node scripts/start_dev_server.mjs",
+    "build": "npm run generate:check && npm run build:app",
     "lint": "npm run lint:eslint && npm run lint:style",
     "lint:eslint": "eslint . --cache --max-warnings=0",
     "lint:style": "stylelint \"src/**/*.css\"",
@@ -30,12 +30,12 @@
     "format:check": "prettier --check \"README*.md\" \"*.{json,js,mjs,cjs}\" \".prettierrc.json\" \".github/**/*.yml\"",
     "typecheck": "node ./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
     "typecheck:quality": "node ./node_modules/typescript/bin/tsc -p tsconfig.quality.json --noEmit",
-    "check": "npm run format:check && npm run lint && npm run typecheck:quality && npm run build",
+    "check": "npm run verify:fast",
     "prepare": "husky",
     "build:robot-canvas-lib": "vite build -c vite.lib.config.ts",
     "build:robot-canvas-lib:types": "node ./node_modules/typescript/bin/tsc -p tsconfig.lib.json && node ./scripts/rewrite_dts_aliases.mjs ./dist/lib-types",
-    "build:package:react-robot-canvas": "npm --prefix packages/react-robot-canvas run build",
-    "pack:package:react-robot-canvas": "npm --prefix packages/react-robot-canvas run pack:dry-run",
+    "build:package:react-robot-canvas": "npm run -w @urdf-studio/react-robot-canvas build",
+    "pack:package:react-robot-canvas": "npm run -w @urdf-studio/react-robot-canvas pack:dry-run",
     "version:show": "node scripts/versioning/show.mjs",
     "version:bump": "node scripts/versioning/bump.mjs",
     "preview": "vite preview",
@@ -51,7 +51,25 @@
     "codex:key-router:deploy:dry": "python3 scripts/codex_key_router/deploy_and_start.py --dry-run",
     "codex:key-router:gui": "python3 scripts/codex_key_router/deploy_gui.py",
     "codex:key-router:server-gui": "python3 scripts/codex_key_router/server_gui.py",
-    "codex:key-router:simple-gui": "python3 scripts/codex_key_router/simple_gui_router.py"
+    "codex:key-router:simple-gui": "python3 scripts/codex_key_router/simple_gui_router.py",
+    "omx:tmux:10": "bash scripts/omx_tmux_grid.sh",
+    "omx:tmux:10:dry": "bash scripts/omx_tmux_grid.sh --dry-run",
+    "generate": "npm run ai-prompts:generate",
+    "generate:check": "node scripts/generate_ai_prompt_templates.mjs --check && node scripts/generate_inspection_criteria.mjs --check",
+    "build:with-generate": "npm run generate && npm run build",
+    "test": "npm run test:unit:app-hooks && npm run test:fixtures:imports",
+    "test:fixtures:imports": "esbuild scripts/regression/validate_import_fixture_matrix.ts --bundle --platform=node --format=cjs --alias:@=./src --external:jsdom --outfile=tmp/regression/fixture-import-matrix.cjs && node tmp/regression/fixture-import-matrix.cjs",
+    "test:fixtures:myosuite-imports": "esbuild scripts/regression/validate_myosuite_imports.ts --bundle --platform=node --format=cjs --alias:@=./src --external:jsdom --outfile=tmp/regression/myosuite-import-matrix.cjs && node tmp/regression/myosuite-import-matrix.cjs",
+    "test:fixtures:unitree-ros-urdfs": "npx tsx scripts/regression/validate_unitree_ros_urdfs.ts",
+    "test:fixtures:unitree-usd": "node scripts/regression/validate_unitree_selected_browser.mjs",
+    "verify:fast": "npm run format:check && npm run lint && npm run typecheck:quality && npm run test && npm run build",
+    "verify:fixtures": "npm run test:fixtures",
+    "verify:full": "npm run verify:fast && npm run verify:fixtures",
+    "build:app": "vite build",
+    "test:fixtures:unitree-ros-usda": "node scripts/regression/validate_unitree_ros_usda_selected_browser.mjs",
+    "test:fixtures": "npm run test:fixtures:imports && npm run test:fixtures:unitree-ros-urdfs && npm run test:fixtures:unitree-usd && npm run test:fixtures:unitree-ros-usda",
+    "dev:with-generate": "node scripts/start_dev_server.mjs --generate",
+    "test:unit:app-hooks": "node --test src/app/hooks/useEditableSourcePatches.test.ts src/app/hooks/workspaceGeneratedSourceState.test.ts src/app/utils/importPreparation.workerSafe.test.ts src/app/components/UnifiedViewer.typecheck.test.ts"
   },
   "license": "Apache-2.0",
   "dependencies": {
@@ -111,5 +129,8 @@
     "*.{js,mjs,cjs,ts,tsx,jsx,css,md,json,yml,yaml}": "prettier --write",
     "*.{js,mjs,cjs,ts,tsx,jsx}": "eslint --cache --fix --max-warnings=0 --no-warn-ignored",
     "*.css": "stylelint --fix --allow-empty-input"
-  }
+  },
+  "workspaces": [
+    "packages/*"
+  ]
 }

@@ -23,7 +23,8 @@ export function detectFormat(content: string, filename: string): FileFormat | nu
   if (lowerName.endsWith('.xacro') || lowerName.endsWith('.urdf.xacro')) return 'xacro';
   if (lowerName.endsWith('.urdf')) return 'urdf';
   if (lowerName.endsWith('.sdf')) return 'sdf';
-  if (lowerName.endsWith('.usda') || lowerName.endsWith('.usdc') || lowerName.endsWith('.usd')) return 'usd';
+  if (lowerName.endsWith('.usda') || lowerName.endsWith('.usdc') || lowerName.endsWith('.usd'))
+    return 'usd';
 
   // For XML files, check content
   if (lowerName.endsWith('.xml')) {
@@ -68,6 +69,7 @@ export function isAssetFile(filename: string): boolean {
   const ext = filename.split('.').pop()?.toLowerCase();
   return [
     'stl',
+    'msh',
     'obj',
     'dae',
     'gltf',
@@ -94,11 +96,11 @@ export function isMotorLibraryFile(path: string): boolean {
 }
 
 /**
- * Check if file is a 3D mesh file (.stl, .obj, .dae)
+ * Check if file is a 3D mesh file (.stl, .msh, .obj, .dae)
  */
 export function isMeshFile(filename: string): boolean {
   const ext = filename.split('.').pop()?.toLowerCase();
-  return ['stl', 'obj', 'dae', 'gltf', 'glb', 'vtk'].includes(ext || '');
+  return ['stl', 'msh', 'obj', 'dae', 'gltf', 'glb', 'vtk'].includes(ext || '');
 }
 
 /**
@@ -106,5 +108,5 @@ export function isMeshFile(filename: string): boolean {
  */
 export function shouldSkipPath(path: string): boolean {
   const pathParts = path.split('/');
-  return pathParts.some(part => part.startsWith('.'));
+  return pathParts.some((part) => part.startsWith('.'));
 }

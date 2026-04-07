@@ -1,10 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import {
+  GROUND_SHADOW_STYLE,
+  resolveCameraFollowLightingStyle,
+} from '@/shared/components/3d/scene/constants.ts';
 
 import {
+  createUsdOffscreenGroundShadowPlane,
   createUsdOffscreenLightRig,
   disposeUsdOffscreenLightRig,
+  syncUsdOffscreenGroundShadowPlane,
   syncUsdOffscreenLightRigWithCamera,
 } from './usdOffscreenLighting.ts';
 
@@ -93,4 +99,45 @@ test('disposeUsdOffscreenLightRig removes worker-only lights and targets from th
   disposeUsdOffscreenLightRig(scene, rig);
 
   assert.equal(scene.children.length, 0);
+});
+
+test('createUsdOffscreenLightRig enables shadow casting on the shared main light only', () => {
+  const scene = new THREE.Scene();
+  const rig = createUsdOffscreenLightRig(scene);
+
+  assert.equal(rig.mainLight.castShadow, true);
+  assert.equal(rig.fillLightLeft.castShadow, false);
+  assert.equal(rig.fillLightRight.castShadow, false);
+  assert.equal(rig.rimLight.castShadow, false);
+  assert.equal(rig.mainLight.shadow.mapSize.x, 1024);
+  assert.equal(rig.mainLight.shadow.mapSize.y, 1024);
+  assert.equal(
+    rig.mainLight.intensity,
+    resolveCameraFollowLightingStyle('light').mainLightIntensity,
+  );
+});
+
+test('ground shadow plane follows the worker ground offset', () => {
+  const plane = createUsdOffscreenGroundShadowPlane();
+
+  assert.equal(plane.receiveShadow, true);
+  assert.equal(plane.castShadow, false);
+  assert.equal(plane.name, 'GroundShadowPlane');
+
+  syncUsdOffscreenGroundShadowPlane(plane, 1.25);
+  assert.equal(plane.position.z < 1.25, true);
+});
+
+test('ground shadow plane uses the same per-theme opacity as the shared workspace ground shadow', () => {
+  const darkPlane = createUsdOffscreenGroundShadowPlane('dark');
+  const lightPlane = createUsdOffscreenGroundShadowPlane('light');
+
+  assert.equal(
+    (lightPlane.material as THREE.ShadowMaterial).opacity,
+    GROUND_SHADOW_STYLE.light.opacity,
+  );
+  assert.equal(
+    (darkPlane.material as THREE.ShadowMaterial).opacity,
+    GROUND_SHADOW_STYLE.dark.opacity,
+  );
 });

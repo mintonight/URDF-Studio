@@ -43,8 +43,12 @@ function sameRPY(
 }
 
 export function sameOrigin(
-  a: { xyz: { x: number; y: number; z: number }; rpy: { r: number; p: number; y: number } } | undefined,
-  b: { xyz: { x: number; y: number; z: number }; rpy: { r: number; p: number; y: number } } | undefined,
+  a:
+    | { xyz: { x: number; y: number; z: number }; rpy: { r: number; p: number; y: number } }
+    | undefined,
+  b:
+    | { xyz: { x: number; y: number; z: number }; rpy: { r: number; p: number; y: number } }
+    | undefined,
 ): boolean {
   return sameVec3(a?.xyz, b?.xyz) && sameRPY(a?.rpy, b?.rpy);
 }
@@ -72,7 +76,10 @@ function sameGeometryList(a: LinkGeometry[] | undefined, b: LinkGeometry[] | und
   );
 }
 
-function sameInertial(a: UrdfLink['inertial'] | undefined, b: UrdfLink['inertial'] | undefined): boolean {
+function sameInertial(
+  a: UrdfLink['inertial'] | undefined,
+  b: UrdfLink['inertial'] | undefined,
+): boolean {
   if (!a || !b) return a === b;
 
   return (
@@ -112,7 +119,13 @@ function getGeometryPatchForLink(prev: UrdfLink, next: UrdfLink): GeometryPatchC
   const collisionChanged = !sameGeometry(prev.collision, next.collision);
   const collisionBodiesChanged = !sameGeometryList(prev.collisionBodies, next.collisionBodies);
 
-  if (!visualChanged && !collisionChanged && !collisionBodiesChanged && !inertialChanged && !visibilityChanged) {
+  if (
+    !visualChanged &&
+    !collisionChanged &&
+    !collisionBodiesChanged &&
+    !inertialChanged &&
+    !visibilityChanged
+  ) {
     return null;
   }
 
@@ -164,10 +177,7 @@ function sameLimit(a: UrdfJoint['limit'], b: UrdfJoint['limit']): boolean {
   }
 
   return (
-    a.lower === b.lower &&
-    a.upper === b.upper &&
-    a.effort === b.effort &&
-    a.velocity === b.velocity
+    a.lower === b.lower && a.upper === b.upper && a.effort === b.effort && a.velocity === b.velocity
   );
 }
 
@@ -181,7 +191,8 @@ function sameHardware(a: UrdfJoint['hardware'], b: UrdfJoint['hardware']): boole
     a.brand === b.brand &&
     a.motorType === b.motorType &&
     a.motorId === b.motorId &&
-    a.motorDirection === b.motorDirection
+    a.motorDirection === b.motorDirection &&
+    a.hardwareInterface === b.hardwareInterface
   );
 }
 

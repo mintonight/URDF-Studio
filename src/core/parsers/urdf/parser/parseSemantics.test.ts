@@ -46,14 +46,8 @@ test('generateURDF does not synthesize inertial or limit tags for absent source 
   });
 
   assert.match(urdf, /<link name="world">\s*<\/link>/);
-  assert.doesNotMatch(
-    urdf,
-    /<joint name="floating_base_joint" type="floating">[\s\S]*?<limit\b/,
-  );
-  assert.doesNotMatch(
-    urdf,
-    /<joint name="floating_base_joint" type="floating">[\s\S]*?<axis\b/,
-  );
+  assert.doesNotMatch(urdf, /<joint name="floating_base_joint" type="floating">[\s\S]*?<limit\b/);
+  assert.doesNotMatch(urdf, /<joint name="floating_base_joint" type="floating">[\s\S]*?<axis\b/);
 });
 
 test('generateURDF falls back to robot materials when exporting visual colors', () => {
@@ -80,7 +74,10 @@ test('generateURDF falls back to robot materials when exporting visual colors', 
     selection: { type: null, id: null },
   });
 
-  assert.match(urdf, /<material name="base_link_mat">[\s\S]*?<color rgba="0\.07059216 0\.20392549 0\.33725882 1\.00000000"/);
+  assert.match(
+    urdf,
+    /<material name="base_link_mat">[\s\S]*?<color rgba="0\.07059216 0\.20392549 0\.33725882 1\.00000000"/,
+  );
 });
 
 test('generateURDF serializes additional visualBodies as extra visual tags', () => {
@@ -97,16 +94,18 @@ test('generateURDF serializes additional visualBodies as extra visual tags', () 
 
   assert.ok(robot);
 
-  robot.links.base_link.visualBodies = [{
-    type: GeometryType.MESH,
-    dimensions: { x: 0.5, y: 0.5, z: 0.5 },
-    color: '#abcdef',
-    meshPath: 'meshes/extra_part.dae',
-    origin: {
-      xyz: { x: 0.1, y: 0.2, z: 0.3 },
-      rpy: { r: 0, p: 0, y: 0.4 },
+  robot.links.base_link.visualBodies = [
+    {
+      type: GeometryType.MESH,
+      dimensions: { x: 0.5, y: 0.5, z: 0.5 },
+      color: '#abcdef',
+      meshPath: 'meshes/extra_part.dae',
+      origin: {
+        xyz: { x: 0.1, y: 0.2, z: 0.3 },
+        rpy: { r: 0, p: 0, y: 0.4 },
+      },
     },
-  }];
+  ];
 
   const urdf = generateURDF({
     ...robot,
@@ -115,8 +114,14 @@ test('generateURDF serializes additional visualBodies as extra visual tags', () 
 
   assert.equal((urdf.match(/<visual>/g) || []).length, 2);
   assert.match(urdf, /<origin xyz="0\.1 0\.2 0\.3" rpy="0 0 0\.4" \/>/);
-  assert.match(urdf, /<mesh filename="package:\/\/multi_visual_export\/meshes\/extra_part\.dae" scale="0\.5 0\.5 0\.5" \/>/);
-  assert.match(urdf, /<material name="base_link_mat_1">[\s\S]*?<color rgba="0\.67059216 0\.80392549 0\.93725882 1\.00000000"/);
+  assert.match(
+    urdf,
+    /<mesh filename="package:\/\/multi_visual_export\/meshes\/extra_part\.dae" scale="0\.5 0\.5 0\.5" \/>/,
+  );
+  assert.match(
+    urdf,
+    /<material name="base_link_mat_1">[\s\S]*?<color rgba="0\.67059216 0\.80392549 0\.93725882 1\.00000000"/,
+  );
 });
 
 test('parseURDF preserves additional visuals on the same link as visualBodies', () => {
@@ -177,10 +182,7 @@ test('parseURDF preserves SO101 multi-part link visuals from source files', () =
   assert.equal(robot.links.shoulder_link.visualBodies?.length, 2);
   assert.deepEqual(
     robot.links.shoulder_link.visualBodies?.map((body) => body.meshPath),
-    [
-      'assets/motor_holder_so101_base_v1.stl',
-      'assets/rotation_pitch_so101_v1.stl',
-    ],
+    ['assets/motor_holder_so101_base_v1.stl', 'assets/rotation_pitch_so101_v1.stl'],
   );
   assert.equal(robot.links.lower_arm_link.visualBodies?.length, 2);
 });
@@ -194,16 +196,22 @@ test('parseURDF preserves SO101 old calib yellow/black visual colors from ROS so
 
   assert.ok(robot);
   const baseColors = new Map(
-    [robot.links.base.visual, ...(robot.links.base.visualBodies ?? [])]
-      .map((body) => [body.meshPath, body.color]),
+    [robot.links.base.visual, ...(robot.links.base.visualBodies ?? [])].map((body) => [
+      body.meshPath,
+      body.color,
+    ]),
   );
   const shoulderColors = new Map(
-    [robot.links.shoulder.visual, ...(robot.links.shoulder.visualBodies ?? [])]
-      .map((body) => [body.meshPath, body.color]),
+    [robot.links.shoulder.visual, ...(robot.links.shoulder.visualBodies ?? [])].map((body) => [
+      body.meshPath,
+      body.color,
+    ]),
   );
   const wristColors = new Map(
-    [robot.links.wrist.visual, ...(robot.links.wrist.visualBodies ?? [])]
-      .map((body) => [body.meshPath, body.color]),
+    [robot.links.wrist.visual, ...(robot.links.wrist.visualBodies ?? [])].map((body) => [
+      body.meshPath,
+      body.color,
+    ]),
   );
 
   assert.equal(baseColors.get('assets/base_motor_holder_so101_v1.stl'), '#ffd11e');
@@ -232,19 +240,25 @@ test('generateURDF omits inline mesh colors when the mesh export already carries
 
   assert.ok(robot);
 
-  const urdf = generateURDF({
-    ...robot,
-    materials: {
-      base_link: {
-        color: '#123456',
+  const urdf = generateURDF(
+    {
+      ...robot,
+      materials: {
+        base_link: {
+          color: '#123456',
+        },
       },
+      selection: { type: null, id: null },
     },
-    selection: { type: null, id: null },
-  }, {
-    omitMeshMaterialPaths: ['meshes/base_link_visual_0.obj'],
-  });
+    {
+      omitMeshMaterialPaths: ['meshes/base_link_visual_0.obj'],
+    },
+  );
 
-  assert.match(urdf, /<mesh filename="package:\/\/vertex_color_export\/meshes\/base_link_visual_0\.obj" \/>/);
+  assert.match(
+    urdf,
+    /<mesh filename="package:\/\/vertex_color_export\/meshes\/base_link_visual_0\.obj" \/>/,
+  );
   assert.doesNotMatch(urdf, /<material name="base_link_mat">/);
 });
 
@@ -559,10 +573,7 @@ test('parseURDF derives joint origin rpy from quat_xyzw and preserves quaternion
     selection: { type: null, id: null },
   });
 
-  assert.match(
-    urdf,
-    /<origin xyz="0 0 0" rpy="[^"]+" quat_xyzw="0 0 0\.70710678 0\.70710678" \/>/,
-  );
+  assert.match(urdf, /<origin xyz="0 0 0" rpy="[^"]+" quat_xyzw="0 0 0\.70710678 0\.70710678" \/>/);
 
   const reparsed = parseURDF(urdf);
   assert.ok(reparsed);
@@ -646,7 +657,10 @@ test('parseURDF preserves named material textures in robot materials state and e
     selection: { type: null, id: null },
   });
 
-  assert.match(urdf, /<texture filename="package:\/\/material_texture_parse\/textures\/paint\.png" \/>/);
+  assert.match(
+    urdf,
+    /<texture filename="package:\/\/material_texture_parse\/textures\/paint\.png" \/>/,
+  );
 });
 
 test('generateURDF does not fall back to the default visual blue when a texture-only material is present', () => {
@@ -673,15 +687,72 @@ test('generateURDF does not fall back to the default visual blue when a texture-
     selection: { type: null, id: null },
   });
 
-  assert.match(urdf, /<texture filename="package:\/\/material_texture_only_export\/textures\/paint\.png" \/>/);
-  assert.doesNotMatch(
+  assert.match(
     urdf,
-    /<color rgba="0\.23137647 0\.50980784 0\.96470980 1\.00000000"\/>/,
+    /<texture filename="package:\/\/material_texture_only_export\/textures\/paint\.png" \/>/,
   );
+  assert.doesNotMatch(urdf, /<color rgba="0\.23137647 0\.50980784 0\.96470980 1\.00000000"\/>/);
+});
+
+test('generateURDF exports per-visual texture overrides without leaking the link fallback to secondary visuals', () => {
+  const urdf = generateURDF({
+    name: 'per_visual_texture_export',
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+    links: {
+      base_link: {
+        id: 'base_link',
+        name: 'base_link',
+        visible: true,
+        visual: {
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#123456',
+          authoredMaterials: [{ texture: 'textures/primary.png' }],
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        visualBodies: [
+          {
+            type: GeometryType.BOX,
+            dimensions: { x: 0.5, y: 0.5, z: 0.5 },
+            color: '#abcdef',
+            authoredMaterials: [{ texture: 'textures/secondary.png' }],
+            origin: { xyz: { x: 1, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          },
+        ],
+        collision: {
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+          color: '#ff0000',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collisionBodies: [],
+      },
+    },
+    joints: {},
+    materials: {
+      base_link: {
+        texture: 'textures/legacy.png',
+      },
+    },
+  });
+
+  assert.match(
+    urdf,
+    /<texture filename="package:\/\/per_visual_texture_export\/textures\/primary\.png" \/>/,
+  );
+  assert.match(
+    urdf,
+    /<texture filename="package:\/\/per_visual_texture_export\/textures\/secondary\.png" \/>/,
+  );
+  assert.doesNotMatch(urdf, /legacy\.png/);
 });
 
 test('generateURDF keeps go2 Collada exports package-relative while preserving authored mesh materials', () => {
-  const source = fs.readFileSync('test/unitree_ros/robots/go2_description/urdf/go2_description.urdf', 'utf8');
+  const source = fs.readFileSync(
+    'test/unitree_ros/robots/go2_description/urdf/go2_description.urdf',
+    'utf8',
+  );
   const robot = parseURDF(source);
 
   assert.ok(robot);
@@ -702,13 +773,19 @@ test('generateURDF keeps go2 Collada exports package-relative while preserving a
 });
 
 test('parseURDF and generateURDF preserve go2w multi-material mesh palettes for base and thigh links', () => {
-  const source = fs.readFileSync('test/unitree_ros/robots/go2w_description/urdf/go2w_description.urdf', 'utf8');
+  const source = fs.readFileSync(
+    'test/unitree_ros/robots/go2w_description/urdf/go2w_description.urdf',
+    'utf8',
+  );
   const robot = parseURDF(source);
 
   assert.ok(robot);
   assert.equal(robot.links.base.visual.authoredMaterials?.length, 5);
   assert.equal(robot.links.FR_thigh.visual.authoredMaterials?.length, 2);
-  assert.equal(robot.links.FR_thigh.visual.meshPath, 'package://go2w_description/dae/thigh_mirror.dae');
+  assert.equal(
+    robot.links.FR_thigh.visual.meshPath,
+    'package://go2w_description/dae/thigh_mirror.dae',
+  );
   assert.equal(robot.links.FL_thigh.visual.meshPath, 'package://go2w_description/dae/thigh.dae');
   assert.equal(robot.joints.FR_thigh_joint.origin?.xyz.y, -0.0955);
   assert.equal(robot.joints.FL_thigh_joint.origin?.xyz.y, 0.0955);
@@ -722,17 +799,28 @@ test('parseURDF and generateURDF preserve go2w multi-material mesh palettes for 
   assert.ok(baseVisual);
   assert.equal((baseVisual[1].match(/<material\b/g) || []).length, 5);
 
-  const frontRightThighVisual = exported.match(/<link name="FR_thigh">[\s\S]*?<visual>([\s\S]*?)<\/visual>/);
+  const frontRightThighVisual = exported.match(
+    /<link name="FR_thigh">[\s\S]*?<visual>([\s\S]*?)<\/visual>/,
+  );
   assert.ok(frontRightThighVisual);
   assert.equal((frontRightThighVisual[1].match(/<material\b/g) || []).length, 2);
-  assert.match(frontRightThighVisual[1], /<mesh filename="package:\/\/go2w_description\/meshes\/dae\/thigh_mirror\.dae" \/>/);
-  assert.match(exported, /<joint name="FR_thigh_joint"[\s\S]*?<origin xyz="0 -0\.0955 0" rpy="0 0 0" \/>/);
+  assert.match(
+    frontRightThighVisual[1],
+    /<mesh filename="package:\/\/go2w_description\/meshes\/dae\/thigh_mirror\.dae" \/>/,
+  );
+  assert.match(
+    exported,
+    /<joint name="FR_thigh_joint"[\s\S]*?<origin xyz="0 -0\.0955 0" rpy="0 0 0" \/>/,
+  );
 
   const reparsed = parseURDF(exported);
   assert.ok(reparsed);
   assert.equal(reparsed.links.base.visual.authoredMaterials?.length, 5);
   assert.equal(reparsed.links.FR_thigh.visual.authoredMaterials?.length, 2);
-  assert.equal(reparsed.links.FR_thigh.visual.meshPath, 'package://go2w_description/meshes/dae/thigh_mirror.dae');
+  assert.equal(
+    reparsed.links.FR_thigh.visual.meshPath,
+    'package://go2w_description/meshes/dae/thigh_mirror.dae',
+  );
   assert.equal(reparsed.joints.FR_thigh_joint.origin?.xyz.y, -0.0955);
 });
 
@@ -825,6 +913,7 @@ test('generateURDF only writes hardware brand in extended exports and parseURDF 
     motorType: 'Go1-M8010-6',
     motorId: 'hip-0',
     motorDirection: 1,
+    hardwareInterface: 'position',
   };
 
   const standardUrdf = generateURDF({
@@ -833,17 +922,22 @@ test('generateURDF only writes hardware brand in extended exports and parseURDF 
   });
   assert.doesNotMatch(standardUrdf, /<hardware>[\s\S]*?<brand>Unitree<\/brand>/);
 
-  const extendedUrdf = generateURDF({
-    ...robot,
-    selection: { type: null, id: null },
-  }, { extended: true });
+  const extendedUrdf = generateURDF(
+    {
+      ...robot,
+      selection: { type: null, id: null },
+    },
+    { extended: true },
+  );
 
   assert.match(extendedUrdf, /<hardware>[\s\S]*?<brand>Unitree<\/brand>/);
+  assert.match(extendedUrdf, /<hardware>[\s\S]*?<hardwareInterface>position<\/hardwareInterface>/);
 
   const reparsed = parseURDF(extendedUrdf);
   assert.ok(reparsed);
   assert.equal(reparsed.joints.hip_joint.hardware.brand, 'Unitree');
   assert.equal(reparsed.joints.hip_joint.hardware.motorType, 'Go1-M8010-6');
+  assert.equal(reparsed.joints.hip_joint.hardware.hardwareInterface, 'position');
 });
 
 test('parseURDF rejects robot documents without any links', () => {

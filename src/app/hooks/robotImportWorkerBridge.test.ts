@@ -6,7 +6,10 @@ import { resolveRobotFileData } from '@/core/parsers/importRobotFile';
 import { GeometryType, type RobotFile } from '@/types';
 import type { RobotState } from '@/types';
 import type { RobotImportWorkerResponse } from '@/app/utils/robotImportWorker';
-import { createRobotImportWorkerClient } from './robotImportWorkerBridge';
+import {
+  createRobotImportWorkerClient,
+  resolveRobotFileDataWithWorker,
+} from './robotImportWorkerBridge';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
@@ -302,6 +305,29 @@ test('robot import worker client rejects resolve requests immediately when Worke
     const client = createRobotImportWorkerClient();
     await assert.rejects(
       client.resolve(demoUrdfFile),
+      /Web Worker is not available in this environment/i,
+    );
+  } finally {
+    Object.defineProperty(globalThis, 'Worker', {
+      configurable: true,
+      writable: true,
+      value: originalWorker,
+    });
+  }
+});
+
+test('resolveRobotFileDataWithWorker rejects immediately when Worker is unavailable', async () => {
+  const originalWorker = globalThis.Worker;
+
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: undefined,
+  });
+
+  try {
+    await assert.rejects(
+      resolveRobotFileDataWithWorker(demoUrdfFile),
       /Web Worker is not available in this environment/i,
     );
   } finally {

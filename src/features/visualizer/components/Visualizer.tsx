@@ -2,6 +2,7 @@ import React from 'react';
 import type { AppMode, RobotState, Theme } from '@/types';
 import { translations, type Language } from '@/shared/i18n';
 import type { SnapshotCaptureAction } from '@/shared/components/3d/scene/snapshotConfig';
+import type { ViewerHelperKind } from '@/features/urdf-viewer';
 import { useVisualizerController } from '../hooks';
 import { VisualizerCanvas } from './VisualizerCanvas';
 import { VisualizerPanels } from './VisualizerPanels';
@@ -9,7 +10,12 @@ import { VisualizerScene } from './VisualizerScene';
 
 interface VisualizerProps {
   robot: RobotState;
-  onSelect: (type: 'link' | 'joint', id: string, subType?: 'visual' | 'collision') => void;
+  onSelect: (
+    type: 'link' | 'joint',
+    id: string,
+    subType?: 'visual' | 'collision',
+    helperKind?: ViewerHelperKind,
+  ) => void;
   onUpdate: (type: 'link' | 'joint', id: string, data: any) => void;
   mode: AppMode;
   assets: Record<string, string>;

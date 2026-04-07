@@ -20,16 +20,28 @@ import {
   type SnapshotBackgroundFill,
 } from './snapshotSceneQuality';
 import { SnapshotExportLook } from './SnapshotExportLook';
-import {
-  renderSceneWithDofToCanvas,
-  resolveSnapshotDofSettings,
-} from './snapshotPostprocessing';
+import { useSnapshotRenderContext } from './SnapshotRenderContext';
+import { renderSceneWithDofToCanvas, resolveSnapshotDofSettings } from './snapshotPostprocessing';
 
 const SNAPSHOT_RENDER_TARGET_SAMPLES = {
   viewport: 4,
   high: 8,
   ultra: 8,
 } as const;
+
+const SNAPSHOT_HDR_PRELOAD_FILE = '/potsdamer_platz_1k.hdr';
+
+let snapshotHdrPreloadPromise: Promise<void> | null = null;
+
+function ensureSnapshotHdrPreloaded(): Promise<void> {
+  if (!snapshotHdrPreloadPromise) {
+    snapshotHdrPreloadPromise = Promise.resolve().then(() => {
+      useEnvironment.preload({ files: SNAPSHOT_HDR_PRELOAD_FILE });
+    });
+  }
+
+  return snapshotHdrPreloadPromise;
+}
 
 interface SnapshotManagerProps {
   actionRef?: RefObject<SnapshotCaptureAction | null>;
@@ -46,11 +58,10 @@ export const SnapshotManager = ({
 }: SnapshotManagerProps) => {
   const { gl, get, invalidate } = useThree();
   const pendingCaptureRef = useRef<number | null>(null);
-  const [activeSnapshotOptions, setActiveSnapshotOptions] = useState<ReturnType<typeof normalizeSnapshotCaptureOptions> | null>(null);
-
-  useEffect(() => {
-    useEnvironment.preload({ files: '/potsdamer_platz_1k.hdr' });
-  }, []);
+  const [activeSnapshotOptions, setActiveSnapshotOptions] = useState<ReturnType<
+    typeof normalizeSnapshotCaptureOptions
+  > | null>(null);
+  const { setSnapshotRenderActive } = useSnapshotRenderContext();
 
   useEffect(() => {
     if (!actionRef) return;
@@ -77,6 +88,7 @@ export const SnapshotManager = ({
 
     const waitFrames = async (count: number) => {
       for (let index = 0; index < count; index += 1) {
+        invalidate();
         await new Promise<void>((resolve) => {
           pendingCaptureRef.current = requestAnimationFrame(() => {
             pendingCaptureRef.current = null;
@@ -120,9 +132,10 @@ export const SnapshotManager = ({
       ].join('');
       const filename = `${safeRobotName}_snapshot_${timestamp}.${getSnapshotFileExtension(options.imageFormat)}`;
       const mimeType = getSnapshotMimeType(options.imageFormat);
-      const quality = mimeType === 'image/png'
-        ? undefined
-        : Math.min(1, Math.max(0.6, options.imageQuality / 100));
+      const quality =
+        mimeType === 'image/png'
+          ? undefined
+          : Math.min(1, Math.max(0.6, options.imageQuality / 100));
 
       const triggerDownload = (href: string) => {
         const link = document.createElement('a');
@@ -135,17 +148,25 @@ export const SnapshotManager = ({
 
       if (canvas.toBlob) {
         await new Promise<void>((resolve, reject) => {
-          canvas.toBlob((blob) => {
-            if (!blob) {
-              reject(new Error(`[Snapshot] Failed to generate ${options.imageFormat.toUpperCase()} blob.`));
-              return;
-            }
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                reject(
+                  new Error(
+                    `[Snapshot] Failed to generate ${options.imageFormat.toUpperCase()} blob.`,
+                  ),
+                );
+                return;
+              }
 
-            const url = URL.createObjectURL(blob);
-            triggerDownload(url);
-            URL.revokeObjectURL(url);
-            resolve();
-          }, mimeType, quality);
+              const url = URL.createObjectURL(blob);
+              triggerDownload(url);
+              URL.revokeObjectURL(url);
+              resolve();
+            },
+            mimeType,
+            quality,
+          );
         });
         return;
       }
@@ -235,7 +256,8 @@ export const SnapshotManager = ({
       targetHeight: number,
       backgroundFill: SnapshotBackgroundFill,
     ) => {
-      const needsResize = sourceCanvas.width !== targetWidth || sourceCanvas.height !== targetHeight;
+      const needsResize =
+        sourceCanvas.width !== targetWidth || sourceCanvas.height !== targetHeight;
       if (backgroundFill.kind === 'transparent' && !needsResize) {
         return sourceCanvas;
       }
@@ -295,7 +317,11 @@ export const SnapshotManager = ({
         restoreSceneVisibility = applySnapshotSceneVisibility(latestScene, {
           hideGrid: snapshotOptions.hideGrid,
         });
-        restoreTextureQuality = applySnapshotTextureQuality(latestScene, gl, snapshotOptions.detailLevel);
+        restoreTextureQuality = applySnapshotTextureQuality(
+          latestScene,
+          gl,
+          snapshotOptions.detailLevel,
+        );
         restoreShadowQuality = applySnapshotShadowQuality(
           latestScene,
           gl,
@@ -374,7 +400,9 @@ export const SnapshotManager = ({
     actionRef.current = async (requestedOptions) => {
       const snapshotOptions = normalizeSnapshotCaptureOptions(requestedOptions);
       const frozenCamera = cloneSnapshotCamera(get().camera);
+      await ensureSnapshotHdrPreloaded();
       clearPendingFrames();
+      setSnapshotRenderActive(true);
       setActiveSnapshotOptions(snapshotOptions);
       invalidate();
 
@@ -383,21 +411,19 @@ export const SnapshotManager = ({
         await renderAndDownloadHighRes(snapshotOptions, frozenCamera);
       } finally {
         setActiveSnapshotOptions(null);
+        setSnapshotRenderActive(false);
         invalidate();
       }
     };
 
     return () => {
       clearPendingFrames();
+      setSnapshotRenderActive(false);
       actionRef.current = null;
     };
-  }, [actionRef, get, gl, invalidate, robotName]);
+  }, [actionRef, get, gl, invalidate, robotName, setSnapshotRenderActive]);
 
   return activeSnapshotOptions ? (
-    <SnapshotExportLook
-      options={activeSnapshotOptions}
-      theme={theme}
-      groundOffset={groundOffset}
-    />
+    <SnapshotExportLook options={activeSnapshotOptions} theme={theme} groundOffset={groundOffset} />
   ) : null;
 };

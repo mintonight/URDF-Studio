@@ -16,6 +16,21 @@ function matchesMode(key: string, mode: PickTargetMode): boolean {
   return key.endsWith(`:${mode}`);
 }
 
+function collectMjcfTendonPickTargets(
+  root: THREE.Object3D,
+  seen: Set<number>,
+  targets: THREE.Object3D[],
+): void {
+  root.traverse((child) => {
+    if (seen.has(child.id)) return;
+    if (child.userData?.isMjcfTendon !== true) return;
+    if (!isPickableMeshObject(child)) return;
+
+    seen.add(child.id);
+    targets.push(child);
+  });
+}
+
 export function isCollisionPickObject(object: THREE.Object3D | null): boolean {
   let current: THREE.Object3D | null = object;
   while (current) {
@@ -45,7 +60,7 @@ function hasOverlayPresentation(object: THREE.Object3D | null): boolean {
   let current: THREE.Object3D | null = object;
 
   while (current) {
-    if ((typeof current.renderOrder === 'number' && current.renderOrder > 0)) {
+    if (typeof current.renderOrder === 'number' && current.renderOrder > 0) {
       return true;
     }
 
@@ -65,11 +80,30 @@ function hasOverlayPresentation(object: THREE.Object3D | null): boolean {
   return false;
 }
 
-function resolveSelectableHelperLayer(object: THREE.Object3D | null): ViewerInteractiveLayer | null {
+function resolveSelectableHelperLayer(
+  object: THREE.Object3D | null,
+): ViewerInteractiveLayer | null {
   let current: THREE.Object3D | null = object;
 
   while (current) {
+    switch (current.userData?.viewerHelperKind) {
+      case 'ik-handle':
+        return 'ik-handle';
+      case 'origin-axes':
+        return 'origin-axes';
+      case 'joint-axis':
+        return 'joint-axis';
+      case 'center-of-mass':
+        return 'center-of-mass';
+      case 'inertia':
+        return 'inertia';
+      default:
+        break;
+    }
+
     switch (current.name) {
+      case '__ik_handle__':
+        return 'ik-handle';
       case '__origin_axes__':
         return 'origin-axes';
       case '__joint_axis__':
@@ -158,7 +192,10 @@ function sortByInteractionPriority(
 function matchesIntersectionMode(hit: THREE.Intersection, mode: PickTargetMode): boolean {
   if (isGizmoObject(hit.object) || isInternalHelperObject(hit.object)) return false;
   if (!isVisibleInHierarchy(hit.object)) return false;
-  if ((hit.object as THREE.Mesh).isMesh && !hasPickableMaterial((hit.object as THREE.Mesh).material)) {
+  if (
+    (hit.object as THREE.Mesh).isMesh &&
+    !hasPickableMaterial((hit.object as THREE.Mesh).material)
+  ) {
     return false;
   }
   if (mode === 'all') return true;
@@ -170,6 +207,7 @@ function matchesIntersectionMode(hit: THREE.Intersection, mode: PickTargetMode):
 export function collectPickTargets(
   linkMeshMap: Map<string, THREE.Mesh[]>,
   mode: PickTargetMode,
+  root?: THREE.Object3D | null,
 ): THREE.Object3D[] {
   const targets: THREE.Object3D[] = [];
   const seen = new Set<number>();
@@ -187,12 +225,14 @@ export function collectPickTargets(
     });
   });
 
+  if (root && mode !== 'collision') {
+    collectMjcfTendonPickTargets(root, seen, targets);
+  }
+
   return targets;
 }
 
-export function collectSelectableHelperTargets(
-  root: THREE.Object3D | null,
-): THREE.Object3D[] {
+export function collectSelectableHelperTargets(root: THREE.Object3D | null): THREE.Object3D[] {
   if (!root) {
     return [];
   }
@@ -206,7 +246,8 @@ export function collectSelectableHelperTargets(
     if (!isVisibleInHierarchy(child)) return;
     if (typeof (child as unknown as { raycast?: unknown }).raycast !== 'function') return;
 
-    const material = (child as THREE.Mesh & { material?: THREE.Material | THREE.Material[] }).material;
+    const material = (child as THREE.Mesh & { material?: THREE.Material | THREE.Material[] })
+      .material;
     if (material !== undefined && !hasPickableMaterial(material)) {
       return;
     }
@@ -226,11 +267,12 @@ export function findPickIntersections(
   fallbackOnMiss = true,
   interactionLayerPriority?: readonly ViewerInteractiveLayer[],
 ): THREE.Intersection[] {
-  const directHits = pickTargets.length > 0
-    ? raycaster
-        .intersectObjects(pickTargets, false)
-        .filter((hit) => matchesIntersectionMode(hit, mode))
-    : [];
+  const directHits =
+    pickTargets.length > 0
+      ? raycaster
+          .intersectObjects(pickTargets, false)
+          .filter((hit) => matchesIntersectionMode(hit, mode))
+      : [];
 
   if (!robot) {
     return sortByInteractionPriority(directHits, interactionLayerPriority);
@@ -238,10 +280,7 @@ export function findPickIntersections(
 
   const helperHits = raycaster
     .intersectObject(robot, true)
-    .filter((hit) => (
-      isSelectableHelperObject(hit.object)
-      && matchesIntersectionMode(hit, mode)
-    ));
+    .filter((hit) => isSelectableHelperObject(hit.object) && matchesIntersectionMode(hit, mode));
 
   if (helperHits.length > 0) {
     return sortByInteractionPriority(directHits.concat(helperHits), interactionLayerPriority);
@@ -251,7 +290,8 @@ export function findPickIntersections(
     return sortByInteractionPriority(directHits, interactionLayerPriority);
   }
 
-  return sortByInteractionPriority(raycaster
-    .intersectObject(robot, true)
-    .filter((hit) => matchesIntersectionMode(hit, mode)), interactionLayerPriority);
+  return sortByInteractionPriority(
+    raycaster.intersectObject(robot, true).filter((hit) => matchesIntersectionMode(hit, mode)),
+    interactionLayerPriority,
+  );
 }

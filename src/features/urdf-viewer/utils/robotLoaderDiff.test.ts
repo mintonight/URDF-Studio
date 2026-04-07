@@ -77,8 +77,27 @@ test('detectJointPatches returns multiple compatible joint patches for batch upd
 
   assert.ok(patches);
   assert.equal(patches?.length, 2);
-  assert.deepEqual(
-    patches?.map((patch) => patch.jointName).sort(),
-    ['joint_1', 'joint_2'],
-  );
+  assert.deepEqual(patches?.map((patch) => patch.jointName).sort(), ['joint_1', 'joint_2']);
+});
+
+test('detectSingleJointPatch treats hardware interface changes as joint updates', () => {
+  const prevJoints = {
+    joint_1: makeJoint(),
+  };
+  const nextJoints = {
+    joint_1: makeJoint({
+      hardware: {
+        armature: 0,
+        motorType: '',
+        motorId: '',
+        motorDirection: 1,
+        hardwareInterface: 'velocity',
+      },
+    }),
+  };
+
+  const patch = detectSingleJointPatch(prevJoints, nextJoints);
+
+  assert.ok(patch);
+  assert.equal(patch?.jointName, 'joint_1');
 });

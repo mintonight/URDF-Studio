@@ -173,3 +173,58 @@ test('ground alignment keeps URDF runtime roots that use __-prefixed synthetic n
   assert.equal(alignedZ, 0);
   assert.equal(Number(root.position.z.toFixed(6)), -4);
 });
+
+test('getLowestMeshZ resolves nested roots against current ancestor world transforms', () => {
+  const parent = new THREE.Group();
+  parent.position.z = 5;
+  const root = new THREE.Group();
+  parent.add(root);
+
+  const robotMesh = createBoxMesh(2, [0, 0, 0]);
+  robotMesh.userData.isVisualMesh = true;
+  root.add(robotMesh);
+
+  const lowestZ = getLowestMeshZ(root, { includeVisual: true, includeCollision: false });
+  assert.equal(lowestZ, 4);
+});
+
+test('alignObjectLowestPointToZ grounds nested roots using ancestor-aware world matrices', () => {
+  const parent = new THREE.Group();
+  parent.position.z = 5;
+  const root = new THREE.Group();
+  parent.add(root);
+
+  const robotMesh = createBoxMesh(2, [0, 0, 0]);
+  robotMesh.userData.isVisualMesh = true;
+  root.add(robotMesh);
+
+  const alignedZ = alignObjectLowestPointToZ(root, 0, {
+    includeVisual: true,
+    includeCollision: false,
+  });
+
+  assert.equal(alignedZ, 0);
+  assert.equal(Number(root.position.z.toFixed(6)), -4);
+  assert.equal(getLowestMeshZ(root, { includeVisual: true, includeCollision: false }), 0);
+});
+
+test('computeVisibleMeshBounds uses ancestor transforms when measuring nested roots', () => {
+  const parent = new THREE.Group();
+  parent.position.set(1, -2, 5);
+  const root = new THREE.Group();
+  parent.add(root);
+
+  const robotMesh = createBoxMesh(2, [0, 0, 0]);
+  root.add(robotMesh);
+
+  const bounds = computeVisibleMeshBounds(root);
+  assert.ok(bounds);
+  assert.deepEqual(
+    bounds.min.toArray().map((value) => Number(value.toFixed(6))),
+    [0, -3, 4],
+  );
+  assert.deepEqual(
+    bounds.max.toArray().map((value) => Number(value.toFixed(6))),
+    [2, -1, 6],
+  );
+});

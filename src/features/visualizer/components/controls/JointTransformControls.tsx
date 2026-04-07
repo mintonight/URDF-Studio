@@ -7,6 +7,7 @@ import { TransformControlsState } from '../../hooks/useTransformControls';
 interface JointTransformControlsProps {
   mode: 'editor';
   selectedJointPivot: THREE.Group | null;
+  selectedJointMotion: THREE.Group | null;
   robot: RobotState;
   transformMode: 'translate' | 'rotate' | 'universal';
   transformControlsState: TransformControlsState;
@@ -25,6 +26,7 @@ const JOINT_GIZMO_THICKNESS_SCALE = 1.6;
 export const JointTransformControls = memo(function JointTransformControls({
   mode,
   selectedJointPivot,
+  selectedJointMotion,
   robot,
   transformMode,
   transformControlsState,
@@ -33,10 +35,13 @@ export const JointTransformControls = memo(function JointTransformControls({
   const {
     transformControlRef,
     rotateTransformControlRef,
+    setRotateInputObject,
     handleObjectChange,
     handleRotateObjectChange,
   } = transformControlsState;
   const [translateProxy, setTranslateProxy] = useState<THREE.Group | null>(null);
+  const rotateProxyRef = useRef<THREE.Group | null>(null);
+  const [rotateProxy, setRotateProxy] = useState<THREE.Group | null>(null);
   const translateProxyRef = useRef<THREE.Group | null>(null);
   const isTranslateDraggingRef = useRef(false);
   const lastActiveControlRef = useRef<'translate' | 'rotate' | null>(null);
@@ -94,6 +99,50 @@ export const JointTransformControls = memo(function JointTransformControls({
       selectedJointPivot.updateMatrixWorld(true);
     }
   }, [selectedJointPivot]);
+
+  const syncRotateProxy = useCallback(() => {
+    const proxy = rotateProxyRef.current;
+    if (!proxy || !selectedJointMotion) return;
+
+    proxy.position.copy(selectedJointMotion.position);
+    proxy.quaternion.copy(selectedJointMotion.quaternion);
+    proxy.scale.copy(selectedJointMotion.scale);
+    proxy.updateMatrixWorld(true);
+  }, [selectedJointMotion]);
+
+  useEffect(() => {
+    if (!selectedJointMotion?.parent) {
+      if (rotateProxyRef.current?.parent) {
+        rotateProxyRef.current.parent.remove(rotateProxyRef.current);
+      }
+      rotateProxyRef.current = null;
+      setRotateProxy(null);
+      setRotateInputObject(null);
+      return;
+    }
+
+    const proxy = rotateProxyRef.current ?? new THREE.Group();
+    proxy.visible = false;
+
+    if (proxy.parent !== selectedJointMotion.parent) {
+      proxy.parent?.remove(proxy);
+      selectedJointMotion.parent.add(proxy);
+    }
+
+    rotateProxyRef.current = proxy;
+    setRotateProxy(proxy);
+    setRotateInputObject(proxy);
+    syncRotateProxy();
+
+    return () => {
+      if (rotateProxyRef.current === proxy) {
+        rotateProxyRef.current = null;
+      }
+      setRotateProxy((current) => (current === proxy ? null : current));
+      setRotateInputObject(null);
+      proxy.parent?.remove(proxy);
+    };
+  }, [selectedJointMotion, setRotateInputObject, syncRotateProxy]);
 
   useEffect(() => {
     if (!isTranslateDraggingRef.current) {
@@ -169,14 +218,21 @@ export const JointTransformControls = memo(function JointTransformControls({
         isTranslateDraggingRef.current = true;
         lastActiveControlRef.current = 'translate';
       }
+      applyTranslateProxyToPivot();
+      handleObjectChange();
       invalidate();
       return;
     }
 
     if (rotateControls?.dragging) {
       lastActiveControlRef.current = 'rotate';
+      handleRotateObjectChange();
       invalidate();
       return;
+    }
+
+    if (rotateProxyRef.current) {
+      syncRotateProxy();
     }
 
     if (isTranslateDraggingRef.current || lastActiveControlRef.current === 'translate') {
@@ -215,8 +271,9 @@ export const JointTransformControls = memo(function JointTransformControls({
           rotateRef={rotateTransformControlRef}
           object={selectedJointPivot}
           translateObject={shouldRenderTranslateProxy ? (translateProxy ?? undefined) : undefined}
-          // In editor mode the rotate gizmo edits the joint origin/pivot so the
-          // entire child subtree follows, rather than only changing joint motion.
+          rotateObject={rotateProxy ?? selectedJointMotion ?? undefined}
+          // Translate edits the joint origin/pivot. Rotate edits the joint motion
+          // group so closed-loop compensation can follow the live kinematic pose.
           mode={transformMode}
           size={VISUALIZER_UNIFIED_GIZMO_SIZE}
           translateSpace="local"

@@ -1,4 +1,10 @@
-import { DEFAULT_LINK, GeometryType, type RobotData, type RobotFile, type RobotState } from '@/types';
+import {
+  DEFAULT_LINK,
+  GeometryType,
+  type RobotData,
+  type RobotFile,
+  type RobotState,
+} from '@/types';
 import { parseURDF } from './urdf/parser';
 import { parseMJCF } from './mjcf/mjcfParser';
 import { resolveMJCFSource } from './mjcf/mjcfSourceResolver';
@@ -6,34 +12,38 @@ import { parseSDF } from './sdf/sdfParser';
 import { processXacro } from './xacro/xacroParser';
 import { rewriteRobotMeshPathsForSource } from './meshPathUtils';
 import { syncRobotVisualColorsFromMaterials } from '@/core/robot/materials';
+import { isImageAssetPath } from '@/core/utils/assetFileTypes';
+import { isSourceOnlyMJCFDocument } from './mjcf/mjcfXml';
+import { validateMJCFImportExternalAssets } from './mjcf/mjcfImportValidation';
 
 export interface ResolveRobotFileDataOptions {
   availableFiles?: RobotFile[];
   assets?: Record<string, string>;
   allFileContents?: Record<string, string>;
   usdRobotData?: RobotData | null;
+  mjcfExternalAssetValidation?: 'auto' | 'always' | 'never';
 }
 
 export type RobotImportErrorReason = 'parse_failed' | 'unsupported_format' | 'source_only_fragment';
 
 export type RobotImportResult =
   | {
-    status: 'ready';
-    format: RobotFile['format'];
-    robotData: RobotData;
-    resolvedUrdfContent: string | null;
-    resolvedUrdfSourceFilePath: string | null;
-  }
+      status: 'ready';
+      format: RobotFile['format'];
+      robotData: RobotData;
+      resolvedUrdfContent: string | null;
+      resolvedUrdfSourceFilePath: string | null;
+    }
   | {
-    status: 'needs_hydration';
-    format: 'usd';
-  }
+      status: 'needs_hydration';
+      format: 'usd';
+    }
   | {
-    status: 'error';
-    format: RobotFile['format'];
-    reason: RobotImportErrorReason;
-    message?: string;
-  };
+      status: 'error';
+      format: RobotFile['format'];
+      reason: RobotImportErrorReason;
+      message?: string;
+    };
 
 function toRobotData(robot: RobotState | RobotData): RobotData {
   return {
@@ -47,7 +57,11 @@ function toRobotData(robot: RobotState | RobotData): RobotData {
 }
 
 export function createUsdPlaceholderRobotData(file: RobotFile): RobotData {
-  const robotName = file.name.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'usd_scene';
+  const robotName =
+    file.name
+      .split('/')
+      .pop()
+      ?.replace(/\.[^/.]+$/, '') || 'usd_scene';
   const linkId = 'usd_scene_root';
 
   return {
@@ -79,8 +93,13 @@ export function createUsdPlaceholderRobotData(file: RobotFile): RobotData {
 }
 
 function createMeshRobotData(file: RobotFile): RobotData {
-  const meshName = file.name.split('/').pop()?.replace(/\.[^/.]+$/, '') ?? 'mesh';
+  const meshName =
+    file.name
+      .split('/')
+      .pop()
+      ?.replace(/\.[^/.]+$/, '') ?? 'mesh';
   const linkId = 'base_link';
+  const previewColor = isImageAssetPath(file.name) ? '#ffffff' : '#808080';
 
   return {
     name: meshName,
@@ -92,7 +111,7 @@ function createMeshRobotData(file: RobotFile): RobotData {
         visual: {
           type: GeometryType.MESH,
           dimensions: { x: 1, y: 1, z: 1 },
-          color: '#808080',
+          color: previewColor,
           meshPath: file.name,
           origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
         },
@@ -122,10 +141,7 @@ function createReadyImportResult(
     resolvedUrdfContent?: string | null;
   } = {},
 ): RobotImportResult {
-  const {
-    sourceFilePath = file.name,
-    resolvedUrdfContent = null,
-  } = options;
+  const { sourceFilePath = file.name, resolvedUrdfContent = null } = options;
 
   return {
     status: 'ready',
@@ -138,10 +154,7 @@ function createReadyImportResult(
   };
 }
 
-function buildImportFailureMessage(
-  file: RobotFile,
-  detail?: string | null,
-): string {
+function buildImportFailureMessage(file: RobotFile, detail?: string | null): string {
   const baseMessage = `Failed to import ${file.format.toUpperCase()} file "${file.name}".`;
   const trimmedDetail = detail?.trim();
   if (!trimmedDetail) {
@@ -168,10 +181,80 @@ function normalizeFilePath(filePath: string): string {
   return filePath.replace(/\\/g, '/');
 }
 
+function normalizeSourceLookupPath(filePath: string): string {
+  return normalizeFilePath(filePath).trim().replace(/^\/+/, '').split('?')[0];
+}
+
 function getFileName(filePath: string): string {
   const normalized = normalizeFilePath(filePath);
   const segments = normalized.split('/');
   return segments[segments.length - 1] || normalized;
+}
+
+function hasSourceContent(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function findContextFileContent(
+  file: RobotFile,
+  options: Pick<ResolveRobotFileDataOptions, 'availableFiles' | 'allFileContents'>,
+): { content: string; sourceFilePath: string } | null {
+  const normalizedTargetPath = normalizeSourceLookupPath(file.name);
+  if (!normalizedTargetPath) {
+    return null;
+  }
+
+  for (const [path, content] of Object.entries(options.allFileContents ?? {})) {
+    if (hasSourceContent(content) && normalizeSourceLookupPath(path) === normalizedTargetPath) {
+      return {
+        content,
+        sourceFilePath: path,
+      };
+    }
+  }
+
+  for (const candidate of options.availableFiles ?? []) {
+    if (
+      candidate.format === file.format &&
+      hasSourceContent(candidate.content) &&
+      normalizeSourceLookupPath(candidate.name) === normalizedTargetPath
+    ) {
+      return {
+        content: candidate.content,
+        sourceFilePath: candidate.name,
+      };
+    }
+  }
+
+  return null;
+}
+
+function resolveUrdfSourceContent(
+  file: RobotFile,
+  options: Pick<ResolveRobotFileDataOptions, 'availableFiles' | 'allFileContents'>,
+): { content: string; sourceFilePath: string | null; fromContext: boolean } {
+  if (hasSourceContent(file.content)) {
+    return {
+      content: file.content,
+      sourceFilePath: null,
+      fromContext: false,
+    };
+  }
+
+  const contextMatch = findContextFileContent(file, options);
+  if (contextMatch) {
+    return {
+      content: contextMatch.content,
+      sourceFilePath: contextMatch.sourceFilePath,
+      fromContext: true,
+    };
+  }
+
+  return {
+    content: file.content,
+    sourceFilePath: null,
+    fromContext: false,
+  };
 }
 
 export function isStandaloneXacroEntry(file: RobotFile): boolean {
@@ -216,7 +299,9 @@ export function findStandaloneXacroTruthFile(
   ];
 
   for (const preferredFileName of preferredFileNames) {
-    const match = candidateTruthFiles.find((candidate) => getFileName(candidate.name) === preferredFileName);
+    const match = candidateTruthFiles.find(
+      (candidate) => getFileName(candidate.name) === preferredFileName,
+    );
     if (match) {
       return match;
     }
@@ -229,18 +314,19 @@ export function isSourceOnlyXacroDocument(urdfContent: string): boolean {
   return /<robot\b/i.test(urdfContent) && !/<link\b/i.test(urdfContent);
 }
 
-function isSourceOnlyMJCFDocument(xmlContent: string): boolean {
-  try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(xmlContent, 'text/xml');
-    if (doc.querySelector('parsererror')) {
-      return false;
-    }
+function shouldValidateMJCFExternalAssets(
+  mode: ResolveRobotFileDataOptions['mjcfExternalAssetValidation'],
+  assets: Record<string, string>,
+): boolean {
+  if (mode === 'always') {
+    return true;
+  }
 
-    return Boolean(doc.querySelector('mujoco')) && !doc.querySelector('worldbody');
-  } catch {
+  if (mode === 'never') {
     return false;
   }
+
+  return Object.keys(assets).length > 0;
 }
 
 export function resolveRobotFileData(
@@ -252,30 +338,61 @@ export function resolveRobotFileData(
     assets = {},
     allFileContents = {},
     usdRobotData = null,
+    mjcfExternalAssetValidation = 'auto',
   } = options;
 
   try {
     switch (file.format) {
       case 'urdf': {
-        const parsed = parseURDF(file.content);
+        const resolvedUrdfSource = resolveUrdfSourceContent(file, {
+          availableFiles,
+          allFileContents,
+        });
+        const parsed = parseURDF(resolvedUrdfSource.content);
+        const resolvedUrdfOptions = resolvedUrdfSource.fromContext
+          ? {
+              sourceFilePath: resolvedUrdfSource.sourceFilePath ?? file.name,
+              resolvedUrdfContent: resolvedUrdfSource.content,
+            }
+          : undefined;
         return parsed
-          ? createReadyImportResult(file, toRobotData(parsed))
-          : createErrorImportResult(
-            file,
-            'parse_failed',
-            buildImportFailureMessage(file),
-          );
+          ? createReadyImportResult(file, toRobotData(parsed), resolvedUrdfOptions)
+          : createErrorImportResult(file, 'parse_failed', buildImportFailureMessage(file));
       }
       case 'mjcf': {
         const resolved = resolveMJCFSource(file, availableFiles);
+        if (resolved.issues.length > 0) {
+          return createErrorImportResult(
+            file,
+            'parse_failed',
+            buildImportFailureMessage(file, resolved.issues[0]?.detail),
+          );
+        }
+
+        if (isSourceOnlyMJCFDocument(resolved.content)) {
+          return createErrorImportResult(file, 'source_only_fragment');
+        }
+
+        if (shouldValidateMJCFExternalAssets(mjcfExternalAssetValidation, assets)) {
+          const assetIssues = validateMJCFImportExternalAssets(
+            resolved.sourceFile.name,
+            resolved.content,
+            availableFiles,
+            assets,
+          );
+          if (assetIssues.length > 0) {
+            return createErrorImportResult(
+              file,
+              'parse_failed',
+              buildImportFailureMessage(file, assetIssues[0]?.detail),
+            );
+          }
+        }
+
         const parsed = parseMJCF(resolved.content);
         return parsed
           ? createReadyImportResult(file, toRobotData(parsed))
-          : createErrorImportResult(
-            file,
-            isSourceOnlyMJCFDocument(resolved.content) ? 'source_only_fragment' : 'parse_failed',
-            buildImportFailureMessage(file),
-          );
+          : createErrorImportResult(file, 'parse_failed', buildImportFailureMessage(file));
       }
       case 'sdf': {
         const parsed = parseSDF(file.content, {
@@ -284,19 +401,15 @@ export function resolveRobotFileData(
         });
         return parsed
           ? createReadyImportResult(file, toRobotData(parsed))
-          : createErrorImportResult(
-            file,
-            'parse_failed',
-            buildImportFailureMessage(file),
-          );
+          : createErrorImportResult(file, 'parse_failed', buildImportFailureMessage(file));
       }
       case 'usd':
         return usdRobotData
           ? createReadyImportResult(file, usdRobotData)
           : {
-            status: 'needs_hydration',
-            format: 'usd',
-          };
+              status: 'needs_hydration',
+              format: 'usd',
+            };
       case 'xacro': {
         const truthFile = findStandaloneXacroTruthFile(file, availableFiles);
         if (truthFile) {

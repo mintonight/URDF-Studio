@@ -94,8 +94,13 @@ export const InlineInputGroup = ({
   align?: 'start' | 'center';
 }) => (
   <div className={`mb-1 ${className}`}>
-    <div className={`flex gap-2 ${align === 'start' ? 'items-start' : 'items-center'}`}>
-      <label className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} ${labelWidthClassName}`}>
+    <div
+      className={`flex min-w-0 flex-nowrap gap-2 ${align === 'start' ? 'items-start' : 'items-center'}`}
+    >
+      <label
+        className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} ${labelWidthClassName}`}
+        style={{ width: 'fit-content' }}
+      >
         {label}
       </label>
       <div className="min-w-0 flex-1">{children}</div>
@@ -139,7 +144,7 @@ export const ReadonlyVectorStatRow = ({
   label: string;
   values: [string, string, string];
 }) => (
-  <div className="grid grid-cols-[28px_repeat(3,minmax(0,1fr))] items-center gap-x-1.5 gap-y-0.5">
+  <div className="grid min-w-0 w-full grid-cols-[28px_repeat(3,minmax(0,1fr))] items-center gap-x-1.5 gap-y-0.5">
     <div className="flex h-[22px] items-center text-[8px] font-semibold leading-4 text-text-tertiary">
       {label}
     </div>
@@ -156,7 +161,7 @@ export const ReadonlyVectorStatHeader = ({
 }: {
   axisLabels?: [string, string, string];
 }) => (
-  <div className="grid grid-cols-[28px_repeat(3,minmax(0,1fr))] items-center gap-x-1.5 gap-y-0.5">
+  <div className="grid min-w-0 w-full grid-cols-[28px_repeat(3,minmax(0,1fr))] items-center gap-x-1.5 gap-y-0.5">
     <div aria-hidden="true" />
     {axisLabels.map((axisLabel) => (
       <span key={axisLabel} className={`${PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS} text-center`}>
@@ -403,6 +408,7 @@ const useNumberInputController = ({
   parseDisplayValue,
   min,
   max,
+  commitOnBlurOnly = false,
   inputRef,
   collapseInputSelection,
 }: {
@@ -417,6 +423,7 @@ const useNumberInputController = ({
   parseDisplayValue?: NumberInputDisplayParser;
   min?: number;
   max?: number;
+  commitOnBlurOnly?: boolean;
   inputRef: React.RefObject<HTMLInputElement | null>;
   collapseInputSelection: () => void;
 }) => {
@@ -562,6 +569,10 @@ const useNumberInputController = ({
         return;
       }
 
+      if (commitOnBlurOnly) {
+        return;
+      }
+
       const { formattedValue, wasClamped } = commitValue(parsed, {
         preserveDraftDisplay: true,
       });
@@ -571,7 +582,7 @@ const useNumberInputController = ({
         setLocalValue(formattedValue);
       }
     },
-    [commitValue, parseValue],
+    [commitOnBlurOnly, commitValue, parseValue],
   );
 
   return {
@@ -598,6 +609,7 @@ export const NumberInput = ({
   parseDisplayValue,
   min,
   max,
+  commitOnBlurOnly = false,
   repeatIntervalMs,
 }: {
   value: number;
@@ -614,6 +626,7 @@ export const NumberInput = ({
   parseDisplayValue?: NumberInputDisplayParser;
   min?: number;
   max?: number;
+  commitOnBlurOnly?: boolean;
   repeatIntervalMs?: number;
 }) => {
   const {
@@ -636,6 +649,7 @@ export const NumberInput = ({
       parseDisplayValue,
       min,
       max,
+      commitOnBlurOnly,
       inputRef,
       collapseInputSelection,
     });
@@ -842,13 +856,14 @@ export const AxisNumberGridInput = <T extends string>({
   if (labelPlacement === 'inline') {
     return (
       <div
-        className="grid items-center gap-x-1.5 gap-y-1.5"
-        style={{ gridTemplateColumns: keys.map(() => 'max-content minmax(0, 1fr)').join(' ') }}
+        className="grid min-w-0 gap-1.5"
+        style={{ gridTemplateColumns: `repeat(${keys.length}, minmax(0, 1fr))` }}
       >
         {keys.map((key, index) => (
-          <React.Fragment key={String(key)}>
+          <div key={String(key)} className="flex min-w-0 items-center gap-1.5">
             <span
-              className={`${PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS} whitespace-nowrap text-right`}
+              className={`${PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS} min-w-0 shrink truncate text-right`}
+              title={labels[index] ?? String(key)}
             >
               {labels[index] ?? String(key)}
             </span>
@@ -868,7 +883,7 @@ export const AxisNumberGridInput = <T extends string>({
                 repeatIntervalMs={repeatIntervalMs}
               />
             </div>
-          </React.Fragment>
+          </div>
         ))}
       </div>
     );

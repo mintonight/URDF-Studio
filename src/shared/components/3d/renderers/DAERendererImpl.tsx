@@ -4,6 +4,7 @@ import { useLoadingManager } from '../meshLoadingManager';
 import { cloneColladaScenePreservingRootTransform } from './colladaScene';
 import { isCoplanarOffsetMaterial, markMaterialAsCoplanarOffset } from '@/core/loaders';
 import { loadColladaScene } from '@/core/loaders/colladaParseWorkerBridge';
+import { applyVisualMeshShadowPolicyToObject } from '@/core/utils/visualMeshShadowPolicy';
 
 interface ScaleProps {
   x: number;
@@ -14,6 +15,7 @@ interface ScaleProps {
 interface DAERendererImplProps {
   url: string;
   material: THREE.Material;
+  enableShadows?: boolean;
   assets: Record<string, string>;
   assetBaseDir?: string;
   normalizeRoot?: boolean;
@@ -26,7 +28,9 @@ const ORIGINAL_MATERIAL_KEY = '__urdfStudioDaeOriginalMaterial';
 const GENERATED_OVERRIDE_MATERIAL_KEY = '__urdfStudioDaeGeneratedOverrideMaterial';
 
 function disposeGeneratedOverrideMaterials(materialOrMaterials: THREE.Material | THREE.Material[]) {
-  const materials = Array.isArray(materialOrMaterials) ? materialOrMaterials : [materialOrMaterials];
+  const materials = Array.isArray(materialOrMaterials)
+    ? materialOrMaterials
+    : [materialOrMaterials];
   materials.forEach((nextMaterial) => {
     if (nextMaterial?.userData?.[GENERATED_OVERRIDE_MATERIAL_KEY] === true) {
       nextMaterial.dispose();
@@ -39,7 +43,9 @@ function buildOverrideMaterial(
   baseMaterial: THREE.Material,
 ) {
   const sourceMaterials = Array.isArray(sourceMaterial) ? sourceMaterial : [sourceMaterial];
-  const hasCoplanarOffsets = sourceMaterials.some((nextMaterial) => isCoplanarOffsetMaterial(nextMaterial));
+  const hasCoplanarOffsets = sourceMaterials.some((nextMaterial) =>
+    isCoplanarOffsetMaterial(nextMaterial),
+  );
   if (!hasCoplanarOffsets) {
     return baseMaterial;
   }
@@ -65,6 +71,7 @@ function buildOverrideMaterial(
 export function DAERendererImpl({
   url,
   material,
+  enableShadows = true,
   assets,
   assetBaseDir,
   normalizeRoot = false,
@@ -73,10 +80,7 @@ export function DAERendererImpl({
   onResolved,
 }: DAERendererImplProps) {
   const manager = useLoadingManager(assets, assetBaseDir);
-  const colladaScene = use(useMemo(
-    () => loadColladaScene(url, manager),
-    [manager, url],
-  ));
+  const colladaScene = use(useMemo(() => loadColladaScene(url, manager), [manager, url]));
   const { clone, overrideMeshes } = useMemo(() => {
     return cloneColladaScenePreservingRootTransform(
       colladaScene,
@@ -86,9 +90,14 @@ export function DAERendererImpl({
   }, [colladaScene, normalizeRoot, preserveOriginalMaterial]);
 
   useLayoutEffect(() => {
+    if (enableShadows) {
+      applyVisualMeshShadowPolicyToObject(clone);
+    }
+
     overrideMeshes.forEach((mesh) => {
-      const originalMaterial = (mesh.userData?.[ORIGINAL_MATERIAL_KEY] as THREE.Material | THREE.Material[] | undefined)
-        ?? mesh.material;
+      const originalMaterial =
+        (mesh.userData?.[ORIGINAL_MATERIAL_KEY] as THREE.Material | THREE.Material[] | undefined) ??
+        mesh.material;
       mesh.userData = {
         ...(mesh.userData ?? {}),
         [ORIGINAL_MATERIAL_KEY]: originalMaterial,
@@ -103,7 +112,7 @@ export function DAERendererImpl({
         disposeGeneratedOverrideMaterials(mesh.material);
       });
     };
-  }, [material, overrideMeshes]);
+  }, [clone, enableShadows, material, overrideMeshes]);
 
   useEffect(() => {
     onResolved?.();

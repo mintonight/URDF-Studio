@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 
+import { ignoreRaycast } from '@/shared/utils/three/ignoreRaycast';
+import { narrowLineRaycast } from '@/shared/utils/three/narrowLineRaycast';
 import { clearMaterialCache, getCachedMaterial } from './materialCache.ts';
 import {
   createVisualizerHoverUserData,
@@ -53,6 +55,7 @@ function createTaggedMesh(
     isHelper?: boolean;
     renderOrder?: number;
     interactionLayer?:
+      | 'ik-handle'
       | 'visual'
       | 'collision'
       | 'origin-axes'
@@ -92,6 +95,7 @@ function createTaggedSupportPlane(
   z: number,
   options: {
     interactionLayer?:
+      | 'ik-handle'
       | 'visual'
       | 'collision'
       | 'origin-axes'
@@ -113,6 +117,47 @@ function createTaggedSupportPlane(
   wrapper.add(mesh);
 
   return { wrapper, mesh };
+}
+
+function createTaggedHelperOutline(
+  target: VisualizerHoverTarget,
+  options: {
+    meshVisualOnly?: boolean;
+    narrowOutlineRaycast?: boolean;
+    interactionLayer?:
+      | 'ik-handle'
+      | 'visual'
+      | 'collision'
+      | 'origin-axes'
+      | 'joint-axis'
+      | 'center-of-mass'
+      | 'inertia';
+  } = {},
+) {
+  const wrapper = new THREE.Group();
+  wrapper.userData = {
+    ...wrapper.userData,
+    ...createVisualizerHoverUserData(target, options.interactionLayer ?? 'inertia'),
+    isHelper: true,
+  };
+
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.35 }),
+  );
+  if (options.meshVisualOnly) {
+    mesh.raycast = ignoreRaycast;
+  }
+  wrapper.add(mesh);
+
+  const geometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+  const line = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0x93c5fd }));
+  if (options.narrowOutlineRaycast) {
+    line.raycast = narrowLineRaycast;
+  }
+  wrapper.add(line);
+
+  return { wrapper, mesh, line };
 }
 
 function createTaggedReversedWindingTriangle(
@@ -246,6 +291,73 @@ test('findNearestVisualizerHoverTarget ignores closer helper meshes without visu
     subType: 'collision',
     objectIndex: 0,
   });
+});
+
+test('findNearestVisualizerHoverTarget ignores inertia fill hits away from the visible outline', () => {
+  const root = new THREE.Group();
+  const helper = createTaggedHelperOutline(
+    {
+      type: 'link',
+      id: 'inertia_link',
+      helperKind: 'inertia',
+    },
+    { meshVisualOnly: true, narrowOutlineRaycast: true, interactionLayer: 'inertia' },
+  );
+
+  root.add(helper.wrapper);
+  root.updateMatrixWorld(true);
+
+  const raycaster = new THREE.Raycaster(new THREE.Vector3(0, 0, 2), new THREE.Vector3(0, 0, -1));
+
+  assert.equal(findNearestVisualizerHoverTarget(root, raycaster), null);
+});
+
+test('findNearestVisualizerHoverTarget still allows inertia hits close to the visible outline', () => {
+  const root = new THREE.Group();
+  const helper = createTaggedHelperOutline(
+    {
+      type: 'link',
+      id: 'inertia_link',
+      helperKind: 'inertia',
+    },
+    { meshVisualOnly: true, narrowOutlineRaycast: true, interactionLayer: 'inertia' },
+  );
+
+  root.add(helper.wrapper);
+  root.updateMatrixWorld(true);
+
+  const raycaster = new THREE.Raycaster(new THREE.Vector3(0, 0.52, 2), new THREE.Vector3(0, 0, -1));
+
+  assert.deepEqual(findNearestVisualizerHoverTarget(root, raycaster), {
+    type: 'link',
+    id: 'inertia_link',
+    helperKind: 'inertia',
+  });
+});
+
+test('resolveVisualizerInteractionTargetFromHits does not force direct inertia mesh hits away from the outline', () => {
+  const root = new THREE.Group();
+  const helper = createTaggedHelperOutline(
+    {
+      type: 'link',
+      id: 'inertia_link',
+      helperKind: 'inertia',
+    },
+    { narrowOutlineRaycast: true, interactionLayer: 'inertia' },
+  );
+
+  root.add(helper.wrapper);
+  root.updateMatrixWorld(true);
+
+  const raycaster = new THREE.Raycaster(new THREE.Vector3(0, 0, 2), new THREE.Vector3(0, 0, -1));
+  const hits = raycaster.intersectObject(root, true);
+
+  assert.equal(
+    resolveVisualizerInteractionTargetFromHits(helper.mesh, hits, {
+      interactionLayerPriority: ['inertia'],
+    }),
+    null,
+  );
 });
 
 test('findNearestVisualizerHoverTarget skips hidden or fully transparent tagged geometry', () => {
@@ -612,6 +724,124 @@ test('resolveVisualizerInteractionTargetFromHits prefers the directly hit helper
     {
       type: 'joint',
       id: 'joint_1',
+    },
+  );
+});
+
+test('resolveVisualizerInteractionTargetFromHits resolves overlapping helpers through layer priority instead of trusting the direct hit blindly', () => {
+  const root = new THREE.Group();
+
+  const jointAxisHelper = createTaggedMesh(
+    {
+      type: 'joint',
+      id: 'joint_1',
+      helperKind: 'joint-axis',
+    },
+    -2,
+    {
+      isHelper: true,
+      interactionLayer: 'joint-axis',
+    },
+  );
+
+  const ikHandleHelper = createTaggedMesh(
+    {
+      type: 'link',
+      id: 'tool_link',
+      helperKind: 'ik-handle',
+    },
+    -1.5,
+    {
+      isHelper: true,
+      interactionLayer: 'ik-handle',
+    },
+  );
+
+  root.add(jointAxisHelper.wrapper);
+  root.add(ikHandleHelper.wrapper);
+  root.updateMatrixWorld(true);
+
+  const raycaster = new THREE.Raycaster(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1));
+  const hits = raycaster.intersectObject(root, true);
+
+  assert.deepEqual(
+    findNearestVisualizerTargetFromHitsWithOptions(hits, {
+      interactionLayerPriority: ['joint-axis', 'ik-handle'],
+    }),
+    {
+      type: 'joint',
+      id: 'joint_1',
+      helperKind: 'joint-axis',
+    },
+  );
+
+  assert.deepEqual(
+    resolveVisualizerInteractionTargetFromHitsWithOptions(ikHandleHelper.mesh, hits, {
+      interactionLayerPriority: ['joint-axis', 'ik-handle'],
+    }),
+    {
+      type: 'joint',
+      id: 'joint_1',
+      helperKind: 'joint-axis',
+    },
+  );
+});
+
+test('resolveVisualizerInteractionTargetFromHits prefers the joint axis when it overlaps the origin axes helper', () => {
+  const root = new THREE.Group();
+
+  const jointAxisHelper = createTaggedMesh(
+    {
+      type: 'joint',
+      id: 'joint_1',
+      helperKind: 'joint-axis',
+    },
+    -2,
+    {
+      isHelper: true,
+      interactionLayer: 'joint-axis',
+    },
+  );
+
+  const originAxesHelper = createTaggedMesh(
+    {
+      type: 'link',
+      id: 'tool_link',
+      helperKind: 'origin-axes',
+    },
+    -1.5,
+    {
+      isHelper: true,
+      interactionLayer: 'origin-axes',
+    },
+  );
+
+  root.add(jointAxisHelper.wrapper);
+  root.add(originAxesHelper.wrapper);
+  root.updateMatrixWorld(true);
+
+  const raycaster = new THREE.Raycaster(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1));
+  const hits = raycaster.intersectObject(root, true);
+
+  assert.deepEqual(
+    findNearestVisualizerTargetFromHitsWithOptions(hits, {
+      interactionLayerPriority: ['joint-axis', 'origin-axes'],
+    }),
+    {
+      type: 'joint',
+      id: 'joint_1',
+      helperKind: 'joint-axis',
+    },
+  );
+
+  assert.deepEqual(
+    resolveVisualizerInteractionTargetFromHitsWithOptions(originAxesHelper.mesh, hits, {
+      interactionLayerPriority: ['joint-axis', 'origin-axes'],
+    }),
+    {
+      type: 'joint',
+      id: 'joint_1',
+      helperKind: 'joint-axis',
     },
   );
 });

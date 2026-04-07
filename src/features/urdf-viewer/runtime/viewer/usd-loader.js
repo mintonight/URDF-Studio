@@ -4,6 +4,7 @@ import { collectCameraFitSelection, fitCameraToSelection, scheduleCameraRefit } 
 import { getUsdConfigurationMirrorPlan, getUsdDependencyExtension, getUsdDependencySuffixesForStage, inferDependencyStemForUsdPath } from "./usd-dependency-preload.js";
 import { getDirectoryFromVirtualPath, isLikelyNonRenderableUsdConfig, normalizeUsdPath, parseBooleanFlag } from "./path-utils.js";
 import { applyStageAxisAlignmentToRoot } from "./stage-up-axis.js";
+import { getTextureLoadProgress, waitForTextureLoadReady } from "./usd-loader-progress.js";
 const COLLISION_SEGMENT_PATTERN = /(?:^|\/)collisions?(?:$|[/.])/i;
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -17,6 +18,23 @@ async function yieldToMainThread(minDelayMs = 0) {
         return;
     }
     await nextAnimationFrame();
+}
+function hasDeterminateProgressCounts(loadedCount, totalCount) {
+    const safeLoadedCount = Number.isFinite(loadedCount) ? Math.max(0, Math.floor(loadedCount)) : null;
+    const safeTotalCount = Number.isFinite(totalCount) ? Math.max(0, Math.floor(totalCount)) : null;
+    return safeLoadedCount !== null && safeTotalCount !== null && safeTotalCount > 0;
+}
+function resolveProgressMode({ phase, progressMode, loadedCount, totalCount, progressPercent, }) {
+    if (progressMode === "count" || progressMode === "percent" || progressMode === "indeterminate") {
+        return progressMode;
+    }
+    if (phase === "streaming-meshes" && hasDeterminateProgressCounts(loadedCount, totalCount)) {
+        return "count";
+    }
+    if (phase === "ready" && Number.isFinite(progressPercent)) {
+        return "percent";
+    }
+    return "indeterminate";
 }
 function getMeshLoadStats(renderInterface) {
     const meshes = renderInterface?.meshes || {};
@@ -257,6 +275,7 @@ export async function loadUsdStage(args) {
     let currentProgressMessage = null;
     let currentLoadedCount = null;
     let currentTotalCount = null;
+    let currentProgressMode = "indeterminate";
     const emitProgress = (patch = {}) => {
         if (!isLoadStillActive())
             return;
@@ -277,13 +296,23 @@ export async function loadUsdStage(args) {
         const nextProgressPercent = Object.prototype.hasOwnProperty.call(patch, "progressPercent")
             ? patch.progressPercent
             : currentProgress;
+        currentProgressMode = resolveProgressMode({
+            phase: currentProgressPhase,
+            progressMode: patch.progressMode ?? currentProgressMode,
+            loadedCount: currentLoadedCount,
+            totalCount: currentTotalCount,
+            progressPercent: nextProgressPercent,
+        });
         try {
             onProgress({
                 phase: currentProgressPhase,
                 message: currentProgressMessage,
-                progressPercent: Number.isFinite(nextProgressPercent) ? Math.max(0, Math.min(100, Math.round(nextProgressPercent))) : null,
-                loadedCount: currentLoadedCount,
-                totalCount: currentTotalCount,
+                progressMode: currentProgressMode,
+                progressPercent: currentProgressMode === "percent" && Number.isFinite(nextProgressPercent)
+                    ? Math.max(0, Math.min(100, Math.round(nextProgressPercent)))
+                    : null,
+                loadedCount: currentProgressMode === "count" ? currentLoadedCount : null,
+                totalCount: currentProgressMode === "count" ? currentTotalCount : null,
             });
         }
         catch {
@@ -1393,7 +1422,6 @@ export async function loadUsdStage(args) {
         setMessage(runtimeBridgeWarmupWarningMessage);
     }
     retryStageAxisAlignmentUntilStageMetadata();
-    state.ready = true;
     rebuildLinkAxes();
     markLoadPhase("camera-and-link-axes-done");
     const root = {};
@@ -1420,9 +1448,37 @@ export async function loadUsdStage(args) {
     // Force one render before reporting 100% so shader compile/GPU upload cost
     // is paid while still inside the loading phase instead of after UI completion.
     runEagerRender("pre-complete", { forceRender: true });
+    const textureLoadReadyResult = await waitForTextureLoadReady({
+        getTextureProgress: () => getTextureLoadProgress(window.renderInterface),
+        isLoadStillActive,
+        emitProgress,
+        setMessage,
+        setProgress,
+        yieldForNextCheck: async (minDelayMs = 0) => {
+            if (yieldDuringLoad) {
+                await yieldToMainThread(Math.max(minDelayMs, 0));
+                return;
+            }
+            if (minDelayMs > 0) {
+                await sleep(minDelayMs);
+                return;
+            }
+            await nextAnimationFrame();
+        },
+    });
+    if (!isLoadStillActive())
+        return state;
+    if (textureLoadReadyResult.status === "timeout") {
+        const timeoutSummary = textureLoadReadyResult.progress;
+        console.warn(`[usd-loader] Scene texture drain timed out with ${Number(timeoutSummary?.settled || 0)}/${Number(timeoutSummary?.total || 0)} textures settled and ${Number(timeoutSummary?.pending || 0)} pending.`);
+    }
+    runEagerRender("post-texture-drain", { forceRender: true });
+    state.ready = true;
     setProgress(100, true);
     emitProgress({
         phase: "ready",
+        progressMode: "percent",
+        progressPercent: 100,
         loadedCount: null,
         totalCount: null,
     });

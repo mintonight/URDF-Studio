@@ -13,6 +13,7 @@ export type Language = 'en' | 'zh';
 export type RotationDisplayMode = 'euler_deg' | 'euler_rad' | 'quaternion';
 export type GlobalFontSize = 'small' | 'medium' | 'large';
 export type CodeEditorFontFamily = 'jetbrains-mono' | 'fira-code' | 'system-mono';
+export type MassInertiaChangeBehavior = 'ask' | 'preserve' | 'reestimate';
 
 // View configuration for different modes
 export interface ViewConfig {
@@ -27,6 +28,8 @@ export interface ViewOptions {
   showGrid: boolean;
   showAxes: boolean;
   showUsageGuide: boolean;
+  showMjcfWorldLink: boolean;
+  showIkHandles: boolean;
   showJointAxes: boolean;
   showInertia: boolean;
   showCenterOfMass: boolean;
@@ -132,6 +135,10 @@ interface UIState {
   rotationDisplayMode: RotationDisplayMode;
   setRotationDisplayMode: (mode: RotationDisplayMode) => void;
 
+  // Property editor mass/inertia confirmation preference
+  massInertiaChangeBehavior: MassInertiaChangeBehavior;
+  setMassInertiaChangeBehavior: (behavior: MassInertiaChangeBehavior) => void;
+
   // Editor link property tab
   detailLinkTab: DetailLinkTab;
   setDetailLinkTab: (tab: DetailLinkTab) => void;
@@ -153,6 +160,8 @@ const defaultViewOptions: ViewOptions = {
   showGrid: true,
   showAxes: true,
   showUsageGuide: true,
+  showMjcfWorldLink: true,
+  showIkHandles: true,
   showJointAxes: false,
   showInertia: false,
   showCenterOfMass: false,
@@ -248,6 +257,9 @@ const normalizeGlobalFontSize = (value: unknown): GlobalFontSize =>
 
 const normalizeCodeEditorFontFamily = (value: unknown): CodeEditorFontFamily =>
   value === 'fira-code' || value === 'system-mono' ? value : 'jetbrains-mono';
+
+const normalizeMassInertiaChangeBehavior = (value: unknown): MassInertiaChangeBehavior =>
+  value === 'preserve' || value === 'reestimate' ? value : 'ask';
 
 const clampCodeEditorFontSize = (value: unknown): number => {
   const parsed = Number(value);
@@ -448,6 +460,13 @@ export const useUIStore = create<UIState>()(
       rotationDisplayMode: 'euler_deg',
       setRotationDisplayMode: (rotationDisplayMode) => set({ rotationDisplayMode }),
 
+      // Property editor mass/inertia confirmation preference
+      massInertiaChangeBehavior: 'ask',
+      setMassInertiaChangeBehavior: (massInertiaChangeBehavior) =>
+        set({
+          massInertiaChangeBehavior: normalizeMassInertiaChangeBehavior(massInertiaChangeBehavior),
+        }),
+
       // Editor link property tab
       detailLinkTab: 'visual',
       setDetailLinkTab: (detailLinkTab) =>
@@ -460,8 +479,8 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'urdf-studio-ui',
-      version: 10,
-      migrate: (persistedState: unknown) => {
+      version: 13,
+      migrate: (persistedState: unknown, persistedVersion) => {
         if (!persistedState || typeof persistedState !== 'object') {
           return persistedState;
         }
@@ -473,14 +492,24 @@ export const useUIStore = create<UIState>()(
           fontSize?: unknown;
           codeEditorFontFamily?: unknown;
           codeEditorFontSize?: unknown;
+          massInertiaChangeBehavior?: unknown;
         };
+
+        const migratedViewOptions: ViewOptions = {
+          ...defaultViewOptions,
+          ...state.viewOptions,
+        };
+
+        // `showMjcfWorldLink` used to default to false, which hid MJCF-authored
+        // world scenery such as MyoSuite floors/logo planes. Align persisted
+        // sessions with the current truth-preserving default when upgrading.
+        if ((persistedVersion ?? 0) < 13) {
+          migratedViewOptions.showMjcfWorldLink = true;
+        }
 
         return {
           ...state,
-          viewOptions: {
-            ...defaultViewOptions,
-            ...state.viewOptions,
-          },
+          viewOptions: migratedViewOptions,
           panelLayout: {
             ...defaultPanelLayout,
             ...state.panelLayout,
@@ -488,6 +517,9 @@ export const useUIStore = create<UIState>()(
           fontSize: normalizeGlobalFontSize(state.fontSize),
           codeEditorFontFamily: normalizeCodeEditorFontFamily(state.codeEditorFontFamily),
           codeEditorFontSize: clampCodeEditorFontSize(state.codeEditorFontSize),
+          massInertiaChangeBehavior: normalizeMassInertiaChangeBehavior(
+            state.massInertiaChangeBehavior,
+          ),
           detailLinkTab: normalizeDetailLinkTab(state.detailLinkTab),
         };
       },
@@ -504,6 +536,7 @@ export const useUIStore = create<UIState>()(
         codeEditorFontSize: state.codeEditorFontSize,
         sourceCodeAutoApply: state.sourceCodeAutoApply,
         rotationDisplayMode: state.rotationDisplayMode,
+        massInertiaChangeBehavior: state.massInertiaChangeBehavior,
         detailLinkTab: state.detailLinkTab,
         structureTreeShowGeometryDetails: state.structureTreeShowGeometryDetails,
       }),
@@ -523,6 +556,12 @@ export const useUIStore = create<UIState>()(
           const normalizedCodeEditorFontSize = clampCodeEditorFontSize(state.codeEditorFontSize);
           if (state.codeEditorFontSize !== normalizedCodeEditorFontSize) {
             state.setCodeEditorFontSize(normalizedCodeEditorFontSize);
+          }
+          const normalizedMassInertiaChangeBehavior = normalizeMassInertiaChangeBehavior(
+            state.massInertiaChangeBehavior,
+          );
+          if (state.massInertiaChangeBehavior !== normalizedMassInertiaChangeBehavior) {
+            state.setMassInertiaChangeBehavior(normalizedMassInertiaChangeBehavior);
           }
           const normalizedDetailLinkTab = normalizeDetailLinkTab(state.detailLinkTab);
           if (state.detailLinkTab !== normalizedDetailLinkTab) {

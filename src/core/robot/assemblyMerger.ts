@@ -2,8 +2,18 @@
  * Assembly Merger - Merges AssemblyState into a single RobotData
  * Used for rendering and URDF export
  */
-import type { AssemblyState, RobotClosedLoopConstraint, RobotData, UrdfJoint } from '@/types';
+import * as THREE from 'three';
 
+import {
+  JointType,
+  type AssemblyState,
+  type RobotClosedLoopConstraint,
+  type RobotData,
+  type UrdfJoint,
+} from '@/types';
+
+import { computeLinkWorldMatrices } from './kinematics';
+import { wouldCreateAssemblyComponentCycle } from './assemblyBridgeTopology';
 import { rerootAssemblyComponentRobot } from './assemblyReroot';
 
 function resolveAssemblyBridgeLinkId(
@@ -64,6 +74,109 @@ function assertMergedLinksHaveSingleParentJoint(
   }
 }
 
+interface VisibleAssemblyBridgeResolution {
+  bridge: AssemblyState['bridges'][string];
+  parentRobot: RobotData;
+  childRobot: RobotData;
+  resolvedParentLinkId: string;
+  resolvedChildLinkId: string;
+}
+
+function collectVisibleAssemblyBridgeResolutions(
+  assembly: AssemblyState,
+  visibleCompIds: Set<string>,
+  effectiveRobotByComponentId: Map<string, RobotData>,
+): VisibleAssemblyBridgeResolution[] {
+  return Object.values(assembly.bridges).flatMap((bridge) => {
+    if (
+      !visibleCompIds.has(bridge.parentComponentId) ||
+      !visibleCompIds.has(bridge.childComponentId)
+    ) {
+      return [];
+    }
+
+    const parentRobot =
+      effectiveRobotByComponentId.get(bridge.parentComponentId) ??
+      assembly.components[bridge.parentComponentId]?.robot;
+    const childRobot =
+      effectiveRobotByComponentId.get(bridge.childComponentId) ??
+      assembly.components[bridge.childComponentId]?.robot;
+
+    if (!parentRobot) {
+      throw new Error(
+        `Cannot merge assembly "${assembly.name}" because bridge "${bridge.id}" references missing parent component "${bridge.parentComponentId}"`,
+      );
+    }
+    if (!childRobot) {
+      throw new Error(
+        `Cannot merge assembly "${assembly.name}" because bridge "${bridge.id}" references missing child component "${bridge.childComponentId}"`,
+      );
+    }
+
+    return [
+      {
+        bridge,
+        parentRobot,
+        childRobot,
+        resolvedParentLinkId: requireAssemblyBridgeLinkId(
+          assembly.name,
+          bridge.id,
+          'parent',
+          bridge.parentComponentId,
+          parentRobot,
+          bridge.parentLinkId,
+        ),
+        resolvedChildLinkId: requireAssemblyBridgeLinkId(
+          assembly.name,
+          bridge.id,
+          'child',
+          bridge.childComponentId,
+          childRobot,
+          bridge.childLinkId,
+        ),
+      },
+    ];
+  });
+}
+
+function createBridgeClosedLoopConstraint(
+  bridge: AssemblyState['bridges'][string],
+  parentLinkId: string,
+  childLinkId: string,
+  linkWorldMatrices: Record<string, THREE.Matrix4>,
+): RobotClosedLoopConstraint {
+  const parentAnchorLocal = {
+    x: Number.isFinite(bridge.joint.origin?.xyz?.x) ? bridge.joint.origin.xyz.x : 0,
+    y: Number.isFinite(bridge.joint.origin?.xyz?.y) ? bridge.joint.origin.xyz.y : 0,
+    z: Number.isFinite(bridge.joint.origin?.xyz?.z) ? bridge.joint.origin.xyz.z : 0,
+  };
+  const parentAnchorWorld = new THREE.Vector3(
+    parentAnchorLocal.x,
+    parentAnchorLocal.y,
+    parentAnchorLocal.z,
+  );
+  const parentLinkMatrix = linkWorldMatrices[parentLinkId];
+
+  if (parentLinkMatrix) {
+    parentAnchorWorld.applyMatrix4(parentLinkMatrix);
+  }
+
+  return {
+    id: bridge.id,
+    type: 'connect',
+    linkAId: parentLinkId,
+    linkBId: childLinkId,
+    anchorLocalA: parentAnchorLocal,
+    anchorLocalB: { x: 0, y: 0, z: 0 },
+    anchorWorld: {
+      x: parentAnchorWorld.x,
+      y: parentAnchorWorld.y,
+      z: parentAnchorWorld.z,
+    },
+    source: undefined,
+  };
+}
+
 export function mergeAssembly(assembly: AssemblyState): RobotData {
   const links: RobotData['links'] = {};
   const joints: RobotData['joints'] = {};
@@ -88,36 +201,79 @@ export function mergeAssembly(assembly: AssemblyState): RobotData {
     effectiveRobotByComponentId.set(component.id, component.robot);
   });
 
-  for (const bridge of Object.values(assembly.bridges)) {
-    if (
-      !visibleCompIds.has(bridge.parentComponentId) ||
-      !visibleCompIds.has(bridge.childComponentId)
-    ) {
-      continue;
-    }
+  const visibleBridgeResolutions = collectVisibleAssemblyBridgeResolutions(
+    assembly,
+    visibleCompIds,
+    effectiveRobotByComponentId,
+  );
+  const structuralBridgeIds = new Set<string>();
+  const closedLoopBridgeIds = new Set<string>();
+  const parentByChildComponentId = new Map<string, string>();
 
-    const childRobot = effectiveRobotByComponentId.get(bridge.childComponentId);
-    if (!childRobot) {
+  visibleBridgeResolutions.forEach(({ bridge }) => {
+    const existingParentComponentId = parentByChildComponentId.get(bridge.childComponentId);
+    if (existingParentComponentId && existingParentComponentId !== bridge.parentComponentId) {
       throw new Error(
-        `Cannot merge assembly "${assembly.name}" because bridge "${bridge.id}" references missing child component "${bridge.childComponentId}"`,
+        `Cannot merge assembly "${assembly.name}" because component "${bridge.childComponentId}" would have multiple parent bridges: ${existingParentComponentId} -> ${bridge.childComponentId}, ${bridge.parentComponentId} -> ${bridge.childComponentId}`,
       );
     }
 
-    const resolvedChildLinkId = requireAssemblyBridgeLinkId(
-      assembly.name,
-      bridge.id,
-      'child',
-      bridge.childComponentId,
-      childRobot,
-      bridge.childLinkId,
-    );
-    if (resolvedChildLinkId === childRobot.rootLinkId) {
-      continue;
+    if (
+      wouldCreateAssemblyComponentCycle(
+        parentByChildComponentId,
+        bridge.parentComponentId,
+        bridge.childComponentId,
+      )
+    ) {
+      if (bridge.joint.type !== JointType.FIXED) {
+        throw new Error(
+          `Cannot merge assembly "${assembly.name}" because bridge "${bridge.id}" would close a cycle with joint type "${bridge.joint.type}". Only fixed cyclic bridges can be converted into closed-loop constraints.`,
+        );
+      }
+
+      closedLoopBridgeIds.add(bridge.id);
+      return;
+    }
+
+    structuralBridgeIds.add(bridge.id);
+    parentByChildComponentId.set(bridge.childComponentId, bridge.parentComponentId);
+  });
+
+  visibleBridgeResolutions.forEach(({ bridge, resolvedChildLinkId }) => {
+    if (!structuralBridgeIds.has(bridge.id)) {
+      return;
+    }
+
+    const childRobot = effectiveRobotByComponentId.get(bridge.childComponentId);
+    if (!childRobot || resolvedChildLinkId === childRobot.rootLinkId) {
+      return;
     }
 
     effectiveRobotByComponentId.set(
       bridge.childComponentId,
       rerootAssemblyComponentRobot(childRobot, resolvedChildLinkId, bridge.childComponentId),
+    );
+  });
+
+  const structuralBridgeResolutions = collectVisibleAssemblyBridgeResolutions(
+    assembly,
+    visibleCompIds,
+    effectiveRobotByComponentId,
+  ).filter(({ bridge }) => structuralBridgeIds.has(bridge.id));
+
+  const closedLoopBridgeResolutions = collectVisibleAssemblyBridgeResolutions(
+    assembly,
+    visibleCompIds,
+    effectiveRobotByComponentId,
+  ).filter(({ bridge }) => closedLoopBridgeIds.has(bridge.id));
+
+  // Guard against unexpected cycles that slipped through classification.
+  if (
+    structuralBridgeResolutions.length + closedLoopBridgeResolutions.length !==
+    visibleBridgeResolutions.length
+  ) {
+    throw new Error(
+      `Cannot merge assembly "${assembly.name}" because not all visible bridges were classified as structural or closed-loop`,
     );
   }
 
@@ -144,50 +300,12 @@ export function mergeAssembly(assembly: AssemblyState): RobotData {
   }
 
   // 2. Add bridge joints (parentLinkId/childLinkId are prefixed ids from component.robot)
-  for (const bridge of Object.values(assembly.bridges)) {
-    // Only add bridge if both components are visible
-    if (
-      !visibleCompIds.has(bridge.parentComponentId) ||
-      !visibleCompIds.has(bridge.childComponentId)
-    ) {
-      continue;
-    }
-
+  for (const {
+    bridge,
+    resolvedParentLinkId: parentId,
+    resolvedChildLinkId: childId,
+  } of structuralBridgeResolutions) {
     const j = bridge.joint;
-    const parentRobot =
-      effectiveRobotByComponentId.get(bridge.parentComponentId) ??
-      assembly.components[bridge.parentComponentId]?.robot;
-    const childRobot =
-      effectiveRobotByComponentId.get(bridge.childComponentId) ??
-      assembly.components[bridge.childComponentId]?.robot;
-    if (!parentRobot) {
-      throw new Error(
-        `Cannot merge assembly "${assembly.name}" because bridge "${bridge.id}" references missing parent component "${bridge.parentComponentId}"`,
-      );
-    }
-    if (!childRobot) {
-      throw new Error(
-        `Cannot merge assembly "${assembly.name}" because bridge "${bridge.id}" references missing child component "${bridge.childComponentId}"`,
-      );
-    }
-
-    const parentId = requireAssemblyBridgeLinkId(
-      assembly.name,
-      bridge.id,
-      'parent',
-      bridge.parentComponentId,
-      parentRobot,
-      bridge.parentLinkId,
-    );
-    const childId = requireAssemblyBridgeLinkId(
-      assembly.name,
-      bridge.id,
-      'child',
-      bridge.childComponentId,
-      childRobot,
-      bridge.childLinkId,
-    );
-
     if (!links[parentId]) {
       throw new Error(
         `Cannot merge assembly "${assembly.name}" because resolved parent link "${parentId}" for bridge "${bridge.id}" is not present in merged links`,
@@ -231,13 +349,38 @@ export function mergeAssembly(assembly: AssemblyState): RobotData {
     Object.keys(links)[0] ||
     '';
 
-  return {
+  const treeRobot: RobotData = {
     name: assembly.name,
     ...(componentVersions.size === 1 ? { version: Array.from(componentVersions)[0] } : {}),
     links,
     joints,
     rootLinkId,
     materials: Object.keys(materials).length > 0 ? materials : undefined,
+    closedLoopConstraints: closedLoopConstraints.length > 0 ? closedLoopConstraints : undefined,
+  };
+  const linkWorldMatrices = computeLinkWorldMatrices(treeRobot);
+
+  closedLoopBridgeResolutions.forEach(
+    ({ bridge, resolvedParentLinkId: parentLinkId, resolvedChildLinkId: childLinkId }) => {
+      if (!links[parentLinkId]) {
+        throw new Error(
+          `Cannot merge assembly "${assembly.name}" because resolved parent link "${parentLinkId}" for closed-loop bridge "${bridge.id}" is not present in merged links`,
+        );
+      }
+      if (!links[childLinkId]) {
+        throw new Error(
+          `Cannot merge assembly "${assembly.name}" because resolved child link "${childLinkId}" for closed-loop bridge "${bridge.id}" is not present in merged links`,
+        );
+      }
+
+      closedLoopConstraints.push(
+        createBridgeClosedLoopConstraint(bridge, parentLinkId, childLinkId, linkWorldMatrices),
+      );
+    },
+  );
+
+  return {
+    ...treeRobot,
     closedLoopConstraints: closedLoopConstraints.length > 0 ? closedLoopConstraints : undefined,
   };
 }

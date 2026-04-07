@@ -14,6 +14,7 @@ export type {
   GlobalFontSize,
   CodeEditorFontFamily,
   RotationDisplayMode,
+  MassInertiaChangeBehavior,
 } from './uiStore';
 
 // Selection Store - link/joint selection and hover state
@@ -44,6 +45,18 @@ export { useAssemblySelectionStore, ASSEMBLY_SELECTION_ID } from './assemblySele
 // Collision transform store - transient drag state for collision gizmos
 export { useCollisionTransformStore } from './collisionTransformStore';
 export type { PendingCollisionTransform } from './collisionTransformStore';
+
+// Joint interaction preview store - transient drag/preview overlay for panels/editors
+export {
+  useJointInteractionPreviewStore,
+  EMPTY_JOINT_INTERACTION_PREVIEW,
+  hasJointInteractionPreview,
+} from './jointInteractionPreviewStore';
+export type {
+  JointInteractionPreviewMatch,
+  JointInteractionPreviewSource,
+  JointInteractionPreviewSnapshot,
+} from './jointInteractionPreviewStore';
 
 // History helper (for custom stores that need undo/redo)
 export { createHistoryManager } from './historyMiddleware';

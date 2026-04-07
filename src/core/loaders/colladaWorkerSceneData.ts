@@ -8,6 +8,7 @@ import { normalizeColladaUpAxis } from './colladaUpAxis';
 export interface SerializedColladaSceneData {
   resourcePath: string;
   sceneJson: Record<string, unknown>;
+  unitScale?: number | null;
 }
 
 interface SerializedSceneImageRecord {
@@ -16,9 +17,24 @@ interface SerializedSceneImageRecord {
 }
 
 const EXTERNAL_IMAGE_URL_PATTERN = /^(\/\/)|([a-z]+:(\/\/)?)/i;
+const COLLADA_UNIT_METER_PATTERN = /<unit\b[^>]*\bmeter=["']([^"']+)["'][^>]*>/i;
 
 export function canSerializeColladaInWorker(_content: string): boolean {
   return true;
+}
+
+function parseColladaUnitScale(content: string): number | null {
+  const match = content.match(COLLADA_UNIT_METER_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const parsed = Number.parseFloat(match[1]);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed === 1) {
+    return null;
+  }
+
+  return parsed;
 }
 
 function captureTextureSourceUrls<T>(run: () => T): {
@@ -90,6 +106,7 @@ export function parseColladaSceneData(
   return {
     resourcePath: baseUrl,
     sceneJson,
+    unitScale: parseColladaUnitScale(normalizedContent),
   };
 }
 
@@ -101,7 +118,13 @@ export function createSceneFromSerializedColladaData(
   const objectLoader = new THREE.ObjectLoader(options.manager);
   objectLoader.setResourcePath(data.resourcePath);
   const sceneJson = resolveSerializedColladaImageUrls(data, options.manager);
-  return objectLoader.parse(sceneJson);
+  const scene = objectLoader.parse(sceneJson);
+
+  if (data.unitScale && data.unitScale > 0 && data.unitScale !== 1) {
+    scene.scale.multiplyScalar(data.unitScale);
+  }
+
+  return scene;
 }
 
 function resolveSerializedColladaImageUrl(

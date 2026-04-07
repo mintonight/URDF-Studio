@@ -32,10 +32,15 @@ const createAxisAlignedCylinderGeometry = (
   axis: 'X' | 'Y' | 'Z',
   startOffset: number,
   endOffset: number,
-  radius: number
+  radius: number,
 ) => {
   const segmentLength = endOffset - startOffset;
-  const geometry = new THREE.CylinderGeometry(radius, radius, segmentLength, AXIS_GEOMETRY_RADIAL_SEGMENTS);
+  const geometry = new THREE.CylinderGeometry(
+    radius,
+    radius,
+    segmentLength,
+    AXIS_GEOMETRY_RADIAL_SEGMENTS,
+  );
   const segmentCenter = startOffset + segmentLength * 0.5;
 
   if (axis === 'X') {
@@ -53,20 +58,24 @@ const createAxisAlignedCylinderGeometry = (
 
 const createAxisAlignedArrowGeometry = (
   axis: 'X' | 'Y' | 'Z',
+  direction: 1 | -1,
   startOffset: number,
   length: number,
-  radius: number
+  radius: number,
 ) => {
   const geometry = new THREE.CylinderGeometry(0, radius, length, AXIS_GEOMETRY_RADIAL_SEGMENTS);
-  const segmentCenter = startOffset + length * 0.5;
+  const segmentCenter = direction * (startOffset + length * 0.5);
 
   if (axis === 'X') {
-    geometry.rotateZ(-Math.PI / 2);
+    geometry.rotateZ(direction === 1 ? -Math.PI / 2 : Math.PI / 2);
     geometry.translate(segmentCenter, 0, 0);
   } else if (axis === 'Y') {
+    if (direction === -1) {
+      geometry.rotateX(Math.PI);
+    }
     geometry.translate(0, segmentCenter, 0);
   } else {
-    geometry.rotateX(Math.PI / 2);
+    geometry.rotateX(direction === 1 ? Math.PI / 2 : -Math.PI / 2);
     geometry.translate(0, 0, segmentCenter);
   }
 
@@ -82,7 +91,7 @@ const addTranslateShaftMeshes = (
     leaveRingGap = false,
   }: {
     leaveRingGap?: boolean;
-  } = {}
+  } = {},
 ) => {
   if (!group) return;
 
@@ -103,38 +112,59 @@ const addTranslateShaftMeshes = (
   const shaftEnd = TRANSLATE_ARROW_HANDLE_OFFSET;
 
   for (const axis of ['X', 'Y', 'Z'] as const) {
-    const segments: Array<[number, number]> = [];
+    const positiveSegments: Array<[number, number]> = [];
 
     if (leaveRingGap) {
-      const gapStart = Math.max(shaftStart, TRANSLATE_RING_INTERSECTION_RADIUS - TRANSLATE_RING_INTERSECTION_GAP * 0.5);
-      const gapEnd = Math.min(shaftEnd, TRANSLATE_RING_INTERSECTION_RADIUS + TRANSLATE_RING_INTERSECTION_GAP * 0.5);
+      const gapStart = Math.max(
+        shaftStart,
+        TRANSLATE_RING_INTERSECTION_RADIUS - TRANSLATE_RING_INTERSECTION_GAP * 0.5,
+      );
+      const gapEnd = Math.min(
+        shaftEnd,
+        TRANSLATE_RING_INTERSECTION_RADIUS + TRANSLATE_RING_INTERSECTION_GAP * 0.5,
+      );
 
       if (gapStart - shaftStart > MIN_TRANSLATE_SHAFT_SEGMENT_LENGTH) {
-        segments.push([shaftStart, gapStart]);
+        positiveSegments.push([shaftStart, gapStart]);
       }
       if (shaftEnd - gapEnd > MIN_TRANSLATE_SHAFT_SEGMENT_LENGTH) {
-        segments.push([gapEnd, shaftEnd]);
+        positiveSegments.push([gapEnd, shaftEnd]);
       }
     }
 
-    if (segments.length === 0) {
-      segments.push([shaftStart, shaftEnd]);
+    if (positiveSegments.length === 0) {
+      positiveSegments.push([shaftStart, shaftEnd]);
     }
 
-    for (const [startOffset, endOffset] of segments) {
-      const shaft = new THREE.Mesh(
-        createAxisAlignedCylinderGeometry(axis, startOffset, endOffset, THICK_TRANSLATE_SHAFT_RADIUS),
-        cloneAxisColorMaterial(axisMaterials.get(axis) ?? null)
-      );
-      shaft.name = createTranslateDisplayName('shaft', axis);
-      shaft.renderOrder = GIZMO_ARC_RENDER_ORDER;
-      shaft.userData = {
-        ...shaft.userData,
-        isGizmo: true,
-        urdfAxis: axis,
-        urdfTranslateShaft: true,
-      };
-      group.add(shaft);
+    for (const direction of [1, -1] as const) {
+      const segments =
+        direction === 1
+          ? positiveSegments
+          : positiveSegments.map(
+              ([startOffset, endOffset]) => [-endOffset, -startOffset] as [number, number],
+            );
+
+      for (const [startOffset, endOffset] of segments) {
+        const shaft = new THREE.Mesh(
+          createAxisAlignedCylinderGeometry(
+            axis,
+            startOffset,
+            endOffset,
+            THICK_TRANSLATE_SHAFT_RADIUS,
+          ),
+          cloneAxisColorMaterial(axisMaterials.get(axis) ?? null),
+        );
+        shaft.name = createTranslateDisplayName('shaft', axis);
+        shaft.renderOrder = GIZMO_ARC_RENDER_ORDER;
+        shaft.userData = {
+          ...shaft.userData,
+          isGizmo: true,
+          urdfAxis: axis,
+          urdfTranslateDirection: direction,
+          urdfTranslateShaft: true,
+        };
+        group.add(shaft);
+      }
     }
   }
 };
@@ -165,24 +195,34 @@ const addTranslateGapBridgeMeshes = (group: THREE.Object3D | undefined) => {
   if (dashLength <= 0) return;
 
   for (const axis of ['X', 'Y', 'Z'] as const) {
-    for (let index = 0; index < TRANSLATE_GAP_BRIDGE_DASH_COUNT; index += 1) {
-      const startOffset = gapStart + index * (dashLength + bridgeGapSize);
-      const endOffset = startOffset + dashLength;
-      const bridge = new THREE.Mesh(
-        createAxisAlignedCylinderGeometry(axis, startOffset, endOffset, TRANSLATE_GAP_BRIDGE_RADIUS),
-        cloneAxisColorMaterial(axisMaterials.get(axis) ?? null)
-      );
+    for (const direction of [1, -1] as const) {
+      for (let index = 0; index < TRANSLATE_GAP_BRIDGE_DASH_COUNT; index += 1) {
+        const positiveStartOffset = gapStart + index * (dashLength + bridgeGapSize);
+        const positiveEndOffset = positiveStartOffset + dashLength;
+        const startOffset = direction === 1 ? positiveStartOffset : -positiveEndOffset;
+        const endOffset = direction === 1 ? positiveEndOffset : -positiveStartOffset;
+        const bridge = new THREE.Mesh(
+          createAxisAlignedCylinderGeometry(
+            axis,
+            startOffset,
+            endOffset,
+            TRANSLATE_GAP_BRIDGE_RADIUS,
+          ),
+          cloneAxisColorMaterial(axisMaterials.get(axis) ?? null),
+        );
 
-      bridge.name = createTranslateDisplayName('gap', axis);
-      bridge.visible = false;
-      bridge.renderOrder = GIZMO_ARC_RENDER_ORDER + 1;
-      bridge.userData = {
-        ...bridge.userData,
-        isGizmo: true,
-        urdfAxis: axis,
-        urdfTranslateGapBridge: true,
-      };
-      group.add(bridge);
+        bridge.name = createTranslateDisplayName('gap', axis);
+        bridge.visible = false;
+        bridge.renderOrder = GIZMO_ARC_RENDER_ORDER + 1;
+        bridge.userData = {
+          ...bridge.userData,
+          isGizmo: true,
+          urdfAxis: axis,
+          urdfTranslateDirection: direction,
+          urdfTranslateGapBridge: true,
+        };
+        group.add(bridge);
+      }
     }
   }
 };
@@ -204,7 +244,8 @@ const removeStockTranslateVisibleMeshes = (group: THREE.Object3D | undefined) =>
     node.parent?.remove(node);
     (node as THREE.Object3D).traverse((child) => {
       const geometry = (child as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
-      const material = (child as THREE.Mesh & { material?: THREE.Material | THREE.Material[] }).material;
+      const material = (child as THREE.Mesh & { material?: THREE.Material | THREE.Material[] })
+        .material;
       geometry?.dispose?.();
       if (Array.isArray(material)) {
         material.forEach((entry) => entry?.dispose?.());
@@ -232,31 +273,36 @@ const addTranslateArrowMeshes = (group: THREE.Object3D | undefined) => {
   });
 
   for (const axis of ['X', 'Y', 'Z'] as const) {
-    const tip = new THREE.Mesh(
-      createAxisAlignedArrowGeometry(
-        axis,
-        TRANSLATE_ARROW_HANDLE_OFFSET,
-        TRANSLATE_ARROW_LENGTH,
-        TRANSLATE_ARROW_BASE_RADIUS
-      ),
-      cloneAxisColorMaterial(axisMaterials.get(axis) ?? null)
-    );
-    tip.name = createTranslateDisplayName('tip', axis);
-    tip.renderOrder = GIZMO_ARC_RENDER_ORDER + 2;
-    tip.userData = {
-      ...tip.userData,
-      isGizmo: true,
-      urdfAxis: axis,
-      urdfTranslateTip: true,
-    };
-    group.add(tip);
+    for (const direction of [1, -1] as const) {
+      const tip = new THREE.Mesh(
+        createAxisAlignedArrowGeometry(
+          axis,
+          direction,
+          TRANSLATE_ARROW_HANDLE_OFFSET,
+          TRANSLATE_ARROW_LENGTH,
+          TRANSLATE_ARROW_BASE_RADIUS,
+        ),
+        cloneAxisColorMaterial(axisMaterials.get(axis) ?? null),
+      );
+      tip.name = createTranslateDisplayName('tip', axis);
+      tip.renderOrder = GIZMO_ARC_RENDER_ORDER + 2;
+      tip.userData = {
+        ...tip.userData,
+        isGizmo: true,
+        urdfAxis: axis,
+        urdfTranslateDirection: direction,
+        urdfTranslateTip: true,
+      };
+      group.add(tip);
+    }
   }
 };
 
 const patchTranslatePickerGeometry = (group: THREE.Object3D | undefined) => {
   if (!group) return;
 
-  const pickerEnd = TRANSLATE_ARROW_HANDLE_OFFSET + TRANSLATE_ARROW_LENGTH + TRANSLATE_PICKER_END_PADDING;
+  const pickerEnd =
+    TRANSLATE_ARROW_HANDLE_OFFSET + TRANSLATE_ARROW_LENGTH + TRANSLATE_PICKER_END_PADDING;
   const geometryKey = [
     TRANSLATE_PICKER_START_OFFSET.toFixed(3),
     pickerEnd.toFixed(3),
@@ -277,8 +323,8 @@ const patchTranslatePickerGeometry = (group: THREE.Object3D | undefined) => {
         mesh.name as 'X' | 'Y' | 'Z',
         TRANSLATE_PICKER_START_OFFSET,
         pickerEnd,
-        THICK_TRANSLATE_PICKER_RADIUS
-      )
+        THICK_TRANSLATE_PICKER_RADIUS,
+      ),
     );
     delete mesh.userData.urdfTranslateThicknessKey;
     mesh.userData.urdfTranslatePickerGeometryKey = geometryKey;
@@ -307,33 +353,8 @@ const removeNegativeTranslateHandles = (group: THREE.Object3D | undefined) => {
     node.parent?.remove(node);
     (node as THREE.Object3D).traverse((child) => {
       const geometry = (child as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
-      const material = (child as THREE.Mesh & { material?: THREE.Material | THREE.Material[] }).material;
-      geometry?.dispose?.();
-      if (Array.isArray(material)) {
-        material.forEach((entry) => entry?.dispose?.());
-      } else {
-        material?.dispose?.();
-      }
-    });
-  }
-};
-
-const removeTranslateBackwardHandles = (group: THREE.Object3D | undefined) => {
-  if (!group) return;
-
-  const nodesToRemove: THREE.Object3D[] = [];
-  group.traverse((node) => {
-    const mesh = node as THREE.Mesh & { tag?: string };
-    if (!mesh.isMesh || !AXIS_NAMES.has(mesh.name)) return;
-    if (mesh.tag !== 'bwd') return;
-    nodesToRemove.push(mesh);
-  });
-
-  for (const node of nodesToRemove) {
-    node.parent?.remove(node);
-    (node as THREE.Object3D).traverse((child) => {
-      const geometry = (child as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
-      const material = (child as THREE.Mesh & { material?: THREE.Material | THREE.Material[] }).material;
+      const material = (child as THREE.Mesh & { material?: THREE.Material | THREE.Material[] })
+        .material;
       geometry?.dispose?.();
       if (Array.isArray(material)) {
         material.forEach((entry) => entry?.dispose?.());
@@ -353,7 +374,7 @@ const markFixedTranslateHandles = (group: THREE.Object3D | undefined) => {
         ...node.userData,
         urdfTranslateFixedVisible: true,
         urdfTranslateStableScale: getPositiveScale(
-          (node as THREE.Object3D & { scale?: THREE.Vector3 }).scale ?? new THREE.Vector3(1, 1, 1)
+          (node as THREE.Object3D & { scale?: THREE.Vector3 }).scale ?? new THREE.Vector3(1, 1, 1),
         ),
       };
       return;
@@ -384,7 +405,7 @@ const patchTranslateThickness = (
   {
     isPicker = false,
     thicknessScale = DEFAULT_DISPLAY_THICKNESS_SCALE,
-  }: { isPicker?: boolean; thicknessScale?: number } = {}
+  }: { isPicker?: boolean; thicknessScale?: number } = {},
 ) => {
   if (!group) return;
 
@@ -402,9 +423,12 @@ const patchTranslateThickness = (
     const geoType = (mesh.geometry as THREE.BufferGeometry & { type?: string }).type;
     if (geoType !== 'CylinderGeometry') return;
 
-    const params = (mesh.geometry as THREE.BufferGeometry & {
-      parameters?: { radiusTop?: number; radiusBottom?: number };
-    }).parameters ?? {};
+    const params =
+      (
+        mesh.geometry as THREE.BufferGeometry & {
+          parameters?: { radiusTop?: number; radiusBottom?: number };
+        }
+      ).parameters ?? {};
 
     if (
       mesh.userData?.urdfTranslateThicknessKey === scaleKey &&
@@ -426,11 +450,13 @@ const patchTranslateThickness = (
 
     let scaleFactor: number;
     if (isShaft) {
-      const targetRadius = (isPicker ? THICK_TRANSLATE_PICKER_RADIUS : THICK_TRANSLATE_SHAFT_RADIUS) * thicknessScale;
+      const targetRadius =
+        (isPicker ? THICK_TRANSLATE_PICKER_RADIUS : THICK_TRANSLATE_SHAFT_RADIUS) * thicknessScale;
       const srcRadius = Math.max(radiusTop, zeroTolerance);
       scaleFactor = targetRadius / srcRadius;
     } else {
-      const targetRadius = (isPicker ? THICK_TRANSLATE_PICKER_RADIUS : THICK_TRANSLATE_TIP_RADIUS) * thicknessScale;
+      const targetRadius =
+        (isPicker ? THICK_TRANSLATE_PICKER_RADIUS : THICK_TRANSLATE_TIP_RADIUS) * thicknessScale;
       const srcRadius = Math.max(Math.max(radiusTop, radiusBottom), zeroTolerance);
       scaleFactor = targetRadius / srcRadius;
     }
@@ -448,10 +474,8 @@ export const applyTranslateDisplayPatches = (
     leaveRingGap = false,
   }: {
     leaveRingGap?: boolean;
-  } = {}
+  } = {},
 ) => {
-  removeTranslateBackwardHandles(gizmo.gizmo?.translate);
-  removeNegativeTranslateHandles(gizmo.gizmo?.translate);
   removeNegativeTranslateHandles(gizmo.picker?.translate);
   removeStockTranslateVisibleMeshes(gizmo.gizmo?.translate);
   patchTranslatePickerGeometry(gizmo.picker?.translate);
@@ -468,7 +492,9 @@ export const applyTranslateDisplayPatches = (
   if (leaveRingGap) {
     addTranslateGapBridgeMeshes(gizmo.gizmo?.translate);
   } else {
-    removeGeneratedHandles(gizmo.gizmo?.translate, (node) => Boolean(node.userData?.urdfTranslateGapBridge));
+    removeGeneratedHandles(gizmo.gizmo?.translate, (node) =>
+      Boolean(node.userData?.urdfTranslateGapBridge),
+    );
   }
   markFixedTranslateHandles(gizmo.gizmo?.translate);
   markFixedTranslateHandles(gizmo.picker?.translate);

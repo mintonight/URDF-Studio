@@ -3,7 +3,10 @@ import { resolveImportedAssetPath } from '@/core/parsers/meshPathUtils';
 import { getVisualGeometryEntries } from '@/core/robot';
 import { GeometryType, type RobotFile, type UrdfLink } from '@/types';
 
-import { inferUsdBundleVirtualDirectory, isUsdPathWithinBundleDirectory } from './usdPreloadSources';
+import {
+  inferUsdBundleVirtualDirectory,
+  isUsdPathWithinBundleDirectory,
+} from './usdPreloadSources';
 
 const KNOWN_BUNDLE_SEGMENTS = new Set([
   'urdf',
@@ -23,7 +26,9 @@ const KNOWN_BUNDLE_SEGMENTS = new Set([
 const DUPLICATE_FOLDER_SUFFIX_PATTERN = /^(.*?)(?: \((\d+)\))?$/;
 
 function normalizeBundleSegment(segment: string): string {
-  const normalized = String(segment || '').trim().toLowerCase();
+  const normalized = String(segment || '')
+    .trim()
+    .toLowerCase();
   if (!normalized) {
     return '';
   }
@@ -48,6 +53,31 @@ function normalizeDirectory(path: string | null | undefined): string {
   return normalized ? `${normalized}/` : '';
 }
 
+function collapsePathSegments(path: string | null | undefined): string {
+  const segments = String(path || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/');
+  const stack: string[] = [];
+
+  segments.forEach((segment) => {
+    if (!segment || segment === '.') {
+      return;
+    }
+
+    if (segment === '..') {
+      if (stack.length > 0) {
+        stack.pop();
+      }
+      return;
+    }
+
+    stack.push(segment);
+  });
+
+  return stack.join('/');
+}
+
 function getParentDirectory(path: string | null | undefined): string {
   const normalized = normalizePath(path);
   if (!normalized) {
@@ -63,6 +93,28 @@ function isPathInsideDirectory(path: string, directory: string): boolean {
   const normalizedPath = normalizePath(path);
   const normalizedDirectory = normalizeDirectory(directory);
   return normalizedPath.startsWith(normalizedDirectory);
+}
+
+function resolveMjcfScopedPath(path: string, currentFilePath: string): string {
+  const trimmedPath = String(path || '').trim();
+  if (!trimmedPath) {
+    return '';
+  }
+
+  if (/^(?:blob:|https?:\/\/|data:)/i.test(trimmedPath)) {
+    return trimmedPath;
+  }
+
+  if (/^(?:package|model):\/\//i.test(trimmedPath)) {
+    return normalizePath(resolveImportedAssetPath(trimmedPath, currentFilePath));
+  }
+
+  const normalizedPath = trimmedPath.replace(/\\/g, '/').replace(/^[A-Za-z]:\//, '');
+  if (normalizedPath.startsWith('/') || normalizedPath.includes(':')) {
+    return normalizePath(resolveImportedAssetPath(trimmedPath, currentFilePath));
+  }
+
+  return collapsePathSegments(`${getParentDirectory(currentFilePath)}${normalizedPath}`);
 }
 
 function inferGenericBundleDirectory(sourceFilePath: string | null | undefined): string {
@@ -136,9 +188,229 @@ function collectReferencedMeshPaths(robotLinks?: Record<string, UrdfLink>): Set<
   return referencedPaths;
 }
 
-export function buildViewerRobotLinksScopeSignature(
-  robotLinks?: Record<string, UrdfLink>,
+type MjcfAssetFileRef = {
+  tag: 'mesh' | 'texture' | 'hfield';
+  file: string;
+};
+
+type MjcfCompilerAssetDirectories = {
+  assetdir: string;
+  meshdir: string;
+  texturedir: string;
+};
+
+const MJCF_COMPILER_TAG_PATTERN = /<compiler\b[^>]*>/gi;
+const MJCF_INCLUDE_TAG_PATTERN = /<include\b[^>]*\bfile\s*=\s*(['"])(.*?)\1/gi;
+const MJCF_MESH_FILE_TAG_PATTERN = /<mesh\b[^>]*\bfile\s*=\s*(['"])(.*?)\1/gi;
+const MJCF_TEXTURE_FILE_TAG_PATTERN = /<texture\b[^>]*\bfile\s*=\s*(['"])(.*?)\1/gi;
+const MJCF_HFIELD_FILE_TAG_PATTERN = /<hfield\b[^>]*\bfile\s*=\s*(['"])(.*?)\1/gi;
+
+function extractTagAttributeValue(tagSource: string, attributeName: string): string | null {
+  const pattern = new RegExp(`\\b${attributeName}\\s*=\\s*(['"])(.*?)\\1`, 'i');
+  const match = pattern.exec(tagSource);
+  const value = match?.[2]?.trim();
+  return value != null ? value : null;
+}
+
+function extractMjcfCompilerAssetDirectories(content: string): MjcfCompilerAssetDirectories {
+  let assetdir = '';
+  let meshdir: string | null = null;
+  let texturedir: string | null = null;
+
+  let match: RegExpExecArray | null;
+  while ((match = MJCF_COMPILER_TAG_PATTERN.exec(content))) {
+    const compilerTag = match[0];
+    const nextAssetdir = extractTagAttributeValue(compilerTag, 'assetdir');
+    if (nextAssetdir !== null) {
+      assetdir = nextAssetdir;
+    }
+
+    const nextMeshdir = extractTagAttributeValue(compilerTag, 'meshdir');
+    if (nextMeshdir !== null) {
+      meshdir = nextMeshdir;
+    }
+
+    const nextTexturedir = extractTagAttributeValue(compilerTag, 'texturedir');
+    if (nextTexturedir !== null) {
+      texturedir = nextTexturedir;
+    }
+  }
+
+  return {
+    assetdir,
+    meshdir: meshdir ?? assetdir,
+    texturedir: texturedir ?? assetdir,
+  };
+}
+
+function extractMjcfIncludePaths(content: string): string[] {
+  const includePaths: string[] = [];
+
+  let match: RegExpExecArray | null;
+  while ((match = MJCF_INCLUDE_TAG_PATTERN.exec(content))) {
+    const includePath = match[2]?.trim();
+    if (includePath) {
+      includePaths.push(includePath);
+    }
+  }
+
+  return includePaths;
+}
+
+function extractMjcfAssetFileRefs(content: string): MjcfAssetFileRef[] {
+  const refs: MjcfAssetFileRef[] = [];
+  const patterns: Array<{ tag: MjcfAssetFileRef['tag']; pattern: RegExp }> = [
+    { tag: 'mesh', pattern: MJCF_MESH_FILE_TAG_PATTERN },
+    { tag: 'texture', pattern: MJCF_TEXTURE_FILE_TAG_PATTERN },
+    { tag: 'hfield', pattern: MJCF_HFIELD_FILE_TAG_PATTERN },
+  ];
+
+  patterns.forEach(({ tag, pattern }) => {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(content))) {
+      const file = match[2]?.trim();
+      if (file) {
+        refs.push({ tag, file });
+      }
+    }
+  });
+
+  return refs;
+}
+
+function applyMjcfAssetDirectory(
+  ref: MjcfAssetFileRef,
+  compilerDirs: MjcfCompilerAssetDirectories,
 ): string {
+  const trimmedFile = ref.file.trim();
+  if (!trimmedFile) {
+    return '';
+  }
+
+  const compilerDirectory =
+    ref.tag === 'mesh'
+      ? compilerDirs.meshdir
+      : ref.tag === 'texture'
+        ? compilerDirs.texturedir
+        : compilerDirs.assetdir;
+
+  if (!compilerDirectory || trimmedFile.startsWith('/') || trimmedFile.includes(':')) {
+    return trimmedFile;
+  }
+
+  const normalizedDirectory = compilerDirectory.endsWith('/')
+    ? compilerDirectory
+    : `${compilerDirectory}/`;
+
+  return `${normalizedDirectory}${trimmedFile}`;
+}
+
+function collectMjcfReferencedScope(options: {
+  assets: Record<string, string>;
+  availableFiles: RobotFile[];
+  sourceFile: Pick<RobotFile, 'name' | 'format' | 'content'>;
+}): {
+  directAssetKeys: Set<string>;
+  relevantDirectories: Set<string>;
+} {
+  const { assets, availableFiles, sourceFile } = options;
+  const directAssetKeys = new Set<string>();
+  const relevantDirectories = new Set<string>();
+  const fileIndex = new Map<string, RobotFile>();
+  const assetKeysByUrl = buildAssetKeysByUrl(assets);
+  const pendingFiles: RobotFile[] = [];
+  const visitedFiles = new Set<string>();
+
+  availableFiles.forEach((file) => {
+    const normalizedName = normalizePath(file.name);
+    if (normalizedName) {
+      fileIndex.set(normalizedName, file);
+    }
+  });
+
+  const normalizedSourceName = normalizePath(sourceFile.name);
+  if (normalizedSourceName && !fileIndex.has(normalizedSourceName)) {
+    fileIndex.set(normalizedSourceName, sourceFile as RobotFile);
+  }
+
+  pendingFiles.push(sourceFile as RobotFile);
+
+  while (pendingFiles.length > 0) {
+    const currentFile = pendingFiles.pop();
+    if (!currentFile) {
+      continue;
+    }
+
+    const currentFilePath = normalizePath(currentFile.name);
+    if (!currentFilePath || visitedFiles.has(currentFilePath)) {
+      continue;
+    }
+
+    visitedFiles.add(currentFilePath);
+    const currentFileDirectory = getParentDirectory(currentFilePath);
+    if (currentFileDirectory) {
+      relevantDirectories.add(currentFileDirectory);
+    }
+
+    const currentContent = currentFile.content || '';
+    if (!currentContent) {
+      continue;
+    }
+
+    const compilerDirs = extractMjcfCompilerAssetDirectories(currentContent);
+    const currentAssetIndex = buildAssetIndex(assets, currentFileDirectory);
+
+    extractMjcfAssetFileRefs(currentContent).forEach((ref) => {
+      const compilerScopedPath = applyMjcfAssetDirectory(ref, compilerDirs);
+      const resolvedAssetPath = resolveMjcfScopedPath(
+        compilerScopedPath || ref.file,
+        currentFilePath,
+      );
+      if (!resolvedAssetPath) {
+        return;
+      }
+
+      collectMatchingAssetKeys(resolvedAssetPath, assets, currentFilePath).forEach((assetKey) => {
+        directAssetKeys.add(assetKey);
+        const assetDirectory = getParentDirectory(assetKey);
+        if (assetDirectory) {
+          relevantDirectories.add(assetDirectory);
+        }
+      });
+
+      const resolvedAssetUrl = findAssetByIndex(
+        resolvedAssetPath,
+        currentAssetIndex,
+        currentFileDirectory,
+      );
+      if (resolvedAssetUrl) {
+        (assetKeysByUrl.get(resolvedAssetUrl) || []).forEach((assetKey) => {
+          directAssetKeys.add(assetKey);
+          const assetDirectory = getParentDirectory(assetKey);
+          if (assetDirectory) {
+            relevantDirectories.add(assetDirectory);
+          }
+        });
+      }
+    });
+
+    extractMjcfIncludePaths(currentContent).forEach((includePath) => {
+      const resolvedIncludePath = resolveMjcfScopedPath(includePath, currentFilePath);
+      if (!resolvedIncludePath) {
+        return;
+      }
+
+      const includedFile = fileIndex.get(resolvedIncludePath);
+      if (includedFile) {
+        pendingFiles.push(includedFile);
+      }
+    });
+  }
+
+  return { directAssetKeys, relevantDirectories };
+}
+
+export function buildViewerRobotLinksScopeSignature(robotLinks?: Record<string, UrdfLink>): string {
   return Array.from(collectReferencedMeshPaths(robotLinks))
     .sort((left, right) => left.localeCompare(right))
     .join('\n');
@@ -205,17 +477,19 @@ function buildAssetKeysByUrl(assets: Record<string, string>): Map<string, string
 
 function buildScopedAssets(options: {
   assets: Record<string, string>;
-  sourceFile?: Pick<RobotFile, 'name' | 'format'> | null;
+  availableFiles: RobotFile[];
+  sourceFile?: Pick<RobotFile, 'name' | 'format' | 'content'> | null;
   sourceFilePath?: string | null;
   robotLinks?: Record<string, UrdfLink>;
 }): Record<string, string> {
-  const { assets, sourceFile, sourceFilePath, robotLinks } = options;
+  const { assets, availableFiles, sourceFile, sourceFilePath, robotLinks } = options;
   const normalizedSourcePath = normalizePath(sourceFilePath || sourceFile?.name);
   const isUsdSource = sourceFile?.format === 'usd';
   const bundleDirectory = isUsdSource
     ? normalizeDirectory(inferUsdBundleVirtualDirectory(sourceFile?.name || '').replace(/^\/+/, ''))
     : inferGenericBundleDirectory(normalizedSourcePath);
-  const shouldIncludeTopLevelKnownAssetDirectories = !isUsdSource && isTopLevelKnownBundleSource(normalizedSourcePath);
+  const shouldIncludeTopLevelKnownAssetDirectories =
+    !isUsdSource && isTopLevelKnownBundleSource(normalizedSourcePath);
 
   const relevantDirectories = new Set<string>();
   if (bundleDirectory) {
@@ -235,6 +509,22 @@ function buildScopedAssets(options: {
 
   if (sourceFile?.format === 'mesh' && normalizedSourcePath) {
     referencedMeshPaths.add(normalizedSourcePath);
+  }
+
+  if (sourceFile?.format === 'mjcf') {
+    const mjcfScope = collectMjcfReferencedScope({
+      assets,
+      availableFiles,
+      sourceFile,
+    });
+
+    mjcfScope.directAssetKeys.forEach((assetKey) => {
+      directAssetKeys.add(assetKey);
+    });
+
+    mjcfScope.relevantDirectories.forEach((directory) => {
+      relevantDirectories.add(directory);
+    });
   }
 
   referencedMeshPaths.forEach((meshPath) => {
@@ -296,9 +586,9 @@ function buildScopedAvailableFiles(options: {
   }
 
   const bundleDirectory = inferUsdBundleVirtualDirectory(sourceFile.name);
-  const scopedFiles = availableFiles.filter((file) => (
-    file.format !== 'mesh' && isUsdPathWithinBundleDirectory(file.name, bundleDirectory)
-  ));
+  const scopedFiles = availableFiles.filter(
+    (file) => file.format !== 'mesh' && isUsdPathWithinBundleDirectory(file.name, bundleDirectory),
+  );
 
   if (!scopedFiles.some((file) => file.name === sourceFile.name)) {
     scopedFiles.unshift(sourceFile as RobotFile);
@@ -316,7 +606,9 @@ function buildAssetsSignature(assets: Record<string, string>): string {
 
 function buildAvailableFilesSignature(files: RobotFile[]): string {
   return files
-    .map((file) => `${file.name}\u0000${file.format}\u0000${file.blobUrl || ''}\u0000${file.content}`)
+    .map(
+      (file) => `${file.name}\u0000${file.format}\u0000${file.blobUrl || ''}\u0000${file.content}`,
+    )
     .join('\n');
 }
 

@@ -2,6 +2,7 @@ export interface VisualizerDocumentLoadEvent {
   status: 'loading' | 'ready';
   phase: 'preparing-scene' | 'streaming-meshes' | 'ready';
   message: null;
+  progressMode: 'indeterminate' | 'count' | 'percent';
   progressPercent: number | null;
   loadedCount: number | null;
   totalCount: number | null;
@@ -25,6 +26,7 @@ export function buildVisualizerDocumentLoadEvent({
       status: 'ready',
       phase: 'ready',
       message: null,
+      progressMode: 'percent',
       progressPercent: 100,
       loadedCount: null,
       totalCount: null,
@@ -37,6 +39,7 @@ export function buildVisualizerDocumentLoadEvent({
       status: 'ready',
       phase: 'ready',
       message: null,
+      progressMode: 'percent',
       progressPercent: 100,
       loadedCount: safeTotalCount,
       totalCount: safeTotalCount,
@@ -48,6 +51,7 @@ export function buildVisualizerDocumentLoadEvent({
     status: 'loading',
     phase: safeResolvedCount === 0 ? 'preparing-scene' : 'streaming-meshes',
     message: null,
+    progressMode: safeResolvedCount === 0 ? 'indeterminate' : 'count',
     progressPercent: null,
     loadedCount: safeResolvedCount,
     totalCount: safeTotalCount,

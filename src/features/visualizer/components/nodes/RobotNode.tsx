@@ -6,11 +6,14 @@ import {
   getCollisionGeometryEntries,
   getVisualGeometryEntries,
   isTransparentDisplayLink,
+  resolveLinkIkHandleDescriptor,
 } from '@/core/robot';
 import type { ColladaRootNormalizationHints } from '@/core/loaders/colladaRootNormalization';
 import { useSelectionStore } from '@/store/selectionStore';
 import { ThickerAxes, InertiaBox, LinkCenterOfMass } from '@/shared/components/3d';
+import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
 import { Language, translations } from '@/shared/i18n';
+import { getMjcfLinkDisplayName } from '@/shared/utils/robot/mjcfDisplayNames';
 import { GeometryRenderer } from './GeometryRenderer';
 import { JointNode } from './JointNode';
 import {
@@ -24,11 +27,17 @@ import type { VisualizerInteractiveLayer } from '../../utils/interactiveLayerPri
 interface CommonVisualizerProps {
   robot: RobotState;
   childJointsByParent: Record<string, UrdfJoint[]>;
-  onSelect: (type: 'link' | 'joint', id: string, subType?: 'visual' | 'collision') => void;
+  onSelect: (
+    type: 'link' | 'joint',
+    id: string,
+    subType?: 'visual' | 'collision',
+    helperKind?: VisualizerHoverTarget['helperKind'],
+  ) => void;
   onUpdate: (type: 'link' | 'joint', id: string, data: any) => void;
   mode: AppMode;
   showGeometry: boolean;
   showVisual: boolean;
+  showIkHandles: boolean;
   showOrigin: boolean;
   selectionTarget?: 'visual' | 'collision';
   showLabels: boolean;
@@ -53,6 +62,7 @@ interface CommonVisualizerProps {
   onRegisterJointPivot?: (jointId: string, pivot: THREE.Group | null) => void;
   onRegisterJointMotion?: (jointId: string, motion: THREE.Group | null) => void;
   onRegisterCollisionRef?: (linkId: string, objectIndex: number, ref: THREE.Group | null) => void;
+  onRegisterIkHandle?: (linkId: string, handle: THREE.Object3D | null) => void;
   onMeshResolved?: (meshLoadKey: string) => void;
   onPrewarmedMeshResolved?: (meshLoadKey: string) => void;
 }
@@ -91,6 +101,7 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
   mode,
   showGeometry,
   showVisual,
+  showIkHandles,
   showOrigin,
   selectionTarget,
   showLabels,
@@ -116,15 +127,19 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
   onRegisterJointPivot,
   onRegisterJointMotion,
   onRegisterCollisionRef,
+  onRegisterIkHandle,
   onMeshResolved,
   onPrewarmedMeshResolved,
 }: RobotNodeProps) {
   const t = translations[lang];
+  const snapshotRenderActive = useSnapshotRenderActive();
 
   if (depth > 50) return null;
 
   const link = robot.links[linkId];
   if (!link) return null;
+  const sourceFormat = robot.inspectionContext?.sourceFormat;
+  const linkDisplayName = sourceFormat === 'mjcf' ? getMjcfLinkDisplayName(link) : link.name;
 
   const handleLinkClick = (
     event: PropagationEventLike,
@@ -138,7 +153,7 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
 
     const targetLinkId = resolvedTarget?.id ?? linkId;
     const targetSubType = selectionTarget || resolvedTarget?.subType;
-    onSelect('link', targetLinkId, targetSubType);
+    onSelect('link', targetLinkId, targetSubType, resolvedTarget?.helperKind);
   };
 
   const childJoints = childJointsByParent[linkId] ?? EMPTY_CHILD_JOINTS;
@@ -147,7 +162,10 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
   const selectionSubType = robot.selection.subType;
   const isRoot = linkId === robot.rootLinkId;
   const isHovered = useSelectionStore(
-    (state) => state.hoveredSelection.type === 'link' && state.hoveredSelection.id === linkId,
+    (state) =>
+      state.hoveredSelection.type === 'link' &&
+      state.hoveredSelection.id === linkId &&
+      !state.hoveredSelection.helperKind,
   );
   const isInertiaHovered = useSelectionStore(
     (state) =>
@@ -161,8 +179,26 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
       state.hoveredSelection.id === linkId &&
       state.hoveredSelection.helperKind === 'center-of-mass',
   );
+  const isIkHandleHovered = useSelectionStore(
+    (state) =>
+      state.hoveredSelection.type === 'link' &&
+      state.hoveredSelection.id === linkId &&
+      state.hoveredSelection.helperKind === 'ik-handle',
+  );
+  const isOriginAxesHovered = useSelectionStore(
+    (state) =>
+      state.hoveredSelection.type === 'link' &&
+      state.hoveredSelection.id === linkId &&
+      state.hoveredSelection.helperKind === 'origin-axes',
+  );
   const isHelperSelected =
     isSelected && !selectionSubType && robot.selection.objectIndex === undefined;
+  const isOriginAxesSelected =
+    isSelected &&
+    !selectionSubType &&
+    robot.selection.objectIndex === undefined &&
+    (!robot.selection.helperKind || robot.selection.helperKind === 'origin-axes');
+  const isIkHandleSelected = isSelected && robot.selection.helperKind === 'ik-handle';
   const setHoveredSelection = useSelectionStore((state) => state.setHoveredSelection);
   const linkHoverTarget = useMemo<VisualizerHoverTarget>(
     () => ({ type: 'link', id: linkId }),
@@ -180,6 +216,14 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
     () => ({ type: 'link', id: linkId, helperKind: 'center-of-mass' }),
     [linkId],
   );
+  const ikHandleDescriptor = useMemo(
+    () => resolveLinkIkHandleDescriptor(robot, linkId),
+    [linkId, robot],
+  );
+  const ikHandleHoverTarget = useMemo<VisualizerHoverTarget | null>(
+    () => (ikHandleDescriptor ? { type: 'link', id: linkId, helperKind: 'ik-handle' } : null),
+    [ikHandleDescriptor, linkId],
+  );
   const linkHoverUserData = useMemo(
     () => createVisualizerHoverUserData(originAxesHoverTarget, 'origin-axes'),
     [originAxesHoverTarget],
@@ -191,6 +235,11 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
   const centerOfMassHoverUserData = useMemo(
     () => createVisualizerHoverUserData(centerOfMassHoverTarget, 'center-of-mass'),
     [centerOfMassHoverTarget],
+  );
+  const ikHandleHoverUserData = useMemo(
+    () =>
+      ikHandleHoverTarget ? createVisualizerHoverUserData(ikHandleHoverTarget, 'ik-handle') : null,
+    [ikHandleHoverTarget],
   );
 
   // Refs for dragging selected collision geometry in the merged visualizer scene
@@ -234,6 +283,13 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
     };
   }, [linkId, onRegisterCollisionRef, selectedCollisionObjectIndex, selectedCollisionRef]);
 
+  useEffect(
+    () => () => {
+      onRegisterIkHandle?.(linkId, null);
+    },
+    [linkId, onRegisterIkHandle],
+  );
+
   const handleLinkHoverEnter = useCallback(() => {
     setHoveredSelection(linkHoverTarget);
   }, [linkHoverTarget, setHoveredSelection]);
@@ -264,6 +320,16 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
     [handleLinkClick, interactionLayerPriority],
   );
 
+  const handleHelperPointerDown = useCallback(
+    (event: any) => {
+      if (event.button !== undefined && event.button !== 0) {
+        return;
+      }
+      handleHelperClick(event);
+    },
+    [handleHelperClick],
+  );
+
   const handleHelperPointerOver = useCallback(
     (event: any, fallbackTarget: VisualizerHoverTarget) => {
       if (event.buttons !== 0) {
@@ -290,8 +356,19 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
     },
     [handleLinkHoverLeave],
   );
+  const handleIkHandleRef = useCallback(
+    (handle: THREE.Group | null) => {
+      onRegisterIkHandle?.(linkId, handle);
+    },
+    [linkId, onRegisterIkHandle],
+  );
 
-  const showRootAxes = isRoot && showOrigin;
+  const effectiveShowOrigin = showOrigin && !snapshotRenderActive;
+  const effectiveShowIkHandles = showIkHandles && !snapshotRenderActive;
+  const effectiveShowJointAxes = showJointAxes && !snapshotRenderActive;
+  const effectiveShowInertia = showInertia && !snapshotRenderActive;
+  const effectiveShowCenterOfMass = showCenterOfMass && !snapshotRenderActive;
+  const showRootAxes = isRoot && effectiveShowOrigin;
   const shouldRenderGeometry =
     showGeometry || showCollision || visualEntries.length > 0 || collisionEntries.length > 0;
   const showLinkLabel = showLabels;
@@ -313,17 +390,18 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
             mode={mode}
             showGeometry={showGeometry}
             showVisual={showVisual}
-            showOrigin={showOrigin}
+            showIkHandles={effectiveShowIkHandles}
+            showOrigin={effectiveShowOrigin}
             selectionTarget={selectionTarget}
             showLabels={showLabels}
-            showJointAxes={showJointAxes}
+            showJointAxes={effectiveShowJointAxes}
             jointAxisSize={jointAxisSize}
             frameSize={frameSize}
             labelScale={labelScale}
             showCollision={showCollision}
             modelOpacity={modelOpacity}
-            showInertia={showInertia}
-            showCenterOfMass={showCenterOfMass}
+            showInertia={effectiveShowInertia}
+            showCenterOfMass={effectiveShowCenterOfMass}
             interactionLayerPriority={interactionLayerPriority}
             transformMode={transformMode}
             depth={depth + 1}
@@ -338,6 +416,7 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
             onRegisterJointPivot={onRegisterJointPivot}
             onRegisterJointMotion={onRegisterJointMotion}
             onRegisterCollisionRef={onRegisterCollisionRef}
+            onRegisterIkHandle={onRegisterIkHandle}
             onMeshResolved={onMeshResolved}
             onPrewarmedMeshResolved={onPrewarmedMeshResolved}
           />
@@ -351,11 +430,16 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
       {showRootAxes && (
         <group
           userData={{ isHelper: true, ...linkHoverUserData }}
-          onClick={handleHelperClick}
+          onPointerDown={handleHelperPointerDown}
           onPointerOver={(event) => handleHelperPointerOver(event, originAxesHoverTarget)}
           onPointerOut={handleHelperPointerOut}
         >
-          <ThickerAxes size={frameSize} onClick={handleHelperClick} />
+          <ThickerAxes
+            size={frameSize}
+            interactive
+            hovered={isOriginAxesHovered}
+            selected={isOriginAxesSelected}
+          />
           {showRootLabel && (
             <Html
               center
@@ -382,7 +466,7 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
                             }
                           `}
                   >
-                    {link.name} {t.baseLabelSuffix}
+                    {linkDisplayName} {t.baseLabelSuffix}
                   </div>
                 ) : (
                   <div className="w-2 h-2 rounded-full bg-slate-400/80 hover:scale-150 transition-transform" />
@@ -454,10 +538,10 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
       )}
 
       {/* Inertia Visualization */}
-      {showInertia && (
+      {effectiveShowInertia && (
         <group
           userData={{ isHelper: true, ...inertiaHoverUserData }}
-          onClick={handleHelperClick}
+          onPointerDown={handleHelperPointerDown}
           onPointerOver={(event) => handleHelperPointerOver(event, inertiaHoverTarget)}
           onPointerOut={handleHelperPointerOut}
         >
@@ -466,10 +550,10 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
       )}
 
       {/* Center of Mass Indicator */}
-      {showCenterOfMass && (
+      {effectiveShowCenterOfMass && (
         <group
           userData={{ isHelper: true, ...centerOfMassHoverUserData }}
-          onClick={handleHelperClick}
+          onPointerDown={handleHelperPointerDown}
           onPointerOver={(event) => handleHelperPointerOver(event, centerOfMassHoverTarget)}
           onPointerOut={handleHelperPointerOut}
         >
@@ -480,6 +564,35 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
           />
         </group>
       )}
+
+      {effectiveShowIkHandles &&
+        ikHandleDescriptor &&
+        ikHandleHoverTarget &&
+        ikHandleHoverUserData && (
+          <group
+            ref={handleIkHandleRef}
+            position={[
+              ikHandleDescriptor.anchorLocal.x,
+              ikHandleDescriptor.anchorLocal.y,
+              ikHandleDescriptor.anchorLocal.z,
+            ]}
+            userData={{ isHelper: true, ...ikHandleHoverUserData }}
+            onPointerDown={handleHelperPointerDown}
+            onPointerOver={(event) => handleHelperPointerOver(event, ikHandleHoverTarget)}
+            onPointerOut={handleHelperPointerOut}
+          >
+            <mesh renderOrder={10030}>
+              <sphereGeometry args={[ikHandleDescriptor.radius, 18, 18]} />
+              <meshBasicMaterial
+                color={isIkHandleSelected ? '#15803d' : isIkHandleHovered ? '#22c55e' : '#16a34a'}
+                opacity={isIkHandleSelected ? 0.96 : isIkHandleHovered ? 0.82 : 0.68}
+                transparent
+                depthWrite={false}
+                depthTest={false}
+              />
+            </mesh>
+          </group>
+        )}
 
       {/* Link-geometry transform controls stay disabled here so joint controls keep priority.
       {isSelected && activeGeometryRef && (
@@ -520,7 +633,7 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
                   }
                 `}
               >
-                {link.name}
+                {linkDisplayName}
               </div>
             ) : (
               <div className="w-2 h-2 rounded-full bg-blue-400/80 hover:scale-150 transition-transform" />
@@ -540,17 +653,18 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
           mode={mode}
           showGeometry={showGeometry}
           showVisual={showVisual}
-          showOrigin={showOrigin}
+          showIkHandles={effectiveShowIkHandles}
+          showOrigin={effectiveShowOrigin}
           selectionTarget={selectionTarget}
           showLabels={showLabels}
-          showJointAxes={showJointAxes}
+          showJointAxes={effectiveShowJointAxes}
           jointAxisSize={jointAxisSize}
           frameSize={frameSize}
           labelScale={labelScale}
           showCollision={showCollision}
           modelOpacity={modelOpacity}
-          showInertia={showInertia}
-          showCenterOfMass={showCenterOfMass}
+          showInertia={effectiveShowInertia}
+          showCenterOfMass={effectiveShowCenterOfMass}
           interactionLayerPriority={interactionLayerPriority}
           transformMode={transformMode}
           depth={depth + 1}
@@ -565,6 +679,7 @@ export const RobotNode = memo<RobotNodeProps>(function RobotNode({
           onRegisterJointPivot={onRegisterJointPivot}
           onRegisterJointMotion={onRegisterJointMotion}
           onRegisterCollisionRef={onRegisterCollisionRef}
+          onRegisterIkHandle={onRegisterIkHandle}
           onMeshResolved={onMeshResolved}
           onPrewarmedMeshResolved={onPrewarmedMeshResolved}
         />

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Tooltip } from './Tooltip';
 
 type IconButtonVariant = 'ghost' | 'close' | 'toolbar' | 'solid';
 type IconButtonTone = 'neutral' | 'danger' | 'success';
@@ -17,7 +18,8 @@ const SIZE_CLASSES: Record<IconButtonSize, string> = {
 };
 
 const SOLID_TONE_CLASSES: Record<IconButtonTone, string> = {
-  neutral: 'bg-element-bg hover:bg-element-hover active:bg-element-active text-text-primary shadow-sm',
+  neutral:
+    'bg-element-bg hover:bg-element-hover active:bg-element-active text-text-primary shadow-sm',
   danger: 'bg-danger hover:bg-danger-hover active:bg-danger-active text-white shadow-sm',
   success: 'bg-success hover:bg-success-hover active:bg-success-active text-white shadow-sm',
 };
@@ -29,6 +31,8 @@ export const IconButton: React.FC<IconButtonProps> = ({
   isActive = false,
   className = '',
   type = 'button',
+  title,
+  'aria-label': ariaLabel,
   ...props
 }) => {
   const baseClasses =
@@ -47,11 +51,20 @@ export const IconButton: React.FC<IconButtonProps> = ({
     variantClasses = 'text-text-tertiary hover:bg-element-hover hover:text-text-primary';
   }
 
-  return (
+  const button = (
     <button
       type={type}
+      aria-label={
+        ariaLabel ?? (typeof title === 'string' && title.trim().length > 0 ? title : undefined)
+      }
       className={`${baseClasses} ${SIZE_CLASSES[size]} ${variantClasses} ${className}`.trim()}
       {...props}
     />
   );
+
+  if (typeof title === 'string' && title.trim().length > 0) {
+    return <Tooltip content={title}>{button}</Tooltip>;
+  }
+
+  return button;
 };

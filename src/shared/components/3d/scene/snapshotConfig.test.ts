@@ -11,7 +11,7 @@ test('normalizeSnapshotCaptureOptions defaults the export background to studio',
   assert.equal(options.detailLevel, 'high');
   assert.equal(options.environmentPreset, 'city');
   assert.equal(options.shadowStyle, 'balanced');
-  assert.equal(options.groundStyle, 'contact');
+  assert.equal(options.groundStyle, 'shadow');
   assert.equal(options.dofMode, 'off');
 });
 

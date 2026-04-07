@@ -504,6 +504,7 @@ interface OptionsPanelContainerProps {
   maxHeight?: number;
   isCollapsed?: boolean;
   resizeTitle?: string;
+  showRightResizeHandle?: boolean;
 }
 
 export const OptionsPanelContainer: React.FC<OptionsPanelContainerProps> = ({
@@ -518,6 +519,7 @@ export const OptionsPanelContainer: React.FC<OptionsPanelContainerProps> = ({
   maxHeight = 800,
   isCollapsed = false,
   resizeTitle = 'Resize',
+  showRightResizeHandle = true,
 }) => {
   const [panelSize, setPanelSize] = useState<{ width: number | string; height: number | string }>({
     width,
@@ -664,18 +666,22 @@ export const OptionsPanelContainer: React.FC<OptionsPanelContainerProps> = ({
       {children}
       {resizable && !isCollapsed && (
         <>
-          {/* Right Handle */}
-          <div
-            className="absolute right-0.5 top-10 bottom-4 w-2 cursor-ew-resize rounded-full z-40 hover:bg-system-blue/20 transition-colors"
-            onPointerDown={(e) => handleResizeStart(e, 'right')}
-          />
+          {showRightResizeHandle ? (
+            <div
+              data-testid="ui-options-panel-resize-right"
+              className="absolute right-0.5 top-10 bottom-4 w-2 cursor-ew-resize rounded-full z-40 hover:bg-system-blue/20 transition-colors"
+              onPointerDown={(e) => handleResizeStart(e, 'right')}
+            />
+          ) : null}
           {/* Bottom Handle */}
           <div
+            data-testid="ui-options-panel-resize-bottom"
             className="absolute bottom-0 left-0 w-full h-1.5 cursor-ns-resize z-40 hover:bg-system-blue/20 transition-colors"
             onPointerDown={(e) => handleResizeStart(e, 'bottom')}
           />
           {/* Corner Handle */}
           <div
+            data-testid="ui-options-panel-resize-corner"
             className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-50 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-transparent"
             onPointerDown={(e) => handleResizeStart(e, 'corner')}
             title={resizeTitle}

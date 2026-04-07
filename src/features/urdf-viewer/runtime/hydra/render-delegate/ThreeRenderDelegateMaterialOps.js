@@ -2,9 +2,59 @@
 import { Color, FrontSide, LinearSRGBColorSpace, Quaternion, SRGBColorSpace, Vector2, Vector3 } from 'three';
 import * as Shared from './shared.js';
 import { ThreeRenderDelegateCore } from './ThreeRenderDelegateCore.js';
-import { createUnifiedHydraPhysicalMaterial, HYDRA_UNIFIED_MATERIAL_DEFAULTS } from './material-defaults.js';
+import { createUnifiedHydraPhysicalMaterial, createUnifiedHydraStandardMaterial, hydraMaterialRequiresPhysicalExtensions, HYDRA_UNIFIED_MATERIAL_DEFAULTS } from './material-defaults.js';
 const { buildProtoPrimPathCandidates, clamp01, createMatrixFromXformOp, debugInstancer, debugMaterials, debugMeshes, debugPrims, debugTextures, defaultGrayComponent, disableMaterials, disableTextures, extractPrimPathFromMaterialBindingWarning, extractReferencePrimTargets, extractScopeBodyText, extractUsdAssetReferencesFromLayerText, getActiveMaterialBindingWarningOwner, getAngleInRadians, getCollisionGeometryTypeFromUrdfElement, getExpectedPrimTypesForCollisionProto, getExpectedPrimTypesForProtoType, getMatrixMaxElementDelta, getPathBasename, getPathWithoutRoot, getRawConsoleMethod, getRootPathFromPrimPath, getSafePrimTypeName, hasNonZeroTranslation, hydraCallbackErrorCounts, installMaterialBindingApiWarningInterceptor, isIdentityQuaternion, isLikelyDefaultGrayMaterial, isLikelyInverseTransform, isMaterialBindingApiWarningMessage, isMatrixApproximatelyIdentity, isNonZero, isPotentiallyLargeBaseAssetPath, logHydraCallbackError, materialBindingRepairMaxLayerTextLength, materialBindingWarningHandlers, maxHydraCallbackErrorLogsPerMethod, nearlyEqual, normalizeHydraPath, normalizeUsdPathToken, parseGuideCollisionReferencesFromLayerText, parseProtoMeshIdentifier, parseUrdfTruthFromText, parseVector3Text, parseXformOpFallbacksFromLayerText, rawConsoleError, rawConsoleWarn, registerMaterialBindingApiWarningHandler, remapRootPathIfNeeded, resolveUrdfTruthFileNameForStagePath, resolveUsdAssetPath, setActiveMaterialBindingWarningOwner, shouldAllowLargeBaseAssetScan, stringifyConsoleArgs, toArrayLike, toColorArray, toFiniteNumber, toFiniteQuaternionWxyzTuple, toFiniteVector2Tuple, toFiniteVector3Tuple, toMatrixFromUrdfOrigin, toQuaternionWxyzFromRpy, transformEpsilon, wrapHydraCallbackObject } = Shared;
 export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
+    snapshotRecordRequiresPhysicalMaterial(record) {
+        if (!record || typeof record !== 'object')
+            return false;
+        const candidateNames = [];
+        const scalarOrColorPropertyNames = [
+            'clearcoat',
+            'clearcoatRoughness',
+            'clearcoatNormalScale',
+            'specularIntensity',
+            'specularColor',
+            'ior',
+            'transmission',
+            'thickness',
+            'attenuationDistance',
+            'attenuationColor',
+            'sheen',
+            'sheenColor',
+            'sheenRoughness',
+            'iridescence',
+            'iridescenceIOR',
+            'anisotropy',
+            'anisotropyRotation',
+        ];
+        for (const propertyName of scalarOrColorPropertyNames) {
+            if (record[propertyName] === undefined || record[propertyName] === null)
+                continue;
+            candidateNames.push(propertyName);
+        }
+        const texturePropertyNames = [
+            'clearcoatMap',
+            'clearcoatRoughnessMap',
+            'clearcoatNormalMap',
+            'specularColorMap',
+            'specularIntensityMap',
+            'transmissionMap',
+            'thicknessMap',
+            'sheenColorMap',
+            'sheenRoughnessMap',
+            'anisotropyMap',
+            'iridescenceMap',
+            'iridescenceThicknessMap',
+        ];
+        for (const texturePropertyName of texturePropertyNames) {
+            const recordPathKey = `${texturePropertyName}Path`;
+            if (!record[recordPathKey])
+                continue;
+            candidateNames.push(texturePropertyName);
+        }
+        return hydraMaterialRequiresPhysicalExtensions(candidateNames);
+    }
     getActiveStageRootPrimPath() {
         const snapshotDefaultPrimPath = normalizeHydraPath(this.getCachedRobotSceneSnapshot?.()?.stage?.defaultPrimPath || '');
         if (snapshotDefaultPrimPath)
@@ -2130,11 +2180,18 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         }
         const materialName = String(record?.name || normalizedMaterialPath.split('/').filter(Boolean).pop() || normalizedMaterialPath).trim() || normalizedMaterialPath;
         const inferredColorHex = this.inferColorHexFromMaterialName(materialName);
-        const material = createUnifiedHydraPhysicalMaterial({
-            side: FrontSide,
-            color: inferredColorHex ?? 0x888888,
-            name: materialName,
-        });
+        const usePhysicalMaterial = this.snapshotRecordRequiresPhysicalMaterial(record);
+        const material = (usePhysicalMaterial
+            ? createUnifiedHydraPhysicalMaterial({
+                side: FrontSide,
+                color: inferredColorHex ?? 0x888888,
+                name: materialName,
+            })
+            : createUnifiedHydraStandardMaterial({
+                side: FrontSide,
+                color: inferredColorHex ?? 0x888888,
+                name: materialName,
+            }));
         this.applySnapshotMaterialRecord(material, record);
         const wrappedMaterial = {
             _id: normalizedMaterialPath,
@@ -2292,11 +2349,18 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         const materialName = materialPath.split('/').filter(Boolean).pop() || materialPath;
         const inferredColorHex = this.inferColorHexFromMaterialName(materialName);
         const shaderPrim = this.findMaterialShaderPrim(stage, materialPath, materialName);
-        const material = createUnifiedHydraPhysicalMaterial({
-            side: FrontSide,
-            color: inferredColorHex ?? 0x888888,
-            name: materialName,
-        });
+        const usePhysicalMaterial = this.stageShaderRequiresPhysicalMaterial?.(shaderPrim) === true;
+        const material = (usePhysicalMaterial
+            ? createUnifiedHydraPhysicalMaterial({
+                side: FrontSide,
+                color: inferredColorHex ?? 0x888888,
+                name: materialName,
+            })
+            : createUnifiedHydraStandardMaterial({
+                side: FrontSide,
+                color: inferredColorHex ?? 0x888888,
+                name: materialName,
+            }));
         if (shaderPrim) {
             this.applyStageFallbackMaterialParameters(material, shaderPrim);
         }

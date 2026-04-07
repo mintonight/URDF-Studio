@@ -3,6 +3,10 @@ import { Waypoints } from 'lucide-react';
 import { getChildJointsByParentLink, getParentJointByChildLink } from '@/core/robot';
 import { JointType, type AppMode, type MotorSpec, type RobotState, type UrdfJoint } from '@/types';
 import { translations } from '@/shared/i18n';
+import {
+  getMjcfJointDisplayName,
+  getMjcfLinkDisplayName,
+} from '@/shared/utils/robot/mjcfDisplayNames';
 import type { Language } from '@/store';
 import { JointProperties } from './JointProperties';
 
@@ -27,6 +31,17 @@ export const LinkJointEditor: React.FC<LinkJointEditorProps> = ({
   t,
   lang,
 }) => {
+  const sourceFormat = robot.inspectionContext?.sourceFormat;
+  const linkDisplayNames = useMemo<Record<string, string>>(
+    () =>
+      Object.fromEntries(
+        Object.values(robot.links).map((link) => [
+          link.id,
+          sourceFormat === 'mjcf' ? getMjcfLinkDisplayName(link) : link.name,
+        ]),
+      ),
+    [robot.links, sourceFormat],
+  );
   const relatedJoints = useMemo<RelatedJointEntry[]>(() => {
     const childJoints = getChildJointsByParentLink(robot).get(linkId) ?? [];
     const parentJoint = getParentJointByChildLink(robot).get(linkId);
@@ -77,6 +92,14 @@ export const LinkJointEditor: React.FC<LinkJointEditorProps> = ({
           <div className="flex flex-wrap gap-1">
             {relatedJoints.map((entry) => {
               const isActive = entry.joint.id === activeJointId;
+              const jointDisplayName =
+                sourceFormat === 'mjcf'
+                  ? getMjcfJointDisplayName(
+                      entry.joint,
+                      linkDisplayNames[entry.joint.parentLinkId] || entry.joint.parentLinkId,
+                      linkDisplayNames[entry.joint.childLinkId] || entry.joint.childLinkId,
+                    )
+                  : entry.joint.name || entry.joint.id;
 
               return (
                 <button
@@ -89,7 +112,7 @@ export const LinkJointEditor: React.FC<LinkJointEditorProps> = ({
                       : 'border-border-black bg-element-bg text-text-secondary hover:bg-element-hover hover:text-text-primary'
                   }`}
                 >
-                  <span className="max-w-48 truncate text-left">{entry.joint.name}</span>
+                  <span className="max-w-48 truncate text-left">{jointDisplayName}</span>
                 </button>
               );
             })}

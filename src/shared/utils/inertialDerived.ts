@@ -57,6 +57,11 @@ export interface InertiaTensorComponents {
   izz: number;
 }
 
+export interface MassScaledInertiaEstimate {
+  inertia: InertiaTensorComponents;
+  scale: number;
+}
+
 export interface LinkDensityResult {
   value: number | null;
   volume: number | null;
@@ -129,6 +134,23 @@ function toFiniteMoment(value: number | undefined): number {
 
 function sanitizeTensorComponent(value: number): number {
   return Math.abs(value) < 1e-12 ? 0 : value;
+}
+
+function hasFiniteInertiaTensor(
+  inertia: InertiaLike | undefined,
+): inertia is Required<InertiaLike> {
+  if (!inertia) {
+    return false;
+  }
+
+  return (
+    Number.isFinite(Number(inertia.ixx)) &&
+    Number.isFinite(Number(inertia.ixy)) &&
+    Number.isFinite(Number(inertia.ixz)) &&
+    Number.isFinite(Number(inertia.iyy)) &&
+    Number.isFinite(Number(inertia.iyz)) &&
+    Number.isFinite(Number(inertia.izz))
+  );
 }
 
 export function computeGeometryVolume(geometry: GeometryLike | undefined): number | null {
@@ -312,5 +334,33 @@ export function composeInertiaTensorFromDerivedValues(
         (axis) => axis.z,
       ),
     ),
+  };
+}
+
+export function scaleInertiaTensorForMassChange(
+  inertial: InertialLike | undefined,
+  nextMass: number,
+): MassScaledInertiaEstimate | null {
+  const currentMass = Number(inertial?.mass ?? 0);
+  if (!Number.isFinite(nextMass) || nextMass < 0 || currentMass <= 0) {
+    return null;
+  }
+
+  if (!hasFiniteInertiaTensor(inertial?.inertia)) {
+    return null;
+  }
+
+  const scale = nextMass / currentMass;
+
+  return {
+    scale,
+    inertia: {
+      ixx: sanitizeTensorComponent(Number(inertial.inertia.ixx) * scale),
+      ixy: sanitizeTensorComponent(Number(inertial.inertia.ixy) * scale),
+      ixz: sanitizeTensorComponent(Number(inertial.inertia.ixz) * scale),
+      iyy: sanitizeTensorComponent(Number(inertial.inertia.iyy) * scale),
+      iyz: sanitizeTensorComponent(Number(inertial.inertia.iyz) * scale),
+      izz: sanitizeTensorComponent(Number(inertial.inertia.izz) * scale),
+    },
   };
 }

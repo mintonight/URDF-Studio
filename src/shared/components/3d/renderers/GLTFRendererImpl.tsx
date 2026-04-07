@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { useLoadingManager } from '../meshLoadingManager';
+import { applyVisualMeshShadowPolicyToObject } from '@/core/utils/visualMeshShadowPolicy';
 
 interface ScaleProps {
   x: number;
@@ -14,6 +15,7 @@ interface ScaleProps {
 interface GLTFRendererImplProps {
   url: string;
   material: THREE.Material;
+  enableShadows?: boolean;
   assets: Record<string, string>;
   assetBaseDir?: string;
   preserveOriginalMaterial?: boolean;
@@ -24,6 +26,7 @@ interface GLTFRendererImplProps {
 export function GLTFRendererImpl({
   url,
   material,
+  enableShadows = true,
   assets,
   assetBaseDir,
   preserveOriginalMaterial = false,
@@ -56,7 +59,10 @@ export function GLTFRendererImpl({
     overrideMeshes.forEach((mesh) => {
       mesh.material = material;
     });
-  }, [material, overrideMeshes]);
+    if (enableShadows) {
+      applyVisualMeshShadowPolicyToObject(clone);
+    }
+  }, [clone, enableShadows, material, overrideMeshes]);
 
   useEffect(() => {
     onResolved?.();

@@ -90,6 +90,35 @@ function createSnapshotWithJointRange(range: [number, number] | null): Canonical
   return snapshot;
 }
 
+function createSnapshotWithJointAxis(axis: [number, number, number] | null): CanonicalMJCFSnapshot {
+  const snapshot = createSnapshotWithJointRange(null);
+  snapshot.joints = [
+    {
+      ...snapshot.joints[0]!,
+      axis,
+    },
+  ];
+  return snapshot;
+}
+
+function createSnapshotWithExplicitBodyInertialAndGeomMass(
+  geomMass: number | null,
+): CanonicalMJCFSnapshot {
+  const snapshot = createBaseSnapshot({
+    mass: geomMass,
+  });
+  snapshot.bodies = [
+    {
+      ...snapshot.bodies[0]!,
+      mass: 12,
+      inertialPos: [0, 0, 0],
+      inertialQuat: [1, 0, 0, 0],
+      inertia: [1, 1, 1],
+    },
+  ];
+  return snapshot;
+}
+
 function createSnapshotWithMaterialRgba(
   rgba: [number, number, number, number] | null,
 ): CanonicalMJCFSnapshot {
@@ -158,6 +187,32 @@ test('diffCanonicalSnapshots treats omitted and zero geom mass as equivalent', (
     diffs.some((diff) => diff.type === 'GEOM_MASS_MISMATCH'),
     false,
     `expected no geom mass diff, got ${JSON.stringify(diffs, null, 2)}`,
+  );
+});
+
+test('diffCanonicalSnapshots treats normalized joint axes as equivalent', () => {
+  const expected = createSnapshotWithJointAxis([0.196116, 0.980581, 0]);
+  const actual = createSnapshotWithJointAxis([0.2, 1, 0]);
+
+  const diffs = diffCanonicalSnapshots(expected, actual);
+
+  assert.equal(
+    diffs.some((diff) => diff.type === 'JOINT_AXIS_MISMATCH'),
+    false,
+    `expected no joint axis diff, got ${JSON.stringify(diffs, null, 2)}`,
+  );
+});
+
+test('diffCanonicalSnapshots ignores geom mass when parent body has explicit inertial data', () => {
+  const expected = createSnapshotWithExplicitBodyInertialAndGeomMass(0);
+  const actual = createSnapshotWithExplicitBodyInertialAndGeomMass(4);
+
+  const diffs = diffCanonicalSnapshots(expected, actual);
+
+  assert.equal(
+    diffs.some((diff) => diff.type === 'GEOM_MASS_MISMATCH'),
+    false,
+    `expected no geom mass diff under explicit inertial, got ${JSON.stringify(diffs, null, 2)}`,
   );
 });
 

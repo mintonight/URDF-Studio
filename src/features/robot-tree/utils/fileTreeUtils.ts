@@ -1,5 +1,6 @@
 import React from 'react';
-import { Cuboid, File, FileCode, Folder, FolderOpen } from 'lucide-react';
+import { Cuboid, File, FileCode, Folder, FolderOpen, Image } from 'lucide-react';
+import { isImageAssetPath } from '@/core/utils/assetFileTypes';
 import type { RobotFile } from '@/types';
 
 export interface FileTreeNode {
@@ -75,6 +76,10 @@ export function getFileIcon(filename: string, isFolder: boolean, isOpen: boolean
   }
 
   const ext = filename.split('.').pop()?.toLowerCase() || '';
+
+  if (isImageAssetPath(filename)) {
+    return React.createElement(Image, { className: 'w-3.5 h-3.5 text-pink-500' });
+  }
 
   switch (ext) {
     case 'urdf':

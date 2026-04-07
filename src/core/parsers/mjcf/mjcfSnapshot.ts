@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import path from 'node:path';
 import type { ParsedMJCFModel } from './mjcfModel';
+import {
+  buildGeneratedMjcfBodyPath,
+  buildGeneratedMjcfBodySegment,
+  buildGeneratedMjcfGeomName,
+  buildGeneratedMjcfJointName,
+} from './mjcfGeneratedNames';
 
 const NUMBER_PRECISION = 6;
 const EPSILON = 1e-5;
@@ -158,6 +164,24 @@ function normalizeVector(value: number[] | undefined | null, length: number): nu
     normalized.push(roundNumber(value[index] ?? 0));
   }
   return normalized;
+}
+
+function normalizeUnitVector(value: number[] | undefined | null, length: number): number[] | null {
+  if (!value || value.length === 0) {
+    return null;
+  }
+
+  const raw: number[] = [];
+  for (let index = 0; index < length; index += 1) {
+    raw.push(value[index] ?? 0);
+  }
+
+  const magnitude = Math.hypot(...raw);
+  if (magnitude <= 1e-8) {
+    return raw.map((entry) => roundNumber(entry));
+  }
+
+  return raw.map((entry) => roundNumber(entry / magnitude));
 }
 
 function normalizeQuatFromEuler(
@@ -330,6 +354,7 @@ function sortEigenvectorsByDescendingValues(
 
 function diagonalizeFullInertia(
   fullinertia: [number, number, number, number, number, number] | null | undefined,
+  boundInertia: number | undefined = undefined,
 ): {
   diaginertia: [number, number, number];
   quat: [number, number, number, number];
@@ -407,6 +432,8 @@ function diagonalizeFullInertia(
     }
   }
 
+  const effectiveBoundInertia =
+    boundInertia != null && Number.isFinite(boundInertia) ? Math.max(boundInertia, 0) : 0;
   const sorted = sortEigenvectorsByDescendingValues(
     [matrix[0]![0]!, matrix[1]![1]!, matrix[2]![2]!],
     [
@@ -420,7 +447,9 @@ function diagonalizeFullInertia(
   );
 
   return {
-    diaginertia: sorted.values,
+    diaginertia: sorted.values.map((value) =>
+      roundNumber(Math.max(value, effectiveBoundInertia)),
+    ) as [number, number, number],
     quat: quaternionToMjcfTuple(quaternion),
   };
 }
@@ -571,11 +600,8 @@ export function createCanonicalSnapshotFromParsedModel(
     const bodyName = body.sourceName || (path === 'world' ? 'world' : null);
     const bodyKey = bodyKeyFromName(bodyName, path);
     const canonicalInertia = diagonalizeFullInertia(
-      body.inertial?.fullinertia
-        ? (normalizeVector(body.inertial.fullinertia, 6) as
-            | [number, number, number, number, number, number]
-            | null)
-        : null,
+      body.inertial?.fullinertia || null,
+      parsedModel.compilerSettings.boundinertia,
     );
     const quat = normalizeQuat(body.quat) ||
       normalizeQuatFromEuler(body.euler, parsedModel.compilerSettings.angleUnit) || [1, 0, 0, 0];
@@ -593,7 +619,10 @@ export function createCanonicalSnapshotFromParsedModel(
         ? normalizeQuat(body.inertial.quat) || canonicalInertia?.quat || [1, 0, 0, 0]
         : null,
       inertia: body.inertial?.diaginertia
-        ? (normalizeVector(body.inertial.diaginertia, 3) as [number, number, number] | null)
+        ? applyBoundInertia(
+            normalizeVector(body.inertial.diaginertia, 3) as [number, number, number] | null,
+            parsedModel.compilerSettings.boundinertia,
+          )
         : canonicalInertia?.diaginertia || null,
       fullinertia: body.inertial?.fullinertia
         ? (normalizeVector(body.inertial.fullinertia, 6) as
@@ -603,20 +632,20 @@ export function createCanonicalSnapshotFromParsedModel(
     });
 
     body.joints.forEach((joint, jointIndex) => {
-      const fallback = `${bodyKey}::joint[${jointIndex}]`;
+      const fallback = buildGeneratedMjcfJointName(bodyKey, jointIndex);
       joints.push({
         key: jointKeyFromName(joint.sourceName, fallback),
         name: joint.sourceName || null,
         parentBodyKey: bodyKey,
         type: joint.type,
-        axis: normalizeVector(joint.axis, 3) as [number, number, number] | null,
+        axis: normalizeUnitVector(joint.axis, 3) as [number, number, number] | null,
         range: joint.range ? normalizeRange(joint.range, 'radian') : [0, 0],
         pos: normalizePos(joint.pos),
       });
     });
 
     body.geoms.forEach((geom, geomIndex) => {
-      const fallback = `${bodyKey}::geom[${geomIndex}]`;
+      const fallback = buildGeneratedMjcfGeomName(bodyKey, geomIndex);
       const canonicalFromTo = canonicalizeFromToGeom(geom);
       geoms.push({
         key: geomKeyFromName(geom.sourceName || geom.name, fallback),
@@ -639,8 +668,10 @@ export function createCanonicalSnapshotFromParsedModel(
     });
 
     body.children.forEach((child, childIndex) => {
-      const childSegment = child.sourceName || `body[${childIndex}]`;
-      visitBody(child, bodyKey, `${path}/${childSegment}`);
+      const childPath = child.sourceName
+        ? `${path}/${child.sourceName}`
+        : child.name || buildGeneratedMjcfBodyPath(path, childIndex);
+      visitBody(child, bodyKey, childPath);
     });
   };
 
@@ -710,7 +741,8 @@ export function createCanonicalSnapshotFromOracleExport(
         ? bodyPathById.get(parentId) || body.parent?.name || 'world'
         : null;
       const path = parentId
-        ? `${parentPath}/${body.name || `body[${nextLocalIndex(childBodyIndexByParentId, parentId)}]`}`
+        ? body.name ||
+          buildGeneratedMjcfBodyPath(parentPath, nextLocalIndex(childBodyIndexByParentId, parentId))
         : 'world';
       const key = bodyKeyFromName(body.name || null, path);
       const parentKey = parentId
@@ -742,13 +774,16 @@ export function createCanonicalSnapshotFromOracleExport(
   const joints = (oracleExport.joints || [])
     .map((joint: any) => {
       const parentBodyKey = bodyKeyById.get(joint.parent?.id) || joint.parent?.name || 'world';
-      const fallback = `${parentBodyKey}::joint[${nextLocalIndex(jointLocalIndexByBody, parentBodyKey)}]`;
+      const fallback = buildGeneratedMjcfJointName(
+        parentBodyKey,
+        nextLocalIndex(jointLocalIndexByBody, parentBodyKey),
+      );
       return {
         key: jointKeyFromName(joint.name || null, fallback),
         name: joint.name || null,
         parentBodyKey,
         type: normalizeOracleJointType(joint.attrs?.type),
-        axis: normalizeVector(joint.attrs?.axis, 3) as [number, number, number] | null,
+        axis: normalizeUnitVector(joint.attrs?.axis, 3) as [number, number, number] | null,
         range: normalizeRange(joint.attrs?.range, oracleAngleUnit),
         pos: normalizePos(joint.attrs?.pos),
       } satisfies CanonicalMJCFJoint;
@@ -761,7 +796,10 @@ export function createCanonicalSnapshotFromOracleExport(
   const geoms = (oracleExport.geoms || [])
     .map((geom: any) => {
       const parentBodyKey = bodyKeyById.get(geom.parent?.id) || geom.parent?.name || 'world';
-      const fallback = `${parentBodyKey}::geom[${nextLocalIndex(geomLocalIndexByBody, parentBodyKey)}]`;
+      const fallback = buildGeneratedMjcfGeomName(
+        parentBodyKey,
+        nextLocalIndex(geomLocalIndexByBody, parentBodyKey),
+      );
       const geomType = normalizeOracleGeomType(geom.attrs?.type);
       const canonicalFromTo = canonicalizeFromToGeom({
         type: geomType,
@@ -881,6 +919,65 @@ function optionalMassesEqual(
   return nearlyEqual(normalizedLeft, normalizedRight, RELAXED_NUMERIC_EPSILON);
 }
 
+function applyBoundInertia(
+  inertia: [number, number, number] | null | undefined,
+  boundInertia: number | undefined,
+): [number, number, number] | null {
+  if (!inertia) {
+    return null;
+  }
+
+  const effectiveBoundInertia =
+    boundInertia != null && Number.isFinite(boundInertia) ? Math.max(boundInertia, 0) : 0;
+
+  return [
+    roundNumber(Math.max(inertia[0], effectiveBoundInertia)),
+    roundNumber(Math.max(inertia[1], effectiveBoundInertia)),
+    roundNumber(Math.max(inertia[2], effectiveBoundInertia)),
+  ];
+}
+
+function bodyHasExplicitInertial(body: CanonicalMJCFBody | null | undefined): boolean {
+  if (!body) {
+    return false;
+  }
+
+  return (
+    body.mass != null ||
+    body.inertialPos != null ||
+    body.inertialQuat != null ||
+    body.inertia != null ||
+    body.fullinertia != null
+  );
+}
+
+function geomMassesEqual(
+  leftGeom: CanonicalMJCFGeom,
+  rightGeom: CanonicalMJCFGeom,
+  leftBody: CanonicalMJCFBody | null | undefined,
+  rightBody: CanonicalMJCFBody | null | undefined,
+): boolean {
+  if (optionalMassesEqual(leftGeom.mass, rightGeom.mass)) {
+    return true;
+  }
+
+  // MuJoCo canonicalizes per-geom mass away when a body carries explicit
+  // inertial data, so compare those geoms on body inertial truth instead of
+  // preserving noisy source-level geom mass tokens.
+  if (bodyHasExplicitInertial(leftBody) || bodyHasExplicitInertial(rightBody)) {
+    return true;
+  }
+
+  return false;
+}
+
+function jointAxesEqual(
+  left: [number, number, number] | null | undefined,
+  right: [number, number, number] | null | undefined,
+): boolean {
+  return arraysEqual(normalizeUnitVector(left, 3), normalizeUnitVector(right, 3));
+}
+
 function rangesEqual(
   left: number[] | null | undefined,
   right: number[] | null | undefined,
@@ -900,11 +997,10 @@ function materialRGBAEqual(
 }
 
 function canonicalBodyInertiaTensor(body: CanonicalMJCFBody): number[] | null {
-  if (body.fullinertia) {
-    return body.fullinertia.map((value) => roundNumber(value));
-  }
-
   if (!body.inertia) {
+    if (body.fullinertia) {
+      return body.fullinertia.map((value) => roundNumber(value));
+    }
     return null;
   }
 
@@ -1115,7 +1211,7 @@ export function diffCanonicalSnapshots(
       });
     }
 
-    if (!arraysEqual(expectedJoint.axis, actualJoint.axis)) {
+    if (!jointAxesEqual(expectedJoint.axis, actualJoint.axis)) {
       diffs.push({
         type: 'JOINT_AXIS_MISMATCH',
         key,
@@ -1272,7 +1368,14 @@ export function diffCanonicalSnapshots(
       });
     }
 
-    if (!optionalMassesEqual(expectedGeom.mass, actualGeom.mass)) {
+    if (
+      !geomMassesEqual(
+        expectedGeom,
+        actualGeom,
+        expectedBodies.get(expectedGeom.bodyKey),
+        actualBodies.get(actualGeom.bodyKey),
+      )
+    ) {
       diffs.push({
         type: 'GEOM_MASS_MISMATCH',
         key,

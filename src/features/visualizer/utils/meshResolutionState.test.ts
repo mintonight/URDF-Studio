@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { mergeResolvedMeshLoadKeys } from './meshResolutionState.ts';
+import { mergeResolvedMeshLoadKeys, reconcileResolvedMeshLoadKeys } from './meshResolutionState.ts';
 
 test('mergeResolvedMeshLoadKeys deduplicates pending keys and ignores unrelated entries', () => {
   const nextState = mergeResolvedMeshLoadKeys({
@@ -57,4 +57,26 @@ test('mergeResolvedMeshLoadKeys returns null when the batch adds no new expected
   });
 
   assert.equal(nextState, null);
+});
+
+test('reconcileResolvedMeshLoadKeys preserves already-loaded keys that remain in the next scene signature', () => {
+  const nextState = reconcileResolvedMeshLoadKeys({
+    currentResolvedKeys: new Set([
+      'comp_h1|visual|primary|0|meshes/h1-body.dae',
+      'comp_h1|visual|primary|1|meshes/h1-leg.dae',
+      'stale|visual|primary|0|meshes/stale.dae',
+    ]),
+    expectedMeshLoadKeySet: new Set([
+      'comp_h1|visual|primary|0|meshes/h1-body.dae',
+      'comp_h1|visual|primary|1|meshes/h1-leg.dae',
+      'comp_b2|visual|primary|0|meshes/b2-body.dae',
+    ]),
+    expectedSignature: 'scene-b',
+  });
+
+  assert.equal(nextState.signature, 'scene-b');
+  assert.deepEqual(Array.from(nextState.resolvedKeys).sort(), [
+    'comp_h1|visual|primary|0|meshes/h1-body.dae',
+    'comp_h1|visual|primary|1|meshes/h1-leg.dae',
+  ]);
 });

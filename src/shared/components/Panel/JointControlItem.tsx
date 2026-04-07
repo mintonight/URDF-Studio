@@ -1,4 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { resolveJointKey } from '@/core/robot';
+import { useAssemblyStore, useUIStore } from '@/store';
 import { useRobotStore } from '@/store/robotStore';
 import { JointType } from '@/types';
 import { createJointDragStoreSync } from '@/shared/utils/jointDragStoreSync';
@@ -20,6 +22,7 @@ const JOINT_PANEL_STORE_SYNC_INTERVAL_MS = 16;
 export interface JointControlItemProps {
   name: string;
   joint: any;
+  displayName?: string;
   value: number;
   angleUnit: 'rad' | 'deg';
   isActive: boolean;
@@ -31,9 +34,12 @@ export interface JointControlItemProps {
   onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
 }
 
+type SliderDragSource = 'native-input' | 'slider-shell';
+
 const JointControlItemComponent: React.FC<JointControlItemProps> = ({
   name,
   joint,
+  displayName,
   value,
   angleUnit,
   isActive,
@@ -44,7 +50,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
   isAdvanced = false,
   onUpdate,
 }) => {
-  const displayName = joint?.name?.trim() || name;
+  const resolvedDisplayName = displayName?.trim() || joint?.name?.trim() || name;
   const jointType = getJointType(joint);
   const limit = joint.limit || { ...getDefaultJointLimit(jointType), effort: 0, velocity: 0 };
   const usesAngularUnits = isAngularJointType(jointType);
@@ -53,6 +59,11 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
   const itemRef = useRef<HTMLDivElement>(null);
   const continuousPreviewValueRef = useRef(value);
   const isSliderDraggingRef = useRef(false);
+  const sliderDragSourceRef = useRef<SliderDragSource | null>(null);
+  const skipNextActiveAutoScrollRef = useRef(false);
+  const sidebarTab = useUIStore((state) => state.sidebarTab);
+  const updateComponentRobot = useAssemblyStore((state) => state.updateComponentRobot);
+  const updateBridge = useAssemblyStore((state) => state.updateBridge);
   const sliderStoreSync = React.useMemo(
     () =>
       createJointDragStoreSync({
@@ -103,6 +114,64 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
 
       const jointId = joint.id || name;
       if (jointId) {
+        if (sidebarTab === 'workspace') {
+          const assemblyState = useAssemblyStore.getState().assemblyState;
+          if (assemblyState) {
+            for (const component of Object.values(assemblyState.components)) {
+              const resolvedJointId = resolveJointKey(component.robot.joints, jointId);
+              if (!resolvedJointId) continue;
+
+              const currentJoint = component.robot.joints[resolvedJointId];
+              updateComponentRobot(
+                component.id,
+                {
+                  joints: {
+                    ...component.robot.joints,
+                    [resolvedJointId]: {
+                      ...currentJoint,
+                      limit: {
+                        ...currentJoint.limit,
+                        ...newLimits,
+                      },
+                    },
+                  },
+                },
+                {
+                  label: 'Update assembly joint limits',
+                },
+              );
+              return;
+            }
+
+            const bridge =
+              assemblyState.bridges[jointId] ??
+              Object.values(assemblyState.bridges).find(
+                (candidate) =>
+                  candidate.joint.id === jointId ||
+                  candidate.name === jointId ||
+                  candidate.joint.name === jointId,
+              );
+            if (bridge) {
+              updateBridge(
+                bridge.id,
+                {
+                  joint: {
+                    ...bridge.joint,
+                    limit: {
+                      ...bridge.joint.limit,
+                      ...newLimits,
+                    },
+                  },
+                },
+                {
+                  label: 'Update bridge joint',
+                },
+              );
+              return;
+            }
+          }
+        }
+
         if (onUpdate) {
           onUpdate('joint', jointId, {
             ...joint,
@@ -122,12 +191,20 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
       localLimits,
       name,
       onUpdate,
+      sidebarTab,
+      updateBridge,
+      updateComponentRobot,
       updateJoint,
       value,
     ],
   );
 
   useEffect(() => {
+    if (skipNextActiveAutoScrollRef.current) {
+      skipNextActiveAutoScrollRef.current = false;
+      return;
+    }
+
     if (isActive && itemRef.current) {
       const scrollParent = itemRef.current.closest('.overflow-y-auto');
       if (scrollParent) {
@@ -146,7 +223,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
         itemRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
     }
-  }, [displayName, isActive]);
+  }, [isActive, resolvedDisplayName]);
 
   const [continuousSliderAnchor, setContinuousSliderAnchor] = useState(value);
   const continuousSliderAnchorRef = useRef(value);
@@ -155,7 +232,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
   const [isSliderThumbHovered, setIsSliderThumbHovered] = useState(false);
   const [isPanelHovered, setIsPanelHovered] = useState(false);
   const sliderShellRef = useRef<HTMLDivElement>(null);
-  const sliderThumbDiameter = 12;
+  const sliderThumbDiameter = 14;
   const sliderThumbHalf = sliderThumbDiameter / 2;
 
   const syncContinuousSliderAnchor = useCallback((nextAnchor: number) => {
@@ -272,22 +349,37 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
     [sliderStoreSync],
   );
 
-  const handleSliderChangeStart = useCallback(() => {
-    if (isSliderDraggingRef.current) {
-      return;
-    }
+  const handleSliderChangeStart = useCallback(
+    (source: SliderDragSource) => {
+      if (isSliderDraggingRef.current) {
+        return;
+      }
 
-    isSliderDraggingRef.current = true;
-    setIsSliderDragging(true);
-    setActiveJoint(name);
-    onSelect?.('joint', name);
-    setSliderPreviewValue(value);
-    continuousPreviewValueRef.current = value;
+      isSliderDraggingRef.current = true;
+      sliderDragSourceRef.current = source;
+      setIsSliderDragging(true);
+      if (!isActive) {
+        skipNextActiveAutoScrollRef.current = true;
+      }
+      setActiveJoint(name);
+      onSelect?.('joint', name);
+      setSliderPreviewValue(value);
+      continuousPreviewValueRef.current = value;
 
-    if (isContinuousJoint) {
-      syncContinuousSliderAnchor(value);
-    }
-  }, [isContinuousJoint, name, onSelect, setActiveJoint, syncContinuousSliderAnchor, value]);
+      if (isContinuousJoint) {
+        syncContinuousSliderAnchor(value);
+      }
+    },
+    [
+      isActive,
+      isContinuousJoint,
+      name,
+      onSelect,
+      setActiveJoint,
+      syncContinuousSliderAnchor,
+      value,
+    ],
+  );
 
   const handleSliderChangeEnd = useCallback(() => {
     if (!isSliderDraggingRef.current) {
@@ -297,6 +389,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
     const committedValue = continuousPreviewValueRef.current;
 
     isSliderDraggingRef.current = false;
+    sliderDragSourceRef.current = null;
     setIsSliderDragging(false);
 
     if (isContinuousJoint) {
@@ -345,7 +438,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
 
   const handleSliderShellDragStart = useCallback(
     (clientX: number) => {
-      handleSliderChangeStart();
+      handleSliderChangeStart('slider-shell');
       updateSliderValueFromClientX(clientX);
     },
     [handleSliderChangeStart, updateSliderValueFromClientX],
@@ -376,11 +469,19 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
     }
 
     const handleWindowPointerMove = (event: PointerEvent) => {
+      if (sliderDragSourceRef.current !== 'slider-shell') {
+        return;
+      }
+
       updateSliderValueFromClientX(event.clientX);
       updateSliderThumbHover(event.clientX, event.clientY);
     };
 
     const handleWindowTouchMove = (event: TouchEvent) => {
+      if (sliderDragSourceRef.current !== 'slider-shell') {
+        return;
+      }
+
       const touch = event.touches[0];
       if (!touch) {
         return;
@@ -643,6 +744,9 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
       ref={itemRef}
       data-panel-hovered={isPanelHovered ? 'true' : 'false'}
       onClick={() => {
+        if (!isActive) {
+          skipNextActiveAutoScrollRef.current = true;
+        }
         setActiveJoint(name);
         onSelect?.('joint', name);
       }}
@@ -665,9 +769,9 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
                 ? 'text-text-primary'
                 : 'text-text-secondary'
           } flex-1`}
-          title={displayName}
+          title={resolvedDisplayName}
         >
-          {displayName}
+          {resolvedDisplayName}
         </span>
 
         {!isAdvanced && renderValueDisplay()}
@@ -749,7 +853,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
           <div
             data-testid="joint-slider-thumb"
             data-hovered={isSliderThumbHovered ? 'true' : 'false'}
-            className={`pointer-events-none absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border transition-[transform,box-shadow] duration-150 ease-out ${
+            className={`absolute top-1/2 z-20 h-[14px] w-[14px] -translate-y-1/2 rounded-full border transition-[transform,box-shadow] duration-150 ease-out ${
               isSliderDragging
                 ? 'scale-110 ring-4 ring-system-blue/15'
                 : isSliderThumbHovered
@@ -766,6 +870,29 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
                   ? 'var(--ui-slider-thumb-shadow-hover)'
                   : 'var(--ui-slider-thumb-shadow)',
             }}
+            onPointerEnter={(event) => updateSliderThumbHover(event.clientX, event.clientY)}
+            onPointerMove={(event) => updateSliderThumbHover(event.clientX, event.clientY)}
+            onPointerLeave={() => setIsSliderThumbHovered(false)}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              handleSliderShellDragStart(event.clientX);
+            }}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              handleSliderShellDragStart(event.clientX);
+            }}
+            onTouchStart={(event) => {
+              const touch = event.touches[0];
+              if (!touch) {
+                return;
+              }
+
+              event.preventDefault();
+              event.stopPropagation();
+              handleSliderShellDragStart(touch.clientX);
+            }}
           />
           <input
             type="range"
@@ -778,15 +905,15 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
             }}
             onPointerDown={(e) => {
               e.stopPropagation();
-              handleSliderChangeStart();
+              handleSliderChangeStart('native-input');
             }}
             onMouseDown={(e) => {
               e.stopPropagation();
-              handleSliderChangeStart();
+              handleSliderChangeStart('native-input');
             }}
             onTouchStart={(e) => {
               e.stopPropagation();
-              handleSliderChangeStart();
+              handleSliderChangeStart('native-input');
             }}
             onPointerUp={(e) => {
               e.stopPropagation();

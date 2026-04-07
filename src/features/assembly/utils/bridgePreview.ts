@@ -4,6 +4,7 @@ import {
   DEFAULT_JOINT,
   JointType,
   type BridgeJoint,
+  type JointHardwareInterface,
   type JointQuaternion,
   type UrdfOrigin,
   type UrdfJoint,
@@ -21,6 +22,7 @@ export interface BridgePreviewDraft {
   childComponentId: string;
   childLinkId: string;
   jointType: JointType;
+  hardwareInterface?: JointHardwareInterface;
   originXyz: Vector3;
   axis?: Vector3;
   limitLower?: number;
@@ -40,6 +42,13 @@ const EFFORT_VELOCITY_LIMIT_JOINT_TYPES = new Set<JointType>([
   JointType.PRISMATIC,
   JointType.CONTINUOUS,
 ]);
+const BRIDGE_DEFAULT_HARDWARE: UrdfJoint['hardware'] = {
+  armature: 0,
+  brand: '',
+  motorType: 'None',
+  motorId: '',
+  motorDirection: 1,
+};
 
 function normalizeZero(value: number): number {
   return Object.is(value, -0) || Math.abs(value) < Number.EPSILON ? 0 : value;
@@ -161,6 +170,10 @@ export function buildBridgeJointFromDraft(
     origin: buildBridgeOriginFromDraft(draft),
     axis: draft.axis ?? DEFAULT_JOINT.axis,
     limit,
+    hardware: {
+      ...BRIDGE_DEFAULT_HARDWARE,
+      ...(draft.hardwareInterface ? { hardwareInterface: draft.hardwareInterface } : {}),
+    },
   };
 }
 

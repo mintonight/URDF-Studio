@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import {
   computeLinkWorldMatrices,
-  estimateRobotGroundOffset,
   isSyntheticWorldRoot,
   mergeAssembly,
   prepareAssemblyRobotData,
@@ -73,6 +72,7 @@ function sortKeysDeep(value: unknown): JsonLike {
 
 const GENERATED_WORKSPACE_URDF_FOLDER = 'generated';
 const GENERATED_WORKSPACE_URDF_SUFFIX = '.generated.urdf';
+const ASSEMBLY_TRANSFORM_MATCH_EPSILON = 1e-9;
 
 function sanitizeGeneratedWorkspaceUrdfStem(value: string): string {
   const sanitized = value
@@ -148,9 +148,15 @@ export function buildWorkspaceAssemblyViewerState({
     return assemblyState;
   }
 
-  const hasParentLink = Boolean(parentComponent.robot.links[bridgePreview.parentLinkId]);
-  const hasChildLink = Boolean(childComponent.robot.links[bridgePreview.childLinkId]);
-  if (!hasParentLink || !hasChildLink) {
+  const resolvedParentLinkId = resolveAssemblyComponentLinkId(
+    parentComponent,
+    bridgePreview.parentLinkId,
+  );
+  const resolvedChildLinkId = resolveAssemblyComponentLinkId(
+    childComponent,
+    bridgePreview.childLinkId,
+  );
+  if (!resolvedParentLinkId || !resolvedChildLinkId) {
     return assemblyState;
   }
 
@@ -558,6 +564,23 @@ function buildAssemblyTransformMatrix(
   );
 }
 
+function semanticRootMatrixMatchesAssemblyTransform(
+  matrix: THREE.Matrix4,
+  transform?: AssemblyComponent['transform'] | AssemblyState['transform'],
+): boolean {
+  const normalized = cloneAssemblyTransform(transform);
+  const origin = decomposeMatrixToOrigin(matrix);
+
+  return (
+    Math.abs(origin.xyz.x - normalized.position.x) <= ASSEMBLY_TRANSFORM_MATCH_EPSILON &&
+    Math.abs(origin.xyz.y - normalized.position.y) <= ASSEMBLY_TRANSFORM_MATCH_EPSILON &&
+    Math.abs(origin.xyz.z - normalized.position.z) <= ASSEMBLY_TRANSFORM_MATCH_EPSILON &&
+    Math.abs(origin.rpy.r - normalized.rotation.r) <= ASSEMBLY_TRANSFORM_MATCH_EPSILON &&
+    Math.abs(origin.rpy.p - normalized.rotation.p) <= ASSEMBLY_TRANSFORM_MATCH_EPSILON &&
+    Math.abs(origin.rpy.y - normalized.rotation.y) <= ASSEMBLY_TRANSFORM_MATCH_EPSILON
+  );
+}
+
 function buildVisibleAssemblyComponentMap(assemblyState: AssemblyState) {
   return Object.fromEntries(
     Object.entries(assemblyState.components).filter(([, component]) => component.visible !== false),
@@ -574,11 +597,9 @@ function resolveWorkspaceViewerRootComponentIds({
   rootComponentByComponentId: Map<string, string>;
   rootComponentIds: string[];
 } {
-  const componentIdByRootLinkId = new Map<string, string>();
   const componentIdByLinkId = new Map<string, string>();
 
   componentEntries.forEach(([componentId, component]) => {
-    componentIdByRootLinkId.set(component.robot.rootLinkId, componentId);
     Object.keys(component.robot.links).forEach((linkId) => {
       componentIdByLinkId.set(linkId, componentId);
     });
@@ -586,7 +607,7 @@ function resolveWorkspaceViewerRootComponentIds({
 
   const parentComponentByChild = new Map<string, string>();
   Object.values(mergedRobotData.joints).forEach((joint) => {
-    const childComponentId = componentIdByRootLinkId.get(joint.childLinkId);
+    const childComponentId = componentIdByLinkId.get(joint.childLinkId);
     if (!childComponentId) {
       return;
     }
@@ -626,7 +647,7 @@ function resolveWorkspaceViewerRootComponentIds({
   };
 }
 
-function hasIncomingRootBridge(assemblyState: AssemblyState, componentId: string): boolean {
+function hasIncomingBridge(assemblyState: AssemblyState, componentId: string): boolean {
   const component = assemblyState.components[componentId];
   if (!component) {
     return false;
@@ -635,7 +656,7 @@ function hasIncomingRootBridge(assemblyState: AssemblyState, componentId: string
   return Object.values(assemblyState.bridges).some(
     (bridge) =>
       bridge.childComponentId === componentId &&
-      resolveAssemblyComponentLinkId(component, bridge.childLinkId) === component.robot.rootLinkId,
+      Boolean(resolveAssemblyComponentLinkId(component, bridge.childLinkId)),
   );
 }
 
@@ -737,6 +758,20 @@ export function buildWorkspaceAssemblyViewerDisplayRobotData({
     });
   }
 
+  const rootDisplayMatrixByComponentId = new Map<string, THREE.Matrix4>();
+  rootComponentIds.forEach((componentId) => {
+    const rootComponent = visibleComponents[componentId];
+    if (!rootComponent) {
+      rootDisplayMatrixByComponentId.set(componentId, new THREE.Matrix4().identity());
+      return;
+    }
+
+    const rootOffsetX = rootOffsetByComponentId.get(componentId) ?? 0;
+    const offsetMatrix = new THREE.Matrix4().makeTranslation(rootOffsetX, 0, 0);
+
+    rootDisplayMatrixByComponentId.set(componentId, offsetMatrix);
+  });
+
   const links: RobotData['links'] = {
     [WORKSPACE_VIEWER_WORLD_ROOT_ID]: buildWorkspaceViewerSyntheticRootLink(
       WORKSPACE_VIEWER_WORLD_ROOT_ID,
@@ -755,30 +790,27 @@ export function buildWorkspaceAssemblyViewerDisplayRobotData({
     const semanticRootMatrix =
       linkWorldMatrices[component.robot.rootLinkId]?.clone() ?? new THREE.Matrix4().identity();
     const rootComponentId = rootComponentByComponentId.get(componentId) ?? componentId;
-    const rootOffsetX = rootOffsetByComponentId.get(rootComponentId) ?? 0;
-    const offsetMatrix = new THREE.Matrix4().makeTranslation(rootOffsetX, 0, 0);
-    const hasIncomingBridgeAtRoot = hasIncomingRootBridge(assemblyState, componentId);
-    const shouldApplyComponentTransform =
-      isAssemblyComponentIndividuallyTransformable(assemblyState, componentId) ||
-      !hasIncomingBridgeAtRoot;
-    const componentTransformMatrix = shouldApplyComponentTransform
-      ? buildAssemblyTransformMatrix(component.transform)
-      : new THREE.Matrix4().identity();
-    const displayGroundLiftMatrix =
-      !hasIncomingBridgeAtRoot && isIdentityAssemblyTransform(component.transform)
-        ? new THREE.Matrix4().makeTranslation(
-            0,
-            0,
-            estimateRobotGroundOffset(component.robot, {
-              renderableBounds: component.renderableBounds,
-            }),
-          )
-        : new THREE.Matrix4().identity();
-    const worldMatrix = offsetMatrix
-      .clone()
-      .multiply(displayGroundLiftMatrix)
-      .multiply(componentTransformMatrix)
-      .multiply(semanticRootMatrix);
+    const rootDisplayMatrix =
+      rootDisplayMatrixByComponentId.get(rootComponentId)?.clone() ??
+      new THREE.Matrix4().identity();
+    const componentHasIncomingBridge = hasIncomingBridge(assemblyState, componentId);
+    const componentIsIndividuallyTransformable = isAssemblyComponentIndividuallyTransformable(
+      assemblyState,
+      componentId,
+    );
+    const componentTransformMatrix = buildAssemblyTransformMatrix(component.transform);
+    // Incoming bridge alignment is authored onto the component transform for
+    // both root-link and non-root child-link bridges. By contrast, isolated
+    // components already have their authored transform wrapped into the
+    // exportable merged robot's semantic root matrix.
+    const mergedRootAlreadyEncodesComponentTransform =
+      componentIsIndividuallyTransformable &&
+      semanticRootMatrixMatchesAssemblyTransform(semanticRootMatrix, component.transform);
+    const worldMatrix = componentHasIncomingBridge
+      ? rootDisplayMatrix.clone().multiply(componentTransformMatrix)
+      : mergedRootAlreadyEncodesComponentTransform
+        ? rootDisplayMatrix.clone().multiply(semanticRootMatrix)
+        : rootDisplayMatrix.clone().multiply(componentTransformMatrix).multiply(semanticRootMatrix);
     const syntheticJointId = buildWorkspaceViewerComponentRootJointId(componentId);
 
     joints[syntheticJointId] = {

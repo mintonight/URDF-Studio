@@ -29,6 +29,8 @@ interface UnifiedVisualizerOptionsPanelProps {
   setJointAxisSize: (size: number) => void;
   showCollision: boolean;
   setShowCollision: (show: boolean) => void;
+  showIkHandles: boolean;
+  setShowIkHandles: (show: boolean) => void;
   showInertia: boolean;
   setShowInertia: (show: boolean) => void;
   showCenterOfMass: boolean;
@@ -46,7 +48,10 @@ interface UnifiedVisualizerOptionsPanelProps {
   setGroundPlaneOffset: (value: number) => void;
 }
 
-export const UnifiedVisualizerOptionsPanel = forwardRef<HTMLDivElement, UnifiedVisualizerOptionsPanelProps>(
+export const UnifiedVisualizerOptionsPanel = forwardRef<
+  HTMLDivElement,
+  UnifiedVisualizerOptionsPanelProps
+>(
   (
     {
       lang,
@@ -66,6 +71,8 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<HTMLDivElement, UnifiedV
       setJointAxisSize,
       showCollision,
       setShowCollision,
+      showIkHandles,
+      setShowIkHandles,
       showInertia,
       setShowInertia,
       showCenterOfMass,
@@ -109,6 +116,7 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<HTMLDivElement, UnifiedV
           resizable={true}
           isCollapsed={isCollapsed}
           resizeTitle={t.resize}
+          showRightResizeHandle={false}
         >
           <OptionsPanelHeader
             title={t.viewOptions}
@@ -134,6 +142,13 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<HTMLDivElement, UnifiedV
                 checked={showCollision}
                 onChange={setShowCollision}
                 label={t.showCollision}
+                labelClassName={englishCheckboxLabelClassName}
+              />
+
+              <CheckboxOption
+                checked={showIkHandles}
+                onChange={setShowIkHandles}
+                label={t.showIkHandles}
                 labelClassName={englishCheckboxLabelClassName}
               />
 

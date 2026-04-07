@@ -177,7 +177,8 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
   );
   const robotSelection = useSelectionStore((state) => state.selection);
 
-  const fileTree = useMemo(() => buildFileTree(availableFiles), [availableFiles]);
+  const browserAvailableFiles = availableFiles;
+  const fileTree = useMemo(() => buildFileTree(browserAvailableFiles), [browserAvailableFiles]);
   const treeRobot = useMemo<RobotState>(() => {
     if (isAssemblyView) {
       return {
@@ -194,7 +195,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
   const topLevelLibraryFoldersKey = useMemo(() => {
     const firstLevel = new Set<string>();
 
-    availableFiles.forEach((file) => {
+    browserAvailableFiles.forEach((file) => {
       const firstPart = file.name.split('/')[0];
       if (firstPart) {
         firstLevel.add(firstPart);
@@ -202,7 +203,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     });
 
     return Array.from(firstLevel).sort().join('\u0000');
-  }, [availableFiles]);
+  }, [browserAvailableFiles]);
 
   const childJointsByParent = useMemo<Record<string, RobotState['joints'][string][]>>(
     () => (isAssemblyView ? {} : buildChildJointsByParent(robot.joints)),
@@ -543,7 +544,6 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
       <TreeEditorSidebarHeader
         collapsed={collapsed}
         onToggle={onToggle}
-        modeLabel={t.modeLabel}
         isProMode={isProMode}
         simpleModeLabel={t.simpleMode}
         proModeLabel={t.proMode}
@@ -573,7 +573,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
             isProMode={isProMode}
             height={fileBrowserHeight}
             shouldFillSpace={shouldFileBrowserFillSpace}
-            availableFiles={availableFiles}
+            availableFiles={browserAvailableFiles}
             fileTree={fileTree}
             expandedFolders={expandedFolders}
             editingFolderPath={editingFolderPath}

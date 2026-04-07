@@ -71,14 +71,22 @@ export {
   UnifiedTransformControls,
   VISUALIZER_UNIFIED_GIZMO_SIZE,
 } from './UnifiedTransformControls';
+export { LinkIkTransformControls } from './LinkIkTransformControls';
 export { LoadingHud } from './LoadingHud';
 export {
   buildLoadingHudState,
+  hasDeterminateLoadingCounts,
+  normalizeLoadingProgress,
+  resolveLoadingProgressMode,
   shouldUseIndeterminateStreamingMeshProgress,
 } from './loadingHudState';
 
 // Visualization Helpers
 export * from './helpers';
+
+export { WorkspaceCanvas } from './workspace';
+export { resolveWorkspaceCanvasEnvironmentIntensity, useWorkspaceCanvasTheme } from './workspace';
+export type { WorkspaceCanvasEnvironmentIntensityByTheme } from './workspace';
 
 export { UsageGuide } from './UsageGuide';
 export { ViewModeBadge } from './ViewModeBadge';

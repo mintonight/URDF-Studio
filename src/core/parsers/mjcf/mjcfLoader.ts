@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { type MJCFMeshCache } from './mjcfGeometry';
 import { buildMJCFHierarchy } from './mjcfHierarchyBuilder';
 import { resolveMJCFMeshBackedPrimitiveGeoms } from './mjcfMeshBackedPrimitiveResolver';
-import { clearParsedMJCFModelCache, parseMJCFModel } from './mjcfModel';
+import { clearParsedMJCFModelCache, getParsedMJCFModelError, parseMJCFModel } from './mjcfModel';
 import { looksLikeMJCFDocument } from './mjcfUtils';
 import { disposeColladaParseWorkerPoolClient } from '@/core/loaders/colladaParseWorkerBridge';
 import { disposeObjParseWorkerPoolClient } from '@/core/loaders/objParseWorkerBridge';
@@ -27,6 +27,7 @@ interface MJCFBody {
   quat?: [number, number, number, number];
   euler?: [number, number, number];
   geoms: MJCFGeom[];
+  sites?: MJCFSite[];
   joints: MJCFJoint[];
   children: MJCFBody[];
 }
@@ -56,6 +57,22 @@ interface MJCFJoint {
   pos?: [number, number, number];
 }
 
+interface MJCFSite {
+  name: string;
+  type: string;
+  size?: number[];
+  rgba?: [number, number, number, number];
+  pos?: [number, number, number];
+  quat?: [number, number, number, number];
+}
+
+interface MJCFTendonVisualizationData {
+  name: string;
+  rgba?: [number, number, number, number];
+  attachmentRefs: string[];
+  width?: number;
+}
+
 export interface MJCFLoadProgress {
   phase: 'preparing-scene' | 'streaming-meshes' | 'finalizing-scene' | 'ready';
   progressPercent?: number | null;
@@ -65,6 +82,7 @@ export interface MJCFLoadProgress {
 
 export interface LoadMJCFToThreeJSOptions {
   abortSignal?: MJCFLoadAbortSignal;
+  onAsyncSceneMutation?: () => void;
 }
 
 /** Load MJCF XML content and create a Three.js scene graph. */
@@ -78,7 +96,7 @@ export async function loadMJCFToThreeJS(
   const emitProgress = (progress: MJCFLoadProgress) => {
     onProgress?.(progress);
   };
-  const { abortSignal } = options;
+  const { abortSignal, onAsyncSceneMutation } = options;
   const throwIfAborted = () => {
     throwIfMJCFLoadAborted(abortSignal);
   };
@@ -104,7 +122,11 @@ export async function loadMJCFToThreeJS(
     throwIfAborted();
     const parsedModel = parseMJCFModel(xmlContent);
     if (!parsedModel) {
-      throw new Error('[MJCFLoader] Failed to parse MJCF model document.');
+      const parseFailureReason = getParsedMJCFModelError(xmlContent);
+      const message = parseFailureReason
+        ? `[MJCFLoader] Failed to parse MJCF model document: ${parseFailureReason}`
+        : '[MJCFLoader] Failed to parse MJCF model document.';
+      throw new Error(message);
     }
 
     const modelName = parsedModel.modelName;
@@ -138,8 +160,19 @@ export async function loadMJCFToThreeJS(
     rootGroup = new THREE.Group();
     rootGroup.name = modelName;
     (rootGroup as any).isURDFRobot = true;
+    rootGroup.userData.__mjcfTendonsData = Array.from(parsedModel.tendonMap.values()).map(
+      (tendon) =>
+        ({
+          name: tendon.name,
+          rgba: tendon.rgba,
+          ...(typeof tendon.width === 'number' ? { width: tendon.width } : {}),
+          attachmentRefs: tendon.attachments
+            .filter((attachment) => attachment.type === 'site' && attachment.ref)
+            .map((attachment) => attachment.ref!),
+        }) satisfies MJCFTendonVisualizationData,
+    );
 
-    const { linksMap, jointsMap } = await buildMJCFHierarchy({
+    const { linksMap, jointsMap, deferredTextureApplicationsReady } = await buildMJCFHierarchy({
       bodies,
       rootGroup,
       meshMap,
@@ -150,6 +183,7 @@ export async function loadMJCFToThreeJS(
       materialMap,
       textureMap,
       sourceFileDir,
+      onAsyncSceneMutation,
       onProgress: ({ processedGeoms, totalGeoms }) => {
         const normalizedPercent = totalGeoms > 0 ? 28 + (processedGeoms / totalGeoms) * 60 : 88;
 
@@ -176,6 +210,8 @@ export async function loadMJCFToThreeJS(
       phase: 'ready',
       progressPercent: 100,
     });
+
+    void deferredTextureApplicationsReady;
 
     return rootGroup;
   } catch (error) {

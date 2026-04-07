@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { loadMJCFMeshObject, type MJCFMeshCache } from './mjcfMeshAssetLoader';
-import { applyMeshAssetTransform, resolveMJCFAssetUrl } from './mjcfGeometry';
+import {
+  applyMeshAssetTransform,
+  createInlineMJCFMeshObject,
+  resolveMJCFAssetUrl,
+} from './mjcfGeometry';
 import type { MJCFModelBody, MJCFModelGeom, ParsedMJCFModel } from './mjcfModel';
 import type { MJCFMesh, MJCFMeshInertiaMode } from './mjcfUtils';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
@@ -1374,6 +1378,30 @@ async function fitPrimitiveFromMeshAssetViaUrl(
   abortSignal?: MJCFLoadAbortSignal,
 ): Promise<MJCFFittedPrimitive | null> {
   throwIfMJCFLoadAborted(abortSignal);
+  if (meshDef.vertices?.length) {
+    const inlineObject = createInlineMJCFMeshObject(meshDef);
+    if (!inlineObject) {
+      return null;
+    }
+
+    const transformed = applyMeshAssetTransform(inlineObject, meshDef);
+    try {
+      throwIfMJCFLoadAborted(abortSignal);
+      const fit = fitPrimitiveFromObject3D(transformed, geomType, {
+        fitaabb: fitStrategy === 'aabb',
+        inertia: meshDef.inertia,
+      });
+      throwIfMJCFLoadAborted(abortSignal);
+      return fit;
+    } finally {
+      disposeTransientObject3D(transformed);
+    }
+  }
+
+  if (!meshDef.file) {
+    return null;
+  }
+
   const assetUrl = resolveMJCFAssetUrl(meshDef.file, assets, sourceFileDir);
   if (!assetUrl) {
     return null;
@@ -1487,7 +1515,8 @@ function createDefaultMeshPrimitiveFitter(
       fitStrategy,
       geomType,
       meshDef.name,
-      meshDef.file,
+      meshDef.file || '',
+      meshDef.vertices?.join(',') || '',
       meshDef.scale?.join(',') || '',
       meshDef.refpos?.join(',') || '',
       meshDef.refquat?.join(',') || '',

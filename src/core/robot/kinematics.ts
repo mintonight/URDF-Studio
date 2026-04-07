@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import type { Euler, JointQuaternion, RobotData, UrdfJoint } from '@/types';
 
 const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
+const JOINT_AXIS_EPSILON_SQ = 1e-12;
 
 export type JointOriginOverrideMap = Record<string, UrdfJoint['origin']>;
 export type JointAngleOverrideMap = Record<string, number>;
@@ -14,37 +15,79 @@ export interface JointKinematicOverrideMap {
   quaternions?: JointQuaternionOverrideMap;
 }
 
-export function createOriginMatrix(origin?: { xyz?: { x?: number; y?: number; z?: number }; rpy?: Euler }): THREE.Matrix4 {
+export function createOriginMatrix(origin?: {
+  xyz?: { x?: number; y?: number; z?: number };
+  rpy?: Euler;
+}): THREE.Matrix4 {
   const matrix = new THREE.Matrix4();
-  const position = new THREE.Vector3(
-    origin?.xyz?.x ?? 0,
-    origin?.xyz?.y ?? 0,
-    origin?.xyz?.z ?? 0,
-  );
+  const position = new THREE.Vector3(origin?.xyz?.x ?? 0, origin?.xyz?.y ?? 0, origin?.xyz?.z ?? 0);
   const quaternion = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(
-      origin?.rpy?.r ?? 0,
-      origin?.rpy?.p ?? 0,
-      origin?.rpy?.y ?? 0,
-      'ZYX',
-    ),
+    new THREE.Euler(origin?.rpy?.r ?? 0, origin?.rpy?.p ?? 0, origin?.rpy?.y ?? 0, 'ZYX'),
   );
 
   matrix.compose(position, quaternion, UNIT_SCALE);
   return matrix;
 }
 
-function getNormalizedJointAxis(joint: UrdfJoint): THREE.Vector3 {
-  const axisVector = new THREE.Vector3(
-    joint.axis?.x ?? 0,
-    joint.axis?.y ?? 0,
-    joint.axis?.z ?? 1,
-  );
-  if (axisVector.lengthSq() <= 1e-12) {
+export function getJointReferencePosition(joint: Pick<UrdfJoint, 'referencePosition'>): number {
+  return Number.isFinite(joint.referencePosition) ? joint.referencePosition! : 0;
+}
+
+export function getNormalizedJointAxis(joint: Pick<UrdfJoint, 'axis'>): THREE.Vector3 {
+  const axisVector = new THREE.Vector3(joint.axis?.x ?? 0, joint.axis?.y ?? 0, joint.axis?.z ?? 1);
+  if (axisVector.lengthSq() <= JOINT_AXIS_EPSILON_SQ) {
     return new THREE.Vector3(0, 0, 1);
   }
 
   return axisVector.normalize();
+}
+
+export function getJointMotionAngleFromActualAngle(
+  joint: Pick<UrdfJoint, 'referencePosition'>,
+  actualAngle: number,
+): number {
+  return actualAngle - getJointReferencePosition(joint);
+}
+
+export function getJointActualAngleFromMotionAngle(
+  joint: Pick<UrdfJoint, 'referencePosition'>,
+  motionAngle: number,
+): number {
+  return motionAngle + getJointReferencePosition(joint);
+}
+
+export function extractSignedAngleAroundAxis(
+  quaternion: THREE.Quaternion,
+  axis: THREE.Vector3,
+): number {
+  const normalizedQuaternion = quaternion.clone().normalize();
+  const normalizedAxis =
+    axis.lengthSq() <= JOINT_AXIS_EPSILON_SQ
+      ? new THREE.Vector3(0, 0, 1)
+      : axis.clone().normalize();
+  const vectorPart = new THREE.Vector3(
+    normalizedQuaternion.x,
+    normalizedQuaternion.y,
+    normalizedQuaternion.z,
+  );
+  return 2 * Math.atan2(vectorPart.dot(normalizedAxis), normalizedQuaternion.w);
+}
+
+export function extractJointMotionAngleFromQuaternion(
+  joint: Pick<UrdfJoint, 'axis'>,
+  quaternion: THREE.Quaternion,
+): number {
+  return extractSignedAngleAroundAxis(quaternion, getNormalizedJointAxis(joint));
+}
+
+export function extractJointActualAngleFromQuaternion(
+  joint: Pick<UrdfJoint, 'axis' | 'referencePosition'>,
+  quaternion: THREE.Quaternion,
+): number {
+  return getJointActualAngleFromMotionAngle(
+    joint,
+    extractJointMotionAngleFromQuaternion(joint, quaternion),
+  );
 }
 
 export function getJointEffectiveAngle(
@@ -52,15 +95,12 @@ export function getJointEffectiveAngle(
   angleOverrides: JointAngleOverrideMap = {},
 ): number {
   const override = angleOverrides[joint.id];
-  const referencePosition = Number.isFinite(joint.referencePosition)
-    ? joint.referencePosition!
-    : 0;
 
   if (Number.isFinite(override)) {
-    return override - referencePosition;
+    return getJointMotionAngleFromActualAngle(joint, override);
   }
 
-  return (Number.isFinite(joint.angle) ? joint.angle! : 0) - referencePosition;
+  return getJointMotionAngleFromActualAngle(joint, Number.isFinite(joint.angle) ? joint.angle! : 0);
 }
 
 function toThreeQuaternion(quaternion?: JointQuaternion): THREE.Quaternion {
@@ -128,7 +168,9 @@ export function createJointMotionMatrix(
   }
 
   if (joint.type === 'ball') {
-    matrix.makeRotationFromQuaternion(getJointEffectiveQuaternion(joint, overrides.quaternions ?? {}));
+    matrix.makeRotationFromQuaternion(
+      getJointEffectiveQuaternion(joint, overrides.quaternions ?? {}),
+    );
     return matrix;
   }
 
@@ -142,7 +184,9 @@ export function createJointMotionMatrix(
   return matrix;
 }
 
-export function getParentJointByChildLink(robot: Pick<RobotData, 'joints'>): Map<string, UrdfJoint> {
+export function getParentJointByChildLink(
+  robot: Pick<RobotData, 'joints'>,
+): Map<string, UrdfJoint> {
   const parentJointByChild = new Map<string, UrdfJoint>();
   Object.values(robot.joints).forEach((joint) => {
     parentJointByChild.set(joint.childLinkId, joint);
@@ -150,7 +194,9 @@ export function getParentJointByChildLink(robot: Pick<RobotData, 'joints'>): Map
   return parentJointByChild;
 }
 
-export function getChildJointsByParentLink(robot: Pick<RobotData, 'joints'>): Map<string, UrdfJoint[]> {
+export function getChildJointsByParentLink(
+  robot: Pick<RobotData, 'joints'>,
+): Map<string, UrdfJoint[]> {
   const childJointsByParent = new Map<string, UrdfJoint[]>();
 
   Object.values(robot.joints).forEach((joint) => {
@@ -185,7 +231,8 @@ export function computeLinkWorldMatrices(
 
     childJoints.forEach((joint) => {
       const nextOrigin = originOverrides[joint.id] ?? joint.origin;
-      const childMatrix = parentMatrix.clone()
+      const childMatrix = parentMatrix
+        .clone()
         .multiply(createOriginMatrix(nextOrigin))
         .multiply(createJointMotionMatrix(joint, overrides));
       visit(joint.childLinkId, childMatrix);
@@ -196,7 +243,10 @@ export function computeLinkWorldMatrices(
     robot.rootLinkId,
     ...Object.keys(robot.links).filter((linkId) => !childLinkIds.has(linkId)),
     ...Object.keys(robot.links),
-  ].filter((linkId, index, values): linkId is string => Boolean(linkId) && values.indexOf(linkId) === index);
+  ].filter(
+    (linkId, index, values): linkId is string =>
+      Boolean(linkId) && values.indexOf(linkId) === index,
+  );
 
   rootCandidates.forEach((rootLinkId) => {
     visit(rootLinkId, new THREE.Matrix4().identity());

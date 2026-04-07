@@ -5,9 +5,18 @@ import * as THREE from 'three';
 import { createMatteMaterial, MATERIAL_CONFIG } from './materialFactory.ts';
 
 function assertColorClose(actual: THREE.Color, expected: THREE.Color, epsilon = 1e-6): void {
-  assert.ok(Math.abs(actual.r - expected.r) <= epsilon, `expected r=${actual.r} to be close to ${expected.r}`);
-  assert.ok(Math.abs(actual.g - expected.g) <= epsilon, `expected g=${actual.g} to be close to ${expected.g}`);
-  assert.ok(Math.abs(actual.b - expected.b) <= epsilon, `expected b=${actual.b} to be close to ${expected.b}`);
+  assert.ok(
+    Math.abs(actual.r - expected.r) <= epsilon,
+    `expected r=${actual.r} to be close to ${expected.r}`,
+  );
+  assert.ok(
+    Math.abs(actual.g - expected.g) <= epsilon,
+    `expected g=${actual.g} to be close to ${expected.g}`,
+  );
+  assert.ok(
+    Math.abs(actual.b - expected.b) <= epsilon,
+    `expected b=${actual.b} to be close to ${expected.b}`,
+  );
 }
 
 test('createMatteMaterial applies the shared matte defaults', () => {
@@ -34,14 +43,14 @@ test('createMatteMaterial softens non-authored pure white by default', () => {
   assert.ok(material.envMapIntensity < MATERIAL_CONFIG.envMapIntensity);
 });
 
-test('createMatteMaterial can preserve exact authored white when requested', () => {
+test('createMatteMaterial still softens authored near-white colors to keep viewer contrast', () => {
   const material = createMatteMaterial({
     color: 0xffffff,
     preserveExactColor: true,
   });
 
-  assertColorClose(material.color, new THREE.Color(0xffffff));
-  assert.equal(material.toneMapped, false);
+  assertColorClose(material.color, new THREE.Color(0.93, 0.93, 0.93));
+  assert.equal(material.toneMapped, true);
   assert.ok(material.envMapIntensity < MATERIAL_CONFIG.envMapIntensity);
 });
 
@@ -118,7 +127,7 @@ test('createMatteMaterial derives opacity from 8-digit hex colors without changi
   });
 
   assertColorClose(material.color, new THREE.Color('#123456'));
-  assert.ok(Math.abs(material.opacity - (128 / 255)) <= 1e-6);
+  assert.ok(Math.abs(material.opacity - 128 / 255) <= 1e-6);
   assert.equal(material.transparent, true);
   assert.equal(material.toneMapped, false);
 });

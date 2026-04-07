@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
 type UIStoreModule = typeof import('./uiStore.ts');
-const UI_STORE_PERSIST_VERSION = 10;
+const UI_STORE_PERSIST_VERSION = 13;
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -40,7 +40,10 @@ function installDom() {
   return dom;
 }
 
-async function loadUIStore(seedState?: Record<string, unknown>) {
+async function loadUIStore(
+  seedState?: Record<string, unknown>,
+  seedVersion = UI_STORE_PERSIST_VERSION,
+) {
   const dom = installDom();
 
   if (seedState) {
@@ -48,7 +51,7 @@ async function loadUIStore(seedState?: Record<string, unknown>) {
       'urdf-studio-ui',
       JSON.stringify({
         state: seedState,
-        version: UI_STORE_PERSIST_VERSION,
+        version: seedVersion,
       }),
     );
   }
@@ -69,6 +72,7 @@ test('view options restore persisted world-origin axes and usage-guide preferenc
     viewOptions: {
       showGrid: true,
       showAxes: false,
+      showMjcfWorldLink: true,
       showJointAxes: false,
       showInertia: false,
       showCenterOfMass: false,
@@ -80,6 +84,7 @@ test('view options restore persisted world-origin axes and usage-guide preferenc
 
   const state = useUIStore.getState();
   assert.equal(state.viewOptions.showAxes, false);
+  assert.equal(state.viewOptions.showMjcfWorldLink, true);
   assert.equal(state.viewOptions.showUsageGuide, false);
   assert.equal(state.viewOptions.modelOpacity, 0.42);
 
@@ -91,6 +96,7 @@ test('setViewOption persists world-origin axes and usage-guide preferences', asy
 
   const state = useUIStore.getState();
   state.setViewOption('showAxes', false);
+  state.setViewOption('showMjcfWorldLink', true);
   state.setViewOption('showUsageGuide', false);
   state.setViewOption('modelOpacity', 0.42);
 
@@ -101,6 +107,7 @@ test('setViewOption persists world-origin axes and usage-guide preferences', asy
     state?: {
       viewOptions?: {
         showAxes?: boolean;
+        showMjcfWorldLink?: boolean;
         showUsageGuide?: boolean;
         modelOpacity?: number;
       };
@@ -108,8 +115,47 @@ test('setViewOption persists world-origin axes and usage-guide preferences', asy
   };
 
   assert.equal(persisted.state?.viewOptions?.showAxes, false);
+  assert.equal(persisted.state?.viewOptions?.showMjcfWorldLink, true);
   assert.equal(persisted.state?.viewOptions?.showUsageGuide, false);
   assert.equal(persisted.state?.viewOptions?.modelOpacity, 0.42);
+
+  dom.window.close();
+});
+
+test('migration upgrades legacy hidden MJCF world-link preference to the truth-preserving default', async () => {
+  const { dom, useUIStore } = await loadUIStore(
+    {
+      viewOptions: {
+        showGrid: true,
+        showAxes: true,
+        showUsageGuide: true,
+        showMjcfWorldLink: false,
+        showJointAxes: false,
+        showInertia: false,
+        showCenterOfMass: false,
+        showCollision: false,
+        modelOpacity: 1,
+      },
+    },
+    12,
+  );
+
+  const state = useUIStore.getState();
+  assert.equal(state.viewOptions.showMjcfWorldLink, true);
+
+  const raw = dom.window.localStorage.getItem('urdf-studio-ui');
+  assert.ok(raw, 'persisted ui store payload should be written');
+  const persisted = JSON.parse(raw) as {
+    state?: {
+      viewOptions?: {
+        showMjcfWorldLink?: boolean;
+      };
+    };
+    version?: number;
+  };
+
+  assert.equal(persisted.version, UI_STORE_PERSIST_VERSION);
+  assert.equal(persisted.state?.viewOptions?.showMjcfWorldLink, true);
 
   dom.window.close();
 });

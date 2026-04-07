@@ -1,4 +1,4 @@
-import type { DocumentLoadState } from '@/store/assetsStore';
+import type { DocumentLoadLifecycleState } from '@/store/assetsStore';
 import {
   shouldKeepExistingViewerViewportHandoff,
   shouldContinueViewerViewportHandoff,
@@ -19,7 +19,7 @@ interface ResolveUnifiedViewerViewportStateArgs {
   viewerReloadKey: number;
   pendingViewerLoadScopeKey: string | null;
   releasedViewerLoadScopeKey: string | null;
-  documentLoadState: DocumentLoadState;
+  documentLoadState: DocumentLoadLifecycleState;
   shouldUseVisualizerViewportHandoff?: boolean;
 }
 
@@ -57,53 +57,59 @@ export function resolveUnifiedViewerViewportState({
   documentLoadState,
   shouldUseVisualizerViewportHandoff = false,
 }: ResolveUnifiedViewerViewportStateArgs): UnifiedViewerViewportState {
-  const activeViewerDocumentStillLoading = isViewerMode
-    && !isPreviewing
-    && isViewerDocumentLoadingForScope(activeViewportFileName, documentLoadState);
+  const activeViewerDocumentStillLoading =
+    isViewerMode &&
+    !isPreviewing &&
+    isViewerDocumentLoadingForScope(activeViewportFileName, documentLoadState);
   const viewerLoadScopeKey = activeViewportFileName
     ? `${activeViewportFileName}:${viewerReloadKey}`
     : `viewer-reload:${viewerReloadKey}`;
   const hasPendingViewerHandoffForScope = pendingViewerLoadScopeKey === viewerLoadScopeKey;
   const hasUnreleasedViewerLoadScope = releasedViewerLoadScopeKey !== viewerLoadScopeKey;
-  const visualizerAvailableForViewportHandoff = mountState.visualizerMounted
-    || activeViewerDocumentStillLoading
-    || hasUnreleasedViewerLoadScope;
+  const visualizerAvailableForViewportHandoff =
+    mountState.visualizerMounted ||
+    activeViewerDocumentStillLoading ||
+    hasUnreleasedViewerLoadScope;
   const shouldManageVisualizerViewportHandoff = shouldUseVisualizerViewportHandoff;
-  const startViewerViewportHandoff = shouldManageVisualizerViewportHandoff && shouldStartViewerViewportHandoff({
-    wasViewerMode: previousIsViewerMode,
-    isViewerMode,
-    isPreviewing,
-    visualizerMounted: visualizerAvailableForViewportHandoff,
-    viewerSceneReady,
-    hasPendingHandoffForScope: hasPendingViewerHandoffForScope,
-    activeFileName: activeViewportFileName,
-    documentLoadState,
-  });
-  const continueViewerViewportHandoff = shouldManageVisualizerViewportHandoff && shouldContinueViewerViewportHandoff({
-    isViewerMode,
-    isPreviewing,
-    visualizerMounted: visualizerAvailableForViewportHandoff,
-    activeFileName: activeViewportFileName,
-    documentLoadState,
-  });
+  const startViewerViewportHandoff =
+    shouldManageVisualizerViewportHandoff &&
+    shouldStartViewerViewportHandoff({
+      wasViewerMode: previousIsViewerMode,
+      isViewerMode,
+      isPreviewing,
+      visualizerMounted: visualizerAvailableForViewportHandoff,
+      viewerSceneReady,
+      hasPendingHandoffForScope: hasPendingViewerHandoffForScope,
+      activeFileName: activeViewportFileName,
+      documentLoadState,
+    });
+  const continueViewerViewportHandoff =
+    shouldManageVisualizerViewportHandoff &&
+    shouldContinueViewerViewportHandoff({
+      isViewerMode,
+      isPreviewing,
+      visualizerMounted: visualizerAvailableForViewportHandoff,
+      activeFileName: activeViewportFileName,
+      documentLoadState,
+    });
   const keepExistingViewerViewportHandoff = shouldKeepExistingViewerViewportHandoff({
     startHandoff: startViewerViewportHandoff,
     continueHandoff: continueViewerViewportHandoff,
     hasPendingHandoffForScope: hasPendingViewerHandoffForScope,
   });
-  const displayVisualizerWhileViewerLoads = isViewerMode
-    && !isPreviewing
-    && shouldUseVisualizerViewportHandoff
-    && visualizerAvailableForViewportHandoff
-    && (
-      hasUnreleasedViewerLoadScope
-      || keepExistingViewerViewportHandoff
-      || (hasPendingViewerHandoffForScope && !viewerSceneReady)
-    );
+  const displayVisualizerWhileViewerLoads =
+    isViewerMode &&
+    !isPreviewing &&
+    shouldUseVisualizerViewportHandoff &&
+    visualizerAvailableForViewportHandoff &&
+    (hasUnreleasedViewerLoadScope ||
+      keepExistingViewerViewportHandoff ||
+      (hasPendingViewerHandoffForScope && !viewerSceneReady));
   const keepViewerMountedDuringHandoff = displayVisualizerWhileViewerLoads;
   const viewerVisible = isViewerMode && !displayVisualizerWhileViewerLoads;
   const visualizerVisible = !isViewerMode || displayVisualizerWhileViewerLoads;
-  const shouldRenderViewerScene = mountState.viewerMounted || viewerVisible || keepViewerMountedDuringHandoff;
+  const shouldRenderViewerScene =
+    mountState.viewerMounted || viewerVisible || keepViewerMountedDuringHandoff;
   const shouldRenderVisualizerScene = mountState.visualizerMounted || visualizerVisible;
   const activeScene = viewerVisible ? 'viewer' : 'visualizer';
   const useViewerCanvasPresentation = viewerVisible || displayVisualizerWhileViewerLoads;

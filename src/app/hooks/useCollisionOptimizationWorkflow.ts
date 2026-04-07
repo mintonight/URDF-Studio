@@ -6,8 +6,8 @@ import type {
   CollisionOptimizationOperation,
   CollisionOptimizationSource,
   CollisionTargetRef,
-} from '@/features/property-editor/utils';
-import { applyCollisionOptimizationOperationsToLinks } from '@/features/property-editor/utils';
+} from '@/features/property-editor';
+import { applyCollisionOptimizationOperationsToLinks } from '@/features/property-editor';
 
 interface SelectionPayload {
   type: 'link';
@@ -73,74 +73,85 @@ export function useCollisionOptimizationWorkflow({
     };
   }, [assemblyState, robotJoints, robotLinks, robotMaterials, robotName, rootLinkId, sidebarTab]);
 
-  const handlePreviewCollisionOptimizationTarget = useCallback((target: CollisionTargetRef) => {
-    const nextSelection = {
-      type: 'link' as const,
-      id: target.linkId,
-      subType: 'collision' as const,
-      objectIndex: target.objectIndex,
-    };
+  const handlePreviewCollisionOptimizationTarget = useCallback(
+    (target: CollisionTargetRef) => {
+      const nextSelection = {
+        type: 'link' as const,
+        id: target.linkId,
+        subType: 'collision' as const,
+        objectIndex: target.objectIndex,
+      };
 
-    setSelection(nextSelection);
-    pulseSelection(nextSelection);
-    focusOn(target.linkId);
-  }, [focusOn, pulseSelection, setSelection]);
+      setSelection(nextSelection);
+      pulseSelection(nextSelection);
+      focusOn(target.linkId);
+    },
+    [focusOn, pulseSelection, setSelection],
+  );
 
-  const handleApplyCollisionOptimization = useCallback((operations: CollisionOptimizationOperation[]) => {
-    if (operations.length === 0) {
-      showToast(t.noCollisionOptimizationApplied, 'info');
-      return;
-    }
+  const handleApplyCollisionOptimization = useCallback(
+    (operations: CollisionOptimizationOperation[]) => {
+      if (operations.length === 0) {
+        showToast(t.noCollisionOptimizationApplied, 'info');
+        return;
+      }
 
-    if (assemblyState && sidebarTab === 'workspace') {
-      const operationsByComponent = new Map<string, CollisionOptimizationOperation[]>();
-      operations.forEach((operation) => {
-        if (!operation.componentId) return;
-        const bucket = operationsByComponent.get(operation.componentId) ?? [];
-        bucket.push(operation);
-        operationsByComponent.set(operation.componentId, bucket);
-      });
-
-      operationsByComponent.forEach((componentOperations, componentId) => {
-        const component = assemblyState.components[componentId];
-        if (!component) return;
-
-        updateComponentRobot(componentId, {
-          links: applyCollisionOptimizationOperationsToLinks(component.robot.links, componentOperations),
+      if (assemblyState && sidebarTab === 'workspace') {
+        const operationsByComponent = new Map<string, CollisionOptimizationOperation[]>();
+        operations.forEach((operation) => {
+          if (!operation.componentId) return;
+          const bucket = operationsByComponent.get(operation.componentId) ?? [];
+          bucket.push(operation);
+          operationsByComponent.set(operation.componentId, bucket);
         });
-      });
-    } else {
-      setRobot({
-        name: robotName,
-        links: applyCollisionOptimizationOperationsToLinks(robotLinks, operations),
-        joints: robotJoints,
-        rootLinkId,
-        materials: robotMaterials,
-      });
-    }
 
-    const meshConvertedCount = operations.filter((operation) => operation.fromTypes.includes(GeometryType.MESH)).length;
-    const primitiveConvertedCount = operations.length - meshConvertedCount;
+        operationsByComponent.forEach((componentOperations, componentId) => {
+          const component = assemblyState.components[componentId];
+          if (!component) return;
 
-    const message = t.collisionOptimizationApplied
-      .replace('{count}', String(operations.length))
-      .replace('{meshCount}', String(meshConvertedCount))
-      .replace('{primitiveCount}', String(primitiveConvertedCount));
+          updateComponentRobot(componentId, {
+            links: applyCollisionOptimizationOperationsToLinks(
+              component.robot.links,
+              componentOperations,
+            ),
+          });
+        });
+      } else {
+        setRobot({
+          name: robotName,
+          links: applyCollisionOptimizationOperationsToLinks(robotLinks, operations),
+          joints: robotJoints,
+          rootLinkId,
+          materials: robotMaterials,
+        });
+      }
 
-    showToast(message, 'success');
-  }, [
-    assemblyState,
-    robotJoints,
-    robotMaterials,
-    robotName,
-    rootLinkId,
-    setRobot,
-    showToast,
-    sidebarTab,
-    robotLinks,
-    updateComponentRobot,
-    t,
-  ]);
+      const meshConvertedCount = operations.filter((operation) =>
+        operation.fromTypes.includes(GeometryType.MESH),
+      ).length;
+      const primitiveConvertedCount = operations.length - meshConvertedCount;
+
+      const message = t.collisionOptimizationApplied
+        .replace('{count}', String(operations.length))
+        .replace('{meshCount}', String(meshConvertedCount))
+        .replace('{primitiveCount}', String(primitiveConvertedCount));
+
+      showToast(message, 'success');
+    },
+    [
+      assemblyState,
+      robotJoints,
+      robotMaterials,
+      robotName,
+      rootLinkId,
+      setRobot,
+      showToast,
+      sidebarTab,
+      robotLinks,
+      updateComponentRobot,
+      t,
+    ],
+  );
 
   return {
     collisionOptimizationSource,

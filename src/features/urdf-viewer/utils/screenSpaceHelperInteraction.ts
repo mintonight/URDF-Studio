@@ -43,19 +43,25 @@ export interface ResolveScreenSpaceHelperInteractionOptions {
 
 function isHelperProjectionRoot(object: THREE.Object3D): boolean {
   const explicitHelperKind = object.userData?.viewerHelperKind;
-  return explicitHelperKind === 'center-of-mass'
-    || explicitHelperKind === 'inertia'
-    || explicitHelperKind === 'origin-axes'
-    || explicitHelperKind === 'joint-axis'
-    || object.name === '__com_visual__'
-    || object.name === '__inertia_box__'
-    || object.name === '__origin_axes__'
-    || object.name === '__joint_axis__'
-    || object.name === '__joint_axis_helper__';
+  return (
+    explicitHelperKind === 'ik-handle' ||
+    explicitHelperKind === 'center-of-mass' ||
+    explicitHelperKind === 'inertia' ||
+    explicitHelperKind === 'origin-axes' ||
+    explicitHelperKind === 'joint-axis' ||
+    object.name === '__ik_handle__' ||
+    object.name === '__com_visual__' ||
+    object.name === '__inertia_box__' ||
+    object.name === '__origin_axes__' ||
+    object.name === '__joint_axis__' ||
+    object.name === '__joint_axis_helper__'
+  );
 }
 
 function resolveHelperLayer(helperKind: ViewerHelperKind): ViewerInteractiveLayer {
   switch (helperKind) {
+    case 'ik-handle':
+      return 'ik-handle';
     case 'origin-axes':
       return 'origin-axes';
     case 'joint-axis':
@@ -92,15 +98,23 @@ function getHelperPaddingPx(helperKind: ViewerHelperKind): number {
   return 4;
 }
 
+function supportsScreenSpaceHelperFallback(helperKind: ViewerHelperKind): boolean {
+  // Inertia helpers already render a solid pickable mesh. Expanding their
+  // footprint in screen space makes hover/click trigger visibly outside the box.
+  return helperKind !== 'inertia';
+}
+
 function getDistanceToExpandedRect(
   pointerClientX: number,
   pointerClientY: number,
   target: ProjectedHelperInteractionTarget,
 ): number {
-  const halfWidth = Math.max(target.projectedWidth * 0.5, MIN_HELPER_HALF_EXTENT_PX)
-    + getHelperPaddingPx(target.helperKind);
-  const halfHeight = Math.max(target.projectedHeight * 0.5, MIN_HELPER_HALF_EXTENT_PX)
-    + getHelperPaddingPx(target.helperKind);
+  const halfWidth =
+    Math.max(target.projectedWidth * 0.5, MIN_HELPER_HALF_EXTENT_PX) +
+    getHelperPaddingPx(target.helperKind);
+  const halfHeight =
+    Math.max(target.projectedHeight * 0.5, MIN_HELPER_HALF_EXTENT_PX) +
+    getHelperPaddingPx(target.helperKind);
   const dx = Math.max(Math.abs(pointerClientX - target.clientX) - halfWidth, 0);
   const dy = Math.max(Math.abs(pointerClientY - target.clientY) - halfHeight, 0);
 
@@ -128,7 +142,12 @@ export function collectProjectedHelperInteractionTargets(options: {
     }
 
     const resolved = resolveInteractionSelectionHit(robot, object);
-    if (!resolved || resolved.targetKind !== 'helper' || !resolved.helperKind) {
+    if (
+      !resolved ||
+      resolved.targetKind !== 'helper' ||
+      resolved.type === 'tendon' ||
+      !resolved.helperKind
+    ) {
       return;
     }
 
@@ -172,13 +191,19 @@ export function resolveScreenSpaceHelperInteraction({
   projectedHelpers,
   interactionLayerPriority,
 }: ResolveScreenSpaceHelperInteractionOptions): ResolvedHoverInteractionCandidate | null {
-  let bestMatch: (ProjectedHelperInteractionTarget & {
-    edgeDistance: number;
-    centerDistance: number;
-    layerPriorityScore: number;
-  }) | null = null;
+  let bestMatch:
+    | (ProjectedHelperInteractionTarget & {
+        edgeDistance: number;
+        centerDistance: number;
+        layerPriorityScore: number;
+      })
+    | null = null;
 
   for (const helperTarget of projectedHelpers) {
+    if (!supportsScreenSpaceHelperFallback(helperTarget.helperKind)) {
+      continue;
+    }
+
     const edgeDistance = getDistanceToExpandedRect(pointerClientX, pointerClientY, helperTarget);
     if (edgeDistance > 0) {
       continue;

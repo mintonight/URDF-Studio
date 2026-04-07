@@ -5,6 +5,7 @@ import {
   DEFAULT_LINK,
   GeometryType,
   JointType,
+  type RobotClosedLoopConstraint,
   type Euler,
   type RobotMaterialState,
   type RobotState,
@@ -81,11 +82,17 @@ interface ParsedSdfLinkRecord {
   worldMatrix: THREE.Matrix4;
 }
 
+interface ParsedSdfJointRecord {
+  joint: UrdfJoint;
+  worldMatrix: THREE.Matrix4;
+}
+
 interface ParsedSdfGraph {
   links: Record<string, UrdfLink>;
   joints: Record<string, UrdfJoint>;
   materials: Record<string, RobotMaterialState>;
   linkRecords: Map<string, ParsedSdfLinkRecord>;
+  jointRecords: Map<string, ParsedSdfJointRecord>;
 }
 
 export interface ParseSDFOptions {
@@ -117,9 +124,9 @@ function isElementNode(node: Node | null | undefined): node is Element {
 }
 
 function getDirectChildElements(parent: Element, tagName?: string): Element[] {
-  return Array.from(parent.childNodes).filter(isElementNode).filter((child) => (
-    !tagName || child.tagName === tagName
-  ));
+  return Array.from(parent.childNodes)
+    .filter(isElementNode)
+    .filter((child) => !tagName || child.tagName === tagName);
 }
 
 function getFirstDirectChild(parent: Element, tagName: string): Element | null {
@@ -199,12 +206,14 @@ function matrixToPose(matrix: THREE.Matrix4): Pose {
 }
 
 function isIdentityPose(pose: Pose, epsilon = 1e-9): boolean {
-  return Math.abs(pose.xyz.x) <= epsilon
-    && Math.abs(pose.xyz.y) <= epsilon
-    && Math.abs(pose.xyz.z) <= epsilon
-    && Math.abs(pose.rpy.r) <= epsilon
-    && Math.abs(pose.rpy.p) <= epsilon
-    && Math.abs(pose.rpy.y) <= epsilon;
+  return (
+    Math.abs(pose.xyz.x) <= epsilon &&
+    Math.abs(pose.xyz.y) <= epsilon &&
+    Math.abs(pose.xyz.z) <= epsilon &&
+    Math.abs(pose.rpy.r) <= epsilon &&
+    Math.abs(pose.rpy.p) <= epsilon &&
+    Math.abs(pose.rpy.y) <= epsilon
+  );
 }
 
 function rgbaTextToHex(text: string | null | undefined): string | undefined {
@@ -221,10 +230,7 @@ function rgbaTextToHex(text: string | null | undefined): string | undefined {
 
 function parseSdfMaterial(
   visualEl: Element,
-  {
-    allFileContents = {},
-    sourcePath,
-  }: ParseSDFOptions = {},
+  { allFileContents = {}, sourcePath }: ParseSDFOptions = {},
 ): ParsedMaterialDefinition {
   const materialEl = getFirstDirectChild(visualEl, 'material');
   if (!materialEl) {
@@ -255,13 +261,19 @@ function parseSdfMaterial(
     });
     if (scriptMaterial) {
       return {
-        ...(scriptMaterial.color || diffuse || ambient ? { color: scriptMaterial.color || diffuse || ambient } : {}),
+        ...(scriptMaterial.color || diffuse || ambient
+          ? { color: scriptMaterial.color || diffuse || ambient }
+          : {}),
         ...(scriptMaterial.texture ? { texture: scriptMaterial.texture } : {}),
         materialSource: 'gazebo',
-        authoredMaterials: [{
-          ...scriptMaterial,
-          ...(scriptMaterial.color || diffuse || ambient ? { color: scriptMaterial.color || diffuse || ambient } : {}),
-        }],
+        authoredMaterials: [
+          {
+            ...scriptMaterial,
+            ...(scriptMaterial.color || diffuse || ambient
+              ? { color: scriptMaterial.color || diffuse || ambient }
+              : {}),
+          },
+        ],
       };
     }
   }
@@ -283,7 +295,10 @@ function parseSdfMaterial(
     : {};
 }
 
-function parseSdfGeometry(geometryEl: Element | null, defaultGeometry: UrdfLink['visual']): ParsedSdfGeometry {
+function parseSdfGeometry(
+  geometryEl: Element | null,
+  defaultGeometry: UrdfLink['visual'],
+): ParsedSdfGeometry {
   if (!geometryEl) {
     return {
       type: defaultGeometry.type,
@@ -362,9 +377,7 @@ function qualifyScopedName(name: string | null | undefined, namespacePrefix?: st
     return '';
   }
 
-  return namespacePrefix
-    ? `${namespacePrefix}::${normalizedName}`
-    : normalizedName;
+  return namespacePrefix ? `${namespacePrefix}::${normalizedName}` : normalizedName;
 }
 
 function qualifyScopedReference(name: string | null | undefined, namespacePrefix?: string): string {
@@ -373,7 +386,11 @@ function qualifyScopedReference(name: string | null | undefined, namespacePrefix
     return '';
   }
 
-  if (normalizedName === MODEL_FRAME || normalizedName === WORLD_FRAME || normalizedName.includes('::')) {
+  if (
+    normalizedName === MODEL_FRAME ||
+    normalizedName === WORLD_FRAME ||
+    normalizedName.includes('::')
+  ) {
     return normalizedName;
   }
 
@@ -452,7 +469,12 @@ function createEmptyLink(id: string, name = id): UrdfLink {
   };
 }
 
-function createFixedJoint(id: string, parentLinkId: string, childLinkId: string, origin: Pose): UrdfJoint {
+function createFixedJoint(
+  id: string,
+  parentLinkId: string,
+  childLinkId: string,
+  origin: Pose,
+): UrdfJoint {
   return {
     ...DEFAULT_JOINT,
     id,
@@ -474,8 +496,124 @@ function createFixedJoint(id: string, parentLinkId: string, childLinkId: string,
   };
 }
 
+class LinkDisjointSet {
+  private readonly parent = new Map<string, string>();
+
+  constructor(linkIds: Iterable<string>) {
+    for (const linkId of linkIds) {
+      this.parent.set(linkId, linkId);
+    }
+  }
+
+  find(linkId: string): string {
+    const directParent = this.parent.get(linkId);
+    if (!directParent || directParent === linkId) {
+      return linkId;
+    }
+
+    const root = this.find(directParent);
+    this.parent.set(linkId, root);
+    return root;
+  }
+
+  union(linkAId: string, linkBId: string): void {
+    const rootA = this.find(linkAId);
+    const rootB = this.find(linkBId);
+    if (rootA !== rootB) {
+      this.parent.set(rootA, rootB);
+    }
+  }
+}
+
 function buildSyntheticJointStageName(linkId: string, stageIndex: number): string {
   return `${linkId}__joint_stage_${stageIndex}`;
+}
+
+function extractTranslation(matrix: THREE.Matrix4): Vector3 {
+  const position = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  matrix.decompose(position, quaternion, scale);
+  return { x: position.x, y: position.y, z: position.z };
+}
+
+function buildClosedLoopConstraintFromSdfJoint(
+  jointId: string,
+  joint: UrdfJoint,
+  graph: ParsedSdfGraph,
+): RobotClosedLoopConstraint | null {
+  if (joint.type !== JointType.BALL || !joint.parentLinkId || !joint.childLinkId) {
+    return null;
+  }
+
+  const parentWorldMatrix = graph.linkRecords.get(joint.parentLinkId)?.worldMatrix;
+  const childWorldMatrix = graph.linkRecords.get(joint.childLinkId)?.worldMatrix;
+  if (!parentWorldMatrix || !childWorldMatrix) {
+    return null;
+  }
+
+  const jointWorldMatrix =
+    graph.jointRecords.get(jointId)?.worldMatrix ??
+    parentWorldMatrix.clone().multiply(poseToMatrix(joint.origin));
+
+  return {
+    id: jointId,
+    type: 'connect',
+    linkAId: joint.parentLinkId,
+    linkBId: joint.childLinkId,
+    anchorWorld: extractTranslation(jointWorldMatrix),
+    anchorLocalA: extractTranslation(
+      parentWorldMatrix.clone().invert().multiply(jointWorldMatrix.clone()),
+    ),
+    anchorLocalB: extractTranslation(
+      childWorldMatrix.clone().invert().multiply(jointWorldMatrix.clone()),
+    ),
+  };
+}
+
+function selectTreeJointsAndClosedLoops(graph: ParsedSdfGraph): {
+  joints: Record<string, UrdfJoint>;
+  closedLoopConstraints?: RobotClosedLoopConstraint[];
+} {
+  const selectedJoints: Record<string, UrdfJoint> = {};
+  const closedLoopConstraints: RobotClosedLoopConstraint[] = [];
+  const childLinkIds = new Set<string>();
+  const disjointSet = new LinkDisjointSet(Object.keys(graph.links));
+
+  Object.entries(graph.joints).forEach(([jointId, joint]) => {
+    const parentLinkId = joint.parentLinkId;
+    const childLinkId = joint.childLinkId;
+
+    if (!graph.links[childLinkId]) {
+      return;
+    }
+
+    if (!parentLinkId || !graph.links[parentLinkId]) {
+      selectedJoints[jointId] = joint;
+      childLinkIds.add(childLinkId);
+      return;
+    }
+
+    const childAlreadyAssigned = childLinkIds.has(childLinkId);
+    const introducesCycle = disjointSet.find(parentLinkId) === disjointSet.find(childLinkId);
+
+    if (!childAlreadyAssigned && !introducesCycle) {
+      selectedJoints[jointId] = joint;
+      childLinkIds.add(childLinkId);
+      disjointSet.union(parentLinkId, childLinkId);
+      return;
+    }
+
+    const closedLoopConstraint = buildClosedLoopConstraintFromSdfJoint(jointId, joint, graph);
+    if (closedLoopConstraint) {
+      closedLoopConstraints.push(closedLoopConstraint);
+    }
+  });
+
+  return {
+    joints: selectedJoints,
+    ...(closedLoopConstraints.length > 0 ? { closedLoopConstraints } : {}),
+  };
 }
 
 function applyVisualToLink(link: UrdfLink, visual: ParsedSdfVisual): UrdfLink {
@@ -541,6 +679,9 @@ function mergeParsedSdfGraph(target: ParsedSdfGraph, source: ParsedSdfGraph): vo
   source.linkRecords.forEach((record, linkId) => {
     target.linkRecords.set(linkId, record);
   });
+  source.jointRecords.forEach((record, jointId) => {
+    target.jointRecords.set(jointId, record);
+  });
 }
 
 function parseIncludedModelGraph(
@@ -574,10 +715,11 @@ function parseIncludedModelGraph(
     return;
   }
 
-  const includeName = getFirstDirectChild(includeEl, 'name')?.textContent?.trim()
-    || includeModelEl.getAttribute('name')?.trim()
-    || resolvedInclude.path.split('/').slice(-2, -1)[0]
-    || 'included_model';
+  const includeName =
+    getFirstDirectChild(includeEl, 'name')?.textContent?.trim() ||
+    includeModelEl.getAttribute('name')?.trim() ||
+    resolvedInclude.path.split('/').slice(-2, -1)[0] ||
+    'included_model';
 
   const includePose = parsePoseElement(includeEl);
   const nextIncludeStack = new Set(includeStack);
@@ -613,6 +755,7 @@ function parseSdfModel(
     joints: {},
     materials: {},
     linkRecords: new Map<string, ParsedSdfLinkRecord>(),
+    jointRecords: new Map<string, ParsedSdfJointRecord>(),
   };
 
   const linkElements = new Map<string, Element>();
@@ -677,10 +820,11 @@ function parseSdfModel(
     if (!resolvedFrame) {
       const jointEl = jointElements.get(normalizedFrame);
       if (jointEl) {
-        const childLinkId = qualifyScopedReference(
-          getFirstDirectChild(jointEl, 'child')?.textContent?.trim(),
-          namespacePrefix,
-        ) || MODEL_FRAME;
+        const childLinkId =
+          qualifyScopedReference(
+            getFirstDirectChild(jointEl, 'child')?.textContent?.trim(),
+            namespacePrefix,
+          ) || MODEL_FRAME;
         resolvedFrame = resolvePoseWorldMatrix(
           parsePoseElement(jointEl),
           childLinkId,
@@ -692,7 +836,9 @@ function parseSdfModel(
     if (!resolvedFrame) {
       const frameEl = frameElements.get(normalizedFrame);
       if (frameEl) {
-        const attachedTo = qualifyScopedReference(frameEl.getAttribute('attached_to')?.trim(), namespacePrefix) || MODEL_FRAME;
+        const attachedTo =
+          qualifyScopedReference(frameEl.getAttribute('attached_to')?.trim(), namespacePrefix) ||
+          MODEL_FRAME;
         resolvedFrame = resolvePoseWorldMatrix(
           parsePoseElement(frameEl),
           attachedTo,
@@ -722,30 +868,37 @@ function parseSdfModel(
     const linkPose = parsePoseElement(linkEl);
     const linkWorldMatrix = resolveFrameWorldMatrix(linkId);
 
-    const visuals = getDirectChildElements(linkEl, 'visual').map((visualEl, index): ParsedSdfVisual => ({
-      name: visualEl.getAttribute('name')?.trim() || `${linkId}_visual_${index}`,
-      geometry: parseSdfGeometry(getFirstDirectChild(visualEl, 'geometry'), DEFAULT_LINK.visual),
-      pose: resolvePoseRelativeToFrame(
-        parsePoseElement(visualEl),
-        linkId,
-        linkId,
-        resolveFrameWorldMatrix,
-      ),
-      ...parseSdfMaterial(visualEl, {
-        allFileContents,
-        sourcePath,
+    const visuals = getDirectChildElements(linkEl, 'visual').map(
+      (visualEl, index): ParsedSdfVisual => ({
+        name: visualEl.getAttribute('name')?.trim() || `${linkId}_visual_${index}`,
+        geometry: parseSdfGeometry(getFirstDirectChild(visualEl, 'geometry'), DEFAULT_LINK.visual),
+        pose: resolvePoseRelativeToFrame(
+          parsePoseElement(visualEl),
+          linkId,
+          linkId,
+          resolveFrameWorldMatrix,
+        ),
+        ...parseSdfMaterial(visualEl, {
+          allFileContents,
+          sourcePath,
+        }),
       }),
-    }));
+    );
 
-    const collisions = getDirectChildElements(linkEl, 'collision').map((collisionEl): ParsedSdfCollision => ({
-      geometry: parseSdfGeometry(getFirstDirectChild(collisionEl, 'geometry'), DEFAULT_LINK.collision),
-      pose: resolvePoseRelativeToFrame(
-        parsePoseElement(collisionEl),
-        linkId,
-        linkId,
-        resolveFrameWorldMatrix,
-      ),
-    }));
+    const collisions = getDirectChildElements(linkEl, 'collision').map(
+      (collisionEl): ParsedSdfCollision => ({
+        geometry: parseSdfGeometry(
+          getFirstDirectChild(collisionEl, 'geometry'),
+          DEFAULT_LINK.collision,
+        ),
+        pose: resolvePoseRelativeToFrame(
+          parsePoseElement(collisionEl),
+          linkId,
+          linkId,
+          resolveFrameWorldMatrix,
+        ),
+      }),
+    );
 
     const inertial = parseLinkInertial(linkEl, linkId, resolveFrameWorldMatrix);
     let nextLink: UrdfLink = {
@@ -837,7 +990,7 @@ function parseSdfModel(
     const limitEl = getFirstDirectChild(axisEl ?? jointEl, 'limit');
     const dynamicsEl = getFirstDirectChild(axisEl ?? jointEl, 'dynamics');
 
-    graph.joints[jointId] = {
+    const joint: UrdfJoint = {
       ...DEFAULT_JOINT,
       id: jointId,
       name: jointId,
@@ -850,15 +1003,33 @@ function parseSdfModel(
         : undefined,
       limit: LIMIT_IMPORT_TYPES.has(jointType)
         ? {
-          lower: parseFloatSafe(getFirstDirectChild(limitEl ?? jointEl, 'lower')?.textContent, Number.NaN),
-          upper: parseFloatSafe(getFirstDirectChild(limitEl ?? jointEl, 'upper')?.textContent, Number.NaN),
-          effort: parseFloatSafe(getFirstDirectChild(limitEl ?? jointEl, 'effort')?.textContent, Number.NaN),
-          velocity: parseFloatSafe(getFirstDirectChild(limitEl ?? jointEl, 'velocity')?.textContent, Number.NaN),
-        }
+            lower: parseFloatSafe(
+              getFirstDirectChild(limitEl ?? jointEl, 'lower')?.textContent,
+              Number.NaN,
+            ),
+            upper: parseFloatSafe(
+              getFirstDirectChild(limitEl ?? jointEl, 'upper')?.textContent,
+              Number.NaN,
+            ),
+            effort: parseFloatSafe(
+              getFirstDirectChild(limitEl ?? jointEl, 'effort')?.textContent,
+              Number.NaN,
+            ),
+            velocity: parseFloatSafe(
+              getFirstDirectChild(limitEl ?? jointEl, 'velocity')?.textContent,
+              Number.NaN,
+            ),
+          }
         : undefined,
       dynamics: {
-        damping: parseFloatSafe(getFirstDirectChild(dynamicsEl ?? jointEl, 'damping')?.textContent, 0),
-        friction: parseFloatSafe(getFirstDirectChild(dynamicsEl ?? jointEl, 'friction')?.textContent, 0),
+        damping: parseFloatSafe(
+          getFirstDirectChild(dynamicsEl ?? jointEl, 'damping')?.textContent,
+          0,
+        ),
+        friction: parseFloatSafe(
+          getFirstDirectChild(dynamicsEl ?? jointEl, 'friction')?.textContent,
+          0,
+        ),
       },
       hardware: {
         armature: 0,
@@ -868,6 +1039,11 @@ function parseSdfModel(
         motorDirection: 1,
       },
     };
+    graph.joints[jointId] = joint;
+    graph.jointRecords.set(jointId, {
+      joint,
+      worldMatrix: jointWorldMatrix.clone(),
+    });
   }
 
   const incomingJointIdsByChild = new Map<string, string[]>();
@@ -919,7 +1095,12 @@ function parseSdfModel(
     });
 
     incomingJoint.childLinkId = stageLinkId;
-    graph.joints[stageJointId] = createFixedJoint(stageJointId, stageLinkId, linkId, record.parsedPose.pose);
+    const stageJoint = createFixedJoint(stageJointId, stageLinkId, linkId, record.parsedPose.pose);
+    graph.joints[stageJointId] = stageJoint;
+    graph.jointRecords.set(stageJointId, {
+      joint: stageJoint,
+      worldMatrix: jointWorldMatrix.clone().multiply(poseToMatrix(record.parsedPose.pose)),
+    });
   });
 
   return Object.keys(graph.links).length > 0 ? graph : null;
@@ -947,7 +1128,8 @@ export function parseSDF(xmlString: string, options: ParseSDFOptions = {}): Robo
     return null;
   }
 
-  const { links, joints, materials, linkRecords } = parsedGraph;
+  const { links, materials, linkRecords } = parsedGraph;
+  const { joints, closedLoopConstraints } = selectTreeJointsAndClosedLoops(parsedGraph);
 
   const childLinkIds = new Set(Object.values(joints).map((joint) => joint.childLinkId));
   const rootCandidates = Object.keys(links).filter((linkId) => !childLinkIds.has(linkId));
@@ -974,7 +1156,10 @@ export function parseSDF(xmlString: string, options: ParseSDFOptions = {}): Robo
   });
 
   const finalChildLinkIds = new Set(Object.values(joints).map((joint) => joint.childLinkId));
-  const rootLinkId = Object.keys(links).find((linkId) => !finalChildLinkIds.has(linkId)) || Object.keys(links)[0] || '';
+  const rootLinkId =
+    Object.keys(links).find((linkId) => !finalChildLinkIds.has(linkId)) ||
+    Object.keys(links)[0] ||
+    '';
 
   return {
     name: modelName,
@@ -982,6 +1167,7 @@ export function parseSDF(xmlString: string, options: ParseSDFOptions = {}): Robo
     joints,
     rootLinkId,
     ...(Object.keys(materials).length > 0 ? { materials } : {}),
+    ...(closedLoopConstraints ? { closedLoopConstraints } : {}),
     selection: { type: 'link', id: rootLinkId },
   };
 }

@@ -57,7 +57,7 @@ export const DEFAULT_SNAPSHOT_CAPTURE_OPTIONS: SnapshotCaptureOptions = {
   detailLevel: 'high',
   environmentPreset: 'city',
   shadowStyle: 'balanced',
-  groundStyle: 'contact',
+  groundStyle: 'shadow',
   dofMode: 'off',
   backgroundStyle: 'studio',
   hideGrid: true,
@@ -137,9 +137,10 @@ export function normalizeSnapshotCaptureOptions(
   )
     ? (options?.backgroundStyle as SnapshotBackgroundStyle)
     : DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.backgroundStyle;
-  const backgroundStyle = imageFormat === 'jpeg' && requestedBackgroundStyle === 'transparent'
-    ? DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.backgroundStyle
-    : requestedBackgroundStyle;
+  const backgroundStyle =
+    imageFormat === 'jpeg' && requestedBackgroundStyle === 'transparent'
+      ? DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.backgroundStyle
+      : requestedBackgroundStyle;
   const requestedDofMode = SNAPSHOT_DOF_MODES.includes(options?.dofMode as SnapshotDofMode)
     ? (options?.dofMode as SnapshotDofMode)
     : DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.dofMode;

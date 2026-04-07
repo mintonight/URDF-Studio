@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { JSDOM } from 'jsdom';
 
 import {
@@ -7,13 +8,88 @@ import {
   DEFAULT_LINK,
   GeometryType,
   JointType,
+  type RobotClosedLoopConstraint,
   type RobotState,
 } from '@/types';
+import { parseMJCF } from '@/core/parsers/mjcf/mjcfParser.ts';
 import { generateSDF, generateSdfModelConfig } from './sdfGenerator.ts';
 import { parseSDF } from './sdfParser.ts';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
+
+const CLOSED_LOOP_ROUNDTRIP_FIXTURES = [
+  {
+    name: 'agility_cassie',
+    path: 'test/mujoco_menagerie-main/agility_cassie/cassie.xml',
+    expectedClosedLoopCount: 4,
+  },
+  {
+    name: 'robotiq_2f85',
+    path: 'test/mujoco_menagerie-main/robotiq_2f85/2f85.xml',
+    expectedClosedLoopCount: 2,
+  },
+] as const;
+
+function assertVectorAlmostEqual(
+  actual: { x: number; y: number; z: number },
+  expected: { x: number; y: number; z: number },
+  message: string,
+): void {
+  assert.ok(Math.abs(actual.x - expected.x) <= 1e-6, `${message} (x)`);
+  assert.ok(Math.abs(actual.y - expected.y) <= 1e-6, `${message} (y)`);
+  assert.ok(Math.abs(actual.z - expected.z) <= 1e-6, `${message} (z)`);
+}
+
+function assertClosedLoopConstraintsMatch(
+  actualConstraints: RobotClosedLoopConstraint[] | undefined,
+  expectedConstraints: RobotClosedLoopConstraint[] | undefined,
+  fixtureName: string,
+): void {
+  const actualEntries = [...(actualConstraints || [])].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
+  const expectedEntries = [...(expectedConstraints || [])].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
+
+  assert.equal(
+    actualEntries.length,
+    expectedEntries.length,
+    `expected ${fixtureName} to preserve closed-loop constraint count`,
+  );
+
+  const actualById = new Map(actualEntries.map((constraint) => [constraint.id, constraint]));
+  for (const expectedConstraint of expectedEntries) {
+    const actualConstraint = actualById.get(expectedConstraint.id);
+    assert.ok(
+      actualConstraint,
+      `expected ${fixtureName} to preserve closed-loop id ${expectedConstraint.id}`,
+    );
+    if (!actualConstraint) {
+      continue;
+    }
+
+    assert.equal(actualConstraint.type, expectedConstraint.type);
+    assert.equal(actualConstraint.linkAId, expectedConstraint.linkAId);
+    assert.equal(actualConstraint.linkBId, expectedConstraint.linkBId);
+    assertVectorAlmostEqual(
+      actualConstraint.anchorLocalA,
+      expectedConstraint.anchorLocalA,
+      `${fixtureName} ${expectedConstraint.id} anchorLocalA`,
+    );
+    assertVectorAlmostEqual(
+      actualConstraint.anchorLocalB,
+      expectedConstraint.anchorLocalB,
+      `${fixtureName} ${expectedConstraint.id} anchorLocalB`,
+    );
+    assertVectorAlmostEqual(
+      actualConstraint.anchorWorld,
+      expectedConstraint.anchorWorld,
+      `${fixtureName} ${expectedConstraint.id} anchorWorld`,
+    );
+  }
+}
 
 test('generateSDF produces a roundtrippable model package for RobotState data', () => {
   const robot: RobotState = {
@@ -30,31 +106,35 @@ test('generateSDF produces a roundtrippable model package for RobotState data', 
           dimensions: { x: 1, y: 2, z: 3 },
           color: '#336699',
         },
-        visualBodies: [{
-          ...DEFAULT_LINK.visual,
-          type: GeometryType.MESH,
-          dimensions: { x: 0.5, y: 0.5, z: 0.5 },
-          meshPath: 'package://demo_pkg/meshes/sign.dae',
-          color: '#ffffff',
-          origin: {
-            xyz: { x: 0.5, y: 0, z: 0 },
-            rpy: { r: 0, p: 0, y: 0 },
+        visualBodies: [
+          {
+            ...DEFAULT_LINK.visual,
+            type: GeometryType.MESH,
+            dimensions: { x: 0.5, y: 0.5, z: 0.5 },
+            meshPath: 'package://demo_pkg/meshes/sign.dae',
+            color: '#ffffff',
+            origin: {
+              xyz: { x: 0.5, y: 0, z: 0 },
+              rpy: { r: 0, p: 0, y: 0 },
+            },
           },
-        }],
+        ],
         collision: {
           ...DEFAULT_LINK.collision,
           type: GeometryType.BOX,
           dimensions: { x: 1, y: 2, z: 3 },
         },
-        collisionBodies: [{
-          ...DEFAULT_LINK.collision,
-          type: GeometryType.SPHERE,
-          dimensions: { x: 0.25, y: 0.25, z: 0.25 },
-          origin: {
-            xyz: { x: 0, y: 1, z: 0 },
-            rpy: { r: 0, p: 0, y: 0 },
+        collisionBodies: [
+          {
+            ...DEFAULT_LINK.collision,
+            type: GeometryType.SPHERE,
+            dimensions: { x: 0.25, y: 0.25, z: 0.25 },
+            origin: {
+              xyz: { x: 0, y: 1, z: 0 },
+              rpy: { r: 0, p: 0, y: 0 },
+            },
           },
-        }],
+        ],
         inertial: {
           mass: 2.5,
           origin: {
@@ -142,3 +222,36 @@ test('generateSdfModelConfig points Gazebo-style packages at model.sdf', () => {
   assert.match(config, /<name>roundtrip_demo<\/name>/);
   assert.match(config, /<sdf version="1\.7">model\.sdf<\/sdf>/);
 });
+
+for (const fixture of CLOSED_LOOP_ROUNDTRIP_FIXTURES) {
+  test(`generateSDF preserves closed-loop constraints for ${fixture.name}`, () => {
+    const xml = fs.readFileSync(fixture.path, 'utf8');
+    const robot = parseMJCF(xml);
+
+    assert.ok(robot, `expected ${fixture.name} MJCF fixture to parse`);
+    assert.equal(
+      robot?.closedLoopConstraints?.length,
+      fixture.expectedClosedLoopCount,
+      `expected ${fixture.name} MJCF fixture to expose closed loops before SDF export`,
+    );
+
+    if (!robot) {
+      return;
+    }
+
+    const sdf = generateSDF(robot, { packageName: fixture.name });
+    const reparsed = parseSDF(sdf, { sourcePath: `${fixture.name}/model.sdf` });
+
+    assert.ok(reparsed, `expected ${fixture.name} SDF roundtrip to parse`);
+    assert.equal(
+      reparsed?.closedLoopConstraints?.length,
+      fixture.expectedClosedLoopCount,
+      `expected ${fixture.name} SDF roundtrip to preserve closed-loop count`,
+    );
+    assertClosedLoopConstraintsMatch(
+      reparsed?.closedLoopConstraints,
+      robot.closedLoopConstraints,
+      fixture.name,
+    );
+  });
+}

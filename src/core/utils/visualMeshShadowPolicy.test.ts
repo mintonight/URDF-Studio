@@ -4,6 +4,7 @@ import * as THREE from 'three';
 
 import {
   applyVisualMeshShadowPolicy,
+  applyVisualMeshShadowPolicyToObject,
   getVisualMeshTriangleCount,
   shouldVisualMeshParticipateInShadows,
 } from './visualMeshShadowPolicy';
@@ -12,11 +13,7 @@ function createIndexedTriangleMesh(triangleCount: number): THREE.Mesh {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     'position',
-    new THREE.Float32BufferAttribute([
-      0, 0, 0,
-      1, 0, 0,
-      0, 1, 0,
-    ], 3),
+    new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
   );
 
   const index = new Uint32Array(triangleCount * 3);
@@ -52,4 +49,34 @@ test('shared visual mesh shadow policy keeps extremely dense meshes in the shado
 
   assert.equal(hugeMesh.castShadow, true);
   assert.equal(hugeMesh.receiveShadow, true);
+});
+
+test('shared visual mesh shadow policy traverses object trees and skips non-mesh helpers', () => {
+  const root = new THREE.Group();
+  const meshA = createIndexedTriangleMesh(12);
+  const meshB = createIndexedTriangleMesh(6);
+  const helper = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(1, 0, 0),
+    ]),
+    new THREE.LineBasicMaterial({ color: 0xffffff }),
+  );
+
+  meshA.castShadow = false;
+  meshA.receiveShadow = false;
+  meshB.castShadow = false;
+  meshB.receiveShadow = false;
+
+  root.add(meshA);
+  root.add(helper);
+  helper.add(meshB);
+
+  assert.equal(applyVisualMeshShadowPolicyToObject(root), 2);
+  assert.equal(meshA.castShadow, true);
+  assert.equal(meshA.receiveShadow, true);
+  assert.equal(meshB.castShadow, true);
+  assert.equal(meshB.receiveShadow, true);
+  assert.equal((helper as THREE.Line).castShadow, false);
+  assert.equal((helper as THREE.Line).receiveShadow, false);
 });

@@ -210,6 +210,42 @@ function negateAxis(axis: Vector3 | undefined): Vector3 {
   };
 }
 
+function invertJointLimitRange(limit: UrdfJoint['limit']): UrdfJoint['limit'] {
+  if (!limit) {
+    return limit;
+  }
+
+  return {
+    lower: normalizeZero(-limit.upper),
+    upper: normalizeZero(-limit.lower),
+    effort: limit.effort,
+    velocity: limit.velocity,
+  };
+}
+
+function invertSafetyControllerLimits(
+  safetyController: UrdfJoint['safetyController'],
+): UrdfJoint['safetyController'] {
+  if (!safetyController) {
+    return safetyController;
+  }
+
+  const nextSafetyController = { ...safetyController };
+  const hasSoftLower = Number.isFinite(safetyController.softLowerLimit);
+  const hasSoftUpper = Number.isFinite(safetyController.softUpperLimit);
+
+  if (hasSoftLower || hasSoftUpper) {
+    nextSafetyController.softLowerLimit = hasSoftUpper
+      ? normalizeZero(-safetyController.softUpperLimit!)
+      : undefined;
+    nextSafetyController.softUpperLimit = hasSoftLower
+      ? normalizeZero(-safetyController.softLowerLimit!)
+      : undefined;
+  }
+
+  return nextSafetyController;
+}
+
 function reversePathJoint(
   joint: UrdfJoint,
   frameAdjustmentByLinkId: Map<string, THREE.Matrix4>,
@@ -233,6 +269,11 @@ function reversePathJoint(
     joint.type === JointType.PRISMATIC
   ) {
     nextJoint.axis = negateAxis(joint.axis);
+  }
+
+  if (joint.type === JointType.REVOLUTE || joint.type === JointType.PRISMATIC) {
+    nextJoint.limit = invertJointLimitRange(joint.limit);
+    nextJoint.safetyController = invertSafetyControllerLimits(joint.safetyController);
   }
 
   return nextJoint;

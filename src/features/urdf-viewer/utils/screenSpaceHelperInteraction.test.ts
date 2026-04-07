@@ -28,9 +28,7 @@ function createProjectedHelperTarget(
 }
 
 test('resolveScreenSpaceHelperInteraction returns helper when pointer is inside the padded helper footprint', () => {
-  const projectedHelpers = [
-    createProjectedHelperTarget(),
-  ];
+  const projectedHelpers = [createProjectedHelperTarget()];
 
   const result = resolveScreenSpaceHelperInteraction({
     pointerClientX: 208,
@@ -62,15 +60,37 @@ test('resolveScreenSpaceHelperInteraction prefers the closer helper when multipl
 });
 
 test('resolveScreenSpaceHelperInteraction returns null when pointer is outside the helper footprint', () => {
-  const projectedHelpers = [
-    createProjectedHelperTarget(),
-  ];
+  const projectedHelpers = [createProjectedHelperTarget()];
 
   const result = resolveScreenSpaceHelperInteraction({
     pointerClientX: 260,
     pointerClientY: 120,
     projectedHelpers,
     interactionLayerPriority: ['joint-axis', 'collision', 'visual'],
+  });
+
+  assert.equal(result, null);
+});
+
+test('resolveScreenSpaceHelperInteraction does not use padded fallback for inertia helpers', () => {
+  const projectedHelpers = [
+    createProjectedHelperTarget({
+      type: 'link',
+      id: 'base_link',
+      helperKind: 'inertia',
+      layer: 'inertia',
+      sourceName: '__inertia_box__',
+      projectedWidth: 8,
+      projectedHeight: 8,
+      projectedArea: 64,
+    }),
+  ];
+
+  const result = resolveScreenSpaceHelperInteraction({
+    pointerClientX: 208,
+    pointerClientY: 120,
+    projectedHelpers,
+    interactionLayerPriority: ['inertia', 'collision', 'visual'],
   });
 
   assert.equal(result, null);

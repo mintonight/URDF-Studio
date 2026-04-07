@@ -21,9 +21,7 @@ export {
   downloadBlob,
 } from './assetUtils';
 
-export {
-  exportLibraryRobotFile,
-} from './libraryFileExport';
+export { exportLibraryRobotFile } from './libraryFileExport';
 export type {
   LibraryExportFormat,
   ExportLibraryRobotFileOptions,
@@ -31,16 +29,11 @@ export type {
 } from './libraryFileExport';
 
 export { getDroppedFiles } from './fileTraverser';
-export {
-  createImportPathCollisionMap,
-  remapImportedPath,
-} from './libraryImportPathCollisions';
+export { createImportPathCollisionMap, remapImportedPath } from './libraryImportPathCollisions';
 
-export {
-  exportProject,
-  exportProjectWithWorker,
-} from './projectExport';
+export { exportProject, exportProjectWithWorker } from './projectExport';
 export { importProject } from './projectImport';
+export { disposeProjectImportWorker, importProjectWithWorker } from './projectImportWorkerBridge';
 export { prepareMjcfMeshExportAssets } from './mjcfMeshExport';
 export {
   disposeUsdExportWorker,
@@ -51,8 +44,13 @@ export {
   isUsdExportWorkerSupportedMeshPath,
   USD_EXPORT_WORKER_SUPPORTED_MESH_EXTENSIONS,
 } from './usdExport';
-export type { ImportResult } from './projectImport';
 export type {
+  ImportResult as ProjectImportResult,
+  ImportedProjectArchiveData,
+  ImportedProjectLibraryFile,
+} from './projectImport';
+export type {
+  ExportProjectParams,
   ProjectManifest,
   ProjectExportProgress,
   ProjectExportProgressPhase,

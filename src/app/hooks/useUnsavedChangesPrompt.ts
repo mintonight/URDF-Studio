@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useAssemblyStore, useRobotStore } from '@/store';
+import {
+  isRegressionBeforeUnloadPromptSuppressed,
+  subscribeRegressionBeforeUnloadPromptSuppression,
+} from '@/shared/debug/regressionBridge';
 import { createAssemblyPersistenceSnapshot } from '@/shared/utils/assembly/semanticSnapshot';
 import { createRobotPersistenceSnapshot } from '@/shared/utils/robot/semanticSnapshot';
 
@@ -32,38 +36,31 @@ function getCurrentAssemblyPersistenceSnapshot(): string {
 }
 
 export function useUnsavedChangesPrompt() {
-  const {
-    robotName,
-    robotLinks,
-    robotJoints,
-    rootLinkId,
-    robotMaterials,
-    closedLoopConstraints,
-  } = useRobotStore(useShallow((state) => ({
-    robotName: state.name,
-    robotLinks: state.links,
-    robotJoints: state.joints,
-    rootLinkId: state.rootLinkId,
-    robotMaterials: state.materials,
-    closedLoopConstraints: state.closedLoopConstraints,
-  })));
+  const { robotName, robotLinks, robotJoints, rootLinkId, robotMaterials, closedLoopConstraints } =
+    useRobotStore(
+      useShallow((state) => ({
+        robotName: state.name,
+        robotLinks: state.links,
+        robotJoints: state.joints,
+        rootLinkId: state.rootLinkId,
+        robotMaterials: state.materials,
+        closedLoopConstraints: state.closedLoopConstraints,
+      })),
+    );
   const assemblyState = useAssemblyStore((state) => state.assemblyState);
 
-  const currentRobotSnapshot = useMemo(() => createRobotPersistenceSnapshot({
-    name: robotName,
-    links: robotLinks,
-    joints: robotJoints,
-    rootLinkId,
-    materials: robotMaterials,
-    closedLoopConstraints,
-  }), [
-    closedLoopConstraints,
-    robotJoints,
-    robotLinks,
-    robotMaterials,
-    robotName,
-    rootLinkId,
-  ]);
+  const currentRobotSnapshot = useMemo(
+    () =>
+      createRobotPersistenceSnapshot({
+        name: robotName,
+        links: robotLinks,
+        joints: robotJoints,
+        rootLinkId,
+        materials: robotMaterials,
+        closedLoopConstraints,
+      }),
+    [closedLoopConstraints, robotJoints, robotLinks, robotMaterials, robotName, rootLinkId],
+  );
   const currentAssemblySnapshot = useMemo(
     () => createAssemblyPersistenceSnapshot(assemblyState),
     [assemblyState],
@@ -73,6 +70,9 @@ export function useUnsavedChangesPrompt() {
     robot: currentRobotSnapshot,
     assembly: currentAssemblySnapshot,
   }));
+  const [beforeUnloadPromptSuppressed, setBeforeUnloadPromptSuppressed] = useState(() =>
+    isRegressionBeforeUnloadPromptSuppressed(),
+  );
 
   const markCurrentStateSaved = useCallback((scope: UnsavedChangesSaveScope = 'all') => {
     setBaseline((previousBaseline) => {
@@ -87,8 +87,8 @@ export function useUnsavedChangesPrompt() {
     });
   }, []);
 
-  const hasUnsavedChanges = currentRobotSnapshot !== baseline.robot
-    || currentAssemblySnapshot !== baseline.assembly;
+  const hasUnsavedChanges =
+    currentRobotSnapshot !== baseline.robot || currentAssemblySnapshot !== baseline.assembly;
 
   useEffect(() => {
     registerUnsavedChangesBaselineMarker(markCurrentStateSaved);
@@ -98,7 +98,11 @@ export function useUnsavedChangesPrompt() {
   }, [markCurrentStateSaved]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !hasUnsavedChanges) {
+    return subscribeRegressionBeforeUnloadPromptSuppression(setBeforeUnloadPromptSuppressed);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !hasUnsavedChanges || beforeUnloadPromptSuppressed) {
       return undefined;
     }
 
@@ -112,7 +116,7 @@ export function useUnsavedChangesPrompt() {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [hasUnsavedChanges]);
+  }, [beforeUnloadPromptSuppressed, hasUnsavedChanges]);
 
   return {
     hasUnsavedChanges,

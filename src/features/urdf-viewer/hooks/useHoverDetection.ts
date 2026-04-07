@@ -1,6 +1,8 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useSelectionStore } from '@/store';
+import type { InteractionSelection } from '@/types';
 import { setRegressionProjectedInteractionTargetsProvider } from '@/shared/debug/regressionBridge';
 import { highlightFaceMaterial } from '../utils/materials';
 import { collectGizmoRaycastTargets, isGizmoObject } from '../utils/raycast';
@@ -45,11 +47,12 @@ export interface UseHoverDetectionOptions {
   interactionLayerPriority?: ViewerInteractiveLayer[];
   selection?: URDFViewerProps['selection'];
   onHover?: (
-    type: 'link' | 'joint' | null,
+    type: InteractionSelection['type'],
     id: string | null,
     subType?: 'visual' | 'collision',
     objectIndex?: number,
     helperKind?: ViewerHelperKind,
+    highlightObjectId?: number,
   ) => void;
   linkMeshMapRef: React.RefObject<Map<string, THREE.Mesh[]>>;
   mouseRef: React.RefObject<THREE.Vector2>;
@@ -102,6 +105,7 @@ export function useHoverDetection({
   highlightGeometry,
 }: UseHoverDetectionOptions): UseHoverDetectionResult {
   const { scene, camera, gl } = useThree();
+  const hoverFrozen = useSelectionStore((state) => state.hoverFrozen);
   type PickTargetCacheEntry = {
     key: string;
     updatedAt: number;
@@ -118,11 +122,12 @@ export function useHoverDetection({
   } | null>(null);
   const highlightedFaceMeshRef = useRef<THREE.Mesh | null>(null);
   const emittedHoverSelectionRef = useRef<{
-    type: 'link' | 'joint' | null;
+    type: InteractionSelection['type'];
     id: string | null;
     subType?: 'visual' | 'collision';
     objectIndex?: number;
     helperKind?: ViewerHelperKind;
+    highlightObjectId?: number;
   }>({ type: null, id: null });
   const gizmoTargetsRef = useRef<THREE.Object3D[]>([]);
   const gizmoTargetsCacheKeyRef = useRef('');
@@ -215,11 +220,12 @@ export function useHoverDetection({
   };
 
   const emitHoverSelection = (
-    type: 'link' | 'joint' | null,
+    type: InteractionSelection['type'],
     id: string | null,
     subType?: 'visual' | 'collision',
     objectIndex?: number,
     helperKind?: ViewerHelperKind,
+    highlightObjectId?: number,
   ) => {
     if (!onHover) return;
 
@@ -229,13 +235,21 @@ export function useHoverDetection({
       previous.id === id &&
       previous.subType === subType &&
       (previous.objectIndex ?? 0) === (objectIndex ?? 0) &&
-      previous.helperKind === helperKind
+      previous.helperKind === helperKind &&
+      (previous.highlightObjectId ?? null) === (highlightObjectId ?? null)
     ) {
       return;
     }
 
-    emittedHoverSelectionRef.current = { type, id, subType, objectIndex, helperKind };
-    onHover(type, id, subType, objectIndex, helperKind);
+    emittedHoverSelectionRef.current = {
+      type,
+      id,
+      subType,
+      objectIndex,
+      helperKind,
+      highlightObjectId,
+    };
+    onHover(type, id, subType, objectIndex, helperKind, highlightObjectId);
   };
 
   const getPickTargets = (targetMode: PickTargetMode) => {
@@ -251,7 +265,7 @@ export function useHoverDetection({
     const now = performance.now();
 
     if (cache.key !== nextCacheKey || now - cache.updatedAt > 120) {
-      cache.targets = collectPickTargets(linkMeshMapRef.current, targetMode);
+      cache.targets = collectPickTargets(linkMeshMapRef.current, targetMode, robot);
       cache.key = nextCacheKey;
       cache.updatedAt = now;
     }
@@ -381,10 +395,12 @@ export function useHoverDetection({
       robot.traverseVisible((object) => {
         const explicitHelperKind = object.userData?.viewerHelperKind;
         const isHelperRoot =
+          explicitHelperKind === 'ik-handle' ||
           explicitHelperKind === 'center-of-mass' ||
           explicitHelperKind === 'inertia' ||
           explicitHelperKind === 'origin-axes' ||
           explicitHelperKind === 'joint-axis' ||
+          object.name === '__ik_handle__' ||
           object.name === '__com_visual__' ||
           object.name === '__inertia_box__' ||
           object.name === '__origin_axes__' ||
@@ -395,7 +411,7 @@ export function useHoverDetection({
         }
 
         const resolved = resolveInteractionSelectionHit(robot, object);
-        if (!resolved || resolved.targetKind !== 'helper') {
+        if (!resolved || resolved.targetKind !== 'helper' || resolved.type === 'tendon') {
           return;
         }
 
@@ -533,7 +549,8 @@ export function useHoverDetection({
   useFrame(() => {
     if (!robot) return;
 
-    const hoverSuppressedByDrag = isDraggingJoint.current || Boolean(isOrbitDragging?.current);
+    const hoverSuppressedByDrag =
+      hoverFrozen || isDraggingJoint.current || Boolean(isOrbitDragging?.current);
     if (hoverSuppressedByDrag) {
       if (!hoverSuppressedByDragRef.current) {
         clearTransientHoverState();
@@ -600,6 +617,10 @@ export function useHoverDetection({
       return projectedHelperInteraction;
     };
     const applyHelperHoverInteraction = (helperInteraction: ResolvedHoverInteractionCandidate) => {
+      if (helperInteraction.type === 'tendon') {
+        return;
+      }
+
       if (hoveredLinkRef.current) {
         clearHoverHighlight();
       }
@@ -614,6 +635,7 @@ export function useHoverDetection({
         undefined,
         undefined,
         helperInteraction.helperKind,
+        helperInteraction.highlightTarget?.id,
       );
     };
 
@@ -769,6 +791,26 @@ export function useHoverDetection({
       return;
     }
 
+    if (resolvedInteraction?.type === 'tendon') {
+      if (hoveredLinkRef.current) {
+        clearHoverHighlight();
+      }
+
+      hoveredLinkRef.current = null;
+      (hoveredLinkRef as any).currentMesh = null;
+      (hoveredLinkRef as any).currentObjectIndex = null;
+      (hoveredLinkRef as any).currentSubType = null;
+      emitHoverSelection(
+        'tendon',
+        resolvedInteraction.id,
+        undefined,
+        undefined,
+        undefined,
+        resolvedInteraction.highlightTarget?.id,
+      );
+      return;
+    }
+
     const activeInteractionSubType = resolvedInteraction?.subType ?? fallbackInteractionSubType;
     if (!activeInteractionSubType) {
       resetHoverState();
@@ -812,6 +854,8 @@ export function useHoverDetection({
         newHoveredLink,
         newHoveredLink ? activeInteractionSubType : undefined,
         newHoveredObjectIndex,
+        undefined,
+        newHoveredMesh?.id,
       );
     }
   });

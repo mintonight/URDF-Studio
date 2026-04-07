@@ -2,10 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import JSZip from 'jszip';
 
-import {
-  prepareImportPayload,
-  type ImportPreparationFileDescriptor,
-} from './importPreparation.ts';
+import { prepareImportPayload, type ImportPreparationFileDescriptor } from './importPreparation.ts';
 import { ensureWorkerXmlDomApis } from '@/app/workers/ensureWorkerXmlDomApis';
 import { buildPreResolvedImportContentSignature } from './preResolvedImportSignature.ts';
 
@@ -49,7 +46,9 @@ test('prepareImportPayload renames colliding loose imports while preserving file
   });
 
   assert.deepEqual(
-    result.robotFiles.map((file) => ({ name: file.name, format: file.format })).sort((left, right) => left.name.localeCompare(right.name)),
+    result.robotFiles
+      .map((file) => ({ name: file.name, format: file.format }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
     [
       { name: 'robot (1)/demo.urdf', format: 'urdf' },
       { name: 'robot (1)/meshes/base.stl', format: 'mesh' },
@@ -93,20 +92,27 @@ test('prepareImportPayload scans zip bundles off the main classification path an
     false,
   );
   assert.deepEqual(
-    result.robotFiles.map((file) => ({ name: file.name, format: file.format, content: file.content })).sort((left, right) => left.name.localeCompare(right.name)),
+    result.robotFiles
+      .map((file) => ({ name: file.name, format: file.format, content: file.content }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
     [
-      { name: 'robot/demo.urdf', format: 'urdf', content: `<?xml version="1.0"?>
+      {
+        name: 'robot/demo.urdf',
+        format: 'urdf',
+        content: `<?xml version="1.0"?>
 <robot name="demo">
   <link name="base_link" />
-</robot>` },
+</robot>`,
+      },
       { name: 'robot/meshes/base.obj', format: 'mesh', content: '' },
       { name: 'robot/scene.usdc', format: 'usd', content: '' },
+      { name: 'robot/textures/albedo.png', format: 'mesh', content: '' },
     ],
   );
-  assert.deepEqual(
-    result.assetFiles.map((file) => file.name).sort(),
-    ['robot/meshes/base.obj', 'robot/textures/albedo.png'],
-  );
+  assert.deepEqual(result.assetFiles.map((file) => file.name).sort(), [
+    'robot/meshes/base.obj',
+    'robot/textures/albedo.png',
+  ]);
   assert.deepEqual(
     result.libraryFiles.map((file) => file.path),
     ['robot/motor library/Acme/M1.txt'],
@@ -116,6 +122,28 @@ test('prepareImportPayload scans zip bundles off the main classification path an
     ['robot/scene.usdc'],
   );
   assert.equal(result.usdSourceFiles[0].blob.size > 0, true);
+});
+
+test('prepareImportPayload exposes loose image assets in the browser file list', async () => {
+  const files = [
+    createLooseFile('poster.png', new Uint8Array([137, 80, 78, 71]), 'robot/textures/poster.png', {
+      type: 'image/png',
+    }),
+  ];
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+  });
+
+  assert.deepEqual(
+    result.robotFiles.map((file) => ({ name: file.name, format: file.format })),
+    [{ name: 'robot/textures/poster.png', format: 'mesh' }],
+  );
+  assert.deepEqual(
+    result.assetFiles.map((file) => file.name),
+    ['robot/textures/poster.png'],
+  );
 });
 
 test('prepareImportPayload classifies motor-library.json as a library file', async () => {
@@ -197,7 +225,9 @@ def Xform "demo_robot"
   assert.equal(result.preResolvedImports[0]?.result.status, 'needs_hydration');
 
   const rootFile = result.robotFiles.find((file) => file.name === 'robot/demo_robot.usda');
-  const largeSidecarFile = result.robotFiles.find((file) => file.name === 'robot/configuration/demo_base.usda');
+  const largeSidecarFile = result.robotFiles.find(
+    (file) => file.name === 'robot/configuration/demo_base.usda',
+  );
 
   assert.ok(rootFile, 'expected root USDA file to be present');
   assert.ok(largeSidecarFile, 'expected large USDA sidecar file to be present');
@@ -246,6 +276,51 @@ test('prepareImportPayload fast-open mode skips pre-resolving the preferred URDF
   });
 
   assert.equal(result.preferredFileName, 'g1_description/g1_29dof.urdf');
+  assert.deepEqual(result.preResolvedImports, []);
+});
+
+test('prepareImportPayload fast-open mode prefers MJCF over a non-self-contained URDF sidecar', async () => {
+  const files = [
+    createLooseFile(
+      'barkour_v0.urdf',
+      `<?xml version="1.0"?>
+<robot name="barkour">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/body.stl" />
+      </geometry>
+    </visual>
+  </link>
+</robot>`,
+      'google_barkour_v0/barkour_v0.urdf',
+    ),
+    createLooseFile(
+      'barkour_v0.xml',
+      `<?xml version="1.0"?>
+<mujoco model="barkour v0">
+  <compiler meshdir="assets" />
+  <asset>
+    <mesh name="body" file="body.stl" />
+  </asset>
+  <worldbody>
+    <body name="base_link">
+      <geom type="mesh" mesh="body" />
+    </body>
+  </worldbody>
+</mujoco>`,
+      'google_barkour_v0/barkour_v0.xml',
+    ),
+    createLooseFile('body.stl', 'solid body', 'google_barkour_v0/assets/body.stl'),
+  ];
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.equal(result.preferredFileName, 'google_barkour_v0/barkour_v0.xml');
   assert.deepEqual(result.preResolvedImports, []);
 });
 
@@ -318,7 +393,9 @@ test('prepareImportPayload synthesizes a bundle root when loose robot folders ar
   });
 
   assert.deepEqual(
-    result.robotFiles.map((file) => ({ name: file.name, format: file.format })).sort((left, right) => left.name.localeCompare(right.name)),
+    result.robotFiles
+      .map((file) => ({ name: file.name, format: file.format }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
     [
       { name: 'demo_pkg/meshes/base.stl', format: 'mesh' },
       { name: 'demo_pkg/mjcf/mjmodel.xml', format: 'mjcf' },
@@ -329,10 +406,7 @@ test('prepareImportPayload synthesizes a bundle root when loose robot folders ar
     result.assetFiles.map((file) => file.name),
     ['demo_pkg/meshes/base.stl'],
   );
-  assert.equal(
-    result.preferredFileName,
-    'demo_pkg/urdf/demo.urdf',
-  );
+  assert.equal(result.preferredFileName, 'demo_pkg/urdf/demo.urdf');
 });
 
 test('prepareImportPayload synthesizes a bundle root for rootless gazebo zip bundles with thumbnails', async () => {
@@ -375,8 +449,14 @@ test('prepareImportPayload synthesizes a bundle root for rootless gazebo zip bun
   });
 
   assert.deepEqual(
-    result.robotFiles.map((file) => ({ name: file.name, format: file.format })).sort((left, right) => left.name.localeCompare(right.name)),
+    result.robotFiles
+      .map((file) => ({ name: file.name, format: file.format }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
     [
+      {
+        name: 'NUS_SEDS_OMNIDIRECTIONAL_GROUND_VEHICLE_VISUALS_ONLY/materials/textures/demo.png',
+        format: 'mesh',
+      },
       {
         name: 'NUS_SEDS_OMNIDIRECTIONAL_GROUND_VEHICLE_VISUALS_ONLY/meshes/base_link.dae',
         format: 'mesh',
@@ -385,16 +465,19 @@ test('prepareImportPayload synthesizes a bundle root for rootless gazebo zip bun
         name: 'NUS_SEDS_OMNIDIRECTIONAL_GROUND_VEHICLE_VISUALS_ONLY/model.sdf',
         format: 'sdf',
       },
+      {
+        name: 'NUS_SEDS_OMNIDIRECTIONAL_GROUND_VEHICLE_VISUALS_ONLY/thumbnails/preview.png',
+        format: 'mesh',
+      },
     ],
   );
-  assert.deepEqual(
-    result.assetFiles.map((file) => file.name).sort(),
-    [
-      'NUS_SEDS_OMNIDIRECTIONAL_GROUND_VEHICLE_VISUALS_ONLY/materials/textures/demo.png',
-      'NUS_SEDS_OMNIDIRECTIONAL_GROUND_VEHICLE_VISUALS_ONLY/meshes/base_link.dae',
-      'NUS_SEDS_OMNIDIRECTIONAL_GROUND_VEHICLE_VISUALS_ONLY/thumbnails/preview.png',
-    ],
-  );
+  assert.deepEqual(result.assetFiles.map((file) => file.name).sort(), [
+    'NUS_SEDS_OMNIDIRECTIONAL_GROUND_VEHICLE_VISUALS_ONLY/meshes/base_link.dae',
+  ]);
+  assert.deepEqual(result.deferredAssetFiles.map((file) => file.name).sort(), [
+    'NUS_SEDS_OMNIDIRECTIONAL_GROUND_VEHICLE_VISUALS_ONLY/materials/textures/demo.png',
+    'NUS_SEDS_OMNIDIRECTIONAL_GROUND_VEHICLE_VISUALS_ONLY/thumbnails/preview.png',
+  ]);
   assert.deepEqual(
     result.textFiles.map((file) => file.path),
     ['NUS_SEDS_OMNIDIRECTIONAL_GROUND_VEHICLE_VISUALS_ONLY/materials/scripts/demo.material'],
@@ -422,13 +505,164 @@ test('prepareImportPayload preserves explicit relativePath metadata when files a
     existingPaths: [],
   });
 
-  assert.deepEqual(
-    result.robotFiles.map((file) => file.name).sort(),
-    ['casbot mini/meshes/pelvis_link.STL', 'casbot mini/mjcf/mjmodel.xml'],
-  );
+  assert.deepEqual(result.robotFiles.map((file) => file.name).sort(), [
+    'casbot mini/meshes/pelvis_link.STL',
+    'casbot mini/mjcf/mjmodel.xml',
+  ]);
   assert.deepEqual(
     result.assetFiles.map((file) => file.name),
     ['casbot mini/meshes/pelvis_link.STL'],
+  );
+});
+
+test('prepareImportPayload eagerly hydrates MJCF deferred textures required by the preferred model', async () => {
+  const zip = new JSZip();
+  zip.file(
+    'demo/bin.xml',
+    `<?xml version="1.0"?>
+<mujoco model="demo_bin">
+  <asset>
+    <mesh name="bin_mesh" file="meshes/bin.stl" />
+    <texture name="bin_texture" type="2d" file="../demo/common/textures/metal0.png" />
+    <material name="bin_material" texture="bin_texture" />
+  </asset>
+  <worldbody>
+    <body name="bin_body">
+      <geom type="mesh" mesh="bin_mesh" material="bin_material" />
+    </body>
+  </worldbody>
+</mujoco>`,
+  );
+  zip.file('demo/meshes/bin.stl', 'solid demo');
+  zip.file('demo/common/textures/metal0.png', new Uint8Array([137, 80, 78, 71]));
+  zip.file('demo/thumbnails/preview.png', new Uint8Array([137, 80, 78, 71]));
+
+  const zipBytes = await zip.generateAsync({ type: 'uint8array' });
+  const zipFile = new File([zipBytes], 'bundle.zip', { type: 'application/zip' });
+
+  const result = await prepareImportPayload({
+    files: [zipFile],
+    existingPaths: [],
+  });
+
+  assert.equal(result.preferredFileName, 'demo/bin.xml');
+  assert.deepEqual(result.assetFiles.map((file) => file.name).sort(), [
+    'demo/common/textures/metal0.png',
+    'demo/meshes/bin.stl',
+  ]);
+  assert.deepEqual(
+    result.deferredAssetFiles.map((file) => file.name),
+    ['demo/thumbnails/preview.png'],
+  );
+});
+
+test('prepareImportPayload eagerly hydrates URDF deferred textures referenced by the preferred model', async () => {
+  const zip = new JSZip();
+  zip.file(
+    'demo/robot.urdf',
+    `<?xml version="1.0"?>
+<robot name="demo_robot">
+  <material name="painted">
+    <texture filename="textures/paint.png" />
+  </material>
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/base.stl" />
+      </geometry>
+      <material name="painted" />
+    </visual>
+  </link>
+</robot>`,
+  );
+  zip.file('demo/meshes/base.stl', 'solid demo');
+  zip.file('demo/textures/paint.png', new Uint8Array([137, 80, 78, 71]));
+  zip.file('demo/docs/preview.png', new Uint8Array([137, 80, 78, 71]));
+
+  const zipBytes = await zip.generateAsync({ type: 'uint8array' });
+  const zipFile = new File([zipBytes], 'bundle.zip', { type: 'application/zip' });
+
+  const result = await prepareImportPayload({
+    files: [zipFile],
+    existingPaths: [],
+  });
+
+  assert.equal(result.preferredFileName, 'demo/robot.urdf');
+  assert.deepEqual(result.assetFiles.map((file) => file.name).sort(), [
+    'demo/meshes/base.stl',
+    'demo/textures/paint.png',
+  ]);
+  assert.deepEqual(
+    result.deferredAssetFiles.map((file) => file.name),
+    ['demo/docs/preview.png'],
+  );
+});
+
+test('prepareImportPayload eagerly hydrates SDF gazebo material script textures required by the preferred model', async () => {
+  const zip = new JSZip();
+  zip.file(
+    'demo/model.sdf',
+    `<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="demo_model">
+    <link name="base_link">
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>meshes/base_link.dae</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <script>
+            <uri>materials/scripts</uri>
+            <name>Demo/Painted</name>
+          </script>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>`,
+  );
+  zip.file(
+    'demo/materials/scripts/demo.material',
+    `material Demo/Painted
+{
+  technique
+  {
+    pass
+    {
+      texture_unit
+      {
+        texture ../textures/coat.png
+      }
+    }
+  }
+}`,
+  );
+  zip.file('demo/meshes/base_link.dae', '<dae />');
+  zip.file('demo/materials/textures/coat.png', new Uint8Array([137, 80, 78, 71]));
+  zip.file('demo/docs/preview.png', new Uint8Array([137, 80, 78, 71]));
+
+  const zipBytes = await zip.generateAsync({ type: 'uint8array' });
+  const zipFile = new File([zipBytes], 'bundle.zip', { type: 'application/zip' });
+
+  const result = await prepareImportPayload({
+    files: [zipFile],
+    existingPaths: [],
+  });
+
+  assert.equal(result.preferredFileName, 'demo/model.sdf');
+  assert.deepEqual(result.assetFiles.map((file) => file.name).sort(), [
+    'demo/materials/textures/coat.png',
+    'demo/meshes/base_link.dae',
+  ]);
+  assert.deepEqual(
+    result.textFiles.map((file) => file.path),
+    ['demo/materials/scripts/demo.material'],
+  );
+  assert.deepEqual(
+    result.deferredAssetFiles.map((file) => file.name),
+    ['demo/docs/preview.png'],
   );
 });
 
@@ -449,7 +683,11 @@ test('prepareImportPayload prefixes rootless ROS package contents using package 
       'robots/valkyrie_sim.urdf',
     ),
     createLooseFile('pelvis.dae', '<dae />', 'meshes/pelvis/pelvis.dae'),
-    createLooseFile('pelvistexture.png', new Uint8Array([137, 80, 78, 71]), 'materials/textures/pelvistexture.png'),
+    createLooseFile(
+      'pelvistexture.png',
+      new Uint8Array([137, 80, 78, 71]),
+      'materials/textures/pelvistexture.png',
+    ),
   ];
 
   const result = await prepareImportPayload({
@@ -458,23 +696,20 @@ test('prepareImportPayload prefixes rootless ROS package contents using package 
   });
 
   assert.deepEqual(
-    result.robotFiles.map((file) => ({ name: file.name, format: file.format })).sort((left, right) => left.name.localeCompare(right.name)),
+    result.robotFiles
+      .map((file) => ({ name: file.name, format: file.format }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
     [
+      { name: 'val_description/model/materials/textures/pelvistexture.png', format: 'mesh' },
       { name: 'val_description/model/meshes/pelvis/pelvis.dae', format: 'mesh' },
       { name: 'val_description/model/robots/valkyrie_sim.urdf', format: 'urdf' },
     ],
   );
-  assert.deepEqual(
-    result.assetFiles.map((file) => file.name).sort(),
-    [
-      'val_description/model/materials/textures/pelvistexture.png',
-      'val_description/model/meshes/pelvis/pelvis.dae',
-    ],
-  );
-  assert.equal(
-    result.preferredFileName,
-    'val_description/model/robots/valkyrie_sim.urdf',
-  );
+  assert.deepEqual(result.assetFiles.map((file) => file.name).sort(), [
+    'val_description/model/materials/textures/pelvistexture.png',
+    'val_description/model/meshes/pelvis/pelvis.dae',
+  ]);
+  assert.equal(result.preferredFileName, 'val_description/model/robots/valkyrie_sim.urdf');
 });
 
 test('prepareImportPayload prefixes rootless package assets when only the package-dependent definition sits at the root', async () => {
@@ -502,7 +737,9 @@ test('prepareImportPayload prefixes rootless package assets when only the packag
   });
 
   assert.deepEqual(
-    result.robotFiles.map((file) => ({ name: file.name, format: file.format })).sort((left, right) => left.name.localeCompare(right.name)),
+    result.robotFiles
+      .map((file) => ({ name: file.name, format: file.format }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
     [
       { name: 'demo_pkg/meshes/base.stl', format: 'mesh' },
       { name: 'demo_pkg/robot.urdf', format: 'urdf' },
@@ -539,7 +776,9 @@ test('prepareImportPayload keeps package-rooted assets stable when the reference
   });
 
   assert.deepEqual(
-    result.robotFiles.map((file) => ({ name: file.name, format: file.format })).sort((left, right) => left.name.localeCompare(right.name)),
+    result.robotFiles
+      .map((file) => ({ name: file.name, format: file.format }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
     [
       { name: 'assets/merged/tronc_visual.stl', format: 'mesh' },
       { name: 'robot.urdf', format: 'urdf' },
@@ -549,6 +788,63 @@ test('prepareImportPayload keeps package-rooted assets stable when the reference
     result.assetFiles.map((file) => file.name),
     ['assets/merged/tronc_visual.stl'],
   );
+});
+
+test('prepareImportPayload prefers MJCF when a mixed MuJoCo folder ships an export-only URDF sidecar', async () => {
+  const files = [
+    createLooseFile(
+      'barkour_v0.urdf',
+      `<?xml version="1.0"?>
+<robot name="barkour">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/body.stl" />
+      </geometry>
+    </visual>
+  </link>
+</robot>`,
+      'google_barkour_v0/barkour_v0.urdf',
+    ),
+    createLooseFile(
+      'barkour_v0.xml',
+      `<?xml version="1.0"?>
+<mujoco model="barkour v0">
+  <compiler meshdir="assets" />
+  <asset>
+    <mesh name="body" file="body.stl" />
+  </asset>
+  <worldbody>
+    <body name="base_link">
+      <geom type="mesh" mesh="body" />
+    </body>
+  </worldbody>
+</mujoco>`,
+      'google_barkour_v0/barkour_v0.xml',
+    ),
+    createLooseFile('body.stl', 'solid body', 'google_barkour_v0/assets/body.stl'),
+  ];
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+  });
+
+  assert.deepEqual(
+    result.robotFiles
+      .map((file) => ({ name: file.name, format: file.format }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+    [
+      { name: 'google_barkour_v0/assets/body.stl', format: 'mesh' },
+      { name: 'google_barkour_v0/barkour_v0.urdf', format: 'urdf' },
+      { name: 'google_barkour_v0/barkour_v0.xml', format: 'mjcf' },
+    ],
+  );
+  assert.deepEqual(
+    result.assetFiles.map((file) => file.name),
+    ['google_barkour_v0/assets/body.stl'],
+  );
+  assert.equal(result.preferredFileName, 'google_barkour_v0/barkour_v0.xml');
 });
 
 test('prepareImportPayload pre-resolves standalone urdf imports for immediate loading', async () => {
@@ -672,12 +968,11 @@ test('prepareImportPayload pre-resolves xacro imports with package-local include
     existingPaths: [],
   });
 
-  const rootEntry = result.preResolvedImports.find((entry) => entry.fileName === 'demo_pkg/xacro/robot.xacro');
-  assert.ok(rootEntry, 'Expected root xacro import to be pre-resolved');
-  assert.equal(
-    result.preResolvedImports.filter((entry) => entry.format === 'xacro').length,
-    1,
+  const rootEntry = result.preResolvedImports.find(
+    (entry) => entry.fileName === 'demo_pkg/xacro/robot.xacro',
   );
+  assert.ok(rootEntry, 'Expected root xacro import to be pre-resolved');
+  assert.equal(result.preResolvedImports.filter((entry) => entry.format === 'xacro').length, 1);
   assert.equal(rootEntry?.format, 'xacro');
   assert.equal(rootEntry?.result.status, 'ready');
   if (!rootEntry || rootEntry.result.status !== 'ready') {
@@ -693,9 +988,7 @@ test('prepareImportPayload pre-resolves preferred usd imports as hydration-ready
 def Xform "robot"
 {
 }`;
-  const files = [
-    createLooseFile('scene.usd', usdText, 'scene/scene.usd'),
-  ];
+  const files = [createLooseFile('scene.usd', usdText, 'scene/scene.usd')];
 
   const result = await prepareImportPayload({
     files,
@@ -738,7 +1031,9 @@ test('prepareImportPayload classifies sdf bundles as robot definition files', as
   });
 
   assert.deepEqual(
-    result.robotFiles.map((file) => ({ name: file.name, format: file.format })).sort((left, right) => left.name.localeCompare(right.name)),
+    result.robotFiles
+      .map((file) => ({ name: file.name, format: file.format }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
     [
       { name: 'bus_stop/meshes/base_link.dae', format: 'mesh' },
       { name: 'bus_stop/model.sdf', format: 'sdf' },
@@ -787,9 +1082,39 @@ test('prepareImportPayload keeps gazebo material scripts as auxiliary text files
     result.textFiles.map((file) => file.path),
     ['demo/materials/scripts/demo.material'],
   );
+  assert.deepEqual(result.assetFiles.map((file) => file.name).sort(), [
+    'demo/materials/textures/demo.png',
+  ]);
+});
+
+test('prepareImportPayload keeps xacro gazebo sidecars as auxiliary text files', async () => {
+  const zip = new JSZip();
+  zip.file(
+    'demo_pkg/xacro/robot.xacro',
+    `<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="demo_pkg">
+  <xacro:include filename="$(find demo_pkg)/urdf/demo.gazebo" />
+  <link name="base_link" />
+</robot>`,
+  );
+  zip.file(
+    'demo_pkg/urdf/demo.gazebo',
+    `<gazebo reference="base_link">
+  <material>Gazebo/Orange</material>
+</gazebo>`,
+  );
+
+  const zipBytes = await zip.generateAsync({ type: 'uint8array' });
+  const zipFile = new File([zipBytes], 'bundle.zip', { type: 'application/zip' });
+
+  const result = await prepareImportPayload({
+    files: [zipFile],
+    existingPaths: [],
+  });
+
+  assert.equal(result.preferredFileName, 'demo_pkg/xacro/robot.xacro');
   assert.deepEqual(
-    result.assetFiles.map((file) => file.name).sort(),
-    ['demo/materials/textures/demo.png'],
+    result.textFiles.map((file) => file.path),
+    ['demo_pkg/urdf/demo.gazebo'],
   );
 });
 
@@ -825,7 +1150,7 @@ def Xform "demo"
   assert.equal(result.preferredFileName, 'demo/scene.usda');
 });
 
-test('prepareImportPayload skips unrelated loose files that are neither robot definitions nor importable assets', async () => {
+test('prepareImportPayload keeps loose image assets while skipping unrelated loose text files', async () => {
   const files = [
     createLooseFile(
       'demo.urdf',
@@ -846,9 +1171,12 @@ test('prepareImportPayload skips unrelated loose files that are neither robot de
   });
 
   assert.deepEqual(
-    result.robotFiles.map((file) => ({ name: file.name, format: file.format })).sort((left, right) => left.name.localeCompare(right.name)),
+    result.robotFiles
+      .map((file) => ({ name: file.name, format: file.format }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
     [
       { name: 'robot/demo.urdf', format: 'urdf' },
+      { name: 'robot/docs/preview.png', format: 'mesh' },
     ],
   );
   assert.deepEqual(

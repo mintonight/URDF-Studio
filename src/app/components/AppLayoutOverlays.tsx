@@ -10,24 +10,26 @@ import {
   type SourceCodeDocumentFlavor,
 } from '@/app/utils/sourceCodeDisplay';
 import type { Language } from '@/shared/i18n';
-import type { BridgeJoint, Theme, UrdfJoint } from '@/types';
+import type { BridgeJoint, InteractionSelection, Theme, UrdfJoint } from '@/types';
 import type { AssemblyState } from '@/types';
 import type {
   CollisionOptimizationOperation,
   CollisionOptimizationSource,
   CollisionTargetRef,
-} from '@/features/property-editor/utils';
+} from '@/features/property-editor';
 
 const SourceCodeEditor = lazy(() =>
-  loadSourceCodeEditorModule().then((module) => ({ default: module.SourceCodeEditor }))
+  loadSourceCodeEditorModule().then((module) => ({ default: module.SourceCodeEditor })),
 );
 
 const CollisionOptimizationDialog = lazy(() =>
-  loadCollisionOptimizationDialogModule().then((module) => ({ default: module.CollisionOptimizationDialog }))
+  loadCollisionOptimizationDialogModule().then((module) => ({
+    default: module.CollisionOptimizationDialog,
+  })),
 );
 
 const BridgeCreateModal = lazy(() =>
-  loadBridgeCreateModalModule().then((module) => ({ default: module.BridgeCreateModal }))
+  loadBridgeCreateModalModule().then((module) => ({ default: module.BridgeCreateModal })),
 );
 
 interface AppLayoutOverlaysProps {
@@ -48,12 +50,7 @@ interface AppLayoutOverlaysProps {
   loadingOptimizerLabel: string;
   collisionOptimizationSource: CollisionOptimizationSource;
   assets: Record<string, string>;
-  selection: {
-    type: 'link' | 'joint' | null;
-    id: string | null;
-    subType?: 'visual' | 'collision';
-    objectIndex?: number;
-  };
+  selection: InteractionSelection;
   onCloseCollisionOptimizer: () => void;
   onSelectCollisionTarget: (target: CollisionTargetRef) => void;
   onApplyCollisionOptimization: (operations: CollisionOptimizationOperation[]) => void;

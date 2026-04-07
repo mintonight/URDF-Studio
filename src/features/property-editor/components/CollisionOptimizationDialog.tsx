@@ -42,17 +42,13 @@ import {
 } from './CollisionOptimizationCandidatesPanel';
 import type { CollisionOptimizationPlanarGraphConnectionState } from './CollisionOptimizationPlanarGraph';
 import { CollisionOptimizationStrategyPanel } from './CollisionOptimizationStrategyPanel';
+import type { InteractionSelection } from '@/types';
 
 interface CollisionOptimizationDialogProps {
   source: CollisionOptimizationSource;
   assets: Record<string, string>;
   lang: 'en' | 'zh';
-  selection?: {
-    type: 'link' | 'joint' | null;
-    id: string | null;
-    subType?: 'visual' | 'collision';
-    objectIndex?: number;
-  };
+  selection?: InteractionSelection;
   onClose: () => void;
   onApply: (operations: CollisionOptimizationOperation[]) => void;
   onSelectTarget?: (target: CollisionTargetRef) => void;
@@ -264,7 +260,7 @@ function applyCandidateTypeOverride(
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-1.5 mt-2.5 text-[9px] font-semibold tracking-[0.02em] text-text-tertiary first:mt-0">
+    <div className="mb-1 mt-2 text-[8.5px] font-semibold tracking-[0.02em] text-text-tertiary first:mt-0">
       {children}
     </div>
   );
@@ -333,13 +329,13 @@ function StatCard({
 
   return (
     <div
-      className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-md border px-2 py-1.5 ${surfaceClass}`}
+      className={`flex w-full min-w-0 items-center justify-between gap-1.5 rounded-md border px-1.75 py-1 ${surfaceClass}`}
     >
-      <div className={`flex min-w-0 items-center gap-1.5 ${accentClass}`}>
+      <div className={`flex min-w-0 items-center gap-1.25 ${accentClass}`}>
         <span className="shrink-0">{icon}</span>
-        <span className="truncate text-[9px] font-medium tracking-[0.02em]">{label}</span>
+        <span className="truncate text-[8px] font-medium tracking-[0.02em]">{label}</span>
       </div>
-      <div className={`shrink-0 text-[11px] font-semibold tabular-nums ${valueClass}`}>{value}</div>
+      <div className={`shrink-0 text-[10px] font-semibold tabular-nums ${valueClass}`}>{value}</div>
     </div>
   );
 }
@@ -360,7 +356,7 @@ function OptionButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`min-h-7 rounded-md border px-2 py-1.5 text-[10px] font-medium leading-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
+      className={`min-h-6.5 rounded-md border px-1.75 py-1 text-[9.5px] font-medium leading-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
         disabled
           ? 'opacity-40 cursor-not-allowed border-border-black text-text-tertiary'
           : active
@@ -390,7 +386,7 @@ function PanelSwitchButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
+      className={`flex min-w-0 flex-1 items-center justify-center gap-1.25 rounded-lg px-2 py-1.25 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
         active
           ? 'bg-white dark:bg-segmented-active text-text-primary shadow-sm'
           : 'text-text-secondary hover:bg-element-hover hover:text-text-primary'
@@ -417,12 +413,12 @@ function StrategyField({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-border-black bg-panel-bg px-2.5 py-2.5">
-      <div className="text-[11px] font-medium leading-tight text-text-primary">{label}</div>
+    <div className="rounded-lg border border-border-black bg-panel-bg px-2 py-2">
+      <div className="text-[10px] font-medium leading-tight text-text-primary">{label}</div>
       {desc ? (
-        <div className="mt-0.5 text-[10px] leading-snug text-text-tertiary">{desc}</div>
+        <div className="mt-0.5 text-[9px] leading-snug text-text-tertiary">{desc}</div>
       ) : null}
-      <div className={`${desc ? 'mt-2' : 'mt-1.5'} flex flex-wrap gap-1`}>{children}</div>
+      <div className={`${desc ? 'mt-1.5' : 'mt-1'} flex flex-wrap gap-1`}>{children}</div>
     </div>
   );
 }
@@ -550,18 +546,18 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
 
   const defaultWindowSize = useMemo(() => {
     if (typeof window === 'undefined') {
-      return { width: 1080, height: 820 };
+      return { width: 560, height: 460 };
     }
 
     return {
-      width: Math.min(1180, Math.max(960, Math.round(window.innerWidth * 0.72))),
-      height: Math.min(860, Math.max(680, window.innerHeight - 96)),
+      width: Math.min(660, Math.max(520, Math.round(window.innerWidth * 0.4))),
+      height: Math.min(500, Math.max(400, Math.round(window.innerHeight * 0.52))),
     };
   }, []);
 
   const windowState = useDraggableWindow({
     defaultSize: defaultWindowSize,
-    minSize: { width: 760, height: 640 },
+    minSize: { width: 480, height: 380 },
     centerOnMount: true,
     enableMinimize: false,
     enableMaximize: false,
@@ -1306,7 +1302,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
     }),
     [copy],
   );
-  const statsGridClass = isDenseLayout ? 'grid-cols-1' : 'grid-cols-2';
+  const statsGridClass = 'grid-cols-4';
   const isGraphView = candidatesViewMode === 'graph';
   const mainPanelsGridClass = isStackedLayout
     ? 'grid-cols-1'
@@ -1362,8 +1358,8 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
           </div>
         </div>
       }
-      className="z-[110] flex flex-col overflow-hidden rounded-xl border border-border-black bg-panel-bg text-text-primary shadow-lg"
-      headerClassName="flex h-11 shrink-0 items-center justify-between border-b border-border-black bg-element-bg px-2.5"
+      className="z-[110] flex flex-col overflow-hidden rounded-lg border border-border-black bg-panel-bg text-text-primary shadow-lg"
+      headerClassName="flex h-10 shrink-0 items-center justify-between border-b border-border-black bg-element-bg px-2"
       interactionClassName="select-none"
       headerDraggableClassName="cursor-grab"
       headerDraggingClassName="cursor-grabbing"
@@ -1373,9 +1369,9 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
       closeButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-red-500 hover:text-white"
       showResizeHandles={true}
     >
-      <div className="flex-1 min-h-0 overflow-hidden px-2.5 py-2.5 sm:px-3">
-        <div className="flex h-full min-h-0 flex-col gap-2.5">
-          <div className={`grid gap-1.5 ${statsGridClass}`}>
+      <div className="flex-1 min-h-0 overflow-hidden px-2 py-2 sm:px-2.5">
+        <div className="flex h-full min-h-0 flex-col gap-2">
+          <div className={`grid gap-1 ${statsGridClass}`}>
             <StatCard
               label={copy.totalCollisions}
               value={totalCollisionCount}
@@ -1401,7 +1397,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
           </div>
 
           {isStackedLayout && (
-            <div className="shrink-0 rounded-xl border border-border-black bg-segmented-bg p-0.5">
+            <div className="shrink-0 rounded-lg border border-border-black bg-segmented-bg p-0.5">
               <div className="flex gap-1">
                 <PanelSwitchButton
                   active={stackedPanel === 'candidates'}
@@ -1420,7 +1416,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
             </div>
           )}
 
-          <div className={`grid flex-1 min-h-0 gap-2.5 ${mainPanelsGridClass}`}>
+          <div className={`grid flex-1 min-h-0 gap-2 ${mainPanelsGridClass}`}>
             {showCandidatesPanel && (
               <CollisionOptimizationCandidatesPanel
                 activeCandidateKey={activeCandidateKey}
@@ -1459,17 +1455,15 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
             )}
 
             {showSettingsPanel && (
-              <div className="min-h-0 flex flex-col overflow-hidden rounded-xl border border-border-black bg-element-bg">
-                <div className="shrink-0 border-b border-border-black bg-panel-bg px-2.5 py-2">
-                  <div className="text-[11px] font-semibold text-text-primary">
+              <div className="min-h-0 flex flex-col overflow-hidden rounded-lg border border-border-black bg-element-bg">
+                <div className="shrink-0 border-b border-border-black bg-panel-bg px-2 py-1.5">
+                  <div className="text-[10px] font-semibold text-text-primary">
                     {copy.strategies}
                   </div>
                 </div>
 
-                <div
-                  className={`flex-1 min-h-0 overflow-y-auto px-2.5 py-2.5 ${settingsLayoutClass}`}
-                >
-                  <div className="space-y-2.5">
+                <div className={`flex-1 min-h-0 overflow-y-auto px-2 py-2 ${settingsLayoutClass}`}>
+                  <div className="space-y-2">
                     <CollisionOptimizationStrategyPanel
                       activeCandidate={activeCandidate}
                       activeCandidateKey={activeCandidateKey}
@@ -1503,13 +1497,13 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                     <button
                       type="button"
                       onClick={() => setShowDefaultStrategies((previous) => !previous)}
-                      className="flex w-full items-center justify-between rounded-xl border border-border-black bg-element-bg px-2.5 py-2 text-left transition-colors hover:bg-panel-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+                      className="flex w-full items-center justify-between rounded-lg border border-border-black bg-element-bg px-2 py-1.5 text-left transition-colors hover:bg-panel-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
                     >
                       <div>
-                        <div className="text-[11px] font-semibold text-text-primary">
+                        <div className="text-[10px] font-semibold text-text-primary">
                           {copy.defaultStrategies}
                         </div>
-                        <div className="mt-0.5 text-[10px] text-text-tertiary">
+                        <div className="mt-0.5 text-[9px] text-text-tertiary">
                           {showDefaultStrategies
                             ? copy.hideDefaultStrategies
                             : copy.showDefaultStrategies}
@@ -1523,7 +1517,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                     </button>
 
                     {showDefaultStrategies ? (
-                      <div className="rounded-xl border border-border-black bg-element-bg px-2.5 py-2.5">
+                      <div className="rounded-lg border border-border-black bg-element-bg px-2 py-2">
                         <div className={`grid gap-2 ${strategyGridClass}`}>
                           <StrategyField
                             label={copy.meshStrategyLabel}
@@ -1593,17 +1587,17 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                     ) : null}
                   </div>
 
-                  <div className="space-y-2.5">
-                    <div className="rounded-xl border border-border-black bg-element-bg px-2.5 py-2.5">
+                  <div className="space-y-2">
+                    <div className="rounded-lg border border-border-black bg-element-bg px-2 py-2">
                       <SectionLabel>{copy.rules}</SectionLabel>
                       <div
-                        className={`rounded-lg border border-border-black bg-panel-bg px-2.5 py-2.5 gap-2.5 ${isDenseLayout ? 'flex flex-col' : 'flex items-start justify-between'}`}
+                        className={`rounded-lg border border-border-black bg-panel-bg px-2 py-2 gap-2 ${isDenseLayout ? 'flex flex-col' : 'flex items-start justify-between'}`}
                       >
                         <div className="min-w-0">
-                          <div className="text-[11px] font-medium leading-tight text-text-primary">
+                          <div className="text-[10px] font-medium leading-tight text-text-primary">
                             {copy.avoidSiblingOverlap}
                           </div>
-                          <div className="mt-0.5 text-[10px] leading-relaxed text-text-tertiary">
+                          <div className="mt-0.5 text-[9px] leading-relaxed text-text-tertiary">
                             {copy.avoidSiblingOverlapDesc}
                           </div>
                         </div>
@@ -1612,24 +1606,24 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
                     </div>
 
                     {hasOverlapWarnings && (
-                      <div className="rounded-xl border border-border-black bg-element-bg px-2.5 py-2.5">
+                      <div className="rounded-lg border border-border-black bg-element-bg px-2 py-2">
                         <SectionLabel>{copy.warningTitle}</SectionLabel>
                         <div
                           className={`grid gap-1.5 ${isDenseLayout ? 'grid-cols-1' : 'grid-cols-2'}`}
                         >
-                          <div className="rounded-lg border border-border-black bg-panel-bg px-2.5 py-2">
-                            <div className="text-[9px] font-medium tracking-[0.02em] text-text-tertiary">
+                          <div className="rounded-lg border border-border-black bg-panel-bg px-2 py-1.5">
+                            <div className="text-[8px] font-medium tracking-[0.02em] text-text-tertiary">
                               {copy.warningBefore}
                             </div>
-                            <div className="mt-0.5 text-sm font-semibold text-text-primary">
+                            <div className="mt-0.5 text-[12px] font-semibold text-text-primary">
                               {warningBefore}
                             </div>
                           </div>
-                          <div className="rounded-lg border border-border-black bg-panel-bg px-2.5 py-2">
-                            <div className="text-[9px] font-medium tracking-[0.02em] text-text-tertiary">
+                          <div className="rounded-lg border border-border-black bg-panel-bg px-2 py-1.5">
+                            <div className="text-[8px] font-medium tracking-[0.02em] text-text-tertiary">
                               {copy.warningAfter}
                             </div>
-                            <div className="mt-0.5 text-sm font-semibold text-text-primary">
+                            <div className="mt-0.5 text-[12px] font-semibold text-text-primary">
                               {warningAfter}
                             </div>
                           </div>
@@ -1645,10 +1639,10 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
       </div>
 
       <div
-        className={`shrink-0 gap-2.5 border-t border-border-black bg-element-bg px-3 py-2.5 ${isCompactLayout ? 'flex flex-wrap items-center' : 'flex items-center'}`}
+        className={`shrink-0 gap-2 border-t border-border-black bg-element-bg px-2.5 py-2 ${isCompactLayout ? 'flex flex-wrap items-center' : 'flex items-center'}`}
       >
         <div
-          className={`flex items-center gap-1.5 text-[10px] text-text-tertiary ${isCompactLayout ? 'order-1' : ''}`}
+          className={`flex items-center gap-1.25 text-[9px] text-text-tertiary ${isCompactLayout ? 'order-1' : ''}`}
         >
           <RefreshCw className="h-3 w-3" />
           <span>{footerLabel}</span>
@@ -1657,7 +1651,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
         <button
           type="button"
           onClick={onClose}
-          className={`rounded-md px-2.5 py-1.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-panel-bg hover:text-text-primary ${isCompactLayout ? 'order-2' : ''}`}
+          className={`rounded-md px-2.25 py-1.25 text-[10px] font-medium text-text-secondary transition-colors hover:bg-panel-bg hover:text-text-primary ${isCompactLayout ? 'order-2' : ''}`}
         >
           {t.cancel}
         </button>
@@ -1665,7 +1659,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
           type="button"
           onClick={handleApply}
           disabled={activeOperations.length === 0 || isAnalyzing}
-          className={`flex items-center gap-1.5 rounded-md bg-system-blue-solid px-3.5 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-system-blue disabled:cursor-not-allowed disabled:opacity-50 ${isCompactLayout ? 'order-3 ml-auto' : ''}`}
+          className={`flex items-center gap-1.25 rounded-md bg-system-blue-solid px-3 py-1.25 text-[10px] font-semibold text-white transition-colors hover:bg-system-blue disabled:cursor-not-allowed disabled:opacity-50 ${isCompactLayout ? 'order-3 ml-auto' : ''}`}
         >
           <Sparkles className="h-3 w-3" />
           {copy.apply}

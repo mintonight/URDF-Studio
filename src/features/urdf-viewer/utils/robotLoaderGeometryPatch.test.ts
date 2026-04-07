@@ -74,111 +74,115 @@ async function waitForPatchedChild(group: THREE.Object3D): Promise<THREE.Object3
   throw new Error('Timed out waiting for patched mesh object.');
 }
 
-test('applyGeometryPatchInPlace preserves b2w base_link Collada scene roots before reattaching', async () => {
-  const meshPath = 'test/unitree_ros/robots/b2w_description/meshes/base_link.dae';
-  const urdfContent = fs.readFileSync(
-    'test/unitree_ros/robots/b2w_description/urdf/b2w_description.urdf',
-    'utf8',
-  );
-  const colladaRootNormalizationHints = buildColladaRootNormalizationHints(
-    parseURDF(urdfContent).links,
-  );
-  const meshDataUrl = `data:text/xml;base64,${Buffer.from(fs.readFileSync(meshPath, 'utf8')).toString('base64')}`;
-  const manager = createLoadingManager({
-    [meshPath]: meshDataUrl,
-    'package://b2w_description/meshes/base_link.dae': meshDataUrl,
-    base_link: meshDataUrl,
-    'base_link.dae': meshDataUrl,
-  });
-  const meshLoader = createMeshLoader(
-    {
+test(
+  'applyGeometryPatchInPlace preserves b2w base_link Collada scene roots before reattaching',
+  { skip: typeof Worker === 'undefined' },
+  async () => {
+    const meshPath = 'test/unitree_ros/robots/b2w_description/meshes/base_link.dae';
+    const urdfContent = fs.readFileSync(
+      'test/unitree_ros/robots/b2w_description/urdf/b2w_description.urdf',
+      'utf8',
+    );
+    const colladaRootNormalizationHints = buildColladaRootNormalizationHints(
+      parseURDF(urdfContent).links,
+    );
+    const meshDataUrl = `data:text/xml;base64,${Buffer.from(fs.readFileSync(meshPath, 'utf8')).toString('base64')}`;
+    const manager = createLoadingManager({
       [meshPath]: meshDataUrl,
       'package://b2w_description/meshes/base_link.dae': meshDataUrl,
       base_link: meshDataUrl,
       'base_link.dae': meshDataUrl,
-    },
-    manager,
-    '',
-    { colladaRootNormalizationHints },
-  );
-  const referenceObject = await new Promise<THREE.Object3D>((resolve, reject) => {
-    meshLoader('package://b2w_description/meshes/base_link.dae', manager, (result, err) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-
-      resolve(result);
     });
-  });
-  const referenceBox = getWorldBox(referenceObject);
+    const meshLoader = createMeshLoader(
+      {
+        [meshPath]: meshDataUrl,
+        'package://b2w_description/meshes/base_link.dae': meshDataUrl,
+        base_link: meshDataUrl,
+        'base_link.dae': meshDataUrl,
+      },
+      manager,
+      '',
+      { colladaRootNormalizationHints },
+    );
+    const referenceObject = await new Promise<THREE.Object3D>((resolve, reject) => {
+      meshLoader('package://b2w_description/meshes/base_link.dae', manager, (result, err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
 
-  const robotModel = new THREE.Group() as THREE.Group & {
-    links?: Record<string, THREE.Object3D>;
-  };
-  const linkObject = new THREE.Group();
-  linkObject.name = 'base_link';
-  (linkObject as any).isURDFLink = true;
-  const visualGroup = new URDFVisual();
-  linkObject.add(visualGroup);
-  robotModel.add(linkObject);
-  robotModel.links = { base_link: linkObject };
+        resolve(result);
+      });
+    });
+    const referenceBox = getWorldBox(referenceObject);
 
-  const previousLinkData = makeLink({
-    id: 'base_link',
-    name: 'base_link',
-    visual: makeGeometry({
-      type: GeometryType.BOX,
-      meshPath: undefined,
-    }),
-  });
-  const linkData = makeLink({
-    id: 'base_link',
-    name: 'base_link',
-    visual: makeGeometry({
-      type: GeometryType.MESH,
-      meshPath: 'package://b2w_description/meshes/base_link.dae',
-      dimensions: { x: 1, y: 1, z: 1 },
-    }),
-  });
+    const robotModel = new THREE.Group() as THREE.Group & {
+      links?: Record<string, THREE.Object3D>;
+    };
+    const linkObject = new THREE.Group();
+    linkObject.name = 'base_link';
+    (linkObject as any).isURDFLink = true;
+    const visualGroup = new URDFVisual();
+    linkObject.add(visualGroup);
+    robotModel.add(linkObject);
+    robotModel.links = { base_link: linkObject };
 
-  const applied = applyGeometryPatchInPlace({
-    robotModel,
-    patch: {
-      linkName: 'base_link',
-      previousLinkData,
-      linkData,
-      visualChanged: true,
-      collisionChanged: false,
-      collisionBodiesChanged: false,
-      inertialChanged: false,
-      visibilityChanged: false,
-    },
-    assets: {
-      [meshPath]: meshDataUrl,
-      base_link: meshDataUrl,
-      'base_link.dae': meshDataUrl,
-    },
-    colladaRootNormalizationHints,
-    showVisual: true,
-    showCollision: false,
-    linkMeshMapRef: { current: new Map<string, THREE.Mesh[]>() },
-    invalidate: () => {},
-  });
+    const previousLinkData = makeLink({
+      id: 'base_link',
+      name: 'base_link',
+      visual: makeGeometry({
+        type: GeometryType.BOX,
+        meshPath: undefined,
+      }),
+    });
+    const linkData = makeLink({
+      id: 'base_link',
+      name: 'base_link',
+      visual: makeGeometry({
+        type: GeometryType.MESH,
+        meshPath: 'package://b2w_description/meshes/base_link.dae',
+        dimensions: { x: 1, y: 1, z: 1 },
+      }),
+    });
 
-  assert.equal(applied, true);
+    const applied = applyGeometryPatchInPlace({
+      robotModel,
+      patch: {
+        linkName: 'base_link',
+        previousLinkData,
+        linkData,
+        visualChanged: true,
+        collisionChanged: false,
+        collisionBodiesChanged: false,
+        inertialChanged: false,
+        visibilityChanged: false,
+      },
+      assets: {
+        [meshPath]: meshDataUrl,
+        base_link: meshDataUrl,
+        'base_link.dae': meshDataUrl,
+      },
+      colladaRootNormalizationHints,
+      showVisual: true,
+      showCollision: false,
+      linkMeshMapRef: { current: new Map<string, THREE.Mesh[]>() },
+      invalidate: () => {},
+    });
 
-  const patchedObject = await waitForPatchedChild(visualGroup);
+    assert.equal(applied, true);
 
-  assert.ok(Math.abs(patchedObject.rotation.x - referenceObject.rotation.x) < 1e-6);
-  assert.ok(Math.abs(patchedObject.rotation.y - referenceObject.rotation.y) < 1e-6);
-  assert.ok(Math.abs(patchedObject.rotation.z - referenceObject.rotation.z) < 1e-6);
-  assert.ok(Math.abs(patchedObject.quaternion.x - referenceObject.quaternion.x) < 1e-6);
-  assert.ok(Math.abs(patchedObject.quaternion.y - referenceObject.quaternion.y) < 1e-6);
-  assert.ok(Math.abs(patchedObject.quaternion.z - referenceObject.quaternion.z) < 1e-6);
-  assert.ok(Math.abs(patchedObject.quaternion.w - referenceObject.quaternion.w) < 1e-6);
-  expectBoxEquals(getWorldBox(patchedObject), referenceBox);
-});
+    const patchedObject = await waitForPatchedChild(visualGroup);
+
+    assert.ok(Math.abs(patchedObject.rotation.x - referenceObject.rotation.x) < 1e-6);
+    assert.ok(Math.abs(patchedObject.rotation.y - referenceObject.rotation.y) < 1e-6);
+    assert.ok(Math.abs(patchedObject.rotation.z - referenceObject.rotation.z) < 1e-6);
+    assert.ok(Math.abs(patchedObject.quaternion.x - referenceObject.quaternion.x) < 1e-6);
+    assert.ok(Math.abs(patchedObject.quaternion.y - referenceObject.quaternion.y) < 1e-6);
+    assert.ok(Math.abs(patchedObject.quaternion.z - referenceObject.quaternion.z) < 1e-6);
+    assert.ok(Math.abs(patchedObject.quaternion.w - referenceObject.quaternion.w) < 1e-6);
+    expectBoxEquals(getWorldBox(patchedObject), referenceBox);
+  },
+);
 
 test('applyGeometryPatchInPlace updates visual material colors in place for link color edits', () => {
   const robotModel = new THREE.Group() as THREE.Group & {
@@ -244,4 +248,62 @@ test('applyGeometryPatchInPlace updates visual material colors in place for link
     (visualMesh.material as unknown as THREE.MeshStandardMaterial).userData.urdfColorApplied,
     true,
   );
+});
+
+test('applyGeometryPatchInPlace rebuilds visual meshes when authored material textures change', () => {
+  const robotModel = new THREE.Group() as THREE.Group & {
+    links?: Record<string, THREE.Object3D>;
+  };
+  const linkObject = new THREE.Group();
+  linkObject.name = 'base_link';
+  (linkObject as any).isURDFLink = true;
+
+  const visualGroup = new URDFVisual();
+  const visualMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshPhongMaterial({ color: new THREE.Color('#808080') }),
+  );
+  visualGroup.add(visualMesh);
+  linkObject.add(visualGroup);
+  robotModel.add(linkObject);
+  robotModel.links = { base_link: linkObject };
+
+  const previousLinkData = makeLink({
+    id: 'base_link',
+    name: 'base_link',
+    visual: makeGeometry({
+      color: '#808080',
+    }),
+  });
+  const linkData = makeLink({
+    id: 'base_link',
+    name: 'base_link',
+    visual: makeGeometry({
+      color: '#808080',
+      authoredMaterials: [{ texture: 'textures/coat.png' }],
+    }),
+  });
+
+  const applied = applyGeometryPatchInPlace({
+    robotModel,
+    patch: {
+      linkName: 'base_link',
+      previousLinkData,
+      linkData,
+      visualChanged: true,
+      collisionChanged: false,
+      collisionBodiesChanged: false,
+      inertialChanged: false,
+      visibilityChanged: false,
+    },
+    assets: {},
+    showVisual: true,
+    showCollision: false,
+    linkMeshMapRef: { current: new Map<string, THREE.Mesh[]>() },
+    invalidate: () => {},
+  });
+
+  assert.equal(applied, true);
+  assert.equal(visualGroup.children.length, 1);
+  assert.notEqual(visualGroup.children[0], visualMesh);
 });

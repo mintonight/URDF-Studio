@@ -7,6 +7,7 @@ import {
   collectVisualizerMeshLoadKeys,
   resolveVisualizerCollisionMeshPrewarmConcurrency,
 } from './visualizerMeshLoading.ts';
+import { sortCollisionPreloadSpecs } from './collisionRevealScheduling.ts';
 
 function createMeshGeometry(meshPath: string) {
   return {
@@ -227,6 +228,82 @@ test('collectVisualizerCollisionMeshPreloadSpecs deduplicates visible collision 
       meshPath: 'meshes/shared_collision.dae',
     },
   ]);
+});
+
+test('sortCollisionPreloadSpecs prioritizes selected and hovered links before background meshes', () => {
+  const specs = [
+    {
+      assetBaseDir: 'meshes/',
+      assetUrl: 'blob:background',
+      extension: 'stl',
+      meshLoadKeys: ['background|collision|primary|0|meshes/background.stl'],
+      meshPath: 'meshes/background.stl',
+    },
+    {
+      assetBaseDir: 'meshes/',
+      assetUrl: 'blob:hovered',
+      extension: 'stl',
+      meshLoadKeys: ['hovered|collision|primary|0|meshes/hovered.stl'],
+      meshPath: 'meshes/hovered.stl',
+    },
+    {
+      assetBaseDir: 'meshes/',
+      assetUrl: 'blob:selected',
+      extension: 'stl',
+      meshLoadKeys: ['selected|collision|primary|0|meshes/selected.stl'],
+      meshPath: 'meshes/selected.stl',
+    },
+  ];
+
+  const sortedSpecs = sortCollisionPreloadSpecs(specs, {
+    hoveredLinkId: 'hovered',
+    selectedLinkId: 'selected',
+  });
+
+  assert.deepEqual(
+    sortedSpecs.map((spec) => spec.assetUrl),
+    ['blob:selected', 'blob:hovered', 'blob:background'],
+  );
+});
+
+test('sortCollisionPreloadSpecs prioritizes source and selected components using link ownership', () => {
+  const specs = [
+    {
+      assetBaseDir: 'meshes/',
+      assetUrl: 'blob:other',
+      extension: 'dae',
+      meshLoadKeys: ['other_link|collision|primary|0|meshes/other.dae'],
+      meshPath: 'meshes/other.dae',
+    },
+    {
+      assetBaseDir: 'meshes/',
+      assetUrl: 'blob:source',
+      extension: 'dae',
+      meshLoadKeys: ['source_link|collision|primary|0|meshes/source.dae'],
+      meshPath: 'meshes/source.dae',
+    },
+    {
+      assetBaseDir: 'meshes/',
+      assetUrl: 'blob:selected-component',
+      extension: 'dae',
+      meshLoadKeys: ['selected_link|collision|primary|0|meshes/selected.dae'],
+      meshPath: 'meshes/selected.dae',
+    },
+  ];
+
+  const sortedSpecs = sortCollisionPreloadSpecs(specs, {
+    prioritizedComponentIds: ['selected-component', 'source-component'],
+    visibleComponentIdByLinkId: new Map([
+      ['selected_link', 'selected-component'],
+      ['source_link', 'source-component'],
+      ['other_link', 'other-component'],
+    ]),
+  });
+
+  assert.deepEqual(
+    sortedSpecs.map((spec) => spec.assetUrl),
+    ['blob:source', 'blob:selected-component', 'blob:other'],
+  );
 });
 
 test('resolveVisualizerCollisionMeshPrewarmConcurrency returns zero when no specs exist', () => {

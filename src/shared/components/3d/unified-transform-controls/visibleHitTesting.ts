@@ -16,11 +16,17 @@ import {
 } from './gizmoCore';
 import { preferVisibleControlHit } from './ownership';
 
-const getAxisFromObjectBranch = (object: THREE.Object3D | null | undefined): 'X' | 'Y' | 'Z' | null => {
+const getAxisFromObjectBranch = (
+  object: THREE.Object3D | null | undefined,
+): 'X' | 'Y' | 'Z' | null => {
   let current: THREE.Object3D | null | undefined = object;
 
   while (current) {
-    if (AXIS_NAMES.has((current as THREE.Object3D & { userData?: Record<string, unknown> }).userData?.urdfAxis)) {
+    if (
+      AXIS_NAMES.has(
+        (current as THREE.Object3D & { userData?: Record<string, unknown> }).userData?.urdfAxis,
+      )
+    ) {
       return current.userData.urdfAxis as 'X' | 'Y' | 'Z';
     }
 
@@ -44,14 +50,14 @@ type VisibleAxisCacheEntry = {
 
 const getCachedVisibleAxisHit = (
   controls: any,
-  pointer: { x: number; y: number } | null | undefined
+  pointer: { x: number; y: number } | null | undefined,
 ): 'X' | 'Y' | 'Z' | null => {
   const cached = controls?.userData?.urdfLastVisibleAxisHit as VisibleAxisCacheEntry | undefined;
   if (!cached || !pointer) return null;
 
   if (
-    Math.abs(cached.x - pointer.x) > VISIBLE_AXIS_CACHE_POINTER_EPSILON
-    || Math.abs(cached.y - pointer.y) > VISIBLE_AXIS_CACHE_POINTER_EPSILON
+    Math.abs(cached.x - pointer.x) > VISIBLE_AXIS_CACHE_POINTER_EPSILON ||
+    Math.abs(cached.y - pointer.y) > VISIBLE_AXIS_CACHE_POINTER_EPSILON
   ) {
     return null;
   }
@@ -62,7 +68,7 @@ const getCachedVisibleAxisHit = (
 const cacheVisibleAxisHit = (
   controls: any,
   pointer: { x: number; y: number } | null | undefined,
-  axis: 'X' | 'Y' | 'Z' | null
+  axis: 'X' | 'Y' | 'Z' | null,
 ) => {
   if (!pointer) return;
 
@@ -76,29 +82,26 @@ const cacheVisibleAxisHit = (
   };
 };
 
-const getPointerScreenPosition = (
-  pointer: { x: number; y: number },
-  rect: DOMRect
-) => new THREE.Vector2(
-  ((pointer.x + 1) * 0.5) * rect.width,
-  ((1 - pointer.y) * 0.5) * rect.height,
-);
+const getPointerScreenPosition = (pointer: { x: number; y: number }, rect: DOMRect) =>
+  new THREE.Vector2((pointer.x + 1) * 0.5 * rect.width, (1 - pointer.y) * 0.5 * rect.height);
 
 const projectWorldPointToScreen = (
   worldPoint: THREE.Vector3,
   camera: THREE.Camera,
   rect: DOMRect,
-  target: THREE.Vector2
+  target: THREE.Vector2,
 ) => {
   const projected = worldPoint.clone().project(camera);
-  if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y) || projected.z < -1 || projected.z > 1) {
+  if (
+    !Number.isFinite(projected.x) ||
+    !Number.isFinite(projected.y) ||
+    projected.z < -1 ||
+    projected.z > 1
+  ) {
     return null;
   }
 
-  target.set(
-    ((projected.x + 1) * 0.5) * rect.width,
-    ((1 - projected.y) * 0.5) * rect.height,
-  );
+  target.set((projected.x + 1) * 0.5 * rect.width, (1 - projected.y) * 0.5 * rect.height);
   return target;
 };
 
@@ -132,9 +135,7 @@ const getTranslateHandleLocalSamples = (handle: THREE.Mesh, axis: 'X' | 'Y' | 'Z
   const samples: THREE.Vector3[] = [];
 
   for (let index = 0; index < sampleCount; index += 1) {
-    const alpha = sampleCount === 1
-      ? 0.5
-      : index / (sampleCount - 1);
+    const alpha = sampleCount === 1 ? 0.5 : index / (sampleCount - 1);
     const point = center.clone();
     point[axisKey] = THREE.MathUtils.lerp(start, end, alpha);
     samples.push(point);
@@ -145,18 +146,20 @@ const getTranslateHandleLocalSamples = (handle: THREE.Mesh, axis: 'X' | 'Y' | 'Z
   return samples;
 };
 
-const TRANSLATE_AXIS_PERP_COMPONENTS: Record<'X' | 'Y' | 'Z', readonly ['x' | 'y' | 'z', 'x' | 'y' | 'z']> = {
+const TRANSLATE_AXIS_PERP_COMPONENTS: Record<
+  'X' | 'Y' | 'Z',
+  readonly ['x' | 'y' | 'z', 'x' | 'y' | 'z']
+> = {
   X: ['y', 'z'],
   Y: ['x', 'z'],
   Z: ['x', 'y'],
 };
 
-const getTranslateHandleLocalRadius = (
-  handle: THREE.Object3D,
-  alpha: number
-) => {
+const getTranslateHandleLocalRadius = (handle: THREE.Object3D, alpha: number) => {
   if (handle.userData?.urdfTranslateTip) {
-    return TRANSLATE_ARROW_BASE_RADIUS * Math.max(0, 1 - alpha);
+    const direction = handle.userData?.urdfTranslateDirection === -1 ? -1 : 1;
+    const normalizedAlpha = direction === -1 ? alpha : 1 - alpha;
+    return TRANSLATE_ARROW_BASE_RADIUS * Math.max(0, normalizedAlpha);
   }
 
   if (handle.userData?.urdfTranslateGapBridge) {
@@ -169,7 +172,7 @@ const getTranslateHandleLocalRadius = (
 const distancePointToSegment2D = (
   point: THREE.Vector2,
   start: THREE.Vector2,
-  end: THREE.Vector2
+  end: THREE.Vector2,
 ) => {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
@@ -182,7 +185,7 @@ const distancePointToSegment2D = (
   const t = THREE.MathUtils.clamp(
     ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSq,
     0,
-    1
+    1,
   );
 
   const projectedX = start.x + dx * t;
@@ -193,7 +196,7 @@ const distancePointToSegment2D = (
 export const resolveVisibleTranslateHit = (
   controls: any,
   pointer: { x: number; y: number },
-  axisFilter?: 'X' | 'Y' | 'Z'
+  axisFilter?: 'X' | 'Y' | 'Z',
 ): VisibleControlHit | null => {
   if (!controls || controls.mode !== 'translate' || !controls.camera || !controls.domElement) {
     return null;
@@ -243,19 +246,34 @@ export const resolveVisibleTranslateHit = (
       if (localRadius <= 0) continue;
 
       worldSamplePoint.copy(localSample).applyMatrix4(handle.matrixWorld);
-      const projected = projectWorldPointToScreen(worldSamplePoint, controls.camera, rect, projectedPoint);
+      const projected = projectWorldPointToScreen(
+        worldSamplePoint,
+        controls.camera,
+        rect,
+        projectedPoint,
+      );
       if (!projected) continue;
 
       const distancePx = projected.distanceTo(pointerPx);
       worldOffsetPoint.copy(localSample);
       worldOffsetPoint[perpendicularComponents[0]] += localRadius;
       worldOffsetPoint.applyMatrix4(handle.matrixWorld);
-      const projectedRadiusA = projectWorldPointToScreen(worldOffsetPoint, controls.camera, rect, projectedOffsetA);
+      const projectedRadiusA = projectWorldPointToScreen(
+        worldOffsetPoint,
+        controls.camera,
+        rect,
+        projectedOffsetA,
+      );
 
       worldOffsetPoint.copy(localSample);
       worldOffsetPoint[perpendicularComponents[1]] += localRadius;
       worldOffsetPoint.applyMatrix4(handle.matrixWorld);
-      const projectedRadiusB = projectWorldPointToScreen(worldOffsetPoint, controls.camera, rect, projectedOffsetB);
+      const projectedRadiusB = projectWorldPointToScreen(
+        worldOffsetPoint,
+        controls.camera,
+        rect,
+        projectedOffsetB,
+      );
 
       const radiusPx = Math.max(
         projectedRadiusA ? projectedRadiusA.distanceTo(projected) : 0,
@@ -298,15 +316,17 @@ export const resolveVisibleTranslateHit = (
 const resolveTranslateAxisByScreenDistance = (
   controls: any,
   pointer: { x: number; y: number },
-  axisFilter?: 'X' | 'Y' | 'Z'
-): 'X' | 'Y' | 'Z' | null => resolveVisibleTranslateHit(controls, pointer, axisFilter)?.axis ?? null;
+  axisFilter?: 'X' | 'Y' | 'Z',
+): 'X' | 'Y' | 'Z' | null =>
+  resolveVisibleTranslateHit(controls, pointer, axisFilter)?.axis ?? null;
 
 export const resolveVisibleRotateHit = (
   controls: any,
   pointer: { x: number; y: number },
-  axisFilter?: 'X' | 'Y' | 'Z'
+  axisFilter?: 'X' | 'Y' | 'Z',
 ): VisibleControlHit | null => {
-  if (!controls || controls.mode !== 'rotate' || !controls.camera || !controls.domElement) return null;
+  if (!controls || controls.mode !== 'rotate' || !controls.camera || !controls.domElement)
+    return null;
 
   const gizmo = getGizmoRoot(controls);
   const rotateGroup = gizmo?.gizmo?.rotate as THREE.Object3D | undefined;
@@ -347,9 +367,11 @@ export const resolveVisibleRotateHit = (
       : null;
     if (!centerline || centerline.length < 2) return;
 
-    const parameters = (handle.geometry as THREE.BufferGeometry & {
-      parameters?: { tube?: number };
-    }).parameters;
+    const parameters = (
+      handle.geometry as THREE.BufferGeometry & {
+        parameters?: { tube?: number };
+      }
+    ).parameters;
     const localTubeRadius =
       typeof parameters?.tube === 'number' && parameters.tube > 0
         ? parameters.tube
@@ -362,7 +384,12 @@ export const resolveVisibleRotateHit = (
       worldStart.copy(centerline[index]).applyMatrix4(handle.matrixWorld);
       worldEnd.copy(centerline[index + 1]).applyMatrix4(handle.matrixWorld);
 
-      const startProjected = projectWorldPointToScreen(worldStart, controls.camera, rect, projectedStart);
+      const startProjected = projectWorldPointToScreen(
+        worldStart,
+        controls.camera,
+        rect,
+        projectedStart,
+      );
       const endProjected = projectWorldPointToScreen(worldEnd, controls.camera, rect, projectedEnd);
       if (!startProjected || !endProjected) continue;
 
@@ -373,22 +400,33 @@ export const resolveVisibleRotateHit = (
       if (!midProjected) continue;
 
       worldOffset.copy(worldMid).addScaledVector(cameraRight, localTubeRadius);
-      const offsetProjectedA = projectWorldPointToScreen(worldOffset, controls.camera, rect, projectedOffsetA);
+      const offsetProjectedA = projectWorldPointToScreen(
+        worldOffset,
+        controls.camera,
+        rect,
+        projectedOffsetA,
+      );
 
       worldOffset.copy(worldMid).addScaledVector(cameraUp, localTubeRadius);
-      const offsetProjectedB = projectWorldPointToScreen(worldOffset, controls.camera, rect, projectedOffsetB);
+      const offsetProjectedB = projectWorldPointToScreen(
+        worldOffset,
+        controls.camera,
+        rect,
+        projectedOffsetB,
+      );
 
       const radiusPx = Math.max(
         offsetProjectedA ? offsetProjectedA.distanceTo(midProjected) : 0,
         offsetProjectedB ? offsetProjectedB.distanceTo(midProjected) : 0,
-        ROTATE_SCREEN_HOVER_MIN_RADIUS_PX
+        ROTATE_SCREEN_HOVER_MIN_RADIUS_PX,
       );
-      const thresholdPx = (radiusPx + ROTATE_SCREEN_HOVER_PADDING_PX)
-        * (isBackArc ? ROTATE_BACK_HIT_THRESHOLD_SCALE : 1);
+      const thresholdPx =
+        (radiusPx + ROTATE_SCREEN_HOVER_PADDING_PX) *
+        (isBackArc ? ROTATE_BACK_HIT_THRESHOLD_SCALE : 1);
       if (distancePx > thresholdPx) continue;
 
-      const normalizedScore = (distancePx / thresholdPx)
-        + (isBackArc ? ROTATE_BACK_HIT_SCORE_PENALTY : 0);
+      const normalizedScore =
+        distancePx / thresholdPx + (isBackArc ? ROTATE_BACK_HIT_SCORE_PENALTY : 0);
       const sampleDistance = cameraWorldPosition.distanceTo(worldMid);
 
       if (
@@ -419,7 +457,7 @@ export const resolveVisibleRotateHit = (
 
 const resolveVisibleAxisHit = (
   controls: any,
-  pointer: { x: number; y: number }
+  pointer: { x: number; y: number },
 ): 'X' | 'Y' | 'Z' | null => {
   if (!controls || !pointer) return null;
   if (controls.mode === 'translate') {
@@ -435,9 +473,7 @@ export const patchVisibleHoverHitFallback = (controls: any) => {
   if (!controls || controls.userData?.urdfVisibleHoverHitFallbackPatched) return;
 
   const originalPointerHover =
-    typeof controls.pointerHover === 'function'
-      ? controls.pointerHover.bind(controls)
-      : null;
+    typeof controls.pointerHover === 'function' ? controls.pointerHover.bind(controls) : null;
 
   if (!originalPointerHover) return;
 
@@ -464,9 +500,7 @@ export const patchVisiblePointerDownFallback = (controls: any) => {
   if (!controls || controls.userData?.urdfVisiblePointerDownFallbackPatched) return;
 
   const originalPointerDown =
-    typeof controls.pointerDown === 'function'
-      ? controls.pointerDown.bind(controls)
-      : null;
+    typeof controls.pointerDown === 'function' ? controls.pointerDown.bind(controls) : null;
 
   if (!originalPointerDown) return;
 
@@ -478,8 +512,8 @@ export const patchVisiblePointerDownFallback = (controls: any) => {
       (controls.mode === 'translate' || controls.mode === 'rotate')
     ) {
       const visibleAxis =
-        getCachedVisibleAxisHit(controls, pointer)
-        ?? (pointer ? resolveVisibleAxisHit(controls, pointer) : null);
+        getCachedVisibleAxisHit(controls, pointer) ??
+        (pointer ? resolveVisibleAxisHit(controls, pointer) : null);
       controls.axis = visibleAxis;
       cacheVisibleAxisHit(controls, pointer, visibleAxis);
 

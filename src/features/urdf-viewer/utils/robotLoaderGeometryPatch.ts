@@ -337,6 +337,19 @@ function sameGeometryStructure(a: LinkGeometry | undefined, b: LinkGeometry | un
   return a.type === b.type && (a.meshPath || '') === (b.meshPath || '');
 }
 
+function getAuthoredMaterialSignature(geometry: LinkGeometry | undefined): string {
+  const authoredMaterials = geometry?.authoredMaterials ?? [];
+  return JSON.stringify(
+    authoredMaterials.map((material) => ({
+      name: String(material.name || '').trim(),
+      color: String(material.color || '')
+        .trim()
+        .toLowerCase(),
+      texture: String(material.texture || '').trim(),
+    })),
+  );
+}
+
 function canPatchGeometryInPlace(
   previousGeometry: LinkGeometry | undefined,
   geometry: LinkGeometry | undefined,
@@ -348,9 +361,13 @@ function canPatchGeometryInPlace(
 
   const dimensionsChanged = !sameVec3(previousGeometry.dimensions, geometry.dimensions);
   const colorChanged = (previousGeometry.color || '') !== (geometry.color || '');
+  const authoredMaterialsChanged =
+    category === 'visual' &&
+    getAuthoredMaterialSignature(previousGeometry) !== getAuthoredMaterialSignature(geometry);
 
   if (dimensionsChanged && geometry.type === GeometryType.MESH) return false;
   if (colorChanged && category === 'collision') return false;
+  if (authoredMaterialsChanged) return false;
 
   return true;
 }

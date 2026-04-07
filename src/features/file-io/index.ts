@@ -29,7 +29,11 @@ export type {
   ExportRobotToUsdProgress,
   ProjectExportProgress,
   ProjectExportProgressPhase,
+  ProjectImportResult,
+  ImportedProjectArchiveData,
+  ImportedProjectLibraryFile,
   UsdMeshCompressionOptions,
+  ExportProjectParams,
 } from './utils';
 
 // Utilities
@@ -59,15 +63,13 @@ export {
   exportProject,
   exportProjectWithWorker,
   importProject,
+  importProjectWithWorker,
+  disposeProjectImportWorker,
   USD_EXPORT_WORKER_SUPPORTED_MESH_EXTENSIONS,
 } from './utils';
 
 // Hooks
-export {
-  useFileImport,
-  useSnapshot,
-  usePdfExport,
-} from './hooks';
+export { useSnapshot, usePdfExport } from './hooks';
 
 export { ExportDialog } from './components/ExportDialog';
 export { ExportProgressDialog } from './components/ExportProgressDialog';

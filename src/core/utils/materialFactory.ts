@@ -1,17 +1,20 @@
 import * as THREE from 'three';
 import { parseThreeColorWithOpacity } from './color.ts';
 
-const RUBBER_MATERIAL_PATTERN = /\b(rubber|tire|tyre|grip|gasket|seal|boot|bushing|silicone|footpad|foot_pad)\b/i;
-const METAL_MATERIAL_PATTERN = /\b(metal|steel|stainless|chrome|alum(?:inum|inium)?|iron|alloy|bolt|screw|shaft|bearing|hinge|bracket)\b/i;
-const COATED_SHELL_MATERIAL_PATTERN = /\b(shell|body|cover|panel|fairing|housing|case|coat|paint)\b/i;
+const RUBBER_MATERIAL_PATTERN =
+  /\b(rubber|tire|tyre|grip|gasket|seal|boot|bushing|silicone|footpad|foot_pad)\b/i;
+const METAL_MATERIAL_PATTERN =
+  /\b(metal|steel|stainless|chrome|alum(?:inum|inium)?|iron|alloy|bolt|screw|shaft|bearing|hinge|bracket)\b/i;
+const COATED_SHELL_MATERIAL_PATTERN =
+  /\b(shell|body|cover|panel|fairing|housing|case|coat|paint)\b/i;
 
 export const MATERIAL_CONFIG = {
-    roughness: 0.56,
-    metalness: 0.035,
-    envMapIntensity: 0.42,
-    whiteColorMultiplier: 0.93,
-    whiteEnvMapIntensityMultiplier: 0.82,
-    nearWhiteThreshold: 0.88,
+  roughness: 0.56,
+  metalness: 0.035,
+  envMapIntensity: 0.42,
+  whiteColorMultiplier: 0.93,
+  whiteEnvMapIntensityMultiplier: 0.82,
+  nearWhiteThreshold: 0.88,
 } as const;
 
 const MATERIAL_PRESET_CONFIG = {
@@ -84,13 +87,13 @@ function inferMaterialPresetName(name: string | undefined, color: THREE.Color): 
 }
 
 export interface CreateMaterialOptions {
-    color: THREE.ColorRepresentation;
-    opacity?: number;
-    transparent?: boolean;
-    side?: THREE.Side;
-    map?: THREE.Texture | null;
-    name?: string;
-    preserveExactColor?: boolean;
+  color: THREE.ColorRepresentation;
+  opacity?: number;
+  transparent?: boolean;
+  side?: THREE.Side;
+  map?: THREE.Texture | null;
+  name?: string;
+  preserveExactColor?: boolean;
 }
 
 export function createMatteMaterial(options: CreateMaterialOptions): THREE.MeshStandardMaterial {
@@ -105,20 +108,25 @@ export function createMatteMaterial(options: CreateMaterialOptions): THREE.MeshS
   let finalColor = parsedColor?.color ?? new THREE.Color('#ffffff');
   const effectiveOpacity = Number.isFinite(options.opacity)
     ? Number(options.opacity)
-    : parsedColor?.opacity ?? 1.0;
+    : (parsedColor?.opacity ?? 1.0);
   const effectiveTransparent = Boolean(options.transparent) || effectiveOpacity < 1.0;
   const presetName = inferMaterialPresetName(name, finalColor);
   const preset = MATERIAL_PRESET_CONFIG[presetName];
-  const isNearWhite = (
-    finalColor.r >= MATERIAL_CONFIG.nearWhiteThreshold
-    && finalColor.g >= MATERIAL_CONFIG.nearWhiteThreshold
-    && finalColor.b >= MATERIAL_CONFIG.nearWhiteThreshold
-  );
+  const isNearWhite =
+    finalColor.r >= MATERIAL_CONFIG.nearWhiteThreshold &&
+    finalColor.g >= MATERIAL_CONFIG.nearWhiteThreshold &&
+    finalColor.b >= MATERIAL_CONFIG.nearWhiteThreshold;
   const envMapIntensity = isNearWhite
     ? preset.envMapIntensity * MATERIAL_CONFIG.whiteEnvMapIntensityMultiplier
     : preset.envMapIntensity;
+  const shouldPreserveExactNearWhiteAppearance = preserveExactColor && !isNearWhite;
 
-  if (!preserveExactColor && finalColor.r > 0.95 && finalColor.g > 0.95 && finalColor.b > 0.95) {
+  if (
+    !shouldPreserveExactNearWhiteAppearance &&
+    finalColor.r > 0.95 &&
+    finalColor.g > 0.95 &&
+    finalColor.b > 0.95
+  ) {
     finalColor.multiplyScalar(MATERIAL_CONFIG.whiteColorMultiplier);
   }
 
@@ -136,7 +144,7 @@ export function createMatteMaterial(options: CreateMaterialOptions): THREE.MeshS
 
   // Preserve authored URDF/USD palette values without ACES shifting saturated
   // robot colors (for example Unitree's orange) toward yellow in the viewer.
-  if (preserveExactColor) {
+  if (shouldPreserveExactNearWhiteAppearance) {
     material.toneMapped = false;
   }
 

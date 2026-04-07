@@ -3,10 +3,22 @@
  * Handles blob URLs for imported 3D assets
  */
 import { create } from 'zustand';
-import type { MotorSpec, RobotFile, UsdPreparedExportCache, UsdSceneSnapshot } from '@/types';
+import type {
+  LoadingProgressMode,
+  MotorSpec,
+  RobotFile,
+  UsdPreparedExportCache,
+  UsdSceneSnapshot,
+} from '@/types';
 import { DEFAULT_MOTOR_LIBRARY, normalizeMotorLibrary } from '@/shared/data/motorLibrary';
 
 export type DocumentLoadStatus = 'idle' | 'loading' | 'hydrating' | 'ready' | 'error';
+
+export interface DocumentLoadLifecycleState {
+  status: DocumentLoadStatus;
+  fileName: string | null;
+  format: RobotFile['format'] | null;
+}
 
 export interface DocumentLoadState {
   status: DocumentLoadStatus;
@@ -15,6 +27,7 @@ export interface DocumentLoadState {
   error: string | null;
   phase?: string | null;
   message?: string | null;
+  progressMode?: LoadingProgressMode | null;
   progressPercent?: number | null;
   loadedCount?: number | null;
   totalCount?: number | null;
@@ -27,8 +40,19 @@ const DEFAULT_DOCUMENT_LOAD_STATE: DocumentLoadState = {
   error: null,
 };
 
+export function toDocumentLoadLifecycleState(state: DocumentLoadState): DocumentLoadLifecycleState {
+  return {
+    status: state.status,
+    fileName: state.fileName,
+    format: state.format,
+  };
+}
+
 function normalizeUsdSceneSnapshotKey(path: string | null | undefined): string {
-  return String(path || '').trim().replace(/^\/+/, '').split('?')[0];
+  return String(path || '')
+    .trim()
+    .replace(/^\/+/, '')
+    .split('?')[0];
 }
 
 function normalizeLibraryPath(path: string | null | undefined): string {
@@ -262,8 +286,7 @@ export const useAssetsStore = create<AssetsState>()((set, get) => ({
       if (!state.availableFiles.some((file) => file.name === fileName)) return state;
 
       const nextAvailableFiles = state.availableFiles.filter((file) => file.name !== fileName);
-      const nextSelectedFile =
-        state.selectedFile?.name === fileName ? null : state.selectedFile;
+      const nextSelectedFile = state.selectedFile?.name === fileName ? null : state.selectedFile;
 
       const nextAllFileContents = { ...state.allFileContents };
       delete nextAllFileContents[fileName];
@@ -332,14 +355,16 @@ export const useAssetsStore = create<AssetsState>()((set, get) => ({
       if (!normalizedFolder) return state;
 
       const shouldRemove = (path: string) =>
-        normalizeUsdSceneSnapshotKey(path) === normalizedFolder
-          || normalizeUsdSceneSnapshotKey(path).startsWith(`${normalizedFolder}/`);
+        normalizeUsdSceneSnapshotKey(path) === normalizedFolder ||
+        normalizeUsdSceneSnapshotKey(path).startsWith(`${normalizedFolder}/`);
 
       const removedFiles = state.availableFiles.filter((file) => shouldRemove(file.name));
       if (removedFiles.length === 0) return state;
 
       const removedFileNames = new Set(removedFiles.map((file) => file.name));
-      const nextAvailableFiles = state.availableFiles.filter((file) => !removedFileNames.has(file.name));
+      const nextAvailableFiles = state.availableFiles.filter(
+        (file) => !removedFileNames.has(file.name),
+      );
       const nextSelectedFile =
         state.selectedFile && shouldRemove(state.selectedFile.name) ? null : state.selectedFile;
 
@@ -418,13 +443,15 @@ export const useAssetsStore = create<AssetsState>()((set, get) => ({
 
     const state = get();
     const shouldRename = (path: string) => isSameOrNestedLibraryPath(path, normalizedFolder);
-    const renamePath = (path: string) => replaceLibraryPathPrefix(path, normalizedFolder, nextFolderPath);
+    const renamePath = (path: string) =>
+      replaceLibraryPathPrefix(path, normalizedFolder, nextFolderPath);
 
-    const hasExistingFolder = state.availableFiles.some((file) => shouldRename(file.name))
-      || Object.keys(state.assets).some(shouldRename)
-      || Object.keys(state.allFileContents).some(shouldRename)
-      || Object.keys(state.usdSceneSnapshots).some(shouldRename)
-      || Object.keys(state.usdPreparedExportCaches).some(shouldRename);
+    const hasExistingFolder =
+      state.availableFiles.some((file) => shouldRename(file.name)) ||
+      Object.keys(state.assets).some(shouldRename) ||
+      Object.keys(state.allFileContents).some(shouldRename) ||
+      Object.keys(state.usdSceneSnapshots).some(shouldRename) ||
+      Object.keys(state.usdPreparedExportCaches).some(shouldRename);
 
     if (!hasExistingFolder) {
       return { ok: false, reason: 'missing' };
@@ -436,22 +463,21 @@ export const useAssetsStore = create<AssetsState>()((set, get) => ({
       return normalizedPath === nextFolderPath || normalizedPath.startsWith(`${nextFolderPath}/`);
     };
 
-    const hasConflict = state.availableFiles.some((file) => collidesWithExistingPath(file.name))
-      || Object.keys(state.assets).some(collidesWithExistingPath)
-      || Object.keys(state.allFileContents).some(collidesWithExistingPath)
-      || Object.keys(state.usdSceneSnapshots).some(collidesWithExistingPath)
-      || Object.keys(state.usdPreparedExportCaches).some(collidesWithExistingPath);
+    const hasConflict =
+      state.availableFiles.some((file) => collidesWithExistingPath(file.name)) ||
+      Object.keys(state.assets).some(collidesWithExistingPath) ||
+      Object.keys(state.allFileContents).some(collidesWithExistingPath) ||
+      Object.keys(state.usdSceneSnapshots).some(collidesWithExistingPath) ||
+      Object.keys(state.usdPreparedExportCaches).some(collidesWithExistingPath);
 
     if (hasConflict) {
       return { ok: false, reason: 'conflict' };
     }
 
     set((currentState) => {
-      const nextAvailableFiles = currentState.availableFiles.map((file) => (
-        shouldRename(file.name)
-          ? { ...file, name: renamePath(file.name) }
-          : file
-      ));
+      const nextAvailableFiles = currentState.availableFiles.map((file) =>
+        shouldRename(file.name) ? { ...file, name: renamePath(file.name) } : file,
+      );
 
       const nextSelectedFile = currentState.selectedFile
         ? shouldRename(currentState.selectedFile.name)
@@ -460,21 +486,25 @@ export const useAssetsStore = create<AssetsState>()((set, get) => ({
         : null;
 
       const nextAllFileContents = Object.fromEntries(
-        Object.entries(currentState.allFileContents).map(([path, content]) => (
-          [shouldRename(path) ? renamePath(path) : path, content]
-        )),
+        Object.entries(currentState.allFileContents).map(([path, content]) => [
+          shouldRename(path) ? renamePath(path) : path,
+          content,
+        ]),
       );
 
       const nextAssets = Object.fromEntries(
-        Object.entries(currentState.assets).map(([path, url]) => (
-          [shouldRename(path) ? renamePath(path) : path, url]
-        )),
+        Object.entries(currentState.assets).map(([path, url]) => [
+          shouldRename(path) ? renamePath(path) : path,
+          url,
+        ]),
       );
 
       const nextUsdSceneSnapshots = Object.fromEntries(
         Object.entries(currentState.usdSceneSnapshots).map(([path, snapshot]) => {
           const sourcePath = snapshot.stageSourcePath || path;
-          const nextPath = shouldRename(sourcePath) ? renamePath(sourcePath) : normalizeLibraryPath(path);
+          const nextPath = shouldRename(sourcePath)
+            ? renamePath(sourcePath)
+            : normalizeLibraryPath(path);
           return [
             nextPath,
             shouldRename(sourcePath)
@@ -487,7 +517,9 @@ export const useAssetsStore = create<AssetsState>()((set, get) => ({
       const nextUsdPreparedExportCaches = Object.fromEntries(
         Object.entries(currentState.usdPreparedExportCaches).map(([path, cache]) => {
           const sourcePath = cache.stageSourcePath || path;
-          const nextPath = shouldRename(sourcePath) ? renamePath(sourcePath) : normalizeLibraryPath(path);
+          const nextPath = shouldRename(sourcePath)
+            ? renamePath(sourcePath)
+            : normalizeLibraryPath(path);
           return [
             nextPath,
             shouldRename(sourcePath)
@@ -497,12 +529,14 @@ export const useAssetsStore = create<AssetsState>()((set, get) => ({
         }),
       );
 
-      const nextDocumentLoadState = currentState.documentLoadState.fileName && shouldRename(currentState.documentLoadState.fileName)
-        ? {
-            ...currentState.documentLoadState,
-            fileName: renamePath(currentState.documentLoadState.fileName),
-          }
-        : currentState.documentLoadState;
+      const nextDocumentLoadState =
+        currentState.documentLoadState.fileName &&
+        shouldRename(currentState.documentLoadState.fileName)
+          ? {
+              ...currentState.documentLoadState,
+              fileName: renamePath(currentState.documentLoadState.fileName),
+            }
+          : currentState.documentLoadState;
 
       return {
         availableFiles: nextAvailableFiles,

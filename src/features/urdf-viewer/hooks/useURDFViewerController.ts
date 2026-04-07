@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelectionStore } from '@/store/selectionStore';
+import { useJointInteractionPreviewStore } from '@/store';
 import { alignObjectLowestPointToZ } from '@/shared/utils';
 import { createJointPanelStore } from '@/shared/utils/jointPanelStore';
 import {
@@ -11,7 +12,7 @@ import {
   setRegressionViewerHandlers,
   type RegressionViewerFlags,
 } from '@/shared/debug/regressionBridge';
-import { isSingleDofJoint } from '../utils/jointTypes';
+import { getJointType, isSingleDofJoint } from '../utils/jointTypes';
 import { resolveActiveViewerJointKeyFromSelection } from '../utils/activeJointSelection';
 import type {
   MeasureAnchorMode,
@@ -27,9 +28,16 @@ import { beginInitialGroundAlignment } from '../utils/robotPositioning';
 import { createScopedToolModeState, resolveScopedToolModeState } from '../utils/scopedToolMode';
 import { usePanelDrag } from './usePanelDrag';
 import { useViewerSettings } from './useViewerSettings';
+import { JointType, type InteractionSelection, type RobotState } from '@/types';
+import { resolveMimicJointAngleTargets } from '@/core/robot';
+import { createClosedLoopMotionPreviewSession } from '@/shared/utils/robot/closedLoopMotionPreview';
+import { unwrapContinuousJointAngle } from '@/shared/utils/continuousJointAngle';
 
 type Selection = URDFViewerProps['selection'];
 const JOINT_SYNC_EPSILON = 1e-6;
+// App-wide preview consumers were removed from the layout path. Keep runtime
+// previews local to the active viewer to avoid cross-app state churn while dragging.
+const APP_WIDE_JOINT_INTERACTION_PREVIEW_ENABLED = false;
 
 function isSameJointAngle(left: number | undefined, right: number | undefined) {
   if (typeof left !== 'number' || typeof right !== 'number') {
@@ -69,6 +77,23 @@ function isSameJointMotion(
   );
 }
 
+function resolveRuntimeReportedJointAngle(joint: unknown, runtimeAngle: number): number {
+  if (getJointType(joint) !== JointType.CONTINUOUS) {
+    return runtimeAngle;
+  }
+
+  const referenceAngle = Number(
+    (joint as { angle?: number; jointValue?: number } | null)?.angle ??
+      (joint as { angle?: number; jointValue?: number } | null)?.jointValue,
+  );
+
+  if (!Number.isFinite(referenceAngle)) {
+    return runtimeAngle;
+  }
+
+  return unwrapContinuousJointAngle(runtimeAngle, referenceAngle);
+}
+
 interface UseURDFViewerControllerProps {
   onJointChange?: URDFViewerProps['onJointChange'];
   syncJointChangesToApp?: boolean;
@@ -89,6 +114,10 @@ interface UseURDFViewerControllerProps {
   jointStateScopeKey?: string | null;
   defaultToolMode?: ToolMode;
   toolModeScopeKey?: string | null;
+  closedLoopRobotState?: Pick<
+    RobotState,
+    'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'
+  > | null;
 }
 
 export const useURDFViewerController = ({
@@ -110,6 +139,7 @@ export const useURDFViewerController = ({
   jointStateScopeKey = null,
   defaultToolMode = 'select',
   toolModeScopeKey = null,
+  closedLoopRobotState = null,
 }: UseURDFViewerControllerProps) => {
   const setHoverFrozen = useSelectionStore((state) => state.setHoverFrozen);
   const isOrbitDragging = useRef(false);
@@ -122,6 +152,10 @@ export const useURDFViewerController = ({
     setShowCollisionAlwaysOnTop,
     localShowVisual,
     setLocalShowVisual,
+    showIkHandles,
+    setShowIkHandles,
+    showIkHandlesAlwaysOnTop,
+    setShowIkHandlesAlwaysOnTop,
     showCenterOfMass,
     setShowCenterOfMass,
     showCoMOverlay,
@@ -138,6 +172,8 @@ export const useURDFViewerController = ({
     setShowOriginsOverlay,
     originSize,
     setOriginSize,
+    showMjcfSites,
+    setShowMjcfSites,
     showJointAxes,
     setShowJointAxes,
     showJointAxesOverlay,
@@ -230,19 +266,115 @@ export const useURDFViewerController = ({
   const activeJointRef = useRef<string | null>(
     jointPanelStoreRef.current.getSnapshot().activeJoint,
   );
-  const [isDragging, setIsDragging] = useState(false);
+  const [isDragging, setIsDraggingState] = useState(false);
+  const isDraggingRef = useRef(false);
+  const setIsDragging = useCallback(
+    (nextDragging: boolean | ((previousDragging: boolean) => boolean)) => {
+      const resolvedDragging =
+        typeof nextDragging === 'function' ? nextDragging(isDraggingRef.current) : nextDragging;
+      isDraggingRef.current = resolvedDragging;
+      if (active) {
+        setHoverFrozen(resolvedDragging || transformPendingRef.current);
+      }
+      setIsDraggingState(resolvedDragging);
+    },
+    [active, setHoverFrozen],
+  );
   const sceneRefreshRef = useRef<(() => void) | null>(null);
   const pendingSceneRefreshFrameRef = useRef<number | null>(null);
   const previousGroundPlaneOffsetRef = useRef(groundPlaneOffset);
   const previousAppliedJointAngleStateRef = useRef<Record<string, number>>({});
+  const runtimeAutoFitGroundHandlerRef = useRef<(() => void) | null>(null);
   const previousAppliedJointMotionStateRef = useRef<Record<string, ViewerJointMotionStateValue>>(
     {},
   );
+  const previewMotionAnglesRef = useRef<Record<string, number>>({});
+  const previewMotionQuaternionsRef = useRef<
+    Record<string, ViewerJointMotionStateValue['quaternion']>
+  >({});
+  const closedLoopMotionPreviewSessionRef = useRef(createClosedLoopMotionPreviewSession());
+  const pendingClosedLoopPreviewRef = useRef<{
+    selectedJointId: string;
+    resolvedAngle: number;
+  } | null>(null);
+  const closedLoopPreviewFrameRef = useRef<number | null>(null);
+  const jointInteractionPreviewSessionCounterRef = useRef(0);
+  const activeJointInteractionPreviewSessionRef = useRef<string | null>(null);
 
   const justSelectedRef = useRef(false);
   const transformPendingRef = useRef(false);
   const jointControlRobot = jointPanelRobot || robot;
   const jointControlJoints = jointControlRobot?.joints;
+  const resolveDrivenMotion = useCallback(
+    (jointId: string, angle: number) => {
+      if (!closedLoopRobotState?.joints?.[jointId]) {
+        return {
+          angles: { [jointId]: angle },
+          lockedJointIds: [jointId],
+        };
+      }
+
+      return resolveMimicJointAngleTargets(closedLoopRobotState, jointId, angle);
+    },
+    [closedLoopRobotState],
+  );
+
+  const ensureJointInteractionPreviewSessionId = useCallback(() => {
+    if (activeJointInteractionPreviewSessionRef.current !== null) {
+      return activeJointInteractionPreviewSessionRef.current;
+    }
+
+    jointInteractionPreviewSessionCounterRef.current += 1;
+    activeJointInteractionPreviewSessionRef.current = String(
+      jointInteractionPreviewSessionCounterRef.current,
+    );
+    return activeJointInteractionPreviewSessionRef.current;
+  }, []);
+
+  const publishJointInteractionPreview = useCallback(
+    (preview: {
+      activeJointId: string | null;
+      jointAngles?: Record<string, number>;
+      jointQuaternions?: Record<string, ViewerJointMotionStateValue['quaternion']>;
+    }) => {
+      if (!APP_WIDE_JOINT_INTERACTION_PREVIEW_ENABLED) {
+        return;
+      }
+
+      useJointInteractionPreviewStore.getState().publishPreview({
+        source: 'urdf-viewer',
+        dragSessionId: ensureJointInteractionPreviewSessionId(),
+        activeJointId: preview.activeJointId,
+        jointAngles: { ...(preview.jointAngles ?? {}) },
+        jointQuaternions: Object.fromEntries(
+          Object.entries(preview.jointQuaternions ?? {}).filter(([, quaternion]) =>
+            Boolean(quaternion),
+          ),
+        ) as Record<string, NonNullable<ViewerJointMotionStateValue['quaternion']>>,
+        jointOrigins: {},
+      });
+    },
+    [ensureJointInteractionPreviewSessionId],
+  );
+
+  const clearJointInteractionPreview = useCallback(() => {
+    if (!APP_WIDE_JOINT_INTERACTION_PREVIEW_ENABLED) {
+      activeJointInteractionPreviewSessionRef.current = null;
+      return;
+    }
+
+    const activeSessionId = activeJointInteractionPreviewSessionRef.current;
+    activeJointInteractionPreviewSessionRef.current = null;
+
+    if (activeSessionId === null) {
+      return;
+    }
+
+    useJointInteractionPreviewStore.getState().clearPreview({
+      source: 'urdf-viewer',
+      dragSessionId: activeSessionId,
+    });
+  }, []);
 
   const emitJointChangeToApp = useCallback(
     (jointName: string, angle: number) => {
@@ -312,6 +444,74 @@ export const useURDFViewerController = ({
     });
   }, [flushSceneRefresh]);
 
+  const applyRuntimeJointMotionPreview = useCallback(
+    (
+      nextJointAngles: Record<string, number>,
+      nextJointQuaternions: Record<string, ViewerJointMotionStateValue['quaternion']>,
+      activeJointId: string | null = activeJointRef.current,
+      options?: { syncJointPanel?: boolean },
+    ) => {
+      if (!jointControlRobot?.joints) {
+        return;
+      }
+
+      let shouldRefresh = false;
+
+      Object.entries(nextJointAngles).forEach(([jointNameOrId, angle]) => {
+        const jointKey = resolveViewerJointKey(jointControlJoints, jointNameOrId);
+        const joint = jointKey ? jointControlRobot.joints?.[jointKey] : undefined;
+        if (!joint || !isSingleDofJoint(joint)) {
+          return;
+        }
+
+        const currentAngle = Number(joint.angle ?? joint.jointValue);
+        if (!isSameJointAngle(currentAngle, angle)) {
+          joint.setJointValue?.(angle);
+          shouldRefresh = true;
+        }
+      });
+
+      Object.entries(nextJointQuaternions).forEach(([jointNameOrId, quaternion]) => {
+        const jointKey = resolveViewerJointKey(jointControlJoints, jointNameOrId);
+        const joint = jointKey ? jointControlRobot.joints?.[jointKey] : undefined;
+        if (
+          !joint ||
+          !quaternion ||
+          typeof (joint as any).setJointQuaternion !== 'function' ||
+          isSameJointQuaternion((joint as any).quaternion, quaternion)
+        ) {
+          return;
+        }
+
+        (joint as any).setJointQuaternion(quaternion);
+        shouldRefresh = true;
+      });
+
+      if ((options?.syncJointPanel ?? true) && Object.keys(nextJointAngles).length > 0) {
+        patchJointPanelAngles(nextJointAngles);
+      }
+
+      previewMotionAnglesRef.current = nextJointAngles;
+      previewMotionQuaternionsRef.current = nextJointQuaternions;
+      publishJointInteractionPreview({
+        activeJointId,
+        jointAngles: nextJointAngles,
+        jointQuaternions: nextJointQuaternions,
+      });
+
+      if (shouldRefresh) {
+        requestSceneRefresh();
+      }
+    },
+    [
+      jointControlJoints,
+      jointControlRobot,
+      patchJointPanelAngles,
+      publishJointInteractionPreview,
+      requestSceneRefresh,
+    ],
+  );
+
   const registerSceneRefresh = useCallback((refreshScene: (() => void) | null) => {
     sceneRefreshRef.current = refreshScene;
   }, []);
@@ -330,10 +530,93 @@ export const useURDFViewerController = ({
     return { ...jointAnglesRef.current };
   }, [jointStateScopeKey]);
 
+  const previewIkJointKinematics = useCallback(
+    (
+      jointAngles: Record<string, number>,
+      jointQuaternions: Record<string, ViewerJointMotionStateValue['quaternion']>,
+    ) => {
+      applyRuntimeJointMotionPreview(jointAngles, jointQuaternions, activeJointRef.current, {
+        syncJointPanel: false,
+      });
+    },
+    [applyRuntimeJointMotionPreview],
+  );
+
+  const clearIkJointKinematicsPreview = useCallback(() => {
+    clearJointInteractionPreview();
+    pendingClosedLoopPreviewRef.current = null;
+    if (closedLoopPreviewFrameRef.current !== null && typeof window !== 'undefined') {
+      window.cancelAnimationFrame(closedLoopPreviewFrameRef.current);
+      closedLoopPreviewFrameRef.current = null;
+    }
+    previewMotionAnglesRef.current = { ...previousAppliedJointAngleStateRef.current };
+    previewMotionQuaternionsRef.current = Object.fromEntries(
+      Object.entries(previousAppliedJointMotionStateRef.current)
+        .filter(([, motion]) => Boolean(motion?.quaternion))
+        .map(([name, motion]) => [name, motion?.quaternion]),
+    );
+
+    if (jointControlRobot?.joints) {
+      let shouldRefresh = false;
+
+      Object.entries(previousAppliedJointAngleStateRef.current).forEach(
+        ([jointNameOrId, angle]) => {
+          const jointKey = resolveViewerJointKey(jointControlJoints, jointNameOrId);
+          const joint = jointKey ? jointControlRobot.joints?.[jointKey] : undefined;
+          if (!joint || !isSingleDofJoint(joint)) {
+            return;
+          }
+
+          const currentAngle = Number(joint.angle ?? joint.jointValue);
+          if (!isSameJointAngle(currentAngle, angle)) {
+            joint.setJointValue?.(angle);
+            shouldRefresh = true;
+          }
+        },
+      );
+
+      Object.entries(previousAppliedJointMotionStateRef.current).forEach(
+        ([jointNameOrId, motion]) => {
+          const jointKey = resolveViewerJointKey(jointControlJoints, jointNameOrId);
+          const joint = jointKey ? jointControlRobot.joints?.[jointKey] : undefined;
+          if (
+            !joint ||
+            !motion?.quaternion ||
+            typeof (joint as any).setJointQuaternion !== 'function' ||
+            isSameJointQuaternion((joint as any).quaternion, motion.quaternion)
+          ) {
+            return;
+          }
+
+          (joint as any).setJointQuaternion(motion.quaternion);
+          shouldRefresh = true;
+        },
+      );
+
+      if (Object.keys(previousAppliedJointAngleStateRef.current).length > 0) {
+        replaceJointPanelAngles(previousAppliedJointAngleStateRef.current);
+      }
+
+      if (shouldRefresh) {
+        requestSceneRefresh();
+      }
+    }
+  }, [
+    clearJointInteractionPreview,
+    jointControlJoints,
+    jointControlRobot,
+    replaceJointPanelAngles,
+    requestSceneRefresh,
+  ]);
+
   useEffect(() => {
     if (!active) return;
     setHoverFrozen(isDragging || transformPendingRef.current);
   }, [active, isDragging, setHoverFrozen]);
+
+  useEffect(() => {
+    isDraggingRef.current = isDragging;
+  }, [isDragging]);
 
   useEffect(() => {
     if (!active) {
@@ -364,16 +647,21 @@ export const useURDFViewerController = ({
 
   useEffect(() => {
     return () => {
+      clearJointInteractionPreview();
       if (pendingSceneRefreshFrameRef.current !== null && typeof window !== 'undefined') {
         window.cancelAnimationFrame(pendingSceneRefreshFrameRef.current);
         pendingSceneRefreshFrameRef.current = null;
       }
+      if (closedLoopPreviewFrameRef.current !== null && typeof window !== 'undefined') {
+        window.cancelAnimationFrame(closedLoopPreviewFrameRef.current);
+        closedLoopPreviewFrameRef.current = null;
+      }
     };
-  }, []);
+  }, [clearJointInteractionPreview]);
 
   useEffect(() => {
     const regressionDebugEnabled =
-      import.meta.env.DEV ||
+      import.meta.env?.DEV ||
       (typeof window !== 'undefined' &&
         new URLSearchParams(window.location.search).get('regressionDebug') === '1');
     if (!regressionDebugEnabled) {
@@ -569,70 +857,120 @@ export const useURDFViewerController = ({
 
   const handleRobotLoaded = useCallback(
     (loadedRobot: any) => {
+      clearJointInteractionPreview();
       setJointPanelRobot(null);
       setRobot(loadedRobot);
       initializeJointControlState(loadedRobot);
     },
-    [initializeJointControlState],
+    [clearJointInteractionPreview, initializeJointControlState],
   );
 
   const handleJointPanelRobotLoaded = useCallback(
     (loadedRobot: any | null) => {
+      clearJointInteractionPreview();
       setJointPanelRobot(loadedRobot);
       if (!loadedRobot) {
         return;
       }
       initializeJointControlState(loadedRobot);
     },
-    [initializeJointControlState],
+    [clearJointInteractionPreview, initializeJointControlState],
   );
 
   const handleRuntimeJointAnglesChange = useCallback(
     (nextAngles: Record<string, number>) => {
       if (!nextAngles || typeof nextAngles !== 'object') return;
+      const shouldCommitToApp = !isDraggingRef.current;
       const normalizedAngles = normalizeViewerJointAngleState(jointControlJoints, nextAngles);
+      const resolvedAngles = { ...normalizedAngles };
 
       if (jointControlRobot?.joints) {
         Object.entries(normalizedAngles).forEach(([jointKey, angle]) => {
           const joint = jointControlRobot.joints?.[jointKey];
           if (joint && isSingleDofJoint(joint)) {
-            joint.angle = angle;
-            emitJointChangeToApp(joint.name || jointKey, angle);
+            const resolvedAngle = resolveRuntimeReportedJointAngle(joint, angle);
+            resolvedAngles[jointKey] = resolvedAngle;
+            joint.angle = resolvedAngle;
+            if (shouldCommitToApp) {
+              emitJointChangeToApp(joint.name || jointKey, resolvedAngle);
+            }
           }
         });
       }
 
-      patchJointPanelAngles(normalizedAngles);
-    },
-    [emitJointChangeToApp, jointControlJoints, jointControlRobot, patchJointPanelAngles],
-  );
+      const activeRuntimeJointKey = resolveViewerJointKey(
+        closedLoopRobotState?.joints,
+        activeJointRef.current ?? Object.keys(resolvedAngles)[0] ?? null,
+      );
+      const activeRuntimeAngle =
+        activeRuntimeJointKey && Object.hasOwn(resolvedAngles, activeRuntimeJointKey)
+          ? resolvedAngles[activeRuntimeJointKey]
+          : undefined;
+      const drivenMotion =
+        activeRuntimeJointKey && typeof activeRuntimeAngle === 'number'
+          ? resolveDrivenMotion(activeRuntimeJointKey, activeRuntimeAngle)
+          : null;
+      const hasClosedLoopConstraints = Boolean(closedLoopRobotState?.closedLoopConstraints?.length);
 
-  const handleRuntimeJointAngleChange = useCallback(
-    (jointName: string, angle: number) => {
-      const jointKey = resolveViewerJointKey(jointControlJoints, jointName);
-      if (!jointKey) {
-        return;
+      if (
+        activeRuntimeJointKey &&
+        typeof activeRuntimeAngle === 'number' &&
+        hasClosedLoopConstraints
+      ) {
+        closedLoopMotionPreviewSessionRef.current.setBaseRobot(closedLoopRobotState);
+
+        try {
+          const compensation = closedLoopMotionPreviewSessionRef.current.solve(
+            activeRuntimeJointKey,
+            activeRuntimeAngle,
+          );
+
+          applyRuntimeJointMotionPreview(
+            compensation.angles,
+            compensation.quaternions,
+            activeRuntimeJointKey,
+          );
+          return;
+        } catch (error) {
+          console.warn(
+            '[useURDFViewerController] Closed-loop runtime preview solve failed; keeping direct runtime joint preview only.',
+            error,
+          );
+        }
       }
 
-      const joint = jointControlRobot?.joints?.[jointKey];
-      const resolvedAngle = Number.isFinite(Number(joint?.angle ?? joint?.jointValue))
-        ? Number(joint?.angle ?? joint?.jointValue)
-        : angle;
-
-      patchJointPanelAngles({ [jointKey]: resolvedAngle });
+      const nextPreviewAngles = drivenMotion
+        ? { ...resolvedAngles, ...drivenMotion.angles }
+        : resolvedAngles;
+      patchJointPanelAngles(nextPreviewAngles);
+      previewMotionAnglesRef.current = nextPreviewAngles;
+      previewMotionQuaternionsRef.current = {};
+      publishJointInteractionPreview({
+        activeJointId: activeRuntimeJointKey,
+        jointAngles: nextPreviewAngles,
+      });
     },
-    [jointControlJoints, jointControlRobot, patchJointPanelAngles],
+    [
+      applyRuntimeJointMotionPreview,
+      closedLoopRobotState,
+      emitJointChangeToApp,
+      jointControlJoints,
+      jointControlRobot,
+      patchJointPanelAngles,
+      publishJointInteractionPreview,
+      resolveDrivenMotion,
+    ],
   );
 
   const handleTransformPending = useCallback(
     (pending: boolean) => {
       transformPendingRef.current = pending;
       if (active) {
-        setHoverFrozen(pending || isDragging);
+        setHoverFrozen(pending || isDraggingRef.current);
       }
       onTransformPendingChange?.(pending);
     },
-    [active, isDragging, onTransformPendingChange, setHoverFrozen],
+    [active, onTransformPendingChange, setHoverFrozen],
   );
 
   useEffect(() => {
@@ -646,7 +984,17 @@ export const useURDFViewerController = ({
   useEffect(() => {
     previousAppliedJointAngleStateRef.current = {};
     previousAppliedJointMotionStateRef.current = {};
-  }, [jointControlRobot, jointStateScopeKey]);
+    previewMotionAnglesRef.current = {};
+    previewMotionQuaternionsRef.current = {};
+    pendingClosedLoopPreviewRef.current = null;
+    if (closedLoopPreviewFrameRef.current !== null && typeof window !== 'undefined') {
+      window.cancelAnimationFrame(closedLoopPreviewFrameRef.current);
+      closedLoopPreviewFrameRef.current = null;
+    }
+    closedLoopMotionPreviewSessionRef.current.setBaseRobot(closedLoopRobotState);
+    closedLoopMotionPreviewSessionRef.current.reset();
+    clearJointInteractionPreview();
+  }, [clearJointInteractionPreview, jointControlRobot, jointStateScopeKey]);
 
   useEffect(() => {
     if (!jointControlRobot || (!jointAngleState && !jointMotionState)) return;
@@ -715,6 +1063,12 @@ export const useURDFViewerController = ({
 
     previousAppliedJointAngleStateRef.current = normalizedAngleState;
     previousAppliedJointMotionStateRef.current = jointMotionState ? { ...jointMotionState } : {};
+    previewMotionAnglesRef.current = normalizedAngleState;
+    previewMotionQuaternionsRef.current = Object.fromEntries(
+      Object.entries(jointMotionState ?? {})
+        .filter(([, motion]) => Boolean(motion?.quaternion))
+        .map(([name, motion]) => [name, motion?.quaternion]),
+    );
 
     if (shouldRefresh) {
       requestSceneRefresh();
@@ -736,6 +1090,77 @@ export const useURDFViewerController = ({
       const joint = jointControlRobot.joints[jointKey];
       if (!isSingleDofJoint(joint)) return;
 
+      const selectedClosedLoopJointId =
+        resolveViewerJointKey(closedLoopRobotState?.joints, joint.name || jointKey || jointName) ??
+        jointKey;
+      const hasClosedLoopConstraints = Boolean(closedLoopRobotState?.closedLoopConstraints?.length);
+
+      if (selectedClosedLoopJointId && hasClosedLoopConstraints) {
+        closedLoopMotionPreviewSessionRef.current.setBaseRobot(closedLoopRobotState);
+        pendingClosedLoopPreviewRef.current = {
+          selectedJointId: selectedClosedLoopJointId,
+          resolvedAngle: angle,
+        };
+
+        if (closedLoopPreviewFrameRef.current === null) {
+          const runPreviewSolve = () => {
+            closedLoopPreviewFrameRef.current = null;
+            const pendingPreview = pendingClosedLoopPreviewRef.current;
+            pendingClosedLoopPreviewRef.current = null;
+            if (!pendingPreview) {
+              return;
+            }
+
+            try {
+              const compensation = closedLoopMotionPreviewSessionRef.current.solve(
+                pendingPreview.selectedJointId,
+                pendingPreview.resolvedAngle,
+              );
+
+              applyRuntimeJointMotionPreview(
+                compensation.angles,
+                compensation.quaternions,
+                pendingPreview.selectedJointId,
+              );
+            } catch (error) {
+              console.warn(
+                '[useURDFViewerController] Closed-loop slider preview solve failed; keeping direct joint preview only.',
+                error,
+              );
+              const directMotion = resolveDrivenMotion(
+                pendingPreview.selectedJointId,
+                pendingPreview.resolvedAngle,
+              );
+              applyRuntimeJointMotionPreview(
+                directMotion.angles,
+                {},
+                pendingPreview.selectedJointId,
+              );
+            }
+
+            if (pendingClosedLoopPreviewRef.current) {
+              if (
+                typeof window === 'undefined' ||
+                typeof window.requestAnimationFrame !== 'function'
+              ) {
+                runPreviewSolve();
+                return;
+              }
+
+              closedLoopPreviewFrameRef.current = window.requestAnimationFrame(runPreviewSolve);
+            }
+          };
+
+          if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+            runPreviewSolve();
+          } else {
+            closedLoopPreviewFrameRef.current = window.requestAnimationFrame(runPreviewSolve);
+          }
+        }
+
+        return;
+      }
+
       let shouldRefresh = false;
       if ((joint.angle ?? joint.jointValue) !== angle) {
         joint.setJointValue?.(angle);
@@ -745,22 +1170,31 @@ export const useURDFViewerController = ({
       const resolvedAngle = Number.isFinite(Number(joint.angle ?? joint.jointValue))
         ? Number(joint.angle ?? joint.jointValue)
         : angle;
+      const drivenMotion = resolveDrivenMotion(selectedClosedLoopJointId, resolvedAngle);
 
-      patchJointPanelAngles({ [jointKey]: resolvedAngle });
-
-      emitJointChangeToApp(joint.name || jointKey || jointName, resolvedAngle);
+      applyRuntimeJointMotionPreview(drivenMotion.angles, {}, jointKey);
 
       if (shouldRefresh) {
         requestSceneRefresh();
       }
     },
     [
-      emitJointChangeToApp,
+      applyRuntimeJointMotionPreview,
+      closedLoopRobotState?.closedLoopConstraints,
+      closedLoopRobotState,
       jointControlJoints,
       jointControlRobot,
-      patchJointPanelAngles,
+      publishJointInteractionPreview,
       requestSceneRefresh,
+      resolveDrivenMotion,
     ],
+  );
+
+  const handleRuntimeJointAngleChange = useCallback(
+    (jointName: string, angle: number) => {
+      handleJointAngleChange(jointName, angle);
+    },
+    [handleJointAngleChange],
   );
 
   const handleActiveJointChange = useCallback(
@@ -779,6 +1213,16 @@ export const useURDFViewerController = ({
 
   const handleJointChangeCommit = useCallback(
     (jointName: string, angle: number) => {
+      clearJointInteractionPreview();
+      pendingClosedLoopPreviewRef.current = null;
+      if (closedLoopPreviewFrameRef.current !== null && typeof window !== 'undefined') {
+        window.cancelAnimationFrame(closedLoopPreviewFrameRef.current);
+        closedLoopPreviewFrameRef.current = null;
+      }
+      closedLoopMotionPreviewSessionRef.current.setBaseRobot(closedLoopRobotState);
+      closedLoopMotionPreviewSessionRef.current.reset();
+      previewMotionAnglesRef.current = {};
+      previewMotionQuaternionsRef.current = {};
       const jointKey = resolveViewerJointKey(jointControlJoints, jointName);
       const joint = jointKey ? jointControlRobot?.joints?.[jointKey] : undefined;
       let shouldRefresh = false;
@@ -790,8 +1234,31 @@ export const useURDFViewerController = ({
       const resolvedAngle = Number.isFinite(Number(joint?.angle ?? joint?.jointValue))
         ? Number(joint?.angle ?? joint?.jointValue)
         : angle;
+      const selectedClosedLoopJointId =
+        resolveViewerJointKey(closedLoopRobotState?.joints, joint?.name || jointKey || jointName) ??
+        jointKey;
+      const drivenMotion = selectedClosedLoopJointId
+        ? resolveDrivenMotion(selectedClosedLoopJointId, resolvedAngle)
+        : { angles: {}, lockedJointIds: [] };
 
-      if (jointKey) {
+      Object.entries(drivenMotion.angles).forEach(([jointNameOrId, drivenAngle]) => {
+        const drivenJointKey = resolveViewerJointKey(jointControlJoints, jointNameOrId);
+        const drivenJoint = drivenJointKey
+          ? jointControlRobot?.joints?.[drivenJointKey]
+          : undefined;
+        if (!drivenJoint || !isSingleDofJoint(drivenJoint)) {
+          return;
+        }
+
+        if ((drivenJoint.angle ?? drivenJoint.jointValue) !== drivenAngle) {
+          drivenJoint.setJointValue?.(drivenAngle);
+          shouldRefresh = true;
+        }
+      });
+
+      if (Object.keys(drivenMotion.angles).length > 0) {
+        patchJointPanelAngles(drivenMotion.angles);
+      } else if (jointKey) {
         patchJointPanelAngles({ [jointKey]: resolvedAngle });
       }
       (joint as { finalizeJointValue?: () => void } | undefined)?.finalizeJointValue?.();
@@ -804,11 +1271,14 @@ export const useURDFViewerController = ({
       emitJointChangeToApp(resolvedJointName, resolvedAngle);
     },
     [
+      clearJointInteractionPreview,
+      closedLoopRobotState,
       emitJointChangeToApp,
       jointControlJoints,
       jointControlRobot,
       patchJointPanelAngles,
       requestSceneRefresh,
+      resolveDrivenMotion,
     ],
   );
 
@@ -834,7 +1304,7 @@ export const useURDFViewerController = ({
 
   const handleSelectWrapper = useCallback(
     (
-      type: 'link' | 'joint',
+      type: Exclude<InteractionSelection['type'], null>,
       id: string,
       subType?: 'visual' | 'collision',
       helperKind?: ViewerHelperKind,
@@ -853,34 +1323,46 @@ export const useURDFViewerController = ({
 
   const handleHoverWrapper = useCallback(
     (
-      type: 'link' | 'joint' | null,
+      type: InteractionSelection['type'],
       id: string | null,
       subType?: 'visual' | 'collision',
       objectIndex?: number,
       helperKind?: ViewerHelperKind,
+      highlightObjectId?: number,
     ) => {
-      onHover?.(type, id, subType, objectIndex, helperKind);
+      onHover?.(type, id, subType, objectIndex, helperKind, highlightObjectId);
     },
     [onHover],
   );
 
+  const registerRuntimeAutoFitGroundHandler = useCallback((handler: (() => void) | null) => {
+    runtimeAutoFitGroundHandlerRef.current = handler;
+  }, []);
+
   const handleAutoFitGround = useCallback(() => {
-    if (!robot) return;
-    const aligned = alignObjectLowestPointToZ(robot, groundPlaneOffset, {
+    if (runtimeAutoFitGroundHandlerRef.current) {
+      runtimeAutoFitGroundHandlerRef.current();
+      return;
+    }
+
+    const currentRobot = robot ?? jointPanelRobot;
+    if (!currentRobot) return;
+
+    const aligned = alignObjectLowestPointToZ(currentRobot, groundPlaneOffset, {
       includeInvisible: false,
       includeVisual: true,
       includeCollision: false,
     });
 
     if (aligned === null) {
-      alignObjectLowestPointToZ(robot, groundPlaneOffset, {
+      alignObjectLowestPointToZ(currentRobot, groundPlaneOffset, {
         includeInvisible: true,
         includeVisual: true,
         includeCollision: false,
       });
     }
     requestSceneRefresh();
-  }, [groundPlaneOffset, requestSceneRefresh, robot]);
+  }, [groundPlaneOffset, jointPanelRobot, requestSceneRefresh, robot]);
 
   const handleToolModeChange = useCallback(
     (nextMode: ToolMode) => {
@@ -957,6 +1439,10 @@ export const useURDFViewerController = ({
     setShowCollision,
     showVisual,
     setShowVisual,
+    showIkHandles,
+    setShowIkHandles,
+    showIkHandlesAlwaysOnTop,
+    setShowIkHandlesAlwaysOnTop,
     showCenterOfMass,
     setShowCenterOfMass,
     showCoMOverlay,
@@ -973,6 +1459,8 @@ export const useURDFViewerController = ({
     setShowOriginsOverlay,
     originSize,
     setOriginSize,
+    showMjcfSites,
+    setShowMjcfSites,
     showJointAxes,
     setShowJointAxes,
     showJointAxesOverlay,
@@ -988,6 +1476,7 @@ export const useURDFViewerController = ({
     toggleOptionsCollapsed,
     isJointsCollapsed,
     toggleJointsCollapsed,
+    closedLoopRobotState,
     toolMode,
     measureState,
     setMeasureState,
@@ -1010,8 +1499,11 @@ export const useURDFViewerController = ({
     getJointAnglesSnapshot,
     getInitialJointAnglesForNextLoad,
     registerSceneRefresh,
+    previewIkJointKinematics,
+    clearIkJointKinematicsPreview,
     angleUnit,
     setAngleUnit,
+    registerRuntimeAutoFitGroundHandler,
     setActiveJoint: setPanelActiveJoint,
     handleActiveJointChange,
     isDragging,

@@ -10,8 +10,22 @@ import { SNAPSHOT_DETAIL_SHADOW_MAP_SIZE } from './snapshotConfig';
 
 const SNAPSHOT_GRID_OBJECT_NAME = 'ReferenceGrid';
 const SNAPSHOT_KEEP_HELPER_OBJECT_NAMES = new Set([
+  'GroundShadowPlane',
   'SnapshotContactShadows',
   'SnapshotReflectiveFloor',
+]);
+
+const SNAPSHOT_EXCLUDED_HELPER_OBJECT_NAMES = new Set([
+  '__origin_axes__',
+  '__joint_axis__',
+  '__joint_axis_helper__',
+  '__com_visual__',
+  '__inertia_box__',
+  '__inertia_visual__',
+  '__link_axes_helper__',
+  '__debug_joint_axes__',
+  'Link Axes',
+  'USD Joint Axes',
 ]);
 
 type Cleanup = () => void;
@@ -153,9 +167,7 @@ function getObjectMaterials(object: THREE.Object3D) {
     return [] as THREE.Material[];
   }
 
-  return Array.isArray(mesh.material)
-    ? mesh.material.filter(Boolean)
-    : [mesh.material];
+  return Array.isArray(mesh.material) ? mesh.material.filter(Boolean) : [mesh.material];
 }
 
 function collectMaterialTextures(material: THREE.Material) {
@@ -180,19 +192,26 @@ function shouldHideSnapshotSceneObject(object: THREE.Object3D, options: { hideGr
   }
 
   if (
-    object.userData?.isCollision === true
-    || object.userData?.isCollisionMesh === true
-    || object.userData?.isCollisionGroup === true
-    || object.userData?.geometryRole === 'collision'
-    || (object as any).isURDFCollider === true
+    SNAPSHOT_EXCLUDED_HELPER_OBJECT_NAMES.has(object.name) ||
+    typeof object.userData?.viewerHelperKind === 'string'
   ) {
     return true;
   }
 
   if (
-    object.userData?.isSelectableHelper === true
-    || object.userData?.isGizmo === true
-    || object.userData?.isHelper === true
+    object.userData?.isCollision === true ||
+    object.userData?.isCollisionMesh === true ||
+    object.userData?.isCollisionGroup === true ||
+    object.userData?.geometryRole === 'collision' ||
+    (object as any).isURDFCollider === true
+  ) {
+    return true;
+  }
+
+  if (
+    object.userData?.isSelectableHelper === true ||
+    object.userData?.isGizmo === true ||
+    object.userData?.isHelper === true
   ) {
     return true;
   }
@@ -200,8 +219,10 @@ function shouldHideSnapshotSceneObject(object: THREE.Object3D, options: { hideGr
   return false;
 }
 
-export function applySnapshotSceneVisibility(scene: THREE.Scene, options: { hideGrid: boolean }): Cleanup {
-
+export function applySnapshotSceneVisibility(
+  scene: THREE.Scene,
+  options: { hideGrid: boolean },
+): Cleanup {
   const hiddenObjects: Array<{ object: THREE.Object3D; visible: boolean }> = [];
 
   scene.traverse((object) => {
@@ -231,12 +252,13 @@ export function applySnapshotBackgroundStyle(
 
   let fill: SnapshotBackgroundFill;
   if (backgroundStyle === 'viewport') {
-    fill = scene.background instanceof THREE.Color
-      ? {
-        kind: 'solid',
-        colors: [`#${scene.background.getHexString()}`, `#${scene.background.getHexString()}`],
-      }
-      : { kind: 'transparent' };
+    fill =
+      scene.background instanceof THREE.Color
+        ? {
+            kind: 'solid',
+            colors: [`#${scene.background.getHexString()}`, `#${scene.background.getHexString()}`],
+          }
+        : { kind: 'transparent' };
   } else if (backgroundStyle === 'transparent') {
     fill = { kind: 'transparent' };
   } else {
@@ -330,7 +352,10 @@ export function applySnapshotShadowQuality(
       previousNormalBias: object.shadow.normalBias,
     });
 
-    if (object.shadow.mapSize.x === targetShadowMapSize && object.shadow.mapSize.y === targetShadowMapSize) {
+    if (
+      object.shadow.mapSize.x === targetShadowMapSize &&
+      object.shadow.mapSize.y === targetShadowMapSize
+    ) {
       object.shadow.radius = shadowStyleSettings.radius;
       object.shadow.bias = shadowStyleSettings.bias;
       object.shadow.normalBias = shadowStyleSettings.normalBias;
@@ -356,21 +381,17 @@ export function applySnapshotShadowQuality(
   gl.shadowMap.needsUpdate = true;
 
   return () => {
-    trackedLights.forEach(({
-      light,
-      previousMapSize,
-      previousRadius,
-      previousBias,
-      previousNormalBias,
-    }) => {
-      light.shadow.map?.dispose();
-      light.shadow.map = null;
-      light.shadow.mapSize.copy(previousMapSize);
-      light.shadow.radius = previousRadius;
-      light.shadow.bias = previousBias;
-      light.shadow.normalBias = previousNormalBias;
-      light.shadow.needsUpdate = true;
-    });
+    trackedLights.forEach(
+      ({ light, previousMapSize, previousRadius, previousBias, previousNormalBias }) => {
+        light.shadow.map?.dispose();
+        light.shadow.map = null;
+        light.shadow.mapSize.copy(previousMapSize);
+        light.shadow.radius = previousRadius;
+        light.shadow.bias = previousBias;
+        light.shadow.normalBias = previousNormalBias;
+        light.shadow.needsUpdate = true;
+      },
+    );
 
     gl.shadowMap.autoUpdate = previousAutoUpdate;
     gl.shadowMap.needsUpdate = true;

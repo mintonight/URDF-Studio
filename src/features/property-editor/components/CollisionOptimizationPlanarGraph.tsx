@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CheckSquare2, LocateFixed, Square, ZoomIn, ZoomOut } from 'lucide-react';
+import { LocateFixed, ZoomIn, ZoomOut } from 'lucide-react';
+import { Checkbox } from '@/shared/components/ui';
 import type {
   CollisionOptimizationAnalysis,
   CollisionOptimizationCandidate,
@@ -8,7 +9,7 @@ import type {
   CollisionTargetRef,
 } from '../utils/collisionOptimization';
 import { createCollisionOptimizationCandidateKey } from '../utils/collisionOptimization';
-import { GeometryType } from '@/types';
+import { GeometryType, type InteractionSelection } from '@/types';
 import { mergeAssembly } from '@/core/robot/assemblyMerger';
 
 const GRAPH_PADDING = 28;
@@ -26,12 +27,7 @@ const MAX_SCALE = 4.5;
 
 type GraphPairType = 'manual' | 'auto';
 
-interface CollisionSelection {
-  type: 'link' | 'joint' | null;
-  id: string | null;
-  subType?: 'visual' | 'collision';
-  objectIndex?: number;
-}
+type CollisionSelection = InteractionSelection;
 
 interface GraphPoint {
   x: number;
@@ -1194,32 +1190,26 @@ export function CollisionOptimizationPlanarGraph({
                       </button>
 
                       {summaryCandidate ? (
-                        <button
-                          type="button"
+                        <div
                           data-graph-no-pan="true"
-                          aria-label={
-                            node.checked ? labels.unselectCandidate : labels.selectCandidate
-                          }
-                          disabled={!summaryCandidate.eligible}
-                          onClick={() => {
-                            if (summaryCandidate.eligible) {
-                              onToggleCandidate(
-                                createCollisionOptimizationCandidateKey(summaryCandidate),
-                              );
-                            }
-                          }}
-                          className={`absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
-                            summaryCandidate.eligible
-                              ? 'text-system-blue'
-                              : 'cursor-not-allowed text-text-tertiary/60'
-                          }`}
+                          className="absolute right-1 top-1 rounded-full bg-panel-bg/90 p-0.75 shadow-sm"
                         >
-                          {node.checked ? (
-                            <CheckSquare2 className="h-3 w-3" />
-                          ) : (
-                            <Square className="h-3 w-3" />
-                          )}
-                        </button>
+                          <Checkbox
+                            checked={node.checked}
+                            onChange={() => {
+                              if (summaryCandidate.eligible) {
+                                onToggleCandidate(
+                                  createCollisionOptimizationCandidateKey(summaryCandidate),
+                                );
+                              }
+                            }}
+                            disabled={!summaryCandidate.eligible}
+                            ariaLabel={
+                              node.checked ? labels.unselectCandidate : labels.selectCandidate
+                            }
+                            className="shrink-0"
+                          />
+                        </div>
                       ) : null}
 
                       {summaryTarget ? (

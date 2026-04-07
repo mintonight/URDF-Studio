@@ -22,6 +22,7 @@ test('importPreparation transfer serialization preserves binary payloads across 
         blob: new Blob(['solid demo'], { type: 'model/stl' }),
       },
     ],
+    deferredAssetFiles: [],
     usdSourceFiles: [
       {
         name: 'robot/usd/demo.usdc',

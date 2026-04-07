@@ -1,18 +1,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import {
-  Upload,
-  Package,
-  FileCode,
-  Layers,
-  Lock,
-  Braces,
-  Loader2,
-  Info,
-  Briefcase,
-} from 'lucide-react';
+import { Upload, Package, FileCode, Layers, Lock, Braces, Loader2, Info } from 'lucide-react';
 import { DraggableWindow } from '@/shared/components';
 import { useDraggableWindow } from '@/shared/hooks';
-import { Slider, Switch } from '@/shared/components/ui';
+import { Slider, Switch, Tooltip } from '@/shared/components/ui';
 import { translations } from '@/shared/i18n';
 import type { TranslationKeys } from '@/shared/i18n/types';
 import type { ExportProgressState } from '../../types';
@@ -135,7 +125,6 @@ interface ExportDialogProps {
   lang: 'en' | 'zh';
   isExporting?: boolean;
   canExportUsd?: boolean;
-  allowProjectExport?: boolean;
   defaultFormat?: ExportFormat;
 }
 
@@ -176,14 +165,15 @@ function Row({
         <div className={`flex min-w-0 gap-1.5 ${isCenteredRow ? 'items-center' : 'items-start'}`}>
           <span className="text-[11px] text-text-primary leading-tight">{label}</span>
           {hint && (
-            <button
-              type="button"
-              title={hint}
-              aria-label={hint}
-              className="mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-system-blue/10 hover:text-system-blue focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
-            >
-              <Info className="h-3 w-3" />
-            </button>
+            <Tooltip content={hint} side="top" align="start" className="max-w-[20rem]">
+              <button
+                type="button"
+                aria-label={hint}
+                className="mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-system-blue/10 hover:text-system-blue focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+              >
+                <Info className="h-3 w-3" />
+              </button>
+            </Tooltip>
           )}
         </div>
         {desc && <span className="text-[9px] text-text-tertiary leading-tight">{desc}</span>}
@@ -427,7 +417,6 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   lang,
   isExporting = false,
   canExportUsd = false,
-  allowProjectExport = false,
   defaultFormat = DEFAULT_CONFIG.format,
 }) => {
   const t = translations[lang];
@@ -571,10 +560,6 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     startExport(config.format);
   }, [config.format, startExport]);
 
-  const handleProjectExportClick = useCallback(() => {
-    startExport('project');
-  }, [startExport]);
-
   const formatExt =
     config.format === 'mjcf'
       ? '.xml'
@@ -668,46 +653,6 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                 );
               })}
             </div>
-
-            {allowProjectExport && (
-              <>
-                <SectionLabel>{t.exportProject}</SectionLabel>
-                <div
-                  data-project-export-card
-                  className="rounded-xl border border-border-black bg-element-bg px-3 py-3"
-                >
-                  <div
-                    className={`flex gap-3 ${isCompactLayout ? 'flex-col' : 'items-center justify-between'}`}
-                  >
-                    <div className="flex min-w-0 items-start gap-3">
-                      <div className="rounded-xl border border-border-black bg-panel-bg p-2 text-text-secondary shadow-sm">
-                        <Briefcase className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium text-text-primary">
-                          {t.exportProjectWorkspaceSummary}
-                        </div>
-                        <div className="mt-1 text-[11px] leading-relaxed text-text-secondary">
-                          {t.exportProjectWorkspaceSummaryDesc}
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      data-project-export-button
-                      onClick={handleProjectExportClick}
-                      disabled={isExporting}
-                      className={`flex items-center justify-center gap-2 rounded-lg border border-border-black bg-panel-bg px-3 py-2 text-xs font-semibold text-text-primary transition-colors hover:border-system-blue/30 hover:bg-system-blue/10 hover:text-system-blue disabled:cursor-not-allowed disabled:opacity-50 ${
-                        isCompactLayout ? 'w-full' : 'shrink-0'
-                      }`}
-                    >
-                      <Briefcase className="h-3.5 w-3.5" />
-                      {t.exportDoExportProject}
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
 
             {/* Compatible simulators */}
             <div className="flex flex-wrap gap-1 pt-1 pb-0.5">
@@ -1029,6 +974,9 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                     />
                   )}
                 </div>
+                <p className="mt-2 text-[11px] leading-5 text-text-tertiary">
+                  {t.exportSdfTextureOverrideNotice}
+                </p>
               </>
             )}
 

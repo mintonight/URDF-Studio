@@ -730,6 +730,7 @@ export class ThreeRenderDelegateCore {
                 linkParentPairs: [],
                 jointCatalogEntries: [],
                 linkDynamicsEntries: [],
+                closedLoopConstraintEntries: [],
                 meshCountsByLinkPath,
             };
         }
@@ -747,9 +748,11 @@ export class ThreeRenderDelegateCore {
             const linkParentPairs = toArray(rawSnapshot.linkParentPairs);
             const jointCatalogEntries = toArray(rawSnapshot.jointCatalogEntries);
             const linkDynamicsEntries = toArray(rawSnapshot.linkDynamicsEntries);
+            const closedLoopConstraintEntries = toArray(rawSnapshot.closedLoopConstraintEntries);
             const hasStageData = (linkParentPairs.length > 0
                 || jointCatalogEntries.length > 0
-                || linkDynamicsEntries.length > 0);
+                || linkDynamicsEntries.length > 0
+                || closedLoopConstraintEntries.length > 0);
             const generatedAtMs = Number(rawSnapshot.generatedAtMs);
             const errorFlags = toArray(rawSnapshot.errorFlags)
                 .map((entry) => String(entry || '').trim())
@@ -768,6 +771,7 @@ export class ThreeRenderDelegateCore {
                 linkParentPairs,
                 jointCatalogEntries,
                 linkDynamicsEntries,
+                closedLoopConstraintEntries,
                 meshCountsByLinkPath,
             };
         }
@@ -1417,6 +1421,10 @@ export class ThreeRenderDelegateCore {
                 const jointPath = normalizeUsdPathToken(String(jointRecord?.jointPath || jointRecord?.path || '')) || null;
                 const fallbackJointName = jointPath ? getPathBasename(jointPath) : '';
                 const jointName = String(jointRecord?.jointName || fallbackJointName || '').trim();
+                const closedLoopType = String(jointRecord?.closedLoopType || '').trim();
+                if (closedLoopType) {
+                    continue;
+                }
                 const jointTypeName = String(jointRecord?.jointTypeName || jointRecord?.jointType || '').trim();
                 const jointType = normalizeStageJointType(jointTypeName);
                 const axisToken = normalizeAxisToken(jointRecord?.axisToken || jointRecord?.axis || 'X');
@@ -1579,6 +1587,7 @@ export class ThreeRenderDelegateCore {
                     linkParentPairs: [],
                     jointCatalogEntries: [],
                     linkDynamicsEntries: [],
+                    closedLoopConstraintEntries: [],
                     meshCountsByLinkPath,
                 }, {
                     errorFlags: annotationErrorFlags,
@@ -1592,6 +1601,8 @@ export class ThreeRenderDelegateCore {
         }
         const jointCatalogEntries = [];
         const linkDynamicsEntries = [];
+        const closedLoopConstraintEntries = [];
+        const closedLoopConstraintKeySet = new Set();
         const rootPaths = Array.from(new Set(sortedLinkPaths.map((linkPath) => getRootPathFromPrimPath(linkPath)).filter(Boolean)));
         const runtimeLinkPathsByName = new Map();
         for (const linkPath of sortedLinkPaths) {
@@ -1701,6 +1712,8 @@ export class ThreeRenderDelegateCore {
                 const jointPath = normalizeUsdPathToken(String(jointRecord?.jointPath || jointRecord?.path || '')) || null;
                 const fallbackJointName = jointPath ? getPathBasename(jointPath) : '';
                 const jointName = String(jointRecord?.jointName || fallbackJointName || '').trim();
+                const closedLoopId = String(jointRecord?.closedLoopId || jointName || fallbackJointName || '').trim();
+                const closedLoopType = String(jointRecord?.closedLoopType || '').trim().toLowerCase();
                 const jointTypeName = String(jointRecord?.jointTypeName || jointRecord?.jointType || '').trim();
                 const jointType = normalizeStageJointType(jointTypeName);
                 const axisToken = normalizeAxisToken(jointRecord?.axisToken || jointRecord?.axis || 'X');
@@ -1728,6 +1741,31 @@ export class ThreeRenderDelegateCore {
                 const axisLocal = jointRecord?.axisLocal && typeof jointRecord.axisLocal.length === 'number'
                     ? normalizeVector3(jointRecord.axisLocal, rotateAxisByQuaternionWxyz(axisToken, localRot1Wxyz))
                     : rotateAxisByQuaternionWxyz(axisToken, localRot1Wxyz);
+                if (closedLoopType) {
+                    const childLinkPaths = resolveRuntimeLinkPathsFromSourcePath(body1Path);
+                    for (const childLinkPath of childLinkPaths) {
+                        if (!childLinkPath)
+                            continue;
+                        const preferredRootPath = getRootPathFromPrimPath(childLinkPath);
+                        const parentCandidates = resolveRuntimeLinkPathsFromSourcePath(body0Path, preferredRootPath);
+                        const parentLinkPath = parentCandidates[0] || null;
+                        if (!parentLinkPath)
+                            continue;
+                        const entryKey = `${closedLoopId || jointName || ''}|${parentLinkPath}|${childLinkPath}|${closedLoopType}`;
+                        if (closedLoopConstraintKeySet.has(entryKey))
+                            continue;
+                        closedLoopConstraintKeySet.add(entryKey);
+                        closedLoopConstraintEntries.push({
+                            id: closedLoopId || jointName || null,
+                            constraintType: closedLoopType,
+                            linkAPath: parentLinkPath,
+                            linkBPath: childLinkPath,
+                            anchorLocalA: normalizedOriginXyz || [0, 0, 0],
+                            anchorLocalB: localPos1,
+                        });
+                    }
+                    continue;
+                }
                 const key = `${jointName}|${body0Path || ''}|${body1Path}`;
                 if (seenJointKeys.has(key))
                     continue;
@@ -1983,6 +2021,7 @@ export class ThreeRenderDelegateCore {
             jointCatalogEntries.length > 0
             || linkDynamicsEntries.length > 0
             || linkParentPairs.length > 0
+            || closedLoopConstraintEntries.length > 0
             || syntheticSemanticChildParentPathByChildLinkPath.size > 0
         ) {
             metadataSource = 'usd-stage';
@@ -1994,6 +2033,7 @@ export class ThreeRenderDelegateCore {
             linkParentPairs,
             jointCatalogEntries,
             linkDynamicsEntries,
+            closedLoopConstraintEntries,
             meshCountsByLinkPath,
         });
         const truthLoadError = (!truth)
@@ -2028,7 +2068,10 @@ export class ThreeRenderDelegateCore {
             return Promise.resolve(null);
         if (!force && this._robotMetadataSnapshotByStageSource.has(normalizedStagePath)) {
             const cachedSnapshot = this._robotMetadataSnapshotByStageSource.get(normalizedStagePath) || null;
-            const hasCachedMetadata = (Array.isArray(cachedSnapshot?.jointCatalogEntries) && cachedSnapshot.jointCatalogEntries.length > 0) || (Array.isArray(cachedSnapshot?.linkDynamicsEntries) && cachedSnapshot.linkDynamicsEntries.length > 0) || (Array.isArray(cachedSnapshot?.linkParentPairs) && cachedSnapshot.linkParentPairs.length > 0);
+            const hasCachedMetadata = (Array.isArray(cachedSnapshot?.jointCatalogEntries) && cachedSnapshot.jointCatalogEntries.length > 0)
+                || (Array.isArray(cachedSnapshot?.linkDynamicsEntries) && cachedSnapshot.linkDynamicsEntries.length > 0)
+                || (Array.isArray(cachedSnapshot?.linkParentPairs) && cachedSnapshot.linkParentPairs.length > 0)
+                || (Array.isArray(cachedSnapshot?.closedLoopConstraintEntries) && cachedSnapshot.closedLoopConstraintEntries.length > 0);
             if (hasCachedMetadata) {
                 return Promise.resolve(cachedSnapshot);
             }

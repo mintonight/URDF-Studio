@@ -9,10 +9,15 @@ import { JSDOM } from 'jsdom';
 import { useFileExport } from './useFileExport.ts';
 import { disposeUsdBinaryArchiveWorker } from '../utils/usdBinaryArchiveWorkerBridge.ts';
 import { useAssemblyStore, useAssetsStore, useRobotStore, useUIStore } from '@/store';
-import { GeometryType, type RobotFile, type RobotState, type UsdPreparedExportCache } from '@/types';
+import {
+  GeometryType,
+  type RobotFile,
+  type RobotState,
+  type UsdPreparedExportCache,
+} from '@/types';
 import type { ExportDialogConfig, ExportProgressState } from '@/features/file-io';
 import { disposeUsdExportWorker } from '@/features/file-io';
-import { serializeUsdExportResultForWorker } from '@/features/file-io/utils/usdExportWorkerTransfer.ts';
+import { serializeUsdExportResultForWorker } from '@/features/file-io/utils/usdExportWorkerTransfer';
 
 function restoreGlobalProperty<T extends keyof typeof globalThis>(
   key: T,
@@ -299,9 +304,10 @@ function installUsdExportPipelineWorkerMock() {
           const fileFormat = String(message.payload?.fileFormat || 'usd');
           const layoutProfile = String(message.payload?.layoutProfile || 'legacy');
           const extension = fileFormat === 'usda' ? 'usda' : 'usd';
-          const rootLayerPath = layoutProfile === 'isaacsim'
-            ? `${exportName}/${exportName}.${extension}`
-            : `${exportName}/usd/${exportName}.${extension}`;
+          const rootLayerPath =
+            layoutProfile === 'isaacsim'
+              ? `${exportName}/${exportName}.${extension}`
+              : `${exportName}/usd/${exportName}.${extension}`;
           const serialized = await serializeUsdExportResultForWorker({
             content: '#usda 1.0\n',
             downloadFileName: `${exportName}.${extension}`,
@@ -478,7 +484,10 @@ function createCurrentRobot(meshPath = 'base_link_visual_0.obj'): RobotState {
   };
 }
 
-function createPreparedUsdExportCache(stageSourcePath: string, meshPath = 'base_link_visual_0.obj'): UsdPreparedExportCache {
+function createPreparedUsdExportCache(
+  stageSourcePath: string,
+  meshPath = 'base_link_visual_0.obj',
+): UsdPreparedExportCache {
   return {
     stageSourcePath,
     robotData: {
@@ -488,14 +497,14 @@ function createPreparedUsdExportCache(stageSourcePath: string, meshPath = 'base_
         base_link: {
           id: 'base_link',
           name: 'base_link',
-        visible: true,
-        visual: {
-          type: GeometryType.MESH,
-          dimensions: { x: 1, y: 1, z: 1 },
-          color: '#ffffff',
-          meshPath,
-          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
-        },
+          visible: true,
+          visual: {
+            type: GeometryType.MESH,
+            dimensions: { x: 1, y: 1, z: 1 },
+            color: '#ffffff',
+            meshPath,
+            origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          },
           collision: {
             type: GeometryType.NONE,
             dimensions: { x: 0, y: 0, z: 0 },
@@ -512,7 +521,9 @@ function createPreparedUsdExportCache(stageSourcePath: string, meshPath = 'base_
       joints: {},
     },
     meshFiles: {
-      [meshPath]: new Blob(['o cached_mesh\nv 0 0 0\nf 1 1 1\n'], { type: 'text/plain;charset=utf-8' }),
+      [meshPath]: new Blob(['o cached_mesh\nv 0 0 0\nf 1 1 1\n'], {
+        type: 'text/plain;charset=utf-8',
+      }),
     },
   };
 }
@@ -547,10 +558,12 @@ test('useFileExport routes USD exports through usd export worker and binary arch
       format: 'usd',
       error: null,
     });
-    useAssetsStore.getState().setUsdPreparedExportCache(
-      '/robots/demo/demo.usd',
-      createPreparedUsdExportCache('/robots/demo/demo.usd'),
-    );
+    useAssetsStore
+      .getState()
+      .setUsdPreparedExportCache(
+        '/robots/demo/demo.usd',
+        createPreparedUsdExportCache('/robots/demo/demo.usd'),
+      );
 
     useRobotStore.getState().setRobot(createCurrentRobot());
 
@@ -558,9 +571,13 @@ test('useFileExport routes USD exports through usd export worker and binary arch
     const progressEvents: ExportProgressState[] = [];
 
     try {
-      const result = await rendered.hook.handleExportWithConfig(createUsdExportConfig(), { type: 'current' }, {
-        onProgress: (progress) => progressEvents.push(progress),
-      });
+      const result = await rendered.hook.handleExportWithConfig(
+        createUsdExportConfig(),
+        { type: 'current' },
+        {
+          onProgress: (progress) => progressEvents.push(progress),
+        },
+      );
 
       assert.deepEqual(result, {
         partial: false,
@@ -576,7 +593,9 @@ test('useFileExport routes USD exports through usd export worker and binary arch
       assert.equal(downloadMocks.appendedAnchor?.download, 'edited_worker_bot_usd.zip');
       assert.ok(downloadMocks.capturedBlob);
 
-      const zipBytes = new Uint8Array(await new Response(downloadMocks.capturedBlob!).arrayBuffer());
+      const zipBytes = new Uint8Array(
+        await new Response(downloadMocks.capturedBlob!).arrayBuffer(),
+      );
       assert.ok(zipBytes.length > 0);
     } finally {
       rendered.cleanup();
@@ -619,10 +638,12 @@ test('useFileExport skips binary USD conversion when exporting authored USDA lay
       format: 'usd',
       error: null,
     });
-    useAssetsStore.getState().setUsdPreparedExportCache(
-      '/robots/demo/demo.usd',
-      createPreparedUsdExportCache('/robots/demo/demo.usd'),
-    );
+    useAssetsStore
+      .getState()
+      .setUsdPreparedExportCache(
+        '/robots/demo/demo.usd',
+        createPreparedUsdExportCache('/robots/demo/demo.usd'),
+      );
 
     useRobotStore.getState().setRobot(createCurrentRobot());
 
@@ -685,10 +706,12 @@ test('useFileExport fails fast before starting workers when USD worker export en
       format: 'usd',
       error: null,
     });
-    useAssetsStore.getState().setUsdPreparedExportCache(
-      '/robots/demo/demo.usd',
-      createPreparedUsdExportCache('/robots/demo/demo.usd', 'meshes/base_link.fbx'),
-    );
+    useAssetsStore
+      .getState()
+      .setUsdPreparedExportCache(
+        '/robots/demo/demo.usd',
+        createPreparedUsdExportCache('/robots/demo/demo.usd', 'meshes/base_link.fbx'),
+      );
 
     useRobotStore.getState().setRobot(createCurrentRobot('meshes/base_link.fbx'));
 

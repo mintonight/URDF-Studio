@@ -19,6 +19,17 @@ export function getViewerRobotSourceFormat(
   }
 }
 
+export function resolvePreferredViewerRobotSourceFormat(
+  explicitSourceFormat: ViewerRobotSourceFormat | undefined,
+  fileFormat: RobotFile['format'] | null | undefined,
+): ViewerRobotSourceFormat {
+  if (explicitSourceFormat !== undefined) {
+    return explicitSourceFormat;
+  }
+
+  return getViewerRobotSourceFormat(fileFormat);
+}
+
 export function resolveViewerRobotSourceFormat(
   content: string,
   sourceFormat: ViewerRobotSourceFormat = 'auto',

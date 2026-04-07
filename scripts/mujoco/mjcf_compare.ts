@@ -28,6 +28,19 @@ interface CompareCliOptions {
   smokeLoad: boolean;
 }
 
+interface CompareProjectContext {
+  rootDir: string;
+  projectFiles: RobotFile[];
+  projectAssets: Record<string, string>;
+  selectedFile: RobotFile;
+}
+
+const SCAN_SCOPE_DEPENDENT_ISSUES = new Set([
+  'missing_include',
+  'missing_attached_model_asset',
+  'missing_attached_model_file',
+]);
+
 function resolveUvCommand(): string {
   return process.platform === 'win32' ? 'uv.exe' : 'uv';
 }
@@ -131,6 +144,74 @@ function collectProjectAssets(rootDir: string): Record<string, string> {
 
   visit(rootDir);
   return assets;
+}
+
+function collectAncestorDirectories(startDir: string, stopDir?: string): string[] {
+  const directories: string[] = [];
+  const normalizedStopDir = stopDir ? path.resolve(stopDir) : null;
+  let currentDir = path.resolve(startDir);
+
+  while (true) {
+    directories.push(currentDir);
+    if (normalizedStopDir && currentDir === normalizedStopDir) {
+      break;
+    }
+
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      break;
+    }
+    currentDir = parentDir;
+  }
+
+  return directories;
+}
+
+function issuesDependOnScanScope(issues: ReturnType<typeof resolveMJCFSource>['issues']): boolean {
+  return issues.some((issue) => SCAN_SCOPE_DEPENDENT_ISSUES.has(issue.kind));
+}
+
+function withSuppressedConsoleError<T>(callback: () => T): T {
+  const originalConsoleError = console.error;
+  console.error = () => undefined;
+  try {
+    return callback();
+  } finally {
+    console.error = originalConsoleError;
+  }
+}
+
+function buildProjectContext(casePath: string): CompareProjectContext {
+  const searchRoots = collectAncestorDirectories(path.dirname(casePath), process.cwd());
+  let bestMatch: CompareProjectContext | null = null;
+
+  for (const rootDir of searchRoots) {
+    const projectFiles = collectProjectFiles(rootDir);
+    const selectedFile = projectFiles.find((file) => path.resolve(file.name) === casePath);
+    if (!selectedFile) {
+      continue;
+    }
+
+    bestMatch = {
+      rootDir,
+      projectFiles,
+      projectAssets: collectProjectAssets(rootDir),
+      selectedFile,
+    };
+
+    const resolvedSource = withSuppressedConsoleError(() =>
+      resolveMJCFSource(selectedFile, projectFiles),
+    );
+    if (!issuesDependOnScanScope(resolvedSource.issues)) {
+      return bestMatch;
+    }
+  }
+
+  if (bestMatch) {
+    return bestMatch;
+  }
+
+  throw new Error(`MJCF file not found in project scan: ${casePath}`);
 }
 
 async function loadLocalMeshObject(
@@ -276,12 +357,8 @@ function summarizeRobotState(robotState: ReturnType<typeof parseMJCF>) {
 async function main(): Promise<void> {
   installDomGlobals();
   const options = parseArgs(process.argv.slice(2));
-  const projectFiles = collectProjectFiles(path.dirname(options.casePath));
-  const projectAssets = collectProjectAssets(path.dirname(options.casePath));
-  const selectedFile = projectFiles.find((file) => path.resolve(file.name) === options.casePath);
-  if (!selectedFile) {
-    throw new Error(`MJCF file not found in project scan: ${options.casePath}`);
-  }
+  const projectContext = buildProjectContext(options.casePath);
+  const { projectFiles, projectAssets, selectedFile } = projectContext;
 
   const resolvedSource = resolveMJCFSource(selectedFile, projectFiles);
   const robotState = parseMJCF(resolvedSource.content);
@@ -349,6 +426,7 @@ async function main(): Promise<void> {
   const payload = {
     schema: 'urdf-studio.mjcf-compare/v1',
     casePath: options.casePath,
+    scanRoot: projectContext.rootDir,
     oracleMode: options.oracleJsonPath ? 'full-json' : 'resolved-xml',
     resolvedSource: {
       sourceFile: resolvedSource.sourceFile.name,

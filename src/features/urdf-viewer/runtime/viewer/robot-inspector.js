@@ -3,6 +3,7 @@ export { buildRobotMetadataSnapshot, } from "./robot-inspector/shared.js";
 export class RobotInspectorController {
     constructor(options) {
         this.enabled = false;
+        this.initialized = false;
         this.dragging = false;
         this.dragOffsetX = 0;
         this.dragOffsetY = 0;
@@ -44,12 +45,25 @@ export class RobotInspectorController {
         this.requestSnapshot = options.requestSnapshot;
     }
     initialize() {
-        if (!this.panel || !this.header)
+        if (!this.panel || !this.header || this.initialized)
             return;
         this.header.addEventListener("pointerdown", this.handlePointerDown);
         window.addEventListener("pointermove", this.handlePointerMove);
         window.addEventListener("pointerup", this.handlePointerUp);
         window.addEventListener("pointercancel", this.handlePointerUp);
+        this.initialized = true;
+    }
+    dispose() {
+        if (this.header && this.initialized) {
+            this.header.removeEventListener("pointerdown", this.handlePointerDown);
+        }
+        if (this.initialized) {
+            window.removeEventListener("pointermove", this.handlePointerMove);
+            window.removeEventListener("pointerup", this.handlePointerUp);
+            window.removeEventListener("pointercancel", this.handlePointerUp);
+        }
+        this.initialized = false;
+        this.dragging = false;
     }
     setEnabled(enabled) {
         this.enabled = !!enabled;

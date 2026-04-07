@@ -25,7 +25,24 @@ test('collectRobotAssetReferences includes both mesh and texture dependencies', 
           type: GeometryType.MESH,
           meshPath: 'package://demo/meshes/base.stl',
           dimensions: { x: 1, y: 1, z: 1 },
+          authoredMaterials: [
+            {
+              texture: 'package://demo/textures/body/base.png',
+            },
+          ],
         },
+        visualBodies: [
+          {
+            ...DEFAULT_LINK.visual,
+            type: GeometryType.BOX,
+            dimensions: { x: 0.5, y: 0.5, z: 0.5 },
+            authoredMaterials: [
+              {
+                texture: 'package://demo/textures/body/secondary.png',
+              },
+            ],
+          },
+        ],
       },
     },
     joints: {},
@@ -38,7 +55,11 @@ test('collectRobotAssetReferences includes both mesh and texture dependencies', 
 
   const references = collectRobotAssetReferences(robot);
   assert.deepEqual(Array.from(references.meshPaths), ['package://demo/meshes/base.stl']);
-  assert.deepEqual(Array.from(references.texturePaths), ['package://demo/textures/body/coat.png']);
+  assert.deepEqual(Array.from(references.texturePaths).sort(), [
+    'package://demo/textures/body/base.png',
+    'package://demo/textures/body/coat.png',
+    'package://demo/textures/body/secondary.png',
+  ]);
 });
 
 test('addRobotAssetsToZip packages texture assets alongside meshes for roundtrip exports', async () => {

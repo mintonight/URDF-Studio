@@ -1,4 +1,4 @@
-import { memo, useCallback } from 'react';
+import { lazy, memo, Suspense, useCallback } from 'react';
 import { translations } from '@/shared/i18n';
 import { useEffectiveTheme, useResolvedTheme } from '@/shared/hooks';
 import { useUIStore } from '@/store';
@@ -6,15 +6,24 @@ import { useSelectionStore } from '@/store/selectionStore';
 import type { URDFViewerProps } from '../types';
 import { useURDFViewerController } from '../hooks/useURDFViewerController';
 import { buildURDFViewerSceneProps } from '../utils/viewerSceneProps';
+import { resolveStandaloneViewerHoverSelectionWiring } from '../utils/standaloneHoverSelectionWiring';
 import { resolveDefaultViewerToolMode } from '../utils/scopedToolMode';
+import {
+  resolvePreferredViewerRobotSourceFormat,
+  resolveViewerRobotSourceFormat,
+} from '../utils/sourceFormat';
 import { URDFViewerCanvas } from './URDFViewerCanvas';
-import { URDFViewerPanels } from './URDFViewerPanels';
 import { URDFViewerScene } from './URDFViewerScene';
+
+const LazyURDFViewerPanels = lazy(async () => ({
+  default: (await import('./URDFViewerPanels')).URDFViewerPanels,
+}));
 
 export const URDFViewer = memo(function URDFViewer({
   urdfContent,
   assets,
   sourceFile,
+  sourceFormat,
   availableFiles = [],
   onRobotDataResolved,
   onDocumentLoadEvent,
@@ -33,6 +42,7 @@ export const URDFViewer = memo(function URDFViewer({
   hoveredSelection,
   robotLinks,
   robotJoints,
+  ikRobotState,
   sourceFilePath,
   focusTarget,
   showVisual,
@@ -53,8 +63,16 @@ export const URDFViewer = memo(function URDFViewer({
   const t = translations[lang];
   const storeGroundPlaneOffset = useUIStore((state) => state.groundPlaneOffset);
   const setStoreGroundPlaneOffset = useUIStore((state) => state.setGroundPlaneOffset);
-  const shouldSubscribeToStoreHoveredSelection =
-    hoveredSelection === undefined && sourceFile?.format === 'usd' && !isMeshPreview;
+  const viewerSourceFormat = resolvePreferredViewerRobotSourceFormat(
+    sourceFormat,
+    sourceFile?.format,
+  );
+  const { shouldSubscribeToStoreHoveredSelection, hoverSelectionEnabled } =
+    resolveStandaloneViewerHoverSelectionWiring({
+      hoveredSelection,
+      sourceFormat: viewerSourceFormat,
+      isMeshPreview,
+    });
   const storeHoveredSelection = useSelectionStore(
     useCallback(
       (state) => (shouldSubscribeToStoreHoveredSelection ? state.hoveredSelection : undefined),
@@ -63,13 +81,16 @@ export const URDFViewer = memo(function URDFViewer({
   );
   const groundPlaneOffset = propGroundPlaneOffset ?? storeGroundPlaneOffset;
   const resolvedHoveredSelection = hoveredSelection ?? storeHoveredSelection;
+  const resolvedSourceFormat = resolveViewerRobotSourceFormat(urdfContent, viewerSourceFormat);
   const inheritedTheme = useEffectiveTheme();
   const explicitTheme = useResolvedTheme(theme ?? 'system');
   const resolvedTheme = theme ? explicitTheme : inheritedTheme;
-  const defaultToolMode = resolveDefaultViewerToolMode(sourceFile?.format);
+  const defaultToolMode = resolveDefaultViewerToolMode(viewerSourceFormat);
   const toolModeScopeKey = sourceFile
     ? `${sourceFile.format}:${sourceFile.name}`
-    : (sourceFilePath ? `inline:${sourceFilePath}` : 'inline:urdf-viewer');
+    : sourceFilePath
+      ? `inline:${sourceFilePath}`
+      : 'inline:urdf-viewer';
   const controller = useURDFViewerController({
     onJointChange,
     syncJointChangesToApp,
@@ -88,11 +109,13 @@ export const URDFViewer = memo(function URDFViewer({
     groundPlaneOffsetReadOnly: propGroundPlaneOffset !== undefined,
     defaultToolMode,
     toolModeScopeKey,
+    closedLoopRobotState: ikRobotState ?? null,
   });
-  const hoverSelectionEnabled = resolvedHoveredSelection !== undefined;
   const sceneProps = buildURDFViewerSceneProps({
+    resolvedTheme,
     controller,
     sourceFile,
+    sourceFormat,
     availableFiles,
     urdfContent,
     assets,
@@ -121,17 +144,20 @@ export const URDFViewer = memo(function URDFViewer({
       onMouseMove={controller.handleMouseMove}
       onMouseUp={controller.handleMouseUp}
     >
-      <URDFViewerPanels
-        lang={lang}
-        controller={controller}
-        onUpdate={onUpdate}
-        showToolbar={showToolbar}
-        setShowToolbar={setShowToolbar}
-        showOptionsPanel={showOptionsPanel}
-        setShowOptionsPanel={setShowOptionsPanel}
-        showJointPanel={showJointPanel}
-        setShowJointPanel={setShowJointPanel}
-      />
+      <Suspense fallback={null}>
+        <LazyURDFViewerPanels
+          lang={lang}
+          controller={controller}
+          isMjcfSource={resolvedSourceFormat === 'mjcf'}
+          onUpdate={onUpdate}
+          showToolbar={showToolbar}
+          setShowToolbar={setShowToolbar}
+          showOptionsPanel={showOptionsPanel}
+          setShowOptionsPanel={setShowOptionsPanel}
+          showJointPanel={showJointPanel}
+          setShowJointPanel={setShowJointPanel}
+        />
+      </Suspense>
 
       <URDFViewerCanvas
         lang={lang}

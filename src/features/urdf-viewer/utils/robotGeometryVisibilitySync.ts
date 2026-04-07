@@ -5,23 +5,45 @@ import type { UrdfLink } from '@/types';
 import { shouldSyncDirectLinkChildVisibility } from './runtimeVisibility';
 import { syncCollisionGroupVisibility } from './collisionVisibilitySync';
 
-function resolveLinkNameForNode(node: THREE.Object3D, inheritedLinkName: string | null): string | null {
-  const explicitLinkName = typeof node.userData?.parentLinkName === 'string' && node.userData.parentLinkName
-    ? node.userData.parentLinkName
-    : null;
+function resolveLinkNameForNode(
+  node: THREE.Object3D,
+  inheritedLinkName: string | null,
+): string | null {
+  const explicitLinkName =
+    typeof node.userData?.parentLinkName === 'string' && node.userData.parentLinkName
+      ? node.userData.parentLinkName
+      : null;
 
   return explicitLinkName ?? inheritedLinkName;
 }
 
-function isVisualGeometryVisible(linkData: UrdfLink | undefined, showVisual: boolean): boolean {
+function shouldHideMjcfWorldRuntimeLink(
+  sourceFormat: 'urdf' | 'mjcf',
+  showMjcfWorldLink: boolean,
+  runtimeLinkName: string | null,
+): boolean {
+  return sourceFormat === 'mjcf' && !showMjcfWorldLink && runtimeLinkName === 'world';
+}
+
+function isVisualGeometryVisible(
+  linkData: UrdfLink | undefined,
+  showVisual: boolean,
+  forceHidden: boolean,
+): boolean {
+  if (forceHidden) {
+    return false;
+  }
+
   return showVisual && linkData?.visible !== false && linkData?.visual.visible !== false;
 }
 
 export interface SyncRobotGeometryVisibilityOptions {
   robot: THREE.Object3D;
   robotLinks?: Record<string, UrdfLink>;
+  sourceFormat: 'urdf' | 'mjcf';
   showCollision: boolean;
   showVisual: boolean;
+  showMjcfWorldLink?: boolean;
   showCollisionAlwaysOnTop?: boolean;
   highlightedMeshes?: ReadonlyMap<THREE.Mesh, unknown>;
 }
@@ -29,8 +51,10 @@ export interface SyncRobotGeometryVisibilityOptions {
 export function syncRobotGeometryVisibility({
   robot,
   robotLinks,
+  sourceFormat,
   showCollision,
   showVisual,
+  showMjcfWorldLink = true,
   showCollisionAlwaysOnTop = true,
   highlightedMeshes,
 }: SyncRobotGeometryVisibilityOptions): boolean {
@@ -40,15 +64,24 @@ export function syncRobotGeometryVisibility({
     const nextLinkName = (node as any).isURDFLink && node.name ? node.name : currentLinkName;
     const linkName = resolveLinkNameForNode(node, nextLinkName);
     const linkData = linkName ? robotLinks?.[linkName] : undefined;
+    const forceHidden = shouldHideMjcfWorldRuntimeLink(sourceFormat, showMjcfWorldLink, linkName);
 
     if ((node as any).isURDFCollider) {
-      changed = syncCollisionGroupVisibility({
-        collider: node,
-        linkData,
-        showCollision,
-        showCollisionAlwaysOnTop,
-        highlightedMeshes,
-      }) || changed;
+      if (forceHidden) {
+        if (node.visible !== false) {
+          changed = true;
+        }
+        node.visible = false;
+      } else {
+        changed =
+          syncCollisionGroupVisibility({
+            collider: node,
+            linkData,
+            showCollision,
+            showCollisionAlwaysOnTop,
+            highlightedMeshes,
+          }) || changed;
+      }
 
       if (!node.visible) {
         return;
@@ -56,7 +89,7 @@ export function syncRobotGeometryVisibility({
     }
 
     if (node.userData?.isVisualGroup) {
-      const isVisible = isVisualGeometryVisible(linkData, showVisual);
+      const isVisible = isVisualGeometryVisible(linkData, showVisual, forceHidden);
       if (node.visible !== isVisible) {
         changed = true;
       }
@@ -64,7 +97,7 @@ export function syncRobotGeometryVisibility({
     }
 
     if (shouldSyncDirectLinkChildVisibility(node)) {
-      const isVisible = isVisualGeometryVisible(linkData, showVisual);
+      const isVisible = isVisualGeometryVisible(linkData, showVisual, forceHidden);
       if (node.visible !== isVisible) {
         changed = true;
       }
@@ -72,12 +105,12 @@ export function syncRobotGeometryVisibility({
     }
 
     if (
-      (node as any).isMesh
-      && node.userData?.isVisual
-      && !node.userData?.isCollision
-      && !node.userData?.isCollisionMesh
+      (node as any).isMesh &&
+      node.userData?.isVisual &&
+      !node.userData?.isCollision &&
+      !node.userData?.isCollisionMesh
     ) {
-      const isVisible = isVisualGeometryVisible(linkData, showVisual);
+      const isVisible = isVisualGeometryVisible(linkData, showVisual, forceHidden);
       if (node.visible !== isVisible) {
         changed = true;
       }
@@ -100,7 +133,7 @@ export function syncRobotGeometryVisibility({
       }
 
       if (isUrdfVisual) {
-        const isVisible = isVisualGeometryVisible(linkData, showVisual);
+        const isVisible = isVisualGeometryVisible(linkData, showVisual, forceHidden);
         if (node.visible !== isVisible) {
           changed = true;
         }

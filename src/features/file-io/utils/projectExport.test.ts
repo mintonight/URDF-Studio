@@ -7,6 +7,7 @@ import JSZip from 'jszip';
 import { JSDOM } from 'jsdom';
 
 import { parseURDF } from '@/core/parsers';
+import { computeLinkWorldMatrices } from '@/core/robot';
 import { DEFAULT_JOINT, DEFAULT_LINK, JointType, type RobotData } from '@/types';
 
 import { exportProject } from './projectExport';
@@ -52,6 +53,51 @@ function createAssemblyComponentRobotData(): RobotData {
   };
 }
 
+function createNonRootBridgeAssemblyComponentRobot(componentKey: string): RobotData {
+  const rootLinkId = `${componentKey}_base_link`;
+  const toolLinkId = `${componentKey}_tool_link`;
+
+  return {
+    name: componentKey,
+    rootLinkId,
+    links: {
+      [rootLinkId]: {
+        ...DEFAULT_LINK,
+        id: rootLinkId,
+        name: rootLinkId,
+        visible: true,
+      },
+      [toolLinkId]: {
+        ...DEFAULT_LINK,
+        id: toolLinkId,
+        name: toolLinkId,
+        visible: true,
+      },
+    },
+    joints: {
+      [`${componentKey}_tool_joint`]: {
+        ...DEFAULT_JOINT,
+        id: `${componentKey}_tool_joint`,
+        name: `${componentKey}_tool_joint`,
+        type: JointType.FIXED,
+        parentLinkId: rootLinkId,
+        childLinkId: toolLinkId,
+        origin: {
+          xyz: { x: 1.2, y: -0.35, z: 0.5 },
+          rpy: { r: 0, p: 0, y: 0 },
+        },
+      },
+    },
+  };
+}
+
+function assertNearlyEqual(actual: number, expected: number, message: string) {
+  assert.ok(
+    Math.abs(actual - expected) <= 1e-9,
+    `${message}: expected ${expected}, received ${actual}`,
+  );
+}
+
 function buildGo2AssetMap(): Record<string, string> {
   const assets: Record<string, string> = {};
 
@@ -62,9 +108,7 @@ function buildGo2AssetMap(): Record<string, string> {
       if (!fs.statSync(absolutePath).isFile()) continue;
 
       const extension = path.extname(absolutePath).toLowerCase();
-      const mimeType = extension === '.dae'
-        ? 'text/xml'
-        : 'application/octet-stream';
+      const mimeType = extension === '.dae' ? 'text/xml' : 'application/octet-stream';
       const dataUrl = `data:${mimeType};base64,${fs.readFileSync(absolutePath).toString('base64')}`;
 
       [
@@ -135,10 +179,9 @@ test('exportProject preserves go2 split visual materials in generated MJCF outpu
   assert.doesNotMatch(mjcfOutput, /base_visual_0\.obj/);
 
   const archivePaths = Object.keys(zip.files);
-  const splitBaseMeshPaths = archivePaths.filter((filePath) => (
-    filePath.startsWith('output/meshes/dae/base.')
-    && filePath.endsWith('.obj')
-  ));
+  const splitBaseMeshPaths = archivePaths.filter(
+    (filePath) => filePath.startsWith('output/meshes/dae/base.') && filePath.endsWith('.obj'),
+  );
 
   assert.ok(
     splitBaseMeshPaths.length >= 2,
@@ -324,7 +367,10 @@ test('exportProject preserves assembly transforms in the manifest and generated 
 
   const manifest = JSON.parse(manifestText);
   assert.deepEqual(manifest.assembly?.transform, assemblyState.transform);
-  assert.deepEqual(manifest.assembly?.components?.comp_left?.transform, assemblyState.components.comp_left.transform);
+  assert.deepEqual(
+    manifest.assembly?.components?.comp_left?.transform,
+    assemblyState.components.comp_left.transform,
+  );
 
   const exportedRobot = parseURDF(outputUrdf!);
   assert.ok(exportedRobot, 'expected transformed URDF output to parse');
@@ -344,6 +390,138 @@ test('exportProject preserves assembly transforms in the manifest and generated 
   assert.deepEqual(
     exportedRobot?.joints.__assembly_component_joint_comp_left.origin.rpy,
     assemblyState.components.comp_left.transform.rotation,
+  );
+});
+
+test('exportProject keeps non-root child-link bridge alignment in generated URDF output', async () => {
+  const sourceContent = '<robot name="bridge_component"><link name="base_link" /></robot>';
+  const leftRobot = createNonRootBridgeAssemblyComponentRobot('comp_left');
+  const rightRobot = createNonRootBridgeAssemblyComponentRobot('comp_right');
+  const assemblyState = {
+    name: 'bridge_alignment_workspace',
+    transform: {
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { r: 0, p: 0, y: 0 },
+    },
+    components: {
+      comp_left: {
+        id: 'comp_left',
+        name: 'left_arm',
+        sourceFile: 'robots/left_arm.urdf',
+        visible: true,
+        transform: {
+          position: { x: 0, y: 0, z: 0 },
+          rotation: { r: 0, p: 0, y: 0 },
+        },
+        robot: leftRobot,
+      },
+      comp_right: {
+        id: 'comp_right',
+        name: 'right_arm',
+        sourceFile: 'robots/right_arm.urdf',
+        visible: true,
+        transform: {
+          position: { x: -1.2, y: 0.35, z: -0.5 },
+          rotation: { r: 0, p: 0, y: 0 },
+        },
+        robot: rightRobot,
+      },
+    },
+    bridges: {
+      bridge_main: {
+        id: 'bridge_main',
+        name: 'bridge_main',
+        parentComponentId: 'comp_left',
+        parentLinkId: 'comp_left_base_link',
+        childComponentId: 'comp_right',
+        childLinkId: 'comp_right_tool_link',
+        joint: {
+          ...DEFAULT_JOINT,
+          id: 'bridge_main',
+          name: 'bridge_main',
+          type: JointType.FIXED,
+          parentLinkId: 'comp_left_base_link',
+          childLinkId: 'comp_right_tool_link',
+          origin: {
+            xyz: { x: 0, y: 0, z: 0 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+        },
+      },
+    },
+  };
+
+  const exportResult = await exportProject({
+    name: 'bridge_alignment_project',
+    uiState: {
+      appMode: 'editor',
+      lang: 'en',
+    },
+    assetsState: {
+      availableFiles: [
+        {
+          name: 'robots/left_arm.urdf',
+          format: 'urdf',
+          content: sourceContent,
+        },
+        {
+          name: 'robots/right_arm.urdf',
+          format: 'urdf',
+          content: sourceContent,
+        },
+      ],
+      assets: {},
+      allFileContents: {
+        'robots/left_arm.urdf': sourceContent,
+        'robots/right_arm.urdf': sourceContent,
+      },
+      motorLibrary: {},
+      selectedFileName: 'robots/left_arm.urdf',
+      originalUrdfContent: sourceContent,
+      originalFileFormat: 'urdf',
+      usdPreparedExportCaches: {},
+    },
+    robotState: {
+      present: leftRobot,
+      history: { past: [], future: [] },
+      activity: [],
+    },
+    assemblyState: {
+      present: assemblyState,
+      history: { past: [], future: [] },
+      activity: [],
+    },
+    getMergedRobotData: () => leftRobot,
+  });
+
+  const zip = await JSZip.loadAsync(await exportResult.blob.arrayBuffer());
+  const outputUrdf = await zip.file(`output/${assemblyState.name}.urdf`)?.async('string');
+
+  assert.ok(outputUrdf, 'expected project export to include bridged assembly URDF output');
+
+  const exportedRobot = parseURDF(outputUrdf!);
+  assert.ok(exportedRobot, 'expected bridged assembly URDF to parse');
+
+  const exportedMatrices = computeLinkWorldMatrices(exportedRobot!);
+  const leftBaseMatrix = exportedMatrices.comp_left_base_link;
+  const rightToolMatrix = exportedMatrices.comp_right_tool_link;
+
+  assert.ok(leftBaseMatrix, 'expected an exported world matrix for the parent base link');
+  assert.ok(rightToolMatrix, 'expected an exported world matrix for the bridged child link');
+  assertNearlyEqual(
+    rightToolMatrix.elements[12],
+    leftBaseMatrix.elements[12],
+    'exported bridged child link should stay aligned on x',
+  );
+  assertNearlyEqual(
+    rightToolMatrix.elements[13],
+    leftBaseMatrix.elements[13],
+    'exported bridged child link should stay aligned on y',
+  );
+  assertNearlyEqual(
+    rightToolMatrix.elements[14],
+    leftBaseMatrix.elements[14],
+    'exported bridged child link should stay aligned on z',
   );
 });
 
@@ -447,7 +625,8 @@ test('exportProject reports phased progress while building a .usp archive', asyn
   assert.equal(exportResult.partial, false);
   assert.ok(progressUpdates.length > 0, 'expected project export to emit progress updates');
 
-  const firstIndexByPhase = (phase: string) => progressUpdates.findIndex((progress) => progress.phase === phase);
+  const firstIndexByPhase = (phase: string) =>
+    progressUpdates.findIndex((progress) => progress.phase === phase);
   const phaseOrder = ['assets', 'metadata', 'components', 'output', 'archive'];
 
   phaseOrder.forEach((phase) => {
@@ -478,6 +657,28 @@ test('exportProject preserves bridge joint quat_xyzw metadata in bridge.xml', as
 <robot name="simple_export">
   <link name="base_link" />
 </robot>`;
+  const componentARobot = {
+    ...robot,
+    rootLinkId: 'component_a/base_link',
+    links: {
+      'component_a/base_link': {
+        ...robot.links.base_link,
+        id: 'component_a/base_link',
+      },
+    },
+    joints: {},
+  };
+  const componentBRobot = {
+    ...robot,
+    rootLinkId: 'component_b/base_link',
+    links: {
+      'component_b/base_link': {
+        ...robot.links.base_link,
+        id: 'component_b/base_link',
+      },
+    },
+    joints: {},
+  };
 
   const exportResult = await exportProject({
     name: 'bridge_quat_project',
@@ -522,13 +723,13 @@ test('exportProject preserves bridge joint quat_xyzw metadata in bridge.xml', as
             id: 'component_a',
             name: 'component_a',
             sourceFile: 'robots/component_a.urdf',
-            robot,
+            robot: componentARobot,
           },
           component_b: {
             id: 'component_b',
             name: 'component_b',
             sourceFile: 'robots/component_b.urdf',
-            robot,
+            robot: componentBRobot,
           },
         },
         bridges: {
@@ -536,20 +737,24 @@ test('exportProject preserves bridge joint quat_xyzw metadata in bridge.xml', as
             id: 'bridge_joint',
             name: 'bridge_joint',
             parentComponentId: 'component_a',
-            parentLinkId: 'base_link',
+            parentLinkId: 'component_a/base_link',
             childComponentId: 'component_b',
-            childLinkId: 'base_link',
+            childLinkId: 'component_b/base_link',
             joint: {
               ...DEFAULT_JOINT,
               id: 'bridge_joint',
               name: 'bridge_joint',
               type: JointType.FIXED,
-              parentLinkId: 'base_link',
-              childLinkId: 'base_link',
+              parentLinkId: 'component_a/base_link',
+              childLinkId: 'component_b/base_link',
               origin: {
                 xyz: { x: 0, y: 0, z: 0 },
                 rpy: { r: 0, p: 0, y: Math.PI / 2 },
                 quatXyzw: { x: 0, y: 0, z: 0.70710678, w: 0.70710678 },
+              },
+              hardware: {
+                ...DEFAULT_JOINT.hardware,
+                hardwareInterface: 'position',
               },
             },
           },
@@ -570,5 +775,9 @@ test('exportProject preserves bridge joint quat_xyzw metadata in bridge.xml', as
   assert.match(
     bridgeXml,
     /<origin xyz="0 0 0" rpy="0 0 1\.5707963267948966" quat_xyzw="0 0 0\.70710678 0\.70710678" \/>/,
+  );
+  assert.match(
+    bridgeXml,
+    /<hardware>\s*<hardwareInterface>position<\/hardwareInterface>\s*<\/hardware>/,
   );
 });

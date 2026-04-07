@@ -19,8 +19,8 @@ type PreparedUsdStageOpenWorkerLoader = (
   availableFiles: StageOpenAvailableFile[],
   assets: Record<string, string>,
 ) => Promise<PreparedUsdStageOpenData>;
-type PreparedUsdStageOpenMainThreadLoader = PreparedUsdStageOpenWorkerLoader;
-type PreparedUsdStageOpenCacheNamespace = 'shared' | 'worker' | 'main-thread';
+type PreparedUsdStageOpenInlineLoader = PreparedUsdStageOpenWorkerLoader;
+type PreparedUsdStageOpenCacheNamespace = 'shared' | 'worker' | 'inline';
 
 const PREPARED_USD_STAGE_OPEN_CACHE_LIMIT = 8;
 const preparedUsdStageOpenCache = new Map<string, Promise<PreparedUsdStageOpenData>>();
@@ -181,18 +181,21 @@ export async function loadPreparedUsdStageOpenDataFromWorker(
   );
 }
 
-export async function loadPreparedUsdStageOpenDataOnMainThread(
+// Intentionally named "inline" instead of "main-thread": the same preparation
+// path is reused both on the interactive stage host and inside the offscreen
+// worker when worker-prepared payloads are not the chosen path.
+export async function loadPreparedUsdStageOpenDataInline(
   sourceFile: StageOpenSourceFile,
   availableFiles: StageOpenAvailableFile[],
   assets: Record<string, string>,
-  prepareOnMainThread: PreparedUsdStageOpenMainThreadLoader = prepareUsdStageOpenDataCore,
+  prepareInline: PreparedUsdStageOpenInlineLoader = prepareUsdStageOpenDataCore,
 ): Promise<PreparedUsdStageOpenData> {
   return await loadPreparedUsdStageOpenDataCached(
     sourceFile,
     availableFiles,
     assets,
     async () => {
-      const result = await prepareOnMainThread(sourceFile, availableFiles, assets);
+      const result = await prepareInline(sourceFile, availableFiles, assets);
       if (!hasPreparedRootStagePayload(result)) {
         throw new Error(
           `USD stage preparation returned no root stage payload for "${sourceFile.name}".`,
@@ -200,7 +203,7 @@ export async function loadPreparedUsdStageOpenDataOnMainThread(
       }
       return result;
     },
-    'main-thread',
+    'inline',
   );
 }
 

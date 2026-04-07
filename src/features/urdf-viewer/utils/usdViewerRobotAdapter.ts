@@ -1,15 +1,18 @@
 import * as THREE from 'three';
 
+import { computeLinkWorldMatrices } from '@/core/robot/kinematics';
 import {
   DEFAULT_JOINT,
   DEFAULT_LINK,
   GeometryType,
   JointType,
   type Euler,
+  type RobotClosedLoopConstraint,
   type RobotData,
   type UrdfJoint,
   type UrdfLink,
   type UrdfVisual,
+  type UsdClosedLoopConstraintEntry,
   type UsdJointCatalogEntry,
   type UsdLinkDynamicsEntry,
   type UsdMeshCountsEntry,
@@ -32,6 +35,7 @@ import { resolveUsdPrimitiveGeometryFromDescriptor } from './usdPrimitiveGeometr
 type MeshPrimitiveCounts = Record<string, number | undefined>;
 type MeshCountsEntry = UsdMeshCountsEntry;
 type JointCatalogEntry = UsdJointCatalogEntry;
+type ClosedLoopConstraintEntry = UsdClosedLoopConstraintEntry;
 type LinkDynamicsEntry = UsdLinkDynamicsEntry;
 type MaterialRecord = UsdSceneMaterialRecord;
 type RobotMetadataSnapshot = UsdRobotMetadataSnapshot;
@@ -504,6 +508,9 @@ function jointTypeFromViewerValue(value: string | null | undefined): JointType {
   if (normalized === 'prismatic' || normalized.includes('prismatic')) {
     return JointType.PRISMATIC;
   }
+  if (normalized === 'ball' || normalized.includes('ball') || normalized.includes('spherical')) {
+    return JointType.BALL;
+  }
   if (normalized === 'planar' || normalized.includes('planar')) {
     return JointType.PLANAR;
   }
@@ -822,6 +829,76 @@ function createJointFromViewerEntry(
   };
 }
 
+function createClosedLoopConstraintFromUsdEntry(
+  entry: ClosedLoopConstraintEntry,
+  linkIdByPath: Map<string, string>,
+): RobotClosedLoopConstraint | null {
+  const linkAPath = normalizeUsdPath(entry.linkAPath);
+  const linkBPath = normalizeUsdPath(entry.linkBPath);
+  if (!linkAPath || !linkBPath) {
+    return null;
+  }
+
+  const linkAId = linkIdByPath.get(linkAPath);
+  const linkBId = linkIdByPath.get(linkBPath);
+  if (!linkAId || !linkBId) {
+    return null;
+  }
+
+  const constraintType = String(entry.constraintType || '')
+    .trim()
+    .toLowerCase();
+  if (constraintType && constraintType !== 'connect') {
+    return null;
+  }
+
+  return {
+    id:
+      String(entry.id || `${linkAId}_${linkBId}_closed_loop`).trim() ||
+      `${linkAId}_${linkBId}_closed_loop`,
+    type: 'connect',
+    linkAId,
+    linkBId,
+    anchorLocalA: toVector3(entry.anchorLocalA),
+    anchorLocalB: toVector3(entry.anchorLocalB),
+    anchorWorld: { x: 0, y: 0, z: 0 },
+  };
+}
+
+function populateClosedLoopConstraintWorldAnchors(
+  constraints: RobotClosedLoopConstraint[],
+  links: Record<string, UrdfLink>,
+  joints: Record<string, UrdfJoint>,
+  rootLinkId: string,
+): RobotClosedLoopConstraint[] {
+  if (constraints.length === 0) {
+    return constraints;
+  }
+
+  const linkWorldMatrices = computeLinkWorldMatrices({ links, joints, rootLinkId });
+  return constraints.map((constraint) => {
+    const linkAMatrix = linkWorldMatrices[constraint.linkAId];
+    if (!linkAMatrix) {
+      return constraint;
+    }
+
+    const anchorWorld = new THREE.Vector3(
+      constraint.anchorLocalA.x,
+      constraint.anchorLocalA.y,
+      constraint.anchorLocalA.z,
+    ).applyMatrix4(linkAMatrix);
+
+    return {
+      ...constraint,
+      anchorWorld: {
+        x: anchorWorld.x,
+        y: anchorWorld.y,
+        z: anchorWorld.z,
+      },
+    };
+  });
+}
+
 export function adaptUsdViewerSnapshotToRobotData(
   snapshot: RobotSceneSnapshot | null | undefined,
   options: { fileName?: string } = {},
@@ -837,6 +914,7 @@ export function adaptUsdViewerSnapshotToRobotData(
   const jointCatalogEntries = Array.from(
     metadata.jointCatalogEntries || snapshot.robotTree?.jointCatalogEntries || [],
   );
+  const closedLoopConstraintEntries = Array.from(metadata.closedLoopConstraintEntries || []);
   const linkDynamicsEntries = Array.from(
     metadata.linkDynamicsEntries || snapshot.physics?.linkDynamicsEntries || [],
   );
@@ -1236,6 +1314,15 @@ export function adaptUsdViewerSnapshotToRobotData(
     });
   }
 
+  const closedLoopConstraints = populateClosedLoopConstraintWorldAnchors(
+    closedLoopConstraintEntries
+      .map((entry) => createClosedLoopConstraintFromUsdEntry(entry, linkIdByPath))
+      .filter((entry): entry is RobotClosedLoopConstraint => Boolean(entry)),
+    links,
+    joints,
+    rootLinkId,
+  );
+
   return {
     stageSourcePath: normalizedStageSourcePath || null,
     linkIdByPath: Object.fromEntries(linkIdByPath.entries()),
@@ -1250,6 +1337,7 @@ export function adaptUsdViewerSnapshotToRobotData(
       joints,
       rootLinkId,
       ...(Object.keys(materials).length > 0 ? { materials } : {}),
+      ...(closedLoopConstraints.length > 0 ? { closedLoopConstraints } : {}),
     },
   };
 }

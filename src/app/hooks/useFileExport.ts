@@ -2,8 +2,7 @@
  * File Export Hook
  * Handles exporting robot as URDF, extended URDF, BOM, and MuJoCo XML
  */
-import { useCallback } from 'react';
-import { applyPatches, type Patch } from 'immer';
+import { useCallback, useMemo } from 'react';
 import JSZip from 'jszip';
 import { useShallow } from 'zustand/react/shallow';
 import type { AssemblyState, RobotFile, RobotState } from '@/types';
@@ -19,14 +18,8 @@ import { analyzeAssemblyConnectivity } from '@/core/robot';
 import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
 import { rewriteUrdfAssetPathsForExport } from '@/core/parsers/meshPathUtils';
 import { useAssemblyStore, useAssetsStore, useRobotStore, useUIStore } from '@/store';
-import {
-  getUsdExportWorkerUnsupportedMeshPaths,
-  exportProjectWithWorker,
-  exportRobotToUsdWithWorker,
-  prepareMjcfMeshExportAssets,
-  type ExportDialogConfig,
-  type ExportProgressState,
-} from '@/features/file-io';
+import { toDocumentLoadLifecycleState } from '@/store/assetsStore';
+import { prepareMjcfMeshExportAssets, type ExportDialogConfig } from '@/features/file-io';
 import { getUsdStageExportHandler } from '@/features/urdf-viewer';
 import { translations } from '@/shared/i18n';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
@@ -34,170 +27,38 @@ import type { RobotAssetPackagingFailure } from '../utils/exportArchiveAssets';
 import { addRobotAssetsToZip } from '../utils/exportArchiveAssets';
 import { resolveCurrentUsdExportMode } from '../utils/currentUsdExportMode';
 import { flushPendingHistory } from '../utils/pendingHistory';
-import {
-  buildCurrentRobotExportData,
-  buildCurrentRobotExportState,
-} from './projectRobotStateUtils';
+import { buildCurrentRobotExportState } from './projectRobotStateUtils';
 import { resolveCurrentUsdExportBundle } from '../utils/usdExportContext';
-import { buildLiveUsdRoundtripArchive } from '../utils/liveUsdRoundtripExport';
-import { convertUsdArchiveFilesToBinaryWithWorker } from '../utils/usdBinaryArchiveWorkerBridge';
 import { resolveUrdfSourceExportContent } from './urdfSourceExportUtils';
 import { buildGeneratedUrdfOptions } from '../utils/generatedUrdfOptions';
 import { resolveRobotFileDataWithWorker } from './robotImportWorkerBridge';
 import { markUnsavedChangesBaselineSaved } from '../utils/unsavedChangesBaseline';
+import {
+  createExportProgressReporter,
+  replaceTemplate,
+  trimProgressFileLabel,
+  type ExportProgressReporter,
+} from './file-export/progress';
+import {
+  DEFAULT_EXPORT_TARGET,
+  type ExportActionRequired,
+  type AssemblyHistoryState,
+  type ExportContext,
+  type ExportExecutionResult,
+  type HandleExportWithConfigOptions,
+  type HandleProjectExportOptions,
+  type ProjectExportExecutionResult,
+  type UrdfSourceExportPreference,
+  type ExportTarget,
+} from './file-export/types';
+import { executeProjectExport } from './file-export/projectExport';
+import { executeUsdExport } from './file-export/usdExport';
 
-type ExportTarget = { type: 'current' } | { type: 'library-file'; file: RobotFile };
-
-const DEFAULT_EXPORT_TARGET: ExportTarget = { type: 'current' };
-const PROGRESS_MIN_UPDATE_INTERVAL_MS = 120;
-const PROGRESS_MIN_DELTA = 0.02;
-const USD_EXPORT_STAGE_PROGRESS_RANGES = {
-  links: { start: 0.08, end: 0.34 },
-  geometry: { start: 0.34, end: 0.62 },
-  scene: { start: 0.62, end: 0.92 },
-  assets: { start: 0.92, end: 0.99 },
-} as const;
-
-interface ExportContext {
-  robot: RobotState;
-  exportName: string;
-  extraMeshFiles?: Map<string, Blob>;
-}
-
-interface HandleExportWithConfigOptions {
-  onProgress?: (progress: ExportProgressState) => void;
-}
-
-interface HandleProjectExportOptions {
-  onProgress?: (progress: ExportProgressState) => void;
-}
-
-export interface ExportExecutionIssue {
-  code: string;
-  message: string;
-  context?: Record<string, string>;
-}
-
-export interface DisconnectedWorkspaceUrdfExportAction {
-  type: 'disconnected-workspace-urdf';
-  componentCount: number;
-  connectedGroupCount: number;
-  exportName: string;
-}
-
-export type ExportActionRequired = DisconnectedWorkspaceUrdfExportAction;
-
-export interface ExportExecutionResult {
-  partial: boolean;
-  warnings: string[];
-  issues: ExportExecutionIssue[];
-  actionRequired?: ExportActionRequired;
-}
-
-export interface ProjectExportExecutionResult {
-  partial: boolean;
-  warnings: string[];
-  issues: ExportExecutionIssue[];
-  actionRequired?: ExportActionRequired;
-}
-
-interface UrdfSourceExportPreference {
-  useRelativePaths?: boolean;
-  preferSourceVisualMeshes?: boolean;
-}
-
-type ExportProgressReporter = (
-  currentStep: number,
-  stepLabel: string,
-  detail: string,
-  options?: {
-    stageProgress?: number;
-    indeterminate?: boolean;
-  },
-) => void;
-
-type AssemblyHistoryPatchEntry = {
-  kind: 'patch';
-  redoPatches: Patch[];
-  undoPatches: Patch[];
-};
-
-type AssemblyHistorySnapshotEntry = {
-  kind: 'snapshot';
-  snapshot: AssemblyState | null;
-};
-
-type AssemblyHistoryEntry =
-  | AssemblyState
-  | null
-  | AssemblyHistoryPatchEntry
-  | AssemblyHistorySnapshotEntry;
-
-type AssemblyHistoryState = {
-  past: AssemblyHistoryEntry[];
-  future: AssemblyHistoryEntry[];
-};
-
-function cloneAssemblySnapshot(snapshot: AssemblyState | null): AssemblyState | null {
-  return snapshot ? structuredClone(snapshot) : null;
-}
-
-function isAssemblyHistoryPatchEntry(
-  entry: AssemblyHistoryEntry,
-): entry is AssemblyHistoryPatchEntry {
-  return Boolean(entry && typeof entry === 'object' && 'kind' in entry && entry.kind === 'patch');
-}
-
-function isAssemblyHistorySnapshotEntry(
-  entry: AssemblyHistoryEntry,
-): entry is AssemblyHistorySnapshotEntry {
-  return Boolean(
-    entry && typeof entry === 'object' && 'kind' in entry && entry.kind === 'snapshot',
-  );
-}
-
-function applyAssemblyHistoryEntry(
-  currentState: AssemblyState | null,
-  entry: AssemblyHistoryEntry,
-  direction: 'undo' | 'redo',
-): AssemblyState | null {
-  if (isAssemblyHistoryPatchEntry(entry)) {
-    return applyPatches(
-      currentState,
-      direction === 'undo' ? entry.undoPatches : entry.redoPatches,
-    ) as AssemblyState | null;
-  }
-
-  if (isAssemblyHistorySnapshotEntry(entry)) {
-    return cloneAssemblySnapshot(entry.snapshot);
-  }
-
-  return cloneAssemblySnapshot(entry);
-}
-
-function materializeAssemblyHistorySnapshots(
-  history: AssemblyHistoryState,
-  present: AssemblyState | null,
-): {
-  past: Array<AssemblyState | null>;
-  future: Array<AssemblyState | null>;
-} {
-  let cursor = cloneAssemblySnapshot(present);
-  const past: Array<AssemblyState | null> = [];
-  for (let index = history.past.length - 1; index >= 0; index -= 1) {
-    cursor = applyAssemblyHistoryEntry(cursor, history.past[index], 'undo');
-    past.unshift(cloneAssemblySnapshot(cursor));
-  }
-
-  cursor = cloneAssemblySnapshot(present);
-  const future: Array<AssemblyState | null> = [];
-  for (const entry of history.future) {
-    cursor = applyAssemblyHistoryEntry(cursor, entry, 'redo');
-    future.push(cloneAssemblySnapshot(cursor));
-  }
-
-  return { past, future };
-}
+export type {
+  ExportActionRequired,
+  ExportExecutionResult,
+  ProjectExportExecutionResult,
+} from './file-export/types';
 
 export function useFileExport() {
   const { lang, appMode, sidebarTab } = useUIStore(
@@ -235,6 +96,10 @@ export function useFileExport() {
       originalUrdfContent: state.originalUrdfContent,
       originalFileFormat: state.originalFileFormat,
     })),
+  );
+  const documentLoadLifecycleState = useMemo(
+    () => toDocumentLoadLifecycleState(documentLoadState),
+    [documentLoadState],
   );
   const { assemblyState, assemblyHistory, assemblyActivity, getMergedRobotData } = useAssemblyStore(
     useShallow((state) => ({
@@ -279,84 +144,11 @@ export function useFileExport() {
     URL.revokeObjectURL(url);
   }, []);
 
-  const replaceTemplate = useCallback(
-    (template: string, replacements: Record<string, string | number>): string =>
-      Object.entries(replacements).reduce(
-        (result, [key, value]) => result.replaceAll(`{${key}}`, String(value)),
-        template,
-      ),
-    [],
-  );
-
-  const trimProgressFileLabel = useCallback((filePath: string | null | undefined): string => {
-    const normalized = String(filePath || '')
-      .trim()
-      .replace(/\\/g, '/');
-    if (!normalized) {
-      return '';
-    }
-
-    const segments = normalized.split('/').filter(Boolean);
-    if (segments.length <= 2) {
-      return segments.join('/');
-    }
-
-    return segments.slice(-2).join('/');
-  }, []);
-
   const createProgressReporter = useCallback(
     (
       onProgress: HandleExportWithConfigOptions['onProgress'],
       totalSteps: number,
-    ): ExportProgressReporter => {
-      let lastProgress: ExportProgressState | null = null;
-      let lastReportedAt = 0;
-
-      return (currentStep, stepLabel, detail, options = {}) => {
-        if (!onProgress) {
-          return;
-        }
-
-        const indeterminate = options.indeterminate ?? options.stageProgress == null;
-        const fallbackStageProgress = indeterminate ? 0.24 : 0;
-        const stageProgress = Math.min(
-          1,
-          Math.max(0, options.stageProgress ?? fallbackStageProgress),
-        );
-
-        const nextProgress: ExportProgressState = {
-          stepLabel,
-          detail,
-          progress: Math.min(1, Math.max(0, (currentStep - 1 + stageProgress) / totalSteps)),
-          currentStep,
-          totalSteps,
-          indeterminate,
-        };
-
-        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        const isFirstUpdate = lastProgress == null;
-        const isStepTransition = lastProgress?.currentStep !== nextProgress.currentStep;
-        const didIndeterminateChange = lastProgress?.indeterminate !== nextProgress.indeterminate;
-        const isTerminalUpdate = nextProgress.progress >= 0.999;
-        const progressDelta = Math.abs((lastProgress?.progress ?? 0) - nextProgress.progress);
-        const timeSinceLastReport = now - lastReportedAt;
-
-        if (
-          !isFirstUpdate &&
-          !isStepTransition &&
-          !didIndeterminateChange &&
-          !isTerminalUpdate &&
-          progressDelta < PROGRESS_MIN_DELTA &&
-          timeSinceLastReport < PROGRESS_MIN_UPDATE_INTERVAL_MS
-        ) {
-          return;
-        }
-
-        lastProgress = nextProgress;
-        lastReportedAt = now;
-        onProgress(nextProgress);
-      };
-    },
+    ): ExportProgressReporter => createExportProgressReporter(onProgress, totalSteps),
     [],
   );
 
@@ -399,8 +191,8 @@ export function useFileExport() {
 
   const isCurrentUsdHydrating =
     selectedFile?.format === 'usd' &&
-    documentLoadState.status === 'hydrating' &&
-    documentLoadState.fileName === selectedFile.name;
+    documentLoadLifecycleState.status === 'hydrating' &&
+    documentLoadLifecycleState.fileName === selectedFile.name;
   const currentUsdExportMode =
     selectedFile?.format === 'usd' && sidebarTab !== 'workspace'
       ? resolveCurrentUsdExportMode({
@@ -443,6 +235,33 @@ export function useFileExport() {
     const trimmed = robot.name?.trim();
     return trimmed && trimmed.length > 0 ? trimmed : 'robot';
   }, []);
+
+  const assertUrdfExportSupported = useCallback(
+    (robot: Pick<RobotState, 'name' | 'closedLoopConstraints'>, exportName?: string): void => {
+      const closedLoopConstraintCount = robot.closedLoopConstraints?.length ?? 0;
+      if (closedLoopConstraintCount === 0) {
+        return;
+      }
+
+      const resolvedExportName = exportName?.trim() || robot.name?.trim() || 'robot';
+      throw new Error(
+        replaceTemplate(t.exportClosedLoopUrdfUnsupported, {
+          name: resolvedExportName,
+          count: closedLoopConstraintCount,
+        }),
+      );
+    },
+    [replaceTemplate, t.exportClosedLoopUrdfUnsupported],
+  );
+
+  const assertAssemblyUrdfExportSupported = useCallback(
+    (assembly: AssemblyState): void => {
+      Object.values(assembly.components).forEach((component) => {
+        assertUrdfExportSupported(component.robot, component.name?.trim() || component.id);
+      });
+    },
+    [assertUrdfExportSupported],
+  );
 
   const resolveDisconnectedWorkspaceUrdfAction = useCallback(
     (target: ExportTarget, config: ExportDialogConfig): ExportActionRequired | null => {
@@ -860,6 +679,8 @@ export function useFileExport() {
         throw new Error(t.exportFailedParse);
       }
 
+      assertAssemblyUrdfExportSupported(assemblyState);
+
       const zip = new JSZip();
       const assemblyExportName = assemblyState.name?.trim() || 'assembly';
       const archiveRoot = createArchiveRoot(zip, assemblyExportName);
@@ -939,6 +760,7 @@ export function useFileExport() {
     [
       addMeshesToZip,
       addSkeletonToZip,
+      assertAssemblyUrdfExportSupported,
       assemblyState,
       availableFiles,
       buildUrdfSourceExportContent,
@@ -966,213 +788,37 @@ export function useFileExport() {
         target.type === 'current' && selectedFile?.format === 'usd' && sidebarTab !== 'workspace';
 
       if (config.format === 'usd') {
-        const shouldConvertUsdLayers = config.usd.fileFormat !== 'usda';
-        const reportProgress = createProgressReporter(
-          options.onProgress,
-          shouldConvertUsdLayers ? 4 : 3,
-        );
-        reportProgress(1, t.exportProgressPreparing, t.exportProgressPreparingDetail, {
-          stageProgress: 0.2,
-          indeterminate: true,
-        });
-
-        const shouldExportLiveUsdStage =
-          target.type === 'current' &&
-          selectedFile?.format === 'usd' &&
-          sidebarTab !== 'workspace' &&
-          currentUsdExportMode === 'live-stage' &&
-          config.usd.fileFormat === 'usd' &&
-          selectedFile.name.toLowerCase().endsWith('.usd');
-
-        if (shouldExportLiveUsdStage) {
-          reportProgress(
-            2,
-            t.exportProgressBuildingUsdScene,
-            t.exportProgressUsdScenePreparingDetail,
-            {
-              stageProgress: 0.16,
-              indeterminate: true,
-            },
-          );
-
-          const roundtripArchive = await buildLiveUsdRoundtripArchive({
-            sourceFile: selectedFile,
-            availableFiles,
-            assets,
-            allFileContents,
-          });
-
-          reportProgress(3, t.exportProgressPreparing, t.exportProgressPreparingDetail, {
-            stageProgress: 0.64,
-            indeterminate: true,
-          });
-
-          const zip = new JSZip();
-          // Preserve authored text layers for live-stage roundtrip exports.
-          // Converting these layers to binary crates currently breaks re-import
-          // for root-scoped vendor bundles such as Unitree B2.
-          roundtripArchive.archiveFiles.forEach((blob, filePath) => {
-            zip.file(filePath, blob);
-          });
-
-          const content = await generateZipBlobWithProgress(zip, reportProgress, 4);
-
-          downloadBlob(content, roundtripArchive.archiveFileName);
-          markCurrentTargetSaved();
-          return {
-            partial: false,
-            warnings: [],
-            issues: [],
-          };
-        }
-
-        const exportContext =
-          target.type === 'library-file'
-            ? {
-                robot: await resolveLibraryRobotForExport(target.file),
-                exportName: getFileBaseName(target.file.name),
-              }
-            : resolveExportContext(target);
-
-        if (!exportContext) {
-          if (requiresResolvedUsdContext) {
-            throw new Error(t.usdExportUnavailable);
-          }
-          throw new Error(t.exportFailedParse);
-        }
-
-        const unsupportedWorkerMeshPaths = getUsdExportWorkerUnsupportedMeshPaths(
-          exportContext.robot,
-        );
-        if (unsupportedWorkerMeshPaths.length > 0) {
-          throw new Error(
-            replaceTemplate(t.usdExportWorkerUnsupportedMeshes, {
-              count: unsupportedWorkerMeshPaths.length,
-              meshPath: unsupportedWorkerMeshPaths[0],
-            }),
-          );
-        }
-
-        reportProgress(
-          2,
-          t.exportProgressBuildingUsdScene,
-          t.exportProgressUsdScenePreparingDetail,
-          {
-            stageProgress: 0.04,
-            indeterminate: true,
-          },
-        );
-
-        const usdExport = await exportRobotToUsdWithWorker({
-          robot: exportContext.robot,
-          exportName: exportContext.exportName,
+        return executeUsdExport({
+          config,
+          target,
+          options,
+          selectedFile,
+          sidebarTab,
+          currentUsdExportMode,
+          availableFiles,
           assets,
-          extraMeshFiles: exportContext.extraMeshFiles,
-          fileFormat: config.usd.fileFormat,
-          layoutProfile: 'isaacsim',
-          meshCompression: {
-            enabled: config.usd.compressMeshes,
-            quality: config.usd.meshQuality,
-          },
-          onProgress: (progress) => {
-            const range = USD_EXPORT_STAGE_PROGRESS_RANGES[progress.phase];
-            const normalizedPhaseProgress =
-              progress.total > 0 ? progress.completed / progress.total : 1;
-            const stageProgress = range.start + (range.end - range.start) * normalizedPhaseProgress;
-
-            let detail = t.exportProgressUsdScenePreparingDetail;
-            switch (progress.phase) {
-              case 'links':
-                detail = replaceTemplate(t.exportProgressUsdSceneDetail, {
-                  current: progress.completed,
-                  total: progress.total,
-                  name: progress.label || t.exportProgressArchiveFallbackFile,
-                });
-                break;
-              case 'geometry':
-                detail = replaceTemplate(t.exportProgressUsdSceneGeometryDetail, {
-                  current: progress.completed,
-                  total: progress.total,
-                });
-                break;
-              case 'scene':
-                detail = replaceTemplate(t.exportProgressUsdSceneSerializingDetail, {
-                  current: progress.completed,
-                  total: progress.total,
-                });
-                break;
-              case 'assets':
-                detail = replaceTemplate(t.exportProgressUsdSceneAssetsDetail, {
-                  current: progress.completed,
-                  total: progress.total,
-                });
-                break;
-              default:
-                break;
-            }
-
-            reportProgress(2, t.exportProgressBuildingUsdScene, detail, {
-              stageProgress,
-              indeterminate: false,
-            });
-          },
+          allFileContents,
+          requiresResolvedUsdContext,
+          t,
+          resolveLibraryRobotForExport,
+          getFileBaseName,
+          resolveExportContext,
+          createProgressReporter,
+          replaceTemplate,
+          trimProgressFileLabel,
+          generateZipBlobWithProgress,
+          downloadBlob,
+          markCurrentTargetSaved,
         });
+      }
 
-        const zip = new JSZip();
-
-        if (shouldConvertUsdLayers) {
-          reportProgress(
-            3,
-            t.exportProgressConvertingUsdLayers,
-            t.exportProgressConvertingUsdLayersPreparingDetail,
-            {
-              stageProgress: 0.04,
-              indeterminate: true,
-            },
-          );
-
-          const binaryArchiveFiles = await convertUsdArchiveFilesToBinaryWithWorker(
-            usdExport.archiveFiles,
-            {
-              onProgress: ({ current, total, filePath }) => {
-                reportProgress(
-                  3,
-                  t.exportProgressConvertingUsdLayers,
-                  replaceTemplate(t.exportProgressConvertingUsdLayersDetail, {
-                    current,
-                    total,
-                    file: trimProgressFileLabel(filePath) || t.exportProgressArchiveFallbackFile,
-                  }),
-                  {
-                    stageProgress: total > 0 ? current / total : 1,
-                    indeterminate: false,
-                  },
-                );
-              },
-            },
-          );
-
-          binaryArchiveFiles.forEach((blob, filePath) => {
-            zip.file(filePath, blob);
-          });
-        } else {
-          usdExport.archiveFiles.forEach((blob, filePath) => {
-            zip.file(filePath, blob);
-          });
-        }
-
-        const content = await generateZipBlobWithProgress(
-          zip,
-          reportProgress,
-          shouldConvertUsdLayers ? 4 : 3,
-        );
-        downloadBlob(content, usdExport.archiveFileName);
-        markCurrentTargetSaved();
-        return {
-          partial: false,
-          warnings: [],
-          issues: [],
-        };
+      if (
+        config.format === 'urdf' &&
+        target.type === 'current' &&
+        sidebarTab === 'workspace' &&
+        assemblyState
+      ) {
+        assertAssemblyUrdfExportSupported(assemblyState);
       }
 
       const disconnectedWorkspaceUrdfAction = resolveDisconnectedWorkspaceUrdfAction(
@@ -1234,6 +880,10 @@ export function useFileExport() {
             : config.format === 'xacro'
               ? config.xacro.includeMeshes
               : config.sdf.includeMeshes;
+
+      if (config.format === 'urdf') {
+        assertUrdfExportSupported(robot, exportName);
+      }
 
       if (config.includeSkeleton) {
         addSkeletonToZip(robot, archiveRoot, exportName, skeletonUsesMeshes);
@@ -1332,7 +982,9 @@ export function useFileExport() {
           warnings: [],
           issues: [],
         };
-      } else if (config.format === 'urdf') {
+      }
+
+      if (config.format === 'urdf') {
         const {
           includeExtended,
           includeBOM,
@@ -1568,6 +1220,8 @@ export function useFileExport() {
       availableFiles,
       assets,
       allFileContents,
+      assertAssemblyUrdfExportSupported,
+      assertUrdfExportSupported,
       getFileBaseName,
       generateZipBlobWithProgress,
       generateBOM,
@@ -1587,155 +1241,37 @@ export function useFileExport() {
 
   // Export project as .usp
   const handleExportProject = useCallback(
-    async (options: HandleProjectExportOptions = {}): Promise<ProjectExportExecutionResult> => {
-      flushPendingHistory();
-      const reportProgress = createProgressReporter(options.onProgress, 6);
-      reportProgress(1, t.exportProgressPreparing, t.exportProgressPreparingDetail, {
-        stageProgress: 0.18,
-        indeterminate: true,
-      });
-      reportProgress(
-        2,
-        t.exportProgressPackingProjectAssets,
-        t.exportProgressPackingProjectAssetsPreparingDetail,
-        {
-          stageProgress: 0.04,
-          indeterminate: true,
-        },
-      );
-
-      const exportableAssemblyHistory = materializeAssemblyHistorySnapshots(
-        assemblyHistory as AssemblyHistoryState,
+    async (options: HandleProjectExportOptions = {}): Promise<ProjectExportExecutionResult> =>
+      executeProjectExport({
+        options,
+        robotName,
+        robotLinks,
+        robotJoints,
+        rootLinkId,
+        robotMaterials,
+        closedLoopConstraints,
+        robotHistory,
+        robotActivity,
         assemblyState,
-      );
-
-      const result = await exportProjectWithWorker({
-        name: robotName || assemblyState?.name || 'my_project',
-        uiState: {
-          appMode: mergedAppMode,
-          lang,
-        },
-        assetsState: {
-          availableFiles,
-          assets,
-          allFileContents,
-          motorLibrary,
-          selectedFileName: selectedFile?.name ?? null,
-          originalUrdfContent,
-          originalFileFormat,
-          usdPreparedExportCaches,
-        },
-        robotState: {
-          present: buildCurrentRobotExportData({
-            robotName,
-            robotLinks,
-            robotJoints,
-            rootLinkId,
-            robotMaterials,
-            closedLoopConstraints,
-          }),
-          history: robotHistory,
-          activity: robotActivity,
-        },
-        assemblyState: {
-          present: assemblyState,
-          history: exportableAssemblyHistory,
-          activity: assemblyActivity,
-        },
+        assemblyHistory: assemblyHistory as AssemblyHistoryState,
+        assemblyActivity,
+        mergedAppMode,
+        lang,
+        availableFiles,
+        assets,
+        allFileContents,
+        motorLibrary,
+        selectedFileName: selectedFile?.name ?? null,
+        originalUrdfContent,
+        originalFileFormat,
+        usdPreparedExportCaches,
         getMergedRobotData,
-        onProgress: (progress) => {
-          switch (progress.phase) {
-            case 'assets':
-              reportProgress(
-                2,
-                t.exportProgressPackingProjectAssets,
-                replaceTemplate(t.exportProgressPackingProjectAssetsDetail, {
-                  current: progress.completed,
-                  total: progress.total,
-                  file: progress.label || t.exportProgressArchiveFallbackFile,
-                }),
-                {
-                  stageProgress: progress.total > 0 ? progress.completed / progress.total : 1,
-                  indeterminate: false,
-                },
-              );
-              break;
-            case 'metadata':
-              reportProgress(
-                3,
-                t.exportProgressWritingProjectData,
-                replaceTemplate(t.exportProgressWritingProjectDataDetail, {
-                  current: progress.completed,
-                  total: progress.total,
-                  item: progress.label || 'project.json',
-                }),
-                {
-                  stageProgress: progress.total > 0 ? progress.completed / progress.total : 1,
-                  indeterminate: false,
-                },
-              );
-              break;
-            case 'components':
-              reportProgress(
-                4,
-                t.exportProgressBundlingProjectComponents,
-                replaceTemplate(t.exportProgressBundlingProjectComponentsDetail, {
-                  current: progress.completed,
-                  total: progress.total,
-                  item: progress.label || t.exportProgressArchiveFallbackFile,
-                }),
-                {
-                  stageProgress: progress.total > 0 ? progress.completed / progress.total : 1,
-                  indeterminate: false,
-                },
-              );
-              break;
-            case 'output':
-              reportProgress(
-                5,
-                t.exportProgressGeneratingProjectOutputs,
-                replaceTemplate(t.exportProgressGeneratingProjectOutputsDetail, {
-                  current: progress.completed,
-                  total: progress.total,
-                  item: progress.label || t.exportProgressArchiveFallbackFile,
-                }),
-                {
-                  stageProgress: progress.total > 0 ? progress.completed / progress.total : 1,
-                  indeterminate: false,
-                },
-              );
-              break;
-            case 'archive':
-              reportProgress(
-                6,
-                t.exportProgressPackaging,
-                progress.label
-                  ? replaceTemplate(t.exportProgressPackagingDetailFile, { file: progress.label })
-                  : t.exportProgressPackagingDetail,
-                {
-                  stageProgress: progress.total > 0 ? progress.completed / progress.total : 1,
-                  indeterminate: false,
-                },
-              );
-              break;
-            default:
-              break;
-          }
-        },
-      });
-      downloadBlob(result.blob, `${robotName || assemblyState?.name || 'my_project'}.usp`);
-      markUnsavedChangesBaselineSaved('all');
-
-      return {
-        partial: result.partial,
-        warnings: result.warnings.map((warning) => warning.message),
-        issues: result.warnings.map((warning) => ({
-          code: warning.code,
-          message: warning.message,
-          context: warning.context,
-        })),
-      };
-    },
+        createProgressReporter,
+        downloadBlob,
+        replaceTemplate,
+        t,
+        markAllSaved: () => markUnsavedChangesBaselineSaved('all'),
+      }),
     [
       robotName,
       robotLinks,

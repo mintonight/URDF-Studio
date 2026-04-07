@@ -119,6 +119,48 @@ test('buildResolveRobotImportWorkerDispatch moves mjcf context into a reusable w
   );
 });
 
+test('buildResolveRobotImportWorkerDispatch forwards exact URDF source context only when inline content is missing', () => {
+  const result = buildResolveRobotImportWorkerDispatch(
+    {
+      name: 'robots/demo/urdf/demo.urdf',
+      format: 'urdf',
+      content: '',
+    },
+    {
+      availableFiles: [
+        demoUrdfFile,
+        {
+          name: 'robots/demo/urdf/demo.urdf',
+          format: 'urdf',
+          content: '<robot name="library"><link name="base_link" /></robot>',
+        },
+        {
+          name: 'robots/demo/xacro/demo.xacro',
+          format: 'xacro',
+          content: '<robot />',
+        },
+      ],
+      allFileContents: {
+        '/robots/demo/urdf/demo.urdf': '<robot name="text"><link name="base_link" /></robot>',
+        'robots/demo/materials/demo.material': 'material Demo {}',
+      },
+    },
+  );
+
+  assert.deepEqual(result.options, {});
+  assert.equal(typeof result.contextCacheKey, 'string');
+  assert.deepEqual(
+    result.contextSnapshot?.availableFiles?.map((file) => ({
+      name: file.name,
+      format: file.format,
+    })),
+    [{ name: 'robots/demo/urdf/demo.urdf', format: 'urdf' }],
+  );
+  assert.deepEqual(result.contextSnapshot?.allFileContents, {
+    '/robots/demo/urdf/demo.urdf': '<robot name="text"><link name="base_link" /></robot>',
+  });
+});
+
 test('buildEditableRobotSourceWorkerOptions keeps only source-relevant files for xacro edits', () => {
   const result = buildEditableRobotSourceWorkerOptions({
     file: {
@@ -213,11 +255,16 @@ test('buildPrepareAssemblyComponentWorkerDispatch keeps placement snapshots in t
     {
       name: 'robots/demo/urdf/demo.urdf',
       format: 'urdf',
-      content: '<robot />',
+      content: '',
     },
     {
       availableFiles: [
         demoUrdfFile,
+        {
+          name: 'robots/demo/urdf/demo.urdf',
+          format: 'urdf',
+          content: '<robot name="demo"><link name="base_link" /></robot>',
+        },
         {
           name: 'robots/demo/meshes/base.stl',
           format: 'mesh',
@@ -226,6 +273,9 @@ test('buildPrepareAssemblyComponentWorkerDispatch keeps placement snapshots in t
       ],
       assets: {
         'robots/demo/meshes/base.stl': 'blob:mesh',
+      },
+      allFileContents: {
+        '/robots/demo/urdf/demo.urdf': '<robot name="text"><link name="base_link" /></robot>',
       },
       existingPlacementComponents: [
         {
@@ -259,5 +309,15 @@ test('buildPrepareAssemblyComponentWorkerDispatch keeps placement snapshots in t
   assert.equal(typeof result.contextCacheKey, 'string');
   assert.deepEqual(result.contextSnapshot?.assets, {
     'robots/demo/meshes/base.stl': 'blob:mesh',
+  });
+  assert.deepEqual(
+    result.contextSnapshot?.availableFiles?.map((file) => ({
+      name: file.name,
+      format: file.format,
+    })),
+    [{ name: 'robots/demo/urdf/demo.urdf', format: 'urdf' }],
+  );
+  assert.deepEqual(result.contextSnapshot?.allFileContents, {
+    '/robots/demo/urdf/demo.urdf': '<robot name="text"><link name="base_link" /></robot>',
   });
 });

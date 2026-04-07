@@ -6,9 +6,12 @@ import { Link2, Minus, Plus } from 'lucide-react';
 import { DraggableWindow } from '@/shared/components';
 import { SegmentedControl } from '@/shared/components/ui';
 import { useDraggableWindow } from '@/shared/hooks';
+import { getMjcfLinkDisplayName } from '@/shared/utils/robot/mjcfDisplayNames';
 import { useSelectionStore } from '@/store/selectionStore';
 import { useAssemblySelectionStore } from '@/store/assemblySelectionStore';
 import type { Language } from '@/store';
+import { resolveSuggestedBridgeOriginForVisualContact } from '@/core/robot/assemblyBridgeAlignment';
+import { wouldBridgeCreateUnsupportedAssemblyCycle } from '@/core/robot/assemblyBridgeTopology';
 import { degToRad, radToDeg } from '@/core/robot/transforms';
 import { formatNumberWithMaxDecimals, roundToMaxDecimals } from '@/core/utils/numberPrecision';
 import {
@@ -16,7 +19,9 @@ import {
   JointType,
   type AssemblyState,
   type BridgeJoint,
+  type JointHardwareInterface,
   type UrdfOrigin,
+  type UrdfJoint,
 } from '@/types';
 import { translations } from '@/shared/i18n';
 import {
@@ -64,14 +69,10 @@ const BRIDGE_PICK_BUTTON_CLASS =
   'ml-auto shrink-0 rounded-md px-1.5 py-0.5 text-[8px] font-semibold transition-colors';
 const BRIDGE_FOOTER_BUTTON_CLASS =
   'inline-flex h-6 items-center justify-center rounded-md px-2 text-[10px] font-medium transition-colors';
-const BRIDGE_SIDE_CARD_HEADER_LABEL_CLASS =
-  'min-w-0 text-[9px] font-semibold uppercase tracking-[0.08em] leading-4 text-text-tertiary';
 const BRIDGE_SIDE_CARD_HEADER_ROW_CLASS = 'grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2';
 const BRIDGE_SIDE_CARD_ACTIONS_CLASS = 'flex shrink-0 items-center gap-1.5 justify-self-end';
-const BRIDGE_SIDE_CARD_FIELD_LABEL_CLASS =
-  'mb-1 block text-[8px] font-semibold uppercase tracking-[0.12em] leading-3 text-text-tertiary';
 const BRIDGE_RELATION_GRID_CLASS =
-  'grid grid-cols-[minmax(0,1fr)_3.5rem_minmax(0,1fr)] items-stretch gap-2';
+  'grid grid-cols-[minmax(0,1fr)_3rem_minmax(0,1fr)] items-stretch gap-1.5';
 const BRIDGE_RELATION_CONNECTOR_LINE_CLASS =
   'w-px flex-1 bg-gradient-to-b from-border-black/0 via-border-black to-border-black/0';
 const BRIDGE_SECTION_CLASS =
@@ -100,6 +101,45 @@ const BRIDGE_AXIS_TONE_STYLES: Record<
     barClassName: 'bg-system-blue',
   },
 };
+
+function resolveBridgeComponentDefaultLinkId(
+  assemblyState: AssemblyState,
+  componentId: string,
+): string {
+  if (!componentId) {
+    return '';
+  }
+
+  return assemblyState.components[componentId]?.robot.rootLinkId ?? '';
+}
+
+function getBridgeLinkDisplayName(
+  robot: AssemblyState['components'][string]['robot'] | null | undefined,
+  linkId: string | null | undefined,
+): string {
+  if (!robot || !linkId) {
+    return '--';
+  }
+
+  const link = robot.links[linkId];
+  if (!link) {
+    return linkId;
+  }
+
+  return robot.inspectionContext?.sourceFormat === 'mjcf'
+    ? getMjcfLinkDisplayName(link)
+    : link.name;
+}
+
+function hasIncomingStructuralBridge(assemblyState: AssemblyState, componentId: string): boolean {
+  if (!componentId) {
+    return false;
+  }
+
+  return Object.values(assemblyState.bridges).some(
+    (bridge) => bridge.childComponentId === componentId,
+  );
+}
 
 interface BridgeInlineFieldRowProps {
   label: string;
@@ -792,7 +832,7 @@ function BridgeRelationConnector() {
     <div
       data-bridge-connector="joint-link"
       aria-hidden="true"
-      className="flex min-h-[188px] flex-col items-center justify-center gap-2"
+      className="flex min-h-[176px] flex-col items-center justify-center gap-2"
     >
       <div className={BRIDGE_RELATION_CONNECTOR_LINE_CLASS} />
       <div className="flex h-10 w-10 items-center justify-center rounded-full border border-system-blue/25 bg-element-bg text-system-blue shadow-[0_10px_24px_rgba(0,0,0,0.12),inset_0_0_0_1px_color-mix(in_srgb,var(--color-system-blue)_12%,transparent)]">
@@ -820,11 +860,6 @@ function BridgeSideCard({
   componentOptions,
   linkOptions,
 }: BridgeSideCardProps) {
-  const componentLabelId = React.useId();
-  const linkLabelId = React.useId();
-  const summaryAlignmentClassName =
-    side === 'child' ? 'items-end text-right' : 'items-start text-left';
-
   return (
     <div
       data-bridge-side={side}
@@ -838,7 +873,7 @@ function BridgeSideCard({
       }`}
     >
       <div data-bridge-side-header={side} className={BRIDGE_SIDE_CARD_HEADER_ROW_CLASS}>
-        <div className={`min-w-0 ${summaryAlignmentClassName}`}>
+        <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <span
               className={`inline-flex items-center rounded-md border px-1.5 py-px text-[8px] font-semibold uppercase tracking-[0.12em] ${
@@ -850,22 +885,6 @@ function BridgeSideCard({
               {title}
             </span>
             <div className="h-px flex-1 bg-border-black/80" />
-          </div>
-          <div className={`mt-1 flex min-w-0 flex-col gap-0.5 ${summaryAlignmentClassName}`}>
-            <div id={componentLabelId} className={BRIDGE_SIDE_CARD_HEADER_LABEL_CLASS}>
-              {componentLabel}
-            </div>
-            <div className="truncate text-[11px] font-semibold leading-4 text-text-primary">
-              {componentSummary}
-            </div>
-          </div>
-          <div className={`mt-1 flex min-w-0 flex-col gap-0.5 ${summaryAlignmentClassName}`}>
-            <div id={linkLabelId} className={BRIDGE_SIDE_CARD_HEADER_LABEL_CLASS}>
-              {linkLabel}
-            </div>
-            <div className="truncate font-mono text-[10px] leading-4 text-text-secondary">
-              {linkSummary}
-            </div>
           </div>
         </div>
         <div
@@ -892,9 +911,8 @@ function BridgeSideCard({
           data-bridge-field={`${side}-component`}
           className="min-w-0 rounded-lg border border-border-black/80 bg-panel-bg/85 p-1.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_18%,transparent)]"
         >
-          <div className={BRIDGE_SIDE_CARD_FIELD_LABEL_CLASS}>{componentLabel}</div>
           <select
-            aria-labelledby={componentLabelId}
+            aria-label={componentLabel}
             value={componentValue}
             onChange={(event) => onComponentChange(event.target.value)}
             onFocus={onActivate}
@@ -913,9 +931,8 @@ function BridgeSideCard({
           data-bridge-field={`${side}-link`}
           className="min-w-0 rounded-lg border border-border-black/80 bg-panel-bg/85 p-1.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_18%,transparent)]"
         >
-          <div className={BRIDGE_SIDE_CARD_FIELD_LABEL_CLASS}>{linkLabel}</div>
           <select
-            aria-labelledby={linkLabelId}
+            aria-label={linkLabel}
             value={linkValue}
             onChange={(event) => onLinkChange(event.target.value)}
             onFocus={onActivate}
@@ -967,6 +984,7 @@ export interface BridgeCreateModalProps {
       origin: UrdfOrigin;
       axis: { x: number; y: number; z: number };
       limit?: { lower: number; upper: number; effort: number; velocity: number };
+      hardware?: UrdfJoint['hardware'];
     };
   }) => void;
   assemblyState: AssemblyState;
@@ -989,7 +1007,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const axisLabelWidthClassName = 'w-4 justify-center';
   const nameInputId = React.useId();
   const jointTypeSelectId = React.useId();
-  const defaultWindowSize = useMemo(() => ({ width: 680, height: 336 }), []);
+  const defaultWindowSize = useMemo(() => ({ width: 620, height: 344 }), []);
   const comps = Object.values(assemblyState.components);
   const selection = useSelectionStore((state) => state.selection);
   const setInteractionGuard = useSelectionStore((state) => state.setInteractionGuard);
@@ -1012,7 +1030,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     isOpen,
     defaultPosition,
     defaultSize: defaultWindowSize,
-    minSize: { width: 560, height: 304 },
+    minSize: { width: 520, height: 304 },
     centerOnMount: false,
     enableMinimize: false,
     enableMaximize: false,
@@ -1024,7 +1042,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     },
   });
   const usesInlineIdentityRow = windowState.size.width >= 320;
-  const usesCadInspectorLayout = windowState.size.width >= 640;
+  const usesCadInspectorLayout = windowState.size.width >= 600;
   const topFieldGridClassName = usesInlineIdentityRow
     ? `grid items-center gap-x-1.5 gap-y-1 ${
         lang === 'zh'
@@ -1035,7 +1053,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const originFieldGridClassName =
     windowState.size.width >= 360 ? 'grid grid-cols-3 gap-1.5' : 'grid grid-cols-3 gap-1';
   const inspectorGridClassName = usesCadInspectorLayout
-    ? 'grid grid-cols-[minmax(0,1.08fr)_minmax(240px,0.92fr)] gap-1.5'
+    ? 'grid grid-cols-[minmax(0,1fr)_minmax(228px,0.9fr)] gap-1.5'
     : 'space-y-1.5';
   const quaternionFieldGridClassName = usesCadInspectorLayout
     ? 'grid grid-cols-4 gap-1.5'
@@ -1054,6 +1072,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const [childCompId, setChildCompId] = useState('');
   const [childLinkId, setChildLinkId] = useState('');
   const [jointType, setJointType] = useState<JointType>(JointType.FIXED);
+  const [hardwareInterface, setHardwareInterface] = useState<JointHardwareInterface>('position');
   const [originX, setOriginX] = useState(0);
   const [originY, setOriginY] = useState(0);
   const [originZ, setOriginZ] = useState(0);
@@ -1075,6 +1094,8 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const [limitEffort, setLimitEffort] = useState(defaultLimitEffort);
   const [limitVelocity, setLimitVelocity] = useState(defaultLimitVelocity);
   const [pickTarget, setPickTarget] = useState<BridgePickTarget>('parent');
+  const originDirtyRef = useRef(false);
+  const previousBridgeRelationSignatureRef = useRef('');
 
   const parentComp = parentCompId ? assemblyState.components[parentCompId] : null;
   const childComp = childCompId ? assemblyState.components[childCompId] : null;
@@ -1091,14 +1112,19 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     () => filterSelectableBridgeComponents(comps, childCompId || null),
     [childCompId, comps],
   );
+  const childComponentHasIncomingBridge = useMemo(
+    () => hasIncomingStructuralBridge(assemblyState, childCompId),
+    [assemblyState, childCompId],
+  );
   const childComponentOptions = useMemo(
-    () => filterSelectableBridgeComponents(comps, parentCompId || null),
-    [comps, parentCompId],
+    () =>
+      filterSelectableBridgeComponents(comps, parentCompId || null).filter(
+        (component) => !hasIncomingStructuralBridge(assemblyState, component.id),
+      ),
+    [assemblyState, comps, parentCompId],
   );
   const parentLinks = parentComp ? Object.values(parentComp.robot.links) : [];
   const childLinks = childComp ? Object.values(childComp.robot.links) : [];
-  const parentLink = parentLinkId ? (parentComp?.robot.links[parentLinkId] ?? null) : null;
-  const childLink = childLinkId ? (childComp?.robot.links[childLinkId] ?? null) : null;
   const suggestedBridgeName = useMemo(
     () =>
       buildSuggestedBridgeName({
@@ -1111,13 +1137,34 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const effectiveBridgeName = name.trim() || suggestedBridgeName;
   const parentSummary = parentComp?.name ?? '--';
   const childSummary = childComp?.name ?? '--';
-  const parentLinkSummary = parentLink?.name ?? '--';
-  const childLinkSummary = childLink?.name ?? '--';
+  const parentLinkSummary = getBridgeLinkDisplayName(parentComp?.robot, parentLinkId);
+  const childLinkSummary = getBridgeLinkDisplayName(childComp?.robot, childLinkId);
   const jointSupportsAxisAndLimits = jointType !== JointType.FIXED;
   const jointSupportsPositionLimits =
     jointType === JointType.REVOLUTE || jointType === JointType.PRISMATIC;
   const isLimitRangeInvalid = jointSupportsPositionLimits && limitLower > limitUpper;
   const limitRangeValidationMessage = isLimitRangeInvalid ? t.bridgeLimitRangeInvalid : null;
+  const hasUnsupportedNonFixedCycle = useMemo(
+    () =>
+      Boolean(parentCompId) &&
+      Boolean(childCompId) &&
+      parentCompId !== childCompId &&
+      wouldBridgeCreateUnsupportedAssemblyCycle(
+        Object.values(assemblyState.bridges),
+        {
+          id: '__bridge_preview__',
+          parentComponentId: parentCompId,
+          childComponentId: childCompId,
+        },
+        jointType,
+      ),
+    [assemblyState.bridges, childCompId, jointType, parentCompId],
+  );
+  const nonFixedCycleValidationMessage = hasUnsupportedNonFixedCycle
+    ? t.bridgeNonFixedCycleUnsupported
+    : null;
+  const positionLowerLabel = lang === 'zh' ? '位置下限' : 'Position Lower Limit';
+  const positionUpperLabel = lang === 'zh' ? '位置上限' : 'Position Upper Limit';
   const rollRad = useMemo(() => degToRad(rollDeg), [rollDeg]);
   const pitchRad = useMemo(() => degToRad(pitchDeg), [pitchDeg]);
   const yawRad = useMemo(() => degToRad(yawDeg), [yawDeg]);
@@ -1221,6 +1268,28 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     },
   ];
 
+  const applySuggestedOrigin = useCallback((nextOrigin: { x: number; y: number; z: number }) => {
+    originDirtyRef.current = false;
+    setOriginX(nextOrigin.x);
+    setOriginY(nextOrigin.y);
+    setOriginZ(nextOrigin.z);
+  }, []);
+
+  const handleOriginXChange = useCallback((value: number) => {
+    originDirtyRef.current = true;
+    setOriginX(value);
+  }, []);
+
+  const handleOriginYChange = useCallback((value: number) => {
+    originDirtyRef.current = true;
+    setOriginY(value);
+  }, []);
+
+  const handleOriginZChange = useCallback((value: number) => {
+    originDirtyRef.current = true;
+    setOriginZ(value);
+  }, []);
+
   const resetForm = useCallback(() => {
     setName('');
     setParentCompId('');
@@ -1228,6 +1297,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     setChildCompId('');
     setChildLinkId('');
     setJointType(JointType.FIXED);
+    setHardwareInterface('position');
     setOriginX(0);
     setOriginY(0);
     setOriginZ(0);
@@ -1248,6 +1318,8 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     setLimitEffort(defaultLimitEffort);
     setLimitVelocity(defaultLimitVelocity);
     setPickTarget('parent');
+    originDirtyRef.current = false;
+    previousBridgeRelationSignatureRef.current = '';
     lastAppliedSelectionRef.current = null;
   }, [defaultLimitEffort, defaultLimitLower, defaultLimitUpper, defaultLimitVelocity]);
 
@@ -1260,6 +1332,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
         childComponentId: childCompId,
         childLinkId,
         jointType,
+        hardwareInterface: jointSupportsAxisAndLimits ? hardwareInterface : undefined,
         originXyz: { x: originX, y: originY, z: originZ },
         axis: { x: axisX, y: axisY, z: axisZ },
         limitLower,
@@ -1276,6 +1349,8 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
       axisZ,
       childCompId,
       childLinkId,
+      hardwareInterface,
+      jointSupportsAxisAndLimits,
       jointType,
       limitLower,
       limitUpper,
@@ -1307,6 +1382,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
           childComponentId: childCompId,
           childLinkId,
           jointType,
+          hardwareInterface: jointSupportsAxisAndLimits ? hardwareInterface : undefined,
           originXyz: { x: originX, y: originY, z: originZ },
           axis: { x: axisX, y: axisY, z: axisZ },
           limitLower,
@@ -1325,6 +1401,8 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
       axisZ,
       childCompId,
       childLinkId,
+      hardwareInterface,
+      jointSupportsAxisAndLimits,
       jointType,
       limitLower,
       limitUpper,
@@ -1347,10 +1425,19 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     ],
   );
   const isBridgeSelectionIncomplete =
-    !parentCompId || !parentLinkId || !childCompId || !childLinkId || parentCompId === childCompId;
+    !parentCompId ||
+    !parentLinkId ||
+    !childCompId ||
+    !childLinkId ||
+    parentCompId === childCompId ||
+    childComponentHasIncomingBridge;
 
   const isConfirmActuallyDisabled =
-    isBridgeSelectionIncomplete || !effectiveBridgeName || !submitJoint || isLimitRangeInvalid;
+    isBridgeSelectionIncomplete ||
+    !effectiveBridgeName ||
+    !submitJoint ||
+    isLimitRangeInvalid ||
+    hasUnsupportedNonFixedCycle;
 
   const handleSubmit = useCallback(() => {
     if (!submitJoint || isConfirmActuallyDisabled) {
@@ -1369,6 +1456,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
         origin: submitJoint.origin,
         axis: submitJoint.axis ?? { x: axisX, y: axisY, z: axisZ },
         limit: submitJoint.limit,
+        hardware: submitJoint.hardware,
       },
     });
     resetForm();
@@ -1452,6 +1540,77 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) {
+      return;
+    }
+
+    const relationSignature = [parentCompId, parentLinkId, childCompId, childLinkId].join('|');
+    if (relationSignature !== previousBridgeRelationSignatureRef.current) {
+      previousBridgeRelationSignatureRef.current = relationSignature;
+      originDirtyRef.current = false;
+    }
+  }, [childCompId, childLinkId, isOpen, parentCompId, parentLinkId]);
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      originDirtyRef.current ||
+      !parentCompId ||
+      !parentLinkId ||
+      !childCompId ||
+      !childLinkId ||
+      parentCompId === childCompId
+    ) {
+      return;
+    }
+
+    const suggestedOrigin = resolveSuggestedBridgeOriginForVisualContact({
+      assemblyState,
+      parentComponentId: parentCompId,
+      parentLinkId,
+      childComponentId: childCompId,
+      childLinkId,
+      origin: {
+        xyz: { x: 0, y: 0, z: 0 },
+        rpy: {
+          r: degToRad(rollDeg),
+          p: degToRad(pitchDeg),
+          y: degToRad(yawDeg),
+        },
+      },
+    });
+    if (!suggestedOrigin) {
+      return;
+    }
+
+    if (
+      suggestedOrigin.x === originX &&
+      suggestedOrigin.y === originY &&
+      suggestedOrigin.z === originZ
+    ) {
+      return;
+    }
+
+    applySuggestedOrigin(suggestedOrigin);
+  }, [
+    applySuggestedOrigin,
+    assemblyState,
+    childCompId,
+    childLinkId,
+    isOpen,
+    originX,
+    originY,
+    originZ,
+    parentCompId,
+    parentLinkId,
+    pitchDeg,
+    rollDeg,
+    yawDeg,
+  ]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      originDirtyRef.current = false;
+      previousBridgeRelationSignatureRef.current = '';
       return;
     }
 
@@ -1582,6 +1741,27 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                 <option value={JointType.PRISMATIC}>{t.jointTypePrismatic}</option>
               </select>
             </BridgeInlineFieldRow>
+            {jointSupportsAxisAndLimits ? (
+              <BridgeInlineFieldRow
+                label={t.hardwareInterface}
+                fieldKey="hardware-interface"
+                className={`${usesInlineIdentityRow ? 'col-span-full ' : ''}min-w-0`.trim()}
+                labelClassName={compactLabelWidthClassName}
+              >
+                <select
+                  aria-label={t.hardwareInterface}
+                  value={hardwareInterface}
+                  onChange={(event) =>
+                    setHardwareInterface(event.target.value as JointHardwareInterface)
+                  }
+                  className={BRIDGE_SELECT_CLASS}
+                >
+                  <option value="position">{t.hardwareInterfacePosition}</option>
+                  <option value="effort">{t.hardwareInterfaceEffort}</option>
+                  <option value="velocity">{t.hardwareInterfaceVelocity}</option>
+                </select>
+              </BridgeInlineFieldRow>
+            ) : null}
           </div>
 
           <div className={inspectorGridClassName}>
@@ -1603,7 +1783,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                     onComponentChange={(value) => {
                       setPickTarget('parent');
                       setParentCompId(value);
-                      setParentLinkId('');
+                      setParentLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
                     }}
                     onLinkChange={(value) => {
                       setPickTarget('parent');
@@ -1613,7 +1793,10 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                       id: component.id,
                       name: component.name,
                     }))}
-                    linkOptions={parentLinks.map((link) => ({ id: link.id, name: link.name }))}
+                    linkOptions={parentLinks.map((link) => ({
+                      id: link.id,
+                      name: getBridgeLinkDisplayName(parentComp?.robot, link.id),
+                    }))}
                   />
 
                   <BridgeRelationConnector />
@@ -1633,7 +1816,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                     onComponentChange={(value) => {
                       setPickTarget('child');
                       setChildCompId(value);
-                      setChildLinkId('');
+                      setChildLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
                     }}
                     onLinkChange={(value) => {
                       setPickTarget('child');
@@ -1643,7 +1826,10 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                       id: component.id,
                       name: component.name,
                     }))}
-                    linkOptions={childLinks.map((link) => ({ id: link.id, name: link.name }))}
+                    linkOptions={childLinks.map((link) => ({
+                      id: link.id,
+                      name: getBridgeLinkDisplayName(childComp?.robot, link.id),
+                    }))}
                   />
                 </div>
               </BridgeSection>
@@ -1659,7 +1845,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                     value={originX}
                     step={0.01}
                     precision={4}
-                    onChange={setOriginX}
+                    onChange={handleOriginXChange}
                     className="min-w-0"
                   />
                   <BridgeAxisSpinnerField
@@ -1669,7 +1855,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                     value={originY}
                     step={0.01}
                     precision={4}
-                    onChange={setOriginY}
+                    onChange={handleOriginYChange}
                     className="min-w-0"
                   />
                   <BridgeAxisSpinnerField
@@ -1679,7 +1865,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                     value={originZ}
                     step={0.01}
                     precision={4}
-                    onChange={setOriginZ}
+                    onChange={handleOriginZChange}
                     className="min-w-0"
                   />
                 </div>
@@ -1848,7 +2034,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                         <>
                           <BridgeSpinnerField
                             fieldKey="limit-lower"
-                            label={t.lower}
+                            label={positionLowerLabel}
                             value={limitLower}
                             step={0.01}
                             precision={4}
@@ -1857,7 +2043,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                           />
                           <BridgeSpinnerField
                             fieldKey="limit-upper"
-                            label={t.upper}
+                            label={positionUpperLabel}
                             value={limitUpper}
                             step={0.01}
                             precision={4}
@@ -1869,7 +2055,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                         <>
                           <BridgeSpinnerField
                             inline
-                            label={t.lower}
+                            label={positionLowerLabel}
                             value={limitLower}
                             step={0.01}
                             precision={4}
@@ -1879,7 +2065,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                           />
                           <BridgeSpinnerField
                             inline
-                            label={t.upper}
+                            label={positionUpperLabel}
                             value={limitUpper}
                             step={0.01}
                             precision={4}
@@ -1942,6 +2128,11 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                     {limitRangeValidationMessage ? (
                       <p className="mt-1 text-[9px] font-medium text-red-500">
                         {limitRangeValidationMessage}
+                      </p>
+                    ) : null}
+                    {nonFixedCycleValidationMessage ? (
+                      <p className="mt-1 text-[9px] font-medium text-red-500">
+                        {nonFixedCycleValidationMessage}
                       </p>
                     ) : null}
                   </BridgeSection>

@@ -243,3 +243,103 @@ test('SettingsModal updates source code editor typography preferences', async ()
     dom.window.close();
   }
 });
+
+test('SettingsModal keeps the detail pane scrollable within a bounded container', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const initialState = useUIStore.getState();
+
+  try {
+    useUIStore.setState({
+      isSettingsOpen: true,
+      settingsPos: { x: 48, y: 64 },
+    });
+
+    await act(async () => {
+      root.render(React.createElement(SettingsModal));
+    });
+
+    const detailPane = container.querySelector(
+      '[data-testid="settings-detail-pane"]',
+    ) as HTMLElement | null;
+    assert.ok(detailPane, 'settings modal should render a bounded detail pane');
+    assert.match(
+      detailPane.className,
+      /\bflex\b/,
+      'detail pane should participate in flex layout so scrolling can be constrained',
+    );
+    assert.match(
+      detailPane.className,
+      /\bmin-h-0\b/,
+      'detail pane should allow its scroll region to shrink within the modal height',
+    );
+
+    const scrollRegion = container.querySelector(
+      '[data-testid="settings-detail-scroll"]',
+    ) as HTMLElement | null;
+    assert.ok(scrollRegion, 'settings modal should render a dedicated scroll region');
+    assert.match(
+      scrollRegion.className,
+      /\bcustom-scrollbar\b/,
+      'detail scroll region should opt into the shared custom scrollbar styling',
+    );
+    assert.match(
+      scrollRegion.className,
+      /\boverflow-y-auto\b/,
+      'detail scroll region should expose vertical scrolling when content exceeds the modal height',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    useUIStore.setState(initialState);
+    dom.window.close();
+  }
+});
+
+test('SettingsModal toggles the MJCF world visibility preference from the view page', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const initialState = useUIStore.getState();
+
+  try {
+    useUIStore.setState({
+      isSettingsOpen: true,
+      settingsPos: { x: 48, y: 64 },
+      viewOptions: {
+        ...initialState.viewOptions,
+        showMjcfWorldLink: false,
+      },
+    });
+
+    await act(async () => {
+      root.render(React.createElement(SettingsModal));
+    });
+
+    const viewButton = container.querySelector(
+      '[data-settings-page="view"]',
+    ) as HTMLButtonElement | null;
+    assert.ok(viewButton, 'settings navigation should expose a view page');
+
+    await act(async () => {
+      viewButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    const switches = Array.from(container.querySelectorAll('[role="switch"]'));
+    assert.ok(switches.length >= 3, 'view settings should render the expected toggle controls');
+
+    const mjcfWorldSwitch = switches[1] as HTMLButtonElement;
+    assert.equal(mjcfWorldSwitch.getAttribute('aria-checked'), 'false');
+
+    await act(async () => {
+      mjcfWorldSwitch.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(useUIStore.getState().viewOptions.showMjcfWorldLink, true);
+    assert.equal(mjcfWorldSwitch.getAttribute('aria-checked'), 'true');
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    useUIStore.setState(initialState);
+    dom.window.close();
+  }
+});

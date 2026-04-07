@@ -9,6 +9,7 @@ import { useResponsivePanelLayout } from '../hooks/useResponsivePanelLayout';
 interface URDFViewerPanelsProps {
   lang: Language;
   controller: URDFViewerController;
+  isMjcfSource?: boolean;
   onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
   showToolbar?: boolean;
   setShowToolbar?: (show: boolean) => void;
@@ -16,11 +17,13 @@ interface URDFViewerPanelsProps {
   setShowOptionsPanel?: (show: boolean) => void;
   showJointPanel?: boolean;
   setShowJointPanel?: (show: boolean) => void;
+  preferEdgeDockedOptionsPanel?: boolean;
 }
 
 export const URDFViewerPanels = ({
   lang,
   controller,
+  isMjcfSource = false,
   onUpdate,
   showToolbar = true,
   setShowToolbar,
@@ -28,6 +31,7 @@ export const URDFViewerPanels = ({
   setShowOptionsPanel,
   showJointPanel = true,
   setShowJointPanel,
+  preferEdgeDockedOptionsPanel = false,
 }: URDFViewerPanelsProps) => {
   const t = translations[lang];
   const { optionsDefaultPosition, jointsDefaultPosition, jointsPanelMaxHeight } =
@@ -38,6 +42,7 @@ export const URDFViewerPanels = ({
       showOptionsPanel,
       showJointPanel,
       showToolbar,
+      preferEdgeDockedOptionsPanel,
     });
 
   return (
@@ -56,6 +61,10 @@ export const URDFViewerPanels = ({
         setShowVisual={controller.setShowVisual}
         showCollision={controller.showCollision}
         setShowCollision={controller.setShowCollision}
+        showIkHandles={controller.showIkHandles}
+        setShowIkHandles={controller.setShowIkHandles}
+        showIkHandlesAlwaysOnTop={controller.showIkHandlesAlwaysOnTop}
+        setShowIkHandlesAlwaysOnTop={controller.setShowIkHandlesAlwaysOnTop}
         showCollisionAlwaysOnTop={controller.showCollisionAlwaysOnTop}
         setShowCollisionAlwaysOnTop={controller.setShowCollisionAlwaysOnTop}
         modelOpacity={controller.modelOpacity}
@@ -66,6 +75,9 @@ export const URDFViewerPanels = ({
         setShowOriginsOverlay={controller.setShowOriginsOverlay}
         originSize={controller.originSize}
         setOriginSize={controller.setOriginSize}
+        showMjcfSiteToggle={isMjcfSource}
+        showMjcfSites={controller.showMjcfSites}
+        setShowMjcfSites={controller.setShowMjcfSites}
         showJointAxes={controller.showJointAxes}
         setShowJointAxes={controller.setShowJointAxes}
         showJointAxesOverlay={controller.showJointAxesOverlay}

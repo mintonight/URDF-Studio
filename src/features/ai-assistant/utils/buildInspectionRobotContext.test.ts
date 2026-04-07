@@ -62,6 +62,10 @@ test('buildInspectionRobotContext preserves joint engineering fields and MJCF in
             limited: true,
             range: [0, 1],
             attachmentRefs: ['tip_site', 'frame_site'],
+            attachments: [
+              { type: 'site', ref: 'tip_site' },
+              { type: 'site', ref: 'frame_site' },
+            ],
             actuatorNames: ['finger_motor'],
           },
         ],
@@ -86,4 +90,59 @@ test('buildInspectionRobotContext preserves joint engineering fields and MJCF in
   assert.equal(joint?.referencePosition, 0.12);
 
   assert.deepEqual(context.inspectionContext, robot.inspectionContext);
+});
+
+test('buildInspectionRobotContext exposes friendly MJCF link and joint names in AI context', () => {
+  const robot: RobotState = {
+    name: 'inspection-fixture',
+    rootLinkId: 'world_body_0',
+    links: {
+      world_body_0: {
+        id: 'world_body_0',
+        name: 'world_body_0',
+        visual: {
+          type: GeometryType.MESH,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#ffffff',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          mjcfMesh: { name: 'bin' },
+        },
+        collision: {
+          type: GeometryType.MESH,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#000000',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          mjcfMesh: { name: 'bin' },
+        },
+      },
+    },
+    joints: {
+      world_to_world_body_0: {
+        id: 'world_to_world_body_0',
+        name: 'world_to_world_body_0',
+        type: JointType.FIXED,
+        parentLinkId: 'world',
+        childLinkId: 'world_body_0',
+        origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        dynamics: { damping: 0, friction: 0 },
+        hardware: { armature: 0, motorType: '', motorId: '', motorDirection: 1 },
+      },
+    },
+    inspectionContext: {
+      sourceFormat: 'mjcf',
+      mjcf: {
+        siteCount: 0,
+        tendonCount: 0,
+        tendonActuatorCount: 0,
+        bodiesWithSites: [],
+        tendons: [],
+      },
+    },
+    selection: { type: 'link', id: 'world_body_0' },
+  };
+
+  const context = buildInspectionRobotContext(robot);
+
+  assert.equal(context.links[0]?.name, 'Bin');
+  assert.equal(context.joints[0]?.name, 'World to Bin');
 });

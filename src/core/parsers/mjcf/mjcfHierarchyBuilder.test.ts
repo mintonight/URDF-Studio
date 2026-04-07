@@ -10,6 +10,10 @@ function toFixedColorArray(color: THREE.Color, digits = 4): number[] {
   return color.toArray().map((value) => Number(value.toFixed(digits)));
 }
 
+function waitForNextMacrotask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function createCompilerSettings(texturedir = '') {
   return {
     angleUnit: 'radian' as const,
@@ -96,6 +100,7 @@ test('applies texture-backed material assets to generated visual meshes', async 
     ]),
     sourceFileDir: '',
   });
+  await waitForNextMacrotask();
 
   let visualMaterial: THREE.MeshStandardMaterial | null = null;
   rootGroup.traverse((child) => {
@@ -121,6 +126,237 @@ test('applies texture-backed material assets to generated visual meshes', async 
   assert.equal(visualMaterial.toneMapped, false);
   assert.equal(visualMaterial.roughness, 0);
   assert.equal(visualMaterial.metalness, 0.4);
+});
+
+test('prefers ImageBitmap texture decoding when the browser supports it', async (t) => {
+  const globalWithImageBitmap = globalThis as typeof globalThis & {
+    createImageBitmap?: (...args: unknown[]) => Promise<ImageBitmap>;
+  };
+  const originalCreateImageBitmap = globalWithImageBitmap.createImageBitmap;
+  globalWithImageBitmap.createImageBitmap = async () => ({ close() {} }) as ImageBitmap;
+
+  const originalBitmapLoadAsync = THREE.ImageBitmapLoader.prototype.loadAsync;
+  const originalTextureLoadAsync = THREE.TextureLoader.prototype.loadAsync;
+
+  let bitmapLoadCount = 0;
+  let textureLoadCount = 0;
+  const fakeBitmap = { close() {} } as ImageBitmap;
+
+  THREE.ImageBitmapLoader.prototype.loadAsync = async function mockBitmapLoadAsync(
+    _url: string,
+    _onProgress?: (event: ProgressEvent<EventTarget>) => void,
+  ): Promise<ImageBitmap> {
+    bitmapLoadCount += 1;
+    return fakeBitmap;
+  };
+
+  THREE.TextureLoader.prototype.loadAsync = async function mockTextureLoadAsync(
+    _url: string,
+    _onProgress?: (event: ProgressEvent<EventTarget>) => void,
+  ): Promise<THREE.Texture<HTMLImageElement>> {
+    textureLoadCount += 1;
+    const texture = new THREE.Texture() as THREE.Texture<HTMLImageElement>;
+    texture.needsUpdate = true;
+    return texture;
+  };
+
+  t.after(() => {
+    THREE.ImageBitmapLoader.prototype.loadAsync = originalBitmapLoadAsync;
+    THREE.TextureLoader.prototype.loadAsync = originalTextureLoadAsync;
+    if (originalCreateImageBitmap) {
+      globalWithImageBitmap.createImageBitmap = originalCreateImageBitmap;
+    } else {
+      delete globalWithImageBitmap.createImageBitmap;
+    }
+  });
+
+  const rootGroup = new THREE.Group();
+  await buildMJCFHierarchy({
+    bodies: [
+      {
+        name: 'world',
+        pos: [0, 0, 0],
+        geoms: [],
+        joints: [],
+        children: [
+          {
+            name: 'base',
+            pos: [0, 0, 0],
+            geoms: [
+              {
+                name: 'body-shell',
+                type: 'box',
+                size: [0.1, 0.1, 0.1],
+                material: 'bitmap_material',
+                contype: 0,
+                conaffinity: 0,
+              },
+            ],
+            joints: [],
+            children: [],
+          },
+        ],
+      },
+    ],
+    rootGroup,
+    meshMap: new Map(),
+    assets: {
+      'assets/bitmap.png': 'mock://assets/bitmap.png',
+    },
+    meshCache: new Map(),
+    compilerSettings: createCompilerSettings('assets'),
+    materialMap: new Map([
+      [
+        'bitmap_material',
+        {
+          name: 'bitmap_material',
+          texture: 'bitmap_texture',
+        },
+      ],
+    ]),
+    textureMap: new Map([
+      [
+        'bitmap_texture',
+        {
+          name: 'bitmap_texture',
+          file: 'assets/bitmap.png',
+          type: '2d',
+        },
+      ],
+    ]),
+    sourceFileDir: '',
+  });
+  await waitForNextMacrotask();
+
+  assert.equal(bitmapLoadCount, 1);
+  assert.equal(textureLoadCount, 0);
+
+  let visualMaterial: THREE.MeshStandardMaterial | null = null;
+  rootGroup.traverse((child) => {
+    if (!('isMesh' in child) || !(child as any).isMesh) {
+      return;
+    }
+
+    const mesh = child as THREE.Mesh;
+    if (mesh.userData.isVisualMesh && mesh.material instanceof THREE.MeshStandardMaterial) {
+      visualMaterial = mesh.material;
+    }
+  });
+
+  assert.ok(visualMaterial?.map instanceof THREE.Texture);
+  assert.equal(visualMaterial?.map?.image, fakeBitmap);
+});
+
+test('does not block hierarchy completion on unresolved texture-backed materials', async (t) => {
+  const originalLoadAsync = THREE.TextureLoader.prototype.loadAsync;
+  let resolveTexture: ((texture: THREE.Texture<HTMLImageElement>) => void) | null = null;
+  THREE.TextureLoader.prototype.loadAsync = async function mockLoadAsync(
+    _url: string,
+    _onProgress?: (event: ProgressEvent<EventTarget>) => void,
+  ): Promise<THREE.Texture<HTMLImageElement>> {
+    return await new Promise<THREE.Texture<HTMLImageElement>>((resolve) => {
+      resolveTexture = resolve;
+    });
+  };
+  t.after(() => {
+    THREE.TextureLoader.prototype.loadAsync = originalLoadAsync;
+  });
+
+  const rootGroup = new THREE.Group();
+  await Promise.race([
+    buildMJCFHierarchy({
+      bodies: [
+        {
+          name: 'world',
+          pos: [0, 0, 0],
+          geoms: [],
+          joints: [],
+          children: [
+            {
+              name: 'base',
+              pos: [0, 0, 0],
+              geoms: [
+                {
+                  name: 'body-shell',
+                  type: 'box',
+                  size: [0.1, 0.1, 0.1],
+                  material: 'carbon_fibre',
+                  contype: 0,
+                  conaffinity: 0,
+                },
+              ],
+              joints: [],
+              children: [],
+            },
+          ],
+        },
+      ],
+      rootGroup,
+      meshMap: new Map(),
+      assets: {
+        'assets/carbon.png': 'mock://assets/carbon.png',
+      },
+      meshCache: new Map(),
+      compilerSettings: createCompilerSettings('assets'),
+      materialMap: new Map([
+        [
+          'carbon_fibre',
+          {
+            name: 'carbon_fibre',
+            texture: 'carbon',
+          },
+        ],
+      ]),
+      textureMap: new Map([
+        [
+          'carbon',
+          {
+            name: 'carbon',
+            file: 'assets/carbon.png',
+            type: '2d',
+          },
+        ],
+      ]),
+      sourceFileDir: '',
+    }),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('hierarchy build blocked on unresolved texture load')), 50);
+    }),
+  ]);
+
+  const findVisualMaterial = () => {
+    let nextVisualMaterial: THREE.MeshStandardMaterial | null = null;
+    rootGroup.traverse((child) => {
+      if (!('isMesh' in child) || !(child as any).isMesh) {
+        return;
+      }
+
+      const mesh = child as THREE.Mesh;
+      if (mesh.userData.isVisualMesh && mesh.material instanceof THREE.MeshStandardMaterial) {
+        nextVisualMaterial = mesh.material;
+      }
+    });
+    return nextVisualMaterial;
+  };
+
+  const visualMaterial = findVisualMaterial();
+  assert.ok(visualMaterial);
+  assert.equal(visualMaterial.map, null);
+  const initialMaterialInstance = visualMaterial;
+
+  const resolvedTexture = new THREE.Texture() as THREE.Texture<HTMLImageElement>;
+  resolvedTexture.needsUpdate = true;
+  resolveTexture?.(resolvedTexture);
+  await waitForNextMacrotask();
+
+  const updatedVisualMaterial = findVisualMaterial();
+  assert.ok(updatedVisualMaterial);
+  assert.ok(updatedVisualMaterial.map instanceof THREE.Texture);
+  assert.equal(
+    updatedVisualMaterial,
+    initialMaterialInstance,
+    'deferred texture application should update the existing material instance instead of rebuilding it',
+  );
 });
 
 test('scopes texture loader cache to a single MJCF hierarchy build', async (t) => {
@@ -206,6 +442,7 @@ test('scopes texture loader cache to a single MJCF hierarchy build', async (t) =
 
   await buildMJCFHierarchy(createBuildOptions(new THREE.Group()));
   await buildMJCFHierarchy(createBuildOptions(new THREE.Group()));
+  await waitForNextMacrotask();
 
   assert.equal(
     loadCount,
@@ -293,7 +530,7 @@ test('disposes temporary base textures after a hierarchy build completes', async
     sourceFileDir: '',
   });
 
-  await Promise.resolve();
+  await waitForNextMacrotask();
 
   let visualMap: THREE.Texture | null = null;
   rootGroup.traverse((child) => {
@@ -311,6 +548,65 @@ test('disposes temporary base textures after a hierarchy build completes', async
   assert.equal(disposeCount, 1);
   assert.ok(visualMap instanceof THREE.Texture);
   assert.notEqual(visualMap, loadedTextures[0]);
+});
+
+test('copies MJCF site metadata onto runtime links for downstream helper rendering', async () => {
+  const rootGroup = new THREE.Group();
+  const siteDefinition = {
+    name: 'tool_tip',
+    type: 'sphere',
+    size: [0.015],
+    rgba: [1, 0.4, 0.1, 0.75] as [number, number, number, number],
+    pos: [0, 0, 0.08] as [number, number, number],
+    quat: [1, 0, 0, 0] as [number, number, number, number],
+  };
+  const inputSites = [siteDefinition];
+
+  const { linksMap } = await buildMJCFHierarchy({
+    bodies: [
+      {
+        name: 'world',
+        pos: [0, 0, 0],
+        geoms: [],
+        joints: [],
+        children: [
+          {
+            name: 'base',
+            pos: [0, 0, 0],
+            geoms: [],
+            sites: inputSites,
+            joints: [],
+            children: [],
+          },
+        ],
+      },
+    ],
+    rootGroup,
+    meshMap: new Map(),
+    assets: {},
+    meshCache: new Map(),
+    compilerSettings: createCompilerSettings(),
+    materialMap: new Map(),
+    textureMap: new Map(),
+    sourceFileDir: '',
+  });
+
+  const baseLink = linksMap.base as THREE.Object3D | undefined;
+  assert.ok(baseLink, 'expected runtime base link to be created');
+  assert.deepEqual(baseLink.userData.__mjcfSitesData, [siteDefinition]);
+  assert.notEqual(baseLink.userData.__mjcfSitesData, inputSites);
+  assert.notEqual(
+    (baseLink.userData.__mjcfSitesData as (typeof siteDefinition)[])[0],
+    siteDefinition,
+    'runtime site metadata entries should be cloned',
+  );
+
+  (siteDefinition.pos as [number, number, number])[2] = 999;
+  assert.equal(
+    (baseLink.userData.__mjcfSitesData as (typeof siteDefinition)[])[0]?.pos?.[2],
+    0.08,
+    'runtime site metadata should be cloned from parsed MJCF bodies',
+  );
 });
 
 test('stops MJCF hierarchy work at abort boundaries without processing later geoms', async () => {

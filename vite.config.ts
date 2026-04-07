@@ -4,9 +4,8 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
-const appPackageVersion = JSON.parse(
-  fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf8'),
-).version ?? '0.0.0';
+const appPackageVersion =
+  JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf8')).version ?? '0.0.0';
 
 const threeRoot = path.resolve(__dirname, 'node_modules/three');
 const threeModuleEntry = path.resolve(threeRoot, 'build/three.module.js');
@@ -92,43 +91,45 @@ function createUsdConfigurationProxyPlugin() {
   };
 }
 
-function isUsdViewerChunkModule(normalizedId: string): boolean {
-  return normalizedId.includes('/src/features/urdf-viewer/components/UsdWasmStage.tsx')
-    || normalizedId.includes('/src/features/urdf-viewer/utils/usd')
-    || normalizedId.includes('/src/features/urdf-viewer/runtime/viewer/')
-    || normalizedId.includes('/src/features/urdf-viewer/runtime/embed/usd-viewer-api.ts')
-    || normalizedId.includes('/src/features/urdf-viewer/runtime/vendor/usd-text-parser');
-}
-
-function isSharedUrdfViewerChunkModule(normalizedId: string): boolean {
-  return normalizedId.includes('/src/features/urdf-viewer/utils/cameraFrame.ts')
-    || normalizedId.includes('/src/features/urdf-viewer/utils/dispose.ts')
-    || normalizedId.includes('/src/features/urdf-viewer/utils/materials.ts')
-    || normalizedId.includes('/src/features/urdf-viewer/utils/stabilizedAutoFrame.ts')
-    || normalizedId.includes('/src/features/urdf-viewer/utils/visualizationFactories.ts');
-}
-
 function isMonacoReactChunkModule(normalizedId: string): boolean {
   return normalizedId.includes('/@monaco-editor/react/');
 }
 
 function isMonacoLanguageChunkModule(normalizedId: string): boolean {
-  return normalizedId.includes('/monaco-editor/esm/vs/basic-languages/')
-    || normalizedId.includes('/monaco-editor/esm/vs/language/');
+  return (
+    normalizedId.includes('/monaco-editor/esm/vs/basic-languages/') ||
+    normalizedId.includes('/monaco-editor/esm/vs/language/')
+  );
 }
 
 function isMonacoCoreChunkModule(normalizedId: string): boolean {
-  return normalizedId.includes('/monaco-editor/esm/')
-    && !isMonacoLanguageChunkModule(normalizedId)
-    && !isMonacoReactChunkModule(normalizedId)
-    && normalizedId.includes('/monaco-editor/esm/vs/');
+  return (
+    normalizedId.includes('/monaco-editor/esm/') &&
+    !isMonacoLanguageChunkModule(normalizedId) &&
+    !isMonacoReactChunkModule(normalizedId) &&
+    normalizedId.includes('/monaco-editor/esm/vs/')
+  );
 }
 
 function isCodeEditorRuntimeChunkModule(normalizedId: string): boolean {
   return normalizedId.includes('/src/features/code-editor/utils/monacoLoader.ts');
 }
 
+const INITIAL_HTML_MODULE_PRELOAD_BLOCKLIST = [
+  'feature-file-io-',
+  'export-vendor-',
+  'feature-visualizer-runtime-',
+  'feature-urdf-viewer-runtime-',
+  'ViewerSceneConnector-',
+  'URDFViewerJointsPanel-',
+];
+
+function shouldSkipInitialHtmlModulePreload(dependency: string): boolean {
+  return INITIAL_HTML_MODULE_PRELOAD_BLOCKLIST.some((token) => dependency.includes(token));
+}
+
 const GENERATED_ARTIFACT_WATCH_IGNORE_ROOTS = [
+  path.resolve(__dirname, '.omx'),
   path.resolve(__dirname, 'tmp'),
   path.resolve(__dirname, '.tmp'),
   path.resolve(__dirname, 'output'),
@@ -137,196 +138,197 @@ const GENERATED_ARTIFACT_WATCH_IGNORE_ROOTS = [
   path.resolve(__dirname, 'test'),
 ].map((entryPath) => entryPath.replace(/\\/g, '/'));
 
-const GENERATED_ARTIFACT_WATCH_IGNORE_SEGMENTS = [
-  '/.git/',
-  '/.svn/',
-  '/.hg/',
-];
+const GENERATED_ARTIFACT_WATCH_IGNORE_SEGMENTS = ['/.git/', '/.svn/', '/.hg/'];
 
 function shouldIgnoreWatchPath(watchPath: string): boolean {
   const normalizedPath = watchPath.replace(/\\/g, '/');
 
-  return GENERATED_ARTIFACT_WATCH_IGNORE_ROOTS.some((rootPath) => (
-    normalizedPath === rootPath || normalizedPath.startsWith(`${rootPath}/`)
-  )) || GENERATED_ARTIFACT_WATCH_IGNORE_SEGMENTS.some((segment) => normalizedPath.includes(segment));
+  return (
+    GENERATED_ARTIFACT_WATCH_IGNORE_ROOTS.some(
+      (rootPath) => normalizedPath === rootPath || normalizedPath.startsWith(`${rootPath}/`),
+    ) ||
+    GENERATED_ARTIFACT_WATCH_IGNORE_SEGMENTS.some((segment) => normalizedPath.includes(segment))
+  );
 }
 
 export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, '.', '');
-    return {
-      server: {
-        port: 3000,
-        host: '127.0.0.1',
-        // Verification artifacts are intentionally written into tmp/ by repo policy.
-        // Ignore generated directories so exports, screenshots, logs, and pid files
-        // do not trigger full-page reloads and wipe imported workspace state.
-        // Root-level test fixtures contain vendored repositories large enough to
-        // exhaust OS watcher limits, so filter them explicitly by absolute path.
-        watch: {
-          ignored: shouldIgnoreWatchPath,
-        },
-        headers: {
-          'Cross-Origin-Embedder-Policy': 'require-corp',
-          'Cross-Origin-Opener-Policy': 'same-origin',
-          'Cross-Origin-Resource-Policy': 'same-site',
-        },
+  const env = loadEnv(mode, '.', '');
+  return {
+    server: {
+      port: 3000,
+      strictPort: true,
+      host: '127.0.0.1',
+      // Verification artifacts are intentionally written into tmp/ by repo policy.
+      // Ignore generated directories so exports, screenshots, logs, and pid files
+      // do not trigger full-page reloads and wipe imported workspace state.
+      // Root-level test fixtures contain vendored repositories large enough to
+      // exhaust OS watcher limits, so filter them explicitly by absolute path.
+      watch: {
+        ignored: shouldIgnoreWatchPath,
       },
-      preview: {
-        headers: {
-          'Cross-Origin-Embedder-Policy': 'require-corp',
-          'Cross-Origin-Opener-Policy': 'same-origin',
-          'Cross-Origin-Resource-Policy': 'same-site',
-        },
+      headers: {
+        'Cross-Origin-Embedder-Policy': 'require-corp',
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Resource-Policy': 'same-site',
       },
-      build: {
-        chunkSizeWarningLimit: 800,
-        rollupOptions: {
-          output: {
-            manualChunks(id) {
-              const normalizedId = id.replace(/\\/g, '/');
+    },
+    preview: {
+      headers: {
+        'Cross-Origin-Embedder-Policy': 'require-corp',
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Resource-Policy': 'same-site',
+      },
+    },
+    build: {
+      chunkSizeWarningLimit: 800,
+      modulePreload: {
+        resolveDependencies(_filename, deps, context) {
+          if (context.hostType !== 'html') {
+            return deps;
+          }
 
-              if (normalizedId.includes('/src/features/visualizer/')) {
-                return 'feature-visualizer';
-              }
-
-              if (normalizedId.includes('/src/features/urdf-viewer/')) {
-                if (isUsdViewerChunkModule(normalizedId) || isSharedUrdfViewerChunkModule(normalizedId)) {
-                  return;
-                }
-                return 'feature-urdf-viewer';
-              }
-
-              if (normalizedId.includes('/src/features/property-editor/')) {
-                return 'feature-property-editor';
-              }
-
-              if (isCodeEditorRuntimeChunkModule(normalizedId)) {
-                return 'feature-code-editor-runtime';
-              }
-
-              if (normalizedId.includes('/src/features/code-editor/')) {
-                return 'feature-code-editor';
-              }
-
-              if (normalizedId.includes('/src/features/ai-assistant/')) {
-                return 'feature-ai-assistant';
-              }
-
-              if (normalizedId.includes('/src/features/file-io/')) {
-                return 'feature-file-io';
-              }
-
-              if (normalizedId.includes('/src/features/assembly/')) {
-                return 'feature-assembly';
-              }
-
-              if (normalizedId.includes('/src/features/robot-tree/')) {
-                return 'feature-robot-tree';
-              }
-
-              if (normalizedId.includes('/src/core/parsers/')) {
-                return 'core-parsers';
-              }
-
-              if (!normalizedId.includes('/node_modules/')) return;
-
-              if (normalizedId.includes('/@react-three/drei/')) {
-                return 'drei-vendor';
-              }
-
-              if (normalizedId.includes('/@react-three/fiber/')) {
-                return 'r3f-vendor';
-              }
-
-              if (normalizedId.includes('/three/examples/') || normalizedId.includes('/three-stdlib/')) {
-                return 'three-addons';
-              }
-
-              if (normalizedId.includes('/three/')) {
-                return 'three-core';
-              }
-
-              if (isMonacoReactChunkModule(normalizedId)) {
-                return 'editor-monaco-react';
-              }
-
-              if (isMonacoLanguageChunkModule(normalizedId)) {
-                return 'editor-monaco-language';
-              }
-
-              if (isMonacoCoreChunkModule(normalizedId)) {
-                return 'editor-monaco-core';
-              }
-
-              if (
-                normalizedId.includes('/react-syntax-highlighter/') ||
-                normalizedId.includes('/react-simple-code-editor/') ||
-                normalizedId.includes('/prismjs/')
-              ) {
-                return 'code-vendor';
-              }
-
-              if (normalizedId.includes('/jspdf/') || normalizedId.includes('/jszip/')) {
-                return 'export-vendor';
-              }
-
-              if (normalizedId.includes('/lucide-react/')) {
-                return 'icon-vendor';
-              }
-
-              if (normalizedId.includes('/zustand/') || normalizedId.includes('/immer/')) {
-                return 'state-vendor';
-              }
-
-              if (normalizedId.includes('/react/') || normalizedId.includes('/react-dom/') || normalizedId.includes('/scheduler/')) {
-                return 'react-vendor';
-              }
-            },
-          },
+          return deps.filter((dependency) => !shouldSkipInitialHtmlModulePreload(dependency));
         },
       },
-      worker: {
-        format: 'es',
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const normalizedId = id.replace(/\\/g, '/');
+
+            if (normalizedId.includes('/src/features/property-editor/')) {
+              return 'feature-property-editor';
+            }
+
+            if (isCodeEditorRuntimeChunkModule(normalizedId)) {
+              return 'feature-code-editor-runtime';
+            }
+
+            if (normalizedId.includes('/src/features/code-editor/')) {
+              return 'feature-code-editor';
+            }
+
+            if (normalizedId.includes('/src/features/ai-assistant/')) {
+              return 'feature-ai-assistant';
+            }
+
+            if (normalizedId.includes('/src/features/file-io/')) {
+              return 'feature-file-io';
+            }
+
+            if (normalizedId.includes('/src/features/assembly/')) {
+              return 'feature-assembly';
+            }
+
+            if (normalizedId.includes('/src/features/robot-tree/')) {
+              return 'feature-robot-tree';
+            }
+
+            if (normalizedId.includes('/src/core/parsers/')) {
+              return 'core-parsers';
+            }
+
+            if (!normalizedId.includes('/node_modules/')) return;
+
+            if (normalizedId.includes('/@react-three/drei/')) {
+              return 'drei-vendor';
+            }
+
+            if (normalizedId.includes('/@react-three/fiber/')) {
+              return 'r3f-vendor';
+            }
+
+            if (
+              normalizedId.includes('/three/examples/') ||
+              normalizedId.includes('/three-stdlib/')
+            ) {
+              return 'three-addons';
+            }
+
+            if (normalizedId.includes('/three/')) {
+              return 'three-core';
+            }
+
+            if (isMonacoReactChunkModule(normalizedId)) {
+              return 'editor-monaco-react';
+            }
+
+            if (isMonacoLanguageChunkModule(normalizedId)) {
+              return 'editor-monaco-language';
+            }
+
+            if (isMonacoCoreChunkModule(normalizedId)) {
+              return 'editor-monaco-core';
+            }
+
+            if (
+              normalizedId.includes('/react-syntax-highlighter/') ||
+              normalizedId.includes('/react-simple-code-editor/') ||
+              normalizedId.includes('/prismjs/')
+            ) {
+              return 'code-vendor';
+            }
+
+            if (normalizedId.includes('/jspdf/') || normalizedId.includes('/jszip/')) {
+              return 'export-vendor';
+            }
+
+            if (normalizedId.includes('/lucide-react/')) {
+              return 'icon-vendor';
+            }
+
+            if (normalizedId.includes('/zustand/') || normalizedId.includes('/immer/')) {
+              return 'state-vendor';
+            }
+
+            if (
+              normalizedId.includes('/react/') ||
+              normalizedId.includes('/react-dom/') ||
+              normalizedId.includes('/scheduler/')
+            ) {
+              return 'react-vendor';
+            }
+          },
+        },
       },
-      plugins: [react(), tailwindcss(), createUsdConfigurationProxyPlugin()],
-      define: {
-        __APP_VERSION__: JSON.stringify(appPackageVersion),
-        'process.env.API_KEY': JSON.stringify(env.OPENAI_API_KEY || env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || env.OPENAI_API_KEY),
-        'process.env.OPENAI_API_KEY': JSON.stringify(env.OPENAI_API_KEY),
-        'process.env.OPENAI_BASE_URL': JSON.stringify(env.OPENAI_BASE_URL),
-        'process.env.OPENAI_MODEL': JSON.stringify(env.OPENAI_MODEL)
-      },
-      optimizeDeps: {
-        // Keep the dependency optimizer on the same Three.js entry that the
-        // application source and R3F use, otherwise optimized deps can pull in
-        // a second copy from a different workspace path.
-        include: [
-          'three',
-          '@react-three/fiber',
-          '@react-three/drei',
-        ],
-      },
-      resolve: {
-        dedupe: ['three', '@react-three/fiber', '@react-three/drei'],
-        alias: [
-          {
-            find: '@',
-            replacement: path.resolve(__dirname, './src'),
-          },
-          {
-            find: /^three$/,
-            replacement: threeModuleEntry,
-          },
-          {
-            find: /^three\/addons\//,
-            replacement: `${threeExamplesDir}/`,
-          },
-          {
-            find: /^three\/examples\/jsm\//,
-            replacement: `${threeExamplesDir}/`,
-          },
-        ],
-      }
-    };
+    },
+    worker: {
+      format: 'es',
+    },
+    plugins: [react(), tailwindcss(), createUsdConfigurationProxyPlugin()],
+    define: {
+      __APP_VERSION__: JSON.stringify(appPackageVersion),
+      'process.env.API_KEY': JSON.stringify(env.OPENAI_API_KEY || env.GEMINI_API_KEY),
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || env.OPENAI_API_KEY),
+      'process.env.OPENAI_API_KEY': JSON.stringify(env.OPENAI_API_KEY),
+      'process.env.OPENAI_BASE_URL': JSON.stringify(env.OPENAI_BASE_URL),
+      'process.env.OPENAI_MODEL': JSON.stringify(env.OPENAI_MODEL),
+    },
+    optimizeDeps: {
+      // Keep the dependency optimizer on the same Three.js entry that the
+      // application source and R3F use, otherwise optimized deps can pull in
+      // a second copy from a different workspace path.
+      include: ['three', '@react-three/fiber', '@react-three/drei'],
+    },
+    resolve: {
+      dedupe: ['three', '@react-three/fiber', '@react-three/drei'],
+      alias: [
+        {
+          find: '@',
+          replacement: path.resolve(__dirname, './src'),
+        },
+        {
+          find: /^three$/,
+          replacement: threeModuleEntry,
+        },
+        {
+          find: /^three\/addons\//,
+          replacement: `${threeExamplesDir}/`,
+        },
+        {
+          find: /^three\/examples\/jsm\//,
+          replacement: `${threeExamplesDir}/`,
+        },
+      ],
+    },
+  };
 });

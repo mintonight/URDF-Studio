@@ -146,6 +146,30 @@ test('resolveSelectionHit keeps URDF visual indexing when metadata resolves the 
   assert.equal(resolved?.highlightTarget, secondMesh);
 });
 
+test('resolveInteractionSelectionHit resolves MJCF tendon geometry to a tendon selection', () => {
+  const link = createUrdfLink('base_link');
+  const robot = createRobotWithLinks(link);
+  robot.add(link);
+
+  const tendonGroup = new THREE.Group();
+  tendonGroup.userData.isMjcfTendon = true;
+  tendonGroup.userData.mjcfTendonName = 'finger_tendon';
+  tendonGroup.userData.parentLinkName = 'base_link';
+  link.add(tendonGroup);
+
+  const tendonMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+  tendonGroup.add(tendonMesh);
+
+  const resolved = resolveInteractionSelectionHit(robot, tendonMesh);
+
+  assert.ok(resolved);
+  assert.equal(resolved?.type, 'tendon');
+  assert.equal(resolved?.id, 'finger_tendon');
+  assert.equal(resolved?.linkId, 'base_link');
+  assert.equal(resolved?.linkObject, link);
+  assert.equal(resolved?.targetKind, 'geometry');
+});
+
 test('resolveHitLinkTarget allows selectable helper gizmo meshes to resolve parent link', () => {
   const link = createUrdfLink('base_link');
   const robot = createRobotWithLinks(link);
@@ -188,6 +212,37 @@ test('resolveInteractionSelectionHit tags center-of-mass helpers with helper met
   assert.equal(resolved?.id, 'base_link');
   assert.equal(resolved?.targetKind, 'helper');
   assert.equal(resolved?.helperKind, 'center-of-mass');
+});
+
+test('resolveInteractionSelectionHit tags ik-handle helpers with helper metadata', () => {
+  const link = createUrdfLink('base_link');
+  const robot = createRobotWithLinks(link);
+  robot.add(link);
+
+  const helperGroup = new THREE.Group();
+  helperGroup.name = '__ik_handle__';
+  helperGroup.userData = {
+    isGizmo: true,
+    isSelectableHelper: true,
+    viewerHelperKind: 'ik-handle',
+  };
+  link.add(helperGroup);
+
+  const helperMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+  helperMesh.userData = {
+    isGizmo: true,
+    isSelectableHelper: true,
+    viewerHelperKind: 'ik-handle',
+  };
+  helperGroup.add(helperMesh);
+
+  const resolved = resolveInteractionSelectionHit(robot, helperMesh);
+
+  assert.ok(resolved);
+  assert.equal(resolved?.type, 'link');
+  assert.equal(resolved?.id, 'base_link');
+  assert.equal(resolved?.targetKind, 'helper');
+  assert.equal(resolved?.helperKind, 'ik-handle');
 });
 
 test('resolveInteractionSelectionHit maps selectable joint-axis helpers to the owning joint', () => {

@@ -1,11 +1,11 @@
-import type { DocumentLoadState } from '@/store/assetsStore';
+import type { DocumentLoadLifecycleState } from '@/store/assetsStore';
 
 interface ViewerViewportHandoffInput {
   isViewerMode: boolean;
   isPreviewing: boolean;
   visualizerMounted: boolean;
   activeFileName: string | null;
-  documentLoadState: DocumentLoadState;
+  documentLoadState: DocumentLoadLifecycleState;
 }
 
 interface ViewerViewportHandoffStartInput extends ViewerViewportHandoffInput {
@@ -16,7 +16,7 @@ interface ViewerViewportHandoffStartInput extends ViewerViewportHandoffInput {
 
 export function isViewerDocumentLoadingForScope(
   activeFileName: string | null,
-  documentLoadState: DocumentLoadState,
+  documentLoadState: DocumentLoadLifecycleState,
 ): boolean {
   if (!(documentLoadState.status === 'loading' || documentLoadState.status === 'hydrating')) {
     return false;
@@ -73,10 +73,12 @@ export function shouldContinueViewerViewportHandoff({
   activeFileName,
   documentLoadState,
 }: ViewerViewportHandoffInput): boolean {
-  return isViewerMode
-    && !isPreviewing
-    && visualizerMounted
-    && isViewerDocumentLoadingForScope(activeFileName, documentLoadState);
+  return (
+    isViewerMode &&
+    !isPreviewing &&
+    visualizerMounted &&
+    isViewerDocumentLoadingForScope(activeFileName, documentLoadState)
+  );
 }
 
 interface ViewerViewportHandoffContinuationInput {

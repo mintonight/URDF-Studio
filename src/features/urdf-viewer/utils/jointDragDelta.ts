@@ -12,11 +12,21 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 export function resolveRevoluteDragDelta({
   worldDelta,
   tangentDelta,
+  planeFacingRatio,
   epsilon = 1e-5,
   maxDelta = Math.PI / 8,
+  planeFacingThreshold = 0.2,
 }: ResolveRevoluteDragDeltaOptions): number {
   const hasWorldDelta = Number.isFinite(worldDelta) && Math.abs(worldDelta) > epsilon;
   const hasTangentDelta = Number.isFinite(tangentDelta) && Math.abs(tangentDelta) > epsilon;
+
+  if (
+    hasTangentDelta &&
+    Number.isFinite(planeFacingRatio) &&
+    planeFacingRatio < planeFacingThreshold
+  ) {
+    return clamp(tangentDelta, -maxDelta, maxDelta);
+  }
 
   if (hasWorldDelta) {
     return clamp(worldDelta, -maxDelta, maxDelta);

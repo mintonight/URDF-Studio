@@ -45,7 +45,7 @@ export function SegmentedControl<T extends string | number>({
   return (
     <div
       className={`bg-segmented-bg rounded-lg ${containerPadding} ${
-        stretch ? 'flex' : 'inline-flex w-fit max-w-full'
+        stretch ? 'flex min-w-0' : 'inline-flex w-fit max-w-full'
       } ${className}`}
     >
       {options.map((option) => {
@@ -56,8 +56,9 @@ export function SegmentedControl<T extends string | number>({
             type="button"
             onClick={() => !disabled && !option.disabled && onChange(option.value)}
             disabled={disabled || option.disabled}
+            title={option.label}
             className={`
-              ${stretch ? 'flex-1' : 'flex-none'} relative flex items-center justify-center gap-1.5
+              ${stretch ? 'min-w-0 flex-1' : 'flex-none'} relative flex min-w-0 items-center justify-center gap-1.5 overflow-hidden
               ${itemPadding} ${textSize} font-medium rounded-md
               transition-all duration-200
               disabled:opacity-50 disabled:cursor-not-allowed
@@ -70,12 +71,12 @@ export function SegmentedControl<T extends string | number>({
           >
             {option.icon && (
               <span
-                className={`${isSelected ? 'text-current' : 'opacity-70'} ${iconSize} flex items-center justify-center`}
+                className={`${isSelected ? 'text-current' : 'opacity-70'} ${iconSize} shrink-0 flex items-center justify-center`}
               >
                 {option.icon}
               </span>
             )}
-            <span>{option.label}</span>
+            <span className="min-w-0 truncate">{option.label}</span>
           </button>
         );
       })}

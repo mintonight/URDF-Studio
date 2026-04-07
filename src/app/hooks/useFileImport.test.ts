@@ -8,8 +8,10 @@ import { JSDOM } from 'jsdom';
 
 import { useFileImport } from './useFileImport.ts';
 import { disposeRobotImportWorker } from './robotImportWorkerBridge.ts';
+import { detectImportFormat } from '@/app/utils/importPreparation';
 import { useAssemblyStore, useAssetsStore, useRobotStore, useUIStore } from '@/store';
 import { translations } from '@/shared/i18n';
+import { DEFAULT_MOTOR_LIBRARY } from '@/shared/data/motorLibrary';
 import type { RobotFile } from '@/types';
 import { resolveRobotFileData } from '@/core/parsers';
 
@@ -224,6 +226,23 @@ function installRobotImportWorkerMock() {
         const descriptors = Array.isArray(message.files) ? message.files : [];
 
         queueMicrotask(async () => {
+          this.listeners.get('message')?.forEach((handler) => {
+            handler({
+              data: {
+                type: 'prepare-import-progress',
+                requestId: message.requestId,
+                progress: {
+                  phase: 'extracting-files',
+                  progressPercent: 48,
+                  processedEntries: 1,
+                  totalEntries: 2,
+                  processedBytes: 128,
+                  totalBytes: 256,
+                },
+              },
+            });
+          });
+
           const robotFiles = (
             await Promise.all(
               descriptors.map(async (descriptor: { file?: File; relativePath?: string }) => {
@@ -233,14 +252,16 @@ function installRobotImportWorkerMock() {
                 }
 
                 const name = descriptor.relativePath || file.webkitRelativePath || file.name;
-                if (!name.toLowerCase().endsWith('.urdf')) {
+                const content = await file.text();
+                const format = detectImportFormat(content, name);
+                if (!format) {
                   return null;
                 }
 
                 return {
                   name,
-                  format: 'urdf' as const,
-                  content: await file.text(),
+                  format,
+                  content,
                 };
               }),
             )
@@ -254,6 +275,7 @@ function installRobotImportWorkerMock() {
                 payload: {
                   robotFiles,
                   assetFiles: [],
+                  deferredAssetFiles: [],
                   usdSourceFiles: [],
                   libraryFiles: [],
                   textFiles: [],
@@ -401,16 +423,16 @@ test('useFileImport reports folder preparation state before handing off the firs
       {
         label: translations.en.importPreparationLoadingTitle,
         detail: translations.en.importPreparationLoadingDetail,
-        progress: 0.34,
-        statusLabel: '1/2',
-        stageLabel: translations.en.importPreparationLoadingTitle,
+        progress: null,
+        statusLabel: null,
+        stageLabel: translations.en.importPreparationReadingArchive,
       },
       {
         label: translations.en.importPreparationLoadingTitle,
-        detail: translations.en.loadingRobotPreparing,
-        progress: 0.72,
-        statusLabel: '2/2',
-        stageLabel: translations.en.loadingRobotPreparing,
+        detail: '128 B / 256 B',
+        progress: 0.48,
+        statusLabel: '1 / 2',
+        stageLabel: translations.en.importPreparationExtractingFiles,
       },
       null,
     ]);
@@ -483,16 +505,124 @@ test('useFileImport keeps editor mode active across repeated imports', async () 
   }
 });
 
+test('useFileImport blocks standalone package-backed URDF files from auto-opening without matching assets', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock();
+
+  const importedFile = new File(
+    [
+      `<robot name="aliengo">
+        <link name="base">
+          <visual>
+            <geometry>
+              <mesh filename="package://aliengo_description/meshes/trunk.dae" />
+            </geometry>
+          </visual>
+        </link>
+      </robot>`,
+    ],
+    'aliengo.urdf',
+    { type: 'text/xml' },
+  );
+
+  const loadCalls: RobotFile[] = [];
+  const toastCalls: Array<{ message: string; type?: 'info' | 'success' }> = [];
+  const rendered = renderHook({
+    onLoadRobot: (file) => {
+      loadCalls.push(file);
+    },
+    onShowToast: (message, type) => {
+      toastCalls.push({ message, type });
+    },
+  });
+
+  try {
+    await rendered.hook.handleImport([importedFile] as unknown as FileList);
+
+    assert.equal(loadCalls.length, 0);
+    assert.equal(useAssetsStore.getState().selectedFile, null);
+    assert.equal(useAssetsStore.getState().availableFiles[0]?.name, 'aliengo.urdf');
+    assert.match(
+      toastCalls.map((entry) => entry.message).join('\n'),
+      /Import the full folder or ZIP so meshes and textures are available/i,
+    );
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
+test('useFileImport blocks standalone MJCF files from auto-opening without matching mesh assets', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock();
+
+  const importedFile = new File(
+    [
+      `<mujoco model="dynamixel_2r">
+        <compiler meshdir="assets" />
+        <asset>
+          <mesh name="nut_2_5" file="nut_2_5.stl" />
+        </asset>
+        <worldbody>
+          <body name="base_link">
+            <geom type="mesh" mesh="nut_2_5" />
+          </body>
+        </worldbody>
+      </mujoco>`,
+    ],
+    'dynamixel_2r.xml',
+    { type: 'text/xml' },
+  );
+
+  const loadCalls: RobotFile[] = [];
+  const toastCalls: Array<{ message: string; type?: 'info' | 'success' }> = [];
+  const rendered = renderHook({
+    onLoadRobot: (file) => {
+      loadCalls.push(file);
+    },
+    onShowToast: (message, type) => {
+      toastCalls.push({ message, type });
+    },
+  });
+
+  try {
+    await rendered.hook.handleImport([importedFile] as unknown as FileList);
+
+    assert.equal(loadCalls.length, 0);
+    assert.equal(useAssetsStore.getState().selectedFile, null);
+    assert.match(
+      toastCalls.map((entry) => entry.message).join('\n'),
+      /Import the full folder or ZIP so meshes and textures are available/i,
+    );
+    assert.match(toastCalls.map((entry) => entry.message).join('\n'), /assets\/nut_2_5\.stl/i);
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
 test('useFileImport keeps editor mode when importing a project archive', async () => {
   resetStoresToBaseline();
   useUIStore.setState({ appMode: 'editor' });
   const domEnvironment = installDomEnvironment();
   const workerMock = installRobotImportWorkerMock();
   let importerCallCount = 0;
+  const projectImportSelections: Array<RobotFile | null> = [];
 
   const projectFile = new File(['unused'], 'project.usp', { type: 'application/octet-stream' });
 
   const rendered = renderHook({
+    onProjectImported: (selectedFile) => {
+      projectImportSelections.push(selectedFile);
+    },
     projectImporter: async () => {
       importerCallCount += 1;
       return {
@@ -525,7 +655,7 @@ test('useFileImport keeps editor mode when importing a project archive', async (
           },
         ],
         allFileContents: {},
-        motorLibrary: {},
+        motorLibrary: DEFAULT_MOTOR_LIBRARY,
         selectedFileName: 'robots/demo.urdf',
         originalUrdfContent: '<robot name="demo"><link name="base_link" /></robot>',
         originalFileFormat: 'urdf',
@@ -546,6 +676,8 @@ test('useFileImport keeps editor mode when importing a project archive', async (
     assert.equal(importerCallCount, 1);
     assert.equal(useAssetsStore.getState().availableFiles[0]?.name, 'robots/demo.urdf');
     assert.equal(useUIStore.getState().appMode, 'editor');
+    assert.equal(projectImportSelections.length, 1);
+    assert.equal(projectImportSelections[0]?.name, 'robots/demo.urdf');
   } finally {
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 20));

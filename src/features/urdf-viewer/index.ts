@@ -9,7 +9,6 @@ export { JointInteraction } from './components/JointInteraction';
 export { ViewerToolbar } from './components/ViewerToolbar';
 export { MeasureTool } from './components/MeasureTool.tsx';
 export { CollisionTransformControls } from './components/CollisionTransformControls';
-export { URDFViewerPanels } from './components/URDFViewerPanels';
 export { URDFViewerScene } from './components/URDFViewerScene';
 
 export * from './types';

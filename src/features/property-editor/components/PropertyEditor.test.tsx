@@ -88,13 +88,48 @@ function createRobot(): RobotState {
         },
       },
     },
+    inspectionContext: {
+      sourceFormat: 'mjcf',
+      mjcf: {
+        siteCount: 1,
+        tendonCount: 1,
+        tendonActuatorCount: 1,
+        bodiesWithSites: [
+          {
+            bodyId: 'base_link',
+            siteCount: 1,
+            siteNames: ['tool_center'],
+          },
+        ],
+        tendons: [
+          {
+            name: 'finger_tendon',
+            type: 'fixed',
+            className: 'main',
+            group: 2,
+            limited: true,
+            range: [0, 1],
+            width: 0.03,
+            stiffness: 12,
+            springlength: 0.2,
+            rgba: [0, 1, 0, 1],
+            attachmentRefs: ['hip_joint'],
+            attachments: [{ type: 'joint', ref: 'hip_joint', coef: 1 }],
+            actuatorNames: ['finger_tendon_motor'],
+          },
+        ],
+      },
+    },
   };
 }
 
-function renderPropertyEditor() {
+function renderPropertyEditor(selection: RobotState['selection'] = createRobot().selection) {
+  const robot = createRobot();
+  robot.selection = selection;
+
   return renderToStaticMarkup(
     React.createElement(PropertyEditor as any, {
-      robot: createRobot(),
+      robot,
       onUpdate: () => {},
       mode: 'editor',
       assets: {},
@@ -119,4 +154,16 @@ test('link selection does not leak the related joint into the property panel hea
   assert.doesNotMatch(markup, new RegExp(translations.en.selectedJoint));
   assert.doesNotMatch(markup, /hip_joint/);
   assert.match(markup, /base_link/);
+});
+
+test('tendon selection renders tendon inspection data without joint property controls', () => {
+  const markup = renderPropertyEditor({
+    type: 'tendon',
+    id: 'finger_tendon',
+  });
+
+  assert.match(markup, /finger_tendon/);
+  assert.match(markup, /finger_tendon_motor/);
+  assert.match(markup, /hip_joint/);
+  assert.doesNotMatch(markup, new RegExp(translations.en.selectedJoint));
 });

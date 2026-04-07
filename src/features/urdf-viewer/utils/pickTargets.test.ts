@@ -63,6 +63,20 @@ test('collectPickTargets keeps meshes under synthetic URDF roots whose names sta
   assert.deepEqual(targets, [torsoMesh]);
 });
 
+test('collectPickTargets includes mjcf tendon meshes that live outside the link mesh map', () => {
+  const robot = new THREE.Group();
+  const tendonMesh = createBoxMesh(new THREE.MeshStandardMaterial({ color: 0xff5533 }));
+  tendonMesh.userData.isMjcfTendon = true;
+  tendonMesh.userData.parentLinkName = 'finger_link';
+  robot.add(tendonMesh);
+
+  const visualTargets = collectPickTargets(new Map(), 'visual', robot);
+  const collisionTargets = collectPickTargets(new Map(), 'collision', robot);
+
+  assert.deepEqual(visualTargets, [tendonMesh]);
+  assert.deepEqual(collisionTargets, []);
+});
+
 test('collectSelectableHelperTargets keeps selectable helper overlays even when they sit outside link geometry', () => {
   const robot = new THREE.Group();
 

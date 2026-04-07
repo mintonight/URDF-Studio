@@ -40,22 +40,15 @@ function expectBoxEquals(actual: THREE.Box3, expected: THREE.Box3, epsilon = 1e-
 }
 
 function countObjFaces(content: string): number {
-  return content
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith('f '))
-    .length;
+  return content.split(/\r?\n/).filter((line) => line.startsWith('f ')).length;
 }
 
 test('mjcf mesh export internals accept BufferGeometry-like objects from foreign Three runtimes', () => {
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
-    0, 0, 0,
-    1, 0, 0,
-    0, 1, 0,
-    0, 0, 1,
-    1, 0, 1,
-    0, 1, 1,
-  ], 3));
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 1], 3),
+  );
   geometry.clearGroups();
   geometry.addGroup(0, 3, 0);
   geometry.addGroup(3, 3, 1);
@@ -71,13 +64,10 @@ test('mjcf mesh export internals accept BufferGeometry-like objects from foreign
     getIndex: geometry.getIndex.bind(geometry),
   } as unknown as THREE.BufferGeometry;
 
-  const mesh = new THREE.Mesh(
-    foreignGeometry,
-    [
-      new THREE.MeshStandardMaterial({ color: '#112233' }),
-      new THREE.MeshStandardMaterial({ color: '#445566' }),
-    ],
-  );
+  const mesh = new THREE.Mesh(foreignGeometry, [
+    new THREE.MeshStandardMaterial({ color: '#112233' }),
+    new THREE.MeshStandardMaterial({ color: '#445566' }),
+  ]);
   mesh.updateMatrixWorld(true);
 
   const bakedMesh = __mjcfMeshExportInternals.createBakedVariantMesh(
@@ -92,37 +82,34 @@ test('mjcf mesh export internals accept BufferGeometry-like objects from foreign
 
 test('mjcf mesh export internals bake duplicate coplanar anchor subsets in world space', () => {
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
-    0, 0, 0,
-    1, 0, 0,
-    0, 1, 0,
-  ], 3));
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+  );
   geometry.clearGroups();
   geometry.addGroup(0, 3, 0);
   geometry.addGroup(0, 3, 1);
 
   const anchorMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff' });
   anchorMaterial.name = 'logo.001';
-  const shellMaterial = markMaterialAsCoplanarOffset(new THREE.MeshStandardMaterial({ color: '#666666' }));
+  const shellMaterial = markMaterialAsCoplanarOffset(
+    new THREE.MeshStandardMaterial({ color: '#666666' }),
+  );
   shellMaterial.name = 'shell';
 
   const mesh = new THREE.Mesh(geometry, [anchorMaterial, shellMaterial]);
   mesh.scale.setScalar(10);
   mesh.updateMatrixWorld(true);
 
-  const bakedAnchorMesh = __mjcfMeshExportInternals.createBakedVariantMesh(
-    mesh,
-    anchorMaterial,
-    0,
-  );
+  const bakedAnchorMesh = __mjcfMeshExportInternals.createBakedVariantMesh(mesh, anchorMaterial, 0);
   assert.ok(bakedAnchorMesh, 'expected anchor material subset to remain exportable');
 
-  const bakedOffsetMesh = __mjcfMeshExportInternals.createBakedVariantMesh(
-    mesh,
-    shellMaterial,
-    1,
+  const bakedOffsetMesh = __mjcfMeshExportInternals.createBakedVariantMesh(mesh, shellMaterial, 1);
+  assert.equal(
+    bakedOffsetMesh,
+    null,
+    'expected exact duplicate shell subset to yield to the anchor subset',
   );
-  assert.equal(bakedOffsetMesh, null, 'expected exact duplicate shell subset to yield to the anchor subset');
 
   const position = (bakedAnchorMesh!.geometry as THREE.BufferGeometry).getAttribute('position');
   assert.ok(position, 'expected baked anchor mesh to retain positions');
@@ -157,20 +144,23 @@ test('mjcf mesh export internals accept Color-like material values from foreign 
   assert.equal(resolvedColor!.getHexString(), color.getHexString());
 });
 
+test('mjcf mesh export internals write linear Three material colors back as sRGB hex', () => {
+  const sourceHex = '#abb1c5';
+  const material = new THREE.MeshStandardMaterial();
+  material.color.setRGB(0.6705882353, 0.6941176471, 0.7725490196, THREE.SRGBColorSpace);
+
+  assert.equal(__mjcfMeshExportInternals.colorToHex(material.color), sourceHex);
+});
+
 async function loadReferenceMeshObject(
   meshPath: string,
   assets: Record<string, string>,
   robot: RobotState,
 ): Promise<THREE.Object3D> {
   const referenceManager = new THREE.LoadingManager();
-  const referenceLoader = createMeshLoader(
-    assets,
-    referenceManager,
-    '',
-    {
-      colladaRootNormalizationHints: buildColladaRootNormalizationHints(robot.links),
-    },
-  );
+  const referenceLoader = createMeshLoader(assets, referenceManager, '', {
+    colladaRootNormalizationHints: buildColladaRootNormalizationHints(robot.links),
+  });
 
   return new Promise<THREE.Object3D>((resolve, reject) => {
     referenceLoader(meshPath, referenceManager, (result, err) => {
@@ -229,14 +219,9 @@ test('prepareMjcfMeshExportAssets converts go2 Collada meshes into baked OBJ fil
     'hip.dae': meshDataUrl,
   };
   const referenceManager = new THREE.LoadingManager();
-  const referenceLoader = createMeshLoader(
-    assets,
-    referenceManager,
-    '',
-    {
-      colladaRootNormalizationHints: buildColladaRootNormalizationHints(robot.links),
-    },
-  );
+  const referenceLoader = createMeshLoader(assets, referenceManager, '', {
+    colladaRootNormalizationHints: buildColladaRootNormalizationHints(robot.links),
+  });
 
   const referenceObject = await new Promise<THREE.Object3D>((resolve, reject) => {
     referenceLoader(sourcePath, referenceManager, (result, err) => {
@@ -318,14 +303,9 @@ test('prepareMjcfMeshExportAssets skips redundant full-mesh OBJ exports for visu
     'base.dae': meshDataUrl,
   };
   const referenceManager = new THREE.LoadingManager();
-  const referenceLoader = createMeshLoader(
-    assets,
-    referenceManager,
-    '',
-    {
-      colladaRootNormalizationHints: buildColladaRootNormalizationHints(robot.links),
-    },
-  );
+  const referenceLoader = createMeshLoader(assets, referenceManager, '', {
+    colladaRootNormalizationHints: buildColladaRootNormalizationHints(robot.links),
+  });
 
   const referenceObject = await new Promise<THREE.Object3D>((resolve, reject) => {
     referenceLoader(sourcePath, referenceManager, (result, err) => {
@@ -352,15 +332,22 @@ test('prepareMjcfMeshExportAssets skips redundant full-mesh OBJ exports for visu
   assert.ok(variants, 'expected multi-material visual variants for go2 base mesh');
   assert.ok(variants.length >= 4, 'expected at least four split visual mesh variants');
 
-  const namedVariants = new Set(variants.map((variant) => variant.sourceMaterialName).filter(Boolean));
-  assert.ok(namedVariants.size >= 4, 'expected multiple named material variants from the Collada asset');
+  const namedVariants = new Set(
+    variants.map((variant) => variant.sourceMaterialName).filter(Boolean),
+  );
+  assert.ok(
+    namedVariants.size >= 4,
+    'expected multiple named material variants from the Collada asset',
+  );
 
-  const variantFaceCounts = await Promise.all(variants.map(async (variant) => {
-    assert.match(variant.meshPath, /\.obj$/);
-    const blob = prepared.archiveFiles.get(variant.meshPath);
-    assert.ok(blob, `expected archive blob for ${variant.meshPath}`);
-    return countObjFaces(await blob!.text());
-  }));
+  const variantFaceCounts = await Promise.all(
+    variants.map(async (variant) => {
+      assert.match(variant.meshPath, /\.obj$/);
+      const blob = prepared.archiveFiles.get(variant.meshPath);
+      assert.ok(blob, `expected archive blob for ${variant.meshPath}`);
+      return countObjFaces(await blob!.text());
+    }),
+  );
 
   variantFaceCounts.forEach((faceCount) => {
     assert.ok(faceCount > 0, 'expected each variant OBJ to contain faces');
@@ -436,13 +423,7 @@ test('prepareMjcfMeshExportAssets splits go2w base visual mesh into authored mat
   assert.equal(variants.length, 5);
   assert.deepEqual(
     variants.map((variant) => variant.sourceMaterialName),
-    [
-      '深色橡胶.001',
-      '白色logo.001',
-      '黑色贴纸.007',
-      '黑色金属.007',
-      '黑色塑料.003',
-    ],
+    ['深色橡胶.001', '白色logo.001', '黑色贴纸.007', '黑色金属.007', '黑色塑料.003'],
   );
 });
 
@@ -568,10 +549,9 @@ test('prepareMjcfMeshExportAssets keeps the b2 base logo as a split visual varia
   assert.ok(variants, 'expected split visual mesh variants for b2 base_link');
   assert.equal(variants.length, 4);
 
-  const logoVariant = variants.find((variant) => (
-    /logo/i.test(variant.sourceMaterialName ?? '')
-    || /logo/i.test(variant.meshPath)
-  ));
+  const logoVariant = variants.find(
+    (variant) => /logo/i.test(variant.sourceMaterialName ?? '') || /logo/i.test(variant.meshPath),
+  );
   assert.ok(logoVariant, 'expected b2 base export to keep a dedicated logo mesh variant');
 
   const logoBlob = prepared.archiveFiles.get(logoVariant!.meshPath);
@@ -675,8 +655,14 @@ test('prepareMjcfMeshExportAssets preserves go2w mirrored thigh geometry when sp
   const leftCenter = getWorldBox(leftReference).getCenter(new THREE.Vector3());
   const rightCenter = getWorldBox(rightReference).getCenter(new THREE.Vector3());
 
-  assert.ok(leftCenter.y < 0, `expected left thigh center to stay on negative Y, got ${leftCenter.y}`);
-  assert.ok(rightCenter.y > 0, `expected mirrored right thigh center to stay on positive Y, got ${rightCenter.y}`);
+  assert.ok(
+    leftCenter.y < 0,
+    `expected left thigh center to stay on negative Y, got ${leftCenter.y}`,
+  );
+  assert.ok(
+    rightCenter.y > 0,
+    `expected mirrored right thigh center to stay on positive Y, got ${rightCenter.y}`,
+  );
 
   const prepared = await prepareMjcfMeshExportAssets({
     robot,
@@ -700,20 +686,16 @@ test('prepareMjcfMeshExportAssets preserves go2w mirrored thigh geometry when sp
   expectBoxEquals(exportedRightBox, rightReferenceBox);
 
   const exportedRightCenter = exportedRightBox.getCenter(new THREE.Vector3());
-  assert.ok(exportedRightCenter.y > 0, `expected exported mirrored thigh center to stay on positive Y, got ${exportedRightCenter.y}`);
+  assert.ok(
+    exportedRightCenter.y > 0,
+    `expected exported mirrored thigh center to stay on positive Y, got ${exportedRightCenter.y}`,
+  );
 });
 
 test('prepareMjcfMeshExportAssets reuses identical native OBJ meshes from extracted USD exports by default', async () => {
   const leftPath = 'usd-extracted/FL_thigh_visual_0.obj';
   const rearPath = 'usd-extracted/RL_thigh_visual_0.obj';
-  const sharedObj = [
-    'o shared_thigh',
-    'v 0 0 0',
-    'v 1 0 0',
-    'v 0 1 0',
-    'f 1 2 3',
-    '',
-  ].join('\n');
+  const sharedObj = ['o shared_thigh', 'v 0 0 0', 'v 1 0 0', 'v 0 1 0', 'f 1 2 3', ''].join('\n');
 
   const robot: RobotState = {
     name: 'shared-native-obj-reuse',
@@ -779,14 +761,7 @@ test('prepareMjcfMeshExportAssets reuses identical native OBJ meshes from extrac
 test('prepareMjcfMeshExportAssets can disable native OBJ sharing when requested', async () => {
   const leftPath = 'usd-extracted/FL_thigh_visual_0.obj';
   const rearPath = 'usd-extracted/RL_thigh_visual_0.obj';
-  const sharedObj = [
-    'o shared_thigh',
-    'v 0 0 0',
-    'v 1 0 0',
-    'v 0 1 0',
-    'f 1 2 3',
-    '',
-  ].join('\n');
+  const sharedObj = ['o shared_thigh', 'v 0 0 0', 'v 1 0 0', 'v 0 1 0', 'f 1 2 3', ''].join('\n');
 
   const robot: RobotState = {
     name: 'shared-native-obj-opt-out',

@@ -45,6 +45,12 @@ import {
 } from './workspaceSourceSyncUtils';
 import { resolveRobotFileDataWithWorker } from './robotImportWorkerBridge';
 import { useAnimatedWorkspaceViewerRobotData } from './useAnimatedWorkspaceViewerRobotData';
+import {
+  resolveWorkspaceViewerFallbackRobot,
+  resolveWorkspaceViewerRobot,
+  shouldPersistStableWorkspaceViewerRobot,
+  shouldAnimateWorkspaceViewerRobot,
+} from './workspaceViewerPresentation';
 
 export interface JointMotionStateValue {
   angle?: number;
@@ -273,6 +279,8 @@ export function useWorkspaceSourceSync({
   // a redundant viewer reload before the assembly actually diverges.
   const shouldRenderAssembly =
     isWorkspaceAssembly && hasWorkspaceComponents && !shouldReuseSelectedFileViewerForWorkspace;
+  const previousShouldRenderAssemblyRef = useRef(shouldRenderAssembly);
+  const lastStableViewerRobotRef = useRef<RobotState | null>(null);
 
   const mergedRobotData = useMemo(() => {
     if (!shouldRenderAssembly) return null;
@@ -314,6 +322,23 @@ export function useWorkspaceSourceSync({
   const deferredWorkspaceAssemblyRenderFailureReason = useDeferredValue(
     workspaceAssemblyRenderFailureReason,
   );
+  const isPreviewingAssemblyBridge = shouldRenderAssembly && Boolean(assemblyBridgePreview);
+  // Bridge-creation steppers emit small, high-frequency origin updates. Running those
+  // preview frames through deferred values makes the child component feel sticky.
+  const workspaceViewerAssemblyStateForDisplay = isPreviewingAssemblyBridge
+    ? viewerAssemblyState
+    : deferredViewerAssemblyState;
+  const workspaceViewerMergedRobotDataForDisplay = isPreviewingAssemblyBridge
+    ? viewerMergedRobotData
+    : deferredViewerMergedRobotData;
+  const workspaceAssemblyRenderFailureReasonForDisplay = isPreviewingAssemblyBridge
+    ? workspaceAssemblyRenderFailureReason
+    : deferredWorkspaceAssemblyRenderFailureReason;
+  const animateWorkspaceViewerRobot = shouldAnimateWorkspaceViewerRobot({
+    shouldRenderAssembly,
+    previouslyRenderedAssembly: previousShouldRenderAssemblyRef.current,
+    isPreviewingAssemblyBridge,
+  });
 
   const emptyRobot = useMemo<RobotState>(
     () => ({
@@ -350,36 +375,31 @@ export function useWorkspaceSourceSync({
       return null;
     }
 
-    if (deferredWorkspaceAssemblyRenderFailureReason || !deferredViewerMergedRobotData) {
+    if (
+      workspaceAssemblyRenderFailureReasonForDisplay ||
+      !workspaceViewerMergedRobotDataForDisplay
+    ) {
       return null;
     }
 
     return (
       buildWorkspaceAssemblyViewerDisplayRobotData({
-        assemblyState: deferredViewerAssemblyState,
-        mergedRobotData: deferredViewerMergedRobotData,
-      }) ?? buildWorkspaceViewerRobotData(deferredViewerMergedRobotData)
+        assemblyState: workspaceViewerAssemblyStateForDisplay,
+        mergedRobotData: workspaceViewerMergedRobotDataForDisplay,
+      }) ?? buildWorkspaceViewerRobotData(workspaceViewerMergedRobotDataForDisplay)
     );
   }, [
     deferredShouldRenderAssembly,
-    deferredViewerAssemblyState,
-    deferredViewerMergedRobotData,
-    deferredWorkspaceAssemblyRenderFailureReason,
+    workspaceAssemblyRenderFailureReasonForDisplay,
+    workspaceViewerAssemblyStateForDisplay,
+    workspaceViewerMergedRobotDataForDisplay,
   ]);
   const animatedWorkspaceViewerRobotData = useAnimatedWorkspaceViewerRobotData(
     workspaceViewerRobotData,
-    shouldRenderAssembly,
+    animateWorkspaceViewerRobot,
   );
 
-  const robot = useMemo<RobotState>(() => {
-    if (shouldRenderAssembly) {
-      if (mergedRobotData) {
-        return { ...mergedRobotData, selection };
-      }
-
-      return emptyRobot;
-    }
-
+  const sourceViewerRobot = useMemo<RobotState>(() => {
     if (isSelectedUsdHydrating) {
       return emptyRobot;
     }
@@ -397,26 +417,74 @@ export function useWorkspaceSourceSync({
     closedLoopConstraints,
     emptyRobot,
     isSelectedUsdHydrating,
-    mergedRobotData,
     robotJoints,
     robotLinks,
     robotMaterials,
     robotName,
     rootLinkId,
     selection,
-    shouldRenderAssembly,
   ]);
-  const viewerRobot = useMemo<RobotState>(() => {
+  const robot = useMemo<RobotState>(() => {
     if (shouldRenderAssembly) {
-      if (animatedWorkspaceViewerRobotData) {
-        return { ...animatedWorkspaceViewerRobotData, selection };
+      if (mergedRobotData) {
+        return { ...mergedRobotData, selection };
       }
 
       return emptyRobot;
     }
 
-    return robot;
-  }, [animatedWorkspaceViewerRobotData, emptyRobot, robot, selection, shouldRenderAssembly]);
+    return sourceViewerRobot;
+  }, [emptyRobot, mergedRobotData, selection, shouldRenderAssembly, sourceViewerRobot]);
+  const hasWorkspaceDisplayRobot = Boolean(
+    animatedWorkspaceViewerRobotData ?? workspaceViewerRobotData,
+  );
+  // Preserve the last painted scene until the workspace viewer has a real
+  // display robot, so switching into Professional mode does not flash empty.
+  const viewerFallbackRobot = useMemo(
+    () =>
+      resolveWorkspaceViewerFallbackRobot({
+        shouldRenderAssembly,
+        hasWorkspaceDisplayRobot,
+        liveRobot: sourceViewerRobot,
+        lastStableViewerRobot: lastStableViewerRobotRef.current,
+        selection,
+      }),
+    [hasWorkspaceDisplayRobot, selection, shouldRenderAssembly, sourceViewerRobot],
+  );
+  const viewerRobot = useMemo<RobotState>(
+    () =>
+      resolveWorkspaceViewerRobot({
+        shouldRenderAssembly,
+        liveRobot: viewerFallbackRobot,
+        workspaceViewerRobotData,
+        animatedWorkspaceViewerRobotData,
+        selection,
+      }),
+    [
+      animatedWorkspaceViewerRobotData,
+      viewerFallbackRobot,
+      selection,
+      shouldRenderAssembly,
+      workspaceViewerRobotData,
+    ],
+  );
+
+  useEffect(() => {
+    previousShouldRenderAssemblyRef.current = shouldRenderAssembly;
+  }, [shouldRenderAssembly]);
+
+  useEffect(() => {
+    if (
+      !shouldPersistStableWorkspaceViewerRobot({
+        shouldRenderAssembly,
+        hasWorkspaceDisplayRobot,
+      })
+    ) {
+      return;
+    }
+
+    lastStableViewerRobotRef.current = viewerRobot;
+  }, [hasWorkspaceDisplayRobot, shouldRenderAssembly, viewerRobot]);
 
   const jointAngleState = useMemo(() => {
     const angles: Record<string, number> = {};
@@ -1230,15 +1298,17 @@ export function useWorkspaceSourceSync({
 
   useEffect(() => {
     if (!filePreviewFile) {
+      filePreviewRequestRef.current += 1;
       setPreviewRobot(null);
       setFilePreview(undefined);
       return;
     }
 
     const requestId = ++filePreviewRequestRef.current;
-    setPreviewRobot(null);
-    setFilePreview(undefined);
 
+    // Keep the current preview scene mounted until the replacement preview payload is ready.
+    // Clearing it immediately causes a visible blank-frame handoff when switching mesh/model
+    // previews, even if the shared canvas itself no longer remounts.
     void resolveRobotFileDataWithWorker(filePreviewFile, {
       availableFiles,
       assets,
@@ -1257,20 +1327,22 @@ export function useWorkspaceSourceSync({
           importResult: result,
         });
 
+        const shouldActivatePreview =
+          previewUrdf != null &&
+          (filePreviewFile.format === 'usd' || previewUrdf.trim().length > 0);
+
+        if (!shouldActivatePreview) {
+          return;
+        }
+
         setPreviewRobot(nextPreviewRobot);
-        setFilePreview(
-          previewUrdf != null
-            ? { urdfContent: previewUrdf, fileName: filePreviewFile.name }
-            : undefined,
-        );
+        setFilePreview({ urdfContent: previewUrdf, fileName: filePreviewFile.name });
       })
       .catch((error) => {
         if (requestId !== filePreviewRequestRef.current) {
           return;
         }
 
-        setPreviewRobot(null);
-        setFilePreview(undefined);
         scheduleFailFastInDev(
           'useWorkspaceSourceSync:filePreview',
           new Error(`Failed to resolve file preview for "${filePreviewFile.name}".`, {

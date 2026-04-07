@@ -148,11 +148,18 @@ export const en: TranslationKeys = {
   eulerRadians: 'Euler (rad)',
   quaternion: 'Quaternion',
   color: 'Color',
+  texture: 'Texture',
   meshLibrary: 'Mesh Library',
+  textureLibrary: 'Texture Library',
   upload: 'Upload (.stl, .obj, .dae)',
+  uploadTexture: 'Upload Image',
   selected: 'Selected',
   applyMesh: 'Apply',
   meshHint: 'Click to preview, double-click to apply',
+  clearTexture: 'Clear',
+  textureReadonlyMultiMaterialHint:
+    'This visual uses multiple authored materials. Base texture editing is read-only here.',
+  textureNotFound: 'No image textures in the asset library yet',
   inertial: 'Inertial',
   derivedValues: 'Derived Values',
   mass: 'Mass (kg)',
@@ -161,6 +168,24 @@ export const en: TranslationKeys = {
   inertiaTensor: 'Inertia Tensor',
   diagonalInertia: 'Diagonal Inertia',
   principalAxes: 'Principal Axes',
+  massChangeInertiaDialogTitle: 'Update inertia after changing mass?',
+  massChangeInertiaDialogMessage:
+    'The mass of {name} has been changed to {mass} kg. Choose whether to keep the authored inertia tensor or re-estimate it by assuming the existing tensor came from the same geometry with uniform density.',
+  massChangeInertiaKeep: 'Keep current inertia',
+  massChangeInertiaKeepDescription:
+    'Keep the current inertia tensor unchanged and only update the mass value.',
+  massChangeInertiaReestimate: 'Re-estimate inertia',
+  massChangeInertiaReestimateDescription:
+    'Scale the current inertia tensor by the mass ratio while preserving the existing center of mass and principal-axis layout.',
+  massChangeInertiaReestimateUnavailable:
+    'Auto re-estimation is unavailable because the current link mass or inertia tensor is not valid.',
+  massChangeInertiaRememberChoice: "Don't ask again for similar mass changes",
+  massChangeInertiaPreservedNotice:
+    '{name}: kept the authored inertia tensor after updating mass to {mass} kg.',
+  massChangeInertiaReestimatedNotice:
+    '{name}: re-estimated inertia under a uniform-density assumption. {tensor}',
+  massChangeInertiaFallbackNotice:
+    '{name}: could not re-estimate inertia automatically, so the authored tensor was kept.',
   kinematics: 'Kinematics',
   axisRotation: 'Axis of Rotation/Motion',
   hardwareConfig: 'Hardware',
@@ -180,6 +205,8 @@ export const en: TranslationKeys = {
   velocity: 'Velocity',
   effort: 'Effort',
   bridgeLimitRangeInvalid: 'Lower limit must be less than or equal to upper limit.',
+  bridgeNonFixedCycleUnsupported:
+    'Cycle-closing bridges only support fixed joints. Use a fixed bridge for closed-loop conversion.',
   dynamics: 'Dynamics',
   friction: 'Friction',
   damping: 'Damping',
@@ -230,6 +257,9 @@ export const en: TranslationKeys = {
   instructionLinux: 'Left Click: Rotate | Right Click: Pan | Scroll: Zoom',
   instructionOther: 'Drag: Rotate | Secondary Click/Gesture: Pan | Scroll: Zoom',
   showWorldOriginAxes: 'Show world origin axes',
+  showMjcfWorldGeometry: 'Show MJCF world geometry',
+  showMjcfSites: 'Show MJCF sites',
+  showIkHandles: 'Show IK Handles',
   hideUsageGuide: 'Hide controls hint',
   showUsageGuide: 'Show controls hint',
   clickToSelect: 'Click objects to select.',
@@ -303,6 +333,7 @@ export const en: TranslationKeys = {
   toolbox: 'Toolbox',
   toolboxHoverHint: 'Hover a tool to preview it, then click to open.',
   robotRedirect: 'Motion Tracking',
+  step2urdf: 'STEP2URDF',
   motrix: 'Motrix Viewer',
   trajectoryEditing: 'Trajectory Editing',
   featureInDevelopment: 'Feature in development',
@@ -321,6 +352,7 @@ export const en: TranslationKeys = {
   measureToolboxDesc:
     'Open the movable measurement panel and measure distances between selectable link anchors in the 3D viewport',
   motionTrackingDesc: 'Analyze and follow motion trajectories',
+  step2urdfDesc: 'Online STEP and CAD to URDF conversion tool',
   motrixDesc: 'Online simulator',
   trajectoryEditingDesc: 'Visual motion sequence editor',
   bridgedpEngine: 'BridgeDP Engine',
@@ -377,6 +409,12 @@ export const en: TranslationKeys = {
   meshNotFound: 'Mesh not found',
   deleteMeasurement: 'Click to delete this measurement',
   webglContextRestoring: 'WebGL context lost, restoring...',
+  webglUnsupportedTitle: '3D view unavailable',
+  webglUnsupportedMessage:
+    'Failed to load the 3D view. Hardware acceleration may be disabled in your browser, or your GPU may be too old. Try enabling hardware acceleration in your browser settings, or retry on another device.',
+  webglRuntimeErrorTitle: '3D view ran into an unexpected error',
+  webglRuntimeErrorMessage:
+    'The 3D viewport stopped rendering because an unexpected runtime error occurred. Refresh the page and check the browser console if the problem persists.',
   emptyAssemblyHint:
     'Click files in the asset library above to add them, or right-click for more actions',
   clickToAddComponent: 'Click a file to add it immediately, or right-click for more actions',
@@ -442,6 +480,9 @@ export const en: TranslationKeys = {
   loadingBridgeDialog: 'Loading bridge dialog…',
   importPreparationLoadingTitle: 'Preparing import…',
   importPreparationLoadingDetail: 'Preparing imported files and assets before opening the 3D view.',
+  importPreparationReadingArchive: 'Reading archive…',
+  importPreparationExtractingFiles: 'Preparing essential files…',
+  importPreparationFinalizingImport: 'Finalizing import…',
   preparingAssemblyComponent: 'Preparing component data…',
   addingAssemblyComponentToWorkspace: 'Adding component to workspace…',
   groundingAssemblyComponent: 'Aligning component to ground…',
@@ -452,7 +493,7 @@ export const en: TranslationKeys = {
   privacyNoticeLocalProcessing:
     'All data is processed locally in your browser.\nIt will not be uploaded to any cloud server. Your data is safe.',
   importPackageAssetBundleHint:
-    'This robot references package assets ({packages}). Import the full folder or ZIP so meshes and textures are available instead of placeholders.',
+    'This robot references external assets ({assets}). Import the full folder or ZIP so meshes and textures are available.',
   importUspSuccess: 'USP imported successfully',
   addedFilesToAssetLibrary: 'Added {count} file(s) to asset library',
   libraryImportSuccessful: 'Library imported successfully!',
@@ -474,6 +515,8 @@ export const en: TranslationKeys = {
   deletedAllLibraryFiles: 'Deleted all {count} file(s) from the asset library',
   onlyUrdfMjcfExport: 'Only URDF/MJCF/Xacro/SDF files support export',
   exportFailedParse: 'Export failed: file parse error',
+  exportClosedLoopUrdfUnsupported:
+    'URDF export is unavailable for {name}: detected {count} closed-loop constraint(s). Core URDF only supports tree topologies. Use MJCF, Xacro, SDF, or .usp instead.',
   exportLibraryParseFailed: 'Failed to parse library file: {file}',
   exportLibraryUnsupportedFormat: 'Library export does not support format: {format}',
   usdExportRequiresLoadedStage:
@@ -556,10 +599,6 @@ export const en: TranslationKeys = {
 
   // Measure Tool
   measureTool: 'Measure Tool',
-  measureInstruction1:
-    'Choose whether the measurement snaps to the link frame / TF origin, center of mass, or geometry center',
-  measureInstruction2: 'Esc to clear the current link selection',
-  measureInstruction3: 'Delete to undo the current selection or the last measurement',
   measuredCount: 'Measured: {count}',
   measureSlotFirst: 'Component 1',
   measureSlotSecond: 'Component 2',
@@ -567,8 +606,8 @@ export const en: TranslationKeys = {
   measureSlotSelecting: 'Selecting',
   measureSlotSelected: 'Selected',
   measureClearSelection: 'Clear the selected component',
-  measureAnchorMode: 'Anchor',
-  measureAnchorFrame: 'Frame',
+  measureAnchorMode: 'Snap',
+  measureAnchorFrame: 'Origin',
   measureAnchorCenterOfMass: 'CoM',
   measureAnchorGeometry: 'Geometry',
   measureGroups: 'Measurement Groups',
@@ -620,6 +659,8 @@ export const en: TranslationKeys = {
   exportActuatorMotor: 'Torque',
   exportDefaultKp: 'Default Kp / Kv',
   exportIncludeMeshes: 'Include Mesh Files in ZIP',
+  exportSdfTextureOverrideNotice:
+    'Texture overrides from the property panel are not exported to SDF in this version.',
   exportRelativePaths: 'Use Relative Mesh Paths',
   exportRelativePathsDesc: 'Replace package:// with relative paths (./meshes/...)',
   exportIncludeExtended: 'Include Extended URDF',

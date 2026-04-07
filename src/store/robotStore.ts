@@ -4,9 +4,16 @@
  */
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import type { RobotClosedLoopConstraint, RobotMaterialState, UrdfLink, UrdfJoint } from '@/types';
+import type {
+  JointQuaternion,
+  RobotClosedLoopConstraint,
+  RobotInspectionContext,
+  RobotMaterialState,
+  UrdfLink,
+  UrdfJoint,
+} from '@/types';
 import { DEFAULT_LINK, DEFAULT_JOINT, DEFAULT_VISUAL_COLOR } from '@/types';
-import { resolveClosedLoopJointMotionCompensation } from '@/core/robot';
+import { resolveClosedLoopDrivenJointMotion } from '@/core/robot';
 import {
   syncRobotMaterialsForLinkUpdate,
   syncRobotVisualColorsFromMaterials,
@@ -17,11 +24,13 @@ const INITIAL_LINK_ID = 'base_link';
 // Robot data without selection (selection is in selectionStore)
 export interface RobotData {
   name: string;
+  version?: string;
   links: Record<string, UrdfLink>;
   joints: Record<string, UrdfJoint>;
   rootLinkId: string;
   materials?: Record<string, RobotMaterialState>;
   closedLoopConstraints?: RobotClosedLoopConstraint[];
+  inspectionContext?: RobotInspectionContext;
 }
 
 // History state for undo/redo
@@ -40,6 +49,11 @@ interface UpdateOptions {
   skipHistory?: boolean;
   label?: string;
   resetHistory?: boolean;
+}
+
+interface ApplyJointKinematicOverridesOptions {
+  skipHistory?: boolean;
+  historyLabel?: string;
 }
 
 interface RobotActions {
@@ -62,6 +76,13 @@ interface RobotActions {
   updateJoint: (id: string, updates: Partial<UrdfJoint>, options?: UpdateOptions) => void;
   deleteJoint: (jointId: string) => void;
   setJointAngle: (jointName: string, angle: number) => void;
+  applyJointKinematicOverrides: (
+    overrides: {
+      angles?: Record<string, number>;
+      quaternions?: Record<string, JointQuaternion>;
+    },
+    options?: ApplyJointKinematicOverridesOptions,
+  ) => void;
 
   // Tree operations
   addChild: (parentLinkId: string) => { linkId: string; jointId: string };
@@ -92,8 +113,8 @@ const INITIAL_ROBOT_DATA: RobotData = {
       ...DEFAULT_LINK,
       id: INITIAL_LINK_ID,
       name: 'base_link',
-      visual: { ...DEFAULT_LINK.visual, color: DEFAULT_VISUAL_COLOR }
-    }
+      visual: { ...DEFAULT_LINK.visual, color: DEFAULT_VISUAL_COLOR },
+    },
   },
   joints: {},
   rootLinkId: INITIAL_LINK_ID,
@@ -110,23 +131,33 @@ const createChangeLogEntry = (label: string): ChangeLogEntry => ({
   label,
 });
 
-export const useRobotStore = create<RobotData & RobotActions & {
-  _history: HistoryState;
-  _activity: ChangeLogEntry[];
-}>()(
+export const useRobotStore = create<
+  RobotData &
+    RobotActions & {
+      _history: HistoryState;
+      _activity: ChangeLogEntry[];
+    }
+>()(
   immer((set, get) => {
     const appendHistorySnapshot = (snapshot: RobotData, label: string) => {
       set((state) => {
-        state._history.past = [...state._history.past, cloneRobotData(snapshot)].slice(-MAX_HISTORY);
+        state._history.past = [...state._history.past, cloneRobotData(snapshot)].slice(
+          -MAX_HISTORY,
+        );
         state._history.future = [];
-        state._activity = [...state._activity, createChangeLogEntry(label)].slice(-MAX_ACTIVITY_LOG);
+        state._activity = [...state._activity, createChangeLogEntry(label)].slice(
+          -MAX_ACTIVITY_LOG,
+        );
       });
     };
 
     // Helper to save current state to history
     const saveToHistory = (label: string) => {
       const { name, links, joints, rootLinkId, materials, closedLoopConstraints } = get();
-      appendHistorySnapshot({ name, links, joints, rootLinkId, materials, closedLoopConstraints }, label);
+      appendHistorySnapshot(
+        { name, links, joints, rootLinkId, materials, closedLoopConstraints },
+        label,
+      );
     };
 
     return {
@@ -162,7 +193,9 @@ export const useRobotStore = create<RobotData & RobotActions & {
           state.closedLoopConstraints = normalizedData.closedLoopConstraints;
           if (shouldResetHistory) {
             state._history = { past: [], future: [] };
-            state._activity = [...state._activity, createChangeLogEntry(historyLabel)].slice(-MAX_ACTIVITY_LOG);
+            state._activity = [...state._activity, createChangeLogEntry(historyLabel)].slice(
+              -MAX_ACTIVITY_LOG,
+            );
           }
         });
       },
@@ -277,20 +310,45 @@ export const useRobotStore = create<RobotData & RobotActions & {
           : Object.entries(state.joints).find(([, j]) => j.name === jointName)?.[0];
         if (!jointId) return;
 
-        const compensation = resolveClosedLoopJointMotionCompensation(state, jointId, angle);
+        const solution = resolveClosedLoopDrivenJointMotion(state, jointId, angle);
         // Don't save to history for joint angle changes (too frequent)
         set((state) => {
-          if (state.joints[jointId]) {
-            state.joints[jointId].angle = angle;
-          }
-          Object.entries(compensation.angles).forEach(([compensatedJointId, compensatedAngle]) => {
+          Object.entries(solution.angles).forEach(([compensatedJointId, compensatedAngle]) => {
             if (state.joints[compensatedJointId]) {
               state.joints[compensatedJointId].angle = compensatedAngle;
             }
           });
-          Object.entries(compensation.quaternions).forEach(([compensatedJointId, compensatedQuaternion]) => {
-            if (state.joints[compensatedJointId]) {
-              state.joints[compensatedJointId].quaternion = compensatedQuaternion;
+          Object.entries(solution.quaternions).forEach(
+            ([compensatedJointId, compensatedQuaternion]) => {
+              if (state.joints[compensatedJointId]) {
+                state.joints[compensatedJointId].quaternion = compensatedQuaternion;
+              }
+            },
+          );
+        });
+      },
+
+      applyJointKinematicOverrides: (overrides, options) => {
+        const nextAngles = overrides.angles ?? {};
+        const nextQuaternions = overrides.quaternions ?? {};
+        if (Object.keys(nextAngles).length === 0 && Object.keys(nextQuaternions).length === 0) {
+          return;
+        }
+
+        if (!options?.skipHistory) {
+          saveToHistory(options?.historyLabel ?? 'Update joint motion');
+        }
+
+        set((state) => {
+          Object.entries(nextAngles).forEach(([jointId, angle]) => {
+            if (state.joints[jointId]) {
+              state.joints[jointId].angle = angle;
+            }
+          });
+
+          Object.entries(nextQuaternions).forEach(([jointId, quaternion]) => {
+            if (state.joints[jointId]) {
+              state.joints[jointId].quaternion = quaternion;
             }
           });
         });
@@ -303,16 +361,14 @@ export const useRobotStore = create<RobotData & RobotActions & {
         const newJointId = `joint_${Date.now()}`;
 
         // Calculate offset for new child
-        const siblings = Object.values(state.joints).filter(
-          (j) => j.parentLinkId === parentLinkId
-        );
+        const siblings = Object.values(state.joints).filter((j) => j.parentLinkId === parentLinkId);
         const yOffset = siblings.length * 0.5;
 
         const newLink: UrdfLink = {
           ...DEFAULT_LINK,
           id: newLinkId,
           name: `link_${Object.keys(state.links).length + 1}`,
-          visual: { ...DEFAULT_LINK.visual, color: DEFAULT_VISUAL_COLOR }
+          visual: { ...DEFAULT_LINK.visual, color: DEFAULT_VISUAL_COLOR },
         };
 
         const newJoint: UrdfJoint = {
@@ -323,7 +379,7 @@ export const useRobotStore = create<RobotData & RobotActions & {
           childLinkId: newLinkId,
           origin: {
             xyz: { x: 0, y: yOffset, z: 0.5 },
-            rpy: { r: 0, p: 0, y: 0 }
+            rpy: { r: 0, p: 0, y: 0 },
           },
         };
 
@@ -371,11 +427,19 @@ export const useRobotStore = create<RobotData & RobotActions & {
 
       // History operations
       undo: () => {
-        const { _history, name, links, joints, rootLinkId, materials, closedLoopConstraints } = get();
+        const { _history, name, links, joints, rootLinkId, materials, closedLoopConstraints } =
+          get();
         if (_history.past.length === 0) return;
 
         const previous = cloneRobotData(_history.past[_history.past.length - 1]);
-        const currentData = cloneRobotData({ name, links, joints, rootLinkId, materials, closedLoopConstraints });
+        const currentData = cloneRobotData({
+          name,
+          links,
+          joints,
+          rootLinkId,
+          materials,
+          closedLoopConstraints,
+        });
 
         set((state) => {
           state.name = previous.name;
@@ -390,11 +454,19 @@ export const useRobotStore = create<RobotData & RobotActions & {
       },
 
       redo: () => {
-        const { _history, name, links, joints, rootLinkId, materials, closedLoopConstraints } = get();
+        const { _history, name, links, joints, rootLinkId, materials, closedLoopConstraints } =
+          get();
         if (_history.future.length === 0) return;
 
         const next = cloneRobotData(_history.future[0]);
-        const currentData = cloneRobotData({ name, links, joints, rootLinkId, materials, closedLoopConstraints });
+        const currentData = cloneRobotData({
+          name,
+          links,
+          joints,
+          rootLinkId,
+          materials,
+          closedLoopConstraints,
+        });
 
         set((state) => {
           state.name = next.name;
@@ -453,7 +525,7 @@ export const useRobotStore = create<RobotData & RobotActions & {
         return Object.values(get().joints).find((j) => j.childLinkId === linkId);
       },
     };
-  })
+  }),
 );
 
 // Selector hooks for common patterns

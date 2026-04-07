@@ -4,7 +4,7 @@ import { supportsUsdWorkerRenderer } from './usdWorkerRendererSupport.ts';
 import { collectUsdStageOpenRelevantVirtualPaths, toVirtualUsdPath } from './usdPreloadSources.ts';
 import { hasBlobBackedLargeUsdaInStageScope } from './usdBlobBackedUsda.ts';
 
-type OffscreenUsdFileLike = Pick<RobotFile, 'name' | 'content' | 'format'>;
+type OffscreenUsdFileLike = Pick<RobotFile, 'name' | 'content' | 'format' | 'blobUrl'>;
 
 interface ShouldUseUsdOffscreenStageOptions {
   toolMode: ToolMode;

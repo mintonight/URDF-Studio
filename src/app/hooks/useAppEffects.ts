@@ -41,19 +41,23 @@ export function useKeyboardShortcuts() {
 export function useSelectionCleanup() {
   const links = useRobotStore((state) => state.links);
   const joints = useRobotStore((state) => state.joints);
+  const inspectionContext = useRobotStore((state) => state.inspectionContext);
   const selection = useSelectionStore((state) => state.selection);
   const clearSelection = useSelectionStore((state) => state.clearSelection);
 
   useEffect(() => {
     if (selection.id && selection.type) {
-      const exists = selection.type === 'link'
-        ? links[selection.id]
-        : joints[selection.id];
+      const exists =
+        selection.type === 'link'
+          ? links[selection.id]
+          : selection.type === 'joint'
+            ? joints[selection.id]
+            : inspectionContext?.mjcf?.tendons.some((tendon) => tendon.name === selection.id);
       if (!exists) {
         clearSelection();
       }
     }
-  }, [links, joints, selection, clearSelection]);
+  }, [inspectionContext, links, joints, selection, clearSelection]);
 }
 
 /**
@@ -67,7 +71,7 @@ export function useSystemThemeListener() {
     if (theme !== 'system') return;
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    
+
     const handleChange = () => {
       // Re-apply theme to update class based on new system preference
       setTheme('system');

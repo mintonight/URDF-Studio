@@ -159,51 +159,7 @@ test('MJCF, URDF, SDF, and USD exports expose a custom compression mode with a s
   }
 });
 
-test('workspace export dialog keeps project export separate from the format picker', async () => {
-  const { dom, container, root } = createComponentRoot();
-  let exportedConfig: ExportDialogConfig | null = null;
-
-  try {
-    await renderExportDialog(
-      root,
-      (config) => {
-        exportedConfig = config;
-      },
-      {
-        allowProjectExport: true,
-        defaultFormat: 'project',
-      },
-    );
-
-    const formatPicker = getRequiredElement<HTMLElement>(
-      container,
-      '[data-export-format-picker]',
-      'format picker',
-    );
-    assert.doesNotMatch(formatPicker.textContent ?? '', /工程 \(\.usp\)/);
-
-    const projectCard = getRequiredElement<HTMLElement>(
-      container,
-      '[data-project-export-card]',
-      'project export card',
-    );
-    assert.match(projectCard.textContent ?? '', /导出当前工作区工程/);
-
-    const projectExportButton = getRequiredElement<HTMLButtonElement>(
-      container,
-      '[data-project-export-button]',
-      'project export button',
-    );
-    await click(projectExportButton);
-
-    assert.ok(exportedConfig, 'project export should submit a config');
-    assert.equal(exportedConfig.format, 'project');
-  } finally {
-    await destroyComponentRoot(dom, root);
-  }
-});
-
-test('project export format stays hidden when project export is not enabled', async () => {
+test('export dialog only shows file-format exports and keeps project export outside the dialog', async () => {
   const { dom, container, root } = createComponentRoot();
 
   try {
@@ -216,6 +172,7 @@ test('project export format stays hidden when project export is not enabled', as
     );
     assert.doesNotMatch(formatPicker.textContent ?? '', /工程 \(\.usp\)/);
     assert.equal(container.querySelector('[data-project-export-card]'), null);
+    assert.doesNotMatch(container.textContent ?? '', /导出当前工作区工程/);
   } finally {
     await destroyComponentRoot(dom, root);
   }
@@ -233,6 +190,20 @@ test('USD export shows compression presets immediately without an extra toggle',
     assert.ok(getButtonByText(container, '低压缩'));
     assert.ok(getButtonByText(container, '中等'));
     assert.ok(getButtonByText(container, '自定义'));
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('SDF export explains that property-panel texture overrides are ignored', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  try {
+    await renderExportDialog(root, () => {});
+
+    await click(getButtonByText(container, 'SDF'));
+
+    assert.match(container.textContent ?? '', /属性面板里的贴图覆盖当前不会导出到 SDF/);
   } finally {
     await destroyComponentRoot(dom, root);
   }
@@ -416,8 +387,8 @@ test('Xacro export moves ROS profile guidance into hover titles instead of inlin
     assert.match(ros2Button.className, /min-h-\[2\.5rem\]/);
     assert.doesNotMatch(ros2Button.className, /min-h-\[3\.15rem\]/);
 
-    const xacroHintButton = Array.from(container.querySelectorAll('button[title]')).find(
-      (candidate) => candidate.getAttribute('title')?.includes('导出为真正的 xacro'),
+    const xacroHintButton = Array.from(container.querySelectorAll('button[aria-label]')).find(
+      (candidate) => candidate.getAttribute('aria-label')?.includes('导出为真正的 xacro'),
     );
     assert.ok(xacroHintButton, 'xacro static hint should still be available via hover');
 
@@ -426,14 +397,6 @@ test('Xacro export moves ROS profile guidance into hover titles instead of inlin
     assert.equal(
       hardwareSelect?.getAttribute('title'),
       '写入每个 ros2_control joint 条目中的 ROS2 command_interface 名称。',
-    );
-
-    const textContent = container.textContent ?? '';
-    assert.doesNotMatch(textContent, /导出为真正的 xacro/);
-    assert.doesNotMatch(textContent, /导出 ros2_control 与 gazebo_ros2_control 约定/);
-    assert.doesNotMatch(
-      textContent,
-      /写入每个 ros2_control joint 条目中的 ROS2 command_interface 名称/,
     );
   } finally {
     await destroyComponentRoot(dom, root);

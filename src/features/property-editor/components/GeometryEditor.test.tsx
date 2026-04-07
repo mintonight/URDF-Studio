@@ -8,8 +8,9 @@ import { JSDOM } from 'jsdom';
 import type { RobotState, UrdfLink } from '@/types';
 import { GeometryType } from '@/types';
 import { translations } from '@/shared/i18n';
-import { useUIStore } from '@/store';
+import { useCollisionTransformStore, useSelectionStore, useUIStore } from '@/store';
 import { GeometryEditor } from './GeometryEditor.tsx';
+import { __resetMeshAnalysisWorkerBridgeForTests } from '../utils/meshAnalysisWorkerBridge.ts';
 
 type WorkerEventHandler = (event: { data?: unknown; error?: unknown; message?: string }) => void;
 
@@ -93,11 +94,13 @@ function installDom() {
   });
 
   (globalThis as { HTMLElement?: typeof HTMLElement }).HTMLElement = dom.window.HTMLElement;
-  (globalThis as { HTMLInputElement?: typeof HTMLInputElement }).HTMLInputElement = dom.window.HTMLInputElement;
+  (globalThis as { HTMLInputElement?: typeof HTMLInputElement }).HTMLInputElement =
+    dom.window.HTMLInputElement;
   (globalThis as { Node?: typeof Node }).Node = dom.window.Node;
   (globalThis as { Event?: typeof Event }).Event = dom.window.Event;
   (globalThis as { MouseEvent?: typeof MouseEvent }).MouseEvent = dom.window.MouseEvent;
-  (globalThis as { PointerEvent?: typeof PointerEvent }).PointerEvent = dom.window.PointerEvent ?? dom.window.MouseEvent;
+  (globalThis as { PointerEvent?: typeof PointerEvent }).PointerEvent =
+    dom.window.PointerEvent ?? dom.window.MouseEvent;
   (globalThis as { InputEvent?: typeof InputEvent }).InputEvent = dom.window.InputEvent;
   (globalThis as { FocusEvent?: typeof FocusEvent }).FocusEvent = dom.window.FocusEvent;
   (globalThis as { KeyboardEvent?: typeof KeyboardEvent }).KeyboardEvent = dom.window.KeyboardEvent;
@@ -106,9 +109,12 @@ function installDom() {
     unobserve() {}
     disconnect() {}
   } as unknown as typeof ResizeObserver;
-  (globalThis as { getComputedStyle?: typeof getComputedStyle }).getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
-  (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window);
-  (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window);
+  (globalThis as { getComputedStyle?: typeof getComputedStyle }).getComputedStyle =
+    dom.window.getComputedStyle.bind(dom.window);
+  (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame =
+    dom.window.requestAnimationFrame.bind(dom.window);
+  (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame =
+    dom.window.cancelAnimationFrame.bind(dom.window);
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
   if (!('attachEvent' in dom.window.HTMLElement.prototype)) {
@@ -127,7 +133,23 @@ function installDom() {
   return dom;
 }
 
+function resetGeometryEditorTestState() {
+  __resetMeshAnalysisWorkerBridgeForTests();
+  useCollisionTransformStore.setState({ pendingCollisionTransform: null });
+  useSelectionStore.setState({
+    selection: { type: null, id: null },
+    hoveredSelection: { type: null, id: null },
+    deferredHoveredSelection: { type: null, id: null },
+    hoverFrozen: false,
+    attentionSelection: { type: null, id: null },
+    focusTarget: null,
+    interactionGuard: null,
+  });
+  useUIStore.setState({ rotationDisplayMode: 'euler_deg' });
+}
+
 function createComponentRoot() {
+  resetGeometryEditorTestState();
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -140,6 +162,7 @@ async function destroyComponentRoot(dom: JSDOM, root: Root) {
   await act(async () => {
     root.unmount();
   });
+  resetGeometryEditorTestState();
   dom.window.close();
 }
 
@@ -207,33 +230,38 @@ function createCollisionVisualMeshReferenceLink(
     color: '#ff0000',
     origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
   };
-  link.visualBodies = [{
-    type: GeometryType.MESH,
-    meshPath: `meshes/${meshPathSuffix}.dae`,
-    dimensions: { x: 1, y: 1, z: 1 },
-    color: '#00ff00',
-    origin: {
-      xyz: { ...MATCHED_VISUAL_MESH_ORIGIN.xyz },
-      rpy: { ...MATCHED_VISUAL_MESH_ORIGIN.rpy },
+  link.visualBodies = [
+    {
+      type: GeometryType.MESH,
+      meshPath: `meshes/${meshPathSuffix}.dae`,
+      dimensions: { x: 1, y: 1, z: 1 },
+      color: '#00ff00',
+      origin: {
+        xyz: { ...MATCHED_VISUAL_MESH_ORIGIN.xyz },
+        rpy: { ...MATCHED_VISUAL_MESH_ORIGIN.rpy },
+      },
     },
-  }];
+  ];
   link.collision = {
     type: GeometryType.SPHERE,
     dimensions: { x: 0.1, y: 0.1, z: 0.1 },
     color: '#ef4444',
     origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
   };
-  link.collisionBodies = [{
-    type: secondaryCollisionType,
-    dimensions: secondaryCollisionType === GeometryType.BOX
-      ? { x: 0.08, y: 0.08, z: 0.08 }
-      : { x: 0.08, y: 0.08, z: 0.08 },
-    color: '#ef4444',
-    origin: {
-      xyz: { ...MATCHED_VISUAL_MESH_ORIGIN.xyz },
-      rpy: { r: 0, p: 0, y: 0 },
+  link.collisionBodies = [
+    {
+      type: secondaryCollisionType,
+      dimensions:
+        secondaryCollisionType === GeometryType.BOX
+          ? { x: 0.08, y: 0.08, z: 0.08 }
+          : { x: 0.08, y: 0.08, z: 0.08 },
+      color: '#ef4444',
+      origin: {
+        xyz: { ...MATCHED_VISUAL_MESH_ORIGIN.xyz },
+        rpy: { r: 0, p: 0, y: 0 },
+      },
     },
-  }];
+  ];
   return link;
 }
 
@@ -274,16 +302,18 @@ function createCollisionMeshStemReferenceLink(): UrdfLink {
     color: '#ef4444',
     origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
   };
-  link.collisionBodies = [{
-    type: GeometryType.MESH,
-    meshPath: 'meshes/forearm_collision.dae',
-    dimensions: { x: 1, y: 1, z: 1 },
-    color: '#ef4444',
-    origin: {
-      xyz: { x: 0.2, y: 0.1, z: 0.05 },
-      rpy: { r: 0, p: 0, y: 0 },
+  link.collisionBodies = [
+    {
+      type: GeometryType.MESH,
+      meshPath: 'meshes/forearm_collision.dae',
+      dimensions: { x: 1, y: 1, z: 1 },
+      color: '#ef4444',
+      origin: {
+        xyz: { x: 0.2, y: 0.1, z: 0.05 },
+        rpy: { r: 0, p: 0, y: 0 },
+      },
     },
-  }];
+  ];
   return link;
 }
 
@@ -377,11 +407,13 @@ function emitMeshAnalysisResult(fakeWorker: FakeWorker): void {
   fakeWorker.emitMessage({
     type: 'batch-result',
     requestId: workerRequest.requestId,
-    results: [{
-      targetId: workerRequest.tasks[0]?.targetId,
-      cacheKey: workerRequest.tasks[0]?.cacheKey,
-      analysis: MATCHED_VISUAL_MESH_ANALYSIS,
-    }],
+    results: [
+      {
+        targetId: workerRequest.tasks[0]?.targetId,
+        cacheKey: workerRequest.tasks[0]?.cacheKey,
+        analysis: MATCHED_VISUAL_MESH_ANALYSIS,
+      },
+    ],
   });
 }
 
@@ -391,6 +423,10 @@ async function renderGeometryEditor(
   onUpdate: (nextLink: UrdfLink) => void,
   robot: RobotState = createRobot(link),
   category: 'visual' | 'collision' = 'visual',
+  options: {
+    assets?: Record<string, string>;
+    onUploadAsset?: (file: File) => void;
+  } = {},
 ) {
   await act(async () => {
     root.render(
@@ -399,13 +435,19 @@ async function renderGeometryEditor(
         robot,
         category,
         onUpdate,
-        assets: {},
-        onUploadAsset: () => {},
+        assets: options.assets ?? {},
+        onUploadAsset: options.onUploadAsset ?? (() => {}),
         t: translations.en,
         lang: 'en',
         isTabbed: true,
       }),
     );
+  });
+}
+
+async function clickElement(element: Element) {
+  await act(async () => {
+    element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
 }
 
@@ -448,9 +490,14 @@ test('GeometryEditor exposes ellipsoid as a first-class geometry type with per-a
     const robot = createRobot(link);
     robot.selection.objectIndex = 0;
 
-    await renderGeometryEditor(root, link, () => {
-      throw new Error('ellipsoid rendering test should not emit updates without user edits');
-    }, robot);
+    await renderGeometryEditor(
+      root,
+      link,
+      () => {
+        throw new Error('ellipsoid rendering test should not emit updates without user edits');
+      },
+      robot,
+    );
 
     const typeSelect = container.querySelector('select');
     assert.ok(typeSelect, 'geometry type select should exist');
@@ -478,9 +525,14 @@ test('GeometryEditor preserves plane and hfield types as explicit MJCF geometry 
     const planeRobot = createRobot(planeLink);
     planeRobot.selection.objectIndex = 0;
 
-    await renderGeometryEditor(root, planeLink, () => {
-      throw new Error('plane rendering test should not emit updates without user edits');
-    }, planeRobot);
+    await renderGeometryEditor(
+      root,
+      planeLink,
+      () => {
+        throw new Error('plane rendering test should not emit updates without user edits');
+      },
+      planeRobot,
+    );
 
     const planeSelect = container.querySelector('select');
     assert.ok(planeSelect, 'geometry type select should exist for plane');
@@ -514,9 +566,14 @@ test('GeometryEditor preserves plane and hfield types as explicit MJCF geometry 
     const hfieldRobot = createRobot(hfieldLink);
     hfieldRobot.selection.objectIndex = 0;
 
-    await renderGeometryEditor(root, hfieldLink, () => {
-      throw new Error('hfield rendering test should not emit updates without user edits');
-    }, hfieldRobot);
+    await renderGeometryEditor(
+      root,
+      hfieldLink,
+      () => {
+        throw new Error('hfield rendering test should not emit updates without user edits');
+      },
+      hfieldRobot,
+    );
 
     const hfieldSelect = container.querySelector('select');
     assert.ok(hfieldSelect, 'geometry type select should exist for hfield');
@@ -537,6 +594,8 @@ test('GeometryEditor preserves plane and hfield types as explicit MJCF geometry 
 test('GeometryEditor adds compact +/-90 degree collision rotation shortcuts for each axis', async () => {
   const { dom, container, root } = createComponentRoot();
   try {
+    useUIStore.setState({ rotationDisplayMode: 'euler_deg' });
+
     const link = createLink('#00ff00');
     link.collision = {
       type: GeometryType.CAPSULE,
@@ -553,14 +612,26 @@ test('GeometryEditor adds compact +/-90 degree collision rotation shortcuts for 
     };
     const updates: UrdfLink[] = [];
 
-    await renderGeometryEditor(root, link, (nextLink) => {
-      updates.push(nextLink);
-    }, robot, 'collision');
+    await renderGeometryEditor(
+      root,
+      link,
+      (nextLink) => {
+        updates.push(nextLink);
+      },
+      robot,
+      'collision',
+    );
 
     const rollDecreaseButton = container.querySelector('button[aria-label="Roll decrease 90°"]');
     const rollIncreaseButton = container.querySelector('button[aria-label="Roll increase 90°"]');
-    assert.ok(rollDecreaseButton, 'roll decrease shortcut button should exist for collision geometry');
-    assert.ok(rollIncreaseButton, 'roll increase shortcut button should exist for collision geometry');
+    assert.ok(
+      rollDecreaseButton,
+      'roll decrease shortcut button should exist for collision geometry',
+    );
+    assert.ok(
+      rollIncreaseButton,
+      'roll increase shortcut button should exist for collision geometry',
+    );
     assert.equal(container.querySelector('button[aria-label="Roll increase 180°"]'), null);
     assert.equal(container.querySelector('button[aria-label="Roll reset 0°"]'), null);
     assert.equal(container.textContent?.includes('-90'), true);
@@ -584,15 +655,28 @@ test('GeometryEditor adds compact +/-90 degree collision rotation shortcuts for 
       objectIndex: 0,
     };
 
-    await renderGeometryEditor(root, firstUpdatedLink, (nextLink) => {
-      updates.push(nextLink);
-    }, updatedRobot, 'collision');
+    await renderGeometryEditor(
+      root,
+      firstUpdatedLink,
+      (nextLink) => {
+        updates.push(nextLink);
+      },
+      updatedRobot,
+      'collision',
+    );
 
-    const rerenderedRollIncreaseButton = container.querySelector('button[aria-label="Roll increase 90°"]');
-    assert.ok(rerenderedRollIncreaseButton, 'roll increase shortcut button should still exist after the first update');
+    const rerenderedRollIncreaseButton = container.querySelector(
+      'button[aria-label="Roll increase 90°"]',
+    );
+    assert.ok(
+      rerenderedRollIncreaseButton,
+      'roll increase shortcut button should still exist after the first update',
+    );
 
     await act(async () => {
-      rerenderedRollIncreaseButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      rerenderedRollIncreaseButton.dispatchEvent(
+        new dom.window.MouseEvent('click', { bubbles: true }),
+      );
     });
 
     const nextLink = updates.at(-1);
@@ -600,6 +684,63 @@ test('GeometryEditor adds compact +/-90 degree collision rotation shortcuts for 
     assert.equal(nextLink.collision.origin?.rpy.r, 0);
     assert.equal(nextLink.collision.origin?.rpy.p, 0);
     assert.equal(nextLink.collision.origin?.rpy.y, 0);
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('GeometryEditor reuses collision-style rotation shortcuts for visual geometry', async () => {
+  const { dom, container, root } = createComponentRoot();
+  try {
+    useUIStore.setState({ rotationDisplayMode: 'euler_deg' });
+
+    const link = createLink('#00ff00');
+    link.visual = {
+      type: GeometryType.CAPSULE,
+      dimensions: { x: 0.05, y: 0.5, z: 0.05 },
+      color: '#ff0000',
+      origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+    };
+
+    const robot = createRobot(link);
+    robot.selection = {
+      type: 'link',
+      id: link.id,
+      subType: 'visual',
+      objectIndex: 0,
+    };
+
+    const updates: UrdfLink[] = [];
+    await renderGeometryEditor(
+      root,
+      link,
+      (nextLink) => {
+        updates.push(nextLink);
+      },
+      robot,
+      'visual',
+    );
+
+    const rollIncreaseButton = container.querySelector('button[aria-label="Roll increase 90°"]');
+    const yawDecreaseButton = container.querySelector('button[aria-label="Yaw decrease 90°"]');
+    assert.ok(
+      rollIncreaseButton,
+      'visual geometry should expose the same roll shortcut UI as collision geometry',
+    );
+    assert.ok(
+      yawDecreaseButton,
+      'visual geometry should expose the same yaw shortcut UI as collision geometry',
+    );
+
+    await act(async () => {
+      yawDecreaseButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    const nextLink = updates.at(-1);
+    assert.ok(nextLink, 'visual rotation shortcut should emit an updated link');
+    assert.equal(nextLink.visual.origin?.rpy.r, 0);
+    assert.equal(nextLink.visual.origin?.rpy.p, 0);
+    assert.equal(nextLink.visual.origin?.rpy.y, -Math.PI / 2);
   } finally {
     await destroyComponentRoot(dom, root);
   }
@@ -626,12 +767,21 @@ test('GeometryEditor adds compact +/-π/2 collision rotation shortcuts in radian
     };
 
     const updates: UrdfLink[] = [];
-    await renderGeometryEditor(root, link, (nextLink) => {
-      updates.push(nextLink);
-    }, robot, 'collision');
+    await renderGeometryEditor(
+      root,
+      link,
+      (nextLink) => {
+        updates.push(nextLink);
+      },
+      robot,
+      'collision',
+    );
 
     const rollIncreaseButton = container.querySelector('button[aria-label="Roll increase π/2"]');
-    assert.ok(rollIncreaseButton, 'roll increase π/2 shortcut button should exist for collision geometry');
+    assert.ok(
+      rollIncreaseButton,
+      'roll increase π/2 shortcut button should exist for collision geometry',
+    );
 
     await act(async () => {
       rollIncreaseButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
@@ -671,31 +821,35 @@ test('GeometryEditor uses the matching visual mesh orientation when converting a
       color: '#ff0000',
       origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
     };
-    link.visualBodies = [{
-      type: GeometryType.MESH,
-      meshPath: 'meshes/secondary-link.dae',
-      dimensions: { x: 1, y: 1, z: 1 },
-      color: '#00ff00',
-      origin: {
-        xyz: { x: 0.1, y: 0.2, z: -0.05 },
-        rpy: { r: 0.35, p: -0.4, y: 0.55 },
+    link.visualBodies = [
+      {
+        type: GeometryType.MESH,
+        meshPath: 'meshes/secondary-link.dae',
+        dimensions: { x: 1, y: 1, z: 1 },
+        color: '#00ff00',
+        origin: {
+          xyz: { x: 0.1, y: 0.2, z: -0.05 },
+          rpy: { r: 0.35, p: -0.4, y: 0.55 },
+        },
       },
-    }];
+    ];
     link.collision = {
       type: GeometryType.SPHERE,
       dimensions: { x: 0.1, y: 0.1, z: 0.1 },
       color: '#ef4444',
       origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
     };
-    link.collisionBodies = [{
-      type: GeometryType.SPHERE,
-      dimensions: { x: 0.08, y: 0.08, z: 0.08 },
-      color: '#ef4444',
-      origin: {
-        xyz: { x: 0.1, y: 0.2, z: -0.05 },
-        rpy: { r: 0, p: 0, y: 0 },
+    link.collisionBodies = [
+      {
+        type: GeometryType.SPHERE,
+        dimensions: { x: 0.08, y: 0.08, z: 0.08 },
+        color: '#ef4444',
+        origin: {
+          xyz: { x: 0.1, y: 0.2, z: -0.05 },
+          rpy: { r: 0, p: 0, y: 0 },
+        },
       },
-    }];
+    ];
 
     const robot = createRobot(link);
     robot.selection = {
@@ -706,9 +860,15 @@ test('GeometryEditor uses the matching visual mesh orientation when converting a
     };
 
     const updates: UrdfLink[] = [];
-    await renderGeometryEditor(root, link, (nextLink) => {
-      updates.push(nextLink);
-    }, robot, 'collision');
+    await renderGeometryEditor(
+      root,
+      link,
+      (nextLink) => {
+        updates.push(nextLink);
+      },
+      robot,
+      'collision',
+    );
 
     const typeSelect = container.querySelector('select');
     assert.ok(typeSelect, 'geometry type select should exist');
@@ -740,29 +900,31 @@ test('GeometryEditor uses the matching visual mesh orientation when converting a
     fakeWorker.emitMessage({
       type: 'batch-result',
       requestId: workerRequest.requestId,
-      results: [{
-        targetId: workerRequest.tasks[0]?.targetId,
-        cacheKey: workerRequest.tasks[0]?.cacheKey,
-        analysis: {
-          bounds: {
-            x: 0.82,
-            y: 0.21,
-            z: 0.18,
-            cx: 0,
-            cy: 0,
-            cz: 0,
-          },
-          primitiveFits: {
-            cylinder: {
-              axis: { x: 1, y: 0, z: 0 },
-              center: { x: 0, y: 0, z: 0 },
-              radius: 0.07,
-              length: 0.92,
-              volume: 0.014185086476958216,
+      results: [
+        {
+          targetId: workerRequest.tasks[0]?.targetId,
+          cacheKey: workerRequest.tasks[0]?.cacheKey,
+          analysis: {
+            bounds: {
+              x: 0.82,
+              y: 0.21,
+              z: 0.18,
+              cx: 0,
+              cy: 0,
+              cz: 0,
+            },
+            primitiveFits: {
+              cylinder: {
+                axis: { x: 1, y: 0, z: 0 },
+                center: { x: 0, y: 0, z: 0 },
+                radius: 0.07,
+                length: 0.92,
+                volume: 0.014185086476958216,
+              },
             },
           },
         },
-      }],
+      ],
     });
 
     await act(async () => {
@@ -775,7 +937,6 @@ test('GeometryEditor uses the matching visual mesh orientation when converting a
     assert.equal(nextLink.collisionBodies?.[0]?.type, GeometryType.CYLINDER);
     assert.deepEqual(nextLink.collisionBodies?.[0]?.origin?.rpy, link.visualBodies[0]?.origin?.rpy);
   } finally {
-    fakeWorker.emitError(new Error('dispose mesh analysis worker after GeometryEditor test'));
     Object.defineProperty(globalThis, 'Worker', {
       configurable: true,
       writable: true,
@@ -815,9 +976,15 @@ for (const targetType of [GeometryType.BOX, GeometryType.ELLIPSOID] as const) {
       };
 
       const updates: UrdfLink[] = [];
-      await renderGeometryEditor(root, link, (nextLink) => {
-        updates.push(nextLink);
-      }, robot, 'collision');
+      await renderGeometryEditor(
+        root,
+        link,
+        (nextLink) => {
+          updates.push(nextLink);
+        },
+        robot,
+        'collision',
+      );
 
       const typeSelect = container.querySelector('select');
       assert.ok(typeSelect, 'geometry type select should exist');
@@ -848,7 +1015,6 @@ for (const targetType of [GeometryType.BOX, GeometryType.ELLIPSOID] as const) {
       assert.equal(nextLink.collisionBodies?.[0]?.type, targetType);
       assert.deepEqual(nextLink.collisionBodies?.[0]?.origin?.rpy, MATCHED_VISUAL_MESH_ORIGIN.rpy);
     } finally {
-      fakeWorker.emitError(new Error('dispose mesh analysis worker after GeometryEditor test'));
       Object.defineProperty(globalThis, 'Worker', {
         configurable: true,
         writable: true,
@@ -905,9 +1071,15 @@ for (const sourceType of [
         };
 
         const updates: UrdfLink[] = [];
-        await renderGeometryEditor(root, link, (nextLink) => {
-          updates.push(nextLink);
-        }, robot, 'collision');
+        await renderGeometryEditor(
+          root,
+          link,
+          (nextLink) => {
+            updates.push(nextLink);
+          },
+          robot,
+          'collision',
+        );
 
         const typeSelect = container.querySelector('select');
         assert.ok(typeSelect, 'geometry type select should exist');
@@ -925,7 +1097,10 @@ for (const sourceType of [
         const workerRequest = fakeWorker.postedMessages[0] as {
           tasks: Array<{ meshPath: string }>;
         };
-        assert.equal(workerRequest.tasks[0]?.meshPath, `meshes/secondary-${sourceType}-to-${targetType}.dae`);
+        assert.equal(
+          workerRequest.tasks[0]?.meshPath,
+          `meshes/secondary-${sourceType}-to-${targetType}.dae`,
+        );
 
         emitMeshAnalysisResult(fakeWorker);
 
@@ -936,9 +1111,11 @@ for (const sourceType of [
         const nextLink = updates.at(-1);
         assert.ok(nextLink, 'collision type change should emit an updated link');
         assert.equal(nextLink.collisionBodies?.[0]?.type, targetType);
-        assert.deepEqual(nextLink.collisionBodies?.[0]?.origin?.rpy, MATCHED_VISUAL_MESH_ORIGIN.rpy);
+        assert.deepEqual(
+          nextLink.collisionBodies?.[0]?.origin?.rpy,
+          MATCHED_VISUAL_MESH_ORIGIN.rpy,
+        );
       } finally {
-        fakeWorker.emitError(new Error('dispose mesh analysis worker after GeometryEditor test'));
         Object.defineProperty(globalThis, 'Worker', {
           configurable: true,
           writable: true,
@@ -976,9 +1153,15 @@ test('GeometryEditor matches a collision mesh to its visual mesh by stem before 
     };
 
     const updates: UrdfLink[] = [];
-    await renderGeometryEditor(root, link, (nextLink) => {
-      updates.push(nextLink);
-    }, robot, 'collision');
+    await renderGeometryEditor(
+      root,
+      link,
+      (nextLink) => {
+        updates.push(nextLink);
+      },
+      robot,
+      'collision',
+    );
 
     const typeSelect = container.querySelector('select');
     assert.ok(typeSelect, 'geometry type select should exist');
@@ -991,15 +1174,17 @@ test('GeometryEditor matches a collision mesh to its visual mesh by stem before 
     });
 
     await waitForWorkerPost(dom, fakeWorker);
-    const workerPaths = fakeWorker.postedMessages.map((message) => (
-      (message as { tasks?: Array<{ meshPath?: string }> }).tasks?.[0]?.meshPath
-    ));
+    const workerPaths = fakeWorker.postedMessages.map(
+      (message) => (message as { tasks?: Array<{ meshPath?: string }> }).tasks?.[0]?.meshPath,
+    );
     assert.ok(workerPaths.includes('meshes/forearm_visual.dae'));
     assert.ok(!workerPaths.includes('meshes/shoulder_visual.dae'));
 
-    const workerRequest = fakeWorker.postedMessages.find((message) => (
-      (message as { tasks?: Array<{ meshPath?: string }> }).tasks?.[0]?.meshPath === 'meshes/forearm_visual.dae'
-    )) as {
+    const workerRequest = fakeWorker.postedMessages.find(
+      (message) =>
+        (message as { tasks?: Array<{ meshPath?: string }> }).tasks?.[0]?.meshPath ===
+        'meshes/forearm_visual.dae',
+    ) as {
       tasks: Array<{ meshPath: string }>;
     };
     assert.ok(workerRequest, 'expected a mesh analysis request for the matched visual mesh');
@@ -1059,19 +1244,128 @@ test('GeometryEditor shows authored material colors instead of a white fallback 
     const robot = createRobot(link);
     robot.selection.objectIndex = 0;
 
-    await renderGeometryEditor(root, link, () => {
-      throw new Error('multi-material display should not emit updates without user edits');
-    }, robot);
+    await renderGeometryEditor(
+      root,
+      link,
+      () => {
+        throw new Error('multi-material display should not emit updates without user edits');
+      },
+      robot,
+    );
 
     assert.ok(container.textContent?.includes('Multiple Materials'));
     assert.ok(container.textContent?.includes('#bebebe'));
     assert.ok(container.textContent?.includes('#ffffff'));
     assert.ok(container.textContent?.includes('#000000'));
+    assert.ok(
+      container.textContent?.includes(
+        'This visual uses multiple authored materials. Base texture editing is read-only here.',
+      ),
+    );
     assert.equal(container.querySelector('input[type="color"][aria-label="Color"]'), null);
+    assert.equal(
+      Array.from(container.querySelectorAll('button')).some((button) =>
+        button.textContent?.includes('Upload Image'),
+      ),
+      false,
+    );
 
-    const inputValues = Array.from(container.querySelectorAll('input'))
-      .map((input) => (input as HTMLInputElement).value.trim().toLowerCase());
-    assert.ok(!inputValues.includes('#ffffff'), 'multi-material meshes should not appear as editable white');
+    const inputValues = Array.from(container.querySelectorAll('input')).map((input) =>
+      (input as HTMLInputElement).value.trim().toLowerCase(),
+    );
+    assert.ok(
+      !inputValues.includes('#ffffff'),
+      'multi-material meshes should not appear as editable white',
+    );
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('GeometryEditor shows the primary visual legacy texture and promotes edits into authored materials', async () => {
+  const { dom, container, root } = createComponentRoot();
+  try {
+    const link = createLink('#00ff00');
+    const robot = createRobot(link);
+    robot.selection.objectIndex = 0;
+    robot.materials = {
+      base_link: {
+        texture: 'textures/legacy.png',
+      },
+    };
+
+    const updates: UrdfLink[] = [];
+    await renderGeometryEditor(
+      root,
+      link,
+      (nextLink) => {
+        updates.push(nextLink);
+      },
+      robot,
+      'visual',
+      {
+        assets: {
+          'textures/legacy.png': 'blob:legacy-texture',
+          'textures/updated.png': 'blob:updated-texture',
+        },
+      },
+    );
+
+    assert.ok(container.textContent?.includes('textures/legacy.png'));
+
+    const nextTextureButton = container.querySelector('[title="textures/updated.png"]');
+    assert.ok(nextTextureButton, 'updated texture asset should render');
+    await clickElement(nextTextureButton);
+
+    const nextLink = updates.at(-1);
+    assert.ok(nextLink, 'texture selection should emit an updated link');
+    assert.equal(nextLink.visual.authoredMaterials?.[0]?.texture, 'textures/updated.png');
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('GeometryEditor keeps secondary visual textures independent from the link-level legacy fallback', async () => {
+  const { dom, container, root } = createComponentRoot();
+  try {
+    const link = createLink('#00ff00');
+    const robot = createRobot(link);
+    robot.materials = {
+      base_link: {
+        texture: 'textures/legacy.png',
+      },
+    };
+
+    const updates: UrdfLink[] = [];
+    await renderGeometryEditor(
+      root,
+      link,
+      (nextLink) => {
+        updates.push(nextLink);
+      },
+      robot,
+      'visual',
+      {
+        assets: {
+          'textures/legacy.png': 'blob:legacy-texture',
+          'textures/secondary.png': 'blob:secondary-texture',
+        },
+      },
+    );
+
+    assert.ok(!container.textContent?.includes('textures/legacy.png'));
+
+    const secondaryTextureButton = container.querySelector('[title="textures/secondary.png"]');
+    assert.ok(secondaryTextureButton, 'secondary texture asset should render');
+    await clickElement(secondaryTextureButton);
+
+    const nextLink = updates.at(-1);
+    assert.ok(nextLink, 'secondary texture selection should emit an updated link');
+    assert.equal(
+      nextLink.visualBodies?.[0]?.authoredMaterials?.[0]?.texture,
+      'textures/secondary.png',
+    );
+    assert.equal(nextLink.visual.authoredMaterials, undefined);
   } finally {
     await destroyComponentRoot(dom, root);
   }

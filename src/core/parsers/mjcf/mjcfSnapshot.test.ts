@@ -169,3 +169,90 @@ test('canonical snapshot trims geom size vectors to the effective MuJoCo type ar
   assert.deepEqual(roller.size, [0.02, 0.04]);
   assert.deepEqual(pad.size, [0.009, 0.012]);
 });
+
+test('canonical snapshot normalizes joint axes to unit vectors', () => {
+  installDomGlobals();
+  const parsedModel = parseMJCFModel(`
+        <mujoco model="joint-axis">
+          <worldbody>
+            <body name="neck">
+              <joint name="neck_rotation" type="hinge" axis="0.2 1 0" />
+            </body>
+          </worldbody>
+        </mujoco>
+    `);
+
+  assert.ok(parsedModel);
+  const snapshot = createCanonicalSnapshotFromParsedModel(parsedModel);
+  const joint = snapshot.joints.find((entry) => entry.key === 'neck_rotation');
+
+  assert.ok(joint);
+  assertCloseArray(joint.axis, [0.196116, 0.980581, 0], 1e-6);
+});
+
+test('canonical snapshot uses underscore-based fallback keys for anonymous MJCF bodies and joints', () => {
+  installDomGlobals();
+  const parsedModel = parseMJCFModel(`
+        <mujoco model="anonymous-canonical-keys">
+          <worldbody>
+            <body>
+              <joint type="hinge" axis="0 0 1" />
+              <geom type="sphere" size="0.02" />
+            </body>
+          </worldbody>
+        </mujoco>
+    `);
+
+  assert.ok(parsedModel);
+  const snapshot = createCanonicalSnapshotFromParsedModel(parsedModel);
+
+  assert.ok(snapshot.bodies.find((entry) => entry.key === 'world_body_0'));
+  assert.ok(snapshot.joints.find((entry) => entry.key === 'world_body_0_joint_0'));
+  assert.ok(snapshot.geoms.find((entry) => entry.key === 'world_body_0_geom_0'));
+});
+
+test('canonical snapshot applies compiler boundinertia when diagonalizing tiny fullinertia', () => {
+  installDomGlobals();
+  const parsedModel = parseMJCFModel(`
+        <mujoco model="boundinertia">
+          <compiler boundinertia="0.0001" />
+          <worldbody>
+            <body name="thumb">
+              <inertial
+                pos="0 0 0"
+                mass="0.003"
+                fullinertia="5e-08 3e-08 5e-08 1e-08 1e-08 -1e-08"
+              />
+            </body>
+          </worldbody>
+        </mujoco>
+    `);
+
+  assert.ok(parsedModel);
+  const snapshot = createCanonicalSnapshotFromParsedModel(parsedModel);
+  const body = snapshot.bodies.find((entry) => entry.key === 'thumb');
+
+  assert.ok(body);
+  assertCloseArray(body.inertia, [0.0001, 0.0001, 0.0001], 1e-8);
+});
+
+test('canonical snapshot applies compiler boundinertia to explicit diaginertia', () => {
+  installDomGlobals();
+  const parsedModel = parseMJCFModel(`
+        <mujoco model="boundinertia-diag">
+          <compiler boundinertia="0.0001" />
+          <worldbody>
+            <body name="ball">
+              <inertial pos="0 0 0" mass="0.0027" diaginertia="0.00000072 0.00000072 0.00000072" />
+            </body>
+          </worldbody>
+        </mujoco>
+    `);
+
+  assert.ok(parsedModel);
+  const snapshot = createCanonicalSnapshotFromParsedModel(parsedModel);
+  const body = snapshot.bodies.find((entry) => entry.key === 'ball');
+
+  assert.ok(body);
+  assertCloseArray(body.inertia, [0.0001, 0.0001, 0.0001], 1e-8);
+});

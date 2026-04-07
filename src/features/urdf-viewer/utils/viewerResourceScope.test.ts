@@ -184,10 +184,7 @@ test('createStableViewerResourceScope reuses the previous USD scope when unrelat
   assert.equal(next, initial);
   assert.deepEqual(
     next.availableFiles.map((file) => file.name),
-    [
-      'robots/go2/usd/go2.usd',
-      'robots/go2/usd/configuration/base.usd',
-    ],
+    ['robots/go2/usd/go2.usd', 'robots/go2/usd/configuration/base.usd'],
   );
 });
 
@@ -270,8 +267,10 @@ test('createStableViewerResourceScope retains repo-rooted sibling package assets
   const scoped = createStableViewerResourceScope(null, {
     assets: {
       'halodi-robot-models/eve_r3_description/urdf/eve_r3_robotiq_2f_85.urdf': 'blob:eve-urdf',
-      'halodi-robot-models/robotiq_2f_85_gripper_visualization/meshes/visual/robotiq_arg2f_85_inner_knuckle.dae': 'blob:visual-knuckle',
-      'halodi-robot-models/robotiq_2f_85_gripper_visualization/meshes/collision/robotiq_arg2f_85_inner_knuckle.dae': 'blob:collision-knuckle',
+      'halodi-robot-models/robotiq_2f_85_gripper_visualization/meshes/visual/robotiq_arg2f_85_inner_knuckle.dae':
+        'blob:visual-knuckle',
+      'halodi-robot-models/robotiq_2f_85_gripper_visualization/meshes/collision/robotiq_arg2f_85_inner_knuckle.dae':
+        'blob:collision-knuckle',
       'robots/go1/meshes/base.dae': 'blob:go1-base',
     },
     availableFiles: [],
@@ -290,6 +289,62 @@ test('createStableViewerResourceScope retains repo-rooted sibling package assets
 
   assert.deepEqual(scoped.assets, {
     'halodi-robot-models/eve_r3_description/urdf/eve_r3_robotiq_2f_85.urdf': 'blob:eve-urdf',
-    'halodi-robot-models/robotiq_2f_85_gripper_visualization/meshes/visual/robotiq_arg2f_85_inner_knuckle.dae': 'blob:visual-knuckle',
+    'halodi-robot-models/robotiq_2f_85_gripper_visualization/meshes/visual/robotiq_arg2f_85_inner_knuckle.dae':
+      'blob:visual-knuckle',
+  });
+});
+
+test('createStableViewerResourceScope keeps compiler-scoped MJCF sibling assets from included files before robot links stabilize', () => {
+  const sourceFile: RobotFile = {
+    name: 'myosuite-main/myosuite/envs/myo/assets/leg/myolegs_chasetag.xml',
+    content: `
+      <mujoco model="chasetag">
+        <compiler meshdir="../../../../simhive/myo_sim/" texturedir="../../../../simhive/myo_sim/" />
+        <include file="../../../../simhive/myo_sim/scene/myosuite_quad.xml" />
+      </mujoco>
+    `,
+    format: 'mjcf',
+  };
+
+  const scoped = createStableViewerResourceScope(null, {
+    assets: {
+      'myosuite-main/myosuite/envs/myo/assets/leg/myolegs_chasetag.xml': 'blob:chasetag',
+      'myosuite-main/myosuite/simhive/myo_sim/scene/myosuite_quad.xml': 'blob:quad',
+      'myosuite-main/myosuite/simhive/myo_sim/scene/myosuite_icon.png': 'blob:icon',
+      'myosuite-main/myosuite/simhive/myo_sim/scene/floor0.png': 'blob:floor',
+      'myosuite-main/myosuite/simhive/myo_sim/scene/myosuite_scene_noFloor_noPedestal.msh':
+        'blob:scene',
+      'robots/go1/meshes/base.dae': 'blob:go1-base',
+    },
+    availableFiles: [
+      sourceFile,
+      {
+        name: 'myosuite-main/myosuite/simhive/myo_sim/scene/myosuite_quad.xml',
+        content: `
+          <mujoco model="quad-scene">
+            <compiler angle="radian" meshdir=".." texturedir=".." />
+            <asset>
+              <texture name="icon" type="2d" file="scene/myosuite_icon.png" />
+              <texture name="floor" type="2d" file="scene/floor0.png" />
+              <mesh name="arena" file="../myo_sim/scene/myosuite_scene_noFloor_noPedestal.msh" />
+              <mesh name="pyramid" vertex="0 0 0  0 1 0  0 0 1" />
+            </asset>
+          </mujoco>
+        `,
+        format: 'mjcf',
+      },
+    ],
+    sourceFile,
+    sourceFilePath: sourceFile.name,
+    robotLinks: {},
+  });
+
+  assert.deepEqual(scoped.assets, {
+    'myosuite-main/myosuite/envs/myo/assets/leg/myolegs_chasetag.xml': 'blob:chasetag',
+    'myosuite-main/myosuite/simhive/myo_sim/scene/myosuite_quad.xml': 'blob:quad',
+    'myosuite-main/myosuite/simhive/myo_sim/scene/myosuite_icon.png': 'blob:icon',
+    'myosuite-main/myosuite/simhive/myo_sim/scene/floor0.png': 'blob:floor',
+    'myosuite-main/myosuite/simhive/myo_sim/scene/myosuite_scene_noFloor_noPedestal.msh':
+      'blob:scene',
   });
 });

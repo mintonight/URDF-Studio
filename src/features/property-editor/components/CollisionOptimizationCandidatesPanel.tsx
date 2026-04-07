@@ -1,7 +1,7 @@
 import React from 'react';
 import { Loader2, MousePointerClick } from 'lucide-react';
 import { SegmentedControl } from '@/shared/components/ui';
-import { GeometryType } from '@/types';
+import { GeometryType, type InteractionSelection } from '@/types';
 import type {
   CollisionOptimizationAnalysis,
   CollisionOptimizationCandidate,
@@ -20,12 +20,7 @@ import {
   type CollisionOptimizationPlanarGraphLabels,
 } from './CollisionOptimizationPlanarGraph';
 
-interface CollisionSelection {
-  type: 'link' | 'joint' | null;
-  id: string | null;
-  subType?: 'visual' | 'collision';
-  objectIndex?: number;
-}
+type CollisionSelection = InteractionSelection;
 
 export type CollisionOptimizationCandidatesViewMode = 'list' | 'graph';
 
@@ -157,18 +152,22 @@ export function CollisionOptimizationCandidatesPanel({
   onManualConnectionCancel,
 }: CollisionOptimizationCandidatesPanelProps) {
   return (
-    <div className="min-h-0 flex flex-col overflow-hidden rounded-xl border border-border-black bg-element-bg">
-      <div className="shrink-0 border-b border-border-black bg-panel-bg px-2 py-1.5">
-        <div className="space-y-1.5">
+    <div className="min-h-0 flex flex-col overflow-hidden rounded-lg border border-border-black bg-element-bg">
+      <div className="shrink-0 border-b border-border-black bg-panel-bg px-1.75 py-1.25">
+        <div className="space-y-1.25">
           <div className="flex flex-wrap items-center justify-between gap-1.5">
             <div className="min-w-0 flex flex-wrap items-center gap-1.5">
-              <div className="text-[11px] font-semibold text-text-primary">{labels.title}</div>
-              <HeaderBadge>{labels.eligible} {eligibleCount}</HeaderBadge>
+              <div className="text-[10px] font-semibold text-text-primary">{labels.title}</div>
+              <HeaderBadge>
+                {labels.eligible} {eligibleCount}
+              </HeaderBadge>
               <HeaderBadge active={activeSelectionCount > 0}>
                 {labels.selectedCount} {activeSelectionCount}
               </HeaderBadge>
               {manualMergePairs.length > 0 ? (
-                <HeaderBadge>{labels.clearManualPairs} {manualMergePairs.length}</HeaderBadge>
+                <HeaderBadge>
+                  {labels.clearManualPairs} {manualMergePairs.length}
+                </HeaderBadge>
               ) : null}
             </div>
 
@@ -176,17 +175,19 @@ export function CollisionOptimizationCandidatesPanel({
               <HeaderActionButton onClick={onSelectAll}>{labels.selectAll}</HeaderActionButton>
               <HeaderActionButton onClick={onClearAll}>{labels.clearAll}</HeaderActionButton>
               {manualMergePairs.length > 0 ? (
-                <HeaderActionButton onClick={onClearManualPairs}>{labels.clearManualPairs}</HeaderActionButton>
+                <HeaderActionButton onClick={onClearManualPairs}>
+                  {labels.clearManualPairs}
+                </HeaderActionButton>
               ) : null}
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.25">
             <SegmentedControl<CollisionOptimizationScope>
               size="xs"
               value={scope}
               onChange={onScopeChange}
-              className="min-w-[20rem] max-w-full"
+              className="min-w-[16rem] max-w-full"
               options={[
                 { value: 'all', label: labels.scopeAll },
                 { value: 'mesh', label: labels.scopeMesh },
@@ -199,7 +200,7 @@ export function CollisionOptimizationCandidatesPanel({
               size="xs"
               value={viewMode}
               onChange={onViewModeChange}
-              className="min-w-[10rem]"
+              className="min-w-[9rem]"
               options={[
                 { value: 'list', label: labels.viewList },
                 { value: 'graph', label: labels.viewGraph },
@@ -209,7 +210,7 @@ export function CollisionOptimizationCandidatesPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden p-1">
+      <div className="min-h-0 flex-1 overflow-hidden p-0.75">
         {isAnalyzing ? (
           <div className="flex h-full flex-col items-center justify-center gap-1.5 text-[10px] text-text-tertiary">
             <Loader2 className="h-4.5 w-4.5 animate-spin" />
@@ -217,14 +218,14 @@ export function CollisionOptimizationCandidatesPanel({
           </div>
         ) : isSelectedScopeWithoutSelection ? (
           <div className="flex h-full items-center justify-center">
-            <div className="rounded-lg border border-dashed border-border-black bg-panel-bg px-2.5 py-4 text-center text-[10px] leading-relaxed text-text-secondary">
+            <div className="rounded-lg border border-dashed border-border-black bg-panel-bg px-2 py-3 text-center text-[9px] leading-relaxed text-text-secondary">
               <MousePointerClick className="mx-auto mb-1.5 h-4.5 w-4.5 text-text-tertiary" />
               {labels.noSelectedCollision}
             </div>
           </div>
         ) : candidates.length === 0 || !analysis ? (
           <div className="flex h-full items-center justify-center">
-            <div className="rounded-lg border border-dashed border-border-black bg-panel-bg px-2.5 py-4 text-center text-[10px] leading-relaxed text-text-secondary">
+            <div className="rounded-lg border border-dashed border-border-black bg-panel-bg px-2 py-3 text-center text-[9px] leading-relaxed text-text-secondary">
               {labels.noCandidates}
             </div>
           </div>

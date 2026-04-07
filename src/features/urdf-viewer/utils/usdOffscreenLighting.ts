@@ -1,7 +1,11 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
+  GROUND_SHADOW_RENDER_ORDER,
+  GROUND_SHADOW_STYLE,
+  GROUND_SHADOW_Z_OFFSET,
   LIGHTING_CONFIG,
+  resolveCameraFollowLightingStyle,
   STUDIO_ENVIRONMENT_INTENSITY,
 } from '../../../shared/components/3d/scene/constants.ts';
 
@@ -14,14 +18,7 @@ type DisposableObject3D = THREE.Object3D & {
   material?: THREE.Material | THREE.Material[];
 };
 
-const OFFSCREEN_CAMERA_FOLLOW_LIGHTING = Object.freeze({
-  ambientIntensity: 0.37,
-  hemisphereIntensity: 0.43,
-  cameraKeyIntensity: LIGHTING_CONFIG.cameraKeyPriorityIntensityLight,
-  cameraFillIntensity: LIGHTING_CONFIG.cameraFillIntensityLight,
-  cameraSoftFrontIntensity: LIGHTING_CONFIG.cameraSoftFrontIntensityLight,
-  staticDirectionalScale: 0.76,
-  rimDirectionalScale: 0.38,
+const OFFSCREEN_CAMERA_FOLLOW_LAYOUT = Object.freeze({
   targetDistance: 10,
   softFrontUpOffset: 1.0,
   softFrontForwardOffset: 0.35,
@@ -51,7 +48,62 @@ export interface UsdOffscreenLightRig {
 }
 
 export interface UsdOffscreenStudioEnvironmentHandle {
+  setIntensity: (intensity: number) => void;
   dispose: () => void;
+}
+
+export function createUsdOffscreenGroundShadowPlane(theme: 'light' | 'dark' = 'light'): THREE.Mesh {
+  const shadowStyle = GROUND_SHADOW_STYLE[theme];
+  const plane = new THREE.Mesh(
+    new THREE.PlaneGeometry(200, 200),
+    new THREE.ShadowMaterial({
+      color: new THREE.Color(shadowStyle.color),
+      opacity: shadowStyle.opacity,
+    }),
+  );
+
+  plane.name = 'GroundShadowPlane';
+  plane.receiveShadow = true;
+  plane.castShadow = false;
+  plane.renderOrder = GROUND_SHADOW_RENDER_ORDER;
+  plane.userData = {
+    ...(plane.userData ?? {}),
+    isHelper: true,
+    isSelectableHelper: false,
+  };
+
+  return plane;
+}
+
+export function syncUsdOffscreenGroundShadowPlane(
+  plane: THREE.Object3D | null | undefined,
+  groundPlaneOffset: number,
+): void {
+  if (!plane) {
+    return;
+  }
+
+  plane.position.set(0, 0, groundPlaneOffset + GROUND_SHADOW_Z_OFFSET);
+  plane.updateMatrixWorld(true);
+}
+
+export function applyUsdOffscreenGroundShadowTheme(
+  plane: THREE.Mesh | null | undefined,
+  theme: 'light' | 'dark',
+): void {
+  if (!plane) {
+    return;
+  }
+
+  const shadowStyle = GROUND_SHADOW_STYLE[theme];
+  const material = plane.material;
+  if (!(material instanceof THREE.ShadowMaterial)) {
+    return;
+  }
+
+  material.color.set(shadowStyle.color);
+  material.opacity = shadowStyle.opacity;
+  material.needsUpdate = true;
 }
 
 function createDirectionalLight(
@@ -63,21 +115,21 @@ function createDirectionalLight(
   const light = new THREE.DirectionalLight(color, intensity);
   light.name = name;
   light.position.fromArray(position as [number, number, number]);
-  light.castShadow = false;
   return light;
 }
 
-export function createUsdOffscreenLightRig(scene: THREE.Scene): UsdOffscreenLightRig {
-  const ambientLight = new THREE.AmbientLight(
-    0xffffff,
-    OFFSCREEN_CAMERA_FOLLOW_LIGHTING.ambientIntensity,
-  );
+export function createUsdOffscreenLightRig(
+  scene: THREE.Scene,
+  theme: 'light' | 'dark' = 'light',
+): UsdOffscreenLightRig {
+  const cameraFollowStyle = resolveCameraFollowLightingStyle(theme);
+  const ambientLight = new THREE.AmbientLight(0xffffff, cameraFollowStyle.ambientIntensity);
   ambientLight.name = 'OffscreenViewerAmbientLight';
 
   const hemisphereLight = new THREE.HemisphereLight(
     LIGHTING_CONFIG.hemisphereSky,
     LIGHTING_CONFIG.hemisphereGround,
-    OFFSCREEN_CAMERA_FOLLOW_LIGHTING.hemisphereIntensity,
+    cameraFollowStyle.hemisphereIntensity,
   );
   hemisphereLight.name = 'OffscreenViewerHemisphereLight';
   hemisphereLight.position.set(0, 1, 0);
@@ -85,63 +137,73 @@ export function createUsdOffscreenLightRig(scene: THREE.Scene): UsdOffscreenLigh
   const mainLight = createDirectionalLight(
     'OffscreenViewerMainLight',
     '#ffffff',
-    LIGHTING_CONFIG.mainLightIntensity * OFFSCREEN_CAMERA_FOLLOW_LIGHTING.staticDirectionalScale,
+    cameraFollowStyle.mainLightIntensity,
     LIGHTING_CONFIG.mainLightPosition,
   );
+  mainLight.castShadow = true;
+  mainLight.shadow.mapSize.set(1024, 1024);
+  mainLight.shadow.camera.near = 0.5;
+  mainLight.shadow.camera.far = 50;
+  mainLight.shadow.camera.left = -10;
+  mainLight.shadow.camera.right = 10;
+  mainLight.shadow.camera.top = 10;
+  mainLight.shadow.camera.bottom = -10;
+  mainLight.shadow.bias = -0.0001;
+  mainLight.shadow.normalBias = 0.02;
 
   const fillLightLeft = createDirectionalLight(
     'OffscreenViewerFillLightLeft',
     '#ffffff',
-    LIGHTING_CONFIG.leftFillIntensity * OFFSCREEN_CAMERA_FOLLOW_LIGHTING.staticDirectionalScale,
+    LIGHTING_CONFIG.leftFillIntensity * cameraFollowStyle.staticDirectionalScale,
     LIGHTING_CONFIG.leftFillPosition,
   );
 
   const fillLightLeftSide = createDirectionalLight(
     'OffscreenViewerFillLightLeftSide',
     '#ffffff',
-    LIGHTING_CONFIG.leftSideIntensity * OFFSCREEN_CAMERA_FOLLOW_LIGHTING.staticDirectionalScale,
+    LIGHTING_CONFIG.leftSideIntensity * cameraFollowStyle.staticDirectionalScale,
     LIGHTING_CONFIG.leftSidePosition,
   );
 
   const fillLightRight = createDirectionalLight(
     'OffscreenViewerFillLightRight',
     '#ffffff',
-    LIGHTING_CONFIG.rightFillIntensity * OFFSCREEN_CAMERA_FOLLOW_LIGHTING.staticDirectionalScale,
+    LIGHTING_CONFIG.rightFillIntensity * cameraFollowStyle.staticDirectionalScale,
     LIGHTING_CONFIG.rightFillPosition,
   );
 
   const rimLight = createDirectionalLight(
     'OffscreenViewerRimLight',
     '#ffffff',
-    LIGHTING_CONFIG.rimLightIntensity * OFFSCREEN_CAMERA_FOLLOW_LIGHTING.rimDirectionalScale,
+    LIGHTING_CONFIG.rimLightIntensity * cameraFollowStyle.rimDirectionalScale,
     LIGHTING_CONFIG.rimLightPosition,
   );
 
   const cameraKeyLight = createDirectionalLight(
     'OffscreenViewerCameraKeyLight',
     '#ffffff',
-    OFFSCREEN_CAMERA_FOLLOW_LIGHTING.cameraKeyIntensity,
+    cameraFollowStyle.cameraKeyIntensity,
     [0, 0, 0],
   );
 
   const cameraSoftFrontLight = createDirectionalLight(
     'OffscreenViewerCameraSoftFrontLight',
     '#ffffff',
-    OFFSCREEN_CAMERA_FOLLOW_LIGHTING.cameraSoftFrontIntensity,
+    cameraFollowStyle.cameraSoftFrontIntensity,
     [0, 0, 0],
   );
 
   const cameraFillRightLight = createDirectionalLight(
     'OffscreenViewerCameraFillLightRight',
     '#ffffff',
-    OFFSCREEN_CAMERA_FOLLOW_LIGHTING.cameraFillIntensity,
+    cameraFollowStyle.cameraFillIntensity,
     [0, 0, 0],
   );
 
   const cameraFillLeftLight = createDirectionalLight(
     'OffscreenViewerCameraFillLightLeft',
     '#ffffff',
-    OFFSCREEN_CAMERA_FOLLOW_LIGHTING.cameraFillIntensity,
+    cameraFollowStyle.cameraFillIntensity,
     [0, 0, 0],
   );
 
@@ -197,7 +259,7 @@ export function syncUsdOffscreenLightRigWithCamera(
   camera.getWorldDirection(rig.cameraDirection);
   rig.cameraTarget
     .copy(camera.position)
-    .addScaledVector(rig.cameraDirection, OFFSCREEN_CAMERA_FOLLOW_LIGHTING.targetDistance);
+    .addScaledVector(rig.cameraDirection, OFFSCREEN_CAMERA_FOLLOW_LAYOUT.targetDistance);
 
   rig.cameraKeyLight.position.copy(camera.position);
   rig.cameraKeyLight.target.position.copy(rig.cameraTarget);
@@ -208,24 +270,24 @@ export function syncUsdOffscreenLightRigWithCamera(
 
   rig.cameraSoftFrontLight.position
     .copy(camera.position)
-    .addScaledVector(rig.cameraUp, OFFSCREEN_CAMERA_FOLLOW_LIGHTING.softFrontUpOffset)
-    .addScaledVector(rig.cameraDirection, OFFSCREEN_CAMERA_FOLLOW_LIGHTING.softFrontForwardOffset);
+    .addScaledVector(rig.cameraUp, OFFSCREEN_CAMERA_FOLLOW_LAYOUT.softFrontUpOffset)
+    .addScaledVector(rig.cameraDirection, OFFSCREEN_CAMERA_FOLLOW_LAYOUT.softFrontForwardOffset);
   rig.cameraSoftFrontLight.target.position.copy(rig.cameraTarget);
   rig.cameraSoftFrontLight.target.updateMatrixWorld();
 
   rig.cameraFillRightLight.position
     .copy(camera.position)
-    .addScaledVector(rig.cameraRight, OFFSCREEN_CAMERA_FOLLOW_LIGHTING.fillRightOffset)
-    .addScaledVector(rig.cameraUp, OFFSCREEN_CAMERA_FOLLOW_LIGHTING.fillUpOffset)
-    .addScaledVector(rig.cameraDirection, OFFSCREEN_CAMERA_FOLLOW_LIGHTING.fillForwardOffset);
+    .addScaledVector(rig.cameraRight, OFFSCREEN_CAMERA_FOLLOW_LAYOUT.fillRightOffset)
+    .addScaledVector(rig.cameraUp, OFFSCREEN_CAMERA_FOLLOW_LAYOUT.fillUpOffset)
+    .addScaledVector(rig.cameraDirection, OFFSCREEN_CAMERA_FOLLOW_LAYOUT.fillForwardOffset);
   rig.cameraFillRightLight.target.position.copy(rig.cameraTarget);
   rig.cameraFillRightLight.target.updateMatrixWorld();
 
   rig.cameraFillLeftLight.position
     .copy(camera.position)
-    .addScaledVector(rig.cameraRight, -OFFSCREEN_CAMERA_FOLLOW_LIGHTING.fillRightOffset)
-    .addScaledVector(rig.cameraUp, OFFSCREEN_CAMERA_FOLLOW_LIGHTING.fillUpOffset)
-    .addScaledVector(rig.cameraDirection, OFFSCREEN_CAMERA_FOLLOW_LIGHTING.fillForwardOffset);
+    .addScaledVector(rig.cameraRight, -OFFSCREEN_CAMERA_FOLLOW_LAYOUT.fillRightOffset)
+    .addScaledVector(rig.cameraUp, OFFSCREEN_CAMERA_FOLLOW_LAYOUT.fillUpOffset)
+    .addScaledVector(rig.cameraDirection, OFFSCREEN_CAMERA_FOLLOW_LAYOUT.fillForwardOffset);
   rig.cameraFillLeftLight.target.position.copy(rig.cameraTarget);
   rig.cameraFillLeftLight.target.updateMatrixWorld();
 }
@@ -245,7 +307,7 @@ export function disposeUsdOffscreenLightRig(
 export function createUsdOffscreenStudioEnvironment(
   scene: THREE.Scene,
   renderer: THREE.WebGLRenderer,
-  intensity = STUDIO_ENVIRONMENT_INTENSITY.viewer.light,
+  theme: 'light' | 'dark' = 'light',
 ): UsdOffscreenStudioEnvironmentHandle {
   const sceneWithEnvironmentIntensity = scene as SceneWithEnvironmentIntensity;
   const previousEnvironment = scene.environment;
@@ -255,9 +317,12 @@ export function createUsdOffscreenStudioEnvironment(
   const renderTarget = pmremGenerator.fromScene(envScene, 0.04);
 
   scene.environment = renderTarget.texture;
-  sceneWithEnvironmentIntensity.environmentIntensity = intensity;
+  sceneWithEnvironmentIntensity.environmentIntensity = STUDIO_ENVIRONMENT_INTENSITY.viewer[theme];
 
   return {
+    setIntensity: (intensity: number) => {
+      sceneWithEnvironmentIntensity.environmentIntensity = intensity;
+    },
     dispose: () => {
       scene.environment = previousEnvironment;
       sceneWithEnvironmentIntensity.environmentIntensity = previousEnvironmentIntensity;

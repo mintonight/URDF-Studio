@@ -8,6 +8,9 @@ export function ingestJointCatalogFromStage(controller, stage, layerText, fallba
     void fallbackRootPaths;
     let imported = 0;
     for (const jointRecord of jointRecords) {
+        if (jointRecord.closedLoopType) {
+            continue;
+        }
         if (!jointRecord.body1Path)
             continue;
         const linkPaths = resolveRuntimeLinkPathsFromSourcePath(jointRecord.body1Path, runtimeLinkPathIndex);

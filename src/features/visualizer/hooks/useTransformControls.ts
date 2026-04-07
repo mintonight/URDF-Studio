@@ -1,6 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import * as THREE from 'three';
-import { resolveJointKey } from '@/core/robot';
+import {
+  extractJointActualAngleFromQuaternion,
+  getJointMotionPose,
+  resolveJointKey,
+} from '@/core/robot';
 import { type AppMode, RobotState } from '@/types';
 import { useRobotStore } from '@/store/robotStore';
 import { useSelectionStore } from '@/store/selectionStore';
@@ -17,11 +21,17 @@ interface PendingEdit {
   isRotate: boolean;
 }
 
+interface RotatePreviewFeedback {
+  appliedAngle: number | null;
+  constrained: boolean;
+}
+
 export interface TransformControlsState {
   transformControlRef: React.RefObject<any>;
   rotateTransformControlRef: React.RefObject<any>;
   pendingEdit: PendingEdit | null;
   setPendingEdit: (edit: PendingEdit | null) => void;
+  setRotateInputObject: (object: THREE.Object3D | null) => void;
   getDisplayValue: () => string;
   getDeltaDisplay: () => string;
   handleValueChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -33,8 +43,14 @@ export interface TransformControlsState {
 }
 
 interface TransformControlsOptions {
-  onPreviewObjectChange?: (selectedObject: THREE.Group, selectionId: string | null | undefined) => void;
-  onPreviewRotateChange?: (selectionId: string | null | undefined, angle: number) => void;
+  onPreviewObjectChange?: (
+    selectedObject: THREE.Group,
+    selectionId: string | null | undefined,
+  ) => void;
+  onPreviewRotateChange?: (
+    selectionId: string | null | undefined,
+    angle: number,
+  ) => RotatePreviewFeedback | void;
   onResetPreview?: () => void;
   selectedRotateObject?: THREE.Group | null;
 }
@@ -61,20 +77,19 @@ export function useTransformControls(
 
   const originalPositionRef = useRef<THREE.Vector3>(new THREE.Vector3());
   const originalQuaternionRef = useRef<THREE.Quaternion>(new THREE.Quaternion());
+  const rotateInputObjectRef = useRef<THREE.Object3D | null>(null);
   const isDraggingControlRef = useRef(false);
   const currentAxisRef = useRef<string | null>(null);
   const startValueRef = useRef<number>(0);
   const lastPreviewPositionRef = useRef<THREE.Vector3 | null>(null);
   const lastPreviewQuaternionRef = useRef<THREE.Quaternion | null>(null);
   const lastPreviewAngleRef = useRef<number | null>(null);
-  const {
-    onPreviewObjectChange,
-    onPreviewRotateChange,
-    onResetPreview,
-    selectedRotateObject,
-  } = options;
+  const { onPreviewObjectChange, onPreviewRotateChange, onResetPreview, selectedRotateObject } =
+    options;
   const jointTransformControlsEnabled = shouldEnableMergedVisualizerJointTransformControls(mode);
-  const rotateEditsJointMotion = Boolean(selectedRotateObject && selectedRotateObject !== selectedObject);
+  const rotateEditsJointMotion = Boolean(
+    selectedRotateObject && selectedRotateObject !== selectedObject,
+  );
 
   const getObjectRPY = useCallback((object: THREE.Object3D) => {
     const rotation = tempEulerRef.current.setFromQuaternion(object.quaternion, 'ZYX');
@@ -90,13 +105,17 @@ export function useTransformControls(
 
       object.quaternion.setFromEuler(rotation);
     },
-    []
+    [],
   );
 
   const resetPreviewCache = useCallback(() => {
     lastPreviewPositionRef.current = null;
     lastPreviewQuaternionRef.current = null;
     lastPreviewAngleRef.current = null;
+  }, []);
+
+  const setRotateInputObject = useCallback((object: THREE.Object3D | null) => {
+    rotateInputObjectRef.current = object;
   }, []);
 
   const persistSelectedObject = useCallback(() => {
@@ -124,7 +143,14 @@ export function useTransformControls(
 
     originalPositionRef.current.copy(pos);
     originalQuaternionRef.current.copy(selectedObject.quaternion);
-  }, [getObjectRPY, onUpdate, robot.joints, robot.selection.id, robot.selection.type, selectedObject]);
+  }, [
+    getObjectRPY,
+    onUpdate,
+    robot.joints,
+    robot.selection.id,
+    robot.selection.type,
+    selectedObject,
+  ]);
 
   const getSelectedJoint = useCallback(() => {
     if (robot.selection.type !== 'joint' || !robot.selection.id) {
@@ -140,28 +166,37 @@ export function useTransformControls(
     return joint ? { id: resolvedJointId, joint } : null;
   }, [robot.joints, robot.selection.id, robot.selection.type]);
 
+  const getEffectiveRotateObject = useCallback(
+    () => rotateInputObjectRef.current ?? selectedRotateObject,
+    [selectedRotateObject],
+  );
+
   const extractSelectedJointAngle = useCallback(() => {
     const selectedJointEntry = getSelectedJoint();
-    if (!selectedJointEntry || !selectedRotateObject) {
+    const rotateObject = getEffectiveRotateObject();
+    if (!selectedJointEntry || !rotateObject) {
       return null;
     }
+    return extractJointActualAngleFromQuaternion(selectedJointEntry.joint, rotateObject.quaternion);
+  }, [getEffectiveRotateObject, getSelectedJoint]);
 
-    const axis = new THREE.Vector3(
-      selectedJointEntry.joint.axis.x,
-      selectedJointEntry.joint.axis.y,
-      selectedJointEntry.joint.axis.z,
-    );
+  const clampRotatePreviewObject = useCallback(
+    (jointId: string, angle: number) => {
+      const selectedJointEntry = getSelectedJoint();
+      const rotateObject = getEffectiveRotateObject();
+      if (!selectedJointEntry || selectedJointEntry.id !== jointId || !rotateObject) {
+        return;
+      }
 
-    if (axis.lengthSq() <= 1e-12) {
-      axis.set(0, 0, 1);
-    } else {
-      axis.normalize();
-    }
-
-    const quaternion = selectedRotateObject.quaternion.clone().normalize();
-    const vectorPart = new THREE.Vector3(quaternion.x, quaternion.y, quaternion.z);
-    return 2 * Math.atan2(vectorPart.dot(axis), quaternion.w);
-  }, [getSelectedJoint, selectedRotateObject]);
+      const pose = getJointMotionPose(selectedJointEntry.joint, {
+        angles: { [jointId]: angle },
+      });
+      rotateObject.position.copy(pose.position);
+      rotateObject.quaternion.copy(pose.quaternion);
+      rotateObject.updateMatrixWorld(true);
+    },
+    [getEffectiveRotateObject, getSelectedJoint],
+  );
 
   // Clear pending edit when selection changes
   useEffect(() => {
@@ -172,7 +207,14 @@ export function useTransformControls(
     resetPreviewCache();
     onResetPreview?.();
     setPendingEdit(null);
-  }, [onResetPreview, pendingEdit, resetPreviewCache, robot.selection.id, robot.selection.type, selectedObject]);
+  }, [
+    onResetPreview,
+    pendingEdit,
+    resetPreviewCache,
+    robot.selection.id,
+    robot.selection.type,
+    selectedObject,
+  ]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -235,12 +277,23 @@ export function useTransformControls(
           else if (axis === 'Z') selectedObject.position.z = val;
         }
 
-        if (jointTransformControlsEnabled && robot.selection.type === 'joint' && onPreviewObjectChange) {
+        if (
+          jointTransformControlsEnabled &&
+          robot.selection.type === 'joint' &&
+          onPreviewObjectChange
+        ) {
           onPreviewObjectChange(selectedObject, robot.selection.id);
         }
       }
     },
-    [jointTransformControlsEnabled, onPreviewObjectChange, pendingEdit, robot.selection.id, robot.selection.type, selectedObject]
+    [
+      jointTransformControlsEnabled,
+      onPreviewObjectChange,
+      pendingEdit,
+      robot.selection.id,
+      robot.selection.type,
+      selectedObject,
+    ],
   );
 
   const handleConfirm = useCallback(() => {
@@ -260,7 +313,14 @@ export function useTransformControls(
 
     resetPreviewCache();
     setPendingEdit(null);
-  }, [applyAxisRotationValue, pendingEdit, persistSelectedObject, resetPreviewCache, robot.selection.id, selectedObject]);
+  }, [
+    applyAxisRotationValue,
+    pendingEdit,
+    persistSelectedObject,
+    resetPreviewCache,
+    robot.selection.id,
+    selectedObject,
+  ]);
 
   const handleCancel = useCallback(() => {
     if (selectedObject) {
@@ -273,7 +333,12 @@ export function useTransformControls(
   }, [onResetPreview, resetPreviewCache, selectedObject]);
 
   const handleObjectChange = useCallback(() => {
-    if (!jointTransformControlsEnabled || !selectedObject || robot.selection.type !== 'joint' || !onPreviewObjectChange) {
+    if (
+      !jointTransformControlsEnabled ||
+      !selectedObject ||
+      robot.selection.type !== 'joint' ||
+      !onPreviewObjectChange
+    ) {
       return;
     }
 
@@ -284,7 +349,8 @@ export function useTransformControls(
       previousPosition.distanceToSquared(selectedObject.position) > PREVIEW_POSITION_EPSILON_SQ;
     const quaternionChanged =
       !previousQuaternion ||
-      Math.abs(1 - Math.abs(previousQuaternion.dot(selectedObject.quaternion))) > PREVIEW_ROTATION_EPSILON;
+      Math.abs(1 - Math.abs(previousQuaternion.dot(selectedObject.quaternion))) >
+        PREVIEW_ROTATION_EPSILON;
 
     if (!positionChanged && !quaternionChanged) {
       return;
@@ -300,7 +366,13 @@ export function useTransformControls(
     lastPreviewPositionRef.current.copy(selectedObject.position);
     lastPreviewQuaternionRef.current.copy(selectedObject.quaternion);
     onPreviewObjectChange(selectedObject, robot.selection.id);
-  }, [jointTransformControlsEnabled, onPreviewObjectChange, robot.selection.id, robot.selection.type, selectedObject]);
+  }, [
+    jointTransformControlsEnabled,
+    onPreviewObjectChange,
+    robot.selection.id,
+    robot.selection.type,
+    selectedObject,
+  ]);
 
   const handleRotateObjectChange = useCallback(() => {
     if (!rotateEditsJointMotion) {
@@ -321,9 +393,21 @@ export function useTransformControls(
       return;
     }
 
+    const previewFeedback = onPreviewRotateChange?.(selectedJointEntry.id, nextAngle);
+    const appliedAngle =
+      previewFeedback && typeof previewFeedback === 'object' ? previewFeedback.appliedAngle : null;
+    if (
+      typeof appliedAngle === 'number' &&
+      Math.abs(appliedAngle - nextAngle) > PREVIEW_ANGLE_EPSILON
+    ) {
+      clampRotatePreviewObject(selectedJointEntry.id, appliedAngle);
+      lastPreviewAngleRef.current = appliedAngle;
+      return;
+    }
+
     lastPreviewAngleRef.current = nextAngle;
-    onPreviewRotateChange?.(selectedJointEntry.id, nextAngle);
   }, [
+    clampRotatePreviewObject,
     extractSelectedJointAngle,
     getSelectedJoint,
     handleObjectChange,
@@ -341,7 +425,7 @@ export function useTransformControls(
         handleCancel();
       }
     },
-    [handleConfirm, handleCancel]
+    [handleConfirm, handleCancel],
   );
 
   // Setup event listeners for TransformControls
@@ -356,19 +440,19 @@ export function useTransformControls(
         return axis === 'X'
           ? rotation.r
           : axis === 'Y'
-          ? rotation.p
-          : axis === 'Z'
-          ? rotation.y
-          : 0;
+            ? rotation.p
+            : axis === 'Z'
+              ? rotation.y
+              : 0;
       }
 
       return axis === 'X'
         ? selectedObject.position.x
         : axis === 'Y'
-        ? selectedObject.position.y
-        : axis === 'Z'
-        ? selectedObject.position.z
-        : 0;
+          ? selectedObject.position.y
+          : axis === 'Z'
+            ? selectedObject.position.z
+            : 0;
     };
 
     const bindTranslateListener = (controls: any) => {
@@ -466,6 +550,7 @@ export function useTransformControls(
     rotateTransformControlRef,
     pendingEdit,
     setPendingEdit,
+    setRotateInputObject,
     getDisplayValue,
     getDeltaDisplay,
     handleValueChange,

@@ -11,3 +11,4 @@ export * from './Checkbox';
 export * from './Dialog';
 export * from './IconButton';
 export * from './ContextMenu';
+export * from './Tooltip';

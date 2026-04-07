@@ -1,5 +1,10 @@
 import * as THREE from 'three';
 import type { Theme } from '@/types';
+import {
+  GROUND_SHADOW_RENDER_ORDER,
+  GROUND_SHADOW_STYLE,
+  GROUND_SHADOW_Z_OFFSET,
+} from './constants';
 import { resolveEffectiveTheme } from './themeUtils';
 
 interface GroundShadowPlaneProps {
@@ -9,17 +14,6 @@ interface GroundShadowPlaneProps {
   centerY?: number;
   size?: number;
 }
-
-const GROUND_SHADOW_STYLE = {
-  light: {
-    color: '#000000',
-    opacity: 0.08,
-  },
-  dark: {
-    color: '#000000',
-    opacity: 0.2,
-  },
-} as const;
 
 const ignoreRaycast = (_raycaster: THREE.Raycaster, _intersects: THREE.Intersection[]) => undefined;
 
@@ -37,8 +31,8 @@ export function GroundShadowPlane({
     <mesh
       name="GroundShadowPlane"
       userData={{ isHelper: true, excludeFromSceneBounds: true }}
-      position={[centerX, centerY, groundOffset - 0.0015]}
-      renderOrder={-110}
+      position={[centerX, centerY, groundOffset + GROUND_SHADOW_Z_OFFSET]}
+      renderOrder={GROUND_SHADOW_RENDER_ORDER}
       frustumCulled={false}
       receiveShadow
       raycast={ignoreRaycast}

@@ -6,6 +6,7 @@ import type { ToolMode, URDFViewerProps, ViewerDocumentLoadEvent, ViewerSceneMod
 import type { ViewerRobotDataResolution } from './viewerRobotData';
 
 interface BuildURDFViewerScenePropsArgs {
+  resolvedTheme?: 'light' | 'dark';
   controller: URDFViewerController;
   active?: boolean;
   sourceFile?: RobotFile | null;
@@ -47,6 +48,7 @@ export interface URDFViewerSceneBaseProps extends BuildURDFViewerScenePropsArgs 
 }
 
 export function buildURDFViewerSceneProps({
+  resolvedTheme,
   controller,
   active = true,
   sourceFile,
@@ -80,6 +82,7 @@ export function buildURDFViewerSceneProps({
   onSourceSceneAssemblyComponentTransform,
 }: BuildURDFViewerScenePropsArgs): URDFViewerSceneBaseProps {
   return {
+    resolvedTheme,
     controller,
     active,
     sourceFile,

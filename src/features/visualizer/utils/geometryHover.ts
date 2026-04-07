@@ -4,7 +4,7 @@ import { findNearestVisualizerTargetFromHits } from './hoverPicking';
 import type { VisualizerInteractiveLayer } from './interactiveLayerPriority';
 
 interface HoverSelectionLike {
-  type: 'link' | 'joint' | null;
+  type: 'link' | 'joint' | 'tendon' | null;
   id: string | null;
   subType?: 'visual' | 'collision';
   objectIndex?: number;

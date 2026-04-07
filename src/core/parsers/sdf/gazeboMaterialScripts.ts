@@ -36,11 +36,9 @@ function normalizePath(path: string): string {
 }
 
 function uniquePaths(paths: Array<string | null | undefined>): string[] {
-  return Array.from(new Set(
-    paths
-      .map((path) => normalizePath(String(path || '').trim()))
-      .filter(Boolean),
-  ));
+  return Array.from(
+    new Set(paths.map((path) => normalizePath(String(path || '').trim())).filter(Boolean)),
+  );
 }
 
 function resolveScriptUriPath(uri: string, sourcePath?: string): string | null {
@@ -76,12 +74,16 @@ function toHexColor(value: string): string | undefined {
     return Math.max(0, Math.min(255, Math.round(normalized)));
   };
 
-  return `#${numericParts.slice(0, 3)
+  return `#${numericParts
+    .slice(0, 3)
     .map((part) => toByte(part).toString(16).padStart(2, '0'))
     .join('')}`;
 }
 
-function readMaterialBlock(text: string, openingBraceIndex: number): { block: string; endIndex: number } | null {
+function readMaterialBlock(
+  text: string,
+  openingBraceIndex: number,
+): { block: string; endIndex: number } | null {
   let depth = 1;
 
   for (let index = openingBraceIndex + 1; index < text.length; index += 1) {
@@ -156,11 +158,13 @@ function collectMaterialScriptFiles(
     return entries;
   }
 
-  const filteredEntries = entries.filter(({ path }) => searchRoots.some((root) => (
-    root.toLowerCase().endsWith('.material')
-      ? path === root
-      : path === root || path.startsWith(`${root}/`)
-  )));
+  const filteredEntries = entries.filter(({ path }) =>
+    searchRoots.some((root) =>
+      root.toLowerCase().endsWith('.material')
+        ? path === root
+        : path === root || path.startsWith(`${root}/`),
+    ),
+  );
 
   return filteredEntries.length > 0 ? filteredEntries : entries;
 }
@@ -194,7 +198,13 @@ function resolveTexturePath(
   });
 
   for (const root of sortedRoots) {
-    const resolved = normalizePath(resolveImportedAssetPath(trimmed, `${root}/__material__`));
+    const normalizedRoot = normalizePath(root);
+    const baseDirectory = normalizedRoot.toLowerCase().endsWith('.material')
+      ? normalizedRoot.slice(0, Math.max(0, normalizedRoot.lastIndexOf('/')))
+      : normalizedRoot;
+    const resolved = normalizePath(
+      `${baseDirectory.replace(/\/+$/, '')}/${trimmed.replace(/^\/+/, '')}`,
+    );
     if (resolved && resolved !== trimmed) {
       return resolved;
     }
@@ -203,14 +213,12 @@ function resolveTexturePath(
   return normalizePath(resolveImportedAssetPath(trimmed, sourcePath));
 }
 
-export function resolveGazeboScriptMaterial(
-  {
-    allFileContents = {},
-    scriptName,
-    scriptUris = [],
-    sourcePath,
-  }: ResolveGazeboScriptMaterialOptions,
-): GazeboScriptMaterialDefinition | null {
+export function resolveGazeboScriptMaterial({
+  allFileContents = {},
+  scriptName,
+  scriptUris = [],
+  sourcePath,
+}: ResolveGazeboScriptMaterialOptions): GazeboScriptMaterialDefinition | null {
   const normalizedScriptName = String(scriptName || '').trim();
   if (!normalizedScriptName) {
     return null;
@@ -230,11 +238,9 @@ export function resolveGazeboScriptMaterial(
       ...matchedDefinition,
       ...(matchedDefinition.texture
         ? {
-            texture: resolveTexturePath(
+            texture:
+              resolveTexturePath(matchedDefinition.texture, searchRoots, sourcePath) ||
               matchedDefinition.texture,
-              searchRoots,
-              sourcePath,
-            ) || matchedDefinition.texture,
           }
         : {}),
     };

@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 
-import type { RobotState, UrdfJoint, UrdfLink } from '../../../types/index.ts';
+import type {
+  RobotClosedLoopConstraint,
+  RobotState,
+  UrdfJoint,
+  UrdfLink,
+} from '../../../types/index.ts';
 import { computeUsdInertiaProperties } from '../../../shared/utils/inertiaUsd.ts';
 import {
   USD_GEOMETRY_TYPES as GEOMETRY_TYPES,
@@ -89,7 +94,11 @@ const getAxisToken = (axis: THREE.Vector3 | UrdfJoint['axis'] | undefined): 'X' 
 
 const jointTypeToUsdType = (
   joint: UrdfJoint,
-): 'PhysicsFixedJoint' | 'PhysicsRevoluteJoint' | 'PhysicsPrismaticJoint' => {
+):
+  | 'PhysicsFixedJoint'
+  | 'PhysicsRevoluteJoint'
+  | 'PhysicsPrismaticJoint'
+  | 'PhysicsSphericalJoint' => {
   const type = String(joint.type || '').toLowerCase();
   if (type === 'revolute' || type === 'continuous') {
     return 'PhysicsRevoluteJoint';
@@ -97,11 +106,14 @@ const jointTypeToUsdType = (
   if (type === 'prismatic') {
     return 'PhysicsPrismaticJoint';
   }
+  if (type === 'ball' || type === 'spherical') {
+    return 'PhysicsSphericalJoint';
+  }
   return 'PhysicsFixedJoint';
 };
 
 const radiansToDegrees = (value: number): number => {
-  return value * 180 / Math.PI;
+  return (value * 180) / Math.PI;
 };
 
 const serializeJointDefinition = (
@@ -120,6 +132,8 @@ const serializeJointDefinition = (
     return;
   }
 
+  const supportsAxis = typeName === 'PhysicsRevoluteJoint' || typeName === 'PhysicsPrismaticJoint';
+
   serializeUsdPrimSpecWithMetadata(
     lines,
     depth,
@@ -129,56 +143,124 @@ const serializeJointDefinition = (
   lines.push(`${childIndent}rel physics:body0 = <${parentPath}>`);
   lines.push(`${childIndent}rel physics:body1 = <${childPath}>`);
 
-  if (typeName !== 'PhysicsFixedJoint') {
+  if (supportsAxis) {
     lines.push(`${childIndent}uniform token physics:axis = "${getAxisToken(joint.axis)}"`);
   }
   lines.push(
     `${childIndent}custom string urdf:jointType = "${escapeUsdString(String(joint.type || 'fixed').toLowerCase())}"`,
   );
-  lines.push(`${childIndent}custom float3 urdf:axisLocal = ${formatUsdTuple([
-    joint.axis?.x ?? 1,
-    joint.axis?.y ?? 0,
-    joint.axis?.z ?? 0,
-  ])}`);
+  lines.push(
+    `${childIndent}custom float3 urdf:axisLocal = ${formatUsdTuple([
+      joint.axis?.x ?? 1,
+      joint.axis?.y ?? 0,
+      joint.axis?.z ?? 0,
+    ])}`,
+  );
 
-  if (typeName === 'PhysicsRevoluteJoint' && String(joint.type || '').toLowerCase() !== 'continuous' && joint.limit) {
-    lines.push(`${childIndent}float physics:lowerLimit = ${formatUsdFloat(radiansToDegrees(joint.limit.lower))}`);
-    lines.push(`${childIndent}float physics:upperLimit = ${formatUsdFloat(radiansToDegrees(joint.limit.upper))}`);
+  if (
+    typeName === 'PhysicsRevoluteJoint' &&
+    String(joint.type || '').toLowerCase() !== 'continuous' &&
+    joint.limit
+  ) {
+    lines.push(
+      `${childIndent}float physics:lowerLimit = ${formatUsdFloat(radiansToDegrees(joint.limit.lower))}`,
+    );
+    lines.push(
+      `${childIndent}float physics:upperLimit = ${formatUsdFloat(radiansToDegrees(joint.limit.upper))}`,
+    );
   } else if (typeName === 'PhysicsPrismaticJoint' && joint.limit) {
     lines.push(`${childIndent}float physics:lowerLimit = ${formatUsdFloat(joint.limit.lower)}`);
     lines.push(`${childIndent}float physics:upperLimit = ${formatUsdFloat(joint.limit.upper)}`);
   }
 
-  lines.push(`${childIndent}point3f physics:localPos0 = ${formatUsdTuple([
-    joint.origin?.xyz?.x ?? 0,
-    joint.origin?.xyz?.y ?? 0,
-    joint.origin?.xyz?.z ?? 0,
-  ])}`);
+  lines.push(
+    `${childIndent}point3f physics:localPos0 = ${formatUsdTuple([
+      joint.origin?.xyz?.x ?? 0,
+      joint.origin?.xyz?.y ?? 0,
+      joint.origin?.xyz?.z ?? 0,
+    ])}`,
+  );
   const originQuaternion = rpyToQuaternion(
     joint.origin?.rpy?.r ?? 0,
     joint.origin?.rpy?.p ?? 0,
     joint.origin?.rpy?.y ?? 0,
   );
-  lines.push(`${childIndent}custom point3f urdf:originXyz = ${formatUsdTuple([
-    joint.origin?.xyz?.x ?? 0,
-    joint.origin?.xyz?.y ?? 0,
-    joint.origin?.xyz?.z ?? 0,
-  ])}`);
-  lines.push(`${childIndent}custom quatf urdf:originQuatWxyz = ${quaternionToUsdTuple(originQuaternion)}`);
+  lines.push(
+    `${childIndent}custom point3f urdf:originXyz = ${formatUsdTuple([
+      joint.origin?.xyz?.x ?? 0,
+      joint.origin?.xyz?.y ?? 0,
+      joint.origin?.xyz?.z ?? 0,
+    ])}`,
+  );
+  lines.push(
+    `${childIndent}custom quatf urdf:originQuatWxyz = ${quaternionToUsdTuple(originQuaternion)}`,
+  );
   lines.push(`${childIndent}quatf physics:localRot0 = ${quaternionToUsdTuple(originQuaternion)}`);
   lines.push(`${childIndent}point3f physics:localPos1 = (0, 0, 0)`);
   lines.push(`${childIndent}quatf physics:localRot1 = (1, 0, 0, 0)`);
   lines.push(`${indent}}`);
 };
 
-const serializeCollisionOverrides = (
-  link: UrdfLink,
+const serializeClosedLoopConstraintDefinition = (
+  constraint: RobotClosedLoopConstraint,
+  linkPaths: Map<string, string>,
   lines: string[],
   depth: number,
 ): void => {
+  if (constraint.type !== 'connect') {
+    return;
+  }
+
+  const linkAPath = linkPaths.get(constraint.linkAId);
+  const linkBPath = linkPaths.get(constraint.linkBId);
+  if (!linkAPath || !linkBPath) {
+    return;
+  }
+
+  const indent = makeUsdIndent(depth);
+  const childIndent = makeUsdIndent(depth + 1);
+  const constraintId = String(
+    constraint.id || `${constraint.linkAId}_${constraint.linkBId}_closed_loop`,
+  );
+
+  serializeUsdPrimSpecWithMetadata(
+    lines,
+    depth,
+    `def PhysicsSphericalJoint "${sanitizeUsdIdentifier(constraintId)}"`,
+  );
+  lines.push(`${indent}{`);
+  lines.push(`${childIndent}rel physics:body0 = <${linkAPath}>`);
+  lines.push(`${childIndent}rel physics:body1 = <${linkBPath}>`);
+  lines.push(`${childIndent}custom string urdf:jointType = "ball"`);
+  lines.push(`${childIndent}custom string urdf:closedLoopId = "${escapeUsdString(constraintId)}"`);
+  lines.push(
+    `${childIndent}custom string urdf:closedLoopType = "${escapeUsdString(constraint.type)}"`,
+  );
+  lines.push(
+    `${childIndent}point3f physics:localPos0 = ${formatUsdTuple([
+      constraint.anchorLocalA.x,
+      constraint.anchorLocalA.y,
+      constraint.anchorLocalA.z,
+    ])}`,
+  );
+  lines.push(
+    `${childIndent}point3f physics:localPos1 = ${formatUsdTuple([
+      constraint.anchorLocalB.x,
+      constraint.anchorLocalB.y,
+      constraint.anchorLocalB.z,
+    ])}`,
+  );
+  lines.push(`${childIndent}quatf physics:localRot0 = (1, 0, 0, 0)`);
+  lines.push(`${childIndent}quatf physics:localRot1 = (1, 0, 0, 0)`);
+  lines.push(`${indent}}`);
+};
+
+const serializeCollisionOverrides = (link: UrdfLink, lines: string[], depth: number): void => {
   const collisionVisuals = [
     ...(getGeometryType(link.collision?.type) !== GEOMETRY_TYPES.NONE ? [link.collision] : []),
-    ...((link.collisionBodies || []).filter((body) => getGeometryType(body.type) !== GEOMETRY_TYPES.NONE)),
+    ...(link.collisionBodies || []).filter(
+      (body) => getGeometryType(body.type) !== GEOMETRY_TYPES.NONE,
+    ),
   ];
 
   if (collisionVisuals.length === 0) {
@@ -191,16 +273,14 @@ const serializeCollisionOverrides = (
 
   collisionVisuals.forEach((visual, index) => {
     const childIndent = makeUsdIndent(depth + 1);
-    const apiSchemas = getGeometryType(visual.type) === GEOMETRY_TYPES.MESH
-      ? '"PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"'
-      : '"PhysicsCollisionAPI"';
+    const apiSchemas =
+      getGeometryType(visual.type) === GEOMETRY_TYPES.MESH
+        ? '"PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"'
+        : '"PhysicsCollisionAPI"';
 
-    serializeUsdPrimSpecWithMetadata(
-      lines,
-      depth + 1,
-      `over "collision_${index}"`,
-      [`prepend apiSchemas = [${apiSchemas}]`],
-    );
+    serializeUsdPrimSpecWithMetadata(lines, depth + 1, `over "collision_${index}"`, [
+      `prepend apiSchemas = [${apiSchemas}]`,
+    ]);
     lines.push(`${childIndent}{`);
     lines.push(`${makeUsdIndent(depth + 2)}bool physics:collisionEnabled = true`);
     if (getGeometryType(visual.type) === GEOMETRY_TYPES.MESH) {
@@ -230,28 +310,31 @@ const serializeLinkPhysicsOverrides = (
     ? '"PhysicsRigidBodyAPI", "PhysicsMassAPI"'
     : '"PhysicsRigidBodyAPI"';
 
-  serializeUsdPrimSpecWithMetadata(
-    lines,
-    depth,
-    `over "${sanitizeUsdIdentifier(linkId)}"`,
-    [`prepend apiSchemas = [${apiSchemas}]`],
-  );
+  serializeUsdPrimSpecWithMetadata(lines, depth, `over "${sanitizeUsdIdentifier(linkId)}"`, [
+    `prepend apiSchemas = [${apiSchemas}]`,
+  ]);
   lines.push(`${indent}{`);
 
   if (link.inertial) {
     const usdInertia = computeUsdInertiaProperties(link.inertial);
     lines.push(`${childIndent}float physics:mass = ${formatUsdFloat(link.inertial.mass)}`);
-    lines.push(`${childIndent}float3 physics:centerOfMass = ${formatUsdTuple([
-      link.inertial.origin?.xyz?.x ?? 0,
-      link.inertial.origin?.xyz?.y ?? 0,
-      link.inertial.origin?.xyz?.z ?? 0,
-    ])}`);
-    lines.push(`${childIndent}float3 physics:diagonalInertia = ${formatUsdTuple([
-      usdInertia?.diagonalInertia[0] ?? 0,
-      usdInertia?.diagonalInertia[1] ?? 0,
-      usdInertia?.diagonalInertia[2] ?? 0,
-    ])}`);
-    lines.push(`${childIndent}quatf physics:principalAxes = ${quaternionToUsdTuple(usdInertia?.principalAxesLocal)}`);
+    lines.push(
+      `${childIndent}float3 physics:centerOfMass = ${formatUsdTuple([
+        link.inertial.origin?.xyz?.x ?? 0,
+        link.inertial.origin?.xyz?.y ?? 0,
+        link.inertial.origin?.xyz?.z ?? 0,
+      ])}`,
+    );
+    lines.push(
+      `${childIndent}float3 physics:diagonalInertia = ${formatUsdTuple([
+        usdInertia?.diagonalInertia[0] ?? 0,
+        usdInertia?.diagonalInertia[1] ?? 0,
+        usdInertia?.diagonalInertia[2] ?? 0,
+      ])}`,
+    );
+    lines.push(
+      `${childIndent}quatf physics:principalAxes = ${quaternionToUsdTuple(usdInertia?.principalAxesLocal)}`,
+    );
   }
 
   serializeCollisionOverrides(link, lines, depth + 1);
@@ -263,10 +346,7 @@ const serializeLinkPhysicsOverrides = (
   lines.push(`${indent}}`);
 };
 
-export const buildUsdLinkPathMaps = (
-  robot: RobotState,
-  rootPrimName: string,
-): UsdLinkPathMaps => {
+export const buildUsdLinkPathMaps = (robot: RobotState, rootPrimName: string): UsdLinkPathMaps => {
   const childIdsByParent = new Map<string, string[]>();
   Object.values(robot.joints).forEach((joint) => {
     const children = childIdsByParent.get(joint.parentLinkId) || [];
@@ -314,12 +394,9 @@ export const buildUsdPhysicsLayerContent = (
   lines.push('}');
   lines.push('');
 
-  serializeUsdPrimSpecWithMetadata(
-    lines,
-    0,
-    `over "${rootPrimName}"`,
-    ['prepend apiSchemas = ["PhysicsArticulationRootAPI"]'],
-  );
+  serializeUsdPrimSpecWithMetadata(lines, 0, `over "${rootPrimName}"`, [
+    'prepend apiSchemas = ["PhysicsArticulationRootAPI"]',
+  ]);
   lines.push('{');
 
   serializeLinkPhysicsOverrides(robot, robot.rootLinkId, pathMaps.childIdsByParent, lines, 1);
@@ -330,6 +407,9 @@ export const buildUsdPhysicsLayerContent = (
 
   Object.values(robot.joints).forEach((joint) => {
     serializeJointDefinition(joint, pathMaps.linkPaths, lines, 2);
+  });
+  (robot.closedLoopConstraints || []).forEach((constraint) => {
+    serializeClosedLoopConstraintDefinition(constraint, pathMaps.linkPaths, lines, 2);
   });
 
   lines.push('    }');
@@ -489,12 +569,9 @@ const serializeIsaacLinkOverrides = (
   const indent = makeUsdIndent(depth);
   const childIndent = makeUsdIndent(depth + 1);
 
-  serializeUsdPrimSpecWithMetadata(
-    lines,
-    depth,
-    `over "${sanitizeUsdIdentifier(linkId)}"`,
-    ['prepend apiSchemas = ["IsaacLinkAPI"]'],
-  );
+  serializeUsdPrimSpecWithMetadata(lines, depth, `over "${sanitizeUsdIdentifier(linkId)}"`, [
+    'prepend apiSchemas = ["IsaacLinkAPI"]',
+  ]);
   lines.push(`${indent}{`);
   lines.push(`${childIndent}string isaac:nameOverride`);
 
@@ -520,17 +597,17 @@ export const buildUsdRobotLayerContent = (
     '',
   ];
 
-  const rootLinkPaths = Array.from(pathMaps.linkPaths.values()).map((linkPath) => `        <${linkPath}>,`);
-  const jointPaths = Object.values(robot.joints).map((joint) => (
-    `        </${rootPrimName}/joints/${sanitizeUsdIdentifier(joint.id || joint.name || 'joint')}>,`
-  ));
-
-  serializeUsdPrimSpecWithMetadata(
-    lines,
-    0,
-    `def Xform "${rootPrimName}"`,
-    ['prepend apiSchemas = ["IsaacRobotAPI"]'],
+  const rootLinkPaths = Array.from(pathMaps.linkPaths.values()).map(
+    (linkPath) => `        <${linkPath}>,`,
   );
+  const jointPaths = Object.values(robot.joints).map(
+    (joint) =>
+      `        </${rootPrimName}/joints/${sanitizeUsdIdentifier(joint.id || joint.name || 'joint')}>,`,
+  );
+
+  serializeUsdPrimSpecWithMetadata(lines, 0, `def Xform "${rootPrimName}"`, [
+    'prepend apiSchemas = ["IsaacRobotAPI"]',
+  ]);
   lines.push('{');
   lines.push('    string isaac:description');
   lines.push('    string isaac:namespace');
@@ -549,12 +626,9 @@ export const buildUsdRobotLayerContent = (
 
   Object.values(robot.joints).forEach((joint, index) => {
     const jointName = sanitizeUsdIdentifier(joint.id || joint.name || 'joint');
-    serializeUsdPrimSpecWithMetadata(
-      lines,
-      2,
-      `over "${jointName}"`,
-      ['prepend apiSchemas = ["IsaacJointAPI"]'],
-    );
+    serializeUsdPrimSpecWithMetadata(lines, 2, `over "${jointName}"`, [
+      'prepend apiSchemas = ["IsaacJointAPI"]',
+    ]);
     lines.push('        {');
     lines.push('            string isaac:nameOverride');
     lines.push('            float[] isaac:physics:AccelerationLimit');
@@ -586,17 +660,24 @@ export const createUsdArchivePackage = (
   const layerExtension = getUsdLayerExtension(options.fileFormat);
   const packageRoot = sanitizeUsdIdentifier(exportName || 'robot');
   const configStemBase = resolveUsdConfigStem(packageRoot, options);
-  const usdRoot = layoutProfile === 'isaacsim'
-    ? packageRoot
-    : `${packageRoot}/usd`;
+  const usdRoot = layoutProfile === 'isaacsim' ? packageRoot : `${packageRoot}/usd`;
   const configurationRoot = `${usdRoot}/configuration`;
   const rootLayerPath = `${usdRoot}/${packageRoot}.${layerExtension}`;
 
   const layerFiles: Array<[string, Blob]> = [
     [rootLayerPath, createIdentityBlob(layerContents.rootLayerContent)],
-    [`${configurationRoot}/${configStemBase}_base.${layerExtension}`, createIdentityBlob(layerContents.baseLayerContent)],
-    [`${configurationRoot}/${configStemBase}_physics.${layerExtension}`, createIdentityBlob(layerContents.physicsLayerContent)],
-    [`${configurationRoot}/${configStemBase}_sensor.${layerExtension}`, createIdentityBlob(layerContents.sensorLayerContent)],
+    [
+      `${configurationRoot}/${configStemBase}_base.${layerExtension}`,
+      createIdentityBlob(layerContents.baseLayerContent),
+    ],
+    [
+      `${configurationRoot}/${configStemBase}_physics.${layerExtension}`,
+      createIdentityBlob(layerContents.physicsLayerContent),
+    ],
+    [
+      `${configurationRoot}/${configStemBase}_sensor.${layerExtension}`,
+      createIdentityBlob(layerContents.sensorLayerContent),
+    ],
   ];
 
   if (layerContents.robotLayerContent) {
@@ -611,7 +692,9 @@ export const createUsdArchivePackage = (
     rootLayerPath,
     archiveFiles: new Map<string, Blob>([
       ...layerFiles,
-      ...Array.from(assetFiles.entries()).map(([relativePath, blob]) => [`${usdRoot}/${relativePath}`, blob] as const),
+      ...Array.from(assetFiles.entries()).map(
+        ([relativePath, blob]) => [`${usdRoot}/${relativePath}`, blob] as const,
+      ),
     ]),
   };
 };

@@ -13,7 +13,11 @@ import {
   type UrdfVisualMaterial,
 } from '@/types';
 import { mergeAssembly } from '@/core/robot/assemblyMerger';
-import { getVisualGeometryEntries } from '@/core/robot';
+import {
+  getEffectiveGeometryAuthoredMaterials,
+  getVisualGeometryEntries,
+  resolveVisualMaterialOverride,
+} from '@/core/robot';
 import {
   MAX_GEOMETRY_DIMENSION_DECIMALS,
   MAX_PROPERTY_DECIMALS,
@@ -58,26 +62,43 @@ function resolveLinkExportMaterial(
   visual: UrdfLink['visual'],
   options: {
     isPrimaryVisual?: boolean;
-    visualCount?: number;
   } = {},
-): { color?: string; texture?: string } {
-  const material = robot.materials?.[link.id] || robot.materials?.[link.name];
-  const visualCount = options.visualCount ?? getVisualGeometryEntries(link).length;
-  const isPrimaryVisual = options.isPrimaryVisual ?? true;
+): {
+  authoredMaterials?: UrdfVisualMaterial[];
+  color?: string;
+  texture?: string;
+  source: 'authored' | 'legacy-link' | 'inline' | 'none';
+} {
+  const resolvedMaterial = resolveVisualMaterialOverride(robot, link, visual, {
+    isPrimaryVisual: options.isPrimaryVisual,
+  });
 
-  // `robot.materials` is a link-level cache and cannot safely describe multiple
-  // independently colored visuals on the same link. Preserve per-visual
-  // authored colors/materials for additional visuals instead of flattening the
-  // whole link to the primary visual color during source regeneration.
-  if (visualCount > 1 && !isPrimaryVisual) {
+  if (resolvedMaterial.source === 'authored') {
+    return {
+      authoredMaterials: getEffectiveGeometryAuthoredMaterials(visual),
+      color: resolvedMaterial.color,
+      texture: resolvedMaterial.texture,
+      source: 'authored',
+    };
+  }
+
+  if (resolvedMaterial.source === 'legacy-link') {
+    return {
+      color: resolvedMaterial.color,
+      texture: resolvedMaterial.texture,
+      source: 'legacy-link',
+    };
+  }
+
+  if (visual.color) {
     return {
       color: visual.color,
+      source: 'inline',
     };
   }
 
   return {
-    color: material?.color || (!material?.texture ? visual.color : undefined),
-    texture: material?.texture,
+    source: 'none',
   };
 }
 
@@ -135,9 +156,13 @@ const generateCalibrationTag = (
       ? joint.referencePosition
       : undefined;
   const rising = Number.isFinite(joint.calibration?.rising) ? joint.calibration!.rising : undefined;
-  const falling = Number.isFinite(joint.calibration?.falling) ? joint.calibration!.falling : undefined;
+  const falling = Number.isFinite(joint.calibration?.falling)
+    ? joint.calibration!.falling
+    : undefined;
   const attributes = [
-    ...(referencePosition !== undefined ? [`reference_position="${formatScalar(referencePosition)}"`] : []),
+    ...(referencePosition !== undefined
+      ? [`reference_position="${formatScalar(referencePosition)}"`]
+      : []),
     ...(rising !== undefined ? [`rising="${formatScalar(rising)}"`] : []),
     ...(falling !== undefined ? [`falling="${formatScalar(falling)}"`] : []),
   ];
@@ -186,10 +211,7 @@ const generateOriginTag = (
     return '';
   }
 
-  const attributes = [
-    `xyz="${vecStr(origin.xyz)}"`,
-    `rpy="${rotStr(origin.rpy)}"`,
-  ];
+  const attributes = [`xyz="${vecStr(origin.xyz)}"`, `rpy="${rotStr(origin.rpy)}"`];
 
   if (origin.quatXyzw) {
     attributes.push(
@@ -228,12 +250,12 @@ const generateCollisionElement = (
     xml += `        <capsule radius="${formatShape(collision.dimensions.x)}" length="${formatShape(collision.dimensions.y)}" />\n`;
   } else if (collision.type === GeometryType.MESH) {
     const meshPath = collision.meshPath
-      ? (preserveMeshPaths
+      ? preserveMeshPaths
         ? collision.meshPath.replace(/\\/g, '/')
-        : normalizeMeshPathForExport(collision.meshPath))
+        : normalizeMeshPathForExport(collision.meshPath)
       : 'part_collision.stl';
     const filename = preserveMeshPaths
-      ? (meshPath || 'part_collision.stl')
+      ? meshPath || 'part_collision.stl'
       : useRelativePaths
         ? `meshes/${meshPath || 'part_collision.stl'}`
         : `package://${exportRobotName}/meshes/${meshPath || 'part_collision.stl'}`;
@@ -263,6 +285,7 @@ const DEFAULT_PARSED_HARDWARE = {
   motorType: 'None',
   motorId: '',
   motorDirection: 1 as 1 | -1,
+  hardwareInterface: undefined as 'effort' | 'position' | 'velocity' | undefined,
 };
 
 const hasExportableHardware = (joint: UrdfJoint): boolean => {
@@ -270,27 +293,38 @@ const hasExportableHardware = (joint: UrdfJoint): boolean => {
   if (!hardware) return false;
 
   return (
-    (hardware.motorType?.trim() ?? '') !== DEFAULT_PARSED_HARDWARE.motorType
-    || (hardware.brand?.trim() ?? '') !== DEFAULT_PARSED_HARDWARE.brand
-    || (hardware.motorId?.trim() ?? '') !== DEFAULT_PARSED_HARDWARE.motorId
-    || (hardware.motorDirection ?? DEFAULT_PARSED_HARDWARE.motorDirection) !== DEFAULT_PARSED_HARDWARE.motorDirection
-    || (hardware.armature ?? DEFAULT_PARSED_HARDWARE.armature) !== DEFAULT_PARSED_HARDWARE.armature
+    (hardware.motorType?.trim() ?? '') !== DEFAULT_PARSED_HARDWARE.motorType ||
+    (hardware.brand?.trim() ?? '') !== DEFAULT_PARSED_HARDWARE.brand ||
+    (hardware.motorId?.trim() ?? '') !== DEFAULT_PARSED_HARDWARE.motorId ||
+    (hardware.motorDirection ?? DEFAULT_PARSED_HARDWARE.motorDirection) !==
+      DEFAULT_PARSED_HARDWARE.motorDirection ||
+    (hardware.armature ?? DEFAULT_PARSED_HARDWARE.armature) !== DEFAULT_PARSED_HARDWARE.armature ||
+    (hardware.hardwareInterface ?? DEFAULT_PARSED_HARDWARE.hardwareInterface) !==
+      DEFAULT_PARSED_HARDWARE.hardwareInterface
   );
 };
 
-export const generateAssemblyURDF = (assembly: AssemblyState, options: UrdfGeneratorOptions = {}): string => {
+export const generateAssemblyURDF = (
+  assembly: AssemblyState,
+  options: UrdfGeneratorOptions = {},
+): string => {
   const mergedData = mergeAssembly(assembly);
   return generateURDF(mergedData as unknown as RobotState, options);
 };
 
-export const generateURDF = (robot: RobotState, options: UrdfGeneratorOptions | boolean = false): string => {
+export const generateURDF = (
+  robot: RobotState,
+  options: UrdfGeneratorOptions | boolean = false,
+): string => {
   // Backward compat: accept boolean as legacy `extended` param
   const opts: UrdfGeneratorOptions = typeof options === 'boolean' ? { extended: options } : options;
   const hardwareMode = opts.includeHardware ?? ((opts.extended ?? false) ? 'always' : 'never');
   const useRelativePaths = opts.useRelativePaths ?? false;
   const preserveMeshPaths = opts.preserveMeshPaths ?? false;
   const omitMeshMaterialPaths = opts.omitMeshMaterialPaths
-    ? new Set(Array.from(opts.omitMeshMaterialPaths, (path) => String(path || '').replace(/\\/g, '/')))
+    ? new Set(
+        Array.from(opts.omitMeshMaterialPaths, (path) => String(path || '').replace(/\\/g, '/')),
+      )
     : null;
   const { name, version, links, joints } = robot;
   const exportRobotName = name?.trim() ? name : 'robot';
@@ -300,10 +334,14 @@ export const generateURDF = (robot: RobotState, options: UrdfGeneratorOptions | 
 
   // Helper to format numbers
   const formatScalar = (n: number) => formatNumberWithMaxDecimals(n, MAX_PROPERTY_DECIMALS);
-  const formatQuaternionScalar = (n: number) => formatNumberWithMaxDecimals(n, MAX_PROPERTY_DECIMALS + 1);
-  const formatShape = (n: number) => formatNumberWithMaxDecimals(n, MAX_GEOMETRY_DIMENSION_DECIMALS);
-  const vecStr = (v: { x: number; y: number; z: number }) => `${formatScalar(v.x)} ${formatScalar(v.y)} ${formatScalar(v.z)}`;
-  const rotStr = (v: { r: number; p: number; y: number }) => `${formatScalar(v.r)} ${formatScalar(v.p)} ${formatScalar(v.y)}`;
+  const formatQuaternionScalar = (n: number) =>
+    formatNumberWithMaxDecimals(n, MAX_PROPERTY_DECIMALS + 1);
+  const formatShape = (n: number) =>
+    formatNumberWithMaxDecimals(n, MAX_GEOMETRY_DIMENSION_DECIMALS);
+  const vecStr = (v: { x: number; y: number; z: number }) =>
+    `${formatScalar(v.x)} ${formatScalar(v.y)} ${formatScalar(v.z)}`;
+  const rotStr = (v: { r: number; p: number; y: number }) =>
+    `${formatScalar(v.r)} ${formatScalar(v.p)} ${formatScalar(v.y)}`;
   const shouldOmitMeshMaterial = (meshPath?: string): boolean => {
     if (!omitMeshMaterialPaths || !meshPath) {
       return false;
@@ -325,73 +363,69 @@ export const generateURDF = (robot: RobotState, options: UrdfGeneratorOptions | 
 
     const visualEntries = getVisualGeometryEntries(link);
     visualEntries.forEach((entry, index) => {
-        const visual = entry.geometry;
-        const visualMaterial = resolveLinkExportMaterial(robot, link, visual, {
-          isPrimaryVisual: entry.bodyIndex === null,
-          visualCount: visualEntries.length,
-        });
-        const hasExplicitVisualMaterialOverride = Boolean(visualMaterial.color || visualMaterial.texture);
-        const authoredMaterials = hasExplicitVisualMaterialOverride
-          ? undefined
-          : visual.authoredMaterials;
-        const visualNameAttr = visual.name ? ` name="${visual.name}"` : '';
-        xml += `    <visual${visualNameAttr}>\n`;
-        if (visual.origin) {
-            xml += generateOriginTag(visual.origin, '      ', vecStr, rotStr, formatQuaternionScalar);
-        }
+      const visual = entry.geometry;
+      const visualMaterial = resolveLinkExportMaterial(robot, link, visual, {
+        isPrimaryVisual: entry.bodyIndex === null,
+      });
+      const authoredMaterials =
+        visualMaterial.source === 'authored' ? visualMaterial.authoredMaterials : undefined;
+      const visualNameAttr = visual.name ? ` name="${visual.name}"` : '';
+      xml += `    <visual${visualNameAttr}>\n`;
+      if (visual.origin) {
+        xml += generateOriginTag(visual.origin, '      ', vecStr, rotStr, formatQuaternionScalar);
+      }
 
-        xml += `      <geometry>\n`;
-        if (visual.type === GeometryType.BOX) {
-          xml += `        <box size="${vecStr(visual.dimensions)}" />\n`;
-        } else if (visual.type === GeometryType.CYLINDER) {
-          xml += `        <cylinder radius="${formatShape(visual.dimensions.x)}" length="${formatShape(visual.dimensions.y)}" />\n`;
-        } else if (visual.type === GeometryType.SPHERE) {
-          xml += `        <sphere radius="${formatShape(visual.dimensions.x)}" />\n`;
-        } else if (visual.type === GeometryType.CAPSULE) {
-          xml += `        <capsule radius="${formatShape(visual.dimensions.x)}" length="${formatShape(visual.dimensions.y)}" />\n`;
-        } else if (visual.type === GeometryType.MESH) {
-           const meshPath = visual.meshPath
-             ? (preserveMeshPaths
-               ? visual.meshPath.replace(/\\/g, '/')
-               : normalizeMeshPathForExport(visual.meshPath))
-             : 'part.stl';
-           const filename = preserveMeshPaths
-             ? (meshPath || 'part.stl')
-             : useRelativePaths
-               ? `meshes/${meshPath || 'part.stl'}`
-               : `package://${exportRobotName}/meshes/${meshPath || 'part.stl'}`;
-           const scaleAttribute = formatUrdfMeshScaleAttribute(visual.dimensions, formatShape);
-           xml += `        <mesh filename="${filename}"${scaleAttribute} />\n`;
-        }
-        xml += `      </geometry>\n`;
-        const shouldEmitVisualColor = !(
-          visual.type === GeometryType.MESH
-          && shouldOmitMeshMaterial(visual.meshPath)
-        );
-        if (shouldEmitVisualColor && authoredMaterials && authoredMaterials.length > 0) {
-          authoredMaterials.forEach((material) => {
-            xml += generateUrdfMaterialXml(
-              material,
-              '      ',
-              exportRobotName,
-              useRelativePaths,
-              preserveMeshPaths,
-            );
-          });
-        } else if ((shouldEmitVisualColor && visualMaterial.color) || visualMaterial.texture) {
+      xml += `      <geometry>\n`;
+      if (visual.type === GeometryType.BOX) {
+        xml += `        <box size="${vecStr(visual.dimensions)}" />\n`;
+      } else if (visual.type === GeometryType.CYLINDER) {
+        xml += `        <cylinder radius="${formatShape(visual.dimensions.x)}" length="${formatShape(visual.dimensions.y)}" />\n`;
+      } else if (visual.type === GeometryType.SPHERE) {
+        xml += `        <sphere radius="${formatShape(visual.dimensions.x)}" />\n`;
+      } else if (visual.type === GeometryType.CAPSULE) {
+        xml += `        <capsule radius="${formatShape(visual.dimensions.x)}" length="${formatShape(visual.dimensions.y)}" />\n`;
+      } else if (visual.type === GeometryType.MESH) {
+        const meshPath = visual.meshPath
+          ? preserveMeshPaths
+            ? visual.meshPath.replace(/\\/g, '/')
+            : normalizeMeshPathForExport(visual.meshPath)
+          : 'part.stl';
+        const filename = preserveMeshPaths
+          ? meshPath || 'part.stl'
+          : useRelativePaths
+            ? `meshes/${meshPath || 'part.stl'}`
+            : `package://${exportRobotName}/meshes/${meshPath || 'part.stl'}`;
+        const scaleAttribute = formatUrdfMeshScaleAttribute(visual.dimensions, formatShape);
+        xml += `        <mesh filename="${filename}"${scaleAttribute} />\n`;
+      }
+      xml += `      </geometry>\n`;
+      const shouldEmitVisualColor = !(
+        visual.type === GeometryType.MESH && shouldOmitMeshMaterial(visual.meshPath)
+      );
+      if (shouldEmitVisualColor && authoredMaterials && authoredMaterials.length > 0) {
+        authoredMaterials.forEach((material) => {
           xml += generateUrdfMaterialXml(
-            {
-              name: index === 0 ? `${link.id}_mat` : `${link.id}_mat_${index}`,
-              color: shouldEmitVisualColor ? visualMaterial.color : undefined,
-              texture: visualMaterial.texture,
-            },
+            material,
             '      ',
             exportRobotName,
             useRelativePaths,
             preserveMeshPaths,
           );
-        }
-        xml += `    </visual>\n`;
+        });
+      } else if ((shouldEmitVisualColor && visualMaterial.color) || visualMaterial.texture) {
+        xml += generateUrdfMaterialXml(
+          {
+            name: index === 0 ? `${link.id}_mat` : `${link.id}_mat_${index}`,
+            color: shouldEmitVisualColor ? visualMaterial.color : undefined,
+            texture: visualMaterial.texture,
+          },
+          '      ',
+          exportRobotName,
+          useRelativePaths,
+          preserveMeshPaths,
+        );
+      }
+      xml += `    </visual>\n`;
     });
 
     // Collision (primary + additional bodies on the same link)
@@ -422,7 +456,13 @@ export const generateURDF = (robot: RobotState, options: UrdfGeneratorOptions | 
     if (hasExportableInertial(link) && link.inertial) {
       xml += `    <inertial>\n`;
       if (link.inertial.origin) {
-        xml += generateOriginTag(link.inertial.origin, '      ', vecStr, rotStr, formatQuaternionScalar);
+        xml += generateOriginTag(
+          link.inertial.origin,
+          '      ',
+          vecStr,
+          rotStr,
+          formatQuaternionScalar,
+        );
       }
       xml += `      <mass value="${formatScalar(link.inertial.mass)}" />\n`;
       xml += `      <inertia ixx="${formatScalar(link.inertial.inertia.ixx)}" ixy="${formatScalar(link.inertial.inertia.ixy)}" ixz="${formatScalar(link.inertial.inertia.ixz)}" iyy="${formatScalar(link.inertial.inertia.iyy)}" iyz="${formatScalar(link.inertial.inertia.iyz)}" izz="${formatScalar(link.inertial.inertia.izz)}" />\n`;
@@ -443,57 +483,61 @@ export const generateURDF = (robot: RobotState, options: UrdfGeneratorOptions | 
     xml += `    <child link="${child.name}" />\n`;
     xml += generateOriginTag(joint.origin, '    ', vecStr, rotStr, formatQuaternionScalar);
     if (AXIS_EXPORT_TYPES.has(jointType) && joint.axis) {
-        xml += `    <axis xyz="${vecStr(joint.axis)}" />\n`;
+      xml += `    <axis xyz="${vecStr(joint.axis)}" />\n`;
     }
 
     const calibrationTag = generateCalibrationTag(joint, formatScalar);
     if (calibrationTag) {
-        xml += `${calibrationTag}\n`;
+      xml += `${calibrationTag}\n`;
     }
 
     const limitTag = generateLimitTag(joint, formatScalar);
     if (limitTag) {
-        xml += `${limitTag}\n`;
+      xml += `${limitTag}\n`;
     }
 
     const safetyControllerTag = generateSafetyControllerTag(joint, formatScalar);
     if (safetyControllerTag) {
-        xml += `${safetyControllerTag}\n`;
+      xml += `${safetyControllerTag}\n`;
     }
 
     if (DYNAMICS_EXPORT_TYPES.has(jointType)) {
-        if (joint.dynamics && (joint.dynamics.damping !== 0 || joint.dynamics.friction !== 0)) {
-            xml += `    <dynamics damping="${formatScalar(joint.dynamics.damping)}" friction="${formatScalar(joint.dynamics.friction)}" />\n`;
-        }
+      if (joint.dynamics && (joint.dynamics.damping !== 0 || joint.dynamics.friction !== 0)) {
+        xml += `    <dynamics damping="${formatScalar(joint.dynamics.damping)}" friction="${formatScalar(joint.dynamics.friction)}" />\n`;
+      }
     }
 
     if (DYNAMICS_EXPORT_TYPES.has(jointType)) {
-        const shouldExportHardware = joint.hardware
-          && (
-            hardwareMode === 'always'
-            || (hardwareMode === 'auto' && hasExportableHardware(joint))
-          );
+      const shouldExportHardware =
+        joint.hardware &&
+        (hardwareMode === 'always' || (hardwareMode === 'auto' && hasExportableHardware(joint)));
 
-        if (shouldExportHardware) {
-            xml += `    <hardware>\n`;
-            if (joint.hardware.brand) xml += `      <brand>${joint.hardware.brand}</brand>\n`;
-            if (joint.hardware.motorType) xml += `      <motorType>${joint.hardware.motorType}</motorType>\n`;
-            if (joint.hardware.motorId) xml += `      <motorId>${joint.hardware.motorId}</motorId>\n`;
-            if (joint.hardware.motorDirection) xml += `      <motorDirection>${joint.hardware.motorDirection}</motorDirection>\n`;
-            if (joint.hardware.armature !== undefined) xml += `      <armature>${formatScalar(joint.hardware.armature)}</armature>\n`;
-            xml += `    </hardware>\n`;
+      if (shouldExportHardware) {
+        xml += `    <hardware>\n`;
+        if (joint.hardware.brand) xml += `      <brand>${joint.hardware.brand}</brand>\n`;
+        if (joint.hardware.motorType)
+          xml += `      <motorType>${joint.hardware.motorType}</motorType>\n`;
+        if (joint.hardware.motorId) xml += `      <motorId>${joint.hardware.motorId}</motorId>\n`;
+        if (joint.hardware.motorDirection)
+          xml += `      <motorDirection>${joint.hardware.motorDirection}</motorDirection>\n`;
+        if (joint.hardware.armature !== undefined)
+          xml += `      <armature>${formatScalar(joint.hardware.armature)}</armature>\n`;
+        if (joint.hardware.hardwareInterface) {
+          xml += `      <hardwareInterface>${joint.hardware.hardwareInterface}</hardwareInterface>\n`;
         }
+        xml += `    </hardware>\n`;
+      }
     }
 
     if (joint.mimic?.joint) {
-        const mimicAttributes = [`joint="${joint.mimic.joint}"`];
-        if (typeof joint.mimic.multiplier === 'number' && Number.isFinite(joint.mimic.multiplier)) {
-          mimicAttributes.push(`multiplier="${formatScalar(joint.mimic.multiplier)}"`);
-        }
-        if (typeof joint.mimic.offset === 'number' && Number.isFinite(joint.mimic.offset)) {
-          mimicAttributes.push(`offset="${formatScalar(joint.mimic.offset)}"`);
-        }
-        xml += `    <mimic ${mimicAttributes.join(' ')} />\n`;
+      const mimicAttributes = [`joint="${joint.mimic.joint}"`];
+      if (typeof joint.mimic.multiplier === 'number' && Number.isFinite(joint.mimic.multiplier)) {
+        mimicAttributes.push(`multiplier="${formatScalar(joint.mimic.multiplier)}"`);
+      }
+      if (typeof joint.mimic.offset === 'number' && Number.isFinite(joint.mimic.offset)) {
+        mimicAttributes.push(`offset="${formatScalar(joint.mimic.offset)}"`);
+      }
+      xml += `    <mimic ${mimicAttributes.join(' ')} />\n`;
     }
     xml += `  </joint>\n\n`;
   });
@@ -513,11 +557,12 @@ export const generateRos1Transmissions = (
   hwInterface: RosHardwareInterface = 'effort',
 ): string => {
   const { joints } = robot;
-  const ifName = hwInterface === 'effort'
-    ? 'hardware_interface/EffortJointInterface'
-    : hwInterface === 'position'
-    ? 'hardware_interface/PositionJointInterface'
-    : 'hardware_interface/VelocityJointInterface';
+  const ifName =
+    hwInterface === 'effort'
+      ? 'hardware_interface/EffortJointInterface'
+      : hwInterface === 'position'
+        ? 'hardware_interface/PositionJointInterface'
+        : 'hardware_interface/VelocityJointInterface';
 
   let xml = '';
   Object.values(joints).forEach((j) => {
@@ -570,7 +615,8 @@ export const generateRos2Control = (
 ): string => {
   const { joints, name } = robot;
   const ctrlName = robotName || name || 'robot';
-  const cmdIf = hwInterface === 'position' ? 'position' : hwInterface === 'velocity' ? 'velocity' : 'effort';
+  const cmdIf =
+    hwInterface === 'position' ? 'position' : hwInterface === 'velocity' ? 'velocity' : 'effort';
 
   let xml = `  <ros2_control name="${ctrlName}" type="system">\n`;
   xml += `    <hardware>\n`;
@@ -627,17 +673,20 @@ function generateProfileParameterizedXacro(
 ): string {
   const rosVersions: Array<'ros1' | 'ros2'> = ['ros1', 'ros2'];
   const hwInterfaces: RosHardwareInterface[] = ['effort', 'position', 'velocity'];
-  const branches = rosVersions.flatMap((rosVersion) => hwInterfaces.map((hardwareInterface) => {
-    const block = rosVersion === 'ros1'
-      ? generateRos1Control(robot, hardwareInterface)
-      : generateRos2Control(robot, hardwareInterface);
-    return [
-      `  <xacro:if value="\${xacro.arg('ros_profile') == '${rosVersion}' and xacro.arg('ros_hardware_interface') == '${hardwareInterface}'}">`,
-      indentXmlBlock(block, '    '),
-      `  </xacro:if>`,
-      '',
-    ].join('\n');
-  }));
+  const branches = rosVersions.flatMap((rosVersion) =>
+    hwInterfaces.map((hardwareInterface) => {
+      const block =
+        rosVersion === 'ros1'
+          ? generateRos1Control(robot, hardwareInterface)
+          : generateRos2Control(robot, hardwareInterface);
+      return [
+        `  <xacro:if value="\${xacro.arg('ros_profile') == '${rosVersion}' and xacro.arg('ros_hardware_interface') == '${hardwareInterface}'}">`,
+        indentXmlBlock(block, '    '),
+        `  </xacro:if>`,
+        '',
+      ].join('\n');
+    }),
+  );
 
   return [
     `  <xacro:arg name="ros_profile" default="${defaultRosVersion}" />`,

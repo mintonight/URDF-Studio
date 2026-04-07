@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { AssemblyTransform, RenderableBounds, RobotData, UrdfVisual } from '@/types';
+import type { AssemblyTransform, RenderableBounds, RobotData, UrdfLink, UrdfVisual } from '@/types';
 import { GeometryType } from '@/types';
 import { computeLinkWorldMatrices } from './kinematics';
 import { cloneAssemblyTransform, IDENTITY_ASSEMBLY_TRANSFORM } from './assemblyTransforms';
@@ -197,6 +197,62 @@ function estimateRobotRenderableBounds(robot: RobotData): THREE.Box3 | null {
   return hasBounds.current ? bounds : null;
 }
 
+function estimateLinkVisualBoundsInternal(link: UrdfLink): THREE.Box3 | null {
+  const linkBounds = new THREE.Box3();
+  const linkHasBounds = { current: false };
+
+  getVisualGeometryEntries(link).forEach((entry) => {
+    unionGeometryBounds(linkBounds, linkHasBounds, IDENTITY_MATRIX, entry.geometry);
+  });
+
+  return linkHasBounds.current ? linkBounds : null;
+}
+
+function estimateLinkCollisionBoundsInternal(link: UrdfLink): THREE.Box3 | null {
+  const linkBounds = new THREE.Box3();
+  const linkHasBounds = { current: false };
+
+  if (link.collision.type !== GeometryType.NONE) {
+    unionGeometryBounds(linkBounds, linkHasBounds, IDENTITY_MATRIX, link.collision);
+  }
+
+  (link.collisionBodies ?? []).forEach((body) => {
+    if (body.type !== GeometryType.NONE) {
+      unionGeometryBounds(linkBounds, linkHasBounds, IDENTITY_MATRIX, body);
+    }
+  });
+
+  return linkHasBounds.current ? linkBounds : null;
+}
+
+export function estimateLinkVisualBounds(link: UrdfLink): THREE.Box3 | null {
+  return estimateLinkVisualBoundsInternal(link);
+}
+
+export function estimateLinkCollisionBounds(link: UrdfLink): THREE.Box3 | null {
+  return estimateLinkCollisionBoundsInternal(link);
+}
+
+export function resolveLinkRenderableBounds(
+  link: UrdfLink,
+): { bounds: THREE.Box3; source: 'visual-bounds' | 'collision-bounds' } | null {
+  const visualBounds = estimateLinkVisualBoundsInternal(link);
+  if (visualBounds) {
+    return { bounds: visualBounds, source: 'visual-bounds' };
+  }
+
+  const collisionBounds = estimateLinkCollisionBoundsInternal(link);
+  if (collisionBounds) {
+    return { bounds: collisionBounds, source: 'collision-bounds' };
+  }
+
+  return null;
+}
+
+export function estimateLinkRenderableBounds(link: UrdfLink): THREE.Box3 | null {
+  return resolveLinkRenderableBounds(link)?.bounds ?? null;
+}
+
 function createBoxFromRenderableBounds(bounds?: RenderableBounds | null): THREE.Box3 | null {
   if (!bounds) {
     return null;
@@ -266,7 +322,14 @@ export function buildDefaultAssemblyComponentPlacementTransform({
   gap?: number;
 }): AssemblyTransform {
   if (existingComponents.length === 0) {
-    return cloneAssemblyTransform(IDENTITY_ASSEMBLY_TRANSFORM);
+    return cloneAssemblyTransform({
+      position: {
+        x: IDENTITY_ASSEMBLY_TRANSFORM.position.x,
+        y: IDENTITY_ASSEMBLY_TRANSFORM.position.y,
+        z: estimateRobotGroundOffset(robot, { renderableBounds }),
+      },
+      rotation: { ...IDENTITY_ASSEMBLY_TRANSFORM.rotation },
+    });
   }
 
   const nextBounds = resolveRenderableBounds(robot, renderableBounds) ?? buildFallbackBounds();

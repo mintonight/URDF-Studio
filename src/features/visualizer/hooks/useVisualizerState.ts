@@ -30,7 +30,11 @@ const readStoredBoolean = (key: string, fallback: boolean): boolean => {
   return saved === 'true';
 };
 
-const readStoredNumber = (key: string, fallback: number, clamp: (value: number) => number): number => {
+const readStoredNumber = (
+  key: string,
+  fallback: number,
+  clamp: (value: number) => number,
+): number => {
   if (typeof window === 'undefined') {
     return fallback;
   }
@@ -72,6 +76,8 @@ export interface VisualizerState {
   setShowCollision: (show: boolean) => void;
   showVisual: boolean;
   setShowVisual: (show: boolean) => void;
+  showIkHandles: boolean;
+  setShowIkHandles: (show: boolean) => void;
   modelOpacity: number;
   setModelOpacity: React.Dispatch<React.SetStateAction<number>>;
 
@@ -101,6 +107,7 @@ export function useVisualizerState({
   const setViewOption = useUIStore((state) => state.setViewOption);
 
   const {
+    showIkHandles,
     showJointAxes,
     showInertia,
     showCenterOfMass,
@@ -108,20 +115,24 @@ export function useVisualizerState({
     modelOpacity,
   } = viewOptions;
 
-  const [showGeometry, setShowGeometry] = useState(() => readStoredBoolean(SHOW_GEOMETRY_STORAGE_KEY, false));
-  const [showOrigin, setShowOrigin] = useState(() => readStoredBoolean(SHOW_ORIGIN_STORAGE_KEY, true));
-  const [showLabels, setShowLabels] = useState(() => readStoredBoolean(SHOW_LABELS_STORAGE_KEY, false));
-  
-  const [jointAxisSize, setJointAxisSize] = useState(() => readStoredNumber(
-    JOINT_AXIS_SIZE_STORAGE_KEY,
-    0.35,
-    (value) => Math.min(Math.max(value, 0.01), 2.0),
-  ));
+  const [showGeometry, setShowGeometry] = useState(() =>
+    readStoredBoolean(SHOW_GEOMETRY_STORAGE_KEY, false),
+  );
+  const [showOrigin, setShowOrigin] = useState(() =>
+    readStoredBoolean(SHOW_ORIGIN_STORAGE_KEY, true),
+  );
+  const [showLabels, setShowLabels] = useState(() =>
+    readStoredBoolean(SHOW_LABELS_STORAGE_KEY, false),
+  );
+
+  const [jointAxisSize, setJointAxisSize] = useState(() =>
+    readStoredNumber(JOINT_AXIS_SIZE_STORAGE_KEY, 0.35, (value) =>
+      Math.min(Math.max(value, 0.01), 2.0),
+    ),
+  );
   const [frameSize, setFrameSize] = useState(() => {
-    return readStoredNumber(
-      FRAME_SIZE_STORAGE_KEY,
-      0.15,
-      (value) => Math.min(Math.max(value, 0.01), 0.8),
+    return readStoredNumber(FRAME_SIZE_STORAGE_KEY, 0.15, (value) =>
+      Math.min(Math.max(value, 0.01), 0.8),
     );
   });
 
@@ -132,15 +143,13 @@ export function useVisualizerState({
     }
   }, [frameSize]);
 
-  const [labelScale, setLabelScale] = useState(() => readStoredNumber(
-    LABEL_SCALE_STORAGE_KEY,
-    1.0,
-    (value) => Math.min(Math.max(value, 0.1), 2.0),
-  ));
-  const [transformMode, setTransformMode] = useState<'translate' | 'rotate'>('translate');
-  const [interactionActivationOrder, setInteractionActivationOrder] = useState<Record<VisualizerInteractiveLayer, number>>(
-    DEFAULT_VISUALIZER_INTERACTION_ACTIVATION_ORDER,
+  const [labelScale, setLabelScale] = useState(() =>
+    readStoredNumber(LABEL_SCALE_STORAGE_KEY, 1.0, (value) => Math.min(Math.max(value, 0.1), 2.0)),
   );
+  const [transformMode, setTransformMode] = useState<'translate' | 'rotate'>('translate');
+  const [interactionActivationOrder, setInteractionActivationOrder] = useState<
+    Record<VisualizerInteractiveLayer, number>
+  >(DEFAULT_VISUALIZER_INTERACTION_ACTIVATION_ORDER);
 
   // Handle showVisual (controlled or uncontrolled)
   const [localShowVisual, setLocalShowVisual] = useState(true);
@@ -160,9 +169,7 @@ export function useVisualizerState({
     });
   };
   const setShowVisual = (nextValue: boolean | ((current: boolean) => boolean)) => {
-    const resolvedValue = typeof nextValue === 'function'
-      ? nextValue(showVisual)
-      : nextValue;
+    const resolvedValue = typeof nextValue === 'function' ? nextValue(showVisual) : nextValue;
 
     if (propSetShowVisual) {
       propSetShowVisual(resolvedValue);
@@ -179,6 +186,13 @@ export function useVisualizerState({
     setViewOption('showCollision', resolvedValue);
     if (resolvedValue) {
       bumpInteractionLayer('collision');
+    }
+  };
+  const setShowIkHandlesTracked = (nextValue: boolean | ((current: boolean) => boolean)) => {
+    const resolvedValue = typeof nextValue === 'function' ? nextValue(showIkHandles) : nextValue;
+    setViewOption('showIkHandles', resolvedValue);
+    if (resolvedValue) {
+      bumpInteractionLayer('ik-handle');
     }
   };
   const setShowOriginTracked = (nextValue: boolean | ((current: boolean) => boolean)) => {
@@ -210,9 +224,7 @@ export function useVisualizerState({
     }
   };
   const setModelOpacity: React.Dispatch<React.SetStateAction<number>> = (nextValue) => {
-    const resolvedValue = typeof nextValue === 'function'
-      ? nextValue(modelOpacity)
-      : nextValue;
+    const resolvedValue = typeof nextValue === 'function' ? nextValue(modelOpacity) : nextValue;
     const clampedValue = Number.isFinite(resolvedValue)
       ? Math.max(0.1, Math.min(1, resolvedValue))
       : 1;
@@ -255,23 +267,29 @@ export function useVisualizerState({
     localStorage.setItem(SHOW_CENTER_OF_MASS_STORAGE_KEY, showCenterOfMass.toString());
   }, [showCenterOfMass]);
 
-  const interactionLayerPriority = useMemo(() => resolveVisualizerInteractiveLayerPriority({
-    showVisual,
-    showCollision,
-    showOrigins: showOrigin,
-    showJointAxes,
-    showCenterOfMass,
-    showInertia,
-    activationOrder: interactionActivationOrder,
-  }), [
-    interactionActivationOrder,
-    showCenterOfMass,
-    showCollision,
-    showInertia,
-    showJointAxes,
-    showOrigin,
-    showVisual,
-  ]);
+  const interactionLayerPriority = useMemo(
+    () =>
+      resolveVisualizerInteractiveLayerPriority({
+        showVisual,
+        showIkHandles,
+        showCollision,
+        showOrigins: showOrigin,
+        showJointAxes,
+        showCenterOfMass,
+        showInertia,
+        activationOrder: interactionActivationOrder,
+      }),
+    [
+      interactionActivationOrder,
+      showCenterOfMass,
+      showCollision,
+      showIkHandles,
+      showInertia,
+      showJointAxes,
+      showOrigin,
+      showVisual,
+    ],
+  );
 
   return {
     showGeometry,
@@ -295,6 +313,8 @@ export function useVisualizerState({
     setShowCollision: setShowCollisionTracked,
     showVisual,
     setShowVisual,
+    showIkHandles,
+    setShowIkHandles: setShowIkHandlesTracked,
     modelOpacity,
     setModelOpacity,
 

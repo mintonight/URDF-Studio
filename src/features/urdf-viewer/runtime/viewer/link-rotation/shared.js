@@ -546,6 +546,8 @@ export function extractJointRecordsFromLayerText(layerText) {
         const axisToken = normalizeAxisToken(body.match(/physics:axis\s*=\s*"?([A-Za-z]+)"?/i)?.[1] || "X");
         const lowerLimitDeg = toFiniteNumber(body.match(/physics:lowerLimit\s*=\s*([-+0-9.eE]+)/i)?.[1]);
         const upperLimitDeg = toFiniteNumber(body.match(/physics:upperLimit\s*=\s*([-+0-9.eE]+)/i)?.[1]);
+        const closedLoopId = String(body.match(/urdf:closedLoopId\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
+        const closedLoopType = String(body.match(/urdf:closedLoopType\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
         const axisLocal = parseVector3FromTupleLiteral(String(body.match(/urdf:axisLocal\s*=\s*\(([^)]+)\)/i)?.[1] || ""));
         const originXyz = parseVector3FromTupleLiteral(String(body.match(/urdf:originXyz\s*=\s*\(([^)]+)\)/i)?.[1]
             || body.match(/physics:localPos0\s*=\s*\(([^)]+)\)/i)?.[1]
@@ -564,6 +566,8 @@ export function extractJointRecordsFromLayerText(layerText) {
             axisLocal,
             lowerLimitDeg,
             upperLimitDeg,
+            closedLoopId: closedLoopId || null,
+            closedLoopType: closedLoopType || null,
             originXyz,
             originQuatWxyz,
             localPos1,

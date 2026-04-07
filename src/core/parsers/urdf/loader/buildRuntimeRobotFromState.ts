@@ -1,11 +1,24 @@
 import * as THREE from 'three';
 import { stackCoincidentVisualRoots } from '@/core/loaders/visualMeshStacking';
+import { isImageAssetPath } from '@/core/utils/assetFileTypes';
 import { getCollisionGeometryEntries, getVisualGeometryEntries } from '@/core/robot';
 import { parseThreeColorWithOpacity } from '@/core/utils/color.ts';
 import { createMatteMaterial } from '@/core/utils/materialFactory';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
-import { GeometryType, JointType, type UrdfJoint as RobotJoint, type UrdfLink as RobotLink } from '@/types';
-import { URDFCollider, URDFJoint, URDFLink, URDFMimicJoint, URDFRobot, URDFVisual } from './URDFClasses';
+import {
+  GeometryType,
+  JointType,
+  type UrdfJoint as RobotJoint,
+  type UrdfLink as RobotLink,
+} from '@/types';
+import {
+  URDFCollider,
+  URDFJoint,
+  URDFLink,
+  URDFMimicJoint,
+  URDFRobot,
+  URDFVisual,
+} from './URDFClasses';
 import type { MeshLoadFunc } from './URDFLoader';
 
 const DEFAULT_COLOR = '#808080';
@@ -17,7 +30,11 @@ const DEFAULT_ORIGIN = {
 const tempQuaternion = new THREE.Quaternion();
 const tempEuler = new THREE.Euler();
 
-function applyRotation(object: THREE.Object3D, rpy: [number, number, number], additive = false): void {
+function applyRotation(
+  object: THREE.Object3D,
+  rpy: [number, number, number],
+  additive = false,
+): void {
   if (!additive) {
     object.rotation.set(0, 0, 0);
   }
@@ -121,7 +138,7 @@ function restackRobotVisualRoots(root: THREE.Object3D): void {
 
     visualRoots.push({
       root: child,
-      stableId: visualIndex += 1,
+      stableId: (visualIndex += 1),
     });
   });
 
@@ -151,15 +168,16 @@ function applyVisualColorOverrideToLoadedObject(object: THREE.Object3D, color?: 
     }
 
     const mesh = child as THREE.Mesh;
-    const replace = (material: THREE.Material) => createMatteMaterial({
-      color: parsedColor.color,
-      opacity: parsedColor.opacity ?? material.opacity ?? 1,
-      transparent: material.transparent || (parsedColor.opacity ?? 1) < 1,
-      side: material.side,
-      map: (material as any).map || null,
-      name: material.name,
-      preserveExactColor: true,
-    });
+    const replace = (material: THREE.Material) =>
+      createMatteMaterial({
+        color: parsedColor.color,
+        opacity: parsedColor.opacity ?? material.opacity ?? 1,
+        transparent: material.transparent || (parsedColor.opacity ?? 1) < 1,
+        side: material.side,
+        map: (material as any).map || null,
+        name: material.name,
+        preserveExactColor: true,
+      });
 
     if (Array.isArray(mesh.material)) {
       mesh.material = mesh.material.map((material) => replace(material));
@@ -183,6 +201,45 @@ function applyMeshScale(group: THREE.Object3D, geometry: RobotLink['visual']): v
     Number.isFinite(scale?.y) ? scale.y : 1,
     Number.isFinite(scale?.z) ? scale.z : 1,
   );
+}
+
+function createImagePreviewMesh(
+  geometry: RobotLink['visual'],
+  manager: THREE.LoadingManager,
+  isCollision: boolean,
+): THREE.Mesh {
+  const material = createPrimitiveMaterial(isCollision ? undefined : geometry.color);
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material);
+  const width = geometry.dimensions.x || 1;
+  const fallbackHeight = geometry.dimensions.y || 1;
+  mesh.scale.set(width, fallbackHeight, 1);
+  material.side = THREE.DoubleSide;
+
+  new THREE.TextureLoader(manager).load(
+    geometry.meshPath || '',
+    (texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      material.map = texture;
+      material.transparent = true;
+      material.alphaTest = 0.001;
+      material.needsUpdate = true;
+
+      const image = texture.image as { width?: number; height?: number } | undefined;
+      if (!image?.width || !image?.height) {
+        return;
+      }
+
+      const aspectHeight = width * (image.height / image.width);
+      const height = fallbackHeight === 1 ? aspectHeight : fallbackHeight;
+      mesh.scale.set(width, height, 1);
+    },
+    undefined,
+    (error) => {
+      console.error('[URDFViewer] Failed to load image asset preview texture:', error);
+    },
+  );
+
+  return mesh;
 }
 
 function createPrimitiveMesh(
@@ -304,25 +361,33 @@ export async function buildRuntimeRobotFromState({
     applyMeshScale(group, geometry);
 
     if (geometry.type === GeometryType.MESH && geometry.meshPath) {
-      loadMeshCb(geometry.meshPath, manager, (object, error) => {
-        if (error) {
-          console.error('[URDFViewer] Failed to load mesh from robot state:', error);
-        }
+      if (isImageAssetPath(geometry.meshPath)) {
+        group.add(createImagePreviewMesh(geometry, manager, isCollision));
+      } else {
+        loadMeshCb(geometry.meshPath, manager, (object, error) => {
+          if (error) {
+            console.error('[URDFViewer] Failed to load mesh from robot state:', error);
+          }
 
-        if (!object || !shouldAttachLoadedMeshObject(object, isCollision)) {
-          return;
-        }
+          if (!object || !shouldAttachLoadedMeshObject(object, isCollision)) {
+            return;
+          }
 
-        if (!isCollision && geometry.color && !loadedObjectShouldPreserveEmbeddedMaterials(object)) {
-          applyVisualColorOverrideToLoadedObject(object, geometry.color);
-        }
+          if (
+            !isCollision &&
+            geometry.color &&
+            !loadedObjectShouldPreserveEmbeddedMaterials(object)
+          ) {
+            applyVisualColorOverrideToLoadedObject(object, geometry.color);
+          }
 
-        group.add(object);
-        if (group.parent && !isCollision) {
-          restackLinkVisualRoots(group.parent);
-          restackRobotVisualRoots(findVisualRestackRoot(group.parent));
-        }
-      });
+          group.add(object);
+          if (group.parent && !isCollision) {
+            restackLinkVisualRoots(group.parent);
+            restackRobotVisualRoots(findVisualRestackRoot(group.parent));
+          }
+        });
+      }
     } else {
       const primitiveMesh = createPrimitiveMesh(geometry, isCollision);
       if (primitiveMesh) {

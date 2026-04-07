@@ -6,12 +6,14 @@ import { resolveVisualizerInteractiveLayerPriority } from './interactiveLayerPri
 test('resolveVisualizerInteractiveLayerPriority prefers the most recently activated visible layer', () => {
   const priority = resolveVisualizerInteractiveLayerPriority({
     showVisual: true,
+    showIkHandles: false,
     showCollision: true,
     showOrigins: false,
     showJointAxes: false,
     showCenterOfMass: true,
     showInertia: false,
     activationOrder: {
+      'ik-handle': 0,
       visual: 1,
       collision: 3,
       'origin-axes': 0,
@@ -27,12 +29,14 @@ test('resolveVisualizerInteractiveLayerPriority prefers the most recently activa
 test('resolveVisualizerInteractiveLayerPriority falls back to stable base priority when activation order ties', () => {
   const priority = resolveVisualizerInteractiveLayerPriority({
     showVisual: true,
+    showIkHandles: true,
     showCollision: true,
     showOrigins: true,
     showJointAxes: true,
     showCenterOfMass: true,
     showInertia: true,
     activationOrder: {
+      'ik-handle': 0,
       visual: 0,
       collision: 0,
       'origin-axes': 0,
@@ -43,10 +47,11 @@ test('resolveVisualizerInteractiveLayerPriority falls back to stable base priori
   });
 
   assert.deepEqual(priority, [
+    'joint-axis',
+    'origin-axes',
+    'ik-handle',
     'visual',
     'collision',
-    'origin-axes',
-    'joint-axis',
     'center-of-mass',
     'inertia',
   ]);

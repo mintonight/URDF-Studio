@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import type { LoadingProgressMode } from '@/types';
 
 interface LoadingHudProps {
   title: string;
   detail: string;
   progress: number | null;
+  progressMode?: LoadingProgressMode | null;
   statusLabel?: string | null;
   stageLabel?: string | null;
   delayMs?: number;
@@ -13,6 +15,7 @@ export function LoadingHud({
   title,
   detail,
   progress,
+  progressMode = null,
   statusLabel = null,
   stageLabel = null,
   delayMs = 300,
@@ -38,15 +41,15 @@ export function LoadingHud({
     return null;
   }
 
-  const progressWidth = progress !== null
-    ? `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%`
-    : '38%';
+  const resolvedProgressMode = progressMode ?? (progress === null ? 'indeterminate' : 'percent');
+  const progressWidth = `${Math.round(Math.min(1, Math.max(0, progress ?? 0)) * 100)}%`;
   const normalizedDetail = detail.trim();
   const normalizedStatusLabel = statusLabel?.trim() ?? '';
   const normalizedStageLabel = stageLabel?.trim() ?? '';
-  const shouldRenderDetail = normalizedDetail.length > 0
-    && normalizedDetail !== normalizedStatusLabel
-    && normalizedDetail !== normalizedStageLabel;
+  const shouldRenderDetail =
+    normalizedDetail.length > 0 &&
+    normalizedDetail !== normalizedStatusLabel &&
+    normalizedDetail !== normalizedStageLabel;
 
   return (
     <div
@@ -61,9 +64,7 @@ export function LoadingHud({
               aria-hidden="true"
               className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-slider-accent motion-safe:animate-pulse"
             />
-            <span className="truncate text-[11px] font-semibold text-text-primary">
-              {title}
-            </span>
+            <span className="truncate text-[11px] font-semibold text-text-primary">{title}</span>
           </div>
           {stageLabel ? (
             <div className="mt-2 inline-flex max-w-full items-center rounded-full border border-border-black/70 bg-element-bg px-2 py-0.5 text-[10px] font-medium text-text-secondary">
@@ -83,11 +84,18 @@ export function LoadingHud({
         </div>
       ) : null}
       <div className="mt-3 h-1 overflow-hidden rounded-full bg-border-black/50">
-        <div
-          aria-hidden="true"
-          className={`h-full rounded-full bg-slider-accent ${progress === null ? 'motion-safe:animate-pulse' : 'transition-[width] duration-200 ease-out motion-reduce:transition-none'}`}
-          style={{ width: progressWidth }}
-        />
+        {resolvedProgressMode === 'indeterminate' ? (
+          <div
+            aria-hidden="true"
+            className="h-full w-full rounded-full bg-[linear-gradient(90deg,rgba(0,136,255,0.12)_0%,rgba(0,136,255,0.4)_45%,rgba(0,136,255,0.12)_100%)] motion-safe:animate-pulse"
+          />
+        ) : (
+          <div
+            aria-hidden="true"
+            className="h-full rounded-full bg-slider-accent transition-[width] duration-200 ease-out motion-reduce:transition-none"
+            style={{ width: progressWidth }}
+          />
+        )}
       </div>
     </div>
   );

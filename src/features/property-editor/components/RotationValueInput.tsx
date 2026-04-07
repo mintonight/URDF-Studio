@@ -55,7 +55,8 @@ interface QuaternionAxisOption {
 }
 
 function normalizeDegreesAngle(value: number): number {
-  let normalized = ((value % FULL_ROTATION_DEGREES) + FULL_ROTATION_DEGREES) % FULL_ROTATION_DEGREES;
+  let normalized =
+    ((value % FULL_ROTATION_DEGREES) + FULL_ROTATION_DEGREES) % FULL_ROTATION_DEGREES;
   if (normalized > HALF_ROTATION_DEGREES) {
     normalized -= FULL_ROTATION_DEGREES;
   }
@@ -101,18 +102,15 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
   const t = translations[lang];
   const rotationDisplayMode = useUIStore((state) => state.rotationDisplayMode);
   const setRotationDisplayMode = useUIStore((state) => state.setRotationDisplayMode);
-  const displayEulerRadians = useMemo(
-    () => value,
-    [value.p, value.r, value.y],
-  );
+  const displayEulerRadians = useMemo(() => value, [value.p, value.r, value.y]);
 
   const eulerDegrees = useMemo(
     () => eulerRadiansToDegrees(displayEulerRadians),
     [displayEulerRadians.p, displayEulerRadians.r, displayEulerRadians.y],
   );
 
-  const [quaternionValue, setQuaternionValue] = useState<QuaternionValue>(
-    () => eulerRadiansToQuaternion(value),
+  const [quaternionValue, setQuaternionValue] = useState<QuaternionValue>(() =>
+    eulerRadiansToQuaternion(value),
   );
 
   useEffect(() => {
@@ -120,11 +118,13 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
   }, [value.p, value.r, value.y]);
 
   const handleDegreeChange = (nextValue: Partial<EulerRadiansValue>) => {
-    onChange(eulerDegreesToRadians({
-      r: nextValue.r ?? eulerDegrees.r,
-      p: nextValue.p ?? eulerDegrees.p,
-      y: nextValue.y ?? eulerDegrees.y,
-    }));
+    onChange(
+      eulerDegreesToRadians({
+        r: nextValue.r ?? eulerDegrees.r,
+        p: nextValue.p ?? eulerDegrees.p,
+        y: nextValue.y ?? eulerDegrees.y,
+      }),
+    );
   };
 
   const handleQuaternionChange = (nextValue: Partial<QuaternionValue>) => {
@@ -154,9 +154,11 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
       label: t.pitch,
       axisLabel: 'Y',
       hasQuickStep: quickStepDegrees !== undefined && quickStepAxes.includes('p'),
-      badgeClassName: 'border-emerald-200/60 bg-emerald-50/50 dark:border-emerald-900/50 dark:bg-emerald-950/20',
+      badgeClassName:
+        'border-emerald-200/60 bg-emerald-50/50 dark:border-emerald-900/50 dark:bg-emerald-950/20',
       accentTextClassName: 'text-emerald-700 dark:text-emerald-300',
-      buttonClassName: 'hover:text-emerald-700 dark:hover:text-emerald-300 focus-visible:ring-emerald-400/20',
+      buttonClassName:
+        'hover:text-emerald-700 dark:hover:text-emerald-300 focus-visible:ring-emerald-400/20',
     },
     {
       key: 'y',
@@ -174,44 +176,59 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
     { key: 'z', label: 'Z' },
     { key: 'w', label: 'W' },
   ];
-  const quickStepRadians = quickStepDegrees !== undefined
-    ? (quickStepDegrees * Math.PI) / HALF_ROTATION_DEGREES
-    : undefined;
-  const quickStepRadiansLabel = quickStepRadians !== undefined
-    ? formatRadiansForDisplay(quickStepRadians)
-    : null;
+  const quickStepRadians =
+    quickStepDegrees !== undefined
+      ? (quickStepDegrees * Math.PI) / HALF_ROTATION_DEGREES
+      : undefined;
+  const quickStepRadiansLabel =
+    quickStepRadians !== undefined ? formatRadiansForDisplay(quickStepRadians) : null;
   const usesRadianQuickSteps = rotationDisplayMode === 'euler_rad';
 
-  const quickRotateActions: QuickRotateAction[] = quickStepDegrees !== undefined
-    ? [
-        {
-          buttonLabel: usesRadianQuickSteps && quickStepRadiansLabel
-            ? `-${quickStepRadiansLabel}`
-            : `-${quickStepDegrees}`,
-          ariaLabelSuffix: usesRadianQuickSteps && quickStepRadiansLabel
-            ? (lang === 'zh' ? `减少 ${quickStepRadiansLabel}` : `decrease ${quickStepRadiansLabel}`)
-            : (lang === 'zh' ? `减少 ${quickStepDegrees}°` : `decrease ${quickStepDegrees}°`),
-          deltaRadians: usesRadianQuickSteps && quickStepRadians !== undefined
-            ? -quickStepRadians
-            : (-quickStepDegrees * Math.PI) / HALF_ROTATION_DEGREES,
-        },
-        {
-          buttonLabel: usesRadianQuickSteps && quickStepRadiansLabel
-            ? `+${quickStepRadiansLabel}`
-            : `+${quickStepDegrees}`,
-          ariaLabelSuffix: usesRadianQuickSteps && quickStepRadiansLabel
-            ? (lang === 'zh' ? `增加 ${quickStepRadiansLabel}` : `increase ${quickStepRadiansLabel}`)
-            : (lang === 'zh' ? `增加 ${quickStepDegrees}°` : `increase ${quickStepDegrees}°`),
-          deltaRadians: usesRadianQuickSteps && quickStepRadians !== undefined
-            ? quickStepRadians
-            : (quickStepDegrees * Math.PI) / HALF_ROTATION_DEGREES,
-        },
-      ]
-    : [];
+  const quickRotateActions: QuickRotateAction[] =
+    quickStepDegrees !== undefined
+      ? [
+          {
+            buttonLabel:
+              usesRadianQuickSteps && quickStepRadiansLabel
+                ? `-${quickStepRadiansLabel}`
+                : `-${quickStepDegrees}`,
+            ariaLabelSuffix:
+              usesRadianQuickSteps && quickStepRadiansLabel
+                ? lang === 'zh'
+                  ? `减少 ${quickStepRadiansLabel}`
+                  : `decrease ${quickStepRadiansLabel}`
+                : lang === 'zh'
+                  ? `减少 ${quickStepDegrees}°`
+                  : `decrease ${quickStepDegrees}°`,
+            deltaRadians:
+              usesRadianQuickSteps && quickStepRadians !== undefined
+                ? -quickStepRadians
+                : (-quickStepDegrees * Math.PI) / HALF_ROTATION_DEGREES,
+          },
+          {
+            buttonLabel:
+              usesRadianQuickSteps && quickStepRadiansLabel
+                ? `+${quickStepRadiansLabel}`
+                : `+${quickStepDegrees}`,
+            ariaLabelSuffix:
+              usesRadianQuickSteps && quickStepRadiansLabel
+                ? lang === 'zh'
+                  ? `增加 ${quickStepRadiansLabel}`
+                  : `increase ${quickStepRadiansLabel}`
+                : lang === 'zh'
+                  ? `增加 ${quickStepDegrees}°`
+                  : `increase ${quickStepDegrees}°`,
+            deltaRadians:
+              usesRadianQuickSteps && quickStepRadians !== undefined
+                ? quickStepRadians
+                : (quickStepDegrees * Math.PI) / HALF_ROTATION_DEGREES,
+          },
+        ]
+      : [];
 
   const shouldRenderQuickRotateRows =
-    (rotationDisplayMode === 'euler_deg' || rotationDisplayMode === 'euler_rad')
-    && quickStepDegrees !== undefined;
+    (rotationDisplayMode === 'euler_deg' || rotationDisplayMode === 'euler_rad') &&
+    quickStepDegrees !== undefined;
 
   const handleQuickRotate = (axis: EulerAxisKey, action: QuickRotateAction) => {
     if (quickStepDegrees === undefined) {
@@ -229,13 +246,17 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
     }
 
     const currentDegrees = eulerDegrees[axis];
-    const nextDegrees = normalizeDegreesAngle(currentDegrees + (action.deltaRadians * HALF_ROTATION_DEGREES) / Math.PI);
+    const nextDegrees = normalizeDegreesAngle(
+      currentDegrees + (action.deltaRadians * HALF_ROTATION_DEGREES) / Math.PI,
+    );
 
-    onChange(eulerDegreesToRadians({
-      r: axis === 'r' ? nextDegrees : eulerDegrees.r,
-      p: axis === 'p' ? nextDegrees : eulerDegrees.p,
-      y: axis === 'y' ? nextDegrees : eulerDegrees.y,
-    }));
+    onChange(
+      eulerDegreesToRadians({
+        r: axis === 'r' ? nextDegrees : eulerDegrees.r,
+        p: axis === 'p' ? nextDegrees : eulerDegrees.p,
+        y: axis === 'y' ? nextDegrees : eulerDegrees.y,
+      }),
+    );
   };
 
   return (
@@ -268,18 +289,27 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
               className="grid grid-cols-[3.1rem_minmax(0,1fr)_4.5rem] items-center gap-1 rounded-lg border border-border-black/70 bg-panel-bg/85 px-1 py-1 transition-colors hover:border-border-strong hover:bg-element-bg/45"
             >
               <div className="flex min-w-0 items-center gap-1">
-                <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border text-[9px] font-bold ${axis.badgeClassName} ${axis.accentTextClassName}`}>
+                <span
+                  className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border text-[9px] font-bold ${axis.badgeClassName} ${axis.accentTextClassName}`}
+                >
                   {axis.axisLabel}
                 </span>
-                <span className={`truncate text-[10px] font-semibold ${axis.accentTextClassName}`}>
+                <span
+                  className={`min-w-0 shrink truncate text-[10px] font-semibold ${axis.accentTextClassName}`}
+                  title={axis.label}
+                >
                   {axis.label}
                 </span>
               </div>
               <div className="min-w-0">
                 <InlineNumberInput
                   label={axis.label}
-                  value={rotationDisplayMode === 'euler_rad' ? displayEulerRadians[axis.key] : eulerDegrees[axis.key]}
-                  onChange={(nextValue) => (
+                  value={
+                    rotationDisplayMode === 'euler_rad'
+                      ? displayEulerRadians[axis.key]
+                      : eulerDegrees[axis.key]
+                  }
+                  onChange={(nextValue) =>
                     rotationDisplayMode === 'euler_rad'
                       ? onChange({
                           r: axis.key === 'r' ? nextValue : displayEulerRadians.r,
@@ -287,15 +317,23 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
                           y: axis.key === 'y' ? nextValue : displayEulerRadians.y,
                         })
                       : handleDegreeChange({ [axis.key]: nextValue } as Partial<EulerRadiansValue>)
-                  )}
+                  }
                   compact={compact}
                   step={rotationDisplayMode === 'euler_rad' ? RADIAN_STEP : DEGREE_STEP}
-                  precision={rotationDisplayMode === 'euler_rad' ? RADIAN_PRECISION : DEGREE_PRECISION}
-                  commitPrecision={rotationDisplayMode === 'euler_rad' ? MAX_PROPERTY_DECIMALS : undefined}
+                  precision={
+                    rotationDisplayMode === 'euler_rad' ? RADIAN_PRECISION : DEGREE_PRECISION
+                  }
+                  commitPrecision={
+                    rotationDisplayMode === 'euler_rad' ? MAX_PROPERTY_DECIMALS : undefined
+                  }
                   trimTrailingZeros={rotationDisplayMode === 'euler_rad'}
                   minimumIntegerDigits={rotationDisplayMode === 'euler_rad' ? undefined : 2}
-                  formatDisplayValue={rotationDisplayMode === 'euler_rad' ? formatRadiansForDisplay : undefined}
-                  parseDisplayValue={rotationDisplayMode === 'euler_rad' ? parseRadiansDisplayValue : undefined}
+                  formatDisplayValue={
+                    rotationDisplayMode === 'euler_rad' ? formatRadiansForDisplay : undefined
+                  }
+                  parseDisplayValue={
+                    rotationDisplayMode === 'euler_rad' ? parseRadiansDisplayValue : undefined
+                  }
                   repeatIntervalMs={holdRepeatIntervalMs}
                 />
               </div>
@@ -337,11 +375,13 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
       ) : rotationDisplayMode === 'euler_rad' ? (
         <AxisNumberGridInput
           value={displayEulerRadians}
-          onChange={(nextValue) => onChange({
-            r: nextValue.r ?? displayEulerRadians.r,
-            p: nextValue.p ?? displayEulerRadians.p,
-            y: nextValue.y ?? displayEulerRadians.y,
-          })}
+          onChange={(nextValue) =>
+            onChange({
+              r: nextValue.r ?? displayEulerRadians.r,
+              p: nextValue.p ?? displayEulerRadians.p,
+              y: nextValue.y ?? displayEulerRadians.y,
+            })
+          }
           labels={[t.roll, t.pitch, t.yaw]}
           keys={['r', 'p', 'y'] as const}
           compact={compact}
@@ -356,18 +396,20 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
       ) : axisLabelPlacement === 'inline' ? (
         <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
           {quaternionAxisOptions.map((axis) => (
-            <div
-              key={axis.key}
-              className="flex min-w-0 items-center gap-1.5"
-            >
-              <span className={`${PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS} w-2 text-center`}>
+            <div key={axis.key} className="flex min-w-0 items-center gap-1.5">
+              <span
+                className={`${PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS} min-w-0 w-2 shrink truncate text-center`}
+                title={axis.label}
+              >
                 {axis.label}
               </span>
               <div className="min-w-0 flex-1">
                 <InlineNumberInput
                   label={`Quaternion ${axis.label}`}
                   value={quaternionValue[axis.key]}
-                  onChange={(nextValue) => handleQuaternionChange({ [axis.key]: nextValue } as Partial<QuaternionValue>)}
+                  onChange={(nextValue) =>
+                    handleQuaternionChange({ [axis.key]: nextValue } as Partial<QuaternionValue>)
+                  }
                   compact={compact}
                   step={QUATERNION_STEP}
                   precision={QUATERNION_PRECISION}

@@ -6,7 +6,7 @@ import { normalizeMergedAppMode } from '@/shared/utils/appMode';
 import {
   resolveDetailLinkTabAfterGeometrySelection,
   resolveDetailLinkTabAfterViewerMeshSelect,
-} from '@/features/property-editor/utils';
+} from '@/features/property-editor';
 
 interface UseViewerOrchestrationOptions {
   setSelection: (selection: RobotState['selection']) => void;
@@ -75,7 +75,11 @@ export function useViewerOrchestration({
   }, []);
 
   const handleSelect = useCallback(
-    (type: 'link' | 'joint', id: string, subType?: 'visual' | 'collision') => {
+    (
+      type: Exclude<InteractionSelection['type'], null>,
+      id: string,
+      subType?: 'visual' | 'collision',
+    ) => {
       if (transformPendingRef.current) return;
       const nextSelection = preserveCollisionObjectIndex({ type, id, subType });
       if (!isInteractionAllowed(nextSelection)) {
@@ -107,13 +111,16 @@ export function useViewerOrchestration({
 
   const handleViewerSelect = useCallback(
     (
-      type: 'link' | 'joint',
+      type: Exclude<InteractionSelection['type'], null>,
       id: string,
       subType?: 'visual' | 'collision',
       helperKind?: ViewerHelperKind,
     ) => {
       if (transformPendingRef.current) return;
-      const nextSelection = preserveCollisionObjectIndex({ type, id, subType } as const);
+      const baseSelection = helperKind
+        ? ({ type, id, subType, helperKind } as const)
+        : ({ type, id, subType } as const);
+      const nextSelection = preserveCollisionObjectIndex(baseSelection);
       if (!isInteractionAllowed(nextSelection)) {
         return;
       }
@@ -173,11 +180,12 @@ export function useViewerOrchestration({
 
   const handleHover = useCallback(
     (
-      type: 'link' | 'joint' | null,
+      type: InteractionSelection['type'],
       id: string | null,
       subType?: 'visual' | 'collision',
       objectIndex?: number,
       helperKind?: ViewerHelperKind,
+      highlightObjectId?: number,
     ) => {
       const current = useSelectionStore.getState().hoveredSelection;
       if (
@@ -185,12 +193,13 @@ export function useViewerOrchestration({
         current.id === id &&
         current.subType === subType &&
         (current.objectIndex ?? 0) === (objectIndex ?? 0) &&
-        current.helperKind === helperKind
+        current.helperKind === helperKind &&
+        (current.highlightObjectId ?? null) === (highlightObjectId ?? null)
       ) {
         return;
       }
 
-      const nextSelection = { type, id, subType, objectIndex, helperKind };
+      const nextSelection = { type, id, subType, objectIndex, helperKind, highlightObjectId };
       if (!isInteractionAllowed(nextSelection)) {
         setHoveredSelection({ type: null, id: null });
         return;

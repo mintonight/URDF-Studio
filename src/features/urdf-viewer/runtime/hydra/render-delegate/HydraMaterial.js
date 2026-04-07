@@ -1,13 +1,21 @@
 // @ts-nocheck
-import { Color, FrontSide, LinearSRGBColorSpace, MeshPhysicalMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, Vector2 } from 'three';
+import { Color, FrontSide, LinearSRGBColorSpace, MeshPhysicalMaterial, MeshStandardMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, Vector2 } from 'three';
 import * as Shared from './shared.js';
 import { disposeTexturesFromMaterial } from '../../../../../shared/utils/three/dispose.ts';
 import { getDefaultMaterial, setDefaultMaterial } from './default-material-state.js';
-import { applyUnifiedHydraMaterialDefaults, createUnifiedHydraPhysicalMaterial } from './material-defaults.js';
+import { applyUnifiedHydraMaterialDefaults, createHydraColorFromTuple, createUnifiedHydraPhysicalMaterial, createUnifiedHydraStandardMaterial, hydraMaterialRequiresPhysicalExtensions } from './material-defaults.js';
 const { buildProtoPrimPathCandidates, clamp01, createMatrixFromXformOp, debugInstancer, debugMaterials, debugMeshes, debugPrims, debugTextures, defaultGrayComponent, disableMaterials, disableTextures, extractPrimPathFromMaterialBindingWarning, extractReferencePrimTargets, extractScopeBodyText, extractUsdAssetReferencesFromLayerText, getActiveMaterialBindingWarningOwner, getAngleInRadians, getCollisionGeometryTypeFromUrdfElement, getExpectedPrimTypesForCollisionProto, getExpectedPrimTypesForProtoType, getMatrixMaxElementDelta, getPathBasename, getPathWithoutRoot, getRawConsoleMethod, getRootPathFromPrimPath, getSafePrimTypeName, hasNonZeroTranslation, hydraCallbackErrorCounts, installMaterialBindingApiWarningInterceptor, isIdentityQuaternion, isLikelyDefaultGrayMaterial, isLikelyInverseTransform, isMaterialBindingApiWarningMessage, isMatrixApproximatelyIdentity, isNonZero, isPotentiallyLargeBaseAssetPath, logHydraCallbackError, materialBindingRepairMaxLayerTextLength, materialBindingWarningHandlers, maxHydraCallbackErrorLogsPerMethod, nearlyEqual, normalizeHydraPath, normalizeUsdPathToken, parseGuideCollisionReferencesFromLayerText, parseProtoMeshIdentifier, parseUrdfTruthFromText, parseVector3Text, parseXformOpFallbacksFromLayerText, rawConsoleError, rawConsoleWarn, registerMaterialBindingApiWarningHandler, remapRootPathIfNeeded, resolveUrdfTruthFileNameForStagePath, resolveUsdAssetPath, setActiveMaterialBindingWarningOwner, shouldAllowLargeBaseAssetScan, stringifyConsoleArgs, toArrayLike, toColorArray, toFiniteNumber, toFiniteQuaternionWxyzTuple, toFiniteVector2Tuple, toFiniteVector3Tuple, toMatrixFromUrdfOrigin, toQuaternionWxyzFromRpy, transformEpsilon, wrapHydraCallbackObject } = Shared;
 let warningMessagesToCount = new Map();
 let warnedMissingMaterials = new Set();
 class HydraMaterial {
+    static _isMeshPhysicalMaterial(material) {
+        return Boolean(material && material.isMeshPhysicalMaterial === true);
+    }
+    static _isMeshStandardOnlyMaterial(material) {
+        return Boolean(material
+            && material.isMeshStandardMaterial === true
+            && material.isMeshPhysicalMaterial !== true);
+    }
     static _readBooleanParameter(materialNode, parameterNames) {
         if (!materialNode || !Array.isArray(parameterNames))
             return undefined;
@@ -50,42 +58,63 @@ class HydraMaterial {
             'enableOpacityTexture',
         ]) !== false;
     }
+    static _nodeRequiresPhysicalMaterial(materialNode) {
+        if (!materialNode || typeof materialNode !== 'object')
+            return false;
+        const candidateNames = [];
+        for (const [parameterName, materialProperty] of Object.entries(HydraMaterial.usdPreviewToMeshPhysicalMap)) {
+            if (materialNode[parameterName] === undefined || materialNode[parameterName] === null)
+                continue;
+            candidateNames.push(materialProperty);
+        }
+        for (const [parameterName, textureProperty] of Object.entries(HydraMaterial.usdPreviewToMeshPhysicalTextureMap)) {
+            if (!materialNode[parameterName]?.nodeIn)
+                continue;
+            candidateNames.push(textureProperty);
+        }
+        return hydraMaterialRequiresPhysicalExtensions(candidateNames);
+    }
     constructor(id, hydraInterface) {
         this._id = id;
         this._nodes = {};
         this._interface = hydraInterface;
         this._ownedMaterial = null;
         if (!getDefaultMaterial()) {
-            setDefaultMaterial(applyUnifiedHydraMaterialDefaults(new MeshPhysicalMaterial({
+            setDefaultMaterial(createUnifiedHydraStandardMaterial({
                 side: FrontSide,
                 color: new Color(0xff2997), // a bright pink color to indicate a missing material
-                // envMap: window.envMap,
                 name: 'DefaultMaterial',
-            })));
+            }));
         }
         // proper color when materials are disabled
         if (disableMaterials && getDefaultMaterial()) {
             getDefaultMaterial().color = new Color(0x999999);
             applyUnifiedHydraMaterialDefaults(getDefaultMaterial());
         }
-        /** @type {MeshPhysicalMaterial} */
+        /** @type {MeshStandardMaterial | MeshPhysicalMaterial} */
         this._material = getDefaultMaterial();
     }
-    prepareOwnedMaterial(name) {
-        if (this._ownedMaterial instanceof MeshPhysicalMaterial) {
+    prepareOwnedMaterial(name, usePhysicalMaterial = false) {
+        const createTemplateMaterial = () => usePhysicalMaterial
+            ? createUnifiedHydraPhysicalMaterial({ name })
+            : createUnifiedHydraStandardMaterial({ name });
+        const canReuseOwnedMaterial = usePhysicalMaterial
+            ? HydraMaterial._isMeshPhysicalMaterial(this._ownedMaterial)
+            : HydraMaterial._isMeshStandardOnlyMaterial(this._ownedMaterial);
+        if (canReuseOwnedMaterial) {
             disposeTexturesFromMaterial(this._ownedMaterial);
-            const resetTemplate = createUnifiedHydraPhysicalMaterial({
-                name,
-            });
+            const resetTemplate = createTemplateMaterial();
             this._ownedMaterial.copy(resetTemplate);
             this._ownedMaterial.name = name;
             this._ownedMaterial.needsUpdate = true;
             resetTemplate.dispose();
         }
         else {
-            this._ownedMaterial = createUnifiedHydraPhysicalMaterial({
-                name,
-            });
+            if (this._ownedMaterial) {
+                disposeTexturesFromMaterial(this._ownedMaterial);
+                this._ownedMaterial.dispose?.();
+            }
+            this._ownedMaterial = createTemplateMaterial();
         }
         this._material = this._ownedMaterial;
         return this._material;
@@ -449,7 +478,8 @@ class HydraMaterial {
             const colorTuple = toColorArray(rawValue);
             if (!colorTuple)
                 return;
-            this._material[materialParameterName] = new Color().fromArray(colorTuple);
+            const colorSpace = HydraMaterial.usdPreviewToColorSpaceMap[parameterName] || null;
+            this._material[materialParameterName] = createHydraColorFromTuple(colorTuple, colorSpace);
             return;
         }
         if (HydraMaterial.vector2MaterialProperties.has(materialParameterName)) {
@@ -518,7 +548,8 @@ class HydraMaterial {
         let lastSlash = _name.lastIndexOf('/');
         if (lastSlash >= 0)
             _name = _name.substring(lastSlash + 1);
-        this.prepareOwnedMaterial(_name);
+        const usePhysicalMaterial = HydraMaterial._nodeRequiresPhysicalMaterial(mainMaterialNode);
+        this.prepareOwnedMaterial(_name, usePhysicalMaterial);
         // Assign textures
         const hasTextureInput = (candidateKeys) => candidateKeys.some((key) => !!(mainMaterialNode[key] && mainMaterialNode[key].nodeIn));
         const haveRoughnessMap = hasTextureInput(['roughness', 'reflection_roughness']);

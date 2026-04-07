@@ -70,6 +70,113 @@ function getWorldBox(object: THREE.Object3D): THREE.Box3 {
   return new THREE.Box3().setFromObject(object);
 }
 
+function createLegacyMshBuffer({
+  positions,
+  normals,
+  uvs,
+  indices,
+}: {
+  positions: number[];
+  normals?: number[];
+  uvs?: number[];
+  indices?: number[];
+}): ArrayBuffer {
+  assert.equal(positions.length % 3, 0, 'positions must contain xyz triplets');
+  const nvertex = positions.length / 3;
+  const nnormal = normals ? normals.length / 3 : 0;
+  const ntexcoord = uvs ? uvs.length / 2 : 0;
+  const nface = indices ? indices.length / 3 : 0;
+
+  if (normals) {
+    assert.equal(normals.length % 3, 0, 'normals must contain xyz triplets');
+    assert.equal(nnormal, nvertex, 'legacy msh normals must match vertex count');
+  }
+
+  if (uvs) {
+    assert.equal(uvs.length % 2, 0, 'uvs must contain uv pairs');
+    assert.equal(ntexcoord, nvertex, 'legacy msh uvs must match vertex count');
+  }
+
+  if (indices) {
+    assert.equal(indices.length % 3, 0, 'indices must contain triangle triplets');
+  }
+
+  const byteLength =
+    16 +
+    positions.length * Float32Array.BYTES_PER_ELEMENT +
+    (normals?.length ?? 0) * Float32Array.BYTES_PER_ELEMENT +
+    (uvs?.length ?? 0) * Float32Array.BYTES_PER_ELEMENT +
+    (indices?.length ?? 0) * Int32Array.BYTES_PER_ELEMENT;
+  const buffer = new ArrayBuffer(byteLength);
+  const view = new DataView(buffer);
+  view.setInt32(0, nvertex, true);
+  view.setInt32(4, nnormal, true);
+  view.setInt32(8, ntexcoord, true);
+  view.setInt32(12, nface, true);
+
+  let byteOffset = 16;
+  new Float32Array(buffer, byteOffset, positions.length).set(positions);
+  byteOffset += positions.length * Float32Array.BYTES_PER_ELEMENT;
+
+  if (normals) {
+    new Float32Array(buffer, byteOffset, normals.length).set(normals);
+    byteOffset += normals.length * Float32Array.BYTES_PER_ELEMENT;
+  }
+
+  if (uvs) {
+    new Float32Array(buffer, byteOffset, uvs.length).set(uvs);
+    byteOffset += uvs.length * Float32Array.BYTES_PER_ELEMENT;
+  }
+
+  if (indices) {
+    new Int32Array(buffer, byteOffset, indices.length).set(indices);
+  }
+
+  return buffer;
+}
+
+test('createMeshLoader loads legacy MuJoCo msh assets', async () => {
+  const mshBuffer = createLegacyMshBuffer({
+    positions: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+    uvs: [0, 0, 1, 0, 0, 1, 1, 1],
+    indices: [0, 1, 2, 0, 1, 3, 0, 2, 3, 1, 2, 3],
+  });
+  const mshDataUrl = `data:application/octet-stream;base64,${Buffer.from(mshBuffer).toString('base64')}`;
+  const manager = new THREE.LoadingManager();
+  const loadMesh = createMeshLoader(
+    {
+      'simhive/myo_sim/scene/myosuite_logo.msh': mshDataUrl,
+    },
+    manager,
+    '',
+  );
+
+  const loadedObject = await new Promise<THREE.Object3D>((resolve, reject) => {
+    loadMesh('simhive/myo_sim/scene/myosuite_logo.msh', manager, (result, err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      resolve(result);
+    });
+  });
+
+  assert.ok(loadedObject instanceof THREE.Mesh);
+  const mesh = loadedObject as THREE.Mesh;
+  const geometry = mesh.geometry;
+  const positions = geometry.getAttribute('position');
+  const uvs = geometry.getAttribute('uv');
+  const index = geometry.getIndex();
+
+  assert.equal(positions.count, 4);
+  assert.deepEqual(Array.from(positions.array), [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  assert.ok(uvs);
+  assert.deepEqual(Array.from(uvs.array), [0, 0, 1, 0, 0, 1, 1, 1]);
+  assert.ok(index);
+  assert.deepEqual(Array.from(index.array), [0, 1, 2, 0, 1, 3, 0, 2, 3, 1, 2, 3]);
+});
+
 test('createMeshLoader reuses parsed STL assets for concurrent duplicate requests', async () => {
   const stlContent = [
     'solid triangle',
@@ -714,6 +821,30 @@ test('findAssetByPath resolves package-prefixed b2w mesh paths against imported 
   assert.equal(findAssetByPath('b2w_description/meshes/RR_thigh.dae', assets), 'blob:rr-thigh');
 });
 
+test('findAssetByPath resolves deep myosuite MJCF relative asset paths against imported zip assets', () => {
+  const assets = {
+    'myosuite-main/myosuite/simhive/myo_sim/meshes/humerus.stl': 'blob:humerus',
+    'myosuite-main/myosuite/simhive/myo_sim/scene/myosuite_scene_noFloor.msh': 'blob:scene-msh',
+  };
+
+  assert.equal(
+    findAssetByPath(
+      '../../../../simhive/myo_sim/../myo_sim/meshes/humerus.stl',
+      assets,
+      'myosuite-main/myosuite/envs/myo/assets/hand/',
+    ),
+    'blob:humerus',
+  );
+  assert.equal(
+    findAssetByPath(
+      '../../../../simhive/myo_sim/../myo_sim/scene/myosuite_scene_noFloor.msh',
+      assets,
+      'myosuite-main/myosuite/envs/myo/assets/hand/',
+    ),
+    'blob:scene-msh',
+  );
+});
+
 test('findAssetByPath prefers exact b2w rear hip assets over generic hip aliases', () => {
   const assets = {
     'robots/b2w_description/meshes/hip.dae': 'blob:generic-hip',
@@ -740,6 +871,31 @@ test('findAssetByIndex resolves package-prefixed b2w mesh paths against imported
 
   assert.equal(findAssetByIndex('/b2w_description/meshes/RR_thigh.dae', index), 'blob:rr-thigh');
   assert.equal(findAssetByIndex('b2w_description/meshes/RR_thigh.dae', index), 'blob:rr-thigh');
+});
+
+test('findAssetByIndex resolves deep myosuite MJCF relative asset paths against imported zip assets', () => {
+  const assets = {
+    'myosuite-main/myosuite/simhive/myo_sim/meshes/humerus.stl': 'blob:humerus',
+    'myosuite-main/myosuite/simhive/myo_sim/scene/myosuite_scene_noFloor.msh': 'blob:scene-msh',
+  };
+  const index = buildAssetIndex(assets, 'myosuite-main/myosuite/envs/myo/assets/hand/');
+
+  assert.equal(
+    findAssetByIndex(
+      '../../../../simhive/myo_sim/../myo_sim/meshes/humerus.stl',
+      index,
+      'myosuite-main/myosuite/envs/myo/assets/hand/',
+    ),
+    'blob:humerus',
+  );
+  assert.equal(
+    findAssetByIndex(
+      '../../../../simhive/myo_sim/../myo_sim/scene/myosuite_scene_noFloor.msh',
+      index,
+      'myosuite-main/myosuite/envs/myo/assets/hand/',
+    ),
+    'blob:scene-msh',
+  );
 });
 
 test('findAssetByIndex prefers package-relative folder import matches over same-filename fallbacks', () => {
