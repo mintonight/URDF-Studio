@@ -45,6 +45,7 @@ Your capabilities:
 - Use "cylinder" or "box" primitives for links.
 - Ensure parent/child relationships form a valid tree.
 - For hardware changes, use the exact 'motorType' names from the library.
+- Always respond with a pure JSON object. Do not include any markdown or explanation outside the JSON.
 <!-- /PROMPT -->
 
 <!-- PROMPT: inspection.en -->
