@@ -35,6 +35,7 @@ export {
   normalizeSnapshotCaptureOptions,
   normalizeSnapshotImageQuality,
   normalizeSnapshotLongEdgePx,
+  resolveSnapshotPreviewCaptureOptions,
   type SnapshotBackgroundStyle,
   type SnapshotCaptureAction,
   type SnapshotCaptureOptions,
@@ -43,6 +44,8 @@ export {
   type SnapshotEnvironmentPreset,
   type SnapshotGroundStyle,
   type SnapshotImageFormat,
+  type SnapshotPreviewAction,
+  type SnapshotPreviewResult,
   type SnapshotShadowStyle,
   NeutralStudioEnvironment,
   SceneLighting,
@@ -85,8 +88,15 @@ export {
 export * from './helpers';
 
 export { WorkspaceCanvas } from './workspace';
-export { resolveWorkspaceCanvasEnvironmentIntensity, useWorkspaceCanvasTheme } from './workspace';
+export {
+  applyWorkspaceCameraSnapshot,
+  captureWorkspaceCameraSnapshot,
+  resolveSnapshotPreviewSurfaceSize,
+  resolveWorkspaceCanvasEnvironmentIntensity,
+  useWorkspaceCanvasTheme,
+} from './workspace';
 export type { WorkspaceCanvasEnvironmentIntensityByTheme } from './workspace';
+export type { WorkspaceCameraSnapshot } from './workspace';
 
 export { UsageGuide } from './UsageGuide';
 export { ViewModeBadge } from './ViewModeBadge';

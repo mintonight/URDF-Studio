@@ -15,6 +15,8 @@ import {
   type SnapshotCaptureOptions,
 } from '@/shared/components/3d';
 import { translations, type Language } from '@/shared/i18n';
+import { SnapshotPreviewRenderer } from './snapshot-preview/SnapshotPreviewRenderer';
+import type { SnapshotDialogPreviewState, SnapshotPreviewSession } from './snapshot-preview/types';
 
 const SNAPSHOT_RESOLUTION_OPTIONS = [
   { value: '1280', label: '720p' },
@@ -35,6 +37,8 @@ interface SnapshotDialogProps {
   lang: Language;
   onClose: () => void;
   onCapture: (options: SnapshotCaptureOptions) => Promise<void> | void;
+  previewSession?: SnapshotPreviewSession | null;
+  previewState?: SnapshotDialogPreviewState;
 }
 
 function SnapshotSection({ title, children }: { title: string; children: React.ReactNode }) {
@@ -63,6 +67,8 @@ export function SnapshotDialog({
   lang,
   onClose,
   onCapture,
+  previewSession = null,
+  previewState,
 }: SnapshotDialogProps) {
   const t = translations[lang];
   const [resolutionPreset, setResolutionPreset] = useState(
@@ -81,11 +87,16 @@ export function SnapshotDialog({
     DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.backgroundStyle,
   );
   const [hideGrid, setHideGrid] = useState(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.hideGrid);
+  const [internalPreviewState, setInternalPreviewState] = useState<SnapshotDialogPreviewState>({
+    status: 'idle',
+    imageUrl: null,
+    aspectRatio: previewSession?.viewportAspectRatio ?? 16 / 9,
+  });
 
   const windowState = useDraggableWindow({
     isOpen,
-    defaultSize: { width: 560, height: 332 },
-    minSize: { width: 500, height: 308 },
+    defaultSize: { width: 560, height: 560 },
+    minSize: { width: 500, height: 420 },
     centerOnMount: true,
     enableMinimize: false,
     enableMaximize: false,
@@ -113,7 +124,12 @@ export function SnapshotDialog({
     setDofMode(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.dofMode);
     setBackgroundStyle(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.backgroundStyle);
     setHideGrid(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.hideGrid);
-  }, [isOpen]);
+    setInternalPreviewState({
+      status: 'idle',
+      imageUrl: null,
+      aspectRatio: previewSession?.viewportAspectRatio ?? 16 / 9,
+    });
+  }, [isOpen, previewSession?.viewportAspectRatio]);
 
   useEffect(() => {
     if (imageFormat === 'jpeg' && backgroundStyle === 'transparent') {
@@ -277,6 +293,17 @@ export function SnapshotDialog({
         ? 80
         : 60
     : 'lossless';
+  const effectivePreviewState = previewState ?? internalPreviewState;
+  const previewStatusText =
+    effectivePreviewState.status === 'loading' || effectivePreviewState.status === 'idle'
+      ? t.snapshotPreviewLoading
+      : effectivePreviewState.status === 'refreshing'
+        ? t.snapshotPreviewRefreshing
+        : effectivePreviewState.status === 'error'
+          ? t.snapshotPreviewFailed
+          : t.snapshotPreviewReady;
+  const previewAspectRatio =
+    effectivePreviewState.aspectRatio > 0 ? effectivePreviewState.aspectRatio : 16 / 9;
 
   if (!isOpen) {
     return null;
@@ -443,38 +470,99 @@ export function SnapshotDialog({
               </SnapshotField>
             </div>
           </SnapshotSection>
-        </div>
 
-        <div className="shrink-0 border-t border-border-black bg-element-bg/95 px-3 py-2.5 backdrop-blur-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0 truncate text-[10px] font-medium text-text-secondary">
-              {captureSummary}
+          <div className="rounded-xl border border-border-black bg-element-bg px-3 py-2 shadow-sm">
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold tracking-[0.02em] text-text-primary">
+                  {t.snapshotPreviewTitle}
+                </div>
+                <div className="mt-0.5 text-[10px] text-text-secondary">
+                  {t.snapshotPreviewFrozenView}
+                </div>
+              </div>
+              <div className="shrink-0 rounded-md border border-border-black bg-panel-bg px-1.5 py-0.5 text-[9px] font-medium text-text-secondary">
+                {previewStatusText}
+              </div>
             </div>
 
-            <div className="flex items-center gap-1.5">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={onClose}
-                disabled={isCapturing}
-                className="h-[26px] rounded-lg px-2.5 text-[11px]"
+            <div className="mx-auto w-full max-w-[280px]">
+              <div
+                className="overflow-hidden rounded-lg border border-border-black bg-panel-bg"
+                style={{ aspectRatio: String(previewAspectRatio) }}
               >
-                {t.close}
-              </Button>
-              <Button
-                type="button"
-                onClick={() => void onCapture(resolvedOptions)}
-                isLoading={isCapturing}
-                disabled={isCapturing}
-                icon={<Camera className="h-3 w-3" />}
-                className="h-[26px] min-w-[118px] rounded-lg px-3 text-[11px]"
-              >
-                {isCapturing ? t.snapshotCapturing : t.snapshotCapture}
-              </Button>
+                {effectivePreviewState.imageUrl ? (
+                  <div className="relative h-full w-full">
+                    <img
+                      src={effectivePreviewState.imageUrl}
+                      alt={t.snapshotPreviewAlt}
+                      className="h-full w-full object-contain"
+                    />
+                    {effectivePreviewState.status === 'refreshing' ? (
+                      <div className="absolute inset-0 flex items-end justify-start bg-panel-bg/18 p-2">
+                        <div className="rounded-md border border-border-black bg-element-bg/92 px-1.5 py-1 text-[10px] font-medium text-text-primary shadow-sm">
+                          {t.snapshotPreviewRefreshing}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="flex h-full min-h-[120px] items-center justify-center px-4 text-center text-[11px] text-text-secondary">
+                    {effectivePreviewState.status === 'error'
+                      ? t.snapshotPreviewFailed
+                      : t.snapshotPreviewLoading}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-2 flex items-start justify-between gap-3 text-[10px] text-text-secondary">
+              <div className="min-w-0">
+                <div className="truncate">{captureSummary}</div>
+                <div className="mt-0.5">{t.snapshotPreviewQualityHint}</div>
+              </div>
+              {effectivePreviewState.status === 'error' ? (
+                <div className="shrink-0 text-right text-[10px] text-danger">
+                  {t.snapshotPreviewRetryingHint}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
+
+        <div className="shrink-0 border-t border-border-black bg-element-bg/95 px-3 py-2.5 backdrop-blur-sm">
+          <div className="flex items-center justify-end gap-1.5">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onClose}
+              disabled={isCapturing}
+              className="h-[26px] rounded-lg px-2.5 text-[11px]"
+            >
+              {t.close}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void onCapture(resolvedOptions)}
+              isLoading={isCapturing}
+              disabled={isCapturing}
+              icon={<Camera className="h-3 w-3" />}
+              className="h-[26px] min-w-[118px] rounded-lg px-3 text-[11px]"
+            >
+              {isCapturing ? t.snapshotCapturing : t.snapshotCapture}
+            </Button>
+          </div>
+        </div>
       </div>
+      {!previewState && previewSession ? (
+        <SnapshotPreviewRenderer
+          isOpen={isOpen}
+          lang={lang}
+          session={previewSession}
+          options={resolvedOptions}
+          onStateChange={setInternalPreviewState}
+        />
+      ) : null}
     </DraggableWindow>
   );
 }

@@ -88,3 +88,85 @@ test('SnapshotDialog reuses the segmented surface tone for AA choices', async ()
     dom.window.close();
   }
 });
+
+test('SnapshotDialog renders the live preview state and frozen-view hint', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: false,
+          lang: 'en',
+          onClose: () => {},
+          onCapture: () => {},
+          previewState: {
+            status: 'refreshing',
+            imageUrl: 'blob:preview',
+            aspectRatio: 16 / 9,
+          },
+        }),
+      );
+    });
+
+    const previewImage = container.querySelector('img[alt="Snapshot live preview"]');
+    assert.ok(previewImage, 'snapshot dialog should render the latest preview image');
+    assert.equal(previewImage?.getAttribute('src'), 'blob:preview');
+
+    const textContent = container.textContent ?? '';
+    assert.match(textContent, /Live Preview/);
+    assert.match(textContent, /Based on the view when this dialog opened/);
+    assert.match(textContent, /Updating preview/);
+    assert.match(textContent, /Final export quality still follows the selected resolution/);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('SnapshotDialog keeps the live preview inside the scrollable content area', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: false,
+          lang: 'en',
+          onClose: () => {},
+          onCapture: () => {},
+          previewState: {
+            status: 'ready',
+            imageUrl: 'blob:preview',
+            aspectRatio: 16 / 9,
+          },
+        }),
+      );
+    });
+
+    const scrollableContent = container.querySelector('.overflow-y-auto');
+    assert.ok(scrollableContent, 'snapshot dialog should keep a scrollable content region');
+    assert.match(
+      scrollableContent.textContent ?? '',
+      /Live Preview/,
+      'preview content should stay inside the scrollable body instead of competing with the footer',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});

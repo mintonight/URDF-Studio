@@ -49,6 +49,7 @@ public/__codex_anymal_c.zip
 .claude/
 .codex/
 AGENTS.md
+.worktrees/
 
 .vscode/
 .tmp/

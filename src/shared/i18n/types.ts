@@ -590,6 +590,15 @@ export interface TranslationKeys {
   snapshotHideGrid: string;
   snapshotAAMode: string;
   snapshotAdvancedLook: string;
+  snapshotPreviewTitle: string;
+  snapshotPreviewAlt: string;
+  snapshotPreviewFrozenView: string;
+  snapshotPreviewLoading: string;
+  snapshotPreviewRefreshing: string;
+  snapshotPreviewReady: string;
+  snapshotPreviewFailed: string;
+  snapshotPreviewQualityHint: string;
+  snapshotPreviewRetryingHint: string;
   snapshotCapture: string;
   snapshotCapturing: string;
   failedToProcessFiles: string;

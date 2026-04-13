@@ -4,3 +4,9 @@ export {
   useWorkspaceCanvasTheme,
   type WorkspaceCanvasEnvironmentIntensityByTheme,
 } from './workspaceCanvasConfig';
+export {
+  applyWorkspaceCameraSnapshot,
+  captureWorkspaceCameraSnapshot,
+  resolveSnapshotPreviewSurfaceSize,
+  type WorkspaceCameraSnapshot,
+} from './workspaceCameraSnapshot';

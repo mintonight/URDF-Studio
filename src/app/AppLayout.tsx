@@ -3,6 +3,7 @@
  * Main application layout with Header and workspace area
  */
 import React, { useRef, useCallback, useEffect, useMemo, useState, lazy, Suspense } from 'react';
+import type { RootState } from '@react-three/fiber';
 import { useShallow } from 'zustand/react/shallow';
 import { Header } from './components/Header';
 import { IkToolPanel } from './components/IkToolPanel';
@@ -66,7 +67,10 @@ import {
 } from '@/store';
 import type { BridgeJoint, RobotFile, UrdfJoint, UrdfLink } from '@/types';
 import { translations } from '@/shared/i18n';
-import type { SnapshotCaptureOptions } from '@/shared/components/3d';
+import {
+  captureWorkspaceCameraSnapshot,
+  type SnapshotCaptureOptions,
+} from '@/shared/components/3d';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
 import { hasSingleDofJoints } from '@/shared/utils/jointTypes';
 import { isAssetLibraryOnlyFormat, ROBOT_IMPORT_ACCEPT_ATTRIBUTE } from '@/shared/utils';
@@ -77,6 +81,7 @@ import { resolveDocumentLoadingOverlayTargetFileName } from './utils/documentLoa
 import { clearIkDragHelperSelection } from './utils/ikDragSession';
 import { resolveIkToolSelectionState } from './utils/ikToolSelectionState';
 import { resolveAssemblyRootComponentSelectionAvailability } from './utils/assemblyRootComponentSelection';
+import type { SnapshotPreviewSession } from './components/snapshot-preview/types';
 
 interface ProModeRoundtripSession {
   baselineSnapshot: string;
@@ -165,6 +170,7 @@ export function AppLayout({
     sidebarTab,
     sourceCodeAutoApply,
     setViewOption,
+    groundPlaneOffset,
   } = useUIStore(
     useShallow((state) => ({
       appMode: state.appMode,
@@ -176,6 +182,7 @@ export function AppLayout({
       sidebarTab: state.sidebarTab,
       sourceCodeAutoApply: state.sourceCodeAutoApply,
       setViewOption: state.setViewOption,
+      groundPlaneOffset: state.groundPlaneOffset,
     })),
   );
 
@@ -343,6 +350,7 @@ export function AppLayout({
   const snapshotActionRef = useRef<
     ((options?: Partial<SnapshotCaptureOptions>) => Promise<void>) | null
   >(null);
+  const viewerCanvasStateRef = useRef<RootState | null>(null);
   const transformPendingRef = useRef(false);
   const pendingUsdAssemblyFileRef = useRef<RobotFile | null>(null);
   const proModeRoundtripSessionRef = useRef<ProModeRoundtripSession | null>(null);
@@ -353,6 +361,8 @@ export function AppLayout({
   const [isCollisionOptimizerOpen, setIsCollisionOptimizerOpen] = useState(false);
   const [isSnapshotDialogOpen, setIsSnapshotDialogOpen] = useState(false);
   const [isSnapshotCapturing, setIsSnapshotCapturing] = useState(false);
+  const [snapshotPreviewSession, setSnapshotPreviewSession] =
+    useState<SnapshotPreviewSession | null>(null);
   const [isIkToolPanelOpen, setIsIkToolPanelOpen] = useState(false);
   const [shouldRenderBridgeModal, setShouldRenderBridgeModal] = useState(false);
   const [bridgePreview, setBridgePreview] = useState<BridgeJoint | null>(null);
@@ -801,9 +811,69 @@ export function AppLayout({
     [handleCodeChange, sourceCodeDocuments],
   );
 
-  const handleSnapshot = useCallback(() => {
-    setIsSnapshotDialogOpen(true);
+  const viewerSourceFile = useMemo(
+    () =>
+      getViewerSourceFile({
+        selectedFile,
+        shouldRenderAssembly,
+        workspaceSourceFile: workspaceViewerMjcfSourceFile,
+      }),
+    [selectedFile, shouldRenderAssembly, workspaceViewerMjcfSourceFile],
+  );
+
+  const handleCloseSnapshotDialog = useCallback(() => {
+    setIsSnapshotDialogOpen(false);
+    setSnapshotPreviewSession(null);
   }, []);
+
+  const handleSnapshot = useCallback(() => {
+    const viewerCanvasState = viewerCanvasStateRef.current;
+    const cameraSnapshot = viewerCanvasState
+      ? captureWorkspaceCameraSnapshot(viewerCanvasState)
+      : null;
+    const viewportAspectRatio =
+      cameraSnapshot?.aspectRatio ??
+      (viewerCanvasState?.size.width && viewerCanvasState.size.height
+        ? viewerCanvasState.size.width / viewerCanvasState.size.height
+        : 16 / 9);
+
+    setSnapshotPreviewSession({
+      theme,
+      cameraSnapshot,
+      viewportAspectRatio,
+      robotName: previewFileName ?? (viewerRobot.name || 'robot'),
+      robot: viewerRobot,
+      assets: viewerAssets,
+      availableFiles,
+      urdfContent: urdfContentForViewer,
+      viewerSourceFormat,
+      sourceFilePath: viewerSourceFilePath,
+      sourceFile: viewerSourceFile,
+      jointAngleState,
+      jointMotionState,
+      showVisual,
+      isMeshPreview: selectedFile?.format === 'mesh',
+      viewerReloadKey,
+      groundPlaneOffset,
+    });
+    setIsSnapshotDialogOpen(true);
+  }, [
+    availableFiles,
+    groundPlaneOffset,
+    jointAngleState,
+    jointMotionState,
+    previewFileName,
+    selectedFile?.format,
+    showVisual,
+    theme,
+    urdfContentForViewer,
+    viewerAssets,
+    viewerReloadKey,
+    viewerRobot,
+    viewerSourceFile,
+    viewerSourceFilePath,
+    viewerSourceFormat,
+  ]);
 
   const handleSetIkDragActive = useCallback(
     (active: boolean) => {
@@ -874,7 +944,7 @@ export function AppLayout({
       try {
         setIsSnapshotCapturing(true);
         await snapshotActionRef.current(options);
-        setIsSnapshotDialogOpen(false);
+        handleCloseSnapshotDialog();
       } catch (error) {
         console.error('Snapshot failed:', error);
         showToast(t.snapshotFailed, 'info');
@@ -882,7 +952,7 @@ export function AppLayout({
         setIsSnapshotCapturing(false);
       }
     },
-    [showToast, t],
+    [handleCloseSnapshotDialog, showToast, t],
   );
 
   const {
@@ -1044,6 +1114,9 @@ export function AppLayout({
               showVisual={showVisual}
               setShowVisual={handleSetShowVisual}
               snapshotAction={snapshotActionRef}
+              onCanvasCreated={(state) => {
+                viewerCanvasStateRef.current = state;
+              }}
               showToolbar={viewConfig.showToolbar}
               setShowToolbar={(show) => setViewConfig((prev) => ({ ...prev, showToolbar: show }))}
               showOptionsPanel={viewConfig.showOptionsPanel}
@@ -1056,11 +1129,7 @@ export function AppLayout({
               urdfContent={urdfContentForViewer}
               viewerSourceFormat={viewerSourceFormat}
               sourceFilePath={viewerSourceFilePath}
-              sourceFile={getViewerSourceFile({
-                selectedFile,
-                shouldRenderAssembly,
-                workspaceSourceFile: workspaceViewerMjcfSourceFile,
-              })}
+              sourceFile={viewerSourceFile}
               onRobotDataResolved={handleRobotDataResolved}
               onDocumentLoadEvent={handleViewerDocumentLoadEvent}
               onRuntimeRobotLoaded={handleViewerRuntimeRobotLoaded}
@@ -1134,7 +1203,8 @@ export function AppLayout({
         isOpen={isSnapshotDialogOpen}
         isCapturing={isSnapshotCapturing}
         lang={lang}
-        onClose={() => setIsSnapshotDialogOpen(false)}
+        previewSession={snapshotPreviewSession}
+        onClose={handleCloseSnapshotDialog}
         onCapture={handleCaptureSnapshot}
       />
 
