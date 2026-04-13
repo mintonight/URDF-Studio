@@ -541,7 +541,7 @@ export function SnapshotDialog({
                   onChange={(checked) => setHideGrid(!checked)}
                   disabled={isCapturing}
                   ariaLabel={t.snapshotHideGrid}
-                  className="w-full justify-end"
+                  className="w-full justify-start"
                 />
               </SnapshotField>
             </div>

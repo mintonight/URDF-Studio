@@ -168,6 +168,11 @@ test('SnapshotDialog defaults the grid toggle to enabled with the visible Grid l
       'Grid',
       'grid switch aria label should match the visible positive label',
     );
+    assert.match(
+      gridSwitch?.parentElement?.className ?? '',
+      /\bjustify-start\b/,
+      'grid switch row should align the control to the left edge of its field',
+    );
   } finally {
     await act(async () => {
       root.unmount();
