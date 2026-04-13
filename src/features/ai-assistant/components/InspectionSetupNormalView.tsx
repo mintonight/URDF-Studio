@@ -225,7 +225,7 @@ export function InspectionSetupNormalView({
                       className={`flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-[border-color,background-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
                         isSelected
                           ? 'border-system-blue/15 bg-system-blue/5 text-text-primary shadow-sm'
-                          : 'border-transparent hover:border-border-black hover:bg-element-hover'
+                          : 'border-border-black bg-panel-bg hover:border-system-blue/30 hover:bg-element-hover'
                       }`}
                       onClick={() => {
                         onFocusCategory(category.id);

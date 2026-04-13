@@ -514,6 +514,16 @@ test('inspection setup restores the saved normal mode and keeps selection in syn
       false,
       'expected the normal mode to hide advanced scoring references',
     );
+    assert.equal(
+      container.textContent?.includes('切换到专业模式'),
+      true,
+      'expected the normal mode setup description to reference professional mode',
+    );
+    assert.equal(
+      container.textContent?.includes('切换到高级模式'),
+      false,
+      'expected the outdated advanced-mode wording to be removed from the normal mode description',
+    );
 
     const firstItemButton = getButtonByText(firstItem!.nameZh);
     assert.ok(firstItemButton, 'expected the normal mode item button to render');
@@ -774,6 +784,21 @@ test('inspection setup normal mode uses a compact visual scale aligned with adva
       firstItemRow.className.includes('rounded-lg'),
       true,
       'expected the normal mode item rows to use a tighter item shape',
+    );
+
+    await act(async () => {
+      firstItemRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      firstItemRow.className.includes('border-border-black'),
+      true,
+      'expected unchecked normal mode item rows to keep a visible border',
+    );
+    assert.equal(
+      firstItemRow.className.includes('hover:border-system-blue/30'),
+      true,
+      'expected unchecked normal mode item rows to highlight the border on hover',
     );
   } finally {
     await act(async () => {
