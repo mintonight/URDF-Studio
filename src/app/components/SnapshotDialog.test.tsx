@@ -170,3 +170,43 @@ test('SnapshotDialog keeps the live preview inside the scrollable content area',
     dom.window.close();
   }
 });
+
+test('SnapshotDialog opens with a taller default height so the full panel fits without dragging', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: false,
+          lang: 'en',
+          onClose: () => {},
+          onCapture: () => {},
+          previewState: {
+            status: 'ready',
+            imageUrl: 'blob:preview',
+            aspectRatio: 16 / 9,
+          },
+        }),
+      );
+    });
+
+    const windowRoot = container.firstElementChild as HTMLElement | null;
+    assert.ok(windowRoot, 'snapshot dialog should render a draggable window root');
+    assert.equal(
+      windowRoot.style.height,
+      '680px',
+      'snapshot dialog should default to the taller desktop height',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});

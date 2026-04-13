@@ -95,7 +95,7 @@ export function SnapshotDialog({
 
   const windowState = useDraggableWindow({
     isOpen,
-    defaultSize: { width: 560, height: 560 },
+    defaultSize: { width: 560, height: 680 },
     minSize: { width: 500, height: 420 },
     centerOnMount: true,
     enableMinimize: false,
