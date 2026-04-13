@@ -962,7 +962,6 @@ export function AppLayout({
       try {
         setIsSnapshotCapturing(true);
         await captureAction(options);
-        handleCloseSnapshotDialog();
       } catch (error) {
         console.error('Snapshot failed:', error);
         showToast(t.snapshotFailed, 'info');
