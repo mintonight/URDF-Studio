@@ -943,6 +943,127 @@ test('inspection setup mode switcher uses the professional mode label', async ()
   }
 });
 
+test('inspection setup highlights the run inspection action from the window center with synced breathing', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+
+  const getButtonByText = (label: string) =>
+    Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null;
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const runButton = container.querySelector<HTMLButtonElement>('[data-inspection-run-button]');
+    assert.ok(runButton, 'expected the setup footer to expose the run inspection button hook');
+    assert.equal(
+      runButton.className.includes('inspection-run-cta-pulse'),
+      true,
+      'expected entering normal mode to pulse the run inspection button',
+    );
+
+    const pointerOverlay = container.querySelector<HTMLElement>(
+      '[data-inspection-run-pointer-overlay]',
+    );
+    assert.ok(pointerOverlay, 'expected the pointer cue to render in a full-window overlay');
+    assert.equal(
+      pointerOverlay.style.getPropertyValue('--inspection-run-pointer-origin-x'),
+      '50%',
+      'expected the pointer cue to originate from the horizontal center of the modal window',
+    );
+    assert.equal(
+      pointerOverlay.style.getPropertyValue('--inspection-run-pointer-origin-y'),
+      '50%',
+      'expected the pointer cue to originate from the vertical center of the modal window',
+    );
+
+    const firstPointer = container.querySelector<HTMLElement>('[data-inspection-run-pointer]');
+    assert.ok(
+      firstPointer,
+      'expected entering setup mode to render a temporary pointer cue toward the run inspection button',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-run-hint]'),
+      null,
+      'expected the previous text hint capsule to be removed',
+    );
+    assert.equal(
+      Boolean(firstPointer.querySelector('.inspection-run-pointer-cta')),
+      true,
+      'expected the pointer cue to use the dedicated pointer animation styling',
+    );
+    assert.equal(
+      runButton.className.includes('inspection-run-cta-breathe-sync'),
+      true,
+      'expected the run inspection button to coordinate a breathing animation with the pointer cue',
+    );
+
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 2600);
+      });
+    });
+
+    assert.equal(
+      container.querySelector('[data-inspection-run-pointer]'),
+      null,
+      'expected the pointer cue to dismiss itself after the short guidance window',
+    );
+    assert.equal(
+      runButton.className.includes('inspection-run-cta-breathe-sync'),
+      false,
+      'expected the run inspection button to leave the synced breathing state after the cue ends',
+    );
+
+    const professionalModeButton = getButtonByText(t.inspectionAdvancedMode);
+    assert.ok(professionalModeButton, 'expected the setup mode switcher to render the professional mode');
+
+    await act(async () => {
+      professionalModeButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    const secondPointer = container.querySelector<HTMLElement>('[data-inspection-run-pointer]');
+    assert.ok(
+      secondPointer,
+      'expected entering professional mode to trigger the pointer cue again',
+    );
+    assert.equal(
+      runButton.className.includes('inspection-run-cta-pulse'),
+      true,
+      'expected entering professional mode to re-apply the run inspection pulse',
+    );
+    assert.equal(
+      runButton.className.includes('inspection-run-cta-breathe-sync'),
+      true,
+      'expected entering professional mode to re-apply the synced breathing state',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('inspection setup persists the last selected mode across remounts', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
