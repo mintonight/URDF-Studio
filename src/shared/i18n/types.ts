@@ -293,6 +293,11 @@ export interface TranslationKeys {
   minimize: string;
   maximize: string;
   restore: string;
+  inspectionNormalMode: string;
+  inspectionAdvancedMode: string;
+  inspectionConfigureChecks: string;
+  inspectionConfigureChecksDescription: string;
+  inspectionSelectedChecksLabel: string;
   inspectionScopeDescription: string;
   inspectionSelectedChecksSummary: string;
   inspectionRobotSnapshot: string;

@@ -306,6 +306,12 @@ export const zh: TranslationKeys = {
   minimize: '最小化',
   maximize: '最大化',
   restore: '还原',
+  inspectionNormalMode: '常规模式',
+  inspectionAdvancedMode: '高级模式',
+  inspectionConfigureChecks: '配置检查项目',
+  inspectionConfigureChecksDescription:
+    '常规模式仅保留勾选操作；如需查看权重、影响程度和完整评分口径，请切换到高级模式。',
+  inspectionSelectedChecksLabel: '已选择检查项',
   inspectionScopeDescription: '按类别或单项勾选本次需要执行的审阅项。',
   inspectionSelectedChecksSummary: '已选择 {selected}/{total} 项检查',
   inspectionRobotSnapshot: '机器人快照',

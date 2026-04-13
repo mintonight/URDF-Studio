@@ -10,6 +10,7 @@ import {
   __setPdfCanvasFactoryForTests,
   __setPdfGenerationDepsLoaderForTests,
 } from '@/features/file-io/utils/generatePdfFromHtml';
+import { INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
 import { GeometryType, JointType, type RobotState } from '@/types';
 
 function installDom() {
@@ -458,6 +459,312 @@ test('saving the report from regenerate confirmation returns to the inspection r
     } else {
       process.env.API_KEY = previousApiKey;
     }
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup restores the saved normal mode and keeps selection in sync with advanced mode', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+  const totalItemCount = INSPECTION_CRITERIA.reduce(
+    (sum, category) => sum + category.items.length,
+    0,
+  );
+  const firstCategory = INSPECTION_CRITERIA[0];
+  const firstItem = firstCategory?.items[0];
+  assert.ok(firstCategory, 'expected inspection criteria to include at least one category');
+  assert.ok(firstItem, 'expected the first category to include at least one item');
+
+  const getButtonByText = (label: string) =>
+    Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null;
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    assert.equal(
+      container.textContent?.includes(t.inspectionConfigureChecks),
+      true,
+      'expected the saved normal mode to render the simplified setup heading',
+    );
+    assert.equal(
+      container.textContent?.includes(t.inspectionScoringReference),
+      false,
+      'expected the normal mode to hide advanced scoring references',
+    );
+
+    const firstItemButton = getButtonByText(firstItem!.nameZh);
+    assert.ok(firstItemButton, 'expected the normal mode item button to render');
+
+    await act(async () => {
+      firstItemButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    const advancedModeButton = getButtonByText(t.inspectionAdvancedMode);
+    assert.ok(advancedModeButton, 'expected the advanced mode toggle to render');
+
+    await act(async () => {
+      advancedModeButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      container.textContent?.includes(t.inspectionScoringReference),
+      true,
+      'expected the advanced mode to restore scoring references',
+    );
+    assert.equal(
+      container.textContent?.includes(
+        t.inspectionSelectedChecksSummary
+          .replace('{selected}', String(totalItemCount - 1))
+          .replace('{total}', String(totalItemCount)),
+      ),
+      true,
+      'expected advanced mode to reflect the selection changed in normal mode',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup persists the last selected mode across remounts', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.removeItem('urdf-studio.ai-inspection.setup-mode');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+
+  const getButtonByText = (label: string) =>
+    Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null;
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const advancedModeButton = getButtonByText(t.inspectionAdvancedMode);
+    assert.ok(advancedModeButton, 'expected the advanced mode toggle to render');
+
+    await act(async () => {
+      advancedModeButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      dom.window.localStorage.getItem('urdf-studio.ai-inspection.setup-mode'),
+      'advanced',
+      'expected mode changes to persist into local storage',
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    const reopenedRoot = createRoot(container);
+
+    try {
+      await act(async () => {
+        reopenedRoot.render(
+          <AIInspectionModal
+            isOpen
+            onClose={() => {}}
+            robot={createRobotFixture()}
+            lang="zh"
+            onSelectItem={() => {}}
+            onOpenConversationWithReport={() => {}}
+          />,
+        );
+      });
+
+      assert.equal(
+        container.textContent?.includes(t.inspectionScoringReference),
+        true,
+        'expected the remounted setup to restore the last selected advanced mode',
+      );
+      assert.equal(
+        container.textContent?.includes(t.inspectionConfigureChecks),
+        false,
+        'expected the remounted setup to skip the normal-mode layout when advanced was saved',
+      );
+    } finally {
+      await act(async () => {
+        reopenedRoot.unmount();
+      });
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('inspection setup keeps the mode switcher visually centered in the header', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const modeSwitcher = container.querySelector<HTMLElement>('[data-inspection-setup-mode-switcher]');
+    assert.ok(modeSwitcher, 'expected the setup header to render a dedicated mode switcher wrapper');
+    assert.equal(
+      modeSwitcher.className.includes('absolute left-1/2 top-1/2'),
+      true,
+      'expected the setup mode switcher to anchor from the visual center of the header',
+    );
+    assert.equal(
+      modeSwitcher.className.includes('-translate-x-1/2 -translate-y-1/2'),
+      true,
+      'expected the setup mode switcher to translate back from the anchor point for true centering',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup header uses the same maximize and restore icons as AI conversation', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const maximizeButton = container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t.maximize}"]`,
+    );
+    assert.ok(maximizeButton, 'expected the setup header maximize button to render');
+    assert.ok(
+      maximizeButton.querySelector('svg.lucide-maximize-2'),
+      'expected the setup header maximize button to use the shared maximize icon',
+    );
+
+    await act(async () => {
+      maximizeButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    const restoreButton = container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t.restore}"]`,
+    );
+    assert.ok(restoreButton, 'expected the setup header restore button to render after maximizing');
+    assert.ok(
+      restoreButton.querySelector('svg.lucide-minimize-2'),
+      'expected the setup header restore button to use the shared restore icon',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('advanced setup summary chip uses content-based width instead of stretching across the footer', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'advanced');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const summaryChip = container.querySelector<HTMLElement>('[data-inspection-setup-summary]');
+    assert.ok(summaryChip, 'expected the advanced setup footer to render a summary chip wrapper');
+    assert.equal(
+      summaryChip.className.includes('inline-flex'),
+      true,
+      'expected the advanced setup summary chip to size to its content',
+    );
+    assert.equal(
+      summaryChip.className.includes('w-fit'),
+      true,
+      'expected the advanced setup summary chip to stop expanding toward the footer actions',
+    );
+  } finally {
     await act(async () => {
       root.unmount();
     });

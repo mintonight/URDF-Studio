@@ -324,6 +324,12 @@ export const en: TranslationKeys = {
   minimize: 'Minimize',
   maximize: 'Maximize',
   restore: 'Restore',
+  inspectionNormalMode: 'Normal Mode',
+  inspectionAdvancedMode: 'Advanced Mode',
+  inspectionConfigureChecks: 'Configure Inspection Checks',
+  inspectionConfigureChecksDescription:
+    'Normal mode keeps setup focused on selection only. Switch to advanced mode to review weights, impact labels, and detailed scoring guidance.',
+  inspectionSelectedChecksLabel: 'Selected Checks',
   inspectionScopeDescription: 'Choose the categories and individual checks to include in this run.',
   inspectionSelectedChecksSummary: '{selected} of {total} checks selected',
   inspectionRobotSnapshot: 'Robot Snapshot',
