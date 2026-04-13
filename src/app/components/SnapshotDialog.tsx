@@ -12,6 +12,7 @@ import { DraggableWindow } from '@/shared/components';
 import { useDraggableWindow } from '@/shared/hooks';
 import {
   DEFAULT_SNAPSHOT_CAPTURE_OPTIONS,
+  type SnapshotCaptureAction,
   type SnapshotCaptureOptions,
 } from '@/shared/components/3d';
 import { translations, type Language } from '@/shared/i18n';
@@ -39,6 +40,7 @@ interface SnapshotDialogProps {
   onCapture: (options: SnapshotCaptureOptions) => Promise<void> | void;
   previewSession?: SnapshotPreviewSession | null;
   previewState?: SnapshotDialogPreviewState;
+  onPreviewCaptureActionChange?: (action: SnapshotCaptureAction | null) => void;
 }
 
 function SnapshotSection({ title, children }: { title: string; children: React.ReactNode }) {
@@ -69,6 +71,7 @@ export function SnapshotDialog({
   onCapture,
   previewSession = null,
   previewState,
+  onPreviewCaptureActionChange,
 }: SnapshotDialogProps) {
   const t = translations[lang];
   const [resolutionPreset, setResolutionPreset] = useState(
@@ -561,6 +564,7 @@ export function SnapshotDialog({
           session={previewSession}
           options={resolvedOptions}
           onStateChange={setInternalPreviewState}
+          onCaptureActionChange={onPreviewCaptureActionChange}
         />
       ) : null}
     </DraggableWindow>

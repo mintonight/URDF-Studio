@@ -3,6 +3,7 @@ import {
   STUDIO_ENVIRONMENT_INTENSITY,
   WORKSPACE_CANVAS_BACKGROUND,
   WorkspaceCanvas,
+  type SnapshotCaptureAction,
   type SnapshotCaptureOptions,
   type SnapshotPreviewAction,
   useWorkspaceCanvasTheme,
@@ -22,6 +23,7 @@ interface SnapshotPreviewRendererProps {
   session: SnapshotPreviewSession | null;
   options: SnapshotCaptureOptions;
   onStateChange: (state: SnapshotDialogPreviewState) => void;
+  onCaptureActionChange?: (action: SnapshotCaptureAction | null) => void;
 }
 
 export function SnapshotPreviewRenderer({
@@ -30,6 +32,7 @@ export function SnapshotPreviewRenderer({
   session,
   options,
   onStateChange,
+  onCaptureActionChange,
 }: SnapshotPreviewRendererProps) {
   const t = translations[lang];
   const previousViewerResourceScopeRef = useRef<
@@ -230,6 +233,7 @@ export function SnapshotPreviewRenderer({
         lang={lang}
         className="relative h-full w-full"
         robotName={session.robotName}
+        onSnapshotActionChange={onCaptureActionChange}
         onPreviewActionChange={handlePreviewActionChange}
         renderKey={`snapshot-preview:${session.viewerReloadKey}`}
         environment="studio"

@@ -50,6 +50,7 @@ interface WorkspaceCanvasProps {
   containerRef?: React.RefObject<HTMLDivElement>;
   sceneRef?: React.RefObject<THREE.Scene | null>;
   snapshotAction?: React.RefObject<SnapshotCaptureAction | null>;
+  onSnapshotActionChange?: (action: SnapshotCaptureAction | null) => void;
   previewAction?: React.RefObject<SnapshotPreviewAction | null>;
   onPreviewActionChange?: (action: SnapshotPreviewAction | null) => void;
   children: React.ReactNode;
@@ -98,6 +99,7 @@ export const WorkspaceCanvas = ({
   containerRef,
   sceneRef,
   snapshotAction,
+  onSnapshotActionChange,
   previewAction,
   onPreviewActionChange,
   children,
@@ -423,6 +425,7 @@ export const WorkspaceCanvas = ({
                 />
                 <SnapshotManager
                   actionRef={snapshotAction}
+                  onSnapshotActionChange={onSnapshotActionChange}
                   previewActionRef={previewAction}
                   onPreviewActionChange={onPreviewActionChange}
                   robotName={robotName}

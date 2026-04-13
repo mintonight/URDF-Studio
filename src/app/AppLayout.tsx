@@ -12,6 +12,7 @@ import { ConnectedDocumentLoadingOverlay } from './components/ConnectedDocumentL
 import { FileDropOverlay } from './components/FileDropOverlay';
 import { ImportPreparationOverlay } from './components/ImportPreparationOverlay';
 import { SnapshotDialog } from './components/SnapshotDialog';
+import { resolveSnapshotCaptureAction } from './components/snapshot-preview/resolveSnapshotCaptureAction';
 import {
   loadBridgeCreateModalModule,
   loadCollisionOptimizationDialogModule,
@@ -69,6 +70,7 @@ import type { BridgeJoint, RobotFile, UrdfJoint, UrdfLink } from '@/types';
 import { translations } from '@/shared/i18n';
 import {
   captureWorkspaceCameraSnapshot,
+  type SnapshotCaptureAction,
   type SnapshotCaptureOptions,
 } from '@/shared/components/3d';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
@@ -363,6 +365,7 @@ export function AppLayout({
   const [isSnapshotCapturing, setIsSnapshotCapturing] = useState(false);
   const [snapshotPreviewSession, setSnapshotPreviewSession] =
     useState<SnapshotPreviewSession | null>(null);
+  const snapshotPreviewCaptureActionRef = useRef<SnapshotCaptureAction | null>(null);
   const [isIkToolPanelOpen, setIsIkToolPanelOpen] = useState(false);
   const [shouldRenderBridgeModal, setShouldRenderBridgeModal] = useState(false);
   const [bridgePreview, setBridgePreview] = useState<BridgeJoint | null>(null);
@@ -824,7 +827,15 @@ export function AppLayout({
   const handleCloseSnapshotDialog = useCallback(() => {
     setIsSnapshotDialogOpen(false);
     setSnapshotPreviewSession(null);
+    snapshotPreviewCaptureActionRef.current = null;
   }, []);
+
+  const handleSnapshotPreviewCaptureActionChange = useCallback(
+    (action: SnapshotCaptureAction | null) => {
+      snapshotPreviewCaptureActionRef.current = action;
+    },
+    [],
+  );
 
   const handleSnapshot = useCallback(() => {
     const viewerCanvasState = viewerCanvasStateRef.current;
@@ -837,6 +848,7 @@ export function AppLayout({
         ? viewerCanvasState.size.width / viewerCanvasState.size.height
         : 16 / 9);
 
+    snapshotPreviewCaptureActionRef.current = null;
     setSnapshotPreviewSession({
       theme,
       cameraSnapshot,
@@ -936,14 +948,20 @@ export function AppLayout({
 
   const handleCaptureSnapshot = useCallback(
     async (options: SnapshotCaptureOptions) => {
-      if (!snapshotActionRef.current) {
+      const captureAction = resolveSnapshotCaptureAction({
+        liveCaptureAction: snapshotActionRef.current,
+        frozenPreviewCaptureAction: snapshotPreviewCaptureActionRef.current,
+        preferFrozenPreviewCapture: Boolean(snapshotPreviewSession),
+      });
+
+      if (!captureAction) {
         showToast(t.snapshotFailed, 'info');
         return;
       }
 
       try {
         setIsSnapshotCapturing(true);
-        await snapshotActionRef.current(options);
+        await captureAction(options);
         handleCloseSnapshotDialog();
       } catch (error) {
         console.error('Snapshot failed:', error);
@@ -952,7 +970,7 @@ export function AppLayout({
         setIsSnapshotCapturing(false);
       }
     },
-    [handleCloseSnapshotDialog, showToast, t],
+    [handleCloseSnapshotDialog, showToast, snapshotPreviewSession, t],
   );
 
   const {
@@ -1204,6 +1222,7 @@ export function AppLayout({
         isCapturing={isSnapshotCapturing}
         lang={lang}
         previewSession={snapshotPreviewSession}
+        onPreviewCaptureActionChange={handleSnapshotPreviewCaptureActionChange}
         onClose={handleCloseSnapshotDialog}
         onCapture={handleCaptureSnapshot}
       />

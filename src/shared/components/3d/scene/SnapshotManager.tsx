@@ -61,6 +61,7 @@ function ensureSnapshotHdrPreloaded(): Promise<void> {
 
 interface SnapshotManagerProps {
   actionRef?: RefObject<SnapshotCaptureAction | null>;
+  onSnapshotActionChange?: (action: SnapshotCaptureAction | null) => void;
   previewActionRef?: RefObject<SnapshotPreviewAction | null>;
   onPreviewActionChange?: (action: SnapshotPreviewAction | null) => void;
   robotName: string;
@@ -70,6 +71,7 @@ interface SnapshotManagerProps {
 
 export const SnapshotManager = ({
   actionRef,
+  onSnapshotActionChange,
   previewActionRef,
   onPreviewActionChange,
   robotName,
@@ -84,7 +86,7 @@ export const SnapshotManager = ({
   const { setSnapshotRenderActive } = useSnapshotRenderContext();
 
   useEffect(() => {
-    if (!actionRef && !previewActionRef && !onPreviewActionChange) {
+    if (!actionRef && !onSnapshotActionChange && !previewActionRef && !onPreviewActionChange) {
       return;
     }
 
@@ -483,12 +485,15 @@ export const SnapshotManager = ({
       }
     };
 
+    const captureAction: SnapshotCaptureAction = async (requestedOptions) => {
+      const capture = await runSnapshotCapture(requestedOptions, normalizeSnapshotCaptureOptions);
+      await downloadCanvas(capture.canvas, capture.options);
+    };
+
     if (actionRef) {
-      actionRef.current = async (requestedOptions) => {
-        const capture = await runSnapshotCapture(requestedOptions, normalizeSnapshotCaptureOptions);
-        await downloadCanvas(capture.canvas, capture.options);
-      };
+      actionRef.current = captureAction;
     }
+    onSnapshotActionChange?.(captureAction);
 
     const previewAction: SnapshotPreviewAction = async (requestedOptions) => {
       const capture = await runSnapshotCapture(
@@ -514,6 +519,7 @@ export const SnapshotManager = ({
       if (actionRef) {
         actionRef.current = null;
       }
+      onSnapshotActionChange?.(null);
       if (previewActionRef) {
         previewActionRef.current = null;
       }
@@ -524,6 +530,7 @@ export const SnapshotManager = ({
     get,
     gl,
     invalidate,
+    onSnapshotActionChange,
     onPreviewActionChange,
     previewActionRef,
     robotName,
