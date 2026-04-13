@@ -33,7 +33,7 @@ const FIELD_ROW_CLASS_NAME = 'grid grid-cols-[78px_minmax(0,1fr)] items-center g
 const FIELD_LABEL_CLASS_NAME =
   'truncate text-[10px] font-medium tracking-[0.01em] text-text-secondary';
 const SNAPSHOT_DIALOG_DEFAULT_SIZE = {
-  width: 560,
+  width: 620,
   height: 690,
 } as const;
 const SNAPSHOT_DIALOG_MIN_SIZE = {
@@ -348,7 +348,7 @@ export function SnapshotDialog({
       shadow: lang === 'zh' ? '阴影' : 'Shadow',
       ground: lang === 'zh' ? '地面' : 'Ground',
       dof: lang === 'zh' ? '景深' : 'DoF',
-      grid: lang === 'zh' ? '隐藏网格' : 'Hide Grid',
+      grid: lang === 'zh' ? '网格' : 'Grid',
     }),
     [lang],
   );
@@ -537,8 +537,8 @@ export function SnapshotDialog({
               </SnapshotField>
               <SnapshotField label={compactLabels.grid}>
                 <CompactSwitch
-                  checked={hideGrid}
-                  onChange={setHideGrid}
+                  checked={!hideGrid}
+                  onChange={(checked) => setHideGrid(!checked)}
                   disabled={isCapturing}
                   ariaLabel={t.snapshotHideGrid}
                   className="w-full justify-end"

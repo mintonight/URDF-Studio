@@ -89,6 +89,93 @@ test('SnapshotDialog reuses the segmented surface tone for AA choices', async ()
   }
 });
 
+test('SnapshotDialog opens with a wider default width so compression labels fit without truncation', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: false,
+          lang: 'en',
+          onClose: () => {},
+          onCapture: () => {},
+        }),
+      );
+    });
+
+    const windowRoot = container.firstElementChild as HTMLElement | null;
+    assert.ok(windowRoot, 'snapshot dialog should render a draggable window root');
+    assert.equal(
+      windowRoot.style.width,
+      '620px',
+      'snapshot dialog should default to the wider width that can show compression labels cleanly',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('SnapshotDialog defaults the grid toggle to enabled with the visible Grid label', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: false,
+          lang: 'en',
+          onClose: () => {},
+          onCapture: () => {},
+        }),
+      );
+    });
+
+    const labelTexts = Array.from(container.querySelectorAll('div'))
+      .map((element) => element.textContent?.trim())
+      .filter(Boolean);
+    assert.ok(
+      labelTexts.includes('Grid'),
+      'snapshot dialog should expose the positive Grid label instead of Hide Grid',
+    );
+    assert.ok(
+      !labelTexts.includes('Hide Grid'),
+      'snapshot dialog should no longer render the old negative grid label',
+    );
+
+    const gridSwitch = container.querySelector('[role="switch"]');
+    assert.ok(gridSwitch, 'snapshot dialog should render the grid switch');
+    assert.equal(
+      gridSwitch?.getAttribute('aria-checked'),
+      'true',
+      'grid should be visible by default when the dialog opens',
+    );
+    assert.equal(
+      gridSwitch?.getAttribute('aria-label'),
+      'Grid',
+      'grid switch aria label should match the visible positive label',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('SnapshotDialog renders the live preview state and frozen-view hint', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');

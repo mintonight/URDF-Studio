@@ -649,7 +649,7 @@ export const en: TranslationKeys = {
   snapshotFormatWebp: 'WebP',
   snapshotCompressionQuality: 'Image Compression',
   snapshotCompressionLossless: 'PNG exports stay lossless',
-  snapshotHideGrid: 'Remove reference grid from the snapshot',
+  snapshotHideGrid: 'Grid',
   snapshotAAMode: 'Supersampled AA',
   snapshotAdvancedLook: 'Advanced Look',
   snapshotPreviewTitle: 'Live Preview',

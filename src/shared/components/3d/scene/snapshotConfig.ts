@@ -70,7 +70,7 @@ export const DEFAULT_SNAPSHOT_CAPTURE_OPTIONS: SnapshotCaptureOptions = {
   groundStyle: 'shadow',
   dofMode: 'off',
   backgroundStyle: 'studio',
-  hideGrid: true,
+  hideGrid: false,
 };
 
 export const SNAPSHOT_DETAIL_SHADOW_MAP_SIZE: Record<SnapshotDetailLevel, number | null> = {

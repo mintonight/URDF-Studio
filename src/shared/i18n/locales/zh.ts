@@ -617,7 +617,7 @@ export const zh: TranslationKeys = {
   snapshotFormatWebp: 'WebP',
   snapshotCompressionQuality: '图片压缩',
   snapshotCompressionLossless: 'PNG 为无损导出',
-  snapshotHideGrid: '导出时移除参考网格',
+  snapshotHideGrid: '网格',
   snapshotAAMode: '超采样抗锯齿',
   snapshotAdvancedLook: '高级光影',
   snapshotPreviewTitle: '实时预览',
