@@ -298,6 +298,8 @@ export interface TranslationKeys {
   inspectionConfigureChecks: string;
   inspectionConfigureChecksDescription: string;
   inspectionSelectedChecksLabel: string;
+  inspectionSelectAll: string;
+  inspectionClearAll: string;
   inspectionScopeDescription: string;
   inspectionSelectedChecksSummary: string;
   inspectionRobotSnapshot: string;

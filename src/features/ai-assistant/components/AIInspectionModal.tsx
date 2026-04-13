@@ -544,8 +544,8 @@ export function AIInspectionModal({
                 value={inspectionSetupMode}
                 onChange={setInspectionSetupMode}
                 stretch={false}
-                className="w-full max-w-[260px]"
-                itemClassName="min-w-[108px]"
+                className="w-full max-w-[300px]"
+                itemClassName="min-w-[126px]"
               />
             </div>
           ) : undefined
@@ -700,17 +700,28 @@ export function AIInspectionModal({
               <>
                 <div className="min-w-0 flex-1">
                   {inspectionSetupMode === 'normal' ? (
-                    <div className="flex min-w-0 items-end gap-2">
-                      <span className="pb-1 text-sm font-medium text-text-secondary">
-                        {t.inspectionSelectedChecksLabel}:
+                    <div
+                      data-inspection-normal-footer-summary
+                      className="inline-flex items-center gap-3 rounded-xl border border-border-black bg-panel-bg px-3 py-2 shadow-sm"
+                    >
+                      <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
+                        {t.inspectionSelectedChecksLabel}
                       </span>
-                      <span className="text-3xl font-semibold leading-none tabular-nums text-text-primary">
-                        {totalSelectedCount}
-                      </span>
-                      <span className="pb-1 text-lg font-medium text-text-tertiary">/</span>
-                      <span className="pb-1 text-xl font-semibold tabular-nums text-text-secondary">
-                        {TOTAL_INSPECTION_ITEM_COUNT}
-                      </span>
+                      <div className="flex items-baseline gap-1.5">
+                        <span
+                          data-inspection-normal-footer-primary-count
+                          className="text-2xl font-semibold leading-none tabular-nums text-text-primary"
+                        >
+                          {totalSelectedCount}
+                        </span>
+                        <span className="text-xs font-medium text-text-tertiary">/</span>
+                        <span
+                          data-inspection-normal-footer-total-count
+                          className="text-sm font-semibold tabular-nums text-text-secondary"
+                        >
+                          {TOTAL_INSPECTION_ITEM_COUNT}
+                        </span>
+                      </div>
                     </div>
                   ) : (
                     <div
