@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { MessageCircle, ScanSearch } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
+import { Bot, MessageCircle, ScanSearch } from 'lucide-react';
 import type { InspectionReport, RobotState } from '@/types';
 import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
 import { DraggableWindow } from '@/shared/components';
 import { Button } from '@/shared/components/ui/Button';
 import { Dialog } from '@/shared/components/ui/Dialog';
+import { SegmentedControl } from '@/shared/components/ui/SegmentedControl';
 import { useDraggableWindow } from '@/shared/hooks';
 import { runRobotInspection } from '../services/aiService';
 import { calculateOverallScore, INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
@@ -23,6 +25,7 @@ import {
   InspectionReportView,
 } from './InspectionReport';
 import { InspectionSidebar, type SelectedInspectionItems } from './InspectionSidebar';
+import { InspectionSetupNormalView } from './InspectionSetupNormalView';
 import { InspectionSetupView } from './InspectionSetupView';
 
 interface AIInspectionModalProps {
@@ -48,6 +51,34 @@ interface RetestingItemState {
 
 interface ReportScrollTarget {
   anchorId: string;
+}
+
+interface InspectionRunPointerLayout {
+  deltaX: number;
+  deltaY: number;
+  targetX: number;
+  targetY: number;
+}
+
+type InspectionSetupMode = 'normal' | 'advanced';
+
+const INSPECTION_SETUP_MODE_STORAGE_KEY = 'urdf-studio.ai-inspection.setup-mode';
+const TOTAL_INSPECTION_ITEM_COUNT = INSPECTION_CRITERIA.reduce(
+  (sum, category) => sum + category.items.length,
+  0,
+);
+
+function readStoredInspectionSetupMode(): InspectionSetupMode {
+  if (typeof window === 'undefined') {
+    return 'advanced';
+  }
+
+  try {
+    const storedMode = window.localStorage.getItem(INSPECTION_SETUP_MODE_STORAGE_KEY);
+    return storedMode === 'normal' || storedMode === 'advanced' ? storedMode : 'advanced';
+  } catch {
+    return 'advanced';
+  }
 }
 
 function createInitialSelectedItems(): SelectedInspectionItems {
@@ -132,6 +163,17 @@ export function AIInspectionModal({
   const [selectedItems, setSelectedItems] = useState<SelectedInspectionItems>(() =>
     createInitialSelectedItems(),
   );
+  const [inspectionSetupMode, setInspectionSetupMode] = useState<InspectionSetupMode>(() =>
+    readStoredInspectionSetupMode(),
+  );
+  const [showRunInspectionPointer, setShowRunInspectionPointer] = useState(false);
+  const [runInspectionPointerLayout, setRunInspectionPointerLayout] =
+    useState<InspectionRunPointerLayout>({
+      deltaX: 0,
+      deltaY: 0,
+      targetX: 0,
+      targetY: 0,
+    });
   const [focusedCategoryId, setFocusedCategoryId] = useState<string>(
     INSPECTION_CRITERIA[0]?.id ?? '',
   );
@@ -144,6 +186,9 @@ export function AIInspectionModal({
   const retestRequestIdRef = useRef(0);
   const reportScrollViewportRef = useRef<HTMLDivElement | null>(null);
   const inspectionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const runInspectionPointerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRunInspectionPointerKeyRef = useRef<string | null>(null);
+  const runInspectionButtonRef = useRef<HTMLButtonElement | null>(null);
 
   let totalSelectedCount = 0;
   let selectedCategoryCount = 0;
@@ -168,6 +213,25 @@ export function AIInspectionModal({
     }
   }, []);
 
+  const clearRunInspectionPointerTimer = useCallback(() => {
+    if (runInspectionPointerTimerRef.current !== null) {
+      clearTimeout(runInspectionPointerTimerRef.current);
+      runInspectionPointerTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(INSPECTION_SETUP_MODE_STORAGE_KEY, inspectionSetupMode);
+    } catch {
+      // Ignore storage write failures and keep the in-memory mode.
+    }
+  }, [inspectionSetupMode]);
+
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -176,12 +240,14 @@ export function AIInspectionModal({
       inspectionRunIdRef.current += 1;
       retestRequestIdRef.current += 1;
       clearInspectionTimer();
+      clearRunInspectionPointerTimer();
     };
-  }, [clearInspectionTimer]);
+  }, [clearInspectionTimer, clearRunInspectionPointerTimer]);
 
   const handleClose = useCallback(() => {
     setIsRegenerateConfirmOpen(false);
     setIsSavingReportBeforeRegenerate(false);
+    setShowRunInspectionPointer(false);
     onClose();
   }, [onClose]);
 
@@ -436,9 +502,115 @@ export function AIInspectionModal({
     [inspectionReport, onOpenConversationWithReport, robot],
   );
 
+  const isSetupView = !inspectionProgress && !inspectionReport;
+  const shouldShowRunInspectionPointer =
+    isSetupView && showRunInspectionPointer && totalSelectedCount > 0 && !isMinimized;
+  const runInspectionPointerKey = `${isOpen}:${isSetupView}:${inspectionSetupMode}:${isMinimized}`;
+  const inspectionSetupSummary =
+    `${t.inspectionRunSummary}${lang === 'zh' ? '：' : ': '}` +
+    `${t.inspectionSelectedChecks.replace('{count}', String(totalSelectedCount))} | ` +
+    `${t.inspectionSelectedCategories}: ${selectedCategoryCount} | ` +
+    `${t.inspectionWeightedCoverage}: ${selectedWeightPercentage}% | ` +
+    `${t.inspectionMaxPossibleScore}: ${maxPossibleScore}`;
+
+  useEffect(() => {
+    if (!isOpen || !isSetupView) {
+      lastRunInspectionPointerKeyRef.current = null;
+      setShowRunInspectionPointer(false);
+      clearRunInspectionPointerTimer();
+      return;
+    }
+
+    if (isMinimized || totalSelectedCount === 0) {
+      setShowRunInspectionPointer(false);
+      clearRunInspectionPointerTimer();
+      return;
+    }
+
+    if (lastRunInspectionPointerKeyRef.current === runInspectionPointerKey) {
+      return;
+    }
+
+    lastRunInspectionPointerKeyRef.current = runInspectionPointerKey;
+    setShowRunInspectionPointer(true);
+    clearRunInspectionPointerTimer();
+
+    runInspectionPointerTimerRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setShowRunInspectionPointer(false);
+      }
+    }, 2400);
+
+    return () => {
+      clearRunInspectionPointerTimer();
+    };
+  }, [
+    clearRunInspectionPointerTimer,
+    isMinimized,
+    isOpen,
+    isSetupView,
+    inspectionSetupMode,
+    runInspectionPointerKey,
+    totalSelectedCount,
+  ]);
+
+  useEffect(() => {
+    if (!shouldShowRunInspectionPointer) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const windowContainer = windowState.containerRef.current;
+      const runButton = runInspectionButtonRef.current;
+      const containerRect = windowContainer?.getBoundingClientRect();
+      const buttonRect = runButton?.getBoundingClientRect();
+      const containerWidth = containerRect?.width || size.width;
+      const containerHeight = containerRect?.height || size.height;
+      const originX = containerWidth / 2;
+      const originY = containerHeight / 2;
+      const fallbackTargetX = containerWidth - 116;
+      const fallbackTargetY = containerHeight - 54;
+      const targetX =
+        containerRect && buttonRect && buttonRect.width > 0
+          ? buttonRect.left - containerRect.left + buttonRect.width * 0.5
+          : fallbackTargetX;
+      const targetY =
+        containerRect && buttonRect && buttonRect.height > 0
+          ? buttonRect.top - containerRect.top + buttonRect.height * 0.5
+          : fallbackTargetY;
+
+      setRunInspectionPointerLayout({
+        deltaX: targetX - originX,
+        deltaY: targetY - originY,
+        targetX,
+        targetY,
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [
+    shouldShowRunInspectionPointer,
+    inspectionSetupMode,
+    isOpen,
+    size.height,
+    size.width,
+    windowState.containerRef,
+  ]);
+
   if (!isOpen) {
     return null;
   }
+
+  const runInspectionPointerOverlayStyle = {
+    '--inspection-run-pointer-origin-x': '50%',
+    '--inspection-run-pointer-origin-y': '50%',
+    '--inspection-run-pointer-dx': `${runInspectionPointerLayout.deltaX}px`,
+    '--inspection-run-pointer-dy': `${runInspectionPointerLayout.deltaY}px`,
+    '--inspection-run-pointer-target-x': `${runInspectionPointerLayout.targetX}px`,
+    '--inspection-run-pointer-target-y': `${runInspectionPointerLayout.targetY}px`,
+  } as CSSProperties;
 
   return (
     <>
@@ -448,31 +620,64 @@ export function AIInspectionModal({
         window={windowState}
         onClose={handleClose}
         title={
-          <>
-            <div className="flex items-center gap-2">
-              <div className="rounded-lg border border-border-black bg-panel-bg p-1.5 text-system-blue dark:bg-element-bg dark:text-system-blue">
-                <ScanSearch className="w-4 h-4" />
+          isSetupView ? (
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-system-blue-solid text-white shadow-sm">
+                <Bot className="h-4 w-4" />
               </div>
               <h1 className="text-sm font-semibold text-text-primary">{t.aiInspection}</h1>
             </div>
-
-            {inspectionReport && !isMinimized && (
-              <div className="ml-4 hidden items-center gap-2 rounded-lg border border-border-black bg-panel-bg px-2 py-1 shadow-sm dark:bg-panel-bg md:flex">
-                <div
-                  className={`w-2 h-2 rounded-full ${getScoreBgColor(
-                    inspectionReport.overallScore || 0,
-                    inspectionReport.maxScore || 100,
-                  )}`}
-                />
-                <span className="text-[10px] font-medium tracking-wide text-text-secondary">
-                  {t.overallScore}: {inspectionReport.overallScore?.toFixed(1)}
-                </span>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <div className="rounded-lg border border-border-black bg-panel-bg p-1.5 text-system-blue dark:bg-element-bg dark:text-system-blue">
+                  <ScanSearch className="w-4 h-4" />
+                </div>
+                <h1 className="text-sm font-semibold text-text-primary">{t.aiInspection}</h1>
               </div>
-            )}
-          </>
+
+              {inspectionReport && !isMinimized && (
+                <div className="ml-4 hidden items-center gap-2 rounded-lg border border-border-black bg-panel-bg px-2 py-1 shadow-sm dark:bg-panel-bg md:flex">
+                  <div
+                    className={`w-2 h-2 rounded-full ${getScoreBgColor(
+                      inspectionReport.overallScore || 0,
+                      inspectionReport.maxScore || 100,
+                    )}`}
+                  />
+                  <span className="text-[10px] font-medium tracking-wide text-text-secondary">
+                    {t.overallScore}: {inspectionReport.overallScore?.toFixed(1)}
+                  </span>
+                </div>
+              )}
+            </>
+          )
         }
         className="z-[100] flex flex-col overflow-hidden rounded-2xl border border-border-black bg-panel-bg text-text-primary shadow-xl select-none dark:bg-panel-bg"
-        headerClassName="h-12 border-b border-border-black flex items-center justify-between px-4 bg-element-bg shrink-0"
+        headerClassName="relative h-12 border-b border-border-black flex items-center justify-between px-4 bg-element-bg shrink-0"
+        headerLeftClassName={isSetupView ? 'flex min-w-0 items-center' : 'flex items-center gap-3'}
+        headerRightClassName={
+          isSetupView ? 'flex shrink-0 items-center gap-1 ml-auto' : 'flex items-center gap-1'
+        }
+        headerActions={
+          isSetupView && !isMinimized ? (
+            <div
+              data-inspection-setup-mode-switcher
+              className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
+            >
+              <SegmentedControl<InspectionSetupMode>
+                options={[
+                  { value: 'normal', label: t.inspectionNormalMode },
+                  { value: 'advanced', label: t.inspectionAdvancedMode },
+                ]}
+                value={inspectionSetupMode}
+                onChange={setInspectionSetupMode}
+                stretch={false}
+                className="w-full max-w-[300px]"
+                itemClassName="min-w-[126px]"
+              />
+            </div>
+          ) : undefined
+        }
         interactionClassName="select-none"
         minimizeTitle={t.minimize}
         maximizeTitle={t.maximize}
@@ -487,116 +692,178 @@ export function AIInspectionModal({
       >
         {!isMinimized && (
           <div className="relative flex min-h-0 flex-1 overflow-hidden">
-            <InspectionSidebar
-              lang={lang}
-              t={t}
-              isGeneratingAI={isInspecting}
-              readOnly={inspectionSidebarReadOnly}
-              focusedCategoryId={focusedCategoryId}
-              expandedCategories={expandedCategories}
-              selectedItems={selectedItems}
-              setExpandedCategories={setExpandedCategories}
-              setSelectedItems={setSelectedItems}
-              onFocusCategory={setFocusedCategoryId}
-              onNavigateToCategory={inspectionReport ? handleNavigateToReportCategory : undefined}
-              onNavigateToItem={inspectionReport ? handleNavigateToReportItem : undefined}
-            />
-
-            <div
-              ref={reportScrollViewportRef}
-              className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-app-bg dark:bg-panel-bg"
-            >
-              <div className="flex flex-1 flex-col p-6">
-                {inspectionProgress && inspectionRunContext ? (
-                  <InspectionProgress
-                    progress={inspectionProgress}
-                    elapsedSeconds={inspectionElapsedSeconds}
-                    runContext={inspectionRunContext}
+            {isSetupView ? (
+              inspectionSetupMode === 'advanced' ? (
+                <>
+                  <InspectionSidebar
+                    lang={lang}
                     t={t}
+                    isGeneratingAI={isInspecting}
+                    readOnly={false}
+                    focusedCategoryId={focusedCategoryId}
+                    expandedCategories={expandedCategories}
+                    selectedItems={selectedItems}
+                    setExpandedCategories={setExpandedCategories}
+                    setSelectedItems={setSelectedItems}
+                    onFocusCategory={setFocusedCategoryId}
                   />
-                ) : inspectionReport ? (
-                  <div className="animate-in slide-in-from-bottom-2 fade-in duration-300">
-                    <div className="space-y-6 pb-20">
-                      <InspectionReportView
-                        report={inspectionReport}
+
+                  <div
+                    ref={reportScrollViewportRef}
+                    className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-app-bg dark:bg-panel-bg"
+                  >
+                    <div className="flex flex-1 flex-col p-6">
+                      <InspectionSetupView
                         robot={robot}
                         lang={lang}
                         t={t}
-                        expandedCategories={expandedCategories}
-                        retestingItem={retestingItem}
-                        isGeneratingAI={isInspecting}
-                        onToggleCategory={handleToggleReportCategory}
-                        onRetestItem={handleRetestItem}
-                        onDownloadPDF={handleDownloadPDF}
-                        onSelectItem={onSelectItem}
-                        onAskAboutIssue={handleAskAboutIssue}
+                        selectedItems={selectedItems}
+                        focusedCategoryId={focusedCategoryId}
                       />
-
-                      <div className="flex justify-center">
-                        <button
-                          onClick={() => onOpenConversationWithReport(inspectionReport, robot)}
-                          className="h-8 rounded-lg border border-border-black bg-panel-bg px-4 text-xs font-medium text-system-blue shadow-sm transition-colors hover:bg-element-bg dark:bg-element-bg"
-                        >
-                          <span className="flex items-center gap-2">
-                            <MessageCircle className="w-4 h-4" />
-                            {t.discussReportWithAI}
-                          </span>
-                        </button>
-                      </div>
                     </div>
                   </div>
-                ) : (
-                  <InspectionSetupView
-                    robot={robot}
-                    lang={lang}
-                    t={t}
-                    selectedItems={selectedItems}
-                    focusedCategoryId={focusedCategoryId}
-                  />
-                )}
-              </div>
-            </div>
+                </>
+              ) : (
+                <div
+                  ref={reportScrollViewportRef}
+                  className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-app-bg dark:bg-panel-bg"
+                >
+                  <div className="flex flex-1 flex-col p-6">
+                    <InspectionSetupNormalView
+                      lang={lang}
+                      t={t}
+                      selectedItems={selectedItems}
+                      setSelectedItems={setSelectedItems}
+                      onFocusCategory={setFocusedCategoryId}
+                    />
+                  </div>
+                </div>
+              )
+            ) : (
+              <>
+                <InspectionSidebar
+                  lang={lang}
+                  t={t}
+                  isGeneratingAI={isInspecting}
+                  readOnly={inspectionSidebarReadOnly}
+                  focusedCategoryId={focusedCategoryId}
+                  expandedCategories={expandedCategories}
+                  selectedItems={selectedItems}
+                  setExpandedCategories={setExpandedCategories}
+                  setSelectedItems={setSelectedItems}
+                  onFocusCategory={setFocusedCategoryId}
+                  onNavigateToCategory={
+                    inspectionReport ? handleNavigateToReportCategory : undefined
+                  }
+                  onNavigateToItem={inspectionReport ? handleNavigateToReportItem : undefined}
+                />
+
+                <div
+                  ref={reportScrollViewportRef}
+                  className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-app-bg dark:bg-panel-bg"
+                >
+                  <div className="flex flex-1 flex-col p-6">
+                    {inspectionProgress && inspectionRunContext ? (
+                      <InspectionProgress
+                        progress={inspectionProgress}
+                        elapsedSeconds={inspectionElapsedSeconds}
+                        runContext={inspectionRunContext}
+                        t={t}
+                      />
+                    ) : inspectionReport ? (
+                      <div className="animate-in slide-in-from-bottom-2 fade-in duration-300">
+                        <div className="space-y-6 pb-20">
+                          <InspectionReportView
+                            report={inspectionReport}
+                            robot={robot}
+                            lang={lang}
+                            t={t}
+                            expandedCategories={expandedCategories}
+                            retestingItem={retestingItem}
+                            isGeneratingAI={isInspecting}
+                            onToggleCategory={handleToggleReportCategory}
+                            onRetestItem={handleRetestItem}
+                            onDownloadPDF={handleDownloadPDF}
+                            onSelectItem={onSelectItem}
+                            onAskAboutIssue={handleAskAboutIssue}
+                          />
+
+                          <div className="flex justify-center">
+                            <button
+                              onClick={() => onOpenConversationWithReport(inspectionReport, robot)}
+                              className="h-8 rounded-lg border border-border-black bg-panel-bg px-4 text-xs font-medium text-system-blue shadow-sm transition-colors hover:bg-element-bg dark:bg-element-bg"
+                            >
+                              <span className="flex items-center gap-2">
+                                <MessageCircle className="w-4 h-4" />
+                                {t.discussReportWithAI}
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 
         {!inspectionProgress && (
           <div className="flex min-h-14 items-center justify-between gap-3 border-t border-border-black bg-element-bg px-4 py-2 shrink-0">
-            <div className="flex min-w-0 items-center gap-2">
-              {!inspectionReport && (
-                <div className="min-w-0 rounded-lg border border-border-black bg-panel-bg px-3 py-1.5 shadow-sm">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="rounded-md border border-border-black bg-element-bg px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
-                      {t.inspectionRunSummary}
-                    </span>
-                    <span className="rounded-md bg-element-bg px-2 py-1 text-xs font-medium text-text-secondary">
-                      {t.inspectionSelectedChecks.replace('{count}', String(totalSelectedCount))}
-                    </span>
-                    <span className="rounded-md bg-element-bg px-2 py-1 text-xs font-medium text-text-secondary">
-                      {t.inspectionSelectedCategories}: {selectedCategoryCount}
-                    </span>
-                    <span className="rounded-md bg-element-bg px-2 py-1 text-xs font-medium text-text-secondary">
-                      {t.inspectionWeightedCoverage}: {selectedWeightPercentage}%
-                    </span>
-                    <span className="rounded-md bg-element-bg px-2 py-1 text-xs font-medium text-text-secondary">
-                      {t.inspectionMaxPossibleScore}: {maxPossibleScore}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
+            {inspectionReport ? (
+              <>
+                <div className="flex min-w-0 items-center gap-2" />
 
-            <div className="flex items-center gap-2">
-              {inspectionReport ? (
-                <button
-                  type="button"
-                  onClick={() => setIsRegenerateConfirmOpen(true)}
-                  disabled={isSavingReportBeforeRegenerate}
-                  className="h-8 rounded-lg bg-system-blue-solid px-5 text-xs font-semibold text-white transition-colors hover:bg-system-blue-hover disabled:opacity-30"
-                >
-                  {t.retryLastResponse}
-                </button>
-              ) : (
-                <>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsRegenerateConfirmOpen(true)}
+                    disabled={isSavingReportBeforeRegenerate}
+                    className="h-8 rounded-lg bg-system-blue-solid px-5 text-xs font-semibold text-white transition-colors hover:bg-system-blue-hover disabled:opacity-30"
+                  >
+                    {t.retryLastResponse}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="min-w-0 flex-1">
+                  {inspectionSetupMode === 'normal' ? (
+                    <div
+                      data-inspection-normal-footer-summary
+                      className="inline-flex items-center gap-3 rounded-xl border border-border-black bg-panel-bg px-3 py-2 shadow-sm"
+                    >
+                      <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
+                        {t.inspectionSelectedChecksLabel}
+                      </span>
+                      <div className="flex items-baseline gap-1.5">
+                        <span
+                          data-inspection-normal-footer-primary-count
+                          className="text-2xl font-semibold leading-none tabular-nums text-text-primary"
+                        >
+                          {totalSelectedCount}
+                        </span>
+                        <span className="text-xs font-medium text-text-tertiary">/</span>
+                        <span
+                          data-inspection-normal-footer-total-count
+                          className="text-sm font-semibold tabular-nums text-text-secondary"
+                        >
+                          {TOTAL_INSPECTION_ITEM_COUNT}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      data-inspection-setup-summary
+                      className="inline-flex w-fit max-w-full flex-wrap items-center rounded-lg border border-border-black bg-panel-bg px-3 py-2 text-[11px] leading-5 text-text-secondary shadow-sm"
+                    >
+                      {inspectionSetupSummary}
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative flex items-center gap-2">
                   <button
                     onClick={handleClose}
                     className="h-8 rounded-lg px-4 text-xs font-medium text-text-secondary transition-colors hover:bg-element-hover hover:text-text-primary"
@@ -604,16 +871,22 @@ export function AIInspectionModal({
                     {t.cancel}
                   </button>
                   <button
+                    ref={runInspectionButtonRef}
+                    data-inspection-run-button
                     onClick={handleRunInspection}
                     disabled={isInspecting || totalSelectedCount === 0}
-                    className="h-8 rounded-lg bg-system-blue-solid px-5 text-xs font-semibold text-white transition-colors hover:bg-system-blue-hover disabled:opacity-30"
+                    className={`h-8 rounded-lg bg-system-blue-solid px-5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-system-blue-hover disabled:opacity-30 ${
+                      shouldShowRunInspectionPointer
+                        ? 'inspection-run-cta-pulse inspection-run-cta-breathe-sync'
+                        : ''
+                    }`}
                     title={totalSelectedCount === 0 ? t.inspectionNoChecksSelected : undefined}
                   >
                     {isInspecting ? t.thinking : t.runInspection}
                   </button>
-                </>
-              )}
-            </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -623,6 +896,51 @@ export function AIInspectionModal({
           </div>
         )}
       </DraggableWindow>
+
+      {shouldShowRunInspectionPointer &&
+        windowState.containerRef.current &&
+        createPortal(
+          <div
+            data-inspection-run-pointer-overlay
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 z-40 overflow-hidden"
+            style={runInspectionPointerOverlayStyle}
+          >
+            <span
+              className="inspection-run-pointer-target absolute h-3 w-3 rounded-full border border-system-blue/25 bg-system-blue/10"
+              style={{
+                left: 'var(--inspection-run-pointer-target-x)',
+                top: 'var(--inspection-run-pointer-target-y)',
+                transform: 'translate(-50%, -50%)',
+              }}
+            />
+            <div
+              data-inspection-run-pointer
+              className="absolute"
+              style={{
+                left: 'var(--inspection-run-pointer-origin-x)',
+                top: 'var(--inspection-run-pointer-origin-y)',
+                transform: 'translate(-50%, -50%)',
+              }}
+            >
+              <svg
+                viewBox="0 0 20 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                className="inspection-run-pointer-cta h-8 w-7 text-system-blue"
+              >
+                <path
+                  d="M3 1.75V17.2L7.4 14.02L9.72 19.25L12.65 17.94L10.35 12.75L16.02 12.4L3 1.75Z"
+                  fill="var(--ui-panel-bg)"
+                  stroke="currentColor"
+                  strokeWidth="1.35"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+          </div>,
+          windowState.containerRef.current,
+        )}
 
       <Dialog
         isOpen={isRegenerateConfirmOpen}

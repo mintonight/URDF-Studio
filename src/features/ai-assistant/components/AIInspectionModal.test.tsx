@@ -10,6 +10,7 @@ import {
   __setPdfCanvasFactoryForTests,
   __setPdfGenerationDepsLoaderForTests,
 } from '@/features/file-io/utils/generatePdfFromHtml';
+import { INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
 import { GeometryType, JointType, type RobotState } from '@/types';
 
 function installDom() {
@@ -458,6 +459,856 @@ test('saving the report from regenerate confirmation returns to the inspection r
     } else {
       process.env.API_KEY = previousApiKey;
     }
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup restores the saved normal mode and keeps selection in sync with advanced mode', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+  const totalItemCount = INSPECTION_CRITERIA.reduce(
+    (sum, category) => sum + category.items.length,
+    0,
+  );
+  const firstCategory = INSPECTION_CRITERIA[0];
+  const firstItem = firstCategory?.items[0];
+  assert.ok(firstCategory, 'expected inspection criteria to include at least one category');
+  assert.ok(firstItem, 'expected the first category to include at least one item');
+
+  const getButtonByText = (label: string) =>
+    Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null;
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    assert.equal(
+      container.textContent?.includes(t.inspectionConfigureChecks),
+      true,
+      'expected the saved normal mode to render the simplified setup heading',
+    );
+    assert.equal(
+      container.textContent?.includes(t.inspectionScoringReference),
+      false,
+      'expected the normal mode to hide advanced scoring references',
+    );
+    assert.equal(
+      container.textContent?.includes('切换到专业模式'),
+      true,
+      'expected the normal mode setup description to reference professional mode',
+    );
+    assert.equal(
+      container.textContent?.includes('切换到高级模式'),
+      false,
+      'expected the outdated advanced-mode wording to be removed from the normal mode description',
+    );
+
+    const firstItemButton = getButtonByText(firstItem!.nameZh);
+    assert.ok(firstItemButton, 'expected the normal mode item button to render');
+
+    await act(async () => {
+      firstItemButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    const advancedModeButton = getButtonByText(t.inspectionAdvancedMode);
+    assert.ok(advancedModeButton, 'expected the advanced mode toggle to render');
+
+    await act(async () => {
+      advancedModeButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      container.textContent?.includes(t.inspectionScoringReference),
+      true,
+      'expected the advanced mode to restore scoring references',
+    );
+    assert.equal(
+      container.textContent?.includes(
+        t.inspectionSelectedChecksSummary
+          .replace('{selected}', String(totalItemCount - 1))
+          .replace('{total}', String(totalItemCount)),
+      ),
+      true,
+      'expected advanced mode to reflect the selection changed in normal mode',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup normal mode shows the inline selection summary and page-level bulk actions', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+  const totalItemCount = INSPECTION_CRITERIA.reduce(
+    (sum, category) => sum + category.items.length,
+    0,
+  );
+
+  const getButtonByText = (label: string) =>
+    Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null;
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const summaryChip = container.querySelector<HTMLElement>('[data-inspection-normal-summary]');
+    assert.ok(summaryChip, 'expected the normal mode header to render an inline selection summary');
+    assert.equal(
+      summaryChip.textContent?.includes(
+        t.inspectionSelectedChecksSummary
+          .replace('{selected}', String(totalItemCount))
+          .replace('{total}', String(totalItemCount)),
+      ),
+      true,
+      'expected the inline summary to reflect the initial all-selected state',
+    );
+
+    assert.ok(getButtonByText('全选全部'), 'expected a page-level select-all action to render');
+    assert.ok(getButtonByText('清空全部'), 'expected a page-level clear-all action to render');
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup normal mode bulk actions keep selection counts and footer state in sync', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+  const totalItemCount = INSPECTION_CRITERIA.reduce(
+    (sum, category) => sum + category.items.length,
+    0,
+  );
+
+  const getButtonByText = (label: string) =>
+    Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null;
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const summaryChip = () =>
+      container.querySelector<HTMLElement>('[data-inspection-normal-summary]');
+    const runButton = getButtonByText(t.runInspection) as HTMLButtonElement | null;
+    assert.ok(runButton, 'expected the normal mode run button to render');
+    assert.equal(runButton.disabled, false, 'expected run inspection to start enabled');
+
+    const clearAllButton = getButtonByText('清空全部');
+    assert.ok(clearAllButton, 'expected the normal mode clear-all action to render');
+
+    await act(async () => {
+      clearAllButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      summaryChip()?.textContent?.includes(
+        t.inspectionSelectedChecksSummary
+          .replace('{selected}', '0')
+          .replace('{total}', String(totalItemCount)),
+      ),
+      true,
+      'expected clear-all to reset the inline summary count',
+    );
+    assert.equal(runButton.disabled, true, 'expected clear-all to disable running the inspection');
+
+    const selectAllButton = getButtonByText('全选全部');
+    assert.ok(selectAllButton, 'expected the normal mode select-all action to render');
+
+    await act(async () => {
+      selectAllButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      summaryChip()?.textContent?.includes(
+        t.inspectionSelectedChecksSummary
+          .replace('{selected}', String(totalItemCount))
+          .replace('{total}', String(totalItemCount)),
+      ),
+      true,
+      'expected select-all to restore the inline summary count',
+    );
+    assert.equal(
+      runButton.disabled,
+      false,
+      'expected select-all to re-enable running the inspection',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup normal mode uses a compact visual scale aligned with advanced mode', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const title = container.querySelector<HTMLElement>('[data-inspection-normal-title]');
+    assert.ok(title, 'expected the normal mode title to render a test hook');
+    assert.equal(
+      title.className.includes('text-lg'),
+      true,
+      'expected the normal mode title to use a compact heading scale',
+    );
+
+    const summaryChip = container.querySelector<HTMLElement>('[data-inspection-normal-summary]');
+    assert.ok(summaryChip, 'expected the normal mode summary chip to render');
+    assert.equal(
+      summaryChip.className.includes('text-[11px]'),
+      true,
+      'expected the normal mode summary chip to use compact body sizing',
+    );
+
+    const actionButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[data-inspection-normal-action]'),
+    );
+    assert.equal(actionButtons.length, 2, 'expected both normal mode bulk actions to render');
+    assert.equal(
+      actionButtons.every((button) => button.className.includes('h-8')),
+      true,
+      'expected the normal mode bulk actions to match the denser advanced-mode button height',
+    );
+
+    const firstCategoryCard = container.querySelector<HTMLElement>(
+      '[data-inspection-normal-category]',
+    );
+    assert.ok(firstCategoryCard, 'expected a normal mode category card to render');
+    assert.equal(
+      firstCategoryCard.className.includes('rounded-xl'),
+      true,
+      'expected the normal mode category card to use the tighter card radius',
+    );
+
+    const categoryIcon = firstCategoryCard.querySelector<HTMLElement>(
+      '[data-inspection-normal-category-icon]',
+    );
+    assert.ok(categoryIcon, 'expected the category card icon wrapper to render');
+    assert.equal(
+      categoryIcon.className.includes('h-9 w-9'),
+      true,
+      'expected the category icon wrapper to use the compact category scale',
+    );
+
+    const firstItemRow = firstCategoryCard.querySelector<HTMLElement>(
+      '[data-inspection-normal-item]',
+    );
+    assert.ok(firstItemRow, 'expected a normal mode item row to render');
+    assert.equal(
+      firstItemRow.className.includes('rounded-lg'),
+      true,
+      'expected the normal mode item rows to use a tighter item shape',
+    );
+
+    await act(async () => {
+      firstItemRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      firstItemRow.className.includes('border-border-black'),
+      true,
+      'expected unchecked normal mode item rows to keep a visible border',
+    );
+    assert.equal(
+      firstItemRow.className.includes('hover:border-system-blue/30'),
+      true,
+      'expected unchecked normal mode item rows to highlight the border on hover',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup normal mode visually differentiates select-all and clear-all actions', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const selectAllButton = container.querySelector<HTMLButtonElement>(
+      '[data-inspection-normal-action="select-all"]',
+    );
+    const clearAllButton = container.querySelector<HTMLButtonElement>(
+      '[data-inspection-normal-action="clear-all"]',
+    );
+
+    assert.ok(selectAllButton, 'expected the select-all action to render a dedicated test hook');
+    assert.ok(clearAllButton, 'expected the clear-all action to render a dedicated test hook');
+    assert.equal(
+      selectAllButton.className.includes('border-system-blue/25') &&
+        selectAllButton.className.includes('bg-system-blue/10') &&
+        selectAllButton.className.includes('text-system-blue'),
+      true,
+      'expected select-all to use the emphasized positive action styling',
+    );
+    assert.equal(
+      clearAllButton.className.includes('border-danger-border') &&
+        clearAllButton.className.includes('bg-danger-soft') &&
+        clearAllButton.className.includes('text-danger'),
+      true,
+      'expected clear-all to use the reset action styling',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup normal mode footer uses a compact aligned count treatment', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const footerSummary = container.querySelector<HTMLElement>(
+      '[data-inspection-normal-footer-summary]',
+    );
+    assert.ok(footerSummary, 'expected the normal mode footer to render a dedicated count summary');
+    assert.equal(
+      footerSummary.className.includes('inline-flex items-center'),
+      true,
+      'expected the footer summary to use an aligned inline-flex layout',
+    );
+
+    const primaryCount = container.querySelector<HTMLElement>(
+      '[data-inspection-normal-footer-primary-count]',
+    );
+    const totalCount = container.querySelector<HTMLElement>(
+      '[data-inspection-normal-footer-total-count]',
+    );
+    assert.ok(primaryCount, 'expected the footer summary to render the selected-count token');
+    assert.ok(totalCount, 'expected the footer summary to render the total-count token');
+    assert.equal(
+      primaryCount.className.includes('text-2xl'),
+      true,
+      'expected the selected count to use the rebalanced primary size',
+    );
+    assert.equal(
+      totalCount.className.includes('text-sm'),
+      true,
+      'expected the total count to use the smaller supporting size',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup mode switcher uses the professional mode label', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+
+  const getButtonByText = (label: string) =>
+    Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null;
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    assert.ok(
+      getButtonByText(t.inspectionAdvancedMode),
+      'expected the setup mode switcher to render the renamed professional mode label',
+    );
+    assert.equal(
+      getButtonByText('高级模式'),
+      null,
+      'expected the old advanced mode label to stop rendering in the setup switcher',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup highlights the run inspection action from the window center with synced breathing', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+
+  const getButtonByText = (label: string) =>
+    Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null;
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const runButton = container.querySelector<HTMLButtonElement>('[data-inspection-run-button]');
+    assert.ok(runButton, 'expected the setup footer to expose the run inspection button hook');
+    assert.equal(
+      runButton.className.includes('inspection-run-cta-pulse'),
+      true,
+      'expected entering normal mode to pulse the run inspection button',
+    );
+
+    const pointerOverlay = container.querySelector<HTMLElement>(
+      '[data-inspection-run-pointer-overlay]',
+    );
+    assert.ok(pointerOverlay, 'expected the pointer cue to render in a full-window overlay');
+    assert.equal(
+      pointerOverlay.style.getPropertyValue('--inspection-run-pointer-origin-x'),
+      '50%',
+      'expected the pointer cue to originate from the horizontal center of the modal window',
+    );
+    assert.equal(
+      pointerOverlay.style.getPropertyValue('--inspection-run-pointer-origin-y'),
+      '50%',
+      'expected the pointer cue to originate from the vertical center of the modal window',
+    );
+
+    const firstPointer = container.querySelector<HTMLElement>('[data-inspection-run-pointer]');
+    assert.ok(
+      firstPointer,
+      'expected entering setup mode to render a temporary pointer cue toward the run inspection button',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-run-hint]'),
+      null,
+      'expected the previous text hint capsule to be removed',
+    );
+    assert.equal(
+      Boolean(firstPointer.querySelector('.inspection-run-pointer-cta')),
+      true,
+      'expected the pointer cue to use the dedicated pointer animation styling',
+    );
+    assert.equal(
+      runButton.className.includes('inspection-run-cta-breathe-sync'),
+      true,
+      'expected the run inspection button to coordinate a breathing animation with the pointer cue',
+    );
+
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 2600);
+      });
+    });
+
+    assert.equal(
+      container.querySelector('[data-inspection-run-pointer]'),
+      null,
+      'expected the pointer cue to dismiss itself after the short guidance window',
+    );
+    assert.equal(
+      runButton.className.includes('inspection-run-cta-breathe-sync'),
+      false,
+      'expected the run inspection button to leave the synced breathing state after the cue ends',
+    );
+
+    const professionalModeButton = getButtonByText(t.inspectionAdvancedMode);
+    assert.ok(
+      professionalModeButton,
+      'expected the setup mode switcher to render the professional mode',
+    );
+
+    await act(async () => {
+      professionalModeButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    const secondPointer = container.querySelector<HTMLElement>('[data-inspection-run-pointer]');
+    assert.ok(
+      secondPointer,
+      'expected entering professional mode to trigger the pointer cue again',
+    );
+    assert.equal(
+      runButton.className.includes('inspection-run-cta-pulse'),
+      true,
+      'expected entering professional mode to re-apply the run inspection pulse',
+    );
+    assert.equal(
+      runButton.className.includes('inspection-run-cta-breathe-sync'),
+      true,
+      'expected entering professional mode to re-apply the synced breathing state',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup persists the last selected mode across remounts', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.removeItem('urdf-studio.ai-inspection.setup-mode');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+
+  const getButtonByText = (label: string) =>
+    Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null;
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const advancedModeButton = getButtonByText(t.inspectionAdvancedMode);
+    assert.ok(advancedModeButton, 'expected the advanced mode toggle to render');
+
+    await act(async () => {
+      advancedModeButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      dom.window.localStorage.getItem('urdf-studio.ai-inspection.setup-mode'),
+      'advanced',
+      'expected mode changes to persist into local storage',
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    const reopenedRoot = createRoot(container);
+
+    try {
+      await act(async () => {
+        reopenedRoot.render(
+          <AIInspectionModal
+            isOpen
+            onClose={() => {}}
+            robot={createRobotFixture()}
+            lang="zh"
+            onSelectItem={() => {}}
+            onOpenConversationWithReport={() => {}}
+          />,
+        );
+      });
+
+      assert.equal(
+        container.textContent?.includes(t.inspectionScoringReference),
+        true,
+        'expected the remounted setup to restore the last selected advanced mode',
+      );
+      assert.equal(
+        container.textContent?.includes(t.inspectionConfigureChecks),
+        false,
+        'expected the remounted setup to skip the normal-mode layout when advanced was saved',
+      );
+    } finally {
+      await act(async () => {
+        reopenedRoot.unmount();
+      });
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('inspection setup keeps the mode switcher visually centered in the header', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const modeSwitcher = container.querySelector<HTMLElement>(
+      '[data-inspection-setup-mode-switcher]',
+    );
+    assert.ok(
+      modeSwitcher,
+      'expected the setup header to render a dedicated mode switcher wrapper',
+    );
+    assert.equal(
+      modeSwitcher.className.includes('absolute left-1/2 top-1/2'),
+      true,
+      'expected the setup mode switcher to anchor from the visual center of the header',
+    );
+    assert.equal(
+      modeSwitcher.className.includes('-translate-x-1/2 -translate-y-1/2'),
+      true,
+      'expected the setup mode switcher to translate back from the anchor point for true centering',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup header uses the same maximize and restore icons as AI conversation', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const maximizeButton = container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t.maximize}"]`,
+    );
+    assert.ok(maximizeButton, 'expected the setup header maximize button to render');
+    assert.ok(
+      maximizeButton.querySelector('svg.lucide-maximize-2'),
+      'expected the setup header maximize button to use the shared maximize icon',
+    );
+
+    await act(async () => {
+      maximizeButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    const restoreButton = container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t.restore}"]`,
+    );
+    assert.ok(restoreButton, 'expected the setup header restore button to render after maximizing');
+    assert.ok(
+      restoreButton.querySelector('svg.lucide-minimize-2'),
+      'expected the setup header restore button to use the shared restore icon',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('advanced setup summary chip uses content-based width instead of stretching across the footer', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'advanced');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const summaryChip = container.querySelector<HTMLElement>('[data-inspection-setup-summary]');
+    assert.ok(summaryChip, 'expected the advanced setup footer to render a summary chip wrapper');
+    assert.equal(
+      summaryChip.className.includes('inline-flex'),
+      true,
+      'expected the advanced setup summary chip to size to its content',
+    );
+    assert.equal(
+      summaryChip.className.includes('w-fit'),
+      true,
+      'expected the advanced setup summary chip to stop expanding toward the footer actions',
+    );
+  } finally {
     await act(async () => {
       root.unmount();
     });
