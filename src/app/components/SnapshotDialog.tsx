@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Camera, X } from 'lucide-react';
 import {
   Button,
@@ -32,6 +32,43 @@ const PANEL_SECTION_CLASS_NAME =
 const FIELD_ROW_CLASS_NAME = 'grid grid-cols-[78px_minmax(0,1fr)] items-center gap-2';
 const FIELD_LABEL_CLASS_NAME =
   'truncate text-[10px] font-medium tracking-[0.01em] text-text-secondary';
+const SNAPSHOT_DIALOG_DEFAULT_SIZE = {
+  width: 560,
+  height: 690,
+} as const;
+const SNAPSHOT_DIALOG_MIN_SIZE = {
+  width: 500,
+  height: 420,
+} as const;
+const SNAPSHOT_DIALOG_HEADER_HEIGHT = 40;
+const SNAPSHOT_DIALOG_VIEWPORT_MARGIN = 24;
+const SNAPSHOT_DIALOG_VIEWPORT_MIN_HEIGHT = 320;
+
+const clamp = (value: number, min: number, max: number) => {
+  if (max < min) {
+    return min;
+  }
+  return Math.max(min, Math.min(max, value));
+};
+
+const resolveSnapshotDialogHeight = ({
+  scrollContentHeight,
+  footerHeight,
+  viewportHeight,
+}: {
+  scrollContentHeight: number;
+  footerHeight: number;
+  viewportHeight: number;
+}) => {
+  const viewportLimit = Math.max(
+    SNAPSHOT_DIALOG_VIEWPORT_MIN_HEIGHT,
+    viewportHeight - SNAPSHOT_DIALOG_VIEWPORT_MARGIN,
+  );
+  const minHeight = Math.min(SNAPSHOT_DIALOG_MIN_SIZE.height, viewportLimit);
+  const naturalHeight = SNAPSHOT_DIALOG_HEADER_HEIGHT + footerHeight + scrollContentHeight;
+  return clamp(naturalHeight, minHeight, viewportLimit);
+};
+
 interface SnapshotDialogProps {
   isOpen: boolean;
   isCapturing: boolean;
@@ -95,11 +132,13 @@ export function SnapshotDialog({
     imageUrl: null,
     aspectRatio: previewSession?.viewportAspectRatio ?? 16 / 9,
   });
+  const scrollBodyRef = useRef<HTMLDivElement | null>(null);
+  const footerRef = useRef<HTMLDivElement | null>(null);
 
   const windowState = useDraggableWindow({
     isOpen,
-    defaultSize: { width: 560, height: 680 },
-    minSize: { width: 500, height: 420 },
+    defaultSize: SNAPSHOT_DIALOG_DEFAULT_SIZE,
+    minSize: SNAPSHOT_DIALOG_MIN_SIZE,
     centerOnMount: true,
     enableMinimize: false,
     enableMaximize: false,
@@ -112,7 +151,7 @@ export function SnapshotDialog({
     },
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isOpen) {
       return;
     }
@@ -133,6 +172,40 @@ export function SnapshotDialog({
       aspectRatio: previewSession?.viewportAspectRatio ?? 16 / 9,
     });
   }, [isOpen, previewSession?.viewportAspectRatio]);
+
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const scrollBody = scrollBodyRef.current;
+    const footer = footerRef.current;
+
+    if (!scrollBody || !footer) {
+      return;
+    }
+
+    const nextHeight = resolveSnapshotDialogHeight({
+      scrollContentHeight: scrollBody.scrollHeight,
+      footerHeight: footer.offsetHeight,
+      viewportHeight: window.innerHeight,
+    });
+
+    windowState.setSize((currentSize) =>
+      currentSize.height === nextHeight ? currentSize : { ...currentSize, height: nextHeight },
+    );
+  }, [
+    isOpen,
+    lang,
+    internalPreviewState.aspectRatio,
+    internalPreviewState.imageUrl,
+    internalPreviewState.status,
+    previewState?.imageUrl,
+    previewState?.status,
+    previewSession?.viewportAspectRatio,
+    previewState?.aspectRatio,
+    windowState.setSize,
+  ]);
 
   useEffect(() => {
     if (imageFormat === 'jpeg' && backgroundStyle === 'transparent') {
@@ -349,7 +422,7 @@ export function SnapshotDialog({
       closeTitle={t.close}
     >
       <div className="flex h-[calc(100%-40px)] min-h-0 flex-col overflow-hidden bg-panel-bg">
-        <div className="flex-1 min-h-0 space-y-1.5 overflow-y-auto px-2.5 py-2">
+        <div ref={scrollBodyRef} className="flex-1 min-h-0 space-y-1.5 overflow-y-auto px-2.5 py-2">
           <SnapshotSection title={compactLabels.output}>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
               <SnapshotField label={compactLabels.resolution}>
@@ -533,7 +606,10 @@ export function SnapshotDialog({
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-border-black bg-element-bg/95 px-3 py-2.5 backdrop-blur-sm">
+        <div
+          ref={footerRef}
+          className="shrink-0 border-t border-border-black bg-element-bg/95 px-3 py-2.5 backdrop-blur-sm"
+        >
           <div className="flex items-center justify-end gap-1.5">
             <Button
               type="button"

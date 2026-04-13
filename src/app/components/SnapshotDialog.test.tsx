@@ -171,7 +171,7 @@ test('SnapshotDialog keeps the live preview inside the scrollable content area',
   }
 });
 
-test('SnapshotDialog opens with a taller default height so the full panel fits without dragging', async () => {
+test('SnapshotDialog keeps the preview in natural document flow instead of stretching it with filler spacing', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -196,14 +196,205 @@ test('SnapshotDialog opens with a taller default height so the full panel fits w
       );
     });
 
+    const scrollableContent = container.querySelector('.overflow-y-auto') as HTMLElement | null;
+    assert.ok(scrollableContent, 'snapshot dialog should render the scrollable body');
+    assert.doesNotMatch(
+      scrollableContent.className,
+      /\bflex-col\b/,
+      'scrollable body should rely on the dialog size instead of stretching content with a flex column',
+    );
+    assert.doesNotMatch(
+      scrollableContent.lastElementChild?.className ?? '',
+      /\bmt-auto\b/,
+      'preview card should keep its natural position directly after the scene section',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('SnapshotDialog auto-fits its default height to the rendered content when the viewport allows it', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const originalInnerHeightDescriptor = Object.getOwnPropertyDescriptor(dom.window, 'innerHeight');
+  const originalScrollHeightDescriptor = Object.getOwnPropertyDescriptor(
+    dom.window.HTMLElement.prototype,
+    'scrollHeight',
+  );
+  const originalOffsetHeightDescriptor = Object.getOwnPropertyDescriptor(
+    dom.window.HTMLElement.prototype,
+    'offsetHeight',
+  );
+
+  Object.defineProperty(dom.window, 'innerHeight', {
+    value: 900,
+    configurable: true,
+  });
+  Object.defineProperty(dom.window.HTMLElement.prototype, 'scrollHeight', {
+    configurable: true,
+    get() {
+      return this.className.includes('overflow-y-auto') ? 596 : 0;
+    },
+  });
+  Object.defineProperty(dom.window.HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get() {
+      if (this.className.includes('h-10')) {
+        return 40;
+      }
+      if (this.className.includes('border-t')) {
+        return 46;
+      }
+      return 0;
+    },
+  });
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: false,
+          lang: 'en',
+          onClose: () => {},
+          onCapture: () => {},
+          previewState: {
+            status: 'ready',
+            imageUrl: 'blob:preview',
+            aspectRatio: 16 / 9,
+          },
+        }),
+      );
+    });
+
     const windowRoot = container.firstElementChild as HTMLElement | null;
     assert.ok(windowRoot, 'snapshot dialog should render a draggable window root');
     assert.equal(
       windowRoot.style.height,
-      '680px',
-      'snapshot dialog should default to the taller desktop height',
+      '682px',
+      'snapshot dialog should shrink to the content-fitted desktop height instead of keeping a fixed tall shell',
     );
   } finally {
+    if (originalInnerHeightDescriptor) {
+      Object.defineProperty(dom.window, 'innerHeight', originalInnerHeightDescriptor);
+    }
+    if (originalScrollHeightDescriptor) {
+      Object.defineProperty(
+        dom.window.HTMLElement.prototype,
+        'scrollHeight',
+        originalScrollHeightDescriptor,
+      );
+    } else {
+      delete (dom.window.HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
+    }
+    if (originalOffsetHeightDescriptor) {
+      Object.defineProperty(
+        dom.window.HTMLElement.prototype,
+        'offsetHeight',
+        originalOffsetHeightDescriptor,
+      );
+    } else {
+      delete (dom.window.HTMLElement.prototype as { offsetHeight?: number }).offsetHeight;
+    }
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('SnapshotDialog caps its auto-fitted height to the available viewport when the content is taller', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const originalInnerHeightDescriptor = Object.getOwnPropertyDescriptor(dom.window, 'innerHeight');
+  const originalScrollHeightDescriptor = Object.getOwnPropertyDescriptor(
+    dom.window.HTMLElement.prototype,
+    'scrollHeight',
+  );
+  const originalOffsetHeightDescriptor = Object.getOwnPropertyDescriptor(
+    dom.window.HTMLElement.prototype,
+    'offsetHeight',
+  );
+
+  Object.defineProperty(dom.window, 'innerHeight', {
+    value: 680,
+    configurable: true,
+  });
+  Object.defineProperty(dom.window.HTMLElement.prototype, 'scrollHeight', {
+    configurable: true,
+    get() {
+      return this.className.includes('overflow-y-auto') ? 700 : 0;
+    },
+  });
+  Object.defineProperty(dom.window.HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get() {
+      if (this.className.includes('h-10')) {
+        return 40;
+      }
+      if (this.className.includes('border-t')) {
+        return 46;
+      }
+      return 0;
+    },
+  });
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: false,
+          lang: 'en',
+          onClose: () => {},
+          onCapture: () => {},
+          previewState: {
+            status: 'ready',
+            imageUrl: 'blob:preview',
+            aspectRatio: 16 / 9,
+          },
+        }),
+      );
+    });
+
+    const windowRoot = container.firstElementChild as HTMLElement | null;
+    assert.ok(windowRoot, 'snapshot dialog should render a draggable window root');
+    assert.equal(
+      windowRoot.style.height,
+      '656px',
+      'snapshot dialog should clamp the fitted height to the current viewport limit',
+    );
+  } finally {
+    if (originalInnerHeightDescriptor) {
+      Object.defineProperty(dom.window, 'innerHeight', originalInnerHeightDescriptor);
+    }
+    if (originalScrollHeightDescriptor) {
+      Object.defineProperty(
+        dom.window.HTMLElement.prototype,
+        'scrollHeight',
+        originalScrollHeightDescriptor,
+      );
+    } else {
+      delete (dom.window.HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
+    }
+    if (originalOffsetHeightDescriptor) {
+      Object.defineProperty(
+        dom.window.HTMLElement.prototype,
+        'offsetHeight',
+        originalOffsetHeightDescriptor,
+      );
+    } else {
+      delete (dom.window.HTMLElement.prototype as { offsetHeight?: number }).offsetHeight;
+    }
     await act(async () => {
       root.unmount();
     });
