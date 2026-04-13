@@ -38,6 +38,40 @@ test('captureWorkspaceCameraSnapshot reads the current camera and orbit target',
   assert.equal(snapshot?.fov, 52);
 });
 
+test('captureWorkspaceCameraSnapshot reads the live controls target from the current R3F store state', () => {
+  const camera = new THREE.PerspectiveCamera(52, 2, 0.1, 500);
+  camera.position.set(4, 5, 6);
+  camera.up.set(0, 1, 0);
+  camera.lookAt(new THREE.Vector3(1, 2, 3));
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+
+  const liveControls = {
+    target: new THREE.Vector3(1, 2, 3),
+  };
+  const staleCreatedState = {
+    camera,
+    controls: null,
+    size: {
+      width: 1200,
+      height: 600,
+    },
+    get: () => ({
+      camera,
+      controls: liveControls,
+      size: {
+        width: 1200,
+        height: 600,
+      },
+    }),
+  };
+
+  const snapshot = captureWorkspaceCameraSnapshot(staleCreatedState as any);
+
+  assert.ok(snapshot, 'expected a workspace camera snapshot');
+  assert.deepEqual(snapshot?.target, { x: 1, y: 2, z: 3 });
+});
+
 test('applyWorkspaceCameraSnapshot restores camera transform and orbit target', () => {
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
   let controlsUpdated = false;

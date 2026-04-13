@@ -41,28 +41,32 @@ function isPerspectiveCamera(camera: THREE.Camera): camera is THREE.PerspectiveC
 }
 
 export function captureWorkspaceCameraSnapshot(
-  state: Pick<RootState, 'camera' | 'controls' | 'size'>,
+  state: Pick<RootState, 'camera' | 'controls' | 'size' | 'get'>,
 ): WorkspaceCameraSnapshot | null {
-  if (!isPerspectiveCamera(state.camera)) {
+  const resolvedState = typeof state.get === 'function' ? state.get() : state;
+
+  if (!isPerspectiveCamera(resolvedState.camera)) {
     return null;
   }
 
-  const controls = state.controls as unknown as OrbitControlsLike | undefined;
+  const controls = resolvedState.controls as unknown as OrbitControlsLike | undefined;
   const target = controls?.target ?? new THREE.Vector3(0, 0, 0);
   const aspectRatio =
-    state.size.width > 0 && state.size.height > 0 ? state.size.width / state.size.height : 1;
+    resolvedState.size.width > 0 && resolvedState.size.height > 0
+      ? resolvedState.size.width / resolvedState.size.height
+      : 1;
 
   return {
     kind: 'perspective',
-    position: vectorToObject(state.camera.position),
-    quaternion: quaternionToObject(state.camera.quaternion),
-    up: vectorToObject(state.camera.up),
-    zoom: state.camera.zoom,
+    position: vectorToObject(resolvedState.camera.position),
+    quaternion: quaternionToObject(resolvedState.camera.quaternion),
+    up: vectorToObject(resolvedState.camera.up),
+    zoom: resolvedState.camera.zoom,
     target: vectorToObject(target),
     aspectRatio,
-    fov: state.camera.fov,
-    near: state.camera.near,
-    far: state.camera.far,
+    fov: resolvedState.camera.fov,
+    near: resolvedState.camera.near,
+    far: resolvedState.camera.far,
   };
 }
 
