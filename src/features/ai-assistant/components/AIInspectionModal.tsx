@@ -167,6 +167,7 @@ export function AIInspectionModal({
     readStoredInspectionSetupMode(),
   );
   const [showRunInspectionPointer, setShowRunInspectionPointer] = useState(false);
+  const [runInspectionPointerReplayToken, setRunInspectionPointerReplayToken] = useState(0);
   const [runInspectionPointerLayout, setRunInspectionPointerLayout] =
     useState<InspectionRunPointerLayout>({
       deltaX: 0,
@@ -488,6 +489,35 @@ export function AIInspectionModal({
     setIsRegenerateConfirmOpen(false);
   };
 
+  const handleReturnToSetupFromRegenerate = useCallback(() => {
+    clearInspectionTimer();
+    setIsRegenerateConfirmOpen(false);
+    setIsSavingReportBeforeRegenerate(false);
+    setInspectionProgress(null);
+    setInspectionRunContext(null);
+    setInspectionElapsedSeconds(0);
+    setInspectionReport(null);
+    setPendingReportScrollTarget(null);
+    setRetestingItem(null);
+    setIsInspecting(false);
+  }, [clearInspectionTimer]);
+
+  const handleToggleSelectedItem = useCallback((categoryId: string, itemId: string) => {
+    setSelectedItems((prev) => {
+      const next = { ...prev };
+      const currentItems = new Set(next[categoryId] ?? []);
+
+      if (currentItems.has(itemId)) {
+        currentItems.delete(itemId);
+      } else {
+        currentItems.add(itemId);
+      }
+
+      next[categoryId] = currentItems;
+      return next;
+    });
+  }, []);
+
   const handleAskAboutIssue = useCallback(
     (issue: InspectionReport['issues'][number]) => {
       if (!inspectionReport) {
@@ -533,6 +563,7 @@ export function AIInspectionModal({
 
     lastRunInspectionPointerKeyRef.current = runInspectionPointerKey;
     setShowRunInspectionPointer(true);
+    setRunInspectionPointerReplayToken((current) => current + 1);
     clearRunInspectionPointerTimer();
 
     runInspectionPointerTimerRef.current = setTimeout(() => {
@@ -719,6 +750,7 @@ export function AIInspectionModal({
                         t={t}
                         selectedItems={selectedItems}
                         focusedCategoryId={focusedCategoryId}
+                        onToggleItem={handleToggleSelectedItem}
                       />
                     </div>
                   </div>
@@ -871,6 +903,11 @@ export function AIInspectionModal({
                     {t.cancel}
                   </button>
                   <button
+                    key={
+                      shouldShowRunInspectionPointer
+                        ? `run-inspection-cue-${runInspectionPointerReplayToken}`
+                        : 'run-inspection'
+                    }
                     ref={runInspectionButtonRef}
                     data-inspection-run-button
                     onClick={handleRunInspection}
@@ -901,6 +938,7 @@ export function AIInspectionModal({
         windowState.containerRef.current &&
         createPortal(
           <div
+            key={`run-inspection-pointer-${runInspectionPointerReplayToken}`}
             data-inspection-run-pointer-overlay
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 z-40 overflow-hidden"
@@ -975,7 +1013,7 @@ export function AIInspectionModal({
             <Button
               type="button"
               onClick={() => {
-                void handleRunInspection();
+                handleReturnToSetupFromRegenerate();
               }}
               disabled={isSavingReportBeforeRegenerate}
             >

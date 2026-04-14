@@ -368,7 +368,7 @@ export const en: TranslationKeys = {
   inspectionNormalizedModel: 'Normalized Model',
   inspectionRegenerateConfirmTitle: 'Save the current report before regenerating?',
   inspectionRegenerateConfirmMessage:
-    'Regenerating will replace the current inspection result. Save this report first if you need to keep it; after saving you will return to the current result view, or you can regenerate now and overwrite it.',
+    'Regenerating will close the current report and return you to the Normal/Professional mode setup page. Save this report first if you need to keep it; after saving you will stay on the current result view, or you can regenerate now and go back to setup before running again.',
 
   // Additional UI
   collapseSidebar: 'Collapse sidebar',

@@ -347,7 +347,7 @@ export const zh: TranslationKeys = {
   inspectionNormalizedModel: '当前模型',
   inspectionRegenerateConfirmTitle: '重新生成前先保存当前报告？',
   inspectionRegenerateConfirmMessage:
-    '重新生成会覆盖当前审阅结果。若需要保留这份报告，请先保存；你也可以直接选择重新生成覆盖当前结果。',
+    '重新生成会关闭当前报告并返回常规模式/专业模式选择页。若需要保留这份报告，请先保存；保存后会留在当前结果页，你也可以直接选择重新生成并返回设置页重新运行审阅。',
 
   // Additional UI
   collapseSidebar: '收起侧栏',

@@ -466,6 +466,138 @@ test('saving the report from regenerate confirmation returns to the inspection r
   }
 });
 
+test('confirming regenerate returns to setup and preserves the prior mode and selected checks', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+  const previousApiKey = process.env.API_KEY;
+  const totalItemCount = INSPECTION_CRITERIA.reduce(
+    (sum, category) => sum + category.items.length,
+    0,
+  );
+  const firstCategory = INSPECTION_CRITERIA[0];
+  const firstItem = firstCategory?.items[0];
+  assert.ok(firstCategory, 'expected inspection criteria to include at least one category');
+  assert.ok(firstItem, 'expected the first category to include at least one item');
+
+  const getButtonByText = (label: string) =>
+    Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null;
+
+  try {
+    delete process.env.API_KEY;
+
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const firstItemButton = getButtonByText(firstItem!.nameZh);
+    assert.ok(firstItemButton, 'expected the normal mode item button to render');
+
+    await act(async () => {
+      firstItemButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    const runButton = getButtonByText(t.runInspection);
+    assert.ok(runButton, 'expected the run inspection button to render');
+
+    await act(async () => {
+      runButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    });
+
+    const regenerateButton = getButtonByText(t.retryLastResponse);
+    assert.ok(regenerateButton, 'expected the regenerate button to render in the report footer');
+
+    await act(async () => {
+      regenerateButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    const confirmDialog = dom.window.document.querySelector('[role="dialog"][aria-modal="true"]');
+    assert.ok(confirmDialog, 'expected regenerate confirmation dialog to open');
+
+    const confirmRegenerateButton = Array.from(confirmDialog.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === t.retryLastResponse,
+    );
+    assert.ok(
+      confirmRegenerateButton,
+      'expected confirmation dialog to render the regenerate action',
+    );
+
+    await act(async () => {
+      confirmRegenerateButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    });
+
+    assert.equal(
+      dom.window.document.querySelector('[role="dialog"][aria-modal="true"]'),
+      null,
+      'expected the confirmation dialog to close after confirming regenerate',
+    );
+    assert.equal(
+      getButtonByText(t.discussReportWithAI),
+      null,
+      'expected the report view to close after confirming regenerate',
+    );
+    assert.equal(
+      container.textContent?.includes(t.inspectionConfigureChecks),
+      true,
+      'expected confirming regenerate to return to the setup view',
+    );
+    assert.equal(
+      container.textContent?.includes(t.inspectionScoringReference),
+      false,
+      'expected the previously selected normal mode to remain active after returning to setup',
+    );
+
+    const summaryChip = container.querySelector<HTMLElement>('[data-inspection-normal-summary]');
+    assert.ok(summaryChip, 'expected the setup summary chip to render after confirming regenerate');
+    assert.equal(
+      summaryChip.textContent?.includes(
+        t.inspectionSelectedChecksSummary
+          .replace('{selected}', String(totalItemCount - 1))
+          .replace('{total}', String(totalItemCount)),
+      ),
+      true,
+      'expected the prior item selection to remain intact after confirming regenerate',
+    );
+    assert.ok(
+      getButtonByText(t.runInspection),
+      'expected the setup run button to render again after confirming regenerate',
+    );
+  } finally {
+    if (previousApiKey === undefined) {
+      delete process.env.API_KEY;
+    } else {
+      process.env.API_KEY = previousApiKey;
+    }
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('inspection setup restores the saved normal mode and keeps selection in sync with advanced mode', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
@@ -552,6 +684,79 @@ test('inspection setup restores the saved normal mode and keeps selection in syn
       ),
       true,
       'expected advanced mode to reflect the selection changed in normal mode',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('professional mode status badge toggles the inspection item selection', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+  const totalItemCount = INSPECTION_CRITERIA.reduce(
+    (sum, category) => sum + category.items.length,
+    0,
+  );
+  const firstCategory = INSPECTION_CRITERIA[0];
+  const firstItem = firstCategory?.items[0];
+  assert.ok(firstCategory, 'expected inspection criteria to include at least one category');
+  assert.ok(firstItem, 'expected the first category to include at least one item');
+
+  const getButtonByText = (label: string) =>
+    Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null;
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const professionalModeButton = getButtonByText(t.inspectionAdvancedMode);
+    assert.ok(professionalModeButton, 'expected the professional mode toggle to render');
+
+    await act(async () => {
+      professionalModeButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    const badge = container.querySelector<HTMLButtonElement>(
+      `[data-inspection-setup-item-badge="${firstCategory!.id}:${firstItem!.id}"]`,
+    );
+    assert.ok(badge, 'expected the focused item badge button to render');
+    assert.equal(badge.textContent?.trim(), t.inspectionIncluded);
+    assert.equal(badge.getAttribute('aria-pressed'), 'true');
+
+    await act(async () => {
+      badge!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(badge!.textContent?.trim(), t.inspectionSkipped);
+    assert.equal(badge!.getAttribute('aria-pressed'), 'false');
+
+    const summaryText = t.inspectionSelectedChecksSummary
+      .replace('{selected}', String(totalItemCount - 1))
+      .replace('{total}', String(totalItemCount));
+    assert.equal(
+      container.textContent?.includes(summaryText),
+      true,
+      'expected the professional-mode summary to reflect the deselected item',
     );
   } finally {
     await act(async () => {
@@ -653,9 +858,10 @@ test('inspection setup normal mode bulk actions keep selection counts and footer
 
     const summaryChip = () =>
       container.querySelector<HTMLElement>('[data-inspection-normal-summary]');
-    const runButton = getButtonByText(t.runInspection) as HTMLButtonElement | null;
-    assert.ok(runButton, 'expected the normal mode run button to render');
-    assert.equal(runButton.disabled, false, 'expected run inspection to start enabled');
+    const getRunButton = () =>
+      container.querySelector<HTMLButtonElement>('[data-inspection-run-button]');
+    assert.ok(getRunButton(), 'expected the normal mode run button to render');
+    assert.equal(getRunButton()?.disabled, false, 'expected run inspection to start enabled');
 
     const clearAllButton = getButtonByText('清空全部');
     assert.ok(clearAllButton, 'expected the normal mode clear-all action to render');
@@ -673,7 +879,11 @@ test('inspection setup normal mode bulk actions keep selection counts and footer
       true,
       'expected clear-all to reset the inline summary count',
     );
-    assert.equal(runButton.disabled, true, 'expected clear-all to disable running the inspection');
+    assert.equal(
+      getRunButton()?.disabled,
+      true,
+      'expected clear-all to disable running the inspection',
+    );
 
     const selectAllButton = getButtonByText('全选全部');
     assert.ok(selectAllButton, 'expected the normal mode select-all action to render');
@@ -692,7 +902,7 @@ test('inspection setup normal mode bulk actions keep selection counts and footer
       'expected select-all to restore the inline summary count',
     );
     assert.equal(
-      runButton.disabled,
+      getRunButton()?.disabled,
       false,
       'expected select-all to re-enable running the inspection',
     );
@@ -996,10 +1206,11 @@ test('inspection setup highlights the run inspection action from the window cent
       );
     });
 
-    const runButton = container.querySelector<HTMLButtonElement>('[data-inspection-run-button]');
-    assert.ok(runButton, 'expected the setup footer to expose the run inspection button hook');
+    const getRunButton = () =>
+      container.querySelector<HTMLButtonElement>('[data-inspection-run-button]');
+    assert.ok(getRunButton(), 'expected the setup footer to expose the run inspection button hook');
     assert.equal(
-      runButton.className.includes('inspection-run-cta-pulse'),
+      getRunButton()?.className.includes('inspection-run-cta-pulse'),
       true,
       'expected entering normal mode to pulse the run inspection button',
     );
@@ -1035,7 +1246,7 @@ test('inspection setup highlights the run inspection action from the window cent
       'expected the pointer cue to use the dedicated pointer animation styling',
     );
     assert.equal(
-      runButton.className.includes('inspection-run-cta-breathe-sync'),
+      getRunButton()?.className.includes('inspection-run-cta-breathe-sync'),
       true,
       'expected the run inspection button to coordinate a breathing animation with the pointer cue',
     );
@@ -1052,7 +1263,7 @@ test('inspection setup highlights the run inspection action from the window cent
       'expected the pointer cue to dismiss itself after the short guidance window',
     );
     assert.equal(
-      runButton.className.includes('inspection-run-cta-breathe-sync'),
+      getRunButton()?.className.includes('inspection-run-cta-breathe-sync'),
       false,
       'expected the run inspection button to leave the synced breathing state after the cue ends',
     );
@@ -1073,14 +1284,82 @@ test('inspection setup highlights the run inspection action from the window cent
       'expected entering professional mode to trigger the pointer cue again',
     );
     assert.equal(
-      runButton.className.includes('inspection-run-cta-pulse'),
+      getRunButton()?.className.includes('inspection-run-cta-pulse'),
       true,
       'expected entering professional mode to re-apply the run inspection pulse',
     );
     assert.equal(
-      runButton.className.includes('inspection-run-cta-breathe-sync'),
+      getRunButton()?.className.includes('inspection-run-cta-breathe-sync'),
       true,
       'expected entering professional mode to re-apply the synced breathing state',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup replays the run inspection cue when switching modes before the previous cue ends', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'normal');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+
+  const getSetupModeButton = (label: string) =>
+    Array.from(container.querySelectorAll('[data-inspection-setup-mode-switcher] button')).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null;
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const initialPointer = container.querySelector<HTMLElement>('[data-inspection-run-pointer]');
+    assert.ok(initialPointer, 'expected entering setup mode to render the initial pointer cue');
+
+    const professionalModeButton = getSetupModeButton(t.inspectionAdvancedMode);
+    assert.ok(
+      professionalModeButton,
+      'expected the setup mode switcher to render the professional mode',
+    );
+
+    await act(async () => {
+      professionalModeButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 1000);
+      });
+    });
+
+    const normalModeButton = getSetupModeButton(t.inspectionNormalMode);
+    assert.ok(normalModeButton, 'expected the setup mode switcher to render the normal mode');
+
+    await act(async () => {
+      normalModeButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    const replayedPointer = container.querySelector<HTMLElement>('[data-inspection-run-pointer]');
+    assert.ok(replayedPointer, 'expected switching back to normal mode to keep the cue visible');
+    assert.notEqual(
+      replayedPointer,
+      initialPointer,
+      'expected the pointer cue to remount so the animation can replay before the previous cue ends',
     );
   } finally {
     await act(async () => {
