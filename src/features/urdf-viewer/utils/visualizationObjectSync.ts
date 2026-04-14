@@ -773,6 +773,10 @@ export function syncJointAxesVisualizationForJoints({
       jointAxisViz = createJointAxisViz(joint.jointType, axis, jointAxisSize);
       joint.add(jointAxisViz);
       jointAxisViz.userData.size = jointAxisSize;
+      jointAxisViz.userData.axisX = axis.x;
+      jointAxisViz.userData.axisY = axis.y;
+      jointAxisViz.userData.axisZ = axis.z;
+      jointAxisViz.userData.jointType = joint.jointType;
       joint.userData.__jointAxisViz = jointAxisViz;
       changed = true;
     }
@@ -783,17 +787,33 @@ export function syncJointAxesVisualizationForJoints({
     if (!showJointAxes) return;
 
     const originalScale = jointAxisViz.userData.size;
-    if (typeof originalScale !== 'number' || Math.abs(jointAxisSize - originalScale) > 0.01) {
+    const origAxisX = jointAxisViz.userData.axisX;
+    const origAxisY = jointAxisViz.userData.axisY;
+    const origAxisZ = jointAxisViz.userData.axisZ;
+    const origJointType = jointAxisViz.userData.jointType;
+    const currentAxis = joint.axis || new THREE.Vector3(0, 0, 1);
+
+    if (
+      typeof originalScale !== 'number' ||
+      Math.abs(jointAxisSize - originalScale) > 0.01 ||
+      origAxisX !== currentAxis.x ||
+      origAxisY !== currentAxis.y ||
+      origAxisZ !== currentAxis.z ||
+      origJointType !== joint.jointType
+    ) {
       joint.remove(jointAxisViz);
       jointAxisViz.traverse((child: any) => {
         if (child.geometry) child.geometry.dispose();
         if (child.material) child.material.dispose();
       });
 
-      const axis = joint.axis || new THREE.Vector3(0, 0, 1);
-      const replacement = createJointAxisViz(joint.jointType, axis, jointAxisSize);
+      const replacement = createJointAxisViz(joint.jointType, currentAxis, jointAxisSize);
       joint.add(replacement);
       replacement.userData.size = jointAxisSize;
+      replacement.userData.axisX = currentAxis.x;
+      replacement.userData.axisY = currentAxis.y;
+      replacement.userData.axisZ = currentAxis.z;
+      replacement.userData.jointType = joint.jointType;
       joint.userData.__jointAxisViz = replacement;
       jointAxisViz = replacement;
       changed = true;

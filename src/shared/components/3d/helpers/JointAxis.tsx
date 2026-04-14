@@ -55,7 +55,10 @@ export const JointAxesVisual = React.memo(
 
     if (type === JointType.FIXED || type === JointType.BALL) return null;
 
-    const color = selected ? '#f5d0fe' : hovered ? '#f0abfc' : '#d946ef';
+    const axisColor = selected ? '#fca5a5' : hovered ? '#f87171' : '#ef4444';
+    const ringColor = selected ? '#86efac' : hovered ? '#4ade80' : '#22c55e';
+    const centerGlowColor = selected ? '#fde047' : hovered ? '#facc15' : '#eab308';
+
     const shaftGlowOpacity = selected ? 0.42 : hovered ? 0.34 : 0;
     const centerGlowOpacity = selected ? 0.55 : hovered ? 0.42 : 0;
     const torusOpacity = selected ? 1 : hovered ? 0.98 : 0.82;
@@ -85,7 +88,7 @@ export const JointAxesVisual = React.memo(
             >
               <cylinderGeometry args={[torusThickness * 0.85, torusThickness * 0.85, 0.35, 10]} />
               <meshBasicMaterial
-                color={color}
+                color={axisColor}
                 transparent
                 opacity={shaftGlowOpacity}
                 depthWrite={false}
@@ -95,7 +98,7 @@ export const JointAxesVisual = React.memo(
             <mesh renderOrder={10021} raycast={ignoreRaycast}>
               <sphereGeometry args={[torusThickness * 1.8, 12, 12]} />
               <meshBasicMaterial
-                color={color}
+                color={centerGlowColor}
                 transparent
                 opacity={centerGlowOpacity}
                 depthWrite={false}
@@ -105,8 +108,15 @@ export const JointAxesVisual = React.memo(
           </>
         )}
         <arrowHelper
-          key={`joint-axis-forward-${joint.id}-${color}`}
-          args={[new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), 0.35, color, 0.08, 0.05]}
+          key={`joint-axis-forward-${joint.id}-${axisColor}`}
+          args={[
+            new THREE.Vector3(0, 0, 1),
+            new THREE.Vector3(0, 0, 0),
+            0.35,
+            axisColor,
+            0.08,
+            0.05,
+          ]}
         />
         {(type === JointType.REVOLUTE || type === JointType.CONTINUOUS) && (
           <group>
@@ -133,7 +143,7 @@ export const JointAxesVisual = React.memo(
                 ]}
               />
               <meshBasicMaterial
-                color={color}
+                color={ringColor}
                 transparent
                 opacity={torusOpacity}
                 depthWrite={false}
@@ -147,7 +157,7 @@ export const JointAxesVisual = React.memo(
             >
               <coneGeometry args={[0.015, 0.04, 8]} />
               <meshBasicMaterial
-                color={color}
+                color={ringColor}
                 transparent
                 opacity={torusOpacity}
                 depthWrite={false}
@@ -159,12 +169,12 @@ export const JointAxesVisual = React.memo(
         {type === JointType.PRISMATIC && (
           <group>
             <arrowHelper
-              key={`joint-axis-reverse-${joint.id}-${color}`}
+              key={`joint-axis-reverse-${joint.id}-${axisColor}`}
               args={[
                 new THREE.Vector3(0, 0, -1),
                 new THREE.Vector3(0, 0, 0),
                 0.35,
-                color,
+                axisColor,
                 0.08,
                 0.05,
               ]}

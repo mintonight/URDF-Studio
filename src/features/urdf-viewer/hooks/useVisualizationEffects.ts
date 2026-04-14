@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { isProtectedMaterial } from '@/core/utils/three/materialProtection';
-import { createJointAxisVisualization } from '../utils/visualizationFactories';
+
 import { syncRobotGeometryVisibility } from '../utils/robotGeometryVisibilitySync';
 import { getRobotSceneNodeIndex } from '../utils/robotSceneNodeIndex';
 import { getRobotVisualMeshIndex } from '../utils/robotVisualMeshIndex';
@@ -380,15 +380,14 @@ export function useVisualizationEffects({
     highlightedMeshesRef,
   ]);
 
-  // Update helper visibility without touching all visual materials
+  // Update helper visibility for legacy __link_axes_helper__ objects
   useEffect(() => {
     if (!robot) return;
-    const helperVisibilityActive = effectiveShowOrigins || effectiveShowJointAxes;
-    if (!shouldRunVisualizationSync(helperVisibilityActive, helperVisibilityActiveRef.current)) {
+    if (!shouldRunVisualizationSync(effectiveShowOrigins, helperVisibilityActiveRef.current)) {
       return;
     }
 
-    const { links, joints } = getRobotSceneNodeIndex(robot);
+    const { links } = getRobotSceneNodeIndex(robot);
     let didMutate = false;
 
     links.forEach((link: any) => {
@@ -413,66 +412,11 @@ export function useVisualizationEffects({
       }
     });
 
-    joints.forEach((joint: any) => {
-      let axisHelper = joint.children.find((child: any) => child.name === '__joint_axis_helper__');
-      if (!axisHelper && joint.axis && effectiveShowJointAxes) {
-        const axis = joint.axis as THREE.Vector3;
-        axisHelper = createJointAxisVisualization(axis, jointAxisSize);
-        joint.add(axisHelper);
-        didMutate = true;
-      }
-
-      if (axisHelper) {
-        if (axisHelper.visible !== effectiveShowJointAxes) {
-          axisHelper.visible = effectiveShowJointAxes;
-          didMutate = true;
-        }
-
-        const scale = jointAxisSize || 1.0;
-        if (
-          axisHelper.scale.x !== scale ||
-          axisHelper.scale.y !== scale ||
-          axisHelper.scale.z !== scale
-        ) {
-          axisHelper.scale.set(scale, scale, scale);
-          didMutate = true;
-        }
-      }
-
-      const debugJointAxes = joint.children.find(
-        (child: any) => child.name === '__debug_joint_axes__',
-      );
-      if (!debugJointAxes) return;
-
-      if (debugJointAxes.visible !== effectiveShowJointAxes) {
-        debugJointAxes.visible = effectiveShowJointAxes;
-        didMutate = true;
-      }
-
-      const scale = jointAxisSize || 1.0;
-      if (
-        debugJointAxes.scale.x !== scale ||
-        debugJointAxes.scale.y !== scale ||
-        debugJointAxes.scale.z !== scale
-      ) {
-        debugJointAxes.scale.set(scale, scale, scale);
-        didMutate = true;
-      }
-    });
-
     if (didMutate) {
       invalidate();
     }
-    helperVisibilityActiveRef.current = helperVisibilityActive;
-  }, [
-    effectiveShowJointAxes,
-    effectiveShowOrigins,
-    invalidate,
-    jointAxisSize,
-    originSize,
-    robot,
-    robotVersion,
-  ]);
+    helperVisibilityActiveRef.current = effectiveShowOrigins;
+  }, [effectiveShowOrigins, invalidate, originSize, robot, robotVersion]);
 
   // Apply model opacity to visual meshes only
   useEffect(() => {
@@ -669,6 +613,7 @@ export function useVisualizationEffects({
   // Effect to handle joint axes visualization
   useEffect(() => {
     if (!robot) return;
+
     if (
       !shouldRunVisualizationSync(effectiveShowJointAxes, jointAxesVisualizationActiveRef.current)
     ) {

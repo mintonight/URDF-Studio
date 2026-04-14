@@ -289,69 +289,6 @@ export function createMjcfTendonVisualization(tendon: MjcfTendonVisualizationDat
 }
 
 /**
- * Create a visual arrow indicator for joint axis (used for both URDF and MJCF joints).
- * Color: Red for X, Green for Y, Blue for Z dominant component.
- */
-export function createJointAxisVisualization(
-  axis: THREE.Vector3,
-  size: number = 1.0,
-): THREE.Object3D {
-  const length = 0.15 * size;
-  const group = new THREE.Group();
-  group.name = '__joint_axis_helper__';
-  group.userData = createSelectableHelperUserData();
-
-  // Determine color based on dominant axis
-  const absAxis = new THREE.Vector3(Math.abs(axis.x), Math.abs(axis.y), Math.abs(axis.z));
-  let color: number;
-  if (absAxis.x >= absAxis.y && absAxis.x >= absAxis.z) {
-    color = 0xff4444; // Red for X
-  } else if (absAxis.y >= absAxis.x && absAxis.y >= absAxis.z) {
-    color = 0x44ff44; // Green for Y
-  } else {
-    color = 0x4444ff; // Blue for Z
-  }
-
-  // Create arrow shaft (cylinder)
-  const shaftGeom = new THREE.CylinderGeometry(0.005, 0.005, length * 0.8, 8);
-  const shaftMat = new THREE.MeshBasicMaterial({
-    color,
-    depthTest: false,
-    transparent: true,
-    opacity: 0.9,
-  });
-  const shaft = new THREE.Mesh(shaftGeom, shaftMat);
-  shaft.position.y = length * 0.4;
-  shaft.userData = createSelectableHelperUserData();
-  shaft.renderOrder = 1001;
-  group.add(shaft);
-
-  // Create arrow head (cone)
-  const headGeom = new THREE.ConeGeometry(0.015, length * 0.2, 8);
-  const headMat = new THREE.MeshBasicMaterial({
-    color,
-    depthTest: false,
-    transparent: true,
-    opacity: 0.9,
-  });
-  const head = new THREE.Mesh(headGeom, headMat);
-  head.position.y = length * 0.9;
-  head.userData = createSelectableHelperUserData();
-  head.renderOrder = 1001;
-  group.add(head);
-
-  // Align the arrow (default points +Y) to the axis direction
-  const targetDir = axis.clone().normalize();
-  const upDir = new THREE.Vector3(0, 1, 0);
-  if (Math.abs(targetDir.dot(upDir)) < 0.999) {
-    const quaternion = new THREE.Quaternion().setFromUnitVectors(upDir, targetDir);
-    group.quaternion.copy(quaternion);
-  }
-
-  return group;
-}
-
-/**
  * Create origin axes visualization (RGB = XYZ) for a link
  */
 export function createOriginAxes(size: number): THREE.Group {
@@ -435,7 +372,8 @@ export function createJointAxisViz(
   const axisVec = new THREE.Vector3(axis.x, axis.y, axis.z).normalize();
   const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), axisVec);
 
-  const color = 0xd946ef; // Purple/magenta
+  const axisColor = 0xef4444; // Red for axis
+  const ringColor = 0x22c55e; // Green for rotation ring
 
   // Arrow for axis direction
   const arrowLength = 0.35 * scale;
@@ -449,7 +387,7 @@ export function createJointAxisViz(
     arrowLength - arrowHeadLength,
     8,
   );
-  const shaftMat = new THREE.MeshBasicMaterial({ color, depthTest: false });
+  const shaftMat = new THREE.MeshBasicMaterial({ color: axisColor, depthTest: false });
   const shaft = new THREE.Mesh(shaftGeom, shaftMat);
   shaft.rotation.set(Math.PI / 2, 0, 0);
   shaft.position.set(0, 0, (arrowLength - arrowHeadLength) / 2);
@@ -468,18 +406,19 @@ export function createJointAxisViz(
 
   // For revolute/continuous joints, add rotation indicator (torus)
   if (jointType === 'revolute' || jointType === 'continuous') {
+    const ringMat = new THREE.MeshBasicMaterial({ color: ringColor, depthTest: false });
     const torusRadius = 0.15 * scale;
     const tubeRadius = 0.005 * scale;
     const torusArc = jointType === 'revolute' ? Math.PI * 1.5 : Math.PI * 2;
     const torusGeom = new THREE.TorusGeometry(torusRadius, tubeRadius, 8, 32, torusArc);
-    const torus = new THREE.Mesh(torusGeom, shaftMat);
+    const torus = new THREE.Mesh(torusGeom, ringMat);
     torus.userData = createSelectableHelperUserData();
     torus.renderOrder = HELPER_RENDER_ORDER;
     jointAxisViz.add(torus);
 
     // Small arrow on torus to indicate rotation direction
     const miniConeGeom = new THREE.ConeGeometry(0.015 * scale, 0.04 * scale, 8);
-    const miniCone = new THREE.Mesh(miniConeGeom, shaftMat);
+    const miniCone = new THREE.Mesh(miniConeGeom, ringMat);
     miniCone.position.set(torusRadius, 0, 0);
     miniCone.rotation.set(Math.PI / 2, 0, -Math.PI / 2);
     miniCone.userData = createSelectableHelperUserData();

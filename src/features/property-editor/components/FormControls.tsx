@@ -443,8 +443,10 @@ const useNumberInputController = ({
   inputRef: React.RefObject<HTMLInputElement | null>;
   collapseInputSelection: () => void;
 }) => {
+  const [isFocused, setIsFocused] = useState(false);
+
   const formatValue = useCallback(
-    (nextValue: number) => {
+    (nextValue: number, activeFocus = isFocused) => {
       if (!Number.isFinite(nextValue)) {
         return '';
       }
@@ -453,20 +455,22 @@ const useNumberInputController = ({
         return formatDisplayValue(nextValue ?? 0);
       }
 
-      const roundedValue = roundToMaxDecimals(nextValue ?? 0, precision);
+      const activePrecision = activeFocus ? MAX_PROPERTY_DECIMALS : precision;
+
+      const roundedValue = roundToMaxDecimals(nextValue ?? 0, activePrecision);
 
       if (trimTrailingZeros) {
-        return formatNumberWithMaxDecimals(roundedValue, precision) || '0';
+        return formatNumberWithMaxDecimals(roundedValue, activePrecision) || '0';
       }
 
-      const fixedValue = roundedValue.toFixed(precision);
+      const fixedValue = roundedValue.toFixed(activePrecision);
       const isNegative = fixedValue.startsWith('-');
       const unsignedValue = isNegative ? fixedValue.slice(1) : fixedValue;
       const [integerPart, decimalPart] = unsignedValue.split('.');
       const paddedIntegerPart = integerPart.padStart(minimumIntegerDigits, '0');
       return `${isNegative ? '-' : ''}${paddedIntegerPart}${decimalPart !== undefined ? `.${decimalPart}` : ''}`;
     },
-    [formatDisplayValue, minimumIntegerDigits, precision, trimTrailingZeros],
+    [formatDisplayValue, minimumIntegerDigits, precision, trimTrailingZeros, isFocused],
   );
   const parseValue = useCallback(
     (nextDraftValue: string) => {
@@ -478,14 +482,14 @@ const useNumberInputController = ({
     },
     [parseDisplayValue],
   );
-  const [localValue, setLocalValue] = useState<string>(() => formatValue(value ?? 0));
+  const [localValue, setLocalValue] = useState<string>(() => formatValue(value ?? 0, false));
   const valueRef = useRef<number>(value ?? 0);
   const latestCommittedValueRef = useRef<number>(value ?? 0);
-  const draftValueRef = useRef<string>(formatValue(value ?? 0));
+  const draftValueRef = useRef<string>(formatValue(value ?? 0, false));
 
   useEffect(() => {
     const boundedValue = clampNumberToBounds(value ?? 0, min, max);
-    const formattedValue = formatValue(boundedValue);
+    const formattedValue = formatValue(boundedValue, isFocused);
 
     valueRef.current = boundedValue;
     latestCommittedValueRef.current = boundedValue;
@@ -494,7 +498,7 @@ const useNumberInputController = ({
       draftValueRef.current = formattedValue;
       setLocalValue(formattedValue);
     }
-  }, [formatValue, inputRef, max, min, value]);
+  }, [formatValue, inputRef, max, min, value, isFocused]);
 
   const commitValue = useCallback(
     (nextValue: number, options?: { preserveDraftDisplay?: boolean }) => {
@@ -526,21 +530,41 @@ const useNumberInputController = ({
     [commitPrecision, formatValue, max, min, onChange],
   );
 
-  const revertToCommittedValue = useCallback(() => {
-    const formattedValue = formatValue(valueRef.current);
+  const revertToCommittedValue = useCallback(
+    (activeFocus = isFocused) => {
+      const formattedValue = formatValue(valueRef.current, activeFocus);
+      draftValueRef.current = formattedValue;
+      setLocalValue(formattedValue);
+    },
+    [formatValue, isFocused],
+  );
+
+  const handleFocus = useCallback(() => {
+    setIsFocused(true);
+    const formattedValue = formatValue(valueRef.current, true);
     draftValueRef.current = formattedValue;
     setLocalValue(formattedValue);
   }, [formatValue]);
 
   const handleBlur = useCallback(() => {
+    setIsFocused(false);
+
+    if (
+      draftValueRef.current === formatValue(valueRef.current, true) ||
+      draftValueRef.current === formatValue(valueRef.current, false)
+    ) {
+      revertToCommittedValue(false);
+      return;
+    }
+
     const parsed = parseValue(draftValueRef.current);
     if (parsed !== null) {
       commitValue(parsed);
       return;
     }
 
-    revertToCommittedValue();
-  }, [commitValue, parseValue, revertToCommittedValue]);
+    revertToCommittedValue(false);
+  }, [commitValue, parseValue, revertToCommittedValue, formatValue]);
 
   const applyStep = useCallback(
     (direction: 1 | -1) => {
@@ -604,6 +628,7 @@ const useNumberInputController = ({
   return {
     applyStep,
     handleBlur,
+    handleFocus,
     handleChange,
     handleKeyDown,
     localValue,
@@ -652,7 +677,7 @@ export const NumberInput = ({
     clearPointerFocusIntent,
     collapseInputSelection,
   } = useInputSelectionBehavior();
-  const { applyStep, handleBlur, handleChange, handleKeyDown, localValue } =
+  const { applyStep, handleBlur, handleFocus, handleChange, handleKeyDown, localValue } =
     useNumberInputController({
       value,
       onChange,
@@ -692,7 +717,10 @@ export const NumberInput = ({
             clearPointerFocusIntent();
             handleBlur();
           }}
-          onFocus={handleInputFocus}
+          onFocus={(e) => {
+            handleFocus();
+            handleInputFocus(e);
+          }}
           onKeyDown={handleKeyDown}
           onPointerDown={handleInputPointerDown}
           onPointerUp={clearPointerFocusIntent}
@@ -771,7 +799,7 @@ export const InlineNumberInput = ({
     clearPointerFocusIntent,
     collapseInputSelection,
   } = useInputSelectionBehavior();
-  const { applyStep, handleBlur, handleChange, handleKeyDown, localValue } =
+  const { applyStep, handleBlur, handleFocus, handleChange, handleKeyDown, localValue } =
     useNumberInputController({
       value,
       onChange,
@@ -809,7 +837,10 @@ export const InlineNumberInput = ({
             clearPointerFocusIntent();
             handleBlur();
           }}
-          onFocus={handleInputFocus}
+          onFocus={(e) => {
+            handleFocus();
+            handleInputFocus(e);
+          }}
           onKeyDown={handleKeyDown}
           onPointerDown={handleInputPointerDown}
           onPointerUp={clearPointerFocusIntent}
@@ -951,6 +982,7 @@ export const Vec3Input = ({
   compact = false,
   step,
   precision = MAX_PROPERTY_DECIMALS,
+  commitPrecision,
 }: {
   value: Vec3Value;
   onChange: (v: Vec3Value) => void;
@@ -959,6 +991,7 @@ export const Vec3Input = ({
   compact?: boolean;
   step?: number;
   precision?: number;
+  commitPrecision?: number;
 }) => (
   <div className="grid grid-cols-3 gap-1.5">
     <NumberInput
@@ -968,6 +1001,7 @@ export const Vec3Input = ({
       compact={compact}
       step={step}
       precision={precision}
+      commitPrecision={commitPrecision}
     />
     <NumberInput
       label={labels[1]}
@@ -976,6 +1010,7 @@ export const Vec3Input = ({
       compact={compact}
       step={step}
       precision={precision}
+      commitPrecision={commitPrecision}
     />
     <NumberInput
       label={labels[2]}
@@ -984,6 +1019,7 @@ export const Vec3Input = ({
       compact={compact}
       step={step}
       precision={precision}
+      commitPrecision={commitPrecision}
     />
   </div>
 );
@@ -997,6 +1033,7 @@ export const Vec3InlineInput = ({
   labelPlacement = 'inline',
   step,
   precision = MAX_PROPERTY_DECIMALS,
+  commitPrecision,
   repeatIntervalMs,
 }: {
   value: Vec3Value;
@@ -1007,6 +1044,7 @@ export const Vec3InlineInput = ({
   labelPlacement?: 'stacked' | 'inline';
   step?: number;
   precision?: number;
+  commitPrecision?: number;
   repeatIntervalMs?: number;
 }) => (
   <AxisNumberGridInput
@@ -1018,6 +1056,7 @@ export const Vec3InlineInput = ({
     labelPlacement={labelPlacement}
     step={step}
     precision={precision}
+    commitPrecision={commitPrecision}
     repeatIntervalMs={repeatIntervalMs}
   />
 );
