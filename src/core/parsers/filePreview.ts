@@ -1,9 +1,4 @@
-import {
-  generateURDF,
-  parseSDF,
-  processXacro,
-  parseURDF,
-} from '@/core/parsers';
+import { generateURDF, processXacro, parseURDF } from '@/core/parsers';
 import { GeometryType, type RobotFile, type RobotState } from '@/types';
 import { resolveMJCFSource } from '@/core/parsers/mjcf/mjcfSourceResolver';
 import {
@@ -12,7 +7,11 @@ import {
 } from '@/core/parsers/importRobotFile';
 
 function buildMeshPreviewState(file: RobotFile): RobotState {
-  const meshName = file.name.split('/').pop()?.replace(/\.[^/.]+$/, '') ?? 'mesh';
+  const meshName =
+    file.name
+      .split('/')
+      .pop()
+      ?.replace(/\.[^/.]+$/, '') ?? 'mesh';
   const linkId = 'base_link';
 
   return {
@@ -52,10 +51,7 @@ function buildMeshPreviewState(file: RobotFile): RobotState {
  * Convert a RobotFile to URDF content for preview.
  * Supports urdf, xacro, mjcf, sdf, usd, and mesh formats.
  */
-export function computePreviewUrdf(
-  file: RobotFile,
-  availableFiles: RobotFile[],
-): string | null {
+export function computePreviewUrdf(file: RobotFile, availableFiles: RobotFile[]): string | null {
   try {
     if (file.format === 'urdf') {
       return file.content;
@@ -87,8 +83,7 @@ export function computePreviewUrdf(
     }
 
     if (file.format === 'sdf') {
-      const parsed = parseSDF(file.content);
-      return parsed ? generateURDF(parsed, { preserveMeshPaths: true }) : '';
+      return file.content;
     }
 
     if (file.format === 'usd') {

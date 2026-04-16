@@ -39,5 +39,9 @@ export function resolveStandaloneViewerContent({
     return resolvedMjcfSourceContent ?? selectedFileContent ?? '';
   }
 
+  if (selectedFileFormat === 'sdf') {
+    return selectedFileContent ?? '';
+  }
+
   return viewerUrdfContent ?? viewerGeneratedUrdfContent ?? '';
 }

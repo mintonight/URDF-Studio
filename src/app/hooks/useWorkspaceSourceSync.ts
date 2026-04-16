@@ -555,7 +555,12 @@ export function useWorkspaceSourceSync({
     });
 
   const generatedUrdfContent = useMemo(() => {
-    if (shouldRenderAssembly || isSelectedUsdHydrating || selectedFile?.format === 'mjcf') {
+    if (
+      shouldRenderAssembly ||
+      isSelectedUsdHydrating ||
+      selectedFile?.format === 'mjcf' ||
+      selectedFile?.format === 'sdf'
+    ) {
       return null;
     }
 
@@ -572,7 +577,7 @@ export function useWorkspaceSourceSync({
   ]);
 
   const viewerGeneratedUrdfContent = useMemo(() => {
-    if (shouldRenderAssembly || isSelectedUsdHydrating) {
+    if (shouldRenderAssembly || isSelectedUsdHydrating || selectedFile?.format === 'sdf') {
       return null;
     }
 
@@ -589,7 +594,12 @@ export function useWorkspaceSourceSync({
   ]);
 
   const viewerUrdfContent = useMemo(() => {
-    if (shouldRenderAssembly || isSelectedUsdHydrating || selectedFile?.format === 'mjcf') {
+    if (
+      shouldRenderAssembly ||
+      isSelectedUsdHydrating ||
+      selectedFile?.format === 'mjcf' ||
+      selectedFile?.format === 'sdf'
+    ) {
       return null;
     }
 

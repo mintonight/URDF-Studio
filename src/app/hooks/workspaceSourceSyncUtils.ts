@@ -1426,6 +1426,10 @@ export function buildPreviewSceneSourceFromImportResult(
     return '';
   }
 
+  if (file.format === 'sdf') {
+    return file.content;
+  }
+
   if (!previewRobot) {
     return importResult.status === 'error' ? '' : null;
   }
