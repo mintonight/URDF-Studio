@@ -251,6 +251,30 @@ function generateGeometryXml(geometry: UrdfVisual, packageName: string): string 
     return lines.join('\n');
   }
 
+  if (
+    geometry.type === GeometryType.POLYLINE &&
+    geometry.polylinePoints &&
+    geometry.polylinePoints.length >= 3
+  ) {
+    const pointLines = geometry.polylinePoints.map(
+      (p) => `            <point>${formatShape(p.x)} ${formatShape(p.y)}</point>`,
+    );
+    const heightLine =
+      geometry.polylineHeight != null
+        ? `            <height>${formatShape(geometry.polylineHeight)}</height>`
+        : '';
+    return [
+      '        <geometry>',
+      '          <polyline>',
+      ...pointLines,
+      heightLine,
+      '          </polyline>',
+      '        </geometry>',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
   return ['        <geometry>', '          <empty/>', '        </geometry>'].join('\n');
 }
 

@@ -320,6 +320,38 @@ function createHeightfieldMesh(
   return mesh;
 }
 
+function createPolylineMesh(
+  geometry: RobotLink['visual'],
+  isCollision: boolean,
+): THREE.Mesh | null {
+  const points = geometry.polylinePoints;
+  const height = geometry.polylineHeight;
+  if (!points || points.length < 3) {
+    return null;
+  }
+
+  const material = createPrimitiveMaterial(isCollision ? undefined : geometry.color);
+  material.side = THREE.DoubleSide;
+
+  const shape = new THREE.Shape();
+  shape.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    shape.lineTo(points[i].x, points[i].y);
+  }
+  shape.closePath();
+
+  const extrudeDepth = Math.max(height, 1e-5);
+  const extrudeSettings: THREE.ExtrudeGeometryOptions = {
+    depth: extrudeDepth,
+    bevelEnabled: false,
+  };
+
+  const geometryBuffer = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+  geometryBuffer.translate(0, 0, -extrudeDepth / 2);
+
+  return new THREE.Mesh(geometryBuffer, material);
+}
+
 function createPrimitiveMesh(
   geometry: RobotLink['visual'],
   isCollision: boolean,
@@ -508,6 +540,11 @@ export async function buildRuntimeRobotFromState({
       const hfieldMesh = createHeightfieldMesh(geometry, isCollision, manager);
       if (hfieldMesh) {
         group.add(hfieldMesh);
+      }
+    } else if (geometry.type === GeometryType.POLYLINE) {
+      const polylineMesh = createPolylineMesh(geometry, isCollision);
+      if (polylineMesh) {
+        group.add(polylineMesh);
       }
     } else {
       const primitiveMesh = createPrimitiveMesh(geometry, isCollision, manager);

@@ -65,6 +65,8 @@ interface ParsedSdfGeometry {
   dimensions: Vector3;
   meshPath?: string;
   sdfHeightmap?: SdfHeightmap;
+  polylinePoints?: { x: number; y: number }[];
+  polylineHeight?: number;
 }
 
 interface ParsedSdfVisual {
@@ -448,6 +450,24 @@ function parseSdfGeometry(
         normalTexture,
         textureSize,
       },
+    };
+  }
+
+  const polylineEl = getFirstDirectChild(geometryEl, 'polyline');
+  if (polylineEl) {
+    const points = getDirectChildElements(polylineEl, 'point')
+      .map((pointEl) => {
+        const [x = 0, y = 0] = parseNumberTuple(pointEl.textContent);
+        return { x, y };
+      })
+      .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+    const height = parseFloatSafe(getFirstDirectChild(polylineEl, 'height')?.textContent, 0);
+
+    return {
+      type: GeometryType.POLYLINE,
+      dimensions: { x: 0, y: 0, z: 0 },
+      polylinePoints: points,
+      polylineHeight: height,
     };
   }
 

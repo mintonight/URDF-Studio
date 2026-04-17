@@ -15,6 +15,7 @@ export enum GeometryType {
   ELLIPSOID = 'ellipsoid',
   CAPSULE = 'capsule',
   HFIELD = 'hfield',
+  POLYLINE = 'polyline',
   SDF = 'sdf',
   MESH = 'mesh',
   NONE = 'none',
@@ -86,6 +87,8 @@ export interface UrdfVisual {
   mjcfMesh?: MjcfMeshAsset;
   mjcfHfield?: MjcfHfieldAsset;
   sdfHeightmap?: SdfHeightmap;
+  polylinePoints?: { x: number; y: number }[];
+  polylineHeight?: number;
   origin: UrdfOrigin; // Offset relative to link frame
   verbose?: string;
   visible?: boolean;
