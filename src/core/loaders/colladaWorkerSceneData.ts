@@ -161,6 +161,43 @@ function sanitizeColladaXmlForThreeJs(content: string): string {
   return serializer.serializeToString(doc);
 }
 
+/**
+ * Three.js ColladaLoader computes opacity as `color[3] * transparency.float`
+ * with the default `A_ONE` opaque mode. When a COLLADA file has
+ * `<transparency>0.0</transparency>` (meaning fully opaque), this yields
+ * opacity 0 — making the mesh invisible. Gazebo and Blender exports often
+ * omit the `opaque` attribute, defaulting to `A_ONE`.
+ *
+ * Correct the opacity when ColladaLoader produces a transparent material
+ * with opacity 0 and no authored alpha map: this is a degenerate case where
+ * the intended result is an opaque surface.
+ */
+function fixDegenerateColladaOpacity(scene: THREE.Object3D): void {
+  scene.traverse((child: THREE.Object3D) => {
+    if (!(child as THREE.Mesh).isMesh) {
+      return;
+    }
+
+    const mesh = child as THREE.Mesh;
+    const materials: THREE.Material[] = Array.isArray(mesh.material)
+      ? mesh.material
+      : mesh.material
+        ? [mesh.material]
+        : [];
+
+    materials.forEach((material) => {
+      if (
+        material.transparent &&
+        material.opacity === 0 &&
+        !(material as THREE.MeshPhongMaterial).alphaMap
+      ) {
+        material.transparent = false;
+        material.opacity = 1;
+      }
+    });
+  });
+}
+
 export function parseColladaSceneData(
   content: string,
   assetUrl: string,
@@ -173,6 +210,7 @@ export function parseColladaSceneData(
   const { capturedImageUrls, result: scene } = captureTextureSourceUrls(
     () => loader.parse(sanitizedContent, baseUrl).scene,
   );
+  fixDegenerateColladaOpacity(scene);
   const sceneJson = scene.toJSON() as unknown as Record<string, unknown>;
   applyCapturedColladaImageUrls(sceneJson, capturedImageUrls);
 
