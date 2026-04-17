@@ -767,6 +767,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         {
           availableFiles: liveAssetsState.availableFiles,
           assets: liveAssetsState.assets,
+          allFileContents: liveAssetsState.allFileContents,
           usdRobotData: liveAssetsState.getUsdPreparedExportCache(file.name)?.robotData ?? null,
         },
         {

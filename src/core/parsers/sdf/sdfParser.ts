@@ -49,6 +49,7 @@ const GAZEBO_COLORS: Record<string, string> = {
   'Gazebo/SkyBlue': '#87CEEB',
   'Gazebo/Wood': '#8B4513',
   'Gazebo/FlatBlack': '#000000',
+  'Gazebo/ZincYellow': '#9B9B00',
 };
 
 interface ParsedMaterialDefinition {
@@ -385,6 +386,19 @@ function parseSdfGeometry(
       dimensions: {
         x: parseFloatSafe(getFirstDirectChild(capsuleEl, 'radius')?.textContent, 0.1),
         y: parseFloatSafe(getFirstDirectChild(capsuleEl, 'length')?.textContent, 0.5),
+        z: 0,
+      },
+    };
+  }
+
+  const planeEl = getFirstDirectChild(geometryEl, 'plane');
+  if (planeEl) {
+    const size = parseVec3(getFirstDirectChild(planeEl, 'size')?.textContent);
+    return {
+      type: GeometryType.PLANE,
+      dimensions: {
+        x: size.x || 1,
+        y: size.y || 1,
         z: 0,
       },
     };

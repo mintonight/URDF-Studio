@@ -191,7 +191,35 @@ function resolveTexturePath(
     return normalizePath(resolveImportedAssetPath(trimmed, sourcePath));
   }
 
-  const sortedRoots = [...searchRoots].sort((left, right) => {
+  // Expand search roots with derived texture directories.
+  // Gazebo models typically place textures in materials/textures/ while
+  // the SDF <uri> points to materials/scripts/. Ogre3D's resource system
+  // searches all registered paths, so we must mimic this by adding sibling
+  // texture directories as candidates.
+  const expandedRoots = [...searchRoots];
+
+  for (const root of searchRoots) {
+    const normalizedRoot = normalizePath(root);
+    if (!normalizedRoot) {
+      continue;
+    }
+
+    const lastSlash = normalizedRoot.lastIndexOf('/');
+    if (lastSlash > 0) {
+      const parentDir = normalizedRoot.slice(0, lastSlash);
+      expandedRoots.push(`${parentDir}/textures`);
+      expandedRoots.push(`${parentDir}/texture`);
+    }
+
+    const firstSlash = normalizedRoot.indexOf('/');
+    if (firstSlash > 0) {
+      const modelRoot = normalizedRoot.slice(0, firstSlash);
+      expandedRoots.push(`${modelRoot}/materials/textures`);
+      expandedRoots.push(`${modelRoot}/textures`);
+    }
+  }
+
+  const sortedRoots = [...new Set(expandedRoots)].sort((left, right) => {
     const leftScore = TEXTURE_DIRECTORY_PATTERN.test(left) ? 0 : 1;
     const rightScore = TEXTURE_DIRECTORY_PATTERN.test(right) ? 0 : 1;
     return leftScore - rightScore;
