@@ -89,16 +89,89 @@ function applyCapturedColladaImageUrls(
   });
 }
 
+/**
+ * Three.js ColladaLoader has several places where it accesses `.textContent` on
+ * the result of `getElementsByTagName(...)[0]` without null-checking the index.
+ * Known crash sites in ColladaLoader.js:
+ *   - line 1089: `getElementsByTagName(xml, 'init_from')[0].textContent`
+ *   - line 3033: `child.getElementsByTagName('param')[0]` then `.textContent`
+ *   - line 2788:  `child.getElementsByTagName('max')[0]` / `'min'`
+ *
+ * Use DOMParser to walk the tree and inject placeholder children where needed
+ * so the ColladaLoader doesn't crash.
+ */
+function sanitizeColladaXmlForThreeJs(content: string): string {
+  ensureWorkerXmlDomApis();
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(content, 'application/xml');
+
+  // Check for parse errors
+  const parserError = doc.getElementsByTagName('parsererror');
+  if (parserError.length > 0) {
+    console.warn('[ColladaSanitize] XML parse error detected, skipping sanitization');
+    return content;
+  }
+
+  let patched = false;
+
+  const patchMissingChild = (
+    parent: Element,
+    childLocalName: string,
+    placeholderValue: string,
+  ): void => {
+    const children = parent.childNodes;
+    for (let i = 0; i < children.length; i += 1) {
+      const child = children[i];
+      if (child.nodeType === 1 && child.nodeName === childLocalName) {
+        return; // Child exists, no patch needed
+      }
+    }
+    // Child not found — inject placeholder
+    const placeholder = doc.createElement(childLocalName);
+    placeholder.textContent = placeholderValue;
+    parent.appendChild(placeholder);
+    patched = true;
+  };
+
+  // Fix <image> elements missing <init_from>
+  const images = doc.getElementsByTagName('image');
+  for (let i = 0; i < images.length; i += 1) {
+    patchMissingChild(images[i], 'init_from', '');
+  }
+
+  // Fix <limits> elements missing <max> or <min>
+  const limits = doc.getElementsByTagName('limits');
+  for (let i = 0; i < limits.length; i += 1) {
+    patchMissingChild(limits[i], 'max', '0');
+    patchMissingChild(limits[i], 'min', '0');
+  }
+
+  // Fix <axis> elements missing <param>
+  const axes = doc.getElementsByTagName('axis');
+  for (let i = 0; i < axes.length; i += 1) {
+    patchMissingChild(axes[i], 'param', '');
+  }
+
+  if (!patched) {
+    return content;
+  }
+
+  const serializer = new XMLSerializer();
+  return serializer.serializeToString(doc);
+}
+
 export function parseColladaSceneData(
   content: string,
   assetUrl: string,
 ): SerializedColladaSceneData {
   ensureWorkerXmlDomApis();
   const { content: normalizedContent } = normalizeColladaUpAxis(content);
+  const sanitizedContent = sanitizeColladaXmlForThreeJs(normalizedContent);
   const loader = new ColladaLoader();
   const baseUrl = THREE.LoaderUtils.extractUrlBase(assetUrl);
   const { capturedImageUrls, result: scene } = captureTextureSourceUrls(
-    () => loader.parse(normalizedContent, baseUrl).scene,
+    () => loader.parse(sanitizedContent, baseUrl).scene,
   );
   const sceneJson = scene.toJSON() as unknown as Record<string, unknown>;
   applyCapturedColladaImageUrls(sceneJson, capturedImageUrls);

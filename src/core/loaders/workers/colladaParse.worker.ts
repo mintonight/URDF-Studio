@@ -1,8 +1,6 @@
 /// <reference lib="webworker" />
 
-import {
-  parseColladaSceneData,
-} from '../colladaWorkerSceneData';
+import { parseColladaSceneData } from '../colladaWorkerSceneData';
 import type {
   ColladaParseWorkerResponse,
   ParseColladaWorkerRequest,
