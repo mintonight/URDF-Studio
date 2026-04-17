@@ -60,3 +60,5 @@ __pycache__/
 !scripts/regression/validate_unitree_selected_browser.mjs
 !scripts/regression/validate_unitree_ros_usda_selected_browser.mjs
 snapshot-default-page.png
+
+.omx/

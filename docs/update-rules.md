@@ -47,7 +47,7 @@
 npm run dev
 npm run lint
 npm run typecheck
-npm run test
+npm run test          # 仓库内快速测试；不依赖 test/ 大型 fixture 语料
 npm run build
 npm run verify:fast
 npm run verify:full
@@ -80,6 +80,10 @@ npm run test:fixtures:unitree-ros-usda
 # 打包对外库（仅在改到 src/lib 或 packages/react-robot-canvas 时）
 npm run build:package:react-robot-canvas
 ```
+
+说明：
+`npm run verify:fast` 只跑仓库内可自给的检查。
+依赖 `test/` 目录大型语料的回归，统一走 `npm run test:fixtures:*` 或 `npm run verify:full`。
 
 ## 5. 测试样本索引
 
