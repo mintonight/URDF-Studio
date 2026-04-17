@@ -25,6 +25,7 @@ export interface UrdfVisualMaterial {
   name?: string;
   color?: string;
   texture?: string;
+  textureRotation?: number;
   opacity?: number;
   roughness?: number;
   metalness?: number;

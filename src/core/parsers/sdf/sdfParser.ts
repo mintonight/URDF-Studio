@@ -1000,6 +1000,21 @@ function parseSdfModel(
           ? { texture: geometry.sdfHeightmap.diffuseTexture }
           : {};
 
+        // OGRE/Gazebo box UV convention differs from Three.js BoxGeometry by a
+        // 90° rotation on the major faces. When a Gazebo material with a texture
+        // is applied to a box primitive, rotate the texture to match the expected
+        // orientation.
+        const needsBoxTextureRotation =
+          geometry.type === GeometryType.BOX &&
+          explicitMaterial.materialSource === 'gazebo' &&
+          explicitMaterial.authoredMaterials?.some((m) => m.texture);
+
+        const authoredMaterials = needsBoxTextureRotation
+          ? explicitMaterial.authoredMaterials?.map((m) =>
+              m.texture ? { ...m, textureRotation: -Math.PI / 2 } : m,
+            )
+          : explicitMaterial.authoredMaterials;
+
         return {
           name: visualEl.getAttribute('name')?.trim() || `${linkId}_visual_${index}`,
           geometry,
@@ -1012,6 +1027,7 @@ function parseSdfModel(
           ...heightmapMaterial,
           ...meshMaterial,
           ...explicitMaterial,
+          ...(authoredMaterials ? { authoredMaterials } : {}),
         };
       },
     );

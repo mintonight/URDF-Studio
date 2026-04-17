@@ -7,6 +7,7 @@ import type { UrdfVisual } from '@/types';
 export interface VisualMaterialOverride {
   color?: string;
   texture?: string;
+  textureRotation?: number;
   opacity?: number;
   roughness?: number;
   metalness?: number;
@@ -104,6 +105,7 @@ export function resolveVisualMaterialOverrideFromGeometry(
   const color =
     normalizeMaterialValue(authoredMaterial?.color) ??
     (texture && isImplicitDefaultVisualColor(geometryColor) ? undefined : geometryColor);
+  const textureRotation = authoredMaterial?.textureRotation;
   const opacity = normalizeUnitIntervalValue(authoredMaterial?.opacity);
   const roughness = normalizeUnitIntervalValue(authoredMaterial?.roughness);
   const metalness = normalizeUnitIntervalValue(authoredMaterial?.metalness);
@@ -125,6 +127,7 @@ export function resolveVisualMaterialOverrideFromGeometry(
   return {
     ...(color ? { color } : {}),
     ...(texture ? { texture } : {}),
+    ...(textureRotation !== undefined ? { textureRotation } : {}),
     ...(opacity !== undefined ? { opacity } : {}),
     ...(roughness !== undefined ? { roughness } : {}),
     ...(metalness !== undefined ? { metalness } : {}),
@@ -247,6 +250,11 @@ export function applyVisualMaterialOverrideToObject(
     texturePath,
     (texture) => {
       texture.colorSpace = THREE.SRGBColorSpace;
+      const rotation = override?.textureRotation;
+      if (rotation !== undefined && rotation !== 0) {
+        texture.rotation = rotation;
+        texture.center.set(0.5, 0.5);
+      }
       replacementMaterials.forEach((material) => {
         material.map = texture;
         if (!hasExplicitColor && material.color?.isColor) {
