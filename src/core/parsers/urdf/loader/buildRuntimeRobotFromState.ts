@@ -220,6 +220,106 @@ function createImagePreviewMesh(
   return mesh;
 }
 
+function createHeightfieldMesh(
+  geometry: RobotLink['visual'],
+  isCollision: boolean,
+  manager?: THREE.LoadingManager,
+): THREE.Mesh | null {
+  const hfield = geometry.sdfHeightmap;
+  if (!hfield || !geometry.meshPath) {
+    return null;
+  }
+
+  const heightmapUri = geometry.meshPath;
+
+  const material = createPrimitiveMaterial(isCollision ? undefined : geometry.color);
+  material.side = THREE.DoubleSide;
+
+  const width = hfield.size.x || 1;
+  const height = hfield.size.y || 1;
+  const depth = hfield.size.z || 1;
+
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height, 1, 1), material);
+
+  if (hfield.pos) {
+    mesh.position.set(hfield.pos.x || 0, hfield.pos.y || 0, hfield.pos.z || 0);
+  }
+
+  new THREE.TextureLoader(manager).load(
+    heightmapUri,
+    (texture) => {
+      const image = texture.image;
+      if (!image || !image.width || !image.height) {
+        console.warn('[EditorViewer] Heightmap image has no dimensions:', heightmapUri);
+        texture.dispose();
+        return;
+      }
+
+      const imgWidth = image.width;
+      const imgHeight = image.height;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = imgWidth;
+      canvas.height = imgHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        console.warn('[EditorViewer] Failed to create canvas for heightmap:', heightmapUri);
+        texture.dispose();
+        return;
+      }
+      ctx.drawImage(image, 0, 0);
+      const imageData = ctx.getImageData(0, 0, imgWidth, imgHeight);
+
+      const segmentsX = Math.min(imgWidth - 1, 512);
+      const segmentsY = Math.min(imgHeight - 1, 512);
+
+      const displacedGeometry = new THREE.PlaneGeometry(width, height, segmentsX, segmentsY);
+      const positions = displacedGeometry.attributes.position;
+
+      const colStep = (imgWidth - 1) / segmentsX;
+      const rowStep = (imgHeight - 1) / segmentsY;
+
+      for (let iy = 0; iy <= segmentsY; iy++) {
+        for (let ix = 0; ix <= segmentsX; ix++) {
+          const vertexIndex = iy * (segmentsX + 1) + ix;
+          const sampleCol = Math.min(Math.round(iy * colStep), imgWidth - 1);
+          const sampleRow = Math.min(Math.round(ix * rowStep), imgHeight - 1);
+          const pixelIndex = (sampleRow * imgWidth + sampleCol) * 4;
+          const elevation = imageData.data[pixelIndex] / 255;
+          positions.setZ(vertexIndex, elevation * depth);
+        }
+      }
+
+      positions.needsUpdate = true;
+      displacedGeometry.computeVertexNormals();
+
+      mesh.geometry.dispose();
+      mesh.geometry = displacedGeometry;
+
+      if (!isCollision && hfield.diffuseTexture) {
+        new THREE.TextureLoader(manager).load(hfield.diffuseTexture, (diffuseTex) => {
+          diffuseTex.colorSpace = THREE.SRGBColorSpace;
+          diffuseTex.wrapS = THREE.RepeatWrapping;
+          diffuseTex.wrapT = THREE.RepeatWrapping;
+          if (hfield.textureSize) {
+            diffuseTex.repeat.set(hfield.textureSize, hfield.textureSize);
+          }
+          material.map = diffuseTex;
+          material.needsUpdate = true;
+        });
+      }
+
+      texture.dispose();
+    },
+    undefined,
+    (error) => {
+      console.error('[EditorViewer] Failed to load heightmap image:', heightmapUri, error);
+    },
+  );
+
+  return mesh;
+}
+
 function createPrimitiveMesh(
   geometry: RobotLink['visual'],
   isCollision: boolean,
@@ -403,6 +503,11 @@ export async function buildRuntimeRobotFromState({
             restackRobotVisualRoots(findVisualRestackRoot(group.parent));
           }
         });
+      }
+    } else if (geometry.type === GeometryType.HFIELD && geometry.sdfHeightmap) {
+      const hfieldMesh = createHeightfieldMesh(geometry, isCollision, manager);
+      if (hfieldMesh) {
+        group.add(hfieldMesh);
       }
     } else {
       const primitiveMesh = createPrimitiveMesh(geometry, isCollision, manager);

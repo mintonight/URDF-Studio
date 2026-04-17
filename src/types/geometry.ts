@@ -55,6 +55,15 @@ export interface MjcfHfieldAsset {
   elevation?: number[];
 }
 
+export interface SdfHeightmap {
+  uri: string;
+  size: Vector3;
+  pos: Vector3;
+  diffuseTexture?: string;
+  normalTexture?: string;
+  textureSize?: number;
+}
+
 export interface MjcfMeshAsset {
   name?: string;
   file?: string;
@@ -76,6 +85,7 @@ export interface UrdfVisual {
   assetRef?: string; // MJCF-only asset reference (e.g. hfield name or sdf mesh asset)
   mjcfMesh?: MjcfMeshAsset;
   mjcfHfield?: MjcfHfieldAsset;
+  sdfHeightmap?: SdfHeightmap;
   origin: UrdfOrigin; // Offset relative to link frame
   verbose?: string;
   visible?: boolean;

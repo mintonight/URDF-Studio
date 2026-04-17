@@ -17,6 +17,7 @@ import {
   type UrdfVisualMaterial,
   type RobotFile,
   type Vector3,
+  type SdfHeightmap,
 } from '@/types';
 import { resolveGazeboScriptMaterial } from './gazeboMaterialScripts';
 import { resolveSdfIncludeSource } from './sdfIncludeResolution';
@@ -63,6 +64,7 @@ interface ParsedSdfGeometry {
   type: GeometryType;
   dimensions: Vector3;
   meshPath?: string;
+  sdfHeightmap?: SdfHeightmap;
 }
 
 interface ParsedSdfVisual {
@@ -415,6 +417,37 @@ function parseSdfGeometry(
       type: GeometryType.MESH,
       dimensions: normalizedScale,
       meshPath: getFirstDirectChild(meshEl, 'uri')?.textContent?.trim() || '',
+    };
+  }
+
+  const heightmapEl = getFirstDirectChild(geometryEl, 'heightmap');
+  if (heightmapEl) {
+    const uri = getFirstDirectChild(heightmapEl, 'uri')?.textContent?.trim() || '';
+    const size = parseVec3(getFirstDirectChild(heightmapEl, 'size')?.textContent);
+    const pos = parseVec3(getFirstDirectChild(heightmapEl, 'pos')?.textContent);
+    const textureEl = getFirstDirectChild(heightmapEl, 'texture');
+    const diffuseTexture = textureEl
+      ? getFirstDirectChild(textureEl, 'diffuse')?.textContent?.trim() || undefined
+      : undefined;
+    const normalTexture = textureEl
+      ? getFirstDirectChild(textureEl, 'normal')?.textContent?.trim() || undefined
+      : undefined;
+    const textureSize = textureEl
+      ? parseFloatSafe(getFirstDirectChild(textureEl, 'size')?.textContent, 0) || undefined
+      : undefined;
+
+    return {
+      type: GeometryType.HFIELD,
+      dimensions: { x: size.x || 1, y: size.y || 1, z: size.z || 1 },
+      meshPath: uri,
+      sdfHeightmap: {
+        uri,
+        size: { x: size.x || 1, y: size.y || 1, z: size.z || 1 },
+        pos,
+        diffuseTexture,
+        normalTexture,
+        textureSize,
+      },
     };
   }
 
@@ -943,6 +976,10 @@ function parseSdfModel(
               sourcePath,
             });
 
+        const heightmapMaterial = geometry.sdfHeightmap?.diffuseTexture
+          ? { texture: geometry.sdfHeightmap.diffuseTexture }
+          : {};
+
         return {
           name: visualEl.getAttribute('name')?.trim() || `${linkId}_visual_${index}`,
           geometry,
@@ -952,6 +989,7 @@ function parseSdfModel(
             linkId,
             resolveFrameWorldMatrix,
           ),
+          ...heightmapMaterial,
           ...meshMaterial,
           ...explicitMaterial,
         };

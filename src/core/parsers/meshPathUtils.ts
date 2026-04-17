@@ -352,7 +352,13 @@ function rewriteMeshGeometryForSource<T extends UrdfLink['visual'] | UrdfLink['c
   geometry: T,
   sourceFilePath?: string | null,
 ): T {
-  if (!geometry || geometry.type !== GeometryType.MESH || !geometry.meshPath) {
+  if (!geometry || !geometry.meshPath) {
+    return geometry;
+  }
+
+  const isRewritableType =
+    geometry.type === GeometryType.MESH || geometry.type === GeometryType.HFIELD;
+  if (!isRewritableType) {
     return geometry;
   }
 
@@ -361,10 +367,37 @@ function rewriteMeshGeometryForSource<T extends UrdfLink['visual'] | UrdfLink['c
     return geometry;
   }
 
-  return {
+  const result = {
     ...geometry,
     meshPath: resolvedPath,
   };
+
+  if (geometry.type === GeometryType.HFIELD && geometry.sdfHeightmap) {
+    const hfield = geometry.sdfHeightmap;
+    const resolvedUri = resolveImportedAssetPath(hfield.uri, sourceFilePath);
+    const resolvedDiffuse = hfield.diffuseTexture
+      ? resolveImportedAssetPath(hfield.diffuseTexture, sourceFilePath)
+      : undefined;
+    const resolvedNormal = hfield.normalTexture
+      ? resolveImportedAssetPath(hfield.normalTexture, sourceFilePath)
+      : undefined;
+
+    return {
+      ...result,
+      sdfHeightmap: {
+        ...hfield,
+        uri: resolvedUri || hfield.uri,
+        ...(resolvedDiffuse && resolvedDiffuse !== hfield.diffuseTexture
+          ? { diffuseTexture: resolvedDiffuse }
+          : {}),
+        ...(resolvedNormal && resolvedNormal !== hfield.normalTexture
+          ? { normalTexture: resolvedNormal }
+          : {}),
+      },
+    } as T;
+  }
+
+  return result as T;
 }
 
 function rewriteGeometryAssetPathsForSource<T extends UrdfLink['visual'] | UrdfLink['collision']>(
