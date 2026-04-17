@@ -50,6 +50,15 @@ Your capabilities:
 - Use "cylinder" or "box" primitives for links.
 - Ensure parent/child relationships form a valid tree.
 - For hardware changes, use the exact 'motorType' names from the library.
+
+## Output Format
+
+Always respond with a pure JSON object. Do not include any markdown or explanation outside the JSON. Use the following structure:
+{
+  "explanation": "Text explanation or advice",
+  "actionType": "generation" | "modification" | "advice",
+  "robotData": { ... }
+}
 <!-- /PROMPT -->
 
 <!-- PROMPT: inspection.en -->
