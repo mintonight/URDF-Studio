@@ -70,6 +70,7 @@ export interface AppExposedActions {
   openCollisionOptimizer: () => void;
   openTool: (key: string) => void;
   exportProjectBlob: () => Promise<Blob>;
+  collectRawFilesBlob: () => Promise<Blob>;
 }
 
 interface AppContentProps {
@@ -1187,6 +1188,17 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
     return result.blob;
   }, [runProjectExport]);
 
+  const handleCollectRawFilesBlob = useCallback(async (): Promise<Blob> => {
+    const { collectRawFilesZip } = await import('@/features/file-io/utils/rawFilesExport');
+    const assetsState = useAssetsStore.getState();
+    return collectRawFilesZip({
+      assets: assetsState.assets,
+      availableFiles: assetsState.availableFiles,
+      allFileContents: assetsState.allFileContents,
+      selectedFile: assetsState.selectedFile,
+    });
+  }, []);
+
   const exposedActionsRef = useRef<AppExposedActions | null>(null);
   exposedActionsRef.current = {
     importFiles: handleImport,
@@ -1197,6 +1209,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
     openCollisionOptimizer: () => layoutActionsRef.current.openCollisionOptimizer(),
     openTool: (key: string) => layoutActionsRef.current.openTool(key),
     exportProjectBlob: handleExportProjectBlob,
+    collectRawFilesBlob: handleCollectRawFilesBlob,
   };
 
   useEffect(() => {

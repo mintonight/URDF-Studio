@@ -1,4 +1,5 @@
 node_modules/
+.omc/
 .env.local
 .env
 *.log
@@ -48,8 +49,6 @@ public/__codex_anymal_c.zip
 
 .claude/
 .codex/
-AGENTS.md
-.worktrees/
 
 .vscode/
 .tmp/
