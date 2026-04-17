@@ -23,6 +23,7 @@ import {
   resolveInspectionIssueSelectionTarget,
 } from '../utils/inspectionSelectionTargets';
 import { getScoreBgColor, getScoreColor } from '../utils/scoreHelpers';
+import { getInspectionCategoryIcon } from './inspectionCategoryIcon';
 
 interface RetestingItemState {
   categoryId: string;
@@ -81,17 +82,6 @@ function compareIssuesByPriority(
   }
 
   return (a.score ?? 10) - (b.score ?? 10);
-}
-
-function getCategoryIcon(categoryId: string) {
-  if (categoryId === 'spec') return FileText;
-  if (categoryId === 'physical') return Box;
-  if (categoryId === 'frames') return RefreshCw;
-  if (categoryId === 'assembly') return LayoutGrid;
-  if (categoryId === 'simulation') return Sparkles;
-  if (categoryId === 'hardware') return Sparkles;
-  if (categoryId === 'naming') return FileText;
-  return Sparkles;
 }
 
 function getIssueMeta(issueType: string, lang: Language) {
@@ -562,7 +552,7 @@ export function InspectionReportView({
             anchorId,
           }) => {
             const isExpanded = expandedCategories.has(category.id);
-            const CategoryIcon = getCategoryIcon(category.id);
+            const CategoryIcon = getInspectionCategoryIcon(category.id);
 
             return (
               <div

@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import type { RootState } from '@react-three/fiber';
 import type { Group as ThreeGroup, Object3D as ThreeObject3D } from 'three';
 import type {
   AppMode,
@@ -82,6 +83,7 @@ interface UnifiedViewerProps {
   showVisual?: boolean;
   setShowVisual?: (show: boolean) => void;
   snapshotAction?: React.RefObject<SnapshotCaptureAction | null>;
+  onCanvasCreated?: (state: RootState) => void;
   showToolbar?: boolean;
   setShowToolbar?: (show: boolean) => void;
   showOptionsPanel?: boolean;
@@ -167,6 +169,7 @@ export const UnifiedViewer = React.memo(
     showVisual,
     setShowVisual,
     snapshotAction,
+    onCanvasCreated,
     showToolbar = true,
     setShowToolbar,
     showOptionsPanel = true,
@@ -550,6 +553,7 @@ export const UnifiedViewer = React.memo(
         renderKey={`viewer:stable:${viewerReloadKey}`}
         containerRef={viewerController.containerRef}
         snapshotAction={snapshotAction}
+        onCreated={onCanvasCreated}
         onPointerDownCapture={handleWorkspacePointerDownCapture}
         onPointerMissed={handleViewerPointerMissed}
         onMouseMove={viewerController.handleMouseMove}

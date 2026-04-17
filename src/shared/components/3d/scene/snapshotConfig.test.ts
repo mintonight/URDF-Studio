@@ -13,6 +13,7 @@ test('normalizeSnapshotCaptureOptions defaults the export background to studio',
   assert.equal(options.shadowStyle, 'balanced');
   assert.equal(options.groundStyle, 'shadow');
   assert.equal(options.dofMode, 'off');
+  assert.equal(options.hideGrid, false);
 });
 
 test('normalizeSnapshotCaptureOptions keeps transparent backgrounds for alpha-capable formats', () => {

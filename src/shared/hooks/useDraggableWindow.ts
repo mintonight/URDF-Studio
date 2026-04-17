@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, MouseEvent, RefObject } from 'react';
+import type { CSSProperties, Dispatch, MouseEvent, RefObject, SetStateAction } from 'react';
 
 export type ResizeDirection = 'right' | 'bottom' | 'corner' | 'left' | 'e' | 's' | 'se' | 'w';
 
@@ -37,6 +37,7 @@ export interface DraggableWindowReturn {
   isMinimized: boolean;
   position: Position;
   size: WindowSize;
+  setSize: Dispatch<SetStateAction<WindowSize>>;
   isDragging: boolean;
   isResizing: boolean;
   containerRef: RefObject<HTMLDivElement | null>;
@@ -60,7 +61,9 @@ const clamp = (value: number, min: number, max: number) => {
   return Math.max(min, Math.min(max, value));
 };
 
-const normalizeResizeDirection = (direction: ResizeDirection): 'right' | 'bottom' | 'corner' | 'left' => {
+const normalizeResizeDirection = (
+  direction: ResizeDirection,
+): 'right' | 'bottom' | 'corner' | 'left' => {
   if (direction === 'e') return 'right';
   if (direction === 's') return 'bottom';
   if (direction === 'w' || direction === 'left') return 'left';
@@ -81,7 +84,10 @@ const getViewportWindowSizeLimit = (shouldClampToViewport: boolean): WindowSize 
   };
 };
 
-const constrainWindowSizeToViewport = (nextSize: WindowSize, shouldClampToViewport: boolean): WindowSize => {
+const constrainWindowSizeToViewport = (
+  nextSize: WindowSize,
+  shouldClampToViewport: boolean,
+): WindowSize => {
   const viewportLimit = getViewportWindowSizeLimit(shouldClampToViewport);
   return {
     width: Math.min(nextSize.width, viewportLimit.width),
@@ -89,7 +95,10 @@ const constrainWindowSizeToViewport = (nextSize: WindowSize, shouldClampToViewpo
   };
 };
 
-const getEffectiveMinWindowSize = (nextMinSize: WindowSize, shouldClampToViewport: boolean): WindowSize => {
+const getEffectiveMinWindowSize = (
+  nextMinSize: WindowSize,
+  shouldClampToViewport: boolean,
+): WindowSize => {
   const viewportLimit = getViewportWindowSizeLimit(shouldClampToViewport);
   return {
     width: Math.min(nextMinSize.width, viewportLimit.width),
@@ -111,14 +120,24 @@ export const useDraggableWindow = ({
   const [isMaximized, setIsMaximized] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [position, setPosition] = useState<Position>(defaultPosition);
-  const [size, setSize] = useState<WindowSize>(() => constrainWindowSizeToViewport(defaultSize, clampResizeToViewport));
+  const [size, setSize] = useState<WindowSize>(() =>
+    constrainWindowSizeToViewport(defaultSize, clampResizeToViewport),
+  );
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
-  const [resizeDirection, setResizeDirection] = useState<'right' | 'bottom' | 'corner' | 'left' | null>(null);
+  const [resizeDirection, setResizeDirection] = useState<
+    'right' | 'bottom' | 'corner' | 'left' | null
+  >(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef<Position>({ x: 0, y: 0 });
-  const resizeStartRef = useRef({ x: 0, y: 0, width: defaultSize.width, height: defaultSize.height, posX: 0 });
+  const resizeStartRef = useRef({
+    x: 0,
+    y: 0,
+    width: defaultSize.width,
+    height: defaultSize.height,
+    posX: 0,
+  });
   const positionRef = useRef(position);
   const sizeRef = useRef(size);
   const dragTransformRef = useRef<Position>({ x: 0, y: 0 });
@@ -184,7 +203,12 @@ export const useDraggableWindow = ({
       const maxY = window.innerHeight - (dragBounds?.bottomMargin ?? 48);
       return { minX, maxX, minY, maxY };
     },
-    [dragBounds?.allowNegativeX, dragBounds?.bottomMargin, dragBounds?.minVisibleWidth, dragBounds?.topMargin],
+    [
+      dragBounds?.allowNegativeX,
+      dragBounds?.bottomMargin,
+      dragBounds?.minVisibleWidth,
+      dragBounds?.topMargin,
+    ],
   );
 
   const centerWindow = useCallback(() => {
@@ -248,7 +272,13 @@ export const useDraggableWindow = ({
       window.removeEventListener('blur', handleMouseUp);
       restoreBodyInteractionStyles();
     };
-  }, [getDragLimits, isDragging, resetDragTransform, restoreBodyInteractionStyles, scheduleDragTransform]);
+  }, [
+    getDragLimits,
+    isDragging,
+    resetDragTransform,
+    restoreBodyInteractionStyles,
+    scheduleDragTransform,
+  ]);
 
   useEffect(() => {
     if (!isResizing || !resizeDirection) return;
@@ -311,7 +341,14 @@ export const useDraggableWindow = ({
       window.removeEventListener('blur', handleMouseUp);
       restoreBodyInteractionStyles();
     };
-  }, [clampResizeToViewport, isResizing, minSize.height, minSize.width, resizeDirection, restoreBodyInteractionStyles]);
+  }, [
+    clampResizeToViewport,
+    isResizing,
+    minSize.height,
+    minSize.width,
+    resizeDirection,
+    restoreBodyInteractionStyles,
+  ]);
 
   useEffect(() => {
     resetDragTransform();
@@ -384,11 +421,12 @@ export const useDraggableWindow = ({
       e.stopPropagation();
       captureBodyInteractionStyles();
       document.body.style.userSelect = 'none';
-      document.body.style.cursor = direction === 'left' || direction === 'w'
-        ? 'ew-resize'
-        : direction === 'bottom' || direction === 's'
-          ? 'ns-resize'
-          : 'nwse-resize';
+      document.body.style.cursor =
+        direction === 'left' || direction === 'w'
+          ? 'ew-resize'
+          : direction === 'bottom' || direction === 's'
+            ? 'ns-resize'
+            : 'nwse-resize';
       setIsResizing(true);
       setResizeDirection(normalizeResizeDirection(direction));
       resizeStartRef.current = {
@@ -408,7 +446,10 @@ export const useDraggableWindow = ({
     setIsMaximized((prev) => {
       if (prev) {
         if (preMaximizeRef.current) {
-          const restoredSize = constrainWindowSizeToViewport(preMaximizeRef.current.size, clampResizeToViewport);
+          const restoredSize = constrainWindowSizeToViewport(
+            preMaximizeRef.current.size,
+            clampResizeToViewport,
+          );
           const limits = getDragLimits(restoredSize);
           setPosition({
             x: clamp(preMaximizeRef.current.position.x, limits.minX, limits.maxX),
@@ -474,6 +515,7 @@ export const useDraggableWindow = ({
     isMinimized,
     position,
     size,
+    setSize,
     isDragging,
     isResizing,
     containerRef,

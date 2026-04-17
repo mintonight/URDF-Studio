@@ -18,6 +18,8 @@ export {
   normalizeSnapshotCaptureOptions,
   normalizeSnapshotImageQuality,
   normalizeSnapshotLongEdgePx,
+  type SnapshotPreviewAction,
+  type SnapshotPreviewResult,
   type SnapshotBackgroundStyle,
   type SnapshotCaptureAction,
   type SnapshotCaptureOptions,
@@ -28,6 +30,7 @@ export {
   type SnapshotImageFormat,
   type SnapshotShadowStyle,
 } from './snapshotConfig';
+export { resolveSnapshotPreviewCaptureOptions } from './snapshotPreviewConfig';
 export { NeutralStudioEnvironment } from './NeutralStudioEnvironment';
 export { SceneLighting } from './SceneLighting';
 export { GroundShadowPlane } from './GroundShadowPlane';

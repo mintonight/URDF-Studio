@@ -9,6 +9,10 @@ import {
   syncWorkspacePerspectiveClipPlanes,
 } from './workspaceOrbitClipping';
 import { resolveWorkspaceOrbitPanSpeed } from './workspaceOrbitPan';
+import {
+  applyWorkspaceCameraSnapshot,
+  type WorkspaceCameraSnapshot,
+} from '../workspace/workspaceCameraSnapshot';
 
 const WORKSPACE_ORBIT_CONTROL_TUNING = {
   dampingFactor: 0.08,
@@ -32,6 +36,7 @@ export interface WorkspaceOrbitControlsProps {
   zoomToCursor?: boolean;
   minDistance?: number;
   maxDistance?: number;
+  initialCameraSnapshot?: WorkspaceCameraSnapshot | null;
 }
 
 export function WorkspaceOrbitControls({
@@ -46,6 +51,7 @@ export function WorkspaceOrbitControls({
   zoomToCursor = WORKSPACE_ORBIT_CONTROL_TUNING.zoomToCursor,
   minDistance = WORKSPACE_ORBIT_CONTROL_TUNING.minDistance,
   maxDistance,
+  initialCameraSnapshot = null,
 }: WorkspaceOrbitControlsProps) {
   const camera = useThree((state) => state.camera);
   const scene = useThree((state) => state.scene);
@@ -54,13 +60,23 @@ export function WorkspaceOrbitControls({
   const panSceneBoundsRef = useRef<THREE.Box3 | null | undefined>(undefined);
 
   const refreshSceneBounds = useCallback(() => {
-    clipSceneBoundsRef.current = computeVisibleMeshBounds(scene, { includeGroundPlaneHelpers: true });
+    clipSceneBoundsRef.current = computeVisibleMeshBounds(scene, {
+      includeGroundPlaneHelpers: true,
+    });
     panSceneBoundsRef.current = computeVisibleMeshBounds(scene);
   }, [scene]);
 
   useEffect(() => {
     refreshSceneBounds();
   }, [refreshSceneBounds]);
+
+  useEffect(() => {
+    if (!controlsRef.current) {
+      return;
+    }
+
+    applyWorkspaceCameraSnapshot(camera, controlsRef.current, initialCameraSnapshot);
+  }, [camera, initialCameraSnapshot]);
 
   useFrame(() => {
     if (!controlsRef.current) {

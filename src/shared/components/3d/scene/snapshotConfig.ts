@@ -49,6 +49,16 @@ export interface SnapshotCaptureOptions {
 }
 
 export type SnapshotCaptureAction = (options?: Partial<SnapshotCaptureOptions>) => Promise<void>;
+export interface SnapshotPreviewResult {
+  blob: Blob;
+  width: number;
+  height: number;
+  options: SnapshotCaptureOptions;
+}
+
+export type SnapshotPreviewAction = (
+  options?: Partial<SnapshotCaptureOptions>,
+) => Promise<SnapshotPreviewResult>;
 
 export const DEFAULT_SNAPSHOT_CAPTURE_OPTIONS: SnapshotCaptureOptions = {
   longEdgePx: SNAPSHOT_MIN_LONG_EDGE,
@@ -60,7 +70,7 @@ export const DEFAULT_SNAPSHOT_CAPTURE_OPTIONS: SnapshotCaptureOptions = {
   groundStyle: 'shadow',
   dofMode: 'off',
   backgroundStyle: 'studio',
-  hideGrid: true,
+  hideGrid: false,
 };
 
 export const SNAPSHOT_DETAIL_SHADOW_MAP_SIZE: Record<SnapshotDetailLevel, number | null> = {
