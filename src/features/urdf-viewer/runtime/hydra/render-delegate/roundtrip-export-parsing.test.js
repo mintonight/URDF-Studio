@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Color, MeshPhysicalMaterial, Texture } from 'three';
 
+import * as SharedBasic from './shared-basic.js';
 import {
     parseColliderEntriesFromLayerText,
     parseUrdfMaterialMetadataFromLayerText,
@@ -61,6 +62,67 @@ def Xform "Robot"
     }
 }`;
 
+const exportedStandardMaterialBindingLayerText = `#usda 1.0
+def Xform "Robot"
+{
+    def Scope "Looks"
+    {
+        def Material "Mat_0"
+        {
+        }
+        def Material "Mat_1"
+        {
+        }
+        def Material "Mat_2"
+        {
+        }
+    }
+    def Xform "base_link"
+    {
+        def Xform "visuals"
+        {
+            def Xform "visual_0"
+            {
+                def Mesh "mesh"
+                {
+                    def GeomSubset "subset_0" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        token elementType = "face"
+                        token familyName = "materialBind"
+                        int[] indices = [0, 1, 2, 3, 7, 8]
+                        rel material:binding = </Robot/Looks/Mat_0>
+                    }
+                    def GeomSubset "subset_1" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        token elementType = "face"
+                        token familyName = "materialBind"
+                        int[] indices = [4, 5, 6]
+                        rel material:binding = </Robot/Looks/Mat_1>
+                    }
+                }
+            }
+            def Xform "visual_1"
+            {
+                rel material:binding = </Robot/Looks/Mat_2>
+                def Mesh "mesh"
+                {
+                }
+            }
+        }
+    }
+}`;
+
+const exportedReferencedStandardMaterialBindingRootLayerText = `#usda 1.0
+def Xform "Robot" (
+    prepend references = @configuration/b2_description_base.usd@
+)
+{
+}`;
+
 test('parseVisualSemanticChildNamesFromLayerText finds semantic children across nested link-local scopes', () => {
     const result = parseVisualSemanticChildNamesFromLayerText(exportedBaseLayerText);
 
@@ -84,6 +146,28 @@ test('parseUrdfMaterialMetadataFromLayerText extracts URDF export material metad
     });
     assert.deepEqual(result.get('/Robot/base_link/arm_link/visuals/camera'), {
         color: '#abcdef',
+    });
+});
+
+test('parseUsdMaterialBindingsFromLayerText extracts direct bindings and compresses GeomSubset face runs', () => {
+    assert.equal(typeof SharedBasic.parseUsdMaterialBindingsFromLayerText, 'function');
+
+    const result = SharedBasic.parseUsdMaterialBindingsFromLayerText(
+        exportedStandardMaterialBindingLayerText,
+    );
+
+    assert.ok(result instanceof Map);
+    assert.deepEqual(result.get('/Robot/base_link/visuals/visual_0/mesh'), {
+        materialId: null,
+        geomSubsetSections: [
+            { start: 0, length: 4, materialId: '/Robot/Looks/Mat_0' },
+            { start: 4, length: 3, materialId: '/Robot/Looks/Mat_1' },
+            { start: 7, length: 2, materialId: '/Robot/Looks/Mat_0' },
+        ],
+    });
+    assert.deepEqual(result.get('/Robot/base_link/visuals/visual_1'), {
+        materialId: '/Robot/Looks/Mat_2',
+        geomSubsetSections: [],
     });
 });
 
@@ -147,6 +231,480 @@ test('normalizeRobotSceneSnapshot synthesizes fallback material records from exp
         assert.ok(Math.abs(fallbackMaterial.color[0] - expectedColor.r) < 1e-6);
         assert.ok(Math.abs(fallbackMaterial.color[1] - expectedColor.g) < 1e-6);
         assert.ok(Math.abs(fallbackMaterial.color[2] - expectedColor.b) < 1e-6);
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});
+
+test('normalizeRobotSceneSnapshot restores standard USD material bindings and GeomSubset sections for exported roundtrip layers', () => {
+    const previousWindow = globalThis.window;
+    globalThis.window = {
+        location: { search: '' },
+    };
+    try {
+        const delegate = new ThreeRenderDelegateInterface({
+            stage: () => ({
+                GetRootLayer: () => ({
+                    ExportToString: () => exportedStandardMaterialBindingLayerText,
+                }),
+                GetUsedLayers: () => [],
+                GetDefaultPrim: () => ({
+                    GetPath: () => ({ pathString: '/Robot' }),
+                }),
+            }),
+            driver: () => null,
+            allowDriverStageLookup: false,
+        });
+
+        const snapshot = delegate.normalizeRobotSceneSnapshot({
+            generatedAtMs: 1,
+            stage: {
+                stageSourcePath: '/tmp/roundtrip-standard-materials.usda',
+                defaultPrimPath: '/Robot',
+            },
+            robotTree: {
+                linkParentPairs: [['/Robot/base_link', null]],
+                jointCatalogEntries: [],
+                rootLinkPaths: ['/Robot/base_link'],
+            },
+            physics: {
+                linkDynamicsEntries: [],
+            },
+            render: {
+                meshDescriptors: [{
+                    meshId: '/Robot/base_link/visuals/visual_0/mesh',
+                    resolvedPrimPath: '/Robot/base_link/visuals/visual_0/mesh',
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                }, {
+                    meshId: '/Robot/base_link/visuals/visual_1/mesh',
+                    resolvedPrimPath: '/Robot/base_link/visuals/visual_1/mesh',
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                }],
+                materials: [{
+                    materialId: '/Robot/Looks/Mat_0',
+                    name: 'Mat_0',
+                }, {
+                    materialId: '/Robot/Looks/Mat_1',
+                    name: 'Mat_1',
+                }, {
+                    materialId: '/Robot/Looks/Mat_2',
+                    name: 'Mat_2',
+                }],
+            },
+        }, {
+            stageSourcePath: '/tmp/roundtrip-standard-materials.usda',
+        });
+
+        assert.ok(snapshot);
+        assert.deepEqual(snapshot.render.meshDescriptors[0].geometry.geomSubsetSections, [
+            { start: 0, length: 4, materialId: '/Robot/Looks/Mat_0' },
+            { start: 4, length: 3, materialId: '/Robot/Looks/Mat_1' },
+            { start: 7, length: 2, materialId: '/Robot/Looks/Mat_0' },
+        ]);
+        assert.equal(snapshot.render.meshDescriptors[0].materialId, null);
+        assert.equal(snapshot.render.meshDescriptors[0].geometry.materialId, null);
+        assert.equal(snapshot.render.meshDescriptors[1].materialId, '/Robot/Looks/Mat_2');
+        assert.equal(snapshot.render.meshDescriptors[1].geometry.materialId, '/Robot/Looks/Mat_2');
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});
+
+test('normalizeRobotSceneSnapshot restores standard USD material bindings from referenced configuration layers when used layers are unavailable', () => {
+    const previousWindow = globalThis.window;
+    const rootStagePath = '/tmp/b2_description.usd';
+    const referencedStagePath = '/tmp/configuration/b2_description_base.usd';
+    globalThis.window = {
+        location: { search: '' },
+        USD: {
+            UsdStage: {
+                Open: (stagePath) => {
+                    if (stagePath !== referencedStagePath) {
+                        return null;
+                    }
+                    return {
+                        GetRootLayer: () => ({
+                            ExportToString: () => exportedStandardMaterialBindingLayerText,
+                            identifier: stagePath,
+                        }),
+                    };
+                },
+            },
+        },
+    };
+    try {
+        const delegate = new ThreeRenderDelegateInterface({
+            stage: () => ({
+                GetRootLayer: () => ({
+                    ExportToString: () => exportedReferencedStandardMaterialBindingRootLayerText,
+                    identifier: 'blob:http://127.0.0.1:4173/fake-roundtrip-root',
+                }),
+                GetUsedLayers: () => [],
+                GetDefaultPrim: () => ({
+                    GetPath: () => ({ pathString: '/Robot' }),
+                }),
+            }),
+            driver: () => null,
+            allowDriverStageLookup: false,
+        });
+
+        const snapshot = delegate.normalizeRobotSceneSnapshot({
+            generatedAtMs: 1,
+            stage: {
+                stageSourcePath: rootStagePath,
+                defaultPrimPath: '/Robot',
+            },
+            robotTree: {
+                linkParentPairs: [['/Robot/base_link', null]],
+                jointCatalogEntries: [],
+                rootLinkPaths: ['/Robot/base_link'],
+            },
+            physics: {
+                linkDynamicsEntries: [],
+            },
+            render: {
+                meshDescriptors: [{
+                    meshId: '/Robot/base_link/visuals/visual_0/mesh',
+                    resolvedPrimPath: '/Robot/base_link/visuals/visual_0/mesh',
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                }, {
+                    meshId: '/Robot/base_link/visuals/visual_1/mesh',
+                    resolvedPrimPath: '/Robot/base_link/visuals/visual_1/mesh',
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                }],
+                materials: [{
+                    materialId: '/Robot/Looks/Mat_0',
+                    name: 'Mat_0',
+                }, {
+                    materialId: '/Robot/Looks/Mat_1',
+                    name: 'Mat_1',
+                }, {
+                    materialId: '/Robot/Looks/Mat_2',
+                    name: 'Mat_2',
+                }],
+            },
+        }, {
+            stageSourcePath: rootStagePath,
+        });
+
+        assert.ok(snapshot);
+        assert.deepEqual(snapshot.render.meshDescriptors[0].geometry.geomSubsetSections, [
+            { start: 0, length: 4, materialId: '/Robot/Looks/Mat_0' },
+            { start: 4, length: 3, materialId: '/Robot/Looks/Mat_1' },
+            { start: 7, length: 2, materialId: '/Robot/Looks/Mat_0' },
+        ]);
+        assert.equal(snapshot.render.meshDescriptors[0].materialId, null);
+        assert.equal(snapshot.render.meshDescriptors[0].geometry.materialId, null);
+        assert.equal(snapshot.render.meshDescriptors[1].materialId, '/Robot/Looks/Mat_2');
+        assert.equal(snapshot.render.meshDescriptors[1].geometry.materialId, '/Robot/Looks/Mat_2');
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});
+
+test('normalizeRobotSceneSnapshot restores standard USD material bindings from the loaded stage layer stack', () => {
+    const previousWindow = globalThis.window;
+    globalThis.window = {
+        location: { search: '' },
+    };
+    try {
+        const rootStagePath = '/tmp/b2_description.viewer_roundtrip.usd';
+        const referencedStagePath = '/tmp/configuration/b2_description_base.usd';
+        const layerStack = {
+            size: () => 2,
+            get: (index) => {
+                if (index === 0) {
+                    return {
+                        ExportToString: () => exportedReferencedStandardMaterialBindingRootLayerText,
+                        identifier: 'blob:http://127.0.0.1:4173/fake-roundtrip-root',
+                    };
+                }
+                if (index === 1) {
+                    return {
+                        ExportToString: () => exportedStandardMaterialBindingLayerText,
+                        identifier: referencedStagePath,
+                    };
+                }
+                return null;
+            },
+        };
+        const delegate = new ThreeRenderDelegateInterface({
+            stage: () => ({
+                GetRootLayer: () => ({
+                    ExportToString: () => exportedReferencedStandardMaterialBindingRootLayerText,
+                    identifier: 'blob:http://127.0.0.1:4173/fake-roundtrip-root',
+                }),
+                GetLayerStack: () => layerStack,
+                GetUsedLayers: () => [],
+                GetDefaultPrim: () => ({
+                    GetPath: () => ({ pathString: '/Robot' }),
+                }),
+            }),
+            driver: () => null,
+            allowDriverStageLookup: false,
+        });
+
+        const snapshot = delegate.normalizeRobotSceneSnapshot({
+            generatedAtMs: 1,
+            stage: {
+                stageSourcePath: rootStagePath,
+                defaultPrimPath: '/Robot',
+            },
+            robotTree: {
+                linkParentPairs: [['/Robot/base_link', null]],
+                jointCatalogEntries: [],
+                rootLinkPaths: ['/Robot/base_link'],
+            },
+            physics: {
+                linkDynamicsEntries: [],
+            },
+            render: {
+                meshDescriptors: [{
+                    meshId: '/Robot/base_link/visuals/visual_0/mesh',
+                    resolvedPrimPath: '/Robot/base_link/visuals/visual_0/mesh',
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                }, {
+                    meshId: '/Robot/base_link/visuals/visual_1/mesh',
+                    resolvedPrimPath: '/Robot/base_link/visuals/visual_1/mesh',
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                }],
+                materials: [{
+                    materialId: '/Robot/Looks/Mat_0',
+                    name: 'Mat_0',
+                }, {
+                    materialId: '/Robot/Looks/Mat_1',
+                    name: 'Mat_1',
+                }, {
+                    materialId: '/Robot/Looks/Mat_2',
+                    name: 'Mat_2',
+                }],
+            },
+        }, {
+            stageSourcePath: rootStagePath,
+        });
+
+        assert.ok(snapshot);
+        assert.deepEqual(snapshot.render.meshDescriptors[0].geometry.geomSubsetSections, [
+            { start: 0, length: 4, materialId: '/Robot/Looks/Mat_0' },
+            { start: 4, length: 3, materialId: '/Robot/Looks/Mat_1' },
+            { start: 7, length: 2, materialId: '/Robot/Looks/Mat_0' },
+        ]);
+        assert.equal(snapshot.render.meshDescriptors[1].materialId, '/Robot/Looks/Mat_2');
+        assert.equal(snapshot.render.meshDescriptors[1].geometry.materialId, '/Robot/Looks/Mat_2');
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});
+
+test('normalizeRobotSceneSnapshot restores standard USD material bindings by reopening the current stage path when the live stage handle is unavailable', () => {
+    const previousWindow = globalThis.window;
+    const rootStagePath = '/tmp/b2_description.viewer_roundtrip.usd';
+    const referencedStagePath = '/tmp/configuration/b2_description_base.usd';
+    globalThis.window = {
+        location: { search: '' },
+        USD: {
+            UsdStage: {
+                Open: (stagePath) => {
+                    if (stagePath === rootStagePath) {
+                        return {
+                            GetRootLayer: () => ({
+                                ExportToString: () => exportedReferencedStandardMaterialBindingRootLayerText,
+                                identifier: rootStagePath,
+                            }),
+                            GetUsedLayers: () => [],
+                        };
+                    }
+                    if (stagePath === referencedStagePath) {
+                        return {
+                            GetRootLayer: () => ({
+                                ExportToString: () => exportedStandardMaterialBindingLayerText,
+                                identifier: referencedStagePath,
+                            }),
+                            GetUsedLayers: () => [],
+                        };
+                    }
+                    return null;
+                },
+            },
+        },
+    };
+    try {
+        const delegate = new ThreeRenderDelegateInterface({
+            stage: () => null,
+            driver: () => null,
+            allowDriverStageLookup: false,
+        });
+
+        const snapshot = delegate.normalizeRobotSceneSnapshot({
+            generatedAtMs: 1,
+            stage: {
+                stageSourcePath: rootStagePath,
+                defaultPrimPath: '/Robot',
+            },
+            robotTree: {
+                linkParentPairs: [['/Robot/base_link', null]],
+                jointCatalogEntries: [],
+                rootLinkPaths: ['/Robot/base_link'],
+            },
+            physics: {
+                linkDynamicsEntries: [],
+            },
+            render: {
+                meshDescriptors: [{
+                    meshId: '/Robot/base_link/visuals/visual_0/mesh',
+                    resolvedPrimPath: '/Robot/base_link/visuals/visual_0/mesh',
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                }, {
+                    meshId: '/Robot/base_link/visuals/visual_1/mesh',
+                    resolvedPrimPath: '/Robot/base_link/visuals/visual_1/mesh',
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                }],
+                materials: [{
+                    materialId: '/Robot/Looks/Mat_0',
+                    name: 'Mat_0',
+                }, {
+                    materialId: '/Robot/Looks/Mat_1',
+                    name: 'Mat_1',
+                }, {
+                    materialId: '/Robot/Looks/Mat_2',
+                    name: 'Mat_2',
+                }],
+            },
+        }, {
+            stageSourcePath: rootStagePath,
+        });
+
+        assert.ok(snapshot);
+        assert.deepEqual(snapshot.render.meshDescriptors[0].geometry.geomSubsetSections, [
+            { start: 0, length: 4, materialId: '/Robot/Looks/Mat_0' },
+            { start: 4, length: 3, materialId: '/Robot/Looks/Mat_1' },
+            { start: 7, length: 2, materialId: '/Robot/Looks/Mat_0' },
+        ]);
+        assert.equal(snapshot.render.meshDescriptors[1].materialId, '/Robot/Looks/Mat_2');
+        assert.equal(snapshot.render.meshDescriptors[1].geometry.materialId, '/Robot/Looks/Mat_2');
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});
+
+test('normalizeRobotSceneSnapshot caches parsed material recovery data for repeated isaacsim roundtrip loads', () => {
+    const previousWindow = globalThis.window;
+    const rootStagePath = '/tmp/b2_description.usd';
+    const referencedStagePath = '/tmp/configuration/b2_description_base.usd';
+    globalThis.window = {
+        location: { search: '' },
+    };
+    try {
+        const layerStack = {
+            size: () => 2,
+            get: (index) => {
+                if (index === 0) {
+                    return {
+                        ExportToString: () => exportedReferencedStandardMaterialBindingRootLayerText,
+                        identifier: rootStagePath,
+                    };
+                }
+                if (index === 1) {
+                    return {
+                        ExportToString: () => exportedStandardMaterialBindingLayerText,
+                        identifier: referencedStagePath,
+                    };
+                }
+                return null;
+            },
+        };
+        const delegate = new ThreeRenderDelegateInterface({
+            stage: () => ({
+                GetRootLayer: () => ({
+                    ExportToString: () => exportedReferencedStandardMaterialBindingRootLayerText,
+                    identifier: rootStagePath,
+                }),
+                GetLayerStack: () => layerStack,
+                GetUsedLayers: () => [],
+                GetDefaultPrim: () => ({
+                    GetPath: () => ({ pathString: '/Robot' }),
+                }),
+            }),
+            driver: () => null,
+            allowDriverStageLookup: false,
+        });
+        const rawSnapshot = {
+            generatedAtMs: 1,
+            stage: {
+                stageSourcePath: rootStagePath,
+                defaultPrimPath: '/Robot',
+            },
+            robotTree: {
+                linkParentPairs: [['/Robot/base_link', null]],
+                jointCatalogEntries: [],
+                rootLinkPaths: ['/Robot/base_link'],
+            },
+            physics: {
+                linkDynamicsEntries: [],
+            },
+            render: {
+                meshDescriptors: [{
+                    meshId: '/Robot/base_link/visuals/visual_0/mesh',
+                    resolvedPrimPath: '/Robot/base_link/visuals/visual_0/mesh',
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                }, {
+                    meshId: '/Robot/base_link/visuals/visual_1/mesh',
+                    resolvedPrimPath: '/Robot/base_link/visuals/visual_1/mesh',
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                }],
+                materials: [{
+                    materialId: '/Robot/Looks/Mat_0',
+                    name: 'Mat_0',
+                }, {
+                    materialId: '/Robot/Looks/Mat_1',
+                    name: 'Mat_1',
+                }, {
+                    materialId: '/Robot/Looks/Mat_2',
+                    name: 'Mat_2',
+                }],
+            },
+        };
+
+        const firstSnapshot = delegate.normalizeRobotSceneSnapshot(rawSnapshot, {
+            stageSourcePath: rootStagePath,
+        });
+        assert.ok(firstSnapshot);
+        const cacheEntry = delegate._roundtripMaterialRecoveryByStageSource?.get(rootStagePath);
+        assert.ok(cacheEntry, 'expected repeated isaacsim roundtrip loads to cache parsed stage recovery data');
+        assert.ok(cacheEntry.urdfMaterialMetadataByPrimPath instanceof Map);
+        assert.ok(cacheEntry.usdMaterialBindingsByPrimPath instanceof Map);
+
+        const secondSnapshot = delegate.normalizeRobotSceneSnapshot(rawSnapshot, {
+            stageSourcePath: rootStagePath,
+        });
+        assert.ok(secondSnapshot);
+        assert.strictEqual(
+            delegate._roundtripMaterialRecoveryByStageSource.get(rootStagePath),
+            cacheEntry,
+            'expected repeated isaacsim roundtrip loads to reuse the cached parsed stage recovery data',
+        );
+        assert.deepEqual(secondSnapshot.render.meshDescriptors[0].geometry.geomSubsetSections, [
+            { start: 0, length: 4, materialId: '/Robot/Looks/Mat_0' },
+            { start: 4, length: 3, materialId: '/Robot/Looks/Mat_1' },
+            { start: 7, length: 2, materialId: '/Robot/Looks/Mat_0' },
+        ]);
+        assert.equal(secondSnapshot.render.meshDescriptors[1].materialId, '/Robot/Looks/Mat_2');
+        assert.equal(secondSnapshot.render.meshDescriptors[1].geometry.materialId, '/Robot/Looks/Mat_2');
     }
     finally {
         globalThis.window = previousWindow;
@@ -494,6 +1052,106 @@ test('normalizeRobotSceneSnapshot serializes preferred live visual materials by 
         assert.equal(preferredRecord.roughnessMapPath, 'textures/body_roughness.png');
         assert.equal(preferredRecord.normalMapPath, 'textures/body_normal.png');
         assert.equal(preferredRecord.alphaMapPath, 'textures/body_opacity.png');
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});
+
+test('normalizeRobotSceneSnapshot enriches sparse raw material records with stage-authored fallback parameters', () => {
+    const previousWindow = globalThis.window;
+    globalThis.window = {
+        location: { search: '' },
+    };
+    try {
+        const delegate = new ThreeRenderDelegateInterface({
+            stage: () => ({
+                GetRootLayer: () => ({
+                    ExportToString: () => '#usda 1.0\n',
+                }),
+                GetUsedLayers: () => [],
+                GetDefaultPrim: () => ({
+                    GetPath: () => ({ pathString: '/Robot' }),
+                }),
+            }),
+            driver: () => null,
+            allowDriverStageLookup: false,
+        });
+        const stageFallbackMaterial = new MeshPhysicalMaterial({
+            color: new Color('#90a4b8'),
+            emissive: new Color('#102030'),
+            emissiveIntensity: 1.6,
+            roughness: 0.33,
+            metalness: 0.72,
+            opacity: 0.84,
+            transparent: true,
+            clearcoat: 0.18,
+            clearcoatRoughness: 0.42,
+        });
+        stageFallbackMaterial.name = 'BodyPaint';
+        delegate.createFallbackMaterialFromStage = (materialId) => ({
+            _id: materialId,
+            _nodes: {},
+            _interface: delegate,
+            _material: stageFallbackMaterial,
+        });
+
+        const snapshot = delegate.normalizeRobotSceneSnapshot({
+            generatedAtMs: 1,
+            stage: {
+                stageSourcePath: '/tmp/sparse-material.usda',
+                defaultPrimPath: '/Robot',
+            },
+            robotTree: {
+                linkParentPairs: [['/Robot/base_link', null]],
+                jointCatalogEntries: [],
+                rootLinkPaths: ['/Robot/base_link'],
+            },
+            physics: {
+                linkDynamicsEntries: [],
+            },
+            render: {
+                meshDescriptors: [{
+                    meshId: '/Robot/base_link/visuals.proto_mesh_id0',
+                    resolvedPrimPath: '/Robot/base_link/visuals/base_link',
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                    materialId: '/Robot/Looks/body',
+                    geometry: {
+                        materialId: '/Robot/Looks/body',
+                        geomSubsetSections: [],
+                    },
+                }],
+                materials: [{
+                    materialId: '/Robot/Looks/body',
+                    name: 'BodyPaint',
+                }],
+            },
+        }, {
+            stageSourcePath: '/tmp/sparse-material.usda',
+        });
+
+        assert.ok(snapshot);
+        assert.equal(snapshot.render.materials.length, 1);
+        const materialRecord = snapshot.render.materials[0];
+        const expectedColor = new Color('#90a4b8');
+        const expectedEmissive = new Color('#102030');
+        assert.equal(materialRecord.materialId, '/Robot/Looks/body');
+        assert.equal(materialRecord.name, 'BodyPaint');
+        assert.ok(Array.isArray(materialRecord.color));
+        assert.ok(Math.abs(materialRecord.color[0] - expectedColor.r) < 1e-6);
+        assert.ok(Math.abs(materialRecord.color[1] - expectedColor.g) < 1e-6);
+        assert.ok(Math.abs(materialRecord.color[2] - expectedColor.b) < 1e-6);
+        assert.ok(Array.isArray(materialRecord.emissive));
+        assert.ok(Math.abs(materialRecord.emissive[0] - expectedEmissive.r) < 1e-6);
+        assert.ok(Math.abs(materialRecord.emissive[1] - expectedEmissive.g) < 1e-6);
+        assert.ok(Math.abs(materialRecord.emissive[2] - expectedEmissive.b) < 1e-6);
+        assert.equal(materialRecord.roughness, 0.33);
+        assert.equal(materialRecord.metalness, 0.72);
+        assert.equal(materialRecord.opacity, 0.84);
+        assert.equal(materialRecord.clearcoat, 0.18);
+        assert.equal(materialRecord.clearcoatRoughness, 0.42);
+        assert.equal(materialRecord.emissiveIntensity, 1.6);
     }
     finally {
         globalThis.window = previousWindow;

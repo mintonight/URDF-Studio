@@ -57,6 +57,7 @@ export interface PropertyEditorProps {
   theme: Theme;
   readOnlyMessage?: string;
   jointTypeLocked?: boolean;
+  sourceFilePath?: string;
 }
 
 export const PropertyEditor: React.FC<PropertyEditorProps> = ({
@@ -74,6 +75,7 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
   readOnlyMessage,
   jointTypeLocked = false,
   onAddCollisionBody,
+  sourceFilePath,
 }) => {
   const { selection } = robot;
   const isLink = selection.type === 'link';
@@ -200,6 +202,7 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
                   motorLibrary={motorLibrary}
                   assets={assets}
                   onUploadAsset={onUploadAsset}
+                  sourceFilePath={sourceFilePath}
                   t={t}
                   lang={lang}
                 />

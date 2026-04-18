@@ -43,6 +43,7 @@ test('buildViewerSceneProps uses controller-owned defaults for viewer scene wiri
   assert.equal(sceneProps.active, true);
   assert.equal(sceneProps.hoverSelectionEnabled, true);
   assert.equal(sceneProps.onHover, controller.handleHoverWrapper);
+  assert.equal(sceneProps.allowUrdfXmlFallback, true);
   assert.equal(sceneProps.isMeshPreview, false);
   assert.equal(sceneProps.runtimeInstanceKey, 0);
 });
@@ -72,6 +73,7 @@ test('buildViewerSceneProps preserves explicit overrides for preview and handoff
     sourceFilePath: 'robots/go2/urdf/go2.urdf',
     groundPlaneOffset: 3.5,
     mode: 'editor',
+    allowUrdfXmlFallback: false,
     hoveredSelection: { type: 'link', id: 'base_link' },
     hoverSelectionEnabled: false,
     onHover,
@@ -91,6 +93,7 @@ test('buildViewerSceneProps preserves explicit overrides for preview and handoff
   assert.equal(sceneProps.toolMode, 'select');
   assert.equal(sceneProps.hoverSelectionEnabled, false);
   assert.equal(sceneProps.onHover, undefined);
+  assert.equal(sceneProps.allowUrdfXmlFallback, false);
   assert.equal(sceneProps.onMeshSelect, onMeshSelect);
   assert.equal(sceneProps.assemblySelection?.id, 'comp_alpha');
   assert.equal(sceneProps.onAssemblyTransform, onAssemblyTransform);

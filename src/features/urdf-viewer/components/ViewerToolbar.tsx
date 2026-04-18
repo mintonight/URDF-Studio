@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Move, MousePointer2, View as ViewIcon, Scan, Ruler, Palette, X } from 'lucide-react';
 import { translations } from '@/shared/i18n';
 import { IconButton } from '@/shared/components/ui';
+import { useOverlayHoverBlock } from '@/shared/hooks';
 import type { ViewerToolbarProps, ToolMode } from '../types';
 
 const HEADER_DOCK_SLOT_ID = 'viewer-toolbar-dock-slot';
@@ -74,6 +75,7 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
   lang = 'en',
   containerRef,
 }) => {
+  const { activateHoverBlock, deactivateHoverBlock } = useOverlayHoverBlock();
   const nodeRef = React.useRef<HTMLDivElement>(null);
   const [isDocked, setIsDocked] = React.useState(false);
   const [floatingPosition, setFloatingPosition] = React.useState<{ x: number; y: number } | null>(
@@ -356,7 +358,12 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
 
   if (isDocked && dockSlot) {
     return createPortal(
-      <div ref={nodeRef} className={toolbarClassName}>
+      <div
+        ref={nodeRef}
+        className={toolbarClassName}
+        onMouseEnter={activateHoverBlock}
+        onMouseLeave={deactivateHoverBlock}
+      >
         {toolbarContent}
       </div>,
       dockSlot,
@@ -372,6 +379,8 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
         top: floatingPosition?.y ?? 0,
         visibility: floatingPosition ? 'visible' : 'hidden',
       }}
+      onMouseEnter={activateHoverBlock}
+      onMouseLeave={deactivateHoverBlock}
     >
       {toolbarContent}
     </div>

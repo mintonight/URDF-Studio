@@ -31,6 +31,7 @@ export interface GazeboMaterialPass {
 export interface UrdfVisualMaterial {
   name?: string;
   color?: string;
+  colorRgba?: [number, number, number, number];
   texture?: string;
   textureRotation?: number;
   opacity?: number;

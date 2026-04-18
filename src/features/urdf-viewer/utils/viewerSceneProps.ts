@@ -12,6 +12,7 @@ interface BuildViewerScenePropsArgs {
   active?: boolean;
   sourceFile?: RobotFile | null;
   sourceFormat?: ViewerProps['sourceFormat'];
+  allowUrdfXmlFallback?: boolean;
   availableFiles: RobotFile[];
   urdfContent: string;
   assets: Record<string, string>;
@@ -61,6 +62,7 @@ export function buildViewerSceneProps({
   active = true,
   sourceFile,
   sourceFormat,
+  allowUrdfXmlFallback = true,
   availableFiles,
   urdfContent,
   assets,
@@ -101,6 +103,7 @@ export function buildViewerSceneProps({
     active,
     sourceFile,
     sourceFormat,
+    allowUrdfXmlFallback,
     availableFiles,
     urdfContent,
     assets,

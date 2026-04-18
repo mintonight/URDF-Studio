@@ -11,6 +11,7 @@ import {
   isUsdRuntimeGeometryVisible,
   resolveUsdRuntimeGeometry,
   resolveUsdVisualColorOverride,
+  resolveUsdVisualColorOverrideForMesh,
 } from './usdRuntimeLinkOverrides.ts';
 
 test('resolves collision geometry by runtime object index', () => {
@@ -186,6 +187,63 @@ test('only applies a USD visual color override when the panel changed away from 
     resolveUsdVisualColorOverride(
       { ...DEFAULT_LINK.visual, color: '#64748b' },
       { ...DEFAULT_LINK.visual, color: '#64748b' },
+    ),
+    null,
+  );
+});
+
+test('does not return a USD visual color override for multi-material visuals', () => {
+  assert.equal(
+    resolveUsdVisualColorOverride(
+      {
+        ...DEFAULT_LINK.visual,
+        color: '#e0e0e0',
+        authoredMaterials: [
+          { name: 'body', color: '#d3d7d3' },
+          { name: 'accent_dark', color: '#000000' },
+        ],
+      },
+      {
+        ...DEFAULT_LINK.visual,
+        color: '#64748b',
+        authoredMaterials: [
+          { name: 'body', color: '#d3d7d3' },
+          { name: 'accent_dark', color: '#000000' },
+        ],
+      },
+    ),
+    null,
+  );
+});
+
+test('does not apply a USD visual color override to multi-slot meshes', () => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.addGroup(0, 3, 0);
+  geometry.addGroup(3, 3, 1);
+  const mesh = new THREE.Mesh(geometry, [
+    new THREE.MeshStandardMaterial({ color: '#d3d7d3' }),
+    new THREE.MeshStandardMaterial({ color: '#000000' }),
+  ]);
+
+  assert.equal(
+    resolveUsdVisualColorOverrideForMesh(
+      mesh,
+      {
+        ...DEFAULT_LINK.visual,
+        color: '#e0e0e0',
+        authoredMaterials: [
+          { name: 'body', color: '#d3d7d3' },
+          { name: 'accent_dark', color: '#000000' },
+        ],
+      },
+      {
+        ...DEFAULT_LINK.visual,
+        color: '#64748b',
+        authoredMaterials: [
+          { name: 'body', color: '#d3d7d3' },
+          { name: 'accent_dark', color: '#000000' },
+        ],
+      },
     ),
     null,
   );

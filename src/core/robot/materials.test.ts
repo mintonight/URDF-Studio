@@ -115,6 +115,56 @@ test('syncRobotVisualColorsFromMaterials still syncs the primary visual color fr
   assert.equal(normalized.links.base_link.visual.color, '#123456');
 });
 
+test('syncRobotVisualColorsFromMaterials does not collapse multi-material visuals to a tracked link color', () => {
+  const robot: RobotData = {
+    name: 'multi_visual',
+    rootLinkId: 'base_link',
+    materials: {
+      base_link: {
+        color: '#e0e0e0',
+      },
+    },
+    links: {
+      base_link: {
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          type: GeometryType.MESH,
+          meshPath: 'meshes/base_link.dae',
+          dimensions: { x: 1, y: 1, z: 1 },
+          authoredMaterials: [
+            { name: 'body', color: '#d3d7d3' },
+            { name: 'accent_dark', color: '#000000' },
+            { name: 'accent_trim', color: '#090909' },
+          ],
+          origin: {
+            xyz: { x: 0, y: 0, z: 0 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+        },
+        collision: {
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+          color: '#000000',
+          origin: {
+            xyz: { x: 0, y: 0, z: 0 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+        },
+      },
+    },
+    joints: {},
+  };
+
+  const normalized = syncRobotVisualColorsFromMaterials(robot);
+
+  assert.equal(normalized.links.base_link.visual.color, undefined);
+  assert.deepEqual(
+    normalized.links.base_link.visual.authoredMaterials?.map((material) => material.color),
+    ['#d3d7d3', '#000000', '#090909'],
+  );
+});
+
 test('syncRobotMaterialsForLinkUpdate promotes primary visual texture edits into robot materials', () => {
   const nextMaterials = syncRobotMaterialsForLinkUpdate(
     {

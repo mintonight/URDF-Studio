@@ -158,25 +158,15 @@ test('HydraMesh.tryApplyPendingGeomSubsetMaterials applies subset materials with
         _preferredVisualMaterialByLinkCache: new Map(),
     };
     const hydraMesh = new HydraMesh('mesh', '/robot/base_link/visuals.proto_mesh_id0', hydraInterface);
-    const groups = [];
-    hydraMesh._geometry = {
-        groups,
-        getAttribute(name) {
-            return name === 'position' ? { count: 6 } : null;
-        },
-        getIndex() {
-            return {
-                count: 6,
-                array: Uint32Array.from([0, 1, 2, 3, 4, 5]),
-            };
-        },
-        clearGroups() {
-            groups.length = 0;
-        },
-        addGroup(start, length, materialIndex) {
-            groups.push({ start, length, materialIndex });
-        },
-    };
+    hydraMesh._geometry.setAttribute('position', new Float32BufferAttribute([
+        0, 0, 0,
+        1, 0, 0,
+        0, 1, 0,
+        0, 0, 1,
+        1, 0, 1,
+        0, 1, 1,
+    ], 3));
+    hydraMesh._geometry.setIndex([0, 1, 2, 3, 4, 5]);
     hydraMesh._mesh.geometry = hydraMesh._geometry;
     hydraMesh._pendingGeomSubsetSections = [
         { start: 0, length: 3, materialId: '/robot/Looks/mat-a' },

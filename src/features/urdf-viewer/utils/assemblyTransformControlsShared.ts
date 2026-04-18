@@ -40,15 +40,14 @@ export function resolveAssemblyComponentTransformTarget({
   }
 
   if (!isAssemblyComponentIndividuallyTransformable(assemblyState, componentId)) {
-    const incomingRootBridges = Object.values(assemblyState.bridges).filter(
+    const incomingBridges = Object.values(assemblyState.bridges).filter(
       (bridge) =>
         bridge.childComponentId === componentId &&
-        resolveAssemblyComponentLinkId(component, bridge.childLinkId) ===
-          component.robot.rootLinkId,
+        Boolean(resolveAssemblyComponentLinkId(component, bridge.childLinkId)),
     );
 
-    if (incomingRootBridges.length === 1) {
-      const bridge = incomingRootBridges[0]!;
+    if (incomingBridges.length === 1) {
+      const bridge = incomingBridges[0]!;
       return {
         kind: 'bridge',
         bridgeId: bridge.id,

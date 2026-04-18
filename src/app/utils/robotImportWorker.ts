@@ -4,6 +4,7 @@ import type {
   RobotImportResult,
 } from '@/core/parsers/importRobotFile';
 import type { RobotFile } from '@/types';
+import type { GenerateEditableRobotSourceOptions } from './generateEditableRobotSource';
 import type { ParseEditableRobotSourceOptions } from './parseEditableRobotSource';
 import type { AssemblyTransform, RenderableBounds, RobotData, RobotState } from '@/types';
 
@@ -32,6 +33,12 @@ export interface ParseEditableRobotSourceWorkerRequest {
   requestId: number;
   options: ParseEditableRobotSourceOptions;
   contextId?: string;
+}
+
+export interface GenerateEditableRobotSourceWorkerRequest {
+  type: 'generate-editable-robot-source';
+  requestId: number;
+  options: GenerateEditableRobotSourceOptions;
 }
 
 export interface AssemblyPlacementWorkerComponent {
@@ -84,6 +91,13 @@ export interface ParseEditableRobotSourceWorkerResponse {
   error?: string;
 }
 
+export interface GenerateEditableRobotSourceWorkerResponse {
+  type: 'generate-editable-robot-source-result' | 'generate-editable-robot-source-error';
+  requestId: number;
+  result?: string;
+  error?: string;
+}
+
 export interface PrepareAssemblyComponentWorkerResponse {
   type: 'prepare-assembly-component-result' | 'prepare-assembly-component-error';
   requestId: number;
@@ -95,10 +109,12 @@ export type RobotImportWorkerRequest =
   | SyncRobotImportWorkerContextRequest
   | ResolveRobotImportWorkerRequest
   | ParseEditableRobotSourceWorkerRequest
+  | GenerateEditableRobotSourceWorkerRequest
   | PrepareAssemblyComponentWorkerRequest;
 
 export type RobotImportWorkerResponse =
   | ResolveRobotImportWorkerResponse
   | ResolveRobotImportProgressWorkerResponse
   | ParseEditableRobotSourceWorkerResponse
+  | GenerateEditableRobotSourceWorkerResponse
   | PrepareAssemblyComponentWorkerResponse;

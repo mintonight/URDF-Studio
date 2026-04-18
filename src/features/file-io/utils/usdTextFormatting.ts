@@ -2,8 +2,15 @@ import * as THREE from 'three';
 
 import type { JointQuaternion } from '@/types';
 
+const USD_INDENT_UNIT = '    ';
+const usdIndentCache = [''];
+
 export const makeUsdIndent = (depth: number): string => {
-  return '    '.repeat(depth);
+  const normalizedDepth = Math.max(0, Math.trunc(depth) || 0);
+  while (usdIndentCache.length <= normalizedDepth) {
+    usdIndentCache.push(`${usdIndentCache[usdIndentCache.length - 1]}${USD_INDENT_UNIT}`);
+  }
+  return usdIndentCache[normalizedDepth]!;
 };
 
 const trimFixedUsdFloat = (value: string): string => {
@@ -11,7 +18,14 @@ const trimFixedUsdFloat = (value: string): string => {
     return value;
   }
 
-  return value.replace(/(?:\.0+|(\.\d*?[1-9])0+)$/, '$1');
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '0') {
+    end -= 1;
+  }
+  if (end > 0 && value[end - 1] === '.') {
+    end -= 1;
+  }
+  return end > 0 ? value.slice(0, end) : '0';
 };
 
 const trimExponentialUsdFloat = (value: string): string => {

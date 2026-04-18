@@ -911,6 +911,22 @@ interface ResolvedPatchTarget {
   usesSyntheticAttachmentMapping: boolean;
 }
 
+function updateRuntimeLinkDisplayName(
+  linkObject: THREE.Object3D,
+  displayName: string | undefined,
+): boolean {
+  const nextDisplayName = displayName?.trim() || linkObject.userData?.linkId || linkObject.name;
+  if (linkObject.userData?.displayName === nextDisplayName) {
+    return false;
+  }
+
+  if (!linkObject.userData) {
+    linkObject.userData = {};
+  }
+  linkObject.userData.displayName = nextDisplayName;
+  return true;
+}
+
 function getSyntheticGeomOrdinal(linkName: string): number | null {
   const match = linkName.trim().match(/^(.*)_geom_(\d+)$/);
   if (!match) {
@@ -1000,11 +1016,28 @@ export function applyGeometryPatchInPlace({
   invalidate,
   isPatchTargetValid,
 }: ApplyGeometryPatchOptions): boolean {
-  const resolvedPatchTarget = resolvePatchTarget(robotModel, patch.linkName);
+  const linkRuntimeName = patch.linkData.id || patch.previousLinkData.id || patch.linkName;
+  const linkDisplayName = patch.linkDisplayName || patch.linkData.name || linkRuntimeName;
+  const resolvedPatchTarget = resolvePatchTarget(robotModel, linkRuntimeName);
   if (!resolvedPatchTarget) return false;
 
   const { linkObject, visualTargetGroup, collisionTargetGroup, usesSyntheticAttachmentMapping } =
     resolvedPatchTarget;
+  const metadataChanged = patch.linkNameChanged
+    ? updateRuntimeLinkDisplayName(linkObject, linkDisplayName)
+    : false;
+
+  if (
+    !patch.visualChanged &&
+    !patch.visualBodiesChanged &&
+    !patch.collisionChanged &&
+    !patch.collisionBodiesChanged
+  ) {
+    if (metadataChanged) {
+      invalidate();
+    }
+    return true;
+  }
 
   if (patch.visualChanged || patch.visualBodiesChanged) {
     let visualPatched = false;
@@ -1013,7 +1046,7 @@ export function applyGeometryPatchInPlace({
       visualPatched = patchVisualEntriesInPlace({
         robotModel,
         linkObject,
-        linkName: patch.linkName,
+        linkName: linkRuntimeName,
         previousLinkData: patch.previousLinkData,
         nextLinkData: patch.linkData,
         assets,
@@ -1045,7 +1078,7 @@ export function applyGeometryPatchInPlace({
         patchGeometryCategory({
           robotModel,
           linkObject,
-          linkName: patch.linkName,
+          linkName: linkRuntimeName,
           category: 'visual',
           geometry: patch.linkData.visual,
           assets,
@@ -1079,7 +1112,7 @@ export function applyGeometryPatchInPlace({
         patchGeometryCategory({
           robotModel,
           linkObject,
-          linkName: patch.linkName,
+          linkName: linkRuntimeName,
           category: 'visual',
           geometry: patch.linkData.visual,
           assets,
@@ -1102,7 +1135,7 @@ export function applyGeometryPatchInPlace({
       collisionPatched = patchCollisionEntriesInPlace({
         robotModel,
         linkObject,
-        linkName: patch.linkName,
+        linkName: linkRuntimeName,
         previousLinkData: patch.previousLinkData,
         nextLinkData: patch.linkData,
         assets,
@@ -1134,7 +1167,7 @@ export function applyGeometryPatchInPlace({
         patchGeometryCategory({
           robotModel,
           linkObject,
-          linkName: patch.linkName,
+          linkName: linkRuntimeName,
           category: 'collision',
           geometry: patch.linkData.collision,
           assets,
@@ -1168,7 +1201,7 @@ export function applyGeometryPatchInPlace({
         patchGeometryCategory({
           robotModel,
           linkObject,
-          linkName: patch.linkName,
+          linkName: linkRuntimeName,
           category: 'collision',
           geometry: patch.linkData.collision,
           assets,

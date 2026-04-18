@@ -143,7 +143,7 @@ test('USD offscreen viewer worker client strips blob-backed large USDA text befo
   assert.equal(dispatch.stageOpenContextCacheHit, false);
 });
 
-test('USD offscreen viewer worker client surfaces rejected prewarm load-debug events on the main thread', () => {
+test('USD offscreen viewer worker client keeps rejected prewarm load-debug events off the main thread console', () => {
   const fakeWorker = new FakeWorker();
   const client = createUsdOffscreenViewerWorkerClient({
     canUseWorker: () => true,
@@ -178,11 +178,7 @@ test('USD offscreen viewer worker client surfaces rejected prewarm load-debug ev
   }
 
   assert.deepEqual(fakeWorker.postedMessages[0], { type: 'prewarm-runtime' });
-  assert.ok(
-    warnings.some((entry) =>
-      String(entry[0] || '').includes('[prewarmUsdOffscreenViewerRuntimeInBackground]'),
-    ),
-  );
+  assert.equal(warnings.length, 0);
 });
 
 test('USD offscreen viewer worker client surfaces worker error and messageerror events on the main thread', () => {

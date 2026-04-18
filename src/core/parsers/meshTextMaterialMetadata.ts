@@ -13,6 +13,7 @@ import type { UrdfVisualMaterial } from '@/types';
 interface TextAssetLookup {
   assetIndex: AssetIndex;
   textContents: Map<string, string>;
+  meshAuthoredMaterialsCache: Map<string, UrdfVisualMaterial[]>;
 }
 
 function normalizeLookupPath(filePath: string): string {
@@ -55,7 +56,40 @@ function createTextAssetLookup(
   return {
     assetIndex: buildAssetIndex(normalizedAssetMap),
     textContents,
+    meshAuthoredMaterialsCache: new Map<string, UrdfVisualMaterial[]>(),
   };
+}
+
+const EMPTY_TEXT_CONTENTS_TOKEN = {} as const;
+const EMPTY_ASSET_PATHS_TOKEN = {} as const;
+const textAssetLookupCache = new WeakMap<object, WeakMap<object, TextAssetLookup>>();
+
+function getTextAssetLookup(
+  allFileContents: Record<string, string>,
+  assetPaths: Iterable<string> | undefined,
+): TextAssetLookup {
+  const fileKey = (allFileContents ?? EMPTY_TEXT_CONTENTS_TOKEN) as unknown as object;
+  const assetKey =
+    assetPaths && (typeof assetPaths === 'object' || typeof assetPaths === 'function')
+      ? (assetPaths as unknown as object)
+      : (EMPTY_ASSET_PATHS_TOKEN as unknown as object);
+
+  const existingAssetMap = textAssetLookupCache.get(fileKey);
+  if (existingAssetMap) {
+    const cached = existingAssetMap.get(assetKey);
+    if (cached) {
+      return cached;
+    }
+  }
+
+  const lookup = createTextAssetLookup(allFileContents, assetPaths ?? []);
+  const byAssets = existingAssetMap ?? new WeakMap<object, TextAssetLookup>();
+  byAssets.set(assetKey, lookup);
+  if (!existingAssetMap) {
+    textAssetLookupCache.set(fileKey, byAssets);
+  }
+
+  return lookup;
 }
 
 function resolveAssetPath(
@@ -344,14 +378,24 @@ export function resolveMeshTextAuthoredMaterials(
     return [];
   }
 
-  const lookup = createTextAssetLookup(options.allFileContents ?? {}, options.assetPaths ?? []);
+  const lookup = getTextAssetLookup(options.allFileContents ?? {}, options.assetPaths);
   const meshAsset = resolveTextAssetContent(normalizedMeshPath, lookup, normalizedMeshPath);
   if (!meshAsset) {
     return [];
   }
 
+  if (lookup.meshAuthoredMaterialsCache.has(meshAsset.path)) {
+    return lookup.meshAuthoredMaterialsCache.get(meshAsset.path) ?? [];
+  }
+
   if (normalizedExtension === 'dae') {
-    return parseColladaAuthoredMaterials(meshAsset.content, meshAsset.path, lookup);
+    const authoredMaterials = parseColladaAuthoredMaterials(
+      meshAsset.content,
+      meshAsset.path,
+      lookup,
+    );
+    lookup.meshAuthoredMaterialsCache.set(meshAsset.path, authoredMaterials);
+    return authoredMaterials;
   }
 
   const authoredMaterials: UrdfVisualMaterial[] = [];
@@ -377,5 +421,7 @@ export function resolveMeshTextAuthoredMaterials(
     }
   }
 
-  return [...dedupedMaterials.values()];
+  const result = [...dedupedMaterials.values()];
+  lookup.meshAuthoredMaterialsCache.set(meshAsset.path, result);
+  return result;
 }

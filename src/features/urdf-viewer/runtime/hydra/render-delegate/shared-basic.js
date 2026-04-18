@@ -671,6 +671,55 @@ function unescapeUsdStringValue(value) {
         .replace(/\\\"/g, '"')
         .replace(/\\\\/g, '\\');
 }
+function extractUsdMaterialBindingTarget(metadataText) {
+    if (!metadataText || typeof metadataText !== 'string') {
+        return '';
+    }
+    const bindingMatch = metadataText.match(/\brel\s+material:binding(?:[:\w-]+)?\s*=\s*<([^>]+)>/i);
+    return bindingMatch?.[1] ? normalizeUsdPathToken(bindingMatch[1]) : '';
+}
+function parseUsdIntegerArrayLiteral(arrayLiteral) {
+    const raw = String(arrayLiteral || '').trim();
+    if (!raw) {
+        return [];
+    }
+    return raw
+        .split(',')
+        .map((part) => Number.parseInt(part.trim(), 10))
+        .filter((value) => Number.isFinite(value) && value >= 0)
+        .map((value) => Math.floor(value));
+}
+function compressUsdFaceIndicesToContiguousRanges(indices) {
+    if (!Array.isArray(indices) || indices.length === 0) {
+        return [];
+    }
+    const sortedUniqueIndices = Array.from(new Set(indices))
+        .sort((left, right) => left - right);
+    if (sortedUniqueIndices.length === 0) {
+        return [];
+    }
+    const ranges = [];
+    let rangeStart = sortedUniqueIndices[0];
+    let rangeEnd = rangeStart;
+    for (let index = 1; index < sortedUniqueIndices.length; index += 1) {
+        const currentValue = sortedUniqueIndices[index];
+        if (currentValue === rangeEnd + 1) {
+            rangeEnd = currentValue;
+            continue;
+        }
+        ranges.push({
+            start: rangeStart,
+            length: rangeEnd - rangeStart + 1,
+        });
+        rangeStart = currentValue;
+        rangeEnd = currentValue;
+    }
+    ranges.push({
+        start: rangeStart,
+        length: rangeEnd - rangeStart + 1,
+    });
+    return ranges;
+}
 export function parseVisualSemanticChildNamesFromLayerText(layerText) {
     const linkToChildNames = new Map();
     walkUsdNamedPrimBlocks(layerText, ({ path }) => {
@@ -749,6 +798,104 @@ export function parseUrdfMaterialMetadataFromLayerText(layerText) {
         materialMetadataByPrimPath.set(normalizedPath, existingMetadata);
     });
     return materialMetadataByPrimPath;
+}
+export function parseUsdMaterialBindingsFromLayerText(layerText) {
+    const materialBindingsByPrimPath = new Map();
+    const mergeBindingEntry = (primPath, rawEntry) => {
+        const normalizedPrimPath = normalizeUsdPathToken(primPath);
+        if (!normalizedPrimPath || !rawEntry || typeof rawEntry !== 'object') {
+            return;
+        }
+        const existingEntry = materialBindingsByPrimPath.get(normalizedPrimPath) || {
+            materialId: null,
+            geomSubsetSections: [],
+        };
+        const nextMaterialId = normalizeUsdPathToken(rawEntry.materialId || '');
+        if (!existingEntry.materialId && nextMaterialId) {
+            existingEntry.materialId = nextMaterialId;
+        }
+        const rawSections = Array.isArray(rawEntry.geomSubsetSections)
+            ? rawEntry.geomSubsetSections
+            : [];
+        const mergedSections = Array.isArray(existingEntry.geomSubsetSections)
+            ? existingEntry.geomSubsetSections.slice()
+            : [];
+        const knownSectionKeys = new Set(mergedSections.map((section) => `${section.start}:${section.length}:${section.materialId}`));
+        for (const rawSection of rawSections) {
+            const start = Number(rawSection?.start);
+            const length = Number(rawSection?.length);
+            const materialId = normalizeUsdPathToken(rawSection?.materialId || '');
+            if (!Number.isFinite(start) || !Number.isFinite(length) || length <= 0 || !materialId) {
+                continue;
+            }
+            const nextSection = {
+                start: Math.max(0, Math.floor(start)),
+                length: Math.max(0, Math.floor(length)),
+                materialId,
+            };
+            const sectionKey = `${nextSection.start}:${nextSection.length}:${nextSection.materialId}`;
+            if (knownSectionKeys.has(sectionKey)) {
+                continue;
+            }
+            knownSectionKeys.add(sectionKey);
+            mergedSections.push(nextSection);
+        }
+        mergedSections.sort((left, right) => {
+            if (left.start !== right.start) {
+                return left.start - right.start;
+            }
+            if (left.length !== right.length) {
+                return left.length - right.length;
+            }
+            return String(left.materialId || '').localeCompare(String(right.materialId || ''));
+        });
+        if (existingEntry.materialId || mergedSections.length > 0) {
+            materialBindingsByPrimPath.set(normalizedPrimPath, {
+                materialId: existingEntry.materialId || null,
+                geomSubsetSections: mergedSections,
+            });
+        }
+    };
+    walkUsdNamedPrimBlocks(layerText, ({ primType, path, text, body, pathSegments }) => {
+        const openingBraceIndex = text.indexOf('{');
+        const headerText = openingBraceIndex >= 0 ? text.slice(0, openingBraceIndex) : text;
+        const immediateProperties = extractImmediatePropertyTextFromPrimBody(body);
+        const metadataText = `${headerText}\n${immediateProperties}`;
+        const normalizedPrimType = String(primType || '').trim().toLowerCase();
+        const materialId = extractUsdMaterialBindingTarget(metadataText);
+        if (normalizedPrimType === 'geomsubset') {
+            if (!materialId || !Array.isArray(pathSegments) || pathSegments.length < 2) {
+                return;
+            }
+            const parentPrimPath = buildUsdPathFromSegments(pathSegments.slice(0, -1));
+            if (!parentPrimPath) {
+                return;
+            }
+            const indicesMatch = metadataText.match(/\bint\[\]\s+indices\s*=\s*\[([\s\S]*?)\]/i);
+            const faceIndices = parseUsdIntegerArrayLiteral(indicesMatch?.[1] || '');
+            const geomSubsetSections = compressUsdFaceIndicesToContiguousRanges(faceIndices)
+                .map((range) => ({
+                ...range,
+                materialId,
+            }));
+            if (geomSubsetSections.length === 0) {
+                return;
+            }
+            mergeBindingEntry(parentPrimPath, {
+                materialId: null,
+                geomSubsetSections,
+            });
+            return;
+        }
+        if (!materialId) {
+            return;
+        }
+        mergeBindingEntry(path, {
+            materialId,
+            geomSubsetSections: [],
+        });
+    });
+    return materialBindingsByPrimPath;
 }
 export function findMatchingClosingBraceIndex(source, openingBraceIndex) {
     return findMatchingClosingBraceIndexFromPackage(source, openingBraceIndex);

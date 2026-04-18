@@ -37,6 +37,7 @@ export const ViewerScene = ({
   active = true,
   sourceFile,
   sourceFormat,
+  allowUrdfXmlFallback = true,
   availableFiles,
   urdfContent,
   assets,
@@ -306,6 +307,9 @@ export const ViewerScene = ({
               showVisual={controller.showVisual}
               showCollision={controller.showCollision}
               showCollisionAlwaysOnTop={controller.showCollisionAlwaysOnTop}
+              showOrigins={controller.showOrigins}
+              showOriginsOverlay={controller.showOriginsOverlay}
+              originSize={controller.originSize}
               loadingLabel={t.loadingRobot}
               loadingDetailLabel={t.loadingRobotPreparing}
               loadingPhaseLabels={usdLoadingPhaseLabels}
@@ -378,6 +382,7 @@ export const ViewerScene = ({
             urdfContent={urdfContent}
             assets={assets}
             sourceFormat={sourceFormat ?? getViewerRobotSourceFormat(sourceFile?.format)}
+            allowUrdfXmlFallback={allowUrdfXmlFallback}
             reloadToken={runtimeInstanceKey}
             initialRobot={retainedRobot}
             sourceFilePath={sourceFilePath}

@@ -184,3 +184,47 @@ test('patchJointsInPlace applies batched root-anchor updates without remounting 
   assert.equal(jointB.position.z, 0.2);
   assert.equal(invalidations.length, 1);
 });
+
+test('patchJointInPlace resolves runtime joints by stable id and updates joint display names', () => {
+  const robot = new THREE.Group() as THREE.Group & {
+    joints?: Record<string, RuntimeURDFJoint>;
+  };
+  const joint = new RuntimeURDFJoint() as RuntimeURDFJoint & {
+    urdfName?: string;
+  };
+  joint.name = 'joint_1';
+  joint.urdfName = 'joint_1';
+  joint.userData.displayName = 'joint_1';
+  joint.userData.jointId = 'joint_1';
+  joint.origPosition = joint.position.clone();
+  joint.origQuaternion = joint.quaternion.clone();
+  robot.joints = { joint_1: joint };
+
+  const invalidations: number[] = [];
+  const applied = patchJointInPlace(
+    robot,
+    {
+      jointId: 'joint_1',
+      jointName: 'renamed_joint_1',
+      jointNameChanged: true,
+      previousJointData: makeJointPatchData({
+        id: 'joint_1',
+        name: 'joint_1',
+      }),
+      jointData: makeJointPatchData({
+        id: 'joint_1',
+        name: 'renamed_joint_1',
+      }),
+    },
+    () => {
+      invalidations.push(1);
+    },
+  );
+
+  assert.equal(applied, true);
+  assert.equal(joint.name, 'renamed_joint_1');
+  assert.equal(joint.urdfName, 'renamed_joint_1');
+  assert.equal(joint.userData.displayName, 'renamed_joint_1');
+  assert.equal(joint.userData.jointId, 'joint_1');
+  assert.equal(invalidations.length, 1);
+});

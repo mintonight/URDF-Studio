@@ -7,10 +7,7 @@ export const useLoadingManager = (assets: Record<string, string>, assetBaseDir =
     const manager = new THREE.LoadingManager();
     const assetIndex = buildAssetIndex(assets, assetBaseDir);
 
-    manager.setURLModifier((url) => {
-      const resolved = resolveManagedAssetUrl(url, assetIndex, assetBaseDir);
-      return resolved || url;
-    });
+    manager.setURLModifier((url) => resolveManagedAssetUrl(url, assetIndex, assetBaseDir));
 
     return manager;
   }, [assetBaseDir, assets]);

@@ -71,11 +71,6 @@ export function createUsdOffscreenViewerWorkerClient({
       message.entry?.status === 'rejected' &&
       message.entry?.detail?.prewarmOnly === true
     ) {
-      const detail =
-        typeof message.entry.detail?.error === 'string' && message.entry.detail.error.trim()
-          ? message.entry.detail.error
-          : 'Failed to prewarm the shared USD offscreen viewer worker runtime.';
-      logRuntimeFailure('prewarmUsdOffscreenViewerRuntimeInBackground', new Error(detail), 'warn');
       return;
     }
 
@@ -180,15 +175,7 @@ export function createUsdOffscreenViewerWorkerClient({
     prewarmRuntime: () => {
       try {
         postSharedMessage({ type: 'prewarm-runtime' });
-      } catch (error) {
-        logRuntimeFailure(
-          'prewarmUsdOffscreenViewerRuntimeInBackground',
-          error instanceof Error
-            ? error
-            : new Error('Failed to prewarm the shared USD offscreen viewer worker.'),
-          'warn',
-        );
-      }
+      } catch {}
     },
     disposeStage: () => {
       if (!sharedWorker) {

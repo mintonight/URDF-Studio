@@ -94,7 +94,7 @@ test('LinkRotationController logs joint catalog readiness timeouts instead of si
     });
 });
 
-test('LinkRotationController logs joint catalog prewarm failures instead of silently swallowing them', async () => {
+test('LinkRotationController keeps joint catalog prewarm failures off the console', async () => {
     const controller = new LinkRotationController();
     controller.ensureJointCatalogBuildScheduled = () => {};
     controller.ensureJointCatalogReady = async () => {
@@ -114,11 +114,10 @@ test('LinkRotationController logs joint catalog prewarm failures instead of sile
         console.error = originalConsoleError;
     }
 
-    assert.equal(loggedErrors.length, 1);
-    assert.match(String(loggedErrors[0]?.[0] || ''), /Failed to prewarm joint catalog/);
+    assert.equal(loggedErrors.length, 0);
 });
 
-test('LinkRotationController logs joint pose prewarm failures instead of silently swallowing them', () => {
+test('LinkRotationController keeps joint pose prewarm failures off the console', () => {
     const controller = new LinkRotationController();
     controller.enabled = true;
     controller.renderInterface = createRenderInterface();
@@ -139,8 +138,7 @@ test('LinkRotationController logs joint pose prewarm failures instead of silentl
         console.error = originalConsoleError;
     }
 
-    assert.equal(loggedErrors.length, 1);
-    assert.match(String(loggedErrors[0]?.[0] || ''), /Failed to prewarm joint pose pipeline/);
+    assert.equal(loggedErrors.length, 0);
 });
 
 test('LinkRotationController surfaces cached metadata getter failures as catalog build errors', async () => {

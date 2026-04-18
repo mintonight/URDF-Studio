@@ -70,6 +70,72 @@ function getWorldBox(object: THREE.Object3D): THREE.Box3 {
   return new THREE.Box3().setFromObject(object);
 }
 
+type WorkerEventHandler = (event: { data?: unknown; error?: unknown; message?: string }) => void;
+
+class FakeColladaParseWorker {
+  private readonly listeners = new Map<string, Set<WorkerEventHandler>>();
+
+  addEventListener(type: string, handler: WorkerEventHandler): void {
+    const handlers = this.listeners.get(type) ?? new Set<WorkerEventHandler>();
+    handlers.add(handler);
+    this.listeners.set(type, handlers);
+  }
+
+  removeEventListener(type: string, handler: WorkerEventHandler): void {
+    this.listeners.get(type)?.delete(handler);
+  }
+
+  postMessage(message: unknown): void {
+    void this.handleMessage(message);
+  }
+
+  terminate(): void {}
+
+  private emit(
+    type: 'message' | 'error',
+    event: { data?: unknown; error?: unknown; message?: string },
+  ): void {
+    this.listeners.get(type)?.forEach((handler) => {
+      handler(event);
+    });
+  }
+
+  private async handleMessage(message: unknown): Promise<void> {
+    const request = message as { type?: string; requestId?: number; assetUrl?: string };
+    if (
+      request.type !== 'parse-collada' ||
+      !request.assetUrl ||
+      typeof request.requestId !== 'number'
+    ) {
+      return;
+    }
+
+    try {
+      const response = await fetch(request.assetUrl);
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch fake Collada asset: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      const colladaText = await response.text();
+      const result = parseColladaSceneData(colladaText, request.assetUrl);
+      this.emit('message', {
+        data: {
+          type: 'parse-collada-result',
+          requestId: request.requestId,
+          result,
+        },
+      });
+    } catch (error) {
+      this.emit('error', {
+        error,
+        message: error instanceof Error ? error.message : 'fake Collada parse worker failed',
+      });
+    }
+  }
+}
+
 function createLegacyMshBuffer({
   positions,
   normals,
@@ -462,6 +528,210 @@ test('createSceneFromSerializedColladaData round-trips textured Collada scenes w
     'expected textured Collada scene to restore an HTML image source',
   );
   assert.match(restoredMaterial.map.source.data.src, /checker\.png$/);
+});
+
+test('createMeshLoader keeps large Cessna Collada meshes at authored meter scale when the DAE declares units', async () => {
+  const meshPath = 'test/gazebo_models/cessna/meshes/body.dae';
+  const meshDataUrl = `data:text/xml;base64,${Buffer.from(fs.readFileSync(meshPath, 'utf8')).toString('base64')}`;
+  const manager = new THREE.LoadingManager();
+  const originalWorker = (globalThis as { Worker?: typeof Worker }).Worker;
+
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: FakeColladaParseWorker as unknown as typeof Worker,
+  });
+  disposeColladaParseWorkerPoolClient();
+
+  const loadMesh = createMeshLoader(
+    {
+      [meshPath]: meshDataUrl,
+      'body.dae': meshDataUrl,
+    },
+    manager,
+    '',
+  );
+
+  try {
+    const loadedObject = await new Promise<THREE.Object3D>((resolve, reject) => {
+      loadMesh('body.dae', manager, (result, err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        resolve(result);
+      });
+    });
+
+    const size = new THREE.Vector3();
+    getWorldBox(loadedObject).getSize(size);
+
+    assert.ok(
+      Math.max(size.x, size.y, size.z) > 10,
+      `expected Cessna body to stay near Gazebo meter truth instead of auto-shrinking, got ${size.toArray().join(', ')}`,
+    );
+  } finally {
+    disposeColladaParseWorkerPoolClient();
+    Object.defineProperty(globalThis, 'Worker', {
+      configurable: true,
+      writable: true,
+      value: originalWorker,
+    });
+  }
+});
+
+test('createMeshLoader respects declared Collada unit metadata across common Gazebo unit tags', async () => {
+  const originalWorker = (globalThis as { Worker?: typeof Worker }).Worker;
+  const cases = [
+    'test/gazebo_models/cardboard_box/meshes/cardboard_box.dae',
+    'test/gazebo_models/fire_hydrant/meshes/fire_hydrant.dae',
+  ];
+
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: FakeColladaParseWorker as unknown as typeof Worker,
+  });
+  disposeColladaParseWorkerPoolClient();
+
+  try {
+    for (const meshPath of cases) {
+      const colladaText = fs.readFileSync(meshPath, 'utf8');
+      const serializedScene = parseColladaSceneData(colladaText, meshPath);
+      const referenceScene = createSceneFromSerializedColladaData(serializedScene);
+      const referenceSize = new THREE.Vector3();
+      getWorldBox(referenceScene).getSize(referenceSize);
+
+      const meshDataUrl = `data:text/xml;base64,${Buffer.from(colladaText).toString('base64')}`;
+      const manager = new THREE.LoadingManager();
+      const loadMesh = createMeshLoader(
+        {
+          [meshPath]: meshDataUrl,
+          [meshPath.split('/').pop() as string]: meshDataUrl,
+        },
+        manager,
+        '',
+      );
+
+      const loadedObject = await new Promise<THREE.Object3D>((resolve, reject) => {
+        loadMesh(meshPath.split('/').pop() as string, manager, (result, err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          resolve(result);
+        });
+      });
+
+      const loadedSize = new THREE.Vector3();
+      getWorldBox(loadedObject).getSize(loadedSize);
+
+      assert.ok(
+        loadedSize.distanceTo(referenceSize) < 1e-6,
+        `expected ${meshPath} to honor declared unit metadata; reference=${referenceSize.toArray().join(', ')} loaded=${loadedSize.toArray().join(', ')}`,
+      );
+    }
+  } finally {
+    disposeColladaParseWorkerPoolClient();
+    Object.defineProperty(globalThis, 'Worker', {
+      configurable: true,
+      writable: true,
+      value: originalWorker,
+    });
+  }
+});
+
+test('createMeshLoader keeps the legacy auto-unit heuristic for large Collada assets without unit metadata', async () => {
+  const originalWorker = (globalThis as { Worker?: typeof Worker }).Worker;
+  const colladaText = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1">',
+    '  <asset>',
+    '    <up_axis>Z_UP</up_axis>',
+    '  </asset>',
+    '  <library_geometries>',
+    '    <geometry id="geom">',
+    '      <mesh>',
+    '        <source id="geom-positions">',
+    '          <float_array id="geom-positions-array" count="9">0 0 0 20000 0 0 0 20000 0</float_array>',
+    '          <technique_common>',
+    '            <accessor source="#geom-positions-array" count="3" stride="3">',
+    '              <param name="X" type="float" />',
+    '              <param name="Y" type="float" />',
+    '              <param name="Z" type="float" />',
+    '            </accessor>',
+    '          </technique_common>',
+    '        </source>',
+    '        <vertices id="geom-vertices">',
+    '          <input semantic="POSITION" source="#geom-positions" />',
+    '        </vertices>',
+    '        <triangles count="1">',
+    '          <input semantic="VERTEX" source="#geom-vertices" offset="0" />',
+    '          <p>0 1 2</p>',
+    '        </triangles>',
+    '      </mesh>',
+    '    </geometry>',
+    '  </library_geometries>',
+    '  <library_visual_scenes>',
+    '    <visual_scene id="Scene">',
+    '      <node id="node">',
+    '        <instance_geometry url="#geom" />',
+    '      </node>',
+    '    </visual_scene>',
+    '  </library_visual_scenes>',
+    '  <scene>',
+    '    <instance_visual_scene url="#Scene" />',
+    '  </scene>',
+    '</COLLADA>',
+  ].join('\n');
+  const meshDataUrl = `data:text/xml;base64,${Buffer.from(colladaText).toString('base64')}`;
+  const manager = new THREE.LoadingManager();
+
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: FakeColladaParseWorker as unknown as typeof Worker,
+  });
+  disposeColladaParseWorkerPoolClient();
+
+  const loadMesh = createMeshLoader(
+    {
+      'legacy-large-no-unit.dae': meshDataUrl,
+    },
+    manager,
+    '',
+  );
+
+  try {
+    const loadedObject = await new Promise<THREE.Object3D>((resolve, reject) => {
+      loadMesh('legacy-large-no-unit.dae', manager, (result, err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        resolve(result);
+      });
+    });
+
+    const size = new THREE.Vector3();
+    getWorldBox(loadedObject).getSize(size);
+    const maxSize = Math.max(size.x, size.y, size.z);
+
+    assert.ok(
+      maxSize > 19.9 && maxSize < 20.1,
+      `expected legacy no-unit Collada heuristic to keep shrinking 20000-unit geometry to ~20m, got ${size.toArray().join(', ')}`,
+    );
+  } finally {
+    disposeColladaParseWorkerPoolClient();
+    Object.defineProperty(globalThis, 'Worker', {
+      configurable: true,
+      writable: true,
+      value: originalWorker,
+    });
+  }
 });
 
 test('createMeshLoader normalizes go2 Collada scene roots for unitree DAE assets', async () => {
@@ -1147,35 +1417,7 @@ test('resolveManagedAssetUrl remaps malformed GLTF blob-relative buffer URLs to 
   );
 });
 
-test('resolveManagedAssetUrl logs when placeholder textures are forced for managed texture URLs', () => {
-  const originalConsoleWarn = console.warn;
-  const loggedWarnings: unknown[][] = [];
-  console.warn = (...args) => {
-    loggedWarnings.push(args);
-  };
-
-  try {
-    const result = resolveManagedAssetUrl('textures/body.png', buildAssetIndex({}), 'robots/demo', {
-      preferPlaceholderTextures: true,
-    });
-
-    assert.match(result, /^data:image\/png;base64,/);
-  } finally {
-    console.warn = originalConsoleWarn;
-  }
-
-  assert.equal(loggedWarnings.length, 1);
-  assert.match(
-    String(loggedWarnings[0]?.[0] || ''),
-    /Using transparent placeholder texture for managed asset URL/,
-  );
-  assert.deepEqual(loggedWarnings[0]?.[1], {
-    url: 'textures/body.png',
-    urdfDir: 'robots/demo',
-  });
-});
-
-test('resolveManagedAssetUrl logs when missing textures fall back to transparent placeholders', () => {
+test('resolveManagedAssetUrl throws when missing textures are unresolved during normal rendering', () => {
   const originalConsoleWarn = console.warn;
   const originalConsoleError = console.error;
   const loggedWarnings: unknown[][] = [];
@@ -1188,28 +1430,17 @@ test('resolveManagedAssetUrl logs when missing textures fall back to transparent
   };
 
   try {
-    const result = resolveManagedAssetUrl(
-      'textures/missing.png',
-      buildAssetIndex({}),
-      'robots/demo',
+    assert.throws(
+      () => resolveManagedAssetUrl('textures/missing.png', buildAssetIndex({}), 'robots/demo'),
+      /Asset lookup failed for "textures\/missing\.png" under "robots\/demo"./,
     );
-
-    assert.match(result, /^data:image\/png;base64,/);
   } finally {
     console.warn = originalConsoleWarn;
     console.error = originalConsoleError;
   }
 
   assert.ok(loggedErrors.some((entry) => /Asset not found/.test(String(entry?.[0] || ''))));
-  assert.equal(loggedWarnings.length, 1);
-  assert.match(
-    String(loggedWarnings[0]?.[0] || ''),
-    /Falling back to transparent placeholder texture because the texture asset could not be resolved/,
-  );
-  assert.deepEqual(loggedWarnings[0]?.[1], {
-    url: 'textures/missing.png',
-    urdfDir: 'robots/demo',
-  });
+  assert.equal(loggedWarnings.length, 0);
 });
 
 test('createMeshLoader keeps b2w rear hip mesh selection stable when generic hip assets are present', async () => {

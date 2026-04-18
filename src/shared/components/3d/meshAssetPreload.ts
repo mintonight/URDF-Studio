@@ -24,9 +24,7 @@ function createManagedLoadingManager(
   const manager = new THREE.LoadingManager();
   const assetIndex = buildAssetIndex(assets, assetBaseDir);
 
-  manager.setURLModifier((url) => {
-    return resolveManagedAssetUrl(url, assetIndex, assetBaseDir) || url;
-  });
+  manager.setURLModifier((url) => resolveManagedAssetUrl(url, assetIndex, assetBaseDir));
 
   return manager;
 }

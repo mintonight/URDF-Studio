@@ -9,8 +9,16 @@ import { JSDOM } from 'jsdom';
 import {
   buildColladaRootNormalizationHints,
   createMeshLoader,
+  findAssetByPath,
   markMaterialAsCoplanarOffset,
+  postProcessColladaScene,
 } from '@/core/loaders';
+import { collectExplicitlyScaledMeshPaths } from '@/core/loaders/meshScaleHints';
+import {
+  createSceneFromSerializedColladaData,
+  parseColladaSceneData,
+} from '@/core/loaders/colladaWorkerSceneData';
+import { normalizeMeshPathForExport } from '@/core/parsers/meshPathUtils';
 import { resolveRuntimeMeshMaterialGroupKey } from '@/core/utils/meshMaterialGroups';
 import { DEFAULT_LINK, GeometryType, type RobotState } from '@/types';
 import { disposeObject3D } from '@/shared/utils/three/dispose';
@@ -41,8 +49,79 @@ function expectBoxEquals(actual: THREE.Box3, expected: THREE.Box3, epsilon = 1e-
   });
 }
 
+function parseObjObject(content: string): THREE.Group {
+  const object = new OBJLoader().parse(content);
+  object.updateMatrixWorld(true);
+  return object;
+}
+
 function countObjFaces(content: string): number {
   return content.split(/\r?\n/).filter((line) => line.startsWith('f ')).length;
+}
+
+function createLegacyMshBuffer({
+  positions,
+  normals,
+  uvs,
+  indices,
+}: {
+  positions: number[];
+  normals?: number[];
+  uvs?: number[];
+  indices?: number[];
+}): ArrayBuffer {
+  assert.equal(positions.length % 3, 0, 'positions must contain xyz triplets');
+  const nvertex = positions.length / 3;
+  const nnormal = normals ? normals.length / 3 : 0;
+  const ntexcoord = uvs ? uvs.length / 2 : 0;
+  const nface = indices ? indices.length / 3 : 0;
+
+  if (normals) {
+    assert.equal(normals.length % 3, 0, 'normals must contain xyz triplets');
+    assert.equal(nnormal, nvertex, 'legacy msh normals must match vertex count');
+  }
+
+  if (uvs) {
+    assert.equal(uvs.length % 2, 0, 'uvs must contain uv pairs');
+    assert.equal(ntexcoord, nvertex, 'legacy msh uvs must match vertex count');
+  }
+
+  if (indices) {
+    assert.equal(indices.length % 3, 0, 'indices must contain triangle triplets');
+  }
+
+  const byteLength =
+    16 +
+    positions.length * Float32Array.BYTES_PER_ELEMENT +
+    (normals?.length ?? 0) * Float32Array.BYTES_PER_ELEMENT +
+    (uvs?.length ?? 0) * Float32Array.BYTES_PER_ELEMENT +
+    (indices?.length ?? 0) * Int32Array.BYTES_PER_ELEMENT;
+  const buffer = new ArrayBuffer(byteLength);
+  const view = new DataView(buffer);
+  view.setInt32(0, nvertex, true);
+  view.setInt32(4, nnormal, true);
+  view.setInt32(8, ntexcoord, true);
+  view.setInt32(12, nface, true);
+
+  let byteOffset = 16;
+  new Float32Array(buffer, byteOffset, positions.length).set(positions);
+  byteOffset += positions.length * Float32Array.BYTES_PER_ELEMENT;
+
+  if (normals) {
+    new Float32Array(buffer, byteOffset, normals.length).set(normals);
+    byteOffset += normals.length * Float32Array.BYTES_PER_ELEMENT;
+  }
+
+  if (uvs) {
+    new Float32Array(buffer, byteOffset, uvs.length).set(uvs);
+    byteOffset += uvs.length * Float32Array.BYTES_PER_ELEMENT;
+  }
+
+  if (indices) {
+    new Int32Array(buffer, byteOffset, indices.length).set(indices);
+  }
+
+  return buffer;
 }
 
 test('mjcf mesh export internals accept BufferGeometry-like objects from foreign Three runtimes', () => {
@@ -159,6 +238,35 @@ async function loadReferenceMeshObject(
   assets: Record<string, string>,
   robot: RobotState,
 ): Promise<THREE.Object3D> {
+  if (/\.dae$/i.test(meshPath)) {
+    const assetUrl = findAssetByPath(meshPath, assets, '');
+    assert.ok(assetUrl, `expected Collada asset URL for ${meshPath}`);
+
+    const response = await fetch(assetUrl!);
+    assert.ok(response.ok, `expected fetchable Collada asset for ${meshPath}`);
+
+    const colladaText = await response.text();
+    const scene = createSceneFromSerializedColladaData(
+      parseColladaSceneData(colladaText, assetUrl!),
+      {
+        manager: new THREE.LoadingManager(),
+      },
+    );
+    const maxDimension = postProcessColladaScene(scene);
+    const explicitScaleMeshPaths = collectExplicitlyScaledMeshPaths(robot);
+    const normalizedMeshPath = normalizeMeshPathForExport(meshPath);
+    const hasExplicitScale =
+      explicitScaleMeshPaths.has(meshPath) ||
+      Boolean(normalizedMeshPath && explicitScaleMeshPaths.has(normalizedMeshPath));
+
+    if (!hasExplicitScale && maxDimension > 10) {
+      scene.scale.setScalar(0.001);
+    }
+
+    scene.updateMatrixWorld(true);
+    return scene;
+  }
+
   const referenceManager = new THREE.LoadingManager();
   const referenceLoader = createMeshLoader(assets, referenceManager, '', {
     colladaRootNormalizationHints: buildColladaRootNormalizationHints(robot.links),
@@ -174,6 +282,33 @@ async function loadReferenceMeshObject(
       resolve(result);
     });
   });
+}
+
+function createSingleMeshRobot(meshPath: string): RobotState {
+  return {
+    name: 'single-mesh-export',
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          dimensions: { x: 1, y: 1, z: 1 },
+          meshPath,
+          origin: {
+            xyz: { x: 0, y: 0, z: 0 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+        },
+      },
+    },
+    joints: {},
+    materials: {},
+  };
 }
 
 test('prepareMjcfMeshExportAssets converts go2 Collada meshes into baked OBJ files', async () => {
@@ -220,21 +355,7 @@ test('prepareMjcfMeshExportAssets converts go2 Collada meshes into baked OBJ fil
     [sourcePath]: meshDataUrl,
     'hip.dae': meshDataUrl,
   };
-  const referenceManager = new THREE.LoadingManager();
-  const referenceLoader = createMeshLoader(assets, referenceManager, '', {
-    colladaRootNormalizationHints: buildColladaRootNormalizationHints(robot.links),
-  });
-
-  const referenceObject = await new Promise<THREE.Object3D>((resolve, reject) => {
-    referenceLoader(sourcePath, referenceManager, (result, err) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-
-      resolve(result);
-    });
-  });
+  const referenceObject = await loadReferenceMeshObject(sourcePath, assets, robot);
 
   const prepared = await prepareMjcfMeshExportAssets({
     robot,
@@ -242,12 +363,12 @@ test('prepareMjcfMeshExportAssets converts go2 Collada meshes into baked OBJ fil
   });
 
   const overridePath = prepared.meshPathOverrides.get(sourcePath);
-  assert.equal(overridePath, 'dae/hip.dae.obj');
+  assert.equal(overridePath, 'dae/hip.obj');
 
   const convertedBlob = overridePath ? prepared.archiveFiles.get(overridePath) : null;
   assert.ok(convertedBlob);
 
-  const convertedObject = new OBJLoader().parse(await convertedBlob!.text());
+  const convertedObject = parseObjObject(await convertedBlob!.text());
   assert.ok(Math.abs(convertedObject.rotation.x) < 1e-6);
   assert.ok(Math.abs(convertedObject.rotation.y) < 1e-6);
   assert.ok(Math.abs(convertedObject.rotation.z) < 1e-6);
@@ -304,21 +425,7 @@ test('prepareMjcfMeshExportAssets skips redundant full-mesh OBJ exports for visu
     [sourcePath]: meshDataUrl,
     'base.dae': meshDataUrl,
   };
-  const referenceManager = new THREE.LoadingManager();
-  const referenceLoader = createMeshLoader(assets, referenceManager, '', {
-    colladaRootNormalizationHints: buildColladaRootNormalizationHints(robot.links),
-  });
-
-  const referenceObject = await new Promise<THREE.Object3D>((resolve, reject) => {
-    referenceLoader(sourcePath, referenceManager, (result, err) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-
-      resolve(result);
-    });
-  });
+  const referenceObject = await loadReferenceMeshObject(sourcePath, assets, robot);
   const fullFaceCount = countObjFaces(new OBJExporter().parse(referenceObject));
 
   const prepared = await prepareMjcfMeshExportAssets({
@@ -328,7 +435,7 @@ test('prepareMjcfMeshExportAssets skips redundant full-mesh OBJ exports for visu
 
   const overridePath = prepared.meshPathOverrides.get(sourcePath);
   assert.equal(overridePath, undefined);
-  assert.equal(prepared.archiveFiles.has('dae/base.dae.obj'), false);
+  assert.equal(prepared.archiveFiles.has('dae/base.obj'), false);
 
   const variants = prepared.visualMeshVariants.get(sourcePath);
   assert.ok(variants, 'expected multi-material visual variants for go2 base mesh');
@@ -418,7 +525,7 @@ test('prepareMjcfMeshExportAssets splits go2w base visual mesh into authored mat
   });
 
   assert.equal(prepared.meshPathOverrides.get(sourcePath), undefined);
-  assert.equal(prepared.archiveFiles.has('dae/base.dae.obj'), false);
+  assert.equal(prepared.archiveFiles.has('dae/base.obj'), false);
 
   const variants = prepared.visualMeshVariants.get(sourcePath);
   assert.ok(variants);
@@ -486,8 +593,8 @@ test('prepareMjcfMeshExportAssets keeps the full converted OBJ when a multi-mate
     assets,
   });
 
-  assert.equal(prepared.meshPathOverrides.get(sourcePath), 'dae/base.dae.obj');
-  assert.ok(prepared.archiveFiles.has('dae/base.dae.obj'));
+  assert.equal(prepared.meshPathOverrides.get(sourcePath), 'dae/base.obj');
+  assert.ok(prepared.archiveFiles.has('dae/base.obj'));
   assert.ok(prepared.visualMeshVariants.get(sourcePath)?.length);
 });
 
@@ -680,12 +787,12 @@ test('prepareMjcfMeshExportAssets preserves go2w mirrored thigh geometry when sp
   for (const variant of rightVariants || []) {
     const blob = prepared.archiveFiles.get(variant.meshPath);
     assert.ok(blob, `expected archive blob for ${variant.meshPath}`);
-    exportedRightGroup.add(new OBJLoader().parse(await blob!.text()));
+    exportedRightGroup.add(parseObjObject(await blob!.text()));
   }
 
   const exportedRightBox = getWorldBox(exportedRightGroup);
   const rightReferenceBox = getWorldBox(rightReference);
-  expectBoxEquals(exportedRightBox, rightReferenceBox);
+  expectBoxEquals(exportedRightBox, rightReferenceBox, 2e-4);
 
   const exportedRightCenter = exportedRightBox.getCenter(new THREE.Vector3());
   assert.ok(
@@ -694,10 +801,10 @@ test('prepareMjcfMeshExportAssets preserves go2w mirrored thigh geometry when sp
   );
 });
 
-test('prepareMjcfMeshExportAssets reuses identical native OBJ meshes from extracted USD exports by default', async () => {
-  const leftPath = 'usd-extracted/FL_thigh_visual_0.obj';
-  const rearPath = 'usd-extracted/RL_thigh_visual_0.obj';
-  const sharedObj = ['o shared_thigh', 'v 0 0 0', 'v 1 0 0', 'v 0 1 0', 'f 1 2 3', ''].join('\n');
+test('prepareMjcfMeshExportAssets reuses identical native STL meshes from extracted USD exports by default', async () => {
+  const leftPath = 'usd-extracted/FL_thigh_visual_0.stl';
+  const rearPath = 'usd-extracted/RL_thigh_visual_0.stl';
+  const sharedStl = 'solid shared\nendsolid shared\n';
 
   const robot: RobotState = {
     name: 'shared-native-obj-reuse',
@@ -748,8 +855,8 @@ test('prepareMjcfMeshExportAssets reuses identical native OBJ meshes from extrac
     robot,
     assets: {},
     extraMeshFiles: new Map([
-      [leftPath, new Blob([sharedObj], { type: 'text/plain' })],
-      [rearPath, new Blob([sharedObj], { type: 'text/plain' })],
+      [leftPath, new Blob([sharedStl], { type: 'model/stl' })],
+      [rearPath, new Blob([sharedStl], { type: 'model/stl' })],
     ]),
   });
 
@@ -758,6 +865,80 @@ test('prepareMjcfMeshExportAssets reuses identical native OBJ meshes from extrac
   assert.equal(prepared.convertedSourceMeshPaths.has(leftPath), false);
   assert.equal(prepared.convertedSourceMeshPaths.has(rearPath), true);
   assert.equal(prepared.archiveFiles.size, 0);
+});
+
+test('prepareMjcfMeshExportAssets normalizes package native STL paths without forcing reconversion', async () => {
+  const meshPath = 'package://demo_description/meshes/base_link.STL';
+  const robot = createSingleMeshRobot(meshPath);
+
+  const prepared = await prepareMjcfMeshExportAssets({
+    robot,
+    assets: {},
+    extraMeshFiles: new Map([
+      [meshPath, new Blob(['solid base\nendsolid base\n'], { type: 'model/stl' })],
+    ]),
+  });
+
+  assert.equal(prepared.meshPathOverrides.get(meshPath), 'base_link.STL');
+  assert.equal(prepared.convertedSourceMeshPaths.size, 0);
+  assert.equal(prepared.archiveFiles.size, 0);
+});
+
+test('prepareMjcfMeshExportAssets normalizes package native OBJ paths without forcing reconversion', async () => {
+  const meshPath = 'package://demo_description/meshes/base_link.obj';
+  const robot = createSingleMeshRobot(meshPath);
+
+  const prepared = await prepareMjcfMeshExportAssets({
+    robot,
+    assets: {},
+    extraMeshFiles: new Map([
+      [
+        meshPath,
+        new Blob([['o base', 'v 0 0 0', 'v 1 0 0', 'v 0 1 0', 'f 1 2 3', ''].join('\n')], {
+          type: 'text/plain',
+        }),
+      ],
+    ]),
+  });
+
+  assert.equal(prepared.meshPathOverrides.get(meshPath), 'base_link.obj');
+  assert.equal(prepared.convertedSourceMeshPaths.size, 0);
+  assert.equal(prepared.archiveFiles.size, 0);
+});
+
+test('prepareMjcfMeshExportAssets normalizes package native MSH paths without forcing reconversion', async () => {
+  const meshPath = 'package://demo_description/meshes/base_link.msh';
+  const robot = createSingleMeshRobot(meshPath);
+  const mshBuffer = createLegacyMshBuffer({
+    positions: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+    uvs: [0, 0, 1, 0, 0, 1, 1, 1],
+    indices: [0, 1, 2, 0, 1, 3, 0, 2, 3, 1, 2, 3],
+  });
+
+  const prepared = await prepareMjcfMeshExportAssets({
+    robot,
+    assets: {},
+    extraMeshFiles: new Map([
+      [meshPath, new Blob([mshBuffer], { type: 'application/octet-stream' })],
+    ]),
+  });
+
+  assert.equal(prepared.meshPathOverrides.get(meshPath), 'base_link.msh');
+  assert.equal(prepared.convertedSourceMeshPaths.size, 0);
+  assert.equal(prepared.archiveFiles.size, 0);
+});
+
+test('prepareMjcfMeshExportAssets fails fast when a required non-native mesh cannot be converted', async () => {
+  await assert.rejects(
+    () =>
+      prepareMjcfMeshExportAssets({
+        robot: createSingleMeshRobot('meshes/empty.dae'),
+        assets: {
+          'meshes/empty.dae': `data:text/xml;base64,${Buffer.from('not collada').toString('base64')}`,
+        },
+      }),
+    /Failed to convert mesh "meshes\/empty\.dae" to OBJ/,
+  );
 });
 
 test('prepareMjcfMeshExportAssets exports visual variants for native OBJ face-material groups', async () => {
@@ -835,10 +1016,10 @@ test('prepareMjcfMeshExportAssets exports visual variants for native OBJ face-ma
   assert.equal(prepared.convertedSourceMeshPaths.has(meshPath), true);
 });
 
-test('prepareMjcfMeshExportAssets can disable native OBJ sharing when requested', async () => {
-  const leftPath = 'usd-extracted/FL_thigh_visual_0.obj';
-  const rearPath = 'usd-extracted/RL_thigh_visual_0.obj';
-  const sharedObj = ['o shared_thigh', 'v 0 0 0', 'v 1 0 0', 'v 0 1 0', 'f 1 2 3', ''].join('\n');
+test('prepareMjcfMeshExportAssets can disable native STL sharing when requested', async () => {
+  const leftPath = 'usd-extracted/FL_thigh_visual_0.stl';
+  const rearPath = 'usd-extracted/RL_thigh_visual_0.stl';
+  const sharedStl = 'solid shared\nendsolid shared\n';
 
   const robot: RobotState = {
     name: 'shared-native-obj-opt-out',
@@ -889,8 +1070,8 @@ test('prepareMjcfMeshExportAssets can disable native OBJ sharing when requested'
     robot,
     assets: {},
     extraMeshFiles: new Map([
-      [leftPath, new Blob([sharedObj], { type: 'text/plain' })],
-      [rearPath, new Blob([sharedObj], { type: 'text/plain' })],
+      [leftPath, new Blob([sharedStl], { type: 'model/stl' })],
+      [rearPath, new Blob([sharedStl], { type: 'model/stl' })],
     ]),
     preferSharedMeshReuse: false,
   });

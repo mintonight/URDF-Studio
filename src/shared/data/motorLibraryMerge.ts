@@ -23,14 +23,14 @@ export function mergeMotorLibraryEntries(
   entries: readonly MotorLibraryEntryLike[],
   baseLibrary: Record<string, MotorSpec[]> = DEFAULT_MOTOR_LIBRARY,
 ): MotorLibraryMergeResult {
-  let library = cloneMotorLibrary(baseLibrary);
+  let nextLibrary = cloneMotorLibrary(baseLibrary);
   const parseFailures: string[] = [];
 
   for (const entry of entries) {
     try {
       if (isMotorLibraryCatalogFilePath(entry.path)) {
         const parsedLibrary = parseMotorLibraryCatalog(JSON.parse(entry.content), entry.path);
-        library = mergeMotorLibraries(library, parsedLibrary);
+        nextLibrary = mergeMotorLibraries(nextLibrary, parsedLibrary);
         continue;
       }
 
@@ -41,12 +41,12 @@ export function mergeMotorLibraryEntries(
 
       const brand = parts[parts.length - 2];
       const spec = parseMotorSpec(JSON.parse(entry.content), entry.path);
-      const brandEntries = library[brand] ?? [];
+      const brandEntries = nextLibrary[brand] ?? [];
 
       if (!brandEntries.some((motor) => motor.name === spec.name)) {
-        library[brand] = [...brandEntries, spec];
-      } else if (!library[brand]) {
-        library[brand] = brandEntries;
+        nextLibrary[brand] = [...brandEntries, spec];
+      } else if (!nextLibrary[brand]) {
+        nextLibrary[brand] = brandEntries;
       }
     } catch {
       parseFailures.push(entry.path);
@@ -54,7 +54,7 @@ export function mergeMotorLibraryEntries(
   }
 
   return {
-    library,
+    library: parseFailures.length > 0 ? cloneMotorLibrary(baseLibrary) : nextLibrary,
     parseFailures,
   };
 }

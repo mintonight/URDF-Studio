@@ -32,7 +32,12 @@ import { beginInitialGroundAlignment } from '../utils/robotPositioning';
 import { createScopedToolModeState, resolveScopedToolModeState } from '../utils/scopedToolMode';
 import { usePanelDrag } from './usePanelDrag';
 import { useViewerSettings } from './useViewerSettings';
-import { JointType, type InteractionSelection, type RobotState } from '@/types';
+import {
+  JointType,
+  type InteractionSelection,
+  type JointQuaternion,
+  type RobotState,
+} from '@/types';
 import { resolveMimicJointAngleTargets } from '@/core/robot';
 import { createClosedLoopMotionPreviewSession } from '@/shared/utils/robot/closedLoopMotionPreview';
 import { unwrapContinuousJointAngle } from '@/shared/utils/continuousJointAngle';
@@ -80,6 +85,133 @@ function isSameJointMotion(
     isSameJointAngle(left.angle, right.angle) &&
     isSameJointQuaternion(left.quaternion, right.quaternion)
   );
+}
+
+type RuntimePoseJointQuaternionLike =
+  | ViewerJointMotionStateValue['quaternion']
+  | { x?: unknown; y?: unknown; z?: unknown; w?: unknown };
+
+type RuntimePoseJointLike = {
+  name?: string;
+  angle?: number;
+  jointValue?: number;
+  quaternion?: RuntimePoseJointQuaternionLike;
+};
+
+function toFiniteNumber(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+// Runtime joints may expose live THREE.Quaternion instances; keep solver state plain-data and cloneable.
+function toJointQuaternionValue(
+  quaternion: RuntimePoseJointQuaternionLike | null | undefined,
+): JointQuaternion | null {
+  if (!quaternion) {
+    return null;
+  }
+
+  const x = toFiniteNumber(quaternion.x);
+  const y = toFiniteNumber(quaternion.y);
+  const z = toFiniteNumber(quaternion.z);
+  const w = toFiniteNumber(quaternion.w);
+  if (x === null || y === null || z === null || w === null) {
+    return null;
+  }
+
+  return { x, y, z, w };
+}
+
+function toClosedLoopPreviewJoint(
+  joint: RobotState['joints'][string],
+): RobotState['joints'][string] {
+  const normalizedQuaternion = toJointQuaternionValue(joint.quaternion);
+
+  return {
+    id: joint.id,
+    name: joint.name,
+    type: joint.type,
+    parentLinkId: joint.parentLinkId,
+    childLinkId: joint.childLinkId,
+    origin: {
+      xyz: { ...joint.origin.xyz },
+      rpy: { ...joint.origin.rpy },
+    },
+    dynamics: { ...joint.dynamics },
+    hardware: { ...joint.hardware },
+    ...(joint.axis ? { axis: { ...joint.axis } } : {}),
+    ...(joint.limit ? { limit: { ...joint.limit } } : {}),
+    ...(joint.mimic ? { mimic: { ...joint.mimic } } : {}),
+    ...(joint.calibration ? { calibration: { ...joint.calibration } } : {}),
+    ...(joint.safetyController ? { safetyController: { ...joint.safetyController } } : {}),
+    ...(typeof joint.referencePosition === 'number'
+      ? { referencePosition: joint.referencePosition }
+      : {}),
+    ...(typeof joint.angle === 'number' ? { angle: joint.angle } : {}),
+    ...(normalizedQuaternion ? { quaternion: normalizedQuaternion } : {}),
+  };
+}
+
+function mergeClosedLoopRobotStateWithRuntimeJointPose(
+  closedLoopRobotState: Pick<
+    RobotState,
+    'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'
+  > | null,
+  runtimeJoints: Record<string, RuntimePoseJointLike> | null | undefined,
+): Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'> | null {
+  if (!closedLoopRobotState) {
+    return null;
+  }
+
+  const nextClosedLoopRobotState: Pick<
+    RobotState,
+    'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'
+  > = {
+    ...closedLoopRobotState,
+    joints: Object.fromEntries(
+      Object.entries(closedLoopRobotState.joints).map(([jointId, joint]) => [
+        jointId,
+        toClosedLoopPreviewJoint(joint),
+      ]),
+    ),
+  };
+
+  if (!runtimeJoints) {
+    return nextClosedLoopRobotState;
+  }
+
+  Object.entries(runtimeJoints).forEach(([runtimeJointId, runtimeJoint]) => {
+    const resolvedJointKey =
+      resolveViewerJointKey(
+        nextClosedLoopRobotState.joints,
+        runtimeJoint?.name || runtimeJointId,
+      ) ?? (runtimeJointId in nextClosedLoopRobotState.joints ? runtimeJointId : null);
+    if (!resolvedJointKey) {
+      return;
+    }
+
+    const baseJoint = nextClosedLoopRobotState.joints[resolvedJointKey];
+    if (!baseJoint) {
+      return;
+    }
+
+    const nextAngle = toFiniteNumber(runtimeJoint?.angle ?? runtimeJoint?.jointValue);
+    const nextQuaternion = toJointQuaternionValue(runtimeJoint?.quaternion);
+    const shouldUpdateAngle = nextAngle !== null && !isSameJointAngle(baseJoint.angle, nextAngle);
+    const shouldUpdateQuaternion =
+      Boolean(nextQuaternion) && !isSameJointQuaternion(baseJoint.quaternion, nextQuaternion);
+    if (!shouldUpdateAngle && !shouldUpdateQuaternion) {
+      return;
+    }
+
+    nextClosedLoopRobotState.joints[resolvedJointKey] = {
+      ...baseJoint,
+      ...(shouldUpdateAngle && nextAngle !== null ? { angle: nextAngle } : {}),
+      ...(shouldUpdateQuaternion && nextQuaternion ? { quaternion: nextQuaternion } : {}),
+    };
+  });
+
+  return nextClosedLoopRobotState;
 }
 
 function resolveRuntimeReportedJointAngle(joint: unknown, runtimeAngle: number): number {
@@ -318,18 +450,26 @@ export const useViewerController = ({
   const transformPendingRef = useRef(false);
   const jointControlRobot = jointPanelRobot || robot;
   const jointControlJoints = jointControlRobot?.joints;
+  const effectiveClosedLoopRobotState = useMemo(
+    () =>
+      mergeClosedLoopRobotStateWithRuntimeJointPose(
+        closedLoopRobotState,
+        jointControlRobot?.joints as Record<string, RuntimePoseJointLike> | undefined,
+      ),
+    [closedLoopRobotState, jointControlRobot],
+  );
   const resolveDrivenMotion = useCallback(
     (jointId: string, angle: number) => {
-      if (!closedLoopRobotState?.joints?.[jointId]) {
+      if (!effectiveClosedLoopRobotState?.joints?.[jointId]) {
         return {
           angles: { [jointId]: angle },
           lockedJointIds: [jointId],
         };
       }
 
-      return resolveMimicJointAngleTargets(closedLoopRobotState, jointId, angle);
+      return resolveMimicJointAngleTargets(effectiveClosedLoopRobotState, jointId, angle);
     },
-    [closedLoopRobotState],
+    [effectiveClosedLoopRobotState],
   );
 
   const ensureJointInteractionPreviewSessionId = useCallback(() => {
@@ -625,7 +765,7 @@ export const useViewerController = ({
       window.cancelAnimationFrame(closedLoopPreviewFrameRef.current);
       closedLoopPreviewFrameRef.current = null;
     }
-    closedLoopMotionPreviewSessionRef.current.setBaseRobot(closedLoopRobotState);
+    closedLoopMotionPreviewSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
     closedLoopMotionPreviewSessionRef.current.reset();
     previewMotionAnglesRef.current = { ...previousAppliedJointAngleStateRef.current };
     previewMotionQuaternionsRef.current = Object.fromEntries(
@@ -681,7 +821,7 @@ export const useViewerController = ({
     }
   }, [
     clearJointInteractionPreview,
-    closedLoopRobotState,
+    effectiveClosedLoopRobotState,
     jointControlJoints,
     jointControlRobot,
     replaceJointPanelAngles,
@@ -985,7 +1125,7 @@ export const useViewerController = ({
       }
 
       const activeRuntimeJointKey = resolveViewerJointKey(
-        closedLoopRobotState?.joints,
+        effectiveClosedLoopRobotState?.joints,
         activeJointRef.current ?? Object.keys(resolvedAngles)[0] ?? null,
       );
       const activeRuntimeAngle =
@@ -996,14 +1136,16 @@ export const useViewerController = ({
         activeRuntimeJointKey && typeof activeRuntimeAngle === 'number'
           ? resolveDrivenMotion(activeRuntimeJointKey, activeRuntimeAngle)
           : null;
-      const hasClosedLoopConstraints = Boolean(closedLoopRobotState?.closedLoopConstraints?.length);
+      const hasClosedLoopConstraints = Boolean(
+        effectiveClosedLoopRobotState?.closedLoopConstraints?.length,
+      );
 
       if (
         activeRuntimeJointKey &&
         typeof activeRuntimeAngle === 'number' &&
         hasClosedLoopConstraints
       ) {
-        closedLoopMotionPreviewSessionRef.current.setBaseRobot(closedLoopRobotState);
+        closedLoopMotionPreviewSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
 
         try {
           const compensation = closedLoopMotionPreviewSessionRef.current.solve(
@@ -1056,7 +1198,7 @@ export const useViewerController = ({
     },
     [
       applyRuntimeJointMotionPreview,
-      closedLoopRobotState,
+      effectiveClosedLoopRobotState,
       emitJointChangeToApp,
       jointControlJoints,
       jointControlRobot,
@@ -1099,10 +1241,15 @@ export const useViewerController = ({
       window.cancelAnimationFrame(closedLoopPreviewFrameRef.current);
       closedLoopPreviewFrameRef.current = null;
     }
-    closedLoopMotionPreviewSessionRef.current.setBaseRobot(closedLoopRobotState);
+    closedLoopMotionPreviewSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
     closedLoopMotionPreviewSessionRef.current.reset();
     clearJointInteractionPreview();
-  }, [clearJointInteractionPreview, jointControlRobot, jointStateScopeKey]);
+  }, [
+    clearJointInteractionPreview,
+    effectiveClosedLoopRobotState,
+    jointControlRobot,
+    jointStateScopeKey,
+  ]);
 
   useEffect(() => {
     if (!jointControlRobot || (!jointAngleState && !jointMotionState)) return;
@@ -1115,6 +1262,17 @@ export const useViewerController = ({
         )
       : (jointAngleState ?? {});
     const normalizedAngleState = normalizeViewerJointAngleState(jointControlJoints, nextAngleState);
+    const meaningfulJointMotionEntries = Object.entries(jointMotionState ?? {}).filter(
+      ([, motion]) =>
+        Boolean(motion) && (typeof motion?.angle === 'number' || Boolean(motion?.quaternion)),
+    );
+    if (
+      Object.keys(normalizedAngleState).length === 0 &&
+      meaningfulJointMotionEntries.length === 0
+    ) {
+      return;
+    }
+
     const changedPanelAngles = Object.fromEntries(
       Object.entries(normalizedAngleState).filter(
         ([name, angle]) =>
@@ -1127,7 +1285,7 @@ export const useViewerController = ({
       patchJointPanelAngles(changedPanelAngles);
     }
 
-    Object.entries(jointMotionState ?? {}).forEach(([name, motion]) => {
+    meaningfulJointMotionEntries.forEach(([name, motion]) => {
       if (!motion || isSameJointMotion(previousAppliedJointMotionStateRef.current[name], motion)) {
         return;
       }
@@ -1170,10 +1328,12 @@ export const useViewerController = ({
     }
 
     previousAppliedJointAngleStateRef.current = normalizedAngleState;
-    previousAppliedJointMotionStateRef.current = jointMotionState ? { ...jointMotionState } : {};
+    previousAppliedJointMotionStateRef.current = jointMotionState
+      ? Object.fromEntries(meaningfulJointMotionEntries)
+      : {};
     previewMotionAnglesRef.current = normalizedAngleState;
     previewMotionQuaternionsRef.current = Object.fromEntries(
-      Object.entries(jointMotionState ?? {})
+      meaningfulJointMotionEntries
         .filter(([, motion]) => Boolean(motion?.quaternion))
         .map(([name, motion]) => [name, motion?.quaternion]),
     );
@@ -1199,12 +1359,16 @@ export const useViewerController = ({
       if (!isSingleDofJoint(joint)) return;
 
       const selectedClosedLoopJointId =
-        resolveViewerJointKey(closedLoopRobotState?.joints, joint.name || jointKey || jointName) ??
-        jointKey;
-      const hasClosedLoopConstraints = Boolean(closedLoopRobotState?.closedLoopConstraints?.length);
+        resolveViewerJointKey(
+          effectiveClosedLoopRobotState?.joints,
+          joint.name || jointKey || jointName,
+        ) ?? jointKey;
+      const hasClosedLoopConstraints = Boolean(
+        effectiveClosedLoopRobotState?.closedLoopConstraints?.length,
+      );
 
       if (selectedClosedLoopJointId && hasClosedLoopConstraints) {
-        closedLoopMotionPreviewSessionRef.current.setBaseRobot(closedLoopRobotState);
+        closedLoopMotionPreviewSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
         pendingClosedLoopPreviewRef.current = {
           selectedJointId: selectedClosedLoopJointId,
           resolvedAngle: angle,
@@ -1281,8 +1445,8 @@ export const useViewerController = ({
     },
     [
       applyRuntimeJointMotionPreview,
-      closedLoopRobotState?.closedLoopConstraints,
-      closedLoopRobotState,
+      effectiveClosedLoopRobotState?.closedLoopConstraints,
+      effectiveClosedLoopRobotState,
       jointControlJoints,
       jointControlRobot,
       requestSceneRefresh,
@@ -1320,7 +1484,7 @@ export const useViewerController = ({
         window.cancelAnimationFrame(closedLoopPreviewFrameRef.current);
         closedLoopPreviewFrameRef.current = null;
       }
-      closedLoopMotionPreviewSessionRef.current.setBaseRobot(closedLoopRobotState);
+      closedLoopMotionPreviewSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
       closedLoopMotionPreviewSessionRef.current.reset();
       previewMotionAnglesRef.current = {};
       previewMotionQuaternionsRef.current = {};
@@ -1336,8 +1500,10 @@ export const useViewerController = ({
         ? Number(joint?.angle ?? joint?.jointValue)
         : angle;
       const selectedClosedLoopJointId =
-        resolveViewerJointKey(closedLoopRobotState?.joints, joint?.name || jointKey || jointName) ??
-        jointKey;
+        resolveViewerJointKey(
+          effectiveClosedLoopRobotState?.joints,
+          joint?.name || jointKey || jointName,
+        ) ?? jointKey;
       const drivenMotion = selectedClosedLoopJointId
         ? resolveDrivenMotion(selectedClosedLoopJointId, resolvedAngle)
         : { angles: {}, lockedJointIds: [] };
@@ -1380,7 +1546,7 @@ export const useViewerController = ({
     },
     [
       clearJointInteractionPreview,
-      closedLoopRobotState,
+      effectiveClosedLoopRobotState,
       emitJointChangeToApp,
       jointControlJoints,
       jointControlRobot,
@@ -1598,7 +1764,7 @@ export const useViewerController = ({
     toggleOptionsCollapsed,
     isJointsCollapsed,
     toggleJointsCollapsed,
-    closedLoopRobotState,
+    closedLoopRobotState: effectiveClosedLoopRobotState,
     toolMode,
     measureState,
     setMeasureState,

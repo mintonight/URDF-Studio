@@ -155,6 +155,7 @@ export function AIConversationModal({
   const [pendingResetAction, setPendingResetAction] = useState<ConversationResetAction | null>(
     null,
   );
+  const [requestError, setRequestError] = useState<string | null>(null);
 
   const isMountedRef = useRef(false);
   const requestIdRef = useRef(0);
@@ -217,6 +218,7 @@ export function AIConversationModal({
       setCopiedMessageKey(null);
       setLastSubmittedTurn(null);
       setPendingResetAction(null);
+      setRequestError(null);
       isComposingRef.current = false;
     },
     [],
@@ -371,6 +373,7 @@ export function AIConversationModal({
       history: history.map((message) => ({ ...message })),
       userMessage: trimmedMessage,
     });
+    setRequestError(null);
     const nextTurnMessages = [
       createConversationMessage('user', trimmedMessage),
       createConversationMessage('assistant', ''),
@@ -415,6 +418,7 @@ export function AIConversationModal({
       }
 
       if (result.status === 'aborted') {
+        setRequestError(null);
         setMessages((prev) => {
           if (result.reply) {
             return replaceTrailingAssistantMessage(prev, result.reply);
@@ -425,6 +429,19 @@ export function AIConversationModal({
         return;
       }
 
+      if (result.status === 'error') {
+        setRequestError(result.error?.message ?? t.unknownError);
+        setMessages((prev) => {
+          if (result.reply) {
+            return replaceTrailingAssistantMessage(prev, result.reply);
+          }
+
+          return removeTrailingAssistantPlaceholder(prev);
+        });
+        return;
+      }
+
+      setRequestError(null);
       setMessages((prev) => replaceTrailingAssistantMessage(prev, result.reply));
     } finally {
       if (isRequestActive()) {
@@ -688,6 +705,11 @@ export function AIConversationModal({
 
             <div className="border-t border-border-black bg-element-bg p-4">
               <div className="rounded-xl border border-border-black bg-panel-bg p-2 shadow-sm dark:bg-panel-bg">
+                {requestError && (
+                  <div className="mb-2 rounded-xl border border-danger-border bg-danger-soft px-3 py-2 text-[12px] text-danger">
+                    {requestError}
+                  </div>
+                )}
                 <textarea
                   ref={textareaRef}
                   value={input}

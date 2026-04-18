@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 
 import {
   buildStandaloneImportAssetWarning,
+  buildStandalonePrimitiveGeometryHint,
   buildStandalonePackageAssetImportWarning,
   collectStandaloneImportSupportAssetPaths,
   extractStandaloneImportAssetReferences,
@@ -391,4 +392,60 @@ test('collectStandaloneImportSupportAssetPaths keeps xuebao archive warnings sil
   });
 
   assert.equal(warning, null);
+});
+
+test('buildStandalonePrimitiveGeometryHint reports primitive-only URDFs that ship sibling mesh assets', () => {
+  const source = {
+    name: 'awesome_robot_descriptions_repos/sigmaban_urdf/robot.urdf',
+    format: 'urdf' as const,
+    content: fs.readFileSync(
+      'test/awesome_robot_descriptions_repos/sigmaban_urdf/robot.urdf',
+      'utf8',
+    ),
+  };
+
+  const assetPaths = fs
+    .readdirSync('test/awesome_robot_descriptions_repos/sigmaban_urdf')
+    .filter((entry) => entry.toLowerCase().endsWith('.stl'))
+    .map((entry) => `awesome_robot_descriptions_repos/sigmaban_urdf/${entry}`);
+
+  const hint = buildStandalonePrimitiveGeometryHint(source, assetPaths, {
+    sourcePath: source.name,
+  });
+
+  assert.deepEqual(hint, {
+    siblingMeshAssetPaths: [
+      'awesome_robot_descriptions_repos/sigmaban_urdf/cleat.stl',
+      'awesome_robot_descriptions_repos/sigmaban_urdf/foot_plate.stl',
+      'awesome_robot_descriptions_repos/sigmaban_urdf/hand.stl',
+    ],
+    siblingMeshAssetCount: 15,
+  });
+});
+
+test('buildStandalonePrimitiveGeometryHint stays silent when the URDF already references meshes', () => {
+  const source = {
+    name: 'awesome_robot_descriptions_repos/onshape-to-robot-examples/sigmaban2019_urdf/robot.urdf',
+    format: 'urdf' as const,
+    content: fs.readFileSync(
+      'test/awesome_robot_descriptions_repos/onshape-to-robot-examples/sigmaban2019_urdf/robot.urdf',
+      'utf8',
+    ),
+  };
+
+  const assetPaths = fs
+    .readdirSync(
+      'test/awesome_robot_descriptions_repos/onshape-to-robot-examples/sigmaban2019_urdf/assets/merged',
+    )
+    .filter((entry) => entry.toLowerCase().endsWith('.stl'))
+    .map(
+      (entry) =>
+        `awesome_robot_descriptions_repos/onshape-to-robot-examples/sigmaban2019_urdf/assets/merged/${entry}`,
+    );
+
+  const hint = buildStandalonePrimitiveGeometryHint(source, assetPaths, {
+    sourcePath: source.name,
+  });
+
+  assert.equal(hint, null);
 });

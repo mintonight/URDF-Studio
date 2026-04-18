@@ -146,3 +146,94 @@ test('createSceneFromSerializedColladaData applies Collada unit meter scaling fo
     `expected Aliengo calf mesh to stay near URDF truth scale after applying unit meter, got z=${size.z}`,
   );
 });
+
+test('parseColladaSceneData tolerates Gazebo Collada images without init_from nodes', () => {
+  const daePath = 'test/gazebo_models/arm_part/meshes/arm.dae';
+  const colladaText = fs.readFileSync(daePath, 'utf8');
+  const serializedScene = parseColladaSceneData(colladaText, daePath);
+  const restoredScene = createSceneFromSerializedColladaData(serializedScene);
+  const sceneJson = serializedScene.sceneJson as {
+    images?: Array<{ url?: string | string[] }>;
+  };
+
+  assert.ok(getFirstMesh(restoredScene), 'expected Gazebo arm Collada scene to restore a mesh');
+  assert.equal(
+    (sceneJson.images ?? []).every((image) => {
+      if (typeof image.url === 'string') {
+        return image.url.length > 0;
+      }
+
+      if (Array.isArray(image.url)) {
+        return image.url.every((entry) => typeof entry === 'string' && entry.length > 0);
+      }
+
+      return false;
+    }),
+    true,
+    'expected serialized Gazebo arm Collada images to either be removed or retain a concrete url',
+  );
+});
+
+test('parseColladaSceneData strips broken Gazebo image bindings before Three.js falls back noisily', () => {
+  const daePath = 'test/gazebo_models/arm_part/meshes/arm.dae';
+  const colladaText = fs.readFileSync(daePath, 'utf8');
+  const originalConsoleWarn = console.warn;
+  const warnings: unknown[][] = [];
+
+  console.warn = (...args) => {
+    warnings.push(args);
+  };
+
+  try {
+    const serializedScene = parseColladaSceneData(colladaText, daePath);
+    const restoredScene = createSceneFromSerializedColladaData(serializedScene);
+
+    assert.ok(getFirstMesh(restoredScene), 'expected Gazebo arm Collada scene to restore a mesh');
+  } finally {
+    console.warn = originalConsoleWarn;
+  }
+
+  assert.equal(
+    warnings.some((entry) => String(entry?.[0] ?? '').includes(`Couldn't find image with ID`)),
+    false,
+    'expected Gazebo arm Collada parse to avoid missing-image fallback warnings',
+  );
+  assert.equal(
+    warnings.some((entry) => String(entry?.[0] ?? '').includes(`Couldn't create texture with ID`)),
+    false,
+    'expected Gazebo arm Collada parse to avoid missing-texture fallback warnings',
+  );
+});
+
+test('parseColladaSceneData remaps Gazebo image-bound texture references to sampler bindings', () => {
+  const daePath = 'test/gazebo_models/coke_can/meshes/coke_can.dae';
+  const colladaText = fs.readFileSync(daePath, 'utf8');
+  const originalConsoleWarn = console.warn;
+  const warnings: unknown[][] = [];
+
+  console.warn = (...args) => {
+    warnings.push(args);
+  };
+
+  try {
+    const serializedScene = parseColladaSceneData(colladaText, daePath);
+    const restoredScene = createSceneFromSerializedColladaData(serializedScene);
+    const restoredMesh = getFirstMesh(restoredScene);
+    const restoredMaterial = restoredMesh.material as THREE.MeshPhongMaterial;
+
+    assert.ok(
+      restoredMaterial.map,
+      'expected Gazebo coke can Collada scene to restore material.map',
+    );
+  } finally {
+    console.warn = originalConsoleWarn;
+  }
+
+  assert.equal(
+    warnings.some((entry) =>
+      String(entry?.[0] ?? '').includes('THREE.ColladaLoader: Undefined sampler'),
+    ),
+    false,
+    'expected Gazebo coke can Collada parse to avoid the undefined sampler fallback warning',
+  );
+});

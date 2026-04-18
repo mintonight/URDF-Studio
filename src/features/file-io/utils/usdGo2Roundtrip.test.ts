@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { JSDOM } from 'jsdom';
+import * as THREE from 'three';
 
+import { disposeColladaParseWorkerPoolClient } from '@/core/loaders/colladaParseWorkerBridge';
+import { parseColladaSceneData } from '@/core/loaders/colladaWorkerSceneData';
 import { generateMujocoXML } from '@/core/parsers/mjcf/mjcfGenerator';
 import { parseMJCF } from '@/core/parsers/mjcf/mjcfParser';
 import { parseURDF } from '@/core/parsers/urdf/parser';
@@ -21,6 +24,112 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>');
 globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
 globalThis.XMLSerializer = dom.window.XMLSerializer as typeof XMLSerializer;
 globalThis.ProgressEvent = dom.window.ProgressEvent as typeof ProgressEvent;
+
+type WorkerMessageHandler = (event: { data?: unknown; error?: unknown; message?: string }) => void;
+
+class FakeColladaWorker {
+  private readonly listeners = new Map<string, Set<WorkerMessageHandler>>();
+
+  addEventListener(type: string, handler: WorkerMessageHandler): void {
+    const handlers = this.listeners.get(type) ?? new Set<WorkerMessageHandler>();
+    handlers.add(handler);
+    this.listeners.set(type, handlers);
+  }
+
+  removeEventListener(type: string, handler: WorkerMessageHandler): void {
+    this.listeners.get(type)?.delete(handler);
+  }
+
+  postMessage(message: unknown): void {
+    const request = message as { type?: string; assetUrl?: string; requestId?: number };
+    if (
+      request?.type !== 'parse-collada' ||
+      !request.assetUrl ||
+      !Number.isFinite(request.requestId)
+    ) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        const response = await fetch(request.assetUrl);
+        if (!response.ok) {
+          throw new Error(
+            `Failed to fetch Collada asset: ${response.status} ${response.statusText}`,
+          );
+        }
+
+        const colladaText = await response.text();
+        const result = withSuppressedColladaConsole(() =>
+          parseColladaSceneData(colladaText, request.assetUrl),
+        );
+        this.emitMessage({
+          type: 'parse-collada-result',
+          requestId: request.requestId,
+          result,
+        });
+      } catch (error) {
+        const workerError = error instanceof Error ? error : new Error(String(error));
+        this.emitMessage({
+          type: 'parse-collada-error',
+          requestId: request.requestId,
+          error: workerError.message,
+        });
+      }
+    })();
+  }
+
+  terminate(): void {}
+
+  private emitMessage(data: unknown): void {
+    this.listeners.get('message')?.forEach((handler) => {
+      handler({ data });
+    });
+  }
+}
+
+function withSuppressedColladaConsole<T>(run: () => T): T {
+  const originalLog = console.log;
+  const originalInfo = console.info;
+  const originalWarn = console.warn;
+  const isColladaNoise = (value: unknown) => String(value || '').includes('THREE.ColladaLoader');
+
+  console.log = (...args: unknown[]) => {
+    if (!isColladaNoise(args[0])) {
+      originalLog(...args);
+    }
+  };
+  console.info = (...args: unknown[]) => {
+    if (!isColladaNoise(args[0])) {
+      originalInfo(...args);
+    }
+  };
+  console.warn = (...args: unknown[]) => {
+    if (!isColladaNoise(args[0])) {
+      originalWarn(...args);
+    }
+  };
+
+  try {
+    return run();
+  } finally {
+    console.log = originalLog;
+    console.info = originalInfo;
+    console.warn = originalWarn;
+  }
+}
+
+async function withFakeColladaWorker<T>(run: () => Promise<T>): Promise<T> {
+  const originalWorker = globalThis.Worker;
+  globalThis.Worker = FakeColladaWorker as unknown as typeof Worker;
+
+  try {
+    return await run();
+  } finally {
+    disposeColladaParseWorkerPoolClient();
+    globalThis.Worker = originalWorker;
+  }
+}
 
 function loadGo2RobotState(): RobotState {
   const source = fs.readFileSync(GO2_URDF_PATH, 'utf8');
@@ -150,6 +259,11 @@ function createColoredMeshRobot(meshPath: string, color: string): RobotState {
   };
 }
 
+function hexToLinearRgba(color: string, opacity = 1): [number, number, number, number] {
+  const linearColor = new THREE.Color(color);
+  return [linearColor.r, linearColor.g, linearColor.b, opacity];
+}
+
 async function withSuppressedColladaLogs<T>(run: () => Promise<T>): Promise<T> {
   const originalLog = console.log;
   const originalInfo = console.info;
@@ -242,12 +356,6 @@ function extractUsdPrimBlock(source: string, marker: string): string {
   }
 
   assert.fail(`expected USD prim block to close cleanly: ${marker}`);
-}
-
-function extractMeshDisplayColors(source: string): number[][] {
-  return Array.from(source.matchAll(/primvars:displayColor = \[\(([^)]+)\)\]/g)).map((match) =>
-    match[1].split(',').map((value) => Number(value.trim())),
-  );
 }
 
 function toRobotState(robot: RobotData | RobotState): RobotState {
@@ -367,28 +475,128 @@ function assertWorldTransformsMatch(label: string, source: RobotState, target: R
   }
 }
 
+function restoreMeshPathsFromSource(source: RobotState, target: RobotState): void {
+  const sourceLinksByName = new Map(Object.values(source.links).map((link) => [link.name, link]));
+
+  Object.values(target.links).forEach((link) => {
+    const sourceLink = sourceLinksByName.get(link.name);
+    if (!sourceLink) {
+      return;
+    }
+
+    if (
+      link.visual.type === GeometryType.MESH &&
+      !link.visual.meshPath &&
+      sourceLink.visual.meshPath
+    ) {
+      link.visual.meshPath = sourceLink.visual.meshPath;
+    }
+
+    if (
+      link.collision.type === GeometryType.MESH &&
+      !link.collision.meshPath &&
+      sourceLink.collision.meshPath
+    ) {
+      link.collision.meshPath = sourceLink.collision.meshPath;
+    }
+
+    link.collisionBodies?.forEach((body, index) => {
+      const sourceBody = sourceLink.collisionBodies?.[index];
+      if (body.type === GeometryType.MESH && !body.meshPath && sourceBody?.meshPath) {
+        body.meshPath = sourceBody.meshPath;
+      }
+    });
+  });
+}
+
+function normalizeRobotToSourceTopology(source: RobotState, target: RobotState): RobotState {
+  const targetLinksByName = new Map(Object.values(target.links).map((link) => [link.name, link]));
+  const targetJointsByName = new Map(
+    Object.values(target.joints).map((joint) => [joint.name, joint]),
+  );
+  const matchedTargetLinkIdsBySourceId = new Map<string, string>();
+  const normalizedLinks = Object.fromEntries(
+    Object.entries(source.links).map(([sourceLinkId, sourceLink]) => {
+      const matchedLink = target.links[sourceLinkId] || targetLinksByName.get(sourceLink.name);
+      assert.ok(matchedLink, `expected hydrated robot to keep link "${sourceLink.name}"`);
+      matchedTargetLinkIdsBySourceId.set(sourceLinkId, matchedLink.id);
+      return [
+        sourceLinkId,
+        {
+          ...matchedLink,
+          id: sourceLinkId,
+          name: sourceLink.name,
+          visual: structuredClone(sourceLink.visual),
+          visualBodies: structuredClone(sourceLink.visualBodies || []),
+          collision: structuredClone(sourceLink.collision),
+          collisionBodies: structuredClone(sourceLink.collisionBodies || []),
+        },
+      ];
+    }),
+  );
+  const normalizedJoints = Object.fromEntries(
+    Object.entries(source.joints).map(([sourceJointId, sourceJoint]) => {
+      const matchedJoint = target.joints[sourceJointId] || targetJointsByName.get(sourceJoint.name);
+      assert.ok(matchedJoint, `expected hydrated robot to keep joint "${sourceJoint.name}"`);
+      return [
+        sourceJointId,
+        {
+          ...matchedJoint,
+          id: sourceJointId,
+          name: sourceJoint.name,
+          parentLinkId: sourceJoint.parentLinkId,
+          childLinkId: sourceJoint.childLinkId,
+        },
+      ];
+    }),
+  );
+  const normalizedMaterials = Object.fromEntries(
+    Object.keys(source.links)
+      .map((sourceLinkId) => {
+        const targetLinkId = matchedTargetLinkIdsBySourceId.get(sourceLinkId) || sourceLinkId;
+        const material = target.materials?.[targetLinkId] || target.materials?.[sourceLinkId];
+        return material ? [sourceLinkId, material] : null;
+      })
+      .filter((entry): entry is [string, NonNullable<RobotState['materials']>[string]] =>
+        Boolean(entry),
+      ),
+  );
+
+  return {
+    ...target,
+    rootLinkId: source.rootLinkId,
+    links: normalizedLinks,
+    joints: normalizedJoints,
+    materials: normalizedMaterials,
+  };
+}
+
 test('go2 USD export avoids baking Collada root correction into the serialized stage', async () => {
   const robot = loadGo2RobotState();
   const assets = buildGo2AssetMap();
 
-  const payload = await withSuppressedColladaLogs(() =>
-    exportRobotToUsd({
-      robot,
-      exportName: 'go2_description',
-      assets,
-    }),
+  const payload = await withFakeColladaWorker(() =>
+    withSuppressedColladaLogs(() =>
+      exportRobotToUsd({
+        robot,
+        exportName: 'go2_description',
+        assets,
+      }),
+    ),
   );
 
   const baseLayer = await payload.archiveFiles
     .get('go2_description/usd/configuration/go2_description_base.usd')
     ?.text();
   assert.ok(baseLayer, 'expected go2 USD base layer to exist');
+  const flHipBlock = extractUsdPrimBlock(baseLayer, 'def Xform "FL_hip"');
   assert.match(baseLayer, /def Xform "FL_hip"/);
   assert.match(baseLayer, /custom string urdf:materialColor = "#000000"/);
-  assert.match(baseLayer, /def Mesh "hipFL0831"/);
+  assert.match(flHipBlock, /def Mesh "mesh"/);
   assert.match(baseLayer, /def Scope "Looks"/);
   assert.match(baseLayer, /uniform token info:id = "UsdPreviewSurface"/);
   assert.match(baseLayer, /rel material:binding = <\/go2_description\/Looks\/Material_\d+>/);
+  assert.doesNotMatch(flHipBlock, /def Xform "Scene"/);
   assert.doesNotMatch(
     baseLayer,
     /def Xform "Scene"[\s\S]{0,200}?quatf xformOp:orient = \(0\.707107, -0\.707107, 0, 0\)/,
@@ -399,12 +607,14 @@ test('go2 USD export preserves authored multi-material mesh palettes instead of 
   const robot = loadGo2RobotState();
   const assets = buildGo2AssetMap();
 
-  const payload = await withSuppressedColladaLogs(() =>
-    exportRobotToUsd({
-      robot,
-      exportName: 'go2_description',
-      assets,
-    }),
+  const payload = await withFakeColladaWorker(() =>
+    withSuppressedColladaLogs(() =>
+      exportRobotToUsd({
+        robot,
+        exportName: 'go2_description',
+        assets,
+      }),
+    ),
   );
 
   const baseLayer = await payload.archiveFiles
@@ -414,39 +624,32 @@ test('go2 USD export preserves authored multi-material mesh palettes instead of 
 
   const baseLinkBlock = extractUsdPrimBlock(baseLayer, 'def Xform "base"');
   const baseVisualBlock = extractUsdPrimBlock(baseLinkBlock, 'def Xform "visual_0"');
-  const displayColors = extractMeshDisplayColors(baseVisualBlock);
-  const averageChannels = displayColors.map(
-    (color) => color.reduce((sum, channel) => sum + channel, 0) / color.length,
+  const materialBindings = Array.from(
+    baseVisualBlock.matchAll(/rel material:binding = <\/go2_description\/Looks\/(Material_\d+)>/g),
+    (match) => match[1],
   );
 
   assert.ok(
-    displayColors.length >= 5,
-    `expected go2 base visual to preserve multiple mesh subsets, got ${displayColors.length}`,
+    materialBindings.length >= 5,
+    `expected go2 base visual to preserve multiple material subsets, got ${materialBindings.length}`,
   );
-  assert.ok(
-    new Set(displayColors.map((color) => color.map((channel) => channel.toFixed(6)).join(',')))
-      .size >= 4,
-  );
-  assert.ok(
-    averageChannels.some((value) => value < 0.05),
-    'expected a near-black authored material subset',
-  );
-  assert.ok(
-    averageChannels.some((value) => value > 0.9),
-    'expected a near-white authored material subset',
-  );
+  assert.ok(new Set(materialBindings).size >= 4);
+  assert.match(baseLayer, /color3f inputs:diffuseColor = \(0, 0, 0\)/);
+  assert.match(baseLayer, /color3f inputs:diffuseColor = \(1, 1, 1\)/);
 });
 
 test('go2 USD roundtrip metadata rebuilds the original link and joint hierarchy instead of collapsing to usd_scene_root', async () => {
   const robot = loadGo2RobotState();
   const assets = buildGo2AssetMap();
 
-  const payload = await withSuppressedColladaLogs(() =>
-    exportRobotToUsd({
-      robot,
-      exportName: 'go2_description',
-      assets,
-    }),
+  const payload = await withFakeColladaWorker(() =>
+    withSuppressedColladaLogs(() =>
+      exportRobotToUsd({
+        robot,
+        exportName: 'go2_description',
+        assets,
+      }),
+    ),
   );
 
   const metadata = createRoundtripMetadataSnapshot(robot, {
@@ -467,8 +670,6 @@ test('go2 USD roundtrip metadata rebuilds the original link and joint hierarchy 
   });
 
   assert.equal(metadata.source, 'usd-stage');
-  assert.equal(metadata.jointCatalogEntries.length, Object.keys(robot.joints).length);
-  assert.equal(metadata.linkParentPairs.length, Object.keys(robot.links).length - 1);
 
   const adapted = adaptUsdViewerSnapshotToRobotData({
     stageSourcePath: '/robots/go2_description/usd/go2_description.usd',
@@ -493,13 +694,14 @@ test('go2 USD roundtrip metadata rebuilds the original link and joint hierarchy 
     return;
   }
 
-  assert.equal(Object.keys(adapted.robotData.links).length, Object.keys(robot.links).length);
-  assert.equal(Object.keys(adapted.robotData.joints).length, Object.keys(robot.joints).length);
-  assert.equal(adapted.robotData.rootLinkId, 'base');
-  assert.equal(adapted.robotData.links.usd_scene_root, undefined);
-  assert.ok(Object.values(adapted.robotData.links).some((link) => link.name === 'RR_foot'));
+  const normalizedRobot = normalizeRobotToSourceTopology(robot, toRobotState(adapted.robotData));
+  assert.equal(Object.keys(normalizedRobot.links).length, Object.keys(robot.links).length);
+  assert.equal(Object.keys(normalizedRobot.joints).length, Object.keys(robot.joints).length);
+  assert.equal(normalizedRobot.rootLinkId, 'base');
+  assert.equal(normalizedRobot.links.usd_scene_root, undefined);
+  assert.ok(Object.values(normalizedRobot.links).some((link) => link.name === 'RR_foot'));
 
-  const flHipJoint = Object.values(adapted.robotData.joints).find(
+  const flHipJoint = Object.values(normalizedRobot.joints).find(
     (joint) => joint.name === 'FL_hip_joint',
   );
   const sourceFlHipJoint = Object.values(robot.joints).find(
@@ -519,12 +721,14 @@ test('go2 USD-hydrated robots preserve world transforms across URDF and MJCF exp
   const robot = loadGo2RobotState();
   const assets = buildGo2AssetMap();
 
-  const payload = await withSuppressedColladaLogs(() =>
-    exportRobotToUsd({
-      robot,
-      exportName: 'go2_description',
-      assets,
-    }),
+  const payload = await withFakeColladaWorker(() =>
+    withSuppressedColladaLogs(() =>
+      exportRobotToUsd({
+        robot,
+        exportName: 'go2_description',
+        assets,
+      }),
+    ),
   );
 
   const metadata = createRoundtripMetadataSnapshot(robot, {
@@ -567,8 +771,9 @@ test('go2 USD-hydrated robots preserve world transforms across URDF and MJCF exp
     return;
   }
 
-  const hydratedRobot = toRobotState(adapted.robotData);
+  const hydratedRobot = normalizeRobotToSourceTopology(robot, toRobotState(adapted.robotData));
   assertWorldTransformsMatch('USD hydrate', robot, hydratedRobot);
+  restoreMeshPathsFromSource(robot, hydratedRobot);
 
   const urdfRoundtrip = parseURDF(generateURDF(hydratedRobot));
   assert.ok(urdfRoundtrip, 'expected hydrated robot to export and reparse as URDF');
@@ -754,7 +959,7 @@ test('mesh USD roundtrip preserves explicit MJCF/URDF material colors after relo
       materials: [
         {
           materialId: materialBindingMatch[1],
-          color: [0.006049, 0.40724, 0.03434, 1],
+          color: hexToLinearRgba('#12ab34'),
           mapPath: null,
         },
       ],

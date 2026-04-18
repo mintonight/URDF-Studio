@@ -111,6 +111,9 @@ function buildRenderRobotMetadataReadError(stageSourcePath, cause) {
         cause,
     });
 }
+function shouldLogRobotMetadataErrors(options) {
+    return options?.logErrors !== false;
+}
 function isRenderRobotMetadataSnapshotReady(snapshot) {
     if (!snapshot || typeof snapshot !== "object")
         return false;
@@ -255,7 +258,9 @@ export function getRenderRobotMetadataSnapshot(renderInterface, stageSourcePath 
     }
     catch (error) {
         const wrappedError = buildRenderRobotMetadataReadError(stageSourcePath, error);
-        console.error(`[robot-metadata] ${wrappedError.message}`, error);
+        if (shouldLogRobotMetadataErrors(options)) {
+            console.error(`[robot-metadata] ${wrappedError.message}`, error);
+        }
         if (options?.strictErrors === true) {
             throw wrappedError;
         }
@@ -265,10 +270,15 @@ export function getRenderRobotMetadataSnapshot(renderInterface, stageSourcePath 
 export async function warmupRenderRobotMetadataSnapshot(renderInterface, options = {}) {
     const starter = renderInterface?.startRobotMetadataWarmupForStage;
     const stageSourcePath = String(options.stageSourcePath || "").trim() || null;
+    const logErrors = shouldLogRobotMetadataErrors(options);
     const starterOptions = { ...options };
     delete starterOptions.stageSourcePath;
+    delete starterOptions.logErrors;
     if (typeof starter !== "function") {
-        return getRenderRobotMetadataSnapshot(renderInterface, stageSourcePath, { strictErrors: true });
+        return getRenderRobotMetadataSnapshot(renderInterface, stageSourcePath, {
+            strictErrors: true,
+            logErrors,
+        });
     }
     let maybePromise;
     try {
@@ -280,7 +290,9 @@ export async function warmupRenderRobotMetadataSnapshot(renderInterface, options
         const wrappedError = new Error(`Failed to warm up render robot metadata snapshot for "${stageSourcePath || "active-stage"}".`, {
             cause: error,
         });
-        console.error(`[robot-metadata] ${wrappedError.message}`, error);
+        if (logErrors) {
+            console.error(`[robot-metadata] ${wrappedError.message}`, error);
+        }
         throw wrappedError;
     }
     let resolved;
@@ -293,11 +305,16 @@ export async function warmupRenderRobotMetadataSnapshot(renderInterface, options
         const wrappedError = new Error(`Render robot metadata warmup rejected for "${stageSourcePath || "active-stage"}".`, {
             cause: error,
         });
-        console.error(`[robot-metadata] ${wrappedError.message}`, error);
+        if (logErrors) {
+            console.error(`[robot-metadata] ${wrappedError.message}`, error);
+        }
         throw wrappedError;
     }
     const snapshot = normalizeRenderRobotMetadataSnapshot(resolved)
-        || getRenderRobotMetadataSnapshot(renderInterface, stageSourcePath, { strictErrors: true });
+        || getRenderRobotMetadataSnapshot(renderInterface, stageSourcePath, {
+            strictErrors: true,
+            logErrors,
+        });
     if (!snapshot)
         return null;
     if (!isRenderRobotMetadataSnapshotReady(snapshot)) {

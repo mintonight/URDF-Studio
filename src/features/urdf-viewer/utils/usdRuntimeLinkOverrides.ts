@@ -138,10 +138,53 @@ export function composeUsdMeshOverrideWorldMatrixFromBaseLocal({
     .multiply(baseLocalMatrix.clone());
 }
 
+function hasMultipleRuntimeAuthoredMaterials(
+  geometry: Pick<UrdfVisual, 'authoredMaterials'> | null | undefined,
+): boolean {
+  return Array.isArray(geometry?.authoredMaterials) && geometry.authoredMaterials.length > 1;
+}
+
+function hasMultipleVisualMaterialSlots(mesh: THREE.Mesh | null | undefined): boolean {
+  if (!mesh) {
+    return false;
+  }
+
+  const materialCount = Array.isArray(mesh.material)
+    ? mesh.material.filter(Boolean).length
+    : mesh.material
+      ? 1
+      : 0;
+  if (materialCount > 1) {
+    return true;
+  }
+
+  const groups = Array.isArray(mesh.geometry?.groups) ? mesh.geometry.groups : [];
+  const materialIndexes = new Set<number>();
+  for (const group of groups) {
+    const materialIndex = Number(group?.materialIndex ?? 0);
+    if (!Number.isInteger(materialIndex) || materialIndex < 0) {
+      continue;
+    }
+    materialIndexes.add(materialIndex);
+    if (materialIndexes.size > 1) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function resolveUsdVisualColorOverride(
   currentGeometry: UrdfVisual | null | undefined,
   baselineGeometry: UrdfVisual | null | undefined,
 ): string | null {
+  if (
+    hasMultipleRuntimeAuthoredMaterials(currentGeometry) ||
+    hasMultipleRuntimeAuthoredMaterials(baselineGeometry)
+  ) {
+    return null;
+  }
+
   const currentColor = normalizeColor(currentGeometry?.color);
   if (!currentColor) {
     return null;
@@ -150,6 +193,19 @@ export function resolveUsdVisualColorOverride(
   return currentColor !== normalizeColor(baselineGeometry?.color)
     ? currentGeometry?.color?.trim() || null
     : null;
+}
+
+export function resolveUsdVisualColorOverrideForMesh(
+  mesh: THREE.Mesh | null | undefined,
+  currentGeometry: UrdfVisual | null | undefined,
+  baselineGeometry: UrdfVisual | null | undefined,
+): string | null {
+  const colorOverride = resolveUsdVisualColorOverride(currentGeometry, baselineGeometry);
+  if (!colorOverride) {
+    return null;
+  }
+
+  return hasMultipleVisualMaterialSlots(mesh) ? null : colorOverride;
 }
 
 export function createUsdLinkDynamicsRecord(

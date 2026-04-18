@@ -3,6 +3,7 @@ import { AlertCircle, FileCode, X } from 'lucide-react';
 
 import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
+import { useOverlayHoverBlock } from '@/shared/hooks';
 
 export function FilePreviewBanner({
   fileName,
@@ -15,6 +16,7 @@ export function FilePreviewBanner({
 }) {
   const t = translations[lang];
   const displayName = fileName.split('/').pop() ?? fileName;
+  const { activateHoverBlock, deactivateHoverBlock } = useOverlayHoverBlock();
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -25,7 +27,11 @@ export function FilePreviewBanner({
   }, [onClose]);
 
   return (
-    <div className="absolute top-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-border-black bg-panel-bg px-3 py-2 shadow-lg">
+    <div
+      className="absolute top-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-border-black bg-panel-bg px-3 py-2 shadow-lg"
+      onMouseEnter={activateHoverBlock}
+      onMouseLeave={deactivateHoverBlock}
+    >
       <FileCode className="h-4 w-4 shrink-0 text-system-blue" />
       <span
         className="max-w-[320px] truncate text-sm font-medium text-text-primary"

@@ -1,4 +1,4 @@
-import { Quaternion, Vector3 } from 'three';
+import { Matrix4, Quaternion, Vector3 } from 'three';
 import type {
   InteractionHelperKind,
   InteractionSelection,
@@ -6,6 +6,9 @@ import type {
   RobotState,
   UrdfJoint,
   UrdfLink,
+  UsdSceneMeshDescriptor,
+  UsdSceneMaterialRecord,
+  UsdSceneSnapshot,
 } from '@/types';
 import { getLatestUsdStageLoadDebugEntry } from './usdStageLoadDebug';
 
@@ -33,6 +36,7 @@ export interface RegressionViewerFlags {
 interface AppRegressionHandlers {
   getAvailableFiles: () => RobotFile[];
   getSelectedFile: () => RobotFile | null;
+  getUsdSceneSnapshot: (fileName: string) => UsdSceneSnapshot | null;
   getDocumentLoadState: () => {
     status: string;
     fileName: string | null;
@@ -166,12 +170,93 @@ interface RegressionAssetDebugState {
   viewerScopedSignature: string | null;
 }
 
+interface RegressionUsdBindingSummary {
+  descriptorCount: number;
+  withDescriptorMaterialId: number;
+  withGeometryMaterialId: number;
+  withGeomSubsetSections: number;
+  withoutAnyMaterialBinding: number;
+}
+
+interface RegressionUsdBoundsSummary {
+  min: [number, number, number] | null;
+  max: [number, number, number] | null;
+  size: [number, number, number] | null;
+  center: [number, number, number] | null;
+}
+
+interface RegressionUsdTransformSummary {
+  position: [number, number, number] | null;
+  quaternion: [number, number, number, number] | null;
+  scale: [number, number, number] | null;
+}
+
+interface RegressionUsdBaseLinkDescriptorSummary {
+  meshId: string | null;
+  resolvedPrimPath: string | null;
+  sectionName: string | null;
+  materialId: string | null;
+  geometryMaterialId: string | null;
+  geomSubsetSectionCount: number;
+  geomSubsetMaterialIds: string[];
+}
+
+export interface RegressionSelectedUsdSceneSummary {
+  available: boolean;
+  fileName: string | null;
+  stageSourcePath: string | null;
+  defaultPrimPath: string | null;
+  rootLinkId: string | null;
+  meshDescriptorCount: number;
+  materialCount: number;
+  bindingSummary: RegressionUsdBindingSummary;
+  baseLink: {
+    found: boolean;
+    linkPath: string | null;
+    visualDescriptorCount: number;
+    collisionDescriptorCount: number;
+    primPaths: string[];
+    materialIds: string[];
+    geometryMaterialIds: string[];
+    geomSubsetMaterialIds: string[];
+    geomSubsetSectionCount: number;
+    bindingSummary: RegressionUsdBindingSummary;
+    bounds: RegressionUsdBoundsSummary;
+    transform: RegressionUsdTransformSummary | null;
+    runtimeLinkTransform: RegressionUsdTransformSummary | null;
+    runtimeVisualMeshTransforms: Array<{
+      name: string;
+      position: [number, number, number] | null;
+      quaternion: [number, number, number, number] | null;
+      scale: [number, number, number] | null;
+    }>;
+    descriptors: RegressionUsdBaseLinkDescriptorSummary[];
+  };
+}
+
+interface RegressionSelectedUsdVisualMaterialSummary {
+  meshes: Array<{
+    meshId: string | null;
+    linkPath: string | null;
+    overrideColor: string | null;
+    hasOverrideMaterial: boolean;
+    materials: Array<{
+      name: string | null;
+      type: string | null;
+      color: string | null;
+      emissive: string | null;
+    }>;
+  }>;
+}
+
 export interface RegressionDebugApi {
   getAvailableFiles: () => Array<{ name: string; format: string }>;
   getRegressionSnapshot: () => RegressionSnapshot;
   getDocumentLoadState: () => RegressionDocumentLoadState | null;
   getProjectedInteractionTargets: () => RegressionProjectedInteractionTarget[];
   getAssetDebugState: () => RegressionAssetDebugState;
+  getSelectedUsdSceneSummary: () => RegressionSelectedUsdSceneSummary | null;
+  getSelectedUsdVisualMaterialSummary: () => RegressionSelectedUsdVisualMaterialSummary | null;
   getRuntimeSceneTransforms: () => ReturnType<typeof summarizeRuntimeSceneTransforms> | null;
   setBeforeUnloadPromptEnabled: (enabled: boolean) => { ok: boolean; enabled: boolean };
   loadRobotByName: (fileName: string) => Promise<{ loaded: boolean; snapshot: RegressionSnapshot }>;
@@ -255,6 +340,682 @@ function toFixedArray(
   }
 
   return [Number(value.x ?? 0), Number(value.y ?? 0), Number(value.z ?? 0)];
+}
+
+function normalizeUsdDebugPath(value: string | null | undefined): string {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/[<>]/g, '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+  return normalized;
+}
+
+function normalizeUsdDebugPathWithLeadingSlash(value: string | null | undefined): string {
+  const normalized = normalizeUsdDebugPath(value);
+  return normalized ? `/${normalized}` : '';
+}
+
+function getUsdPathBasename(value: string | null | undefined): string {
+  const normalized = normalizeUsdDebugPath(value);
+  if (!normalized) {
+    return '';
+  }
+
+  const segments = normalized.split('/').filter(Boolean);
+  return segments[segments.length - 1] || '';
+}
+
+function getUsdDescriptorSectionName(descriptor: UsdSceneMeshDescriptor): string {
+  return String(descriptor.sectionName || '')
+    .trim()
+    .toLowerCase();
+}
+
+function isUsdVisualDescriptor(descriptor: UsdSceneMeshDescriptor): boolean {
+  const sectionName = getUsdDescriptorSectionName(descriptor);
+  if (sectionName === 'visual' || sectionName === 'visuals') {
+    return true;
+  }
+
+  const resolvedPrimPath = normalizeUsdDebugPathWithLeadingSlash(descriptor.resolvedPrimPath);
+  return resolvedPrimPath.includes('/visuals/');
+}
+
+function isUsdCollisionDescriptor(descriptor: UsdSceneMeshDescriptor): boolean {
+  const sectionName = getUsdDescriptorSectionName(descriptor);
+  if (sectionName === 'collision' || sectionName === 'collisions') {
+    return true;
+  }
+
+  const resolvedPrimPath = normalizeUsdDebugPathWithLeadingSlash(descriptor.resolvedPrimPath);
+  return resolvedPrimPath.includes('/collision/') || resolvedPrimPath.includes('/collisions/');
+}
+
+function getUsdDescriptorMaterialIds(descriptor: UsdSceneMeshDescriptor): {
+  descriptorMaterialId: string | null;
+  geometryMaterialId: string | null;
+  geomSubsetMaterialIds: string[];
+} {
+  const descriptorMaterialId = normalizeUsdDebugPathWithLeadingSlash(descriptor.materialId) || null;
+  const geometryMaterialId =
+    normalizeUsdDebugPathWithLeadingSlash(descriptor.geometry?.materialId) || null;
+  const geomSubsetMaterialIds = Array.from(
+    new Set(
+      Array.isArray(descriptor.geometry?.geomSubsetSections)
+        ? descriptor.geometry.geomSubsetSections
+            .map((section) => normalizeUsdDebugPathWithLeadingSlash(section?.materialId))
+            .filter(Boolean)
+        : [],
+    ),
+  ).sort((left, right) => left.localeCompare(right));
+
+  return {
+    descriptorMaterialId,
+    geometryMaterialId,
+    geomSubsetMaterialIds,
+  };
+}
+
+function getUsdDescriptorCandidatePaths(descriptor: UsdSceneMeshDescriptor): string[] {
+  return [
+    normalizeUsdDebugPathWithLeadingSlash(descriptor.resolvedPrimPath),
+    normalizeUsdDebugPathWithLeadingSlash(descriptor.meshId),
+  ].filter(Boolean);
+}
+
+function isUsdDescriptorWithinLinkPath(
+  descriptor: UsdSceneMeshDescriptor,
+  linkPath: string | null | undefined,
+): boolean {
+  const normalizedLinkPath = normalizeUsdDebugPathWithLeadingSlash(linkPath);
+  if (!normalizedLinkPath) {
+    return false;
+  }
+
+  return getUsdDescriptorCandidatePaths(descriptor).some(
+    (candidatePath) =>
+      candidatePath === normalizedLinkPath || candidatePath.startsWith(`${normalizedLinkPath}/`),
+  );
+}
+
+function colorArrayToRegressionHex(
+  source: ArrayLike<number> | null | undefined,
+  opacityOverride?: number | null,
+): string | null {
+  if (!source || typeof source.length !== 'number' || source.length < 3) {
+    return null;
+  }
+
+  const r = Number(source[0]);
+  const g = Number(source[1]);
+  const b = Number(source[2]);
+  if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) {
+    return null;
+  }
+
+  const to255 = (channel: number) => (Math.abs(channel) <= 1 ? channel * 255 : channel);
+  const toHex = (channel: number) =>
+    Math.max(0, Math.min(255, Math.round(channel)))
+      .toString(16)
+      .padStart(2, '0');
+  const a = opacityOverride ?? (source.length >= 4 ? Number(source[3]) : null);
+  const rgb = [toHex(to255(r)), toHex(to255(g)), toHex(to255(b))];
+
+  if (a !== null && Number.isFinite(a) && a < 0.999) {
+    rgb.push(toHex(to255(Number(a))));
+  }
+
+  return `#${rgb.join('')}`;
+}
+
+function summarizeRegressionUsdMaterial(
+  material: UsdSceneMaterialRecord | null | undefined,
+  materialId?: string | null,
+): {
+  name: string | null;
+  type: string | null;
+  color: string | null;
+  emissive: string | null;
+} | null {
+  if (!material) {
+    return null;
+  }
+
+  const name =
+    String(material.name || '').trim() ||
+    getUsdPathBasename(material.materialId || materialId || '') ||
+    null;
+  const type =
+    String(material.shaderName || '').trim() ||
+    String(material.shaderInfoId || '').trim() ||
+    String(material.shaderPath || '').trim() ||
+    null;
+  const color = colorArrayToRegressionHex(material.color, material.opacity);
+  const emissive = colorArrayToRegressionHex(material.emissive);
+
+  if (!name && !type && !color && !emissive) {
+    return null;
+  }
+
+  return {
+    name,
+    type,
+    color,
+    emissive,
+  };
+}
+
+function summarizeUsdDescriptorBindings(
+  descriptors: UsdSceneMeshDescriptor[],
+): RegressionUsdBindingSummary {
+  let withDescriptorMaterialId = 0;
+  let withGeometryMaterialId = 0;
+  let withGeomSubsetSections = 0;
+  let withoutAnyMaterialBinding = 0;
+
+  descriptors.forEach((descriptor) => {
+    const { descriptorMaterialId, geometryMaterialId, geomSubsetMaterialIds } =
+      getUsdDescriptorMaterialIds(descriptor);
+    const hasDescriptorMaterialId = Boolean(descriptorMaterialId);
+    const hasGeometryMaterialId = Boolean(geometryMaterialId);
+    const hasGeomSubsetSections = geomSubsetMaterialIds.length > 0;
+
+    if (hasDescriptorMaterialId) {
+      withDescriptorMaterialId += 1;
+    }
+    if (hasGeometryMaterialId) {
+      withGeometryMaterialId += 1;
+    }
+    if (hasGeomSubsetSections) {
+      withGeomSubsetSections += 1;
+    }
+    if (!hasDescriptorMaterialId && !hasGeometryMaterialId && !hasGeomSubsetSections) {
+      withoutAnyMaterialBinding += 1;
+    }
+  });
+
+  return {
+    descriptorCount: descriptors.length,
+    withDescriptorMaterialId,
+    withGeometryMaterialId,
+    withGeomSubsetSections,
+    withoutAnyMaterialBinding,
+  };
+}
+
+function readUsdPositionBounds(
+  descriptor: UsdSceneMeshDescriptor,
+  snapshot: UsdSceneSnapshot,
+): RegressionUsdBoundsSummary | null {
+  const positionsRange = descriptor.ranges?.positions;
+  const positionsBuffer = snapshot.buffers?.positions;
+  if (
+    !positionsRange ||
+    !positionsBuffer ||
+    typeof positionsRange.offset !== 'number' ||
+    typeof positionsRange.count !== 'number'
+  ) {
+    return null;
+  }
+
+  const stride = Math.max(3, Number(positionsRange.stride) || 3);
+  const offset = Math.max(0, Math.floor(Number(positionsRange.offset) || 0));
+  const count = Math.max(0, Math.floor(Number(positionsRange.count) || 0));
+  if (count < 3) {
+    return null;
+  }
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index + 2 < count; index += stride) {
+    const x = Number(positionsBuffer[offset + index]);
+    const y = Number(positionsBuffer[offset + index + 1]);
+    const z = Number(positionsBuffer[offset + index + 2]);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+      continue;
+    }
+
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    minZ = Math.min(minZ, z);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+    maxZ = Math.max(maxZ, z);
+  }
+
+  if (![minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite)) {
+    return null;
+  }
+
+  const min: [number, number, number] = [minX, minY, minZ];
+  const max: [number, number, number] = [maxX, maxY, maxZ];
+  return {
+    min,
+    max,
+    size: [
+      Number((maxX - minX).toFixed(6)),
+      Number((maxY - minY).toFixed(6)),
+      Number((maxZ - minZ).toFixed(6)),
+    ],
+    center: [
+      Number(((minX + maxX) / 2).toFixed(6)),
+      Number(((minY + maxY) / 2).toFixed(6)),
+      Number(((minZ + maxZ) / 2).toFixed(6)),
+    ],
+  };
+}
+
+function readUsdExtentBounds(
+  descriptor: UsdSceneMeshDescriptor,
+): RegressionUsdBoundsSummary | null {
+  const extent = descriptor.extentSize;
+  const values =
+    Array.isArray(extent) || ArrayBuffer.isView(extent)
+      ? Array.from(extent as ArrayLike<number>).slice(0, 3)
+      : [];
+  if (values.length < 3 || !values.every((value) => Number.isFinite(Number(value)))) {
+    return null;
+  }
+
+  const half = values.map((value) => Number(value) / 2);
+  return {
+    min: [
+      Number((-half[0]).toFixed(6)),
+      Number((-half[1]).toFixed(6)),
+      Number((-half[2]).toFixed(6)),
+    ],
+    max: [Number(half[0].toFixed(6)), Number(half[1].toFixed(6)), Number(half[2].toFixed(6))],
+    size: values.map((value) => Number(Number(value).toFixed(6))) as [number, number, number],
+    center: [0, 0, 0],
+  };
+}
+
+function mergeUsdBoundsSummaries(
+  summaries: Array<RegressionUsdBoundsSummary | null | undefined>,
+): RegressionUsdBoundsSummary {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+
+  summaries.forEach((summary) => {
+    if (!summary?.min || !summary?.max) {
+      return;
+    }
+
+    minX = Math.min(minX, Number(summary.min[0]));
+    minY = Math.min(minY, Number(summary.min[1]));
+    minZ = Math.min(minZ, Number(summary.min[2]));
+    maxX = Math.max(maxX, Number(summary.max[0]));
+    maxY = Math.max(maxY, Number(summary.max[1]));
+    maxZ = Math.max(maxZ, Number(summary.max[2]));
+  });
+
+  if (![minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite)) {
+    return {
+      min: null,
+      max: null,
+      size: null,
+      center: null,
+    };
+  }
+
+  return {
+    min: [minX, minY, minZ],
+    max: [maxX, maxY, maxZ],
+    size: [
+      Number((maxX - minX).toFixed(6)),
+      Number((maxY - minY).toFixed(6)),
+      Number((maxZ - minZ).toFixed(6)),
+    ],
+    center: [
+      Number(((minX + maxX) / 2).toFixed(6)),
+      Number(((minY + maxY) / 2).toFixed(6)),
+      Number(((minZ + maxZ) / 2).toFixed(6)),
+    ],
+  };
+}
+
+function summarizeUsdDescriptorBounds(
+  descriptor: UsdSceneMeshDescriptor,
+  snapshot: UsdSceneSnapshot,
+): RegressionUsdBoundsSummary | null {
+  return readUsdPositionBounds(descriptor, snapshot) || readUsdExtentBounds(descriptor);
+}
+
+function summarizeUsdDescriptorTransform(
+  descriptor: UsdSceneMeshDescriptor,
+  snapshot: UsdSceneSnapshot,
+): RegressionUsdTransformSummary | null {
+  const transformRange = descriptor.ranges?.transform;
+  const transformsBuffer = snapshot.buffers?.transforms;
+  if (
+    !transformRange ||
+    !transformsBuffer ||
+    typeof transformRange.offset !== 'number' ||
+    typeof transformRange.count !== 'number'
+  ) {
+    return null;
+  }
+
+  const offset = Math.max(0, Math.floor(Number(transformRange.offset) || 0));
+  const count = Math.max(0, Math.floor(Number(transformRange.count) || 0));
+  if (count < 16) {
+    return null;
+  }
+
+  const matrixElements = Array.from({ length: 16 }, (_, index) =>
+    Number(transformsBuffer[offset + index]),
+  );
+  if (!matrixElements.every(Number.isFinite)) {
+    return null;
+  }
+
+  const matrix = new Matrix4().fromArray(matrixElements);
+  const position = new Vector3();
+  const quaternion = new Quaternion();
+  const scale = new Vector3();
+  matrix.decompose(position, quaternion, scale);
+
+  return {
+    position: [
+      Number(position.x.toFixed(6)),
+      Number(position.y.toFixed(6)),
+      Number(position.z.toFixed(6)),
+    ],
+    quaternion: [
+      Number(quaternion.x.toFixed(6)),
+      Number(quaternion.y.toFixed(6)),
+      Number(quaternion.z.toFixed(6)),
+      Number(quaternion.w.toFixed(6)),
+    ],
+    scale: [Number(scale.x.toFixed(6)), Number(scale.y.toFixed(6)), Number(scale.z.toFixed(6))],
+  };
+}
+
+function buildRuntimeTransformSummary(
+  transform:
+    | {
+        position: [number, number, number] | null;
+        quaternion: [number, number, number, number] | null;
+        scale?: [number, number, number] | null;
+      }
+    | null
+    | undefined,
+): RegressionUsdTransformSummary | null {
+  if (!transform) {
+    return null;
+  }
+
+  return {
+    position: transform.position ?? null,
+    quaternion: transform.quaternion ?? null,
+    scale: transform.scale ?? null,
+  };
+}
+
+function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
+  const selectedFile = appHandlers?.getSelectedFile() ?? null;
+  if (!selectedFile || selectedFile.format !== 'usd') {
+    return null;
+  }
+
+  const snapshot = appHandlers?.getUsdSceneSnapshot(selectedFile.name) ?? null;
+  if (!snapshot) {
+    return {
+      available: false,
+      fileName: selectedFile.name,
+      stageSourcePath: null,
+      defaultPrimPath: null,
+      rootLinkId: appHandlers?.getRobotState()?.rootLinkId ?? null,
+      meshDescriptorCount: 0,
+      materialCount: 0,
+      bindingSummary: summarizeUsdDescriptorBindings([]),
+      baseLink: {
+        found: false,
+        linkPath: null,
+        visualDescriptorCount: 0,
+        collisionDescriptorCount: 0,
+        primPaths: [],
+        materialIds: [],
+        geometryMaterialIds: [],
+        geomSubsetMaterialIds: [],
+        geomSubsetSectionCount: 0,
+        bindingSummary: summarizeUsdDescriptorBindings([]),
+        bounds: { min: null, max: null, size: null, center: null },
+        transform: null,
+        runtimeLinkTransform: null,
+        runtimeVisualMeshTransforms: [],
+        descriptors: [],
+      },
+    };
+  }
+
+  const rootLinkId = appHandlers?.getRobotState()?.rootLinkId ?? null;
+  const descriptors = Array.from(snapshot.render?.meshDescriptors || []);
+  const allBindingSummary = summarizeUsdDescriptorBindings(descriptors);
+  const normalizedDefaultPrimPath =
+    normalizeUsdDebugPathWithLeadingSlash(snapshot.stage?.defaultPrimPath) || null;
+  const rootLinkCandidates = new Set<string>();
+
+  Array.from(snapshot.robotTree?.rootLinkPaths || []).forEach((linkPath) => {
+    const normalized = normalizeUsdDebugPathWithLeadingSlash(String(linkPath || ''));
+    if (!normalized) {
+      return;
+    }
+    if (!rootLinkId || getUsdPathBasename(normalized) === rootLinkId) {
+      rootLinkCandidates.add(normalized);
+    }
+  });
+
+  Array.from(snapshot.robotMetadataSnapshot?.linkParentPairs || []).forEach((entry) => {
+    const linkPath = Array.isArray(entry) ? entry[0] : null;
+    const normalized = normalizeUsdDebugPathWithLeadingSlash(String(linkPath || ''));
+    if (!normalized) {
+      return;
+    }
+    if (!rootLinkId || getUsdPathBasename(normalized) === rootLinkId) {
+      rootLinkCandidates.add(normalized);
+    }
+  });
+
+  if (rootLinkId && normalizedDefaultPrimPath) {
+    rootLinkCandidates.add(`${normalizedDefaultPrimPath}/${rootLinkId}`);
+  }
+
+  const baseLinkDescriptors = descriptors.filter((descriptor) => {
+    const candidates = getUsdDescriptorCandidatePaths(descriptor);
+    if (candidates.length === 0) {
+      return false;
+    }
+
+    if (rootLinkCandidates.size > 0) {
+      return candidates.some((candidate) =>
+        Array.from(rootLinkCandidates).some(
+          (linkPath) => candidate === linkPath || candidate.startsWith(`${linkPath}/`),
+        ),
+      );
+    }
+
+    if (!rootLinkId) {
+      return false;
+    }
+
+    return candidates.some((candidate) => candidate.includes(`/${rootLinkId}/`));
+  });
+
+  const visualBaseLinkDescriptors = baseLinkDescriptors.filter(isUsdVisualDescriptor);
+  const collisionBaseLinkDescriptors = baseLinkDescriptors.filter(isUsdCollisionDescriptor);
+  const baseLinkBindingSummary = summarizeUsdDescriptorBindings(visualBaseLinkDescriptors);
+  const baseLinkDescriptorSummaries = visualBaseLinkDescriptors.map((descriptor) => {
+    const { descriptorMaterialId, geometryMaterialId, geomSubsetMaterialIds } =
+      getUsdDescriptorMaterialIds(descriptor);
+    return {
+      meshId: normalizeUsdDebugPathWithLeadingSlash(descriptor.meshId) || null,
+      resolvedPrimPath: normalizeUsdDebugPathWithLeadingSlash(descriptor.resolvedPrimPath) || null,
+      sectionName: getUsdDescriptorSectionName(descriptor) || null,
+      materialId: descriptorMaterialId,
+      geometryMaterialId,
+      geomSubsetSectionCount: Array.isArray(descriptor.geometry?.geomSubsetSections)
+        ? descriptor.geometry.geomSubsetSections.length
+        : 0,
+      geomSubsetMaterialIds,
+    } satisfies RegressionUsdBaseLinkDescriptorSummary;
+  });
+  const runtimeSceneTransforms = summarizeRuntimeSceneTransforms(runtimeRobot);
+  const runtimeLinkTransform = runtimeSceneTransforms?.links.find(
+    (entry) => rootLinkId && entry.name === rootLinkId,
+  );
+  const runtimeVisualMeshTransforms = (runtimeSceneTransforms?.visualMeshes || [])
+    .filter((entry) => rootLinkId && entry.link === rootLinkId)
+    .map((entry) => ({
+      name: entry.name,
+      position: entry.position,
+      quaternion: entry.quaternion,
+      scale: entry.scale ?? null,
+    }));
+
+  return {
+    available: true,
+    fileName: selectedFile.name,
+    stageSourcePath: normalizeUsdDebugPath(snapshot.stageSourcePath) || null,
+    defaultPrimPath: normalizedDefaultPrimPath,
+    rootLinkId,
+    meshDescriptorCount: descriptors.length,
+    materialCount: Array.from(snapshot.render?.materials || []).length,
+    bindingSummary: allBindingSummary,
+    baseLink: {
+      found:
+        visualBaseLinkDescriptors.length > 0 ||
+        collisionBaseLinkDescriptors.length > 0 ||
+        Boolean(runtimeLinkTransform),
+      linkPath:
+        Array.from(rootLinkCandidates)[0] ||
+        (rootLinkId && normalizedDefaultPrimPath
+          ? `${normalizedDefaultPrimPath}/${rootLinkId}`
+          : null),
+      visualDescriptorCount: visualBaseLinkDescriptors.length,
+      collisionDescriptorCount: collisionBaseLinkDescriptors.length,
+      primPaths: Array.from(
+        new Set(
+          baseLinkDescriptorSummaries
+            .map((descriptor) => descriptor.resolvedPrimPath)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+      materialIds: Array.from(
+        new Set(
+          baseLinkDescriptorSummaries
+            .map((descriptor) => descriptor.materialId)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+      geometryMaterialIds: Array.from(
+        new Set(
+          baseLinkDescriptorSummaries
+            .map((descriptor) => descriptor.geometryMaterialId)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+      geomSubsetMaterialIds: Array.from(
+        new Set(
+          baseLinkDescriptorSummaries.flatMap((descriptor) => descriptor.geomSubsetMaterialIds),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+      geomSubsetSectionCount: baseLinkDescriptorSummaries.reduce(
+        (sum, descriptor) => sum + descriptor.geomSubsetSectionCount,
+        0,
+      ),
+      bindingSummary: baseLinkBindingSummary,
+      bounds: mergeUsdBoundsSummaries(
+        visualBaseLinkDescriptors.map((descriptor) =>
+          summarizeUsdDescriptorBounds(descriptor, snapshot),
+        ),
+      ),
+      transform:
+        visualBaseLinkDescriptors
+          .map((descriptor) => summarizeUsdDescriptorTransform(descriptor, snapshot))
+          .find(Boolean) ?? null,
+      runtimeLinkTransform: buildRuntimeTransformSummary(runtimeLinkTransform),
+      runtimeVisualMeshTransforms,
+      descriptors: baseLinkDescriptorSummaries,
+    },
+  };
+}
+
+function summarizeSelectedUsdVisualMaterials(): RegressionSelectedUsdVisualMaterialSummary | null {
+  const selectedFile = appHandlers?.getSelectedFile() ?? null;
+  if (!selectedFile || selectedFile.format !== 'usd') {
+    return null;
+  }
+
+  const snapshot = appHandlers?.getUsdSceneSnapshot(selectedFile.name) ?? null;
+  if (!snapshot) {
+    return null;
+  }
+
+  const selectedSceneSummary = summarizeSelectedUsdScene();
+  const baseLinkPath = selectedSceneSummary?.baseLink?.linkPath ?? null;
+  if (!baseLinkPath) {
+    return null;
+  }
+
+  const materialLookup = new Map<string, UsdSceneMaterialRecord>();
+  Array.from(snapshot.render?.materials || []).forEach((material, index) => {
+    const materialId = normalizeUsdDebugPathWithLeadingSlash(material?.materialId);
+    materialLookup.set(materialId || `__material-index:${index}`, material);
+  });
+  const preferredVisualMaterial =
+    snapshot.render?.preferredVisualMaterialsByLinkPath?.[baseLinkPath] ?? null;
+
+  const meshes = Array.from(snapshot.render?.meshDescriptors || [])
+    .filter(isUsdVisualDescriptor)
+    .filter((descriptor) => isUsdDescriptorWithinLinkPath(descriptor, baseLinkPath))
+    .map((descriptor) => {
+      const { descriptorMaterialId, geometryMaterialId, geomSubsetMaterialIds } =
+        getUsdDescriptorMaterialIds(descriptor);
+      const materialIds = Array.from(
+        new Set(
+          [descriptorMaterialId, geometryMaterialId, ...geomSubsetMaterialIds].filter(
+            (value): value is string => Boolean(value),
+          ),
+        ),
+      );
+      const materials = materialIds
+        .map((materialId) =>
+          summarizeRegressionUsdMaterial(materialLookup.get(materialId) || null, materialId),
+        )
+        .filter((material): material is NonNullable<typeof material> => Boolean(material));
+
+      if (materials.length === 0 && preferredVisualMaterial) {
+        const summarizedPreferredMaterial = summarizeRegressionUsdMaterial(
+          preferredVisualMaterial,
+          preferredVisualMaterial.materialId || null,
+        );
+        if (summarizedPreferredMaterial) {
+          materials.push(summarizedPreferredMaterial);
+        }
+      }
+
+      return {
+        meshId: normalizeUsdDebugPathWithLeadingSlash(descriptor.meshId) || null,
+        linkPath: baseLinkPath,
+        overrideColor: null,
+        hasOverrideMaterial: false,
+        materials,
+      };
+    })
+    .filter((entry) => entry.materials.length > 0);
+
+  return meshes.length > 0 ? { meshes } : null;
 }
 
 function summarizeGeometry(geometry: UrdfLink['visual'] | UrdfLink['collision']) {
@@ -684,6 +1445,7 @@ function summarizeRuntimeSceneTransforms(robot: any) {
             : null,
       position: null,
       quaternion: null,
+      scale: null,
       axis: toFixedArray(joint?.axis),
     }));
 
@@ -698,12 +1460,14 @@ function summarizeRuntimeSceneTransforms(robot: any) {
     name: string;
     position: [number, number, number] | null;
     quaternion: [number, number, number, number] | null;
+    scale: [number, number, number] | null;
   }> = [];
   const joints: Array<{
     name: string;
     type: string | null;
     position: [number, number, number] | null;
     quaternion: [number, number, number, number] | null;
+    scale: [number, number, number] | null;
     axis: [number, number, number] | null;
   }> = [];
   const visualMeshes: Array<{
@@ -711,6 +1475,7 @@ function summarizeRuntimeSceneTransforms(robot: any) {
     name: string;
     position: [number, number, number] | null;
     quaternion: [number, number, number, number] | null;
+    scale: [number, number, number] | null;
   }> = [];
 
   if (typeof robot.traverse === 'function') {
@@ -732,6 +1497,7 @@ function summarizeRuntimeSceneTransforms(robot: any) {
                 number,
               ])
             : null,
+          scale: toFixedArray(child.getWorldScale?.(new Vector3())),
         });
         return;
       }
@@ -752,6 +1518,7 @@ function summarizeRuntimeSceneTransforms(robot: any) {
                 number,
               ])
             : null,
+          scale: toFixedArray(child.getWorldScale?.(new Vector3())),
           axis: toFixedArray(child.axis),
         });
         return;
@@ -778,6 +1545,7 @@ function summarizeRuntimeSceneTransforms(robot: any) {
                 number,
               ])
             : null,
+          scale: toFixedArray(child.getWorldScale?.(new Vector3())),
         });
       }
     });
@@ -795,6 +1563,7 @@ function summarizeRuntimeSceneTransforms(robot: any) {
               : null,
         position: null,
         quaternion: null,
+        scale: null,
         axis: toFixedArray(joint?.axis),
       });
     });
@@ -976,6 +1745,8 @@ export function installRegressionDebugApi(targetWindow: Window): void {
         viewerScopedSignature: viewerResourceScopeState?.signature ?? null,
       };
     },
+    getSelectedUsdSceneSummary: () => summarizeSelectedUsdScene(),
+    getSelectedUsdVisualMaterialSummary: () => summarizeSelectedUsdVisualMaterials(),
     getRuntimeSceneTransforms: () => summarizeRuntimeSceneTransforms(runtimeRobot),
     setBeforeUnloadPromptEnabled: (enabled: boolean) => {
       setRegressionBeforeUnloadPromptSuppressed(!enabled);

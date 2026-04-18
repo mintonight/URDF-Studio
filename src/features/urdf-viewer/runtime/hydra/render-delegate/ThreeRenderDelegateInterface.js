@@ -7,7 +7,7 @@ import { HydraMaterial } from './HydraMaterial.js';
 import { HydraMesh } from './HydraMesh.js';
 import { getDefaultMaterial } from './default-material-state.js';
 import { createHydraColorFromTuple, HYDRA_UNIFIED_MATERIAL_DEFAULTS } from './material-defaults.js';
-const { buildProtoPrimPathCandidates, clamp01, createMatrixFromXformOp, debugInstancer, debugMaterials, debugMeshes, debugPrims, debugTextures, defaultGrayComponent, disableMaterials, disableTextures, extractPrimPathFromMaterialBindingWarning, extractReferencePrimTargets, extractScopeBodyText, extractUsdAssetReferencesFromLayerText, getActiveMaterialBindingWarningOwner, getAngleInRadians, getCollisionGeometryTypeFromUrdfElement, getExpectedPrimTypesForCollisionProto, getExpectedPrimTypesForProtoType, getMatrixMaxElementDelta, getPathBasename, getPathWithoutRoot, getRawConsoleMethod, getRootPathFromPrimPath, getSafePrimTypeName, hasNonZeroTranslation, hydraCallbackErrorCounts, installMaterialBindingApiWarningInterceptor, isIdentityQuaternion, isLikelyDefaultGrayMaterial, isLikelyInverseTransform, isMaterialBindingApiWarningMessage, isMatrixApproximatelyIdentity, isNonZero, isPotentiallyLargeBaseAssetPath, logHydraCallbackError, materialBindingRepairMaxLayerTextLength, materialBindingWarningHandlers, maxHydraCallbackErrorLogsPerMethod, nearlyEqual, normalizeHydraPath, normalizeUsdPathToken, parseGuideCollisionReferencesFromLayerText, parseProtoMeshIdentifier, parseUrdfMaterialMetadataFromLayerText, parseUrdfTruthFromText, parseVector3Text, parseXformOpFallbacksFromLayerText, rawConsoleError, rawConsoleWarn, registerMaterialBindingApiWarningHandler, remapRootPathIfNeeded, resolveUrdfTruthFileNameForStagePath, resolveUsdAssetPath, setActiveMaterialBindingWarningOwner, shouldAllowLargeBaseAssetScan, stringifyConsoleArgs, toArrayLike, toColorArray, toFiniteNumber, toFiniteQuaternionWxyzTuple, toFiniteVector2Tuple, toFiniteVector3Tuple, toMatrixFromUrdfOrigin, toQuaternionWxyzFromRpy, transformEpsilon, wrapHydraCallbackObject } = Shared;
+const { buildProtoPrimPathCandidates, clamp01, createMatrixFromXformOp, debugInstancer, debugMaterials, debugMeshes, debugPrims, debugTextures, defaultGrayComponent, disableMaterials, disableTextures, extractPrimPathFromMaterialBindingWarning, extractReferencePrimTargets, extractScopeBodyText, extractUsdAssetReferencesFromLayerText, getActiveMaterialBindingWarningOwner, getAngleInRadians, getCollisionGeometryTypeFromUrdfElement, getExpectedPrimTypesForCollisionProto, getExpectedPrimTypesForProtoType, getMatrixMaxElementDelta, getPathBasename, getPathWithoutRoot, getRawConsoleMethod, getRootPathFromPrimPath, getSafePrimTypeName, hasNonZeroTranslation, hydraCallbackErrorCounts, installMaterialBindingApiWarningInterceptor, isIdentityQuaternion, isLikelyDefaultGrayMaterial, isLikelyInverseTransform, isMaterialBindingApiWarningMessage, isMatrixApproximatelyIdentity, isNonZero, isPotentiallyLargeBaseAssetPath, logHydraCallbackError, materialBindingRepairMaxLayerTextLength, materialBindingWarningHandlers, maxHydraCallbackErrorLogsPerMethod, nearlyEqual, normalizeHydraPath, normalizeUsdPathToken, parseGuideCollisionReferencesFromLayerText, parseProtoMeshIdentifier, parseUrdfMaterialMetadataFromLayerText, parseUrdfTruthFromText, parseUsdMaterialBindingsFromLayerText, parseVector3Text, parseXformOpFallbacksFromLayerText, rawConsoleError, rawConsoleWarn, registerMaterialBindingApiWarningHandler, remapRootPathIfNeeded, resolveUrdfTruthFileNameForStagePath, resolveUsdAssetPath, setActiveMaterialBindingWarningOwner, shouldAllowLargeBaseAssetScan, stringifyConsoleArgs, toArrayLike, toColorArray, toFiniteNumber, toFiniteQuaternionWxyzTuple, toFiniteVector2Tuple, toFiniteVector3Tuple, toMatrixFromUrdfOrigin, toQuaternionWxyzFromRpy, transformEpsilon, wrapHydraCallbackObject } = Shared;
 const COLLISION_SEGMENT_PATTERN = /(?:^|\/)coll(?:isions?|iders?)(?:$|[/.])/i;
 function normalizeDescriptorSectionName(sectionName) {
     const normalized = String(sectionName || '').trim().toLowerCase();
@@ -66,6 +66,39 @@ function getDescriptorLinkPath(descriptor) {
         }
     }
     return '';
+}
+function hasMaterialRecordValue(value) {
+    if (value === null || value === undefined) {
+        return false;
+    }
+    if (typeof value === 'string') {
+        return value.trim().length > 0;
+    }
+    if (Array.isArray(value)) {
+        return value.length > 0;
+    }
+    if (ArrayBuffer.isView(value)) {
+        return value.byteLength > 0;
+    }
+    return true;
+}
+function mergeSnapshotMaterialRecordWithFallback(record, fallbackRecord) {
+    if (!record || typeof record !== 'object') {
+        return fallbackRecord && typeof fallbackRecord === 'object' ? { ...fallbackRecord } : record;
+    }
+    if (!fallbackRecord || typeof fallbackRecord !== 'object') {
+        return record;
+    }
+    const mergedRecord = { ...record };
+    for (const [key, value] of Object.entries(fallbackRecord)) {
+        if (key === 'materialId' || key === 'id') {
+            continue;
+        }
+        if (!hasMaterialRecordValue(mergedRecord[key]) && hasMaterialRecordValue(value)) {
+            mergedRecord[key] = Array.isArray(value) ? value.slice() : value;
+        }
+    }
+    return mergedRecord;
 }
 function serializePreferredMaterialRecord(material) {
     if (!material || typeof material !== 'object') {
@@ -172,6 +205,66 @@ function mergeUrdfMaterialMetadataMaps(targetMap, nextMap) {
         }
     }
 }
+function mergeUsdMaterialBindingMaps(targetMap, nextMap) {
+    if (!(targetMap instanceof Map) || !(nextMap instanceof Map)) {
+        return;
+    }
+    for (const [primPath, rawEntry] of nextMap.entries()) {
+        const normalizedPrimPath = normalizeHydraPath(primPath || '');
+        if (!normalizedPrimPath || !rawEntry || typeof rawEntry !== 'object') {
+            continue;
+        }
+        const existingEntry = targetMap.get(normalizedPrimPath) || {
+            materialId: null,
+            geomSubsetSections: [],
+        };
+        const nextMaterialId = normalizeHydraPath(rawEntry.materialId || '') || null;
+        if (!existingEntry.materialId && nextMaterialId) {
+            existingEntry.materialId = nextMaterialId;
+        }
+        const mergedSections = Array.isArray(existingEntry.geomSubsetSections)
+            ? existingEntry.geomSubsetSections.slice()
+            : [];
+        const knownSectionKeys = new Set(mergedSections.map((section) => `${section.start}:${section.length}:${section.materialId}`));
+        const rawSections = Array.isArray(rawEntry.geomSubsetSections)
+            ? rawEntry.geomSubsetSections
+            : [];
+        for (const rawSection of rawSections) {
+            const start = Number(rawSection?.start);
+            const length = Number(rawSection?.length);
+            const materialId = normalizeHydraPath(rawSection?.materialId || '') || '';
+            if (!Number.isFinite(start) || !Number.isFinite(length) || length <= 0 || !materialId) {
+                continue;
+            }
+            const normalizedSection = {
+                start: Math.max(0, Math.floor(start)),
+                length: Math.max(0, Math.floor(length)),
+                materialId,
+            };
+            const sectionKey = `${normalizedSection.start}:${normalizedSection.length}:${normalizedSection.materialId}`;
+            if (knownSectionKeys.has(sectionKey)) {
+                continue;
+            }
+            knownSectionKeys.add(sectionKey);
+            mergedSections.push(normalizedSection);
+        }
+        mergedSections.sort((left, right) => {
+            if (left.start !== right.start) {
+                return left.start - right.start;
+            }
+            if (left.length !== right.length) {
+                return left.length - right.length;
+            }
+            return String(left.materialId || '').localeCompare(String(right.materialId || ''));
+        });
+        if (existingEntry.materialId || mergedSections.length > 0) {
+            targetMap.set(normalizedPrimPath, {
+                materialId: existingEntry.materialId || null,
+                geomSubsetSections: mergedSections,
+            });
+        }
+    }
+}
 function findUrdfMaterialMetadataForDescriptor(materialMetadataByPrimPath, descriptor) {
     if (!(materialMetadataByPrimPath instanceof Map) || !descriptor || typeof descriptor !== 'object') {
         return null;
@@ -198,6 +291,118 @@ function findUrdfMaterialMetadataForDescriptor(materialMetadataByPrimPath, descr
         }
     }
     return null;
+}
+function findUsdMaterialBindingForDescriptor(materialBindingsByPrimPath, descriptor) {
+    if (!(materialBindingsByPrimPath instanceof Map) || !descriptor || typeof descriptor !== 'object') {
+        return null;
+    }
+    const candidatePaths = [
+        normalizeHydraPath(descriptor.resolvedPrimPath || ''),
+        normalizeHydraPath(descriptor.meshId || ''),
+    ].filter(Boolean);
+    const exactMatch = candidatePaths
+        .map((candidatePath) => materialBindingsByPrimPath.get(candidatePath))
+        .find((entry) => entry && typeof entry === 'object');
+    let materialId = normalizeHydraPath(exactMatch?.materialId || '') || null;
+    const geomSubsetSections = Array.isArray(exactMatch?.geomSubsetSections)
+        ? exactMatch.geomSubsetSections
+            .map((section) => {
+            const start = Number(section?.start);
+            const length = Number(section?.length);
+            const sectionMaterialId = normalizeHydraPath(section?.materialId || '') || '';
+            if (!Number.isFinite(start) || !Number.isFinite(length) || length <= 0 || !sectionMaterialId) {
+                return null;
+            }
+            return {
+                start: Math.max(0, Math.floor(start)),
+                length: Math.max(0, Math.floor(length)),
+                materialId: sectionMaterialId,
+            };
+        })
+            .filter(Boolean)
+        : [];
+    if (!materialId) {
+        for (const candidatePath of candidatePaths) {
+            let currentPath = candidatePath;
+            while (currentPath) {
+                const entry = materialBindingsByPrimPath.get(currentPath);
+                const candidateMaterialId = normalizeHydraPath(entry?.materialId || '') || null;
+                if (candidateMaterialId) {
+                    materialId = candidateMaterialId;
+                    break;
+                }
+                const lastSlashIndex = currentPath.lastIndexOf('/');
+                if (lastSlashIndex <= 0) {
+                    break;
+                }
+                currentPath = currentPath.slice(0, lastSlashIndex);
+            }
+            if (materialId) {
+                break;
+            }
+        }
+    }
+    if (!materialId && geomSubsetSections.length === 0) {
+        return null;
+    }
+    return {
+        materialId,
+        geomSubsetSections,
+    };
+}
+function getRoundtripMaterialRecoveryCacheKey(stageSourcePath) {
+    const normalizedStageSourcePath = String(stageSourcePath || '').trim().split('?')[0];
+    return normalizedStageSourcePath || '__unknown_stage__';
+}
+function buildStageLayerTextSignature(stageLayerTexts) {
+    if (!Array.isArray(stageLayerTexts) || stageLayerTexts.length === 0) {
+        return '0';
+    }
+    return stageLayerTexts
+        .map((layerText, index) => {
+        const normalizedText = typeof layerText === 'string' ? layerText : '';
+        return [
+            index,
+            normalizedText.length,
+            normalizedText.slice(0, 32),
+            normalizedText.slice(-32),
+        ].join(':');
+    })
+        .join('|');
+}
+function getParsedRoundtripMaterialRecovery(delegate, stageSourcePath, stageLayerTexts, { includeUsdMaterialBindings = false } = {}) {
+    const cacheMap = delegate._roundtripMaterialRecoveryByStageSource instanceof Map
+        ? delegate._roundtripMaterialRecoveryByStageSource
+        : (() => {
+            const nextMap = new Map();
+            delegate._roundtripMaterialRecoveryByStageSource = nextMap;
+            return nextMap;
+        })();
+    const cacheKey = getRoundtripMaterialRecoveryCacheKey(stageSourcePath);
+    const normalizedLayerTexts = Array.isArray(stageLayerTexts)
+        ? stageLayerTexts
+            .filter((layerText) => typeof layerText === 'string' && layerText.length > 0)
+        : [];
+    const layerTextSignature = buildStageLayerTextSignature(normalizedLayerTexts);
+    const existingEntry = cacheMap.get(cacheKey) || null;
+    if (existingEntry
+        && existingEntry.layerTextSignature === layerTextSignature
+        && (!includeUsdMaterialBindings || existingEntry.usdMaterialBindingsByPrimPath instanceof Map)) {
+        return existingEntry;
+    }
+    const nextEntry = {
+        layerTextSignature,
+        urdfMaterialMetadataByPrimPath: new Map(),
+        usdMaterialBindingsByPrimPath: includeUsdMaterialBindings ? new Map() : null,
+    };
+    for (const layerText of normalizedLayerTexts) {
+        mergeUrdfMaterialMetadataMaps(nextEntry.urdfMaterialMetadataByPrimPath, parseUrdfMaterialMetadataFromLayerText(layerText));
+        if (includeUsdMaterialBindings && nextEntry.usdMaterialBindingsByPrimPath instanceof Map) {
+            mergeUsdMaterialBindingMaps(nextEntry.usdMaterialBindingsByPrimPath, parseUsdMaterialBindingsFromLayerText(layerText));
+        }
+    }
+    cacheMap.set(cacheKey, nextEntry);
+    return nextEntry;
 }
 export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps {
     stageShaderRequiresPhysicalMaterial(shaderPrim) {
@@ -2965,11 +3170,65 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         let snapshotMaterialRecords = toPlainArray(renderPayload.materials);
         const stageLayerTexts = (() => {
             const stage = this.getStage?.();
-            return stage ? this.getStageMetadataLayerTexts(stage) : [];
+            return this.getStageMetadataLayerTexts(stage || null, resolvedStageSourcePath);
         })();
-        const urdfMaterialMetadataByPrimPath = new Map();
-        for (const layerText of stageLayerTexts) {
-            mergeUrdfMaterialMetadataMaps(urdfMaterialMetadataByPrimPath, parseUrdfMaterialMetadataFromLayerText(layerText));
+        const requiresStandardMaterialBindingRecovery = normalizedMeshDescriptors.some((descriptor) => {
+            if (normalizeDescriptorSectionName(descriptor?.sectionName) !== 'visuals') {
+                return false;
+            }
+            const existingMaterialId = normalizeHydraPath(descriptor?.materialId || descriptor?.geometry?.materialId || '');
+            const existingGeomSubsetSections = Array.isArray(descriptor?.geometry?.geomSubsetSections)
+                ? descriptor.geometry.geomSubsetSections
+                : [];
+            return !existingMaterialId || existingGeomSubsetSections.length === 0;
+        });
+        const parsedRoundtripMaterialRecovery = getParsedRoundtripMaterialRecovery(this, resolvedStageSourcePath, stageLayerTexts, {
+            includeUsdMaterialBindings: requiresStandardMaterialBindingRecovery,
+        });
+        const urdfMaterialMetadataByPrimPath = parsedRoundtripMaterialRecovery.urdfMaterialMetadataByPrimPath instanceof Map
+            ? parsedRoundtripMaterialRecovery.urdfMaterialMetadataByPrimPath
+            : new Map();
+        const usdMaterialBindingsByPrimPath = parsedRoundtripMaterialRecovery.usdMaterialBindingsByPrimPath instanceof Map
+            ? parsedRoundtripMaterialRecovery.usdMaterialBindingsByPrimPath
+            : new Map();
+        if (usdMaterialBindingsByPrimPath.size > 0 && normalizedMeshDescriptors.length > 0) {
+            normalizedMeshDescriptors = normalizedMeshDescriptors.map((descriptor) => {
+                const sectionName = normalizeDescriptorSectionName(descriptor?.sectionName);
+                if (sectionName !== 'visuals') {
+                    return descriptor;
+                }
+                const existingMaterialId = normalizeHydraPath(descriptor?.materialId || descriptor?.geometry?.materialId || '') || null;
+                const existingGeomSubsetSections = normalizeGeomSubsetSections(descriptor?.geometry?.geomSubsetSections);
+                if (existingMaterialId && existingGeomSubsetSections.length > 0) {
+                    return descriptor;
+                }
+                const materialBindingMatch = findUsdMaterialBindingForDescriptor(
+                    usdMaterialBindingsByPrimPath,
+                    descriptor,
+                );
+                if (!materialBindingMatch) {
+                    return descriptor;
+                }
+                const nextGeomSubsetSections = existingGeomSubsetSections.length > 0
+                    ? existingGeomSubsetSections
+                    : materialBindingMatch.geomSubsetSections;
+                const targetMaterialId = existingMaterialId || materialBindingMatch.materialId || null;
+                const nextGeometry = descriptor?.geometry && typeof descriptor.geometry === 'object'
+                    ? {
+                        ...descriptor.geometry,
+                        materialId: descriptor.geometry?.materialId || targetMaterialId,
+                        geomSubsetSections: nextGeomSubsetSections,
+                    }
+                    : {
+                        materialId: targetMaterialId,
+                        geomSubsetSections: nextGeomSubsetSections,
+                    };
+                return {
+                    ...descriptor,
+                    materialId: descriptor?.materialId || targetMaterialId,
+                    geometry: nextGeometry,
+                };
+            });
         }
         if (urdfMaterialMetadataByPrimPath.size > 0 && normalizedMeshDescriptors.length > 0) {
             const knownMaterialIds = new Set(snapshotMaterialRecords
@@ -3023,6 +3282,21 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 snapshotMaterialRecords = snapshotMaterialRecords.concat(fallbackMaterialRecords);
             }
         }
+        snapshotMaterialRecords = snapshotMaterialRecords.map((record) => {
+            const materialId = normalizeHydraPath(record?.materialId || record?.id || '');
+            if (!materialId) {
+                return record;
+            }
+            const fallbackStageMaterial = this.createFallbackMaterialFromStage(materialId);
+            const fallbackRecord = serializePreferredMaterialRecord(fallbackStageMaterial?._material || null);
+            if (!fallbackRecord) {
+                return record;
+            }
+            return mergeSnapshotMaterialRecordWithFallback(record, {
+                materialId,
+                ...fallbackRecord,
+            });
+        });
         const normalizedMaterials = this.ingestSnapshotMaterialRecords(snapshotMaterialRecords, {
             stageSourcePath: resolvedStageSourcePath,
             force: forceRefresh,

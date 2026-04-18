@@ -41,6 +41,7 @@ import {
 } from '@/app/utils/contextualPreResolvedImports';
 import {
   buildStandaloneImportAssetWarning,
+  buildStandalonePrimitiveGeometryHint,
   collectStandaloneImportSupportAssetPaths,
 } from '@/app/utils/importPackageAssetReferences.ts';
 import { primePreResolvedRobotImports } from '@/app/utils/preResolvedRobotImportCache';
@@ -74,6 +75,14 @@ function revokeBlobUrls(urls: readonly string[]): void {
       URL.revokeObjectURL(url);
     }
   });
+}
+
+function normalizeImportSourcePath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/');
+}
+
+function resolveImportSourceFilePath(file: File): string {
+  return normalizeImportSourcePath(file.webkitRelativePath || file.name);
 }
 
 function pickPreparedPreferredFile(
@@ -136,6 +145,37 @@ function waitForNextPaint(): Promise<void> {
   return new Promise((resolve) => {
     window.requestAnimationFrame(() => resolve());
   });
+}
+
+function hydrateDeferredArchiveAssetsInBackground(
+  archiveFile: File,
+  assetFiles: Parameters<typeof hydrateDeferredImportAssetsWithWorker>[0]['assetFiles'],
+  options: {
+    onShowToast?: (message: string, type?: 'info' | 'success') => void;
+  },
+): void {
+  if (assetFiles.length === 0) {
+    return;
+  }
+
+  void (async () => {
+    try {
+      const hydratedAssetFiles = await hydrateDeferredImportAssetsWithWorker({
+        archiveFile,
+        assetFiles,
+      });
+      if (hydratedAssetFiles.length === 0) {
+        return;
+      }
+
+      useAssetsStore.getState().addAssets(createAssetUrls(hydratedAssetFiles));
+    } catch (error) {
+      console.error('Deferred archive asset hydration failed after import completed:', error);
+      const message =
+        translations[useUIStore.getState().lang].importBackgroundAssetsStillLoadingFailed;
+      options.onShowToast?.(message, 'info');
+    }
+  })();
 }
 
 function formatImportPreparationBytes(bytes: number): string {
@@ -232,7 +272,13 @@ export function useFileImport(options: UseFileImportOptions = {}) {
         availableFiles: availableFiles ?? assetsState.availableFiles,
         assets: currentAssets ?? assetsState.assets,
         allFileContents: currentAllFileContents ?? assetsState.allFileContents,
-        usdRobotData: assetsState.getUsdPreparedExportCache(file.name)?.robotData ?? null,
+        // Let USD imports resolve through the current hydration pipeline. A
+        // prepared cache is auxiliary export data, not an authoritative import
+        // result for a new load of the same file path.
+        usdRobotData:
+          file.format === 'usd'
+            ? null
+            : (assetsState.getUsdPreparedExportCache(file.name)?.robotData ?? null),
       });
 
       if (
@@ -270,7 +316,47 @@ export function useFileImport(options: UseFileImportOptions = {}) {
         importsRobotDefinition;
 
       const createdBlobUrls: string[] = [];
-      let importedAssetsCommitted = false;
+      let importStateMutated = false;
+      const assetsSnapshot = {
+        assets: assetsState.assets,
+        availableFiles: assetsState.availableFiles,
+        usdSceneSnapshots: assetsState.usdSceneSnapshots,
+        usdPreparedExportCaches: assetsState.usdPreparedExportCaches,
+        selectedFile: assetsState.selectedFile,
+        documentLoadState: assetsState.documentLoadState,
+        allFileContents: assetsState.allFileContents,
+        motorLibrary: assetsState.motorLibrary,
+        originalUrdfContent: assetsState.originalUrdfContent,
+        originalFileFormat: assetsState.originalFileFormat,
+      };
+      const assemblySnapshot = {
+        assemblyState: assemblyStoreState.assemblyState,
+        _history: assemblyStoreState._history,
+        _activity: assemblyStoreState._activity,
+      };
+      const robotSnapshot = structuredClone({
+        name: robotState.name,
+        links: robotState.links,
+        joints: robotState.joints,
+        rootLinkId: robotState.rootLinkId,
+        materials: robotState.materials,
+        closedLoopConstraints: robotState.closedLoopConstraints,
+        inspectionContext: robotState.inspectionContext,
+        _history: robotState._history,
+        _activity: robotState._activity,
+      });
+      const selectionSnapshot = structuredClone({
+        selection: selectionState.selection,
+        interactionGuard: selectionState.interactionGuard,
+        hoveredSelection: selectionState.hoveredSelection,
+        deferredHoveredSelection: selectionState.deferredHoveredSelection,
+        hoverFrozen: selectionState.hoverFrozen,
+        attentionSelection: selectionState.attentionSelection,
+        focusTarget: selectionState.focusTarget,
+      });
+      const uiSnapshot = {
+        sidebarTab: uiState.sidebarTab,
+      };
       let importOverlayActive = false;
 
       const setImportPreparationOverlay = (state: ImportPreparationOverlayState | null) => {
@@ -291,6 +377,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
           const result = await projectImporter(files[0], uiState.lang);
           const { manifest, assets: newAssetUrls, availableFiles: newFiles } = result;
 
+          importStateMutated = true;
           assetsState.clearAssets();
           assetsState.addAssets(newAssetUrls);
           assetsState.setAvailableFiles(newFiles);
@@ -365,9 +452,6 @@ export function useFileImport(options: UseFileImportOptions = {}) {
           preferredFileName,
           preResolvedImports,
         } = preparedImportPayload;
-
-        const motorSpecParseFailures: string[] = [];
-        let motorSpecWarningShown = false;
         const usdSourceBlobUrls = Object.fromEntries(
           renamedUsdSourceFiles.map((file) => [file.name, URL.createObjectURL(file.blob)]),
         );
@@ -379,44 +463,92 @@ export function useFileImport(options: UseFileImportOptions = {}) {
             : file,
         );
         const visibleImportedFiles = renamedRobotFilesWithSources.filter(isVisibleLibraryEntry);
+        const currentMotorLibrary =
+          Object.keys(assetsState.motorLibrary).length > 0
+            ? assetsState.motorLibrary
+            : DEFAULT_MOTOR_LIBRARY;
+        let nextMotorLibrary = currentMotorLibrary;
 
         if (renamedLibraryFiles.length > 0) {
-          const mergeResult = mergeMotorLibraryEntries(renamedLibraryFiles, DEFAULT_MOTOR_LIBRARY);
-          motorSpecParseFailures.push(...mergeResult.parseFailures);
-          mergeResult.parseFailures.forEach((path) => {
-            console.error('Failed to parse motor spec', path);
-          });
-          assetsState.setMotorLibrary(mergeResult.library);
+          const mergeResult = mergeMotorLibraryEntries(renamedLibraryFiles, currentMotorLibrary);
+          if (mergeResult.parseFailures.length > 0) {
+            mergeResult.parseFailures.forEach((failedPath) => {
+              console.error('Failed to parse motor spec', failedPath);
+            });
+            throw new Error(
+              `Failed to import motor library entries: ${mergeResult.parseFailures.join(', ')}`,
+            );
+          }
+          nextMotorLibrary = mergeResult.library;
         }
 
         const newAssets = createAssetUrls(renamedAssetFiles);
         createdBlobUrls.push(...Object.values(newAssets));
 
         let hydratedDeferredAssets: Record<string, string> = {};
-        if (renamedDeferredAssetFiles.length > 0) {
-          const sourceArchiveFile =
+        const shouldHydrateArchiveAssetsInBackground =
+          isArchiveImport && renamedDeferredAssetFiles.length > 0;
+
+        if (renamedDeferredAssetFiles.length > 0 && !shouldHydrateArchiveAssetsInBackground) {
+          const archiveFilesByImportPath = new Map(
+            inputFiles
+              .filter((file) => isSupportedArchiveImportFile(file.name))
+              .map((file) => [resolveImportSourceFilePath(file), file] as const),
+          );
+          const legacySourceArchiveFile =
             inputFiles.length === 1 && isSupportedArchiveImportFile(inputFiles[0]?.name ?? '')
               ? inputFiles[0]
               : null;
+          const legacySourceArchiveImportPath = legacySourceArchiveFile
+            ? resolveImportSourceFilePath(legacySourceArchiveFile)
+            : null;
+          const deferredAssetFilesByArchive = new Map<string, typeof renamedDeferredAssetFiles>();
 
-          if (!sourceArchiveFile) {
-            throw new Error(
-              `Deferred import assets were prepared without a supported source archive for "${preferredFileName ?? inputFiles[0]?.name ?? 'unknown import'}".`,
+          renamedDeferredAssetFiles.forEach((assetFile) => {
+            const sourceArchiveImportPath = normalizeImportSourcePath(
+              assetFile.sourceArchiveImportPath || legacySourceArchiveImportPath || '',
             );
-          }
+            if (!sourceArchiveImportPath) {
+              throw new Error(
+                `Deferred import assets were prepared without a supported source archive for "${assetFile.name}".`,
+              );
+            }
 
-          const hydratedAssetFiles = await hydrateDeferredImportAssetsWithWorker({
-            archiveFile: sourceArchiveFile,
-            assetFiles: renamedDeferredAssetFiles,
-            onProgress: shouldShowPreparationOverlay
-              ? (progress) => {
-                  setImportPreparationOverlay(
-                    createImportPreparationOverlayStateFromProgress(t, progress),
-                  );
-                }
-              : undefined,
+            const groupedAssetFiles =
+              deferredAssetFilesByArchive.get(sourceArchiveImportPath) ?? [];
+            groupedAssetFiles.push(assetFile);
+            deferredAssetFilesByArchive.set(sourceArchiveImportPath, groupedAssetFiles);
           });
-          hydratedDeferredAssets = createAssetUrls(hydratedAssetFiles);
+
+          for (const [sourceArchiveImportPath, deferredAssetFiles] of deferredAssetFilesByArchive) {
+            const sourceArchiveFile =
+              archiveFilesByImportPath.get(sourceArchiveImportPath) ??
+              (legacySourceArchiveImportPath === sourceArchiveImportPath
+                ? legacySourceArchiveFile
+                : null);
+
+            if (!sourceArchiveFile) {
+              throw new Error(
+                `Deferred import assets were prepared without a supported source archive for "${preferredFileName ?? sourceArchiveImportPath}".`,
+              );
+            }
+
+            const hydratedAssetFiles = await hydrateDeferredImportAssetsWithWorker({
+              archiveFile: sourceArchiveFile,
+              assetFiles: deferredAssetFiles,
+              onProgress: shouldShowPreparationOverlay
+                ? (progress) => {
+                    setImportPreparationOverlay(
+                      createImportPreparationOverlayStateFromProgress(t, progress),
+                    );
+                  }
+                : undefined,
+            });
+            hydratedDeferredAssets = {
+              ...hydratedDeferredAssets,
+              ...createAssetUrls(hydratedAssetFiles),
+            };
+          }
           createdBlobUrls.push(...Object.values(hydratedDeferredAssets));
         }
 
@@ -459,11 +591,18 @@ export function useFileImport(options: UseFileImportOptions = {}) {
           Object.keys(sourceAssets).length > 0 ||
           renamedTextFiles.length > 0
         ) {
-          importedAssetsCommitted = true;
           assetsState.addAssets(sourceAssets);
           assetsState.setAvailableFiles(mergedFiles);
           assetsState.setAllFileContents(mergedAllFileContents);
+          importStateMutated = true;
         }
+
+        if (renamedLibraryFiles.length > 0) {
+          assetsState.setMotorLibrary(nextMotorLibrary);
+          importStateMutated = true;
+        }
+
+        let shouldMarkAssemblyBaselineSaved = false;
 
         if (visibleImportedFiles.length > 0) {
           const preferredFile = pickPreparedPreferredFile(
@@ -495,6 +634,14 @@ export function useFileImport(options: UseFileImportOptions = {}) {
               sourcePath: preferredFile?.name,
             },
           );
+          const primitiveGeometryHint = buildStandalonePrimitiveGeometryHint(
+            preferredFile,
+            importedAssetPathsForWarning,
+            {
+              allFileContents: mergedAllFileContents,
+              sourcePath: preferredFile?.name,
+            },
+          );
 
           const preferredPreResolvedImportResult = preferredFile
             ? (preResolvedImports.find(
@@ -512,6 +659,19 @@ export function useFileImport(options: UseFileImportOptions = {}) {
               const warningMessage = t.importPackageAssetBundleHint
                 .replace('{packages}', assetLabel)
                 .replace('{assets}', assetLabel);
+
+              if (onShowToast) {
+                onShowToast(warningMessage, 'info');
+              } else {
+                alert(warningMessage);
+              }
+            } else if (primitiveGeometryHint) {
+              const assetLabel =
+                primitiveGeometryHint.siblingMeshAssetCount >
+                primitiveGeometryHint.siblingMeshAssetPaths.length
+                  ? `${primitiveGeometryHint.siblingMeshAssetPaths.join(', ')}, …`
+                  : primitiveGeometryHint.siblingMeshAssetPaths.join(', ');
+              const warningMessage = t.importPrimitiveGeometryHint.replace('{assets}', assetLabel);
 
               if (onShowToast) {
                 onShowToast(warningMessage, 'info');
@@ -550,7 +710,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
                     throw new Error(`Failed to add imported assembly component: ${seedFile.name}`);
                   }
                 });
-                markUnsavedChangesBaselineSaved('assembly');
+                shouldMarkAssemblyBaselineSaved = true;
               } else if (canSeedAssembly) {
                 const component = assemblyStoreState.addComponent(preferredFile, {
                   availableFiles: mergedFiles,
@@ -565,7 +725,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
                     `Failed to add imported assembly component: ${preferredFile.name}`,
                   );
                 }
-                markUnsavedChangesBaselineSaved('assembly');
+                shouldMarkAssemblyBaselineSaved = true;
               }
 
               uiState.setSidebarTab(shouldAutoSeedArchiveAssembly ? 'workspace' : 'structure');
@@ -581,6 +741,9 @@ export function useFileImport(options: UseFileImportOptions = {}) {
                   mergedAllFileContents,
                 );
               }
+              if (shouldMarkAssemblyBaselineSaved) {
+                markUnsavedChangesBaselineSaved('assembly');
+              }
             } else if (!hadSelectedFile) {
               uiState.setSidebarTab('structure');
               clearImportPreparationOverlay();
@@ -592,19 +755,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
               }
             }
           }
-        } else if (renamedLibraryFiles.length > 0) {
-          if (motorSpecParseFailures.length > 0) {
-            const partialMessage = t.libraryImportPartialWithErrors
-              .replace('{failed}', String(motorSpecParseFailures.length))
-              .replace('{total}', String(renamedLibraryFiles.length));
-            motorSpecWarningShown = true;
-            if (onShowToast) {
-              onShowToast(partialMessage, 'info');
-            } else {
-              alert(partialMessage);
-            }
-          }
-        } else {
+        } else if (renamedLibraryFiles.length === 0) {
           const infoMessage = t.noSupportedImportFilesFound;
           console.info('[useFileImport] Skipped import with no visible library files.', {
             importedFileNames: inputFiles.map((file) => file.name),
@@ -614,20 +765,12 @@ export function useFileImport(options: UseFileImportOptions = {}) {
           }
         }
 
-        if (
-          renamedLibraryFiles.length > 0 &&
-          motorSpecParseFailures.length > 0 &&
-          !motorSpecWarningShown
-        ) {
-          const partialMessage = t.libraryImportPartialWithErrors
-            .replace('{failed}', String(motorSpecParseFailures.length))
-            .replace('{total}', String(renamedLibraryFiles.length));
-          if (onShowToast) {
-            onShowToast(partialMessage, 'info');
-          } else {
-            alert(partialMessage);
-          }
+        if (shouldHydrateArchiveAssetsInBackground && inputFiles[0]) {
+          hydrateDeferredArchiveAssetsInBackground(inputFiles[0], renamedDeferredAssetFiles, {
+            onShowToast,
+          });
         }
+
         return {
           status:
             visibleImportedFiles.length > 0 || renamedLibraryFiles.length > 0
@@ -636,7 +779,14 @@ export function useFileImport(options: UseFileImportOptions = {}) {
         };
       } catch (error) {
         console.error('Import failed:', error);
-        if (!importedAssetsCommitted) {
+        if (!importStateMutated) {
+          revokeBlobUrls(createdBlobUrls);
+        } else {
+          useAssetsStore.setState(assetsSnapshot);
+          useAssemblyStore.setState(assemblySnapshot);
+          useRobotStore.setState(robotSnapshot);
+          useSelectionStore.setState(selectionSnapshot);
+          useUIStore.setState(uiSnapshot);
           revokeBlobUrls(createdBlobUrls);
         }
         const fallbackMessage = translations[useUIStore.getState().lang].importFailedCheckFiles;

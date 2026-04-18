@@ -30,8 +30,11 @@ import { shouldMountRobotBeforeAssetsComplete } from '../utils/loadStrategy';
 import { resolveRobotLoaderSourceMetadata } from '../utils/robotLoaderSourceMetadata';
 import { createViewerRobotLoadInputSignature } from '../utils/robotLoadScope';
 import { resolveViewerRobotSourceFormat } from '../utils/sourceFormat';
+import { shouldWaitForStructuredUrdfRobotState } from '../utils/urdfXmlFallbackPolicy';
 import { createViewerMeshLoader } from '../utils/createViewerMeshLoader';
 import type { RobotLoadingPhase, ViewerDocumentLoadEvent, ViewerRobotSourceFormat } from '../types';
+
+const VIEWER_LOAD_YIELD_BUDGET_MS = 4;
 
 function preprocessURDFForLoader(content: string): string {
   // Remove <transmission> blocks to prevent urdf-loader from finding duplicate joints
@@ -82,6 +85,7 @@ export interface UseRobotLoaderOptions {
   urdfContent: string;
   assets: Record<string, string>;
   sourceFormat?: ViewerRobotSourceFormat;
+  allowUrdfXmlFallback?: boolean;
   reloadToken?: number;
   initialRobot?: THREE.Object3D | null;
   showCollision: boolean;
@@ -134,6 +138,7 @@ export function useRobotLoader({
   urdfContent,
   assets,
   sourceFormat = 'auto',
+  allowUrdfXmlFallback = true,
   reloadToken = 0,
   initialRobot = null,
   showCollision,
@@ -207,6 +212,11 @@ export function useRobotLoader({
     resolvedSourceFormat === 'urdf' &&
     Boolean(robotLinks && robotJoints) &&
     (Object.keys(robotLinks ?? {}).length > 0 || Object.keys(robotJoints ?? {}).length > 0);
+  const shouldWaitForStructuredRobotState = shouldWaitForStructuredUrdfRobotState({
+    resolvedSourceFormat,
+    hasStructuredRobotState,
+    allowUrdfXmlFallback,
+  });
   const currentSourceScopeKey = `${resolvedSourceFormat}:${sourceFilePath ?? '__inline__'}`;
   const loadInputSignature = useMemo(
     () =>
@@ -228,8 +238,10 @@ export function useRobotLoader({
         `input:${loadInputSignature}`,
         `assets:${assetScopeKey}`,
         `structured:${hasStructuredRobotState ? '1' : '0'}`,
+        `xml-fallback:${allowUrdfXmlFallback ? '1' : '0'}`,
       ].join('|'),
     [
+      allowUrdfXmlFallback,
       assetScopeKey,
       currentSourceScopeKey,
       hasStructuredRobotState,
@@ -862,7 +874,7 @@ export function useRobotLoader({
           };
           // Use new local URDFLoader
           const loader = new URDFLoader(manager);
-          const yieldIfNeeded = createMainThreadYieldController();
+          const yieldIfNeeded = createMainThreadYieldController(VIEWER_LOAD_YIELD_BUDGET_MS);
           loader.parseCollision = shouldParseCollisionMeshes;
           loader.parseVisual = true;
           loader.loadMeshCb = createViewerMeshLoader(assets, manager, urdfDir, {
@@ -892,6 +904,10 @@ export function useRobotLoader({
                 yieldIfNeeded,
               });
             } else {
+              if (shouldWaitForStructuredRobotState) {
+                return;
+              }
+
               const cleanContent = preprocessURDFForLoader(urdfContent);
               robotModel = await loader.parseAsync(cleanContent, loader.workingPath, {
                 yieldIfNeeded,
@@ -1000,6 +1016,7 @@ export function useRobotLoader({
     clearGroundAlignTimers,
     currentSourceScopeKey,
     error,
+    allowUrdfXmlFallback,
     hasStructuredRobotState,
     invalidate,
     loadScopeKey,

@@ -37,6 +37,7 @@ import {
   type UrdfLink,
 } from '@/types';
 import { collectURDFMaterialsFromLinks } from '@/features/editor';
+import { BRIDGE_PREVIEW_ID } from '@/features/assembly';
 import { parseEditableRobotSourceWithWorker } from './robotImportWorkerBridge';
 
 type JsonLike = null | boolean | number | string | JsonLike[] | { [key: string]: JsonLike };
@@ -614,8 +615,10 @@ function resolveWorkspaceViewerRootComponentIds({
   componentEntries: Array<[string, AssemblyState['components'][string]]>;
   mergedRobotData: RobotData;
 }): {
+  componentIdByLinkId: Map<string, string>;
   rootComponentByComponentId: Map<string, string>;
   rootComponentIds: string[];
+  rootLinkIdByRootComponentId: Map<string, string>;
 } {
   const componentIdByLinkId = new Map<string, string>();
 
@@ -660,24 +663,21 @@ function resolveWorkspaceViewerRootComponentIds({
   const rootComponentIds = componentEntries
     .map(([componentId]) => rootComponentByComponentId.get(componentId) ?? componentId)
     .filter((componentId, index, values) => values.indexOf(componentId) === index);
+  const rootLinkIdByRootComponentId = new Map<string, string>();
+
+  collectWorkspaceViewerRootLinkIds(mergedRobotData).forEach((rootLinkId) => {
+    const rootComponentId = componentIdByLinkId.get(rootLinkId);
+    if (rootComponentId && !rootLinkIdByRootComponentId.has(rootComponentId)) {
+      rootLinkIdByRootComponentId.set(rootComponentId, rootLinkId);
+    }
+  });
 
   return {
+    componentIdByLinkId,
     rootComponentByComponentId,
     rootComponentIds,
+    rootLinkIdByRootComponentId,
   };
-}
-
-function hasIncomingBridge(assemblyState: AssemblyState, componentId: string): boolean {
-  const component = assemblyState.components[componentId];
-  if (!component) {
-    return false;
-  }
-
-  return Object.values(assemblyState.bridges).some(
-    (bridge) =>
-      bridge.childComponentId === componentId &&
-      Boolean(resolveAssemblyComponentLinkId(component, bridge.childLinkId)),
-  );
 }
 
 export function buildWorkspaceAssemblyViewerDisplayRobotData({
@@ -697,52 +697,9 @@ export function buildWorkspaceAssemblyViewerDisplayRobotData({
     return null;
   }
 
-  if (componentEntries.length === 1) {
-    const [componentId, component] = componentEntries[0];
-    const componentTransform = cloneAssemblyTransform(component.transform);
-    const joints: RobotData['joints'] = {
-      ...component.robot.joints,
-    };
-
-    joints[buildWorkspaceViewerComponentRootJointId(componentId)] = {
-      id: buildWorkspaceViewerComponentRootJointId(componentId),
-      name: buildWorkspaceViewerComponentRootJointId(componentId),
-      type: JointType.FIXED,
-      parentLinkId: WORKSPACE_VIEWER_WORLD_ROOT_ID,
-      childLinkId: component.robot.rootLinkId,
-      origin: {
-        xyz: componentTransform.position,
-        rpy: componentTransform.rotation,
-      },
-      dynamics: { damping: 0, friction: 0 },
-      hardware: {
-        armature: 0,
-        motorType: 'None',
-        motorId: '',
-        motorDirection: 1,
-      },
-    };
-
-    return {
-      name: mergedRobotData.name,
-      version: mergedRobotData.version,
-      links: {
-        [WORKSPACE_VIEWER_WORLD_ROOT_ID]: buildWorkspaceViewerSyntheticRootLink(
-          WORKSPACE_VIEWER_WORLD_ROOT_ID,
-        ),
-        ...component.robot.links,
-      },
-      joints,
-      rootLinkId: WORKSPACE_VIEWER_WORLD_ROOT_ID,
-      materials: mergedRobotData.materials,
-      closedLoopConstraints: mergedRobotData.closedLoopConstraints,
-      inspectionContext: mergedRobotData.inspectionContext,
-    };
-  }
-
   const childJointsByParent = buildChildJointsByParent(mergedRobotData.joints);
   const linkWorldMatrices = computeLinkWorldMatrices(mergedRobotData);
-  const { rootComponentByComponentId, rootComponentIds } = resolveWorkspaceViewerRootComponentIds({
+  const { rootComponentIds, rootLinkIdByRootComponentId } = resolveWorkspaceViewerRootComponentIds({
     componentEntries,
     mergedRobotData,
   });
@@ -758,9 +715,8 @@ export function buildWorkspaceAssemblyViewerDisplayRobotData({
     });
   } else {
     const layoutIntervals = rootComponentIds.map((componentId) => {
-      const rootComponent = visibleComponents[componentId];
       return estimateWorkspaceViewerRootLayoutInterval(
-        rootComponent?.robot.rootLinkId ?? mergedRobotData.rootLinkId,
+        rootLinkIdByRootComponentId.get(componentId) ?? mergedRobotData.rootLinkId,
         mergedRobotData,
         childJointsByParent,
         linkWorldMatrices,
@@ -796,41 +752,37 @@ export function buildWorkspaceAssemblyViewerDisplayRobotData({
     [WORKSPACE_VIEWER_WORLD_ROOT_ID]: buildWorkspaceViewerSyntheticRootLink(
       WORKSPACE_VIEWER_WORLD_ROOT_ID,
     ),
+    ...mergedRobotData.links,
   };
-  const joints: RobotData['joints'] = {};
+  const joints: RobotData['joints'] = {
+    ...mergedRobotData.joints,
+  };
 
-  componentEntries.forEach(([componentId, component]) => {
-    Object.entries(component.robot.links).forEach(([linkId, link]) => {
-      links[linkId] = link;
-    });
-    Object.entries(component.robot.joints).forEach(([jointId, joint]) => {
-      joints[jointId] = joint;
-    });
+  rootComponentIds.forEach((componentId) => {
+    const component = visibleComponents[componentId];
+    if (!component) {
+      return;
+    }
 
+    const rootLinkId =
+      rootLinkIdByRootComponentId.get(componentId) ??
+      component.robot.rootLinkId ??
+      mergedRobotData.rootLinkId;
     const semanticRootMatrix =
-      linkWorldMatrices[component.robot.rootLinkId]?.clone() ?? new THREE.Matrix4().identity();
-    const rootComponentId = rootComponentByComponentId.get(componentId) ?? componentId;
+      linkWorldMatrices[rootLinkId]?.clone() ?? new THREE.Matrix4().identity();
     const rootDisplayMatrix =
-      rootDisplayMatrixByComponentId.get(rootComponentId)?.clone() ??
-      new THREE.Matrix4().identity();
-    const componentHasIncomingBridge = hasIncomingBridge(assemblyState, componentId);
+      rootDisplayMatrixByComponentId.get(componentId)?.clone() ?? new THREE.Matrix4().identity();
+    const componentTransformMatrix = buildAssemblyTransformMatrix(component.transform);
     const componentIsIndividuallyTransformable = isAssemblyComponentIndividuallyTransformable(
       assemblyState,
       componentId,
     );
-    const componentTransformMatrix = buildAssemblyTransformMatrix(component.transform);
-    // Incoming bridge alignment is authored onto the component transform for
-    // both root-link and non-root child-link bridges. By contrast, isolated
-    // components already have their authored transform wrapped into the
-    // exportable merged robot's semantic root matrix.
     const mergedRootAlreadyEncodesComponentTransform =
       componentIsIndividuallyTransformable &&
       semanticRootMatrixMatchesAssemblyTransform(semanticRootMatrix, component.transform);
-    const worldMatrix = componentHasIncomingBridge
-      ? rootDisplayMatrix.clone().multiply(componentTransformMatrix)
-      : mergedRootAlreadyEncodesComponentTransform
-        ? rootDisplayMatrix.clone().multiply(semanticRootMatrix)
-        : rootDisplayMatrix.clone().multiply(componentTransformMatrix).multiply(semanticRootMatrix);
+    const worldMatrix = mergedRootAlreadyEncodesComponentTransform
+      ? rootDisplayMatrix.clone().multiply(semanticRootMatrix)
+      : rootDisplayMatrix.clone().multiply(componentTransformMatrix).multiply(semanticRootMatrix);
     const syntheticJointId = buildWorkspaceViewerComponentRootJointId(componentId);
 
     joints[syntheticJointId] = {
@@ -838,7 +790,7 @@ export function buildWorkspaceAssemblyViewerDisplayRobotData({
       name: syntheticJointId,
       type: JointType.FIXED,
       parentLinkId: WORKSPACE_VIEWER_WORLD_ROOT_ID,
-      childLinkId: component.robot.rootLinkId,
+      childLinkId: rootLinkId,
       origin: decomposeMatrixToOrigin(worldMatrix),
       dynamics: { damping: 0, friction: 0 },
       hardware: {
@@ -872,6 +824,17 @@ export function normalizeWorkspaceAssemblyViewerDisplayRobotDataForSource(
       joint.parentLinkId === WORKSPACE_VIEWER_WORLD_ROOT_ID &&
       jointId.startsWith(WORKSPACE_VIEWER_COMPONENT_ROOT_JOINT_PREFIX)
     ) {
+      joints[jointId] = {
+        ...joint,
+        origin: {
+          xyz: { x: 0, y: 0, z: 0 },
+          rpy: { r: 0, p: 0, y: 0 },
+        },
+      };
+      return;
+    }
+
+    if (jointId === BRIDGE_PREVIEW_ID) {
       joints[jointId] = {
         ...joint,
         origin: {

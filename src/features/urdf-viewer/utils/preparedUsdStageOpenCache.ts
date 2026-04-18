@@ -10,7 +10,6 @@ import {
   isBlobBackedLargeTextUsd,
 } from './usdStageOpenLargeText.ts';
 import { prepareUsdStageOpenWithWorker } from './usdStageOpenPreparationWorkerBridge.ts';
-import { logRuntimeFailure } from '@/core/utils/runtimeDiagnostics';
 
 type StageOpenSourceFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl'>;
 type StageOpenAvailableFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl' | 'format'>;
@@ -217,14 +216,5 @@ export function prewarmPreparedUsdStageOpenDataInBackground(
   availableFiles: StageOpenAvailableFile[],
   assets: Record<string, string>,
 ): void {
-  void loadPreparedUsdStageOpenDataFromWorker(sourceFile, availableFiles, assets).catch((error) => {
-    logRuntimeFailure(
-      'prewarmPreparedUsdStageOpenDataInBackground',
-      new Error(
-        `USD stage-open prewarm failed for "${sourceFile.name}". Foreground stage open will retry and surface the original error.`,
-        { cause: error },
-      ),
-      'warn',
-    );
-  });
+  void loadPreparedUsdStageOpenDataFromWorker(sourceFile, availableFiles, assets).catch(() => {});
 }

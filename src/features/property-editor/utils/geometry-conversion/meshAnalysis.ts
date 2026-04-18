@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { createLoadingManager, createMeshLoader } from '@/core/loaders/meshLoader';
+import { getSourceFileDirectory } from '@/core/parsers/meshPathUtils';
 import { disposeObject3D } from '@/shared/utils/three/dispose';
 
 import { computeBestPrimitiveFits, type Point3, type PrimitiveFitSet } from './primitiveFit';
@@ -255,79 +256,89 @@ export async function computeMeshAnalysisFromAssets(
   assets: Record<string, string>,
   meshScale?: { x: number; y: number; z: number },
   options: MeshAnalysisOptions = {},
+  sourceFilePath?: string,
 ): Promise<MeshAnalysis | null> {
-  try {
-    const manager = createLoadingManager(assets, '', { preferPlaceholderTextures: true });
-    const meshLoader = createMeshLoader(assets, manager);
+  const sourceFileDirectory = getSourceFileDirectory(sourceFilePath);
+  const manager = createLoadingManager(assets, sourceFileDirectory);
+  const meshLoader = createMeshLoader(assets, manager, sourceFileDirectory);
 
-    return await new Promise<MeshAnalysis | null>((resolve) => {
-      meshLoader(meshPath, manager, (obj: THREE.Object3D) => {
-        if (
-          !obj ||
-          (obj as THREE.Object3D & { userData: { isPlaceholder?: boolean } }).userData
-            ?.isPlaceholder
-        ) {
-          resolve(null);
-          return;
-        }
-        const normalizedScale = normalizeMeshScale(meshScale);
-        const includePrimitiveFits = options.includePrimitiveFits ?? true;
-        const includeSurfacePoints = options.includeSurfacePoints ?? true;
-        const pointCollectionLimit = Math.max(
-          1,
-          options.pointCollectionLimit ??
-            (includePrimitiveFits ? MAX_MESH_ANALYSIS_POINTS : DEFAULT_MESH_SURFACE_POINT_LIMIT),
-        );
-        const surfacePointLimit = Math.max(
-          1,
-          options.surfacePointLimit ?? DEFAULT_MESH_SURFACE_POINT_LIMIT,
-        );
-        obj.scale.set(normalizedScale.x, normalizedScale.y, normalizedScale.z);
-        obj.updateMatrixWorld(true);
-        const box = new THREE.Box3().setFromObject(obj);
-        const representativeColor = getRepresentativeMeshColor(obj);
-        if (box.isEmpty()) {
-          disposeObject3D(obj, true);
-          resolve(null);
-          return;
-        }
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-        const needsPointCollection = includePrimitiveFits || includeSurfacePoints;
-        const points = needsPointCollection ? collectMeshPoints(obj, pointCollectionLimit) : [];
-        const surfacePoints = includeSurfacePoints
-          ? sampleMeshPoints(points, surfacePointLimit)
-          : undefined;
-        const primitiveFits = includePrimitiveFits ? computeBestPrimitiveFits(points) : undefined;
+  return await new Promise<MeshAnalysis | null>((resolve, reject) => {
+    meshLoader(meshPath, manager, (obj: THREE.Object3D | null, error?: Error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      if (
+        !obj ||
+        (obj as THREE.Object3D & { userData: { isPlaceholder?: boolean } }).userData?.isPlaceholder
+      ) {
+        resolve(null);
+        return;
+      }
+
+      const normalizedScale = normalizeMeshScale(meshScale);
+      const includePrimitiveFits = options.includePrimitiveFits ?? true;
+      const includeSurfacePoints = options.includeSurfacePoints ?? true;
+      const pointCollectionLimit = Math.max(
+        1,
+        options.pointCollectionLimit ??
+          (includePrimitiveFits ? MAX_MESH_ANALYSIS_POINTS : DEFAULT_MESH_SURFACE_POINT_LIMIT),
+      );
+      const surfacePointLimit = Math.max(
+        1,
+        options.surfacePointLimit ?? DEFAULT_MESH_SURFACE_POINT_LIMIT,
+      );
+      obj.scale.set(normalizedScale.x, normalizedScale.y, normalizedScale.z);
+      obj.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(obj);
+      const representativeColor = getRepresentativeMeshColor(obj);
+      if (box.isEmpty()) {
         disposeObject3D(obj, true);
-        resolve({
-          bounds: {
-            x: Math.abs(size.x),
-            y: Math.abs(size.y),
-            z: Math.abs(size.z),
-            cx: center.x,
-            cy: center.y,
-            cz: center.z,
-          },
-          representativeColor,
-          surfacePoints,
-          primitiveFits,
-        });
+        resolve(null);
+        return;
+      }
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const needsPointCollection = includePrimitiveFits || includeSurfacePoints;
+      const points = needsPointCollection ? collectMeshPoints(obj, pointCollectionLimit) : [];
+      const surfacePoints = includeSurfacePoints
+        ? sampleMeshPoints(points, surfacePointLimit)
+        : undefined;
+      const primitiveFits = includePrimitiveFits ? computeBestPrimitiveFits(points) : undefined;
+      disposeObject3D(obj, true);
+      resolve({
+        bounds: {
+          x: Math.abs(size.x),
+          y: Math.abs(size.y),
+          z: Math.abs(size.z),
+          cx: center.x,
+          cy: center.y,
+          cz: center.z,
+        },
+        representativeColor,
+        surfacePoints,
+        primitiveFits,
       });
     });
-  } catch {
-    return null;
-  }
+  });
 }
 
 export async function computeMeshBoundsFromAssets(
   meshPath: string,
   assets: Record<string, string>,
   meshScale?: { x: number; y: number; z: number },
+  sourceFilePath?: string,
 ): Promise<MeshBounds | null> {
-  const analysis = await computeMeshAnalysisFromAssets(meshPath, assets, meshScale, {
-    includePrimitiveFits: false,
-    includeSurfacePoints: false,
-  });
+  const analysis = await computeMeshAnalysisFromAssets(
+    meshPath,
+    assets,
+    meshScale,
+    {
+      includePrimitiveFits: false,
+      includeSurfacePoints: false,
+    },
+    sourceFilePath,
+  );
   return analysis?.bounds ?? null;
 }

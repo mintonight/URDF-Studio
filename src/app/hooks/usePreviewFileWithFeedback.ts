@@ -4,6 +4,7 @@ import type { DocumentLoadState } from '@/store/assetsStore';
 import type { RobotData, RobotFile } from '@/types';
 import {
   buildStandaloneImportAssetWarning,
+  buildStandalonePrimitiveGeometryHint,
   collectStandaloneImportSupportAssetPaths,
 } from '../utils/importPackageAssetReferences';
 import {
@@ -15,6 +16,7 @@ import { resolveRobotFileDataWithWorker } from './robotImportWorkerBridge';
 interface PreviewFeedbackLabels {
   failedToParseFormat: string;
   importPackageAssetBundleHint: string;
+  importPrimitiveGeometryHint: string;
   usdPreviewRequiresOpen: string;
   xacroSourceOnlyPreviewHint: string;
 }
@@ -76,6 +78,19 @@ export function usePreviewFileWithFeedback({
         });
         showToast(warningMessage, 'info');
         return;
+      }
+
+      const primitiveGeometryHint = buildStandalonePrimitiveGeometryHint(file, importedAssetPaths, {
+        allFileContents,
+        sourcePath: file.name,
+      });
+      if (primitiveGeometryHint) {
+        const assetLabel =
+          primitiveGeometryHint.siblingMeshAssetCount >
+          primitiveGeometryHint.siblingMeshAssetPaths.length
+            ? `${primitiveGeometryHint.siblingMeshAssetPaths.join(', ')}, ...`
+            : primitiveGeometryHint.siblingMeshAssetPaths.join(', ');
+        showToast(labels.importPrimitiveGeometryHint.replace('{assets}', assetLabel), 'info');
       }
 
       setDocumentLoadState({
@@ -218,6 +233,7 @@ export function usePreviewFileWithFeedback({
       handlePreviewFile,
       labels.failedToParseFormat,
       labels.importPackageAssetBundleHint,
+      labels.importPrimitiveGeometryHint,
       labels.usdPreviewRequiresOpen,
       labels.xacroSourceOnlyPreviewHint,
       setDocumentLoadState,

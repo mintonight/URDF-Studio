@@ -179,3 +179,108 @@ test('addRobotAssetsToZip reports missing assets instead of silently succeeding'
   assert.equal(result.failedAssets[0]?.code, 'mesh_asset_missing');
   assert.match(result.failedAssets[0]?.message ?? '', /not found/i);
 });
+
+test('addRobotAssetsToZip packages inline texture blobs when no asset URL exists', async () => {
+  const robot: RobotState = {
+    name: 'asset_inline_texture_zip',
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          meshPath: 'package://demo/meshes/base.stl',
+          dimensions: { x: 1, y: 1, z: 1 },
+        },
+      },
+    },
+    joints: {},
+    materials: {
+      base_link: {
+        texture: 'package://demo/textures/body/coat.png',
+      },
+    },
+  };
+
+  const zip = new JSZip();
+  const result = await addRobotAssetsToZip({
+    robot,
+    zip,
+    assets: {},
+    extraMeshFiles: new Map([
+      [
+        'package://demo/meshes/base.stl',
+        new Blob(['solid inline\nendsolid inline'], { type: 'model/stl' }),
+      ],
+      [
+        'package://demo/textures/body/coat.png',
+        new Blob(['inline-png-texture'], { type: 'image/png' }),
+      ],
+    ]),
+  });
+  assert.equal(result.failedAssets.length, 0);
+
+  const roundtripZip = await JSZip.loadAsync(await zip.generateAsync({ type: 'uint8array' }));
+  const meshEntry = roundtripZip.file('meshes/base.stl');
+  const textureEntry = roundtripZip.file('textures/body/coat.png');
+
+  assert.ok(meshEntry, 'expected inline mesh to be written into meshes/');
+  assert.ok(textureEntry, 'expected inline texture to be written into textures/');
+  assert.match(await meshEntry!.async('string'), /solid inline/);
+  assert.equal(await textureEntry!.async('string'), 'inline-png-texture');
+});
+
+test('addRobotAssetsToZip keeps distinct Gazebo package textures with the same filename', async () => {
+  const robot: RobotState = {
+    name: 'asset_duplicate_texture_zip',
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          authoredMaterials: [{ texture: 'model_a/materials/textures/bus.png' }],
+        },
+        visualBodies: [
+          {
+            ...DEFAULT_LINK.visual,
+            type: GeometryType.BOX,
+            dimensions: { x: 0.5, y: 0.5, z: 0.5 },
+            authoredMaterials: [{ texture: 'model_b/materials/textures/bus.png' }],
+          },
+        ],
+      },
+    },
+    joints: {},
+    materials: {},
+  };
+
+  const zip = new JSZip();
+  const result = await addRobotAssetsToZip({
+    robot,
+    zip,
+    assets: {
+      'model_a/materials/textures/bus.png': createDataUrl('model-a-texture', 'image/png'),
+      'model_b/materials/textures/bus.png': createDataUrl('model-b-texture', 'image/png'),
+    },
+  });
+  assert.equal(result.failedAssets.length, 0);
+
+  const roundtripZip = await JSZip.loadAsync(await zip.generateAsync({ type: 'uint8array' }));
+  const textureA = roundtripZip.file('textures/model_a/bus.png');
+  const textureB = roundtripZip.file('textures/model_b/bus.png');
+
+  assert.ok(textureA, 'expected the first Gazebo package texture to be preserved');
+  assert.ok(textureB, 'expected the second Gazebo package texture to be preserved');
+  assert.equal(await textureA!.async('string'), 'model-a-texture');
+  assert.equal(await textureB!.async('string'), 'model-b-texture');
+});

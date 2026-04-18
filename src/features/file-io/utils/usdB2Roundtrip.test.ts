@@ -266,6 +266,44 @@ function buildWorldMatricesByLinkName(robot: RobotState): Record<string, number[
   );
 }
 
+function extractUsdPrimBlock(source: string, marker: string): string {
+  const start = source.indexOf(marker);
+  assert.notEqual(start, -1, `expected to find USD prim marker: ${marker}`);
+
+  const openBraceIndex = source.indexOf('{', start);
+  assert.notEqual(openBraceIndex, -1, `expected USD prim to contain an opening brace: ${marker}`);
+
+  let depth = 0;
+  let inString = false;
+  for (let index = openBraceIndex; index < source.length; index += 1) {
+    const character = source[index];
+    const previousCharacter = index > 0 ? source[index - 1] : '';
+
+    if (character === '"' && previousCharacter !== '\\') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (character === '{') {
+      depth += 1;
+      continue;
+    }
+
+    if (character === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(start, index + 1);
+      }
+    }
+  }
+
+  assert.fail(`expected USD prim block to close cleanly: ${marker}`);
+}
+
 function assertWorldTransformsMatch(label: string, source: RobotState, target: RobotState) {
   const sourceMatrices = buildWorldMatricesByLinkName(source);
   const targetMatrices = buildWorldMatricesByLinkName(target);
@@ -351,7 +389,7 @@ test('b2 USDA roundtrip preserves the full hierarchy and world transforms', () =
   assertWorldTransformsMatch('B2 USD roundtrip', robot, toRobotState(adapted.robotData));
 });
 
-test('b2 genesis-compatible USD export roundtrip preserves transforms and writes joint/material metadata', async () => {
+test('b2 isaacsim USD export roundtrip preserves transforms and writes joint/material metadata', async () => {
   const robot = loadB2RobotState();
   const assets = buildB2AssetMap();
   const originalWorker = globalThis.Worker;
@@ -368,7 +406,7 @@ test('b2 genesis-compatible USD export roundtrip preserves transforms and writes
         robot,
         exportName: 'b2_description',
         assets,
-        layoutProfile: 'genesis',
+        layoutProfile: 'isaacsim',
       }),
     );
 
@@ -391,6 +429,14 @@ test('b2 genesis-compatible USD export roundtrip preserves transforms and writes
     assert.ok(baseLayerText, 'expected current B2 USD base layer to exist');
     assert.ok(physicsLayerText, 'expected current B2 USD physics layer to exist');
     assert.ok(sensorLayerText, 'expected current B2 USD sensor layer to exist');
+
+    const baseLinkBlock = extractUsdPrimBlock(baseLayerText, 'def Xform "base_link"');
+    const baseVisualBlock = extractUsdPrimBlock(baseLinkBlock, 'def Xform "visual_0"');
+    const baseVisualMaterialBindings = Array.from(
+      baseVisualBlock.matchAll(/rel material:binding = <\/b2_description\/Looks\/(Material_\d+)>/g),
+      (match) => match[1],
+    );
+
     assert.match(
       physicsLayerText,
       /custom quatf urdf:originQuatWxyz = \(/,
@@ -405,6 +451,11 @@ test('b2 genesis-compatible USD export roundtrip preserves transforms and writes
       Array.from(baseLayerText.matchAll(/def Material "Material_/g)).length >= 6,
       'expected current B2 USD export to preserve B2 multi-material mesh palettes instead of collapsing them to a few uniform preview materials',
     );
+    assert.ok(
+      baseVisualMaterialBindings.length >= 4,
+      `expected B2 base_link visual to keep material subsets within one visual prim, got ${baseVisualMaterialBindings.length}`,
+    );
+    assert.ok(new Set(baseVisualMaterialBindings).size >= 4);
     assert.match(
       baseLayerText,
       /color3f inputs:diffuseColor = \(1, 1, 1\)/,

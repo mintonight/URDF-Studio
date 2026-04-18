@@ -14,6 +14,7 @@ import {
 } from '@/types';
 import { mergeAssembly } from '@/core/robot/assemblyMerger';
 import {
+  collectGeometryTexturePaths,
   getEffectiveGeometryAuthoredMaterials,
   getVisualGeometryEntries,
   resolveVisualMaterialOverride,
@@ -23,7 +24,11 @@ import {
   MAX_PROPERTY_DECIMALS,
   formatNumberWithMaxDecimals,
 } from '@/core/utils/numberPrecision';
-import { normalizeMeshPathForExport, normalizeTexturePathForExport } from '../meshPathUtils';
+import {
+  buildTextureExportPathOverrides,
+  normalizeMeshPathForExport,
+  resolveTextureExportPath,
+} from '../meshPathUtils';
 import { formatUrdfMeshScaleAttribute } from './meshScale';
 
 const AXIS_EXPORT_TYPES = new Set(['revolute', 'continuous', 'prismatic', 'planar']);
@@ -125,6 +130,7 @@ function generateUrdfMaterialXml(
   exportRobotName: string,
   useRelativePaths: boolean,
   preserveMeshPaths: boolean,
+  texturePathOverrides?: ReadonlyMap<string, string>,
 ): string {
   const nameAttr = material.name ? ` name="${material.name}"` : '';
   let xml = `${indent}<material${nameAttr}>\n`;
@@ -136,7 +142,7 @@ function generateUrdfMaterialXml(
   if (material.texture) {
     const texturePath = preserveMeshPaths
       ? material.texture.replace(/\\/g, '/')
-      : normalizeTexturePathForExport(material.texture);
+      : resolveTextureExportPath(material.texture, texturePathOverrides);
     const textureFilename = preserveMeshPaths
       ? texturePath
       : useRelativePaths
@@ -407,6 +413,18 @@ export const generateURDF = (
     : null;
   const { name, version, links, joints } = robot;
   const exportRobotName = name?.trim() ? name : 'robot';
+  const texturePathOverrides = buildTextureExportPathOverrides([
+    ...Object.values(links).flatMap((link) => [
+      ...getVisualGeometryEntries(link).flatMap((entry) =>
+        collectGeometryTexturePaths(entry.geometry),
+      ),
+      ...collectGeometryTexturePaths(link.collision),
+      ...(link.collisionBodies || []).flatMap((body) => collectGeometryTexturePaths(body)),
+    ]),
+    ...Object.values(robot.materials || {})
+      .map((material) => material.texture)
+      .filter((texture): texture is string => Boolean(texture)),
+  ]);
 
   const robotVersionAttr = version ? ` version="${version}"` : '';
   let xml = `<?xml version="1.0"?>\n<robot name="${name}"${robotVersionAttr}>\n\n`;
@@ -479,6 +497,7 @@ export const generateURDF = (
             exportRobotName,
             useRelativePaths,
             preserveMeshPaths,
+            texturePathOverrides,
           );
         });
       } else if ((shouldEmitVisualColor && visualMaterial.color) || visualMaterial.texture) {
@@ -492,6 +511,7 @@ export const generateURDF = (
           exportRobotName,
           useRelativePaths,
           preserveMeshPaths,
+          texturePathOverrides,
         );
       }
       xml += `    </visual>\n`;

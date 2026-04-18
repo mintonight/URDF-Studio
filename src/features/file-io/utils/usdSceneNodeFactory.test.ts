@@ -6,6 +6,7 @@ import { GeometryType, type UrdfVisual } from '@/types';
 
 import { createUsdAssetRegistry } from './usdAssetRegistry.ts';
 import { buildUsdVisualSceneNode } from './usdSceneNodeFactory.ts';
+import { collectUsdSerializationContext } from './usdSerializationContext.ts';
 
 if (typeof globalThis.ProgressEvent === 'undefined') {
   class ProgressEventPolyfill extends Event {
@@ -116,6 +117,168 @@ const createTriangleGltfBlob = () => {
   return new Blob([JSON.stringify(gltf)], { type: 'model/gltf+json' });
 };
 
+const RED_TEXTURE_DATA_URL =
+  'data:image/png;base64,' +
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8AABQMBgK8NtwAAAABJRU5ErkJggg==';
+
+const BLUE_TEXTURE_DATA_URL =
+  'data:image/png;base64,' +
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAS0jz1cAAAAASUVORK5CYII=';
+
+const createDualTexturedMultiPrimitiveGltfBlob = () => {
+  const firstPositions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  const secondPositions = new Float32Array([1, 0, 0, 2, 0, 0, 1, 1, 0]);
+  const firstUv = new Float32Array([0, 0, 1, 0, 0, 1]);
+  const secondUv = new Float32Array([0, 0, 1, 0, 0, 1]);
+  const firstIndices = new Uint16Array([0, 1, 2]);
+  const secondIndices = new Uint16Array([0, 1, 2]);
+  const sections = [
+    new Uint8Array(firstPositions.buffer),
+    new Uint8Array(firstUv.buffer),
+    new Uint8Array(firstIndices.buffer),
+    new Uint8Array(secondPositions.buffer),
+    new Uint8Array(secondUv.buffer),
+    new Uint8Array(secondIndices.buffer),
+  ];
+  const totalBytes = sections.reduce((sum, section) => sum + section.byteLength, 0);
+  const combined = new Uint8Array(totalBytes);
+  let offset = 0;
+
+  sections.forEach((section) => {
+    combined.set(section, offset);
+    offset += section.byteLength;
+  });
+
+  const gltf = {
+    asset: { version: '2.0' },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [{ mesh: 0 }],
+    meshes: [
+      {
+        primitives: [
+          {
+            attributes: { POSITION: 0, TEXCOORD_0: 1 },
+            indices: 2,
+            material: 0,
+          },
+          {
+            attributes: { POSITION: 3, TEXCOORD_0: 4 },
+            indices: 5,
+            material: 1,
+          },
+        ],
+      },
+    ],
+    materials: [
+      {
+        pbrMetallicRoughness: {
+          baseColorTexture: { index: 0 },
+        },
+      },
+      {
+        pbrMetallicRoughness: {
+          baseColorTexture: { index: 1 },
+        },
+      },
+    ],
+    textures: [{ source: 0 }, { source: 1 }],
+    images: [{ uri: RED_TEXTURE_DATA_URL }, { uri: BLUE_TEXTURE_DATA_URL }],
+    buffers: [
+      {
+        uri: `data:application/octet-stream;base64,${Buffer.from(combined).toString('base64')}`,
+        byteLength: combined.byteLength,
+      },
+    ],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: sections[0].byteLength, target: 34962 },
+      {
+        buffer: 0,
+        byteOffset: sections[0].byteLength,
+        byteLength: sections[1].byteLength,
+        target: 34962,
+      },
+      {
+        buffer: 0,
+        byteOffset: sections[0].byteLength + sections[1].byteLength,
+        byteLength: sections[2].byteLength,
+        target: 34963,
+      },
+      {
+        buffer: 0,
+        byteOffset: sections[0].byteLength + sections[1].byteLength + sections[2].byteLength,
+        byteLength: sections[3].byteLength,
+        target: 34962,
+      },
+      {
+        buffer: 0,
+        byteOffset:
+          sections[0].byteLength +
+          sections[1].byteLength +
+          sections[2].byteLength +
+          sections[3].byteLength,
+        byteLength: sections[4].byteLength,
+        target: 34962,
+      },
+      {
+        buffer: 0,
+        byteOffset:
+          sections[0].byteLength +
+          sections[1].byteLength +
+          sections[2].byteLength +
+          sections[3].byteLength +
+          sections[4].byteLength,
+        byteLength: sections[5].byteLength,
+        target: 34963,
+      },
+    ],
+    accessors: [
+      {
+        bufferView: 0,
+        componentType: 5126,
+        count: 3,
+        type: 'VEC3',
+        min: [0, 0, 0],
+        max: [1, 1, 0],
+      },
+      {
+        bufferView: 1,
+        componentType: 5126,
+        count: 3,
+        type: 'VEC2',
+      },
+      {
+        bufferView: 2,
+        componentType: 5123,
+        count: 3,
+        type: 'SCALAR',
+      },
+      {
+        bufferView: 3,
+        componentType: 5126,
+        count: 3,
+        type: 'VEC3',
+        min: [1, 0, 0],
+        max: [2, 1, 0],
+      },
+      {
+        bufferView: 4,
+        componentType: 5126,
+        count: 3,
+        type: 'VEC2',
+      },
+      {
+        bufferView: 5,
+        componentType: 5123,
+        count: 3,
+        type: 'SCALAR',
+      },
+    ],
+  };
+
+  return new Blob([JSON.stringify(gltf)], { type: 'model/gltf+json' });
+};
+
 const createMeshVisual = (meshPath: string): UrdfVisual => {
   return {
     type: GeometryType.MESH,
@@ -127,6 +290,58 @@ const createMeshVisual = (meshPath: string): UrdfVisual => {
       rpy: { r: 0, p: Math.PI / 2, y: 0 },
     },
   };
+};
+
+type WorkerImageGlobalSnapshot = {
+  Image: typeof globalThis.Image;
+  HTMLImageElement: typeof globalThis.HTMLImageElement;
+  createImageBitmap: typeof globalThis.createImageBitmap;
+  document: typeof globalThis.document;
+  self: (typeof globalThis & { self?: typeof globalThis })['self'];
+};
+
+const captureWorkerImageGlobals = (): WorkerImageGlobalSnapshot => {
+  return {
+    Image: globalThis.Image,
+    HTMLImageElement: globalThis.HTMLImageElement,
+    createImageBitmap: globalThis.createImageBitmap,
+    document: globalThis.document,
+    self: (globalThis as typeof globalThis & { self?: typeof globalThis }).self,
+  };
+};
+
+const restoreWorkerImageGlobals = (snapshot: WorkerImageGlobalSnapshot): void => {
+  if (snapshot.document) {
+    globalThis.document = snapshot.document;
+  } else {
+    delete (globalThis as typeof globalThis & { document?: Document }).document;
+  }
+
+  if (snapshot.HTMLImageElement) {
+    globalThis.HTMLImageElement = snapshot.HTMLImageElement;
+  } else {
+    delete (globalThis as typeof globalThis & { HTMLImageElement?: typeof HTMLImageElement })
+      .HTMLImageElement;
+  }
+
+  if (snapshot.Image) {
+    globalThis.Image = snapshot.Image;
+  } else {
+    delete (globalThis as typeof globalThis & { Image?: typeof Image }).Image;
+  }
+
+  if (snapshot.createImageBitmap) {
+    globalThis.createImageBitmap = snapshot.createImageBitmap;
+  } else {
+    delete (globalThis as typeof globalThis & { createImageBitmap?: typeof createImageBitmap })
+      .createImageBitmap;
+  }
+
+  if (snapshot.self) {
+    (globalThis as typeof globalThis & { self?: typeof globalThis }).self = snapshot.self;
+  } else {
+    delete (globalThis as typeof globalThis & { self?: typeof globalThis }).self;
+  }
 };
 
 test('buildUsdVisualSceneNode creates primitive anchors with serialized USD geometry metadata', async () => {
@@ -338,6 +553,38 @@ test('buildUsdVisualSceneNode marks collision mesh anchors and descendants for U
   }
 });
 
+test('buildUsdVisualSceneNode skips authored material palette work for collision meshes', async () => {
+  const meshPath = 'meshes/collision_palette.obj';
+  const { registry, tempObjectUrls } = createUsdAssetRegistry(
+    {},
+    new Map([[meshPath, createUvObjBlob()]]),
+  );
+
+  try {
+    const node = await buildUsdVisualSceneNode({
+      visual: {
+        ...createMeshVisual(meshPath),
+        authoredMaterials: [
+          { name: 'painted_collision', color: '#12ab34' },
+          { name: 'painted_collision_alt', color: '#ef4444' },
+        ],
+      },
+      role: 'collision',
+      registry,
+    });
+
+    assert.ok(node instanceof THREE.Group);
+
+    const mesh = node.getObjectByProperty('isMesh', true);
+    assert.ok(mesh instanceof THREE.Mesh);
+    assert.equal(mesh.userData.usdMaterial, undefined);
+    assert.equal(mesh.userData.usdMaterialPalette, undefined);
+    assert.equal(mesh.userData.usdAuthoredColor, undefined);
+  } finally {
+    tempObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  }
+});
+
 test('buildUsdVisualSceneNode reuses parsed GLTF assets per registry while returning isolated meshes', async () => {
   const meshPath = 'meshes/reused_triangle.gltf';
   const { registry, tempObjectUrls } = createUsdAssetRegistry(
@@ -394,6 +641,69 @@ test('buildUsdVisualSceneNode reuses parsed GLTF assets per registry while retur
     assert.notEqual(firstMaterial, secondMaterial);
   } finally {
     globalThis.fetch = originalFetch;
+    tempObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  }
+});
+
+test('buildUsdVisualSceneNode collapses multi-appearance mesh imports to a single USD appearance when forceUniformOverride is enabled', async () => {
+  const meshPath = 'meshes/dual_textured_triangles.gltf';
+  const { registry, tempObjectUrls } = createUsdAssetRegistry(
+    {},
+    new Map([[meshPath, createDualTexturedMultiPrimitiveGltfBlob()]]),
+  );
+  const snapshot = captureWorkerImageGlobals();
+
+  delete (globalThis as typeof globalThis & { document?: Document }).document;
+  delete (globalThis as typeof globalThis & { HTMLImageElement?: typeof HTMLImageElement })
+    .HTMLImageElement;
+  delete (globalThis as typeof globalThis & { Image?: typeof Image }).Image;
+  delete (globalThis as typeof globalThis & { createImageBitmap?: typeof createImageBitmap })
+    .createImageBitmap;
+  (globalThis as typeof globalThis & { self?: Window & typeof globalThis }).self =
+    globalThis as unknown as Window & typeof globalThis;
+
+  try {
+    const node = await buildUsdVisualSceneNode({
+      visual: createMeshVisual(meshPath),
+      role: 'visual',
+      registry,
+      materialState: {
+        color: '#12ab34',
+        forceUniformOverride: true,
+      },
+    });
+
+    assert.ok(node instanceof THREE.Group);
+
+    const meshes: THREE.Mesh[] = [];
+    node.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        meshes.push(child as THREE.Mesh);
+      }
+    });
+
+    assert.ok(
+      meshes.length >= 2,
+      'expected multi-appearance source asset to yield multiple meshes',
+    );
+
+    const sceneRoot = new THREE.Group();
+    sceneRoot.name = 'demo_robot';
+    sceneRoot.add(node);
+
+    const context = await collectUsdSerializationContext(sceneRoot, {
+      rootPrimName: 'demo_robot',
+    });
+
+    assert.equal(context.materialRecords.length, 1);
+    assert.equal(context.materialRecords[0]?.appearance.texture, null);
+    assert.equal(context.materialRecords[0]?.appearance.color.getHexString(), '12ab34');
+
+    const uniqueRecords = new Set(meshes.map((mesh) => context.materialByObject.get(mesh)));
+    assert.equal(uniqueRecords.size, 1);
+    assert.equal(uniqueRecords.has(context.materialRecords[0]), true);
+  } finally {
+    restoreWorkerImageGlobals(snapshot);
     tempObjectUrls.forEach((url) => URL.revokeObjectURL(url));
   }
 });

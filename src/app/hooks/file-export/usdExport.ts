@@ -126,7 +126,11 @@ export async function executeUsdExport({
         zip.file(filePath, blob);
       });
 
-      const content = await generateZipBlobWithProgress(zip, reportProgress, 4);
+      const content = await generateZipBlobWithProgress(
+        zip,
+        reportProgress,
+        shouldConvertUsdLayers ? 4 : 3,
+      );
       downloadBlob(content, roundtripArchive.archiveFileName);
       markCurrentTargetSaved();
 
@@ -213,7 +217,6 @@ export async function executeUsdExport({
   });
 
   const zip = new JSZip();
-
   if (shouldConvertUsdLayers) {
     reportProgress(
       3,

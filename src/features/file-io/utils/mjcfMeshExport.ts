@@ -35,7 +35,7 @@ export interface PreparedMjcfMeshExportAssets {
 }
 
 function isMjcfNativeMeshPath(meshPath: string): boolean {
-  return /\.(?:obj|stl)$/i.test(meshPath);
+  return /\.(?:obj|stl|msh)$/i.test(meshPath);
 }
 
 function collectMeshPathAliases(meshPath: string): string[] {
@@ -47,22 +47,25 @@ function collectMeshPathAliases(meshPath: string): string[] {
   return aliases;
 }
 
+function buildConvertedMeshBasePath(normalizedPath: string): string {
+  const pathMatch = normalizedPath.match(/^(.*\/)?([^/]+)$/);
+  const directory = pathMatch?.[1] || '';
+  const fileName = pathMatch?.[2] || normalizedPath;
+  const withoutExtension = fileName.replace(/\.[^.]+$/, '');
+  return `${directory}${withoutExtension.replace(/\./g, '_')}`;
+}
+
 function buildConvertedMeshExportPath(meshPath: string, usedPaths: Set<string>): string {
   const normalizedPath = normalizeMeshPathForExport(meshPath);
   if (!normalizedPath) {
     return '';
   }
 
-  const extensionMatch = normalizedPath.match(/\.([^.]+)$/);
-  const extensionSuffix = extensionMatch ? `.${extensionMatch[1].toLowerCase()}` : '';
-  const basePath = extensionMatch
-    ? normalizedPath.slice(0, -extensionMatch[0].length)
-    : normalizedPath;
-
-  let candidate = `${basePath}${extensionSuffix}.obj`;
+  const basePath = buildConvertedMeshBasePath(normalizedPath);
+  let candidate = `${basePath}.obj`;
   let counter = 2;
   while (usedPaths.has(candidate)) {
-    candidate = `${basePath}${extensionSuffix}_${counter}.obj`;
+    candidate = `${basePath}_${counter}.obj`;
     counter += 1;
   }
 
@@ -108,17 +111,13 @@ function buildConvertedVisualVariantPath(
     return '';
   }
 
-  const extensionMatch = normalizedPath.match(/\.([^.]+)$/);
-  const extensionSuffix = extensionMatch ? `.${extensionMatch[1].toLowerCase()}` : '';
-  const basePath = extensionMatch
-    ? normalizedPath.slice(0, -extensionMatch[0].length)
-    : normalizedPath;
+  const basePath = buildConvertedMeshBasePath(normalizedPath);
   const materialSuffix = sanitizeVariantSegment(materialName) || `part_${variantIndex + 1}`;
 
-  let candidate = `${basePath}.${materialSuffix}.obj`;
+  let candidate = `${basePath}_${materialSuffix}.obj`;
   let counter = 2;
   while (usedPaths.has(candidate)) {
-    candidate = `${basePath}.${materialSuffix}_${counter}.obj`;
+    candidate = `${basePath}_${materialSuffix}_${counter}.obj`;
     counter += 1;
   }
 
@@ -138,6 +137,15 @@ function colorToHex(color: THREE.Color | undefined): string | undefined {
       .padStart(2, '0');
 
   return `#${toChannel(srgbColor.r)}${toChannel(srgbColor.g)}${toChannel(srgbColor.b)}`;
+}
+
+function exportObjBlob(objExporter: OBJExporter, object: THREE.Object3D): Blob | null {
+  const exportedObj = objExporter.parse(object);
+  if (!exportedObj.trim()) {
+    return null;
+  }
+
+  return new Blob([exportedObj], { type: 'text/plain' });
 }
 
 function isColorLike(color: unknown): color is THREE.Color {
@@ -846,10 +854,9 @@ function extractVisualMeshVariants(
       const exportMesh = new THREE.Mesh(filteredGeometry, variant.material);
       exportMesh.name = variant.meshName;
       exportMesh.updateMatrixWorld(true);
-      const exportedObj = objExporter.parse(exportMesh);
+      const blob = exportObjBlob(objExporter, exportMesh);
       disposeObject3D(exportMesh, true);
-
-      if (exportedObj.trim().length === 0) {
+      if (!blob) {
         return;
       }
 
@@ -857,7 +864,7 @@ function extractVisualMeshVariants(
         meshPath: exportPath,
         color: colorToHex(getMaterialColor(variant.material)),
         sourceMaterialName: variant.material.name || undefined,
-        blob: new Blob([exportedObj], { type: 'text/plain' }),
+        blob,
       });
     } finally {
       variant.geometry.dispose();
@@ -1143,6 +1150,24 @@ function markSharedMeshReuse(
   });
 }
 
+function registerNativeMeshPassThroughOverride(
+  sourceMeshPath: string,
+  normalizedMeshPath: string,
+  meshPathOverrides: Map<string, string>,
+): void {
+  collectMeshPathAliases(sourceMeshPath).forEach((candidatePath) => {
+    meshPathOverrides.set(candidatePath, normalizedMeshPath);
+  });
+}
+
+function createMjcfMeshExportError(meshPath: string, cause: unknown): Error {
+  const normalizedCause =
+    cause instanceof Error ? cause : new Error(typeof cause === 'string' ? cause : String(cause));
+  return new Error(`[MJCF export] Failed to convert mesh "${meshPath}" to OBJ.`, {
+    cause: normalizedCause,
+  });
+}
+
 async function prepareSharedNativeMeshReuse(
   referencedMeshPaths: Set<string>,
   extraMeshFiles: Map<string, Blob> | undefined,
@@ -1218,6 +1243,9 @@ export async function prepareMjcfMeshExportAssets(
         (normalizedSourcePath ? referencedMeshUsage.get(normalizedSourcePath) : undefined);
 
       if (isMjcfNativeMeshPath(meshPath) && !sourceUsage?.hasVisualMultiMaterialUsage) {
+        if (normalizedSourcePath && normalizedSourcePath !== meshPath) {
+          registerNativeMeshPassThroughOverride(meshPath, normalizedSourcePath, meshPathOverrides);
+        }
         continue;
       }
 
@@ -1241,11 +1269,10 @@ export async function prepareMjcfMeshExportAssets(
             });
 
         if (containsPlaceholderMesh(meshObject)) {
-          console.error(
-            `[MJCF export] Skipping mesh override for "${meshPath}" because the source asset resolved to a placeholder.`,
-          );
           disposeObject3D(meshObject, true);
-          continue;
+          throw new Error(
+            `[MJCF export] Required mesh "${meshPath}" resolved to a placeholder asset.`,
+          );
         }
 
         const meshGroupGeometry = findVisualGeometryByMeshPath(robot, meshPath);
@@ -1272,11 +1299,15 @@ export async function prepareMjcfMeshExportAssets(
           const exportPath = buildConvertedMeshExportPath(meshPath, usedArchivePaths);
           if (!exportPath) {
             disposeObject3D(meshObject, true);
-            continue;
+            throw new Error(`[MJCF export] Could not derive an OBJ export path for "${meshPath}".`);
           }
 
-          const exportedObj = objExporter.parse(meshObject);
-          archiveFiles.set(exportPath, new Blob([exportedObj], { type: 'text/plain' }));
+          const objBlob = exportObjBlob(objExporter, meshObject);
+          if (!objBlob) {
+            disposeObject3D(meshObject, true);
+            throw new Error(`[MJCF export] OBJ export for "${meshPath}" produced no mesh data.`);
+          }
+          archiveFiles.set(exportPath, objBlob);
           meshPathOverrides.set(meshPath, exportPath);
           convertedSourceMeshPaths.add(meshPath);
 
@@ -1305,10 +1336,7 @@ export async function prepareMjcfMeshExportAssets(
 
         disposeObject3D(meshObject, true);
       } catch (error) {
-        console.error(
-          `[MJCF export] Failed to convert mesh "${meshPath}" to OBJ. Keeping original path.`,
-          error,
-        );
+        throw createMjcfMeshExportError(meshPath, error);
       }
     }
   } finally {

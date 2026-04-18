@@ -55,6 +55,7 @@ import {
 } from '@/core/loaders/colladaRootNormalization';
 import { cleanFilePath } from '@/core/loaders';
 import { TransformFields } from './TransformFields';
+import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
 
 const GEOMETRY_EDITOR_MESH_ANALYSIS_OPTIONS = {
   includePrimitiveFits: true,
@@ -210,6 +211,7 @@ interface GeometryEditorProps {
   lang: Language;
   isTabbed?: boolean;
   showCollisionDeleteAction?: boolean;
+  sourceFilePath?: string;
 }
 
 interface DimensionInputField {
@@ -278,6 +280,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
   lang,
   isTabbed = false,
   showCollisionDeleteAction = true,
+  sourceFilePath,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textureFileInputRef = useRef<HTMLInputElement>(null);
@@ -500,7 +503,13 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
   }, [category, data.id, geomData.origin, pendingCollisionTransform, selectedCollisionObjectIndex]);
 
   const createMeshAnalysisKey = (geometry: Pick<UrdfVisual, 'meshPath' | 'dimensions'>) =>
-    `${geometry.meshPath ?? ''}:${geometry.dimensions?.x ?? 1}:${geometry.dimensions?.y ?? 1}:${geometry.dimensions?.z ?? 1}`;
+    [
+      geometry.meshPath ?? '',
+      geometry.dimensions?.x ?? 1,
+      geometry.dimensions?.y ?? 1,
+      geometry.dimensions?.z ?? 1,
+      sourceFilePath ?? '',
+    ].join('::');
 
   const analyzeMeshGeometry = async (
     geometry: Pick<UrdfVisual, 'meshPath' | 'dimensions' | 'type'>,
@@ -519,6 +528,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
           cacheKey: analysisKey,
           meshPath: geometry.meshPath,
           dimensions: geometry.dimensions,
+          sourceFilePath,
         },
       ],
       options: GEOMETRY_EDITOR_MESH_ANALYSIS_OPTIONS,
@@ -624,9 +634,17 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
           meshAnalysisRef.current = analysis;
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (meshAnalysisPromiseCacheRef.current[analysisKey] === analysisPromise) {
           delete meshAnalysisPromiseCacheRef.current[analysisKey];
+        }
+        if (!controller.signal.aborted) {
+          scheduleFailFastInDev(
+            'GeometryEditor:meshAnalysis',
+            new Error(`Failed to analyze mesh geometry for ${geomData.meshPath}.`, {
+              cause: error,
+            }),
+          );
         }
       });
     return () => {
@@ -639,6 +657,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
     geomData.dimensions?.y,
     geomData.dimensions?.z,
     assets,
+    sourceFilePath,
   ]);
 
   const resolveMeshAnalysisForGeometry = async (

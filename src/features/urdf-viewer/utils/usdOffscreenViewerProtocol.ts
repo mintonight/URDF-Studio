@@ -1,4 +1,4 @@
-import type { InteractionSelection, RobotFile } from '@/types';
+import type { InteractionSelection, RobotFile, UsdSceneSnapshot } from '@/types';
 import type {
   ToolMode,
   ViewerDocumentLoadEvent,
@@ -34,6 +34,9 @@ export interface UsdOffscreenViewerInitRequest {
   showVisual: boolean;
   showCollision: boolean;
   showCollisionAlwaysOnTop: boolean;
+  showOrigins: boolean;
+  showOriginsOverlay: boolean;
+  originSize: number;
   sourceFile: OffscreenViewerSourceFile;
   stageOpenContextKey?: string;
   stageOpenContext?: UsdStageOpenPreparationWorkerContextSnapshot | null;
@@ -88,6 +91,13 @@ export interface UsdOffscreenViewerSetVisibilityRequest {
   showCollisionAlwaysOnTop: boolean;
 }
 
+export interface UsdOffscreenViewerSetDecorationStateRequest {
+  type: 'set-decoration-state';
+  showOrigins: boolean;
+  showOriginsOverlay: boolean;
+  originSize: number;
+}
+
 export interface UsdOffscreenViewerSetGroundOffsetRequest {
   type: 'set-ground-offset';
   groundPlaneOffset: number;
@@ -138,6 +148,7 @@ export type UsdOffscreenViewerWorkerRequest =
   | UsdOffscreenViewerPointerLeaveRequest
   | UsdOffscreenViewerWheelRequest
   | UsdOffscreenViewerSetVisibilityRequest
+  | UsdOffscreenViewerSetDecorationStateRequest
   | UsdOffscreenViewerSetGroundOffsetRequest
   | UsdOffscreenViewerAutoFitGroundRequest
   | UsdOffscreenViewerSetActiveRequest
@@ -160,6 +171,12 @@ export interface UsdOffscreenViewerDocumentLoadResponse {
 export interface UsdOffscreenViewerRobotDataResponse {
   type: 'robot-data';
   resolution: ViewerRobotDataResolution;
+}
+
+export interface UsdOffscreenViewerSceneSnapshotResponse {
+  type: 'scene-snapshot';
+  stageSourcePath: string | null;
+  snapshot: UsdSceneSnapshot;
 }
 
 export interface UsdOffscreenViewerSelectionChangeResponse {
@@ -207,6 +224,7 @@ export type UsdOffscreenViewerWorkerResponse =
   | UsdOffscreenViewerProgressResponse
   | UsdOffscreenViewerDocumentLoadResponse
   | UsdOffscreenViewerRobotDataResponse
+  | UsdOffscreenViewerSceneSnapshotResponse
   | UsdOffscreenViewerSelectionChangeResponse
   | UsdOffscreenViewerHoverChangeResponse
   | UsdOffscreenViewerJointAnglesChangeResponse

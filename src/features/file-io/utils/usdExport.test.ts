@@ -171,6 +171,24 @@ function createUvObjBlob() {
   );
 }
 
+function createNormalObjBlob() {
+  return new Blob(
+    [
+      [
+        'o shaded_triangle',
+        'v 0 0 0',
+        'v 1 0 0',
+        'v 0 1 0',
+        'vn 0 0 1',
+        'vn 0 0 1',
+        'vn 0 0 1',
+        'f 1//1 2//2 3//3',
+      ].join('\n'),
+    ],
+    { type: 'text/plain;charset=utf-8' },
+  );
+}
+
 function createMeshRobot(meshPath: string): RobotState {
   return {
     name: 'mesh_robot',
@@ -455,6 +473,39 @@ test('isaacsim USDA export flattens link prim hierarchy for external articulatio
   assert.doesNotMatch(robotLayer, /<\/go1\/base_link\/link1>/);
 });
 
+test('isaacsim USDA export hides mesh library prototypes and collision guide scopes from renderers', async () => {
+  const meshPayload = await exportRobotToUsd({
+    robot: createSharedMeshRobot('meshes/shared_triangle.obj'),
+    exportName: 'go1',
+    assets: {},
+    extraMeshFiles: new Map([['meshes/shared_triangle.obj', createUvObjBlob()]]),
+    fileFormat: 'usda',
+    layoutProfile: 'isaacsim',
+  });
+  const collisionPayload = await exportRobotToUsd({
+    robot: createTwoLinkRobot(),
+    exportName: 'go1_collisions',
+    assets: createTwoLinkAssets(),
+    fileFormat: 'usda',
+    layoutProfile: 'isaacsim',
+  });
+
+  const meshBaseLayer = await readArchiveText(meshPayload, 'go1/configuration/go1_base.usda');
+  const collisionBaseLayer = await readArchiveText(
+    collisionPayload,
+    'go1_collisions/configuration/go1_collisions_base.usda',
+  );
+
+  assert.match(
+    meshBaseLayer,
+    /def Scope "__MeshLibrary"\n\s+\{\n\s+token visibility = "invisible"/,
+  );
+  assert.match(
+    collisionBaseLayer,
+    /def Xform "collisions"\n\s+\{\n\s+token visibility = "invisible"/,
+  );
+});
+
 test('genesis USDA export aliases to the isaacsim-compatible layered layout', async () => {
   const payload = await exportRobotToUsd({
     robot: createTwoLinkRobot(),
@@ -626,6 +677,33 @@ test('serializes visual and collision origins using URDF ZYX rpy semantics', asy
   );
 });
 
+test('exports USD links in the authored rest pose instead of the current manipulated joint pose', async () => {
+  const robot = createTwoLinkRobot();
+  robot.joints.joint_link1.referencePosition = Math.PI / 4;
+  robot.joints.joint_link1.angle = robot.joints.joint_link1.referencePosition + Math.PI / 6;
+
+  const payload = await exportRobotToUsd({
+    robot,
+    exportName: 'two_link_robot_rest_pose',
+    assets: createTwoLinkAssets(),
+  });
+
+  const baseLayer = await readArchiveText(
+    payload,
+    'two_link_robot_rest_pose/usd/configuration/two_link_robot_rest_pose_description_base.usd',
+  );
+  const link1OrientMatch = baseLayer.match(
+    /def Xform "link1"[\s\S]*?quatf xformOp:orient = \(([^)]+)\)/,
+  );
+  assert.ok(link1OrientMatch, 'expected link1 orient op in the exported base layer');
+
+  const exportedLinkQuat = link1OrientMatch[1].split(',').map((value) => Number(value.trim()));
+  assertQuaternionClose(
+    exportedLinkQuat,
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2, 'ZYX')),
+  );
+});
+
 test('serializes internal material metadata and display colors into the base layer', async () => {
   const payload = await exportRobotToUsd({
     robot: createTwoLinkRobot(),
@@ -640,11 +718,11 @@ test('serializes internal material metadata and display colors into the base lay
 
   assert.match(baseLayer, /custom string urdf:materialColor = "#12ab34"/);
   assert.match(baseLayer, /custom string urdf:materialTexture = "textures\/base_color\.png"/);
-  assert.match(baseLayer, /primvars:displayColor = \[\(0\.006049, 0\.40724, 0\.03434\)\]/);
+  assert.match(baseLayer, /primvars:displayColor = \[\(0\.070593, 0\.670593, 0\.203927\)\]/);
   assert.match(baseLayer, /def Scope "Looks"/);
   assert.match(baseLayer, /def Material "Material_0"/);
   assert.match(baseLayer, /uniform token info:id = "UsdPreviewSurface"/);
-  assert.match(baseLayer, /color3f inputs:diffuseColor = \(0\.006049, 0\.40724, 0\.03434\)/);
+  assert.match(baseLayer, /color3f inputs:diffuseColor = \(0\.070593, 0\.670593, 0\.203927\)/);
   assert.match(
     baseLayer,
     /rel material:binding = <\/two_link_robot_description\/Looks\/Material_0>/,
@@ -674,8 +752,8 @@ test('exports explicit mesh material colors into USD preview materials instead o
   );
 
   assert.match(baseLayer, /custom string urdf:materialColor = "#12ab34"/);
-  assert.match(baseLayer, /primvars:displayColor = \[\(0\.006049, 0\.40724, 0\.03434\)\]/);
-  assert.match(baseLayer, /color3f inputs:diffuseColor = \(0\.006049, 0\.40724, 0\.03434\)/);
+  assert.match(baseLayer, /primvars:displayColor = \[\(0\.070593, 0\.670593, 0\.203927\)\]/);
+  assert.match(baseLayer, /color3f inputs:diffuseColor = \(0\.070593, 0\.670593, 0\.203927\)/);
   assert.doesNotMatch(baseLayer, /color3f inputs:diffuseColor = \(1, 1, 1\)/);
 });
 
@@ -899,6 +977,26 @@ test('exports textured mesh materials with UV primvars and archived texture asse
   );
   assert.match(baseLayer, /texCoord2f\[] primvars:st = \[/);
   assert.match(baseLayer, /uniform token primvars:st:interpolation = "faceVarying"/);
+});
+
+test('exports mesh normals into USD mesh prims so shaded surfaces keep their authored smoothing', async () => {
+  const meshPath = 'meshes/shaded_triangle.obj';
+
+  const payload = await exportRobotToUsd({
+    robot: createMeshRobot(meshPath),
+    exportName: 'mesh_robot_normals',
+    assets: {},
+    extraMeshFiles: new Map([[meshPath, createNormalObjBlob()]]),
+  });
+
+  const baseLayer = await readArchiveText(
+    payload,
+    'mesh_robot_normals/usd/configuration/mesh_robot_normals_description_base.usd',
+  );
+
+  assert.match(baseLayer, /normal3f\[] normals = \[/);
+  assert.match(baseLayer, /\(0, 0, 1\)/);
+  assert.match(baseLayer, /interpolation = "vertex"/);
 });
 
 test('exports texture-only mesh materials with a neutral white USD preview color instead of the default visual blue', async () => {

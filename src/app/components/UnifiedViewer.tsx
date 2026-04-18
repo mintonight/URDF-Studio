@@ -576,7 +576,6 @@ export const UnifiedViewer = React.memo(
           },
         }}
         background={WORKSPACE_CANVAS_BACKGROUND}
-        contextLostMessage={t.webglContextRestoring}
         showUsageGuide={showUsageGuidePreference}
         overlays={
           <UnifiedViewerOverlays

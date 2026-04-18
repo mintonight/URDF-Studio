@@ -148,6 +148,7 @@ export type RobotClosedLoopConstraint =
 
 export interface RobotMaterialState {
   color?: string;
+  colorRgba?: [number, number, number, number];
   texture?: string;
   usdMaterial?: UsdSceneMaterialRecord | null;
 }

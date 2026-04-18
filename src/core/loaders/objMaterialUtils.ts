@@ -408,17 +408,13 @@ async function loadObjMaterialCreator(
       : normalizeLookupPath(materialLibrary);
     const materialRequestUrl = manager.resolveURL(resolvedMaterialPath || materialLibrary);
 
-    try {
-      const materialText = await fetchText(materialRequestUrl);
-      const rewrittenMaterialText = rewriteMtlTextureReferencesForManager(
-        materialText,
-        resolvedMaterialPath || materialLibrary,
-        manager,
-      );
-      rewrittenMaterialTexts.push(rewrittenMaterialText);
-    } catch {
-      // Try the next material sidecar if one exists.
-    }
+    const materialText = await fetchText(materialRequestUrl);
+    const rewrittenMaterialText = rewriteMtlTextureReferencesForManager(
+      materialText,
+      resolvedMaterialPath || materialLibrary,
+      manager,
+    );
+    rewrittenMaterialTexts.push(rewrittenMaterialText);
   }
 
   if (rewrittenMaterialTexts.length === 0) {

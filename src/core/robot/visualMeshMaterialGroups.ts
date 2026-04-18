@@ -23,15 +23,27 @@ function normalizeAuthoredMaterialEntry(
 
   const name = normalizeMaterialValue(material.name);
   const color = normalizeMaterialValue(material.color);
+  const colorRgba =
+    Array.isArray(material.colorRgba) &&
+    material.colorRgba.length === 4 &&
+    material.colorRgba.every((value) => Number.isFinite(value))
+      ? ([
+          Number(material.colorRgba[0]),
+          Number(material.colorRgba[1]),
+          Number(material.colorRgba[2]),
+          Number(material.colorRgba[3]),
+        ] as [number, number, number, number])
+      : undefined;
   const texture = normalizeMaterialValue(material.texture);
 
-  if (!name && !color && !texture) {
+  if (!name && !color && !colorRgba && !texture) {
     return null;
   }
 
   return {
     ...(name ? { name } : {}),
     ...(color ? { color } : {}),
+    ...(colorRgba ? { colorRgba } : {}),
     ...(texture ? { texture } : {}),
   };
 }

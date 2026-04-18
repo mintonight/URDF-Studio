@@ -170,9 +170,14 @@ async function loadMeshGeometryBounds(
   meshLoader: ReturnType<typeof createMeshLoader>,
   colladaRootNormalizationHints: ColladaRootNormalizationHints | null,
 ): Promise<THREE.Box3 | null> {
-  return await new Promise<THREE.Box3 | null>((resolve) => {
+  return await new Promise<THREE.Box3 | null>((resolve, reject) => {
     const meshPath = geometry.meshPath ?? '';
-    void meshLoader(meshPath, manager, (object) => {
+    void meshLoader(meshPath, manager, (object, error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
       if (
         !object ||
         (object as THREE.Object3D & { userData?: { isPlaceholder?: boolean } }).userData
@@ -278,7 +283,7 @@ export async function computeRobotRenderableBoundsFromAssets(
   }
 
   const linkWorldMatrices = computeLinkWorldMatrices(robot);
-  const manager = createLoadingManager(assets, '', { preferPlaceholderTextures: true });
+  const manager = createLoadingManager(assets, '');
   const meshLoader = createMeshLoader(assets, manager);
   const meshBoundsCache = new Map<string, Promise<THREE.Box3 | null>>();
   const context = {

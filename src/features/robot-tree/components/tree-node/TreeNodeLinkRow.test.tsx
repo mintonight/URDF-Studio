@@ -9,6 +9,8 @@ import { translations } from '@/shared/i18n';
 import { TREE_LINK_NAME_TEXT_CLASS } from './presentation';
 import { TreeNodeLinkRow } from './TreeNodeLinkRow.tsx';
 
+const TREE_LINK_NAME_SIZE_TOKEN = 'text-[11px]';
+
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'http://localhost/',
@@ -107,6 +109,11 @@ test('TreeNodeLinkRow keeps rename input typography aligned with the rendered la
   };
 
   try {
+    assert.ok(
+      TREE_LINK_NAME_TEXT_CLASS.includes(TREE_LINK_NAME_SIZE_TOKEN),
+      'link row typography should stay aligned with assembly component rows',
+    );
+
     await renderRow(false);
 
     const label = container.querySelector('span[title="base_link"]') as HTMLSpanElement | null;
@@ -115,6 +122,10 @@ test('TreeNodeLinkRow keeps rename input typography aligned with the rendered la
     for (const token of TREE_LINK_NAME_TEXT_CLASS.split(' ')) {
       assert.ok(label.className.includes(token), `label should include ${token}`);
     }
+    assert.ok(
+      label.className.includes(TREE_LINK_NAME_SIZE_TOKEN),
+      'label should keep the component-aligned font size token',
+    );
 
     await renderRow(true);
 
@@ -124,6 +135,10 @@ test('TreeNodeLinkRow keeps rename input typography aligned with the rendered la
     for (const token of TREE_LINK_NAME_TEXT_CLASS.split(' ')) {
       assert.ok(input.className.includes(token), `rename input should include ${token}`);
     }
+    assert.ok(
+      input.className.includes(TREE_LINK_NAME_SIZE_TOKEN),
+      'rename input should keep the component-aligned font size token',
+    );
   } finally {
     await destroyComponentRoot(dom, root);
   }

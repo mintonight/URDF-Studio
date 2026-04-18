@@ -11,6 +11,7 @@ import type {
 import { computeLinkWorldMatrices, createOriginMatrix } from './kinematics';
 import { cloneAssemblyTransform } from './assemblyTransforms';
 import { estimateLinkRenderableBounds } from './assemblyPlacement';
+import { logRuntimeFailure } from '@/core/utils/runtimeDiagnostics';
 
 const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
 const DEFAULT_BRIDGE_VISUAL_CONTACT_GAP = 0.002;
@@ -259,6 +260,12 @@ export function resolveSuggestedBridgeOriginForVisualContact({
       directionLocal,
     ) ?? snapDirectionToNearestPrincipalAxis(directionLocal);
   if (!parentBounds || !childBounds) {
+    logRuntimeFailure(
+      'AssemblyBridgeAlignment',
+      new Error(
+        `Falling back to default bridge contact distance because renderable bounds are missing. parentComponentId=${parentComponentId}; parentLinkId=${resolvedParentLinkId}; childComponentId=${childComponentId}; childLinkId=${resolvedChildLinkId}`,
+      ),
+    );
     const fallbackOffset = snappedDirectionLocal.multiplyScalar(
       DEFAULT_BRIDGE_VISUAL_CONTACT_DISTANCE,
     );

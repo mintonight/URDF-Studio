@@ -26,6 +26,28 @@ function getCurrentJointValues(joint: RuntimeURDFJoint): number[] {
   return [];
 }
 
+function resolveRuntimeJointKey(
+  joints: Record<string, RuntimeURDFJoint>,
+  patch: JointPatchCandidate,
+): string | null {
+  const stableJointId = patch.jointId || patch.jointData.id || patch.previousJointData.id;
+  if (stableJointId && joints[stableJointId]) {
+    return stableJointId;
+  }
+
+  if (patch.jointName && joints[patch.jointName]) {
+    return patch.jointName;
+  }
+
+  const resolvedEntry = Object.entries(joints).find(([, joint]) => {
+    const runtimeJointId =
+      typeof joint.userData?.jointId === 'string' ? joint.userData.jointId.trim() : '';
+    return runtimeJointId === stableJointId || joint.name === patch.jointName;
+  });
+
+  return resolvedEntry?.[0] ?? null;
+}
+
 function applyJointPatch(joint: RuntimeURDFJoint, patch: JointPatchCandidate): void {
   const currentValues = getCurrentJointValues(joint);
   const jointWithMutableState = joint as RuntimeURDFJoint & {
@@ -38,11 +60,25 @@ function applyJointPatch(joint: RuntimeURDFJoint, patch: JointPatchCandidate): v
       effort?: number;
       velocity?: number;
     };
+    urdfName?: string;
   };
   const jointAxis = jointWithMutableState.axis ?? new THREE.Vector3(1, 0, 0);
   jointWithMutableState.axis = jointAxis;
   const jointLimit =
     jointWithMutableState.limit ?? (jointWithMutableState.limit = { lower: 0, upper: 0 });
+  const jointDisplayName = patch.jointData.name || patch.jointName || joint.name;
+  const jointId =
+    patch.jointId || patch.jointData.id || patch.previousJointData.id || joint.userData?.jointId;
+
+  if (!joint.userData) {
+    joint.userData = {};
+  }
+  joint.name = jointDisplayName;
+  jointWithMutableState.urdfName = jointDisplayName;
+  joint.userData.displayName = jointDisplayName;
+  if (jointId) {
+    joint.userData.jointId = jointId;
+  }
 
   joint.jointType = patch.jointData.type as RuntimeURDFJoint['jointType'];
   applyOriginToJoint(joint, patch.jointData.origin);
@@ -123,7 +159,12 @@ export function patchJointsInPlace(
     return false;
   }
 
-  const runtimeJoints = patches.map((patch) => joints[patch.jointName]);
+  const runtimeJointKeys = patches.map((patch) => resolveRuntimeJointKey(joints, patch));
+  if (runtimeJointKeys.some((jointKey) => !jointKey)) {
+    return false;
+  }
+
+  const runtimeJoints = runtimeJointKeys.map((jointKey) => (jointKey ? joints[jointKey] : null));
   if (runtimeJoints.some((joint) => !joint)) {
     return false;
   }

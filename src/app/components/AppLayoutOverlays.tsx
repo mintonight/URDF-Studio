@@ -41,6 +41,7 @@ interface AppLayoutOverlaysProps {
   loadingOptimizerLabel: string;
   collisionOptimizationSource: CollisionOptimizationSource;
   assets: Record<string, string>;
+  sourceFilePath?: string;
   selection: InteractionSelection;
   onCloseCollisionOptimizer: () => void;
   onSelectCollisionTarget: (target: CollisionTargetRef) => void;
@@ -73,6 +74,7 @@ export function AppLayoutOverlays({
   loadingOptimizerLabel,
   collisionOptimizationSource,
   assets,
+  sourceFilePath,
   selection,
   onCloseCollisionOptimizer,
   onSelectCollisionTarget,
@@ -105,6 +107,7 @@ export function AppLayoutOverlays({
             source={collisionOptimizationSource}
             lang={lang}
             assets={assets}
+            sourceFilePath={sourceFilePath}
             selection={selection}
             onClose={onCloseCollisionOptimizer}
             onSelectTarget={onSelectCollisionTarget}

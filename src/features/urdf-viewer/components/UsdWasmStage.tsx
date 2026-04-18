@@ -63,7 +63,7 @@ import {
   deriveUsdMeshBaseLocalMatrix,
   isUsdRuntimeGeometryVisible,
   resolveUsdRuntimeGeometry,
-  resolveUsdVisualColorOverride,
+  resolveUsdVisualColorOverrideForMesh,
 } from '../utils/usdRuntimeLinkOverrides';
 import {
   clearUsdHoverPointerState,
@@ -88,16 +88,22 @@ import {
   resolveUsdStageJointRotationRuntime,
 } from '../utils/usdInteractionPolicy';
 import { prepareUsdVisualMesh } from '../utils/usdVisualRendering';
-import { createEmbeddedUsdViewerLoadParams } from '../utils/usdViewerRenderParams';
+import {
+  createEmbeddedUsdViewerLoadParams,
+  resolveEmbeddedUsdViewerLoadProfile,
+  type EmbeddedUsdViewerLoadProfile,
+} from '../utils/usdViewerRenderParams';
 import {
   resolveUsdStageJointPreview,
   type UsdStageJointInfoLike,
 } from '../utils/usdStageJointPreview';
-import { type PreparedUsdPreloadFile } from '../utils/usdStageOpenPreparation';
+import {
+  type PreparedUsdPreloadFile,
+  type PreparedUsdStageOpenData,
+} from '../utils/usdStageOpenPreparation';
 import {
   buildPreparedUsdStageOpenCacheKey,
   loadPreparedUsdStageOpenDataFromWorker,
-  loadPreparedUsdStageOpenDataInline,
 } from '../utils/preparedUsdStageOpenCache';
 import { preloadUsdStageEntries } from '../utils/usdStagePreloadExecution';
 import {
@@ -125,7 +131,6 @@ import {
 } from '../utils/usdInteractionPicking';
 import { resolveScreenSpaceUsdHelperHit } from '../utils/usdScreenSpaceHelperInteraction';
 import { resolveUsdVisualMeshObjectOrder } from '../utils/usdRuntimeMeshObjectOrder';
-import { hasBlobBackedLargeUsdaInStageScope } from '../utils/usdBlobBackedUsda.ts';
 
 interface UsdWasmStageProps {
   active?: boolean;
@@ -375,6 +380,21 @@ function getRuntimeWarmupDebugDetail(
     snapshotTextureFailureCount: textureFailureCount,
     runtimeWarmupHasWarnings: driverStageResolveStatus === 'rejected' || materialFailureCount > 0,
   };
+}
+
+function shouldPreferSlicedMainThreadLoadForLargePureUsd(
+  sourceFileName: string,
+  preparedStageOpenData: PreparedUsdStageOpenData,
+): boolean {
+  const normalizedSourceFileName = String(sourceFileName || '')
+    .trim()
+    .toLowerCase();
+
+  return (
+    normalizedSourceFileName.endsWith('.usd') &&
+    preparedStageOpenData.preloadFiles.length > 1 &&
+    preparedStageOpenData.criticalDependencyPaths.length > 0
+  );
 }
 
 function getPathBasename(path: string | null | undefined): string {
@@ -1021,6 +1041,19 @@ export function UsdWasmStage({
       onDocumentLoadEvent?.(event);
     },
     [onDocumentLoadEvent],
+  );
+  const publishLoadingProgress = useCallback(
+    (progress: UsdLoadingProgress, status: ViewerDocumentLoadEvent['status'] = 'loading') => {
+      const normalizedProgress = normalizeLoadingProgress<UsdLoadingProgress>(progress);
+      setLoadingProgress(normalizedProgress);
+      emitDocumentLoadEvent(
+        normalizeLoadingProgress<ViewerDocumentLoadEvent>({
+          status,
+          ...normalizedProgress,
+        }),
+      );
+    },
+    [emitDocumentLoadEvent],
   );
 
   useEffect(() => {
@@ -1806,7 +1839,7 @@ export function UsdWasmStage({
         if (!highlightedMeshesRef.current.has(mesh)) {
           syncUsdVisualColorOverride(
             mesh,
-            resolveUsdVisualColorOverride(geometry, baselineGeometry ?? geometry),
+            resolveUsdVisualColorOverrideForMesh(mesh, geometry, baselineGeometry ?? geometry),
           );
         }
       }
@@ -2298,10 +2331,6 @@ export function UsdWasmStage({
     () => buildPreparedUsdStageOpenCacheKey(sourceFile, availableFiles, assets),
     [assets, availableFiles, sourceFile],
   );
-  const shouldPrepareStageOpenInline = useMemo(
-    () => hasBlobBackedLargeUsdaInStageScope(sourceFile, availableFiles),
-    [availableFiles, sourceFile],
-  );
 
   useEffect(() => {
     refreshRuntimeDecorationsRef.current = refreshRuntimeDecorations;
@@ -2753,7 +2782,7 @@ export function UsdWasmStage({
     stopUsdCameraFrameAnimation();
     setIsLoading(true);
     setErrorMessage(null);
-    setLoadingProgress({
+    publishLoadingProgress({
       phase: 'checking-path',
       progressMode: 'indeterminate',
       progressPercent: null,
@@ -2761,16 +2790,6 @@ export function UsdWasmStage({
       loadedCount: null,
       totalCount: null,
     });
-    emitDocumentLoadEvent(
-      normalizeLoadingProgress<ViewerDocumentLoadEvent>({
-        status: 'loading',
-        phase: 'checking-path',
-        progressPercent: null,
-        message: null,
-        loadedCount: null,
-        totalCount: null,
-      }),
-    );
     setVisibleStagePath(null);
 
     const clearCurrentStage = () => {
@@ -2861,11 +2880,11 @@ export function UsdWasmStage({
 
     const loadUsdStageIntoScene = async () => {
       const isActive = isCurrentLoadActive;
-      const stagePreparationMode = shouldPrepareStageOpenInline ? 'main-thread' : 'worker';
-      const preparedStageOpenDataPromise = (
-        shouldPrepareStageOpenInline
-          ? loadPreparedUsdStageOpenDataInline(sourceFile, availableFiles, assets)
-          : loadPreparedUsdStageOpenDataFromWorker(sourceFile, availableFiles, assets)
+      const stagePreparationMode = 'worker';
+      const preparedStageOpenDataPromise = loadPreparedUsdStageOpenDataFromWorker(
+        sourceFile,
+        availableFiles,
+        assets,
       ).catch((error) => {
         throw failFastInDev(
           `UsdWasmStage:prepareUsdStageOpen:${stagePreparationMode}`,
@@ -2905,9 +2924,25 @@ export function UsdWasmStage({
           run: async () => await runtimePromise,
         });
         if (!isActive()) return;
+        publishLoadingProgress({
+          phase: 'checking-path',
+          progressMode: 'percent',
+          progressPercent: 100,
+          message: null,
+          loadedCount: null,
+          totalCount: null,
+        });
 
         runtimeRef.current = runtime;
         runtimeWindow.USD = runtime.USD;
+        publishLoadingProgress({
+          phase: 'preloading-dependencies',
+          progressMode: 'percent',
+          progressPercent: 0,
+          message: null,
+          loadedCount: null,
+          totalCount: null,
+        });
 
         let preparedStageOpenData = await trackUsdStageLoadStep({
           runtimeWindow,
@@ -2927,6 +2962,14 @@ export function UsdWasmStage({
           }),
         });
         if (!isActive()) return;
+        publishLoadingProgress({
+          phase: 'preloading-dependencies',
+          progressMode: 'percent',
+          progressPercent: 34,
+          message: null,
+          loadedCount: null,
+          totalCount: null,
+        });
 
         const stageSourcePath = preparedStageOpenData.stageSourcePath;
         const preparedRootStageFile = preparedStageOpenData.preloadFiles.find(
@@ -2962,6 +3005,15 @@ export function UsdWasmStage({
             );
           },
         });
+        if (!isActive()) return;
+        publishLoadingProgress({
+          phase: 'preloading-dependencies',
+          progressMode: 'percent',
+          progressPercent: 67,
+          message: null,
+          loadedCount: null,
+          totalCount: null,
+        });
         await trackUsdStageLoadStep({
           runtimeWindow,
           sourceFileName: sourceFile.name,
@@ -2981,10 +3033,34 @@ export function UsdWasmStage({
           },
         });
         if (!isActive()) return;
+        publishLoadingProgress({
+          phase: 'preloading-dependencies',
+          progressMode: 'percent',
+          progressPercent: 100,
+          message: null,
+          loadedCount: null,
+          totalCount: null,
+        });
+        publishLoadingProgress({
+          phase: 'initializing-renderer',
+          progressMode: 'percent',
+          progressPercent: 0,
+          message: null,
+          loadedCount: null,
+          totalCount: null,
+        });
 
+        const preferSlicedMainThreadLoadForLargePureUsd =
+          shouldPreferSlicedMainThreadLoadForLargePureUsd(sourceFile.name, preparedStageOpenData);
         const params = createEmbeddedUsdViewerLoadParams(runtime.threadCount, {
           dependenciesPreloadedToVirtualFs: true,
+          preferSlicedMainThreadLoadForLargePureUsd,
         });
+        const embeddedUsdLoadProfile: EmbeddedUsdViewerLoadProfile =
+          resolveEmbeddedUsdViewerLoadProfile({
+            dependenciesPreloadedToVirtualFs: true,
+            preferSlicedMainThreadLoadForLargePureUsd,
+          });
 
         const loadState = await trackUsdStageLoadStep({
           runtimeWindow,
@@ -2993,6 +3069,10 @@ export function UsdWasmStage({
           pendingDetail: {
             stageSourcePath,
             displayName: sourceFile.name.split('/').pop() || sourceFile.name,
+            loadProfile: embeddedUsdLoadProfile,
+            nonBlockingLoad: params.get('nonBlockingLoad') === '1',
+            strictOneShot: params.get('strictOneShot') === '1',
+            yieldDuringLoad: params.get('yieldDuringLoad') === '1',
           },
           run: async () =>
             await runtime.loadUsdStage({
@@ -3056,13 +3136,7 @@ export function UsdWasmStage({
                             ? (nextProgress.totalCount ?? null)
                             : null,
                       });
-                setLoadingProgress(normalizedProgress);
-                emitDocumentLoadEvent(
-                  normalizeLoadingProgress<ViewerDocumentLoadEvent>({
-                    status: 'loading',
-                    ...normalizedProgress,
-                  }),
-                );
+                publishLoadingProgress(normalizedProgress);
               },
             }),
           resolveDetail: (result) => ({
@@ -3070,6 +3144,10 @@ export function UsdWasmStage({
             drawFailed: Boolean(result?.drawFailed),
             hasDriver: Boolean(result?.driver),
             drawFailureReason: result?.drawFailureReason ?? null,
+            loadProfile: embeddedUsdLoadProfile,
+            nonBlockingLoad: params.get('nonBlockingLoad') === '1',
+            strictOneShot: params.get('strictOneShot') === '1',
+            yieldDuringLoad: params.get('yieldDuringLoad') === '1',
           }),
         });
         driverRef.current = loadState?.driver ?? null;
@@ -3219,29 +3297,19 @@ export function UsdWasmStage({
         // Release the retained placeholder once the stage, runtime meshes,
         // and first RobotData publish are ready. Camera auto-frame can settle
         // afterwards, but it must not block the initial stage reveal.
-        setLoadingProgress(
-          normalizeLoadingProgress<UsdLoadingProgress>({
+        publishLoadingProgress(
+          {
             phase: 'ready',
             progressMode: 'percent',
             progressPercent: 100,
             message: null,
             loadedCount: null,
             totalCount: null,
-          }),
+          },
+          'ready',
         );
         setVisibleStagePath(sourceFile.name);
         setIsLoading(false);
-        emitDocumentLoadEvent(
-          normalizeLoadingProgress<ViewerDocumentLoadEvent>({
-            status: 'ready',
-            phase: 'ready',
-            progressMode: 'percent',
-            progressPercent: 100,
-            message: null,
-            loadedCount: null,
-            totalCount: null,
-          }),
-        );
         recordUsdStageLoadDebug(runtimeWindow, {
           sourceFileName: sourceFile.name,
           step: 'ready',
@@ -3307,7 +3375,16 @@ export function UsdWasmStage({
     // Intentionally exclude `active`: the handoff flips it after the first
     // stage is already loaded, and re-subscribing here would tear down the
     // ready USD runtime and start a second full parse.
-  }, [camera, controls, gl, invalidate, rootGroup, scene, stageOpenLoadScopeKey]);
+  }, [
+    camera,
+    controls,
+    gl,
+    invalidate,
+    publishLoadingProgress,
+    rootGroup,
+    scene,
+    stageOpenLoadScopeKey,
+  ]);
 
   useEffect(() => {
     if (

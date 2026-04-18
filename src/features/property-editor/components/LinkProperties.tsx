@@ -236,6 +236,7 @@ interface LinkPropertiesProps {
   motorLibrary: Record<string, MotorSpec[]>;
   assets: Record<string, string>;
   onUploadAsset: (file: File) => void;
+  sourceFilePath?: string;
   t: (typeof translations)['en'];
   lang: Language;
 }
@@ -256,6 +257,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
   onAddCollisionBody,
   assets,
   onUploadAsset,
+  sourceFilePath,
   t,
   lang,
 }) => {
@@ -986,6 +988,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
               onUpdate={(d) => onUpdate('link', selection.id!, d)}
               assets={assets}
               onUploadAsset={onUploadAsset}
+              sourceFilePath={sourceFilePath}
               t={t}
               lang={lang}
               isTabbed={true}
@@ -1004,6 +1007,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
                 onUpdate={(d) => onUpdate('link', selection.id!, d)}
                 assets={assets}
                 onUploadAsset={onUploadAsset}
+                sourceFilePath={sourceFilePath}
                 t={t}
                 lang={lang}
                 isTabbed={true}

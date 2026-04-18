@@ -3,7 +3,12 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 import type { UrdfVisual } from '@/types';
-import { getBoxFaceMaterialPalette, hasGeometryMeshMaterialGroups } from '@/core/robot';
+import { parseThreeColorWithOpacity } from '@/core/utils/color.ts';
+import {
+  getBoxFaceMaterialPalette,
+  getGeometryAuthoredMaterials,
+  hasGeometryMeshMaterialGroups,
+} from '@/core/robot';
 import {
   shouldNormalizeColladaRoot,
   type ColladaRootNormalizationHints,
@@ -17,6 +22,7 @@ import { createGeometryFromSerializedStlData } from '@/core/loaders/stlGeometryD
 import { loadSerializedStlGeometryData } from '@/core/loaders/stlParseWorkerBridge.ts';
 import { applyVisualMeshMaterialGroupsToObject } from '@/core/utils/meshMaterialGroups';
 import { ensureWorkerXmlDomApis } from '@/core/utils/ensureWorkerXmlDomApis.ts';
+import { disposeMaterial } from '@/shared/utils/three/dispose.ts';
 
 import {
   createUsdTextureLoadingManager,
@@ -25,10 +31,10 @@ import {
 } from './usdAssetRegistry.ts';
 import {
   createUsdBaseMaterial,
-  expandUsdMultiMaterialMeshesForSerialization,
   isUsdMeshObject,
   normalizeUsdRenderableMaterials,
 } from './usdMaterialNormalization.ts';
+import { applyUsdAuthoredMaterialPalette } from './usdAuthoredMaterialPalette.ts';
 import { applyUsdMeshCompression } from './usdMeshCompression.ts';
 
 export const USD_GEOMETRY_TYPES = {
@@ -44,9 +50,11 @@ export type UsdVisualRole = 'visual' | 'collision';
 
 export type UsdMaterialMetadata = {
   color?: string;
+  colorRgba?: [number, number, number, number];
   texture?: string;
   forceUniformOverride?: boolean;
   preserveEmbeddedMaterials?: boolean;
+  suppressVisualColor?: boolean;
 };
 
 export interface UsdMeshCompressionOptions {
@@ -79,6 +87,22 @@ const usdStlGeometryCache = new WeakMap<
   UsdAssetRegistry,
   Map<string, Promise<THREE.BufferGeometry>>
 >();
+const USD_ISAAC_NEUTRAL_FALLBACK_COLOR = '#999999';
+const USD_BRIGHT_NEUTRAL_PLACEHOLDER_MIN = 0.96;
+const USD_BRIGHT_NEUTRAL_PLACEHOLDER_DELTA = 0.02;
+const USD_ISAAC_COLLADA_BAKED_ROTATION_EPSILON = 1e-5;
+const USD_ISAAC_COLLADA_CYCLIC_MESH_QUATERNION = new THREE.Quaternion(0.5, 0.5, 0.5, 0.5);
+const USD_ISAAC_COLLADA_VISUAL_QUATERNION = new THREE.Quaternion().setFromEuler(
+  new THREE.Euler(Math.PI / 2, 0, 0, 'XYZ'),
+);
+
+type LoadedUsdObjectMaterialProfile = {
+  hasMaterialTexture: boolean;
+  hasMultiMaterialMesh: boolean;
+  hasSingleEmbeddedMaterialIdentity: boolean;
+  hasPlaceholderWhiteOnly: boolean;
+  materialNames: Set<string>;
+};
 
 const getUsdTextureLoadingManager = (registry: UsdAssetRegistry): THREE.LoadingManager => {
   const cachedManager = usdTextureLoadingManagerCache.get(registry);
@@ -321,7 +345,9 @@ const createUsdPrimitiveSceneNode = (
   const primitive = new THREE.Object3D();
   primitive.name = type || primitiveType.toLowerCase();
   primitive.userData.usdGeomType = primitiveType;
-  primitive.userData.usdDisplayColor = materialState?.color || visual.color || null;
+  primitive.userData.usdDisplayColor = materialState?.suppressVisualColor
+    ? null
+    : materialState?.color || visual.color || null;
   if (role === 'collision') {
     primitive.userData.usdPurpose = 'guide';
     primitive.userData.usdCollision = true;
@@ -345,16 +371,79 @@ const applyExplicitMeshDisplayColor = (root: THREE.Object3D, color: string | und
   });
 };
 
-const loadedUsdObjectShouldPreserveEmbeddedMaterials = (object: THREE.Object3D): boolean => {
+const applyUniformMaterialOverride = (root: THREE.Object3D, color: string | undefined): void => {
+  const resolvedColor = color?.trim() || '#808080';
+  const replacedMaterials = new Set<THREE.Material>();
+
+  root.traverse((child) => {
+    if (!isUsdMeshObject(child)) {
+      return;
+    }
+
+    if (Array.isArray(child.material)) {
+      child.material.forEach((material) => {
+        if (material) {
+          replacedMaterials.add(material);
+        }
+      });
+    } else if (child.material) {
+      replacedMaterials.add(child.material);
+    }
+
+    child.material = createUsdBaseMaterial(resolvedColor);
+  });
+
+  replacedMaterials.forEach((material) => {
+    disposeMaterial(material);
+  });
+};
+
+const getLoadedUsdMaterialSrgbColor = (
+  material: THREE.Material,
+): [number, number, number] | null => {
+  const sourceMaterial = material as THREE.Material & { color?: THREE.Color };
+  if (!(sourceMaterial.color instanceof THREE.Color)) {
+    return null;
+  }
+
+  const srgbColor = sourceMaterial.color.clone().convertLinearToSRGB();
+  return [srgbColor.r, srgbColor.g, srgbColor.b];
+};
+
+const isBrightNeutralPlaceholderColor = (
+  color: readonly [number, number, number] | null | undefined,
+): boolean => {
+  if (!color) {
+    return false;
+  }
+
+  const minChannel = Math.min(...color);
+  const maxChannel = Math.max(...color);
+  return (
+    minChannel >= USD_BRIGHT_NEUTRAL_PLACEHOLDER_MIN &&
+    maxChannel - minChannel <= USD_BRIGHT_NEUTRAL_PLACEHOLDER_DELTA
+  );
+};
+
+const analyzeLoadedUsdObjectMaterials = (
+  object: THREE.Object3D,
+): LoadedUsdObjectMaterialProfile => {
   const materialNames = new Set<string>();
   let hasMaterialTexture = false;
   let hasMultiMaterialMesh = false;
+  let hasSingleEmbeddedMaterialIdentity = false;
+  let hasPlaceholderWhiteOnly = true;
+  let materialCount = 0;
 
   object.traverse((child) => {
     if (!(child as THREE.Mesh).isMesh) {
       return;
     }
 
+    const meshUsdMaterial = (child.userData?.usdMaterial || {}) as Partial<UsdMaterialMetadata>;
+    const hasExplicitUsdMaterialMetadata = Boolean(
+      meshUsdMaterial.texture || meshUsdMaterial.colorRgba || meshUsdMaterial.color,
+    );
     const material = (child as THREE.Mesh).material;
     const materials = Array.isArray(material) ? material : [material];
     if (materials.length > 1) {
@@ -362,18 +451,100 @@ const loadedUsdObjectShouldPreserveEmbeddedMaterials = (object: THREE.Object3D):
     }
 
     materials.forEach((entry) => {
+      materialCount += 1;
+      const isGeneratedBaseMaterial = Boolean(
+        (
+          entry as THREE.Material & {
+            userData?: {
+              usdGeneratedBaseMaterial?: boolean;
+            };
+          }
+        ).userData?.usdGeneratedBaseMaterial,
+      );
       const materialName = entry?.name?.trim();
-      if (materialName) {
+      if (materialName && !isGeneratedBaseMaterial) {
         materialNames.add(materialName);
+        hasSingleEmbeddedMaterialIdentity = true;
+        hasPlaceholderWhiteOnly = false;
       }
 
       if ('map' in (entry || {}) && (entry as THREE.MeshStandardMaterial).map) {
         hasMaterialTexture = true;
+        hasSingleEmbeddedMaterialIdentity = true;
+        hasPlaceholderWhiteOnly = false;
+      }
+
+      const materialColor = getLoadedUsdMaterialSrgbColor(entry);
+      if (
+        materialColor &&
+        !isBrightNeutralPlaceholderColor(materialColor) &&
+        (!isGeneratedBaseMaterial || hasExplicitUsdMaterialMetadata)
+      ) {
+        hasSingleEmbeddedMaterialIdentity = true;
+        hasPlaceholderWhiteOnly = false;
+        return;
+      }
+
+      if (!materialColor) {
+        hasPlaceholderWhiteOnly = false;
       }
     });
   });
 
-  return hasMaterialTexture || hasMultiMaterialMesh || materialNames.size > 1;
+  return {
+    hasMaterialTexture,
+    hasMultiMaterialMesh,
+    hasSingleEmbeddedMaterialIdentity,
+    hasPlaceholderWhiteOnly:
+      materialCount > 0 &&
+      hasPlaceholderWhiteOnly &&
+      !hasMaterialTexture &&
+      !hasMultiMaterialMesh &&
+      materialNames.size === 0 &&
+      !hasSingleEmbeddedMaterialIdentity,
+    materialNames,
+  };
+};
+
+const loadedUsdObjectShouldPreserveEmbeddedMaterials = (
+  materialProfile: LoadedUsdObjectMaterialProfile,
+): boolean => {
+  return (
+    materialProfile.hasMaterialTexture ||
+    materialProfile.hasMultiMaterialMesh ||
+    materialProfile.materialNames.size > 1 ||
+    materialProfile.hasSingleEmbeddedMaterialIdentity
+  );
+};
+
+const getUsdMaterialOverrideSrgbColor = (
+  materialState: UsdMaterialMetadata | undefined,
+): [number, number, number] | null => {
+  if (
+    Array.isArray(materialState?.colorRgba) &&
+    materialState.colorRgba.length >= 3 &&
+    materialState.colorRgba.every((value) => Number.isFinite(value))
+  ) {
+    return [materialState.colorRgba[0], materialState.colorRgba[1], materialState.colorRgba[2]];
+  }
+
+  const parsedColor = parseThreeColorWithOpacity(materialState?.color);
+  if (!parsedColor) {
+    return null;
+  }
+
+  const srgbColor = parsedColor.color.clone().convertLinearToSRGB();
+  return [srgbColor.r, srgbColor.g, srgbColor.b];
+};
+
+const usdMaterialOverrideLooksLikePlaceholder = (
+  materialState: UsdMaterialMetadata | undefined,
+): boolean => {
+  if (!materialState?.forceUniformOverride || materialState.texture) {
+    return false;
+  }
+
+  return isBrightNeutralPlaceholderColor(getUsdMaterialOverrideSrgbColor(materialState));
 };
 
 const buildCachedUsdStlGeometry = async (
@@ -414,13 +585,111 @@ const buildCachedUsdStlGeometry = async (
   }
 };
 
+const collapseTrivialColladaMeshWrapperChain = (object: THREE.Object3D): THREE.Object3D => {
+  const wrapperChain: THREE.Object3D[] = [];
+  let current: THREE.Object3D = object;
+
+  while (!isUsdMeshObject(current) && current.children.length === 1) {
+    wrapperChain.push(current);
+    current = current.children[0]!;
+  }
+
+  if (!isUsdMeshObject(current) || wrapperChain.length === 0) {
+    return object;
+  }
+
+  object.updateMatrixWorld(true);
+  const collapsedMatrix = current.matrixWorld.clone();
+  const inheritedVisibility = wrapperChain.every((node) => node.visible);
+
+  current.removeFromParent();
+  collapsedMatrix.decompose(current.position, current.quaternion, current.scale);
+  current.visible = inheritedVisibility && current.visible;
+  current.name = 'mesh';
+
+  return current;
+};
+
+const quaternionNearlyEquals = (
+  left: THREE.Quaternion,
+  right: THREE.Quaternion,
+  epsilon = USD_ISAAC_COLLADA_BAKED_ROTATION_EPSILON,
+): boolean => {
+  const normalizedLeft = left.clone().normalize();
+  const normalizedRight = right.clone().normalize();
+  return Math.abs(Math.abs(normalizedLeft.dot(normalizedRight)) - 1) <= epsilon;
+};
+
+const applyMatrixToMeshNormals = (
+  attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute,
+  normalMatrix: THREE.Matrix3,
+): void => {
+  const normal = new THREE.Vector3();
+  for (let index = 0; index < attribute.count; index += 1) {
+    normal
+      .set(attribute.getX(index), attribute.getY(index), attribute.getZ(index))
+      .applyMatrix3(normalMatrix)
+      .normalize();
+    attribute.setXYZ(index, normal.x, normal.y, normal.z);
+  }
+  attribute.needsUpdate = true;
+};
+
+const bakeObjectLocalTransformIntoMeshGeometry = (object: THREE.Object3D): void => {
+  object.updateMatrix();
+  const localMatrix = object.matrix.clone();
+  const normalMatrix = new THREE.Matrix3().getNormalMatrix(localMatrix);
+
+  object.traverse((child) => {
+    if (!isUsdMeshObject(child)) {
+      return;
+    }
+
+    child.geometry = child.geometry.clone();
+    child.geometry.applyMatrix4(localMatrix);
+    const normalAttribute = child.geometry.getAttribute('normal');
+    if (normalAttribute) {
+      applyMatrixToMeshNormals(normalAttribute, normalMatrix);
+    }
+    child.geometry.computeBoundingBox();
+    child.geometry.computeBoundingSphere();
+  });
+};
+
+const normalizeIsaacCompatibleColladaMeshTransform = (object: THREE.Object3D): void => {
+  if (
+    object.parent !== null ||
+    !isUsdMeshObject(object) ||
+    !quaternionNearlyEquals(object.quaternion, USD_ISAAC_COLLADA_CYCLIC_MESH_QUATERNION)
+  ) {
+    return;
+  }
+
+  // Isaac Sim's URDF importer bakes this Blender-authored cyclic root transform into the mesh
+  // payload, then keeps the visual prim at the standard +90deg X orientation.
+  bakeObjectLocalTransformIntoMeshGeometry(object);
+  object.position.set(0, 0, 0);
+  object.quaternion.copy(USD_ISAAC_COLLADA_VISUAL_QUATERNION);
+  object.scale.set(1, 1, 1);
+  object.updateMatrix();
+};
+
 const loadUsdMeshObject = async (
   visual: UrdfVisual,
   registry: UsdAssetRegistry,
-  colorOverride?: string,
-  meshCompression?: UsdMeshCompressionOptions,
-  colladaRootNormalizationHints?: ColladaRootNormalizationHints | null,
+  options: {
+    colorOverride?: string;
+    meshCompression?: UsdMeshCompressionOptions;
+    colladaRootNormalizationHints?: ColladaRootNormalizationHints | null;
+    skipMaterialProcessing?: boolean;
+  } = {},
 ): Promise<THREE.Object3D | null> => {
+  const {
+    colorOverride,
+    meshCompression,
+    colladaRootNormalizationHints,
+    skipMaterialProcessing = false,
+  } = options;
   const meshPath = String(visual.meshPath || '').trim();
   if (!meshPath) {
     return null;
@@ -442,41 +711,46 @@ const loadUsdMeshObject = async (
   if (lowerPath.endsWith('.obj')) {
     const serializedObject = await loadSerializedObjModelData(resolvedUrl);
     const object = createObjectFromSerializedObjData(serializedObject);
-    normalizeUsdRenderableMaterials(object, colorOverride || visual.color);
-    if (hasGeometryMeshMaterialGroups(visual)) {
+    if (!skipMaterialProcessing) {
+      normalizeUsdRenderableMaterials(object, colorOverride || visual.color);
+    }
+    if (!skipMaterialProcessing && hasGeometryMeshMaterialGroups(visual)) {
       applyVisualMeshMaterialGroupsToObject(object, visual, {
         manager: getUsdTextureLoadingManager(registry),
       });
     }
-    expandUsdMultiMaterialMeshesForSerialization(object);
     return object;
   }
 
   if (lowerPath.endsWith('.dae')) {
-    const object = await loadColladaScene(resolvedUrl, getUsdTextureLoadingManager(registry));
-    normalizeUsdRenderableMaterials(object, colorOverride || visual.color);
-    if (hasGeometryMeshMaterialGroups(visual)) {
-      applyVisualMeshMaterialGroupsToObject(object, visual, {
-        manager: getUsdTextureLoadingManager(registry),
-      });
-    }
-    expandUsdMultiMaterialMeshesForSerialization(object);
+    let object = await loadColladaScene(resolvedUrl, getUsdTextureLoadingManager(registry));
     if (shouldNormalizeColladaRoot(meshPath, colladaRootNormalizationHints)) {
       object.rotation.set(0, 0, 0);
       object.updateMatrix();
+    }
+    object = collapseTrivialColladaMeshWrapperChain(object);
+    normalizeIsaacCompatibleColladaMeshTransform(object);
+    if (!skipMaterialProcessing) {
+      normalizeUsdRenderableMaterials(object, colorOverride || visual.color);
+    }
+    if (!skipMaterialProcessing && hasGeometryMeshMaterialGroups(visual)) {
+      applyVisualMeshMaterialGroupsToObject(object, visual, {
+        manager: getUsdTextureLoadingManager(registry),
+      });
     }
     return object;
   }
 
   if (lowerPath.endsWith('.gltf') || lowerPath.endsWith('.glb')) {
     const object = cloneUsdGltfSceneAsset(await loadUsdGltfSceneAsset(resolvedUrl, registry));
-    normalizeUsdRenderableMaterials(object, colorOverride || visual.color);
-    if (hasGeometryMeshMaterialGroups(visual)) {
+    if (!skipMaterialProcessing) {
+      normalizeUsdRenderableMaterials(object, colorOverride || visual.color);
+    }
+    if (!skipMaterialProcessing && hasGeometryMeshMaterialGroups(visual)) {
       applyVisualMeshMaterialGroupsToObject(object, visual, {
         manager: getUsdTextureLoadingManager(registry),
       });
     }
-    expandUsdMultiMaterialMeshesForSerialization(object);
     return object;
   }
 
@@ -497,28 +771,60 @@ export const buildUsdVisualSceneNode = async ({
     return null;
   }
 
+  const isCollisionRole = role === 'collision';
+
   if (type !== USD_GEOMETRY_TYPES.MESH) {
     return createUsdPrimitiveSceneNode(visual, role, materialState);
   }
 
-  const object = await loadUsdMeshObject(
-    visual,
-    registry,
-    materialState?.forceUniformOverride ? materialState.color : undefined,
+  const object = await loadUsdMeshObject(visual, registry, {
+    colorOverride:
+      !isCollisionRole && materialState?.forceUniformOverride ? materialState.color : undefined,
     meshCompression,
     colladaRootNormalizationHints,
-  );
+    skipMaterialProcessing: isCollisionRole,
+  });
   if (!object) {
     return null;
   }
 
+  const meshPathLower = String(visual.meshPath || '')
+    .trim()
+    .toLowerCase();
+
+  let shouldPreserveEmbeddedMaterials = false;
+  let hasPlaceholderWhiteOnly = false;
+
+  if (!isCollisionRole && !materialState?.forceUniformOverride) {
+    const authoredMaterials = getGeometryAuthoredMaterials(visual);
+    if (authoredMaterials.length > 0) {
+      applyUsdAuthoredMaterialPalette(object, authoredMaterials);
+    }
+  }
+
+  if (!isCollisionRole) {
+    const loadedMaterialProfile = analyzeLoadedUsdObjectMaterials(object);
+    const canPreserveEmbeddedMaterials =
+      loadedUsdObjectShouldPreserveEmbeddedMaterials(loadedMaterialProfile);
+    shouldPreserveEmbeddedMaterials =
+      materialState?.preserveEmbeddedMaterials === true ||
+      (usdMaterialOverrideLooksLikePlaceholder(materialState) && canPreserveEmbeddedMaterials) ||
+      (!materialState?.forceUniformOverride && canPreserveEmbeddedMaterials);
+    hasPlaceholderWhiteOnly = loadedMaterialProfile.hasPlaceholderWhiteOnly;
+
+    if (!shouldPreserveEmbeddedMaterials && materialState?.forceUniformOverride) {
+      applyUniformMaterialOverride(
+        object,
+        materialState.color || visual.color || (materialState.texture ? '#ffffff' : undefined),
+      );
+    }
+  }
+
   if (
-    !String(visual.meshPath || '')
-      .trim()
-      .toLowerCase()
-      .endsWith('.stl') &&
+    !meshPathLower.endsWith('.stl') &&
     meshCompression?.enabled &&
-    meshCompression.quality < 100
+    meshCompression.quality < 100 &&
+    !shouldPreserveEmbeddedMaterials
   ) {
     applyUsdMeshCompression(object, meshCompression.quality);
   }
@@ -538,13 +844,23 @@ export const buildUsdVisualSceneNode = async ({
     });
   }
 
-  const shouldPreserveEmbeddedMaterials =
-    materialState?.preserveEmbeddedMaterials === true ||
-    (!materialState?.forceUniformOverride &&
-      loadedUsdObjectShouldPreserveEmbeddedMaterials(object));
-
-  if (!shouldPreserveEmbeddedMaterials) {
-    applyExplicitMeshDisplayColor(object, materialState?.color);
+  if (!isCollisionRole && !shouldPreserveEmbeddedMaterials) {
+    const isaacFallbackDisplayColor = hasPlaceholderWhiteOnly
+      ? USD_ISAAC_NEUTRAL_FALLBACK_COLOR
+      : undefined;
+    applyExplicitMeshDisplayColor(
+      object,
+      materialState?.suppressVisualColor
+        ? isaacFallbackDisplayColor
+        : materialState?.color || isaacFallbackDisplayColor,
+    );
+  }
+  if (
+    !isCollisionRole &&
+    shouldPreserveEmbeddedMaterials &&
+    (materialState?.color || materialState?.texture)
+  ) {
+    anchor.userData.usdPreserveEmbeddedMaterialAppearance = true;
   }
   anchor.add(object);
   return anchor;

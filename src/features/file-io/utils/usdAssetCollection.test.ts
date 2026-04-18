@@ -8,20 +8,16 @@ import { applyUsdMaterialMetadata } from './usdSceneSerialization.ts';
 import { collectUsdExportAssetFiles } from './usdAssetCollection.ts';
 import { createUsdAssetRegistry } from './usdAssetRegistry.ts';
 
-const TEXTURE_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFAAH/e+m+7wAAAABJRU5ErkJggg==';
+const TEXTURE_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFAAH/e+m+7wAAAABJRU5ErkJggg==';
 
 const createTexturedTriangleGeometry = () => {
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
-    0, 0, 0,
-    1, 0, 0,
-    0, 1, 0,
-  ], 3));
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute([
-    0, 0,
-    1, 0,
-    0, 1,
-  ], 2));
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+  );
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
   return geometry;
 };
 
@@ -29,10 +25,7 @@ test('collectUsdExportAssetFiles deduplicates texture assets and reports assets-
   const root = new THREE.Group();
   root.name = 'demo_robot';
 
-  const mesh = new THREE.Mesh(
-    createTexturedTriangleGeometry(),
-    createUsdBaseMaterial('#ffffff'),
-  );
+  const mesh = new THREE.Mesh(createTexturedTriangleGeometry(), createUsdBaseMaterial('#ffffff'));
   mesh.name = 'mesh';
   mesh.userData.usdDisplayColor = '#ffffff';
   applyUsdMaterialMetadata(mesh, { texture: 'textures/checker.png' });
@@ -51,13 +44,14 @@ test('collectUsdExportAssetFiles deduplicates texture assets and reports assets-
     'textures/checker.png': TEXTURE_DATA_URL,
   });
 
-  const progressEvents: Array<{ phase: string; completed: number; total: number; label?: string }> = [];
+  const progressEvents: Array<{ phase: string; completed: number; total: number; label?: string }> =
+    [];
   const assets = await collectUsdExportAssetFiles({
     sceneRoot: root,
     context,
     registry,
     onProgress: (progress) => {
-      progressEvents.push(progress);
+      progressEvents.push({ ...progress });
     },
   });
 
@@ -70,4 +64,118 @@ test('collectUsdExportAssetFiles deduplicates texture assets and reports assets-
       ['assets', 1, 1, 'checker.png'],
     ],
   );
+});
+
+test('collectUsdExportAssetFiles keeps asset collection complete and progress monotonic when fetchConcurrency is greater than one', async () => {
+  const root = new THREE.Group();
+  root.name = 'demo_robot';
+
+  const firstMesh = new THREE.Mesh(
+    createTexturedTriangleGeometry(),
+    createUsdBaseMaterial('#ffffff'),
+  );
+  firstMesh.name = 'first_mesh';
+  firstMesh.userData.usdDisplayColor = '#ffffff';
+  applyUsdMaterialMetadata(firstMesh, { texture: 'textures/a.png' });
+
+  const secondMesh = new THREE.Mesh(
+    createTexturedTriangleGeometry(),
+    createUsdBaseMaterial('#ffffff'),
+  );
+  secondMesh.name = 'second_mesh';
+  secondMesh.userData.usdDisplayColor = '#ffffff';
+  applyUsdMaterialMetadata(secondMesh, { texture: 'textures/b.png' });
+
+  const primitive = new THREE.Object3D();
+  primitive.name = 'box';
+  primitive.userData.usdGeomType = 'Cube';
+  primitive.userData.usdDisplayColor = '#ffffff';
+  applyUsdMaterialMetadata(primitive, { texture: 'textures/c.png' });
+
+  root.add(firstMesh, secondMesh, primitive);
+
+  const context = await collectUsdSerializationContext(root, {
+    rootPrimName: 'demo_robot',
+  });
+  const { registry } = createUsdAssetRegistry({
+    'textures/a.png': 'https://example.test/assets/a.png',
+    'textures/b.png': 'https://example.test/assets/b.png',
+    'textures/c.png': 'https://example.test/assets/c.png',
+  });
+  const originalFetch = globalThis.fetch;
+  const progressEvents: Array<{ phase: string; completed: number; total: number; label?: string }> =
+    [];
+  let activeFetches = 0;
+  let maxConcurrentFetches = 0;
+  const responseBodies = new Map<string, string>([
+    ['https://example.test/assets/a.png', 'asset-a'],
+    ['https://example.test/assets/b.png', 'asset-b'],
+    ['https://example.test/assets/c.png', 'asset-c'],
+  ]);
+  const responseDelays = new Map<string, number>([
+    ['https://example.test/assets/a.png', 40],
+    ['https://example.test/assets/b.png', 5],
+    ['https://example.test/assets/c.png', 25],
+  ]);
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
+    activeFetches += 1;
+    maxConcurrentFetches = Math.max(maxConcurrentFetches, activeFetches);
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, responseDelays.get(url) ?? 0));
+      const body = responseBodies.get(url);
+      assert.ok(body, `unexpected fetch URL: ${url}`);
+
+      return new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': 'image/png' },
+      });
+    } finally {
+      activeFetches -= 1;
+    }
+  }) as typeof fetch;
+
+  try {
+    const assets = await collectUsdExportAssetFiles({
+      sceneRoot: root,
+      context,
+      registry,
+      onProgress: (progress) => {
+        progressEvents.push({ ...progress });
+      },
+      fetchConcurrency: 2,
+    } as Parameters<typeof collectUsdExportAssetFiles>[0]);
+
+    assert.ok(maxConcurrentFetches >= 2, 'expected asset fetches to overlap when concurrency > 1');
+    assert.deepEqual(Array.from(assets.keys()).sort(), [
+      'assets/a.png',
+      'assets/b.png',
+      'assets/c.png',
+    ]);
+    const assetPaths = ['assets/a.png', 'assets/b.png', 'assets/c.png'] as const;
+    const assetTypes = assetPaths.map((path) => assets.get(path)?.type ?? null);
+    const assetBodies = await Promise.all(
+      assetPaths.map(async (path) => await assets.get(path)!.text()),
+    );
+
+    assert.deepEqual(assetTypes, ['image/png', 'image/png', 'image/png']);
+    assert.deepEqual(assetBodies, ['asset-a', 'asset-b', 'asset-c']);
+    assert.equal(progressEvents[0]?.completed, 0);
+    assert.equal(progressEvents[0]?.total, 3);
+    assert.equal(progressEvents.at(-1)?.completed, 3);
+    assert.equal(progressEvents.at(-1)?.total, 3);
+
+    for (let index = 1; index < progressEvents.length; index += 1) {
+      assert.ok(
+        progressEvents[index]!.completed >= progressEvents[index - 1]!.completed,
+        'progress.completed must be monotonic even when fetches resolve out of order',
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

@@ -17,17 +17,39 @@ function normalizePath(p: string): string {
   return p.replace(/^\/+/, '').replace(/\\/g, '/').replace(/\/+/g, '/');
 }
 
+type BlobEntryKind = 'asset' | 'file';
+
+function createBlobFetchError(kind: BlobEntryKind, path: string, detail?: string): Error {
+  return new Error(
+    detail
+      ? `[RawFilesExport] Failed to fetch ${kind} blob: ${path} (${detail})`
+      : `[RawFilesExport] Failed to fetch ${kind} blob: ${path}`,
+  );
+}
+
 /**
  * Fetch a blob URL and return its ArrayBuffer.
- * Returns null if the fetch fails (tolerant behavior).
+ * Throws when the blob cannot be read so the export fails fast.
  */
-async function fetchBlobUrl(url: string): Promise<ArrayBuffer | null> {
+async function fetchBlobUrl(url: string, kind: BlobEntryKind, path: string): Promise<ArrayBuffer> {
+  let response: Response;
+
   try {
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    return response.arrayBuffer();
-  } catch {
-    return null;
+    response = await fetch(url);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw createBlobFetchError(kind, path, detail);
+  }
+
+  if (!response.ok) {
+    throw createBlobFetchError(kind, path, `${response.status} ${response.statusText}`.trim());
+  }
+
+  try {
+    return await response.arrayBuffer();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw createBlobFetchError(kind, path, detail);
   }
 }
 
@@ -39,7 +61,7 @@ async function fetchBlobUrl(url: string): Promise<ArrayBuffer | null> {
  * 2. `availableFiles` — robot definition files with `content` or `blobUrl`
  * 3. `allFileContents` — text file contents (e.g. xacro includes)
  *
- * Missing files are skipped with a warning rather than aborting the export.
+ * Missing or unreadable asset payloads abort the export.
  */
 export async function collectRawFilesZip(options: RawFilesCollectOptions): Promise<Blob> {
   const { assets, availableFiles, allFileContents, onProgress } = options;
@@ -57,7 +79,7 @@ export async function collectRawFilesZip(options: RawFilesCollectOptions): Promi
     onProgress?.(completed, estimatedTotal, label);
   };
 
-  // --- 1. Add mesh/texture assets (blob URLs) ---
+  // --- 1. Add mesh/texture assets ---
   for (const [rawPath, url] of Object.entries(assets)) {
     const path = normalizePath(rawPath);
     if (!path || addedPaths.has(path)) {
@@ -65,22 +87,13 @@ export async function collectRawFilesZip(options: RawFilesCollectOptions): Promi
       continue;
     }
 
-    if (!url.startsWith('blob:')) {
-      // Data URLs or object URLs that aren't blob: — skip or handle inline
-      reportProgress(path);
-      continue;
-    }
-
-    const buffer = await fetchBlobUrl(url);
-    if (buffer !== null) {
+    try {
+      const buffer = await fetchBlobUrl(url, 'asset', path);
       zip.file(path, buffer);
       addedPaths.add(path);
-    } else {
-      // Tolerant: skip missing mesh/texture with warning
-      // eslint-disable-next-line no-console
-      console.warn(`[RawFilesExport] Skipping unavailable asset: ${path}`);
+    } finally {
+      reportProgress(path);
     }
-    reportProgress(path);
   }
 
   // --- 2. Add robot definition files ---
@@ -97,15 +110,14 @@ export async function collectRawFilesZip(options: RawFilesCollectOptions): Promi
       zip.file(path, file.content);
       addedPaths.add(path);
     } else if (file.blobUrl) {
-      // Binary formats (USD, mesh) — fetch the blob
-      const buffer = await fetchBlobUrl(file.blobUrl);
-      if (buffer !== null) {
+      try {
+        const buffer = await fetchBlobUrl(file.blobUrl, 'file', path);
         zip.file(path, buffer);
         addedPaths.add(path);
-      } else {
-        // eslint-disable-next-line no-console
-        console.warn(`[RawFilesExport] Skipping unavailable file: ${path}`);
+      } finally {
+        reportProgress(path);
       }
+      continue;
     } else if (file.content) {
       // Fallback: treat content as text
       zip.file(path, file.content);

@@ -101,6 +101,7 @@ export function buildUnifiedViewerSceneProps({
     availableFiles: viewerResourceScope.availableFiles,
     urdfContent: effectiveUrdfContent,
     sourceFormat: effectiveSourceFormat,
+    allowUrdfXmlFallback: hasActivePreview,
     assets: viewerResourceScope.assets,
     onRobotDataResolved,
     onDocumentLoadEvent,

@@ -99,6 +99,22 @@ test('resolveWorkspaceViewerFallbackRobot keeps the last stable scene during the
   assert.deepEqual(fallbackRobot.selection, { type: 'joint', id: 'joint_a' });
 });
 
+test('resolveWorkspaceViewerFallbackRobot skips the last stable scene after a workspace render failure', () => {
+  const liveRobot = createRobotState('workspace-error');
+  const lastStableViewerRobot = createRobotState('last-stable');
+
+  const fallbackRobot = resolveWorkspaceViewerFallbackRobot({
+    shouldRenderAssembly: true,
+    hasWorkspaceDisplayRobot: false,
+    hasWorkspaceRenderFailure: true,
+    liveRobot,
+    lastStableViewerRobot,
+    selection: { type: null, id: null },
+  });
+
+  assert.equal(fallbackRobot, liveRobot);
+});
+
 test('shouldPersistStableWorkspaceViewerRobot only updates the cache when the visible scene is stable', () => {
   assert.equal(
     shouldPersistStableWorkspaceViewerRobot({

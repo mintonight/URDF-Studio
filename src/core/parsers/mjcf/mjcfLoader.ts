@@ -21,6 +21,8 @@ import {
 } from './mjcfLoadLifecycle';
 import { disposeMJCFMeshCache } from './mjcfMeshAssetLoader';
 
+const MJCF_VIEWER_LOAD_YIELD_BUDGET_MS = 4;
+
 interface MJCFBody {
   name: string;
   pos: [number, number, number];
@@ -105,7 +107,7 @@ export async function loadMJCFToThreeJS(
   const meshCache: MJCFMeshCache = new Map();
 
   try {
-    const yieldIfNeeded = createMainThreadYieldController();
+    const yieldIfNeeded = createMainThreadYieldController(MJCF_VIEWER_LOAD_YIELD_BUDGET_MS);
     const cooperativeYieldIfNeeded = async () => {
       throwIfAborted();
       await yieldIfNeeded();

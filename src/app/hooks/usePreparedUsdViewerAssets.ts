@@ -12,6 +12,8 @@ interface UsePreparedUsdViewerAssetsOptions {
   assemblyState: AssemblyState | null;
   assets: Record<string, string>;
   availableFiles: RobotFile[];
+  additionalSourceFiles?: RobotFile[];
+  preparedExportCaches: Record<string, { meshFiles?: Record<string, Blob> } | null>;
   getUsdPreparedExportCache: (path: string) => { meshFiles?: Record<string, Blob> } | null;
   shouldRenderAssembly: boolean;
 }
@@ -22,45 +24,68 @@ interface PreparedViewerAssetEntry {
   url: string;
 }
 
-function buildPreparedUsdViewerAssetDescriptors({
-  assemblyState,
-  availableFiles,
-  getUsdPreparedExportCache,
-}: Omit<UsePreparedUsdViewerAssetsOptions, 'assets' | 'shouldRenderAssembly'>): PreparedUsdViewerAssetDescriptor[] {
-  if (!assemblyState) {
-    return [];
+function appendPreparedUsdViewerAssetDescriptors(
+  descriptors: PreparedUsdViewerAssetDescriptor[],
+  sourceFile: RobotFile,
+  getUsdPreparedExportCache: UsePreparedUsdViewerAssetsOptions['getUsdPreparedExportCache'],
+): void {
+  if (sourceFile.format !== 'usd') {
+    return;
   }
 
+  const preparedCache = getUsdPreparedExportCache(sourceFile.name);
+  if (!preparedCache?.meshFiles) {
+    return;
+  }
+
+  Object.entries(preparedCache.meshFiles).forEach(([meshPath, blob]) => {
+    const assetPath = resolveImportedAssetPath(meshPath, sourceFile.name);
+    if (!assetPath) {
+      return;
+    }
+
+    descriptors.push({
+      assetPath,
+      blob,
+      cacheKey: `${sourceFile.name}::${meshPath}`,
+    });
+  });
+}
+
+export function buildPreparedUsdViewerAssetDescriptors({
+  assemblyState,
+  availableFiles,
+  additionalSourceFiles = [],
+  getUsdPreparedExportCache,
+}: Omit<
+  UsePreparedUsdViewerAssetsOptions,
+  'assets' | 'preparedExportCaches' | 'shouldRenderAssembly'
+>): PreparedUsdViewerAssetDescriptor[] {
   const availableFilesByPath = new Map(availableFiles.map((file) => [file.name, file] as const));
-  const descriptors: PreparedUsdViewerAssetDescriptor[] = [];
+  const sourceFilesByPath = new Map<string, RobotFile>();
 
-  Object.values(assemblyState.components).forEach((component) => {
-    if (component.visible === false) {
-      return;
+  additionalSourceFiles.forEach((sourceFile) => {
+    if (sourceFile?.format === 'usd') {
+      sourceFilesByPath.set(sourceFile.name, sourceFile);
     }
+  });
 
-    const sourceFile = availableFilesByPath.get(component.sourceFile);
-    if (!sourceFile || sourceFile.format !== 'usd') {
-      return;
-    }
-
-    const preparedCache = getUsdPreparedExportCache(sourceFile.name);
-    if (!preparedCache?.meshFiles) {
-      return;
-    }
-
-    Object.entries(preparedCache.meshFiles).forEach(([meshPath, blob]) => {
-      const assetPath = resolveImportedAssetPath(meshPath, sourceFile.name);
-      if (!assetPath) {
+  if (assemblyState) {
+    Object.values(assemblyState.components).forEach((component) => {
+      if (component.visible === false) {
         return;
       }
 
-      descriptors.push({
-        assetPath,
-        blob,
-        cacheKey: `${sourceFile.name}::${meshPath}`,
-      });
+      const sourceFile = availableFilesByPath.get(component.sourceFile);
+      if (sourceFile?.format === 'usd') {
+        sourceFilesByPath.set(sourceFile.name, sourceFile);
+      }
     });
+  }
+
+  const descriptors: PreparedUsdViewerAssetDescriptor[] = [];
+  sourceFilesByPath.forEach((sourceFile) => {
+    appendPreparedUsdViewerAssetDescriptors(descriptors, sourceFile, getUsdPreparedExportCache);
   });
 
   return descriptors;
@@ -70,20 +95,27 @@ export function usePreparedUsdViewerAssets({
   assemblyState,
   assets,
   availableFiles,
+  additionalSourceFiles = [],
+  preparedExportCaches,
   getUsdPreparedExportCache,
   shouldRenderAssembly,
 }: UsePreparedUsdViewerAssetsOptions): Record<string, string> {
   const preparedAssetEntries = useMemo(
-    () => (
-      shouldRenderAssembly
-        ? buildPreparedUsdViewerAssetDescriptors({
-          assemblyState,
-          availableFiles,
-          getUsdPreparedExportCache,
-        })
-        : []
-    ),
-    [assemblyState, availableFiles, getUsdPreparedExportCache, shouldRenderAssembly],
+    () =>
+      buildPreparedUsdViewerAssetDescriptors({
+        assemblyState: shouldRenderAssembly ? assemblyState : null,
+        availableFiles,
+        additionalSourceFiles,
+        getUsdPreparedExportCache,
+      }),
+    [
+      additionalSourceFiles,
+      assemblyState,
+      availableFiles,
+      getUsdPreparedExportCache,
+      preparedExportCaches,
+      shouldRenderAssembly,
+    ],
   );
 
   const preparedAssetRegistryRef = useRef<Map<string, PreparedViewerAssetEntry>>(new Map());
@@ -130,19 +162,18 @@ export function usePreparedUsdViewerAssets({
     setPreparedAssets(nextPreparedAssets);
   }, [preparedAssetEntries]);
 
-  useEffect(() => () => {
-    preparedAssetRegistryRef.current.forEach((entry) => {
-      URL.revokeObjectURL(entry.url);
-    });
-    preparedAssetRegistryRef.current.clear();
-  }, []);
+  useEffect(
+    () => () => {
+      preparedAssetRegistryRef.current.forEach((entry) => {
+        URL.revokeObjectURL(entry.url);
+      });
+      preparedAssetRegistryRef.current.clear();
+    },
+    [],
+  );
 
   return useMemo(
-    () => (
-      Object.keys(preparedAssets).length === 0
-        ? assets
-        : { ...assets, ...preparedAssets }
-    ),
+    () => (Object.keys(preparedAssets).length === 0 ? assets : { ...assets, ...preparedAssets }),
     [assets, preparedAssets],
   );
 }

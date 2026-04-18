@@ -540,9 +540,7 @@ export class LinkDynamicsController {
         const buildPromise = this.startLinkDynamicsCatalogBuildIfNeeded(renderInterface);
         if (!buildPromise)
             return;
-        void buildPromise.catch((error) => {
-            console.error("[LinkDynamicsController] Failed to prewarm link dynamics catalog.", error);
-        });
+        void buildPromise.catch(() => { });
     }
     async prewarmCatalogForInteractive(renderInterface) {
         if (!renderInterface?.meshes)
@@ -554,9 +552,7 @@ export class LinkDynamicsController {
         try {
             await buildPromise;
         }
-        catch (error) {
-            console.error("[LinkDynamicsController] Failed to prewarm link dynamics catalog for interactive readiness.", error);
-        }
+        catch { }
     }
     async rebuild(usdRoot, renderInterface, optionsOrVisible) {
         const requestId = ++this.rebuildRequestId;
@@ -748,6 +744,7 @@ export class LinkDynamicsController {
         try {
             cachedRenderSnapshot = getRenderRobotMetadataSnapshot(renderInterface, this.stageSourcePath, {
                 strictErrors: true,
+                logErrors: false,
             });
         }
         catch (error) {
@@ -872,6 +869,7 @@ export class LinkDynamicsController {
             stageSourcePath: this.stageSourcePath,
             skipIdleWait: true,
             skipUrdfTruthFallback: true,
+            logErrors: false,
         }), renderInterface);
         if (importedFromRenderSnapshot > 0) {
             return;

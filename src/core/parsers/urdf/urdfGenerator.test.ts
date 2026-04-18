@@ -244,6 +244,42 @@ test('generateURDF converts plane geometry to thin box', () => {
   assert.ok(result.includes('<link name="base_link"'));
 });
 
+test('generateURDF keeps Gazebo package texture exports distinct when filenames collide', () => {
+  const robot: RobotState = {
+    name: 'gazebo_texture_collision',
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          authoredMaterials: [{ texture: 'model_a/materials/textures/bus.png' }],
+        },
+        visualBodies: [
+          {
+            ...DEFAULT_LINK.visual,
+            type: GeometryType.BOX,
+            dimensions: { x: 0.5, y: 0.5, z: 0.5 },
+            authoredMaterials: [{ texture: 'model_b/materials/textures/bus.png' }],
+          },
+        ],
+      },
+    },
+    joints: {},
+    materials: {},
+  };
+
+  const generated = generateURDF(robot, { useRelativePaths: true });
+
+  assert.match(generated, /<texture filename="textures\/model_a\/bus\.png" \/>/);
+  assert.match(generated, /<texture filename="textures\/model_b\/bus\.png" \/>/);
+});
+
 test('generateURDF downgrades ellipsoid geometry to bounding box', () => {
   const robot: RobotState = {
     name: 'ellipsoid_demo',

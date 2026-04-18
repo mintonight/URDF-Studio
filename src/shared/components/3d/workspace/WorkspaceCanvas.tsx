@@ -4,7 +4,7 @@ import { Environment, GizmoHelper, GizmoViewport } from '@react-three/drei';
 import * as THREE from 'three';
 
 import type { Theme } from '@/types';
-import { translations, type Language } from '@/shared/i18n';
+import type { Language } from '@/shared/i18n';
 import { attachContextMenuBlocker } from '@/shared/utils';
 
 import { UsageGuide } from '../UsageGuide';
@@ -34,7 +34,6 @@ import {
 } from './workspaceCanvasConfig';
 import type { WorkspaceCameraSnapshot } from './workspaceCameraSnapshot';
 import { WorkspaceCanvasErrorBoundary } from './WorkspaceCanvasErrorBoundary';
-import { WorkspaceCanvasErrorNotice } from './WorkspaceCanvasErrorNotice';
 import {
   getWorkspaceCanvasErrorDetail,
   probeWorkspaceCanvasWebglSupport,
@@ -74,7 +73,6 @@ interface WorkspaceCanvasProps {
     light: string;
     dark: string;
   };
-  contextLostMessage?: string;
   showWorldOriginAxes?: boolean;
   showUsageGuide?: boolean;
   renderKey?: string;
@@ -120,20 +118,14 @@ export const WorkspaceCanvas = ({
   orbitControlsProps,
   controlLayerKey = 'default',
   background = WORKSPACE_CANVAS_BACKGROUND,
-  contextLostMessage,
   showWorldOriginAxes = true,
   showUsageGuide = true,
   renderKey = 'default',
   initialCameraSnapshot = null,
 }: WorkspaceCanvasProps) => {
   const effectiveTheme = useWorkspaceCanvasTheme(theme);
-  const t = translations[lang ?? 'en'];
-  const [contextLost, setContextLost] = useState(false);
   const [contextEpoch, setContextEpoch] = useState(0);
-  const [canvasFailure, setCanvasFailure] = useState<{
-    kind: 'unsupported' | 'initialization' | 'runtime';
-    detail?: string;
-  } | null>(null);
+  const [canvasFailure, setCanvasFailure] = useState(false);
   const [webglSupport, setWebglSupport] = useState<WorkspaceCanvasWebglSupportState | null>(null);
   const [snapshotRenderActive, setSnapshotRenderActive] = useState(false);
   const contextMenuCleanupRef = useRef<(() => void) | null>(null);
@@ -199,11 +191,19 @@ export const WorkspaceCanvas = ({
   }, [canvasResetKey]);
 
   useEffect(() => {
-    setCanvasFailure(null);
+    setCanvasFailure(false);
   }, [failureResetKey]);
 
   useEffect(() => {
-    setWebglSupport(probeWorkspaceCanvasWebglSupport());
+    const support = probeWorkspaceCanvasWebglSupport();
+    setWebglSupport(support);
+
+    if (!support.supported) {
+      console.error(
+        '[WorkspaceCanvas] WebGL is unavailable; skipping 3D canvas rendering.',
+        support.detail ?? support.reason ?? 'Unknown WebGL support failure.',
+      );
+    }
   }, []);
 
   const handleCreated = useCallback(
@@ -215,8 +215,7 @@ export const WorkspaceCanvas = ({
       }
 
       canvasReadyRef.current = true;
-      setCanvasFailure(null);
-      setContextLost(false);
+      setCanvasFailure(false);
       contextLossInFlightRef.current = false;
       rendererRef.current = state.gl;
 
@@ -243,11 +242,10 @@ export const WorkspaceCanvas = ({
 
       const handleContextLost = (event: Event) => {
         event.preventDefault();
-        setContextLost(true);
+        console.error('[WorkspaceCanvas] WebGL context lost; rebuilding 3D canvas renderer.');
         if (!contextLossInFlightRef.current) {
           contextLossInFlightRef.current = true;
-          // Force a full renderer rebuild. This is intentionally explicit and user-visible:
-          // we keep the overlay until the new canvas finishes creating.
+          // Force a full renderer rebuild instead of leaving the canvas in a stale state.
           setContextEpoch((value) => value + 1);
         }
       };
@@ -255,7 +253,6 @@ export const WorkspaceCanvas = ({
       const handleContextRestored = () => {
         // If the browser restored the context without us remounting, schedule a redraw.
         // In practice, the epoch-based remount above is the more reliable recovery path.
-        setContextLost(false);
         contextLossInFlightRef.current = false;
         state.invalidate();
       };
@@ -290,7 +287,11 @@ export const WorkspaceCanvas = ({
       error,
     );
 
-    setCanvasFailure({ kind, detail });
+    if (detail) {
+      console.error('[WorkspaceCanvas] Canvas error detail:', detail);
+    }
+
+    setCanvasFailure(true);
   }, []);
 
   useEffect(() => {
@@ -335,29 +336,7 @@ export const WorkspaceCanvas = ({
     [endInteraction, onMouseLeave],
   );
 
-  const activeCanvasFailure = canvasFailure
-    ? canvasFailure
-    : webglSupport && !webglSupport.supported
-      ? {
-          kind: 'unsupported' as const,
-          detail: webglSupport.detail,
-        }
-      : null;
-  const shouldRenderCanvas = webglSupport?.supported === true && !activeCanvasFailure;
-  const canvasErrorTitle =
-    activeCanvasFailure?.kind === 'runtime' ? t.webglRuntimeErrorTitle : t.webglUnsupportedTitle;
-  const canvasErrorMessage =
-    activeCanvasFailure?.kind === 'runtime'
-      ? t.webglRuntimeErrorMessage
-      : t.webglUnsupportedMessage;
-  const canvasErrorDetail = import.meta.env.DEV ? activeCanvasFailure?.detail : undefined;
-  const canvasErrorNotice = (
-    <WorkspaceCanvasErrorNotice
-      title={canvasErrorTitle}
-      message={canvasErrorMessage}
-      detail={canvasErrorDetail}
-    />
-  );
+  const shouldRenderCanvas = webglSupport?.supported === true && !canvasFailure;
 
   return (
     <div
@@ -378,11 +357,9 @@ export const WorkspaceCanvas = ({
       onContextMenuCapture={(event) => event.preventDefault()}
     >
       {overlays}
-      {activeCanvasFailure ? (
-        canvasErrorNotice
-      ) : shouldRenderCanvas ? (
+      {shouldRenderCanvas ? (
         <WorkspaceCanvasErrorBoundary
-          fallback={canvasErrorNotice}
+          fallback={null}
           onError={handleCanvasError}
           resetKey={failureResetKey}
         >
@@ -465,15 +442,6 @@ export const WorkspaceCanvas = ({
       ) : null}
 
       {lang && showUsageGuide && shouldRenderCanvas ? <UsageGuide lang={lang} /> : null}
-
-      {shouldRenderCanvas && contextLost && contextLostMessage && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="rounded-lg border border-border-black bg-panel-bg p-6 text-center shadow-xl">
-            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-system-blue border-t-transparent" />
-            <p className="text-text-secondary">{contextLostMessage}</p>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

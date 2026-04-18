@@ -14,6 +14,8 @@ interface SourceTextFileEntry {
 export interface SourceCodeDocumentChangeTarget {
   name: string;
   format: SourceFileFormat;
+  content?: string;
+  persistContent?: boolean;
 }
 
 export interface SourceCodeDocumentDescriptor {
@@ -261,6 +263,23 @@ function resolveRelatedDocumentFlavor(
   return fallbackFormat === 'mjcf' ? 'mjcf' : 'xacro';
 }
 
+function resolveGeneratedDocumentFormat(
+  documentFlavor: SourceCodeDocumentFlavor,
+): SourceFileFormat {
+  switch (documentFlavor) {
+    case 'urdf':
+      return 'urdf';
+    case 'xacro':
+      return 'xacro';
+    case 'sdf':
+      return 'sdf';
+    case 'mjcf':
+      return 'mjcf';
+    default:
+      return null;
+  }
+}
+
 function shouldEnableValidationForDocument(
   documentFlavor: SourceCodeDocumentFlavor,
   content: string,
@@ -371,6 +390,8 @@ export function buildSourceCodeDocuments({
   forceReadOnly = false,
 }: BuildSourceCodeDocumentsParams): SourceCodeDocumentDescriptor[] {
   if (!activeSourceFile) {
+    const generatedDocumentFormat = resolveGeneratedDocumentFormat(sourceCodeDocumentFlavor);
+    const isReadOnly = forceReadOnly || isSourceCodeDocumentReadOnly(sourceCodeDocumentFlavor);
     return [
       {
         id: 'source:robot',
@@ -379,7 +400,16 @@ export function buildSourceCodeDocuments({
         filePath: null,
         content: sourceCodeContent,
         documentFlavor: sourceCodeDocumentFlavor,
-        readOnly: forceReadOnly || isSourceCodeDocumentReadOnly(sourceCodeDocumentFlavor),
+        readOnly: isReadOnly,
+        changeTarget:
+          !isReadOnly && generatedDocumentFormat
+            ? {
+                name: 'robot.urdf',
+                format: generatedDocumentFormat,
+                content: sourceCodeContent,
+                persistContent: false,
+              }
+            : undefined,
       },
     ];
   }

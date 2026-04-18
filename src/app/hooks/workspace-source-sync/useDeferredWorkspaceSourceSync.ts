@@ -1,12 +1,20 @@
 import { startTransition, useCallback, useEffect, useRef } from 'react';
-import { generateURDF } from '@/core/parsers';
-import { type AssemblyState, type RobotFile, type RobotState } from '@/types';
+
+import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
+import type {
+  GenerateEditableRobotSourceFormat,
+  GenerateEditableRobotSourceOptions,
+} from '@/app/utils/generateEditableRobotSource';
+import type { AssemblyState, RobotFile, RobotState } from '@/types';
+
+import { generateEditableRobotSourceWithWorker } from '../robotImportWorkerBridge';
 import { createRobotSourceSnapshot } from '../workspaceSourceSyncUtils';
+import { getGeneratedSourceFromCache, storeGeneratedSourceInCache } from './sourceGenerationCache';
 
 interface DeferredWorkspaceSourceSyncTask {
   cacheKey: string;
   fileName: string;
-  sourceRobotState: RobotState;
+  options: GenerateEditableRobotSourceOptions;
 }
 
 interface UseDeferredWorkspaceSourceSyncParams {
@@ -16,11 +24,47 @@ interface UseDeferredWorkspaceSourceSyncParams {
   selectedFile: RobotFile | null;
   availableFiles: RobotFile[];
   allFileContents: Record<string, string>;
-  readCachedGeneratedSource: (cacheKey: string, buildSource: () => string) => string;
+  generatedSourceCache: Map<string, string>;
   syncTextFileContent: (fileName: string, content: string) => void;
   setSelectedFile: (file: RobotFile | null) => void;
   setAvailableFiles: (files: RobotFile[]) => void;
   setAllFileContents: (contents: Record<string, string>) => void;
+}
+
+function toDeferredEditableSourceFormat(
+  format: RobotFile['format'],
+): GenerateEditableRobotSourceFormat | null {
+  switch (format) {
+    case 'urdf':
+    case 'mjcf':
+    case 'sdf':
+      return format;
+    default:
+      return null;
+  }
+}
+
+function buildDeferredWorkspaceSourceSyncTask(
+  sourceFile: RobotFile,
+  sourceRobotState: RobotState,
+): DeferredWorkspaceSourceSyncTask | null {
+  const format = toDeferredEditableSourceFormat(sourceFile.format);
+  if (!format) {
+    return null;
+  }
+
+  const sourceSnapshot = createRobotSourceSnapshot(sourceRobotState);
+
+  return {
+    fileName: sourceFile.name,
+    cacheKey: `component-source:${format}:${sourceFile.name}:${sourceSnapshot}`,
+    options: {
+      format,
+      robotState: sourceRobotState,
+      includeHardware: 'auto',
+      preserveMeshPaths: format === 'xacro',
+    },
+  };
 }
 
 export function useDeferredWorkspaceSourceSync({
@@ -30,7 +74,7 @@ export function useDeferredWorkspaceSourceSync({
   selectedFile,
   availableFiles,
   allFileContents,
-  readCachedGeneratedSource,
+  generatedSourceCache,
   syncTextFileContent,
   setSelectedFile,
   setAvailableFiles,
@@ -64,44 +108,82 @@ export function useDeferredWorkspaceSourceSync({
 
     cancelDeferredWorkspaceSourceSync();
     const immediateSourceFileName =
-      isCodeViewerOpen && selectedFile?.format === 'urdf' ? selectedFile.name : null;
+      isCodeViewerOpen &&
+      selectedFile &&
+      toDeferredEditableSourceFormat(selectedFile.format) !== null
+        ? selectedFile.name
+        : null;
     const deferredSourceSyncTasks: DeferredWorkspaceSourceSyncTask[] = [];
+    let immediateSourceSyncTask: DeferredWorkspaceSourceSyncTask | null = null;
 
     Object.values(assemblyState.components).forEach((component) => {
       const sourceFile = availableFiles.find((file) => file.name === component.sourceFile);
-      if (!sourceFile || sourceFile.format !== 'urdf') {
+      if (!sourceFile) {
         return;
       }
 
-      const sourceRobotState: RobotState = {
+      const sourceSyncTask = buildDeferredWorkspaceSourceSyncTask(sourceFile, {
         ...component.robot,
         selection: { type: null, id: null },
-      };
-      const componentSnapshot = createRobotSourceSnapshot(sourceRobotState);
-      const sourceSyncTask: DeferredWorkspaceSourceSyncTask = {
-        fileName: sourceFile.name,
-        cacheKey: `component-urdf:${sourceFile.name}:${componentSnapshot}`,
-        sourceRobotState,
-      };
+      });
+      if (!sourceSyncTask) {
+        return;
+      }
 
       if (sourceFile.name === immediateSourceFileName) {
-        syncTextFileContent(
-          sourceFile.name,
-          readCachedGeneratedSource(sourceSyncTask.cacheKey, () =>
-            generateURDF(sourceRobotState, { includeHardware: 'auto' }),
-          ),
-        );
+        immediateSourceSyncTask = sourceSyncTask;
         return;
       }
 
       deferredSourceSyncTasks.push(sourceSyncTask);
     });
 
-    if (deferredSourceSyncTasks.length === 0) {
+    if (!immediateSourceSyncTask && deferredSourceSyncTasks.length === 0) {
       return;
     }
 
     const requestId = ++deferredWorkspaceSourceSyncRequestRef.current;
+    const resolveGeneratedSource = async (
+      task: DeferredWorkspaceSourceSyncTask,
+    ): Promise<[string, string]> => {
+      const cachedContent = getGeneratedSourceFromCache(generatedSourceCache, task.cacheKey);
+      if (cachedContent !== null) {
+        return [task.fileName, cachedContent];
+      }
+
+      const generatedContent = await generateEditableRobotSourceWithWorker(task.options);
+      storeGeneratedSourceInCache(generatedSourceCache, task.cacheKey, generatedContent);
+      return [task.fileName, generatedContent];
+    };
+
+    if (immediateSourceSyncTask) {
+      void resolveGeneratedSource(immediateSourceSyncTask)
+        .then(([fileName, content]) => {
+          if (deferredWorkspaceSourceSyncRequestRef.current !== requestId) {
+            return;
+          }
+
+          syncTextFileContent(fileName, content);
+        })
+        .catch((error) => {
+          if (deferredWorkspaceSourceSyncRequestRef.current !== requestId) {
+            return;
+          }
+
+          scheduleFailFastInDev(
+            'useDeferredWorkspaceSourceSync:immediateSourceSync',
+            new Error(
+              `Failed to generate editable source for workspace component "${immediateSourceSyncTask?.fileName}".`,
+              { cause: error },
+            ),
+          );
+        });
+    }
+
+    if (deferredSourceSyncTasks.length === 0) {
+      return cancelDeferredWorkspaceSourceSync;
+    }
+
     const flushDeferredWorkspaceSourceSync = () => {
       deferredWorkspaceSourceSyncIdleRef.current = null;
       deferredWorkspaceSourceSyncTimeoutRef.current = null;
@@ -110,64 +192,71 @@ export function useDeferredWorkspaceSourceSync({
         return;
       }
 
-      const generatedComponentSources = new Map<string, string>();
-      deferredSourceSyncTasks.forEach((task) => {
-        generatedComponentSources.set(
-          task.fileName,
-          readCachedGeneratedSource(task.cacheKey, () =>
-            generateURDF(task.sourceRobotState, { includeHardware: 'auto' }),
-          ),
-        );
-      });
-
-      if (deferredWorkspaceSourceSyncRequestRef.current !== requestId) {
-        return;
-      }
-
-      startTransition(() => {
-        if (deferredWorkspaceSourceSyncRequestRef.current !== requestId) {
-          return;
-        }
-
-        let nextAvailableFiles: RobotFile[] | null = null;
-        let nextAllFileContents: Record<string, string> | null = null;
-        let nextSelectedFile: RobotFile | null = null;
-
-        for (const [fileName, content] of generatedComponentSources) {
-          if (selectedFile?.name === fileName && selectedFile.content !== content) {
-            nextSelectedFile = {
-              ...selectedFile,
-              content,
-            };
+      void Promise.all(deferredSourceSyncTasks.map(resolveGeneratedSource))
+        .then((generatedComponentSources) => {
+          if (deferredWorkspaceSourceSyncRequestRef.current !== requestId) {
+            return;
           }
 
-          if (availableFiles.some((file) => file.name === fileName && file.content !== content)) {
-            const baseFiles = nextAvailableFiles ?? availableFiles;
-            nextAvailableFiles = baseFiles.map((file) =>
-              file.name === fileName ? { ...file, content } : file,
-            );
+          startTransition(() => {
+            if (deferredWorkspaceSourceSyncRequestRef.current !== requestId) {
+              return;
+            }
+
+            let nextAvailableFiles: RobotFile[] | null = null;
+            let nextAllFileContents: Record<string, string> | null = null;
+            let nextSelectedFile: RobotFile | null = null;
+
+            for (const [fileName, content] of generatedComponentSources) {
+              if (selectedFile?.name === fileName && selectedFile.content !== content) {
+                nextSelectedFile = {
+                  ...selectedFile,
+                  content,
+                };
+              }
+
+              if (
+                availableFiles.some((file) => file.name === fileName && file.content !== content)
+              ) {
+                const baseFiles = nextAvailableFiles ?? availableFiles;
+                nextAvailableFiles = baseFiles.map((file) =>
+                  file.name === fileName ? { ...file, content } : file,
+                );
+              }
+
+              if (allFileContents[fileName] !== content) {
+                nextAllFileContents = {
+                  ...(nextAllFileContents ?? allFileContents),
+                  [fileName]: content,
+                };
+              }
+            }
+
+            if (nextSelectedFile) {
+              setSelectedFile(nextSelectedFile);
+            }
+
+            if (nextAvailableFiles) {
+              setAvailableFiles(nextAvailableFiles);
+            }
+
+            if (nextAllFileContents) {
+              setAllFileContents(nextAllFileContents);
+            }
+          });
+        })
+        .catch((error) => {
+          if (deferredWorkspaceSourceSyncRequestRef.current !== requestId) {
+            return;
           }
 
-          if (allFileContents[fileName] !== content) {
-            nextAllFileContents = {
-              ...(nextAllFileContents ?? allFileContents),
-              [fileName]: content,
-            };
-          }
-        }
-
-        if (nextSelectedFile) {
-          setSelectedFile(nextSelectedFile);
-        }
-
-        if (nextAvailableFiles) {
-          setAvailableFiles(nextAvailableFiles);
-        }
-
-        if (nextAllFileContents) {
-          setAllFileContents(nextAllFileContents);
-        }
-      });
+          scheduleFailFastInDev(
+            'useDeferredWorkspaceSourceSync:deferredSourceSync',
+            new Error('Failed to generate deferred workspace editable source.', {
+              cause: error,
+            }),
+          );
+        });
     };
 
     if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
@@ -188,8 +277,8 @@ export function useDeferredWorkspaceSourceSync({
     assemblyState,
     availableFiles,
     cancelDeferredWorkspaceSourceSync,
+    generatedSourceCache,
     isCodeViewerOpen,
-    readCachedGeneratedSource,
     selectedFile,
     setAllFileContents,
     setAvailableFiles,

@@ -34,6 +34,21 @@ export type { UsdLayerFileFormat, UsdPackageLayoutProfile } from './usdPackageLa
 
 const USD_EXPORT_RECORD_YIELD_INTERVAL = 4;
 
+const createUsdExportRobot = (robot: RobotState): RobotState => {
+  const exportRobot = structuredClone(robot);
+  exportRobot.selection = { type: null, id: null };
+
+  Object.values(exportRobot.joints).forEach((joint) => {
+    if (joint.type === 'ball' || joint.type === 'floating') {
+      delete joint.quaternion;
+    }
+
+    joint.angle = Number.isFinite(joint.referencePosition) ? joint.referencePosition! : 0;
+  });
+
+  return exportRobot;
+};
+
 export type ExportRobotToUsdPhase = 'links' | 'geometry' | 'scene' | 'assets';
 
 export interface ExportRobotToUsdProgress {
@@ -75,8 +90,9 @@ export async function exportRobotToUsd({
   layoutProfile = 'legacy',
   onProgress,
 }: ExportRobotToUsdOptions): Promise<ExportRobotToUsdPayload> {
+  const exportRobot = createUsdExportRobot(robot);
   const resolvedLayoutProfile = resolveUsdPackageLayoutProfile(layoutProfile);
-  const normalizedExportName = sanitizeUsdIdentifier(exportName || robot.name || 'robot');
+  const normalizedExportName = sanitizeUsdIdentifier(exportName || exportRobot.name || 'robot');
   const configStem =
     resolvedLayoutProfile === 'isaacsim'
       ? normalizedExportName
@@ -84,20 +100,20 @@ export async function exportRobotToUsd({
   const rootPrimName = configStem;
   const downloadExtension = fileFormat === 'usda' ? 'usda' : 'usd';
   const { registry, tempObjectUrls } = createUsdAssetRegistry(assets, extraMeshFiles);
-  const pathMaps = buildUsdLinkPathMaps(robot, rootPrimName, {
+  const pathMaps = buildUsdLinkPathMaps(exportRobot, rootPrimName, {
     layoutProfile: resolvedLayoutProfile,
   });
   const sceneRoot = new THREE.Group();
   sceneRoot.name = rootPrimName;
   const linkProgressTracker: UsdExportProgressTracker<'links'> = createUsdProgressTracker(
     'links',
-    Math.max(1, Object.keys(robot.links).length),
+    Math.max(1, Object.keys(exportRobot.links).length),
     onProgress as ((progress: UsdProgressEvent<'links'>) => void) | undefined,
   );
 
   try {
     const linkRoot = await buildUsdLinkSceneRoot({
-      robot,
+      robot: exportRobot,
       registry,
       meshCompression,
       onLinkVisit: async (link) => {
@@ -133,7 +149,7 @@ export async function exportRobotToUsd({
     const baseLayerContent = await buildUsdBaseLayerContent(sceneRoot, usdContext, onProgress);
     await yieldToMainThread();
     const physicsLayerContent = buildUsdPhysicsLayerContent(
-      robot,
+      exportRobot,
       pathMaps,
       rootPrimName,
       configStem,
@@ -146,7 +162,7 @@ export async function exportRobotToUsd({
     const sensorLayerContent = buildUsdSensorLayerContent(rootPrimName);
     const robotLayerContent =
       resolvedLayoutProfile === 'isaacsim'
-        ? buildUsdRobotLayerContent(robot, pathMaps, rootPrimName, {
+        ? buildUsdRobotLayerContent(exportRobot, pathMaps, rootPrimName, {
             layoutProfile: resolvedLayoutProfile,
           })
         : undefined;

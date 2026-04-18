@@ -523,6 +523,7 @@ export interface TranslationKeys {
   usdPreviewRequiresOpen: string;
   privacyNoticeLocalProcessing: string;
   importPackageAssetBundleHint: string;
+  importPrimitiveGeometryHint: string;
   importUspSuccess: string;
   addedFilesToAssetLibrary: string;
   libraryImportSuccessful: string;
@@ -530,6 +531,7 @@ export interface TranslationKeys {
   noDefinitionFilesFound: string;
   noSupportedImportFilesFound: string;
   importFailedCheckFiles: string;
+  importBackgroundAssetsStillLoadingFailed: string;
   jointName: string;
   motorType: string;
   addedComponent: string;

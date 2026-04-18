@@ -5,6 +5,7 @@ interface MeshAnalysisBatchTask {
   cacheKey: string;
   meshPath: string;
   dimensions?: { x: number; y: number; z: number };
+  sourceFilePath?: string;
 }
 
 interface AnalyzeMeshBatchArgs {

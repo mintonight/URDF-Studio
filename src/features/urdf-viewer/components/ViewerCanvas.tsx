@@ -14,7 +14,6 @@ interface ViewerCanvasProps {
   onOrbitStart?: () => void;
   onOrbitEnd?: () => void;
   onPointerMissed?: () => void;
-  contextLostMessage: string;
   showUsageGuide?: boolean;
   children: ReactNode;
 }
@@ -29,7 +28,6 @@ export const ViewerCanvas = memo(function ViewerCanvas({
   onOrbitStart,
   onOrbitEnd,
   onPointerMissed,
-  contextLostMessage,
   showUsageGuide = true,
   children,
 }: ViewerCanvasProps) {
@@ -52,7 +50,6 @@ export const ViewerCanvas = memo(function ViewerCanvas({
         onStart: onOrbitStart,
         onEnd: onOrbitEnd,
       }}
-      contextLostMessage={contextLostMessage}
       showUsageGuide={showUsageGuide}
     >
       {children}

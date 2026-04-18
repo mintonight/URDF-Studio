@@ -1,6 +1,9 @@
 import { GeometryType, type RobotData, type UrdfLink } from '@/types';
 import { getVisualGeometryEntries } from './visualBodies';
-import { getEffectiveGeometryAuthoredMaterials } from './visualMaterials';
+import {
+  getEffectiveGeometryAuthoredMaterials,
+  hasMultipleAuthoredMaterials,
+} from './visualMaterials';
 
 type RobotMaterials = RobotData['materials'];
 type RobotMaterialEntry = NonNullable<RobotMaterials>[string];
@@ -22,6 +25,7 @@ function materialEntriesEqual(
 ): boolean {
   return (
     left?.color === right?.color &&
+    JSON.stringify(left?.colorRgba ?? null) === JSON.stringify(right?.colorRgba ?? null) &&
     left?.texture === right?.texture &&
     JSON.stringify(left?.usdMaterial ?? null) === JSON.stringify(right?.usdMaterial ?? null)
   );
@@ -29,7 +33,7 @@ function materialEntriesEqual(
 
 function resolveTrackedVisualMaterial(
   link: UrdfLink,
-): Pick<RobotMaterialEntry, 'color' | 'texture'> | null {
+): Pick<RobotMaterialEntry, 'color' | 'colorRgba' | 'texture'> | null {
   if (link.visual.type === GeometryType.NONE) {
     return null;
   }
@@ -41,14 +45,26 @@ function resolveTrackedVisualMaterial(
 
   const authoredMaterial = authoredMaterials[0];
   const color = normalizeMaterialValue(authoredMaterial?.color ?? link.visual.color);
+  const colorRgba =
+    Array.isArray(authoredMaterial?.colorRgba) &&
+    authoredMaterial.colorRgba.length === 4 &&
+    authoredMaterial.colorRgba.every((value) => Number.isFinite(value))
+      ? ([
+          Number(authoredMaterial.colorRgba[0]),
+          Number(authoredMaterial.colorRgba[1]),
+          Number(authoredMaterial.colorRgba[2]),
+          Number(authoredMaterial.colorRgba[3]),
+        ] as [number, number, number, number])
+      : undefined;
   const texture = normalizeMaterialValue(authoredMaterial?.texture);
 
-  if (!color && !texture) {
+  if (!color && !colorRgba && !texture) {
     return null;
   }
 
   return {
     ...(color ? { color } : {}),
+    ...(colorRgba ? { colorRgba } : {}),
     ...(texture ? { texture } : {}),
   };
 }
@@ -96,6 +112,12 @@ export function syncRobotMaterialsForLinkUpdate(
     delete nextEntry.color;
   }
 
+  if (resolvedVisualMaterial?.colorRgba) {
+    nextEntry.colorRgba = resolvedVisualMaterial.colorRgba;
+  } else {
+    delete nextEntry.colorRgba;
+  }
+
   if (nextTexture) {
     nextEntry.texture = nextTexture;
   } else {
@@ -106,7 +128,7 @@ export function syncRobotMaterialsForLinkUpdate(
     delete nextEntry.usdMaterial;
   }
 
-  if (!nextEntry.color && !nextEntry.texture && !nextEntry.usdMaterial) {
+  if (!nextEntry.color && !nextEntry.colorRgba && !nextEntry.texture && !nextEntry.usdMaterial) {
     if (!materials || !Object.prototype.hasOwnProperty.call(materials, nextLink.id)) {
       return materials;
     }
@@ -143,6 +165,7 @@ export function syncRobotVisualColorsFromMaterials<
       if (
         !materialColor ||
         link.visual.type === GeometryType.NONE ||
+        hasMultipleAuthoredMaterials(link.visual) ||
         materialValuesEqual(link.visual.color, materialColor)
       ) {
         return [linkId, link];

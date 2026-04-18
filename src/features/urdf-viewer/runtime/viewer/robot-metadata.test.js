@@ -154,6 +154,29 @@ test('warmupRenderRobotMetadataSnapshot logs asynchronous warmup rejections inst
     assert.match(String(loggedErrors[0]?.[1] || ''), /warmup-promise-failed/);
 });
 
+test('getRenderRobotMetadataSnapshot can suppress getter failure logs when the caller will report the higher-level failure', () => {
+    const originalConsoleError = console.error;
+    const loggedErrors = [];
+    console.error = (...args) => {
+        loggedErrors.push(args);
+    };
+
+    try {
+        const renderInterface = {
+            getCachedRobotMetadataSnapshot() {
+                throw new Error('getter-crashed');
+            },
+        };
+
+        assert.equal(getRenderRobotMetadataSnapshot(renderInterface, '/robots/test.usd', { logErrors: false }), null);
+    }
+    finally {
+        console.error = originalConsoleError;
+    }
+
+    assert.equal(loggedErrors.length, 0);
+});
+
 test('getRenderRobotMetadataSnapshot logs getter failures instead of silently hiding them', () => {
     const originalConsoleError = console.error;
     const loggedErrors = [];

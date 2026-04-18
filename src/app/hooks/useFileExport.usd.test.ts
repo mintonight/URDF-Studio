@@ -621,6 +621,7 @@ test('useFileExport routes USD exports through usd export worker and binary arch
       assert.equal(workerMocks.usdBinaryRequestCount, 1);
       assert.ok(progressEvents.some((event) => event.currentStep === 2));
       assert.ok(progressEvents.some((event) => event.currentStep === 3));
+      assert.ok(progressEvents.some((event) => event.currentStep === 4));
       assert.ok(downloadMocks.clicked);
       assert.ok(downloadMocks.appendedAnchor);
       assert.equal(downloadMocks.appendedAnchor?.download, 'edited_worker_bot_usd.zip');

@@ -1,4 +1,4 @@
-import { Color, Matrix4, Vector3 } from 'three';
+import { Color, Matrix3, Matrix4, Vector3 } from 'three';
 
 import {
   DEFAULT_JOINT,
@@ -55,6 +55,11 @@ type ExportDescriptor = {
   subsetSection?: SnapshotGeomSubsetSection | null;
   materialIdOverride?: string | null;
   displayColor?: [number, number, number] | null;
+  subsetDisplayColors?: Array<{
+    start: number;
+    length: number;
+    color: [number, number, number];
+  }> | null;
   bakeTransformIntoMesh?: boolean;
 };
 
@@ -576,6 +581,22 @@ function readRangeValues(
   return Array.from({ length: count }, (_, index) => Number(source[offset + index] || 0));
 }
 
+function hasSnapshotBufferValues(value: ArrayLike<number> | null | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  if (ArrayBuffer.isView(value)) {
+    return value.byteLength > 0;
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  return typeof value.length === 'number' && Number(value.length) > 0;
+}
+
 function formatObjNumber(value: number): string {
   const normalized = Math.abs(value) < 1e-9 ? 0 : value;
   const fixed = Number(normalized.toFixed(6));
@@ -613,6 +634,43 @@ function cloneVisualOrigin(
       p: origin?.rpy?.p || 0,
       y: origin?.rpy?.y || 0,
     },
+  };
+}
+
+function cloneAuthoredMaterials(
+  authoredMaterials: UrdfVisual['authoredMaterials'],
+): UrdfVisual['authoredMaterials'] {
+  return Array.isArray(authoredMaterials)
+    ? authoredMaterials.map((material) => ({ ...material }))
+    : undefined;
+}
+
+function cloneMeshMaterialGroups(
+  meshMaterialGroups: UrdfVisual['meshMaterialGroups'],
+): UrdfVisual['meshMaterialGroups'] {
+  return Array.isArray(meshMaterialGroups)
+    ? meshMaterialGroups.map((group) => ({ ...group }))
+    : undefined;
+}
+
+function resolveMergedVisualMaterialMetadata(
+  current: UrdfVisual | undefined,
+  fallback?: UrdfVisual,
+): Pick<UrdfVisual, 'authoredMaterials' | 'meshMaterialGroups' | 'materialSource'> {
+  const authoredMaterials =
+    current?.authoredMaterials !== undefined
+      ? current.authoredMaterials
+      : cloneAuthoredMaterials(fallback?.authoredMaterials);
+  const meshMaterialGroups =
+    current?.meshMaterialGroups !== undefined
+      ? current.meshMaterialGroups
+      : cloneMeshMaterialGroups(fallback?.meshMaterialGroups);
+  const materialSource = current?.materialSource ?? fallback?.materialSource;
+
+  return {
+    ...(authoredMaterials !== undefined ? { authoredMaterials } : {}),
+    ...(meshMaterialGroups !== undefined ? { meshMaterialGroups } : {}),
+    ...(materialSource !== undefined ? { materialSource } : {}),
   };
 }
 
@@ -674,30 +732,20 @@ function buildObjBlobFromDescriptor(
   const indexValues = readRangeValues(buffers?.indices, ranges?.indices).map((value) =>
     Number(value),
   );
+  const normalValues = readRangeValues(buffers?.normals, ranges?.normals);
   const uvValues = readRangeValues(buffers?.uvs, ranges?.uvs);
   const transformValues = readRangeValues(buffers?.transforms, ranges?.transform);
 
   const transform =
     transformValues.length >= 16 ? new Matrix4().fromArray(transformValues.slice(0, 16)) : null;
   const shouldBakeTransform = descriptor.bakeTransformIntoMesh !== false;
+  const normalMatrix =
+    transform && shouldBakeTransform ? new Matrix3().getNormalMatrix(transform) : null;
   const tempVector = new Vector3();
-  const vertexColor = descriptor.displayColor || null;
 
   const lines: string[] = [
     `o ${sanitizeFileToken(`${descriptor.linkId}_${descriptor.role}_${descriptor.ordinal}`)}`,
   ];
-
-  for (let index = 0; index + 2 < positionValues.length; index += 3) {
-    tempVector.set(positionValues[index], positionValues[index + 1], positionValues[index + 2]);
-    if (transform && shouldBakeTransform) {
-      tempVector.applyMatrix4(transform);
-    }
-    lines.push(
-      vertexColor
-        ? `v ${formatObjNumber(tempVector.x)} ${formatObjNumber(tempVector.y)} ${formatObjNumber(tempVector.z)} ${formatObjNumber(vertexColor[0])} ${formatObjNumber(vertexColor[1])} ${formatObjNumber(vertexColor[2])}`
-        : `v ${formatObjNumber(tempVector.x)} ${formatObjNumber(tempVector.y)} ${formatObjNumber(tempVector.z)}`,
-    );
-  }
 
   const vertexCount = Math.floor(positionValues.length / 3);
   const fullTriangleIndices =
@@ -719,11 +767,48 @@ function buildObjBlobFromDescriptor(
         return sliced.length >= 3 ? sliced : [];
       })()
     : fullTriangleIndices;
+  const vertexColorByIndex = new Map<number, [number, number, number]>();
+  (descriptor.subsetDisplayColors || []).forEach((section) => {
+    const start = Math.max(0, Math.min(fullTriangleIndices.length, Math.floor(section.start)));
+    const end = Math.max(
+      start,
+      Math.min(fullTriangleIndices.length, start + Math.floor(section.length)),
+    );
+    for (let faceVertexIndex = start; faceVertexIndex < end; faceVertexIndex += 1) {
+      const vertexIndex = Number(fullTriangleIndices[faceVertexIndex]);
+      if (!Number.isInteger(vertexIndex) || vertexIndex < 0) {
+        continue;
+      }
+      if (!vertexColorByIndex.has(vertexIndex)) {
+        vertexColorByIndex.set(vertexIndex, section.color);
+      }
+    }
+  });
+  const defaultVertexColor = descriptor.displayColor || null;
+
+  for (let index = 0; index + 2 < positionValues.length; index += 3) {
+    tempVector.set(positionValues[index], positionValues[index + 1], positionValues[index + 2]);
+    if (transform && shouldBakeTransform) {
+      tempVector.applyMatrix4(transform);
+    }
+    const vertexColor = vertexColorByIndex.get(index / 3) || defaultVertexColor;
+    lines.push(
+      vertexColor
+        ? `v ${formatObjNumber(tempVector.x)} ${formatObjNumber(tempVector.y)} ${formatObjNumber(tempVector.z)} ${formatObjNumber(vertexColor[0])} ${formatObjNumber(vertexColor[1])} ${formatObjNumber(vertexColor[2])}`
+        : `v ${formatObjNumber(tempVector.x)} ${formatObjNumber(tempVector.y)} ${formatObjNumber(tempVector.z)}`,
+    );
+  }
   const uvStride = Math.max(1, Number(ranges?.uvs?.stride || 2));
   const uvCount = Math.floor(uvValues.length / uvStride);
   const hasIndexedUvs = uvCount >= vertexCount;
   const hasFaceVaryingUvs = indexValues.length >= 3 && uvCount === fullTriangleIndices.length;
   const hasPerVertexUvs = hasIndexedUvs && !hasFaceVaryingUvs;
+  const normalStride = Math.max(1, Number(ranges?.normals?.stride || 3));
+  const normalCount = Math.floor(normalValues.length / normalStride);
+  const hasIndexedNormals = normalCount >= vertexCount;
+  const hasFaceVaryingNormals =
+    indexValues.length >= 3 && normalCount === fullTriangleIndices.length;
+  const hasPerVertexNormals = hasIndexedNormals && !hasFaceVaryingNormals;
 
   if (hasFaceVaryingUvs) {
     for (let uvIndex = subsetStart; uvIndex < subsetEnd; uvIndex += 1) {
@@ -741,6 +826,55 @@ function buildObjBlobFromDescriptor(
     }
   }
 
+  if (hasFaceVaryingNormals) {
+    for (let normalIndex = subsetStart; normalIndex < subsetEnd; normalIndex += 1) {
+      const offset = normalIndex * normalStride;
+      tempVector.set(
+        normalValues[offset] || 0,
+        normalValues[offset + 1] || 0,
+        normalValues[offset + 2] || 0,
+      );
+      if (normalMatrix) {
+        tempVector.applyMatrix3(normalMatrix).normalize();
+      }
+      lines.push(
+        `vn ${formatObjNumber(tempVector.x)} ${formatObjNumber(tempVector.y)} ${formatObjNumber(tempVector.z)}`,
+      );
+    }
+  } else if (hasPerVertexNormals) {
+    for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex += 1) {
+      const offset = vertexIndex * normalStride;
+      tempVector.set(
+        normalValues[offset] || 0,
+        normalValues[offset + 1] || 0,
+        normalValues[offset + 2] || 0,
+      );
+      if (normalMatrix) {
+        tempVector.applyMatrix3(normalMatrix).normalize();
+      }
+      lines.push(
+        `vn ${formatObjNumber(tempVector.x)} ${formatObjNumber(tempVector.y)} ${formatObjNumber(tempVector.z)}`,
+      );
+    }
+  }
+
+  const formatObjFaceVertex = (
+    vertexIndex: number,
+    uvIndex: number | null,
+    normalIndex: number | null,
+  ): string => {
+    if (uvIndex !== null && normalIndex !== null) {
+      return `${vertexIndex}/${uvIndex}/${normalIndex}`;
+    }
+    if (uvIndex !== null) {
+      return `${vertexIndex}/${uvIndex}`;
+    }
+    if (normalIndex !== null) {
+      return `${vertexIndex}//${normalIndex}`;
+    }
+    return String(vertexIndex);
+  };
+
   for (let index = 0; index + 2 < triangleIndices.length; index += 3) {
     const a = Number(triangleIndices[index]) + 1;
     const b = Number(triangleIndices[index + 1]) + 1;
@@ -748,20 +882,23 @@ function buildObjBlobFromDescriptor(
     if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(c)) {
       continue;
     }
-    if (hasFaceVaryingUvs) {
-      const uvA = index + 1;
-      const uvB = index + 2;
-      const uvC = index + 3;
-      lines.push(`f ${a}/${uvA} ${b}/${uvB} ${c}/${uvC}`);
-      continue;
-    }
-
-    if (hasPerVertexUvs) {
-      lines.push(`f ${a}/${a} ${b}/${b} ${c}/${c}`);
-      continue;
-    }
-
-    lines.push(`f ${a} ${b} ${c}`);
+    const uvIndexes = hasFaceVaryingUvs
+      ? [index + 1, index + 2, index + 3]
+      : hasPerVertexUvs
+        ? [a, b, c]
+        : [null, null, null];
+    const normalIndexes = hasFaceVaryingNormals
+      ? [index + 1, index + 2, index + 3]
+      : hasPerVertexNormals
+        ? [a, b, c]
+        : [null, null, null];
+    lines.push(
+      `f ${formatObjFaceVertex(a, uvIndexes[0], normalIndexes[0])} ${formatObjFaceVertex(
+        b,
+        uvIndexes[1],
+        normalIndexes[1],
+      )} ${formatObjFaceVertex(c, uvIndexes[2], normalIndexes[2])}`,
+    );
   }
 
   if (!lines.some((line) => line.startsWith('f '))) {
@@ -815,16 +952,24 @@ function canReuseFallbackMeshPath(current: UrdfVisual, fallback?: UrdfVisual): b
 }
 
 function fillMeshPath(current: UrdfVisual, fallback?: UrdfVisual): UrdfVisual {
+  const preservedMaterialMetadata = resolveMergedVisualMaterialMetadata(current, fallback);
   if (current.type !== GeometryType.MESH) {
-    return current;
+    return {
+      ...current,
+      ...preservedMaterialMetadata,
+    };
   }
 
   if (current.meshPath || !fallback?.meshPath || !canReuseFallbackMeshPath(current, fallback)) {
-    return current;
+    return {
+      ...current,
+      ...preservedMaterialMetadata,
+    };
   }
 
   return {
     ...current,
+    ...preservedMaterialMetadata,
     meshPath: fallback.meshPath,
   };
 }
@@ -927,6 +1072,7 @@ function mergeGeometryWithPreparedCache(
   return {
     ...fallback,
     ...current,
+    ...resolveMergedVisualMaterialMetadata(current, fallback),
     meshPath: current.meshPath || fallback.meshPath,
   };
 }
@@ -1121,6 +1267,34 @@ export function resolveUsdExportResolution(
   );
 
   return hydratedResolution || initialResolution;
+}
+
+export function canPrepareUsdExportCacheFromSnapshot(
+  snapshot: UsdExportSnapshot | null | undefined,
+): boolean {
+  if (!snapshot || typeof snapshot !== 'object') {
+    return false;
+  }
+
+  const descriptors = Array.from(snapshot.render?.meshDescriptors || []);
+  if (descriptors.length === 0) {
+    return true;
+  }
+
+  const bufferBackedDescriptors = descriptors.filter(
+    (descriptor) => !resolvePrimitiveGeometryFromDescriptor(descriptor, null),
+  );
+  if (bufferBackedDescriptors.length === 0) {
+    return true;
+  }
+
+  if (!hasSnapshotBufferValues(snapshot.buffers?.positions)) {
+    return false;
+  }
+
+  return bufferBackedDescriptors.some((descriptor) =>
+    Boolean(getDescriptorRanges(descriptor, snapshot.buffers || null)?.positions),
+  );
 }
 
 function ensureMeshDimensions(
@@ -1636,6 +1810,69 @@ function applyDescriptorMaterialToLink(
   return applySnapshotMaterialRecordToLink(robot, linkId, material);
 }
 
+function buildGeomSubsetMaterialGroups(
+  descriptor: SnapshotMeshDescriptor,
+  visual: UrdfVisual | undefined,
+): UrdfVisual['meshMaterialGroups'] {
+  const authoredMaterials = Array.isArray(visual?.authoredMaterials)
+    ? visual.authoredMaterials
+    : [];
+  if (authoredMaterials.length <= 1) {
+    return undefined;
+  }
+
+  const geomSubsetSections = getDescriptorGeomSubsetSections(descriptor);
+  if (geomSubsetSections.length === 0) {
+    return undefined;
+  }
+
+  return geomSubsetSections.map((section, index) => ({
+    meshKey: '0',
+    start: section.start,
+    count: section.length,
+    materialIndex: Math.min(index, authoredMaterials.length - 1),
+  }));
+}
+
+function buildGeomSubsetDisplayColors(
+  descriptor: SnapshotMeshDescriptor,
+  visual: UrdfVisual | undefined,
+): ExportDescriptor['subsetDisplayColors'] {
+  const authoredMaterials = Array.isArray(visual?.authoredMaterials)
+    ? visual.authoredMaterials
+    : [];
+  if (authoredMaterials.length === 0) {
+    return undefined;
+  }
+
+  const geomSubsetSections = getDescriptorGeomSubsetSections(descriptor);
+  if (geomSubsetSections.length === 0) {
+    return undefined;
+  }
+
+  const fallbackColor = colorHexToVertexColor(visual?.color);
+  const subsetColors = geomSubsetSections
+    .map((section, index) => {
+      const material = authoredMaterials[Math.min(index, authoredMaterials.length - 1)];
+      const color =
+        colorHexToVertexColor(material?.color) ||
+        colorArrayToVertexColor(material?.colorRgba) ||
+        fallbackColor;
+      if (!color) {
+        return null;
+      }
+
+      return {
+        start: section.start,
+        length: section.length,
+        color,
+      };
+    })
+    .filter(Boolean) as NonNullable<ExportDescriptor['subsetDisplayColors']>;
+
+  return subsetColors.length > 0 ? subsetColors : undefined;
+}
+
 function buildFixedChildLinksByParent(robot: RobotState): Map<string, string[]> {
   const result = new Map<string, string[]>();
 
@@ -1918,6 +2155,17 @@ function assignVisualDescriptorToLink(
   ) {
     applySnapshotMaterialRecordToLink(robot, linkId, preferredMaterialRecord);
   }
+  const meshMaterialGroups = buildGeomSubsetMaterialGroups(entry.descriptor, link.visual);
+  const subsetDisplayColors = buildGeomSubsetDisplayColors(entry.descriptor, link.visual);
+  if (meshMaterialGroups) {
+    link.visual = {
+      ...link.visual,
+      meshMaterialGroups,
+    };
+  }
+  if (subsetDisplayColors) {
+    entry.subsetDisplayColors = subsetDisplayColors;
+  }
 }
 
 function assignCollisionDescriptorToLink(
@@ -2136,40 +2384,18 @@ function createDescriptorExportMap(
     const ordinal = parseDescriptorOrdinal(descriptor, index);
     const key = `${linkId}:${role}`;
     const current = descriptorsByLinkRole.get(key) || [];
-    const geomSubsetSections = role === 'visual' ? getDescriptorGeomSubsetSections(descriptor) : [];
-    const expandedEntries =
-      geomSubsetSections.length > 0
-        ? geomSubsetSections.map((subsetSection, subsetIndex) => {
-            const hasMultipleSubsets = geomSubsetSections.length > 1;
-            return {
-              descriptor,
-              meshId: normalizeUsdPath(descriptor.meshId || ''),
-              linkPath,
-              linkId,
-              role,
-              exportPath: `${sanitizeFileToken(linkId)}_${role}_${ordinal}${hasMultipleSubsets ? `_section_${subsetIndex}` : ''}.obj`,
-              ordinal,
-              subsetIndex,
-              subsetSection,
-              materialIdOverride: subsetSection.materialId || null,
-            } satisfies ExportDescriptor;
-          })
-        : [
-            {
-              descriptor,
-              meshId: normalizeUsdPath(descriptor.meshId || ''),
-              linkPath,
-              linkId,
-              role,
-              exportPath: `${sanitizeFileToken(linkId)}_${role}_${ordinal}.obj`,
-              ordinal,
-              subsetIndex: 0,
-              subsetSection: null,
-              materialIdOverride: null,
-            } satisfies ExportDescriptor,
-          ];
-
-    current.push(...expandedEntries);
+    current.push({
+      descriptor,
+      meshId: normalizeUsdPath(descriptor.meshId || ''),
+      linkPath,
+      linkId,
+      role,
+      exportPath: `${sanitizeFileToken(linkId)}_${role}_${ordinal}.obj`,
+      ordinal,
+      subsetIndex: 0,
+      subsetSection: null,
+      materialIdOverride: null,
+    } satisfies ExportDescriptor);
     descriptorsByLinkRole.set(key, current);
   });
 

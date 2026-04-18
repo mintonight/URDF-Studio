@@ -138,7 +138,9 @@ export function shouldSkipRedundantRobotReload({
   return previousLoadSupportContextKey === nextLoadSupportContextKey;
 }
 
-export function shouldCommitResolvedRobotSelection(importResult: RobotImportResultLike): boolean {
+export function shouldCommitResolvedRobotSelection(
+  importResult: RobotImportResultLike,
+): importResult is Extract<RobotImportResultLike, { status: 'ready' | 'needs_hydration' }> {
   // Source-only fragments can be inspected, but they must not replace the
   // active viewer document or the runtime will try to load a non-entrypoint.
   return importResult.status === 'ready' || importResult.status === 'needs_hydration';

@@ -240,6 +240,26 @@ test('USD export lets the user switch authored layer format to USDA', async () =
   }
 });
 
+test('USD export defaults to max mesh fidelity when the user exports without touching compression settings', async () => {
+  const { dom, container, root } = createComponentRoot();
+  let exportedConfig: ExportDialogConfig | null = null;
+
+  try {
+    await renderExportDialog(root, (config) => {
+      exportedConfig = config;
+    });
+
+    await click(getButtonByText(container, 'USD'));
+    await click(getButtonByText(container, '导出 ZIP'));
+
+    assert.ok(exportedConfig, 'USD export should submit a config');
+    assert.equal(exportedConfig.usd.compressMeshes, true);
+    assert.equal(exportedConfig.usd.meshQuality, 100);
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
 test('USD export keeps the layer format and compression controls visually concise', async () => {
   const { dom, container, root } = createComponentRoot();
 

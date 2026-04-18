@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import * as THREE from 'three';
 
+import { BOX_FACE_MATERIAL_ORDER } from '@/core/robot';
+
 import { MJCFLoadAbortedError } from './mjcfLoadLifecycle.ts';
 import { buildMJCFHierarchy } from './mjcfHierarchyBuilder.ts';
 
@@ -12,6 +14,12 @@ function toFixedColorArray(color: THREE.Color, digits = 4): number[] {
 
 function waitForNextMacrotask(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function readFirstTexturePixel(texture: THREE.Texture): [number, number, number] {
+  const image = texture.image as { data?: Uint8Array };
+  assert.ok(image?.data instanceof Uint8Array);
+  return [image.data[0] ?? 0, image.data[1] ?? 0, image.data[2] ?? 0];
 }
 
 function createCompilerSettings(texturedir = '') {
@@ -126,6 +134,221 @@ test('applies texture-backed material assets to generated visual meshes', async 
   assert.equal(visualMaterial.toneMapped, false);
   assert.equal(visualMaterial.roughness, 0);
   assert.equal(visualMaterial.metalness, 0.4);
+});
+
+test('applies builtin cube textures to box geoms without reporting them as incomplete', async (t) => {
+  const originalConsoleError = console.error;
+  const loggedErrors: unknown[][] = [];
+  console.error = (...args) => {
+    loggedErrors.push(args);
+  };
+  t.after(() => {
+    console.error = originalConsoleError;
+  });
+
+  const rootGroup = new THREE.Group();
+  await buildMJCFHierarchy({
+    bodies: [
+      {
+        name: 'world',
+        pos: [0, 0, 0],
+        geoms: [],
+        joints: [],
+        children: [
+          {
+            name: 'base',
+            pos: [0, 0, 0],
+            geoms: [
+              {
+                name: 'body-shell',
+                type: 'box',
+                size: [0.1, 0.1, 0.1],
+                material: 'geom',
+                contype: 0,
+                conaffinity: 0,
+              },
+            ],
+            joints: [],
+            children: [],
+          },
+        ],
+      },
+    ],
+    rootGroup,
+    meshMap: new Map(),
+    assets: {},
+    meshCache: new Map(),
+    compilerSettings: createCompilerSettings(),
+    materialMap: new Map([
+      [
+        'geom',
+        {
+          name: 'geom',
+          texture: 'texgeom',
+          texuniform: true,
+        },
+      ],
+    ]),
+    textureMap: new Map([
+      [
+        'texgeom',
+        {
+          name: 'texgeom',
+          type: 'cube',
+          builtin: 'flat',
+          rgb1: [0.7, 0.7, 0.7],
+          rgb2: [0.2, 0.2, 0.2],
+          width: 4,
+          height: 4,
+        },
+      ],
+    ]),
+    sourceFileDir: '',
+  });
+  await waitForNextMacrotask();
+
+  let visualMesh: THREE.Mesh | null = null;
+  rootGroup.traverse((child) => {
+    if (!('isMesh' in child) || !(child as any).isMesh) {
+      return;
+    }
+
+    const mesh = child as THREE.Mesh;
+    if (mesh.userData.isVisualMesh) {
+      visualMesh = mesh;
+    }
+  });
+
+  assert.ok(visualMesh);
+  assert.ok(Array.isArray(visualMesh.material));
+  assert.equal(visualMesh.material.length, BOX_FACE_MATERIAL_ORDER.length);
+
+  const rightMaterial = visualMesh.material[BOX_FACE_MATERIAL_ORDER.indexOf('right')];
+  const downMaterial = visualMesh.material[BOX_FACE_MATERIAL_ORDER.indexOf('down')];
+  assert.ok(rightMaterial instanceof THREE.MeshStandardMaterial);
+  assert.ok(downMaterial instanceof THREE.MeshStandardMaterial);
+  assert.ok(rightMaterial.map instanceof THREE.Texture);
+  assert.ok(downMaterial.map instanceof THREE.Texture);
+  assert.deepEqual(readFirstTexturePixel(rightMaterial.map), [179, 179, 179]);
+  assert.deepEqual(readFirstTexturePixel(downMaterial.map), [51, 51, 51]);
+  assert.equal(
+    loggedErrors.some((entry) =>
+      /references incomplete cube texture definition/.test(String(entry?.[0] || '')),
+    ),
+    false,
+  );
+});
+
+test('applies single-file cube textures to box geoms without reporting them as incomplete', async (t) => {
+  const originalLoadAsync = THREE.TextureLoader.prototype.loadAsync;
+  const originalConsoleError = console.error;
+  let loadCount = 0;
+  const loggedErrors: unknown[][] = [];
+
+  THREE.TextureLoader.prototype.loadAsync = async function mockLoadAsync(
+    _url: string,
+    _onProgress?: (event: ProgressEvent<EventTarget>) => void,
+  ): Promise<THREE.Texture<HTMLImageElement>> {
+    loadCount += 1;
+    const texture = new THREE.Texture() as THREE.Texture<HTMLImageElement>;
+    texture.needsUpdate = true;
+    return texture;
+  };
+  console.error = (...args) => {
+    loggedErrors.push(args);
+  };
+  t.after(() => {
+    THREE.TextureLoader.prototype.loadAsync = originalLoadAsync;
+    console.error = originalConsoleError;
+  });
+
+  const rootGroup = new THREE.Group();
+  await buildMJCFHierarchy({
+    bodies: [
+      {
+        name: 'world',
+        pos: [0, 0, 0],
+        geoms: [],
+        joints: [],
+        children: [
+          {
+            name: 'base',
+            pos: [0, 0, 0],
+            geoms: [
+              {
+                name: 'body-shell',
+                type: 'box',
+                size: [0.1, 0.1, 0.1],
+                material: 'wood_box',
+                contype: 0,
+                conaffinity: 0,
+              },
+            ],
+            joints: [],
+            children: [],
+          },
+        ],
+      },
+    ],
+    rootGroup,
+    meshMap: new Map(),
+    assets: {
+      'assets/wood.png': 'mock://assets/wood.png',
+    },
+    meshCache: new Map(),
+    compilerSettings: createCompilerSettings('assets'),
+    materialMap: new Map([
+      [
+        'wood_box',
+        {
+          name: 'wood_box',
+          texture: 'wood_texture',
+          texrepeat: [2, 3],
+        },
+      ],
+    ]),
+    textureMap: new Map([
+      [
+        'wood_texture',
+        {
+          name: 'wood_texture',
+          type: 'cube',
+          file: 'assets/wood.png',
+        },
+      ],
+    ]),
+    sourceFileDir: '',
+  });
+  await waitForNextMacrotask();
+
+  let visualMesh: THREE.Mesh | null = null;
+  rootGroup.traverse((child) => {
+    if (!('isMesh' in child) || !(child as any).isMesh) {
+      return;
+    }
+
+    const mesh = child as THREE.Mesh;
+    if (mesh.userData.isVisualMesh) {
+      visualMesh = mesh;
+    }
+  });
+
+  assert.ok(visualMesh);
+  assert.ok(Array.isArray(visualMesh.material));
+  assert.equal(visualMesh.material.length, BOX_FACE_MATERIAL_ORDER.length);
+  assert.equal(loadCount, 1);
+  visualMesh.material.forEach((material) => {
+    assert.ok(material instanceof THREE.MeshStandardMaterial);
+    assert.ok(material.map instanceof THREE.Texture);
+    assert.equal(material.map.repeat.x, 2);
+    assert.equal(material.map.repeat.y, 3);
+  });
+  assert.equal(
+    loggedErrors.some((entry) =>
+      /references incomplete cube texture definition/.test(String(entry?.[0] || '')),
+    ),
+    false,
+  );
 });
 
 test('prefers ImageBitmap texture decoding when the browser supports it', async (t) => {

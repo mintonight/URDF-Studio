@@ -2,7 +2,7 @@ import { GeometryType, type RobotFile } from '@/types';
 import { type RobotImportResult, resolveRobotFileData } from '@/core/parsers';
 import { pickPreferredUsdRootFile } from '@/core/parsers/usd/usdFormatUtils';
 import { getVisualGeometryEntries } from '@/core/robot';
-import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
+import { logRuntimeFailure, scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
 import { isAssetLibraryOnlyFormat } from '@/shared/utils/robotFileSupport';
 import {
   buildStandaloneImportAssetWarning,
@@ -454,7 +454,7 @@ function resolveBestReadyUrdfCandidateFromTier(
         'Failed to evaluate URDF import candidate',
         error,
       );
-      scheduleFailFastInDev(
+      logRuntimeFailure(
         'importPreferredFile:resolveBestReadyUrdfCandidateFromTier',
         resolutionError,
         'error',
@@ -592,7 +592,7 @@ export function pickPreferredMjcfImportFile(
         'Failed to evaluate MJCF import candidate',
         error,
       );
-      scheduleFailFastInDev(
+      logRuntimeFailure(
         'importPreferredFile:pickPreferredMjcfImportFile',
         resolutionError,
         'error',
@@ -601,7 +601,7 @@ export function pickPreferredMjcfImportFile(
     }
   }
 
-  return mjcfFiles[0] ?? null;
+  return null;
 }
 
 export function pickPreferredImportFile(

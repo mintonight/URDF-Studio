@@ -208,9 +208,8 @@ test('LinkDynamicsController surfaces cached metadata getter failures as catalog
 
     assert.equal(controller.catalogStatus, 'error');
     assert.match(String(controller.catalogError || ''), /Failed to read cached render robot metadata snapshot/);
-    assert.equal(loggedErrors.length, 2);
-    assert.match(String(loggedErrors[0]?.[0] || ''), /Failed to read cached render robot metadata snapshot/);
-    assert.match(String(loggedErrors[1]?.[0] || ''), /Failed to read cached render robot metadata snapshot before link dynamics catalog build/);
+    assert.equal(loggedErrors.length, 1);
+    assert.match(String(loggedErrors[0]?.[0] || ''), /Failed to read cached render robot metadata snapshot before link dynamics catalog build/);
 });
 
 test('LinkDynamicsController logs driver lookup failures during transform prefetch', () => {

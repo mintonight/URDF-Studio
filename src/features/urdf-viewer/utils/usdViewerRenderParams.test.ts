@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 
 import { WORKSPACE_DEFAULT_CAMERA_POSITION } from '../../../shared/components/3d/scene/constants.ts';
 
-import { createEmbeddedUsdViewerLoadParams } from './usdViewerRenderParams.ts';
+import {
+  createEmbeddedUsdViewerLoadParams,
+  resolveEmbeddedUsdViewerLoadProfile,
+} from './usdViewerRenderParams.ts';
 
 test('createEmbeddedUsdViewerLoadParams keeps USD auto-fit aligned with the workspace camera defaults', () => {
   const params = createEmbeddedUsdViewerLoadParams(4);
@@ -47,9 +50,39 @@ test('createEmbeddedUsdViewerLoadParams can defer robot metadata readiness to a 
   assert.equal(params.get('nonBlockingLoad'), '1');
   assert.equal(params.get('aggressiveInitialDraw'), '0');
   assert.equal(params.get('strictOneShot'), '0');
-  assert.equal(params.get('yieldDuringLoad'), '0');
+  assert.equal(params.get('yieldDuringLoad'), '1');
   assert.equal(params.get('resolveRobotMetadataBeforeReady'), '0');
   assert.equal(params.get('requireCompleteRobotMetadata'), '0');
+  assert.equal(params.get('warmupRuntimeBridge'), '1');
+});
+
+test('resolveEmbeddedUsdViewerLoadProfile keeps large pure .usd interactive loads distinct from worker bootstrap loads', () => {
+  assert.equal(resolveEmbeddedUsdViewerLoadProfile(), 'default-embedded');
+  assert.equal(
+    resolveEmbeddedUsdViewerLoadProfile({
+      preferSlicedMainThreadLoadForLargePureUsd: true,
+    }),
+    'large-pure-usd-sliced',
+  );
+  assert.equal(
+    resolveEmbeddedUsdViewerLoadProfile({
+      preferWorkerResolvedRobotData: true,
+    }),
+    'worker-bootstrap',
+  );
+});
+
+test('createEmbeddedUsdViewerLoadParams keeps large pure .usd roots on the stable embedded load profile', () => {
+  const params = createEmbeddedUsdViewerLoadParams(4, {
+    preferSlicedMainThreadLoadForLargePureUsd: true,
+  });
+
+  assert.equal(params.get('nonBlockingLoad'), '0');
+  assert.equal(params.get('aggressiveInitialDraw'), '1');
+  assert.equal(params.get('strictOneShot'), '1');
+  assert.equal(params.get('yieldDuringLoad'), '0');
+  assert.equal(params.get('resolveRobotMetadataBeforeReady'), '1');
+  assert.equal(params.get('requireCompleteRobotMetadata'), '1');
   assert.equal(params.get('warmupRuntimeBridge'), '1');
 });
 

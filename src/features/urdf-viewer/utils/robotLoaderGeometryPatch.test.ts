@@ -262,6 +262,59 @@ test('applyGeometryPatchInPlace updates visual material colors in place for link
   );
 });
 
+test('applyGeometryPatchInPlace updates runtime link display metadata in place for link rename edits', () => {
+  const robotModel = new THREE.Group() as THREE.Group & {
+    links?: Record<string, THREE.Object3D>;
+  };
+  const linkObject = new THREE.Group();
+  linkObject.name = 'base_link';
+  linkObject.userData.linkId = 'base_link';
+  linkObject.userData.displayName = 'base_link';
+  (linkObject as any).isURDFLink = true;
+  robotModel.add(linkObject);
+  robotModel.links = { base_link: linkObject };
+
+  const previousLinkData = makeLink({
+    id: 'base_link',
+    name: 'base_link',
+  });
+  const linkData = makeLink({
+    id: 'base_link',
+    name: 'renamed_base_link',
+  });
+
+  const invalidations: number[] = [];
+  const applied = applyGeometryPatchInPlace({
+    robotModel,
+    patch: {
+      linkName: 'base_link',
+      linkDisplayName: 'renamed_base_link',
+      previousLinkData,
+      linkData,
+      visualChanged: false,
+      visualBodiesChanged: false,
+      collisionChanged: false,
+      collisionBodiesChanged: false,
+      inertialChanged: false,
+      visibilityChanged: false,
+      linkNameChanged: true,
+    },
+    assets: {},
+    showVisual: true,
+    showCollision: false,
+    linkMeshMapRef: { current: new Map<string, THREE.Mesh[]>() },
+    invalidate: () => {
+      invalidations.push(1);
+    },
+  });
+
+  assert.equal(applied, true);
+  assert.equal(linkObject.name, 'base_link');
+  assert.equal(linkObject.userData.linkId, 'base_link');
+  assert.equal(linkObject.userData.displayName, 'renamed_base_link');
+  assert.equal(invalidations.length, 1);
+});
+
 test('applyGeometryPatchInPlace updates MJCF visual colors in place through runtime links maps', () => {
   const robotModel = new THREE.Group() as THREE.Group & {
     links?: Record<string, THREE.Object3D>;

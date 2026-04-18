@@ -5,6 +5,8 @@ import {
 } from '@/core/parsers/importRobotFile';
 import type { RobotFile } from '@/types';
 import type {
+  GenerateEditableRobotSourceWorkerRequest,
+  GenerateEditableRobotSourceWorkerResponse,
   PrepareAssemblyComponentWorkerOptions,
   ParseEditableRobotSourceWorkerRequest,
   ParseEditableRobotSourceWorkerResponse,
@@ -16,6 +18,7 @@ import type {
   SyncRobotImportWorkerContextRequest,
   RobotImportWorkerRequest,
 } from '@/app/utils/robotImportWorker';
+import type { GenerateEditableRobotSourceOptions } from '@/app/utils/generateEditableRobotSource';
 import type { ParseEditableRobotSourceOptions } from '@/app/utils/parseEditableRobotSource';
 import {
   buildEditableRobotSourceWorkerDispatch,
@@ -52,6 +55,12 @@ interface PendingEditableParseWorkerRequest {
   workerEntry: WorkerPoolEntry;
 }
 
+interface PendingEditableSourceGenerationWorkerRequest {
+  resolve: (value: string) => void;
+  reject: (error: unknown) => void;
+  workerEntry: WorkerPoolEntry;
+}
+
 interface PendingPreparedAssemblyComponentWorkerRequest {
   resolve: (value: PreparedAssemblyComponentResult) => void;
   reject: (error: unknown) => void;
@@ -72,6 +81,7 @@ interface CreateRobotImportWorkerClientOptions {
 
 export interface RobotImportWorkerClient {
   dispose: (rejectPendingWith?: unknown) => void;
+  generateEditableSource: (options: GenerateEditableRobotSourceOptions) => Promise<string>;
   resolve: (
     file: RobotFile,
     options?: ResolveRobotFileDataOptions,
@@ -112,6 +122,10 @@ export function createRobotImportWorkerClient({
 }: CreateRobotImportWorkerClientOptions = {}): RobotImportWorkerClient {
   const pendingRobotImportRequests = new Map<number, PendingRobotImportWorkerRequest>();
   const pendingEditableParseRequests = new Map<number, PendingEditableParseWorkerRequest>();
+  const pendingEditableSourceGenerationRequests = new Map<
+    number,
+    PendingEditableSourceGenerationWorkerRequest
+  >();
   const pendingPreparedAssemblyComponentRequests = new Map<
     number,
     PendingPreparedAssemblyComponentWorkerRequest
@@ -147,6 +161,22 @@ export function createRobotImportWorkerClient({
     }
 
     pendingEditableParseRequests.delete(requestId);
+    pendingRequest.workerEntry.pendingCount = Math.max(
+      0,
+      pendingRequest.workerEntry.pendingCount - 1,
+    );
+    return pendingRequest;
+  };
+
+  const clearPendingEditableSourceGenerationRequest = (
+    requestId: number,
+  ): PendingEditableSourceGenerationWorkerRequest | null => {
+    const pendingRequest = pendingEditableSourceGenerationRequests.get(requestId) ?? null;
+    if (!pendingRequest) {
+      return null;
+    }
+
+    pendingEditableSourceGenerationRequests.delete(requestId);
     pendingRequest.workerEntry.pendingCount = Math.max(
       0,
       pendingRequest.workerEntry.pendingCount - 1,
@@ -200,10 +230,7 @@ export function createRobotImportWorkerClient({
       }
 
       if (message.type === 'resolve-robot-file-error') {
-        workerUnavailable = true;
-        const workerError = new Error(message.error || 'Robot import worker failed');
-        pendingRequest.reject(workerError);
-        disposeWorkerPool(workerError);
+        pendingRequest.reject(new Error(message.error || 'Robot import worker failed'));
         return;
       }
 
@@ -232,6 +259,31 @@ export function createRobotImportWorkerClient({
 
       if (!message.result) {
         pendingRequest.reject(new Error('Assembly component worker returned no result'));
+        return;
+      }
+
+      pendingRequest.resolve(message.result);
+      return;
+    }
+
+    if (
+      message.type === 'generate-editable-robot-source-result' ||
+      message.type === 'generate-editable-robot-source-error'
+    ) {
+      const pendingRequest = clearPendingEditableSourceGenerationRequest(message.requestId);
+      if (!pendingRequest) {
+        return;
+      }
+
+      if (message.type === 'generate-editable-robot-source-error') {
+        pendingRequest.reject(
+          new Error(message.error || 'Editable source generation worker failed'),
+        );
+        return;
+      }
+
+      if (typeof message.result !== 'string') {
+        pendingRequest.reject(new Error('Editable source generation worker returned no source'));
         return;
       }
 
@@ -280,6 +332,10 @@ export function createRobotImportWorkerClient({
       });
       pendingEditableParseRequests.forEach((request, requestId) => {
         clearPendingEditableParseRequest(requestId);
+        request.reject(rejectPendingWith);
+      });
+      pendingEditableSourceGenerationRequests.forEach((request, requestId) => {
+        clearPendingEditableSourceGenerationRequest(requestId);
         request.reject(rejectPendingWith);
       });
       pendingPreparedAssemblyComponentRequests.forEach((request, requestId) => {
@@ -491,6 +547,53 @@ export function createRobotImportWorkerClient({
     });
   };
 
+  const generateEditableSource = async (
+    options: GenerateEditableRobotSourceOptions,
+  ): Promise<string> => {
+    if (workerUnavailable) {
+      throw new Error('Robot import worker is unavailable');
+    }
+
+    if (!canUseWorker()) {
+      throw new Error('Web Worker is not available in this environment');
+    }
+
+    return new Promise<string>((resolveRequest, rejectRequest) => {
+      const requestId = ++requestIdCounter;
+      let workerEntry: WorkerPoolEntry;
+
+      try {
+        workerEntry = pickWorkerEntry();
+      } catch (error) {
+        workerUnavailable = true;
+        rejectRequest(error);
+        return;
+      }
+
+      const request: GenerateEditableRobotSourceWorkerRequest = {
+        type: 'generate-editable-robot-source',
+        requestId,
+        options,
+      };
+
+      pendingEditableSourceGenerationRequests.set(requestId, {
+        resolve: resolveRequest,
+        reject: rejectRequest,
+        workerEntry,
+      });
+      workerEntry.pendingCount += 1;
+
+      try {
+        workerEntry.worker.postMessage(request);
+      } catch (error) {
+        workerUnavailable = true;
+        clearPendingEditableSourceGenerationRequest(requestId);
+        disposeWorkerPool(error);
+        rejectRequest(error);
+      }
+    });
+  };
+
   const prepareAssemblyComponent = async (
     file: RobotFile,
     options: PrepareAssemblyComponentWorkerOptions & {
@@ -560,6 +663,7 @@ export function createRobotImportWorkerClient({
 
   return {
     dispose: disposeWorkerPool,
+    generateEditableSource,
     prepareAssemblyComponent,
     parseEditableSource,
     resolve,
@@ -589,6 +693,12 @@ export function parseEditableRobotSourceWithWorker(
   options: ParseEditableRobotSourceOptions,
 ): Promise<RobotState | null> {
   return sharedRobotImportWorkerClient.parseEditableSource(options);
+}
+
+export function generateEditableRobotSourceWithWorker(
+  options: GenerateEditableRobotSourceOptions,
+): Promise<string> {
+  return sharedRobotImportWorkerClient.generateEditableSource(options);
 }
 
 export function prepareAssemblyComponentWithWorker(

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BOX_FACE_MATERIAL_ORDER } from '@/core/robot';
 import { stackCoincidentVisualRoots } from '@/core/loaders/visualMeshStacking';
 import { findAssetByPath } from '@/core/loaders';
 import { createMatteMaterial } from '@/core/utils/materialFactory';
@@ -293,6 +294,14 @@ function cloneTextureWithMaterialSettings(
 ): THREE.Texture {
   const texture = baseTexture.clone();
   texture.source = baseTexture.source;
+  return applyTextureMaterialSettings(texture, materialDef);
+}
+
+function applyTextureMaterialSettings(
+  baseTexture: THREE.Texture,
+  materialDef: MJCFMaterial,
+): THREE.Texture {
+  const texture = baseTexture;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -305,6 +314,14 @@ function cloneTextureWithMaterialSettings(
 
   texture.needsUpdate = true;
   return texture;
+}
+
+function isMjcfCubeTexture(textureDef: MJCFTexture | null | undefined): boolean {
+  return (
+    String(textureDef?.type || '')
+      .trim()
+      .toLowerCase() === 'cube'
+  );
 }
 
 function clampBuiltinTextureChannel(value: number | undefined, fallback: number): number {
@@ -434,6 +451,43 @@ function createBuiltinTexture(textureDef: MJCFTexture): THREE.Texture | null {
       return createBuiltinFlatTexture(textureDef);
     case 'gradient':
       return createBuiltinGradientTexture(textureDef);
+    default:
+      console.warn(
+        `[MJCFLoader] Unsupported builtin texture "${textureDef.builtin}" on texture "${textureDef.name}".`,
+      );
+      return null;
+  }
+}
+
+function createBuiltinCubeFaceTextures(textureDef: MJCFTexture): THREE.Texture[] | null {
+  const builtin = String(textureDef.builtin || '')
+    .trim()
+    .toLowerCase();
+
+  switch (builtin) {
+    case 'checker':
+      return BOX_FACE_MATERIAL_ORDER.map(() => createBuiltinCheckerTexture(textureDef));
+    case 'flat':
+      return BOX_FACE_MATERIAL_ORDER.map((face) =>
+        createBuiltinFlatTexture(
+          face === 'down' && Array.isArray(textureDef.rgb2) && textureDef.rgb2.length >= 3
+            ? { ...textureDef, rgb1: textureDef.rgb2 }
+            : textureDef,
+        ),
+      );
+    case 'gradient': {
+      const topColor = resolveBuiltinTextureColor(textureDef.rgb1, [0.3, 0.5, 0.7]);
+      const bottomColor = resolveBuiltinTextureColor(textureDef.rgb2, [0, 0, 0]);
+      return BOX_FACE_MATERIAL_ORDER.map((face) => {
+        if (face === 'up') {
+          return createBuiltinFlatTexture({ ...textureDef, rgb1: topColor });
+        }
+        if (face === 'down') {
+          return createBuiltinFlatTexture({ ...textureDef, rgb1: bottomColor });
+        }
+        return createBuiltinGradientTexture(textureDef);
+      });
+    }
     default:
       console.warn(
         `[MJCFLoader] Unsupported builtin texture "${textureDef.builtin}" on texture "${textureDef.name}".`,
@@ -613,38 +667,62 @@ async function loadCubeMaterialTextures(
   }
 
   const textureDef = textureMap.get(materialDef.texture);
-  const cubeFaceRecord = getMjcfCubeTextureFaceRecord(textureDef);
-  if (!cubeFaceRecord) {
-    if (
-      String(textureDef?.type || '')
-        .trim()
-        .toLowerCase() === 'cube'
-    ) {
-      console.error(
-        `[MJCFLoader] Material "${materialDef.name || '<unnamed>'}" references incomplete cube texture definition: ${materialDef.texture}`,
-      );
-    }
+  if (!isMjcfCubeTexture(textureDef)) {
     return null;
   }
 
-  const textures: THREE.Texture[] = [];
-  for (const texturePath of Object.values(cubeFaceRecord)) {
-    const assetUrl = findAssetByPath(texturePath, assets, sourceFileDir);
+  const cubeFaceRecord = getMjcfCubeTextureFaceRecord(textureDef);
+  if (cubeFaceRecord) {
+    const textures: THREE.Texture[] = [];
+    for (const texturePath of Object.values(cubeFaceRecord)) {
+      const assetUrl = findAssetByPath(texturePath, assets, sourceFileDir);
+      if (!assetUrl) {
+        console.error(`[MJCFLoader] Cube texture asset not found: ${texturePath}`);
+        return null;
+      }
+
+      const texture = await getTexturePromise(assetUrl, textureLoadCache);
+      if (!texture) {
+        return null;
+      }
+
+      throwIfMJCFLoadAborted(abortSignal);
+      textures.push(cloneTextureWithMaterialSettings(texture, materialDef));
+    }
+
+    return textures;
+  }
+
+  if (textureDef?.builtin) {
+    return (
+      createBuiltinCubeFaceTextures(textureDef)?.map((texture) =>
+        applyTextureMaterialSettings(texture, materialDef),
+      ) || null
+    );
+  }
+
+  if (textureDef?.file) {
+    const assetUrl = findAssetByPath(textureDef.file, assets, sourceFileDir);
     if (!assetUrl) {
-      console.error(`[MJCFLoader] Cube texture asset not found: ${texturePath}`);
+      console.error(`[MJCFLoader] Cube texture asset not found: ${textureDef.file}`);
       return null;
     }
 
-    const texture = await getTexturePromise(assetUrl, textureLoadCache);
-    if (!texture) {
+    const baseTexture = await getTexturePromise(assetUrl, textureLoadCache);
+    if (!baseTexture) {
       return null;
     }
 
     throwIfMJCFLoadAborted(abortSignal);
-    textures.push(cloneTextureWithMaterialSettings(texture, materialDef));
+    return BOX_FACE_MATERIAL_ORDER.map(() =>
+      cloneTextureWithMaterialSettings(baseTexture, materialDef),
+    );
   }
 
-  return textures;
+  console.error(
+    `[MJCFLoader] Material "${materialDef.name || '<unnamed>'}" references incomplete cube texture definition: ${materialDef.texture}`,
+  );
+  return null;
 }
 
 async function applyCubeMaterialAssetToMesh(

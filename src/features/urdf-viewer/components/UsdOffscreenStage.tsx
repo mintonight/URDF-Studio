@@ -10,6 +10,8 @@ import {
 } from 'react';
 import { ViewerLoadingHud } from './ViewerLoadingHud';
 import { normalizeLoadingProgress } from '@/shared/components/3d/loadingHudState';
+import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
+import { useAssetsStore } from '@/store';
 import { JointType, type RobotFile } from '@/types';
 import type {
   ToolMode,
@@ -42,6 +44,11 @@ import {
   disposeUsdOffscreenViewerStageInBackground,
   prepareSharedUsdOffscreenViewerStageOpenDispatch,
 } from '../utils/usdOffscreenViewerWorkerClient';
+import { prepareUsdPreparedExportCacheWithWorker } from '../utils/usdPreparedExportCacheWorkerBridge';
+import {
+  canPrepareUsdExportCacheFromSnapshot,
+  resolveUsdExportResolution,
+} from '../utils/usdExportBundle';
 import { recordUsdStageLoadDebug } from '@/shared/debug/usdStageLoadDebug';
 
 interface UsdOffscreenStageProps {
@@ -54,6 +61,9 @@ interface UsdOffscreenStageProps {
   showVisual: boolean;
   showCollision: boolean;
   showCollisionAlwaysOnTop: boolean;
+  showOrigins: boolean;
+  showOriginsOverlay: boolean;
+  originSize: number;
   loadingLabel: string;
   loadingDetailLabel: string;
   loadingPhaseLabels: UsdLoadingPhaseLabels;
@@ -149,6 +159,9 @@ export function UsdOffscreenStage({
   showVisual,
   showCollision,
   showCollisionAlwaysOnTop,
+  showOrigins,
+  showOriginsOverlay,
+  originSize,
   loadingLabel,
   loadingDetailLabel,
   loadingPhaseLabels,
@@ -367,6 +380,113 @@ export function UsdOffscreenStage({
           onRobotDataResolvedRef.current?.(message.resolution);
           return;
         }
+        case 'scene-snapshot': {
+          const normalizedMessageStagePath = String(message.stageSourcePath || '').replace(
+            /^\/+/,
+            '',
+          );
+          const normalizedSourceFileName = String(sourceFile.name || '').replace(/^\/+/, '');
+          const debugSourceFileName = normalizedSourceFileName || normalizedMessageStagePath;
+          if (
+            normalizedMessageStagePath &&
+            normalizedSourceFileName &&
+            normalizedMessageStagePath !== normalizedSourceFileName
+          ) {
+            return;
+          }
+
+          const assetsState = useAssetsStore.getState();
+          const hasExistingResolution = Boolean(lastRobotResolutionRef.current);
+          const existingResolution =
+            lastRobotResolutionRef.current ??
+            resolveUsdExportResolution(message.snapshot, {
+              fileName: sourceFile.name,
+            });
+          const existingPreparedCache = assetsState.getUsdPreparedExportCache(sourceFile.name);
+          const canPrepareSnapshot = canPrepareUsdExportCacheFromSnapshot(message.snapshot);
+          assetsState.setUsdSceneSnapshot(sourceFile.name, message.snapshot);
+          if (debugSourceFileName) {
+            recordUsdStageLoadDebug({
+              sourceFileName: debugSourceFileName,
+              step: 'commit-worker-scene-snapshot',
+              status: 'resolved',
+              timestamp: Date.now(),
+              detail: {
+                stageSourcePath: normalizedMessageStagePath || null,
+                hasExistingResolution,
+                derivedResolution: !hasExistingResolution && Boolean(existingResolution),
+                hasExistingPreparedCache: Boolean(existingPreparedCache),
+                canPrepareSnapshot,
+                positionBufferLength: Number(message.snapshot.buffers?.positions?.length ?? 0),
+              },
+            });
+          }
+
+          if (existingResolution) {
+            lastRobotResolutionRef.current = {
+              ...existingResolution,
+              usdSceneSnapshot: message.snapshot,
+            };
+          }
+
+          if (!existingResolution || !canPrepareSnapshot) {
+            return;
+          }
+
+          assetsState.setUsdPreparedExportCache(sourceFile.name, null);
+          if (debugSourceFileName) {
+            recordUsdStageLoadDebug({
+              sourceFileName: debugSourceFileName,
+              step: 'prepare-deferred-usd-export-cache',
+              status: 'pending',
+              timestamp: Date.now(),
+              detail: {
+                stageSourcePath: normalizedMessageStagePath || null,
+              },
+            });
+          }
+          void prepareUsdPreparedExportCacheWithWorker(message.snapshot, existingResolution)
+            .then((preparedCache) => {
+              useAssetsStore.getState().setUsdPreparedExportCache(sourceFile.name, preparedCache);
+              if (debugSourceFileName) {
+                recordUsdStageLoadDebug({
+                  sourceFileName: debugSourceFileName,
+                  step: 'prepare-deferred-usd-export-cache',
+                  status: 'resolved',
+                  timestamp: Date.now(),
+                  detail: {
+                    stageSourcePath: normalizedMessageStagePath || null,
+                    meshFileCount: Object.keys(preparedCache?.meshFiles || {}).length,
+                  },
+                });
+              }
+            })
+            .catch((error) => {
+              const reason = error instanceof Error ? error.message : String(error);
+              if (debugSourceFileName) {
+                recordUsdStageLoadDebug({
+                  sourceFileName: debugSourceFileName,
+                  step: 'prepare-deferred-usd-export-cache',
+                  status: 'rejected',
+                  timestamp: Date.now(),
+                  detail: {
+                    stageSourcePath: normalizedMessageStagePath || null,
+                    error: reason,
+                  },
+                });
+              }
+              scheduleFailFastInDev(
+                'UsdOffscreenStage:prepareUsdPreparedExportCacheWithWorker',
+                new Error(
+                  `Failed to prepare USD export cache for "${sourceFile.name}" after deferred scene snapshot hydration: ${reason}`,
+                  {
+                    cause: error,
+                  },
+                ),
+              );
+            });
+          return;
+        }
         case 'selection-change': {
           if (!message.selection) {
             runtimeBridge?.onSelectionChange?.('link', '');
@@ -546,6 +666,9 @@ export function UsdOffscreenStage({
           showVisual,
           showCollision,
           showCollisionAlwaysOnTop,
+          showOrigins,
+          showOriginsOverlay,
+          originSize,
           sourceFile: stageOpenDispatch.sourceFile,
           stageOpenContextKey: stageOpenDispatch.stageOpenContextKey,
           stageOpenContext: stageOpenDispatch.stageOpenContext,
@@ -609,6 +732,15 @@ export function UsdOffscreenStage({
       showCollisionAlwaysOnTop,
     });
   }, [postWorkerMessage, showCollision, showCollisionAlwaysOnTop, showVisual]);
+
+  useEffect(() => {
+    postWorkerMessage({
+      type: 'set-decoration-state',
+      showOrigins,
+      showOriginsOverlay,
+      originSize,
+    });
+  }, [originSize, postWorkerMessage, showOrigins, showOriginsOverlay]);
 
   useEffect(() => {
     postWorkerMessage({
@@ -770,6 +902,7 @@ export function UsdOffscreenStage({
       <div ref={handleContainerRef} className="absolute inset-0">
         <canvas
           ref={handleCanvasRef}
+          data-testid="usd-offscreen-canvas"
           className="block h-full w-full"
           style={{
             height: '100%',

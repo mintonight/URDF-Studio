@@ -4,17 +4,15 @@ import * as THREE from 'three';
 
 import {
   createUsdBaseMaterial,
-  expandUsdMultiMaterialMeshesForSerialization,
   normalizeUsdRenderableMaterials,
 } from './usdMaterialNormalization.ts';
 
 test('normalizeUsdRenderableMaterials converts renderable materials to MeshStandardMaterial instances', () => {
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
-    0, 0, 0,
-    1, 0, 0,
-    0, 1, 0,
-  ], 3));
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+  );
 
   const mesh = new THREE.Mesh(
     geometry,
@@ -37,49 +35,41 @@ test('normalizeUsdRenderableMaterials converts renderable materials to MeshStand
   assert.equal(mesh.material.color.getHexString(), '123456');
 });
 
-test('expandUsdMultiMaterialMeshesForSerialization replaces a multi-material mesh with ordered single-material variants', () => {
+test('normalizeUsdRenderableMaterials keeps multi-material meshes intact instead of splitting them into variant meshes', () => {
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
-    0, 0, 0,
-    1, 0, 0,
-    0, 1, 0,
-    1, 0, 0,
-    1, 1, 0,
-    0, 1, 0,
-  ], 3));
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0], 3),
+  );
   geometry.clearGroups();
   geometry.addGroup(0, 3, 0);
   geometry.addGroup(3, 3, 1);
 
-  const mesh = new THREE.Mesh(
-    geometry,
-    [
-      createUsdBaseMaterial('#ff0000'),
-      createUsdBaseMaterial('#00ff00'),
-    ],
-  );
+  const mesh = new THREE.Mesh(geometry, [
+    new THREE.MeshBasicMaterial({ color: '#ff0000', name: 'shell' }),
+    new THREE.MeshBasicMaterial({ color: '#00ff00', name: 'logo' }),
+  ]);
   mesh.name = 'panel';
 
   const root = new THREE.Group();
   root.add(mesh);
 
-  expandUsdMultiMaterialMeshesForSerialization(root);
+  normalizeUsdRenderableMaterials(root, '#abcdef');
 
-  assert.equal(root.children.length, 2);
-  const firstVariant = root.children[0];
-  const secondVariant = root.children[1];
+  assert.equal(root.children.length, 1);
+  assert.equal(root.children[0], mesh);
+  assert.ok(Array.isArray(mesh.material));
+  assert.equal(mesh.material.length, 2);
 
-  assert.ok(firstVariant instanceof THREE.Mesh);
-  assert.ok(secondVariant instanceof THREE.Mesh);
-  assert.equal(firstVariant.name, 'panel');
-  assert.equal(secondVariant.name, 'panel_1');
-  assert.ok(!Array.isArray(firstVariant.material));
-  assert.ok(!Array.isArray(secondVariant.material));
-  assert.equal((firstVariant.userData as { usdSerializeFilteredGroups?: boolean }).usdSerializeFilteredGroups, true);
-  assert.equal((secondVariant.userData as { usdSerializeFilteredGroups?: boolean }).usdSerializeFilteredGroups, true);
-
-  const firstGeometry = firstVariant.geometry as THREE.BufferGeometry;
-  const secondGeometry = secondVariant.geometry as THREE.BufferGeometry;
-  assert.deepEqual(firstGeometry.groups.map((group) => group.materialIndex), [0]);
-  assert.deepEqual(secondGeometry.groups.map((group) => group.materialIndex), [0]);
+  const [shellMaterial, logoMaterial] = mesh.material;
+  assert.ok(shellMaterial instanceof THREE.MeshStandardMaterial);
+  assert.ok(logoMaterial instanceof THREE.MeshStandardMaterial);
+  assert.equal(shellMaterial.name, 'shell');
+  assert.equal(logoMaterial.name, 'logo');
+  assert.equal(shellMaterial.color.getHexString(), 'ff0000');
+  assert.equal(logoMaterial.color.getHexString(), '00ff00');
+  assert.deepEqual(
+    geometry.groups.map((group) => group.materialIndex),
+    [0, 1],
+  );
 });

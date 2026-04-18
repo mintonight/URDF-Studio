@@ -86,6 +86,7 @@ test('buildUnifiedViewerSceneProps preserves live interaction wiring without pre
   assert.equal(sceneProps.hoverSelectionEnabled, true);
   assert.equal(sceneProps.onHover, controller.handleHoverWrapper);
   assert.equal(sceneProps.onMeshSelect, onMeshSelect);
+  assert.equal(sceneProps.allowUrdfXmlFallback, false);
   assert.equal(sceneProps.robotLinks?.base_link !== undefined, true);
   assert.equal(sceneProps.robotJoints?.hip_joint !== undefined, true);
   assert.equal(sceneProps.focusTarget, 'base_link');
@@ -134,6 +135,7 @@ test('buildUnifiedViewerSceneProps clamps preview sessions to a read-only editor
   assert.equal(sceneProps.hoverSelectionEnabled, false);
   assert.equal(sceneProps.onHover, undefined);
   assert.equal(sceneProps.onMeshSelect, undefined);
+  assert.equal(sceneProps.allowUrdfXmlFallback, true);
   assert.equal(sceneProps.robotLinks, undefined);
   assert.equal(sceneProps.robotJoints, undefined);
   assert.equal(sceneProps.focusTarget, undefined);
@@ -175,5 +177,6 @@ test('buildUnifiedViewerSceneProps disables hover interaction for inactive retai
   assert.equal(sceneProps.hoverSelectionEnabled, false);
   assert.equal(sceneProps.onHover, undefined);
   assert.equal(sceneProps.onMeshSelect, undefined);
+  assert.equal(sceneProps.allowUrdfXmlFallback, false);
   assert.equal(sceneProps.robotLinks?.base_link !== undefined, true);
 });

@@ -20,8 +20,20 @@ export interface SendConversationTurnStreamInput extends SendConversationTurnInp
   onReplyDelta?: (delta: string) => void;
 }
 
+export type ConversationTurnErrorCode =
+  | 'empty_user_message'
+  | 'missing_api_key'
+  | 'empty_response'
+  | 'request_failed';
+
+export interface ConversationTurnError {
+  code: ConversationTurnErrorCode;
+  message: string;
+}
+
 export interface ConversationTurnResult {
   reply: string;
+  error: ConversationTurnError | null;
 }
 
 export interface ConversationTurnStreamResult extends ConversationTurnResult {
@@ -32,14 +44,6 @@ interface ConversationStreamChunkLike {
   choices?: Array<{
     delta?: {
       content?: string | null;
-    };
-  }>;
-}
-
-interface ConversationCompletionLike {
-  choices?: Array<{
-    message?: {
-      content?: string | Array<unknown> | null;
     };
   }>;
 }
@@ -134,11 +138,13 @@ export const serializeConversationHistory = (
   return JSON.stringify(normalizedHistory);
 };
 
-const fallbackReplyForError = (lang: Language, message: string): ConversationTurnResult => {
-  return {
-    reply: lang === 'zh' ? `对话服务错误：${message}` : `Conversation service error: ${message}`,
-  };
-};
+const buildConversationError = (
+  code: ConversationTurnErrorCode,
+  message: string,
+): ConversationTurnError => ({
+  code,
+  message,
+});
 
 export const isConversationAbortError = (error: unknown): boolean => {
   return (
@@ -157,80 +163,6 @@ export const extractConversationDelta = (
   return chunk.choices.map((choice) => choice.delta?.content ?? '').join('');
 };
 
-const extractConversationCompletionTextPart = (part: unknown): string => {
-  if (typeof part === 'string') {
-    return part;
-  }
-
-  if (!part || typeof part !== 'object') {
-    return '';
-  }
-
-  const text = (part as { text?: unknown }).text;
-  if (typeof text === 'string') {
-    return text;
-  }
-
-  if (text && typeof text === 'object') {
-    const value = (text as { value?: unknown }).value;
-    if (typeof value === 'string') {
-      return value;
-    }
-  }
-
-  return '';
-};
-
-const extractConversationCompletionText = (
-  completion: ConversationCompletionLike | null | undefined,
-): string => {
-  if (!completion?.choices?.length) {
-    return '';
-  }
-
-  return completion.choices
-    .map((choice) => {
-      const content = choice.message?.content;
-      if (typeof content === 'string') {
-        return content;
-      }
-
-      if (!Array.isArray(content)) {
-        return '';
-      }
-
-      return content.map(extractConversationCompletionTextPart).join('');
-    })
-    .join('')
-    .trim();
-};
-
-const shouldRetryWithoutStream = (error: unknown, partialReply: string): boolean => {
-  if (partialReply.trim()) {
-    return false;
-  }
-
-  if (
-    error instanceof OpenAI.APIConnectionTimeoutError ||
-    error instanceof OpenAI.APIConnectionError
-  ) {
-    return true;
-  }
-
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const message = error.message.toLowerCase();
-  return (
-    message.includes('connection error') ||
-    message.includes('failed to fetch') ||
-    message.includes('fetch failed') ||
-    message.includes('network') ||
-    message.includes('stream')
-  );
-};
-
 export const sendConversationTurnStream = async ({
   mode,
   lang = 'en',
@@ -244,18 +176,18 @@ export const sendConversationTurnStream = async ({
   const trimmedMessage = userMessage.trim();
 
   if (!trimmedMessage) {
-    const fallback = fallbackReplyForError(lang, text.emptyResponse);
     return {
-      reply: fallback.reply,
+      reply: '',
+      error: buildConversationError('empty_user_message', text.emptyResponse),
       status: 'error',
     };
   }
 
   const apiKey = getApiKey();
   if (!apiKey) {
-    const fallback = fallbackReplyForError(lang, text.missingApiKey);
     return {
-      reply: fallback.reply,
+      reply: '',
+      error: buildConversationError('missing_api_key', text.missingApiKey),
       status: 'error',
     };
   }
@@ -299,72 +231,32 @@ export const sendConversationTurnStream = async ({
 
     const normalizedReply = reply.trim();
     if (!normalizedReply) {
-      const fallback = fallbackReplyForError(lang, text.emptyResponse);
       return {
-        reply: fallback.reply,
+        reply: '',
+        error: buildConversationError('empty_response', text.emptyResponse),
         status: 'error',
       };
     }
 
     return {
       reply: normalizedReply,
+      error: null,
       status: 'completed',
     };
   } catch (error) {
-    let finalError = error;
-
     if (isConversationAbortError(error) || signal?.aborted) {
       return {
         reply: reply.trim(),
+        error: null,
         status: 'aborted',
       };
     }
 
-    if (shouldRetryWithoutStream(error, reply)) {
-      console.warn('Conversation stream request failed, retrying without stream', error);
-
-      try {
-        const completion = await openai.chat.completions.create(
-          {
-            model: modelName,
-            messages: requestMessages,
-            temperature: 0.3,
-          },
-          {
-            signal,
-          },
-        );
-
-        const recoveredReply = extractConversationCompletionText(completion);
-        if (recoveredReply) {
-          return {
-            reply: recoveredReply,
-            status: 'completed',
-          };
-        }
-
-        const fallback = fallbackReplyForError(lang, text.emptyResponse);
-        return {
-          reply: fallback.reply,
-          status: 'error',
-        };
-      } catch (fallbackError) {
-        if (isConversationAbortError(fallbackError) || signal?.aborted) {
-          return {
-            reply: reply.trim(),
-            status: 'aborted',
-          };
-        }
-
-        console.error('Conversation non-stream fallback failed', fallbackError);
-        finalError = fallbackError;
-      }
-    }
-
-    const e = finalError as { message?: string };
-    console.error('Conversation request failed', finalError);
+    const e = error as { message?: string };
+    console.error('Conversation request failed', error);
     return {
-      ...fallbackReplyForError(lang, text.requestFailed(e?.message)),
+      reply: '',
+      error: buildConversationError('request_failed', text.requestFailed(e?.message)),
       status: 'error',
     };
   }
@@ -374,5 +266,8 @@ export const sendConversationTurn = async (
   input: SendConversationTurnInput,
 ): Promise<ConversationTurnResult> => {
   const result = await sendConversationTurnStream(input);
-  return { reply: result.reply };
+  return {
+    reply: result.reply,
+    error: result.error,
+  };
 };

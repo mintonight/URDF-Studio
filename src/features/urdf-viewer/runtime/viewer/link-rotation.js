@@ -213,18 +213,14 @@ export class LinkRotationController {
                 suppressIdleRefresh: true,
             });
         }
-        catch (error) {
-            console.error("[link-rotation] Failed to prewarm joint pose pipeline.", error);
-        }
+        catch { }
     }
     async prewarmJointCatalog() {
         this.ensureJointCatalogBuildScheduled();
         try {
             await this.ensureJointCatalogReady();
         }
-        catch (error) {
-            console.error("[link-rotation] Failed to prewarm joint catalog.", error);
-        }
+        catch { }
     }
     prewarmInteractivePoseCaches() {
         if (!this.enabled || !this.renderInterface?.meshes)
@@ -1292,6 +1288,7 @@ export class LinkRotationController {
         try {
             cachedRenderSnapshot = getRenderRobotMetadataSnapshot(this.renderInterface, this.stageSourcePath, {
                 strictErrors: true,
+                logErrors: false,
             });
         }
         catch (error) {
@@ -1425,6 +1422,7 @@ export class LinkRotationController {
             stageSourcePath: this.stageSourcePath,
             skipIdleWait: true,
             skipUrdfTruthFallback: true,
+            logErrors: false,
         }), runtimeLinkPathIndex);
         if (importedFromRenderSnapshot > 0) {
             return;

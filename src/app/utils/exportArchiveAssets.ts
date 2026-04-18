@@ -2,8 +2,9 @@ import JSZip from 'jszip';
 
 import { findAssetByPath } from '@/core/loaders';
 import {
+  buildTextureExportPathOverrides,
   normalizeMeshPathForExport,
-  normalizeTexturePathForExport,
+  resolveTextureExportPath,
 } from '@/core/parsers/meshPathUtils';
 import { collectGeometryTexturePaths, getVisualGeometryEntries } from '@/core/robot';
 import { compressSTLBlob } from '@/core/stl-compressor';
@@ -46,6 +47,108 @@ export interface AddRobotAssetsToZipResult {
 
 function isExternalAssetPath(path: string): boolean {
   return /^(?:blob:|https?:\/\/|data:)/i.test(path);
+}
+
+function normalizeInlineLookupPath(path: string): string {
+  return String(path || '')
+    .trim()
+    .replace(/\\/g, '/');
+}
+
+function buildInlineAssetLookupCandidates(
+  sourcePath: string,
+  normalizePath: (path: string) => string,
+  folderName: 'meshes' | 'textures',
+): string[] {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  const pushCandidate = (value?: string) => {
+    const normalizedValue = normalizeInlineLookupPath(value || '');
+    if (!normalizedValue || seen.has(normalizedValue)) {
+      return;
+    }
+    seen.add(normalizedValue);
+    candidates.push(normalizedValue);
+  };
+
+  const normalizedSourcePath = normalizeInlineLookupPath(sourcePath);
+  const normalizedExportPath = normalizeInlineLookupPath(normalizePath(sourcePath));
+  const filename =
+    (normalizedExportPath || normalizedSourcePath).split('/').filter(Boolean).pop() || '';
+
+  pushCandidate(sourcePath);
+  pushCandidate(normalizedSourcePath);
+  pushCandidate(normalizedExportPath);
+  if (normalizedExportPath) {
+    pushCandidate(`${folderName}/${normalizedExportPath}`);
+    pushCandidate(`/${folderName}/${normalizedExportPath}`);
+  }
+  if (filename) {
+    pushCandidate(filename);
+    pushCandidate(`${folderName}/${filename}`);
+    pushCandidate(`/${folderName}/${filename}`);
+  }
+
+  return candidates;
+}
+
+function resolveInlineExportPath(
+  sourcePath: string,
+  normalizePath: (path: string) => string,
+  folderName: 'meshes' | 'textures',
+): string {
+  const normalizedPath = normalizeInlineLookupPath(normalizePath(sourcePath));
+  if (!normalizedPath || isExternalAssetPath(normalizedPath)) {
+    return '';
+  }
+
+  return normalizedPath.replace(new RegExp(`^${folderName}/`, 'i'), '');
+}
+
+function findInlineAssetBlob(
+  sourcePath: string,
+  inlineFiles: Map<string, Blob> | undefined,
+  normalizePath: (path: string) => string,
+  folderName: 'meshes' | 'textures',
+): { blob: Blob; exportPath: string } | null {
+  if (!inlineFiles?.size) {
+    return null;
+  }
+
+  const candidates = buildInlineAssetLookupCandidates(sourcePath, normalizePath, folderName);
+  for (const candidate of candidates) {
+    const blob = inlineFiles.get(candidate);
+    if (!blob) {
+      continue;
+    }
+
+    const exportPath =
+      resolveInlineExportPath(candidate, normalizePath, folderName) ||
+      resolveInlineExportPath(sourcePath, normalizePath, folderName);
+    if (!exportPath) {
+      continue;
+    }
+
+    return { blob, exportPath };
+  }
+
+  const lowercaseCandidates = new Set(candidates.map((candidate) => candidate.toLowerCase()));
+  for (const [key, blob] of inlineFiles.entries()) {
+    if (!lowercaseCandidates.has(normalizeInlineLookupPath(key).toLowerCase())) {
+      continue;
+    }
+
+    const exportPath =
+      resolveInlineExportPath(key, normalizePath, folderName) ||
+      resolveInlineExportPath(sourcePath, normalizePath, folderName);
+    if (!exportPath) {
+      continue;
+    }
+
+    return { blob, exportPath };
+  }
+
+  return null;
 }
 
 export function collectRobotAssetReferences(robot: RobotState): {
@@ -98,6 +201,7 @@ export async function addRobotAssetsToZip({
   const meshFolder = zip.folder('meshes');
   const textureFolder = zip.folder('textures');
   const { meshPaths, texturePaths } = collectRobotAssetReferences(robot);
+  const texturePathOverrides = buildTextureExportPathOverrides(texturePaths);
 
   const tasks: Array<{ currentFile: string; run: () => Promise<void> }> = [];
   const exportedMeshPaths = new Set<string>();
@@ -105,7 +209,13 @@ export async function addRobotAssetsToZip({
   const failedAssets: RobotAssetPackagingFailure[] = [];
 
   meshPaths.forEach((meshPath) => {
-    const exportPath = normalizeMeshPathForExport(meshPath);
+    const inlineMesh = findInlineAssetBlob(
+      meshPath,
+      extraMeshFiles,
+      normalizeMeshPathForExport,
+      'meshes',
+    );
+    const exportPath = inlineMesh?.exportPath || normalizeMeshPathForExport(meshPath);
     if (skipMeshPaths?.has(meshPath) || (exportPath && skipMeshPaths?.has(exportPath))) {
       return;
     }
@@ -115,21 +225,20 @@ export async function addRobotAssetsToZip({
     }
     exportedMeshPaths.add(exportPath);
 
-    const inlineMeshBlob = extraMeshFiles?.get(meshPath);
-    if (inlineMeshBlob) {
+    if (inlineMesh) {
       tasks.push({
         currentFile: exportPath,
         run: async () => {
           if (compressOptions?.compressSTL && /\.stl$/i.test(exportPath)) {
             const filename = exportPath.split('/').pop() ?? exportPath;
-            const result = await compressSTLBlob(inlineMeshBlob, filename, {
+            const result = await compressSTLBlob(inlineMesh.blob, filename, {
               quality: compressOptions.stlQuality,
             });
             meshFolder?.file(exportPath, await result.blob.arrayBuffer());
             return;
           }
 
-          meshFolder?.file(exportPath, await inlineMeshBlob.arrayBuffer());
+          meshFolder?.file(exportPath, await inlineMesh.blob.arrayBuffer());
         },
       });
       return;
@@ -182,11 +291,28 @@ export async function addRobotAssetsToZip({
   });
 
   texturePaths.forEach((texturePath) => {
-    const exportPath = normalizeTexturePathForExport(texturePath);
+    const inlineTexture = findInlineAssetBlob(
+      texturePath,
+      extraMeshFiles,
+      (path) => resolveTextureExportPath(path, texturePathOverrides),
+      'textures',
+    );
+    const exportPath =
+      inlineTexture?.exportPath || resolveTextureExportPath(texturePath, texturePathOverrides);
     if (!exportPath || isExternalAssetPath(exportPath) || exportedTexturePaths.has(exportPath)) {
       return;
     }
     exportedTexturePaths.add(exportPath);
+
+    if (inlineTexture) {
+      tasks.push({
+        currentFile: exportPath,
+        run: async () => {
+          textureFolder?.file(exportPath, await inlineTexture.blob.arrayBuffer());
+        },
+      });
+      return;
+    }
 
     const assetUrl = findAssetByPath(texturePath, assets);
     if (!assetUrl) {

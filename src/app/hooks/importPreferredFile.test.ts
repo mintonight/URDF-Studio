@@ -279,6 +279,52 @@ test('pickPreferredImportFile does not prefer MJCF solely because the bundle pat
   assert.equal(preferredFile?.name, 'demo_mujoco/urdf/demo.urdf');
 });
 
+test('pickPreferredImportFile keeps URDF preferred when the only MJCF candidate is unresolved', () => {
+  const urdfFile = createRobotFile(
+    'demo_bundle/demo.urdf',
+    'urdf',
+    [
+      '<?xml version="1.0"?>',
+      '<robot name="demo_bundle">',
+      '  <link name="base_link">',
+      '    <visual>',
+      '      <geometry>',
+      '        <mesh filename="meshes/missing.stl" />',
+      '      </geometry>',
+      '    </visual>',
+      '  </link>',
+      '</robot>',
+    ].join('\n'),
+  );
+  const mjcfFile = createRobotFile(
+    'demo_bundle/demo.xml',
+    'mjcf',
+    '<?xml version="1.0"?><mujoco model="demo"><worldbody><body name="base_link" /></worldbody></mujoco>',
+  );
+
+  const preferredFile = pickPreferredImportFile(
+    [urdfFile, mjcfFile],
+    [urdfFile, mjcfFile],
+    (file) => {
+      if (file === urdfFile) {
+        return {
+          status: 'ready',
+          robotData: {
+            name: 'demo_bundle',
+            rootLinkId: 'base_link',
+            links: {},
+            joints: {},
+          },
+        } as any;
+      }
+
+      return { status: 'error', message: 'malformed' } as any;
+    },
+  );
+
+  assert.equal(preferredFile?.name, 'demo_bundle/demo.urdf');
+});
+
 test('pickPreferredImportFile prefers the richer MJCF source-of-truth over a self-contained convenience URDF', () => {
   const files = loadImportableRobotFilesFromDirectory(
     'test/mujoco_menagerie-main/google_barkour_vb',
@@ -366,6 +412,27 @@ test('pickPreferredImportFile throws when a highest-priority URDF candidate fail
       ),
     /Failed to evaluate URDF import candidate "demo_description\/urdf\/demo\.urdf"/,
   );
+});
+
+test('pickPreferredMjcfImportFile returns null when no ranked MJCF candidate resolves ready', () => {
+  const robotFile = createRobotFile(
+    'demo_bundle/robot_model.xml',
+    'mjcf',
+    '<?xml version="1.0"?><mujoco model="robot"><worldbody><body name="base_link" /></worldbody></mujoco>',
+  );
+  const sceneFile = createRobotFile(
+    'demo_bundle/scene.xml',
+    'mjcf',
+    '<?xml version="1.0"?><mujoco model="scene"><include file="robot_model.xml" /></mujoco>',
+  );
+
+  const preferredFile = pickPreferredMjcfImportFile(
+    [sceneFile, robotFile],
+    [sceneFile, robotFile],
+    () => ({ status: 'error', message: 'malformed' }) as any,
+  );
+
+  assert.equal(preferredFile, null);
 });
 
 test('pickPreferredMjcfImportFile throws when a ranked MJCF candidate fails during readiness evaluation', () => {

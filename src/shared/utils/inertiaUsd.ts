@@ -55,20 +55,18 @@ function createOriginQuaternion(inertial: InertialLike | undefined): THREE.Quate
   );
 }
 
-function sortPrincipalAxes(
+function buildPrincipalAxes(
   eigenvalues: number[],
   eigenvectors: number[][],
 ): { diagonalInertia: [number, number, number]; principalAxes: THREE.Quaternion } {
-  const pairs = eigenvalues
-    .map((value, index) => ({
-      value: sanitizeMoment(value),
-      vector: new THREE.Vector3(
-        eigenvectors[0]?.[index] ?? 0,
-        eigenvectors[1]?.[index] ?? 0,
-        eigenvectors[2]?.[index] ?? 0,
-      ).normalize(),
-    }))
-    .sort((left, right) => right.value - left.value);
+  const pairs = eigenvalues.map((value, index) => ({
+    value: sanitizeMoment(value),
+    vector: new THREE.Vector3(
+      eigenvectors[0]?.[index] ?? 0,
+      eigenvectors[1]?.[index] ?? 0,
+      eigenvectors[2]?.[index] ?? 0,
+    ).normalize(),
+  }));
 
   const xAxis = pairs[0]?.vector.lengthSq() ? pairs[0].vector.clone() : new THREE.Vector3(1, 0, 0);
   const yAxis = pairs[1]?.vector.lengthSq() ? pairs[1].vector.clone() : new THREE.Vector3(0, 1, 0);
@@ -79,13 +77,13 @@ function sortPrincipalAxes(
     zAxis = zAxis.multiplyScalar(-1);
   }
 
-  const principalAxes = new THREE.Quaternion()
+  const principalBasis = new THREE.Quaternion()
     .setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis))
     .normalize();
 
   return {
     diagonalInertia: [pairs[0]?.value ?? 0, pairs[1]?.value ?? 0, pairs[2]?.value ?? 0],
-    principalAxes,
+    principalAxes: principalBasis.conjugate(),
   };
 }
 
@@ -126,10 +124,10 @@ export function computeUsdInertiaProperties(
     sanitizeMoment(inertia.izz ?? 0),
   );
   const decomposition = MathUtils.computeEigenDecomposition3x3(matrix);
-  const principal = sortPrincipalAxes(decomposition.eigenvalues, decomposition.eigenvectors);
+  const principal = buildPrincipalAxes(decomposition.eigenvalues, decomposition.eigenvectors);
 
   return {
     diagonalInertia: principal.diagonalInertia,
-    principalAxesLocal: originQuaternion.multiply(principal.principalAxes).normalize(),
+    principalAxesLocal: originQuaternion.clone().multiply(principal.principalAxes).normalize(),
   };
 }

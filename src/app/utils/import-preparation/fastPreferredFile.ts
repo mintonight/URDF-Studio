@@ -8,6 +8,8 @@ import {
 } from '@/app/hooks/importPreferredFile';
 import type { RobotFile } from '@/types';
 
+const FAST_IMPORT_HEAVY_SELECTOR_FILE_POOL_THRESHOLD = 512;
+
 const FAST_IMPORT_VARIANT_PENALTY_BY_TOKEN = new Map<string, number>([
   ['with', 2],
   ['hand', 8],
@@ -120,6 +122,72 @@ function compareFastImportPathPreference(leftName: string, rightName: string): n
   return leftName.localeCompare(rightName);
 }
 
+function shouldUseHeuristicOnlyFastSelection(
+  robotDefinitionFiles: readonly RobotFile[],
+  filePool: readonly RobotFile[],
+): boolean {
+  return (
+    robotDefinitionFiles.length > FAST_IMPORT_HEAVY_SELECTOR_FILE_POOL_THRESHOLD ||
+    filePool.length > FAST_IMPORT_HEAVY_SELECTOR_FILE_POOL_THRESHOLD
+  );
+}
+
+function pickHeuristicFastUrdfFile(urdfFiles: readonly RobotFile[]): RobotFile | null {
+  return (
+    [...urdfFiles].sort((left, right) => {
+      const variantPenaltyDiff =
+        scoreFastImportVariantPenalty(left.name) - scoreFastImportVariantPenalty(right.name);
+      if (variantPenaltyDiff !== 0) {
+        return variantPenaltyDiff;
+      }
+
+      return compareFastImportPathPreference(left.name, right.name);
+    })[0] ?? null
+  );
+}
+
+function pickHeuristicFastMjcfFile(mjcfFiles: readonly RobotFile[]): RobotFile | null {
+  return (
+    [...mjcfFiles].sort((left, right) => {
+      const helperPenaltyDiff =
+        scoreFastImportHelperPenalty(left.name) - scoreFastImportHelperPenalty(right.name);
+      if (helperPenaltyDiff !== 0) {
+        return helperPenaltyDiff;
+      }
+
+      return compareFastImportPathPreference(left.name, right.name);
+    })[0] ?? null
+  );
+}
+
+function pickHeuristicFastMixedCandidate(
+  preferredUrdf: RobotFile | null,
+  preferredMjcf: RobotFile | null,
+): RobotFile | null {
+  if (!preferredUrdf) {
+    return preferredMjcf;
+  }
+
+  if (!preferredMjcf) {
+    return preferredUrdf;
+  }
+
+  const urdfPenalty = scoreFastImportVariantPenalty(preferredUrdf.name);
+  const mjcfPenalty = scoreFastImportHelperPenalty(preferredMjcf.name);
+  if (urdfPenalty !== mjcfPenalty) {
+    return urdfPenalty < mjcfPenalty ? preferredUrdf : preferredMjcf;
+  }
+
+  const pathPreference = compareFastImportPathPreference(preferredUrdf.name, preferredMjcf.name);
+  if (pathPreference !== 0) {
+    return pathPreference < 0 ? preferredUrdf : preferredMjcf;
+  }
+
+  // Favor URDF on ties to avoid expensive downstream MJCF source expansion
+  // during broad mixed-format corpus imports.
+  return preferredUrdf;
+}
+
 export function pickFastPreparedPreferredFile(
   files: RobotFile[],
   filePool: RobotFile[] = files,
@@ -134,12 +202,27 @@ export function pickFastPreparedPreferredFile(
 
   const urdfFiles = robotDefinitionFiles.filter((file) => file.format === 'urdf');
   const mjcfFiles = robotDefinitionFiles.filter((file) => file.format === 'mjcf');
+  const shouldUseHeuristicOnly = shouldUseHeuristicOnlyFastSelection(
+    robotDefinitionFiles,
+    filePool,
+  );
 
   if (urdfFiles.length > 0 && mjcfFiles.length > 0) {
+    if (shouldUseHeuristicOnly) {
+      return pickHeuristicFastMixedCandidate(
+        pickHeuristicFastUrdfFile(urdfFiles),
+        pickHeuristicFastMjcfFile(mjcfFiles),
+      );
+    }
+
     return pickPreferredImportFile(robotDefinitionFiles, filePool);
   }
 
   if (urdfFiles.length > 0) {
+    if (shouldUseHeuristicOnly) {
+      return pickHeuristicFastUrdfFile(urdfFiles);
+    }
+
     return (
       [...urdfFiles].sort((left, right) => {
         const leftSelfContained = isUrdfSelfContainedInImportBundle(left, filePool);
@@ -160,6 +243,10 @@ export function pickFastPreparedPreferredFile(
   }
 
   if (mjcfFiles.length > 0) {
+    if (shouldUseHeuristicOnly) {
+      return pickHeuristicFastMjcfFile(mjcfFiles);
+    }
+
     // Reuse the MJCF structural selector even in fast-open mode so archive helper files
     // such as keyframes.xml do not outrank standalone robot definitions.
     const preferredMjcf = pickPreferredMjcfImportFile(robotDefinitionFiles, filePool);

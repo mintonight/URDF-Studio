@@ -5,7 +5,14 @@ import {
   removeCollisionGeometryByObjectIndex,
   updateCollisionGeometryByObjectIndex,
 } from '@/core/robot';
-import type { AssemblyState, GeometryType as GeometryTypeValue, RobotData, UrdfJoint, UrdfLink, UrdfVisual } from '@/types';
+import type {
+  AssemblyState,
+  GeometryType as GeometryTypeValue,
+  RobotData,
+  UrdfJoint,
+  UrdfLink,
+  UrdfVisual,
+} from '@/types';
 import { GeometryType } from '@/types';
 import {
   convertGeometryType,
@@ -225,6 +232,7 @@ export interface CollisionOptimizationAsyncOptions {
   includePrimitiveFits?: boolean;
   pointCollectionLimit?: number;
   surfacePointLimit?: number;
+  sourceFilePath?: string;
 }
 
 function createAbortError(): DOMException {
@@ -259,7 +267,11 @@ async function maybeYieldAfterBatch(
   }
 }
 
-function createTargetId(componentId: string | undefined, linkId: string, objectIndex: number): string {
+function createTargetId(
+  componentId: string | undefined,
+  linkId: string,
+  objectIndex: number,
+): string {
   return `${componentId ?? 'robot'}::${linkId}::${objectIndex}`;
 }
 
@@ -267,13 +279,29 @@ function getLinkGroupKey(target: Pick<CollisionTargetRef, 'componentId' | 'linkI
   return `${target.componentId ?? 'robot'}::${target.linkId}`;
 }
 
-function createMeshAnalysisCacheKey(geometry: Pick<UrdfVisual, 'meshPath' | 'dimensions'>): string {
+function createMeshAnalysisCacheKey(
+  geometry: Pick<UrdfVisual, 'meshPath' | 'dimensions'>,
+  sourceFilePath?: string,
+): string {
   return [
     geometry.meshPath ?? '',
     geometry.dimensions?.x ?? 1,
     geometry.dimensions?.y ?? 1,
     geometry.dimensions?.z ?? 1,
+    sourceFilePath ?? '',
   ].join('::');
+}
+
+function resolveCollisionTargetSourceFilePath(
+  source: CollisionOptimizationSource,
+  target: Pick<CollisionTargetRef, 'componentId'>,
+  fallbackSourceFilePath?: string,
+): string | undefined {
+  if (source.kind === 'assembly' && target.componentId) {
+    return source.assembly.components[target.componentId]?.sourceFile ?? fallbackSourceFilePath;
+  }
+
+  return fallbackSourceFilePath;
 }
 
 function cloneGeometry(geometry: UrdfVisual): UrdfVisual {
@@ -315,12 +343,7 @@ function applyOriginRotationToVector(
   vector: THREE.Vector3,
 ): THREE.Vector3 {
   const quaternion = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(
-      origin?.rpy?.r ?? 0,
-      origin?.rpy?.p ?? 0,
-      origin?.rpy?.y ?? 0,
-      'ZYX',
-    ),
+    new THREE.Euler(origin?.rpy?.r ?? 0, origin?.rpy?.p ?? 0, origin?.rpy?.y ?? 0, 'ZYX'),
   );
 
   return vector.clone().applyQuaternion(quaternion);
@@ -335,11 +358,9 @@ function offsetLocalPointByOrigin(
     new THREE.Vector3(localPoint.x, localPoint.y, localPoint.z),
   );
 
-  return rotatedPoint.add(new THREE.Vector3(
-    origin?.xyz?.x ?? 0,
-    origin?.xyz?.y ?? 0,
-    origin?.xyz?.z ?? 0,
-  ));
+  return rotatedPoint.add(
+    new THREE.Vector3(origin?.xyz?.x ?? 0, origin?.xyz?.y ?? 0, origin?.xyz?.z ?? 0),
+  );
 }
 
 function getDirectionAlignmentEuler(direction: THREE.Vector3): THREE.Euler {
@@ -356,18 +377,9 @@ function getDirectionAlignmentEuler(direction: THREE.Vector3): THREE.Euler {
 
 function createOriginMatrix(origin?: UrdfVisual['origin']): THREE.Matrix4 {
   const matrix = new THREE.Matrix4();
-  const position = new THREE.Vector3(
-    origin?.xyz?.x ?? 0,
-    origin?.xyz?.y ?? 0,
-    origin?.xyz?.z ?? 0,
-  );
+  const position = new THREE.Vector3(origin?.xyz?.x ?? 0, origin?.xyz?.y ?? 0, origin?.xyz?.z ?? 0);
   const quaternion = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(
-      origin?.rpy?.r ?? 0,
-      origin?.rpy?.p ?? 0,
-      origin?.rpy?.y ?? 0,
-      'ZYX',
-    ),
+    new THREE.Euler(origin?.rpy?.r ?? 0, origin?.rpy?.p ?? 0, origin?.rpy?.y ?? 0, 'ZYX'),
   );
   matrix.compose(position, quaternion, UNIT_SCALE);
   return matrix;
@@ -418,7 +430,8 @@ function computeLinkWorldMatrices(robot: RobotData): Record<string, THREE.Matrix
     const childJoints = jointsByParent.get(linkId) ?? [];
 
     childJoints.forEach((joint) => {
-      const childMatrix = parentMatrix.clone()
+      const childMatrix = parentMatrix
+        .clone()
         .multiply(createOriginMatrix(joint.origin))
         .multiply(createJointMotionMatrix(joint));
       visit(joint.childLinkId, childMatrix);
@@ -429,7 +442,10 @@ function computeLinkWorldMatrices(robot: RobotData): Record<string, THREE.Matrix
     robot.rootLinkId,
     ...Object.keys(robot.links).filter((linkId) => !childLinkIds.has(linkId)),
     ...Object.keys(robot.links),
-  ].filter((linkId, index, values): linkId is string => Boolean(linkId) && values.indexOf(linkId) === index);
+  ].filter(
+    (linkId, index, values): linkId is string =>
+      Boolean(linkId) && values.indexOf(linkId) === index,
+  );
 
   rootCandidates.forEach((rootLinkId) => {
     visit(rootLinkId, new THREE.Matrix4().identity());
@@ -550,9 +566,7 @@ export function buildCollisionOptimizationSkeletonProjection(
   source: CollisionOptimizationSource,
   options: CollisionOptimizationSkeletonProjectionOptions = {},
 ): CollisionOptimizationSkeletonProjection {
-  const robot = source.kind === 'robot'
-    ? source.robot
-    : mergeAssembly(source.assembly);
+  const robot = source.kind === 'robot' ? source.robot : mergeAssembly(source.assembly);
   const linkWorldMatrices = computeLinkWorldMatrices(robot);
   const linkPositions = Object.entries(linkWorldMatrices).map(([linkId, matrix]) => {
     const position = new THREE.Vector3();
@@ -560,31 +574,35 @@ export function buildCollisionOptimizationSkeletonProjection(
     return { linkId, position };
   });
   const positions = linkPositions.map(({ position }) => position);
-  const plane = options.viewMode === 'front'
-    ? chooseFrontSkeletonProjectionPlane(positions)
-    : chooseSkeletonProjectionPlane(positions);
+  const plane =
+    options.viewMode === 'front'
+      ? chooseFrontSkeletonProjectionPlane(positions)
+      : chooseSkeletonProjectionPlane(positions);
   const clusterIds = buildSkeletonClusterIds(robot);
 
   return {
     plane,
-    nodes: Object.fromEntries(linkPositions.map(({ linkId, position }) => [
-      linkId,
-      {
+    nodes: Object.fromEntries(
+      linkPositions.map(({ linkId, position }) => [
         linkId,
-        clusterId: clusterIds[linkId] ?? 'cluster-0',
-        world: {
-          x: position.x,
-          y: position.y,
-          z: position.z,
+        {
+          linkId,
+          clusterId: clusterIds[linkId] ?? 'cluster-0',
+          world: {
+            x: position.x,
+            y: position.y,
+            z: position.z,
+          },
+          projected: projectSkeletonPosition(plane, position),
         },
-        projected: projectSkeletonPosition(plane, position),
-      },
-    ])),
+      ]),
+    ),
     edges: Object.values(robot.joints).map((joint, index) => ({
       id: `skeleton-edge::${index}::${joint.parentLinkId}::${joint.childLinkId}`,
       fromLinkId: joint.parentLinkId,
       toLinkId: joint.childLinkId,
-      clusterId: clusterIds[joint.parentLinkId] ?? clusterIds[joint.childLinkId] ?? `cluster-${index}`,
+      clusterId:
+        clusterIds[joint.parentLinkId] ?? clusterIds[joint.childLinkId] ?? `cluster-${index}`,
     })),
   };
 }
@@ -621,7 +639,9 @@ function getPrimitiveFitCandidates(
   }
 
   if (strategy === 'cylinder') {
-    return primitiveFits.cylinderCandidates ?? (primitiveFits.cylinder ? [primitiveFits.cylinder] : []);
+    return (
+      primitiveFits.cylinderCandidates ?? (primitiveFits.cylinder ? [primitiveFits.cylinder] : [])
+    );
   }
 
   return primitiveFits.capsuleCandidates ?? (primitiveFits.capsule ? [primitiveFits.capsule] : []);
@@ -708,9 +728,7 @@ function distanceToInterval(value: number, intervalStart: number, intervalEnd: n
   return 0;
 }
 
-function buildCoaxialMergeGeometry(
-  params: CoaxialMergeCandidateParams,
-): UrdfVisual | null {
+function buildCoaxialMergeGeometry(params: CoaxialMergeCandidateParams): UrdfVisual | null {
   const {
     parentTarget,
     jointAxisWorld,
@@ -738,8 +756,8 @@ function buildCoaxialMergeGeometry(
   );
 
   if (
-    distanceToInterval(0, parentStart, parentEnd) > jointProximityLimit
-    || distanceToInterval(0, childStart, childEnd) > jointProximityLimit
+    distanceToInterval(0, parentStart, parentEnd) > jointProximityLimit ||
+    distanceToInterval(0, childStart, childEnd) > jointProximityLimit
   ) {
     return null;
   }
@@ -747,8 +765,14 @@ function buildCoaxialMergeGeometry(
   const mergedStart = Math.min(parentStart, childStart);
   const mergedEnd = Math.max(parentEnd, childEnd);
   const mergedLength = Math.max(mergedEnd - mergedStart, COAXIAL_MIN_RADIUS * 2);
-  const mergedCenterWorld = jointOriginWorld.clone().add(axis.clone().multiplyScalar((mergedStart + mergedEnd) / 2));
-  const mergedRadius = Math.max(parentDescriptor.radius, childDescriptor.radius, COAXIAL_MIN_RADIUS);
+  const mergedCenterWorld = jointOriginWorld
+    .clone()
+    .add(axis.clone().multiplyScalar((mergedStart + mergedEnd) / 2));
+  const mergedRadius = Math.max(
+    parentDescriptor.radius,
+    childDescriptor.radius,
+    COAXIAL_MIN_RADIUS,
+  );
   const centerLocal = mergedCenterWorld.clone().applyMatrix4(parentLinkMatrix.clone().invert());
   const axisLocal = transformDirectionToLinkFrame(parentLinkMatrix, axis);
   const alignedEuler = getDirectionAlignmentEuler(axisLocal);
@@ -782,7 +806,8 @@ function transformGeometryToTargetLinkFrame(
   sourceLinkMatrix: THREE.Matrix4,
   targetLinkInverseMatrix: THREE.Matrix4,
 ): UrdfVisual {
-  const relativeMatrix = targetLinkInverseMatrix.clone()
+  const relativeMatrix = targetLinkInverseMatrix
+    .clone()
     .multiply(sourceLinkMatrix)
     .multiply(createOriginMatrix(geometry.origin));
   const position = new THREE.Vector3();
@@ -815,7 +840,8 @@ function transformMeshObstaclePointsToTargetLinkFrame(
   geometryOrigin: UrdfVisual['origin'],
   targetLinkInverseMatrix: THREE.Matrix4,
 ): MeshClearanceObstacle {
-  const transformMatrix = targetLinkInverseMatrix.clone()
+  const transformMatrix = targetLinkInverseMatrix
+    .clone()
     .multiply(sourceLinkMatrix)
     .multiply(createOriginMatrix(geometryOrigin));
   const transformedPoint = new THREE.Vector3();
@@ -901,8 +927,10 @@ function isRodLikeBox(geometry: UrdfVisual): boolean {
     .sort((left, right) => left - right);
   const [smallest, middle, largest] = dims;
 
-  return largest / Math.max(middle, smallest) >= 1.75
-    && Math.abs(middle - smallest) / Math.max(middle, smallest) <= 0.35;
+  return (
+    largest / Math.max(middle, smallest) >= 1.75 &&
+    Math.abs(middle - smallest) / Math.max(middle, smallest) <= 0.35
+  );
 }
 
 function pickSmartMeshStrategy(analysis: MeshAnalysis): MeshOptimizationStrategy {
@@ -916,8 +944,9 @@ function pickSmartMeshStrategy(analysis: MeshAnalysis): MeshOptimizationStrategy
     return 'sphere';
   }
 
-  const rodLike = largest / Math.max(middle, smallest) >= 1.75
-    && Math.abs(middle - smallest) / Math.max(middle, smallest) <= 0.28;
+  const rodLike =
+    largest / Math.max(middle, smallest) >= 1.75 &&
+    Math.abs(middle - smallest) / Math.max(middle, smallest) <= 0.28;
   if (rodLike) {
     return analysis.primitiveFits?.capsule ? 'capsule' : 'cylinder';
   }
@@ -989,8 +1018,9 @@ function computeWorldBroadPhaseSphere(
   }
 
   const localCenter = computeBroadPhaseCenter(geometry, meshAnalysis);
-  const worldCenter = new THREE.Vector3(localCenter.x, localCenter.y, localCenter.z)
-    .applyMatrix4(sourceLinkMatrix);
+  const worldCenter = new THREE.Vector3(localCenter.x, localCenter.y, localCenter.z).applyMatrix4(
+    sourceLinkMatrix,
+  );
 
   return {
     center: worldCenter,
@@ -1079,16 +1109,17 @@ function buildNearbyCollisionClearanceContext(
 
     const geometry = candidate.geometry;
     const analysis = meshAnalysisByTargetId[candidate.id];
-    const meshObstacle = includeMeshClearanceObstacles
-      && analysis?.surfacePoints?.length
-      && geometry.type === GeometryType.MESH
-      ? transformMeshObstaclePointsToTargetLinkFrame(
-          analysis.surfacePoints,
-          sourceLinkMatrix,
-          geometry.origin,
-          currentLinkInverseMatrix,
-        )
-      : null;
+    const meshObstacle =
+      includeMeshClearanceObstacles &&
+      analysis?.surfacePoints?.length &&
+      geometry.type === GeometryType.MESH
+        ? transformMeshObstaclePointsToTargetLinkFrame(
+            analysis.surfacePoints,
+            sourceLinkMatrix,
+            geometry.origin,
+            currentLinkInverseMatrix,
+          )
+        : null;
 
     if (meshObstacle?.points.length) {
       meshClearanceObstacles.push(meshObstacle);
@@ -1102,16 +1133,22 @@ function buildNearbyCollisionClearanceContext(
     }
 
     const boxedGeometry = convertGeometryType(geometry, GeometryType.BOX, analysis);
-    siblingGeometries.push(transformGeometryToTargetLinkFrame({
-      ...geometry,
-      type: GeometryType.BOX,
-      dimensions: { ...boxedGeometry.dimensions },
-      origin: {
-        xyz: { ...boxedGeometry.origin.xyz },
-        rpy: { ...boxedGeometry.origin.rpy },
-      },
-      meshPath: undefined,
-    }, sourceLinkMatrix, currentLinkInverseMatrix));
+    siblingGeometries.push(
+      transformGeometryToTargetLinkFrame(
+        {
+          ...geometry,
+          type: GeometryType.BOX,
+          dimensions: { ...boxedGeometry.dimensions },
+          origin: {
+            xyz: { ...boxedGeometry.origin.xyz },
+            rpy: { ...boxedGeometry.origin.rpy },
+          },
+          meshPath: undefined,
+        },
+        sourceLinkMatrix,
+        currentLinkInverseMatrix,
+      ),
+    );
   });
 
   return {
@@ -1156,9 +1193,8 @@ function buildMeshCandidate(
     };
   }
 
-  const resolvedStrategy = settings.meshStrategy === 'smart'
-    ? pickSmartMeshStrategy(analysis)
-    : settings.meshStrategy;
+  const resolvedStrategy =
+    settings.meshStrategy === 'smart' ? pickSmartMeshStrategy(analysis) : settings.meshStrategy;
   const suggestedType = toGeometryType(resolvedStrategy);
   const converted = convertGeometryType(
     target.geometry,
@@ -1231,10 +1267,13 @@ function buildPrimitiveCandidate(
     };
   }
 
-  if (target.geometry.type === GeometryType.BOX && settings.rodBoxStrategy !== 'keep' && isRodLikeBox(target.geometry)) {
-    const suggestedType = settings.rodBoxStrategy === 'capsule'
-      ? GeometryType.CAPSULE
-      : GeometryType.CYLINDER;
+  if (
+    target.geometry.type === GeometryType.BOX &&
+    settings.rodBoxStrategy !== 'keep' &&
+    isRodLikeBox(target.geometry)
+  ) {
+    const suggestedType =
+      settings.rodBoxStrategy === 'capsule' ? GeometryType.CAPSULE : GeometryType.CYLINDER;
     const converted = convertGeometryType(
       target.geometry,
       suggestedType,
@@ -1285,7 +1324,12 @@ function buildCandidate(
   );
 
   if (target.geometry.type === GeometryType.MESH) {
-    return buildMeshCandidate(target, settings, meshAnalysisByTargetId[target.id], clearanceContext);
+    return buildMeshCandidate(
+      target,
+      settings,
+      meshAnalysisByTargetId[target.id],
+      clearanceContext,
+    );
   }
 
   return buildPrimitiveCandidate(target, settings, clearanceContext);
@@ -1293,7 +1337,9 @@ function buildCandidate(
 
 function shouldAnalyzeCoaxialMerge(
   settings: CollisionOptimizationSettings,
-): settings is CollisionOptimizationSettings & { coaxialJointMergeStrategy: Exclude<CoaxialJointMergeStrategy, 'keep'> } {
+): settings is CollisionOptimizationSettings & {
+  coaxialJointMergeStrategy: Exclude<CoaxialJointMergeStrategy, 'keep'>;
+} {
   return settings.coaxialJointMergeStrategy !== 'keep';
 }
 
@@ -1305,13 +1351,20 @@ function shouldIncludeCoaxialPairForScope(
   switch (settings.scope) {
     case 'selected':
       return Boolean(
-        settings.selectedTargetId
-        && (parentTarget.id === settings.selectedTargetId || childTarget.id === settings.selectedTargetId),
+        settings.selectedTargetId &&
+        (parentTarget.id === settings.selectedTargetId ||
+          childTarget.id === settings.selectedTargetId),
       );
     case 'mesh':
-      return parentTarget.geometry.type === GeometryType.MESH || childTarget.geometry.type === GeometryType.MESH;
+      return (
+        parentTarget.geometry.type === GeometryType.MESH ||
+        childTarget.geometry.type === GeometryType.MESH
+      );
     case 'primitive':
-      return parentTarget.geometry.type !== GeometryType.MESH && childTarget.geometry.type !== GeometryType.MESH;
+      return (
+        parentTarget.geometry.type !== GeometryType.MESH &&
+        childTarget.geometry.type !== GeometryType.MESH
+      );
     case 'all':
     default:
       return true;
@@ -1327,11 +1380,7 @@ function buildCoaxialMergeCandidateForJoint(
   strategy: CollisionOptimizationManualMergeStrategy,
   conflictPriority: number,
 ): CollisionOptimizationCandidate | null {
-  if (
-    joint.type !== 'fixed'
-    && joint.type !== 'revolute'
-    && joint.type !== 'continuous'
-  ) {
+  if (joint.type !== 'fixed' && joint.type !== 'revolute' && joint.type !== 'continuous') {
     return null;
   }
 
@@ -1378,19 +1427,22 @@ function buildCoaxialMergeCandidateForJoint(
   const mutualAxisAlignment = Math.abs(parentDescriptor.axisWorld.dot(childDescriptor.axisWorld));
 
   if (
-    parentAxisAlignment < COAXIAL_AXIS_ALIGNMENT_DOT
-    || childAxisAlignment < COAXIAL_AXIS_ALIGNMENT_DOT
-    || mutualAxisAlignment < COAXIAL_AXIS_ALIGNMENT_DOT
+    parentAxisAlignment < COAXIAL_AXIS_ALIGNMENT_DOT ||
+    childAxisAlignment < COAXIAL_AXIS_ALIGNMENT_DOT ||
+    mutualAxisAlignment < COAXIAL_AXIS_ALIGNMENT_DOT
   ) {
     return null;
   }
 
   const centerDelta = childDescriptor.centerWorld.clone().sub(parentDescriptor.centerWorld);
   const axialDelta = Math.abs(centerDelta.dot(jointAxisWorld));
-  const lineOffset = centerDelta.sub(jointAxisWorld.clone().multiplyScalar(centerDelta.dot(jointAxisWorld))).length();
+  const lineOffset = centerDelta
+    .sub(jointAxisWorld.clone().multiplyScalar(centerDelta.dot(jointAxisWorld)))
+    .length();
   const maxRadius = Math.max(parentDescriptor.radius, childDescriptor.radius, COAXIAL_MIN_RADIUS);
-  const radiusRatio = Math.max(parentDescriptor.radius, childDescriptor.radius)
-    / Math.max(Math.min(parentDescriptor.radius, childDescriptor.radius), COAXIAL_MIN_RADIUS);
+  const radiusRatio =
+    Math.max(parentDescriptor.radius, childDescriptor.radius) /
+    Math.max(Math.min(parentDescriptor.radius, childDescriptor.radius), COAXIAL_MIN_RADIUS);
   const parentHalfExtent = Math.max(parentDescriptor.length / 2, COAXIAL_MIN_RADIUS);
   const childHalfExtent = Math.max(childDescriptor.length / 2, COAXIAL_MIN_RADIUS);
   const axialGap = Math.max(axialDelta - parentHalfExtent - childHalfExtent, 0);
@@ -1427,9 +1479,7 @@ function buildCoaxialMergeCandidateForJoint(
     currentType: parentTarget.geometry.type,
     suggestedType: strategy === 'capsule' ? GeometryType.CAPSULE : GeometryType.CYLINDER,
     status: 'ready',
-    reason: strategy === 'capsule'
-      ? 'coaxial-merge-to-capsule'
-      : 'coaxial-merge-to-cylinder',
+    reason: strategy === 'capsule' ? 'coaxial-merge-to-capsule' : 'coaxial-merge-to-cylinder',
     nextGeometry: mergedGeometry,
     affectedTargetIds: [parentTarget.id, childTarget.id],
     conflictPriority,
@@ -1454,7 +1504,9 @@ function buildCoaxialMergeCandidateForJoint(
 
 function buildCoaxialMergeCandidatesForRobot(
   robot: RobotData,
-  settings: CollisionOptimizationSettings & { coaxialJointMergeStrategy: Exclude<CoaxialJointMergeStrategy, 'keep'> },
+  settings: CollisionOptimizationSettings & {
+    coaxialJointMergeStrategy: Exclude<CoaxialJointMergeStrategy, 'keep'>;
+  },
   targets: CollisionTargetRef[],
   meshAnalysisByTargetId: Record<string, MeshAnalysis | null>,
   componentId?: string,
@@ -1530,15 +1582,17 @@ function buildManualMergeCandidatesForRobot(
       return;
     }
 
-    let joint = joints.find((entry) =>
-      entry.parentLinkId === firstTarget.linkId && entry.childLinkId === secondTarget.linkId
+    let joint = joints.find(
+      (entry) =>
+        entry.parentLinkId === firstTarget.linkId && entry.childLinkId === secondTarget.linkId,
     );
     let parentTarget = firstTarget;
     let childTarget = secondTarget;
 
     if (!joint) {
-      joint = joints.find((entry) =>
-        entry.parentLinkId === secondTarget.linkId && entry.childLinkId === firstTarget.linkId
+      joint = joints.find(
+        (entry) =>
+          entry.parentLinkId === secondTarget.linkId && entry.childLinkId === firstTarget.linkId,
       );
       if (!joint) {
         return;
@@ -1564,7 +1618,10 @@ function buildManualMergeCandidatesForRobot(
       childTarget,
       meshAnalysisByTargetId,
       linkWorldMatrices,
-      pair.strategy ?? (settings.coaxialJointMergeStrategy === 'keep' ? 'capsule' : settings.coaxialJointMergeStrategy),
+      pair.strategy ??
+        (settings.coaxialJointMergeStrategy === 'keep'
+          ? 'capsule'
+          : settings.coaxialJointMergeStrategy),
       MANUAL_COAXIAL_CONFLICT_PRIORITY,
     );
 
@@ -1665,21 +1722,33 @@ export async function prepareCollisionOptimizationBaseAnalysis(
   options: CollisionOptimizationAsyncOptions = {},
 ): Promise<CollisionOptimizationBaseAnalysis> {
   const targets = collectCollisionTargets(source);
-  const meshTargets = targets.filter((target) => target.geometry.type === GeometryType.MESH && Boolean(target.geometry.meshPath));
+  const meshTargets = targets.filter(
+    (target) => target.geometry.type === GeometryType.MESH && Boolean(target.geometry.meshPath),
+  );
   const meshAnalysisByTargetId: Record<string, MeshAnalysis | null> = {};
   const includeClearanceData = options.includeClearanceData ?? false;
-  const includeMeshClearanceObstacles = options.includeMeshClearanceObstacles ?? includeClearanceData;
+  const includeMeshClearanceObstacles =
+    options.includeMeshClearanceObstacles ?? includeClearanceData;
   const includePrimitiveFits = options.includePrimitiveFits ?? false;
   const clearancePointCollectionLimit = Math.max(options.pointCollectionLimit ?? 1024, 1);
   const clearanceSurfacePointLimit = Math.max(options.surfacePointLimit ?? 512, 1);
   const workerResults = await analyzeMeshBatchWithWorker({
     assets,
-    tasks: meshTargets.map((target) => ({
-      targetId: target.id,
-      cacheKey: createMeshAnalysisCacheKey(target.geometry),
-      meshPath: target.geometry.meshPath!,
-      dimensions: target.geometry.dimensions,
-    })),
+    tasks: meshTargets.map((target) => {
+      const targetSourceFilePath = resolveCollisionTargetSourceFilePath(
+        source,
+        target,
+        options.sourceFilePath,
+      );
+
+      return {
+        targetId: target.id,
+        cacheKey: createMeshAnalysisCacheKey(target.geometry, targetSourceFilePath),
+        meshPath: target.geometry.meshPath!,
+        dimensions: target.geometry.dimensions,
+        sourceFilePath: targetSourceFilePath,
+      };
+    }),
     options: {
       includePrimitiveFits,
       includeSurfacePoints: includeMeshClearanceObstacles,
@@ -1696,11 +1765,7 @@ export async function prepareCollisionOptimizationBaseAnalysis(
 
   throwIfAborted(options.signal);
   const clearanceWorld = includeClearanceData
-    ? buildCollisionOptimizationClearanceWorld(
-        source,
-        targets,
-        meshAnalysisByTargetId,
-      )
+    ? buildCollisionOptimizationClearanceWorld(source, targets, meshAnalysisByTargetId)
     : null;
 
   return {
@@ -1718,7 +1783,10 @@ export async function buildCollisionClearanceContextForTarget(
   objectIndex: number,
   options: Pick<
     CollisionOptimizationAsyncOptions,
-    'includeMeshClearanceObstacles' | 'pointCollectionLimit' | 'surfacePointLimit'
+    | 'includeMeshClearanceObstacles'
+    | 'pointCollectionLimit'
+    | 'surfacePointLimit'
+    | 'sourceFilePath'
   > = {},
 ): Promise<{
   siblingGeometries?: UrdfVisual[];
@@ -1732,11 +1800,12 @@ export async function buildCollisionClearanceContextForTarget(
       includeMeshClearanceObstacles: options.includeMeshClearanceObstacles,
       pointCollectionLimit: options.pointCollectionLimit,
       surfacePointLimit: options.surfacePointLimit,
+      sourceFilePath: options.sourceFilePath,
     },
   );
 
-  const target = baseAnalysis.targets.find((entry) =>
-    entry.linkId === linkId && entry.objectIndex === objectIndex
+  const target = baseAnalysis.targets.find(
+    (entry) => entry.linkId === linkId && entry.objectIndex === objectIndex,
   );
 
   if (!target) {
@@ -1795,7 +1864,8 @@ export async function analyzeCollisionOptimization(
   settings: CollisionOptimizationSettings,
 ): Promise<CollisionOptimizationAnalysis> {
   const baseAnalysis = await prepareCollisionOptimizationBaseAnalysis(source, assets, {
-    includePrimitiveFits: settings.coaxialJointMergeStrategy !== 'keep' || Boolean(settings.manualMergePairs?.length),
+    includePrimitiveFits:
+      settings.coaxialJointMergeStrategy !== 'keep' || Boolean(settings.manualMergePairs?.length),
   });
   return buildCollisionOptimizationAnalysisAsync(baseAnalysis, settings);
 }
@@ -1863,17 +1933,29 @@ export function countSameLinkOverlapWarnings(
     for (let index = 0; index < groupTargets.length; index += 1) {
       const leftTarget = groupTargets[index];
       const leftGeometry = overridesByTargetId[leftTarget.id] ?? leftTarget.geometry;
-      const leftRadius = computeBroadPhaseRadius(leftGeometry, meshAnalysisByTargetId[leftTarget.id]);
+      const leftRadius = computeBroadPhaseRadius(
+        leftGeometry,
+        meshAnalysisByTargetId[leftTarget.id],
+      );
       if (!leftRadius || leftRadius <= 1e-8) continue;
 
       for (let innerIndex = index + 1; innerIndex < groupTargets.length; innerIndex += 1) {
         const rightTarget = groupTargets[innerIndex];
         const rightGeometry = overridesByTargetId[rightTarget.id] ?? rightTarget.geometry;
-        const rightRadius = computeBroadPhaseRadius(rightGeometry, meshAnalysisByTargetId[rightTarget.id]);
+        const rightRadius = computeBroadPhaseRadius(
+          rightGeometry,
+          meshAnalysisByTargetId[rightTarget.id],
+        );
         if (!rightRadius || rightRadius <= 1e-8) continue;
 
-        const leftCenter = computeBroadPhaseCenter(leftGeometry, meshAnalysisByTargetId[leftTarget.id]);
-        const rightCenter = computeBroadPhaseCenter(rightGeometry, meshAnalysisByTargetId[rightTarget.id]);
+        const leftCenter = computeBroadPhaseCenter(
+          leftGeometry,
+          meshAnalysisByTargetId[leftTarget.id],
+        );
+        const rightCenter = computeBroadPhaseCenter(
+          rightGeometry,
+          meshAnalysisByTargetId[rightTarget.id],
+        );
         const dx = leftCenter.x - rightCenter.x;
         const dy = leftCenter.y - rightCenter.y;
         const dz = leftCenter.z - rightCenter.z;
@@ -1896,11 +1978,17 @@ export function buildCollisionOptimizationOperations(
   const consumedTargetIds = new Set<string>();
 
   return candidates
-    .filter((candidate) => candidate.eligible && candidate.nextGeometry && checkedIds.has(candidate.target.id) && candidate.reason)
-    .sort((left, right) =>
-      (right.conflictPriority ?? 0) - (left.conflictPriority ?? 0)
-      ||
-      (right.affectedTargetIds?.length ?? 1) - (left.affectedTargetIds?.length ?? 1)
+    .filter(
+      (candidate) =>
+        candidate.eligible &&
+        candidate.nextGeometry &&
+        checkedIds.has(candidate.target.id) &&
+        candidate.reason,
+    )
+    .sort(
+      (left, right) =>
+        (right.conflictPriority ?? 0) - (left.conflictPriority ?? 0) ||
+        (right.affectedTargetIds?.length ?? 1) - (left.affectedTargetIds?.length ?? 1),
     )
     .flatMap((candidate) => {
       const affectedTargetIds = candidate.affectedTargetIds ?? [candidate.target.id];
@@ -1914,26 +2002,33 @@ export function buildCollisionOptimizationOperations(
             ...mutation,
             nextGeometry: mutation.nextGeometry ? cloneGeometry(mutation.nextGeometry) : undefined,
           }))
-        : [{
-            componentId: candidate.target.componentId,
-            linkId: candidate.target.linkId,
-            objectIndex: candidate.target.objectIndex,
-            type: 'update' as const,
-            nextGeometry: cloneGeometry(candidate.nextGeometry!),
-          }];
+        : [
+            {
+              componentId: candidate.target.componentId,
+              linkId: candidate.target.linkId,
+              objectIndex: candidate.target.objectIndex,
+              type: 'update' as const,
+              nextGeometry: cloneGeometry(candidate.nextGeometry!),
+            },
+          ];
 
-      return [{
-        id: candidate.target.id,
-        componentId: candidate.target.componentId,
-        linkId: candidate.target.linkId,
-        objectIndex: candidate.target.objectIndex,
-        nextGeometry: cloneGeometry(candidate.nextGeometry!),
-        reason: candidate.reason!,
-        fromTypes: [candidate.currentType, ...(candidate.secondaryTarget ? [candidate.secondaryTarget.geometry.type] : [])],
-        toType: candidate.suggestedType!,
-        mutations,
-        affectedTargetIds,
-      }];
+      return [
+        {
+          id: candidate.target.id,
+          componentId: candidate.target.componentId,
+          linkId: candidate.target.linkId,
+          objectIndex: candidate.target.objectIndex,
+          nextGeometry: cloneGeometry(candidate.nextGeometry!),
+          reason: candidate.reason!,
+          fromTypes: [
+            candidate.currentType,
+            ...(candidate.secondaryTarget ? [candidate.secondaryTarget.geometry.type] : []),
+          ],
+          toType: candidate.suggestedType!,
+          mutations,
+          affectedTargetIds,
+        },
+      ];
     });
 }
 

@@ -450,7 +450,7 @@ export const zh: TranslationKeys = {
   dropFilesToImportHint:
     '支持 URDF、MJCF、USD、Xacro、ZIP/RAR/7Z/TAR 压缩包、文件夹、3D 模型和图片',
   simpleMode: '简单模式',
-  proMode: '专业模式',
+  proMode: '高级模式',
   structureTree: '结构树',
   assemblyTree: '组装视图',
   projectName: '项目名称',
@@ -486,11 +486,11 @@ export const zh: TranslationKeys = {
   generateWorkspaceUrdf: '生成 URDF',
   generateWorkspaceUrdfConfirmTitle: '切回简单模式前生成 URDF？',
   generateWorkspaceUrdfConfirmMessage:
-    '专业模式的工作空间有改动。是否先生成一个 URDF 到素材库，再切回简单模式？',
+    '高级模式的工作空间有改动。是否先生成一个 URDF 到素材库，再切回简单模式？',
   generateWorkspaceUrdfSuccess: '已生成 {name}',
   generateWorkspaceUrdfUnavailable: '当前工作空间没有可生成的内容。',
   generateWorkspaceUrdfDisconnected:
-    '当前工作空间包含未拼接的组件。请继续留在专业模式完成连接后，再生成单个 URDF。',
+    '当前工作空间包含未拼接的组件。请继续留在高级模式完成连接后，再生成单个 URDF。',
   generateAndSwitchToSimpleMode: '生成并切回',
   switchToSimpleWithoutGenerate: '不生成直接切回',
 
@@ -550,6 +550,8 @@ export const zh: TranslationKeys = {
     '所有数据仅在您的本地浏览器中处理，\n不会上传到云端服务器，您的数据是安全的。',
   importPackageAssetBundleHint:
     '这个机器人引用了 package 资源（{packages}）。请导入完整文件夹或压缩包，才能正确加载 mesh 和贴图，避免显示为占位方块。',
+  importPrimitiveGeometryHint:
+    '这个 URDF 没有引用同目录的 mesh 文件（{assets}）。URDF Studio 现在显示的是源文件里定义的基础体几何，而不是这些未被引用的 mesh。',
   importUspSuccess: '导入 USP 成功',
   addedFilesToAssetLibrary: '已添加 {count} 个文件到素材库',
   libraryImportSuccessful: '库导入成功！',
@@ -557,6 +559,8 @@ export const zh: TranslationKeys = {
   noDefinitionFilesFound: '未找到 URDF/MJCF/USD 文件。',
   noSupportedImportFilesFound: '未找到可导入的机器人、网格或图片文件。',
   importFailedCheckFiles: '导入失败。请检查文件是否有效。',
+  importBackgroundAssetsStillLoadingFailed:
+    '机器人已经打开，但部分导入资源在后台补齐时失败了。如果仍有占位显示，请重新导入该压缩包。',
   jointName: '关节名称',
   motorType: '电机型号',
   addedComponent: '已添加组件: {name}',
@@ -776,10 +780,10 @@ export const zh: TranslationKeys = {
   exportDoExportProject: '导出 .usp',
   exportProjectWorkspaceSummary: '导出当前工作区工程',
   exportProjectWorkspaceSummaryDesc:
-    '会打包当前 workspace 的组件、桥接关系、源文件、资源文件、历史状态以及恢复工程所需的元数据，方便完整回到专业模式继续编辑。',
+    '会打包当前 workspace 的组件、桥接关系、源文件、资源文件、历史状态以及恢复工程所需的元数据，方便完整回到高级模式继续编辑。',
   disconnectedWorkspaceUrdfExportTitle: '导出多个 URDF？',
   disconnectedWorkspaceUrdfExportMessage:
-    '当前专业模式工作空间包含 {componentCount} 个组件，分布在 {connectedGroupCount} 个未连接的组里。直接导出单个 URDF 语义不明确。你可以改为把每个组件分别打包成独立 URDF，或者继续编辑。',
+    '当前高级模式工作空间包含 {componentCount} 个组件，分布在 {connectedGroupCount} 个未连接的组里。直接导出单个 URDF 语义不明确。你可以改为把每个组件分别打包成独立 URDF，或者继续编辑。',
   exportMultipleUrdfs: '导出多个 URDF',
   continueEditing: '继续编辑',
   exportFooterProjectArchive: '.usp 工程包',

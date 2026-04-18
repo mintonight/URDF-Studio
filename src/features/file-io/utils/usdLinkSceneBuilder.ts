@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 import type { RobotState, UrdfJoint, UrdfLink, UrdfVisual } from '../../../types/index.ts';
 import {
+  getJointMotionAngleFromActualAngle,
   getVisualGeometryEntries,
   hasBoxFaceMaterialPalette,
   resolveVisualMaterialOverride,
@@ -30,6 +31,99 @@ export type BuildUsdLinkSceneRootOptions = {
 };
 
 type DeferredSceneMutation = Promise<void>;
+const ISAAC_OMITTED_PLACEHOLDER_VISUAL_MAX_DIMENSION = 0.002;
+const USD_GEOMETRY_COMPARE_EPSILON = 1e-6;
+
+const hasNearlyEqualNumber = (left: number, right: number): boolean => {
+  return Math.abs(left - right) <= USD_GEOMETRY_COMPARE_EPSILON;
+};
+
+const hasMatchingVisualOrigin = (left: UrdfVisual, right: UrdfVisual): boolean => {
+  return (
+    hasNearlyEqualNumber(left.origin?.xyz?.x ?? 0, right.origin?.xyz?.x ?? 0) &&
+    hasNearlyEqualNumber(left.origin?.xyz?.y ?? 0, right.origin?.xyz?.y ?? 0) &&
+    hasNearlyEqualNumber(left.origin?.xyz?.z ?? 0, right.origin?.xyz?.z ?? 0) &&
+    hasNearlyEqualNumber(left.origin?.rpy?.r ?? 0, right.origin?.rpy?.r ?? 0) &&
+    hasNearlyEqualNumber(left.origin?.rpy?.p ?? 0, right.origin?.rpy?.p ?? 0) &&
+    hasNearlyEqualNumber(left.origin?.rpy?.y ?? 0, right.origin?.rpy?.y ?? 0)
+  );
+};
+
+const hasMatchingVisualDimensions = (left: UrdfVisual, right: UrdfVisual): boolean => {
+  return (
+    hasNearlyEqualNumber(left.dimensions.x ?? 0, right.dimensions.x ?? 0) &&
+    hasNearlyEqualNumber(left.dimensions.y ?? 0, right.dimensions.y ?? 0) &&
+    hasNearlyEqualNumber(left.dimensions.z ?? 0, right.dimensions.z ?? 0)
+  );
+};
+
+const getPrimitiveMaxDimension = (visual: UrdfVisual): number => {
+  const type = getGeometryType(visual.type);
+  if (type === GEOMETRY_TYPES.SPHERE) {
+    return Math.abs(visual.dimensions.x ?? 0);
+  }
+
+  if (type === GEOMETRY_TYPES.CYLINDER || type === GEOMETRY_TYPES.CAPSULE) {
+    return Math.max(Math.abs(visual.dimensions.x ?? 0), Math.abs(visual.dimensions.y ?? 0));
+  }
+
+  return Math.max(
+    Math.abs(visual.dimensions.x ?? 0),
+    Math.abs(visual.dimensions.y ?? 0),
+    Math.abs(visual.dimensions.z ?? 0),
+  );
+};
+
+const shouldOmitIsaacPlaceholderPrimitiveVisual = (
+  visual: UrdfVisual,
+  collisions: UrdfVisual[],
+  materialState: UsdMaterialMetadata,
+): boolean => {
+  const geometryType = getGeometryType(visual.type);
+  if (
+    geometryType !== GEOMETRY_TYPES.BOX &&
+    geometryType !== GEOMETRY_TYPES.SPHERE &&
+    geometryType !== GEOMETRY_TYPES.CYLINDER &&
+    geometryType !== GEOMETRY_TYPES.CAPSULE
+  ) {
+    return false;
+  }
+
+  if (getPrimitiveMaxDimension(visual) > ISAAC_OMITTED_PLACEHOLDER_VISUAL_MAX_DIMENSION) {
+    return false;
+  }
+
+  const hasNamedPlaceholderMaterial = (visual.authoredMaterials || []).some((material) => {
+    const materialName = String(material?.name || '').trim();
+    if (!materialName) {
+      return false;
+    }
+
+    const rgba = Array.isArray(materialState.colorRgba) ? materialState.colorRgba : null;
+    if (rgba && rgba.length >= 3) {
+      const minChannel = Math.min(rgba[0] ?? 0, rgba[1] ?? 0, rgba[2] ?? 0);
+      const maxChannel = Math.max(rgba[0] ?? 0, rgba[1] ?? 0, rgba[2] ?? 0);
+      return minChannel >= 0.99 && maxChannel - minChannel <= 0.01;
+    }
+
+    return (
+      String(materialState.color || '')
+        .trim()
+        .toLowerCase() === '#ffffff'
+    );
+  });
+  if (!hasNamedPlaceholderMaterial) {
+    return false;
+  }
+
+  return collisions.some((collision) => {
+    return (
+      getGeometryType(collision.type) === geometryType &&
+      hasMatchingVisualDimensions(visual, collision) &&
+      hasMatchingVisualOrigin(visual, collision)
+    );
+  });
+};
 
 const resolveLinkMaterialEntry = (
   robot: RobotState,
@@ -40,6 +134,7 @@ const resolveLinkMaterialEntry = (
   const resolvedMaterial = resolveVisualMaterialOverride(robot, link, visual, {
     isPrimaryVisual: options.isPrimaryVisual,
   });
+  const shouldSuppressGazeboFallback = visual.materialSource === 'gazebo';
 
   if (resolvedMaterial.source === 'authored') {
     if (resolvedMaterial.isMultiMaterial) {
@@ -50,25 +145,34 @@ const resolveLinkMaterialEntry = (
 
     return {
       color: resolvedMaterial.color || undefined,
+      colorRgba: resolvedMaterial.colorRgba,
       texture: resolvedMaterial.texture || undefined,
       forceUniformOverride: true,
     };
   }
 
   if (resolvedMaterial.source === 'legacy-link') {
+    if (shouldSuppressGazeboFallback) {
+      return {
+        suppressVisualColor: true,
+      };
+    }
+
     return {
       color:
         resolvedMaterial.color ||
         (resolvedMaterial.texture ? '#ffffff' : undefined) ||
         visual.color ||
         undefined,
+      colorRgba: resolvedMaterial.colorRgba,
       texture: resolvedMaterial.texture || undefined,
       forceUniformOverride: true,
     };
   }
 
   return {
-    color: visual.color || undefined,
+    color: shouldSuppressGazeboFallback ? undefined : visual.color || undefined,
+    ...(shouldSuppressGazeboFallback ? { suppressVisualColor: true } : {}),
   };
 };
 
@@ -103,14 +207,12 @@ const createJointLocalMatrix = (joint: UrdfJoint): THREE.Matrix4 => {
   }
 
   const jointType = String(joint.type || '').toLowerCase();
+  const jointMotion =
+    typeof joint.angle === 'number' ? getJointMotionAngleFromActualAngle(joint, joint.angle) : 0;
   if (jointType === 'revolute' || jointType === 'continuous') {
-    motionMatrix.makeRotationAxis(axis, typeof joint.angle === 'number' ? joint.angle : 0);
+    motionMatrix.makeRotationAxis(axis, jointMotion);
   } else if (jointType === 'prismatic') {
-    motionMatrix.makeTranslation(
-      axis.x * (typeof joint.angle === 'number' ? joint.angle : 0),
-      axis.y * (typeof joint.angle === 'number' ? joint.angle : 0),
-      axis.z * (typeof joint.angle === 'number' ? joint.angle : 0),
-    );
+    motionMatrix.makeTranslation(axis.x * jointMotion, axis.y * jointMotion, axis.z * jointMotion);
   } else if ((jointType === 'ball' || jointType === 'floating') && joint.quaternion) {
     motionMatrix.makeRotationFromQuaternion(
       new THREE.Quaternion(
@@ -184,12 +286,31 @@ const buildLinkSceneNode = async (
     const visualsScope = new THREE.Group();
     visualsScope.name = 'visuals';
     group.add(visualsScope);
-
-    const visualNodePromises = visuals.map(async (visualEntry, index) => {
-      const visual = visualEntry.geometry;
-      const materialState = resolveLinkMaterialEntry(robot, link, visual, {
+    const collisions = getCollisionVisuals(link);
+    const resolvedVisualEntries = visuals.map((visualEntry) => {
+      const materialState = resolveLinkMaterialEntry(robot, link, visualEntry.geometry, {
         isPrimaryVisual: visualEntry.bodyIndex === null,
       });
+
+      return {
+        visualEntry,
+        materialState,
+        omitIsaacPlaceholderVisual: shouldOmitIsaacPlaceholderPrimitiveVisual(
+          visualEntry.geometry,
+          collisions,
+          materialState,
+        ),
+      };
+    });
+    const visibleVisualEntries = resolvedVisualEntries.filter((entry) => {
+      return !entry.omitIsaacPlaceholderVisual;
+    });
+    const omittedPlaceholderVisualCount =
+      resolvedVisualEntries.length - visibleVisualEntries.length;
+
+    const visualNodePromises = visibleVisualEntries.map(async (entry, index) => {
+      const visual = entry.visualEntry.geometry;
+      const materialState = entry.materialState;
       const visualNode = await buildUsdVisualSceneNode({
         visual,
         role: 'visual',
@@ -203,7 +324,11 @@ const buildLinkSceneNode = async (
       }
 
       visualNode.name = `visual_${index}`;
-      if (!hasBoxFaceMaterialPalette(visual) && (materialState.color || materialState.texture)) {
+      if (
+        !visualNode.userData.usdPreserveEmbeddedMaterialAppearance &&
+        !hasBoxFaceMaterialPalette(visual) &&
+        (materialState.color || materialState.texture)
+      ) {
         applyUsdMaterialMetadata(visualNode, materialState);
       }
 
@@ -218,7 +343,7 @@ const buildLinkSceneNode = async (
           }
         });
 
-        if (visualsScope.children.length === 0) {
+        if (visualsScope.children.length === 0 && omittedPlaceholderVisualCount === 0) {
           group.remove(visualsScope);
         }
       }),
@@ -229,6 +354,7 @@ const buildLinkSceneNode = async (
   if (collisions.length > 0) {
     const collidersScope = new THREE.Group();
     collidersScope.name = 'collisions';
+    collidersScope.userData.usdVisibility = 'invisible';
     group.add(collidersScope);
 
     const collisionNodePromises = collisions.map(async (collision, index) => {

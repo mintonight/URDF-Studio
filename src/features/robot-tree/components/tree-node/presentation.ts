@@ -3,7 +3,7 @@ import { ArrowRightLeft, Lock, Move3D, Plane, RefreshCw, RotateCw } from 'lucide
 import type { TranslationKeys } from '@/shared/i18n';
 import { JointType } from '@/types';
 
-export const TREE_LINK_NAME_TEXT_CLASS = 'text-xs leading-none font-medium';
+export const TREE_LINK_NAME_TEXT_CLASS = 'text-[11px] leading-none font-medium';
 export const TREE_JOINT_NAME_TEXT_CLASS = 'text-[11px] leading-none font-medium';
 export const TREE_RENAME_INPUT_BASE_CLASS =
   'select-text flex-1 min-w-0 px-1 py-0.5 rounded border outline-none transition-colors';

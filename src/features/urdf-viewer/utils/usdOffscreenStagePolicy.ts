@@ -2,7 +2,6 @@ import type { RobotFile } from '@/types';
 import type { ToolMode, ViewerProps } from '../types';
 import { supportsUsdWorkerRenderer } from './usdWorkerRendererSupport.ts';
 import { collectUsdStageOpenRelevantVirtualPaths, toVirtualUsdPath } from './usdPreloadSources.ts';
-import { hasBlobBackedLargeUsdaInStageScope } from './usdBlobBackedUsda.ts';
 
 type OffscreenUsdFileLike = Pick<RobotFile, 'name' | 'content' | 'format' | 'blobUrl'>;
 
@@ -22,7 +21,14 @@ interface ShouldUseUsdOffscreenStageOptions {
 
 const HAND_ARTICULATION_TOKEN_PATTERN =
   /\b(?:[LR]_(?:thumb|index|middle|ring|pinky)(?:_|\b)|(?:left|right)_(?:thumb|index|middle|ring|pinky)(?:_|\b))/i;
-const KNOWN_UNSUPPORTED_OFFSCREEN_BUNDLE_PATTERNS = [/(?:^|\/)h1_2(?:\/|$)/i];
+const KNOWN_UNSUPPORTED_OFFSCREEN_BUNDLE_TOKENS = new Set([
+  'b2',
+  'b2_description',
+  'b2w',
+  'b2w_description',
+  'h1_2',
+  'h1_2_handless',
+]);
 const EMPTY_OFFSCREEN_USD_FILES: OffscreenUsdFileLike[] = [];
 const handArticulationSupportCache = new WeakMap<
   OffscreenUsdFileLike,
@@ -39,12 +45,35 @@ function isUsdFileLike(file: OffscreenUsdFileLike | null | undefined): boolean {
   return Boolean(file && (file.format === 'usd' || /\.usd[a-z]?$/i.test(file.name)));
 }
 
-function isPureUsdRootFile(file: OffscreenUsdFileLike | null | undefined): boolean {
-  if (!isUsdFileLike(file)) {
+function getUsdFileStem(name: string | null | undefined): string {
+  const normalizedName = normalizeUsdFileName(name);
+  const fileName = normalizedName.split('/').pop() || '';
+  return fileName.replace(/\.usd[a-z]?$/i, '').toLowerCase();
+}
+
+function hasKnownUnsupportedOffscreenBundleToken(name: string | null | undefined): boolean {
+  const normalizedName = normalizeUsdFileName(name).toLowerCase();
+  if (!normalizedName) {
     return false;
   }
 
-  return /\.usd$/i.test(normalizeUsdFileName(file.name));
+  const normalizedSegments = normalizedName
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+  const stageScopeTokens = new Set(normalizedSegments);
+  const fileStem = getUsdFileStem(normalizedName);
+  if (fileStem) {
+    stageScopeTokens.add(fileStem);
+  }
+
+  for (const token of KNOWN_UNSUPPORTED_OFFSCREEN_BUNDLE_TOKENS) {
+    if (stageScopeTokens.has(token)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function hasUnsupportedHandArticulation({
@@ -79,7 +108,7 @@ function hasUnsupportedHandArticulation({
     .map((file) => normalizeUsdFileName(file?.name))
     .filter((name) => name.length > 0);
   const hasUnsupportedBundlePattern = candidateFileNames.some((name) =>
-    KNOWN_UNSUPPORTED_OFFSCREEN_BUNDLE_PATTERNS.some((pattern) => pattern.test(name)),
+    hasKnownUnsupportedOffscreenBundleToken(name),
   );
   const hasUnsupportedToken =
     !hasUnsupportedBundlePattern &&
@@ -116,6 +145,7 @@ export function shouldUseUsdOffscreenStage({
 }: ShouldUseUsdOffscreenStageOptions): boolean {
   void selection;
   void hoveredSelection;
+  void focusTarget;
 
   if (!workerRendererSupported) {
     return false;
@@ -125,34 +155,11 @@ export function shouldUseUsdOffscreenStage({
     return false;
   }
 
-  if (showOrigins || showJointAxes || showCenterOfMass || showInertia) {
+  if (showJointAxes || showCenterOfMass || showInertia) {
     return false;
   }
 
   if (hasUnsupportedHandArticulation({ sourceFile, availableFiles })) {
-    return false;
-  }
-
-  // Imported Unitree ROS USDA bundles keep very large base/configuration sidecars
-  // as blob-backed text placeholders. The current offscreen worker stage-open
-  // path can resolve metadata for those bundles, but stage composition still
-  // fails to materialize the renderable scene. Keep those imports on the proven
-  // main-thread USD stage until the offscreen loader can reliably compose them.
-  if (hasBlobBackedLargeUsdaInStageScope(sourceFile, availableFiles)) {
-    return false;
-  }
-
-  // The current offscreen worker renderer lives in a fullscreen overlay canvas
-  // outside the shared WorkspaceCanvas R3F scene. Pure `.usd` robot bundles
-  // therefore orbit against a different presentation stack than the workspace
-  // ground/grid, which makes models like Unitree B2 feel screen-locked while
-  // navigating. Keep `.usd` roots on the proven main-thread stage until the
-  // offscreen path participates in the same scene camera/ground presentation.
-  if (isPureUsdRootFile(sourceFile)) {
-    return false;
-  }
-
-  if (typeof focusTarget === 'string' && focusTarget.trim() !== '') {
     return false;
   }
 

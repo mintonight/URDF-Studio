@@ -52,12 +52,21 @@ import {
   getSourceCodeEditorTabClassName,
   SOURCE_CODE_EDITOR_TABS_CLASS,
 } from '../utils/sourceCodeEditorTabClasses';
+import {
+  accumulateSourceCodeDirtyRanges,
+  shouldResetSourceCodeEditorSession,
+  type SourceCodeEditorApplyRequest,
+  type SourceCodeEditorSessionBoundary,
+} from '../utils/sourceCodeEditorSession';
 import { useSourceCodeEditorAutoApply } from '../hooks/useSourceCodeEditorAutoApply';
 
 export interface SourceCodeEditorDocument {
   id: string;
   code: string;
-  onCodeChange: (newCode: string) => Promise<boolean> | boolean;
+  onCodeChange: (
+    newCode: string,
+    applyRequest?: SourceCodeEditorApplyRequest,
+  ) => Promise<boolean> | boolean;
   fileName: string;
   tabLabel?: string;
   filePath?: string;
@@ -70,7 +79,10 @@ export interface SourceCodeEditorDocument {
 export interface SourceCodeEditorProps {
   documents?: SourceCodeEditorDocument[];
   code?: string;
-  onCodeChange?: (newCode: string) => Promise<boolean> | boolean;
+  onCodeChange?: (
+    newCode: string,
+    applyRequest?: SourceCodeEditorApplyRequest,
+  ) => Promise<boolean> | boolean;
   onClose: () => void;
   theme: Theme;
   fileName?: string;
@@ -91,7 +103,10 @@ interface DocumentMeta {
 interface ActiveSourceCodeDocument {
   id: string;
   code: string;
-  onCodeChange: (newCode: string) => Promise<boolean> | boolean;
+  onCodeChange: (
+    newCode: string,
+    applyRequest?: SourceCodeEditorApplyRequest,
+  ) => Promise<boolean> | boolean;
   fileName: string;
   tabLabel?: string;
   filePath?: string;
@@ -99,6 +114,27 @@ interface ActiveSourceCodeDocument {
   readOnly: boolean;
   onDownload?: () => void;
   validationEnabled?: boolean;
+}
+
+interface MonacoContentChangeEvent {
+  changes?: Array<{
+    rangeOffset: number;
+    rangeLength: number;
+    text: string;
+  }>;
+}
+
+interface MonacoTextModelLike {
+  onDidChangeContent?: (listener: (event: MonacoContentChangeEvent) => void) => {
+    dispose: () => void;
+  };
+}
+
+interface MonacoEditorLike {
+  getModel?: () => MonacoTextModelLike | null;
+  getValue: () => string;
+  setValue: (value: string) => void;
+  layout: () => void;
 }
 
 const editorTexts = {
@@ -464,6 +500,10 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingAppliedCodeRef = useRef<string | null>(null);
   const pendingAppliedBaseCodeRef = useRef<string | null>(null);
+  const dirtyRangesRef = useRef<NonNullable<SourceCodeEditorApplyRequest['dirtyRanges']>>([]);
+  const suppressDirtyTrackingRef = useRef(0);
+  const contentChangeDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const sessionBoundaryRef = useRef<SourceCodeEditorSessionBoundary | null>(null);
   const validationRequestSequenceRef = useRef(0);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editorRef = useRef<any>(null);
@@ -492,6 +532,8 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
     return () => {
       editorMountVersionRef.current += 1;
       validationRequestSequenceRef.current += 1;
+      contentChangeDisposableRef.current?.dispose();
+      contentChangeDisposableRef.current = null;
       if (copyTimerRef.current) {
         clearTimeout(copyTimerRef.current);
       }
@@ -499,9 +541,22 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
   }, []);
 
   useEffect(() => {
+    const nextSessionBoundary = {
+      documentId: activeDocument.id,
+      validationEnabled,
+    } satisfies SourceCodeEditorSessionBoundary;
+
+    if (!shouldResetSourceCodeEditorSession(sessionBoundaryRef.current, nextSessionBoundary)) {
+      return;
+    }
+
+    sessionBoundaryRef.current = nextSessionBoundary;
     pendingAppliedCodeRef.current = null;
     pendingAppliedBaseCodeRef.current = null;
+    dirtyRangesRef.current = [];
     validationRequestSequenceRef.current += 1;
+    contentChangeDisposableRef.current?.dispose();
+    contentChangeDisposableRef.current = null;
     editorRef.current = null;
     setCurrentCode(activeDocumentCode);
     setIsDirty(false);
@@ -536,8 +591,11 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
     }
 
     if (editorRef.current && activeDocumentCode !== currentCode && !isDirty) {
+      suppressDirtyTrackingRef.current += 1;
       editorRef.current.setValue(activeDocumentCode);
+      suppressDirtyTrackingRef.current = Math.max(0, suppressDirtyTrackingRef.current - 1);
       setCurrentCode(activeDocumentCode);
+      dirtyRangesRef.current = [];
       setAutoApplyBlockedCode(null);
       return;
     }
@@ -728,10 +786,15 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
       setIsApplying(true);
 
       try {
-        const didApply = await Promise.resolve(activeDocument.onCodeChange(value));
+        const didApply = await Promise.resolve(
+          activeDocument.onCodeChange(value, {
+            dirtyRanges: [...dirtyRangesRef.current],
+          }),
+        );
         if (didApply) {
           pendingAppliedCodeRef.current = value;
           pendingAppliedBaseCodeRef.current = activeDocumentCode;
+          dirtyRangesRef.current = [];
           setIsDirty(false);
           setAutoApplyBlockedCode(null);
           return true;
@@ -867,29 +930,54 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
     return attachFindWidgetTooltipSuppression(editorRef.current);
   }, [isEditorReady]);
 
-  const handleEditorMount = useCallback((editor: unknown, monaco: MonacoInstance) => {
-    const mountVersion = editorMountVersionRef.current + 1;
-    editorMountVersionRef.current = mountVersion;
-    editorRef.current = editor;
+  const handleEditorMount = useCallback(
+    (editor: unknown, monaco: MonacoInstance) => {
+      const mountVersion = editorMountVersionRef.current + 1;
+      editorMountVersionRef.current = mountVersion;
+      contentChangeDisposableRef.current?.dispose();
+      contentChangeDisposableRef.current = null;
+      editorRef.current = editor;
 
-    if (editorMountVersionRef.current !== mountVersion || editorRef.current !== editor) {
-      return;
-    }
-
-    try {
-      setMonacoInstance(ensureSourceCodeEditorLanguages(monaco));
-    } catch (error) {
-      console.error('Failed to initialize Monaco editor languages:', error);
-      setMonacoInstance(monaco);
-    }
-
-    setIsEditorReady(true);
-    requestAnimationFrame(() => {
-      if (editorMountVersionRef.current === mountVersion && editorRef.current) {
-        editorRef.current.layout();
+      if (editorMountVersionRef.current !== mountVersion || editorRef.current !== editor) {
+        return;
       }
-    });
-  }, []);
+
+      try {
+        setMonacoInstance(ensureSourceCodeEditorLanguages(monaco));
+      } catch (error) {
+        console.error('Failed to initialize Monaco editor languages:', error);
+        setMonacoInstance(monaco);
+      }
+
+      const model = (editor as MonacoEditorLike).getModel?.();
+      contentChangeDisposableRef.current =
+        model?.onDidChangeContent?.((event) => {
+          if (suppressDirtyTrackingRef.current > 0 || isReadOnly) {
+            return;
+          }
+
+          const changes =
+            event.changes?.map((change) => ({
+              rangeOffset: change.rangeOffset,
+              rangeLength: change.rangeLength,
+              text: change.text,
+            })) ?? [];
+          if (changes.length === 0) {
+            return;
+          }
+
+          dirtyRangesRef.current = accumulateSourceCodeDirtyRanges(dirtyRangesRef.current, changes);
+        }) ?? null;
+
+      setIsEditorReady(true);
+      requestAnimationFrame(() => {
+        if (editorMountVersionRef.current === mountVersion && editorRef.current) {
+          editorRef.current.layout();
+        }
+      });
+    },
+    [isReadOnly],
+  );
 
   return (
     <DraggableWindow

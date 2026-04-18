@@ -107,8 +107,24 @@ export function syncRobotMeshTextMaterialMetadata(
     assetPaths?: Iterable<string>;
   } = {},
 ): RobotData {
-  const assetPathEntries = options.assetPaths ? Array.from(options.assetPaths) : [];
-  if (Object.keys(options.allFileContents ?? {}).length === 0 && assetPathEntries.length === 0) {
+  const allFileContents = options.allFileContents ?? {};
+  let hasTextMeshContent = false;
+  for (const assetPath in allFileContents) {
+    if (!Object.prototype.hasOwnProperty.call(allFileContents, assetPath)) {
+      continue;
+    }
+
+    const lowerPath = assetPath.toLowerCase();
+    if (lowerPath.endsWith('.dae') || lowerPath.endsWith('.obj')) {
+      hasTextMeshContent = true;
+      break;
+    }
+  }
+
+  // Without the text contents of OBJ/DAE files we cannot extract authored materials,
+  // so avoid the (potentially very expensive) asset index work when only binary assets
+  // are present in the import context.
+  if (!hasTextMeshContent) {
     return robotData;
   }
 

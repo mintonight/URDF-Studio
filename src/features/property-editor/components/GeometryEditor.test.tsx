@@ -426,6 +426,7 @@ async function renderGeometryEditor(
   options: {
     assets?: Record<string, string>;
     onUploadAsset?: (file: File) => void;
+    sourceFilePath?: string;
   } = {},
 ) {
   await act(async () => {
@@ -440,7 +441,8 @@ async function renderGeometryEditor(
         t: translations.en,
         lang: 'en',
         isTabbed: true,
-      }),
+        sourceFilePath: options.sourceFilePath,
+      } as unknown as React.ComponentProps<typeof GeometryEditor>),
     );
   });
 }
@@ -1720,6 +1722,72 @@ test('GeometryEditor keeps secondary visual textures independent from the link-l
     );
     assert.equal(nextLink.visual.authoredMaterials, undefined);
   } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('GeometryEditor forwards sourceFilePath to mesh analysis worker requests', async () => {
+  const originalWorker = globalThis.Worker;
+  const fakeWorker = new FakeWorker();
+
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: class {
+      constructor() {
+        return fakeWorker as unknown as Worker;
+      }
+    },
+  });
+
+  const { dom, container, root } = createComponentRoot();
+
+  try {
+    const link = createCollisionMeshStemReferenceLink();
+    const robot = createRobot(link);
+    robot.selection = {
+      type: 'link',
+      id: link.id,
+      subType: 'collision',
+      objectIndex: 1,
+    };
+
+    await renderGeometryEditor(root, link, () => {}, robot, 'collision', {
+      sourceFilePath: 'unitree_model/B2/usd/b2.viewer_roundtrip.usd',
+    });
+
+    const typeSelect = container.querySelector('select');
+    assert.ok(typeSelect, 'geometry type select should exist');
+
+    await act(async () => {
+      dispatchReactSelectChange(typeSelect as HTMLSelectElement, GeometryType.CYLINDER);
+      await new Promise<void>((resolve) => {
+        dom.window.requestAnimationFrame(() => resolve());
+      });
+    });
+
+    await waitForWorkerPost(dom, fakeWorker);
+
+    const workerRequest = fakeWorker.postedMessages.find(
+      (message) =>
+        (message as { tasks?: Array<{ meshPath?: string }> }).tasks?.[0]?.meshPath ===
+        'meshes/forearm_visual.dae',
+    ) as
+      | {
+          tasks: Array<{ sourceFilePath?: string }>;
+        }
+      | undefined;
+    assert.ok(workerRequest, 'expected a mesh analysis request for the matched visual mesh');
+    assert.equal(
+      workerRequest.tasks[0]?.sourceFilePath,
+      'unitree_model/B2/usd/b2.viewer_roundtrip.usd',
+    );
+  } finally {
+    Object.defineProperty(globalThis, 'Worker', {
+      configurable: true,
+      writable: true,
+      value: originalWorker,
+    });
     await destroyComponentRoot(dom, root);
   }
 });

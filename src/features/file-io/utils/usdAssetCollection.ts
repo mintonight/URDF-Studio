@@ -1,10 +1,7 @@
 import * as THREE from 'three';
 
 import { resolveUsdAssetUrl, type UsdAssetRegistry } from './usdAssetRegistry.ts';
-import {
-  createUsdTextureRecord,
-  type UsdSerializationContext,
-} from './usdSerializationContext.ts';
+import { createUsdTextureRecord, type UsdSerializationContext } from './usdSerializationContext.ts';
 import {
   advanceUsdProgress,
   createUsdProgressTracker,
@@ -30,9 +27,11 @@ type CollectUsdExportAssetFilesOptions = {
   registry: UsdAssetRegistry;
   onProgress?: (progress: UsdAssetCollectionProgress) => void;
   recordYieldInterval?: number;
+  fetchConcurrency?: number;
 };
 
 const DEFAULT_RECORD_YIELD_INTERVAL = 4;
+const DEFAULT_TEXTURE_FETCH_CONCURRENCY = 6;
 
 export const collectUsdExportAssetFiles = async ({
   sceneRoot,
@@ -40,6 +39,7 @@ export const collectUsdExportAssetFiles = async ({
   registry,
   onProgress,
   recordYieldInterval = DEFAULT_RECORD_YIELD_INTERVAL,
+  fetchConcurrency = DEFAULT_TEXTURE_FETCH_CONCURRENCY,
 }: CollectUsdExportAssetFilesOptions): Promise<Map<string, Blob>> => {
   const textureFiles = new Map<string, string>();
 
@@ -63,23 +63,38 @@ export const collectUsdExportAssetFiles = async ({
     textureFiles.set(texture.exportPath, texture.sourcePath);
   });
 
-  const archiveFiles = new Map<string, Blob>();
   const textureEntries = Array.from(textureFiles.entries());
+  const archiveFilesByIndex: Array<[string, Blob] | null> = new Array(textureEntries.length).fill(
+    null,
+  );
   const progressTracker = createUsdProgressTracker(
     'assets',
     textureEntries.length,
     onProgress as ((progress: UsdProgressEvent<'assets'>) => void) | undefined,
   );
 
-  for (let index = 0; index < textureEntries.length; index += 1) {
-    const [exportPath, sourcePath] = textureEntries[index];
+  const resolvedConcurrency = Math.max(
+    1,
+    Math.min(Math.trunc(fetchConcurrency) || 1, textureEntries.length || 1),
+  );
+  let completedCount = 0;
+  let nextIndex = 0;
+
+  const processTextureEntry = async (index: number): Promise<void> => {
+    const entry = textureEntries[index];
+    if (!entry) {
+      return;
+    }
+
+    const [exportPath, sourcePath] = entry;
     const label = normalizeUsdProgressLabel(exportPath, 'asset');
     const resolvedUrl = resolveUsdAssetUrl(sourcePath, registry);
     if (!resolvedUrl) {
       console.error(`[USD export] Texture asset not found for: ${sourcePath}`);
       advanceUsdProgress(progressTracker, label);
-      await yieldPeriodically(index + 1, recordYieldInterval);
-      continue;
+      completedCount += 1;
+      await yieldPeriodically(completedCount, recordYieldInterval);
+      return;
     }
 
     try {
@@ -88,14 +103,36 @@ export const collectUsdExportAssetFiles = async ({
         throw new Error(`HTTP ${response.status}`);
       }
 
-      archiveFiles.set(`assets/${exportPath}`, await response.blob());
+      archiveFilesByIndex[index] = [`assets/${exportPath}`, await response.blob()];
     } catch (error) {
       console.error(`[USD export] Failed to load texture ${sourcePath}`, error);
     }
 
     advanceUsdProgress(progressTracker, label);
-    await yieldPeriodically(index + 1, recordYieldInterval);
-  }
+    completedCount += 1;
+    await yieldPeriodically(completedCount, recordYieldInterval);
+  };
+
+  await Promise.all(
+    new Array(resolvedConcurrency).fill(null).map(async () => {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= textureEntries.length) {
+          return;
+        }
+
+        await processTextureEntry(index);
+      }
+    }),
+  );
+
+  const archiveFiles = new Map<string, Blob>();
+  archiveFilesByIndex.forEach((entry) => {
+    if (entry) {
+      archiveFiles.set(entry[0], entry[1]);
+    }
+  });
 
   return archiveFiles;
 };

@@ -226,6 +226,7 @@ export interface RobotModelProps {
   urdfContent: string;
   assets: Record<string, string>;
   sourceFormat?: ViewerRobotSourceFormat;
+  allowUrdfXmlFallback?: boolean;
   reloadToken?: number;
   initialRobot?: THREE.Object3D | null;
   sourceFilePath?: string;

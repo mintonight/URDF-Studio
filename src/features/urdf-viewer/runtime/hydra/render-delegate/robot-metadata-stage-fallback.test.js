@@ -317,6 +317,61 @@ test('buildRobotMetadataSnapshotForStage reconstructs robot metadata from export
     }
 });
 
+test('buildRobotMetadataSnapshotForStage reuses cached stage-only fallback metadata for repeated isaacsim roundtrip imports', () => {
+    const previousWindow = globalThis.window;
+    globalThis.window = { driver: null };
+
+    try {
+        const delegate = createFallbackMetadataDelegate();
+        const firstSnapshot = delegate.buildRobotMetadataSnapshotForStage('/robots/two_link_robot.usd', null);
+        const secondSnapshot = delegate.buildRobotMetadataSnapshotForStage('/robots/two_link_robot.usd', null);
+
+        assert.ok(firstSnapshot);
+        assert.strictEqual(
+            secondSnapshot,
+            firstSnapshot,
+            'expected repeated isaacsim roundtrip imports without driver truth to reuse cached stage metadata',
+        );
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});
+
+test('getStageMetadataLayerTexts stops reopening identical relative-path layer texts before recursion blows the stack', () => {
+    const delegate = Object.create(ThreeRenderDelegateCore.prototype);
+    delegate.safeExportLayerText = (layer) => layer?.ExportToString?.() || '';
+    delegate.safeOpenUsdStage = (stagePath) => ({
+        GetRootLayer() {
+            return {
+                identifier: stagePath,
+                ExportToString() {
+                    return exportedRootLayerText;
+                },
+            };
+        },
+    });
+
+    const stage = {
+        GetRootLayer() {
+            return {
+                identifier: 'unitree_model/B2/usd/b2.usd',
+                ExportToString() {
+                    return exportedRootLayerText;
+                },
+            };
+        },
+        GetUsedLayers() {
+            return [];
+        },
+    };
+
+    assert.doesNotThrow(() => {
+        const layerTexts = delegate.getStageMetadataLayerTexts(stage, 'unitree_model/B2/usd/b2.usd');
+        assert.deepEqual(layerTexts, [exportedRootLayerText.trim()]);
+    });
+});
+
 test('buildRobotMetadataSnapshotForStage preserves tiny explicit link dynamics from stage layers', () => {
     const previousWindow = globalThis.window;
     globalThis.window = { driver: null };

@@ -5,13 +5,6 @@ import { DEFAULT_JOINT, DEFAULT_LINK, GeometryType, JointType, type RobotData } 
 
 import { computeRobotRenderableBoundsFromAssets } from './assemblyRenderableBounds.ts';
 
-function assertNearlyEqual(actual: number, expected: number, message: string) {
-  assert.ok(
-    Math.abs(actual - expected) < 1e-9,
-    `${message}: expected ${expected}, received ${actual}`,
-  );
-}
-
 function createMeshFallbackRobot(): RobotData {
   return {
     name: 'mesh_fallback_demo',
@@ -76,20 +69,11 @@ function createMeshFallbackRobot(): RobotData {
   };
 }
 
-test('computeRobotRenderableBoundsFromAssets falls back to per-link collision bounds when a mesh visual cannot resolve', async () => {
-  const renderableBounds = await computeRobotRenderableBoundsFromAssets(createMeshFallbackRobot(), {
-    'robots/demo/placeholder.txt': 'data:text/plain,noop',
-  });
-
-  assert.ok(renderableBounds, 'expected renderable bounds even when one mesh visual is unresolved');
-  assertNearlyEqual(
-    renderableBounds.min.z,
-    -0.9,
-    'unresolved mesh links should contribute collision min.z',
-  );
-  assertNearlyEqual(
-    renderableBounds.max.z,
-    0.15,
-    'resolved primitive visuals should still contribute visual max.z',
+test('computeRobotRenderableBoundsFromAssets fails fast when a mesh visual cannot resolve', async () => {
+  await assert.rejects(
+    computeRobotRenderableBoundsFromAssets(createMeshFallbackRobot(), {
+      'robots/demo/placeholder.txt': 'data:text/plain,noop',
+    }),
+    /Mesh asset could not be resolved/i,
   );
 });

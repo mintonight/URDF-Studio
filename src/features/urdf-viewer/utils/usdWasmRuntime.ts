@@ -8,7 +8,6 @@ import type {
   UsdFsHelperInstance,
   UsdModule,
 } from '../runtime/viewer/usd-loader.types';
-import { logRuntimeFailure } from '@/core/utils/runtimeDiagnostics';
 import { USD_BINDINGS_CACHE_KEY } from './usdBindingsAssetPaths.ts';
 
 type LoadVirtualFileFn = (args: {
@@ -182,16 +181,7 @@ export async function ensureUsdWasmRuntime(): Promise<UsdWasmRuntime> {
 }
 
 export function prewarmUsdWasmRuntimeInBackground(): void {
-  void ensureUsdWasmRuntime().catch((error) => {
-    logRuntimeFailure(
-      'prewarmUsdWasmRuntimeInBackground',
-      new Error(
-        'USD runtime prewarm failed. Foreground USD loading will retry and surface the original error.',
-        { cause: error },
-      ),
-      'warn',
-    );
-  });
+  void ensureUsdWasmRuntime().catch(() => {});
 }
 
 export function disposeUsdDriver(runtime: Pick<UsdWasmRuntime, 'USD'>, driver: any): void {

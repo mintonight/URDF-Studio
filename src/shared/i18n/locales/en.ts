@@ -473,7 +473,7 @@ export const en: TranslationKeys = {
   dropFilesToImportHint:
     'Supports URDF, MJCF, USD, Xacro, ZIP/RAR/7Z/TAR archives, folders, 3D meshes, and images',
   simpleMode: 'Simple',
-  proMode: 'Pro',
+  proMode: 'Advanced',
   structureTree: 'Structure Tree',
   assemblyTree: 'Assembly View',
   projectName: 'Project Name',
@@ -509,13 +509,13 @@ export const en: TranslationKeys = {
   rightClickToRename: 'Right-click to rename',
   rightClickForActions: 'Right-click for actions',
   generateWorkspaceUrdf: 'Generate URDF',
-  generateWorkspaceUrdfConfirmTitle: 'Generate a URDF before leaving Pro mode?',
+  generateWorkspaceUrdfConfirmTitle: 'Generate a URDF before leaving Advanced mode?',
   generateWorkspaceUrdfConfirmMessage:
-    'The workspace changed in Pro mode. Generate a URDF into the asset library before switching back to Simple mode?',
+    'The workspace changed in Advanced mode. Generate a URDF into the asset library before switching back to Simple mode?',
   generateWorkspaceUrdfSuccess: 'Generated {name}',
   generateWorkspaceUrdfUnavailable: 'There is no workspace content to generate right now.',
   generateWorkspaceUrdfDisconnected:
-    'This workspace contains unconnected components. Stay in Pro mode and connect them before generating a single URDF.',
+    'This workspace contains unconnected components. Stay in Advanced mode and connect them before generating a single URDF.',
   generateAndSwitchToSimpleMode: 'Generate and switch',
   switchToSimpleWithoutGenerate: 'Switch without generating',
 
@@ -575,6 +575,8 @@ export const en: TranslationKeys = {
     'All data is processed locally in your browser.\nIt will not be uploaded to any cloud server. Your data is safe.',
   importPackageAssetBundleHint:
     'This robot references package assets ({packages}). Import the full folder or archive so meshes and textures are available instead of placeholders.',
+  importPrimitiveGeometryHint:
+    'This URDF does not reference the sibling mesh files ({assets}). URDF Studio is showing the primitive geometry authored in the source file.',
   importUspSuccess: 'USP imported successfully',
   addedFilesToAssetLibrary: 'Added {count} file(s) to asset library',
   libraryImportSuccessful: 'Library imported successfully!',
@@ -583,6 +585,8 @@ export const en: TranslationKeys = {
   noDefinitionFilesFound: 'No URDF/MJCF/USD file found.',
   noSupportedImportFilesFound: 'No supported robot, mesh, or image files were found to import.',
   importFailedCheckFiles: 'Failed to import. Please check if the file(s) are valid.',
+  importBackgroundAssetsStillLoadingFailed:
+    'The robot opened, but some imported support assets failed to finish loading in the background. Re-import the archive if placeholders remain.',
   jointName: 'Joint Name',
   motorType: 'Motor Type',
   addedComponent: 'Added component: {name}',
@@ -811,10 +815,10 @@ export const en: TranslationKeys = {
   exportDoExportProject: 'Export .usp',
   exportProjectWorkspaceSummary: 'Export the current workspace project',
   exportProjectWorkspaceSummaryDesc:
-    'Packages the current workspace components, bridge joints, source files, asset blobs, history state, and the metadata needed to restore the full pro-mode editing session.',
+    'Packages the current workspace components, bridge joints, source files, asset blobs, history state, and the metadata needed to restore the full Advanced mode editing session.',
   disconnectedWorkspaceUrdfExportTitle: 'Export Multiple URDFs?',
   disconnectedWorkspaceUrdfExportMessage:
-    'This Pro mode workspace contains {componentCount} components across {connectedGroupCount} unconnected groups. A single URDF export would be ambiguous. Export each component as its own URDF package instead, or continue editing.',
+    'This Advanced mode workspace contains {componentCount} components across {connectedGroupCount} unconnected groups. A single URDF export would be ambiguous. Export each component as its own URDF package instead, or continue editing.',
   exportMultipleUrdfs: 'Export Multiple URDFs',
   continueEditing: 'Continue Editing',
   exportFooterProjectArchive: '.usp project archive',

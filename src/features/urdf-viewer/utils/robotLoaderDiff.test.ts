@@ -174,3 +174,94 @@ test('detectSingleGeometryPatch treats visualBodies edits as geometry updates', 
   assert.equal(patch?.visualChanged, false);
   assert.equal(patch?.visualBodiesChanged, true);
 });
+
+test('detectSingleGeometryPatch treats link display-name edits as compatible metadata patches', () => {
+  const previousLinks = {
+    base_link: makeLink({
+      id: 'base_link',
+      name: 'base_link',
+    }),
+  };
+  const nextLinks = {
+    base_link: makeLink({
+      id: 'base_link',
+      name: 'renamed_base_link',
+    }),
+  };
+
+  const patch = detectSingleGeometryPatch(previousLinks, nextLinks);
+
+  assert.ok(patch);
+  assert.equal(patch?.linkName, 'base_link');
+  assert.equal(patch?.linkDisplayName, 'renamed_base_link');
+  assert.equal(patch?.linkNameChanged, true);
+  assert.equal(patch?.visualChanged, false);
+  assert.equal(patch?.visualBodiesChanged, false);
+  assert.equal(patch?.collisionChanged, false);
+  assert.equal(patch?.collisionBodiesChanged, false);
+});
+
+test('detectSingleGeometryPatch treats collision body name edits as geometry updates', () => {
+  const previousLinks = {
+    base_link: makeLink({
+      collisionBodies: [
+        {
+          name: 'collision_body_a',
+          type: GeometryType.BOX,
+          dimensions: { x: 0.1, y: 0.1, z: 0.1 },
+          color: '#808080',
+          origin: {
+            xyz: { x: 0, y: 0, z: 0 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+          visible: true,
+        },
+      ],
+    }),
+  };
+  const nextLinks = {
+    base_link: makeLink({
+      collisionBodies: [
+        {
+          name: 'collision_body_b',
+          type: GeometryType.BOX,
+          dimensions: { x: 0.1, y: 0.1, z: 0.1 },
+          color: '#808080',
+          origin: {
+            xyz: { x: 0, y: 0, z: 0 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+          visible: true,
+        },
+      ],
+    }),
+  };
+
+  const patch = detectSingleGeometryPatch(previousLinks, nextLinks);
+
+  assert.ok(patch);
+  assert.equal(patch?.linkName, 'base_link');
+  assert.equal(patch?.collisionBodiesChanged, true);
+});
+
+test('detectSingleJointPatch treats joint display-name edits as compatible joint patches', () => {
+  const prevJoints = {
+    joint_1: makeJoint({
+      id: 'joint_1',
+      name: 'joint_1',
+    }),
+  };
+  const nextJoints = {
+    joint_1: makeJoint({
+      id: 'joint_1',
+      name: 'renamed_joint_1',
+    }),
+  };
+
+  const patch = detectSingleJointPatch(prevJoints, nextJoints);
+
+  assert.ok(patch);
+  assert.equal(patch?.jointId, 'joint_1');
+  assert.equal(patch?.jointName, 'renamed_joint_1');
+  assert.equal(patch?.jointNameChanged, true);
+});

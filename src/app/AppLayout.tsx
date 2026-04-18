@@ -254,6 +254,7 @@ export function AppLayout({
     renameRobotFolder,
     clearRobotLibrary,
     getUsdPreparedExportCache,
+    usdPreparedExportCaches,
     setDocumentLoadState,
   } = useAssetsStore(
     useShallow((state) => ({
@@ -274,6 +275,7 @@ export function AppLayout({
       renameRobotFolder: state.renameRobotFolder,
       clearRobotLibrary: state.clearRobotLibrary,
       getUsdPreparedExportCache: state.getUsdPreparedExportCache,
+      usdPreparedExportCaches: state.usdPreparedExportCaches,
       setDocumentLoadState: state.setDocumentLoadState,
     })),
   );
@@ -463,7 +465,6 @@ export function AppLayout({
     },
     selectedFile,
     shouldRenderAssembly,
-    showToast,
     workspaceAssemblyRenderFailureReason,
   });
 
@@ -471,10 +472,20 @@ export function AppLayout({
     ? (availableFiles.find((file) => file.name === previewFileName) ?? null)
     : null;
 
+  const preparedAssetSourceFiles = useMemo(
+    () =>
+      [selectedFile, previewFile].filter((file): file is RobotFile =>
+        Boolean(file && file.format === 'usd'),
+      ),
+    [previewFile, selectedFile],
+  );
+
   const viewerAssets = usePreparedUsdViewerAssets({
     assemblyState,
     assets,
     availableFiles,
+    additionalSourceFiles: preparedAssetSourceFiles,
+    preparedExportCaches: usdPreparedExportCaches,
     getUsdPreparedExportCache,
     shouldRenderAssembly,
   });
@@ -804,7 +815,8 @@ export function AppLayout({
         documentFlavor: document.documentFlavor,
         readOnly: document.readOnly,
         validationEnabled: document.validationEnabled,
-        onCodeChange: (newCode: string) => handleCodeChange(newCode, document.changeTarget),
+        onCodeChange: (newCode: string, applyRequest) =>
+          handleCodeChange(newCode, document.changeTarget, applyRequest),
         onDownload: document.readOnly
           ? undefined
           : () => {
@@ -1009,6 +1021,7 @@ export function AppLayout({
     labels: {
       failedToParseFormat: t.failedToParseFormat,
       importPackageAssetBundleHint: t.importPackageAssetBundleHint,
+      importPrimitiveGeometryHint: t.importPrimitiveGeometryHint,
       usdPreviewRequiresOpen: t.usdPreviewRequiresOpen,
       xacroSourceOnlyPreviewHint: t.xacroSourceOnlyPreviewHint,
     },
@@ -1204,7 +1217,7 @@ export function AppLayout({
           onAddCollisionBody={handleAddCollisionBody}
           onHover={handleHover}
           mode={mergedAppMode}
-          assets={assets}
+          assets={viewerAssets}
           onUploadAsset={handleUploadAsset}
           motorLibrary={motorLibrary}
           lang={lang}
@@ -1213,6 +1226,7 @@ export function AppLayout({
           onToggle={() => toggleSidebar('right')}
           readOnlyMessage={isPreviewingWorkspaceSource ? t.previewReadOnlyHint : undefined}
           jointTypeLocked={Boolean(propertyEditorSelectionContext.selectedClosedLoopBridge)}
+          sourceFilePath={viewerSourceFilePath}
         />
       </div>
 
@@ -1247,7 +1261,8 @@ export function AppLayout({
         isCollisionOptimizerOpen={isCollisionOptimizerOpen}
         loadingOptimizerLabel={t.loadingOptimizer}
         collisionOptimizationSource={collisionOptimizationSource}
-        assets={assets}
+        assets={viewerAssets}
+        sourceFilePath={viewerSourceFilePath}
         selection={selection}
         onCloseCollisionOptimizer={() => setIsCollisionOptimizerOpen(false)}
         onSelectCollisionTarget={handlePreviewCollisionOptimizationTarget}

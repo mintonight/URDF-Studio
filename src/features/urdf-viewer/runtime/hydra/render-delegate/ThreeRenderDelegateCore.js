@@ -128,6 +128,7 @@ export class ThreeRenderDelegateCore {
         this._urdfLinkWorldTransformCacheByStageSource = new Map();
         this._urdfVisualFallbackDecisionCache = new Map();
         this._urdfVisualFallbackLinkDecisionCache = new Map();
+        this._roundtripMaterialRecoveryByStageSource = new Map();
         this._robotMetadataSnapshotByStageSource = new Map();
         this._robotSceneSnapshotByStageSource = new Map();
         this._robotMetadataBuildPromisesByStageSource = new Map();
@@ -273,6 +274,7 @@ export class ThreeRenderDelegateCore {
             this._urdfLinkWorldTransformCacheByStageSource,
             this._urdfVisualFallbackDecisionCache,
             this._urdfVisualFallbackLinkDecisionCache,
+            this._roundtripMaterialRecoveryByStageSource,
             this._robotMetadataSnapshotByStageSource,
             this._robotSceneSnapshotByStageSource,
             this._robotMetadataBuildPromisesByStageSource,
@@ -498,36 +500,97 @@ export class ThreeRenderDelegateCore {
     shouldAllowUrdfHttpFallback() {
         return false;
     }
-    getStageMetadataLayerTexts(stage) {
+    getStageMetadataLayerTexts(stage, stageSourcePathOverride = null) {
         const layerTexts = [];
         const seenTexts = new Set();
+        const visitedLayerPaths = new Set();
+        const stageSourcePath = String(stageSourcePathOverride || this.getStageSourcePath() || '').trim().split('?')[0];
+        const allowLargeBaseAssetScan = shouldAllowLargeBaseAssetScan(stageSourcePath);
         const addLayerText = (text) => {
             const serialized = String(text || '').trim();
             if (!serialized)
-                return;
+                return false;
             if (seenTexts.has(serialized))
-                return;
+                return false;
             seenTexts.add(serialized);
             layerTexts.push(serialized);
+            return true;
         };
-        const addLayer = (layer) => {
-            if (!layer || typeof layer.ExportToString !== 'function')
+        const visitLayerTextReferences = (layerPath, layerText) => {
+            if (!layerText || typeof layerText !== 'string')
                 return;
+            const resolveBasePath = (layerPath && layerPath.startsWith('/')) ? layerPath : stageSourcePath;
+            const referencedAssets = extractUsdAssetReferencesFromLayerText(layerText);
+            for (const assetPath of referencedAssets) {
+                if (!allowLargeBaseAssetScan && isPotentiallyLargeBaseAssetPath(assetPath))
+                    continue;
+                const resolvedPath = resolveUsdAssetPath(resolveBasePath, assetPath);
+                if (!resolvedPath || visitedLayerPaths.has(resolvedPath))
+                    continue;
+                if (!allowLargeBaseAssetScan && isPotentiallyLargeBaseAssetPath(resolvedPath))
+                    continue;
+                const referencedStage = this.safeOpenUsdStage(resolvedPath);
+                if (!referencedStage)
+                    continue;
+                addLayer(referencedStage.GetRootLayer?.(), resolvedPath);
+            }
+        };
+        const addLayer = (layer, layerPath = null) => {
+            if (!layer)
+                return;
+            const normalizedLayerPath = normalizeHydraPath(layerPath || layer.identifier || layer.GetDisplayName?.() || '');
+            if (normalizedLayerPath) {
+                if (visitedLayerPaths.has(normalizedLayerPath))
+                    return;
+                visitedLayerPaths.add(normalizedLayerPath);
+            }
+            const layerText = this.safeExportLayerText(layer);
+            const addedNewText = addLayerText(layerText);
+            if (!addedNewText)
+                return;
+            visitLayerTextReferences(normalizedLayerPath || layerPath || null, layerText);
+        };
+        const ingestStageLayers = (stageHandle, rootLayerPath = null) => {
+            addLayer(stageHandle?.GetRootLayer?.(), rootLayerPath);
             try {
-                addLayerText(layer.ExportToString());
+                const layerStack = stageHandle?.GetLayerStack?.(false);
+                if (layerStack && typeof layerStack.size === 'function' && typeof layerStack.get === 'function') {
+                    const stackSize = Number(layerStack.size()) || 0;
+                    for (let layerIndex = 0; layerIndex < stackSize; layerIndex += 1) {
+                        addLayer(layerStack.get(layerIndex));
+                    }
+                }
+            }
+            catch { }
+            try {
+                const usedLayers = toArrayLike(stageHandle?.GetUsedLayers?.());
+                if (Array.isArray(usedLayers)) {
+                    for (const layer of usedLayers) {
+                        addLayer(layer);
+                    }
+                }
             }
             catch { }
         };
-        addLayer(stage?.GetRootLayer?.());
-        try {
-            const usedLayers = toArrayLike(stage?.GetUsedLayers?.());
-            if (Array.isArray(usedLayers)) {
-                for (const layer of usedLayers) {
-                    addLayer(layer);
+        ingestStageLayers(stage, stageSourcePath || null);
+        if (layerTexts.length <= 0 && stageSourcePath) {
+            const candidateStagePaths = [
+                stageSourcePath,
+                stageSourcePath.startsWith('/')
+                    ? stageSourcePath.replace(/^\/+/, '')
+                    : `/${stageSourcePath}`,
+            ].filter((value, index, list) => value && list.indexOf(value) === index);
+            for (const candidateStagePath of candidateStagePaths) {
+                const reopenedStage = this.safeOpenUsdStage(candidateStagePath);
+                if (!reopenedStage || reopenedStage === stage) {
+                    continue;
+                }
+                ingestStageLayers(reopenedStage, candidateStagePath);
+                if (layerTexts.length > 0) {
+                    break;
                 }
             }
         }
-        catch { }
         return layerTexts;
     }
     getCachedRobotMetadataSnapshot(stageSourcePath = null) {
@@ -829,6 +892,16 @@ export class ThreeRenderDelegateCore {
     }
     buildRobotMetadataSnapshotForStage(stageSourcePath, truth) {
         const normalizedStagePath = String(stageSourcePath || this.getNormalizedStageSourcePath() || '').trim().split('?')[0] || null;
+        const activeDriver = typeof window !== 'undefined' ? window?.driver : null;
+        const hasDriverPhysicsAccess = !!activeDriver
+            && (typeof activeDriver.GetPhysicsJointRecords === 'function'
+                || typeof activeDriver.GetPhysicsLinkDynamicsRecords === 'function');
+        if (!truth && normalizedStagePath) {
+            const cachedSnapshot = this._robotMetadataSnapshotByStageSource?.get?.(normalizedStagePath) || null;
+            if (cachedSnapshot && !hasDriverPhysicsAccess) {
+                return cachedSnapshot;
+            }
+        }
         // Round-tripped USD files can legitimately arrive without C++ driver
         // metadata, especially when re-importing URDF Studio-authored layers.
         // In that case we still want to recover link/joint/dynamics metadata
@@ -1186,7 +1259,6 @@ export class ThreeRenderDelegateCore {
                 return parsedProto;
             return parseLegacyRuntimeMeshDescriptor(meshId);
         };
-        const activeDriver = typeof window !== 'undefined' ? window?.driver : null;
         if (activeDriver && typeof activeDriver.GetPhysicsJointRecords === 'function') {
             let rawJointRecords = [];
             try {
@@ -1221,7 +1293,7 @@ export class ThreeRenderDelegateCore {
             }
         }
         if (allowJsStageFallback) {
-            metadataLayerTexts = this.getStageMetadataLayerTexts(getStageForMetadataFallback());
+            metadataLayerTexts = this.getStageMetadataLayerTexts(getStageForMetadataFallback(), normalizedStagePath);
             for (const layerText of metadataLayerTexts) {
                 for (const jointRecord of extractJointRecordsFromLayerText(layerText)) {
                     addKnownLinkPath(jointRecord?.body0Path);
@@ -1655,7 +1727,7 @@ export class ThreeRenderDelegateCore {
             }
             const stage = getStageForMetadataFallback();
             if (metadataLayerTexts.length <= 0) {
-                metadataLayerTexts = this.getStageMetadataLayerTexts(stage);
+                metadataLayerTexts = this.getStageMetadataLayerTexts(stage, normalizedStagePath);
             }
         }
         const jointCatalogEntries = [];
@@ -2129,10 +2201,14 @@ export class ThreeRenderDelegateCore {
         if (truthLoadError) {
             annotationErrorFlags.push('urdf-truth-load-failed');
         }
-        return this.applyRobotMetadataErrorAnnotations(snapshot, {
+        const annotatedSnapshot = this.applyRobotMetadataErrorAnnotations(snapshot, {
             errorFlags: annotationErrorFlags,
             truthLoadError,
         });
+        if (normalizedStagePath && this._robotMetadataSnapshotByStageSource?.set) {
+            this._robotMetadataSnapshotByStageSource.set(normalizedStagePath, annotatedSnapshot);
+        }
+        return annotatedSnapshot;
     }
     startRobotMetadataWarmupForStage(stageSourcePathOrOptions = null, maybeOptions = null) {
         let stageSourcePath = null;
@@ -2693,6 +2769,9 @@ export class ThreeRenderDelegateCore {
     safeOpenUsdStage(stagePath) {
         if (!stagePath)
             return null;
+        if (!(this._openedGuideStages instanceof Map)) {
+            this._openedGuideStages = new Map();
+        }
         if (this._openedGuideStages.has(stagePath)) {
             return this._openedGuideStages.get(stagePath) || null;
         }
@@ -2798,9 +2877,14 @@ export class ThreeRenderDelegateCore {
         }
         const allowLargeBaseAssetScan = shouldAllowLargeBaseAssetScan(stageSourcePath);
         const visitedLayerPaths = new Set();
+        const seenLayerTexts = new Set();
         const visitLayer = (layerPath, layerText) => {
             if (!layerText || typeof layerText !== 'string')
                 return;
+            const serializedLayerText = String(layerText || '').trim();
+            if (!serializedLayerText || seenLayerTexts.has(serializedLayerText))
+                return;
+            seenLayerTexts.add(serializedLayerText);
             this.mergeVisualSemanticChildMaps(mergedMap, parseVisualSemanticChildNamesFromLayerText(layerText));
             const resolveBasePath = (layerPath && layerPath.startsWith('/')) ? layerPath : stageSourcePath;
             const referencedAssets = extractUsdAssetReferencesFromLayerText(layerText);
@@ -2860,9 +2944,14 @@ export class ThreeRenderDelegateCore {
         }
         const allowLargeBaseAssetScan = shouldAllowLargeBaseAssetScan(stageSourcePath);
         const visitedLayerPaths = new Set();
+        const seenLayerTexts = new Set();
         const visitLayer = (layerPath, layerText) => {
             if (!layerText || typeof layerText !== 'string')
                 return;
+            const serializedLayerText = String(layerText || '').trim();
+            if (!serializedLayerText || seenLayerTexts.has(serializedLayerText))
+                return;
+            seenLayerTexts.add(serializedLayerText);
             const resolveBasePath = (layerPath && layerPath.startsWith('/')) ? layerPath : stageSourcePath;
             const referencedAssets = extractUsdAssetReferencesFromLayerText(layerText);
             for (const assetPath of referencedAssets) {

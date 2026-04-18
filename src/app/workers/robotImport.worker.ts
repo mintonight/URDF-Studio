@@ -4,8 +4,10 @@ import { describeRobotImportFailure, resolveRobotFileData } from '@/core/parsers
 import { prepareAssemblyRobotData } from '@/core/robot/assemblyComponentPreparation';
 import { buildDefaultAssemblyComponentPlacementTransform } from '@/core/robot/assemblyPlacement';
 import { parseEditableRobotSource } from '@/app/utils/parseEditableRobotSource';
+import { generateEditableRobotSource } from '@/app/utils/generateEditableRobotSource';
 import { computeRobotRenderableBoundsFromAssets } from '@/app/utils/assemblyRenderableBounds';
 import type {
+  GenerateEditableRobotSourceWorkerResponse,
   PrepareAssemblyComponentWorkerResponse,
   RobotImportWorkerContextSnapshot,
   ResolveRobotImportProgressWorkerResponse,
@@ -169,6 +171,16 @@ async function handleWorkerMessage(event: MessageEvent<RobotImportWorkerRequest>
         result,
       };
       workerScope.postMessage(response);
+      return;
+    }
+
+    if (message.type === 'generate-editable-robot-source') {
+      const response: GenerateEditableRobotSourceWorkerResponse = {
+        type: 'generate-editable-robot-source-result',
+        requestId: message.requestId,
+        result: generateEditableRobotSource(message.options),
+      };
+      workerScope.postMessage(response);
     }
   } catch (error) {
     if (message.type === 'sync-context') {
@@ -178,6 +190,7 @@ async function handleWorkerMessage(event: MessageEvent<RobotImportWorkerRequest>
     const response:
       | ResolveRobotImportWorkerResponse
       | ParseEditableRobotSourceWorkerResponse
+      | GenerateEditableRobotSourceWorkerResponse
       | PrepareAssemblyComponentWorkerResponse =
       message.type === 'parse-editable-robot-source'
         ? {
@@ -185,17 +198,24 @@ async function handleWorkerMessage(event: MessageEvent<RobotImportWorkerRequest>
             requestId: message.requestId,
             error: error instanceof Error ? error.message : 'Editable source parse worker failed',
           }
-        : message.type === 'prepare-assembly-component'
+        : message.type === 'generate-editable-robot-source'
           ? {
-              type: 'prepare-assembly-component-error',
+              type: 'generate-editable-robot-source-error',
               requestId: message.requestId,
-              error: error instanceof Error ? error.message : 'Assembly component worker failed',
+              error:
+                error instanceof Error ? error.message : 'Editable source generation worker failed',
             }
-          : {
-              type: 'resolve-robot-file-error',
-              requestId: message.requestId,
-              error: error instanceof Error ? error.message : 'Robot import worker failed',
-            };
+          : message.type === 'prepare-assembly-component'
+            ? {
+                type: 'prepare-assembly-component-error',
+                requestId: message.requestId,
+                error: error instanceof Error ? error.message : 'Assembly component worker failed',
+              }
+            : {
+                type: 'resolve-robot-file-error',
+                requestId: message.requestId,
+                error: error instanceof Error ? error.message : 'Robot import worker failed',
+              };
     workerScope.postMessage(response);
   }
 }

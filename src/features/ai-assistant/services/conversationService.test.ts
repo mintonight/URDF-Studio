@@ -1,5 +1,5 @@
-import test from 'node:test'
-import assert from 'node:assert/strict'
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
 import {
   buildConversationMessages,
@@ -8,28 +8,30 @@ import {
   sendConversationTurn,
   sendConversationTurnStream,
   serializeConversationHistory,
-} from './conversationService.ts'
-import OpenAI from 'openai'
+} from './conversationService.ts';
+import OpenAI from 'openai';
 
-const API_KEY_ENV_NAMES = ['API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY'] as const
+const API_KEY_ENV_NAMES = ['API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY'] as const;
 
 const captureApiKeyEnv = (): Record<(typeof API_KEY_ENV_NAMES)[number], string | undefined> => ({
   API_KEY: process.env.API_KEY,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-})
+});
 
-const restoreApiKeyEnv = (snapshot: Record<(typeof API_KEY_ENV_NAMES)[number], string | undefined>) => {
+const restoreApiKeyEnv = (
+  snapshot: Record<(typeof API_KEY_ENV_NAMES)[number], string | undefined>,
+) => {
   for (const envName of API_KEY_ENV_NAMES) {
-    const value = snapshot[envName]
+    const value = snapshot[envName];
     if (value === undefined) {
-      delete process.env[envName]
-      continue
+      delete process.env[envName];
+      continue;
     }
 
-    process.env[envName] = value
+    process.env[envName] = value;
   }
-}
+};
 
 test('buildConversationMessages keeps only valid recent history and appends current user message', () => {
   const history = [
@@ -37,47 +39,50 @@ test('buildConversationMessages keeps only valid recent history and appends curr
     { role: 'assistant' as const, content: '' },
     { role: 'assistant' as const, content: 'first answer' },
     { role: 'user' as const, content: 'second question' },
-  ]
+  ];
 
-  const messages = buildConversationMessages(history, '  current question ')
+  const messages = buildConversationMessages(history, '  current question ');
 
-  assert.equal(messages.length, 4)
-  assert.deepEqual(messages[0], { role: 'user', content: 'first question' })
-  assert.deepEqual(messages[1], { role: 'assistant', content: 'first answer' })
-  assert.deepEqual(messages[2], { role: 'user', content: 'second question' })
-  assert.deepEqual(messages[3], { role: 'user', content: 'current question' })
-})
+  assert.equal(messages.length, 4);
+  assert.deepEqual(messages[0], { role: 'user', content: 'first question' });
+  assert.deepEqual(messages[1], { role: 'assistant', content: 'first answer' });
+  assert.deepEqual(messages[2], { role: 'user', content: 'second question' });
+  assert.deepEqual(messages[3], { role: 'user', content: 'current question' });
+});
 
 test('buildConversationMessages limits history to the latest eight turns', () => {
   const history = Array.from({ length: 10 }, (_, index) => ({
     role: (index % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
     content: `turn-${index}`,
-  }))
+  }));
 
-  const messages = buildConversationMessages(history, 'latest-question')
+  const messages = buildConversationMessages(history, 'latest-question');
 
-  assert.equal(messages.length, 9)
-  assert.deepEqual(messages[0], { role: 'user', content: 'turn-2' })
-  assert.deepEqual(messages[7], { role: 'assistant', content: 'turn-9' })
-  assert.deepEqual(messages[8], { role: 'user', content: 'latest-question' })
-})
+  assert.equal(messages.length, 9);
+  assert.deepEqual(messages[0], { role: 'user', content: 'turn-2' });
+  assert.deepEqual(messages[7], { role: 'assistant', content: 'turn-9' });
+  assert.deepEqual(messages[8], { role: 'user', content: 'latest-question' });
+});
 
 test('serializeConversationHistory applies the same sanitization contract as message building', () => {
   const history = [
     { role: 'user' as const, content: '  hello  ' },
     { role: 'assistant' as const, content: '' },
     { role: 'assistant' as const, content: 'world' },
-  ]
+  ];
 
-  const serialized = serializeConversationHistory(history)
-  assert.equal(serialized, '[{"role":"user","content":"hello"},{"role":"assistant","content":"world"}]')
-})
+  const serialized = serializeConversationHistory(history);
+  assert.equal(
+    serialized,
+    '[{"role":"user","content":"hello"},{"role":"assistant","content":"world"}]',
+  );
+});
 
-test('sendConversationTurn returns localized fallback reply when api key is missing', async () => {
-  const envSnapshot = captureApiKeyEnv()
-  delete process.env.API_KEY
-  delete process.env.OPENAI_API_KEY
-  delete process.env.GEMINI_API_KEY
+test('sendConversationTurn returns localized error when api key is missing', async () => {
+  const envSnapshot = captureApiKeyEnv();
+  delete process.env.API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
 
   try {
     const result = await sendConversationTurn({
@@ -86,20 +91,21 @@ test('sendConversationTurn returns localized fallback reply when api key is miss
       context: '{"robot":{"name":"demo"}}',
       history: [],
       userMessage: 'What can this robot do?',
-    })
+    });
 
-    assert.match(result.reply, /Conversation service error/i)
-    assert.match(result.reply, /api key/i)
+    assert.equal(result.reply, '');
+    assert.equal(result.error?.code, 'missing_api_key');
+    assert.match(String(result.error?.message || ''), /API Key/i);
   } finally {
-    restoreApiKeyEnv(envSnapshot)
+    restoreApiKeyEnv(envSnapshot);
   }
-})
+});
 
-test('sendConversationTurnStream returns localized fallback reply when api key is missing', async () => {
-  const envSnapshot = captureApiKeyEnv()
-  delete process.env.API_KEY
-  delete process.env.OPENAI_API_KEY
-  delete process.env.GEMINI_API_KEY
+test('sendConversationTurnStream returns localized error when api key is missing', async () => {
+  const envSnapshot = captureApiKeyEnv();
+  delete process.env.API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
 
   try {
     const result = await sendConversationTurnStream({
@@ -108,67 +114,52 @@ test('sendConversationTurnStream returns localized fallback reply when api key i
       context: '{"robot":{"name":"demo"}}',
       history: [],
       userMessage: '这个机器人适合做什么？',
-    })
+    });
 
-    assert.equal(result.status, 'error')
-    assert.match(result.reply, /对话服务错误/)
-    assert.match(result.reply, /API Key/i)
+    assert.equal(result.status, 'error');
+    assert.equal(result.reply, '');
+    assert.equal(result.error?.code, 'missing_api_key');
+    assert.match(String(result.error?.message || ''), /API Key/i);
   } finally {
-    restoreApiKeyEnv(envSnapshot)
+    restoreApiKeyEnv(envSnapshot);
   }
-})
+});
 
 test('extractConversationDelta concatenates streamed content fragments', () => {
   const delta = extractConversationDelta({
-    choices: [
-      { delta: { content: 'First' } },
-      { delta: { content: ' second' } },
-    ],
-  })
+    choices: [{ delta: { content: 'First' } }, { delta: { content: ' second' } }],
+  });
 
-  assert.equal(delta, 'First second')
-  assert.equal(extractConversationDelta(undefined), '')
-})
+  assert.equal(delta, 'First second');
+  assert.equal(extractConversationDelta(undefined), '');
+});
 
 test('isConversationAbortError recognizes SDK abort errors and AbortError names', () => {
-  assert.equal(isConversationAbortError(new OpenAI.APIUserAbortError()), true)
+  assert.equal(isConversationAbortError(new OpenAI.APIUserAbortError()), true);
 
-  const abortError = new Error('Request aborted')
-  abortError.name = 'AbortError'
-  assert.equal(isConversationAbortError(abortError), true)
+  const abortError = new Error('Request aborted');
+  abortError.name = 'AbortError';
+  assert.equal(isConversationAbortError(abortError), true);
 
-  assert.equal(isConversationAbortError(new Error('Other error')), false)
-})
+  assert.equal(isConversationAbortError(new Error('Other error')), false);
+});
 
-test('sendConversationTurnStream falls back to non-streaming completion when stream request fails', async () => {
-  const envSnapshot = captureApiKeyEnv()
-  const originalCreate = OpenAI.Chat.Completions.prototype.create
-  const createCalls: Array<boolean> = []
+test('sendConversationTurnStream surfaces stream failures instead of retrying without stream', async () => {
+  const envSnapshot = captureApiKeyEnv();
+  const originalCreate = OpenAI.Chat.Completions.prototype.create;
+  const createCalls: Array<boolean> = [];
 
-  delete process.env.API_KEY
-  process.env.OPENAI_API_KEY = 'test-openai-key'
-  delete process.env.GEMINI_API_KEY
+  delete process.env.API_KEY;
+  process.env.OPENAI_API_KEY = 'test-openai-key';
+  delete process.env.GEMINI_API_KEY;
 
-  OpenAI.Chat.Completions.prototype.create = (async function mockCreate(
+  OpenAI.Chat.Completions.prototype.create = async function mockCreate(
     this: unknown,
-    params: { stream?: boolean }
+    params: { stream?: boolean },
   ) {
-    createCalls.push(Boolean(params.stream))
-
-    if (params.stream) {
-      throw new OpenAI.APIConnectionError({})
-    }
-
-    return {
-      choices: [
-        {
-          message: {
-            content: 'Recovered reply',
-          },
-        },
-      ],
-    }
-  }) as typeof OpenAI.Chat.Completions.prototype.create
+    createCalls.push(Boolean(params.stream));
+    throw new OpenAI.APIConnectionError({});
+  } as unknown as typeof OpenAI.Chat.Completions.prototype.create;
 
   try {
     const result = await sendConversationTurnStream({
@@ -177,13 +168,64 @@ test('sendConversationTurnStream falls back to non-streaming completion when str
       context: '{"robot":{"name":"demo"}}',
       history: [],
       userMessage: 'How should I improve this robot?',
-    })
+    });
 
-    assert.equal(result.status, 'completed')
-    assert.equal(result.reply, 'Recovered reply')
-    assert.deepEqual(createCalls, [true, false])
+    assert.equal(result.status, 'error');
+    assert.equal(result.reply, '');
+    assert.equal(result.error?.code, 'request_failed');
+    assert.match(String(result.error?.message || ''), /connection/i);
+    assert.deepEqual(createCalls, [true]);
   } finally {
-    OpenAI.Chat.Completions.prototype.create = originalCreate
-    restoreApiKeyEnv(envSnapshot)
+    OpenAI.Chat.Completions.prototype.create = originalCreate;
+    restoreApiKeyEnv(envSnapshot);
   }
-})
+});
+
+test('sendConversationTurnStream clears partial streamed replies when the request fails', async () => {
+  const envSnapshot = captureApiKeyEnv();
+  const originalCreate = OpenAI.Chat.Completions.prototype.create;
+  const streamedDeltas: string[] = [];
+
+  delete process.env.API_KEY;
+  process.env.OPENAI_API_KEY = 'test-openai-key';
+  delete process.env.GEMINI_API_KEY;
+
+  OpenAI.Chat.Completions.prototype.create = async function mockCreate() {
+    return {
+      async *[Symbol.asyncIterator]() {
+        yield {
+          choices: [
+            {
+              delta: {
+                content: 'Partial answer',
+              },
+            },
+          ],
+        };
+        throw new Error('stream exploded');
+      },
+    } as AsyncIterable<unknown>;
+  } as unknown as typeof OpenAI.Chat.Completions.prototype.create;
+
+  try {
+    const result = await sendConversationTurnStream({
+      mode: 'general',
+      lang: 'en',
+      context: '{"robot":{"name":"demo"}}',
+      history: [],
+      userMessage: 'How should I improve this robot?',
+      onReplyDelta: (delta) => {
+        streamedDeltas.push(delta);
+      },
+    });
+
+    assert.deepEqual(streamedDeltas, ['Partial answer']);
+    assert.equal(result.status, 'error');
+    assert.equal(result.reply, '');
+    assert.equal(result.error?.code, 'request_failed');
+    assert.match(String(result.error?.message || ''), /stream exploded/i);
+  } finally {
+    OpenAI.Chat.Completions.prototype.create = originalCreate;
+    restoreApiKeyEnv(envSnapshot);
+  }
+});

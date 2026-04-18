@@ -29,17 +29,24 @@ export function shouldPersistStableWorkspaceViewerRobot({
 export function resolveWorkspaceViewerFallbackRobot({
   shouldRenderAssembly,
   hasWorkspaceDisplayRobot,
+  hasWorkspaceRenderFailure = false,
   liveRobot,
   lastStableViewerRobot,
   selection,
 }: {
   shouldRenderAssembly: boolean;
   hasWorkspaceDisplayRobot: boolean;
+  hasWorkspaceRenderFailure?: boolean;
   liveRobot: RobotState;
   lastStableViewerRobot: RobotState | null;
   selection: RobotState['selection'];
 }): RobotState {
-  if (!shouldRenderAssembly || hasWorkspaceDisplayRobot || !lastStableViewerRobot) {
+  if (
+    !shouldRenderAssembly ||
+    hasWorkspaceDisplayRobot ||
+    hasWorkspaceRenderFailure ||
+    !lastStableViewerRobot
+  ) {
     return liveRobot;
   }
 

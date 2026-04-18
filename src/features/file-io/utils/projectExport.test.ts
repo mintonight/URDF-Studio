@@ -180,12 +180,12 @@ test('exportProject preserves go2 split visual materials in generated MJCF outpu
 
   const archivePaths = Object.keys(zip.files);
   const splitBaseMeshPaths = archivePaths.filter(
-    (filePath) => filePath.startsWith('output/meshes/dae/base.') && filePath.endsWith('.obj'),
+    (filePath) => filePath.startsWith('output/meshes/dae/base_') && filePath.endsWith('.stl'),
   );
 
   assert.ok(
     splitBaseMeshPaths.length >= 2,
-    `expected split base OBJ variants in output/meshes, received: ${splitBaseMeshPaths.join(', ')}`,
+    `expected split base STL variants in output/meshes, received: ${splitBaseMeshPaths.join(', ')}`,
   );
 });
 

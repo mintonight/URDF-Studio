@@ -18,6 +18,11 @@ export interface StandaloneImportAssetWarning {
   missingAssetPaths: string[];
 }
 
+export interface StandalonePrimitiveGeometryHint {
+  siblingMeshAssetPaths: string[];
+  siblingMeshAssetCount: number;
+}
+
 export interface StandaloneImportAssetReferenceOptions {
   allFileContents?: Record<string, string>;
   sourcePath?: string;
@@ -73,6 +78,9 @@ const SDF_MATERIAL_SCRIPT_PATTERN =
   /<material\b[^>]*>[\s\S]*?<script\b[^>]*>([\s\S]*?)<\/script>[\s\S]*?<\/material>/gi;
 const MJCF_COMPILER_MESHDIR_PATTERN = /<compiler\b[^>]*\bmeshdir\s*=\s*["']([^"']+)["'][^>]*>/i;
 const MJCF_MESH_FILE_PATTERN = /<mesh\b[^>]*\bfile\s*=\s*["']([^"']+)["'][^>]*>/gi;
+const PRIMITIVE_GEOMETRY_PATTERN = /<(?:box|cylinder|sphere|capsule)\b/i;
+const PRIMITIVE_APPROXIMATION_COMMENT_PATTERN = /<!--\s*(?:Shapes for|Part)\s+[^>]+-->/i;
+const MESH_ASSET_PATH_PATTERN = /\.(?:dae|obj|stl|gltf|glb)$/i;
 
 function sanitizeRootSegment(segment: string): string {
   return segment
@@ -517,5 +525,58 @@ export function buildStandaloneImportAssetWarning(
 
   return {
     missingAssetPaths,
+  };
+}
+
+export function buildStandalonePrimitiveGeometryHint(
+  source: PackageAssetReferenceSource | null,
+  assetPaths: readonly string[],
+  options: StandaloneImportAssetReferenceOptions = {},
+): StandalonePrimitiveGeometryHint | null {
+  if (!source || source.format !== 'urdf') {
+    return null;
+  }
+
+  if (!PRIMITIVE_GEOMETRY_PATTERN.test(source.content)) {
+    return null;
+  }
+
+  if (!PRIMITIVE_APPROXIMATION_COMMENT_PATTERN.test(source.content)) {
+    return null;
+  }
+
+  const meshReferencePaths = extractStandaloneImportAssetReferences(source, options).filter(
+    (referencePath) => MESH_ASSET_PATH_PATTERN.test(referencePath),
+  );
+  if (meshReferencePaths.length > 0) {
+    return null;
+  }
+
+  const sourcePath = options.sourcePath ?? source.name ?? '';
+  const normalizedSourcePath = normalizeAssetReferencePath(sourcePath);
+  if (!normalizedSourcePath) {
+    return null;
+  }
+
+  const sourceDirectory = normalizedSourcePath.split('/').slice(0, -1).join('/');
+  if (!sourceDirectory) {
+    return null;
+  }
+
+  const siblingMeshAssetPaths = uniqueSorted(
+    assetPaths.filter(
+      (assetPath) =>
+        MESH_ASSET_PATH_PATTERN.test(assetPath) &&
+        assetPathMatchesBundleRoot(assetPath, sourceDirectory),
+    ),
+  );
+
+  if (siblingMeshAssetPaths.length === 0) {
+    return null;
+  }
+
+  return {
+    siblingMeshAssetPaths: siblingMeshAssetPaths.slice(0, 3),
+    siblingMeshAssetCount: siblingMeshAssetPaths.length,
   };
 }

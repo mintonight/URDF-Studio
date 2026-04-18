@@ -48,6 +48,7 @@ import type { InteractionSelection } from '@/types';
 interface CollisionOptimizationDialogProps {
   source: CollisionOptimizationSource;
   assets: Record<string, string>;
+  sourceFilePath?: string;
   lang: 'en' | 'zh';
   selection?: InteractionSelection;
   onClose: () => void;
@@ -396,6 +397,7 @@ function StrategyField({
 export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogProps> = ({
   source,
   assets,
+  sourceFilePath,
   lang,
   selection,
   onClose,
@@ -646,6 +648,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
         signal: controller.signal,
         includeClearanceData: avoidSiblingOverlap,
         includePrimitiveFits: hasRequestedPrimitiveFits,
+        sourceFilePath,
       })
         .then((result) => {
           if (controller.signal.aborted) return;
@@ -667,7 +670,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
       cancelScheduledStart();
       controller.abort();
     };
-  }, [assets, avoidSiblingOverlap, hasRequestedPrimitiveFits, source]);
+  }, [assets, avoidSiblingOverlap, hasRequestedPrimitiveFits, source, sourceFilePath]);
 
   useEffect(() => {
     if (!baseAnalysis) {

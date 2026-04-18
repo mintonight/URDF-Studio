@@ -433,7 +433,6 @@ export async function loadUsdStage(args) {
             return new Uint8Array(binary);
         }
         catch (error) {
-            console.error("[usd-loader] Failed to warm up runtime bridge during " + phaseLabel + ".", error);
             return null;
         }
     };
@@ -1063,16 +1062,12 @@ export async function loadUsdStage(args) {
                 ? maybePromise
                 : Promise.resolve(maybePromise ?? null);
             primedRobotMetadataWarmupPromise = normalizedPromise;
-            primedRobotMetadataWarmupPromise.catch((error) => {
-                console.error(`[usd-loader] ${warmupPhaseLabel} rejected for ${normalizedPath}.`, error);
-            });
+            void primedRobotMetadataWarmupPromise.catch(() => { });
             return normalizedPromise;
         }
         catch (error) {
             const rejectedPromise = Promise.reject(error);
-            rejectedPromise.catch((caughtError) => {
-                console.error(`[usd-loader] Failed to start ${warmupPhaseLabel} for ${normalizedPath}.`, caughtError);
-            });
+            void rejectedPromise.catch(() => { });
             primedRobotMetadataWarmupPromise = rejectedPromise;
             return rejectedPromise;
         }
@@ -1476,10 +1471,6 @@ export async function loadUsdStage(args) {
     });
     if (!isLoadStillActive())
         return state;
-    if (textureLoadReadyResult.status === "timeout") {
-        const timeoutSummary = textureLoadReadyResult.progress;
-        console.warn(`[usd-loader] Scene texture drain timed out with ${Number(timeoutSummary?.settled || 0)}/${Number(timeoutSummary?.total || 0)} textures settled and ${Number(timeoutSummary?.pending || 0)} pending.`);
-    }
     runEagerRender("post-texture-drain", { forceRender: true });
     state.ready = true;
     setProgress(100, true);

@@ -11,6 +11,7 @@ interface MeshAnalysisWorkerTask {
   cacheKey: string;
   meshPath: string;
   dimensions?: { x: number; y: number; z: number };
+  sourceFilePath?: string;
 }
 
 interface MeshAnalysisWorkerRequest {
@@ -62,6 +63,7 @@ workerScope.addEventListener('message', async (event: MessageEvent<MeshAnalysisW
           message.assets,
           task.dimensions,
           message.options,
+          task.sourceFilePath,
         );
         localCache.set(task.cacheKey, analysis ?? null);
       }

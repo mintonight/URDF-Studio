@@ -586,3 +586,37 @@ test('parseSDF resolves explicit model frames referenced by link poses', () => {
   assert.ok(robot);
   assert.deepEqual(robot?.joints.sensor_joint.origin.xyz, { x: 0.1, y: 0, z: 0.5 });
 });
+
+test('parseSDF tolerates Gazebo fixture XML quirks that browsers reject by default', () => {
+  const fixtures = [
+    'mpl_right_arm',
+    'mpl_right_forearm',
+    'src_doorway',
+    'submarine',
+    'submarine_buoyant',
+    'submarine_sinking',
+  ] as const;
+
+  fixtures.forEach((fixtureName) => {
+    const source = fs.readFileSync(`test/gazebo_models/${fixtureName}/model.sdf`, 'utf8');
+    const robot = parseSDF(source, {
+      sourcePath: `${fixtureName}/model.sdf`,
+    });
+
+    assert.ok(robot, `expected ${fixtureName} Gazebo fixture to parse`);
+    assert.equal(robot?.name, fixtureName);
+  });
+});
+
+test('parseSDF imports standalone Gazebo light definitions as empty placeholder models', () => {
+  const source = fs.readFileSync('test/gazebo_models/sun/model.sdf', 'utf8');
+  const robot = parseSDF(source, {
+    sourcePath: 'sun/model.sdf',
+  });
+
+  assert.ok(robot);
+  assert.equal(robot?.name, 'sun');
+  assert.ok(robot?.links.sun__light_anchor);
+  assert.equal(robot?.links.sun__light_anchor.visual.type, GeometryType.NONE);
+  assert.equal(Object.keys(robot?.joints ?? {}).length, 0);
+});

@@ -2,8 +2,10 @@ import type { UrdfJoint, UrdfLink, UrdfVisual as LinkGeometry } from '@/types';
 
 export interface GeometryPatchCandidate {
   linkName: string;
+  linkDisplayName?: string;
   previousLinkData: UrdfLink;
   linkData: UrdfLink;
+  linkNameChanged?: boolean;
   visualChanged: boolean;
   visualBodiesChanged: boolean;
   collisionChanged: boolean;
@@ -14,8 +16,10 @@ export interface GeometryPatchCandidate {
 
 export interface JointPatchCandidate {
   jointName: string;
+  jointId?: string;
   previousJointData: UrdfJoint;
   jointData: UrdfJoint;
+  jointNameChanged?: boolean;
 }
 
 export const DEFAULT_VEC3 = { x: 0, y: 0, z: 0 };
@@ -105,6 +109,7 @@ export function sameGeometry(a: LinkGeometry | undefined, b: LinkGeometry | unde
   if (!a || !b) return a === b;
 
   return (
+    (a.name || '') === (b.name || '') &&
     a.type === b.type &&
     sameVec3(a.dimensions, b.dimensions) &&
     sameOrigin(a.origin, b.origin) &&
@@ -160,10 +165,11 @@ function isSameLink(prev: UrdfLink, next: UrdfLink): boolean {
 function getGeometryPatchForLink(prev: UrdfLink, next: UrdfLink): GeometryPatchCandidate | null {
   if (isSameLink(prev, next)) return null;
 
-  if (prev.id !== next.id || prev.name !== next.name) {
+  if (prev.id !== next.id) {
     return null;
   }
 
+  const linkNameChanged = prev.name !== next.name;
   const inertialChanged = !sameInertial(prev.inertial, next.inertial);
   const visibilityChanged = prev.visible !== next.visible;
   const visualChanged = !sameGeometry(prev.visual, next.visual);
@@ -177,15 +183,18 @@ function getGeometryPatchForLink(prev: UrdfLink, next: UrdfLink): GeometryPatchC
     !collisionChanged &&
     !collisionBodiesChanged &&
     !inertialChanged &&
-    !visibilityChanged
+    !visibilityChanged &&
+    !linkNameChanged
   ) {
     return null;
   }
 
   return {
-    linkName: next.name,
+    linkName: next.id,
+    linkDisplayName: next.name,
     previousLinkData: prev,
     linkData: next,
+    linkNameChanged,
     visualChanged,
     visualBodiesChanged,
     collisionChanged,
@@ -270,7 +279,6 @@ function getJointPatchForJoint(prev: UrdfJoint, next: UrdfJoint): JointPatchCand
 
   if (
     prev.id !== next.id ||
-    prev.name !== next.name ||
     prev.parentLinkId !== next.parentLinkId ||
     prev.childLinkId !== next.childLinkId
   ) {
@@ -279,8 +287,10 @@ function getJointPatchForJoint(prev: UrdfJoint, next: UrdfJoint): JointPatchCand
 
   return {
     jointName: next.name,
+    jointId: next.id,
     previousJointData: prev,
     jointData: next,
+    jointNameChanged: prev.name !== next.name,
   };
 }
 

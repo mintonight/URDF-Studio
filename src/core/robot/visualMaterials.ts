@@ -31,6 +31,7 @@ const BOX_FACE_SINGLE_MATERIAL_EXPORT_ORDER = [
 export interface ResolvedVisualMaterialOverride {
   authoredMaterials?: UrdfVisualMaterial[];
   color?: string;
+  colorRgba?: [number, number, number, number];
   texture?: string;
   opacity?: number;
   roughness?: number;
@@ -71,6 +72,17 @@ function normalizeAuthoredMaterialEntry(
 
   const name = normalizeMaterialValue(material.name);
   const color = normalizeMaterialValue(material.color);
+  const colorRgba =
+    Array.isArray(material.colorRgba) &&
+    material.colorRgba.length === 4 &&
+    material.colorRgba.every((value) => Number.isFinite(value))
+      ? ([
+          Number(material.colorRgba[0]),
+          Number(material.colorRgba[1]),
+          Number(material.colorRgba[2]),
+          Number(material.colorRgba[3]),
+        ] as [number, number, number, number])
+      : undefined;
   const texture = normalizeMaterialValue(material.texture);
   const opacity = normalizeUnitIntervalValue(material.opacity);
   const roughness = normalizeUnitIntervalValue(material.roughness);
@@ -81,6 +93,7 @@ function normalizeAuthoredMaterialEntry(
   if (
     !name &&
     !color &&
+    !colorRgba &&
     !texture &&
     opacity === undefined &&
     roughness === undefined &&
@@ -94,6 +107,7 @@ function normalizeAuthoredMaterialEntry(
   return {
     ...(name ? { name } : {}),
     ...(color ? { color } : {}),
+    ...(colorRgba ? { colorRgba } : {}),
     ...(texture ? { texture } : {}),
     ...(opacity !== undefined ? { opacity } : {}),
     ...(roughness !== undefined ? { roughness } : {}),
@@ -114,6 +128,7 @@ function resolveLegacyLinkMaterial(
 
   return normalizeAuthoredMaterialEntry({
     color: material.color,
+    colorRgba: material.colorRgba,
     texture: material.texture,
   });
 }
@@ -221,6 +236,7 @@ export function resolveVisualMaterialOverride(
     return {
       authoredMaterials,
       color: primaryMaterial?.color,
+      colorRgba: primaryMaterial?.colorRgba,
       texture: primaryMaterial?.texture,
       opacity: primaryMaterial?.opacity,
       roughness: primaryMaterial?.roughness,
@@ -237,6 +253,7 @@ export function resolveVisualMaterialOverride(
     if (legacyLinkMaterial) {
       return {
         color: legacyLinkMaterial.color,
+        colorRgba: legacyLinkMaterial.colorRgba,
         texture: legacyLinkMaterial.texture,
         source: 'legacy-link',
         isMultiMaterial: false,

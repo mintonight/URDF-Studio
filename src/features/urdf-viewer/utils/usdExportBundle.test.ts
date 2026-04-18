@@ -6,6 +6,7 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { GeometryType, JointType } from '../../../types/index.ts';
 import type { RobotState, UsdPreparedExportCache, UsdSceneSnapshot } from '../../../types/index.ts';
 import {
+  canPrepareUsdExportCacheFromSnapshot,
   buildUsdExportBundleFromPreparedCache,
   buildUsdExportBundleFromSnapshot,
   prepareUsdExportCacheFromSnapshot,
@@ -1019,7 +1020,7 @@ test('buildUsdExportBundleFromSnapshot lets snapshot textures replace stale link
   assert.equal(bundle.robot.materials?.base_link?.usdMaterial?.mapPath, 'textures/new.png');
 });
 
-test('buildUsdExportBundleFromSnapshot splits geom subsets into separate export meshes with subset material colors', async () => {
+test('buildUsdExportBundleFromSnapshot keeps geom subsets on a single export mesh with authored material groups', async () => {
   const positions = new Float32Array([
     0, 0, 0, 1, 0, 0, 0, 1, 0,
 
@@ -1132,41 +1133,28 @@ test('buildUsdExportBundleFromSnapshot splits geom subsets into separate export 
   });
 
   assert.ok(bundle);
-  assert.equal(bundle.robot.links.base_link.visual.meshPath, 'base_link_visual_0_section_0.obj');
+  assert.equal(bundle.robot.links.base_link.visual.meshPath, 'base_link_visual_0.obj');
   assert.equal(bundle.robot.links.base_link.visual.color, '#ff0000');
-
-  const syntheticVisualLink = Object.values(bundle.robot.links).find(
-    (link) => link.id !== 'base_link',
-  );
-  assert.ok(
-    syntheticVisualLink,
-    'expected an extra fixed visual attachment link for the second subset',
-  );
-  assert.equal(syntheticVisualLink!.visual.meshPath, 'base_link_visual_0_section_1.obj');
-  assert.equal(syntheticVisualLink!.visual.color, '#00ff00');
-  assert.equal(
-    syntheticVisualLink!.visual.origin.xyz.x,
-    bundle.robot.links.base_link.visual.origin.xyz.x,
-  );
-  assert.equal(
-    syntheticVisualLink!.visual.origin.xyz.y,
-    bundle.robot.links.base_link.visual.origin.xyz.y,
-  );
-  assert.equal(
-    syntheticVisualLink!.visual.origin.xyz.z,
-    bundle.robot.links.base_link.visual.origin.xyz.z,
-  );
-  assert.equal(
-    syntheticVisualLink!.visual.origin.rpy.r,
-    bundle.robot.links.base_link.visual.origin.rpy.r,
+  assert.deepEqual(bundle.robot.links.base_link.visual.authoredMaterials, [
+    { name: 'Red', color: '#ff0000' },
+    { name: 'Green', color: '#00ff00' },
+  ]);
+  assert.deepEqual(bundle.robot.links.base_link.visual.meshMaterialGroups, [
+    { meshKey: '0', start: 0, count: 3, materialIndex: 0 },
+    { meshKey: '0', start: 3, count: 3, materialIndex: 1 },
+  ]);
+  assert.deepEqual(
+    Object.keys(bundle.robot.links),
+    ['base_link'],
+    'geom subsets should not expand into synthetic attachment links',
   );
 
-  const firstSubsetObj = await bundle.meshFiles.get('base_link_visual_0_section_0.obj')?.text();
-  const secondSubsetObj = await bundle.meshFiles.get('base_link_visual_0_section_1.obj')?.text();
-  assert.ok(firstSubsetObj);
-  assert.ok(secondSubsetObj);
-  assert.match(firstSubsetObj, /^v 0 0 0 1 0 0$/m);
-  assert.match(secondSubsetObj, /^v 0 0 0 0 1 0$/m);
+  const fullObj = await bundle.meshFiles.get('base_link_visual_0.obj')?.text();
+  assert.ok(fullObj);
+  assert.equal(bundle.meshFiles.has('base_link_visual_0_section_0.obj'), false);
+  assert.equal(bundle.meshFiles.has('base_link_visual_0_section_1.obj'), false);
+  assert.match(fullObj, /^v 0 0 0 1 0 0$/m);
+  assert.match(fullObj, /^v 0 0 0 0 1 0$/m);
 });
 
 test('buildUsdExportBundleFromSnapshot uses authored multi-material colors when snapshot materials are unavailable', () => {
@@ -1272,19 +1260,22 @@ test('buildUsdExportBundleFromSnapshot uses authored multi-material colors when 
   assert.ok(bundle);
   assert.equal(bundle.robot.links.FR_calf.visual.color, '#bfbfbf');
   assert.equal(bundle.robot.materials?.FR_calf?.color, '#bfbfbf');
-
-  const syntheticVisualLink = Object.values(bundle.robot.links).find(
-    (link) => link.id !== 'FR_calf',
+  assert.deepEqual(bundle.robot.links.FR_calf.visual.authoredMaterials, [
+    { name: '磨砂铝合金_018-effect', color: '#bfbfbf' },
+    { name: '材质_005-effect', color: '#121212' },
+  ]);
+  assert.deepEqual(bundle.robot.links.FR_calf.visual.meshMaterialGroups, [
+    { meshKey: '0', start: 0, count: 3, materialIndex: 0 },
+    { meshKey: '0', start: 3, count: 3, materialIndex: 1 },
+  ]);
+  assert.deepEqual(
+    Object.keys(bundle.robot.links),
+    ['FR_calf'],
+    'authored subset materials should stay on the source link',
   );
-  assert.ok(
-    syntheticVisualLink,
-    'expected an extra fixed visual attachment link for the second authored material',
-  );
-  assert.equal(syntheticVisualLink!.visual.color, '#121212');
-  assert.equal(bundle.robot.materials?.[syntheticVisualLink!.id]?.color, '#121212');
 });
 
-test('buildUsdExportBundleFromSnapshot reuses preferred visual material colors for extra visual attachments', () => {
+test('buildUsdExportBundleFromSnapshot reuses preferred visual material colors without creating synthetic subset links', () => {
   const { positions, indices } = createTriangleBuffers();
   const preferredColor = new THREE.Color(0.74, 0.74, 0.74);
   const expectedHex = `#${preferredColor.getHexString()}`;
@@ -1390,16 +1381,102 @@ test('buildUsdExportBundleFromSnapshot reuses preferred visual material colors f
 
   assert.ok(bundle);
   assert.equal(bundle.robot.links.FR_calf.visual.color, expectedHex);
+  assert.equal(bundle.robot.materials?.FR_calf?.color, expectedHex);
+  assert.deepEqual(
+    Object.keys(bundle.robot.links),
+    ['FR_calf'],
+    'preferred fallback colors should not force extra synthetic links for geom subsets',
+  );
+});
 
-  const syntheticVisualLink = Object.values(bundle.robot.links).find(
-    (link) => link.id !== 'FR_calf',
-  );
-  assert.ok(
-    syntheticVisualLink,
-    'expected an extra fixed visual attachment link for the second visual subset',
-  );
-  assert.equal(syntheticVisualLink!.visual.color, expectedHex);
-  assert.equal(bundle.robot.materials?.[syntheticVisualLink!.id]?.color, expectedHex);
+test('buildUsdExportBundleFromSnapshot writes OBJ vertex normals for buffered mesh exports', async () => {
+  const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  const indices = new Uint32Array([0, 1, 2]);
+  const normals = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]);
+
+  const snapshot = {
+    stageSourcePath: '/robots/demo/normals.usd',
+    stage: {
+      defaultPrimPath: '/Robot',
+    },
+    robotTree: {
+      linkParentPairs: [['/Robot/base_link', null]] as Array<[string, string | null]>,
+      rootLinkPaths: ['/Robot/base_link'],
+    },
+    robotMetadataSnapshot: {
+      stageSourcePath: '/robots/demo/normals.usd',
+      linkParentPairs: [['/Robot/base_link', null]] as Array<[string, string | null]>,
+      jointCatalogEntries: [],
+      meshCountsByLinkPath: {
+        '/Robot/base_link': {
+          visualMeshCount: 1,
+          collisionMeshCount: 0,
+        },
+      },
+    },
+    render: {
+      meshDescriptors: [
+        {
+          meshId: '/Robot/base_link/visuals.proto_mesh_id0',
+          sectionName: 'visuals',
+          resolvedPrimPath: '/Robot/base_link/visuals/mesh_0',
+          primType: 'mesh',
+          ranges: {
+            positions: { offset: 0, count: 9, stride: 3 },
+            indices: { offset: 0, count: 3, stride: 1 },
+            normals: { offset: 0, count: 9, stride: 3 },
+          },
+        },
+      ],
+    },
+    buffers: {
+      positions,
+      indices,
+      normals,
+      uvs: new Float32Array(0),
+      transforms: new Float32Array(0),
+      rangesByMeshId: {},
+    },
+  } as unknown as UsdSceneSnapshot;
+
+  const currentRobot: RobotState = {
+    name: 'normal_export',
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+    links: {
+      base_link: {
+        id: 'base_link',
+        name: 'base_link',
+        visible: true,
+        visual: {
+          type: GeometryType.MESH,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#ffffff',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collision: {
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+          color: '#000000',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collisionBodies: [],
+      },
+    },
+    joints: {},
+    materials: {},
+  };
+
+  const bundle = buildUsdExportBundleFromSnapshot(snapshot, {
+    fileName: 'normals.usd',
+    currentRobot,
+  });
+
+  assert.ok(bundle);
+  const objText = await bundle.meshFiles.get('base_link_visual_0.obj')?.text();
+  assert.ok(objText);
+  assert.match(objText, /^vn 0 0 1$/m);
+  assert.match(objText, /^f 1\/\/1 2\/\/2 3\/\/3$/m);
 });
 
 test('prepareUsdExportCacheFromSnapshot materializes exportable mesh paths and reusable mesh files', async () => {
@@ -1470,6 +1547,73 @@ test('prepareUsdExportCacheFromSnapshot materializes exportable mesh paths and r
   assert.ok(preparedBlob);
   const meshText = await preparedBlob.text();
   assert.match(meshText, /^o base_link_visual_0/m);
+});
+
+test('canPrepareUsdExportCacheFromSnapshot requires mesh buffers for buffer-backed descriptors', () => {
+  const snapshot = {
+    stageSourcePath: '/robots/demo/demo.usd',
+    render: {
+      meshDescriptors: [
+        {
+          meshId: '/Robot/base_link/visuals.proto_mesh_id0',
+          sectionName: 'visuals',
+          resolvedPrimPath: '/Robot/base_link/visuals/mesh_0',
+          primType: 'mesh',
+          ranges: {
+            positions: { offset: 0, count: 9, stride: 3 },
+          },
+        },
+      ],
+    },
+    buffers: {
+      rangesByMeshId: {},
+    },
+  } as unknown as UsdSceneSnapshot;
+
+  assert.equal(canPrepareUsdExportCacheFromSnapshot(snapshot), false);
+});
+
+test('canPrepareUsdExportCacheFromSnapshot allows primitive-only snapshots without mesh buffers', () => {
+  const snapshot = {
+    stageSourcePath: '/robots/demo/primitive-only.usd',
+    render: {
+      meshDescriptors: [
+        {
+          meshId: '/Robot/base_link/collisions.proto_sphere_id0',
+          sectionName: 'collisions',
+          resolvedPrimPath: '/Robot/base_link/collisions/sphere_0',
+          primType: 'sphere',
+          radius: 0.5,
+        },
+      ],
+    },
+  } as unknown as UsdSceneSnapshot;
+
+  assert.equal(canPrepareUsdExportCacheFromSnapshot(snapshot), true);
+});
+
+test('canPrepareUsdExportCacheFromSnapshot accepts full mesh snapshots when position buffers are present', () => {
+  const snapshot = {
+    stageSourcePath: '/robots/demo/full-mesh.usd',
+    render: {
+      meshDescriptors: [
+        {
+          meshId: '/Robot/base_link/visuals.proto_mesh_id0',
+          sectionName: 'visuals',
+          resolvedPrimPath: '/Robot/base_link/visuals/mesh_0',
+          primType: 'mesh',
+          ranges: {
+            positions: { offset: 0, count: 9, stride: 3 },
+          },
+        },
+      ],
+    },
+    buffers: {
+      positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+    },
+  } as unknown as UsdSceneSnapshot;
+
+  assert.equal(canPrepareUsdExportCacheFromSnapshot(snapshot), true);
 });
 
 test('prepareUsdExportCacheFromSnapshot hydrates live attachment visual origins before caching export data', () => {

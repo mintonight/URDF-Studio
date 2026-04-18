@@ -110,7 +110,7 @@ const DEFAULT_CONFIG: ExportDialogConfig = {
   usd: {
     fileFormat: 'usd',
     compressMeshes: true,
-    meshQuality: 50,
+    meshQuality: 100,
   },
 };
 

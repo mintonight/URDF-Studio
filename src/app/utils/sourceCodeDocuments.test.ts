@@ -155,3 +155,31 @@ test('buildSourceCodeDocuments keeps every tab read-only during preview sessions
     true,
   );
 });
+
+test('buildSourceCodeDocuments exposes an in-memory apply target for generated editable URDF', () => {
+  const documents = buildSourceCodeDocuments({
+    activeSourceFile: null,
+    sourceCodeContent: '<robot name="generated_robot"><link name="base_link" /></robot>',
+    sourceCodeDocumentFlavor: 'urdf',
+    availableFiles: [],
+    allFileContents: {},
+  });
+
+  assert.deepEqual(documents, [
+    {
+      id: 'source:robot',
+      fileName: 'robot.urdf',
+      tabLabel: 'robot.urdf',
+      filePath: null,
+      content: '<robot name="generated_robot"><link name="base_link" /></robot>',
+      documentFlavor: 'urdf',
+      readOnly: false,
+      changeTarget: {
+        name: 'robot.urdf',
+        format: 'urdf',
+        content: '<robot name="generated_robot"><link name="base_link" /></robot>',
+        persistContent: false,
+      },
+    },
+  ]);
+});

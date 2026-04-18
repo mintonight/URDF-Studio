@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 import { normalizeTexturePathForExport } from '@/core/parsers/meshPathUtils.ts';
-import { parseThreeColorWithOpacity } from '@/core/utils/color.ts';
+import { createThreeColorFromSRGB, parseThreeColorWithOpacity } from '@/core/utils/color.ts';
 
 import { type UsdMaterialMetadata } from './usdSceneNodeFactory.ts';
 import { isUsdMeshObject } from './usdMaterialNormalization.ts';
@@ -14,6 +14,7 @@ export type UsdTextureRecord = {
 
 export type UsdRenderableAppearance = {
   color: THREE.Color;
+  authoredColor: [number, number, number];
   opacity: number;
   texture: UsdTextureRecord | null;
 };
@@ -22,6 +23,14 @@ export type UsdPreviewMaterialRecord = {
   name: string;
   path: string;
   appearance: UsdRenderableAppearance;
+};
+
+export type UsdMaterialSubsetRecord = {
+  appearance: UsdRenderableAppearance;
+  displayName?: string;
+  faceIndices: number[];
+  materialRecord: UsdPreviewMaterialRecord;
+  name: string;
 };
 
 export type UsdNumericAttribute = THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
@@ -36,6 +45,8 @@ export type UsdMeshGeometryData = {
   triangleCount: number;
   faceVertexIndices: number[];
   positions: UsdNumericAttribute;
+  normalAttribute: UsdNumericAttribute | null;
+  normalInterpolation: 'vertex' | 'faceVarying' | null;
   uvAttribute: UsdNumericAttribute | null;
   signature: string;
 };
@@ -48,6 +59,7 @@ export type UsdMeshGeometryRecord = {
 
 export type UsdSerializationContext = {
   materialByObject: WeakMap<THREE.Object3D, UsdPreviewMaterialRecord>;
+  materialSubsetsByObject: WeakMap<THREE.Object3D, UsdMaterialSubsetRecord[]>;
   materialRecords: UsdPreviewMaterialRecord[];
   geometryByObject: WeakMap<THREE.Object3D, UsdMeshGeometryRecord>;
   geometryRecords: UsdMeshGeometryRecord[];
@@ -67,8 +79,55 @@ type CollectUsdSerializationContextOptions = {
   vertexYieldInterval?: number;
 };
 
-const DEFAULT_OBJECT_YIELD_INTERVAL = 8;
-const DEFAULT_VERTEX_YIELD_INTERVAL = 4096;
+const DEFAULT_OBJECT_YIELD_INTERVAL = 32;
+const DEFAULT_VERTEX_YIELD_INTERVAL = 32768;
+const USD_BRIGHT_NEUTRAL_SNAP_MIN = 0.8;
+const USD_BRIGHT_NEUTRAL_SNAP_DELTA = 0.01;
+
+const clampUsdColorChannel = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  if (Math.abs(value) <= 1e-6) {
+    return 0;
+  }
+
+  if (Math.abs(value - 1) <= 1e-6) {
+    return 1;
+  }
+
+  return Math.max(0, Math.min(1, value));
+};
+
+const normalizeUsdAuthoredColorTuple = (
+  color: readonly [number, number, number],
+): [number, number, number] => {
+  const normalizedColor: [number, number, number] = [
+    clampUsdColorChannel(color[0]),
+    clampUsdColorChannel(color[1]),
+    clampUsdColorChannel(color[2]),
+  ];
+
+  const minChannel = Math.min(...normalizedColor);
+  const maxChannel = Math.max(...normalizedColor);
+  if (
+    minChannel >= USD_BRIGHT_NEUTRAL_SNAP_MIN &&
+    maxChannel - minChannel <= USD_BRIGHT_NEUTRAL_SNAP_DELTA
+  ) {
+    const snappedChannel = clampUsdColorChannel(
+      Number(((normalizedColor[0] + normalizedColor[1] + normalizedColor[2]) / 3).toFixed(2)),
+    );
+    return [snappedChannel, snappedChannel, snappedChannel];
+  }
+
+  return normalizedColor;
+};
+
+const toUsdAuthoredColor = (color: THREE.Color): [number, number, number] => {
+  const authoredColor = color.clone().convertLinearToSRGB();
+  return normalizeUsdAuthoredColorTuple([authoredColor.r, authoredColor.g, authoredColor.b]);
+};
 
 const isDirectReadableUsdNumericArray = (
   value: ArrayLike<number>,
@@ -165,7 +224,7 @@ export const createUsdTextureRecord = (
 
 const parseDisplayColor = (
   value: string | null | undefined,
-): { color: THREE.Color; opacity: number } | null => {
+): { color: THREE.Color; authoredColor: [number, number, number]; opacity: number } | null => {
   const parsed = parseThreeColorWithOpacity(value);
   if (!parsed) {
     return null;
@@ -173,21 +232,124 @@ const parseDisplayColor = (
 
   return {
     color: parsed.color,
+    authoredColor: toUsdAuthoredColor(parsed.color),
     opacity: parsed.opacity ?? 1,
   };
 };
 
-const getRenderableTextureRecord = (object: THREE.Object3D): UsdTextureRecord | null => {
+const parseExplicitUsdAuthoredAppearance = (
+  object: THREE.Object3D,
+): { color: THREE.Color; authoredColor: [number, number, number]; opacity: number } | null => {
+  const materialMetadata = object.userData?.usdMaterial as UsdMaterialMetadata | undefined;
+  const authoredColor =
+    Array.isArray(object.userData?.usdAuthoredColor) &&
+    object.userData.usdAuthoredColor.length === 3 &&
+    object.userData.usdAuthoredColor.every((value: unknown) => Number.isFinite(value))
+      ? normalizeUsdAuthoredColorTuple([
+          Number(object.userData.usdAuthoredColor[0]),
+          Number(object.userData.usdAuthoredColor[1]),
+          Number(object.userData.usdAuthoredColor[2]),
+        ])
+      : Array.isArray(materialMetadata?.colorRgba) &&
+          materialMetadata.colorRgba.length === 4 &&
+          materialMetadata.colorRgba.every((value) => Number.isFinite(value))
+        ? normalizeUsdAuthoredColorTuple([
+            Number(materialMetadata.colorRgba[0]),
+            Number(materialMetadata.colorRgba[1]),
+            Number(materialMetadata.colorRgba[2]),
+          ])
+        : null;
+
+  if (!authoredColor) {
+    return null;
+  }
+
+  const explicitOpacity =
+    Number.isFinite(object.userData?.usdOpacity) && object.userData.usdOpacity !== null
+      ? clampUsdColorChannel(Number(object.userData.usdOpacity))
+      : Number.isFinite(materialMetadata?.colorRgba?.[3])
+        ? clampUsdColorChannel(Number(materialMetadata?.colorRgba?.[3]))
+        : 1;
+
+  return {
+    color: createThreeColorFromSRGB(authoredColor[0], authoredColor[1], authoredColor[2]),
+    authoredColor,
+    opacity: explicitOpacity,
+  };
+};
+
+type UsdPaletteEntry = {
+  materialIndex: number;
+  usdAuthoredColor?: [number, number, number];
+  usdDisplayColor?: string | null;
+  usdMaterial?: Record<string, unknown>;
+  usdOpacity?: number;
+  usdSourceMaterialName?: string;
+};
+
+const getUsdPaletteEntry = (
+  object: THREE.Object3D,
+  materialIndex: number,
+): UsdPaletteEntry | null => {
+  const palette = Array.isArray(object.userData?.usdMaterialPalette)
+    ? (object.userData.usdMaterialPalette as UsdPaletteEntry[])
+    : null;
+  if (!palette) {
+    return null;
+  }
+
+  return palette.find((entry) => entry?.materialIndex === materialIndex) || null;
+};
+
+const parseExplicitUsdAuthoredAppearanceForMaterial = (
+  object: THREE.Object3D,
+  materialIndex = 0,
+): { color: THREE.Color; authoredColor: [number, number, number]; opacity: number } | null => {
+  const paletteEntry = getUsdPaletteEntry(object, materialIndex);
+  if (paletteEntry?.usdAuthoredColor?.length === 3) {
+    const authoredColor = normalizeUsdAuthoredColorTuple([
+      Number(paletteEntry.usdAuthoredColor[0]),
+      Number(paletteEntry.usdAuthoredColor[1]),
+      Number(paletteEntry.usdAuthoredColor[2]),
+    ]);
+    return {
+      color: createThreeColorFromSRGB(authoredColor[0], authoredColor[1], authoredColor[2]),
+      authoredColor,
+      opacity:
+        paletteEntry.usdOpacity !== undefined
+          ? clampUsdColorChannel(Number(paletteEntry.usdOpacity))
+          : 1,
+    };
+  }
+
+  if (materialIndex === 0) {
+    return parseExplicitUsdAuthoredAppearance(object);
+  }
+
+  return null;
+};
+
+const getRenderableTextureRecord = (
+  object: THREE.Object3D,
+  materialIndex = 0,
+): UsdTextureRecord | null => {
   if (!isUsdMeshObject(object) || !object.geometry.getAttribute('uv')) {
     return null;
   }
 
-  const materialMetadata = object.userData?.usdMaterial as UsdMaterialMetadata | undefined;
+  const paletteEntry = getUsdPaletteEntry(object, materialIndex);
+  const materialMetadata =
+    (paletteEntry?.usdMaterial as UsdMaterialMetadata | undefined) ||
+    ((materialIndex === 0 ? object.userData?.usdMaterial : null) as
+      | UsdMaterialMetadata
+      | undefined);
   if (materialMetadata?.texture) {
     return createUsdTextureRecord(materialMetadata.texture);
   }
 
-  const material = Array.isArray(object.material) ? object.material[0] : object.material;
+  const material = Array.isArray(object.material)
+    ? object.material[materialIndex] || object.material[0]
+    : object.material;
   if (!material || !('map' in material)) {
     return null;
   }
@@ -204,12 +366,32 @@ const getRenderableTextureRecord = (object: THREE.Object3D): UsdTextureRecord | 
 
 export const getUsdRenderableAppearance = (
   object: THREE.Object3D,
+  materialIndex = 0,
 ): UsdRenderableAppearance | null => {
-  const texture = getRenderableTextureRecord(object);
-  const explicitColor = parseDisplayColor(object.userData?.usdDisplayColor);
+  const texture = getRenderableTextureRecord(object, materialIndex);
+  const explicitAuthoredAppearance = parseExplicitUsdAuthoredAppearanceForMaterial(
+    object,
+    materialIndex,
+  );
+  if (explicitAuthoredAppearance) {
+    return {
+      color: explicitAuthoredAppearance.color,
+      authoredColor: explicitAuthoredAppearance.authoredColor,
+      opacity: explicitAuthoredAppearance.opacity,
+      texture,
+    };
+  }
+
+  const paletteEntry = getUsdPaletteEntry(object, materialIndex);
+  const explicitColor = parseDisplayColor(
+    materialIndex === 0
+      ? (paletteEntry?.usdDisplayColor ?? object.userData?.usdDisplayColor)
+      : paletteEntry?.usdDisplayColor,
+  );
   if (explicitColor) {
     return {
       color: explicitColor.color,
+      authoredColor: explicitColor.authoredColor,
       opacity: explicitColor.opacity,
       texture,
     };
@@ -219,10 +401,13 @@ export const getUsdRenderableAppearance = (
     return null;
   }
 
-  const material = Array.isArray(object.material) ? object.material[0] : object.material;
+  const material = Array.isArray(object.material)
+    ? object.material[materialIndex] || object.material[0]
+    : object.material;
   if (material && 'color' in material && material.color instanceof THREE.Color) {
     return {
       color: material.color,
+      authoredColor: toUsdAuthoredColor(material.color),
       opacity: Number.isFinite(material.opacity) ? Math.max(0, Math.min(1, material.opacity)) : 1,
       texture,
     };
@@ -231,8 +416,70 @@ export const getUsdRenderableAppearance = (
   return null;
 };
 
-export const getUsdDisplayColor = (object: THREE.Object3D): THREE.Color | null => {
-  return getUsdRenderableAppearance(object)?.color || null;
+type UsdMeshSubsetAppearance = {
+  appearance: UsdRenderableAppearance;
+  displayName?: string;
+  faceIndices: number[];
+};
+
+const getUsdMeshSubsetAppearances = (object: THREE.Object3D): UsdMeshSubsetAppearance[] => {
+  if (!isUsdMeshObject(object) || !Array.isArray(object.material) || object.material.length <= 1) {
+    return [];
+  }
+
+  const geometry = object.geometry;
+  if (!(geometry instanceof THREE.BufferGeometry) || geometry.groups.length === 0) {
+    return [];
+  }
+
+  const faceIndicesByMaterial = new Map<number, number[]>();
+  geometry.groups.forEach((group) => {
+    const materialIndex = Number(group.materialIndex ?? 0);
+    if (!Number.isInteger(materialIndex) || materialIndex < 0) {
+      return;
+    }
+
+    const faceStart = Math.max(0, Math.floor(group.start / 3));
+    const faceCount = Math.max(0, Math.floor(group.count / 3));
+    if (faceCount <= 0) {
+      return;
+    }
+
+    const faceIndices = faceIndicesByMaterial.get(materialIndex) || [];
+    for (let faceIndex = 0; faceIndex < faceCount; faceIndex += 1) {
+      faceIndices.push(faceStart + faceIndex);
+    }
+    faceIndicesByMaterial.set(materialIndex, faceIndices);
+  });
+
+  return Array.from(faceIndicesByMaterial.entries())
+    .map(([materialIndex, faceIndices]) => {
+      const appearance = getUsdRenderableAppearance(object, materialIndex);
+      if (!appearance || faceIndices.length === 0) {
+        return null;
+      }
+
+      const material = object.material[materialIndex] || object.material[0];
+      const displayName =
+        getUsdPaletteEntry(object, materialIndex)?.usdSourceMaterialName ||
+        material?.name ||
+        undefined;
+
+      return {
+        appearance,
+        faceIndices,
+        ...(displayName ? { displayName } : {}),
+      } satisfies UsdMeshSubsetAppearance;
+    })
+    .filter((entry): entry is UsdMeshSubsetAppearance => Boolean(entry));
+};
+
+export const getUsdDisplayColor = (object: THREE.Object3D): [number, number, number] | null => {
+  if (getUsdMeshSubsetAppearances(object).length > 0) {
+    return null;
+  }
+
+  return getUsdRenderableAppearance(object)?.authoredColor || null;
 };
 
 const collectUsdFaceVertexIndices = (
@@ -324,6 +571,56 @@ export const extractUsdMeshGeometryData = async (
   }
   const triangleCount = faceVertexIndices.length / 3;
 
+  const normal = geometry.getAttribute('normal');
+  let normalAttribute: UsdNumericAttribute | null = null;
+  let normalInterpolation: 'vertex' | 'faceVarying' | null = null;
+  if (normal && normal.count > 0 && normal.itemSize >= 3) {
+    const nextNormalInterpolation =
+      normal.count === position.count
+        ? 'vertex'
+        : normal.count === faceVertexIndices.length
+          ? 'faceVarying'
+          : null;
+
+    if (nextNormalInterpolation) {
+      let normalSignatureHash = signatureHash;
+      normalSignatureHash = hashGeometryNumber(
+        normalSignatureHash,
+        nextNormalInterpolation === 'vertex' ? 1 : 2,
+      );
+      normalSignatureHash = hashGeometryNumber(normalSignatureHash, normal.count);
+
+      const normalSource = getUsdNumericAttributeSource(normal);
+      if (normalSource) {
+        const { array, stride, offset } = normalSource;
+        for (let index = 0; index < normal.count; index += 1) {
+          const base = index * stride + offset;
+          normalSignatureHash = hashGeometryNumber(normalSignatureHash, Number(array[base] ?? 0));
+          normalSignatureHash = hashGeometryNumber(
+            normalSignatureHash,
+            Number(array[base + 1] ?? 0),
+          );
+          normalSignatureHash = hashGeometryNumber(
+            normalSignatureHash,
+            Number(array[base + 2] ?? 0),
+          );
+          await yieldPeriodically(index + 1, vertexYieldInterval);
+        }
+      } else {
+        for (let index = 0; index < normal.count; index += 1) {
+          normalSignatureHash = hashGeometryNumber(normalSignatureHash, normal.getX(index));
+          normalSignatureHash = hashGeometryNumber(normalSignatureHash, normal.getY(index));
+          normalSignatureHash = hashGeometryNumber(normalSignatureHash, normal.getZ(index));
+          await yieldPeriodically(index + 1, vertexYieldInterval);
+        }
+      }
+
+      normalAttribute = normal;
+      normalInterpolation = nextNormalInterpolation;
+      signatureHash = normalSignatureHash;
+    }
+  }
+
   const uv = geometry.getAttribute('uv');
   let uvAttribute: UsdNumericAttribute | null = null;
   if (uv && uv.count > 0 && faceVertexIndices.length > 0) {
@@ -368,6 +665,8 @@ export const extractUsdMeshGeometryData = async (
     triangleCount,
     faceVertexIndices,
     positions: position,
+    normalAttribute,
+    normalInterpolation,
     uvAttribute,
     signature: (signatureHash >>> 0).toString(16).padStart(8, '0'),
   };
@@ -375,9 +674,9 @@ export const extractUsdMeshGeometryData = async (
 
 const createUsdMaterialSignature = (appearance: UsdRenderableAppearance): string => {
   return [
-    appearance.color.r.toFixed(6),
-    appearance.color.g.toFixed(6),
-    appearance.color.b.toFixed(6),
+    appearance.authoredColor[0].toFixed(6),
+    appearance.authoredColor[1].toFixed(6),
+    appearance.authoredColor[2].toFixed(6),
     appearance.opacity.toFixed(6),
     appearance.texture?.exportPath || '',
   ].join(':');
@@ -398,6 +697,7 @@ export const collectUsdSerializationContext = async (
 ): Promise<UsdSerializationContext> => {
   const effectiveRootPrimName = String(rootPrimName || sceneRoot.name || 'Robot').trim() || 'Robot';
   const materialByObject = new WeakMap<THREE.Object3D, UsdPreviewMaterialRecord>();
+  const materialSubsetsByObject = new WeakMap<THREE.Object3D, UsdMaterialSubsetRecord[]>();
   const materialBySignature = new Map<string, UsdPreviewMaterialRecord>();
   const materialRecords: UsdPreviewMaterialRecord[] = [];
   const geometryByObject = new WeakMap<THREE.Object3D, UsdMeshGeometryRecord>();
@@ -425,31 +725,82 @@ export const collectUsdSerializationContext = async (
     const object = objects[objectIndex];
     const label = normalizeUsdProgressLabel(object.name || object.userData.usdGeomType, 'object');
 
-    const appearance = getUsdRenderableAppearance(object);
-    if (appearance) {
-      const signature = createUsdMaterialSignature(appearance);
-      let record = materialBySignature.get(signature);
-      if (!record) {
-        const name = `Material_${materialRecords.length}`;
-        record = {
-          name,
-          path: `/${effectiveRootPrimName}/Looks/${name}`,
+    const materialSubsets =
+      object.userData?.usdPurpose === 'guide' ? [] : getUsdMeshSubsetAppearances(object);
+    if (materialSubsets.length > 0) {
+      const subsetRecords: UsdMaterialSubsetRecord[] = [];
+      materialSubsets.forEach((subset, subsetIndex) => {
+        const signature = createUsdMaterialSignature(subset.appearance);
+        let materialRecord = materialBySignature.get(signature);
+        if (!materialRecord) {
+          const name = `Material_${materialRecords.length}`;
+          materialRecord = {
+            name,
+            path: `/${effectiveRootPrimName}/Looks/${name}`,
+            appearance: {
+              color: subset.appearance.color.clone(),
+              authoredColor: [...subset.appearance.authoredColor] as [number, number, number],
+              opacity: subset.appearance.opacity,
+              texture: subset.appearance.texture
+                ? {
+                    sourcePath: subset.appearance.texture.sourcePath,
+                    exportPath: subset.appearance.texture.exportPath,
+                  }
+                : null,
+            },
+          };
+          materialBySignature.set(signature, materialRecord);
+          materialRecords.push(materialRecord);
+        }
+
+        subsetRecords.push({
           appearance: {
-            color: appearance.color.clone(),
-            opacity: appearance.opacity,
-            texture: appearance.texture
+            color: subset.appearance.color.clone(),
+            authoredColor: [...subset.appearance.authoredColor] as [number, number, number],
+            opacity: subset.appearance.opacity,
+            texture: subset.appearance.texture
               ? {
-                  sourcePath: appearance.texture.sourcePath,
-                  exportPath: appearance.texture.exportPath,
+                  sourcePath: subset.appearance.texture.sourcePath,
+                  exportPath: subset.appearance.texture.exportPath,
                 }
               : null,
           },
-        };
-        materialBySignature.set(signature, record);
-        materialRecords.push(record);
-      }
+          faceIndices: subset.faceIndices.slice(),
+          materialRecord,
+          name: `subset_${subsetIndex}`,
+          ...(subset.displayName ? { displayName: subset.displayName } : {}),
+        });
+      });
+      materialSubsetsByObject.set(object, subsetRecords);
+    } else {
+      const appearance =
+        object.userData?.usdPurpose === 'guide' ? null : getUsdRenderableAppearance(object);
+      if (appearance) {
+        const signature = createUsdMaterialSignature(appearance);
+        let record = materialBySignature.get(signature);
+        if (!record) {
+          const name = `Material_${materialRecords.length}`;
+          record = {
+            name,
+            path: `/${effectiveRootPrimName}/Looks/${name}`,
+            appearance: {
+              color: appearance.color.clone(),
+              authoredColor: [...appearance.authoredColor] as [number, number, number],
+              opacity: appearance.opacity,
+              texture: appearance.texture
+                ? {
+                    sourcePath: appearance.texture.sourcePath,
+                    exportPath: appearance.texture.exportPath,
+                  }
+                : null,
+            },
+          };
+          materialBySignature.set(signature, record);
+          materialRecords.push(record);
+        }
 
-      materialByObject.set(object, record);
+        materialByObject.set(object, record);
+      }
     }
 
     if (isUsdMeshObject(object)) {
@@ -490,6 +841,7 @@ export const collectUsdSerializationContext = async (
 
   return {
     materialByObject,
+    materialSubsetsByObject,
     materialRecords,
     geometryByObject,
     geometryRecords,

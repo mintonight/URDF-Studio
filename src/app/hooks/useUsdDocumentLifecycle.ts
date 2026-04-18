@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import {
+  canPrepareUsdExportCacheFromSnapshot,
   getCurrentUsdViewerSceneSnapshot,
+  prepareUsdExportCacheFromSnapshot,
   prepareUsdPreparedExportCacheWithWorker,
   resolveUsdExportResolution,
   type ViewerDocumentLoadEvent,
@@ -13,7 +15,10 @@ import { createRobotSemanticSnapshot } from '@/shared/utils/robot/semanticSnapsh
 import { recordUsdStageLoadDebug } from '@/shared/debug/usdStageLoadDebug';
 import { registerPendingUsdCacheFlusher } from '../utils/pendingUsdCache';
 import { shouldApplyUsdStageHydration } from '../utils/usdStageHydration';
-import { buildUsdHydrationPersistencePlan } from '../utils/usdHydrationPersistence';
+import {
+  buildUsdHydrationPersistencePlan,
+  resolveUsdHydrationRobotData,
+} from '../utils/usdHydrationPersistence';
 import { mapViewerDocumentLoadEventToDocumentLoadPercent } from '../utils/documentLoadProgress';
 import {
   resolveRuntimeRobotReadyDocumentLoadState,
@@ -325,14 +330,50 @@ export function useUsdDocumentLifecycle({
         return;
       }
 
+      let committedRobotData = result.robotData;
       if (resolvedSelectedFile.format === 'usd') {
-        const existingSceneSnapshot = liveAssetsState.getUsdSceneSnapshot(
+        const hasFreshUsdHydrationSnapshot = Boolean(result.usdSceneSnapshot);
+        const existingSceneSnapshot = hasFreshUsdHydrationSnapshot
+          ? null
+          : liveAssetsState.getUsdSceneSnapshot(resolvedSelectedFile.name);
+        const storedPreparedExportCache = liveAssetsState.getUsdPreparedExportCache(
           resolvedSelectedFile.name,
         );
-        const existingPreparedExportCache = liveAssetsState.getUsdPreparedExportCache(
-          resolvedSelectedFile.name,
-        );
-        const resolvedRobotSnapshot = createRobotSemanticSnapshot(result.robotData);
+        if (hasFreshUsdHydrationSnapshot && storedPreparedExportCache) {
+          liveAssetsState.setUsdPreparedExportCache(resolvedSelectedFile.name, null);
+        }
+        const existingPreparedExportCache = hasFreshUsdHydrationSnapshot
+          ? null
+          : storedPreparedExportCache;
+        let resolvedPreparedExportCache = existingPreparedExportCache;
+        try {
+          const hydratedRobotData = resolveUsdHydrationRobotData({
+            resolution: result,
+            allowSynchronousPreparedCacheFromSnapshot: false,
+            existingPreparedExportCache,
+            prepareExportCacheFromSnapshot: prepareUsdExportCacheFromSnapshot,
+          });
+          committedRobotData = hydratedRobotData.robotData;
+          resolvedPreparedExportCache =
+            hydratedRobotData.preparedExportCache ?? existingPreparedExportCache;
+          if (!existingPreparedExportCache && hydratedRobotData.preparedExportCache) {
+            liveAssetsState.setUsdPreparedExportCache(
+              resolvedSelectedFile.name,
+              hydratedRobotData.preparedExportCache,
+            );
+          }
+        } catch (error) {
+          scheduleFailFastInDev(
+            'useUsdDocumentLifecycle:resolveUsdHydrationRobotData',
+            new Error(
+              `Failed to materialize USD hydration robot data for "${resolvedSelectedFile.name}".`,
+              {
+                cause: error,
+              },
+            ),
+          );
+        }
+        const resolvedRobotSnapshot = createRobotSemanticSnapshot(committedRobotData);
         const hydrationPersistencePlan = buildUsdHydrationPersistencePlan({
           resolution: result,
           existingSceneSnapshot,
@@ -340,7 +381,11 @@ export function useUsdDocumentLifecycle({
         });
         const shouldBuildPreparedHydrationExportCache = Boolean(
           hydrationPersistencePlan.shouldSeedPreparedExportCache &&
-          hydrationPersistencePlan.sceneSnapshot,
+          hydrationPersistencePlan.sceneSnapshot &&
+          !resolvedPreparedExportCache &&
+          canPrepareUsdExportCacheFromSnapshot(
+            hydrationPersistencePlan.sceneSnapshot as UsdSceneSnapshot | null,
+          ),
         );
 
         if (
@@ -366,9 +411,7 @@ export function useUsdDocumentLifecycle({
           fileName: normalizedSelectedFileName,
           robotSnapshot: resolvedRobotSnapshot,
           fallbackSceneSnapshot: hydrationPersistencePlan.sceneSnapshot as UsdSceneSnapshot | null,
-          hadPreparedExportCache: shouldBuildPreparedHydrationExportCache
-            ? false
-            : Boolean(existingPreparedExportCache),
+          hadPreparedExportCache: Boolean(resolvedPreparedExportCache),
           hadSceneSnapshot: Boolean(hydrationPersistencePlan.sceneSnapshot),
         };
       }
@@ -392,7 +435,7 @@ export function useUsdDocumentLifecycle({
           resolvedSelectedFile.format === 'usd' &&
           pendingHydrationFileName === resolvedSelectedFile.name;
         setRobot(
-          result.robotData,
+          committedRobotData,
           resolvedSelectedFile.format === 'usd'
             ? isColdUsdHydration
               ? { resetHistory: true, label: 'Hydrate USD stage' }
@@ -413,8 +456,8 @@ export function useUsdDocumentLifecycle({
           emitCommitWorkerRobotData('resolved', {
             selectedFileName: normalizedSelectedFileName,
             stageSourcePath: normalizedStageSourcePath || null,
-            linkCount: Object.keys(result.robotData.links || {}).length,
-            jointCount: Object.keys(result.robotData.joints || {}).length,
+            linkCount: Object.keys(committedRobotData.links || {}).length,
+            jointCount: Object.keys(committedRobotData.joints || {}).length,
             linkIdByPathCount: Object.keys(result.linkIdByPath || {}).length,
             childLinkPathByJointIdCount: Object.keys(result.childLinkPathByJointId || {}).length,
             metadataSource: result.usdSceneSnapshot?.robotMetadataSnapshot?.source ?? null,
@@ -438,7 +481,7 @@ export function useUsdDocumentLifecycle({
       ) {
         pendingUsdAssemblyFileRef.current = null;
         void insertAssemblyComponentIntoWorkspace(pendingUsdAssemblyFile, {
-          preResolvedRobotData: result.robotData,
+          preResolvedRobotData: committedRobotData,
         })
           .then((component) => {
             showToast(labels.addedComponent.replace('{name}', component.name), 'success');

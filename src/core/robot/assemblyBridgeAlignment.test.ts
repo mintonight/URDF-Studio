@@ -172,3 +172,51 @@ test('resolveSuggestedBridgeOriginForVisualContact prefers the parent dominant a
   );
   assertNearlyEqual(suggestedOrigin.z, 0);
 });
+
+test('resolveSuggestedBridgeOriginForVisualContact logs an error when it falls back without renderable bounds', () => {
+  const assemblyState = createAssemblyState();
+  assemblyState.components.comp_parent.robot.links.comp_parent_base_link = {
+    ...assemblyState.components.comp_parent.robot.links.comp_parent_base_link,
+    visual: {
+      type: GeometryType.NONE,
+      dimensions: { x: 0, y: 0, z: 0 },
+      color: '#ffffff',
+      origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+    },
+    collision: {
+      type: GeometryType.NONE,
+      dimensions: { x: 0, y: 0, z: 0 },
+      color: '#ffffff',
+      origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+    },
+  };
+
+  const originalConsoleError = console.error;
+  const consoleErrors: unknown[][] = [];
+  console.error = (...args: unknown[]) => {
+    consoleErrors.push(args);
+  };
+
+  try {
+    const suggestedOrigin = resolveSuggestedBridgeOriginForVisualContact({
+      assemblyState,
+      parentComponentId: 'comp_parent',
+      parentLinkId: 'comp_parent_base_link',
+      childComponentId: 'comp_child',
+      childLinkId: 'comp_child_base_link',
+      origin: {
+        xyz: { x: 0, y: 0, z: 0 },
+        rpy: { r: 0, p: 0, y: 0 },
+      },
+    });
+
+    assert.ok(suggestedOrigin, 'expected a fallback bridge origin');
+    assertNearlyEqual(suggestedOrigin.x, 0.12);
+    assertNearlyEqual(suggestedOrigin.y, 0);
+    assertNearlyEqual(suggestedOrigin.z, 0);
+    assert.equal(consoleErrors.length, 1, 'expected exactly one console.error for the fallback');
+    assert.match(String(consoleErrors[0]?.[0] ?? ''), /\[AssemblyBridgeAlignment\]/);
+  } finally {
+    console.error = originalConsoleError;
+  }
+});

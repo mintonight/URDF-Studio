@@ -659,6 +659,157 @@ export const normalizeTexturePathForExport = (texturePath: string): string => {
   return normalized;
 };
 
+function normalizeTextureSourceKey(texturePath: string): string {
+  const raw = (texturePath || '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  if (/^(?:blob:|https?:\/\/|data:)/i.test(raw)) {
+    return raw;
+  }
+
+  let normalized = raw.replace(/\\/g, '/');
+  normalized = stripBlobPrefix(normalized);
+  normalized = stripPackagePrefix(normalized);
+  normalized = normalized.replace(/^[A-Za-z]:\//, '');
+  normalized = normalized.replace(/^\/+/, '');
+  normalized = normalized.replace(/^(\.\/)+/, '');
+  return normalizeRelativePath(normalized);
+}
+
+function buildTextureCollisionFallbackPath(texturePath: string): string {
+  const normalizedSourceKey = normalizeTextureSourceKey(texturePath);
+  if (!normalizedSourceKey || /^(?:blob:|https?:\/\/|data:)/i.test(normalizedSourceKey)) {
+    return normalizedSourceKey;
+  }
+
+  const segments = normalizedSourceKey.split('/').filter(Boolean);
+  if (segments.length === 0) {
+    return normalizedSourceKey;
+  }
+
+  const textureRootIndex = segments.findIndex((segment) => {
+    const lowerSegment = segment.toLowerCase();
+    return lowerSegment === 'texture' || lowerSegment === 'textures';
+  });
+  const materialRootIndex = segments.findIndex((segment) => {
+    const lowerSegment = segment.toLowerCase();
+    return lowerSegment === 'material' || lowerSegment === 'materials';
+  });
+  const boundaryIndex = textureRootIndex >= 0 ? textureRootIndex : materialRootIndex;
+  if (boundaryIndex < 0) {
+    return normalizedSourceKey;
+  }
+
+  const prefixSegments = segments.slice(0, boundaryIndex);
+  while (
+    prefixSegments.length > 0 &&
+    TEXTURE_EXPORT_ROOT_SEGMENTS.has(prefixSegments[prefixSegments.length - 1]!.toLowerCase())
+  ) {
+    prefixSegments.pop();
+  }
+
+  const suffixSegments = segments.slice(boundaryIndex + 1);
+  if (suffixSegments.length === 0) {
+    return normalizedSourceKey;
+  }
+
+  return normalizeRelativePath([...prefixSegments, ...suffixSegments].join('/'));
+}
+
+function dedupeExportPath(path: string, usedPaths: Set<string>): string {
+  const normalized = normalizeRelativePath(path);
+  if (!normalized) {
+    return normalized;
+  }
+
+  const extensionIndex = normalized.lastIndexOf('.');
+  const hasExtension = extensionIndex > normalized.lastIndexOf('/');
+  const base = hasExtension ? normalized.slice(0, extensionIndex) : normalized;
+  const extension = hasExtension ? normalized.slice(extensionIndex) : '';
+
+  let candidate = normalized;
+  let counter = 2;
+  while (usedPaths.has(candidate.toLowerCase())) {
+    candidate = `${base}_${counter}${extension}`;
+    counter += 1;
+  }
+
+  return candidate;
+}
+
+export function buildTextureExportPathOverrides(
+  texturePaths: Iterable<string>,
+): Map<string, string> {
+  const entries = new Map<
+    string,
+    {
+      basePath: string;
+      fallbackPath: string;
+      canonicalPath: string;
+    }
+  >();
+
+  for (const sourcePath of texturePaths) {
+    const canonicalPath = normalizeTextureSourceKey(sourcePath);
+    if (!canonicalPath || entries.has(canonicalPath)) {
+      continue;
+    }
+
+    entries.set(canonicalPath, {
+      basePath: normalizeTexturePathForExport(sourcePath),
+      fallbackPath: buildTextureCollisionFallbackPath(sourcePath),
+      canonicalPath,
+    });
+  }
+
+  const collisionsByBasePath = new Map<string, string[]>();
+  entries.forEach(({ basePath }, canonicalPath) => {
+    const key = basePath.toLowerCase();
+    const paths = collisionsByBasePath.get(key) ?? [];
+    paths.push(canonicalPath);
+    collisionsByBasePath.set(key, paths);
+  });
+
+  const overrides = new Map<string, string>();
+  const usedPaths = new Set<string>();
+
+  const sortedEntries = Array.from(entries.entries()).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+
+  for (const [canonicalPath, entry] of sortedEntries) {
+    const collisionGroup = collisionsByBasePath.get(entry.basePath.toLowerCase()) ?? [];
+    const hasCollision = collisionGroup.length > 1;
+    const candidatePath = hasCollision
+      ? entry.fallbackPath || entry.canonicalPath || entry.basePath
+      : entry.basePath || entry.fallbackPath || entry.canonicalPath;
+    const resolvedPath = dedupeExportPath(candidatePath, usedPaths);
+    if (!resolvedPath) {
+      continue;
+    }
+
+    usedPaths.add(resolvedPath.toLowerCase());
+    overrides.set(canonicalPath, resolvedPath);
+  }
+
+  return overrides;
+}
+
+export function resolveTextureExportPath(
+  texturePath: string,
+  overrides?: ReadonlyMap<string, string> | null,
+): string {
+  const raw = (texturePath || '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  const canonicalPath = normalizeTextureSourceKey(raw);
+  return overrides?.get(canonicalPath) ?? normalizeTexturePathForExport(raw);
+}
+
 interface RewriteUrdfAssetPathsForExportOptions {
   exportRobotName: string;
   useRelativePaths?: boolean;

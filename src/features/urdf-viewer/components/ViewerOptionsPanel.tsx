@@ -9,6 +9,7 @@ import {
   OptionsPanelContent,
   ToggleSliderOption,
 } from '@/shared/components/Panel/OptionsPanel';
+import { useOverlayHoverBlock } from '@/shared/hooks';
 
 interface ViewerOptionsPanelProps {
   showOptionsPanel: boolean;
@@ -208,6 +209,7 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
   groundPlaneOffsetReadOnly = false,
   setGroundPlaneOffset,
 }) => {
+  const { activateHoverBlock, deactivateHoverBlock } = useOverlayHoverBlock();
   const handleResetGround = useCallback(() => {
     setGroundPlaneOffset(0);
   }, [setGroundPlaneOffset]);
@@ -236,6 +238,8 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
       onClick={stopPanelEventPropagation}
       onContextMenu={stopPanelEventPropagation}
       onDoubleClick={stopPanelEventPropagation}
+      onMouseEnter={activateHoverBlock}
+      onMouseLeave={deactivateHoverBlock}
       onPointerDown={stopPanelEventPropagation}
       onWheel={stopPanelEventPropagation}
     >

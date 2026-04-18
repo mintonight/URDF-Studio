@@ -48,6 +48,7 @@ export function getRenderRobotMetadataSnapshot(
   stageSourcePath?: string | null,
   options?: {
     strictErrors?: boolean;
+    logErrors?: boolean;
   },
 ): RenderRobotMetadataSnapshot | null;
 
@@ -55,6 +56,7 @@ export function warmupRenderRobotMetadataSnapshot(
   renderInterface: any,
   options?: {
     force?: boolean;
+    logErrors?: boolean;
     stageSourcePath?: string | null;
     skipIdleWait?: boolean;
     skipUrdfTruthFallback?: boolean;

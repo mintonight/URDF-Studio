@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getRegressionSnapshot, setRegressionRuntimeRobot } from './regressionBridge';
+import {
+  getRegressionSnapshot,
+  installRegressionDebugApi,
+  setRegressionAppHandlers,
+  setRegressionRuntimeRobot,
+} from './regressionBridge';
 
 test('getRegressionSnapshot summarizes joint-only runtime proxies without requiring traverse()', () => {
   setRegressionRuntimeRobot({
@@ -40,4 +45,115 @@ test('getRegressionSnapshot summarizes joint-only runtime proxies without requir
   ]);
 
   setRegressionRuntimeRobot(null);
+});
+
+test('regression debug API summarizes USD visual materials from stored scene snapshots', () => {
+  setRegressionAppHandlers({
+    getAvailableFiles: () => [
+      {
+        name: 'robots/demo/demo.usd',
+        format: 'usd',
+        content: '#usda 1.0',
+      },
+    ],
+    getSelectedFile: () => ({
+      name: 'robots/demo/demo.usd',
+      format: 'usd',
+      content: '#usda 1.0',
+    }),
+    getUsdSceneSnapshot: () => ({
+      stageSourcePath: 'robots/demo/demo.usd',
+      stage: {
+        defaultPrimPath: '/Robot',
+      },
+      robotTree: {
+        rootLinkPaths: ['/Robot/base_link'],
+      },
+      render: {
+        meshDescriptors: [
+          {
+            meshId: '/Robot/base_link/visuals.proto_mesh_id0',
+            resolvedPrimPath: '/Robot/base_link/visuals/body',
+            sectionName: 'visuals',
+            geometry: {
+              geomSubsetSections: [
+                { start: 0, length: 3, materialId: '/Robot/Looks/Black' },
+                { start: 3, length: 3, materialId: '/Robot/Looks/DarkGray' },
+              ],
+            },
+          },
+        ],
+        materials: [
+          {
+            materialId: '/Robot/Looks/Black',
+            name: 'material_______023',
+            shaderName: 'UsdPreviewSurface',
+            color: [0, 0, 0],
+          },
+          {
+            materialId: '/Robot/Looks/DarkGray',
+            name: 'material_______024',
+            shaderName: 'UsdPreviewSurface',
+            color: [0.035, 0.035, 0.035],
+          },
+        ],
+      },
+    }),
+    getDocumentLoadState: () => ({
+      status: 'ready',
+      fileName: 'robots/demo/demo.usd',
+      format: 'usd',
+      error: null,
+    }),
+    getRobotState: () => ({
+      name: 'demo',
+      rootLinkId: 'base_link',
+      links: {},
+      joints: {},
+      selection: { type: null, id: null },
+    }),
+    getAssetDebugState: () => ({
+      appAssetKeys: ['robots/demo/demo.usd'],
+      preparedUsdCacheKeysByFile: {},
+    }),
+    getInteractionState: () => ({
+      selection: { type: null, id: null },
+      hoveredSelection: { type: null, id: null },
+    }),
+    loadRobotByName: async (fileName: string) => ({
+      loaded: fileName === 'robots/demo/demo.usd',
+      selectedFile: fileName,
+    }),
+  });
+
+  const targetWindow = {} as Window;
+  installRegressionDebugApi(targetWindow);
+
+  const summary = targetWindow.__URDF_STUDIO_DEBUG__?.getSelectedUsdVisualMaterialSummary?.();
+  assert.deepEqual(summary, {
+    meshes: [
+      {
+        meshId: '/Robot/base_link/visuals.proto_mesh_id0',
+        linkPath: '/Robot/base_link',
+        overrideColor: null,
+        hasOverrideMaterial: false,
+        materials: [
+          {
+            name: 'material_______023',
+            type: 'UsdPreviewSurface',
+            color: '#000000',
+            emissive: null,
+          },
+          {
+            name: 'material_______024',
+            type: 'UsdPreviewSurface',
+            color: '#090909',
+            emissive: null,
+          },
+        ],
+      },
+    ],
+  });
+
+  setRegressionAppHandlers(null);
 });

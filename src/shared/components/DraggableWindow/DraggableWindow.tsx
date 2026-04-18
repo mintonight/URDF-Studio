@@ -1,6 +1,7 @@
 import React from 'react';
 import { Maximize2, Minimize2, Minus, X } from 'lucide-react';
 import type { DraggableWindowReturn, ResizeDirection } from '@/shared/hooks';
+import { useOverlayHoverBlock } from '@/shared/hooks';
 
 type DraggableWindowState = Pick<
   DraggableWindowReturn,
@@ -113,6 +114,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   cornerResizeHandle,
   controlIcons,
 }) => {
+  const { activateHoverBlock, deactivateHoverBlock } = useOverlayHoverBlock();
   const {
     isMaximized,
     isMinimized,
@@ -148,7 +150,13 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   const closeIcon = controlIcons?.close ?? <X className="w-4 h-4" />;
 
   return (
-    <div ref={containerRef} style={windowStyle} className={rootClassName}>
+    <div
+      ref={containerRef}
+      style={windowStyle}
+      className={rootClassName}
+      onMouseEnter={activateHoverBlock}
+      onMouseLeave={deactivateHoverBlock}
+    >
       {shouldRenderResizeHandles && (
         <>
           <div

@@ -23,6 +23,22 @@ test('uses offscreen USD stage for worker-capable view and select modes', () => 
   );
 });
 
+test('keeps worker-capable USD loads on the offscreen stage even when focusTarget is set', () => {
+  assert.equal(
+    shouldUseUsdOffscreenStage({
+      toolMode: 'select',
+      focusTarget: 'base',
+      sourceFile: {
+        name: 'unitree_model/Go2/usd/go2.viewer_roundtrip.usd',
+        format: 'usd',
+        content: '',
+      },
+      workerRendererSupported: true,
+    }),
+    true,
+  );
+});
+
 test('keeps transform-heavy USD modes on the main-thread stage', () => {
   assert.equal(
     shouldUseUsdOffscreenStage({
@@ -42,6 +58,14 @@ test('keeps transform-heavy USD modes on the main-thread stage', () => {
     shouldUseUsdOffscreenStage({
       toolMode: 'select',
       showOrigins: true,
+      workerRendererSupported: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldUseUsdOffscreenStage({
+      toolMode: 'select',
+      showJointAxes: true,
       workerRendererSupported: true,
     }),
     false,
@@ -70,7 +94,7 @@ test('keeps articulated hand USD bundles on the main-thread stage', () => {
   );
 });
 
-test('keeps blob-backed large USDA sidecars on the main-thread stage', () => {
+test('allows blob-backed large USDA sidecars on the offscreen worker stage', () => {
   assert.equal(
     shouldUseUsdOffscreenStage({
       toolMode: 'select',
@@ -96,16 +120,28 @@ test('keeps blob-backed large USDA sidecars on the main-thread stage', () => {
       ],
       workerRendererSupported: true,
     }),
-    false,
+    true,
   );
 });
 
-test('keeps pure .usd roots on the main-thread stage while the overlay renderer is scene-decoupled', () => {
+test('keeps B2 pure .usd roots on the main-thread stage while allowing generic USD roots on the worker stage', () => {
   assert.equal(
     shouldUseUsdOffscreenStage({
       toolMode: 'select',
       sourceFile: {
         name: 'B2/usd/b2.usd',
+        format: 'usd',
+        content: '',
+      },
+      workerRendererSupported: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldUseUsdOffscreenStage({
+      toolMode: 'select',
+      sourceFile: {
+        name: 'unitree_model/B2/usd/b2.usd',
         format: 'usd',
         content: '',
       },
@@ -124,6 +160,35 @@ test('keeps pure .usd roots on the main-thread stage while the overlay renderer 
       workerRendererSupported: true,
     }),
     true,
+  );
+});
+
+test('keeps exported B2 roundtrip .usd roots on the main-thread stage too', () => {
+  assert.equal(
+    shouldUseUsdOffscreenStage({
+      toolMode: 'select',
+      sourceFile: {
+        name: 'b2_description/b2_description.usd',
+        format: 'usd',
+        content: '',
+        blobUrl: 'blob:b2-roundtrip-root',
+      },
+      workerRendererSupported: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldUseUsdOffscreenStage({
+      toolMode: 'select',
+      sourceFile: {
+        name: 'b2_description.usd',
+        format: 'usd',
+        content: '',
+        blobUrl: 'blob:b2-roundtrip-flat',
+      },
+      workerRendererSupported: true,
+    }),
+    false,
   );
 });
 
@@ -274,7 +339,7 @@ test('keeps explicit selection, hover, focus and non-select tools off the bootst
   );
 });
 
-test('keeps focus flows on the main-thread stage but allows normal select state inside offscreen mode', () => {
+test('keeps normal selection, hover and focus state inside the offscreen-only USD path', () => {
   assert.equal(
     shouldUseUsdOffscreenStage({
       toolMode: 'view',
@@ -297,7 +362,7 @@ test('keeps focus flows on the main-thread stage but allows normal select state 
       focusTarget: 'hip_joint',
       workerRendererSupported: true,
     }),
-    false,
+    true,
   );
 });
 

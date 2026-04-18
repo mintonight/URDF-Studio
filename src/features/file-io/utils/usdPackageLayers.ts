@@ -344,6 +344,9 @@ const serializeLinkPhysicsOverride = (
   linkId: string,
   lines: string[],
   depth: number,
+  options: {
+    addArticulationRootApi?: boolean;
+  } = {},
 ): void => {
   const link = robot.links[linkId];
   if (!link) {
@@ -352,9 +355,11 @@ const serializeLinkPhysicsOverride = (
 
   const indent = makeUsdIndent(depth);
   const childIndent = makeUsdIndent(depth + 1);
-  const apiSchemas = link.inertial
-    ? '"PhysicsRigidBodyAPI", "PhysicsMassAPI"'
-    : '"PhysicsRigidBodyAPI"';
+  const apiSchemas = [
+    '"PhysicsRigidBodyAPI"',
+    ...(link.inertial ? ['"PhysicsMassAPI"'] : []),
+    ...(options.addArticulationRootApi ? ['"PhysicsArticulationRootAPI"'] : []),
+  ].join(', ');
 
   serializeUsdPrimSpecWithMetadata(lines, depth, `over "${sanitizeUsdIdentifier(linkId)}"`, [
     `prepend apiSchemas = [${apiSchemas}]`,
@@ -364,13 +369,16 @@ const serializeLinkPhysicsOverride = (
   if (link.inertial) {
     const usdInertia = computeUsdInertiaProperties(link.inertial);
     lines.push(`${childIndent}float physics:mass = ${formatUsdFloat(link.inertial.mass)}`);
-    lines.push(
-      `${childIndent}float3 physics:centerOfMass = ${formatUsdTuple([
-        link.inertial.origin?.xyz?.x ?? 0,
-        link.inertial.origin?.xyz?.y ?? 0,
-        link.inertial.origin?.xyz?.z ?? 0,
-      ])}`,
-    );
+    const inertialOrigin = link.inertial.origin?.xyz;
+    if (inertialOrigin) {
+      lines.push(
+        `${childIndent}float3 physics:centerOfMass = ${formatUsdTuple([
+          inertialOrigin.x ?? 0,
+          inertialOrigin.y ?? 0,
+          inertialOrigin.z ?? 0,
+        ])}`,
+      );
+    }
     lines.push(
       `${childIndent}float3 physics:diagonalInertia = ${formatUsdTuple([
         usdInertia?.diagonalInertia[0] ?? 0,
@@ -459,14 +467,18 @@ export const buildUsdPhysicsLayerContent = (
   lines.push('');
 
   serializeUsdPrimSpecWithMetadata(lines, 0, `over "${rootPrimName}"`, [
-    'prepend apiSchemas = ["PhysicsArticulationRootAPI"]',
+    ...(resolveUsdPackageLayoutProfile(options.layoutProfile) === 'isaacsim'
+      ? []
+      : ['prepend apiSchemas = ["PhysicsArticulationRootAPI"]']),
   ]);
   lines.push('{');
 
   const layoutProfile = resolveUsdPackageLayoutProfile(options.layoutProfile);
   if (layoutProfile === 'isaacsim') {
     Array.from(pathMaps.linkPaths.keys()).forEach((linkId) => {
-      serializeLinkPhysicsOverride(robot, linkId, lines, 1);
+      serializeLinkPhysicsOverride(robot, linkId, lines, 1, {
+        addArticulationRootApi: linkId === robot.rootLinkId,
+      });
     });
   } else {
     serializeNestedLinkPhysicsOverrides(

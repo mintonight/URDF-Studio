@@ -31,6 +31,9 @@ const IDENTITY_POSE: Pose = { xyz: ZERO_VECTOR, rpy: ZERO_EULER };
 const IDENTITY_SCALE = new THREE.Vector3(1, 1, 1);
 const MODEL_FRAME = '__model__';
 const WORLD_FRAME = 'world';
+const XML_DECLARATION_PATTERN = /<\?xml[^>]*\?>/gi;
+const XML_COMMENT_PATTERN = /<!--[\s\S]*?-->/g;
+const BARE_XML_ATTRIBUTE_PATTERN = /(\s[\w:.-]+)=([^\s"'=<>`]+)/g;
 
 const GAZEBO_COLORS: Record<string, string> = {
   'Gazebo/Black': '#000000',
@@ -136,6 +139,20 @@ const LIMIT_IMPORT_TYPES = new Set<JointType>([
 
 function isElementNode(node: Node | null | undefined): node is Element {
   return !!node && node.nodeType === 1;
+}
+
+function normalizeSdfXmlForBrowserParser(xmlString: string): string {
+  return xmlString
+    .replace(XML_DECLARATION_PATTERN, '')
+    .replace(XML_COMMENT_PATTERN, '')
+    .replace(/<[^!?][^>]*>/g, (tag) => tag.replace(BARE_XML_ATTRIBUTE_PATTERN, '$1="$2"'))
+    .trim();
+}
+
+function parseSdfXmlDocument(xmlString: string): Document | null {
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(normalizeSdfXmlForBrowserParser(xmlString), 'text/xml');
+  return xmlDoc.querySelector('parsererror') ? null : xmlDoc;
 }
 
 function getDirectChildElements(parent: Element, tagName?: string): Element[] {
@@ -590,6 +607,43 @@ function createEmptyLink(id: string, name = id): UrdfLink {
   };
 }
 
+function deriveSdfFallbackName(sourcePath?: string | null): string {
+  const normalized = String(sourcePath || '')
+    .trim()
+    .split('/')
+    .filter(Boolean)
+    .pop()
+    ?.replace(/\.[^.]+$/, '');
+  return normalized || 'imported_sdf_model';
+}
+
+function sanitizeSdfSyntheticId(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return 'imported_sdf_model';
+  }
+
+  return trimmed.replace(/[^A-Za-z0-9_.:-]+/g, '_');
+}
+
+function createPlaceholderRobotFromLight(
+  lightEl: Element,
+  { sourcePath }: ParseSDFOptions = {},
+): RobotState {
+  const lightName = lightEl.getAttribute('name')?.trim() || deriveSdfFallbackName(sourcePath);
+  const rootLinkId = `${sanitizeSdfSyntheticId(lightName)}__light_anchor`;
+
+  return {
+    name: lightName,
+    links: {
+      [rootLinkId]: createEmptyLink(rootLinkId, lightName),
+    },
+    joints: {},
+    rootLinkId,
+    selection: { type: 'link', id: rootLinkId },
+  };
+}
+
 function createFixedJoint(
   id: string,
   parentLinkId: string,
@@ -827,8 +881,8 @@ function parseIncludedModelGraph(
     return;
   }
 
-  const includeDoc = new DOMParser().parseFromString(resolvedInclude.content.trim(), 'text/xml');
-  if (includeDoc.querySelector('parsererror')) {
+  const includeDoc = parseSdfXmlDocument(resolvedInclude.content);
+  if (!includeDoc) {
     return;
   }
 
@@ -874,15 +928,10 @@ function parseNestedModelGraph(
     sdfVersion,
   }: ParseSdfModelOptions,
 ): void {
-  const nestedModelName = nestedModelEl.getAttribute('name')?.trim();
-  if (!nestedModelName) {
-    return;
-  }
-
+  const nestedModelName = nestedModelEl.getAttribute('name')?.trim() || 'nested_model';
   const nestedModelPose = parsePoseElement(nestedModelEl);
   const nestedModelMatrix = parentMatrix.clone().multiply(poseToMatrix(nestedModelPose.pose));
   const nestedNamespacePrefix = qualifyScopedName(nestedModelName, namespacePrefix);
-
   const nestedGraph = parseSdfModel(nestedModelEl, {
     allFileContents,
     availableFiles,
@@ -1389,15 +1438,15 @@ export function isSDF(content: string): boolean {
 }
 
 export function parseSDF(xmlString: string, options: ParseSDFOptions = {}): RobotState | null {
-  const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(xmlString.trim(), 'text/xml');
-  if (xmlDoc.querySelector('parsererror')) {
+  const xmlDoc = parseSdfXmlDocument(xmlString);
+  if (!xmlDoc) {
     return null;
   }
 
   const modelEl = xmlDoc.querySelector('sdf > model, model');
   if (!modelEl) {
-    return null;
+    const lightEl = xmlDoc.querySelector('sdf > light, light');
+    return lightEl ? createPlaceholderRobotFromLight(lightEl, options) : null;
   }
 
   const sdfEl = xmlDoc.querySelector('sdf');

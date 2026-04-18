@@ -5,6 +5,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
+import * as THREE from 'three';
 
 import {
   DEFAULT_JOINT,
@@ -454,6 +455,83 @@ test('handleRuntimeJointAngleChange publishes live closed-loop preview compensat
   }
 });
 
+test('handleRobotLoaded sanitizes runtime Three.js quaternions before closed-loop preview cloning', async () => {
+  const closedLoopRobotState = createClosedLoopRobotFixture();
+  const runtimeRobot = createRuntimeRobotFixture(closedLoopRobotState);
+  runtimeRobot.joints.joint_a.quaternion = new THREE.Quaternion(
+    0,
+    0.5,
+    0,
+    0.8660254,
+  ) as unknown as JointQuaternion;
+  const { dom, root, getHook } = await mountController(closedLoopRobotState);
+
+  try {
+    await act(async () => {
+      getHook().handleRobotLoaded(runtimeRobot);
+    });
+
+    const mergedQuaternion = getHook().closedLoopRobotState?.joints.joint_a?.quaternion;
+    assert.deepEqual(mergedQuaternion, {
+      x: 0,
+      y: 0.5,
+      z: 0,
+      w: 0.8660254,
+    });
+    assert.equal(Object.getPrototypeOf(mergedQuaternion), Object.prototype);
+    assert.notEqual(mergedQuaternion, runtimeRobot.joints.joint_a.quaternion);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('closedLoopRobotState sanitizes runtime-shaped joints before preview session cloning', async () => {
+  const runtimeClosedLoopRobotState = createClosedLoopRobotFixture();
+  const runtimeLikeJoint = {
+    ...runtimeClosedLoopRobotState.joints.joint_a,
+    quaternion: new THREE.Quaternion(0, 0.25, 0, 0.9682458),
+    setJointValue(angle: number) {
+      this.angle = angle;
+    },
+  } as unknown as RobotState['joints'][string];
+
+  const { dom, root, getHook } = await mountControllerWithProps({
+    active: false,
+    closedLoopRobotState: {
+      ...runtimeClosedLoopRobotState,
+      joints: {
+        ...runtimeClosedLoopRobotState.joints,
+        joint_a: runtimeLikeJoint,
+      },
+    },
+  });
+
+  try {
+    const previewRobotState = getHook().closedLoopRobotState;
+    assert.ok(previewRobotState);
+    assert.doesNotThrow(() => structuredClone(previewRobotState));
+    assert.deepEqual(previewRobotState.joints.joint_a?.quaternion, {
+      x: 0,
+      y: 0.25,
+      z: 0,
+      w: 0.9682458,
+    });
+    assert.equal(
+      'setJointValue' in (previewRobotState.joints.joint_a as Record<string, unknown>),
+      false,
+    );
+    assert.equal(Object.getPrototypeOf(previewRobotState.joints.joint_a), Object.prototype);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('handleRuntimeJointAnglesChange keeps USD drag previews local until the drag ends', async () => {
   const robotState = createSimpleRobotFixture();
   const runtimeRobot = createRuntimeRobotFixture(robotState);
@@ -560,6 +638,71 @@ test('clearIkJointKinematicsPreview restores the latest committed joint baseline
 
     assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.3);
     assertAlmostEqual(getHook().jointPanelStore.getSnapshot().jointAngles.joint_a, 0.3);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test('closedLoopRobotState keeps the runtime-loaded joint pose when external joint motion state is empty', async () => {
+  const closedLoopRobotState = createClosedLoopRobotFixture();
+  const runtimeRobot = createRuntimeRobotFixture(closedLoopRobotState);
+  runtimeRobot.joints.joint_a.setJointValue(0.25);
+  runtimeRobot.joints.joint_b.setJointValue(-0.85);
+
+  const { root, getHook } = await mountControllerWithProps({
+    active: false,
+    closedLoopRobotState,
+    jointMotionState: {},
+  });
+
+  try {
+    await act(async () => {
+      getHook().handleRobotLoaded(runtimeRobot);
+    });
+
+    const resolvedClosedLoopRobotState = getHook().closedLoopRobotState;
+    assert.ok(resolvedClosedLoopRobotState);
+    assertAlmostEqual(resolvedClosedLoopRobotState.joints.joint_a?.angle, 0.25);
+    assertAlmostEqual(resolvedClosedLoopRobotState.joints.joint_b?.angle, -0.85);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test('empty jointMotionState does not clear the runtime baseline used by IK preview reset', async () => {
+  const robotState = createSimpleRobotFixture();
+  const runtimeRobot = createRuntimeRobotFixture(robotState);
+  runtimeRobot.joints.joint_a.setJointValue(0.2);
+
+  const { root, getHook } = await mountControllerWithProps({
+    active: false,
+    jointMotionState: {},
+  });
+
+  try {
+    await act(async () => {
+      getHook().handleJointPanelRobotLoaded(runtimeRobot);
+    });
+
+    assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.2);
+    assertAlmostEqual(getHook().jointPanelStore.getSnapshot().jointAngles.joint_a, 0.2);
+
+    await act(async () => {
+      getHook().previewIkJointKinematics({ joint_a: 0.65 }, {});
+    });
+
+    assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.65);
+
+    await act(async () => {
+      getHook().clearIkJointKinematicsPreview();
+    });
+
+    assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.2);
+    assertAlmostEqual(getHook().jointPanelStore.getSnapshot().jointAngles.joint_a, 0.2);
   } finally {
     await act(async () => {
       root.unmount();

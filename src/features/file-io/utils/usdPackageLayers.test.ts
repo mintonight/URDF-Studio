@@ -163,12 +163,57 @@ test('isaacsim usd package layers flatten link prim paths for physics bodies', (
   assert.doesNotMatch(physicsLayer, /rel physics:body1 = <\/demo_robot\/base_link\/child_link>/);
   assert.match(
     physicsLayer,
-    /over "base_link" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI"\]\n\s*\)\n\s+\{/,
+    /over "base_link" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI", "PhysicsArticulationRootAPI"\]\n\s*\)\n\s+\{/,
   );
   assert.match(
     physicsLayer,
     /over "child_link" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI", "PhysicsMassAPI"\]\n\s*\)\n\s+\{/,
   );
+});
+
+test('isaacsim usd package layers author the articulation root on the root link instead of the package root', () => {
+  const robot = createLayeredRobot();
+  robot.links.base_link.inertial = {
+    mass: 4.2,
+    origin: { xyz: { x: 0.01, y: -0.02, z: 0.03 }, rpy: { r: 0, p: 0, y: 0 } },
+    inertia: { ixx: 0.8, ixy: 0, ixz: 0, iyy: 0.9, iyz: 0, izz: 1.1 },
+  };
+
+  const pathMaps = buildUsdLinkPathMaps(robot, 'demo_robot', {
+    layoutProfile: 'isaacsim',
+  });
+  const physicsLayer = buildUsdPhysicsLayerContent(robot, pathMaps, 'demo_robot', 'demo_robot', {
+    layoutProfile: 'isaacsim',
+    fileFormat: 'usda',
+  });
+
+  assert.doesNotMatch(
+    physicsLayer,
+    /over "demo_robot" \(\n\s+prepend apiSchemas = \["PhysicsArticulationRootAPI"\]\n\s*\)\n\s+\{/,
+  );
+  assert.match(
+    physicsLayer,
+    /over "base_link" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysicsArticulationRootAPI"\]\n\s*\)\n\s+\{/,
+  );
+});
+
+test('usd package layers omit centerOfMass when inertial origin is not authored', () => {
+  const robot = createLayeredRobot();
+  if (robot.links.child_link.inertial) {
+    robot.links.child_link.inertial.origin = undefined;
+  }
+
+  const pathMaps = buildUsdLinkPathMaps(robot, 'demo_robot_description');
+  const physicsLayer = buildUsdPhysicsLayerContent(
+    robot,
+    pathMaps,
+    'demo_robot_description',
+    'demo_robot_description',
+  );
+
+  assert.match(physicsLayer, /float physics:mass = 1\.5/);
+  assert.doesNotMatch(physicsLayer, /float3 physics:centerOfMass =/);
+  assert.match(physicsLayer, /float3 physics:diagonalInertia =/);
 });
 
 test('usd package layers package root and configuration files under stable usd paths', async () => {

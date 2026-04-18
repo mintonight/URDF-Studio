@@ -5,6 +5,7 @@
 
 import React, { useRef, useState, useCallback, useEffect, ReactNode } from 'react';
 import { Checkbox, IconButton, Slider as UiSlider } from '@/shared/components/ui';
+import { useOverlayHoverBlock } from '@/shared/hooks';
 
 // Drag grip icon SVG path
 const DRAG_GRIP_PATH =
@@ -852,6 +853,7 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
   onMouseEnter,
   onMouseLeave,
 }) => {
+  const { activateHoverBlock, deactivateHoverBlock } = useOverlayHoverBlock();
   if (!show) return null;
 
   // When position is set (dragged), use pixel positioning without transform
@@ -864,6 +866,16 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
     event.stopPropagation();
   };
 
+  const handleMouseEnter: React.MouseEventHandler<HTMLDivElement> = (event) => {
+    activateHoverBlock();
+    onMouseEnter?.(event);
+  };
+
+  const handleMouseLeave: React.MouseEventHandler<HTMLDivElement> = (event) => {
+    deactivateHoverBlock();
+    onMouseLeave?.(event);
+  };
+
   return (
     <div
       ref={panelRef}
@@ -872,8 +884,8 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
       onClick={stopPanelEventPropagation}
       onContextMenu={stopPanelEventPropagation}
       onDoubleClick={stopPanelEventPropagation}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       onPointerDown={stopPanelEventPropagation}
       onWheel={stopPanelEventPropagation}
     >

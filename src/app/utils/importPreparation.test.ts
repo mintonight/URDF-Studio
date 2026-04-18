@@ -198,6 +198,181 @@ test('prepareImportPayload scans supported zip bundles and exposes extracted rob
   assert.ok(result.preferredFileName);
 });
 
+test('prepareImportPayload expands archive files discovered during loose folder imports', async () => {
+  const alphaZip = new JSZip();
+  alphaZip.file(
+    'alpha/model.sdf',
+    `<?xml version="1.0"?>
+<sdf version="1.10">
+  <model name="alpha">
+    <link name="base_link">
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>meshes/base.stl</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>`,
+  );
+  alphaZip.file('alpha/meshes/base.stl', 'solid alpha');
+
+  const betaZip = new JSZip();
+  betaZip.file(
+    'beta/model.sdf',
+    `<?xml version="1.0"?>
+<sdf version="1.10">
+  <model name="beta">
+    <link name="base_link">
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>meshes/base.stl</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>`,
+  );
+  betaZip.file('beta/meshes/base.stl', 'solid beta');
+
+  const alphaArchiveFile = createLooseFile(
+    'alpha.zip',
+    await alphaZip.generateAsync({ type: 'uint8array' }),
+    'sdf/alpha.zip',
+    { type: 'application/zip' },
+  );
+  const betaArchiveFile = createLooseFile(
+    'beta.zip',
+    await betaZip.generateAsync({ type: 'uint8array' }),
+    'sdf/beta.zip',
+    { type: 'application/zip' },
+  );
+
+  const result = await prepareImportPayload({
+    files: [alphaArchiveFile, betaArchiveFile],
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.deepEqual(
+    result.robotFiles
+      .map((file) => ({ name: file.name, format: file.format }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+    [
+      { name: 'alpha/meshes/base.stl', format: 'mesh' },
+      { name: 'alpha/model.sdf', format: 'sdf' },
+      { name: 'beta/meshes/base.stl', format: 'mesh' },
+      { name: 'beta/model.sdf', format: 'sdf' },
+    ],
+  );
+  assert.deepEqual(
+    result.deferredAssetFiles
+      .map((file) => ({
+        name: file.name,
+        sourceArchiveImportPath: file.sourceArchiveImportPath,
+        sourcePath: file.sourcePath,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+    [
+      {
+        name: 'alpha/meshes/base.stl',
+        sourceArchiveImportPath: 'sdf/alpha.zip',
+        sourcePath: 'alpha/meshes/base.stl',
+      },
+      {
+        name: 'beta/meshes/base.stl',
+        sourceArchiveImportPath: 'sdf/beta.zip',
+        sourcePath: 'beta/meshes/base.stl',
+      },
+    ],
+  );
+  assert.equal(result.preferredFileName, 'alpha/model.sdf');
+});
+
+test('prepareImportPayload supports mixed loose folders and archive files in one folder import', async () => {
+  const archiveZip = new JSZip();
+  archiveZip.file(
+    'alpha/model.sdf',
+    `<?xml version="1.0"?>
+<sdf version="1.10">
+  <model name="alpha">
+    <link name="base_link">
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>meshes/base.stl</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>`,
+  );
+  archiveZip.file('alpha/meshes/base.stl', 'solid alpha');
+
+  const looseRobot = createLooseFile(
+    'model.sdf',
+    `<?xml version="1.0"?>
+<sdf version="1.10">
+  <model name="gamma">
+    <link name="base_link">
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>meshes/frame.stl</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>`,
+    'gamma/model.sdf',
+  );
+  const looseMesh = createLooseFile('frame.stl', 'solid gamma', 'gamma/meshes/frame.stl');
+  const archivedRobot = createLooseFile(
+    'alpha.zip',
+    await archiveZip.generateAsync({ type: 'uint8array' }),
+    'sdf/alpha.zip',
+    { type: 'application/zip' },
+  );
+
+  const result = await prepareImportPayload({
+    files: [looseRobot, looseMesh, archivedRobot],
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.ok(
+    result.robotFiles.some((file) => file.name === 'gamma/model.sdf' && file.format === 'sdf'),
+  );
+  assert.ok(
+    result.robotFiles.some(
+      (file) => file.name === 'gamma/meshes/frame.stl' && file.format === 'mesh',
+    ),
+  );
+  assert.ok(
+    result.robotFiles.some((file) => file.name === 'alpha/model.sdf' && file.format === 'sdf'),
+  );
+  assert.ok(
+    result.robotFiles.some(
+      (file) => file.name === 'alpha/meshes/base.stl' && file.format === 'mesh',
+    ),
+  );
+  assert.ok(result.assetFiles.some((file) => file.name === 'gamma/meshes/frame.stl'));
+  assert.ok(
+    result.deferredAssetFiles.some(
+      (file) =>
+        file.name === 'alpha/meshes/base.stl' &&
+        file.sourcePath === 'alpha/meshes/base.stl' &&
+        file.sourceArchiveImportPath === 'sdf/alpha.zip',
+    ),
+  );
+});
+
 test('prepareImportPayload keeps only referenced MJCF text mesh sidecars and OBJ material text', async () => {
   const zip = new JSZip();
   zip.file(
@@ -240,6 +415,109 @@ o BodyMesh`,
       path: 'robot/assets/body.obj',
       content: `mtllib body.mtl
 o BodyMesh`,
+    },
+  ]);
+});
+
+test('prepareImportPayload does not heuristically mirror MJCF text mesh sidecars from malformed XML', async () => {
+  const files = [
+    createLooseFile(
+      'demo.xml',
+      [
+        '<?xml version="1.0"?>',
+        '<mujoco model="demo">',
+        '  <asset>',
+        '    <mesh name="body" file="body.obj">',
+      ].join('\n'),
+      'robot/demo.xml',
+    ),
+    createLooseFile(
+      'body.obj',
+      ['mtllib body.mtl', 'o BodyMesh'].join('\n'),
+      'robot/assets/body.obj',
+    ),
+    createLooseFile('body.mtl', 'newmtl body', 'robot/assets/body.mtl'),
+  ];
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.equal(result.preferredFileName, 'robot/demo.xml');
+  assert.deepEqual(result.textFiles, []);
+});
+
+test('prepareImportPayload fast-open mode keeps include-scoped MJCF OBJ, DAE, and MTL sidecars', async () => {
+  const files = [
+    createLooseFile(
+      'robot.xml',
+      `<?xml version="1.0"?>
+<mujoco model="demo">
+  <include file="fragments/assets.xml" />
+  <worldbody>
+    <include file="fragments/body.xml" />
+  </worldbody>
+</mujoco>`,
+      'demo/robot.xml',
+    ),
+    createLooseFile(
+      'assets.xml',
+      `<?xml version="1.0"?>
+<mujocoinclude>
+  <asset>
+    <mesh name="body" file="../meshes/body.obj" />
+    <mesh name="shell" file="../meshes/shell.dae" />
+  </asset>
+</mujocoinclude>`,
+      'demo/fragments/assets.xml',
+    ),
+    createLooseFile(
+      'body.xml',
+      `<?xml version="1.0"?>
+<mujocoinclude>
+  <body name="base_link">
+    <geom type="mesh" mesh="body" />
+    <geom type="mesh" mesh="shell" />
+  </body>
+</mujocoinclude>`,
+      'demo/fragments/body.xml',
+    ),
+    createLooseFile(
+      'body.obj',
+      `mtllib body.mtl
+o BodyMesh`,
+      'demo/meshes/body.obj',
+    ),
+    createLooseFile('body.mtl', 'newmtl body', 'demo/meshes/body.mtl'),
+    createLooseFile(
+      'shell.dae',
+      `<?xml version="1.0" encoding="utf-8"?>
+<COLLADA version="1.4.1"></COLLADA>`,
+      'demo/meshes/shell.dae',
+    ),
+  ];
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.equal(result.preferredFileName, 'demo/robot.xml');
+  assert.deepEqual(result.preResolvedImports, []);
+  assert.deepEqual(result.textFiles, [
+    { path: 'demo/meshes/body.mtl', content: 'newmtl body' },
+    {
+      path: 'demo/meshes/body.obj',
+      content: `mtllib body.mtl
+o BodyMesh`,
+    },
+    {
+      path: 'demo/meshes/shell.dae',
+      content: `<?xml version="1.0" encoding="utf-8"?>
+<COLLADA version="1.4.1"></COLLADA>`,
     },
   ]);
 });
@@ -1038,6 +1316,46 @@ map_Kd ambulance.png`,
     result.deferredAssetFiles.map((file) => file.name),
     ['ambulance/docs/preview.png'],
   );
+});
+
+test('prepareImportPayload does not heuristically mirror SDF OBJ sidecars from malformed XML', async () => {
+  const files = [
+    createLooseFile(
+      'model.sdf',
+      [
+        '<?xml version="1.0"?>',
+        '<sdf version="1.7>',
+        '  <model name="ambulance">',
+        '    <link name="base_link">',
+        '      <visual name="body">',
+        '        <geometry>',
+        '          <mesh>',
+        '            <uri>model://ambulance/meshes/ambulance.obj</uri>',
+      ].join('\n'),
+      'ambulance/model.sdf',
+    ),
+    createLooseFile(
+      'ambulance.obj',
+      ['mtllib ambulance.mtl', 'usemtl Ambulance', 'o AmbulanceBody'].join('\n'),
+      'ambulance/meshes/ambulance.obj',
+    ),
+    createLooseFile('ambulance.mtl', 'newmtl Ambulance', 'ambulance/meshes/ambulance.mtl'),
+  ];
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.equal(result.preferredFileName, 'ambulance/model.sdf');
+  assert.equal(
+    result.textFiles.some((file) => file.path === 'ambulance/meshes/ambulance.obj'),
+    false,
+  );
+  assert.deepEqual(result.textFiles, [
+    { path: 'ambulance/meshes/ambulance.mtl', content: 'newmtl Ambulance' },
+  ]);
 });
 
 test('prepareImportPayload keeps referenced SDF OBJ material sidecars blob-backed for loose folder imports', async () => {

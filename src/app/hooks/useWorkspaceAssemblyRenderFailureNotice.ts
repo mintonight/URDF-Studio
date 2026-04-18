@@ -13,7 +13,6 @@ interface UseWorkspaceAssemblyRenderFailureNoticeOptions {
   labels: UseWorkspaceAssemblyRenderFailureNoticeLabels;
   selectedFile: RobotFile | null;
   shouldRenderAssembly: boolean;
-  showToast: (message: string, type?: 'info' | 'success') => void;
   workspaceAssemblyRenderFailureReason: string | null;
 }
 
@@ -23,7 +22,6 @@ export function useWorkspaceAssemblyRenderFailureNotice({
   labels,
   selectedFile,
   shouldRenderAssembly,
-  showToast,
   workspaceAssemblyRenderFailureReason,
 }: UseWorkspaceAssemblyRenderFailureNoticeOptions) {
   const workspaceAssemblyRenderFailureRef = useRef<string | null>(null);
@@ -46,14 +44,11 @@ export function useWorkspaceAssemblyRenderFailureNotice({
         : labels.workspaceAssemblyRenderFailedMergedData;
 
     scheduleFailFastInDev(
-      `[Workspace] Failed to build renderable assembly robot data: ${workspaceAssemblyRenderFailureReason}`,
-      {
-        assemblyRevision,
-        componentCount: assemblyState ? Object.keys(assemblyState.components).length : 0,
-        selectedFile: selectedFile?.name ?? null,
-      },
+      '[Workspace] Failed to build renderable assembly robot data',
+      new Error(
+        `${message} reason=${workspaceAssemblyRenderFailureReason}; assemblyRevision=${assemblyRevision}; componentCount=${assemblyState ? Object.keys(assemblyState.components).length : 0}; selectedFile=${selectedFile?.name ?? '<none>'}`,
+      ),
     );
-    showToast(message, 'info');
   }, [
     assemblyRevision,
     assemblyState,
@@ -61,7 +56,6 @@ export function useWorkspaceAssemblyRenderFailureNotice({
     labels.workspaceAssemblyRenderFailedViewerData,
     selectedFile,
     shouldRenderAssembly,
-    showToast,
     workspaceAssemblyRenderFailureReason,
   ]);
 }

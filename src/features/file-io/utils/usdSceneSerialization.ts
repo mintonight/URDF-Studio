@@ -6,6 +6,7 @@ import {
   getUsdNumericAttributeSource,
   getUsdDisplayColor,
   type UsdMeshGeometryData,
+  type UsdMaterialSubsetRecord,
   type UsdSerializationContext,
 } from './usdSerializationContext.ts';
 import { type UsdMaterialMetadata } from './usdSceneNodeFactory.ts';
@@ -37,12 +38,17 @@ export type UsdSceneSerializationProgress = {
   label?: string;
 };
 
+export type UsdBaseLayerSerializationOptions = {
+  useMeshGeometryLibrary?: boolean;
+};
+
 type UsdSceneProgressTracker = UsdProgressTracker<'scene'>;
 
-const USD_SCENE_SERIALIZATION_YIELD_INTERVAL = 4;
-const USD_SCENE_FACE_VERTEX_CHUNK_SIZE = 2048;
-const USD_SCENE_POINT_CHUNK_SIZE = 512;
-const USD_SCENE_TEXCOORD_CHUNK_SIZE = 512;
+const USD_SCENE_SERIALIZATION_YIELD_INTERVAL = 16;
+const USD_SCENE_FACE_VERTEX_CHUNK_SIZE = 16384;
+const USD_SCENE_NORMAL_CHUNK_SIZE = 4096;
+const USD_SCENE_POINT_CHUNK_SIZE = 4096;
+const USD_SCENE_TEXCOORD_CHUNK_SIZE = 4096;
 
 const serializeTransformOps = (lines: string[], depth: number, object: THREE.Object3D): void => {
   const indent = makeUsdIndent(depth);
@@ -99,9 +105,17 @@ const serializeDisplayColor = (lines: string[], depth: number, object: THREE.Obj
   }
 
   const indent = makeUsdIndent(depth);
-  lines.push(
-    `${indent}color3f[] primvars:displayColor = [${formatUsdTuple([color.r, color.g, color.b])}]`,
-  );
+  lines.push(`${indent}color3f[] primvars:displayColor = [${formatUsdTuple(color)}]`);
+};
+
+const serializeVisibility = (lines: string[], depth: number, object: THREE.Object3D): void => {
+  const visibility = String(object.userData?.usdVisibility || '').trim();
+  if (!visibility) {
+    return;
+  }
+
+  const indent = makeUsdIndent(depth);
+  lines.push(`${indent}token visibility = "${escapeUsdString(visibility)}"`);
 };
 
 const serializePrimitiveAttributes = (
@@ -233,6 +247,43 @@ const serializeMeshGeometryData = async (
     lines.push(`${indent}uniform token primvars:st:interpolation = "faceVarying"`);
   };
 
+  const serializeNormals = async () => {
+    if (!data.normalAttribute || !data.normalInterpolation) {
+      return;
+    }
+
+    const source = getUsdNumericAttributeSource(data.normalAttribute);
+
+    lines.push(`${indent}normal3f[] normals = [`);
+    for (let start = 0; start < data.normalAttribute.count; start += USD_SCENE_NORMAL_CHUNK_SIZE) {
+      const end = Math.min(data.normalAttribute.count, start + USD_SCENE_NORMAL_CHUNK_SIZE);
+      const chunk = new Array<string>(end - start);
+      for (let index = start; index < end; index += 1) {
+        const chunkIndex = index - start;
+        if (source && data.normalAttribute.itemSize >= 3) {
+          const base = index * source.stride + source.offset;
+          chunk[chunkIndex] = formatUsdTuple3(
+            Number(source.array[base] ?? 0),
+            Number(source.array[base + 1] ?? 0),
+            Number(source.array[base + 2] ?? 0),
+          );
+        } else {
+          chunk[chunkIndex] = formatUsdTuple3(
+            data.normalAttribute.getX(index),
+            data.normalAttribute.getY(index),
+            data.normalAttribute.getZ(index),
+          );
+        }
+      }
+
+      const suffix = end < data.normalAttribute.count ? ',' : '';
+      lines.push(`${makeUsdIndent(depth + 1)}${chunk.join(', ')}${suffix}`);
+      await yieldPeriodically(end, USD_SCENE_NORMAL_CHUNK_SIZE);
+    }
+    lines.push(`${indent}]`);
+    lines.push(`${indent}uniform token normals:interpolation = "${data.normalInterpolation}"`);
+  };
+
   await serializeChunkedArray(
     'int[] faceVertexCounts',
     data.triangleCount,
@@ -246,6 +297,7 @@ const serializeMeshGeometryData = async (
     USD_SCENE_FACE_VERTEX_CHUNK_SIZE,
   );
   await serializePoints();
+  await serializeNormals();
   await serializeFaceVaryingUvs();
 
   lines.push(`${indent}uniform token subdivisionScheme = "none"`);
@@ -256,6 +308,14 @@ export const applyUsdMaterialMetadata = (
   materialState: UsdMaterialMetadata,
 ): void => {
   node.userData.usdMaterial = materialState;
+  if (materialState.colorRgba) {
+    node.userData.usdAuthoredColor = [
+      materialState.colorRgba[0],
+      materialState.colorRgba[1],
+      materialState.colorRgba[2],
+    ] as [number, number, number];
+    node.userData.usdOpacity = materialState.colorRgba[3];
+  }
 
   node.traverse((child) => {
     if (child === node) {
@@ -267,6 +327,14 @@ export const applyUsdMaterialMetadata = (
     }
 
     child.userData.usdMaterial = materialState;
+    if (materialState.colorRgba) {
+      child.userData.usdAuthoredColor = [
+        materialState.colorRgba[0],
+        materialState.colorRgba[1],
+        materialState.colorRgba[2],
+      ] as [number, number, number];
+      child.userData.usdOpacity = materialState.colorRgba[3];
+    }
   });
 };
 
@@ -324,11 +392,7 @@ const serializeUsdPreviewMaterials = async (
       );
     } else {
       lines.push(
-        `${makeUsdIndent(depth + 3)}color3f inputs:diffuseColor = ${formatUsdTuple([
-          record.appearance.color.r,
-          record.appearance.color.g,
-          record.appearance.color.b,
-        ])}`,
+        `${makeUsdIndent(depth + 3)}color3f inputs:diffuseColor = ${formatUsdTuple(record.appearance.authoredColor)}`,
       );
     }
     lines.push(`${makeUsdIndent(depth + 3)}float inputs:metallic = 0`);
@@ -358,9 +422,7 @@ const serializeUsdPreviewMaterials = async (
       );
       lines.push(
         `${makeUsdIndent(depth + 3)}float4 inputs:fallback = ${formatUsdTuple([
-          record.appearance.color.r,
-          record.appearance.color.g,
-          record.appearance.color.b,
+          ...record.appearance.authoredColor,
           record.appearance.opacity,
         ])}`,
       );
@@ -399,6 +461,7 @@ const serializeUsdMeshGeometryLibrary = async (
 
   lines.push(`${indent}def Scope "__MeshLibrary"`);
   lines.push(`${indent}{`);
+  lines.push(`${childIndent}token visibility = "invisible"`);
 
   for (let index = 0; index < context.geometryRecords.length; index += 1) {
     const record = context.geometryRecords[index];
@@ -427,11 +490,34 @@ const serializeMaterialBinding = (
   lines.push(`${makeUsdIndent(depth)}rel material:binding = <${materialRecord.path}>`);
 };
 
+const serializeMaterialSubsets = (
+  lines: string[],
+  depth: number,
+  subsets: readonly UsdMaterialSubsetRecord[],
+): void => {
+  subsets.forEach((subset, subsetIndex) => {
+    const subsetName = sanitizeUsdIdentifier(subset.name || `subset_${subsetIndex}`);
+    const metadata = ['prepend apiSchemas = ["MaterialBindingAPI"]'];
+    if (subset.displayName) {
+      metadata.push(`displayName = "${escapeUsdString(subset.displayName)}"`);
+    }
+
+    serializeUsdPrimSpecWithMetadata(lines, depth, `def GeomSubset "${subsetName}"`, metadata);
+    lines.push(`${makeUsdIndent(depth)}{`);
+    lines.push(`${makeUsdIndent(depth + 1)}token elementType = "face"`);
+    lines.push(`${makeUsdIndent(depth + 1)}token familyName = "materialBind"`);
+    lines.push(`${makeUsdIndent(depth + 1)}int[] indices = [${subset.faceIndices.join(', ')}]`);
+    lines.push(`${makeUsdIndent(depth + 1)}rel material:binding = <${subset.materialRecord.path}>`);
+    lines.push(`${makeUsdIndent(depth)}}`);
+  });
+};
+
 const serializeSceneNode = async (
   object: THREE.Object3D,
   depth: number,
   lines: string[],
   context: UsdSerializationContext,
+  options: UsdBaseLayerSerializationOptions,
   forcedName?: string,
   progressTracker?: UsdSceneProgressTracker,
 ): Promise<void> => {
@@ -441,10 +527,14 @@ const serializeSceneNode = async (
   const name = sanitizeUsdIdentifier(forcedName || object.name || primitiveType || 'Node');
   const typeName = primitiveType || (isUsdMeshObject(object) ? 'Mesh' : 'Xform');
   const materialRecord = context.materialByObject.get(object);
-  const geometryRecord = isUsdMeshObject(object) ? context.geometryByObject.get(object) : undefined;
+  const materialSubsets = context.materialSubsetsByObject.get(object) || [];
+  const geometryRecord =
+    options.useMeshGeometryLibrary !== false && isUsdMeshObject(object)
+      ? context.geometryByObject.get(object)
+      : undefined;
   const primMetadata: string[] = [];
 
-  if (materialRecord) {
+  if (materialRecord && materialSubsets.length === 0) {
     primMetadata.push('prepend apiSchemas = ["MaterialBindingAPI"]');
   }
   if (geometryRecord) {
@@ -458,6 +548,7 @@ const serializeSceneNode = async (
 
   serializeTransformOps(lines, childDepth, object);
   serializeCustomMetadata(lines, childDepth, object);
+  serializeVisibility(lines, childDepth, object);
 
   if (object.userData?.usdPurpose === 'guide') {
     lines.push(`${childIndent}uniform token purpose = "guide"`);
@@ -475,11 +566,17 @@ const serializeSceneNode = async (
       }
     }
     serializeDisplayColor(lines, childDepth, object);
-    serializeMaterialBinding(lines, childDepth, object, context);
+    if (materialSubsets.length > 0) {
+      serializeMaterialSubsets(lines, childDepth, materialSubsets);
+    } else {
+      serializeMaterialBinding(lines, childDepth, object, context);
+    }
   }
 
   if (depth === 0) {
-    await serializeUsdMeshGeometryLibrary(lines, childDepth, context, progressTracker);
+    if (options.useMeshGeometryLibrary !== false) {
+      await serializeUsdMeshGeometryLibrary(lines, childDepth, context, progressTracker);
+    }
     await serializeUsdPreviewMaterials(lines, childDepth, context, progressTracker);
     serializeUsdJointScope(lines, childDepth);
   }
@@ -487,7 +584,11 @@ const serializeSceneNode = async (
   advanceUsdProgress(progressTracker, name);
 
   const usedNames = new Set<string>();
-  if (depth === 0 && context.geometryRecords.length > 0) {
+  if (
+    depth === 0 &&
+    options.useMeshGeometryLibrary !== false &&
+    context.geometryRecords.length > 0
+  ) {
     usedNames.add('__MeshLibrary');
   }
   if (depth === 0 && context.materialRecords.length > 0) {
@@ -507,7 +608,15 @@ const serializeSceneNode = async (
       duplicateCount += 1;
     }
     usedNames.add(childName);
-    await serializeSceneNode(child, childDepth, lines, context, childName, progressTracker);
+    await serializeSceneNode(
+      child,
+      childDepth,
+      lines,
+      context,
+      options,
+      childName,
+      progressTracker,
+    );
     await yieldPeriodically(index + 1, USD_SCENE_SERIALIZATION_YIELD_INTERVAL);
   }
 
@@ -518,6 +627,7 @@ export const buildUsdBaseLayerContent = async (
   sceneRoot: THREE.Object3D,
   serializationContext: UsdSerializationContext,
   onProgress?: (progress: UsdSceneSerializationProgress) => void,
+  options: UsdBaseLayerSerializationOptions = {},
 ): Promise<string> => {
   const rootPrimName = sanitizeUsdIdentifier(sceneRoot.name || 'Robot');
   const lines = [
@@ -538,11 +648,19 @@ export const buildUsdBaseLayerContent = async (
   const progressTracker = createUsdProgressTracker(
     'scene',
     sceneNodeCount +
-      serializationContext.geometryRecords.length +
+      (options.useMeshGeometryLibrary !== false ? serializationContext.geometryRecords.length : 0) +
       serializationContext.materialRecords.length,
     onProgress as ((progress: UsdProgressEvent<'scene'>) => void) | undefined,
   );
 
-  await serializeSceneNode(sceneRoot, 0, lines, serializationContext, undefined, progressTracker);
+  await serializeSceneNode(
+    sceneRoot,
+    0,
+    lines,
+    serializationContext,
+    options,
+    undefined,
+    progressTracker,
+  );
   return `${lines.join('\n')}\n`;
 };

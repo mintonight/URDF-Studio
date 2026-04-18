@@ -3,9 +3,12 @@ import {
   isStandaloneXacroEntry,
   type RobotImportResult,
 } from '@/core/parsers/importRobotFile';
-import { resolveImportedAssetPath, resolveMeshAssetUrl } from '@/core/parsers/meshPathUtils';
-import { validateMJCFImportExternalAssets } from '@/core/parsers/mjcf/mjcfImportValidation';
-import { resolveMJCFSource } from '@/core/parsers/mjcf/mjcfSourceResolver';
+import { resolveImportedAssetPath } from '@/core/parsers/meshPathUtils';
+import {
+  MJCF_SOURCE_FILE_SCOPE_ATTR,
+  resolveMJCFSource,
+} from '@/core/parsers/mjcf/mjcfSourceResolver';
+import { parseMJCFXmlDocument } from '@/core/parsers/mjcf/mjcfUtils';
 import { isAssetFile } from '@/features/file-io/utils/formatDetection';
 import {
   createImportPathCollisionMap,
@@ -14,7 +17,6 @@ import {
 import { isMotorLibraryDataFilePath } from '@/shared/data/motorLibrary';
 import { isAssetLibraryOnlyFormat, isVisibleLibraryEntry } from '@/shared/utils/robotFileSupport';
 import { pickPreferredImportFile } from '@/app/hooks/importPreferredFile';
-import { extractStandaloneImportAssetReferences } from './importPackageAssetReferences.ts';
 import { buildPreResolvedImportContentSignature } from './preResolvedImportSignature.ts';
 import {
   peekPreResolvedRobotImport,
@@ -65,6 +67,7 @@ export interface PreparedImportBlobFile {
 export interface PreparedDeferredImportAssetFile {
   name: string;
   sourcePath: string;
+  sourceArchiveImportPath?: string;
 }
 
 export interface PreparedImportLibraryFile {
@@ -185,6 +188,18 @@ function createEmptyCollectedImportPayload(): CollectedImportPayload {
   };
 }
 
+function appendCollectedImportPayload(
+  target: CollectedImportPayload,
+  next: CollectedImportPayload,
+): void {
+  target.robotFiles.push(...next.robotFiles);
+  target.assetFiles.push(...next.assetFiles);
+  target.deferredAssetFiles.push(...next.deferredAssetFiles);
+  target.usdSourceFiles.push(...next.usdSourceFiles);
+  target.libraryFiles.push(...next.libraryFiles);
+  target.textFiles.push(...next.textFiles);
+}
+
 function createEmptyPreparedImportPayload(): PreparedImportPayload {
   return {
     robotFiles: [],
@@ -252,84 +267,255 @@ function parseObjMaterialLibraryPaths(meshPath: string, content: string): string
   return [...materialLibraryPaths];
 }
 
+type MjcfScopedCompilerDirectories = {
+  meshdir: string;
+  hasDirectoryOverride: boolean;
+};
+
+function buildMjcfCompilerDirectoryMap(
+  robotFiles: readonly RobotFile[],
+): Map<string, MjcfScopedCompilerDirectories> {
+  const compilerDirectoriesBySource = new Map<string, MjcfScopedCompilerDirectories>();
+
+  robotFiles.forEach((file) => {
+    if (file.format !== 'mjcf') {
+      return;
+    }
+
+    const { doc } = parseMJCFXmlDocument(file.content);
+    if (!doc) {
+      return;
+    }
+
+    let assetdir = '';
+    let meshdir: string | null = null;
+    let hasDirectoryOverride = false;
+
+    doc.querySelectorAll('compiler').forEach((compilerEl) => {
+      const rawAssetdir = compilerEl.getAttribute('assetdir');
+      if (rawAssetdir !== null) {
+        assetdir = rawAssetdir;
+        hasDirectoryOverride = true;
+      }
+
+      const rawMeshdir = compilerEl.getAttribute('meshdir');
+      if (rawMeshdir !== null) {
+        meshdir = rawMeshdir;
+        hasDirectoryOverride = true;
+      }
+    });
+
+    compilerDirectoriesBySource.set(file.name, {
+      meshdir: meshdir ?? assetdir,
+      hasDirectoryOverride,
+    });
+  });
+
+  return compilerDirectoriesBySource;
+}
+
+function applyMjcfMeshDirectory(filePath: string, directory: string): string {
+  const trimmed = filePath.trim();
+  if (!trimmed || trimmed.startsWith('/') || trimmed.includes(':')) {
+    return trimmed;
+  }
+
+  const normalizedDirectory = normalizeImportPath(directory);
+  if (!normalizedDirectory) {
+    return trimmed;
+  }
+
+  return `${normalizedDirectory}/${trimmed}`;
+}
+
+function resolveMjcfScopedSourceFilePath(element: Element, fallbackSourcePath: string): string {
+  let currentElement: Element | null = element;
+  while (currentElement) {
+    const sourceFilePath = currentElement.getAttribute(MJCF_SOURCE_FILE_SCOPE_ATTR)?.trim();
+    if (sourceFilePath) {
+      return sourceFilePath;
+    }
+    currentElement = currentElement.parentElement;
+  }
+
+  return fallbackSourcePath;
+}
+
+function collectReferencedTextMeshPathsFromResolvedMjcfSource(
+  preferredFile: RobotFile,
+  robotFiles: readonly RobotFile[],
+): Set<string> {
+  const resolvedSource = resolveMJCFSource(preferredFile, [...robotFiles]);
+  if (resolvedSource.issues.length > 0) {
+    return new Set<string>();
+  }
+
+  const { doc } = parseMJCFXmlDocument(resolvedSource.validationContent);
+  if (!doc) {
+    return new Set<string>();
+  }
+
+  const compilerDirectoriesBySource = buildMjcfCompilerDirectoryMap(robotFiles);
+  let currentAssetdir = '';
+  let currentMeshdir: string | null = null;
+  const referencedTextMeshPaths = new Set<string>();
+
+  Array.from(doc.querySelectorAll('*')).forEach((element) => {
+    const tagName = element.tagName.toLowerCase();
+    if (tagName === 'compiler') {
+      const rawAssetdir = element.getAttribute('assetdir');
+      if (rawAssetdir !== null) {
+        currentAssetdir = rawAssetdir;
+      }
+
+      const rawMeshdir = element.getAttribute('meshdir');
+      if (rawMeshdir !== null) {
+        currentMeshdir = rawMeshdir;
+      }
+      return;
+    }
+
+    if (tagName !== 'mesh' || element.parentElement?.tagName.toLowerCase() !== 'asset') {
+      return;
+    }
+
+    const rawMeshPath = element.getAttribute('file')?.trim();
+    if (!rawMeshPath) {
+      return;
+    }
+
+    const sourceFilePath = resolveMjcfScopedSourceFilePath(element, preferredFile.name);
+    const scopedCompilerDirectories = compilerDirectoriesBySource.get(sourceFilePath);
+    const compilerMeshdir = scopedCompilerDirectories?.hasDirectoryOverride
+      ? scopedCompilerDirectories.meshdir
+      : (currentMeshdir ?? currentAssetdir);
+    const resolvedPath = normalizeResolvedImportAssetPath(
+      applyMjcfMeshDirectory(rawMeshPath, compilerMeshdir),
+      sourceFilePath,
+    );
+
+    if (resolvedPath && shouldMirrorTextMeshAssetContent(resolvedPath.toLowerCase())) {
+      referencedTextMeshPaths.add(resolvedPath);
+    }
+  });
+
+  return referencedTextMeshPaths;
+}
+
+function canParseXmlDocumentStrict(content: string): boolean {
+  try {
+    const doc = new DOMParser().parseFromString(content, 'text/xml');
+    return doc.querySelector('parsererror') === null;
+  } catch {
+    return false;
+  }
+}
+
+function collectReferencedTextMeshPathsFromResolvedSdfImport(
+  preferredFile: RobotFile,
+  robotFiles: readonly RobotFile[],
+): Set<string> {
+  if (!canParseXmlDocumentStrict(preferredFile.content)) {
+    return new Set<string>();
+  }
+
+  return collectReferencedTextMeshPathsFromResolvedImport(preferredFile, robotFiles);
+}
+
+function collectReferencedTextMeshPathsFromResolvedImport(
+  preferredFile: RobotFile,
+  robotFiles: readonly RobotFile[],
+): Set<string> {
+  const referencedTextMeshPaths = new Set<string>();
+  const importResult =
+    peekPreResolvedRobotImport(preferredFile) ??
+    resolveRobotFileData(preferredFile, {
+      availableFiles: [...robotFiles],
+      allFileContents: Object.fromEntries(
+        robotFiles
+          .filter((file) => typeof file.content === 'string' && file.content.length > 0)
+          .map((file) => [file.name, file.content]),
+      ),
+    });
+
+  if (importResult.status !== 'ready') {
+    return referencedTextMeshPaths;
+  }
+
+  primePreResolvedRobotImports([
+    {
+      fileName: preferredFile.name,
+      format: preferredFile.format,
+      contentSignature: buildPreResolvedImportContentSignature(preferredFile.content),
+      result: importResult,
+    },
+  ]);
+
+  collectRobotAssetPaths(importResult.robotData).forEach((assetPath) => {
+    const normalizedPath = normalizeImportPath(assetPath);
+    if (normalizedPath && shouldMirrorTextMeshAssetContent(normalizedPath.toLowerCase())) {
+      referencedTextMeshPaths.add(normalizedPath);
+    }
+  });
+
+  return referencedTextMeshPaths;
+}
+
 function collectReferencedTextMeshPathsForPreferredImport(
   robotFiles: readonly RobotFile[],
   preResolvePreferredImport: boolean,
 ): Set<string> {
-  const preferredFile = pickFastPreparedPreferredFile([...robotFiles], [...robotFiles]);
-  if (!preferredFile) {
+  const visibleRobotFiles = robotFiles.filter(isVisibleLibraryEntry);
+  const preferredFile =
+    preResolvePreferredImport !== false
+      ? pickPreferredImportFile(visibleRobotFiles, [...robotFiles])
+      : pickFastPreparedPreferredFile([...visibleRobotFiles], [...robotFiles]);
+  if (!preferredFile || (preferredFile.format !== 'mjcf' && preferredFile.format !== 'sdf')) {
     return new Set<string>();
   }
 
   const referencedTextMeshPaths = new Set<string>();
-  const addFallbackReferences = () => {
-    extractStandaloneImportAssetReferences(preferredFile, {
-      sourcePath: preferredFile.name,
-    }).forEach((assetPath) => {
-      const resolvedPath = normalizeResolvedImportAssetPath(assetPath, preferredFile.name);
-      if (resolvedPath && shouldMirrorTextMeshAssetContent(resolvedPath.toLowerCase())) {
-        referencedTextMeshPaths.add(resolvedPath);
-      }
-    });
-  };
 
-  if (preferredFile.format === 'sdf') {
-    addFallbackReferences();
-    return referencedTextMeshPaths;
-  }
+  if (preferredFile.format === 'mjcf') {
+    try {
+      const resolvedTextMeshPaths = collectReferencedTextMeshPathsFromResolvedMjcfSource(
+        preferredFile,
+        robotFiles,
+      );
+      resolvedTextMeshPaths.forEach((path) => referencedTextMeshPaths.add(path));
+    } catch (error) {
+      scheduleFailFastInDev(
+        'importPreparation:collectReferencedTextMeshPathsForPreferredImport',
+        new Error(
+          `Failed to scan resolved MJCF source "${preferredFile.name}" while collecting text-mesh dependencies.`,
+          { cause: error },
+        ),
+        'error',
+      );
+    }
 
-  if (preferredFile.format !== 'mjcf') {
-    return referencedTextMeshPaths;
-  }
-
-  if (!preResolvePreferredImport) {
-    addFallbackReferences();
     return referencedTextMeshPaths;
   }
 
   try {
-    const importResult =
-      peekPreResolvedRobotImport(preferredFile) ??
-      resolveRobotFileData(preferredFile, {
-        availableFiles: [...robotFiles],
-      });
-
-    if (importResult.status === 'ready') {
-      primePreResolvedRobotImports([
-        {
-          fileName: preferredFile.name,
-          format: preferredFile.format,
-          contentSignature: buildPreResolvedImportContentSignature(preferredFile.content),
-          result: importResult,
-        },
-      ]);
-
-      collectRobotAssetPaths(importResult.robotData).forEach((assetPath) => {
-        const normalizedPath = normalizeImportPath(assetPath);
-        if (normalizedPath && shouldMirrorTextMeshAssetContent(normalizedPath.toLowerCase())) {
-          referencedTextMeshPaths.add(normalizedPath);
-        }
-      });
-    }
+    const resolvedTextMeshPaths = collectReferencedTextMeshPathsFromResolvedSdfImport(
+      preferredFile,
+      robotFiles,
+    );
+    resolvedTextMeshPaths.forEach((path) => referencedTextMeshPaths.add(path));
   } catch (error) {
-    // Best-effort text-mesh collection: continue with fallback references even if parse fails.
     scheduleFailFastInDev(
       'importPreparation:collectReferencedTextMeshPathsForPreferredImport',
       new Error(
-        `Failed to pre-parse MJCF import "${preferredFile.name}" while collecting text-mesh dependencies.`,
+        `Failed to resolve import "${preferredFile.name}" while collecting text-mesh dependencies.`,
         { cause: error },
       ),
       'error',
     );
   }
 
-  if (referencedTextMeshPaths.size === 0) {
-    addFallbackReferences();
-  }
-
   return referencedTextMeshPaths;
 }
-
 function collectReferencedObjMaterialPaths(
   textFiles: readonly PreparedImportTextFile[],
 ): Set<string> {
@@ -481,6 +667,7 @@ async function collectImportPayloadFromArchiveSession(
   archiveSession: ArchiveImportSession,
   options: {
     preResolvePreferredImport?: boolean;
+    sourceArchiveImportPath?: string;
   } = {},
   onProgress?: (progress: PrepareImportProgress) => void,
 ): Promise<CollectedImportPayload> {
@@ -534,7 +721,11 @@ async function collectImportPayloadFromArchiveSession(
     } else if (isAuxiliaryTextImportPath(lowerPath)) {
       auxiliaryTextEntries.push(entry);
     } else if (isAssetFile(path)) {
-      payload.deferredAssetFiles.push({ name: path, sourcePath: path });
+      payload.deferredAssetFiles.push({
+        name: path,
+        sourcePath: path,
+        sourceArchiveImportPath: options.sourceArchiveImportPath,
+      });
       if (shouldMirrorTextMeshAssetContent(lowerPath) && size <= MAX_EAGER_TEXT_MESH_ASSET_BYTES) {
         mirroredTextMeshAssetEntries.push(entry);
       }
@@ -757,14 +948,7 @@ async function collectImportPayloadFromLooseFiles(
   } = {},
   onProgress?: (progress: PrepareImportProgress) => void,
 ): Promise<CollectedImportPayload> {
-  const payload: CollectedImportPayload = {
-    robotFiles: [],
-    assetFiles: [],
-    deferredAssetFiles: [],
-    usdSourceFiles: [],
-    libraryFiles: [],
-    textFiles: [],
-  };
+  const payload = createEmptyCollectedImportPayload();
   const emitProgress = createImportProgressEmitter(onProgress);
   const auxiliaryTextFiles: Array<{ path: string; file: File }> = [];
   const mirroredTextMeshFiles: Array<{ path: string; file: File }> = [];
@@ -797,7 +981,15 @@ async function collectImportPayloadFromLooseFiles(
       return;
     }
 
-    if (isUsdFamilyPath(path)) {
+    if (isSupportedArchiveImportFile(path)) {
+      const archivePayload = await withArchiveImportSession(file, (archiveSession) =>
+        collectImportPayloadFromArchiveSession(archiveSession, {
+          preResolvePreferredImport: options.preResolvePreferredImport,
+          sourceArchiveImportPath: normalizeImportPath(path),
+        }),
+      );
+      appendCollectedImportPayload(payload, archivePayload);
+    } else if (isUsdFamilyPath(path)) {
       payload.robotFiles.push(await createImportedUsdFileFromLooseFile(path, file));
       payload.usdSourceFiles.push({ name: path, blob: file });
     } else if (isImportableDefinitionPath(lowerPath)) {

@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { ViewerOptionsPanel } from './ViewerOptionsPanel';
+import { useSelectionStore } from '@/store/selectionStore';
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -50,6 +51,17 @@ function createComponentRoot() {
 
   const root = createRoot(container);
   return { dom, container, root };
+}
+
+function resetSelectionStore() {
+  const state = useSelectionStore.getState();
+  state.setInteractionGuard(null);
+  state.setHoverFrozen(false);
+  while (useSelectionStore.getState().hoverBlockCount > 0) {
+    useSelectionStore.getState().endHoverBlock();
+  }
+  state.clearHover();
+  state.setHoveredSelection({ type: null, id: null });
 }
 
 async function renderPanel(
@@ -212,6 +224,39 @@ test('ViewerOptionsPanel keeps bottom-right resize affordances without a right-e
     container.querySelector('[data-testid="ui-options-panel-resize-corner"]'),
     'view options panel should keep the bottom-right resize handle',
   );
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('ViewerOptionsPanel freezes shared hover while the pointer is over the panel surface', async () => {
+  resetSelectionStore();
+
+  const { dom, container, root } = createComponentRoot();
+  useSelectionStore.getState().setHoveredSelection({ type: 'link', id: 'base_link' });
+
+  await renderPanel(root, false);
+
+  const panelRoot = container.querySelector('.urdf-options-panel') as HTMLDivElement | null;
+  assert.ok(panelRoot, 'viewer options panel root should render');
+
+  await act(async () => {
+    panelRoot.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+  });
+
+  let nextState = useSelectionStore.getState();
+  assert.equal(nextState.hoverFrozen, true);
+  assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
+
+  await act(async () => {
+    panelRoot.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+  });
+
+  nextState = useSelectionStore.getState();
+  assert.equal(nextState.hoverFrozen, false);
+  assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
 
   await act(async () => {
     root.unmount();

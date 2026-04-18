@@ -261,7 +261,6 @@ export const RobotCanvas = memo(function RobotCanvas({
           onOrbitEnd?.();
         }}
         onPointerMissed={handlePointerMissedInternal}
-        contextLostMessage={t.webglContextRestoring}
         showUsageGuide={showUsageGuide}
       >
         <RobotModel

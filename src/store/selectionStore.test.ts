@@ -7,6 +7,9 @@ function resetSelectionStore() {
   const state = useSelectionStore.getState();
   state.setInteractionGuard(null);
   state.setHoverFrozen(false);
+  while (useSelectionStore.getState().hoverBlockCount > 0) {
+    useSelectionStore.getState().endHoverBlock();
+  }
   state.clearHover();
   state.setSelection({ type: null, id: null });
   state.setHoveredSelection({ type: null, id: null });
@@ -65,6 +68,32 @@ test('clearHover during a frozen drag clears the deferred hover so release does 
 
   nextState.setHoverFrozen(false);
   assert.deepEqual(useSelectionStore.getState().hoveredSelection, { type: null, id: null });
+});
+
+test('hover blocks suppress incoming hover updates and do not unfreeze when interaction freeze releases first', () => {
+  resetSelectionStore();
+
+  const state = useSelectionStore.getState();
+  state.setHoveredSelection({ type: 'link', id: 'base_link' });
+  state.beginHoverBlock();
+
+  let nextState = useSelectionStore.getState();
+  assert.equal(nextState.hoverFrozen, true);
+  assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
+  assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
+
+  nextState.setHoveredSelection({ type: 'link', id: 'arm_link' });
+  nextState.setHoverFrozen(true);
+  nextState.setHoverFrozen(false);
+
+  nextState = useSelectionStore.getState();
+  assert.equal(nextState.hoverFrozen, true);
+  assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
+
+  nextState.endHoverBlock();
+  nextState = useSelectionStore.getState();
+  assert.equal(nextState.hoverFrozen, false);
+  assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
 });
 
 test('interaction guard blocks invalid selections without preventing clearing', () => {
