@@ -17,6 +17,7 @@ import {
   SceneLighting,
   SnapshotManager,
   type SnapshotCaptureAction,
+  type SnapshotPreviewAction,
   useAdaptiveInteractionQuality,
   WorkspaceCanvasInteractionStateProvider,
   WorkspaceOrbitControls,
@@ -31,6 +32,7 @@ import {
   type WorkspaceCanvasEnvironmentIntensityByTheme,
   useWorkspaceCanvasTheme,
 } from './workspaceCanvasConfig';
+import type { WorkspaceCameraSnapshot } from './workspaceCameraSnapshot';
 import { WorkspaceCanvasErrorBoundary } from './WorkspaceCanvasErrorBoundary';
 import { WorkspaceCanvasErrorNotice } from './WorkspaceCanvasErrorNotice';
 import {
@@ -48,6 +50,9 @@ interface WorkspaceCanvasProps {
   containerRef?: React.RefObject<HTMLDivElement>;
   sceneRef?: React.RefObject<THREE.Scene | null>;
   snapshotAction?: React.RefObject<SnapshotCaptureAction | null>;
+  onSnapshotActionChange?: (action: SnapshotCaptureAction | null) => void;
+  previewAction?: React.RefObject<SnapshotPreviewAction | null>;
+  onPreviewActionChange?: (action: SnapshotPreviewAction | null) => void;
   children: React.ReactNode;
   overlays?: React.ReactNode;
   onPointerMissed?: () => void;
@@ -73,6 +78,7 @@ interface WorkspaceCanvasProps {
   showWorldOriginAxes?: boolean;
   showUsageGuide?: boolean;
   renderKey?: string;
+  initialCameraSnapshot?: WorkspaceCameraSnapshot | null;
 }
 
 function CanvasRenderKeyInvalidator({ renderKey }: { renderKey: string }) {
@@ -93,6 +99,9 @@ export const WorkspaceCanvas = ({
   containerRef,
   sceneRef,
   snapshotAction,
+  onSnapshotActionChange,
+  previewAction,
+  onPreviewActionChange,
   children,
   overlays,
   onPointerMissed,
@@ -115,6 +124,7 @@ export const WorkspaceCanvas = ({
   showWorldOriginAxes = true,
   showUsageGuide = true,
   renderKey = 'default',
+  initialCameraSnapshot = null,
 }: WorkspaceCanvasProps) => {
   const effectiveTheme = useWorkspaceCanvasTheme(theme);
   const t = translations[lang ?? 'en'];
@@ -415,6 +425,9 @@ export const WorkspaceCanvas = ({
                 />
                 <SnapshotManager
                   actionRef={snapshotAction}
+                  onSnapshotActionChange={onSnapshotActionChange}
+                  previewActionRef={previewAction}
+                  onPreviewActionChange={onPreviewActionChange}
                   robotName={robotName}
                   theme={effectiveTheme}
                   groundOffset={groundOffset}
@@ -428,6 +441,7 @@ export const WorkspaceCanvas = ({
                 {showWorldOriginAxes && !snapshotRenderActive && <WorldOriginAxes />}
                 <WorkspaceOrbitControls
                   key={`orbit-${controlLayerKey}`}
+                  initialCameraSnapshot={initialCameraSnapshot}
                   {...finalOrbitControlsProps}
                 />
                 {!snapshotRenderActive && (

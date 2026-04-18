@@ -259,6 +259,170 @@ html[data-lang='zh'] {
   }
 }
 
+@keyframes inspection-run-cta-pulse {
+  0%,
+  10%,
+  100% {
+    transform: translateY(0) scale(1);
+    box-shadow:
+      0 2px 4px color-mix(in srgb, var(--ui-text-primary) 12%, transparent),
+      0 0 0 0 color-mix(in srgb, var(--ui-accent-solid) 0%, transparent);
+  }
+
+  30% {
+    transform: translateY(-1px) scale(1.025);
+    box-shadow:
+      0 8px 18px color-mix(in srgb, var(--ui-accent-solid) 16%, transparent),
+      0 0 0 3px color-mix(in srgb, var(--ui-accent-solid) 10%, transparent);
+  }
+
+  58% {
+    transform: translateY(0) scale(1.01);
+    box-shadow:
+      0 7px 16px color-mix(in srgb, var(--ui-accent-solid) 22%, transparent),
+      0 0 0 2px color-mix(in srgb, var(--ui-accent-solid) 12%, transparent);
+  }
+
+  72% {
+    transform: translateY(1px) scale(0.982);
+    box-shadow:
+      0 11px 24px color-mix(in srgb, var(--ui-accent-solid) 28%, transparent),
+      0 0 0 5px color-mix(in srgb, var(--ui-accent-solid) 16%, transparent);
+  }
+
+  84% {
+    transform: translateY(0) scale(1.005);
+    box-shadow:
+      0 6px 14px color-mix(in srgb, var(--ui-accent-solid) 18%, transparent),
+      0 0 0 2px color-mix(in srgb, var(--ui-accent-solid) 10%, transparent);
+  }
+}
+
+.inspection-run-cta-pulse {
+  will-change: transform, box-shadow;
+}
+
+@keyframes inspection-run-cta-breathe-sync {
+  0%,
+  100% {
+    filter: brightness(1) saturate(1);
+  }
+
+  24% {
+    filter: brightness(1.04) saturate(1.04);
+  }
+
+  54% {
+    filter: brightness(1.07) saturate(1.08);
+  }
+
+  72% {
+    filter: brightness(1.13) saturate(1.14);
+  }
+
+  84% {
+    filter: brightness(1.06) saturate(1.07);
+  }
+}
+
+.inspection-run-cta-breathe-sync {
+  will-change: filter;
+}
+
+.inspection-run-cta-pulse.inspection-run-cta-breathe-sync {
+  animation:
+    inspection-run-cta-pulse 2.4s cubic-bezier(0.18, 0.8, 0.24, 1) 1 both,
+    inspection-run-cta-breathe-sync 2.4s ease-in-out 1 both;
+  will-change: transform, box-shadow, filter;
+}
+
+@keyframes inspection-run-pointer-cta {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.94) rotate(-7deg);
+  }
+
+  12% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1) rotate(-5deg);
+  }
+
+  58% {
+    opacity: 1;
+    transform: translate3d(var(--inspection-run-pointer-dx), var(--inspection-run-pointer-dy), 0)
+      scale(1) rotate(0deg);
+  }
+
+  72% {
+    opacity: 1;
+    transform: translate3d(
+        calc(var(--inspection-run-pointer-dx) - 1px),
+        calc(var(--inspection-run-pointer-dy) + 5px),
+        0
+      )
+      scale(0.96) rotate(1.5deg);
+  }
+
+  82% {
+    opacity: 1;
+    transform: translate3d(
+        var(--inspection-run-pointer-dx),
+        calc(var(--inspection-run-pointer-dy) + 2px),
+        0
+      )
+      scale(0.985) rotate(0deg);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(
+        calc(var(--inspection-run-pointer-dx) + 3px),
+        calc(var(--inspection-run-pointer-dy) - 1px),
+        0
+      )
+      scale(0.96) rotate(0deg);
+  }
+}
+
+@keyframes inspection-run-pointer-target {
+  0%,
+  50% {
+    opacity: 0;
+    transform: scale(0.65);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ui-accent-solid) 0%, transparent);
+  }
+
+  68% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--ui-accent-solid) 12%, transparent);
+  }
+
+  82% {
+    opacity: 0.72;
+    transform: scale(0.82);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent-solid) 8%, transparent);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(0.7);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ui-accent-solid) 0%, transparent);
+  }
+}
+
+.inspection-run-pointer-cta {
+  animation: inspection-run-pointer-cta 2.4s ease-in-out 1 both;
+  filter: drop-shadow(0 3px 6px color-mix(in srgb, var(--ui-text-primary) 18%, transparent));
+  transform-origin: 20% 15%;
+  will-change: opacity, transform;
+}
+
+.inspection-run-pointer-target {
+  animation: inspection-run-pointer-target 2.4s ease-out 1 both;
+  will-change: opacity, transform, box-shadow;
+}
+
 @theme {
   --color-app-bg: var(--ui-bg);
   --color-panel-bg: var(--ui-panel-bg);

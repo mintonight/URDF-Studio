@@ -235,15 +235,16 @@ Git hooks 通过 Husky + lint-staged + Commitlint 接入：
 - `pre-commit`：对 staged 文件执行格式化，并在 staged diff 上运行 ESLint / Stylelint
 - `commit-msg`：校验 Conventional Commit 提交信息
 
-目前仓库仍然**没有**强行统一成单一的根级 `npm test`，因为测试验证依旧以模块定向和 fixture 回归为主。
+`npm test` 当前只覆盖仓库内可自给的测试，不包含依赖 `test/` 外部大型语料的 fixture 回归。
 
 通常通过以下方式完成验证：
 
 - 在改动模块旁边运行定向 `node --test` / `npx tsx --test`
 - 运行 `scripts/regression/` 下的定向回归脚本
+- 使用 `npm test` 跑 `npm run verify:fast` 采用的仓库内快速测试
 - 执行 `npm run build`
 - 如果改动了 `src/lib` 或 `packages/react-robot-canvas`，补跑包构建
-- 针对 `test/` 下的大型 fixture 语料做回归检查，尤其是 `test/unitree_model`、`test/gazebo_models`、`test/awesome_robot_descriptions_repos`、`test/usd-viewer`
+- 通过 `npm run test:fixtures:*` / `npm run verify:full` 针对 `test/` 下的大型 fixture 语料做回归检查，尤其是 `test/unitree_model`、`test/gazebo_models`、`test/awesome_robot_descriptions_repos`、`test/usd-viewer`
 
 ## 文档入口
 

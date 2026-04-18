@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Camera, X } from 'lucide-react';
 import {
   Button,
@@ -12,9 +12,12 @@ import { DraggableWindow } from '@/shared/components';
 import { useDraggableWindow } from '@/shared/hooks';
 import {
   DEFAULT_SNAPSHOT_CAPTURE_OPTIONS,
+  type SnapshotCaptureAction,
   type SnapshotCaptureOptions,
 } from '@/shared/components/3d';
 import { translations, type Language } from '@/shared/i18n';
+import { SnapshotPreviewRenderer } from './snapshot-preview/SnapshotPreviewRenderer';
+import type { SnapshotDialogPreviewState, SnapshotPreviewSession } from './snapshot-preview/types';
 
 const SNAPSHOT_RESOLUTION_OPTIONS = [
   { value: '1280', label: '720p' },
@@ -29,12 +32,52 @@ const PANEL_SECTION_CLASS_NAME =
 const FIELD_ROW_CLASS_NAME = 'grid grid-cols-[78px_minmax(0,1fr)] items-center gap-2';
 const FIELD_LABEL_CLASS_NAME =
   'truncate text-[10px] font-medium tracking-[0.01em] text-text-secondary';
+const SNAPSHOT_DIALOG_DEFAULT_SIZE = {
+  width: 620,
+  height: 690,
+} as const;
+const SNAPSHOT_DIALOG_MIN_SIZE = {
+  width: 500,
+  height: 420,
+} as const;
+const SNAPSHOT_DIALOG_HEADER_HEIGHT = 40;
+const SNAPSHOT_DIALOG_VIEWPORT_MARGIN = 24;
+const SNAPSHOT_DIALOG_VIEWPORT_MIN_HEIGHT = 320;
+
+const clamp = (value: number, min: number, max: number) => {
+  if (max < min) {
+    return min;
+  }
+  return Math.max(min, Math.min(max, value));
+};
+
+const resolveSnapshotDialogHeight = ({
+  scrollContentHeight,
+  footerHeight,
+  viewportHeight,
+}: {
+  scrollContentHeight: number;
+  footerHeight: number;
+  viewportHeight: number;
+}) => {
+  const viewportLimit = Math.max(
+    SNAPSHOT_DIALOG_VIEWPORT_MIN_HEIGHT,
+    viewportHeight - SNAPSHOT_DIALOG_VIEWPORT_MARGIN,
+  );
+  const minHeight = Math.min(SNAPSHOT_DIALOG_MIN_SIZE.height, viewportLimit);
+  const naturalHeight = SNAPSHOT_DIALOG_HEADER_HEIGHT + footerHeight + scrollContentHeight;
+  return clamp(naturalHeight, minHeight, viewportLimit);
+};
+
 interface SnapshotDialogProps {
   isOpen: boolean;
   isCapturing: boolean;
   lang: Language;
   onClose: () => void;
   onCapture: (options: SnapshotCaptureOptions) => Promise<void> | void;
+  previewSession?: SnapshotPreviewSession | null;
+  previewState?: SnapshotDialogPreviewState;
+  onPreviewCaptureActionChange?: (action: SnapshotCaptureAction | null) => void;
 }
 
 function SnapshotSection({ title, children }: { title: string; children: React.ReactNode }) {
@@ -63,6 +106,9 @@ export function SnapshotDialog({
   lang,
   onClose,
   onCapture,
+  previewSession = null,
+  previewState,
+  onPreviewCaptureActionChange,
 }: SnapshotDialogProps) {
   const t = translations[lang];
   const [resolutionPreset, setResolutionPreset] = useState(
@@ -81,11 +127,18 @@ export function SnapshotDialog({
     DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.backgroundStyle,
   );
   const [hideGrid, setHideGrid] = useState(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.hideGrid);
+  const [internalPreviewState, setInternalPreviewState] = useState<SnapshotDialogPreviewState>({
+    status: 'idle',
+    imageUrl: null,
+    aspectRatio: previewSession?.viewportAspectRatio ?? 16 / 9,
+  });
+  const scrollBodyRef = useRef<HTMLDivElement | null>(null);
+  const footerRef = useRef<HTMLDivElement | null>(null);
 
   const windowState = useDraggableWindow({
     isOpen,
-    defaultSize: { width: 560, height: 332 },
-    minSize: { width: 500, height: 308 },
+    defaultSize: SNAPSHOT_DIALOG_DEFAULT_SIZE,
+    minSize: SNAPSHOT_DIALOG_MIN_SIZE,
     centerOnMount: true,
     enableMinimize: false,
     enableMaximize: false,
@@ -98,7 +151,7 @@ export function SnapshotDialog({
     },
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isOpen) {
       return;
     }
@@ -113,7 +166,46 @@ export function SnapshotDialog({
     setDofMode(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.dofMode);
     setBackgroundStyle(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.backgroundStyle);
     setHideGrid(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.hideGrid);
-  }, [isOpen]);
+    setInternalPreviewState({
+      status: 'idle',
+      imageUrl: null,
+      aspectRatio: previewSession?.viewportAspectRatio ?? 16 / 9,
+    });
+  }, [isOpen, previewSession?.viewportAspectRatio]);
+
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const scrollBody = scrollBodyRef.current;
+    const footer = footerRef.current;
+
+    if (!scrollBody || !footer) {
+      return;
+    }
+
+    const nextHeight = resolveSnapshotDialogHeight({
+      scrollContentHeight: scrollBody.scrollHeight,
+      footerHeight: footer.offsetHeight,
+      viewportHeight: window.innerHeight,
+    });
+
+    windowState.setSize((currentSize) =>
+      currentSize.height === nextHeight ? currentSize : { ...currentSize, height: nextHeight },
+    );
+  }, [
+    isOpen,
+    lang,
+    internalPreviewState.aspectRatio,
+    internalPreviewState.imageUrl,
+    internalPreviewState.status,
+    previewState?.imageUrl,
+    previewState?.status,
+    previewSession?.viewportAspectRatio,
+    previewState?.aspectRatio,
+    windowState.setSize,
+  ]);
 
   useEffect(() => {
     if (imageFormat === 'jpeg' && backgroundStyle === 'transparent') {
@@ -256,7 +348,7 @@ export function SnapshotDialog({
       shadow: lang === 'zh' ? '阴影' : 'Shadow',
       ground: lang === 'zh' ? '地面' : 'Ground',
       dof: lang === 'zh' ? '景深' : 'DoF',
-      grid: lang === 'zh' ? '隐藏网格' : 'Hide Grid',
+      grid: lang === 'zh' ? '网格' : 'Grid',
     }),
     [lang],
   );
@@ -277,6 +369,17 @@ export function SnapshotDialog({
         ? 80
         : 60
     : 'lossless';
+  const effectivePreviewState = previewState ?? internalPreviewState;
+  const previewStatusText =
+    effectivePreviewState.status === 'loading' || effectivePreviewState.status === 'idle'
+      ? t.snapshotPreviewLoading
+      : effectivePreviewState.status === 'refreshing'
+        ? t.snapshotPreviewRefreshing
+        : effectivePreviewState.status === 'error'
+          ? t.snapshotPreviewFailed
+          : t.snapshotPreviewReady;
+  const previewAspectRatio =
+    effectivePreviewState.aspectRatio > 0 ? effectivePreviewState.aspectRatio : 16 / 9;
 
   if (!isOpen) {
     return null;
@@ -319,7 +422,7 @@ export function SnapshotDialog({
       closeTitle={t.close}
     >
       <div className="flex h-[calc(100%-40px)] min-h-0 flex-col overflow-hidden bg-panel-bg">
-        <div className="flex-1 min-h-0 space-y-1.5 overflow-y-auto px-2.5 py-2">
+        <div ref={scrollBodyRef} className="flex-1 min-h-0 space-y-1.5 overflow-y-auto px-2.5 py-2">
           <SnapshotSection title={compactLabels.output}>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
               <SnapshotField label={compactLabels.resolution}>
@@ -434,47 +537,112 @@ export function SnapshotDialog({
               </SnapshotField>
               <SnapshotField label={compactLabels.grid}>
                 <CompactSwitch
-                  checked={hideGrid}
-                  onChange={setHideGrid}
+                  checked={!hideGrid}
+                  onChange={(checked) => setHideGrid(!checked)}
                   disabled={isCapturing}
                   ariaLabel={t.snapshotHideGrid}
-                  className="w-full justify-end"
+                  className="w-full justify-start"
                 />
               </SnapshotField>
             </div>
           </SnapshotSection>
-        </div>
 
-        <div className="shrink-0 border-t border-border-black bg-element-bg/95 px-3 py-2.5 backdrop-blur-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0 truncate text-[10px] font-medium text-text-secondary">
-              {captureSummary}
+          <div className="rounded-xl border border-border-black bg-element-bg px-3 py-2 shadow-sm">
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold tracking-[0.02em] text-text-primary">
+                  {t.snapshotPreviewTitle}
+                </div>
+                <div className="mt-0.5 text-[10px] text-text-secondary">
+                  {t.snapshotPreviewFrozenView}
+                </div>
+              </div>
+              <div className="shrink-0 rounded-md border border-border-black bg-panel-bg px-1.5 py-0.5 text-[9px] font-medium text-text-secondary">
+                {previewStatusText}
+              </div>
             </div>
 
-            <div className="flex items-center gap-1.5">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={onClose}
-                disabled={isCapturing}
-                className="h-[26px] rounded-lg px-2.5 text-[11px]"
+            <div className="mx-auto w-full max-w-[280px]">
+              <div
+                className="overflow-hidden rounded-lg border border-border-black bg-panel-bg"
+                style={{ aspectRatio: String(previewAspectRatio) }}
               >
-                {t.close}
-              </Button>
-              <Button
-                type="button"
-                onClick={() => void onCapture(resolvedOptions)}
-                isLoading={isCapturing}
-                disabled={isCapturing}
-                icon={<Camera className="h-3 w-3" />}
-                className="h-[26px] min-w-[118px] rounded-lg px-3 text-[11px]"
-              >
-                {isCapturing ? t.snapshotCapturing : t.snapshotCapture}
-              </Button>
+                {effectivePreviewState.imageUrl ? (
+                  <div className="relative h-full w-full">
+                    <img
+                      src={effectivePreviewState.imageUrl}
+                      alt={t.snapshotPreviewAlt}
+                      className="h-full w-full object-contain"
+                    />
+                    {effectivePreviewState.status === 'refreshing' ? (
+                      <div className="absolute inset-0 flex items-end justify-start bg-panel-bg/18 p-2">
+                        <div className="rounded-md border border-border-black bg-element-bg/92 px-1.5 py-1 text-[10px] font-medium text-text-primary shadow-sm">
+                          {t.snapshotPreviewRefreshing}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="flex h-full min-h-[120px] items-center justify-center px-4 text-center text-[11px] text-text-secondary">
+                    {effectivePreviewState.status === 'error'
+                      ? t.snapshotPreviewFailed
+                      : t.snapshotPreviewLoading}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-2 flex items-start justify-between gap-3 text-[10px] text-text-secondary">
+              <div className="min-w-0">
+                <div className="truncate">{captureSummary}</div>
+                <div className="mt-0.5">{t.snapshotPreviewQualityHint}</div>
+              </div>
+              {effectivePreviewState.status === 'error' ? (
+                <div className="shrink-0 text-right text-[10px] text-danger">
+                  {t.snapshotPreviewRetryingHint}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
+
+        <div
+          ref={footerRef}
+          className="shrink-0 border-t border-border-black bg-element-bg/95 px-3 py-2.5 backdrop-blur-sm"
+        >
+          <div className="flex items-center justify-end gap-1.5">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onClose}
+              disabled={isCapturing}
+              className="h-[26px] rounded-lg px-2.5 text-[11px]"
+            >
+              {t.close}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void onCapture(resolvedOptions)}
+              isLoading={isCapturing}
+              disabled={isCapturing}
+              icon={<Camera className="h-3 w-3" />}
+              className="h-[26px] min-w-[118px] rounded-lg px-3 text-[11px]"
+            >
+              {isCapturing ? t.snapshotCapturing : t.snapshotCapture}
+            </Button>
+          </div>
+        </div>
       </div>
+      {!previewState && previewSession ? (
+        <SnapshotPreviewRenderer
+          isOpen={isOpen}
+          lang={lang}
+          session={previewSession}
+          options={resolvedOptions}
+          onStateChange={setInternalPreviewState}
+          onCaptureActionChange={onPreviewCaptureActionChange}
+        />
+      ) : null}
     </DraggableWindow>
   );
 }

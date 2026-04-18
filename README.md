@@ -235,15 +235,16 @@ Git hooks are wired through Husky + lint-staged + Commitlint:
 - `pre-commit`: formats staged files and runs ESLint / Stylelint on the staged diff
 - `commit-msg`: validates Conventional Commit messages
 
-The repository still does **not** force a single root `npm test` command because verification remains module- and fixture-driven.
+`npm test` stays limited to repo-contained tests that do not require the external fixture corpora under `test/`.
 
 Validation is typically done through:
 
 - targeted `node --test` / `npx tsx --test` runs next to the changed module
 - focused regression scripts under `scripts/regression/`
+- `npm test` for the fast repo-contained lane used by `npm run verify:fast`
 - `npm run build`
 - package workspace builds when touching `src/lib` or `packages/react-robot-canvas`
-- fixture-driven checks against large corpora under `test/`, especially `test/unitree_model`, `test/gazebo_models`, `test/awesome_robot_descriptions_repos`, and `test/usd-viewer`
+- fixture-driven checks under `test/` via `npm run test:fixtures:*` / `npm run verify:full`, especially `test/unitree_model`, `test/gazebo_models`, `test/awesome_robot_descriptions_repos`, and `test/usd-viewer`
 
 ## Documentation
 
