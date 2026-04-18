@@ -1022,6 +1022,30 @@ const cloneObject3DForReuse = (
   return cloneMaterialsInObject(clonedRoot);
 };
 
+/**
+ * Check whether any descendant of the given root has a non-identity local
+ * scale.  DAE files exported from tools like Blender may encode unit
+ * conversions (e.g. inch → meter as 0.0254) in child node <matrix>
+ * transforms rather than in the root <unit> element.
+ */
+const hasDescendantNodeScale = (root: THREE.Object3D): boolean => {
+  const stack = Array.from(root.children);
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (
+      Math.abs(node.scale.x - 1) > 1e-6 ||
+      Math.abs(node.scale.y - 1) > 1e-6 ||
+      Math.abs(node.scale.z - 1) > 1e-6
+    ) {
+      return true;
+    }
+    for (let i = 0; i < node.children.length; i += 1) {
+      stack.push(node.children[i]);
+    }
+  }
+  return false;
+};
+
 const applyDetectedUnitScale = (meshObject: THREE.Object3D, unitScale: number | null): void => {
   if (!unitScale || unitScale === 1) {
     return;
@@ -1119,16 +1143,19 @@ export const createMeshLoader = (
         scene.updateMatrix();
         await yieldIfNeeded();
 
-        // When the DAE file declares an explicit unit (e.g. meter="0.0254" for
-        // inches), createSceneFromSerializedColladaData already bakes the
-        // conversion into scene.scale.  In that case the auto-unit heuristic
-        // (maxDimension > 10 → ×0.001) must NOT fire, because the geometry is
-        // already in metres — the heuristic would override the correct scale and
-        // shrink the model by the wrong factor.
+        // When the DAE file carries a unit conversion — either as a root
+        // scale (baked by createSceneFromSerializedColladaData from the
+        // <unit> element) or as a non-identity scale in any descendant node
+        // (e.g. Blender exports inch→meter as a 0.0254 <matrix> transform
+        // on child nodes) — the auto-unit heuristic (maxDimension > 10 →
+        // ×0.001) must NOT fire, because the geometry is already at the
+        // correct scale.  Applying the heuristic would override the
+        // authored conversion and shrink the model by the wrong factor.
         const hasExplicitDaeUnitScale =
           Math.abs(scene.scale.x - 1) > 1e-6 ||
           Math.abs(scene.scale.y - 1) > 1e-6 ||
-          Math.abs(scene.scale.z - 1) > 1e-6;
+          Math.abs(scene.scale.z - 1) > 1e-6 ||
+          hasDescendantNodeScale(scene);
 
         return {
           createInstance: () => cloneObject3DForReuse(scene),
