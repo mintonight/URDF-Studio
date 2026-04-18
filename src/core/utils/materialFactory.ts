@@ -98,6 +98,7 @@ export interface CreateMaterialOptions {
   map?: THREE.Texture | null;
   name?: string;
   preserveExactColor?: boolean;
+  alphaTest?: number;
 }
 
 function resolveUnitIntervalValue(value: number | undefined): number | undefined {
@@ -136,6 +137,7 @@ export function createMatteMaterial(options: CreateMaterialOptions): THREE.MeshS
   const effectiveMetalness = resolveUnitIntervalValue(options.metalness) ?? preset.metalness;
   const parsedEmissive = parseThreeColorWithOpacity(options.emissive);
   const effectiveEmissive = parsedEmissive?.color;
+  const effectiveAlphaTest = resolveUnitIntervalValue(options.alphaTest);
   const effectiveEmissiveIntensity = resolveNonNegativeValue(options.emissiveIntensity);
   const isNearWhite =
     finalColor.r >= MATERIAL_CONFIG.nearWhiteThreshold &&
@@ -178,6 +180,10 @@ export function createMatteMaterial(options: CreateMaterialOptions): THREE.MeshS
   }
 
   if (name) material.name = name;
+
+  if (effectiveAlphaTest !== undefined) {
+    material.alphaTest = effectiveAlphaTest;
+  }
 
   material.userData.originalColor = finalColor.clone();
   material.userData.materialPreset = presetName;

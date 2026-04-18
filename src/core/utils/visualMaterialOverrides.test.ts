@@ -94,3 +94,36 @@ test('applyVisualMaterialOverrideToObject logs when a texture override has no me
   );
   assert.equal(loggedWarnings[0]?.[1], 'textures/body.png');
 });
+
+test('resolveVisualMaterialOverrideFromGeometry includes alphaTest', () => {
+  const override = resolveVisualMaterialOverrideFromGeometry({
+    color: '#808080',
+    authoredMaterials: [
+      {
+        texture: 'textures/leaves.png',
+        alphaTest: 0.5,
+      },
+    ],
+  });
+
+  assert.deepEqual(override, {
+    texture: 'textures/leaves.png',
+    alphaTest: 0.5,
+  });
+});
+
+test('applyVisualMaterialOverrideToObject applies alphaTest to generated materials', () => {
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: '#ffffff' }),
+  );
+  const root = new THREE.Group();
+  root.add(mesh);
+
+  applyVisualMaterialOverrideToObject(root, {
+    alphaTest: 0.5,
+  });
+
+  const appliedMaterial = mesh.material as THREE.MeshStandardMaterial;
+  assert.ok(Math.abs(appliedMaterial.alphaTest - 0.5) <= 1e-6);
+});

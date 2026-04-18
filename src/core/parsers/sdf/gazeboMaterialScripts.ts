@@ -1,4 +1,4 @@
-import type { UrdfVisualMaterial } from '@/types';
+import type { GazeboMaterialPass, UrdfVisualMaterial } from '@/types';
 import { resolveImportedAssetPath } from '@/core/parsers/meshPathUtils';
 
 export interface GazeboScriptMaterialDefinition extends UrdfVisualMaterial {}
@@ -132,10 +132,18 @@ function parseMaterialScript(text: string): Record<string, GazeboScriptMaterialD
     const diffuse = toHexColor(block.match(/\bdiffuse\s+([^\r\n{}]+)/i)?.[1] || '');
     const ambient = toHexColor(block.match(/\bambient\s+([^\r\n{}]+)/i)?.[1] || '');
 
+    const alphaRejectionMatch = block.match(
+      /\balpha_rejection\s+(?:greater|greater_equal|less|less_equal|not_equal)\s+(\d+)/i,
+    );
+    const alphaTest = alphaRejectionMatch
+      ? Math.min(1, Math.max(0, Number.parseFloat(alphaRejectionMatch[1]) / 255))
+      : undefined;
+
     definitions[materialName] = {
       name: materialName,
       ...(diffuse || ambient ? { color: diffuse || ambient } : {}),
       ...(texture ? { texture } : {}),
+      ...(alphaTest !== undefined ? { alphaTest } : {}),
     };
 
     materialHeaderPattern.lastIndex = blockResult.endIndex;

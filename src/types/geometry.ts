@@ -31,6 +31,7 @@ export interface UrdfVisualMaterial {
   metalness?: number;
   emissive?: string;
   emissiveIntensity?: number;
+  alphaTest?: number;
 }
 
 export interface UrdfVisualMeshMaterialGroup {
