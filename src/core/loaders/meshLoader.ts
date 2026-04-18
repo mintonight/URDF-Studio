@@ -1119,10 +1119,21 @@ export const createMeshLoader = (
         scene.updateMatrix();
         await yieldIfNeeded();
 
+        // When the DAE file declares an explicit unit (e.g. meter="0.0254" for
+        // inches), createSceneFromSerializedColladaData already bakes the
+        // conversion into scene.scale.  In that case the auto-unit heuristic
+        // (maxDimension > 10 → ×0.001) must NOT fire, because the geometry is
+        // already in metres — the heuristic would override the correct scale and
+        // shrink the model by the wrong factor.
+        const hasExplicitDaeUnitScale =
+          Math.abs(scene.scale.x - 1) > 1e-6 ||
+          Math.abs(scene.scale.y - 1) > 1e-6 ||
+          Math.abs(scene.scale.z - 1) > 1e-6;
+
         return {
           createInstance: () => cloneObject3DForReuse(scene),
           maxDimension,
-          supportsAutoUnitScale: true,
+          supportsAutoUnitScale: !hasExplicitDaeUnitScale,
         };
       }
 

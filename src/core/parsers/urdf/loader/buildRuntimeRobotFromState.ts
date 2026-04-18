@@ -18,6 +18,10 @@ import { createMatteMaterial } from '@/core/utils/materialFactory';
 import { applyVisualMeshMaterialGroupsToObject } from '@/core/utils/meshMaterialGroups';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
 import {
+  createTerrainBlendMaterial,
+  loadTexturesForBlending,
+} from '@/core/utils/heightmapBlendMaterial';
+import {
   GeometryType,
   JointType,
   type UrdfJoint as RobotJoint,
@@ -106,6 +110,101 @@ function shouldAttachLoadedMeshObject(object: THREE.Object3D, isCollisionNode: b
   }
 
   return true;
+}
+
+/**
+ * Extract a named submesh from a loaded Collada/DAE scene object.
+ *
+ * SDF models often reference a single shared DAE file from multiple links,
+ * using `<submesh><name>X</name></submesh>` to select a specific named node.
+ * This function finds the child matching `submeshName` and returns a new
+ * group containing only that subtree.
+ *
+ * The mesh loader may apply a unit-conversion scale (e.g. 0.001 for inch→meter)
+ * to the root scene object.  Because `clone()` only copies the child's own
+ * transform — not the parent's scale — we must carry the parent scale forward
+ * so that the extracted submesh renders at the correct size.
+ *
+ * When `center` is true the extracted geometry is re-centered so that its
+ * bounding-box center sits at the local origin (the SDF convention for
+ * wheels and other symmetric parts).
+ */
+function extractSubmesh(
+  scene: THREE.Object3D,
+  submeshName: string,
+  center: boolean,
+): THREE.Object3D | null {
+  // Search direct children first, then fall back to a deeper search.
+  let match: THREE.Object3D | null =
+    scene.children.find((child) => child.name === submeshName) ?? null;
+
+  if (!match) {
+    scene.traverse((child) => {
+      if (!match && child !== scene && child.name === submeshName) {
+        match = child;
+      }
+    });
+  }
+
+  if (!match) {
+    return null;
+  }
+
+  const extracted = match.clone(true);
+
+  // Remove named children from the clone.  In Collada scene graphs a
+  // parent node like "Body" often contains sibling submeshes as named
+  // children (e.g. Steering_Wheel, Wheels_Rear_Left, …).  Gazebo's
+  // <submesh> element selects only the geometry of the named node —
+  // not its named children — so we strip them to avoid rendering parts
+  // that belong to other links.
+  const namedChildren: THREE.Object3D[] = [];
+  for (const child of extracted.children) {
+    if (child.name) {
+      namedChildren.push(child);
+    }
+  }
+  for (const child of namedChildren) {
+    extracted.remove(child);
+  }
+
+  // The mesh loader may apply a unit-conversion scale (e.g. 0.01 for
+  // cm→meter) on the root scene object, and intermediate DAE nodes may carry
+  // their own <scale> transforms.  Because `clone()` only copies the node's
+  // own local transform — not any ancestor's — we must accumulate the full
+  // parent scale chain from the scene root down to (but excluding) the
+  // matched node, and bake it into the extracted submesh so that position AND
+  // geometry render at the correct size and location.
+  const parentScale = new THREE.Vector3(1, 1, 1);
+  {
+    let current = match.parent;
+    while (current) {
+      parentScale.multiply(current.scale);
+      if (current === scene) break;
+      current = current.parent;
+    }
+  }
+  if (parentScale.x !== 1 || parentScale.y !== 1 || parentScale.z !== 1) {
+    extracted.position.set(
+      extracted.position.x * parentScale.x,
+      extracted.position.y * parentScale.y,
+      extracted.position.z * parentScale.z,
+    );
+    extracted.scale.set(
+      extracted.scale.x * parentScale.x,
+      extracted.scale.y * parentScale.y,
+      extracted.scale.z * parentScale.z,
+    );
+  }
+
+  if (center) {
+    const bbox = new THREE.Box3().setFromObject(extracted);
+    const centerVec = new THREE.Vector3();
+    bbox.getCenter(centerVec);
+    extracted.position.sub(centerVec);
+  }
+
+  return extracted;
 }
 
 function restackLinkVisualRoots(linkTarget: THREE.Object3D): void {
@@ -296,17 +395,45 @@ function createHeightfieldMesh(
       mesh.geometry.dispose();
       mesh.geometry = displacedGeometry;
 
-      if (!isCollision && hfield.diffuseTexture) {
-        new THREE.TextureLoader(manager).load(hfield.diffuseTexture, (diffuseTex) => {
-          diffuseTex.colorSpace = THREE.SRGBColorSpace;
-          diffuseTex.wrapS = THREE.RepeatWrapping;
-          diffuseTex.wrapT = THREE.RepeatWrapping;
-          if (hfield.textureSize) {
-            diffuseTex.repeat.set(hfield.textureSize, hfield.textureSize);
-          }
-          material.map = diffuseTex;
-          material.needsUpdate = true;
-        });
+      if (!isCollision && hfield.textures.length > 0) {
+        const diffusePaths = hfield.textures.filter((t) => t.diffuse).map((t) => t.diffuse!);
+
+        if (diffusePaths.length > 1) {
+          // Multi-texture: use elevation-based blending
+          const { material: blendMat, uniforms } = createTerrainBlendMaterial(
+            hfield.textures,
+            hfield.blends,
+            width,
+            height,
+          );
+          loadTexturesForBlending(hfield.textures, manager).then((loadedTextures) => {
+            const diffuseKeys = [
+              'uTerrainDiffuse0',
+              'uTerrainDiffuse1',
+              'uTerrainDiffuse2',
+              'uTerrainDiffuse3',
+            ] as const;
+            for (let i = 0; i < loadedTextures.length; i++) {
+              uniforms[diffuseKeys[i]].value = loadedTextures[i];
+            }
+            material.dispose();
+            mesh.material = blendMat;
+            blendMat.needsUpdate = true;
+          });
+        } else if (diffusePaths.length === 1) {
+          // Single-texture: existing simple behavior
+          const texSize = hfield.textures[0].size;
+          new THREE.TextureLoader(manager).load(diffusePaths[0], (diffuseTex) => {
+            diffuseTex.colorSpace = THREE.SRGBColorSpace;
+            diffuseTex.wrapS = THREE.RepeatWrapping;
+            diffuseTex.wrapT = THREE.RepeatWrapping;
+            if (texSize) {
+              diffuseTex.repeat.set(texSize, texSize);
+            }
+            material.map = diffuseTex;
+            material.needsUpdate = true;
+          });
+        }
       }
 
       texture.dispose();
@@ -517,19 +644,38 @@ export async function buildRuntimeRobotFromState({
             return;
           }
 
+          // Apply SDF submesh filtering: extract only the named child node
+          // from the loaded Collada scene when the geometry specifies one.
+          let meshObject = object;
+          if (geometry.submeshName) {
+            const submesh = extractSubmesh(
+              object,
+              geometry.submeshName,
+              geometry.submeshCenter === true,
+            );
+            if (submesh) {
+              meshObject = submesh;
+            } else {
+              console.warn(
+                `[EditorViewer] Submesh "${geometry.submeshName}" not found in "${geometry.meshPath}", using full mesh.`,
+              );
+            }
+          }
+
           if (
             !isCollision &&
             visualMaterialOverride &&
-            (hasExplicitMaterialOverride || !loadedObjectShouldPreserveEmbeddedMaterials(object))
+            (hasExplicitMaterialOverride ||
+              !loadedObjectShouldPreserveEmbeddedMaterials(meshObject))
           ) {
-            applyVisualMaterialOverrideToObject(object, visualMaterialOverride, manager);
+            applyVisualMaterialOverrideToObject(meshObject, visualMaterialOverride, manager);
           }
 
           if (!isCollision && hasGeometryMeshMaterialGroups(geometry)) {
-            applyVisualMeshMaterialGroupsToObject(object, geometry, { manager });
+            applyVisualMeshMaterialGroupsToObject(meshObject, geometry, { manager });
           }
 
-          group.add(object);
+          group.add(meshObject);
           if (group.parent && !isCollision) {
             restackLinkVisualRoots(group.parent);
             restackRobotVisualRoots(findVisualRestackRoot(group.parent));

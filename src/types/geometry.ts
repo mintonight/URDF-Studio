@@ -57,13 +57,23 @@ export interface MjcfHfieldAsset {
   elevation?: number[];
 }
 
+export interface SdfHeightmapTexture {
+  diffuse?: string;
+  normal?: string;
+  size?: number;
+}
+
+export interface SdfHeightmapBlend {
+  minHeight: number;
+  fadeDist: number;
+}
+
 export interface SdfHeightmap {
   uri: string;
   size: Vector3;
   pos: Vector3;
-  diffuseTexture?: string;
-  normalTexture?: string;
-  textureSize?: number;
+  textures: SdfHeightmapTexture[];
+  blends: SdfHeightmapBlend[];
 }
 
 export interface MjcfMeshAsset {
@@ -84,6 +94,8 @@ export interface UrdfVisual {
   authoredMaterials?: UrdfVisualMaterial[];
   meshMaterialGroups?: UrdfVisualMeshMaterialGroup[];
   meshPath?: string; // For later detailed design
+  submeshName?: string; // SDF submesh name to select a specific named group from a shared mesh file
+  submeshCenter?: boolean; // SDF submesh center flag — when true, re-center the extracted submesh to its own origin
   assetRef?: string; // MJCF-only asset reference (e.g. hfield name or sdf mesh asset)
   mjcfMesh?: MjcfMeshAsset;
   mjcfHfield?: MjcfHfieldAsset;

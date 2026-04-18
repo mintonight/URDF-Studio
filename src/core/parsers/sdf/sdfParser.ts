@@ -64,6 +64,8 @@ interface ParsedSdfGeometry {
   type: GeometryType;
   dimensions: Vector3;
   meshPath?: string;
+  submeshName?: string;
+  submeshCenter?: boolean;
   sdfHeightmap?: SdfHeightmap;
   polylinePoints?: { x: number; y: number }[];
   polylineHeight?: number;
@@ -107,12 +109,16 @@ export interface ParseSDFOptions {
   allFileContents?: Record<string, string>;
   availableFiles?: readonly Pick<RobotFile, 'name'>[];
   sourcePath?: string | null;
+  /** SDF spec version (e.g. "1.5", "1.6"). Affects axis-frame defaults. */
+  sdfVersion?: string;
 }
 
 interface ParseSdfModelOptions extends ParseSDFOptions {
   parentMatrix?: THREE.Matrix4;
   namespacePrefix?: string;
   includeStack?: Set<string>;
+  /** SDF spec version string (e.g. "1.5"). Affects axis-frame defaults. */
+  sdfVersion?: string;
 }
 
 const AXIS_IMPORT_TYPES = new Set<JointType>([
@@ -415,10 +421,19 @@ function parseSdfGeometry(
       ? { x: 1, y: 1, z: 1 }
       : scale;
 
+    const submeshEl = getFirstDirectChild(meshEl, 'submesh');
+    const submeshName =
+      getFirstDirectChild(submeshEl ?? meshEl, 'name')?.textContent?.trim() || undefined;
+    const submeshCenterText = getFirstDirectChild(submeshEl ?? meshEl, 'center')
+      ?.textContent?.trim()
+      .toLowerCase();
+    const submeshCenter = submeshCenterText === 'true';
+
     return {
       type: GeometryType.MESH,
       dimensions: normalizedScale,
       meshPath: getFirstDirectChild(meshEl, 'uri')?.textContent?.trim() || '',
+      ...(submeshName ? { submeshName, submeshCenter } : {}),
     };
   }
 
@@ -427,16 +442,17 @@ function parseSdfGeometry(
     const uri = getFirstDirectChild(heightmapEl, 'uri')?.textContent?.trim() || '';
     const size = parseVec3(getFirstDirectChild(heightmapEl, 'size')?.textContent);
     const pos = parseVec3(getFirstDirectChild(heightmapEl, 'pos')?.textContent);
-    const textureEl = getFirstDirectChild(heightmapEl, 'texture');
-    const diffuseTexture = textureEl
-      ? getFirstDirectChild(textureEl, 'diffuse')?.textContent?.trim() || undefined
-      : undefined;
-    const normalTexture = textureEl
-      ? getFirstDirectChild(textureEl, 'normal')?.textContent?.trim() || undefined
-      : undefined;
-    const textureSize = textureEl
-      ? parseFloatSafe(getFirstDirectChild(textureEl, 'size')?.textContent, 0) || undefined
-      : undefined;
+
+    const textures = getDirectChildElements(heightmapEl, 'texture').map((texEl) => ({
+      diffuse: getFirstDirectChild(texEl, 'diffuse')?.textContent?.trim() || undefined,
+      normal: getFirstDirectChild(texEl, 'normal')?.textContent?.trim() || undefined,
+      size: parseFloatSafe(getFirstDirectChild(texEl, 'size')?.textContent, 0) || undefined,
+    }));
+
+    const blends = getDirectChildElements(heightmapEl, 'blend').map((blendEl) => ({
+      minHeight: parseFloatSafe(getFirstDirectChild(blendEl, 'min_height')?.textContent, 0) || 0,
+      fadeDist: parseFloatSafe(getFirstDirectChild(blendEl, 'fade_dist')?.textContent, 0) || 0,
+    }));
 
     return {
       type: GeometryType.HFIELD,
@@ -446,9 +462,8 @@ function parseSdfGeometry(
         uri,
         size: { x: size.x || 1, y: size.y || 1, z: size.z || 1 },
         pos,
-        diffuseTexture,
-        normalTexture,
-        textureSize,
+        textures,
+        blends,
       },
     };
   }
@@ -855,6 +870,7 @@ function parseSdfModel(
     parentMatrix = new THREE.Matrix4().identity(),
     namespacePrefix,
     includeStack = new Set<string>(),
+    sdfVersion,
   }: ParseSdfModelOptions = {},
 ): ParsedSdfGraph | null {
   const modelPose = parsePoseElement(modelEl);
@@ -996,9 +1012,11 @@ function parseSdfModel(
               sourcePath,
             });
 
-        const heightmapMaterial = geometry.sdfHeightmap?.diffuseTexture
-          ? { texture: geometry.sdfHeightmap.diffuseTexture }
-          : {};
+        const heightmapTextures = geometry.sdfHeightmap?.textures;
+        const heightmapMaterial =
+          heightmapTextures && heightmapTextures.length === 1 && heightmapTextures[0].diffuse
+            ? { texture: heightmapTextures[0].diffuse }
+            : {};
 
         // OGRE/Gazebo box UV convention differs from Three.js BoxGeometry by a
         // 90° rotation on the major faces. When a Gazebo material with a texture
@@ -1138,6 +1156,37 @@ function parseSdfModel(
     const limitEl = getFirstDirectChild(axisEl ?? jointEl, 'limit');
     const dynamicsEl = getFirstDirectChild(axisEl ?? jointEl, 'dynamics');
 
+    // Resolve the axis direction.
+    // SDF <use_parent_model_frame> determines whether the xyz vector is
+    // expressed in the model frame (true) or the joint frame (false).
+    // Per the SDF 1.5 spec the default is false (joint frame); models
+    // authored for Gazebo (e.g. cart_soft_suspension) rely on this default.
+    // Our internal representation (like URDF) stores the axis in the joint
+    // frame, so we must transform when the source is the model frame.
+    let axis: Vector3 | undefined;
+    if (AXIS_IMPORT_TYPES.has(jointType)) {
+      const rawAxis = parseVec3(
+        getFirstDirectChild(axisEl ?? jointEl, 'xyz')?.textContent || '0 0 1',
+      );
+      const useParentModelFrameText = axisEl
+        ? getFirstDirectChild(axisEl, 'use_parent_model_frame')?.textContent?.trim().toLowerCase()
+        : undefined;
+      const useParentModelFrame =
+        useParentModelFrameText !== undefined ? useParentModelFrameText === 'true' : false; // SDF spec: use_parent_model_frame defaults to false
+
+      if (useParentModelFrame) {
+        // Transform axis from model frame to joint frame:
+        // axis_joint = R(jointWorld)^-1 · axis_model
+        const jointRotation = new THREE.Quaternion();
+        jointWorldMatrix.decompose(new THREE.Vector3(), jointRotation, new THREE.Vector3());
+        const axisVec = new THREE.Vector3(rawAxis.x, rawAxis.y, rawAxis.z);
+        axisVec.applyQuaternion(jointRotation.invert());
+        axis = { x: axisVec.x, y: axisVec.y, z: axisVec.z };
+      } else {
+        axis = rawAxis;
+      }
+    }
+
     const joint: UrdfJoint = {
       ...DEFAULT_JOINT,
       id: jointId,
@@ -1146,26 +1195,24 @@ function parseSdfModel(
       parentLinkId,
       childLinkId,
       origin,
-      axis: AXIS_IMPORT_TYPES.has(jointType)
-        ? parseVec3(getFirstDirectChild(axisEl ?? jointEl, 'xyz')?.textContent || '0 0 1')
-        : undefined,
+      axis,
       limit: LIMIT_IMPORT_TYPES.has(jointType)
         ? {
             lower: parseFloatSafe(
               getFirstDirectChild(limitEl ?? jointEl, 'lower')?.textContent,
-              Number.NaN,
+              -Infinity,
             ),
             upper: parseFloatSafe(
               getFirstDirectChild(limitEl ?? jointEl, 'upper')?.textContent,
-              Number.NaN,
+              Infinity,
             ),
             effort: parseFloatSafe(
               getFirstDirectChild(limitEl ?? jointEl, 'effort')?.textContent,
-              Number.NaN,
+              0,
             ),
             velocity: parseFloatSafe(
               getFirstDirectChild(limitEl ?? jointEl, 'velocity')?.textContent,
-              Number.NaN,
+              0,
             ),
           }
         : undefined,
@@ -1188,6 +1235,40 @@ function parseSdfModel(
       },
     };
     graph.joints[jointId] = joint;
+
+    // When the joint has a non-identity <pose>, the joint frame is offset from
+    // the child link frame.  In URDF the child link is placed at the joint
+    // frame, but in SDF the link visuals/collisions are authored relative to
+    // the link frame.  To compensate, bake the inverse joint-pose into the
+    // child link's geometry origins so they render at the correct SDF link
+    // position even though the link Object3D sits at the joint frame.
+    const jointParsedPose = parsePoseElement(jointEl);
+    if (jointParsedPose.specified && !isIdentityPose(jointParsedPose.pose)) {
+      const inverseJointPose = poseToMatrix(jointParsedPose.pose).invert();
+      const childLink = graph.links[childLinkId];
+      if (childLink) {
+        const applyOffset = (origin: Pose): Pose =>
+          matrixToPose(inverseJointPose.clone().multiply(poseToMatrix(origin)));
+        childLink.visual = { ...childLink.visual, origin: applyOffset(childLink.visual.origin) };
+        childLink.collision = {
+          ...childLink.collision,
+          origin: applyOffset(childLink.collision.origin),
+        };
+        if (childLink.visualBodies) {
+          childLink.visualBodies = childLink.visualBodies.map((v) => ({
+            ...v,
+            origin: applyOffset(v.origin),
+          }));
+        }
+        if (childLink.collisionBodies) {
+          childLink.collisionBodies = childLink.collisionBodies.map((c) => ({
+            ...c,
+            origin: applyOffset(c.origin),
+          }));
+        }
+      }
+    }
+
     graph.jointRecords.set(jointId, {
       joint,
       worldMatrix: jointWorldMatrix.clone(),
@@ -1270,8 +1351,11 @@ export function parseSDF(xmlString: string, options: ParseSDFOptions = {}): Robo
     return null;
   }
 
+  const sdfEl = xmlDoc.querySelector('sdf');
+  const sdfVersion = sdfEl?.getAttribute('version') || undefined;
+
   const modelName = modelEl.getAttribute('name')?.trim() || 'imported_sdf_model';
-  const parsedGraph = parseSdfModel(modelEl, options);
+  const parsedGraph = parseSdfModel(modelEl, { ...options, sdfVersion });
   if (!parsedGraph) {
     return null;
   }

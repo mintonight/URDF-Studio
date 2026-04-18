@@ -8,7 +8,13 @@
  * - windows\\path\\part.stl
  */
 
-import { GeometryType, type RobotData, type RobotState, type UrdfLink } from '@/types';
+import {
+  GeometryType,
+  type RobotData,
+  type RobotState,
+  type SdfHeightmapTexture,
+  type UrdfLink,
+} from '@/types';
 
 const normalizeRelativePath = (path: string): string => {
   const segments = path.split('/');
@@ -375,24 +381,27 @@ function rewriteMeshGeometryForSource<T extends UrdfLink['visual'] | UrdfLink['c
   if (geometry.type === GeometryType.HFIELD && geometry.sdfHeightmap) {
     const hfield = geometry.sdfHeightmap;
     const resolvedUri = resolveImportedAssetPath(hfield.uri, sourceFilePath);
-    const resolvedDiffuse = hfield.diffuseTexture
-      ? resolveImportedAssetPath(hfield.diffuseTexture, sourceFilePath)
-      : undefined;
-    const resolvedNormal = hfield.normalTexture
-      ? resolveImportedAssetPath(hfield.normalTexture, sourceFilePath)
-      : undefined;
+
+    const resolvedTextures: SdfHeightmapTexture[] = hfield.textures.map((tex) => {
+      const resolvedDiffuse = tex.diffuse
+        ? resolveImportedAssetPath(tex.diffuse, sourceFilePath)
+        : undefined;
+      const resolvedNormal = tex.normal
+        ? resolveImportedAssetPath(tex.normal, sourceFilePath)
+        : undefined;
+      return {
+        ...tex,
+        ...(resolvedDiffuse && resolvedDiffuse !== tex.diffuse ? { diffuse: resolvedDiffuse } : {}),
+        ...(resolvedNormal && resolvedNormal !== tex.normal ? { normal: resolvedNormal } : {}),
+      };
+    });
 
     return {
       ...result,
       sdfHeightmap: {
         ...hfield,
         uri: resolvedUri || hfield.uri,
-        ...(resolvedDiffuse && resolvedDiffuse !== hfield.diffuseTexture
-          ? { diffuseTexture: resolvedDiffuse }
-          : {}),
-        ...(resolvedNormal && resolvedNormal !== hfield.normalTexture
-          ? { normalTexture: resolvedNormal }
-          : {}),
+        textures: resolvedTextures,
       },
     } as T;
   }

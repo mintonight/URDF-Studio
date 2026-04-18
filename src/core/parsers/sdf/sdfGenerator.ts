@@ -247,6 +247,13 @@ function generateGeometryXml(geometry: UrdfVisual, packageName: string): string 
       );
     }
 
+    if (geometry.submeshName) {
+      lines.push('            <submesh>');
+      lines.push(`              <name>${escapeXml(geometry.submeshName)}</name>`);
+      lines.push(`              <center>${geometry.submeshCenter ? 'true' : 'false'}</center>`);
+      lines.push('            </submesh>');
+    }
+
     lines.push('          </mesh>', '        </geometry>');
     return lines.join('\n');
   }
@@ -537,6 +544,9 @@ function generateJointXml(joint: UrdfJoint, jointNameOverride?: string): string 
     lines.push(
       `        <xyz>${formatScalar(joint.axis.x)} ${formatScalar(joint.axis.y)} ${formatScalar(joint.axis.z)}</xyz>`,
     );
+    // Our internal axis is stored in the joint frame (URDF convention).
+    // Explicitly mark this so SDF readers (any version) interpret it correctly.
+    lines.push('        <use_parent_model_frame>false</use_parent_model_frame>');
 
     if (LIMIT_EXPORT_TYPES.has(joint.type) && joint.limit) {
       const limitLines: string[] = [];
