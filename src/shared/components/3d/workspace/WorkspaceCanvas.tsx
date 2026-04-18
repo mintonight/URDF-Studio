@@ -73,6 +73,7 @@ interface WorkspaceCanvasProps {
     light: string;
     dark: string;
   };
+  contextLostMessage?: string;
   showWorldOriginAxes?: boolean;
   showUsageGuide?: boolean;
   renderKey?: string;
