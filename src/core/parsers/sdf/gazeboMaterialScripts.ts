@@ -104,6 +104,53 @@ function readMaterialBlock(
   return null;
 }
 
+function parsePassesFromBlock(block: string): GazeboMaterialPass[] {
+  const passes: GazeboMaterialPass[] = [];
+  const passPattern = /\bpass\b/gi;
+  let passMatch = passPattern.exec(block);
+
+  while (passMatch) {
+    const passOpeningBrace = block.indexOf('{', passMatch.index);
+    if (passOpeningBrace < 0) {
+      break;
+    }
+
+    const passResult = readMaterialBlock(block, passOpeningBrace);
+    if (!passResult) {
+      break;
+    }
+
+    const passBlock = passResult.block;
+    const textureMatch = passBlock.match(/\btexture\s+([^\s{}]+)/i);
+    const blendMatch = passBlock.match(/\bscene_blend\s+(\w+)/i);
+    const depthWriteMatch = passBlock.match(/\bdepth_write\s+(\w+)/i);
+    const lightingMatch = passBlock.match(/\blighting\s+(\w+)/i);
+
+    const pass: GazeboMaterialPass = {};
+    if (textureMatch) {
+      pass.texture = textureMatch[1]?.trim();
+    }
+    if (blendMatch) {
+      const mode = blendMatch[1]?.trim();
+      if (mode === 'alpha_blend' || mode === 'add' || mode === 'modulate') {
+        pass.sceneBlend = mode;
+      }
+    }
+    if (depthWriteMatch) {
+      pass.depthWrite = depthWriteMatch[1]?.trim() !== 'off';
+    }
+    if (lightingMatch) {
+      pass.lighting = lightingMatch[1]?.trim() !== 'off';
+    }
+
+    passes.push(pass);
+    passPattern.lastIndex = passResult.endIndex;
+    passMatch = passPattern.exec(block);
+  }
+
+  return passes;
+}
+
 function parseMaterialScript(text: string): Record<string, GazeboScriptMaterialDefinition> {
   const cached = materialScriptCache.get(text);
   if (cached) {
@@ -139,11 +186,14 @@ function parseMaterialScript(text: string): Record<string, GazeboScriptMaterialD
       ? Math.min(1, Math.max(0, Number.parseFloat(alphaRejectionMatch[1]) / 255))
       : undefined;
 
+    const passes = parsePassesFromBlock(block);
+
     definitions[materialName] = {
       name: materialName,
       ...(diffuse || ambient ? { color: diffuse || ambient } : {}),
       ...(texture ? { texture } : {}),
       ...(alphaTest !== undefined ? { alphaTest } : {}),
+      ...(passes.length > 1 ? { passes } : {}),
     };
 
     materialHeaderPattern.lastIndex = blockResult.endIndex;
@@ -277,6 +327,19 @@ export function resolveGazeboScriptMaterial({
             texture:
               resolveTexturePath(matchedDefinition.texture, searchRoots, sourcePath) ||
               matchedDefinition.texture,
+          }
+        : {}),
+      ...(matchedDefinition.passes
+        ? {
+            passes: matchedDefinition.passes.map((pass) => ({
+              ...pass,
+              ...(pass.texture
+                ? {
+                    texture:
+                      resolveTexturePath(pass.texture, searchRoots, sourcePath) || pass.texture,
+                  }
+                : {}),
+            })),
           }
         : {}),
     };

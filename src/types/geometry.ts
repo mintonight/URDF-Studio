@@ -21,6 +21,13 @@ export enum GeometryType {
   NONE = 'none',
 }
 
+export interface GazeboMaterialPass {
+  texture?: string;
+  sceneBlend?: 'alpha_blend' | 'add' | 'modulate';
+  depthWrite?: boolean;
+  lighting?: boolean;
+}
+
 export interface UrdfVisualMaterial {
   name?: string;
   color?: string;
@@ -32,6 +39,7 @@ export interface UrdfVisualMaterial {
   emissive?: string;
   emissiveIntensity?: number;
   alphaTest?: number;
+  passes?: GazeboMaterialPass[];
 }
 
 export interface UrdfVisualMeshMaterialGroup {

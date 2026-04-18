@@ -419,6 +419,16 @@ function extractSdfScriptTextureReferencePaths(
           references.push(normalizedPath);
         }
       }
+      if (resolvedMaterial?.passes) {
+        for (const pass of resolvedMaterial.passes) {
+          if (pass.texture) {
+            const normalizedPath = normalizeAssetReferencePath(pass.texture);
+            if (normalizedPath) {
+              references.push(normalizedPath);
+            }
+          }
+        }
+      }
     });
   }
 

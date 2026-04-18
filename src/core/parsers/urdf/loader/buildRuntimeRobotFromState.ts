@@ -700,6 +700,60 @@ export async function buildRuntimeRobotFromState({
         }
         group.add(primitiveMesh);
       }
+
+      // Add overlay meshes for multi-pass Gazebo materials (e.g. alpha-blended
+      // texture layers like field marking lines on a grass carpet).
+      if (!isCollision && geometry.type === GeometryType.PLANE) {
+        const authoredMaterial = geometry.authoredMaterials?.[0];
+        const overlayPasses =
+          authoredMaterial?.passes?.filter(
+            (pass) => pass.texture && pass.sceneBlend === 'alpha_blend',
+          ) ?? [];
+
+        for (const overlayPass of overlayPasses) {
+          if (!overlayPass.texture) {
+            continue;
+          }
+
+          const overlayMat = createMatteMaterial({
+            color: '#ffffff',
+            opacity: 1,
+            transparent: true,
+            preserveExactColor: true,
+          });
+          overlayMat.side = THREE.DoubleSide;
+          overlayMat.depthWrite = false;
+          overlayMat.polygonOffset = true;
+          overlayMat.polygonOffsetFactor = -1;
+          overlayMat.polygonOffsetUnits = -4;
+
+          const dims = geometry.dimensions;
+          const overlayMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), overlayMat);
+          overlayMesh.scale.set(dims.x || 1, dims.y || 1, 1);
+          overlayMesh.renderOrder = 1;
+          group.add(overlayMesh);
+
+          if (manager) {
+            const loader = new THREE.TextureLoader(manager);
+            loader.load(
+              overlayPass.texture,
+              (texture) => {
+                texture.colorSpace = THREE.SRGBColorSpace;
+                overlayMat.map = texture;
+                overlayMat.needsUpdate = true;
+              },
+              undefined,
+              (error) => {
+                console.error(
+                  '[EditorViewer] Failed to load multi-pass overlay texture:',
+                  overlayPass.texture,
+                  error,
+                );
+              },
+            );
+          }
+        }
+      }
     }
 
     linkTarget.add(group);

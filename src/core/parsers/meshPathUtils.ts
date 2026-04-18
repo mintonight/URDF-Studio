@@ -328,19 +328,33 @@ function rewriteGeometryTextureRefsForSource<T extends UrdfLink['visual'] | Urdf
   let materialsChanged = false;
   const nextAuthoredMaterials = authoredMaterials.map((material) => {
     const texturePath = material.texture?.trim();
-    if (!texturePath) {
-      return material;
-    }
+    const resolvedTexturePath = texturePath
+      ? rewriteTexturePathForSource(texturePath, sourceFilePath)
+      : undefined;
+    const textureChanged = texturePath && resolvedTexturePath !== texturePath;
 
-    const resolvedTexturePath = rewriteTexturePathForSource(texturePath, sourceFilePath);
-    if (resolvedTexturePath === texturePath) {
+    let passesChanged = false;
+    const nextPasses = material.passes?.map((pass) => {
+      if (!pass.texture?.trim()) {
+        return pass;
+      }
+      const resolvedPassTexture = rewriteTexturePathForSource(pass.texture, sourceFilePath);
+      if (resolvedPassTexture === pass.texture) {
+        return pass;
+      }
+      passesChanged = true;
+      return { ...pass, texture: resolvedPassTexture };
+    });
+
+    if (!textureChanged && !passesChanged) {
       return material;
     }
 
     materialsChanged = true;
     return {
       ...material,
-      texture: resolvedTexturePath,
+      ...(textureChanged ? { texture: resolvedTexturePath } : {}),
+      ...(passesChanged ? { passes: nextPasses } : {}),
     };
   });
 

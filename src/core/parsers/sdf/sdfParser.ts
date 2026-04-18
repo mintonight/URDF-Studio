@@ -861,6 +861,43 @@ function parseIncludedModelGraph(
   }
 }
 
+function parseNestedModelGraph(
+  nestedModelEl: Element,
+  parentGraph: ParsedSdfGraph,
+  {
+    allFileContents = {},
+    availableFiles = [],
+    sourcePath,
+    parentMatrix = new THREE.Matrix4().identity(),
+    namespacePrefix,
+    includeStack = new Set<string>(),
+    sdfVersion,
+  }: ParseSdfModelOptions,
+): void {
+  const nestedModelName = nestedModelEl.getAttribute('name')?.trim();
+  if (!nestedModelName) {
+    return;
+  }
+
+  const nestedModelPose = parsePoseElement(nestedModelEl);
+  const nestedModelMatrix = parentMatrix.clone().multiply(poseToMatrix(nestedModelPose.pose));
+  const nestedNamespacePrefix = qualifyScopedName(nestedModelName, namespacePrefix);
+
+  const nestedGraph = parseSdfModel(nestedModelEl, {
+    allFileContents,
+    availableFiles,
+    sourcePath,
+    parentMatrix: nestedModelMatrix,
+    namespacePrefix: nestedNamespacePrefix,
+    includeStack,
+    sdfVersion,
+  });
+
+  if (nestedGraph) {
+    mergeParsedSdfGraph(parentGraph, nestedGraph);
+  }
+}
+
 function parseSdfModel(
   modelEl: Element,
   {
@@ -1114,6 +1151,18 @@ function parseSdfModel(
       parentMatrix: modelMatrix,
       namespacePrefix,
       includeStack,
+    });
+  }
+
+  for (const nestedModelEl of getDirectChildElements(modelEl, 'model')) {
+    parseNestedModelGraph(nestedModelEl, graph, {
+      allFileContents,
+      availableFiles,
+      sourcePath,
+      parentMatrix: modelMatrix,
+      namespacePrefix,
+      includeStack,
+      sdfVersion,
     });
   }
 

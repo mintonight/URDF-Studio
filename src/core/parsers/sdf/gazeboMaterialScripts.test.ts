@@ -62,3 +62,48 @@ test('resolveGazeboScriptMaterial extracts alpha_rejection as alphaTest', () => 
     alphaTest: 128 / 255,
   });
 });
+
+test('resolveGazeboScriptMaterial extracts multi-pass textures with passes array', () => {
+  const material = resolveGazeboScriptMaterial({
+    allFileContents: {
+      'demo/materials/scripts/demo.material': `
+        material Demo/Grass
+        {
+          technique
+          {
+            pass
+            {
+              diffuse 1.0 1.0 1.0 1.0
+              texture_unit
+              {
+                texture field.png
+              }
+            }
+            pass
+            {
+              scene_blend alpha_blend
+              depth_write off
+              lighting off
+              texture_unit
+              {
+                texture lines.png
+              }
+            }
+          }
+        }`,
+    },
+    scriptName: 'Demo/Grass',
+    scriptUris: ['materials/scripts'],
+    sourcePath: 'demo/model.sdf',
+  });
+
+  assert.equal(material?.name, 'Demo/Grass');
+  assert.equal(material?.texture, 'demo/materials/textures/field.png');
+  assert.ok(material?.passes, 'should have passes for multi-pass materials');
+  assert.equal(material!.passes!.length, 2);
+  assert.equal(material!.passes![0].texture, 'demo/materials/textures/field.png');
+  assert.equal(material!.passes![1].texture, 'demo/materials/textures/lines.png');
+  assert.equal(material!.passes![1].sceneBlend, 'alpha_blend');
+  assert.equal(material!.passes![1].depthWrite, false);
+  assert.equal(material!.passes![1].lighting, false);
+});
