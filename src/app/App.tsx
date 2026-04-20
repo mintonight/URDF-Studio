@@ -26,6 +26,7 @@ import {
 } from './utils/documentLoadFlow';
 import { peekPreResolvedRobotImport } from './utils/preResolvedRobotImportCache';
 import { prewarmUsdSelectionInBackground } from './utils/usdSelectionPrewarm';
+import { prewarmUsdViewerRuntimesInBackground } from './utils/usdRuntimeStartupPrewarm';
 import { commitResolvedRobotLoad } from './utils/commitResolvedRobotLoad';
 import { resolveAppModeAfterRobotContentChange } from './utils/contentChangeAppMode';
 import {
@@ -873,6 +874,43 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   );
 
   loadRobotByNameRef.current = loadRobotFile;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const requestIdle = window.requestIdleCallback?.bind(window);
+    const cancelIdle = window.cancelIdleCallback?.bind(window);
+    let idleHandle: number | null = null;
+    let timeoutHandle: number | null = null;
+
+    const runPrewarm = () => {
+      prewarmUsdViewerRuntimesInBackground();
+    };
+
+    if (requestIdle) {
+      idleHandle = requestIdle(
+        () => {
+          runPrewarm();
+        },
+        { timeout: 1200 },
+      );
+
+      return () => {
+        if (idleHandle !== null && cancelIdle) {
+          cancelIdle(idleHandle);
+        }
+      };
+    }
+
+    timeoutHandle = window.setTimeout(runPrewarm, 16);
+    return () => {
+      if (timeoutHandle !== null) {
+        window.clearTimeout(timeoutHandle);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') {

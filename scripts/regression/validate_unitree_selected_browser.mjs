@@ -207,6 +207,7 @@ function isExpectedMainThreadModel(result) {
 
   return (
     targetPath.includes('/b2/') ||
+    targetPath.includes('b2_description') ||
     targetPath.includes('/h1_2/') ||
     targetPath.includes('/h1_2_handless/')
   );

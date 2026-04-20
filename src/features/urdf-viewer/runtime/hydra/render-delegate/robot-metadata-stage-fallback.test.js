@@ -774,6 +774,81 @@ def Scope "colliders"
     }
 });
 
+test('buildRobotMetadataSnapshotForStage keeps visual_0-style roundtrip container scopes on the owning link', () => {
+    const previousWindow = globalThis.window;
+    globalThis.window = { driver: null };
+
+    try {
+        const delegate = Object.create(ThreeRenderDelegateCore.prototype);
+        delegate.meshes = {
+            '/Robot/base_link/visuals.proto_mesh_id0': {},
+            '/Robot/base_link/collisions.proto_box_id0': {},
+        };
+        delegate._protoMeshMetadataByMeshId = new Map();
+        delegate._robotMetadataSnapshotByStageSource = new Map();
+        delegate._robotMetadataBuildPromisesByStageSource = new Map();
+        delegate._nowPerfMs = () => 1234;
+        delegate.getNormalizedStageSourcePath = () => '/robots/base_link_roundtrip.usd';
+        delegate.getResolvedVisualTransformPrimPathForMeshId = () => '/Robot/base_link/visuals/visual_0/mesh';
+        delegate.getResolvedPrimPathForMeshId = () => '/Robot/base_link/collisions/collision_0/cube';
+        delegate.getStage = () => ({
+            GetRootLayer() {
+                return createLayer(`#usda 1.0
+(
+    defaultPrim = "Robot"
+)
+
+def Xform "Robot"
+{
+    def Xform "base_link"
+    {
+        def Xform "visuals"
+        {
+            def Xform "visual_0"
+            {
+                def Mesh "mesh"
+                {
+                }
+            }
+        }
+
+        def Xform "collisions"
+        {
+            def Xform "collision_0"
+            {
+                def Cube "cube"
+                {
+                    uniform token purpose = "guide"
+                }
+            }
+        }
+    }
+}
+`);
+            },
+            GetUsedLayers() {
+                return [];
+            },
+        });
+
+        const snapshot = delegate.buildRobotMetadataSnapshotForStage('/robots/base_link_roundtrip.usd', null);
+
+        assert.ok(snapshot);
+        assert.deepEqual(snapshot.linkParentPairs, []);
+        assert.equal(snapshot.meshCountsByLinkPath['/Robot/visual_0'], undefined);
+        assert.deepEqual(snapshot.meshCountsByLinkPath, {
+            '/Robot/base_link': {
+                visualMeshCount: 1,
+                collisionMeshCount: 1,
+                collisionPrimitiveCounts: { box: 1 },
+            },
+        });
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});
+
 test('startRobotMetadataWarmupForStage refreshes cached scene snapshots with resolved metadata', async () => {
     const delegate = Object.create(ThreeRenderDelegateCore.prototype);
     delegate._robotMetadataSnapshotByStageSource = new Map();

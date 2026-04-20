@@ -7,15 +7,16 @@
 
 URDF Studio 只有 `Editor` 一个编辑模式，统一承载三个子域：
 
-| 子域 | 典型任务 |
-|------|---------|
-| 拓扑 | Link / Joint 增删、拓扑编辑、关节参数 |
+| 子域               | 典型任务                                       |
+| ------------------ | ---------------------------------------------- |
+| 拓扑               | Link / Joint 增删、拓扑编辑、关节参数          |
 | 几何 / 碰撞 / 测量 | Visual / Collision、mesh、材质、纹理、碰撞变换 |
-| 硬件配置 | 电机型号、传动比、阻尼、摩擦 |
+| 硬件配置           | 电机型号、传动比、阻尼、摩擦                   |
 
 新增功能前，先判断属于哪类子能力，避免跨子系统逻辑缠绕。
 
 快速映射：
+
 - 统一公开入口：`features/editor/index.ts`
 - 具体实现：`features/urdf-viewer/`（包含拓扑/硬件与几何/碰撞/测量）
 - 跨子域共享交互：`app/` 编排层 或 `shared/components/3d/`
@@ -79,12 +80,15 @@ features/urdf-viewer/
 适用范围：`runtime/hydra/render-delegate/*`、`workers/*`、`utils/usd*`、`app/hooks/useFile*.ts` 中消费 worker 结果的 USD 工作流
 
 必须遵循：
+
 - USD stage preparation、runtime metadata、robot hydration、prepared export cache、roundtrip archive 的修复，默认优先放在 worker/runtime 链路完成，不要搬到主线程 adapter 或 debug bridge
 - `runtime/hydra/render-delegate/*` 产出的 metadata snapshot 是该链路的 source of truth；缺字段应修 worker/runtime 生成逻辑
 - 禁止新增"worker 结果缺失 -> 主线程重建 metadata -> 静默继续"的 fallback
 - 对 folded fixed link、collision-only semantic child link 的推断只能基于 stage/truth 中的明确证据，不做纯命名猜测
+- `visual_*` / `collision_*` / `group_*` / `xform_*` / `scene` / `root` 这类 roundtrip 容器 prim 不是 link identity；runtime metadata 不得把它们提升为 synthetic link 或 fixed joint
 
 验证要求：
+
 - 改动上述链路时，必须跑 `test/unitree_model` 整套 USD 浏览器验证
 - 至少覆盖 `Go2 + B2 + H1-2`
 - 浏览器验证产物写入 `tmp/regression/`
@@ -94,6 +98,7 @@ features/urdf-viewer/
 适用范围：`UsdOffscreenStage.tsx`、`usdOffscreenViewer.worker.ts`、`runtime/hydra/render-delegate/*`、`shared/utils/three/dispose.ts`
 
 必须遵循：
+
 - 主线程宿主只负责 handoff、尺寸同步与错误透传；不要重建 runtime truth
 - teardown 必须完整释放 observer、DOM/worker 事件监听、RAF/timer、OffscreenCanvas 关联 runtime、scene graph 与 driver 引用
 - runtime 全局 handler/registry/active owner 必须提供对称的 unregister/reset
@@ -102,17 +107,17 @@ features/urdf-viewer/
 
 ## 8. 关键 utils 职责速查
 
-| 文件 | 职责 |
-|------|------|
-| `viewerRobotData.ts` | 统一 viewer 层消费的数据形态 |
-| `viewerResourceScope.ts` | source file / assets / robot links 资源域 |
-| `usdExportBundle.ts` | USD 场景快照与导出缓存协调 |
-| `usdRuntimeRobotHydration.ts` | runtime -> RobotData hydration |
-| `usdSceneRobotResolution.ts` | 场景级 robot resolution |
-| `usdViewerRobotAdapter.ts` | viewer runtime / snapshot 到应用数据适配 |
-| `usdOffscreenViewerWorkerClient.ts` | 主线程对 offscreen worker 请求封装 |
-| `usdStageOpenPreparationWorkerBridge.ts` | prepared-open 链路 worker bridge |
-| `usdPreparedExportCacheWorkerBridge.ts` | prepared-export 链路 worker bridge |
-| `runtimeSceneMetadata.ts` | runtime scene metadata 标准化读模型 |
-| `visualizationFactories.ts` | 辅助可视化对象创建 |
-| `dispose.ts` | THREE 资源清理 |
+| 文件                                     | 职责                                      |
+| ---------------------------------------- | ----------------------------------------- |
+| `viewerRobotData.ts`                     | 统一 viewer 层消费的数据形态              |
+| `viewerResourceScope.ts`                 | source file / assets / robot links 资源域 |
+| `usdExportBundle.ts`                     | USD 场景快照与导出缓存协调                |
+| `usdRuntimeRobotHydration.ts`            | runtime -> RobotData hydration            |
+| `usdSceneRobotResolution.ts`             | 场景级 robot resolution                   |
+| `usdViewerRobotAdapter.ts`               | viewer runtime / snapshot 到应用数据适配  |
+| `usdOffscreenViewerWorkerClient.ts`      | 主线程对 offscreen worker 请求封装        |
+| `usdStageOpenPreparationWorkerBridge.ts` | prepared-open 链路 worker bridge          |
+| `usdPreparedExportCacheWorkerBridge.ts`  | prepared-export 链路 worker bridge        |
+| `runtimeSceneMetadata.ts`                | runtime scene metadata 标准化读模型       |
+| `visualizationFactories.ts`              | 辅助可视化对象创建                        |
+| `dispose.ts`                             | THREE 资源清理                            |

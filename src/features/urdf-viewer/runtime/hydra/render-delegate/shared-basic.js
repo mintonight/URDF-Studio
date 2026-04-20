@@ -1217,7 +1217,25 @@ const genericSemanticChildPrimNames = new Set([
     'sphere',
     'cylinder',
     'capsule',
+    'scene',
+    'root',
 ]);
+const genericSemanticChildPrimNamePatterns = [
+    /^mesh_\d+$/i,
+    /^visual_\d+$/i,
+    /^collision_\d+$/i,
+    /^group(?:_\d+)?$/i,
+    /^xform(?:_\d+)?$/i,
+];
+function isGenericSemanticChildPrimName(candidateLinkName) {
+    const normalizedCandidateLinkName = String(candidateLinkName || '').trim().toLowerCase();
+    if (!normalizedCandidateLinkName)
+        return true;
+    if (genericSemanticChildPrimNames.has(normalizedCandidateLinkName)) {
+        return true;
+    }
+    return genericSemanticChildPrimNamePatterns.some((pattern) => pattern.test(candidateLinkName));
+}
 function setBoundedProtoCacheEntry(cache, key, value) {
     if (!cache || !key)
         return;
@@ -1306,8 +1324,7 @@ export function resolveSemanticChildLinkTargetFromResolvedPrimPath({ owningLinkP
     const candidateLinkName = String(resolvedSegments[sectionIndex + 1] || '').trim();
     if (!candidateLinkName)
         return null;
-    const normalizedCandidateLinkName = candidateLinkName.toLowerCase();
-    if (genericSemanticChildPrimNames.has(normalizedCandidateLinkName) || /^mesh_\d+$/i.test(candidateLinkName)) {
+    if (isGenericSemanticChildPrimName(candidateLinkName)) {
         return null;
     }
     if (validLinkNames && !hasNamedSemanticLink(validLinkNames, candidateLinkName)) {

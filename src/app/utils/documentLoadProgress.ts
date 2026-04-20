@@ -23,10 +23,10 @@ const NON_USD_VIEWER_PHASE_RANGES: Record<string, PhaseRange> = {
 };
 
 const USD_VIEWER_PHASE_RANGES: Record<string, PhaseRange> = {
-  'checking-path': { start: 10, end: 20 },
-  'preloading-dependencies': { start: 20, end: 35 },
-  'initializing-renderer': { start: 35, end: 50 },
-  'streaming-meshes': { start: 50, end: 90 },
+  'checking-path': { start: 10, end: 14 },
+  'preloading-dependencies': { start: 14, end: 28 },
+  'initializing-renderer': { start: 28, end: 45 },
+  'streaming-meshes': { start: 45, end: 90 },
   'applying-stage-fixes': { start: 90, end: 94 },
   'resolving-metadata': { start: 94, end: 98 },
   'finalizing-scene': { start: 98, end: 99 },

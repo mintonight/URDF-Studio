@@ -968,7 +968,7 @@ export function UsdWasmStage({
   });
   const selectionResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visibilityRef = useRef({ showVisual, showCollision, showCollisionAlwaysOnTop });
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState<UsdLoadingProgress | null>(null);
   const [visibleStagePath, setVisibleStagePath] = useState<string | null>(null);
@@ -3559,11 +3559,6 @@ export function UsdWasmStage({
               delayMs={0}
             />
           </div>
-        </Html>
-      )}
-      {errorMessage && !isLoading && (
-        <Html center>
-          <div className="rounded bg-red-900/80 px-4 py-2 text-sm text-red-200">{errorMessage}</div>
         </Html>
       )}
     </>

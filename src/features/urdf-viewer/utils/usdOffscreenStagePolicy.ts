@@ -51,29 +51,53 @@ function getUsdFileStem(name: string | null | undefined): string {
   return fileName.replace(/\.usd[a-z]?$/i, '').toLowerCase();
 }
 
-function hasKnownUnsupportedOffscreenBundleToken(name: string | null | undefined): boolean {
+function collectUsdStageScopeTokens(name: string | null | undefined): Set<string> {
   const normalizedName = normalizeUsdFileName(name).toLowerCase();
+  const stageScopeTokens = new Set<string>();
   if (!normalizedName) {
-    return false;
+    return stageScopeTokens;
   }
 
   const normalizedSegments = normalizedName
     .split('/')
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0);
-  const stageScopeTokens = new Set(normalizedSegments);
+  normalizedSegments.forEach((segment) => {
+    stageScopeTokens.add(segment);
+  });
   const fileStem = getUsdFileStem(normalizedName);
   if (fileStem) {
     stageScopeTokens.add(fileStem);
   }
 
-  for (const token of KNOWN_UNSUPPORTED_OFFSCREEN_BUNDLE_TOKENS) {
-    if (stageScopeTokens.has(token)) {
+  return stageScopeTokens;
+}
+
+function hasStageScopeToken(name: string | null | undefined, tokens: ReadonlySet<string>): boolean {
+  const stageScopeTokens = collectUsdStageScopeTokens(name);
+  if (stageScopeTokens.size === 0) {
+    return false;
+  }
+
+  for (const token of tokens) {
+    if (
+      Array.from(stageScopeTokens).some(
+        (stageScopeToken) =>
+          stageScopeToken === token ||
+          stageScopeToken.startsWith(`${token}_`) ||
+          stageScopeToken.startsWith(`${token}.`) ||
+          stageScopeToken.startsWith(`${token}-`),
+      )
+    ) {
       return true;
     }
   }
 
   return false;
+}
+
+function hasKnownUnsupportedOffscreenBundleToken(name: string | null | undefined): boolean {
+  return hasStageScopeToken(name, KNOWN_UNSUPPORTED_OFFSCREEN_BUNDLE_TOKENS);
 }
 
 function hasUnsupportedHandArticulation({
@@ -171,19 +195,19 @@ export function shouldBootstrapUsdOffscreenStage({
   selection,
   hoveredSelection,
   focusTarget,
+  sourceFile,
+  availableFiles,
   workerRendererSupported = supportsUsdWorkerRenderer(),
 }: ShouldUseUsdOffscreenStageOptions): boolean {
   void toolMode;
   void selection;
   void hoveredSelection;
   void focusTarget;
+  void sourceFile;
+  void availableFiles;
   void workerRendererSupported;
 
-  // The offscreen bootstrap path opens the same USD stage twice during the
-  // default interactive load: once in the worker bootstrap renderer and again
-  // in the main-thread interactive renderer. That duplicate stage-open work
-  // increases USDA load time and can expose transient scene swaps. Keep select
-  // mode on the single proven interactive path until the bootstrap handoff is
-  // reworked around shared stage-open data and a stable first-frame policy.
+  // Keep the bootstrap handoff disabled until a user-facing model can prove
+  // the final presentation matches the original main-thread viewer path.
   return false;
 }

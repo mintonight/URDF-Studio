@@ -33,6 +33,7 @@ import { normalizeUsdBootstrapDocumentLoadEvent } from '../utils/usdBootstrapDoc
 import { createUsdViewerRuntimeRobot } from '../utils/usdViewerRuntimeRobot';
 import { buildViewerLoadingHudState } from '../utils/viewerLoadingHud';
 import { supportsUsdWorkerRenderer } from '../utils/usdWorkerRendererSupport';
+import { resolveUsdOffscreenCanvasPresentation } from '../utils/usdOffscreenCanvasPresentation';
 import { unwrapContinuousJointAngle } from '@/shared/utils/continuousJointAngle';
 import {
   clampUsdRuntimeJointAngleDegrees,
@@ -191,7 +192,7 @@ export function UsdOffscreenStage({
   const [containerElement, setContainerElement] = useState<HTMLDivElement | null>(null);
   const [canvasElement, setCanvasElement] = useState<HTMLCanvasElement | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [, setErrorMessage] = useState<string | null>(null);
   const [loadingProgress, setLoadingProgress] = useState<ViewerDocumentLoadEvent | null>({
     status: 'loading',
     phase: 'checking-path',
@@ -817,6 +818,7 @@ export function UsdOffscreenStage({
     loadingProgress.phase in loadingPhaseLabels
       ? loadingPhaseLabels[loadingProgress.phase as keyof typeof loadingPhaseLabels]
       : undefined;
+  const offscreenCanvasPresentation = resolveUsdOffscreenCanvasPresentation(resolvedTheme);
 
   const handlePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -905,6 +907,7 @@ export function UsdOffscreenStage({
           data-testid="usd-offscreen-canvas"
           className="block h-full w-full"
           style={{
+            backgroundColor: offscreenCanvasPresentation.backgroundColor,
             height: '100%',
             opacity: active ? 1 : 0,
             pointerEvents: active ? 'auto' : 'none',
@@ -932,14 +935,6 @@ export function UsdOffscreenStage({
               stageLabel={loadingStageLabel}
               delayMs={0}
             />
-          </div>
-        ) : null}
-
-        {errorMessage && !isLoading ? (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="rounded bg-red-900/80 px-4 py-2 text-sm text-red-200">
-              {errorMessage}
-            </div>
           </div>
         ) : null}
       </div>

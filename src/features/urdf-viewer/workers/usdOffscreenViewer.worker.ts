@@ -74,6 +74,7 @@ import {
   type UsdOffscreenLightRig,
   type UsdOffscreenStudioEnvironmentHandle,
 } from '../utils/usdOffscreenLighting.ts';
+import { resolveUsdOffscreenCanvasPresentation } from '../utils/usdOffscreenCanvasPresentation.ts';
 import { resolveCameraFollowLightingStyle } from '@/shared/components/3d/scene/constants.ts';
 import {
   computeCameraFrame,
@@ -1269,10 +1270,11 @@ function createWorkerRenderer(
   canvas: OffscreenCanvas,
   theme: 'light' | 'dark',
 ): THREE.WebGLRenderer {
+  const presentation = resolveUsdOffscreenCanvasPresentation(theme);
   const nextRenderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true,
-    alpha: true,
+    alpha: presentation.alpha,
     powerPreference: 'high-performance',
   });
 
@@ -1284,13 +1286,15 @@ function createWorkerRenderer(
   nextRenderer.shadowMap.enabled = true;
   nextRenderer.shadowMap.autoUpdate = true;
   nextRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  nextRenderer.setClearColor(0x000000, 0);
+  nextRenderer.setClearColor(presentation.backgroundColor, presentation.clearAlpha);
 
   return nextRenderer;
 }
 
 function initializeSceneGraph(canvas: OffscreenCanvas, theme: 'light' | 'dark'): void {
+  const presentation = resolveUsdOffscreenCanvasPresentation(theme);
   scene = new THREE.Scene();
+  scene.background = new THREE.Color(presentation.backgroundColor);
   camera = new THREE.PerspectiveCamera(
     WORKSPACE_DEFAULT_CAMERA_FOV,
     runtimeWindow.innerWidth / runtimeWindow.innerHeight,

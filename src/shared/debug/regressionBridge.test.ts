@@ -157,3 +157,109 @@ test('regression debug API summarizes USD visual materials from stored scene sna
 
   setRegressionAppHandlers(null);
 });
+
+test('regression debug API waits for final USD handoff runtime before resolving bootstrap loads', async () => {
+  const fileName = 'robots/demo/demo.usd';
+  const targetWindow = {
+    __usdStageLoadDebugHistory: [],
+  } as unknown as Window & {
+    __usdStageLoadDebugHistory: Array<Record<string, unknown>>;
+  };
+  let documentLoadState = {
+    status: 'idle',
+    fileName: null,
+    format: null,
+    error: null,
+  } as {
+    status: string;
+    fileName: string | null;
+    format: string | null;
+    error: string | null;
+  };
+
+  setRegressionRuntimeRobot(null);
+  setRegressionAppHandlers({
+    getAvailableFiles: () => [
+      {
+        name: fileName,
+        format: 'usd',
+        content: '#usda 1.0',
+      },
+    ],
+    getSelectedFile: () => ({
+      name: fileName,
+      format: 'usd',
+      content: '#usda 1.0',
+    }),
+    getUsdSceneSnapshot: () => null,
+    getDocumentLoadState: () => documentLoadState,
+    getRobotState: () => ({
+      name: 'demo',
+      rootLinkId: 'base_link',
+      links: {},
+      joints: {},
+      selection: { type: null, id: null },
+    }),
+    getAssetDebugState: () => ({
+      appAssetKeys: [fileName],
+      preparedUsdCacheKeysByFile: {},
+    }),
+    getInteractionState: () => ({
+      selection: { type: null, id: null },
+      hoveredSelection: { type: null, id: null },
+    }),
+    loadRobotByName: async (requestedFileName: string) => {
+      documentLoadState = {
+        status: 'loading',
+        fileName: requestedFileName,
+        format: 'usd',
+        error: null,
+      };
+      targetWindow.__usdStageLoadDebugHistory.push({
+        sourceFileName: requestedFileName,
+        step: 'commit-worker-robot-data',
+        status: 'resolved',
+        timestamp: Date.now(),
+        detail: {
+          linkCount: 0,
+          jointCount: 0,
+        },
+      });
+      globalThis.setTimeout(() => {
+        setRegressionRuntimeRobot({
+          name: 'usd-runtime-proxy',
+          links: {},
+          joints: {},
+        });
+        targetWindow.__usdStageLoadDebugHistory.push({
+          sourceFileName: requestedFileName,
+          step: 'resolve-runtime-robot-data',
+          status: 'resolved',
+          timestamp: Date.now(),
+          detail: {},
+        });
+        documentLoadState = {
+          status: 'ready',
+          fileName: requestedFileName,
+          format: 'usd',
+          error: null,
+        };
+      }, 20);
+
+      return {
+        loaded: true,
+        selectedFile: requestedFileName,
+      };
+    },
+  });
+
+  installRegressionDebugApi(targetWindow);
+
+  const result = await targetWindow.__URDF_STUDIO_DEBUG__?.loadRobotByName(fileName);
+
+  assert.equal(result?.loaded, true);
+  assert.equal(result?.snapshot.runtime?.name, 'usd-runtime-proxy');
+
+  setRegressionRuntimeRobot(null);
+  setRegressionAppHandlers(null);
+});

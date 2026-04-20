@@ -1677,10 +1677,21 @@ export function installRegressionDebugApi(targetWindow: Window): void {
       const snapshot = getRegressionSnapshot();
       const documentLoadState = appHandlers?.getDocumentLoadState() ?? null;
       const isMatchingDocumentState = documentLoadState?.fileName === fileName;
+      const runtimeResolveEntry = getLatestUsdStageLoadDebugEntry(
+        targetWindow,
+        fileName,
+        'resolve-runtime-robot-data',
+        'resolved',
+      );
+      const hasResolvedRuntimeRobot = Boolean(
+        snapshot.selectedFile?.name === fileName && snapshot.runtime,
+      );
+      const hasCommittedWorkerSnapshot = hasCommittedUsdSnapshot(fileName, snapshot);
       if (
         isUsd
-          ? getLatestUsdStageLoadDebugEntry(targetWindow, fileName, 'ready', 'resolved') &&
-            hasCommittedUsdSnapshot(fileName, snapshot)
+          ? isMatchingDocumentState &&
+            documentLoadState?.status === 'ready' &&
+            (runtimeResolveEntry ? hasResolvedRuntimeRobot : hasCommittedWorkerSnapshot)
           : snapshot.selectedFile?.name === fileName &&
             snapshot.runtime &&
             isMatchingDocumentState &&
