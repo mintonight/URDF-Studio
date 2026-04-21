@@ -286,7 +286,7 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
           {quickRotateAxisOptions.map((axis) => (
             <div
               key={axis.key}
-              className="flex min-w-0 flex-wrap items-center gap-1 rounded-lg border border-border-black/70 bg-panel-bg/85 px-1 py-1 transition-colors hover:border-border-strong hover:bg-element-bg/45"
+              className="flex min-w-0 flex-nowrap items-center gap-1 rounded-lg border border-border-black/70 bg-panel-bg/85 px-1 py-1 transition-colors hover:border-border-strong hover:bg-element-bg/45"
             >
               <div className="flex min-w-[3.1rem] shrink-0 items-center gap-1">
                 <span
@@ -301,7 +301,7 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
                   {axis.label}
                 </span>
               </div>
-              <div className="min-w-[7.5rem] flex-1">
+              <div className="min-w-0 basis-0 flex-1">
                 <InlineNumberInput
                   label={axis.label}
                   value={
@@ -338,7 +338,7 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
                 />
               </div>
               {axis.hasQuickStep ? (
-                <div className="ml-auto grid h-[22px] w-[4.5rem] shrink-0 grid-cols-2 overflow-hidden rounded-md border border-border-black/60 bg-element-bg/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                <div className="grid h-[22px] w-[4.5rem] shrink-0 grid-cols-2 overflow-hidden rounded-md border border-border-black/60 bg-element-bg/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                   {quickRotateActions.map((action) => (
                     <button
                       key={`${axis.key}-${action.ariaLabelSuffix}`}

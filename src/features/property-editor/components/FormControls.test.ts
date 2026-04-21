@@ -425,6 +425,59 @@ test('TransformFields renders per-axis rotation rows with compact +/-90 shortcut
   }
 });
 
+test('TransformFields keeps quick rotation shortcuts on a single shrinkable row', async () => {
+  const { dom, container, root } = createComponentRoot();
+  try {
+    await act(async () => {
+      useUIStore.setState({ rotationDisplayMode: 'euler_deg' });
+      root.render(
+        React.createElement(TransformFields, {
+          lang: 'en',
+          positionValue: { x: 1, y: 2, z: 3 },
+          rotationValue: { r: 0.1, p: 0.2, y: 0.3 },
+          onPositionChange: () => {},
+          onRotationChange: () => {},
+          rotationQuickStepDegrees: 90,
+        }),
+      );
+    });
+
+    const rollInput = getTextInputByLabel(container, 'Roll');
+    const rollDecreaseButton = container.querySelector(
+      'button[aria-label="Roll decrease 90°"]',
+    ) as HTMLButtonElement | null;
+    assert.ok(rollDecreaseButton, 'roll decrease shortcut should exist');
+
+    const inputSlot = rollInput.parentElement?.parentElement?.parentElement;
+    assert.ok(inputSlot, 'roll input grow slot should exist');
+    assert.match(
+      inputSlot.className,
+      /\bbasis-0\b/,
+      'rotation input slot should be allowed to shrink instead of forcing the shortcut group to wrap',
+    );
+    assert.doesNotMatch(
+      inputSlot.className,
+      /\bmin-w-\[7\.5rem\]\b/,
+      'rotation input slot should not keep a hard minimum width that ejects quick-step buttons',
+    );
+
+    const row = inputSlot.parentElement;
+    assert.ok(row, 'roll rotation row should exist');
+    assert.match(
+      row.className,
+      /\bflex-nowrap\b/,
+      'rotation quick-step rows should stay on a single line when space is available',
+    );
+    assert.doesNotMatch(
+      row.className,
+      /\bflex-wrap\b/,
+      'rotation quick-step rows should not allow the shortcut group to wrap to a second line',
+    );
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
 test('TransformFields renders radian values with symbolic pi formatting', async () => {
   const { dom, container, root } = createComponentRoot();
   try {

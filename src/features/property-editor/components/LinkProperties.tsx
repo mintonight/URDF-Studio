@@ -903,15 +903,6 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
                           <span className="shrink-0 rounded-sm border border-border-black/50 bg-element-bg/80 px-1 py-0.5 text-[8.5px] font-medium leading-none text-text-secondary">
                             {geometryTypeLabel}
                           </span>
-                          <span
-                            className={`shrink-0 rounded-sm border px-1 py-0.5 text-[8.5px] font-medium leading-none ${
-                              isVisible
-                                ? 'border-system-blue/20 bg-system-blue/10 text-system-blue'
-                                : 'border-border-black/50 bg-element-bg/80 text-text-tertiary'
-                            }`}
-                          >
-                            {isVisible ? t.visible : t.hidden}
-                          </span>
                         </div>
                       </div>
                     </button>
@@ -925,10 +916,10 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
                     onClick={() =>
                       handleToggleCollisionGeometryVisibility(entry.objectIndex, isVisible)
                     }
-                    className={`mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/25 ${
+                    className={`mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/25 ${
                       isVisible
-                        ? 'border-system-blue/25 bg-system-blue/10 text-system-blue hover:bg-system-blue/15'
-                        : 'border-border-strong bg-panel-bg text-text-tertiary hover:bg-element-hover hover:text-text-primary'
+                        ? 'bg-system-blue/10 text-system-blue hover:bg-system-blue/15'
+                        : 'bg-panel-bg text-text-tertiary hover:bg-element-hover hover:text-text-primary'
                     }`}
                   >
                     {isVisible ? (
