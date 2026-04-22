@@ -19,7 +19,7 @@ const PANEL_SELECT_CLASSNAME_BY_VARIANT: Record<PanelSelectVariant, string> = {
   compact: COMPACT_PANEL_SELECT_CLASSNAME,
   snapshot: COMPACT_PANEL_SELECT_CLASSNAME,
   property:
-    'h-[22px] w-full rounded-md border-border-strong bg-input-bg px-1.5 py-0 pr-7 text-[10px] leading-4 text-text-primary',
+    'h-[22px] w-full rounded-md border-border-strong bg-input-bg px-1.5 py-0 pr-7 text-[10px] leading-4 text-text-primary [padding-top:0] [padding-bottom:0]',
 };
 
 const PANEL_SELECT_OPTION_CLASSNAME_BY_VARIANT: Record<PanelSelectVariant, string> = {

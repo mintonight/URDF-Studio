@@ -547,7 +547,7 @@ test('useFileImport keeps editor mode active across repeated imports', async () 
   }
 });
 
-test('useFileImport blocks standalone package-backed URDF files from auto-opening without matching assets', async () => {
+test('useFileImport still auto-opens standalone package-backed URDF files with a warning toast', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const workerMock = installRobotImportWorkerMock();
@@ -582,7 +582,8 @@ test('useFileImport blocks standalone package-backed URDF files from auto-openin
   try {
     await rendered.hook.handleImport([importedFile] as unknown as FileList);
 
-    assert.equal(loadCalls.length, 0);
+    assert.equal(loadCalls.length, 1);
+    assert.equal(loadCalls[0]?.name, 'aliengo.urdf');
     assert.equal(useAssetsStore.getState().selectedFile, null);
     assert.equal(useAssetsStore.getState().availableFiles[0]?.name, 'aliengo.urdf');
     assert.match(

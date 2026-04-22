@@ -457,7 +457,7 @@ export const useUIStore = create<UIState>()(
         set({ codeEditorFontSize: clampCodeEditorFontSize(codeEditorFontSize) }),
 
       // Source code editor
-      sourceCodeAutoApply: true,
+      sourceCodeAutoApply: false,
       setSourceCodeAutoApply: (sourceCodeAutoApply) => set({ sourceCodeAutoApply }),
 
       // Property editor rotation format

@@ -42,6 +42,7 @@ import {
 import {
   buildStandaloneImportAssetWarning,
   buildStandalonePrimitiveGeometryHint,
+  canProceedWithStandaloneImportAssetWarning,
   collectStandaloneImportSupportAssetPaths,
 } from '@/app/utils/importPackageAssetReferences.ts';
 import { primePreResolvedRobotImports } from '@/app/utils/preResolvedRobotImportCache';
@@ -651,6 +652,9 @@ export function useFileImport(options: UseFileImportOptions = {}) {
             : null;
 
           if (preferredFile) {
+            const canProceedDespiteStandaloneAssetWarning =
+              canProceedWithStandaloneImportAssetWarning(preferredFile);
+
             if (standaloneImportAssetWarning) {
               const assetLabel =
                 standaloneImportAssetWarning.missingAssetPaths.length > 3
@@ -665,7 +669,9 @@ export function useFileImport(options: UseFileImportOptions = {}) {
               } else {
                 alert(warningMessage);
               }
-            } else if (primitiveGeometryHint) {
+            }
+
+            if (!standaloneImportAssetWarning && primitiveGeometryHint) {
               const assetLabel =
                 primitiveGeometryHint.siblingMeshAssetCount >
                 primitiveGeometryHint.siblingMeshAssetPaths.length
@@ -678,80 +684,89 @@ export function useFileImport(options: UseFileImportOptions = {}) {
               } else {
                 alert(warningMessage);
               }
-            } else if (!hadExistingAvailableFiles) {
-              const preResolvedRobotData: RobotData | null =
-                preferredFile.format === 'usd'
-                  ? preferredPreResolvedImportResult?.status === 'ready'
-                    ? preferredPreResolvedImportResult.robotData
-                    : (assetsState.getUsdPreparedExportCache(preferredFile.name)?.robotData ?? null)
-                  : null;
-              const canSeedAssembly =
-                !isAssetLibraryOnlyFormat(preferredFile.format) &&
-                (preferredFile.format !== 'usd' || Boolean(preResolvedRobotData));
+            }
 
-              if (shouldAutoSeedArchiveAssembly) {
-                assemblyStoreState.initAssembly(robotState.name || 'my_project');
-                autoSeedAssemblyFiles.forEach((seedFile) => {
-                  const seedPreResolvedImportResult =
-                    seedFile.name === preferredFile.name ? preferredPreResolvedImportResult : null;
-                  const seedPreResolvedRobotData =
-                    seedFile.name === preferredFile.name && seedFile.format === 'usd'
-                      ? preResolvedRobotData
-                      : null;
-                  const component = assemblyStoreState.addComponent(seedFile, {
+            if (!standaloneImportAssetWarning || canProceedDespiteStandaloneAssetWarning) {
+              if (!hadExistingAvailableFiles) {
+                const preResolvedRobotData: RobotData | null =
+                  preferredFile.format === 'usd'
+                    ? preferredPreResolvedImportResult?.status === 'ready'
+                      ? preferredPreResolvedImportResult.robotData
+                      : (assetsState.getUsdPreparedExportCache(preferredFile.name)?.robotData ??
+                        null)
+                    : null;
+                const canSeedAssembly =
+                  !isAssetLibraryOnlyFormat(preferredFile.format) &&
+                  (preferredFile.format !== 'usd' || Boolean(preResolvedRobotData));
+
+                if (shouldAutoSeedArchiveAssembly) {
+                  assemblyStoreState.initAssembly(robotState.name || 'my_project');
+                  autoSeedAssemblyFiles.forEach((seedFile) => {
+                    const seedPreResolvedImportResult =
+                      seedFile.name === preferredFile.name
+                        ? preferredPreResolvedImportResult
+                        : null;
+                    const seedPreResolvedRobotData =
+                      seedFile.name === preferredFile.name && seedFile.format === 'usd'
+                        ? preResolvedRobotData
+                        : null;
+                    const component = assemblyStoreState.addComponent(seedFile, {
+                      availableFiles: mergedFiles,
+                      assets: mergedAssets,
+                      allFileContents: mergedAllFileContents,
+                      preResolvedImportResult: seedPreResolvedImportResult,
+                      preResolvedRobotData: seedPreResolvedRobotData,
+                      queueAutoGround: false,
+                    });
+                    if (!component) {
+                      throw new Error(
+                        `Failed to add imported assembly component: ${seedFile.name}`,
+                      );
+                    }
+                  });
+                  shouldMarkAssemblyBaselineSaved = true;
+                } else if (canSeedAssembly) {
+                  const component = assemblyStoreState.addComponent(preferredFile, {
                     availableFiles: mergedFiles,
                     assets: mergedAssets,
                     allFileContents: mergedAllFileContents,
-                    preResolvedImportResult: seedPreResolvedImportResult,
-                    preResolvedRobotData: seedPreResolvedRobotData,
+                    preResolvedImportResult: preferredPreResolvedImportResult,
+                    preResolvedRobotData,
                     queueAutoGround: false,
                   });
                   if (!component) {
-                    throw new Error(`Failed to add imported assembly component: ${seedFile.name}`);
+                    throw new Error(
+                      `Failed to add imported assembly component: ${preferredFile.name}`,
+                    );
                   }
-                });
-                shouldMarkAssemblyBaselineSaved = true;
-              } else if (canSeedAssembly) {
-                const component = assemblyStoreState.addComponent(preferredFile, {
-                  availableFiles: mergedFiles,
-                  assets: mergedAssets,
-                  allFileContents: mergedAllFileContents,
-                  preResolvedImportResult: preferredPreResolvedImportResult,
-                  preResolvedRobotData,
-                  queueAutoGround: false,
-                });
-                if (!component) {
-                  throw new Error(
-                    `Failed to add imported assembly component: ${preferredFile.name}`,
+                  shouldMarkAssemblyBaselineSaved = true;
+                }
+
+                uiState.setSidebarTab(shouldAutoSeedArchiveAssembly ? 'workspace' : 'structure');
+                clearImportPreparationOverlay();
+                prewarmUsdSelectionInBackground(activatedImportedFile, mergedFiles, mergedAssets);
+                if (onLoadRobot) {
+                  onLoadRobot(activatedImportedFile);
+                } else {
+                  await loadRobot(
+                    activatedImportedFile,
+                    mergedFiles,
+                    mergedAssets,
+                    mergedAllFileContents,
                   );
                 }
-                shouldMarkAssemblyBaselineSaved = true;
-              }
-
-              uiState.setSidebarTab(shouldAutoSeedArchiveAssembly ? 'workspace' : 'structure');
-              clearImportPreparationOverlay();
-              prewarmUsdSelectionInBackground(activatedImportedFile, mergedFiles, mergedAssets);
-              if (onLoadRobot) {
-                onLoadRobot(activatedImportedFile);
-              } else {
-                await loadRobot(
-                  activatedImportedFile,
-                  mergedFiles,
-                  mergedAssets,
-                  mergedAllFileContents,
-                );
-              }
-              if (shouldMarkAssemblyBaselineSaved) {
-                markUnsavedChangesBaselineSaved('assembly');
-              }
-            } else if (!hadSelectedFile) {
-              uiState.setSidebarTab('structure');
-              clearImportPreparationOverlay();
-              prewarmUsdSelectionInBackground(preferredFile, mergedFiles, mergedAssets);
-              if (onLoadRobot) {
-                onLoadRobot(preferredFile);
-              } else {
-                await loadRobot(preferredFile, mergedFiles, mergedAssets, mergedAllFileContents);
+                if (shouldMarkAssemblyBaselineSaved) {
+                  markUnsavedChangesBaselineSaved('assembly');
+                }
+              } else if (!hadSelectedFile) {
+                uiState.setSidebarTab('structure');
+                clearImportPreparationOverlay();
+                prewarmUsdSelectionInBackground(preferredFile, mergedFiles, mergedAssets);
+                if (onLoadRobot) {
+                  onLoadRobot(preferredFile);
+                } else {
+                  await loadRobot(preferredFile, mergedFiles, mergedAssets, mergedAllFileContents);
+                }
               }
             }
           }

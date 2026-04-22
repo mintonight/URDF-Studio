@@ -53,6 +53,11 @@ test('resolveDirectHelperInteraction returns the directly hit helper without scr
   assert.equal(result?.type, 'joint');
   assert.equal(result?.id, 'joint_1');
   assert.equal(result?.helperKind, 'joint-axis');
+  assert.equal(
+    result?.highlightTarget,
+    helperMesh,
+    'joint-axis helper hits should preserve the helper object for overlay-aware resolution',
+  );
 });
 
 test('resolveDirectHelperInteraction returns null when the ray does not hit a helper mesh', () => {

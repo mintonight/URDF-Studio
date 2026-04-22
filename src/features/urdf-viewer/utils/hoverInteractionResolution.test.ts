@@ -159,6 +159,35 @@ test('resolveHoverInteractionResolution treats overlay presentation as stronger 
   assert.equal(result.primaryInteraction?.helperKind, 'joint-axis');
 });
 
+test('resolveHoverInteractionResolution keeps pinned origin axes hoverable above plain geometry', () => {
+  const candidates = [
+    createLinkCandidate('visual_link', 0.4, 'visual', createMesh()),
+    createHelperCandidate(
+      'base_link',
+      0.8,
+      'origin-axes',
+      createMesh({ renderOrder: 10001, depthTest: false }),
+    ),
+  ];
+
+  const result = resolveHoverInteractionResolution(candidates, ['origin-axes', 'visual']);
+
+  assert.equal(result.primaryInteraction?.id, 'base_link');
+  assert.equal(result.primaryInteraction?.helperKind, 'origin-axes');
+});
+
+test('resolveHoverInteractionResolution keeps direct origin-axes hits ahead of overlapping geometry', () => {
+  const candidates = [
+    createLinkCandidate('visual_link', 0.2, 'visual', createMesh()),
+    createHelperCandidate('base_link', 0.3, 'origin-axes', createMesh()),
+  ];
+
+  const result = resolveHoverInteractionResolution(candidates, ['origin-axes', 'visual']);
+
+  assert.equal(result.primaryInteraction?.id, 'base_link');
+  assert.equal(result.primaryInteraction?.helperKind, 'origin-axes');
+});
+
 test('resolveHoverInteractionResolution keeps direct geometry hover ahead of screen-space helper fallback', () => {
   const candidates = [
     createLinkCandidate('collision_link', 0.2, 'collision', createMesh()),

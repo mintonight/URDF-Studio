@@ -179,6 +179,33 @@ function isJointAxisHelperObject(object: THREE.Object3D | null): boolean {
   );
 }
 
+function resolveRenderableHelperTarget(hitObject: THREE.Object3D): THREE.Object3D {
+  if (
+    (hitObject as THREE.Mesh).isMesh ||
+    (hitObject as THREE.Line).isLine ||
+    hitObject.type === 'LineSegments'
+  ) {
+    return hitObject;
+  }
+
+  let renderableChild: THREE.Object3D | null = null;
+  hitObject.traverse((child) => {
+    if (renderableChild) {
+      return;
+    }
+
+    if (
+      (child as THREE.Mesh).isMesh ||
+      (child as THREE.Line).isLine ||
+      child.type === 'LineSegments'
+    ) {
+      renderableChild = child;
+    }
+  });
+
+  return renderableChild ?? hitObject;
+}
+
 function resolveHelperKind(object: THREE.Object3D | null): ViewerHelperKind | undefined {
   const explicitHelperRoot = findAncestor(
     object,
@@ -359,6 +386,7 @@ export function resolveInteractionSelectionHit(
           id: jointObject.name,
           targetKind: 'helper',
           helperKind: helperKind ?? 'joint-axis',
+          highlightTarget: resolveRenderableHelperTarget(hitObject),
         };
       }
     }

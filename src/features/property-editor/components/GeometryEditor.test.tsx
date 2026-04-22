@@ -619,6 +619,81 @@ test('GeometryEditor preserves plane and hfield types as explicit MJCF geometry 
   }
 });
 
+test('GeometryEditor keeps the type and name header responsive for visual and collision geometry', async () => {
+  const { dom, container, root } = createComponentRoot();
+  try {
+    for (const category of ['visual', 'collision'] as const) {
+      const link = createLink('#00ff00');
+      const robot = createRobot(link);
+      robot.selection = {
+        type: 'link',
+        id: link.id,
+        subType: category,
+        objectIndex: 0,
+      };
+
+      await renderGeometryEditor(root, link, () => {}, robot, category);
+
+      const typeLabel = Array.from(container.querySelectorAll('span')).find(
+        (node) => node.textContent === translations.en.type,
+      );
+      assert.ok(typeLabel, `${category} geometry should render the type label`);
+
+      const sharedRow = typeLabel.parentElement;
+      assert.ok(sharedRow, `${category} geometry should render the shared header row`);
+
+      const nameLabel = Array.from(container.querySelectorAll('span')).find(
+        (node) => node.textContent === translations.en.name,
+      );
+      assert.ok(nameLabel, `${category} geometry should render the name label`);
+
+      assert.equal(
+        nameLabel.parentElement,
+        sharedRow,
+        `${category} geometry should keep type and name on the same row`,
+      );
+      assert.match(
+        sharedRow.className,
+        /\bgap-1\.5\b/,
+        `${category} geometry should keep the header spacing aligned with the other property rows`,
+      );
+
+      const geometryTypeSelect = container.querySelector(
+        `button[role="combobox"][aria-label="${translations.en.type}"], select[aria-label="${translations.en.type}"]`,
+      );
+      assert.ok(geometryTypeSelect, `${category} geometry should render the type select`);
+      assert.doesNotMatch(
+        geometryTypeSelect.className,
+        /\bw-28\b/,
+        `${category} geometry should not pin the type select to a fixed width`,
+      );
+      assert.doesNotMatch(
+        geometryTypeSelect.className,
+        /\bshrink-0\b/,
+        `${category} geometry type select should be allowed to shrink with the row`,
+      );
+
+      assert.match(
+        sharedRow.className,
+        /\bmin-w-0\b/,
+        `${category} geometry header row should stay shrinkable inside narrow sidebars`,
+      );
+
+      const geometryNameInput = container.querySelector(
+        'input[type="text"][spellcheck="false"]',
+      ) as HTMLInputElement | null;
+      assert.ok(geometryNameInput, `${category} geometry should render the name input`);
+      assert.match(
+        geometryNameInput.className,
+        /\bflex-1\b/,
+        `${category} geometry name input should fill the available width inside the shared row`,
+      );
+    }
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
 test('GeometryEditor adds compact +/-90 degree collision rotation shortcuts for each axis', async () => {
   const { dom, container, root } = createComponentRoot();
   try {

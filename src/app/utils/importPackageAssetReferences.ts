@@ -28,6 +28,15 @@ export interface StandaloneImportAssetReferenceOptions {
   sourcePath?: string;
 }
 
+export function canProceedWithStandaloneImportAssetWarning(
+  source: Pick<PackageAssetReferenceSource, 'format'> | null,
+): boolean {
+  // URDF imports can still render a usable scene with placeholder visual
+  // meshes when package-backed assets are missing, so keep loading after the
+  // warning instead of treating it as a hard stop.
+  return source?.format === 'urdf';
+}
+
 export function collectStandaloneImportSupportAssetPaths(
   assetUrls: Record<string, string>,
   availableFiles: readonly Pick<RobotFile, 'name' | 'format'>[],

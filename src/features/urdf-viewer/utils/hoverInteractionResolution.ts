@@ -182,6 +182,19 @@ function isHelperCandidate(candidate: ResolvedHoverInteractionCandidate): boolea
   return candidate.targetKind === 'helper';
 }
 
+function shouldPreferDirectManipulationHelper(
+  helperCandidate: ResolvedHoverInteractionCandidate,
+): boolean {
+  if (
+    helperCandidate.screenSpaceProjected ||
+    (helperCandidate.helperKind !== 'origin-axes' && helperCandidate.helperKind !== 'joint-axis')
+  ) {
+    return false;
+  }
+
+  return !isPickOnlyMesh(getCandidateObject(helperCandidate));
+}
+
 function shouldYieldHelperToGeometry(
   helperCandidate: ResolvedHoverInteractionCandidate,
   geometryCandidate: ResolvedHoverInteractionCandidate,
@@ -190,24 +203,22 @@ function shouldYieldHelperToGeometry(
     return false;
   }
 
+  const helperObject = getCandidateObject(helperCandidate);
+
+  if (shouldPreferDirectManipulationHelper(helperCandidate)) {
+    return false;
+  }
+
   if (helperCandidate.screenSpaceProjected) {
     // Overlay helpers rendered on top should not yield to geometry behind
     // them, even when caught by screen-space fallback.
-    if (hasOverlayPresentation(getCandidateObject(helperCandidate))) {
+    if (hasOverlayPresentation(helperObject)) {
       return false;
     }
     return true;
   }
 
-  // Visualization-only helpers (joint-axis, origin-axes) are rendering overlays
-  // that should not steal hover from actual link geometry.  They remain
-  // interactable through the separate screen-space helper fallback when no
-  // geometry candidate is present.
-  if (helperCandidate.helperKind === 'joint-axis' || helperCandidate.helperKind === 'origin-axes') {
-    return true;
-  }
-
-  if (hasOverlayPresentation(getCandidateObject(helperCandidate))) {
+  if (hasOverlayPresentation(helperObject)) {
     return false;
   }
 

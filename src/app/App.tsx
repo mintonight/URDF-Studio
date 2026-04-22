@@ -36,6 +36,7 @@ import {
 } from './utils/documentLoadProgress';
 import {
   buildStandaloneImportAssetWarning,
+  canProceedWithStandaloneImportAssetWarning,
   collectStandaloneImportSupportAssetPaths,
 } from './utils/importPackageAssetReferences';
 import {
@@ -639,14 +640,16 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         const message = t.importPackageAssetBundleHint
           .replace('{packages}', assetLabel)
           .replace('{assets}', assetLabel);
-        setDocumentLoadState({
-          status: 'error',
-          fileName: file.name,
-          format: file.format,
-          error: message,
-        });
         showToast(message, 'info');
-        return;
+        if (!canProceedWithStandaloneImportAssetWarning(file)) {
+          setDocumentLoadState({
+            status: 'error',
+            fileName: file.name,
+            format: file.format,
+            error: message,
+          });
+          return;
+        }
       }
 
       const currentResolvedMjcfSource =

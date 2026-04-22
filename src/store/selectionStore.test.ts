@@ -169,6 +169,30 @@ test('hover state updates when the highlighted object changes on the same link',
   });
 });
 
+test('selection state preserves an explicit primary geometry objectIndex after a generic geometry select', () => {
+  resetSelectionStore();
+
+  const state = useSelectionStore.getState();
+  state.setSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+  });
+  state.setSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+
+  assert.deepEqual(useSelectionStore.getState().selection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+});
+
 test('empty string ids are normalized to the empty selection state', () => {
   resetSelectionStore();
 

@@ -87,7 +87,7 @@ export const InlineInputGroup = ({
   labelWidthClassName = 'w-12',
   align = 'center',
 }: {
-  label: string;
+  label?: string;
   children?: React.ReactNode;
   className?: string;
   labelWidthClassName?: string;
@@ -97,12 +97,16 @@ export const InlineInputGroup = ({
     <div
       className={`flex min-w-0 flex-nowrap gap-2 ${align === 'start' ? 'items-start' : 'items-center'}`}
     >
-      <label
-        className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} ${labelWidthClassName}`}
-        style={{ width: 'fit-content' }}
-      >
-        {label}
-      </label>
+      {label ? (
+        <label
+          className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} ${labelWidthClassName}`}
+          style={{ width: 'fit-content' }}
+        >
+          {label}
+        </label>
+      ) : (
+        <div className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} ${labelWidthClassName}`} />
+      )}
       <div className="min-w-0 flex-1">{children}</div>
     </div>
   </div>

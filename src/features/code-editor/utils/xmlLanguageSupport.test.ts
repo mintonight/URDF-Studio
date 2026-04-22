@@ -71,6 +71,19 @@ test('limits URDF child tag suggestions to the active joint parent context', () 
   assert.ok(!labels.includes('joint-snippet'));
 });
 
+test('returns URDF geometry child tags inside geometry scope', () => {
+  const labels = getXmlCompletionEntries(
+    'urdf',
+    '<robot name="demo">\n  <link name="base_link">\n    <visual>\n      <geometry>\n        <',
+  ).map((entry) => entry.label);
+
+  assert.ok(labels.includes('box'));
+  assert.ok(labels.includes('cylinder'));
+  assert.ok(labels.includes('sphere'));
+  assert.ok(labels.includes('mesh'));
+  assert.ok(!labels.includes('joint'));
+});
+
 test('reuses cached completion arrays for repeated contexts to keep suggest cheap', () => {
   const first = getXmlCompletionEntries('urdf', '<robot ');
   const second = getXmlCompletionEntries('urdf', '<robot ');
@@ -88,7 +101,9 @@ test('reuses cached child-tag arrays for repeated parent contexts', () => {
 
 test('expands URDF tag completions into paired-tag snippets in opening tag context', () => {
   const prefix = '<robot name="demo">\n  <joi';
-  const jointEntry = getXmlCompletionEntries('urdf', prefix).find((entry) => entry.label === 'joint');
+  const jointEntry = getXmlCompletionEntries('urdf', prefix).find(
+    (entry) => entry.label === 'joint',
+  );
   assert.ok(jointEntry, 'expected "joint" completion entry');
 
   const resolved = resolveXmlCompletionEntryForContext(jointEntry, prefix);
@@ -98,7 +113,9 @@ test('expands URDF tag completions into paired-tag snippets in opening tag conte
 
 test('keeps closing-tag completions plain in closing tag context', () => {
   const prefix = '<robot name="demo">\n  </joi';
-  const jointEntry = getXmlCompletionEntries('urdf', prefix).find((entry) => entry.label === 'joint');
+  const jointEntry = getXmlCompletionEntries('urdf', prefix).find(
+    (entry) => entry.label === 'joint',
+  );
   assert.ok(jointEntry, 'expected "joint" completion entry');
 
   const resolved = resolveXmlCompletionEntryForContext(jointEntry, prefix);
@@ -108,8 +125,12 @@ test('keeps closing-tag completions plain in closing tag context', () => {
 
 test('returns SDF semantic tag and enum-value completions', () => {
   const rootLabels = getXmlCompletionEntries('sdf', '<').map((entry) => entry.label);
-  const modelChildLabels = getXmlCompletionEntries('sdf', '<sdf version="1.10">\n  <').map((entry) => entry.label);
-  const jointTypeLabels = getXmlCompletionEntries('sdf', '<joint type="').map((entry) => entry.label);
+  const modelChildLabels = getXmlCompletionEntries('sdf', '<sdf version="1.10">\n  <').map(
+    (entry) => entry.label,
+  );
+  const jointTypeLabels = getXmlCompletionEntries('sdf', '<joint type="').map(
+    (entry) => entry.label,
+  );
 
   assert.ok(rootLabels.includes('sdf'));
   assert.ok(modelChildLabels.includes('model'));
@@ -127,7 +148,9 @@ test('returns MJCF semantic tag and enum-value completions', () => {
     'mjcf',
     '<mujoco model="demo">\n  <worldbody>\n    <body name="base">\n      <',
   ).map((entry) => entry.label);
-  const geomTypeLabels = getXmlCompletionEntries('mjcf', '<geom type="').map((entry) => entry.label);
+  const geomTypeLabels = getXmlCompletionEntries('mjcf', '<geom type="').map(
+    (entry) => entry.label,
+  );
 
   assert.ok(rootLabels.includes('mujoco'));
   assert.ok(bodyChildLabels.includes('geom'));
@@ -142,15 +165,16 @@ test('returns MJCF semantic tag and enum-value completions', () => {
   assert.ok(mujocoChildLabels.includes('extension'));
   assert.ok(bodyChildLabels.includes('frame'));
   assert.ok(
-    getXmlCompletionEntries(
-      'mjcf',
-      '<mujoco model="demo">\n  <worldbody>\n    <frame>\n      <',
-    ).map((entry) => entry.label).includes('geom'),
+    getXmlCompletionEntries('mjcf', '<mujoco model="demo">\n  <worldbody>\n    <frame>\n      <')
+      .map((entry) => entry.label)
+      .includes('geom'),
   );
 });
 
 test('offers compiler attribute completions for extended MJCF compiler options', () => {
-  const compilerLabels = getXmlCompletionEntries('mjcf', '<mujoco \n  <compiler ').map((entry) => entry.label);
+  const compilerLabels = getXmlCompletionEntries('mjcf', '<mujoco \n  <compiler ').map(
+    (entry) => entry.label,
+  );
   assert.ok(compilerLabels.includes('autolimits'));
   assert.ok(compilerLabels.includes('texturedir'));
   assert.ok(compilerLabels.includes('assetdir'));
@@ -159,11 +183,16 @@ test('offers compiler attribute completions for extended MJCF compiler options',
 });
 
 test('supplies tendon/actuator/default context completions', () => {
-  const defaultLabels = getXmlCompletionEntries('mjcf', '<mujoco>\n  <default class="proto">\n    <').map((entry) => entry.label);
+  const defaultLabels = getXmlCompletionEntries(
+    'mjcf',
+    '<mujoco>\n  <default class="proto">\n    <',
+  ).map((entry) => entry.label);
   assert.ok(defaultLabels.includes('position'));
   assert.ok(defaultLabels.includes('general'));
 
-  const actuatorLabels = getXmlCompletionEntries('mjcf', '<mujoco>\n  <actuator>\n    <').map((entry) => entry.label);
+  const actuatorLabels = getXmlCompletionEntries('mjcf', '<mujoco>\n  <actuator>\n    <').map(
+    (entry) => entry.label,
+  );
   assert.ok(actuatorLabels.includes('damper'));
   assert.ok(actuatorLabels.includes('muscle'));
   assert.ok(actuatorLabels.includes('adhesion'));

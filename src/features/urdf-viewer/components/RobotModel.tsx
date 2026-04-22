@@ -524,13 +524,21 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
 
     const handleCollisionTransformDragging = useCallback(
       (dragging: boolean) => {
+        if (dragging) {
+          // Arm the selection-miss guard during collision transform drags so
+          // that R3F's onPointerMissed does not clear the selection while the
+          // user is actively dragging the gizmo.
+          if (justSelectedRef) {
+            justSelectedRef.current = true;
+          }
+        }
         setIsDraggingRef.current?.(dragging);
         if (!dragging) {
           needsRaycastRef.current = true;
           invalidate();
         }
       },
-      [invalidate, needsRaycastRef],
+      [invalidate, needsRaycastRef, justSelectedRef],
     );
 
     // ============================================================

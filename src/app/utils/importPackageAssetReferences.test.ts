@@ -7,6 +7,7 @@ import {
   buildStandaloneImportAssetWarning,
   buildStandalonePrimitiveGeometryHint,
   buildStandalonePackageAssetImportWarning,
+  canProceedWithStandaloneImportAssetWarning,
   collectStandaloneImportSupportAssetPaths,
   extractStandaloneImportAssetReferences,
   extractPackageAssetBundleRoots,
@@ -130,6 +131,13 @@ test('buildStandalonePackageAssetImportWarning ignores unrelated assets from oth
     bundleRoots: ['val_description/model'],
     packageNames: ['val_description'],
   });
+});
+
+test('canProceedWithStandaloneImportAssetWarning only relaxes missing-asset warnings for URDF', () => {
+  assert.equal(canProceedWithStandaloneImportAssetWarning({ format: 'urdf' }), true);
+  assert.equal(canProceedWithStandaloneImportAssetWarning({ format: 'mjcf' }), false);
+  assert.equal(canProceedWithStandaloneImportAssetWarning({ format: 'sdf' }), false);
+  assert.equal(canProceedWithStandaloneImportAssetWarning(null), false);
 });
 
 test('buildStandaloneImportAssetWarning reports missing mesh assets for standalone MJCF imports', () => {

@@ -943,8 +943,6 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
 
   return (
     <>
-      {nameField}
-
       {/* Viewer-side visual / collision / physics tabs */}
       <div>
         {/* Tab Navigation - Folder Style */}
@@ -983,6 +981,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
               t={t}
               lang={lang}
               isTabbed={true}
+              onLinkNameChange={(name) => onUpdate('link', selection.id!, { ...data, name })}
             />
           ) : null}
         </DetailGeometryTabPanel>

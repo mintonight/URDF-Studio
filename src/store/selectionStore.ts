@@ -57,6 +57,37 @@ function normalizeSelection(selection: Selection): Selection {
   return isSelectionEmpty(selection) ? emptySelection : selection;
 }
 
+function hasOwnSelectionField<T extends keyof Selection>(selection: Selection, field: T): boolean {
+  return Object.prototype.hasOwnProperty.call(selection, field);
+}
+
+function matchesStoredSelection(selection: Selection, target: Selection): boolean {
+  if (
+    !matchesSelection(selection, target, {
+      ignoreObjectIndex: false,
+      ignoreHelperKind: false,
+      ignoreHighlightObjectId: false,
+    })
+  ) {
+    return false;
+  }
+
+  if (
+    hasOwnSelectionField(selection, 'objectIndex') !== hasOwnSelectionField(target, 'objectIndex')
+  ) {
+    return false;
+  }
+
+  if (
+    hasOwnSelectionField(selection, 'highlightObjectId') !==
+    hasOwnSelectionField(target, 'highlightObjectId')
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function isSelectionAllowed(selection: Selection, guard: SelectionGuard | null): boolean {
   return isSelectionEmpty(selection) || !guard || guard(selection);
 }
@@ -266,7 +297,7 @@ export const useSelectionStore = create<SelectionState>()((set, get) => ({
       if (
         (!isSelectionEmpty(nextSelection) &&
           !isSelectionAllowed(nextSelection, state.interactionGuard)) ||
-        matchesSelection(state.selection, nextSelection, { ignoreHelperKind: false })
+        matchesStoredSelection(state.selection, nextSelection)
       ) {
         return state;
       }
@@ -278,7 +309,7 @@ export const useSelectionStore = create<SelectionState>()((set, get) => ({
       const selection = { type: 'link' as const, id, subType, objectIndex };
       if (
         !isSelectionAllowed(selection, state.interactionGuard) ||
-        matchesSelection(state.selection, selection, { ignoreHelperKind: false })
+        matchesStoredSelection(state.selection, selection)
       ) {
         return state;
       }
@@ -290,7 +321,7 @@ export const useSelectionStore = create<SelectionState>()((set, get) => ({
       const selection = { type: 'joint' as const, id };
       if (
         !isSelectionAllowed(selection, state.interactionGuard) ||
-        matchesSelection(state.selection, selection, { ignoreHelperKind: false })
+        matchesStoredSelection(state.selection, selection)
       ) {
         return state;
       }

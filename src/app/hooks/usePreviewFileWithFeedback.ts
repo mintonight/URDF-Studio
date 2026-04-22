@@ -5,6 +5,7 @@ import type { RobotData, RobotFile } from '@/types';
 import {
   buildStandaloneImportAssetWarning,
   buildStandalonePrimitiveGeometryHint,
+  canProceedWithStandaloneImportAssetWarning,
   collectStandaloneImportSupportAssetPaths,
 } from '../utils/importPackageAssetReferences';
 import {
@@ -65,19 +66,21 @@ export function usePreviewFileWithFeedback({
           .replace('{packages}', assetLabel)
           .replace('{assets}', assetLabel);
 
-        setDocumentLoadState({
-          status: 'error',
-          fileName: file.name,
-          format: file.format,
-          error: warningMessage,
-          phase: null,
-          message: null,
-          progressPercent: null,
-          loadedCount: null,
-          totalCount: null,
-        });
         showToast(warningMessage, 'info');
-        return;
+        if (!canProceedWithStandaloneImportAssetWarning(file)) {
+          setDocumentLoadState({
+            status: 'error',
+            fileName: file.name,
+            format: file.format,
+            error: warningMessage,
+            phase: null,
+            message: null,
+            progressPercent: null,
+            loadedCount: null,
+            totalCount: null,
+          });
+          return;
+        }
       }
 
       const primitiveGeometryHint = buildStandalonePrimitiveGeometryHint(file, importedAssetPaths, {
