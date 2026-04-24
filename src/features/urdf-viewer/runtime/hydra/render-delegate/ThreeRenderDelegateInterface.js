@@ -2614,7 +2614,26 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                     primType: String(parsedProto.protoType || '').trim().toLowerCase() || null,
                 };
             }
-            return parseLegacyRuntimeMeshDescriptor(normalizedMeshId);
+            const legacyDescriptor = parseLegacyRuntimeMeshDescriptor(normalizedMeshId);
+            if (legacyDescriptor) {
+                return legacyDescriptor;
+            }
+            const resolvedPrimPath = normalizeHydraPath(this.getResolvedVisualTransformPrimPathForMeshId?.(normalizedMeshId)
+                || this.getResolvedPrimPathForMeshId?.(normalizedMeshId)
+                || '');
+            const activeStageRootPrimPath = this.getActiveStageRootPrimPath?.();
+            const genericPrimPath = resolvedPrimPath || normalizedMeshId;
+            if (genericPrimPath
+                && (!activeStageRootPrimPath
+                    || genericPrimPath === activeStageRootPrimPath
+                    || genericPrimPath.startsWith(`${activeStageRootPrimPath}/`))) {
+                return {
+                    meshId: normalizedMeshId,
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                };
+            }
+            return null;
         };
         const copyTypedFloatArray = (value) => {
             if (!value || typeof value.length !== 'number')

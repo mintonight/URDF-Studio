@@ -656,7 +656,7 @@ export function useVisualizationEffects({
         subType: selectionHighlightSubType,
         objectIndex: selectionHighlightObjectIndex,
         highlightObjectId: selectionHighlightObjectId,
-      } = resolveHighlightTarget(activeSelection);
+      } = resolveHighlightTarget(activeSelection, { allowHelperSelection: false });
 
       if (currentHoverRef.current.id) {
         if (
@@ -762,7 +762,7 @@ export function useVisualizationEffects({
       subType: targetSubType,
       objectIndex: targetObjectIndex,
       highlightObjectId: targetHighlightObjectId,
-    } = resolveHighlightTarget(effectiveSelection);
+    } = resolveHighlightTarget(effectiveSelection, { allowHelperSelection: false });
 
     if (targetId) {
       highlightGeometry(

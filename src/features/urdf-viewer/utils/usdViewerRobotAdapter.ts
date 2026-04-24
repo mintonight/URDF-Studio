@@ -90,6 +90,113 @@ function getPathBasename(path: string | null | undefined): string {
   return segments[segments.length - 1] || '';
 }
 
+function getPathParent(path: string | null | undefined): string {
+  const normalized = normalizeUsdPath(path);
+  if (!normalized) return '';
+
+  const segments = normalized.split('/').filter(Boolean);
+  if (segments.length <= 1) {
+    return '';
+  }
+
+  return `/${segments.slice(0, -1).join('/')}`;
+}
+
+function buildMeshOnlyHierarchyFallback({
+  defaultPrimPath,
+  linkPaths,
+  linkParentPairs,
+  jointCatalogEntries,
+  rootLinkPaths,
+}: {
+  defaultPrimPath: string | null | undefined;
+  linkPaths: Set<string>;
+  linkParentPairs: Array<[string | null | undefined, string | null | undefined]>;
+  jointCatalogEntries: JointCatalogEntry[];
+  rootLinkPaths: string[];
+}): {
+  linkPaths: Set<string>;
+  linkParentPairs: Array<[string | null, string | null]>;
+  rootLinkPaths: string[];
+} {
+  const hasAuthoredHierarchy =
+    jointCatalogEntries.length > 0 || linkParentPairs.length > 0 || rootLinkPaths.length > 0;
+  if (hasAuthoredHierarchy || linkPaths.size === 0) {
+    return {
+      linkPaths,
+      linkParentPairs: linkParentPairs.map(([childPath, parentPath]) => [
+        normalizeUsdPath(childPath),
+        normalizeUsdPath(parentPath) || null,
+      ]),
+      rootLinkPaths,
+    };
+  }
+
+  const fallbackLinkPaths = new Set(linkPaths);
+  const normalizedDefaultPrimPath = normalizeUsdPath(defaultPrimPath);
+  const sharedRootSegments = Array.from(linkPaths)
+    .map((path) => path.split('/').filter(Boolean))
+    .reduce<string[]>((commonSegments, nextSegments, index) => {
+      if (index === 0) {
+        return nextSegments;
+      }
+
+      let sharedLength = 0;
+      while (
+        sharedLength < commonSegments.length &&
+        sharedLength < nextSegments.length &&
+        commonSegments[sharedLength] === nextSegments[sharedLength]
+      ) {
+        sharedLength += 1;
+      }
+
+      return commonSegments.slice(0, sharedLength);
+    }, []);
+  const normalizedRootPath =
+    normalizedDefaultPrimPath ||
+    (sharedRootSegments.length > 0 ? `/${sharedRootSegments.join('/')}` : '');
+
+  if (normalizedRootPath) {
+    fallbackLinkPaths.add(normalizedRootPath);
+  }
+
+  Array.from(linkPaths).forEach((path) => {
+    let parentPath = getPathParent(path);
+    while (parentPath && parentPath !== normalizedRootPath) {
+      fallbackLinkPaths.add(parentPath);
+      parentPath = getPathParent(parentPath);
+    }
+  });
+
+  const fallbackRootLinkPaths = normalizedRootPath ? [normalizedRootPath] : [];
+  const syntheticLinkParentPairs: Array<[string | null, string | null]> = [];
+  Array.from(fallbackLinkPaths)
+    .sort((left, right) => left.localeCompare(right))
+    .forEach((path) => {
+      if (!path) {
+        return;
+      }
+
+      if (normalizedRootPath && path === normalizedRootPath) {
+        syntheticLinkParentPairs.push([path, null]);
+        return;
+      }
+
+      let parentPath = getPathParent(path);
+      while (parentPath && !fallbackLinkPaths.has(parentPath)) {
+        parentPath = getPathParent(parentPath);
+      }
+
+      syntheticLinkParentPairs.push([path, parentPath || normalizedRootPath || null]);
+    });
+
+  return {
+    linkPaths: fallbackLinkPaths,
+    linkParentPairs: syntheticLinkParentPairs,
+    rootLinkPaths: fallbackRootLinkPaths,
+  };
+}
+
 function normalizeDescriptorSectionName(sectionName: string | null | undefined): string {
   const normalized = String(sectionName || '')
     .trim()
@@ -1176,15 +1283,27 @@ export function adaptUsdViewerSnapshotToRobotData(
 
   const meshCountsByLinkPath = deriveMeshCountsByLinkPath(snapshot, linkPaths);
   Object.keys(meshCountsByLinkPath).forEach((path) => addLinkPath(path));
+  const hierarchyFallback = buildMeshOnlyHierarchyFallback({
+    defaultPrimPath: snapshot.stage?.defaultPrimPath,
+    linkPaths,
+    linkParentPairs,
+    jointCatalogEntries,
+    rootLinkPaths,
+  });
+  const effectiveLinkPaths = hierarchyFallback.linkPaths;
+  const effectiveLinkParentPairs = hierarchyFallback.linkParentPairs;
+  const effectiveRootLinkPaths = hierarchyFallback.rootLinkPaths;
 
   const normalizedStageSourcePath = normalizeUsdPath(
     snapshot.stageSourcePath || metadata.stageSourcePath,
   );
-  if (linkPaths.size === 0) {
+  if (effectiveLinkPaths.size === 0) {
     return null;
   }
 
-  const sortedLinkPaths = Array.from(linkPaths).sort((left, right) => left.localeCompare(right));
+  const sortedLinkPaths = Array.from(effectiveLinkPaths).sort((left, right) =>
+    left.localeCompare(right),
+  );
   const dynamicsByLinkPath = new Map<string, LinkDynamicsEntry>();
   linkDynamicsEntries.forEach((entry) => {
     const normalizedPath = normalizeUsdPath(entry.linkPath);
@@ -1241,7 +1360,7 @@ export function adaptUsdViewerSnapshotToRobotData(
     }
   }
 
-  for (const pair of linkParentPairs) {
+  for (const pair of effectiveLinkParentPairs) {
     const childPath = normalizeUsdPath(pair?.[0]);
     const parentPath = normalizeUsdPath(pair?.[1]);
     if (!childPath || !parentPath || explicitChildPaths.has(childPath)) continue;
@@ -1273,7 +1392,7 @@ export function adaptUsdViewerSnapshotToRobotData(
   }
 
   const childLinkIds = new Set(Object.values(joints).map((joint) => joint.childLinkId));
-  const preferredRootPath = normalizeUsdPath(rootLinkPaths[0]);
+  const preferredRootPath = normalizeUsdPath(effectiveRootLinkPaths[0]);
   const rootLinkId =
     (preferredRootPath ? linkIdByPath.get(preferredRootPath) : null) ||
     Object.keys(links).find((linkId) => !childLinkIds.has(linkId)) ||
@@ -1307,7 +1426,7 @@ export function adaptUsdViewerSnapshotToRobotData(
   descriptors.forEach((descriptor) => {
     const linkPath = resolveUsdDescriptorTargetLinkPath({
       descriptor,
-      knownLinkPaths: linkPaths,
+      knownLinkPaths: effectiveLinkPaths,
     });
     if (!linkPath) {
       return;

@@ -1,11 +1,154 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import React from 'react';
+import { flushSync } from 'react-dom';
+import { createRoot } from 'react-dom/client';
+import { JSDOM } from 'jsdom';
 import { DEFAULT_LINK } from '@/types/constants';
-import type { RobotData, RobotFile, UsdPreparedExportCache, UsdSceneSnapshot } from '@/types';
+import { useAssemblyStore } from '@/store';
+import type {
+  AssemblyState,
+  RobotData,
+  RobotFile,
+  UsdPreparedExportCache,
+  UsdSceneSnapshot,
+} from '@/types';
 import type { ViewerRobotDataResolution } from '@/features/editor';
 
-import { resolveUsdAssemblySeedRobotData } from './useWorkspaceModeTransitions.ts';
+import {
+  resolveUsdAssemblySeedRobotData,
+  useWorkspaceModeTransitions,
+} from './useWorkspaceModeTransitions.ts';
+
+function installDomEnvironment() {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+    url: 'http://localhost/',
+    pretendToBeVisual: true,
+  });
+
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    writable: true,
+    value: dom.window,
+  });
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    writable: true,
+    value: dom.window.document,
+  });
+  Object.defineProperty(globalThis, 'DOMParser', {
+    configurable: true,
+    writable: true,
+    value: dom.window.DOMParser,
+  });
+  Object.defineProperty(globalThis, 'XMLSerializer', {
+    configurable: true,
+    writable: true,
+    value: dom.window.XMLSerializer,
+  });
+
+  return dom;
+}
+
+function renderWorkspaceModeTransitionsHook(
+  options: Partial<Parameters<typeof useWorkspaceModeTransitions>[0]> = {},
+) {
+  let hookValue: ReturnType<typeof useWorkspaceModeTransitions> | null = null;
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+
+  const activeFile =
+    options.previewFile ?? options.selectedFile ?? createUrdfFile('robots/new.urdf');
+  const robotData = createRobotData('new');
+
+  function Probe() {
+    hookValue = useWorkspaceModeTransitions({
+      previewFile: activeFile,
+      selectedFile: null,
+      availableFiles: [activeFile],
+      allFileContents: {},
+      assets: {},
+      getUsdPreparedExportCache: () => null,
+      robotName: robotData.name,
+      robotLinks: robotData.links,
+      robotJoints: robotData.joints,
+      rootLinkId: robotData.rootLinkId,
+      robotMaterials: robotData.materials,
+      closedLoopConstraints: robotData.closedLoopConstraints,
+      setRobot: () => {},
+      setSelection: () => {},
+      showToast: () => {},
+      t: {
+        generateWorkspaceUrdfDisconnected: 'disconnected',
+        generateWorkspaceUrdfUnavailable: 'unavailable',
+        generateWorkspaceUrdfSuccess: 'success',
+        addedComponent: 'added',
+      },
+      handleClosePreview: () => {},
+      prepareAssemblyComponentForInsert: () => new Promise(() => {}),
+      activateInsertedAssemblyComponent: () => {},
+      addComponent: useAssemblyStore.getState().addComponent,
+      initAssembly: useAssemblyStore.getState().initAssembly,
+      onLoadRobot: () => {},
+      pendingUsdAssemblyFileRef: { current: null },
+      proModeRoundtripSessionRef: { current: null },
+      ...options,
+    });
+    return null;
+  }
+
+  const root = createRoot(container);
+  flushSync(() => {
+    root.render(React.createElement(Probe));
+  });
+
+  assert.ok(hookValue, 'hook should render');
+
+  return {
+    hook: hookValue,
+    cleanup() {
+      flushSync(() => {
+        root.unmount();
+      });
+      container.remove();
+    },
+  };
+}
+
+function resetAssemblyStore() {
+  useAssemblyStore.setState({
+    assemblyState: null,
+    assemblyRevision: 0,
+    pendingAutoGroundComponentIds: [],
+    _history: { past: [], future: [] },
+    _activity: [],
+  });
+}
+
+function createUrdfFile(name: string): RobotFile {
+  return {
+    name,
+    format: 'urdf',
+    content: '<robot name="demo"><link name="base_link" /></robot>',
+  };
+}
+
+function createSingleComponentAssembly(sourceFile: string): AssemblyState {
+  return {
+    name: 'assembly',
+    components: {
+      comp_old: {
+        id: 'comp_old',
+        name: 'old',
+        sourceFile,
+        robot: createRobotData('old'),
+        visible: true,
+      },
+    },
+    bridges: {},
+  };
+}
 
 function createUsdFile(name = 'unitree_model/Go2W/usd/go2w.usd'): RobotFile {
   return {
@@ -162,4 +305,35 @@ test('resolveUsdAssemblySeedRobotData requests a fresh usd load when no usable s
   assert.equal(result.preResolvedRobotData, null);
   assert.equal(result.preparedCache, null);
   assert.equal(result.requiresRobotReload, true);
+});
+
+test('handleSwitchTreeEditorToProMode immediately seeds the active preview file before async preparation', () => {
+  const dom = installDomEnvironment();
+  resetAssemblyStore();
+  useAssemblyStore.setState({
+    assemblyState: createSingleComponentAssembly('robots/old.urdf'),
+    assemblyRevision: 1,
+  });
+
+  const nextFile = createUrdfFile('robots/new.urdf');
+  const rendered = renderWorkspaceModeTransitionsHook({
+    previewFile: nextFile,
+    selectedFile: createUrdfFile('robots/selected.urdf'),
+  });
+
+  try {
+    flushSync(() => {
+      rendered.hook.handleSwitchTreeEditorToProMode();
+    });
+
+    const assemblyState = useAssemblyStore.getState().assemblyState;
+    assert.ok(assemblyState, 'assembly should stay initialized while new component prepares');
+    const components = Object.values(assemblyState.components);
+    assert.equal(components.length, 1);
+    assert.equal(components[0]?.sourceFile, nextFile.name);
+  } finally {
+    rendered.cleanup();
+    dom.window.close();
+    resetAssemblyStore();
+  }
 });

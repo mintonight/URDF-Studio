@@ -103,6 +103,12 @@ interface UseWorkspaceMutationsParams {
     objectIndex: number;
     geometry: UrdfLink['collision'];
   }) => void;
+  patchEditableSourceUpdateJointLimit?: (args: {
+    sourceFileName?: string | null;
+    jointName: string;
+    jointType: UrdfJoint['type'];
+    limit: NonNullable<UrdfJoint['limit']>;
+  }) => void;
   patchEditableSourceRenameEntities?: (args: {
     sourceFileName?: string | null;
     operations: MJCFRenameOperation[];
@@ -142,6 +148,7 @@ export function useWorkspaceMutations({
   patchEditableSourceAddCollisionBody,
   patchEditableSourceDeleteCollisionBody,
   patchEditableSourceUpdateCollisionBody,
+  patchEditableSourceUpdateJointLimit,
   patchEditableSourceRenameEntities,
   setSelection,
   setPendingCollisionTransform,
@@ -244,6 +251,7 @@ export function useWorkspaceMutations({
           patchEditableSourceAddCollisionBody,
           patchEditableSourceDeleteCollisionBody,
           patchEditableSourceUpdateCollisionBody,
+          patchEditableSourceUpdateJointLimit,
           patchEditableSourceRenameEntities,
         });
         if (handled) {
@@ -340,29 +348,41 @@ export function useWorkspaceMutations({
           const historyLabel = options.historyLabel ?? 'Update joint';
           const currentRobotState = useRobotStore.getState();
           const currentJoint = currentRobotState.joints[resolvedJointId];
+          const jointUpdates = data as Partial<UrdfJoint>;
 
           ensurePendingRobotHistory(historyKey, historyLabel);
-          updateJoint(resolvedJointId, data as Partial<UrdfJoint>, {
+          updateJoint(resolvedJointId, jointUpdates, {
             skipHistory: true,
             label: historyLabel,
           });
-          if (currentJoint && currentJoint.name !== (data as UrdfJoint).name) {
+          if (currentJoint && jointUpdates.limit) {
+            patchEditableSourceUpdateJointLimit?.({
+              jointName: currentJoint.name,
+              jointType: jointUpdates.type ?? currentJoint.type,
+              limit: jointUpdates.limit,
+            });
+          }
+          if (
+            currentJoint &&
+            typeof jointUpdates.name === 'string' &&
+            currentJoint.name !== jointUpdates.name
+          ) {
             patchEditableSourceRenameEntities?.({
               operations: [
                 {
                   kind: 'joint',
                   currentName: currentJoint.name,
-                  nextName: (data as UrdfJoint).name,
+                  nextName: jointUpdates.name,
                 },
               ],
             });
           }
 
-          if (currentJoint && (data as Partial<UrdfJoint>).origin) {
+          if (currentJoint && jointUpdates.origin) {
             const compensation = resolveClosedLoopJointOriginCompensationDetailed(
               currentRobotState,
               resolvedJointId,
-              (data as Partial<UrdfJoint>).origin ?? currentJoint.origin,
+              jointUpdates.origin ?? currentJoint.origin,
             );
 
             Object.entries(compensation.origins).forEach(([jointId, origin]) => {
@@ -411,6 +431,7 @@ export function useWorkspaceMutations({
       patchEditableSourceAddCollisionBody,
       patchEditableSourceDeleteCollisionBody,
       patchEditableSourceUpdateCollisionBody,
+      patchEditableSourceUpdateJointLimit,
       patchEditableSourceRenameEntities,
       updateComponentRobot,
       updateJoint,

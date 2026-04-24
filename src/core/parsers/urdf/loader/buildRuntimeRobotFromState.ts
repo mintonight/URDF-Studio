@@ -13,7 +13,6 @@ import {
   getVisualGeometryEntries,
 } from '@/core/robot';
 import { createBoxFaceMaterialArray } from '@/core/utils/boxFaceMaterialArray';
-import { getCollisionBoxDisplayCylinderTransform } from '@/core/utils/collisionBoxDisplay';
 import { createMatteMaterial } from '@/core/utils/materialFactory';
 import { applyVisualMeshMaterialGroupsToObject } from '@/core/utils/meshMaterialGroups';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
@@ -489,14 +488,6 @@ function createPrimitiveMesh(
   const boxFacePalette = !isCollision ? getBoxFaceMaterialPalette(geometry) : [];
 
   if (geometry.type === GeometryType.BOX) {
-    if (isCollision) {
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 30), material);
-      const { scale, rotation } = getCollisionBoxDisplayCylinderTransform(dimensions);
-      mesh.scale.set(...scale);
-      mesh.rotation.set(...rotation);
-      return mesh;
-    }
-
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(1, 1, 1),
       boxFacePalette.length > 0

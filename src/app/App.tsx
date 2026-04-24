@@ -28,6 +28,7 @@ import { peekPreResolvedRobotImport } from './utils/preResolvedRobotImportCache'
 import { prewarmUsdSelectionInBackground } from './utils/usdSelectionPrewarm';
 import { prewarmUsdViewerRuntimesInBackground } from './utils/usdRuntimeStartupPrewarm';
 import { commitResolvedRobotLoad } from './utils/commitResolvedRobotLoad';
+import { resolveUsdViewerRoundtripSelection } from './utils/usdViewerRoundtripSelection';
 import { resolveAppModeAfterRobotContentChange } from './utils/contentChangeAppMode';
 import {
   mapRobotImportProgressToDocumentLoadPercent,
@@ -594,8 +595,12 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   // Keep one internal loader so debug automation can force a reload of the
   // currently selected file without changing normal click behavior.
   const loadRobotFile = useCallback(
-    async (file: RobotFile, options?: { forceReload?: boolean }) => {
+    async (requestedFile: RobotFile, options?: { forceReload?: boolean }) => {
       const liveAssetsState = useAssetsStore.getState();
+      const file = resolveUsdViewerRoundtripSelection(
+        requestedFile,
+        liveAssetsState.availableFiles,
+      );
       const currentSelectedFile = liveAssetsState.selectedFile;
       const nextLoadSupportContextKey = buildRobotLoadSupportContextKey({
         availableFiles: liveAssetsState.availableFiles,

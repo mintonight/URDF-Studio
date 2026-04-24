@@ -58,6 +58,7 @@ interface ViewerSceneConnectorProps {
     objectIndex: number,
     objectType: 'visual' | 'collision',
   ) => void;
+  onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
   robot: RobotState;
   focusTarget?: string | null;
   onCollisionTransformPreview?: (
@@ -125,6 +126,7 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
   selection,
   onHover,
   onMeshSelect,
+  onUpdate,
   robot,
   focusTarget,
   onCollisionTransformPreview,
@@ -169,6 +171,7 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
     selection,
     onHover,
     onMeshSelect,
+    onUpdate,
     robot,
     focusTarget,
     onCollisionTransformPreview,

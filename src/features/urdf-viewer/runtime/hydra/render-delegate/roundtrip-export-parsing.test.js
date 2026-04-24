@@ -955,6 +955,96 @@ test('normalizeRobotSceneSnapshot synthesizes mesh descriptors from live Hydra m
     }
 });
 
+test('normalizeRobotSceneSnapshot synthesizes mesh descriptors for generic CAD-style mesh instance paths', () => {
+    const previousWindow = globalThis.window;
+    globalThis.window = {
+        location: { search: '' },
+    };
+    try {
+        const delegate = new ThreeRenderDelegateInterface({
+            stage: () => ({
+                GetRootLayer: () => ({
+                    ExportToString: () => '#usda 1.0\n',
+                }),
+                GetUsedLayers: () => [],
+                GetDefaultPrim: () => ({
+                    GetPath: () => ({ pathString: '/_7SO101' }),
+                }),
+            }),
+            driver: () => null,
+            allowDriverStageLookup: false,
+        });
+        delegate.getResolvedVisualTransformPrimPathForMeshId = (meshId) => (
+            meshId === '/_7SO101/MeshInstance/实体1'
+                ? '/_7SO101/MeshInstance'
+                : null
+        );
+
+        const snapshot = delegate.normalizeRobotSceneSnapshot({
+            generatedAtMs: 1,
+            stage: {
+                stageSourcePath: '/tmp/7SO101.usdc',
+                defaultPrimPath: '/_7SO101',
+            },
+            robotTree: {
+                linkParentPairs: [],
+                jointCatalogEntries: [],
+                rootLinkPaths: [],
+            },
+            physics: {
+                linkDynamicsEntries: [],
+            },
+            render: {
+                meshDescriptors: [],
+                materials: [],
+                protoDataBlobs: {
+                    '/_7SO101/MeshInstance/实体1': {
+                        valid: true,
+                        numVertices: 3,
+                        points: Float32Array.from([
+                            0, 0, 0,
+                            1, 0, 0,
+                            0, 1, 0,
+                        ]),
+                        numIndices: 3,
+                        indices: Uint32Array.from([0, 1, 2]),
+                        numNormals: 3,
+                        normalsDimension: 3,
+                        normals: Float32Array.from([
+                            0, 0, 1,
+                            0, 0, 1,
+                            0, 0, 1,
+                        ]),
+                        numUVs: 0,
+                        uvDimension: 2,
+                        uv: Float32Array.from([]),
+                        transform: Float32Array.from([
+                            1, 0, 0, 0,
+                            0, 1, 0, 0,
+                            0, 0, 1, 0,
+                            0, 0, 0, 1,
+                        ]),
+                    },
+                },
+            },
+        }, {
+            stageSourcePath: '/tmp/7SO101.usdc',
+        });
+
+        assert.ok(snapshot);
+        assert.equal(snapshot.render.meshDescriptors.length, 1);
+        assert.equal(snapshot.render.meshDescriptors[0].meshId, '/_7SO101/MeshInstance/实体1');
+        assert.equal(snapshot.render.meshDescriptors[0].resolvedPrimPath, '/_7SO101/MeshInstance');
+        assert.equal(snapshot.render.meshDescriptors[0].sectionName, 'visuals');
+        assert.equal(snapshot.render.meshDescriptors[0].primType, 'mesh');
+        assert.equal(snapshot.render.meshDescriptors[0].geometry.numVertices, 3);
+        assert.equal(snapshot.render.protoBlobCount, 1);
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});
+
 test('normalizeRobotSceneSnapshot serializes preferred live visual materials by link path', () => {
     const previousWindow = globalThis.window;
     globalThis.window = {

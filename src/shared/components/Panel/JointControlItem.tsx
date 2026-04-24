@@ -114,7 +114,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
         handleJointChangeCommit(name, val);
       }
 
-      const jointId = joint.id || name;
+      const jointId = name || joint.id;
       if (jointId) {
         if (sidebarTab === 'workspace') {
           const assemblyState = useAssemblyStore.getState().assemblyState;
@@ -176,7 +176,6 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
 
         if (onUpdate) {
           onUpdate('joint', jointId, {
-            ...joint,
             limit: newLimits,
           });
         } else {
@@ -566,11 +565,15 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
   );
 
   const commitOpenEditors = useCallback(() => {
-    if (isEditingValue) commitChange(inputValue);
-    if (isEditingLower) handleLimitCommit('lower', lowerInput);
-    if (isEditingUpper) handleLimitCommit('upper', upperInput);
-    if (isEditingEffort) handleAdvancedCommit('effort', effortInput);
-    if (isEditingVelocity) handleAdvancedCommit('velocity', velocityInput);
+    if (isEditingValue) commitChange(valueInputRef.current?.value ?? inputValue);
+    if (isEditingLower) handleLimitCommit('lower', lowerInputRef.current?.value ?? lowerInput);
+    if (isEditingUpper) handleLimitCommit('upper', upperInputRef.current?.value ?? upperInput);
+    if (isEditingEffort) {
+      handleAdvancedCommit('effort', effortInputRef.current?.value ?? effortInput);
+    }
+    if (isEditingVelocity) {
+      handleAdvancedCommit('velocity', velocityInputRef.current?.value ?? velocityInput);
+    }
   }, [
     commitChange,
     effortInput,
@@ -652,11 +655,11 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            onBlur={() => commitChange(inputValue)}
+            onBlur={(e) => commitChange(e.currentTarget.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                commitChange(inputValue);
-                (e.target as HTMLInputElement).blur();
+                commitChange(e.currentTarget.value);
+                e.currentTarget.blur();
               }
             }}
             onClick={(e) => e.stopPropagation()}
@@ -693,8 +696,12 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
             type="text"
             value={effortInput}
             onChange={(e) => setEffortInput(e.target.value)}
-            onBlur={() => handleAdvancedCommit('effort', effortInput)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAdvancedCommit('effort', effortInput)}
+            onBlur={(e) => handleAdvancedCommit('effort', e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleAdvancedCommit('effort', e.currentTarget.value);
+              }
+            }}
             onClick={(e) => e.stopPropagation()}
             className="h-4 w-10 rounded border border-border-strong bg-input-bg px-0.5 py-0 text-center text-[10px] leading-none font-mono text-text-primary outline-none focus:border-system-blue focus:ring-1 focus:ring-system-blue/20"
           />
@@ -721,8 +728,12 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
             type="text"
             value={velocityInput}
             onChange={(e) => setVelocityInput(e.target.value)}
-            onBlur={() => handleAdvancedCommit('velocity', velocityInput)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAdvancedCommit('velocity', velocityInput)}
+            onBlur={(e) => handleAdvancedCommit('velocity', e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleAdvancedCommit('velocity', e.currentTarget.value);
+              }
+            }}
             onClick={(e) => e.stopPropagation()}
             className="h-4 w-10 rounded border border-border-strong bg-input-bg px-0.5 py-0 text-center text-[10px] leading-none font-mono text-text-primary outline-none focus:border-system-blue focus:ring-1 focus:ring-system-blue/20"
           />
@@ -793,9 +804,9 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
               type="text"
               value={lowerInput}
               onChange={(e) => setLowerInput(e.target.value)}
-              onBlur={() => handleLimitCommit('lower', lowerInput)}
+              onBlur={(e) => handleLimitCommit('lower', e.currentTarget.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleLimitCommit('lower', lowerInput);
+                if (e.key === 'Enter') handleLimitCommit('lower', e.currentTarget.value);
               }}
               className={`absolute left-0 top-0 z-20 ${limitFieldBaseClassName} ${limitInputWidthClassName} border-border-strong bg-input-bg text-right text-text-primary outline-none focus:border-system-blue focus:ring-1 focus:ring-system-blue/20`}
             />
@@ -895,9 +906,9 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
               type="text"
               value={upperInput}
               onChange={(e) => setUpperInput(e.target.value)}
-              onBlur={() => handleLimitCommit('upper', upperInput)}
+              onBlur={(e) => handleLimitCommit('upper', e.currentTarget.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleLimitCommit('upper', upperInput);
+                if (e.key === 'Enter') handleLimitCommit('upper', e.currentTarget.value);
               }}
               className={`absolute right-0 top-0 z-20 ${limitFieldBaseClassName} ${limitInputWidthClassName} border-border-strong bg-input-bg text-left text-text-primary outline-none focus:border-system-blue focus:ring-1 focus:ring-system-blue/20`}
             />

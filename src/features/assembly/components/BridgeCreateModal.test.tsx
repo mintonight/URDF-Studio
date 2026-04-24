@@ -1021,11 +1021,104 @@ test('bridge create modal suggests a default bridge name and auto-uses it on con
       await Promise.resolve();
     });
 
+    await act(async () => {
+      await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
+    });
+
     assert.deepEqual(createdNames, ['Component_A-Component_B']);
     assertNearlyEqual(
       createdOriginXs[0] ?? 0,
       1.002,
       'bridge creation should commit the auto-suggested contact offset by default',
+    );
+  } finally {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      interactionGuard: null,
+    });
+    await destroyComponentRoot(dom, root);
+    console.error = originalConsoleError;
+  }
+});
+
+test('bridge create modal closes before committing a bridge so heavy assemblies do not block click feedback', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const events: string[] = [];
+  const originalConsoleError = console.error;
+
+  useSelectionStore.setState({
+    selection: { type: null, id: null },
+    interactionGuard: null,
+  });
+
+  console.error = (...args: unknown[]) => {
+    if (args.some((arg) => typeof arg === 'string' && arg.includes('not wrapped in act'))) {
+      return;
+    }
+
+    originalConsoleError(...args);
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(BridgeCreateModal, {
+          isOpen: true,
+          onClose: () => {
+            events.push('close');
+          },
+          onCreate: () => {
+            events.push('create');
+          },
+          onPreviewChange: (preview) => {
+            if (preview === null) {
+              events.push('preview-clear');
+            }
+          },
+          assemblyState: createAssemblyState(),
+          lang: 'zh',
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      await Promise.resolve();
+    });
+
+    const childButton = findButtonByText(container, '选择子侧');
+    assert.ok(childButton, 'child side picker button should render');
+
+    await act(async () => {
+      childButton.click();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      await Promise.resolve();
+    });
+
+    const confirmButton = findButtonByText(container, '确认');
+    assert.ok(confirmButton, 'confirm button should render');
+
+    await act(async () => {
+      confirmButton.click();
+      await Promise.resolve();
+    });
+
+    assert.equal(events.includes('create'), false, 'bridge creation should wait until after close');
+    assert.equal(events.includes('close'), true, 'modal should close immediately after confirm');
+
+    await act(async () => {
+      await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
+    });
+
+    assert.ok(events.includes('create'), 'bridge creation should run on the deferred tick');
+    assert.ok(
+      events.indexOf('close') < events.indexOf('create'),
+      'modal close should be observed before bridge creation starts',
     );
   } finally {
     useSelectionStore.setState({
@@ -1445,6 +1538,10 @@ test('bridge create modal submits configurable limits for non-fixed joints', asy
     await act(async () => {
       confirmButton.click();
       await Promise.resolve();
+    });
+
+    await act(async () => {
+      await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
     });
 
     assert.deepEqual(createdJoints.at(-1), {

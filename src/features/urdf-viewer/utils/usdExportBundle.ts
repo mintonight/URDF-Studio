@@ -68,6 +68,7 @@ const ORIGIN_EPSILON = 1e-9;
 const EXPORT_COLOR_PLACEHOLDERS = new Set([
   DEFAULT_LINK.visual.color.toLowerCase(),
   DEFAULT_LINK.collision.color.toLowerCase(),
+  '#808080',
   '#3b82f6',
 ]);
 
@@ -674,6 +675,65 @@ function resolveMergedVisualMaterialMetadata(
   };
 }
 
+function resolveMergedVisualColor(
+  current: UrdfVisual | undefined,
+  fallback?: UrdfVisual,
+): string | undefined {
+  const currentColor = current?.color?.trim() || undefined;
+  const fallbackColor = fallback?.color?.trim() || undefined;
+  if (fallbackColor && shouldAdoptSnapshotColor(currentColor)) {
+    return fallbackColor;
+  }
+  return currentColor;
+}
+
+function resolveMergedVisualMaterialFields(
+  current: UrdfVisual | undefined,
+  fallback?: UrdfVisual,
+): Pick<UrdfVisual, 'authoredMaterials' | 'meshMaterialGroups' | 'materialSource'> &
+  Partial<Pick<UrdfVisual, 'color'>> {
+  const color = resolveMergedVisualColor(current, fallback);
+  return {
+    ...resolveMergedVisualMaterialMetadata(current, fallback),
+    ...(color !== undefined ? { color } : {}),
+  };
+}
+
+function mergeRobotMaterials(
+  current: RobotLike['materials'],
+  fallback: RobotLike['materials'],
+): RobotLike['materials'] {
+  if (!current && !fallback) {
+    return undefined;
+  }
+
+  const merged: NonNullable<RobotLike['materials']> = {};
+  const materialKeys = new Set([...Object.keys(fallback || {}), ...Object.keys(current || {})]);
+
+  materialKeys.forEach((key) => {
+    const currentMaterial = current?.[key];
+    const fallbackMaterial = fallback?.[key];
+    const color =
+      fallbackMaterial?.color && shouldAdoptSnapshotMaterialColor(currentMaterial?.color)
+        ? fallbackMaterial.color
+        : currentMaterial?.color || fallbackMaterial?.color;
+    const texture = currentMaterial?.texture || fallbackMaterial?.texture;
+    const usdMaterial = currentMaterial?.usdMaterial || fallbackMaterial?.usdMaterial;
+    const colorRgba = currentMaterial?.colorRgba || fallbackMaterial?.colorRgba;
+
+    merged[key] = {
+      ...(fallbackMaterial || {}),
+      ...(currentMaterial || {}),
+      ...(color ? { color } : {}),
+      ...(colorRgba ? { colorRgba } : {}),
+      ...(texture ? { texture } : {}),
+      ...(usdMaterial ? { usdMaterial } : {}),
+    };
+  });
+
+  return merged;
+}
+
 function originsApproximatelyEqual(
   left: NonNullable<UrdfVisual['origin']> | null | undefined,
   right: NonNullable<UrdfVisual['origin']> | null | undefined,
@@ -952,7 +1012,7 @@ function canReuseFallbackMeshPath(current: UrdfVisual, fallback?: UrdfVisual): b
 }
 
 function fillMeshPath(current: UrdfVisual, fallback?: UrdfVisual): UrdfVisual {
-  const preservedMaterialMetadata = resolveMergedVisualMaterialMetadata(current, fallback);
+  const preservedMaterialMetadata = resolveMergedVisualMaterialFields(current, fallback);
   if (current.type !== GeometryType.MESH) {
     return {
       ...current,
@@ -1072,7 +1132,7 @@ function mergeGeometryWithPreparedCache(
   return {
     ...fallback,
     ...current,
-    ...resolveMergedVisualMaterialMetadata(current, fallback),
+    ...resolveMergedVisualMaterialFields(current, fallback),
     meshPath: current.meshPath || fallback.meshPath,
   };
 }
@@ -1138,10 +1198,7 @@ function mergeCurrentRobotWithPreparedCacheGeometry(
       ...preparedRobot.joints,
       ...baseRobot.joints,
     },
-    materials: {
-      ...(preparedRobot.materials || {}),
-      ...(baseRobot.materials || {}),
-    },
+    materials: mergeRobotMaterials(baseRobot.materials, preparedRobot.materials),
     closedLoopConstraints: baseRobot.closedLoopConstraints || preparedRobot.closedLoopConstraints,
     selection:
       'selection' in currentRobot
@@ -1180,10 +1237,7 @@ function mergeCurrentRobotWithSnapshotMeshPaths(
       ...snapshotRobot.joints,
       ...baseRobot.joints,
     },
-    materials: {
-      ...(snapshotRobot.materials || {}),
-      ...(baseRobot.materials || {}),
-    },
+    materials: mergeRobotMaterials(baseRobot.materials, snapshotRobot.materials),
     closedLoopConstraints: baseRobot.closedLoopConstraints || snapshotRobot.closedLoopConstraints,
     selection:
       'selection' in currentRobot

@@ -46,6 +46,7 @@ interface UnifiedViewerSceneRootsProps {
     objectIndex: number,
     objectType: 'visual' | 'collision',
   ) => void;
+  onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
   robot: RobotState;
   focusTarget?: string | null;
   onCollisionTransformPreview?: (
@@ -115,6 +116,7 @@ export function UnifiedViewerSceneRoots({
   selection,
   onHover,
   onMeshSelect,
+  onUpdate,
   robot,
   focusTarget,
   onCollisionTransformPreview,
@@ -154,6 +156,7 @@ export function UnifiedViewerSceneRoots({
           selection={selection}
           onHover={onHover}
           onMeshSelect={onMeshSelect}
+          onUpdate={onUpdate}
           robot={robot}
           focusTarget={focusTarget}
           onCollisionTransformPreview={onCollisionTransformPreview}

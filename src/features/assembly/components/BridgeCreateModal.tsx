@@ -1425,8 +1425,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
       return;
     }
 
-    onPreviewChange?.(null);
-    onCreate({
+    const createParams = {
       name: effectiveBridgeName,
       parentComponentId: parentCompId,
       parentLinkId,
@@ -1439,9 +1438,14 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
         limit: submitJoint.limit,
         hardware: submitJoint.hardware,
       },
-    });
+    };
+
+    onPreviewChange?.(null);
     resetForm();
     onClose();
+    window.requestAnimationFrame(() => {
+      onCreate(createParams);
+    });
   }, [
     axisX,
     axisY,

@@ -64,10 +64,16 @@ export function createEmbeddedUsdViewerLoadParams(
   }
 
   if (loadProfile === 'large-pure-usd-sliced') {
-    // Pure `.usd` roots such as the Unitree bundles still rely on early
-    // stage-authored transforms staying stable while the first visible frame is
-    // revealed. Reusing the proven embedded one-shot profile avoids stage drift
-    // during orbit/zoom while we investigate a safer sliced-load strategy.
+    // Folder-imported pure `.usd` roots such as `unitree_model/*/usd/*.usd`
+    // should reveal the first drawable scene as early as possible, then keep
+    // hydrating remaining meshes/dependencies in the background. This improves
+    // perceived responsiveness during large vendor bundle imports.
+    safeLoadFlags.nonBlockingLoad = '1';
+    safeLoadFlags.aggressiveInitialDraw = '0';
+    safeLoadFlags.strictOneShot = '0';
+    safeLoadFlags.yieldDuringLoad = '1';
+    safeLoadFlags.resolveRobotMetadataBeforeReady = '0';
+    safeLoadFlags.requireCompleteRobotMetadata = '0';
   }
 
   if (options.dependenciesPreloadedToVirtualFs) {

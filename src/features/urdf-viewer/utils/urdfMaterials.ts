@@ -17,7 +17,16 @@ export interface URDFMaterialInfo {
 function toMaterialRgba(
   colorValue?: string,
   textureValue?: string,
+  colorRgbaValue?: [number, number, number, number],
 ): [number, number, number, number] | null {
+  if (
+    Array.isArray(colorRgbaValue) &&
+    colorRgbaValue.length === 4 &&
+    colorRgbaValue.every((v) => Number.isFinite(v))
+  ) {
+    return colorRgbaValue;
+  }
+
   const raw = String(colorValue || '').trim();
   if (!raw) {
     return textureValue ? [1, 1, 1, 1] : null;
@@ -30,7 +39,7 @@ function toMaterialRgba(
 function collectAuthoredMaterials(
   geometry: Pick<UrdfVisual, 'authoredMaterials'> | null | undefined,
 ): UrdfVisualMaterial[] {
-  return Array.isArray(geometry?.authoredMaterials) ? geometry.authoredMaterials : [];
+  return geometry?.authoredMaterials ?? [];
 }
 
 export function collectURDFMaterialsFromVisualGeometry(
@@ -40,7 +49,7 @@ export function collectURDFMaterialsFromVisualGeometry(
 
   for (const material of collectAuthoredMaterials(geometry)) {
     const name = material.name?.trim();
-    const rgba = toMaterialRgba(material.color, material.texture);
+    const rgba = toMaterialRgba(material.color, material.texture, material.colorRgba);
     if (!name || !rgba) {
       continue;
     }

@@ -25,6 +25,7 @@ import {
   InputGroup,
   InlineInputGroup,
   NumberInput,
+  PROPERTY_EDITOR_FIELD_LABEL_CLASS,
   PROPERTY_EDITOR_HELPER_TEXT_CLASS,
   PROPERTY_EDITOR_INPUT_CLASS,
   PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS,
@@ -1210,28 +1211,43 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
       )}
 
       {geomData.type === GeometryType.MESH && (
-        <InlineInputGroup label={t.meshScale} labelWidthClassName="whitespace-nowrap">
-          <InlineDimensionInputRow
-            columns={3}
-            fields={[
+        <div className="mb-1">
+          <label className={`${PROPERTY_EDITOR_FIELD_LABEL_CLASS} mb-0.5`}>{t.meshScale}</label>
+          <div className="grid gap-1.5 grid-cols-3">
+            {[
               {
                 label: 'X',
                 value: geomData.dimensions?.x ?? 1,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v } }),
+                onChange: (v: number) => update({ dimensions: { ...geomData.dimensions, x: v } }),
               },
               {
                 label: 'Y',
                 value: geomData.dimensions?.y ?? 1,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
+                onChange: (v: number) => update({ dimensions: { ...geomData.dimensions, y: v } }),
               },
               {
                 label: 'Z',
                 value: geomData.dimensions?.z ?? 1,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, z: v } }),
+                onChange: (v: number) => update({ dimensions: { ...geomData.dimensions, z: v } }),
               },
-            ]}
-          />
-        </InlineInputGroup>
+            ].map((field) => (
+              <div key={field.label} className="space-y-0.5 min-w-0">
+                <span
+                  className={`${PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS} w-full justify-center`}
+                >
+                  {field.label}
+                </span>
+                <NumberInput
+                  label={field.label}
+                  value={field.value}
+                  onChange={field.onChange}
+                  compact
+                  showStepper={false}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Box dimensions: Width (X), Depth (Y), Height (Z) */}

@@ -175,6 +175,33 @@ test('keeps B2 pure .usd roots on the stable main-thread path while generic USD 
   );
 });
 
+test('allows Unitree ROS text USDA B2 bundles on the offscreen worker stage', () => {
+  assert.equal(
+    shouldUseUsdOffscreenStage({
+      toolMode: 'select',
+      sourceFile: {
+        name: 'b2_description/urdf/b2_description.usda',
+        format: 'usd',
+        content: '#usda 1.0',
+      },
+      workerRendererSupported: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldUseUsdOffscreenStage({
+      toolMode: 'select',
+      sourceFile: {
+        name: 'b2w_description/urdf/b2w_description.usda',
+        format: 'usd',
+        content: '#usda 1.0',
+      },
+      workerRendererSupported: true,
+    }),
+    true,
+  );
+});
+
 test('keeps exported B2 roundtrip .usd roots on the stable main-thread path too', () => {
   assert.equal(
     shouldUseUsdOffscreenStage({

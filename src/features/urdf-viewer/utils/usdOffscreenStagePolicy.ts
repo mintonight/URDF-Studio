@@ -51,6 +51,10 @@ function getUsdFileStem(name: string | null | undefined): string {
   return fileName.replace(/\.usd[a-z]?$/i, '').toLowerCase();
 }
 
+function isTextUsdLayerName(name: string | null | undefined): boolean {
+  return normalizeUsdFileName(name).toLowerCase().endsWith('.usda');
+}
+
 function collectUsdStageScopeTokens(name: string | null | undefined): Set<string> {
   const normalizedName = normalizeUsdFileName(name).toLowerCase();
   const stageScopeTokens = new Set<string>();
@@ -131,8 +135,8 @@ function hasUnsupportedHandArticulation({
   const candidateFileNames = candidateFiles
     .map((file) => normalizeUsdFileName(file?.name))
     .filter((name) => name.length > 0);
-  const hasUnsupportedBundlePattern = candidateFileNames.some((name) =>
-    hasKnownUnsupportedOffscreenBundleToken(name),
+  const hasUnsupportedBundlePattern = candidateFileNames.some(
+    (name) => !isTextUsdLayerName(name) && hasKnownUnsupportedOffscreenBundleToken(name),
   );
   const hasUnsupportedToken =
     !hasUnsupportedBundlePattern &&

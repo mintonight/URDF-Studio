@@ -5,8 +5,13 @@ import type { RobotFile, UrdfJoint, UrdfLink } from '@/types';
 import {
   buildEditableSourcePatchState,
   resolveEditablePatchTarget,
+  resolveJointLimitEditablePatchTarget,
   type EditableSourcePatchStateResult,
 } from './editableSourcePatchState';
+import {
+  patchUrdfJointLimitInSource,
+  patchUsdJointLimitInSource,
+} from '../utils/jointEditableSourcePatch';
 import {
   appendMJCFBodyCollisionGeomToSource,
   appendMJCFChildBodyToSource,
@@ -69,7 +74,7 @@ export function useEditableSourcePatches({
         sourceFileName,
       });
 
-      if (!targetFileName || !targetFile || !canPatchMJCFEditableSource(targetFile)) {
+      if (!targetFileName || !targetFile) {
         return false;
       }
 
@@ -313,12 +318,69 @@ export function useEditableSourcePatches({
     [availableFiles, commitNextContent, selectedFile, showToast],
   );
 
+  const patchEditableSourceUpdateJointLimit = useCallback(
+    ({
+      sourceFileName,
+      jointName,
+      jointType,
+      limit,
+    }: {
+      sourceFileName?: string | null;
+      jointName: string;
+      jointType: UrdfJoint['type'];
+      limit: NonNullable<UrdfJoint['limit']>;
+    }) => {
+      const { targetFileName, targetFile } = resolveJointLimitEditablePatchTarget({
+        selectedFile,
+        availableFiles,
+        sourceFileName,
+        jointName,
+      });
+      if (!targetFileName || !targetFile) {
+        return;
+      }
+
+      try {
+        const nextContent =
+          targetFile.format === 'urdf'
+            ? patchUrdfJointLimitInSource({
+                sourceContent: targetFile.content,
+                jointName,
+                jointType,
+                limit,
+              })
+            : targetFile.format === 'usd'
+              ? patchUsdJointLimitInSource({
+                  sourceContent: targetFile.content,
+                  jointName,
+                  jointType,
+                  limit,
+                })
+              : null;
+
+        if (!nextContent) {
+          return;
+        }
+
+        commitNextContent({ sourceFileName: targetFileName, nextContent });
+      } catch (error) {
+        console.error(
+          `Failed to patch editable joint limits for "${jointName}" in "${targetFileName}".`,
+          error,
+        );
+        showToast(`Failed to patch joint limits in ${targetFileName}`, 'info');
+      }
+    },
+    [availableFiles, commitNextContent, selectedFile, showToast],
+  );
+
   return {
     patchEditableSourceAddChild,
     patchEditableSourceDeleteSubtree,
     patchEditableSourceAddCollisionBody,
     patchEditableSourceDeleteCollisionBody,
     patchEditableSourceUpdateCollisionBody,
+    patchEditableSourceUpdateJointLimit,
     patchEditableSourceRenameEntities,
   };
 }

@@ -354,12 +354,12 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
           </span>
           <div className="min-w-0 flex-1">
             <PanelSelect
-              variant="compact"
+              variant="dense"
               aria-label={t.measureAnchorMode}
               options={measureAnchorOptions}
               value={measureAnchorMode}
               onChange={(event) => setMeasureAnchorMode(event.target.value as MeasureAnchorMode)}
-              className="w-full"
+              className="w-full min-w-0"
             />
           </div>
         </div>
@@ -425,7 +425,7 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
                   {activeRelativePose ? (
                     <div className="space-y-1">
                       <PanelSelect
-                        variant="compact"
+                        variant="dense"
                         aria-label={t.measureRelativeTransform}
                         options={measurePoseOptions}
                         value={measurePoseRepresentation}
@@ -434,7 +434,7 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
                             event.target.value as MeasurePoseRepresentation,
                           )
                         }
-                        className="w-full"
+                        className="w-full min-w-0"
                         containerClassName="mb-1"
                       />
                       <div className="flex items-center justify-between gap-2">

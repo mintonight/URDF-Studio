@@ -5,6 +5,7 @@ import {
   resolveLinkIkHandleDescriptor,
   resolveLinkKey,
 } from '@/core/robot';
+import { GIZMO_BASE_RENDER_ORDER } from '@/shared/components/3d/unified-transform-controls/gizmoCore.ts';
 import { MathUtils as SharedMathUtils } from '@/shared/utils';
 import type { UrdfJoint, UrdfLink } from '@/types';
 import type { ViewerHelperKind } from '../types';
@@ -68,6 +69,8 @@ interface SyncMjcfTendonVisualizationOptions {
   sourceFormat: 'urdf' | 'mjcf';
   showMjcfTendons: boolean;
 }
+
+const ORIGIN_OVERLAY_BASE_RENDER_ORDER = GIZMO_BASE_RENDER_ORDER - 60;
 
 interface SyncLinkHelperInteractionStateOptions {
   links: THREE.Object3D[];
@@ -738,7 +741,7 @@ export function syncOriginAxesVisualizationForLinks({
       }
 
       if (child.isMesh) {
-        const nextRenderOrder = showOriginsOverlay ? 10001 : 0;
+        const nextRenderOrder = showOriginsOverlay ? ORIGIN_OVERLAY_BASE_RENDER_ORDER : 0;
         const didChange = updateRenderOrder(child, nextRenderOrder);
         changed = didChange || changed;
         if (didChange || child.renderOrder === nextRenderOrder) {

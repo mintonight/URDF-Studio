@@ -35,6 +35,7 @@ interface BuildUnifiedViewerScenePropsArgs {
   selection?: ViewerProps['selection'];
   onHover?: ViewerProps['onHover'];
   onMeshSelect?: ViewerProps['onMeshSelect'];
+  onUpdate?: ViewerProps['onUpdate'];
   robot: RobotState;
   focusTarget?: string | null;
   onCollisionTransformPreview?: ViewerProps['onCollisionTransformPreview'];
@@ -75,6 +76,7 @@ export function buildUnifiedViewerSceneProps({
   selection,
   onHover,
   onMeshSelect,
+  onUpdate,
   robot,
   focusTarget,
   onCollisionTransformPreview,
@@ -115,6 +117,7 @@ export function buildUnifiedViewerSceneProps({
     hoverSelectionEnabled: !previewBlocksInteraction,
     onHover: previewBlocksInteraction ? undefined : onHover,
     onMeshSelect: previewBlocksInteraction ? undefined : onMeshSelect,
+    onUpdate: hasActivePreview ? undefined : onUpdate,
     robotLinks: hasActivePreview ? undefined : robot.links,
     robotJoints: hasActivePreview ? undefined : robot.joints,
     focusTarget: hasActivePreview ? undefined : focusTarget,

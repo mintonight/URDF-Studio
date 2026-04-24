@@ -642,7 +642,7 @@ test('GeometryEditor keeps the type and name header responsive for visual and co
       const sharedRow = typeLabel.parentElement;
       assert.ok(sharedRow, `${category} geometry should render the shared header row`);
 
-      const nameLabel = Array.from(container.querySelectorAll('span')).find(
+      const nameLabel = Array.from(sharedRow.querySelectorAll('span')).find(
         (node) => node.textContent === translations.en.name,
       );
       assert.ok(nameLabel, `${category} geometry should render the name label`);
@@ -689,6 +689,53 @@ test('GeometryEditor keeps the type and name header responsive for visual and co
         `${category} geometry name input should fill the available width inside the shared row`,
       );
     }
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('GeometryEditor renders mesh scale as a two-line row without stepper buttons', async () => {
+  const { dom, container, root } = createComponentRoot();
+  try {
+    const link = createLink('#00ff00');
+    link.visual = {
+      type: GeometryType.MESH,
+      dimensions: { x: 1, y: 1, z: 1 },
+      color: '#ff0000',
+      meshPath: 'meshes/base_link.dae',
+      origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+    };
+
+    await renderGeometryEditor(root, link, () => {});
+
+    const meshScaleLabel = Array.from(container.querySelectorAll('label')).find(
+      (node) => node.textContent?.trim() === translations.en.meshScale,
+    );
+    assert.ok(meshScaleLabel, 'mesh scale label should render');
+
+    const meshScaleSection = meshScaleLabel.parentElement;
+    assert.ok(meshScaleSection, 'mesh scale section should render');
+
+    const meshScaleGrid = meshScaleSection.querySelector('div.grid.grid-cols-3');
+    assert.ok(meshScaleGrid, 'mesh scale inputs should render on a separate second line');
+
+    const xInput = container.querySelector('input[aria-label="X"]');
+    const yInput = container.querySelector('input[aria-label="Y"]');
+    const zInput = container.querySelector('input[aria-label="Z"]');
+    assert.ok(xInput, 'mesh scale X input should render');
+    assert.ok(yInput, 'mesh scale Y input should render');
+    assert.ok(zInput, 'mesh scale Z input should render');
+
+    assert.equal(
+      container.querySelector('button[aria-label="Increase X"]'),
+      null,
+      'mesh scale X input should not render the increment stepper button',
+    );
+    assert.equal(
+      container.querySelector('button[aria-label="Decrease X"]'),
+      null,
+      'mesh scale X input should not render the decrement stepper button',
+    );
   } finally {
     await destroyComponentRoot(dom, root);
   }

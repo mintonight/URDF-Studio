@@ -122,6 +122,7 @@ const serializePrimitiveAttributes = (
   lines: string[],
   depth: number,
   primitiveType: SerializedPrimitiveType,
+  object: THREE.Object3D,
 ): void => {
   const indent = makeUsdIndent(depth);
 
@@ -131,13 +132,19 @@ const serializePrimitiveAttributes = (
   }
 
   if (primitiveType === 'Sphere') {
-    lines.push(`${indent}double radius = 0.5`);
+    lines.push(
+      `${indent}double radius = ${formatUsdFloat(Number(object.userData.usdRadius ?? 0.5))}`,
+    );
     return;
   }
 
   if (primitiveType === 'Cylinder' || primitiveType === 'Capsule') {
-    lines.push(`${indent}double radius = 0.5`);
-    lines.push(`${indent}double height = 1`);
+    lines.push(
+      `${indent}double radius = ${formatUsdFloat(Number(object.userData.usdRadius ?? 0.5))}`,
+    );
+    lines.push(
+      `${indent}double height = ${formatUsdFloat(Number(object.userData.usdHeight ?? 1))}`,
+    );
     lines.push(`${indent}uniform token axis = "Z"`);
   }
 };
@@ -555,7 +562,7 @@ const serializeSceneNode = async (
   }
 
   if (primitiveType) {
-    serializePrimitiveAttributes(lines, childDepth, primitiveType);
+    serializePrimitiveAttributes(lines, childDepth, primitiveType, object);
     serializeDisplayColor(lines, childDepth, object);
     serializeMaterialBinding(lines, childDepth, object, context);
   } else if (isUsdMeshObject(object)) {

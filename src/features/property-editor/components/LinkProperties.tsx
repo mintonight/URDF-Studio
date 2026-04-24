@@ -20,6 +20,7 @@ import { useUIStore, type Language, type MassInertiaChangeBehavior } from '@/sto
 import { MAX_PROPERTY_DECIMALS, formatNumberWithMaxDecimals } from '@/core/utils/numberPrecision';
 import {
   appendCollisionBody,
+  getParentJointByChildLink,
   getCollisionGeometryEntries,
   removeCollisionGeometryByObjectIndex,
   updateCollisionGeometryByObjectIndex,
@@ -61,6 +62,10 @@ const DEFAULT_INERTIAL = {
   origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
   inertia: { ixx: 0, ixy: 0, ixz: 0, iyy: 0, iyz: 0, izz: 0 },
 };
+const DEFAULT_LINK_FRAME_ORIGIN = {
+  xyz: { x: 0, y: 0, z: 0 },
+  rpy: { r: 0, p: 0, y: 0 },
+};
 
 const DEFAULT_PRINCIPAL_AXES = [
   { x: 1, y: 0, z: 0 },
@@ -97,6 +102,24 @@ const fillTemplate = (template: string, replacements: Record<string, string>): s
 
 const formatMassValue = (value: number): string =>
   formatNumberWithMaxDecimals(value, MAX_PROPERTY_DECIMALS);
+
+const toXYZ = (
+  value: { x?: number; y?: number; z?: number },
+  fallback = DEFAULT_LINK_FRAME_ORIGIN.xyz,
+) => ({
+  x: value.x ?? fallback.x,
+  y: value.y ?? fallback.y,
+  z: value.z ?? fallback.z,
+});
+
+const toRPY = (
+  value: { r?: number; p?: number; y?: number },
+  fallback = DEFAULT_LINK_FRAME_ORIGIN.rpy,
+) => ({
+  r: value.r ?? fallback.r,
+  p: value.p ?? fallback.p,
+  y: value.y ?? fallback.y,
+});
 
 const formatInertiaTensorSummary = (inertia: InertiaTensorComponents): string => {
   const diagonalSummary = `ixx=${formatReadonlyNumber(inertia.ixx)}, iyy=${formatReadonlyNumber(
@@ -287,6 +310,13 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
     [data.inertial],
   );
   const collisionGeometryEntries = useMemo(() => getCollisionGeometryEntries(data), [data]);
+  const parentJoint = useMemo(() => {
+    const parentJointsByChild = getParentJointByChildLink(robot);
+    return (
+      parentJointsByChild.get(data.id) ?? parentJointsByChild.get(selection.id ?? data.id) ?? null
+    );
+  }, [data.id, robot, selection.id]);
+  const linkFrameOrigin = parentJoint?.origin ?? DEFAULT_LINK_FRAME_ORIGIN;
   const densityLabel = t.density;
   const selectedCollisionObjectIndex =
     selection.type === 'link' && selection.id === data.id && selection.subType === 'collision'
@@ -494,6 +524,55 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
     </InlineInputGroup>
   );
 
+  const frameParametersSection = (
+    <CollapsibleSection
+      title={t.originReferenceFrame}
+      className="mb-2.5"
+      storageKey="property_editor_link_frame"
+    >
+      <InlineInputGroup label={t.originReferenceFrame} labelWidthClassName="w-24">
+        <ReadonlyValueField>{parentJoint ? t.parentJointFrame : t.linkFrame}</ReadonlyValueField>
+      </InlineInputGroup>
+      <p className={`${PROPERTY_EDITOR_HELPER_TEXT_CLASS} mt-1.5`}>
+        {parentJoint ? t.childLinkFrameMatchesParentJoint : t.rootLinkOnlyFrameHint}
+      </p>
+      {parentJoint ? (
+        <div className="mt-2.5 overflow-hidden rounded-md border border-border-black/60">
+          <div className="bg-element-bg/70 px-2 py-1 text-[9px] font-semibold tracking-[0.02em] text-text-secondary">
+            {t.originRelativeParentJoint}
+          </div>
+          <div className="border-t border-border-black/60 bg-panel-bg px-1.5 py-1">
+            <TransformFields
+              lang={lang}
+              positionValue={linkFrameOrigin.xyz}
+              rotationValue={linkFrameOrigin.rpy}
+              compact={false}
+              rotationQuickStepDegrees={90}
+              onPositionChange={(xyz) =>
+                onUpdate('joint', parentJoint.id, {
+                  ...parentJoint,
+                  origin: {
+                    xyz: toXYZ(xyz, linkFrameOrigin.xyz),
+                    rpy: linkFrameOrigin.rpy,
+                  },
+                })
+              }
+              onRotationChange={(rpy) =>
+                onUpdate('joint', parentJoint.id, {
+                  ...parentJoint,
+                  origin: {
+                    xyz: linkFrameOrigin.xyz,
+                    rpy: toRPY(rpy, linkFrameOrigin.rpy),
+                  },
+                })
+              }
+            />
+          </div>
+        </div>
+      ) : null}
+    </CollapsibleSection>
+  );
+
   const inertialParametersSection = (
     <CollapsibleSection
       title={t.inertial}
@@ -624,6 +703,7 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
 
   const inertialSection = (
     <>
+      {frameParametersSection}
       {inertialParametersSection}
       {derivedValuesSection}
     </>

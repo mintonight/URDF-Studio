@@ -50,7 +50,15 @@ export function useViewerOrchestration({
       return;
     }
 
-    if (helperKind === 'origin-axes' || helperKind === 'joint-axis') {
+    if (helperKind === 'origin-axes') {
+      if (uiState.detailLinkTab !== 'visual') {
+        uiState.setDetailLinkTab('visual');
+      }
+      uiState.setPanelSection('property_editor_link_frame', false);
+      return;
+    }
+
+    if (helperKind === 'joint-axis') {
       uiState.setPanelSection('kinematics', false);
     }
   }, []);

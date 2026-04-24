@@ -3,6 +3,10 @@ export interface EditableTextFileLike {
   content: string;
 }
 
+interface EditablePatchTargetFileLike extends EditableTextFileLike {
+  format?: string | null;
+}
+
 export interface ResolvedEditablePatchTarget<TFile extends EditableTextFileLike> {
   targetFileName: string;
   targetFile: TFile | null;
@@ -40,6 +44,78 @@ export function resolveEditablePatchTarget<TFile extends EditableTextFileLike>({
   return {
     targetFileName,
     targetFile,
+  };
+}
+
+const USD_LIMIT_PROPERTY_RE =
+  /\b(?:physics:(?:lowerLimit|upperLimit)|physxJoint:maxJointVelocity|drive:[^=\s]+:physics:maxForce)\b/;
+
+function scoreUsdJointLimitPatchCandidate(
+  file: EditablePatchTargetFileLike,
+  jointName: string,
+  preferredDirectory: string,
+): number {
+  if (file.format !== 'usd') {
+    return -1;
+  }
+
+  let score = 0;
+  if (file.content.includes(`"${jointName}"`)) {
+    score += 8;
+  }
+  if (USD_LIMIT_PROPERTY_RE.test(file.content)) {
+    score += 6;
+  }
+  if (/physics\.usd[a]?$/i.test(file.name)) {
+    score += 4;
+  }
+  if (preferredDirectory && file.name.startsWith(preferredDirectory)) {
+    score += 2;
+  }
+  return score;
+}
+
+export function resolveJointLimitEditablePatchTarget<TFile extends EditablePatchTargetFileLike>({
+  selectedFile,
+  availableFiles,
+  sourceFileName,
+  jointName,
+}: {
+  selectedFile: TFile | null;
+  availableFiles: TFile[];
+  sourceFileName?: string | null;
+  jointName: string;
+}): ResolvedEditablePatchTarget<TFile> {
+  const directTarget = resolveEditablePatchTarget({
+    selectedFile,
+    availableFiles,
+    sourceFileName,
+  });
+
+  if (directTarget.targetFile?.format !== 'usd') {
+    return directTarget;
+  }
+
+  const preferredDirectory = directTarget.targetFileName.includes('/')
+    ? directTarget.targetFileName.slice(0, directTarget.targetFileName.lastIndexOf('/') + 1)
+    : '';
+
+  const scoredCandidates = availableFiles
+    .map((file) => ({
+      file,
+      score: scoreUsdJointLimitPatchCandidate(file, jointName, preferredDirectory),
+    }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((left, right) => right.score - left.score);
+
+  const bestCandidate = scoredCandidates[0]?.file ?? directTarget.targetFile;
+  if (!bestCandidate) {
+    return directTarget;
+  }
+
+  return {
+    targetFileName: bestCandidate.name,
+    targetFile: bestCandidate,
   };
 }
 

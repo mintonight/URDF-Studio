@@ -45,16 +45,12 @@ function createSnapshot() {
       defaultPrimPath: '/Robot',
     },
     robotTree: {
-      linkParentPairs: [
-        ['/Robot/base_link', null],
-      ],
+      linkParentPairs: [['/Robot/base_link', null]],
       rootLinkPaths: ['/Robot/base_link'],
     },
     robotMetadataSnapshot: {
       stageSourcePath: '/robots/demo/demo.usd',
-      linkParentPairs: [
-        ['/Robot/base_link', null],
-      ],
+      linkParentPairs: [['/Robot/base_link', null]],
       jointCatalogEntries: [],
       meshCountsByLinkPath: {
         '/Robot/base_link': {
@@ -78,11 +74,7 @@ function createSnapshot() {
       ],
     },
     buffers: {
-      positions: new Float32Array([
-        0, 0, 0,
-        1, 0, 0,
-        0, 1, 0,
-      ]),
+      positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
       indices: new Uint32Array([0, 1, 2]),
       normals: new Float32Array(0),
       uvs: new Float32Array(0),
@@ -126,7 +118,9 @@ function createPreparedCache(): UsdPreparedExportCache {
       joints: {},
     },
     meshFiles: {
-      'base_link_visual_0.obj': new Blob(['o cached_mesh\nv 0 0 0\nf 1 1 1\n'], { type: 'text/plain' }),
+      'base_link_visual_0.obj': new Blob(['o cached_mesh\nv 0 0 0\nf 1 1 1\n'], {
+        type: 'text/plain',
+      }),
     },
   };
 }
@@ -159,4 +153,46 @@ test('resolveCurrentUsdExportBundle prefers prepared cache over raw live snapsho
   assert.equal(bundle.robot.links.base_link.visual.meshPath, 'base_link_visual_0.obj');
   const meshText = await bundle.meshFiles.get('base_link_visual_0.obj')?.text();
   assert.match(meshText || '', /^o cached_mesh/m);
+});
+
+test('resolveCurrentUsdExportBundle preserves prepared USD materials over default current robot colors', () => {
+  const currentRobot = createCurrentRobot();
+  currentRobot.links.base_link.visual.color = '#808080';
+  currentRobot.materials = {
+    base_link: {
+      color: '#808080',
+    },
+  };
+
+  const preparedCache = createPreparedCache();
+  preparedCache.robotData.links.base_link.visual.color = '#050505';
+  preparedCache.robotData.links.base_link.visual.authoredMaterials = [
+    {
+      name: 'material_______024',
+      color: '#050505',
+    },
+  ];
+  preparedCache.robotData.links.base_link.visual.materialSource = 'named';
+  preparedCache.robotData.materials = {
+    base_link: {
+      color: '#050505',
+    },
+  };
+
+  const bundle = resolveCurrentUsdExportBundle({
+    stageSourcePath: '/robots/unitree_model/B2/usd/b2.usd',
+    currentRobot,
+    cachedSnapshot: null,
+    preparedCache,
+  });
+
+  assert.ok(bundle);
+  assert.equal(bundle.robot.links.base_link.visual.color, '#050505');
+  assert.deepEqual(bundle.robot.links.base_link.visual.authoredMaterials, [
+    {
+      name: 'material_______024',
+      color: '#050505',
+    },
+  ]);
+  assert.equal(bundle.robot.materials?.base_link?.color, '#050505');
 });

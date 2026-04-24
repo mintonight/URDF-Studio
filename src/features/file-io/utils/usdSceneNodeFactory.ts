@@ -238,13 +238,11 @@ const getUsdVisualScale = (visual: UrdfVisual): THREE.Vector3 => {
   }
 
   if (type === USD_GEOMETRY_TYPES.SPHERE) {
-    const diameter = (visual.dimensions.x || 0.5) * 2;
-    return new THREE.Vector3(diameter, diameter, diameter);
+    return new THREE.Vector3(1, 1, 1);
   }
 
   if (type === USD_GEOMETRY_TYPES.CYLINDER || type === USD_GEOMETRY_TYPES.CAPSULE) {
-    const diameter = (visual.dimensions.x || 0.5) * 2;
-    return new THREE.Vector3(diameter, diameter, visual.dimensions.y || 1);
+    return new THREE.Vector3(1, 1, 1);
   }
 
   return new THREE.Vector3(
@@ -345,6 +343,12 @@ const createUsdPrimitiveSceneNode = (
   const primitive = new THREE.Object3D();
   primitive.name = type || primitiveType.toLowerCase();
   primitive.userData.usdGeomType = primitiveType;
+  if (primitiveType === 'Sphere') {
+    primitive.userData.usdRadius = visual.dimensions.x || 0.5;
+  } else if (primitiveType === 'Cylinder' || primitiveType === 'Capsule') {
+    primitive.userData.usdRadius = visual.dimensions.x || 0.5;
+    primitive.userData.usdHeight = visual.dimensions.y || 1;
+  }
   primitive.userData.usdDisplayColor = materialState?.suppressVisualColor
     ? null
     : materialState?.color || visual.color || null;

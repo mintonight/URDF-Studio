@@ -43,6 +43,12 @@ interface AssemblyUpdateParams {
     objectIndex: number;
     geometry: UrdfLink['collision'];
   }) => void;
+  patchEditableSourceUpdateJointLimit?: (args: {
+    sourceFileName?: string | null;
+    jointName: string;
+    jointType: UrdfJoint['type'];
+    limit: NonNullable<UrdfJoint['limit']>;
+  }) => void;
   patchEditableSourceRenameEntities?: (args: {
     sourceFileName?: string | null;
     operations: { kind: 'link' | 'joint'; currentName: string; nextName: string }[];
@@ -229,6 +235,15 @@ export function applyAssemblyUpdate(params: AssemblyUpdateParams): boolean {
       );
 
       const currentJoint = comp.robot.joints[resolvedJointId];
+      const nextJoint = params.data as UrdfJoint;
+      if (currentJoint && nextJoint.limit) {
+        params.patchEditableSourceUpdateJointLimit?.({
+          sourceFileName: comp.sourceFile,
+          jointName: currentJoint.name,
+          jointType: nextJoint.type,
+          limit: nextJoint.limit,
+        });
+      }
       if (currentJoint && currentJoint.name !== (params.data as UrdfJoint).name) {
         params.patchEditableSourceRenameEntities?.({
           sourceFileName: comp.sourceFile,
@@ -236,7 +251,7 @@ export function applyAssemblyUpdate(params: AssemblyUpdateParams): boolean {
             {
               kind: 'joint',
               currentName: currentJoint.name,
-              nextName: (params.data as UrdfJoint).name,
+              nextName: nextJoint.name,
             },
           ],
         });

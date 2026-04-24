@@ -871,12 +871,8 @@ export function useMouseInteraction({
           helperTargets,
           interactionLayerPriority,
         });
-        if (helperInteraction) {
-          return helperInteraction;
-        }
-
         const canvasRect = gl.domElement.getBoundingClientRect();
-        helperInteraction = resolveScreenSpaceHelperInteraction({
+        const projectedHelperInteraction = resolveScreenSpaceHelperInteraction({
           pointerClientX: e.clientX,
           pointerClientY: e.clientY,
           projectedHelpers: collectProjectedHelperInteractionTargets({
@@ -886,6 +882,14 @@ export function useMouseInteraction({
           }),
           interactionLayerPriority,
         });
+        const helperCandidates = [helperInteraction, projectedHelperInteraction].filter(
+          (candidate): candidate is ResolvedHoverInteractionCandidate => candidate !== null,
+        );
+        helperInteraction =
+          helperCandidates.length > 0
+            ? resolveHoverInteractionResolution(helperCandidates, interactionLayerPriority)
+                .primaryInteraction
+            : null;
         return helperInteraction;
       };
 

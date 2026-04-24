@@ -21,6 +21,7 @@ import {
   syncMjcfTendonVisualizationForRobot,
   syncOriginAxesVisualizationForLinks,
 } from './visualizationObjectSync.ts';
+import { GIZMO_BASE_RENDER_ORDER } from '@/shared/components/3d/unified-transform-controls/gizmoCore.ts';
 
 test('syncOriginAxesVisualizationForLinks is a no-op on the second identical pass', () => {
   const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
@@ -43,6 +44,24 @@ test('syncOriginAxesVisualizationForLinks is a no-op on the second identical pas
   assert.equal(firstChanged, true);
   assert.equal(secondChanged, false);
   assert.equal(link.userData.__originAxes.visible, true);
+});
+
+test('syncOriginAxesVisualizationForLinks keeps origin overlay below transform gizmo render order', () => {
+  const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  link.isURDFLink = true;
+  link.name = 'base_link';
+
+  syncOriginAxesVisualizationForLinks({
+    links: [link],
+    showOrigins: true,
+    showOriginsOverlay: true,
+    originSize: 0.2,
+  });
+
+  const originAxes = link.userData.__originAxes as THREE.Object3D;
+  const originMesh = originAxes.children.find((child: any) => child.isMesh) as THREE.Mesh;
+
+  assert.ok(originMesh.renderOrder < GIZMO_BASE_RENDER_ORDER);
 });
 
 test('syncJointAxesVisualizationForJoints is a no-op on the second identical pass', () => {

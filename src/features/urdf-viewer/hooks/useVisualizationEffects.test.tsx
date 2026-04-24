@@ -401,6 +401,45 @@ test('joint-owned origin-axis hover activates the child link helper highlight', 
   dom.window.close();
 });
 
+test('origin-axis selection keeps helper interaction active without selecting link geometry', async () => {
+  const { dom, root } = createComponentRoot();
+  const { robot, link } = createRobotWithJointOwnedOriginAxes();
+  const highlightCalls: Array<{
+    linkName: string | null;
+    revert: boolean;
+    subType?: 'visual' | 'collision';
+    meshToHighlight?: THREE.Object3D | null | number;
+  }> = [];
+
+  await renderHarness(root, robot, {
+    showOrigins: true,
+    selection: {
+      type: 'link',
+      id: 'child_link',
+      helperKind: 'origin-axes',
+    },
+    onHighlightGeometry: (linkName, revert, subType, meshToHighlight) => {
+      highlightCalls.push({ linkName, revert, subType, meshToHighlight });
+    },
+  });
+
+  const originAxes = link.userData.__originAxes as THREE.Object3D | undefined;
+  assert.ok(originAxes, 'origin axes helper should be created for the child link');
+  const originMesh = originAxes.children.find((child: any) => child.isMesh) as THREE.Mesh;
+  assert.ok(originMesh, 'origin axes helper should include a mesh child');
+  assert.notEqual(
+    (originMesh.material as THREE.MeshBasicMaterial).color.getHex(),
+    0xef4444,
+    'origin axes helper should still reflect selected helper state',
+  );
+  assert.deepEqual(highlightCalls, []);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
 test('geometry hover keeps per-object tendon highlights when the hovered target object changes', async () => {
   const { dom, root } = createComponentRoot();
   const robot = new THREE.Group();

@@ -1,9 +1,5 @@
 import * as THREE from 'three';
-import {
-  getChildJointsByParentLink,
-  getParentJointByChildLink,
-  resolveJointKey,
-} from '@/core/robot';
+import { getParentJointByChildLink, resolveJointKey } from '@/core/robot';
 import { URDFJoint as RuntimeURDFJoint } from '@/core/parsers/urdf/loader';
 import type { InteractionSelection, UrdfJoint } from '@/types';
 import { applyOriginToJoint } from './robotLoaderPatchUtils';
@@ -52,20 +48,6 @@ function getCurrentJointValues(joint: RuntimeURDFJoint): number[] {
   return [];
 }
 
-function resolvePreferredChildJoint(
-  robotJoints: Record<string, UrdfJoint>,
-  linkId: string,
-): UrdfJoint | null {
-  const childJoints =
-    getChildJointsByParentLink({ joints: robotJoints } as Pick<
-      { joints: Record<string, UrdfJoint> },
-      'joints'
-    >).get(linkId) ?? [];
-  const preferredChildJoint =
-    childJoints.find((joint) => joint.type !== 'fixed') ?? childJoints[0] ?? null;
-  return preferredChildJoint;
-}
-
 function resolveRuntimeJointKey(
   joints: Record<string, RuntimeURDFJoint> | null | undefined,
   jointNameOrId: string | null | undefined,
@@ -102,27 +84,18 @@ export function resolveOriginTransformJointIdentity(
     return null;
   }
 
-  const parentJointId =
+  const parentJoint =
     getParentJointByChildLink({ joints: robotJoints } as Pick<
       { joints: Record<string, UrdfJoint> },
       'joints'
-    >).get(selection.id)?.id ?? null;
-  if (parentJointId) {
-    const parentJoint = robotJoints[parentJointId] ?? null;
-    return {
-      jointId: parentJointId,
-      jointName: parentJoint?.name ?? parentJointId,
-    };
-  }
-
-  const preferredChildJoint = resolvePreferredChildJoint(robotJoints, selection.id);
-  if (!preferredChildJoint) {
+    >).get(selection.id) ?? null;
+  if (!parentJoint) {
     return null;
   }
 
   return {
-    jointId: preferredChildJoint.id,
-    jointName: preferredChildJoint.name ?? preferredChildJoint.id,
+    jointId: parentJoint.id,
+    jointName: parentJoint.name ?? parentJoint.id,
   };
 }
 

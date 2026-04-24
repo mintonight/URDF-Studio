@@ -6,6 +6,7 @@ import { createRoot, Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { JointControlItem } from './JointControlItem';
+import { useRobotStore } from '@/store/robotStore';
 
 type RenderOverrides = Partial<React.ComponentProps<typeof JointControlItem>>;
 
@@ -233,6 +234,197 @@ test('limit editors reserve column width while editing so the slider cannot over
   const upperInput = editors.at(-1) ?? null;
   assert.ok(upperInput, 'upper limit editor should open');
   assert.match(upperInput.parentElement?.className ?? '', /min-w-\[2\.35rem\]/);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('advanced limit commit uses the current input value when clicking outside the editor', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const updates: Array<{
+    type: 'link' | 'joint';
+    id: string;
+    data: { limit?: { lower?: number } };
+  }> = [];
+
+  await renderJointControlItem(root, {
+    isAdvanced: true,
+    onUpdate: (type, id, data) => {
+      updates.push({
+        type,
+        id,
+        data: data as { limit?: { lower?: number } },
+      });
+    },
+  });
+
+  const lowerLimitDisplay = Array.from(container.querySelectorAll('div')).find(
+    (node) => node.textContent === '-1.57',
+  );
+  assert.ok(lowerLimitDisplay, 'lower limit display should render');
+
+  await act(async () => {
+    lowerLimitDisplay.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+
+  const lowerInput = Array.from(
+    container.querySelectorAll<HTMLInputElement>('input[type="text"]'),
+  ).find((node) => node.value === '-1.57');
+  assert.ok(lowerInput, 'lower limit editor should open');
+
+  const nameLabel = container.querySelector('span[title="R_thigh_joint"]');
+  assert.ok(nameLabel, 'joint name label should render');
+
+  await act(async () => {
+    lowerInput.value = '-0.50';
+    lowerInput.dispatchEvent(new Event('input', { bubbles: true }));
+    nameLabel.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  });
+
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0]?.type, 'joint');
+  assert.equal(updates[0]?.id, 'R_thigh_joint');
+  assert.equal(updates[0]?.data.limit?.lower, -0.5);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('advanced limit commit targets the panel joint key when the runtime joint id differs', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const updates: Array<{
+    type: 'link' | 'joint';
+    id: string;
+    data: { limit?: { lower?: number } };
+  }> = [];
+
+  await renderJointControlItem(root, {
+    isAdvanced: true,
+    name: 'FL_hip_joint',
+    joint: {
+      id: 'runtime_fl_hip_joint',
+      name: 'FL_hip_joint',
+      jointType: 'revolute',
+      limit: { lower: -1.57, upper: 3.49, effort: 1, velocity: 1 },
+    },
+    onUpdate: (type, id, data) => {
+      updates.push({
+        type,
+        id,
+        data: data as { limit?: { lower?: number } },
+      });
+    },
+  });
+
+  const lowerLimitDisplay = Array.from(container.querySelectorAll('div')).find(
+    (node) => node.textContent === '-1.57',
+  );
+  assert.ok(lowerLimitDisplay, 'lower limit display should render');
+
+  await act(async () => {
+    lowerLimitDisplay.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+
+  const lowerInput = Array.from(
+    container.querySelectorAll<HTMLInputElement>('input[type="text"]'),
+  ).find((node) => node.value === '-1.57');
+  assert.ok(lowerInput, 'lower limit editor should open');
+
+  const nameLabel = container.querySelector('span[title="FL_hip_joint"]');
+  assert.ok(nameLabel, 'joint name label should render');
+
+  await act(async () => {
+    lowerInput.value = '-0.50';
+    lowerInput.dispatchEvent(new Event('input', { bubbles: true }));
+    nameLabel.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  });
+
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0]?.type, 'joint');
+  assert.equal(updates[0]?.id, 'FL_hip_joint');
+  assert.equal(updates[0]?.data.limit?.lower, -0.5);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('advanced limit commit does not leak non-serializable runtime joint fields into onUpdate', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const updates: Array<{
+    type: 'link' | 'joint';
+    id: string;
+    data: Record<string, unknown>;
+  }> = [];
+  const previousJoints = useRobotStore.getState().joints;
+
+  useRobotStore.setState({
+    joints: {
+      FL_hip_joint: {
+        id: 'FL_hip_joint',
+        name: 'FL_hip_joint',
+        jointType: 'revolute',
+        limit: { lower: -1.57, upper: 3.49, effort: 1, velocity: 1 },
+      } as never,
+    },
+  });
+
+  await renderJointControlItem(root, {
+    isAdvanced: true,
+    name: 'FL_hip_joint',
+    joint: {
+      id: 'runtime_fl_hip_joint',
+      name: 'FL_hip_joint',
+      jointType: 'revolute',
+      limit: { lower: -1.57, upper: 3.49, effort: 1, velocity: 1 },
+      runtimeOnly: dom.window,
+      onRotationChange: () => {},
+    },
+    onUpdate: (type, id, data) => {
+      updates.push({
+        type,
+        id,
+        data: data as Record<string, unknown>,
+      });
+    },
+  });
+
+  const lowerLimitDisplay = Array.from(container.querySelectorAll('div')).find(
+    (node) => node.textContent === '-1.57',
+  );
+  assert.ok(lowerLimitDisplay, 'lower limit display should render');
+
+  await act(async () => {
+    lowerLimitDisplay.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+
+  const lowerInput = Array.from(
+    container.querySelectorAll<HTMLInputElement>('input[type="text"]'),
+  ).find((node) => node.value === '-1.57');
+  assert.ok(lowerInput, 'lower limit editor should open');
+
+  const nameLabel = container.querySelector('span[title="FL_hip_joint"]');
+  assert.ok(nameLabel, 'joint name label should render');
+
+  await act(async () => {
+    lowerInput.value = '-0.50';
+    lowerInput.dispatchEvent(new Event('input', { bubbles: true }));
+    nameLabel.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  });
+
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0]?.id, 'FL_hip_joint');
+  assert.equal((updates[0]?.data.limit as { lower?: number } | undefined)?.lower, -0.5);
+  assert.equal('runtimeOnly' in (updates[0]?.data ?? {}), false);
+  assert.equal('onRotationChange' in (updates[0]?.data ?? {}), false);
+  assert.doesNotThrow(() => structuredClone(updates[0]?.data));
+
+  useRobotStore.setState({ joints: previousJoints });
 
   await act(async () => {
     root.unmount();

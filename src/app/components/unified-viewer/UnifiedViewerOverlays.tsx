@@ -69,6 +69,7 @@ export function UnifiedViewerOverlays({
             showJointPanel={true}
             setShowJointPanel={setShowJointPanel}
             lang={lang}
+            onUpdate={onUpdate}
           />
         </React.Suspense>
       )}

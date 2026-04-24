@@ -654,16 +654,20 @@ export function useHoverDetection({
         helperTargets: getHelperTargets(),
         interactionLayerPriority,
       });
-      if (helperInteraction) {
-        return helperInteraction;
-      }
-
-      helperInteraction = resolveScreenSpaceHelperInteraction({
+      const projectedHelperInteraction = resolveScreenSpaceHelperInteraction({
         pointerClientX,
         pointerClientY,
         projectedHelpers: getProjectedHelperTargets(cameraMoved || cameraRotated),
         interactionLayerPriority,
       });
+      const helperCandidates = [helperInteraction, projectedHelperInteraction].filter(
+        (candidate): candidate is ResolvedHoverInteractionCandidate => candidate !== null,
+      );
+      helperInteraction =
+        helperCandidates.length > 0
+          ? resolveHoverInteractionResolution(helperCandidates, interactionLayerPriority)
+              .primaryInteraction
+          : null;
       return helperInteraction;
     };
     const applyHelperHoverInteraction = (helperInteraction: ResolvedHoverInteractionCandidate) => {

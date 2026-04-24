@@ -416,76 +416,29 @@ export function useWorkspaceModeTransitions({
       return;
     }
 
-    void (async () => {
-      let preResolvedRobotData: RobotData | null = null;
+    initAssembly(currentAssemblyState?.name || robotName || 'assembly');
+    const immediateComponent = addComponent(activeFile, {
+      availableFiles,
+      assets,
+      allFileContents,
+      preResolvedRobotData:
+        activeFile.format === 'usd'
+          ? (getUsdPreparedExportCache(activeFile.name)?.robotData ?? null)
+          : null,
+      queueAutoGround: false,
+    });
 
-      if (activeFile.format === 'usd') {
-        const usdAssemblySeed = resolveUsdAssemblySeedRobotData({
-          activeFile,
-          selectedFile,
-          currentRobotData: {
-            name: robotName,
-            links: robotLinks,
-            joints: robotJoints,
-            rootLinkId,
-            materials: robotMaterials,
-            closedLoopConstraints,
-          },
-          getUsdPreparedExportCache,
-        });
-
-        if (usdAssemblySeed.preparedCache) {
-          useAssetsStore
-            .getState()
-            .setUsdPreparedExportCache(activeFile.name, usdAssemblySeed.preparedCache);
-        }
-
-        preResolvedRobotData = usdAssemblySeed.preResolvedRobotData;
-
-        if (usdAssemblySeed.requiresRobotReload || !preResolvedRobotData) {
-          pendingUsdAssemblyFileRef.current = activeFile;
-          onLoadRobot(activeFile);
-          return;
-        }
-      }
-
-      const preparedComponent = await prepareAssemblyComponentForInsert(activeFile, {
-        existingComponentIds: [],
-        existingComponentNames: [],
-        preResolvedRobotData,
-      });
-
-      initAssembly(currentAssemblyState?.name || robotName || 'assembly');
-
-      const component = addComponent(activeFile, {
-        availableFiles,
-        assets,
-        allFileContents,
-        preResolvedRobotData,
-        queueAutoGround: false,
-        preparedComponent,
-      });
-
-      if (!component) {
-        scheduleFailFastInDev(
-          'AppLayout:handleSwitchTreeEditorToProMode',
-          new Error(`Failed to reseed Professional mode assembly with "${activeFile.name}".`),
-        );
-        return;
-      }
-
-      activateInsertedAssemblyComponent(component);
-      updateProModeRoundtripBaseline(activeGeneratedFileName);
-      markUnsavedChangesBaselineSaved('assembly');
-    })().catch((error) => {
+    if (!immediateComponent) {
       scheduleFailFastInDev(
         'AppLayout:handleSwitchTreeEditorToProMode',
-        error instanceof Error
-          ? error
-          : new Error(`Failed to resolve Professional mode source from "${activeFile.name}".`),
+        new Error(`Failed to immediately seed Professional mode with "${activeFile.name}".`),
       );
-      showToast(`Failed to sync Professional mode assembly source: ${activeFile.name}`, 'info');
-    });
+      return;
+    }
+
+    activateInsertedAssemblyComponent(immediateComponent);
+    updateProModeRoundtripBaseline(activeGeneratedFileName);
+    markUnsavedChangesBaselineSaved('assembly');
   }, [
     activateInsertedAssemblyComponent,
     addComponent,
@@ -494,14 +447,10 @@ export function useWorkspaceModeTransitions({
     availableFiles,
     getUsdPreparedExportCache,
     initAssembly,
-    onLoadRobot,
-    pendingUsdAssemblyFileRef,
-    prepareAssemblyComponentForInsert,
     previewFile,
     proModeRoundtripSessionRef,
     robotName,
     selectedFile,
-    showToast,
     updateProModeRoundtripBaseline,
   ]);
 

@@ -23,6 +23,7 @@ function resetUiStore() {
   store.setDetailLinkTab('visual');
   store.setViewOption('showCollision', false);
   store.setPanelSection('property_editor_link_inertial', true);
+  store.setPanelSection('property_editor_link_frame', true);
   store.setPanelSection('kinematics', true);
 }
 
@@ -389,7 +390,25 @@ test('handleViewerSelect routes inertial helpers to the physics tab without pinn
   assert.equal(useUIStore.getState().panelSections.property_editor_link_inertial, false);
 });
 
-test('handleViewerSelect opens joint kinematics for axis helpers', () => {
+test('handleViewerSelect routes origin helpers to the link visual tab and frame section', () => {
+  resetSelectionStore();
+  resetUiStore();
+
+  const hook = renderHook({
+    setSelection: () => {},
+    pulseSelection: () => {},
+    setHoveredSelection: () => {},
+    focusOn: () => {},
+    transformPendingRef: { current: false },
+  });
+
+  hook.handleViewerSelect('link', 'hip_link', undefined, 'origin-axes');
+
+  assert.equal(useUIStore.getState().detailLinkTab, 'visual');
+  assert.equal(useUIStore.getState().panelSections.property_editor_link_frame, false);
+});
+
+test('handleViewerSelect keeps joint-axis helpers on the joint kinematics section', () => {
   resetSelectionStore();
   resetUiStore();
 
@@ -404,6 +423,7 @@ test('handleViewerSelect opens joint kinematics for axis helpers', () => {
   hook.handleViewerSelect('joint', 'hip_joint', undefined, 'joint-axis');
 
   assert.equal(useUIStore.getState().panelSections.kinematics, false);
+  assert.equal(useUIStore.getState().detailLinkTab, 'visual');
 });
 
 test('handleHover preserves helper identity so helper-only hover changes are not collapsed', () => {

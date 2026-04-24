@@ -72,17 +72,17 @@ test('resolveEmbeddedUsdViewerLoadProfile keeps large pure .usd interactive load
   );
 });
 
-test('createEmbeddedUsdViewerLoadParams keeps large pure .usd roots on the stable embedded load profile', () => {
+test('createEmbeddedUsdViewerLoadParams reveals large pure .usd roots before background hydration completes', () => {
   const params = createEmbeddedUsdViewerLoadParams(4, {
     preferSlicedMainThreadLoadForLargePureUsd: true,
   });
 
-  assert.equal(params.get('nonBlockingLoad'), '0');
-  assert.equal(params.get('aggressiveInitialDraw'), '1');
-  assert.equal(params.get('strictOneShot'), '1');
-  assert.equal(params.get('yieldDuringLoad'), '0');
-  assert.equal(params.get('resolveRobotMetadataBeforeReady'), '1');
-  assert.equal(params.get('requireCompleteRobotMetadata'), '1');
+  assert.equal(params.get('nonBlockingLoad'), '1');
+  assert.equal(params.get('aggressiveInitialDraw'), '0');
+  assert.equal(params.get('strictOneShot'), '0');
+  assert.equal(params.get('yieldDuringLoad'), '1');
+  assert.equal(params.get('resolveRobotMetadataBeforeReady'), '0');
+  assert.equal(params.get('requireCompleteRobotMetadata'), '0');
   assert.equal(params.get('warmupRuntimeBridge'), '1');
 });
 

@@ -7,14 +7,18 @@
 const SUPPORTED_USD_EXTENSIONS = new Set(['usd', 'usda', 'usdc', 'usdz']);
 
 function getUsdExtension(path: string): string {
-  const normalizedPath = String(path || '').trim().toLowerCase();
+  const normalizedPath = String(path || '')
+    .trim()
+    .toLowerCase();
   const lastDotIndex = normalizedPath.lastIndexOf('.');
   if (lastDotIndex < 0) return '';
   return normalizedPath.slice(lastDotIndex + 1);
 }
 
 function getUsdPathDepth(path: string): number {
-  return String(path || '').split('/').filter(Boolean).length;
+  return String(path || '')
+    .split('/')
+    .filter(Boolean).length;
 }
 
 function getUsdRootCandidateScore(path: string): number {
@@ -30,6 +34,14 @@ function isSupportedUsdPath(path: string): boolean {
   return SUPPORTED_USD_EXTENSIONS.has(getUsdExtension(path));
 }
 
+export function isViewerRoundtripUsdRootPath(path: string): boolean {
+  const normalizedPath = String(path || '')
+    .trim()
+    .toLowerCase();
+  const baseName = normalizedPath.split('/').pop() || '';
+  return /\.viewer_roundtrip\.usd[a-z]?$/i.test(baseName);
+}
+
 /**
  * Check if content is likely a USDA file.
  */
@@ -38,7 +50,9 @@ export function isUSDA(content: string): boolean {
   const trimmed = content.trim();
   if (trimmed.startsWith('#usda')) return true;
   if (trimmed.startsWith('PXR-USDC')) return false;
-  return /\b(?:def|over|class)\s+(?:[\w:]+\s+)?"[^"]+"/.test(content) || /\bdefaultPrim\b/.test(content);
+  return (
+    /\b(?:def|over|class)\s+(?:[\w:]+\s+)?"[^"]+"/.test(content) || /\bdefaultPrim\b/.test(content)
+  );
 }
 
 /**
@@ -67,13 +81,15 @@ export function isUSDCBinary(content: ArrayBuffer): boolean {
  * Detect configuration sidecar layers that should not be auto-picked as bundle roots.
  */
 export function isLikelyNonRenderableUsdConfigPath(path: string): boolean {
-  const normalizedPath = String(path || '').trim().toLowerCase();
+  const normalizedPath = String(path || '')
+    .trim()
+    .toLowerCase();
   if (!normalizedPath.includes('/configuration/')) return false;
 
   if (
-    normalizedPath.endsWith('_sensor.usd')
-    || normalizedPath.endsWith('_robot.usd')
-    || normalizedPath.endsWith('h1_2_handless_robot.usd')
+    normalizedPath.endsWith('_sensor.usd') ||
+    normalizedPath.endsWith('_robot.usd') ||
+    normalizedPath.endsWith('h1_2_handless_robot.usd')
   ) {
     return true;
   }
@@ -94,6 +110,10 @@ export function pickPreferredUsdRootFile<T extends { name: string }>(files: T[])
   const candidatePool = preferredCandidates.length > 0 ? preferredCandidates : usdCandidates;
 
   candidatePool.sort((left, right) => {
+    const leftRoundtripScore = isViewerRoundtripUsdRootPath(left.name) ? 0 : 1;
+    const rightRoundtripScore = isViewerRoundtripUsdRootPath(right.name) ? 0 : 1;
+    if (leftRoundtripScore !== rightRoundtripScore) return leftRoundtripScore - rightRoundtripScore;
+
     const depthDiff = getUsdPathDepth(left.name) - getUsdPathDepth(right.name);
     if (depthDiff !== 0) return depthDiff;
 
@@ -101,7 +121,8 @@ export function pickPreferredUsdRootFile<T extends { name: string }>(files: T[])
     const rightConfigPenalty = isLikelyNonRenderableUsdConfigPath(right.name) ? 1 : 0;
     if (leftConfigPenalty !== rightConfigPenalty) return leftConfigPenalty - rightConfigPenalty;
 
-    const extensionScoreDiff = getUsdRootCandidateScore(left.name) - getUsdRootCandidateScore(right.name);
+    const extensionScoreDiff =
+      getUsdRootCandidateScore(left.name) - getUsdRootCandidateScore(right.name);
     if (extensionScoreDiff !== 0) return extensionScoreDiff;
 
     return left.name.localeCompare(right.name);

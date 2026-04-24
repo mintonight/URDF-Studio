@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getVisualGeometryEntries } from '@/core/robot';
 import { isProtectedMaterial } from '@/core/utils/three/materialProtection';
 import { GeometryType, type UrdfLink } from '@/types';
 
@@ -9,7 +10,12 @@ import {
   syncCollisionBaseMaterialPriority,
 } from './materials';
 import { disposeReplacedMaterials } from './robotLoaderPatchUtils';
-import { applyURDFMaterials, type URDFMaterialInfo } from './urdfMaterials';
+import {
+  applyURDFMaterials,
+  collectURDFMaterialsFromLinks,
+  collectURDFMaterialsFromVisualGeometry,
+  type URDFMaterialInfo,
+} from './urdfMaterials';
 import { applyVisualMeshShadowPolicy } from '@/core/utils/visualMeshShadowPolicy';
 import { getGeometryObjectIndexUserDataKey } from './runtimeGeometrySelection';
 
@@ -27,6 +33,110 @@ export interface SyncLoadedRobotSceneOptions {
 export interface SyncLoadedRobotSceneResult {
   changed: boolean;
   linkMeshMap: Map<string, THREE.Mesh[]>;
+}
+
+type URDFMaterialScopeMap = Map<string, Map<string, URDFMaterialInfo>>;
+
+function buildURDFMaterialScopes(robotLinks: Record<string, UrdfLink> | undefined): {
+  byLink: URDFMaterialScopeMap;
+  byVisualObject: URDFMaterialScopeMap;
+} {
+  const byLink: URDFMaterialScopeMap = new Map();
+  const byVisualObject: URDFMaterialScopeMap = new Map();
+
+  if (!robotLinks) {
+    return { byLink, byVisualObject };
+  }
+
+  const registerScopedMaterials = (
+    target: URDFMaterialScopeMap,
+    scopeKey: string,
+    materials: Map<string, URDFMaterialInfo>,
+  ) => {
+    if (!scopeKey || materials.size === 0) {
+      return;
+    }
+    target.set(scopeKey, materials);
+  };
+
+  Object.values(robotLinks).forEach((link) => {
+    const linkScopeKeys = [link.id, link.name].filter(
+      (value, index, array): value is string => Boolean(value) && array.indexOf(value) === index,
+    );
+    const linkMaterials = collectURDFMaterialsFromLinks({ [link.id]: link });
+
+    linkScopeKeys.forEach((scopeKey) => {
+      registerScopedMaterials(byLink, scopeKey, linkMaterials);
+    });
+
+    getVisualGeometryEntries(link).forEach((entry) => {
+      const entryMaterials = collectURDFMaterialsFromVisualGeometry(entry.geometry);
+      if (entryMaterials.size === 0) {
+        return;
+      }
+
+      linkScopeKeys.forEach((scopeKey) => {
+        registerScopedMaterials(
+          byVisualObject,
+          `${scopeKey}::visual::${entry.objectIndex}`,
+          entryMaterials,
+        );
+      });
+    });
+  });
+
+  return { byLink, byVisualObject };
+}
+
+function resolveVisualObjectIndex(geometryRoot: THREE.Object3D): number | null {
+  const runtimeKey = String(geometryRoot.userData?.runtimeKey || geometryRoot.name || '').trim();
+  const runtimeKeyMatch = runtimeKey.match(/::visual::(\d+)$/);
+  if (runtimeKeyMatch) {
+    const runtimeObjectIndex = Number(runtimeKeyMatch[1]);
+    return Number.isInteger(runtimeObjectIndex) ? runtimeObjectIndex : null;
+  }
+
+  const visualObjectIndexValue =
+    geometryRoot.userData?.[getGeometryObjectIndexUserDataKey('visual')];
+  const visualObjectIndex =
+    typeof visualObjectIndexValue === 'number'
+      ? visualObjectIndexValue
+      : Number(visualObjectIndexValue);
+  return Number.isInteger(visualObjectIndex) && visualObjectIndex >= 0 ? visualObjectIndex : null;
+}
+
+function resolveScopedURDFMaterialsForVisualMesh({
+  geometryRoot,
+  semanticLinkName,
+  runtimeLinkName,
+  globalMaterials,
+  scopedMaterialsByLink,
+  scopedMaterialsByVisualObject,
+}: {
+  geometryRoot: THREE.Object3D;
+  semanticLinkName: string;
+  runtimeLinkName: string;
+  globalMaterials: Map<string, URDFMaterialInfo> | null | undefined;
+  scopedMaterialsByLink: URDFMaterialScopeMap;
+  scopedMaterialsByVisualObject: URDFMaterialScopeMap;
+}): Map<string, URDFMaterialInfo> | null {
+  const visualObjectIndex = resolveVisualObjectIndex(geometryRoot);
+  if (visualObjectIndex !== null) {
+    const exactVisualMaterials =
+      scopedMaterialsByVisualObject.get(`${semanticLinkName}::visual::${visualObjectIndex}`) ??
+      scopedMaterialsByVisualObject.get(`${runtimeLinkName}::visual::${visualObjectIndex}`);
+    if (exactVisualMaterials && exactVisualMaterials.size > 0) {
+      return exactVisualMaterials;
+    }
+  }
+
+  const linkMaterials =
+    scopedMaterialsByLink.get(semanticLinkName) ?? scopedMaterialsByLink.get(runtimeLinkName);
+  if (linkMaterials && linkMaterials.size > 0) {
+    return linkMaterials;
+  }
+
+  return globalMaterials && globalMaterials.size > 0 ? globalMaterials : null;
 }
 
 function assignSemanticGeometryMetadata(
@@ -394,6 +504,7 @@ export function syncLoadedRobotScene({
   const collisionObjectIndexByGeometryRoot = new WeakMap<THREE.Object3D, number>();
   const nextVisualObjectIndexBySemanticLink = new Map<string, number>();
   const nextCollisionObjectIndexBySemanticLink = new Map<string, number>();
+  const urdfMaterialScopes = buildURDFMaterialScopes(robotLinkData);
   if (syncCollisionBaseMaterialPriority(showCollisionAlwaysOnTop, showVisual)) {
     changed = true;
   }
@@ -530,8 +641,20 @@ export function syncLoadedRobotScene({
       showVisual &&
       !shouldHideMjcfWorldRuntimeLink(sourceFormat, showMjcfWorldLink, parentLink.name);
 
-    if (sourceFormat === 'urdf' && urdfMaterials && shouldUpgradeVisualMaterial) {
-      applyURDFMaterials(mesh, urdfMaterials);
+    const scopedUrdfMaterials =
+      sourceFormat === 'urdf'
+        ? resolveScopedURDFMaterialsForVisualMesh({
+            geometryRoot,
+            semanticLinkName,
+            runtimeLinkName: parentLink.name,
+            globalMaterials: urdfMaterials,
+            scopedMaterialsByLink: urdfMaterialScopes.byLink,
+            scopedMaterialsByVisualObject: urdfMaterialScopes.byVisualObject,
+          })
+        : null;
+
+    if (shouldUpgradeVisualMaterial && scopedUrdfMaterials) {
+      applyURDFMaterials(mesh, scopedUrdfMaterials);
     }
 
     if (shouldUpgradeVisualMaterial) {

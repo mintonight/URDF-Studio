@@ -53,6 +53,7 @@ test('buildUnifiedViewerSceneProps preserves live interaction wiring without pre
   };
   const onHover = () => {};
   const onMeshSelect = () => {};
+  const onUpdate = () => {};
   const onAssemblyTransform = () => {};
   const onComponentTransform = () => {};
   const onBridgeTransform = () => {};
@@ -69,6 +70,7 @@ test('buildUnifiedViewerSceneProps preserves live interaction wiring without pre
     selection,
     onHover,
     onMeshSelect,
+    onUpdate,
     assemblyState: createAssemblyStateStub(),
     assemblySelection: { type: 'component', id: 'comp_alpha' },
     onAssemblyTransform,
@@ -86,6 +88,7 @@ test('buildUnifiedViewerSceneProps preserves live interaction wiring without pre
   assert.equal(sceneProps.hoverSelectionEnabled, true);
   assert.equal(sceneProps.onHover, controller.handleHoverWrapper);
   assert.equal(sceneProps.onMeshSelect, onMeshSelect);
+  assert.equal(sceneProps.onUpdate, onUpdate);
   assert.equal(sceneProps.allowUrdfXmlFallback, false);
   assert.equal(sceneProps.robotLinks?.base_link !== undefined, true);
   assert.equal(sceneProps.robotJoints?.hip_joint !== undefined, true);
@@ -102,6 +105,7 @@ test('buildUnifiedViewerSceneProps clamps preview sessions to a read-only editor
   const controller = createControllerStub();
   const onHover = () => {};
   const onMeshSelect = () => {};
+  const onUpdate = () => {};
   const onCollisionTransformPreview = () => {};
   const onCollisionTransform = () => {};
   const onAssemblyTransform = () => {};
@@ -118,6 +122,7 @@ test('buildUnifiedViewerSceneProps clamps preview sessions to a read-only editor
     selection: { type: 'joint', id: 'hip_joint' },
     onHover,
     onMeshSelect,
+    onUpdate,
     assemblyState: createAssemblyStateStub(),
     assemblySelection: { type: 'assembly', id: 'workspace' },
     onAssemblyTransform,
@@ -135,6 +140,7 @@ test('buildUnifiedViewerSceneProps clamps preview sessions to a read-only editor
   assert.equal(sceneProps.hoverSelectionEnabled, false);
   assert.equal(sceneProps.onHover, undefined);
   assert.equal(sceneProps.onMeshSelect, undefined);
+  assert.equal(sceneProps.onUpdate, undefined);
   assert.equal(sceneProps.allowUrdfXmlFallback, true);
   assert.equal(sceneProps.robotLinks, undefined);
   assert.equal(sceneProps.robotJoints, undefined);

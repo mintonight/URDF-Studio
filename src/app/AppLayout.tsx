@@ -661,6 +661,7 @@ export function AppLayout({
     patchEditableSourceAddCollisionBody,
     patchEditableSourceDeleteCollisionBody,
     patchEditableSourceUpdateCollisionBody,
+    patchEditableSourceUpdateJointLimit,
     patchEditableSourceRenameEntities,
   } = useEditableSourcePatches({
     selectedFile,
@@ -713,6 +714,7 @@ export function AppLayout({
     patchEditableSourceAddCollisionBody,
     patchEditableSourceDeleteCollisionBody,
     patchEditableSourceUpdateCollisionBody,
+    patchEditableSourceUpdateJointLimit,
     patchEditableSourceRenameEntities,
     setSelection,
     setPendingCollisionTransform,

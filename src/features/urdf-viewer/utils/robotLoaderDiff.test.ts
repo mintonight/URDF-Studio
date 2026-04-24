@@ -244,6 +244,84 @@ test('detectSingleGeometryPatch treats collision body name edits as geometry upd
   assert.equal(patch?.collisionBodiesChanged, true);
 });
 
+test('detectSingleGeometryPatch detects authored material colorRgba changes', () => {
+  const previousLinks = {
+    base_link: makeLink({
+      visual: {
+        type: GeometryType.BOX,
+        dimensions: { x: 0.2, y: 0.2, z: 0.2 },
+        color: '#808080',
+        origin: {
+          xyz: { x: 0, y: 0, z: 0 },
+          rpy: { r: 0, p: 0, y: 0 },
+        },
+        visible: true,
+        authoredMaterials: [{ name: 'base_mat', color: '#808080', colorRgba: [0.5, 0.5, 0.5, 1] }],
+      },
+    }),
+  };
+  const nextLinks = {
+    base_link: makeLink({
+      visual: {
+        type: GeometryType.BOX,
+        dimensions: { x: 0.2, y: 0.2, z: 0.2 },
+        color: '#808080',
+        origin: {
+          xyz: { x: 0, y: 0, z: 0 },
+          rpy: { r: 0, p: 0, y: 0 },
+        },
+        visible: true,
+        authoredMaterials: [
+          { name: 'base_mat', color: '#808080', colorRgba: [0.9, 0.1, 0.1, 0.8] },
+        ],
+      },
+    }),
+  };
+
+  const patch = detectSingleGeometryPatch(previousLinks, nextLinks);
+
+  assert.ok(patch, 'colorRgba change should produce a patch');
+  assert.equal(patch?.visualChanged, true);
+});
+
+test('detectSingleGeometryPatch detects authored material colorRgba added to existing material', () => {
+  const previousLinks = {
+    base_link: makeLink({
+      visual: {
+        type: GeometryType.BOX,
+        dimensions: { x: 0.2, y: 0.2, z: 0.2 },
+        color: '#808080',
+        origin: {
+          xyz: { x: 0, y: 0, z: 0 },
+          rpy: { r: 0, p: 0, y: 0 },
+        },
+        visible: true,
+        authoredMaterials: [{ name: 'base_mat', color: '#808080' }],
+      },
+    }),
+  };
+  const nextLinks = {
+    base_link: makeLink({
+      visual: {
+        type: GeometryType.BOX,
+        dimensions: { x: 0.2, y: 0.2, z: 0.2 },
+        color: '#808080',
+        origin: {
+          xyz: { x: 0, y: 0, z: 0 },
+          rpy: { r: 0, p: 0, y: 0 },
+        },
+        visible: true,
+        authoredMaterials: [{ name: 'base_mat', color: '#808080', colorRgba: [0.9, 0.1, 0.1, 1] }],
+      },
+    }),
+  };
+
+  const patch = detectSingleGeometryPatch(previousLinks, nextLinks);
+
+  assert.ok(patch, 'adding colorRgba to existing material should produce a patch');
+  assert.equal(patch?.visualChanged, true);
+});
+
 test('detectSingleJointPatch treats joint display-name edits as compatible joint patches', () => {
   const prevJoints = {
     joint_1: makeJoint({

@@ -656,6 +656,7 @@ export const NumberInput = ({
   max,
   commitOnBlurOnly = false,
   repeatIntervalMs,
+  showStepper = true,
 }: {
   value: number;
   onChange: (val: number) => void;
@@ -673,6 +674,7 @@ export const NumberInput = ({
   max?: number;
   commitOnBlurOnly?: boolean;
   repeatIntervalMs?: number;
+  showStepper?: boolean;
 }) => {
   const {
     inputRef,
@@ -738,20 +740,22 @@ export const NumberInput = ({
             {suffix}
           </span>
         ) : null}
-        <div className={PROPERTY_EDITOR_STEPPER_RAIL_CLASS}>
-          <button
-            {...stepperButtonProps(1, label ? `Increase ${label}` : 'Increase value')}
-            className={PROPERTY_EDITOR_STEPPER_BUTTON_CLASS}
-          >
-            <Plus className="h-[7px] w-[7px]" />
-          </button>
-          <button
-            {...stepperButtonProps(-1, label ? `Decrease ${label}` : 'Decrease value')}
-            className={`${PROPERTY_EDITOR_STEPPER_BUTTON_CLASS} border-t border-border-black/60`}
-          >
-            <Minus className="h-[7px] w-[7px]" />
-          </button>
-        </div>
+        {showStepper ? (
+          <div className={PROPERTY_EDITOR_STEPPER_RAIL_CLASS}>
+            <button
+              {...stepperButtonProps(1, label ? `Increase ${label}` : 'Increase value')}
+              className={PROPERTY_EDITOR_STEPPER_BUTTON_CLASS}
+            >
+              <Plus className="h-[7px] w-[7px]" />
+            </button>
+            <button
+              {...stepperButtonProps(-1, label ? `Decrease ${label}` : 'Decrease value')}
+              className={`${PROPERTY_EDITOR_STEPPER_BUTTON_CLASS} border-t border-border-black/60`}
+            >
+              <Minus className="h-[7px] w-[7px]" />
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -780,6 +784,7 @@ export const InlineNumberInput = ({
   min,
   max,
   repeatIntervalMs,
+  showStepper = true,
 }: {
   value: number;
   onChange: (val: number) => void;
@@ -795,6 +800,7 @@ export const InlineNumberInput = ({
   min?: number;
   max?: number;
   repeatIntervalMs?: number;
+  showStepper?: boolean;
 }) => {
   const {
     inputRef,
@@ -854,20 +860,22 @@ export const InlineNumberInput = ({
             compact ? 'px-1.5 text-[10px]' : 'px-1.5 text-[10px]'
           }`}
         />
-        <div className={PROPERTY_EDITOR_STEPPER_RAIL_CLASS}>
-          <button
-            {...stepperButtonProps(1, `Increase ${label}`)}
-            className={PROPERTY_EDITOR_STEPPER_BUTTON_CLASS}
-          >
-            <Plus className="h-[7px] w-[7px]" />
-          </button>
-          <button
-            {...stepperButtonProps(-1, `Decrease ${label}`)}
-            className={`${PROPERTY_EDITOR_STEPPER_BUTTON_CLASS} border-t border-border-black/60`}
-          >
-            <Minus className="h-[7px] w-[7px]" />
-          </button>
-        </div>
+        {showStepper ? (
+          <div className={PROPERTY_EDITOR_STEPPER_RAIL_CLASS}>
+            <button
+              {...stepperButtonProps(1, `Increase ${label}`)}
+              className={PROPERTY_EDITOR_STEPPER_BUTTON_CLASS}
+            >
+              <Plus className="h-[7px] w-[7px]" />
+            </button>
+            <button
+              {...stepperButtonProps(-1, `Decrease ${label}`)}
+              className={`${PROPERTY_EDITOR_STEPPER_BUTTON_CLASS} border-t border-border-black/60`}
+            >
+              <Minus className="h-[7px] w-[7px]" />
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

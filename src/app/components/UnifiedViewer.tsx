@@ -617,6 +617,7 @@ export const UnifiedViewer = React.memo(
           selection={selection}
           onHover={onHover}
           onMeshSelect={onMeshSelect}
+          onUpdate={onUpdate}
           robot={robot}
           focusTarget={focusTarget}
           onCollisionTransformPreview={onCollisionTransformPreview}

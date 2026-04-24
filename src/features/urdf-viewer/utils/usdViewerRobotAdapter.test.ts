@@ -299,6 +299,76 @@ test('maps authored USD physics schema joint type names back onto URDF joint typ
   assert.equal(joint.type, JointType.FIXED);
 });
 
+test('adapts generic mesh-only CAD USD assemblies into a browseable hierarchy rooted at the default prim', () => {
+  const result = adaptUsdViewerSnapshotToRobotData(
+    {
+      stageSourcePath: '/robots/cad/7SO101.usdc',
+      stage: {
+        defaultPrimPath: '/_7SO101',
+      },
+      robotTree: {
+        linkParentPairs: [],
+        jointCatalogEntries: [],
+        rootLinkPaths: [],
+      },
+      robotMetadataSnapshot: {
+        stageSourcePath: '/robots/cad/7SO101.usdc',
+        source: 'mesh-only',
+        linkParentPairs: [],
+        jointCatalogEntries: [],
+        linkDynamicsEntries: [],
+        meshCountsByLinkPath: {},
+      },
+      render: {
+        meshDescriptors: [
+          {
+            meshId: '/_7SO101/MeshInstance/实体1',
+            sectionName: 'visuals',
+            resolvedPrimPath: '/_7SO101/MeshInstance',
+            primType: 'mesh',
+          },
+          {
+            meshId: '/_7SO101/MeshInstance_1/实体1',
+            sectionName: 'visuals',
+            resolvedPrimPath: '/_7SO101/MeshInstance_1',
+            primType: 'mesh',
+          },
+        ],
+      },
+    },
+    {
+      fileName: '7SO101.usdc',
+    },
+  );
+
+  assert.ok(result);
+  const rootLinkId = result.linkIdByPath['/_7SO101'];
+  const firstChildId = result.linkIdByPath['/_7SO101/MeshInstance'];
+  const secondChildId = result.linkIdByPath['/_7SO101/MeshInstance_1'];
+
+  assert.equal(result.robotData.rootLinkId, rootLinkId);
+  assert.ok(rootLinkId);
+  assert.ok(firstChildId);
+  assert.ok(secondChildId);
+  assert.equal(result.robotData.links[rootLinkId]?.visual.type, GeometryType.NONE);
+  assert.equal(result.robotData.links[firstChildId]?.visual.type, GeometryType.MESH);
+  assert.equal(result.robotData.links[secondChildId]?.visual.type, GeometryType.MESH);
+  assert.equal(Object.keys(result.robotData.links).length, 3);
+  assert.equal(Object.keys(result.robotData.joints).length, 2);
+  assert.deepEqual(
+    Object.values(result.robotData.joints)
+      .map((joint) => joint.parentLinkId)
+      .sort((left, right) => left.localeCompare(right)),
+    [rootLinkId, rootLinkId],
+  );
+  assert.deepEqual(
+    Object.values(result.robotData.joints)
+      .map((joint) => joint.childLinkId)
+      .sort((left, right) => left.localeCompare(right)),
+    [firstChildId, secondChildId].sort((left, right) => left.localeCompare(right)),
+  );
+});
+
 test('keeps authored visual and collision slots grouped when a single USD visual scope expands into multiple mesh descriptors', () => {
   const result = adaptUsdViewerSnapshotToRobotData(
     {
