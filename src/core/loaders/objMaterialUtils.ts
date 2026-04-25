@@ -406,15 +406,20 @@ async function loadObjMaterialCreator(
     const resolvedMaterialPath = sourcePath
       ? resolveImportedAssetPath(materialLibrary, sourcePath)
       : normalizeLookupPath(materialLibrary);
-    const materialRequestUrl = manager.resolveURL(resolvedMaterialPath || materialLibrary);
-
-    const materialText = await fetchText(materialRequestUrl);
-    const rewrittenMaterialText = rewriteMtlTextureReferencesForManager(
-      materialText,
-      resolvedMaterialPath || materialLibrary,
-      manager,
-    );
-    rewrittenMaterialTexts.push(rewrittenMaterialText);
+    try {
+      const materialRequestUrl = manager.resolveURL(resolvedMaterialPath || materialLibrary);
+      const materialText = await fetchText(materialRequestUrl);
+      const rewrittenMaterialText = rewriteMtlTextureReferencesForManager(
+        materialText,
+        resolvedMaterialPath || materialLibrary,
+        manager,
+      );
+      rewrittenMaterialTexts.push(rewrittenMaterialText);
+    } catch {
+      // Treat referenced material libraries as optional. Missing MTLs (or missing
+      // texture sidecars inside them) should not prevent bare OBJ geometry from loading.
+      continue;
+    }
   }
 
   if (rewrittenMaterialTexts.length === 0) {

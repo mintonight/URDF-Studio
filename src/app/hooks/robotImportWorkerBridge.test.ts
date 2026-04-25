@@ -383,7 +383,65 @@ test('robot import worker client syncs mesh assets for prepared assembly compone
   });
   assert.equal(postedRequest.type, 'prepare-assembly-component');
   assert.equal(typeof postedRequest.contextId, 'string');
-  assert.equal(postedRequest.options.assets, undefined);
+  assert.deepEqual(postedRequest.options.assets, {
+    'robots/demo/meshes/base.stl': 'solid demo',
+  });
+});
+
+test('robot import worker client keeps MJCF text context on prepare assembly requests', async () => {
+  const fakeWorker = new FakeWorker();
+  const client = createRobotImportWorkerClient({
+    canUseWorker: () => true,
+    createWorker: () => fakeWorker as unknown as Worker,
+    getWorkerCount: () => 1,
+  });
+
+  void client
+    .prepareAssemblyComponent(
+      {
+        name: 'mujoco_menagerie-main/agilex_piper/piper.xml',
+        format: 'mjcf',
+        content: '<mujoco><compiler meshdir="assets" /></mujoco>',
+      },
+      {
+        componentId: 'comp_piper',
+        rootName: 'piper',
+        availableFiles: [
+          {
+            name: 'mujoco_menagerie-main/agilex_piper/piper.xml',
+            format: 'mjcf',
+            content: '<mujoco><compiler meshdir="assets" /></mujoco>',
+          },
+        ],
+        assets: {
+          'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj': 'blob:obj',
+        },
+        allFileContents: {
+          'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj': 'mtllib material.mtl',
+          'mujoco_menagerie-main/agilex_piper/assets/material.mtl': 'newmtl demo\nKd 1 0 0',
+        },
+      },
+    )
+    .catch(() => {});
+
+  assert.equal(fakeWorker.postedMessages.length, 2);
+  const postedRequest = fakeWorker.postedMessages[1] as {
+    type: string;
+    options: {
+      availableFiles?: unknown;
+      assets?: Record<string, string>;
+      allFileContents?: Record<string, string>;
+    };
+  };
+
+  assert.equal(postedRequest.type, 'prepare-assembly-component');
+  assert.deepEqual(postedRequest.options.assets, {
+    'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj': 'blob:obj',
+  });
+  assert.deepEqual(postedRequest.options.allFileContents, {
+    'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj': 'mtllib material.mtl',
+    'mujoco_menagerie-main/agilex_piper/assets/material.mtl': 'newmtl demo\nKd 1 0 0',
+  });
 });
 
 test('robot import worker client rejects editable source parse errors', async () => {

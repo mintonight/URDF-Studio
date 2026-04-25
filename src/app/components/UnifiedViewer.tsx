@@ -78,6 +78,7 @@ interface UnifiedViewerProps {
   ) => void;
   onUpdate: (type: 'link' | 'joint', id: string, data: any) => void;
   assets: Record<string, string>;
+  allFileContents: Record<string, string>;
   lang: Language;
   theme: Theme;
   showVisual?: boolean;
@@ -164,6 +165,7 @@ export const UnifiedViewer = React.memo(
     onHover,
     onUpdate,
     assets,
+    allFileContents,
     lang,
     theme,
     showVisual,
@@ -249,6 +251,7 @@ export const UnifiedViewer = React.memo(
       sourceFilePath,
       sourceFile,
       assets,
+      allFileContents,
       availableFiles,
       assemblyState,
       sourceSceneAssemblyComponentId,

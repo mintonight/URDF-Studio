@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { generateURDF } from '@/core/parsers';
 import { rewriteRobotMeshPathsForSource } from '@/core/parsers/meshPathUtils';
+import { canGenerateUrdf } from '@/core/parsers/urdf/urdfExportSupport';
 import type { RobotData, RobotFile, RobotState } from '@/types';
 import type { SourceCodeEditorApplyRequest } from '@/features/code-editor/utils/sourceCodeEditorSession';
 import { useAssetsStore, useRobotStore } from '@/store';
@@ -47,7 +48,9 @@ export function commitEditableSourceApply({
   syncSelectedEditableFileContent(targetFileName, newCode);
 
   if (sourceFile.format === 'xacro') {
-    setOriginalUrdfContent(generateURDF(nextState, { preserveMeshPaths: true }));
+    setOriginalUrdfContent(
+      canGenerateUrdf(nextState) ? generateURDF(nextState, { preserveMeshPaths: true }) : null,
+    );
   }
 
   // Let the viewer react to the canonical robot store diff so in-place geometry/joint

@@ -182,6 +182,7 @@ export function mergeAssembly(assembly: AssemblyState): RobotData {
   const joints: RobotData['joints'] = {};
   const materials: RobotData['materials'] = {};
   const closedLoopConstraints: RobotClosedLoopConstraint[] = [];
+  let inspectionContext: RobotData['inspectionContext'] | undefined;
   const componentVersions = new Set<string>();
   const effectiveRobotByComponentId = new Map<string, RobotData>();
   let fallbackRootLinkId = '';
@@ -294,6 +295,9 @@ export function mergeAssembly(assembly: AssemblyState): RobotData {
     if (robot.materials) {
       Object.assign(materials, robot.materials);
     }
+    if (!inspectionContext && robot.inspectionContext) {
+      inspectionContext = robot.inspectionContext;
+    }
     if (!fallbackRootLinkId) {
       fallbackRootLinkId = robot.rootLinkId;
     }
@@ -357,6 +361,7 @@ export function mergeAssembly(assembly: AssemblyState): RobotData {
     rootLinkId,
     materials: Object.keys(materials).length > 0 ? materials : undefined,
     closedLoopConstraints: closedLoopConstraints.length > 0 ? closedLoopConstraints : undefined,
+    inspectionContext,
   };
   const linkWorldMatrices = computeLinkWorldMatrices(treeRobot);
 

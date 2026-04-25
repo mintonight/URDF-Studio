@@ -1141,6 +1141,7 @@ export function AppLayout({
               onHover={handleHover}
               onUpdate={handleUpdate}
               assets={viewerAssets}
+              allFileContents={allFileContents}
               lang={lang}
               theme={theme}
               showVisual={showVisual}

@@ -1,9 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useRef } from 'react';
 import { findStandaloneXacroTruthFile } from '@/core/parsers/importRobotFile';
-import {
-  prefixMJCFSourceIdentifiers,
-  resolveMJCFSource,
-} from '@/core/parsers/mjcf/mjcfSourceResolver';
+import { resolveMJCFSource } from '@/core/parsers/mjcf/mjcfSourceResolver';
 import { mergeAssembly } from '@/core/robot';
 import {
   DEFAULT_LINK,
@@ -43,6 +40,7 @@ import { useSourceEditBaseline } from './workspace-source-sync/useSourceEditBase
 import { useWorkspaceFilePreview } from './workspace-source-sync/useWorkspaceFilePreview';
 import { useWorkspaceTextFileSync } from './workspace-source-sync/useWorkspaceTextFileSync';
 import {
+  buildSingleComponentWorkspaceMjcfViewerContent,
   buildLightweightWorkspaceViewerReloadContent,
   buildWorkspaceAssemblyViewerState,
   buildWorkspaceAssemblyViewerDisplayRobotData,
@@ -743,28 +741,15 @@ export function useWorkspaceSourceSync({
     scope: 'useWorkspaceSourceSync:workspaceViewerGeneratedUrdfContent',
   });
   const workspaceViewerMjcfContent = useMemo(() => {
-    if (
-      !shouldRenderAssembly ||
-      !workspaceViewerMjcfSourceFile ||
-      !workspaceResolvedMjcfSource ||
-      !assemblyState
-    ) {
+    if (!shouldRenderAssembly) {
       return null;
     }
 
-    const visibleComponent = Object.values(assemblyState.components).find(
-      (component) =>
-        component.visible !== false && component.sourceFile === workspaceViewerMjcfSourceFile.name,
-    );
-
-    if (!visibleComponent) {
-      return null;
-    }
-
-    return prefixMJCFSourceIdentifiers(
-      workspaceResolvedMjcfSource.content,
-      `${visibleComponent.name}_`,
-    );
+    return buildSingleComponentWorkspaceMjcfViewerContent({
+      assemblyState,
+      sourceFile: workspaceViewerMjcfSourceFile,
+      resolvedMjcfSourceContent: workspaceResolvedMjcfSource?.content ?? null,
+    });
   }, [
     assemblyState,
     shouldRenderAssembly,

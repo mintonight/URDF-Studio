@@ -43,6 +43,7 @@ interface UseUnifiedViewerDerivedStateParams {
   sourceFilePath?: string;
   sourceFile?: RobotFile | null;
   assets: Record<string, string>;
+  allFileContents: Record<string, string>;
   availableFiles: RobotFile[];
   assemblyState?: AssemblyState | null;
   sourceSceneAssemblyComponentId?: string | null;
@@ -72,6 +73,7 @@ export function useUnifiedViewerDerivedState({
   sourceFilePath,
   sourceFile,
   assets,
+  allFileContents,
   availableFiles,
   assemblyState,
   sourceSceneAssemblyComponentId = null,
@@ -163,6 +165,7 @@ export function useUnifiedViewerDerivedState({
       sourceFilePath,
       sourceFile,
       assets,
+      allFileContents,
       availableFiles,
       viewerRobotLinks: viewerRobotLinksForScope,
       viewerRobotMaterials: viewerRobotMaterialsForScope,
@@ -173,6 +176,7 @@ export function useUnifiedViewerDerivedState({
   }, [
     activePreview,
     assets,
+    allFileContents,
     availableFiles,
     sourceFile,
     sourceFilePath,

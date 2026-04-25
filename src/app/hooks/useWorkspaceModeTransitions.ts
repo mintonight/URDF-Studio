@@ -400,12 +400,12 @@ export function useWorkspaceModeTransitions({
       ? (activeFile?.name ?? null)
       : null;
 
-    if (
-      !shouldReseedSingleComponentAssemblyFromActiveFile({
-        assemblyState: currentAssemblyState,
-        activeFile,
-      })
-    ) {
+    const shouldReseedAssembly = shouldReseedSingleComponentAssemblyFromActiveFile({
+      assemblyState: currentAssemblyState,
+      activeFile,
+    });
+
+    if (!shouldReseedAssembly) {
       updateProModeRoundtripBaseline(activeGeneratedFileName);
       return;
     }
@@ -416,7 +416,10 @@ export function useWorkspaceModeTransitions({
       return;
     }
 
-    initAssembly(currentAssemblyState?.name || robotName || 'assembly');
+    if (!currentAssemblyState || Object.keys(currentAssemblyState.components).length === 0) {
+      initAssembly(currentAssemblyState?.name || robotName || 'assembly');
+    }
+
     const immediateComponent = addComponent(activeFile, {
       availableFiles,
       assets,

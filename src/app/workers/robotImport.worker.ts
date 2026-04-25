@@ -131,6 +131,7 @@ async function handleWorkerMessage(event: MessageEvent<RobotImportWorkerRequest>
       const renderableBounds = await computeRobotRenderableBoundsFromAssets(
         robotData,
         resolvedOptions.assets,
+        resolvedOptions.allFileContents,
       );
       const suggestedTransform = buildDefaultAssemblyComponentPlacementTransform({
         robot: robotData,

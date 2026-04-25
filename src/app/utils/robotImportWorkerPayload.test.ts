@@ -305,6 +305,25 @@ test('buildPrepareAssemblyComponentWorkerDispatch keeps placement snapshots in t
   );
 
   assert.deepEqual(result.options, {
+    availableFiles: [
+      demoUrdfFile,
+      {
+        name: 'robots/demo/urdf/demo.urdf',
+        format: 'urdf',
+        content: '<robot name="demo"><link name="base_link" /></robot>',
+      },
+      {
+        name: 'robots/demo/meshes/base.stl',
+        format: 'mesh',
+        content: 'solid demo',
+      },
+    ],
+    assets: {
+      'robots/demo/meshes/base.stl': 'blob:mesh',
+    },
+    allFileContents: {
+      '/robots/demo/urdf/demo.urdf': '<robot name="text"><link name="base_link" /></robot>',
+    },
     existingPlacementComponents: [
       {
         renderableBounds: {
@@ -331,5 +350,67 @@ test('buildPrepareAssemblyComponentWorkerDispatch keeps placement snapshots in t
   );
   assert.deepEqual(result.contextSnapshot?.allFileContents, {
     '/robots/demo/urdf/demo.urdf': '<robot name="text"><link name="base_link" /></robot>',
+  });
+});
+
+test('buildPrepareAssemblyComponentWorkerDispatch keeps MJCF text sidecars and mesh assets in worker context', () => {
+  const mjcfFile = {
+    name: 'mujoco_menagerie-main/agilex_piper/piper.xml',
+    format: 'mjcf' as const,
+    content: '<mujoco><compiler meshdir="assets" /></mujoco>',
+  };
+
+  const result = buildPrepareAssemblyComponentWorkerDispatch(mjcfFile, {
+    availableFiles: [
+      mjcfFile,
+      {
+        name: 'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj',
+        format: 'asset',
+        content: 'mtllib material.mtl',
+      },
+    ],
+    assets: {
+      'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj': 'blob:obj',
+      'mujoco_menagerie-main/agilex_piper/assets/material.mtl': 'blob:mtl',
+    },
+    allFileContents: {
+      'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj': 'mtllib material.mtl',
+      'mujoco_menagerie-main/agilex_piper/assets/material.mtl': 'newmtl demo\nKd 1 0 0',
+    },
+  });
+
+  assert.equal(typeof result.contextCacheKey, 'string');
+  assert.deepEqual(result.options, {
+    availableFiles: [
+      mjcfFile,
+      {
+        name: 'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj',
+        format: 'asset',
+        content: 'mtllib material.mtl',
+      },
+    ],
+    assets: {
+      'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj': 'blob:obj',
+      'mujoco_menagerie-main/agilex_piper/assets/material.mtl': 'blob:mtl',
+    },
+    allFileContents: {
+      'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj': 'mtllib material.mtl',
+      'mujoco_menagerie-main/agilex_piper/assets/material.mtl': 'newmtl demo\nKd 1 0 0',
+    },
+  });
+  assert.deepEqual(
+    result.contextSnapshot?.availableFiles?.map((file) => ({
+      name: file.name,
+      format: file.format,
+    })),
+    [{ name: mjcfFile.name, format: 'mjcf' }],
+  );
+  assert.deepEqual(result.contextSnapshot?.assets, {
+    'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj': 'blob:obj',
+    'mujoco_menagerie-main/agilex_piper/assets/material.mtl': 'blob:mtl',
+  });
+  assert.deepEqual(result.contextSnapshot?.allFileContents, {
+    'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj': 'mtllib material.mtl',
+    'mujoco_menagerie-main/agilex_piper/assets/material.mtl': 'newmtl demo\nKd 1 0 0',
   });
 });

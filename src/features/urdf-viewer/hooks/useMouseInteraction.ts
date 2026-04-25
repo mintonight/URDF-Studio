@@ -57,6 +57,7 @@ import {
   clearSelectionMissGuardTimer,
   scheduleSelectionMissGuardReset,
   shouldDisarmSelectionMissGuardOnPointerMove,
+  shouldTreatPointerUpAsBackgroundMiss,
 } from '../utils/selectionMissGuard';
 
 const JOINT_DRAG_EPSILON = 1e-5;
@@ -184,6 +185,7 @@ export function useMouseInteraction({
   const selectionResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingPointerSelectionRef = useRef<PendingPointerSelection | null>(null);
   const pointerInteractionActiveRef = useRef(false);
+  const pointerInteractionHitTargetRef = useRef(false);
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
   const pointerExceededClickThresholdRef = useRef(false);
   const gizmoPointerDownRef = useRef<{ x: number; y: number } | null>(null);
@@ -626,8 +628,6 @@ export function useMouseInteraction({
           }
 
           if (selectionPlan.shouldApplyImmediateGeometryHighlight && resolvedHit.linkId) {
-            // Clear all stale highlights first, then apply only the specific body.
-            highlightGeometry(resolvedHit.linkId, true, resolvedSubType);
             highlightGeometry(
               resolvedHit.linkId,
               false,
@@ -827,6 +827,7 @@ export function useMouseInteraction({
         return;
       }
       pointerInteractionActiveRef.current = true;
+      pointerInteractionHitTargetRef.current = false;
 
       // IMPORTANT:
       // TransformControls gizmo is not a child of `robot`.
@@ -840,6 +841,7 @@ export function useMouseInteraction({
           ? raycasterRef.current.intersectObjects(gizmoTargets, false)[0]
           : undefined;
       if (nearestSceneHit && isGizmoObject(nearestSceneHit.object)) {
+        pointerInteractionHitTargetRef.current = true;
         // TransformControls lives outside the robot pick tree, so R3F can still
         // emit pointer-missed for a valid gizmo click. Keep the current joint
         // selection alive through this interaction instead of clearing it.
@@ -964,6 +966,7 @@ export function useMouseInteraction({
             mesh: paintIntersection.object,
             faceIndex: paintIntersection.faceIndex as number,
           });
+          pointerInteractionHitTargetRef.current = true;
           clearHoveredState();
           e.preventDefault();
           e.stopPropagation();
@@ -975,6 +978,8 @@ export function useMouseInteraction({
         disarmSelectionMissGuard(justSelectedRef, selectionResetTimerRef);
         return;
       }
+
+      pointerInteractionHitTargetRef.current = true;
 
       const resolvedLinkObject = resolvedHit.linkObject ?? null;
       const resolvedSubType = resolvedHit.subType;
@@ -1107,6 +1112,8 @@ export function useMouseInteraction({
 
       pointerInteractionActiveRef.current = false;
       let shouldResetSelectionMissGuard = justSelectedRef?.current === true;
+      const interactionHitTarget = pointerInteractionHitTargetRef.current;
+      pointerInteractionHitTargetRef.current = false;
 
       // Capture empty-click state before the refs below are cleared.
       // An empty click is one where no gizmo, mesh, or helper was hit,
@@ -1124,11 +1131,12 @@ export function useMouseInteraction({
           endX: lastMousePosRef.current.x,
           endY: lastMousePosRef.current.y,
         });
-      const wasEmptyClick =
-        !pendingPointerSelectionRef.current &&
-        !isDraggingJoint.current &&
-        !justSelectedRef?.current &&
-        !wasGizmoDrag;
+      const wasEmptyClick = shouldTreatPointerUpAsBackgroundMiss({
+        hasPendingSelection: pendingPointerSelectionRef.current !== null,
+        dragging: isDraggingJoint.current,
+        interactionHitTarget,
+        wasGizmoDrag,
+      });
 
       if (pendingPointerSelectionRef.current) {
         const pendingSelection = pendingPointerSelectionRef.current;
@@ -1155,6 +1163,11 @@ export function useMouseInteraction({
         isDraggingJoint.current = false;
         dragJoint.current = null;
         setIsDraggingRef.current?.(false);
+      }
+
+      if (wasEmptyClick) {
+        shouldResetSelectionMissGuard = false;
+        disarmSelectionMissGuard(justSelectedRef, selectionResetTimerRef);
       }
 
       if (shouldResetSelectionMissGuard && justSelectedRef?.current) {

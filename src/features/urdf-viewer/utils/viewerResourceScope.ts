@@ -1,4 +1,5 @@
 import { buildAssetIndex, findAssetByIndex } from '@/core/loaders';
+import { mergeTextMeshSidecarAssets } from '@/core/loaders/textMeshAssetContext';
 import { resolveImportedAssetPath } from '@/core/parsers/meshPathUtils';
 import { collectGeometryTexturePaths, getVisualGeometryEntries } from '@/core/robot';
 import { GeometryType, type RobotFile, type RobotMaterialState, type UrdfLink } from '@/types';
@@ -512,14 +513,22 @@ function buildAssetKeysByUrl(assets: Record<string, string>): Map<string, string
 
 function buildScopedAssets(options: {
   assets: Record<string, string>;
+  allFileContents?: Record<string, string>;
   availableFiles: RobotFile[];
   sourceFile?: Pick<RobotFile, 'name' | 'format' | 'content'> | null;
   sourceFilePath?: string | null;
   robotLinks?: Record<string, UrdfLink>;
   robotMaterials?: Record<string, RobotMaterialState>;
 }): Record<string, string> {
-  const { assets, availableFiles, sourceFile, sourceFilePath, robotLinks, robotMaterials } =
-    options;
+  const {
+    assets,
+    allFileContents = {},
+    availableFiles,
+    sourceFile,
+    sourceFilePath,
+    robotLinks,
+    robotMaterials,
+  } = options;
   const normalizedSourcePath = normalizePath(sourceFilePath || sourceFile?.name);
   const isUsdSource = sourceFile?.format === 'usd';
   const bundleDirectory = isUsdSource
@@ -632,7 +641,32 @@ function buildScopedAssets(options: {
     return false;
   });
 
-  return Object.fromEntries(scopedEntries);
+  const scopedTextAssetContents = Object.fromEntries(
+    Object.entries(allFileContents).flatMap(([assetPath, content]) => {
+      if (typeof content !== 'string' || content.length === 0) {
+        return [];
+      }
+
+      const normalizedAssetPath = normalizePath(assetPath);
+      if (!normalizedAssetPath) {
+        return [];
+      }
+
+      if (directAssetKeys.has(normalizedAssetPath)) {
+        return [[normalizedAssetPath, content] as const];
+      }
+
+      for (const directory of relevantDirectories) {
+        if (isPathInsideDirectory(normalizedAssetPath, directory)) {
+          return [[normalizedAssetPath, content] as const];
+        }
+      }
+
+      return [];
+    }),
+  );
+
+  return mergeTextMeshSidecarAssets(Object.fromEntries(scopedEntries), scopedTextAssetContents);
 }
 
 function buildScopedAvailableFiles(options: {
@@ -683,6 +717,7 @@ export function createStableViewerResourceScope(
   previous: ViewerResourceScope | null,
   options: {
     assets: Record<string, string>;
+    allFileContents?: Record<string, string>;
     availableFiles: RobotFile[];
     sourceFile?: Pick<RobotFile, 'name' | 'format' | 'content' | 'blobUrl'> | null;
     sourceFilePath?: string | null;

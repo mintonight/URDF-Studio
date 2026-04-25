@@ -254,6 +254,13 @@ export function buildPrepareAssemblyComponentWorkerDispatch(
   return {
     options: {
       ...preparedDispatch.options,
+      ...(options.assets && Object.keys(options.assets).length > 0
+        ? { assets: options.assets }
+        : {}),
+      ...(options.allFileContents && Object.keys(options.allFileContents).length > 0
+        ? { allFileContents: options.allFileContents }
+        : {}),
+      ...(options.availableFiles?.length ? { availableFiles: options.availableFiles } : {}),
       ...(options.existingPlacementComponents?.length
         ? { existingPlacementComponents: options.existingPlacementComponents }
         : {}),

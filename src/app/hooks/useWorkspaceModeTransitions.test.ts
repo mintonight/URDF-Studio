@@ -307,7 +307,7 @@ test('resolveUsdAssemblySeedRobotData requests a fresh usd load when no usable s
   assert.equal(result.requiresRobotReload, true);
 });
 
-test('handleSwitchTreeEditorToProMode immediately seeds the active preview file before async preparation', () => {
+test('handleSwitchTreeEditorToProMode appends the active preview file instead of resetting an existing assembly', () => {
   const dom = installDomEnvironment();
   resetAssemblyStore();
   useAssemblyStore.setState({
@@ -329,8 +329,9 @@ test('handleSwitchTreeEditorToProMode immediately seeds the active preview file 
     const assemblyState = useAssemblyStore.getState().assemblyState;
     assert.ok(assemblyState, 'assembly should stay initialized while new component prepares');
     const components = Object.values(assemblyState.components);
-    assert.equal(components.length, 1);
-    assert.equal(components[0]?.sourceFile, nextFile.name);
+    assert.equal(components.length, 2);
+    assert.ok(components.some((component) => component.sourceFile === 'robots/old.urdf'));
+    assert.ok(components.some((component) => component.sourceFile === nextFile.name));
   } finally {
     rendered.cleanup();
     dom.window.close();

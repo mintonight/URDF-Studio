@@ -70,7 +70,7 @@ test('clearHover during a frozen drag clears the deferred hover so release does 
   assert.deepEqual(useSelectionStore.getState().hoveredSelection, { type: null, id: null });
 });
 
-test('hover blocks suppress incoming hover updates and do not unfreeze when interaction freeze releases first', () => {
+test('hover blocks preserve the existing hover intent and do not let new hover updates replace it before release', () => {
   resetSelectionStore();
 
   const state = useSelectionStore.getState();
@@ -80,20 +80,54 @@ test('hover blocks suppress incoming hover updates and do not unfreeze when inte
   let nextState = useSelectionStore.getState();
   assert.equal(nextState.hoverFrozen, true);
   assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
-  assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
+  assert.deepEqual(nextState.deferredHoveredSelection, { type: 'link', id: 'base_link' });
 
   nextState.setHoveredSelection({ type: 'link', id: 'arm_link' });
-  nextState.setHoverFrozen(true);
-  nextState.setHoverFrozen(false);
 
   nextState = useSelectionStore.getState();
   assert.equal(nextState.hoverFrozen, true);
-  assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
+  assert.deepEqual(nextState.deferredHoveredSelection, { type: 'link', id: 'base_link' });
 
   nextState.endHoverBlock();
   nextState = useSelectionStore.getState();
   assert.equal(nextState.hoverFrozen, false);
+  assert.deepEqual(nextState.hoveredSelection, { type: 'link', id: 'base_link' });
+});
+
+test('beginHoverBlock preserves the current hover as deferred intent so quick blank clicks do not flash the highlight away', () => {
+  resetSelectionStore();
+
+  const state = useSelectionStore.getState();
+  state.setHoveredSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+
+  state.beginHoverBlock();
+
+  let nextState = useSelectionStore.getState();
+  assert.equal(nextState.hoverFrozen, true);
   assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
+  assert.deepEqual(nextState.deferredHoveredSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+
+  nextState.endHoverBlock();
+  nextState = useSelectionStore.getState();
+
+  assert.equal(nextState.hoverFrozen, false);
+  assert.deepEqual(nextState.hoveredSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+  assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
 });
 
 test('interaction guard blocks invalid selections without preventing clearing', () => {

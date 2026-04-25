@@ -88,6 +88,28 @@ export function useViewerOrchestration({
     return selection;
   }, []);
 
+  const preserveHoveredHighlightObject = useCallback((selection: RobotState['selection']) => {
+    if (selection.type !== 'link' || !selection.id || !selection.subType) {
+      return selection;
+    }
+
+    const hoveredSelection = useSelectionStore.getState().hoveredSelection;
+    if (
+      hoveredSelection.type !== 'link' ||
+      hoveredSelection.id !== selection.id ||
+      hoveredSelection.subType !== selection.subType ||
+      hoveredSelection.objectIndex !== selection.objectIndex ||
+      hoveredSelection.highlightObjectId === undefined
+    ) {
+      return selection;
+    }
+
+    return {
+      ...selection,
+      highlightObjectId: hoveredSelection.highlightObjectId,
+    };
+  }, []);
+
   const handleSelect = useCallback(
     (
       type: Exclude<InteractionSelection['type'], null>,
@@ -196,7 +218,12 @@ export function useViewerOrchestration({
       objectType: 'visual' | 'collision',
     ) => {
       if (transformPendingRef.current) return;
-      const nextSelection = { type: 'link' as const, id: linkId, subType: objectType, objectIndex };
+      const nextSelection = preserveHoveredHighlightObject({
+        type: 'link' as const,
+        id: linkId,
+        subType: objectType,
+        objectIndex,
+      });
       if (!isInteractionAllowed(nextSelection)) {
         return;
       }
@@ -220,6 +247,7 @@ export function useViewerOrchestration({
       ensureCollisionVisible,
       isInteractionAllowed,
       pulseSelection,
+      preserveHoveredHighlightObject,
       setSelection,
       transformPendingRef,
     ],
@@ -242,6 +270,19 @@ export function useViewerOrchestration({
       highlightObjectId?: number,
     ) => {
       const current = useSelectionStore.getState().hoveredSelection;
+      const selected = useSelectionStore.getState().selection;
+
+      if (
+        selected.type === 'link' &&
+        selected.id &&
+        type === 'link' &&
+        id === selected.id &&
+        current.type === 'link' &&
+        current.id === selected.id
+      ) {
+        return;
+      }
+
       if (
         current.type === type &&
         current.id === id &&

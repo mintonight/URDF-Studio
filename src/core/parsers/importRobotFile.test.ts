@@ -20,6 +20,10 @@ function pathFromMyosuiteFixture(relativePath: string): string {
   return path.join('test', 'myosuite-main', ...relativePath.split('/'));
 }
 
+function pathFromMujocoFixture(relativePath: string): string {
+  return path.join('test', 'mujoco_menagerie-main', ...relativePath.split('/'));
+}
+
 function createUsdFile(name = 'robots/demo/demo.usd'): RobotFile {
   return {
     name,
@@ -675,6 +679,59 @@ test('describeRobotImportFailure falls back to standalone-fragment guidance for 
   });
 
   assert.match(detail, /cannot be assembled as a standalone component/i);
+});
+
+test('resolveRobotFileData ignores unrelated workspace assets when auto-validating standalone MJCF imports', () => {
+  const file: RobotFile = {
+    name: 'mujoco_menagerie-main/agilex_piper/piper.xml',
+    content: fs.readFileSync(pathFromMujocoFixture('agilex_piper/piper.xml'), 'utf8'),
+    format: 'mjcf',
+  };
+
+  const result = resolveRobotFileData(file, {
+    availableFiles: [file],
+    assets: {
+      'workspace/unrelated/preview.png': 'blob:preview',
+    },
+  });
+
+  assert.equal(result.status, 'ready');
+  if (result.status !== 'ready') {
+    assert.fail('Expected standalone MJCF import to stay ready');
+  }
+});
+
+test('resolveRobotFileData still flags missing MJCF assets in auto mode once related assets are present', () => {
+  const file: RobotFile = {
+    name: 'robots/demo/paddle.xml',
+    content: `<mujoco model="paddle">
+  <compiler meshdir="assets" texturedir="textures" />
+  <asset>
+    <mesh name="paddle_mesh" file="paddle.obj" />
+    <texture name="paddle_tex" type="2d" file="paddle.png" />
+  </asset>
+  <worldbody>
+    <body name="base_link">
+      <geom type="mesh" mesh="paddle_mesh" />
+    </body>
+  </worldbody>
+</mujoco>`,
+    format: 'mjcf',
+  };
+
+  const result = resolveRobotFileData(file, {
+    availableFiles: [file],
+    assets: {
+      'robots/demo/assets/paddle.obj': 'blob:mesh',
+    },
+  });
+
+  assert.equal(result.status, 'error');
+  if (result.status !== 'error') {
+    assert.fail('Expected auto MJCF validation to catch the remaining missing texture');
+  }
+  assert.equal(result.reason, 'parse_failed');
+  assert.match(result.message ?? '', /robots\/demo\/textures\/paddle\.png/);
 });
 
 test('resolveRobotFileData can enforce MJCF external asset validation before parse-ready import', () => {

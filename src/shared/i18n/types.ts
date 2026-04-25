@@ -546,6 +546,7 @@ export interface TranslationKeys {
   onlyUrdfMjcfExport: string;
   exportFailedParse: string;
   exportClosedLoopUrdfUnsupported: string;
+  exportUrdfBallJointUnsupported: string;
   exportLibraryParseFailed: string;
   exportLibraryUnsupportedFormat: string;
   usdExportRequiresLoadedStage: string;

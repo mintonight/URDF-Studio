@@ -1,14 +1,12 @@
-import type {
-  RobotClosedLoopConstraint,
-  RobotData,
-  RobotFile,
-  UrdfJoint,
-  UrdfLink,
-} from '@/types';
+import type { RobotClosedLoopConstraint, RobotData, RobotFile, UrdfJoint, UrdfLink } from '@/types';
 import { rewriteRobotMeshPathsForSource } from '@/core/parsers/meshPathUtils';
 
 export function sanitizeAssemblyComponentId(filename: string): string {
-  const base = filename.split('/').pop()?.replace(/\.[^/.]+$/, '') ?? 'robot';
+  const base =
+    filename
+      .split('/')
+      .pop()
+      ?.replace(/\.[^/.]+$/, '') ?? 'robot';
   const sanitized = base.replace(/[^a-zA-Z0-9_]/g, '_');
   return sanitized || 'robot';
 }
@@ -117,10 +115,10 @@ export function namespaceAssemblyRobotData(
       linkBId: linkIdMap[constraint.linkBId] ?? idPrefix + constraint.linkBId,
       source: constraint.source
         ? {
-          ...constraint.source,
-          body1Name: `${rootName}_${constraint.source.body1Name}`,
-          body2Name: `${rootName}_${constraint.source.body2Name}`,
-        }
+            ...constraint.source,
+            body1Name: `${rootName}_${constraint.source.body1Name}`,
+            body2Name: `${rootName}_${constraint.source.body2Name}`,
+          }
         : undefined,
     });
   });
@@ -132,6 +130,7 @@ export function namespaceAssemblyRobotData(
     rootLinkId,
     materials: Object.keys(materials).length > 0 ? materials : undefined,
     closedLoopConstraints: closedLoopConstraints.length > 0 ? closedLoopConstraints : undefined,
+    inspectionContext: data.inspectionContext,
   };
 }
 
@@ -144,9 +143,10 @@ export function prepareAssemblyRobotData(
     sourceFormat?: RobotFile['format'] | null;
   },
 ): RobotData {
-  const sourceRobotData = options.sourceFormat === 'usd'
-    ? rewriteRobotMeshPathsForSource(data, options.sourceFilePath)
-    : data;
+  const sourceRobotData =
+    options.sourceFormat === 'usd'
+      ? rewriteRobotMeshPathsForSource(data, options.sourceFilePath)
+      : data;
 
   return namespaceAssemblyRobotData(sourceRobotData, {
     componentId: options.componentId,

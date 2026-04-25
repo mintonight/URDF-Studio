@@ -75,6 +75,49 @@ interface VisualMaterialState {
   depthWrite: boolean;
 }
 
+type StoredHighlightTarget = {
+  id: string | null;
+  subType: string | null;
+  objectIndex?: number;
+  highlightObjectId?: number;
+};
+
+type ResolvedHighlightTarget = {
+  id: string | null;
+  subType: 'visual' | 'collision' | undefined;
+  objectIndex?: number;
+  highlightObjectId?: number;
+};
+
+export function areHighlightTargetsEquivalent(
+  currentTarget: StoredHighlightTarget,
+  nextTarget: ResolvedHighlightTarget,
+): boolean {
+  if (currentTarget.id !== nextTarget.id) {
+    return false;
+  }
+
+  if ((currentTarget.subType ?? null) !== (nextTarget.subType ?? null)) {
+    return false;
+  }
+
+  if (currentTarget.objectIndex !== nextTarget.objectIndex) {
+    return false;
+  }
+
+  if (
+    (currentTarget.highlightObjectId ?? undefined) === (nextTarget.highlightObjectId ?? undefined)
+  ) {
+    return true;
+  }
+
+  return (
+    currentTarget.highlightObjectId !== undefined &&
+    nextTarget.highlightObjectId === undefined &&
+    currentTarget.objectIndex !== undefined
+  );
+}
+
 export function useVisualizationEffects({
   robot,
   robotVersion,
@@ -660,10 +703,12 @@ export function useVisualizationEffects({
 
       if (currentHoverRef.current.id) {
         if (
-          currentHoverRef.current.id !== selectionHighlightId ||
-          currentHoverRef.current.subType !== selectionHighlightSubType ||
-          currentHoverRef.current.objectIndex !== selectionHighlightObjectIndex ||
-          currentHoverRef.current.highlightObjectId !== selectionHighlightObjectId
+          !areHighlightTargetsEquivalent(currentHoverRef.current, {
+            id: selectionHighlightId,
+            subType: selectionHighlightSubType,
+            objectIndex: selectionHighlightObjectIndex,
+            highlightObjectId: selectionHighlightObjectId,
+          })
         ) {
           highlightGeometry(
             currentHoverRef.current.id,

@@ -16,13 +16,17 @@ import {
   isIdentityAssemblyTransform,
 } from '@/core/robot/assemblyTransforms';
 import { generateURDF } from '@/core/parsers';
+import { canGenerateUrdf } from '@/core/parsers/urdf/urdfExportSupport';
 import { rewriteRobotMeshPathsForSource } from '@/core/parsers/meshPathUtils';
 import {
   createUsdPlaceholderRobotData,
   resolveRobotFileData,
   type RobotImportResult,
 } from '@/core/parsers/importRobotFile';
-import { resolveMJCFSource } from '@/core/parsers/mjcf/mjcfSourceResolver';
+import {
+  prefixMJCFSourceIdentifiers,
+  resolveMJCFSource,
+} from '@/core/parsers/mjcf/mjcfSourceResolver';
 import {
   DEFAULT_LINK,
   GeometryType,
@@ -38,6 +42,7 @@ import {
 } from '@/types';
 import { collectURDFMaterialsFromLinks } from '@/features/editor';
 import { BRIDGE_PREVIEW_ID } from '@/features/assembly';
+import { createRobotSemanticSnapshot } from '@/shared/utils/robot/semanticSnapshot';
 import { parseEditableRobotSourceWithWorker } from './robotImportWorkerBridge';
 
 type JsonLike = null | boolean | number | string | JsonLike[] | { [key: string]: JsonLike };
@@ -258,10 +263,12 @@ export function createGeneratedWorkspaceUrdfFile({
   const file: RobotFile = {
     name: fileName,
     format: 'urdf',
-    content: generateURDF(robot, {
-      includeHardware: 'auto',
-      preserveMeshPaths: true,
-    }),
+    content: canGenerateUrdf(robot)
+      ? generateURDF(robot, {
+          includeHardware: 'auto',
+          preserveMeshPaths: true,
+        })
+      : '',
   };
 
   return {
@@ -515,6 +522,30 @@ export function getSingleComponentWorkspaceMjcfViewerSource({
 
   const sourceFile = availableFiles.find((file) => file.name === sourceFilePath) ?? null;
   return sourceFile?.format === 'mjcf' ? sourceFile : null;
+}
+
+export function buildSingleComponentWorkspaceMjcfViewerContent({
+  assemblyState,
+  sourceFile,
+  resolvedMjcfSourceContent,
+}: {
+  assemblyState: AssemblyState | null;
+  sourceFile: RobotFile | null;
+  resolvedMjcfSourceContent: string | null;
+}): string | null {
+  if (!assemblyState || !sourceFile || sourceFile.format !== 'mjcf' || !resolvedMjcfSourceContent) {
+    return null;
+  }
+
+  const visibleComponent = Object.values(assemblyState.components).find(
+    (component) => component.visible !== false && component.sourceFile === sourceFile.name,
+  );
+
+  if (!visibleComponent) {
+    return null;
+  }
+
+  return prefixMJCFSourceIdentifiers(resolvedMjcfSourceContent, `${visibleComponent.name}_`);
 }
 
 export function getWorkspaceAssemblyViewerRobotData({
@@ -938,6 +969,13 @@ function buildAssemblySeedRobotFromSourceBaseline({
   };
 }
 
+function createSingleComponentAssemblyReuseSnapshot(robot: RobotData | RobotState): string {
+  return createRobotSemanticSnapshot({
+    ...robot,
+    selection: { type: null, id: null },
+  });
+}
+
 export function shouldReuseSourceViewerForSingleComponentAssembly({
   assemblyState,
   activeFile,
@@ -992,11 +1030,8 @@ export function shouldReuseSourceViewerForSingleComponentAssembly({
   }
 
   return (
-    createRobotSourceSnapshot(expectedSeedRobot) ===
-    createRobotSourceSnapshot({
-      ...component.robot,
-      selection: { type: null, id: null },
-    })
+    createSingleComponentAssemblyReuseSnapshot(expectedSeedRobot) ===
+    createSingleComponentAssemblyReuseSnapshot(component.robot)
   );
 }
 
@@ -1397,5 +1432,7 @@ export function buildPreviewSceneSourceFromImportResult(
     return importResult.status === 'error' ? '' : null;
   }
 
-  return generateURDF(previewRobot, { preserveMeshPaths: true });
+  return canGenerateUrdf(previewRobot)
+    ? generateURDF(previewRobot, { preserveMeshPaths: true })
+    : null;
 }

@@ -30,6 +30,7 @@ import { prewarmUsdViewerRuntimesInBackground } from './utils/usdRuntimeStartupP
 import { commitResolvedRobotLoad } from './utils/commitResolvedRobotLoad';
 import { resolveUsdViewerRoundtripSelection } from './utils/usdViewerRoundtripSelection';
 import { resolveAppModeAfterRobotContentChange } from './utils/contentChangeAppMode';
+import { resolveExportErrorMessage } from './utils/exportErrorMessage';
 import {
   mapRobotImportProgressToDocumentLoadPercent,
   resolveBootstrapDocumentLoadPhase,
@@ -1028,10 +1029,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
           showToast(result.warnings[0], 'info');
         }
       } catch (error) {
-        showToast(
-          error instanceof Error && error.message ? error.message : t.exportFailedParse,
-          'error',
-        );
+        showToast(resolveExportErrorMessage(error, t), 'error');
       } finally {
         setProjectExportProgress(null);
         setIsExporting(false);
@@ -1283,10 +1281,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       }
       setDisconnectedWorkspaceUrdfDialog(null);
     } catch (error) {
-      showToast(
-        error instanceof Error && error.message ? error.message : t.exportFailedParse,
-        'error',
-      );
+      showToast(resolveExportErrorMessage(error, t), 'error');
     } finally {
       setIsDisconnectedWorkspaceUrdfExporting(false);
     }
@@ -1413,10 +1408,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
                 }
                 setIsExportDialogOpen(false);
               } catch (error) {
-                showToast(
-                  error instanceof Error && error.message ? error.message : t.exportFailedParse,
-                  'error',
-                );
+                showToast(resolveExportErrorMessage(error, t), 'error');
               } finally {
                 setIsExporting(false);
               }

@@ -16,7 +16,7 @@ import { rewriteRobotMeshPathsForSource } from './meshPathUtils';
 import { syncRobotVisualColorsFromMaterials } from '@/core/robot/materials';
 import { isImageAssetPath } from '@/core/utils/assetFileTypes';
 import { isSourceOnlyMJCFDocument } from './mjcf/mjcfXml';
-import { validateMJCFImportExternalAssets } from './mjcf/mjcfImportValidation';
+import { inspectMJCFImportExternalAssets } from './mjcf/mjcfImportValidation';
 
 export interface ResolveRobotFileDataOptions {
   availableFiles?: RobotFile[];
@@ -425,7 +425,7 @@ export function isSourceOnlyXacroDocument(urdfContent: string): boolean {
 
 function shouldValidateMJCFExternalAssets(
   mode: ResolveRobotFileDataOptions['mjcfExternalAssetValidation'],
-  assets: Record<string, string>,
+  resolvedAssetCount: number,
 ): boolean {
   if (mode === 'always') {
     return true;
@@ -435,7 +435,7 @@ function shouldValidateMJCFExternalAssets(
     return false;
   }
 
-  return Object.keys(assets).length > 0;
+  return resolvedAssetCount > 0;
 }
 
 export function resolveRobotFileData(
@@ -502,18 +502,24 @@ export function resolveRobotFileData(
         }
 
         emitRobotImportProgress(reportProgress, 45, 'Checking MJCF external assets');
-        if (shouldValidateMJCFExternalAssets(mjcfExternalAssetValidation, assets)) {
-          const assetIssues = validateMJCFImportExternalAssets(
+        if (mjcfExternalAssetValidation !== 'never') {
+          const assetValidation = inspectMJCFImportExternalAssets(
             resolved.sourceFile.name,
             resolved.content,
             availableFiles,
             assets,
           );
-          if (assetIssues.length > 0) {
+          if (
+            shouldValidateMJCFExternalAssets(
+              mjcfExternalAssetValidation,
+              assetValidation.resolvedAssetCount,
+            ) &&
+            assetValidation.issues.length > 0
+          ) {
             return createErrorImportResult(
               file,
               'parse_failed',
-              buildImportFailureMessage(file, assetIssues[0]?.detail),
+              buildImportFailureMessage(file, assetValidation.issues[0]?.detail),
             );
           }
         }
