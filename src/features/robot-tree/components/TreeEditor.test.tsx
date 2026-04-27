@@ -150,6 +150,44 @@ async function clickButtonByTitle(dom: JSDOM, title: string) {
   });
 }
 
+function findSectionRootByLabel(container: HTMLElement, label: string) {
+  const labelElement = Array.from(container.querySelectorAll<HTMLElement>('span')).find(
+    (element) => element.textContent?.trim() === label,
+  );
+  assert.ok(labelElement, `expected section label "${label}"`);
+
+  let current = labelElement.parentElement;
+  while (current) {
+    if (
+      typeof current.className === 'string' &&
+      current.className.includes('flex-col') &&
+      current.className.includes('border-b')
+    ) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+
+  assert.fail(`expected section root for label "${label}"`);
+}
+
+function findFlexSectionRootByLabel(container: HTMLElement, label: string) {
+  const labelElement = Array.from(container.querySelectorAll<HTMLElement>('span')).find(
+    (element) => element.textContent?.trim() === label,
+  );
+  assert.ok(labelElement, `expected section label "${label}"`);
+
+  let current = labelElement.parentElement;
+  while (current) {
+    if (current.style.flex) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+
+  assert.fail(`expected flex section root for label "${label}"`);
+}
+
 function renderTreeEditor(options: {
   root: Root;
   availableFiles: RobotFile[];
@@ -517,6 +555,87 @@ test('TreeEditor restores file browser and structure disclosure state after remo
   } finally {
     await act(async () => {
       remountedRoot?.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('TreeEditor keeps the file browser at its fixed height when the structure tree is collapsed', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useUIStore.setState({
+    sidebarTab: 'structure',
+    panelSections: {},
+    panelLayout: {
+      ...useUIStore.getState().panelLayout,
+      treeFileBrowserHeight: 216,
+    },
+  });
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+
+  const targetFile = createRobotFile('robots/sidebar-height-lock.urdf');
+
+  try {
+    await renderTreeEditor({
+      root,
+      availableFiles: [targetFile],
+      onRequestLoadRobot: () => 'loaded',
+    });
+
+    await clickByText(dom, container, 'Structure Tree');
+
+    const fileBrowserRoot = findSectionRootByLabel(container, 'Asset Library');
+    assert.doesNotMatch(
+      fileBrowserRoot.className,
+      /\bflex-1\b/,
+      'file browser should not absorb the freed space when the structure tree collapses',
+    );
+    assert.match(
+      fileBrowserRoot.className,
+      /\bshrink-0\b/,
+      'file browser should keep its fixed-height layout when the structure tree collapses',
+    );
+    assert.equal(
+      fileBrowserRoot.style.height,
+      '216px',
+      'file browser should keep its stored height so the structure tree collapses upward',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('TreeEditor structure section avoids animating its full flex layout when toggled', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useUIStore.setState({ sidebarTab: 'structure' });
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+
+  try {
+    await renderTreeEditor({
+      root,
+      availableFiles: [],
+      onRequestLoadRobot: () => 'loaded',
+    });
+
+    const structureRoot = findFlexSectionRootByLabel(container, 'Structure Tree');
+    assert.doesNotMatch(
+      structureRoot.className,
+      /\btransition-all\b/,
+      'structure section should not animate full layout properties because that makes the sidebar jitter on collapse/expand',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
     });
     dom.window.close();
   }

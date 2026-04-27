@@ -615,7 +615,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
       : onLoadRobot;
 
   const actualWidth = collapsed ? 0 : width;
-  const shouldFileBrowserFillSpace = isFileBrowserOpen && !isStructureOpen;
+  const shouldFileBrowserFillSpace = false;
   const canDeleteAllLibraryFiles = Boolean(onDeleteAllLibraryFiles && availableFiles.length > 0);
 
   return (
