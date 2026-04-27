@@ -40,6 +40,7 @@ import {
   type WorkspaceCanvasWebglSupportState,
 } from './workspaceCanvasWebgl';
 import { cleanupWorkspaceCanvasRenderer } from './workspaceCanvasRendererCleanup';
+import { shouldSuppressWorkspacePointerMissAfterDrag } from './workspacePointerMissPolicy';
 
 interface WorkspaceCanvasProps {
   theme: Theme;
@@ -78,6 +79,14 @@ interface WorkspaceCanvasProps {
   showUsageGuide?: boolean;
   renderKey?: string;
   initialCameraSnapshot?: WorkspaceCameraSnapshot | null;
+}
+
+interface PointerMissGesture {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
 }
 
 function CanvasRenderKeyInvalidator({ renderKey }: { renderKey: string }) {
@@ -133,6 +142,8 @@ export const WorkspaceCanvas = ({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const canvasReadyRef = useRef(false);
   const contextLossInFlightRef = useRef(false);
+  const pointerMissGestureRef = useRef<PointerMissGesture | null>(null);
+  const suppressNextPointerMissRef = useRef(false);
   const { dpr, isInteracting, beginInteraction, endInteraction, pulseInteraction } =
     useAdaptiveInteractionQuality();
 
@@ -306,10 +317,68 @@ export const WorkspaceCanvas = ({
   const handlePointerDownCapture = useCallback<React.PointerEventHandler<HTMLDivElement>>(
     (event) => {
       beginInteraction();
+      if (event.button === 0) {
+        pointerMissGestureRef.current = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          endX: event.clientX,
+          endY: event.clientY,
+        };
+        suppressNextPointerMissRef.current = false;
+      }
       onPointerDownCapture?.(event);
     },
     [beginInteraction, onPointerDownCapture],
   );
+
+  const updatePointerMissGesture = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = pointerMissGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+
+    gesture.endX = event.clientX;
+    gesture.endY = event.clientY;
+  }, []);
+
+  const handlePointerMoveCapture = useCallback<React.PointerEventHandler<HTMLDivElement>>(
+    (event) => {
+      updatePointerMissGesture(event);
+    },
+    [updatePointerMissGesture],
+  );
+
+  const handlePointerUpCapture = useCallback<React.PointerEventHandler<HTMLDivElement>>(
+    (event) => {
+      updatePointerMissGesture(event);
+
+      const gesture = pointerMissGestureRef.current;
+      if (gesture && gesture.pointerId === event.pointerId) {
+        suppressNextPointerMissRef.current = shouldSuppressWorkspacePointerMissAfterDrag(gesture);
+        pointerMissGestureRef.current = null;
+      }
+
+      endInteraction();
+    },
+    [endInteraction, updatePointerMissGesture],
+  );
+
+  const handlePointerLeave = useCallback<React.PointerEventHandler<HTMLDivElement>>(
+    (event) => {
+      updatePointerMissGesture(event);
+      pointerMissGestureRef.current = null;
+      endInteraction(0);
+    },
+    [endInteraction, updatePointerMissGesture],
+  );
+
+  const handlePointerMissed = useCallback(() => {
+    if (suppressNextPointerMissRef.current) {
+      suppressNextPointerMissRef.current = false;
+      return;
+    }
+
+    onPointerMissed?.();
+  }, [onPointerMissed]);
 
   const handleMouseMove = useCallback<React.MouseEventHandler<HTMLDivElement>>(
     (event) => {
@@ -349,8 +418,9 @@ export const WorkspaceCanvas = ({
         backgroundColor: activeBackgroundColor,
       }}
       onPointerDownCapture={handlePointerDownCapture}
-      onPointerUpCapture={() => endInteraction()}
-      onPointerLeave={() => endInteraction(0)}
+      onPointerMoveCapture={handlePointerMoveCapture}
+      onPointerUpCapture={handlePointerUpCapture}
+      onPointerLeave={handlePointerLeave}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
@@ -372,7 +442,7 @@ export const WorkspaceCanvas = ({
             camera={canvasCamera}
             gl={canvasGl}
             onCreated={handleCreated}
-            onPointerMissed={onPointerMissed}
+            onPointerMissed={handlePointerMissed}
             translate="no"
           >
             <WorkspaceCanvasInteractionStateProvider isInteracting={isInteracting}>

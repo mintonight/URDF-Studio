@@ -14,6 +14,7 @@ scripts/*
 scripts/regression/*
 !scripts/regression/validate_sdf_cli_truth.ts
 !scripts/regression/run_shadow_hand_hover_regression.mjs
+!scripts/regression/run_default_link_click_hover_regression.mjs
 !scripts/regression/validate_unitree_ros_usd_export_benchmark.mjs
 !scripts/regression/benchmark_import_pre_resolve.ts
 !scripts/mujoco/

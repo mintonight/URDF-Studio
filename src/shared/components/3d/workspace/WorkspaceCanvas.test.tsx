@@ -63,14 +63,11 @@ test('WorkspaceCanvas logs unsupported WebGL failures without rendering in-canva
   try {
     await act(async () => {
       root.render(
-        React.createElement(
-          WorkspaceCanvas,
-          {
-            theme: 'light',
-            lang: 'en',
-          },
-          React.createElement('div', null, 'scene'),
-        ),
+        React.createElement(WorkspaceCanvas, {
+          theme: 'light',
+          lang: 'en',
+          children: React.createElement('div', null, 'scene'),
+        }),
       );
     });
 

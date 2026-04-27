@@ -208,10 +208,9 @@ function resolveHoverFreezeState(
         };
   }
 
-  const nextHoveredSelection = sanitizeSelection(
-    state.deferredHoveredSelection,
-    state.interactionGuard,
-  );
+  const nextHoveredSelection = state.hoverFrozen
+    ? sanitizeSelection(state.deferredHoveredSelection, state.interactionGuard)
+    : sanitizedHoveredSelection;
 
   return state.interactionHoverFrozen === interactionHoverFrozen &&
     state.hoverBlockCount === clampedHoverBlockCount &&

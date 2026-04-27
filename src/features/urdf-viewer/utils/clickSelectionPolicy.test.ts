@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_SELECT_CLICK_DRAG_THRESHOLD_PX,
   isPointerInteractionWithinClickThreshold,
+  resolveDeferredSelectionHoverState,
   shouldFinalizePointerInteraction,
   shouldDeferSelectionUntilPointerUp,
 } from './clickSelectionPolicy.ts';
@@ -100,5 +101,52 @@ test('pointer finalization only runs when the viewer actually owns an active int
       hasPendingSelection: true,
     }),
     true,
+  );
+});
+
+test('deferred selection keeps hover stable for clicks and only clears once the pointer becomes a drag', () => {
+  assert.deepEqual(
+    resolveDeferredSelectionHoverState({
+      hasPendingSelection: true,
+      alreadyExceededClickThreshold: false,
+      startX: 10,
+      startY: 20,
+      endX: 14,
+      endY: 23,
+    }),
+    {
+      pointerExceededClickThreshold: false,
+      shouldClearHover: false,
+    },
+  );
+
+  assert.deepEqual(
+    resolveDeferredSelectionHoverState({
+      hasPendingSelection: true,
+      alreadyExceededClickThreshold: false,
+      startX: 10,
+      startY: 20,
+      endX: 10 + DEFAULT_SELECT_CLICK_DRAG_THRESHOLD_PX + 1,
+      endY: 20,
+    }),
+    {
+      pointerExceededClickThreshold: true,
+      shouldClearHover: true,
+    },
+  );
+
+  assert.deepEqual(
+    resolveDeferredSelectionHoverState({
+      hasPendingSelection: true,
+      alreadyExceededClickThreshold: true,
+      startX: 10,
+      startY: 20,
+      endX: 40,
+      endY: 50,
+    }),
+    {
+      pointerExceededClickThreshold: true,
+      shouldClearHover: false,
+    },
   );
 });

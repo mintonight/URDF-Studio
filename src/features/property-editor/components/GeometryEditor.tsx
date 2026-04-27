@@ -3,7 +3,7 @@
  * Handles geometry type selection, dimension editing, mesh selection,
  * origin/rotation, color, and auto-align.
  */
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { Upload, File, Wand, Check, Trash2, Eye } from 'lucide-react';
 import type { RobotState, UrdfLink, UrdfVisual } from '@/types';
 import { GeometryType } from '@/types';
@@ -223,6 +223,88 @@ interface DimensionInputField {
   onChange: (value: number) => void;
   value: number;
 }
+
+interface DeferredColorPickerInputProps {
+  ariaLabel: string;
+  className?: string;
+  onCommit: (value: string) => void;
+  value: string;
+}
+
+const DeferredColorPickerInput = ({
+  ariaLabel,
+  className,
+  onCommit,
+  value,
+}: DeferredColorPickerInputProps) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [draftValue, setDraftValue] = useState(value);
+  const draftValueRef = useRef(value);
+  const committedValueRef = useRef(value);
+  const onCommitRef = useRef(onCommit);
+
+  useEffect(() => {
+    onCommitRef.current = onCommit;
+  }, [onCommit]);
+
+  useEffect(() => {
+    draftValueRef.current = value;
+    committedValueRef.current = value;
+    setDraftValue(value);
+  }, [value]);
+
+  const setDraft = useCallback((nextValue: string) => {
+    draftValueRef.current = nextValue;
+    setDraftValue((currentValue) => (currentValue === nextValue ? currentValue : nextValue));
+  }, []);
+
+  const commitDraft = useCallback(() => {
+    const nextValue = draftValueRef.current;
+    if (nextValue === committedValueRef.current) {
+      return;
+    }
+
+    committedValueRef.current = nextValue;
+    onCommitRef.current(nextValue);
+  }, []);
+
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) {
+      return;
+    }
+
+    const handleNativeChange = () => {
+      setDraft(input.value);
+      commitDraft();
+    };
+
+    input.addEventListener('change', handleNativeChange);
+    return () => {
+      input.removeEventListener('change', handleNativeChange);
+    };
+  }, [commitDraft, setDraft]);
+
+  return (
+    <input
+      ref={inputRef}
+      type="color"
+      value={draftValue}
+      onInput={(event) => setDraft(event.currentTarget.value)}
+      onChange={(event) => setDraft(event.currentTarget.value)}
+      onPointerUp={commitDraft}
+      onMouseUp={commitDraft}
+      onBlur={commitDraft}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          commitDraft();
+        }
+      }}
+      aria-label={ariaLabel}
+      className={className}
+    />
+  );
+};
 
 const POSITIVE_GEOMETRY_VALUE_MIN = GEOMETRY_DIMENSION_STEP;
 const stripAxisSuffix = (label: string) => label.replace(/\s*\([^)]*\)\s*$/, '');
@@ -1521,15 +1603,14 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
                   >
                     HEX
                   </span>
-                  <input
-                    type="color"
+                  <DeferredColorPickerInput
                     value={getColorPickerHexValue(effectiveColorValue)}
-                    onChange={(e) =>
+                    onCommit={(nextColor) =>
                       update({
-                        color: mergeColorPickerHexValue(e.target.value, effectiveColorValue),
+                        color: mergeColorPickerHexValue(nextColor, effectiveColorValue),
                       })
                     }
-                    aria-label={t.color}
+                    ariaLabel={t.color}
                     className="h-7 w-8 shrink-0 cursor-pointer rounded-md border border-border-strong bg-input-bg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_28%,transparent)]"
                   />
                 </div>

@@ -113,6 +113,7 @@ import {
   scheduleSelectionMissGuardReset,
   shouldDisarmSelectionMissGuardOnPointerMove,
 } from '../utils/selectionMissGuard';
+import { useUsdHighlightLifecycle } from '../hooks/useUsdHighlightLifecycle';
 import { scheduleStabilizedAutoFrame } from '../utils/stabilizedAutoFrame';
 import { buildViewerLoadingHudState } from '../utils/viewerLoadingHud';
 import type { ViewerRobotDataResolution } from '../utils/viewerRobotData';
@@ -2610,12 +2611,7 @@ export function UsdWasmStage({
     [invalidate, justSelectedRef, onMeshSelect, onRuntimeSelectionChange],
   );
 
-  useEffect(() => {
-    syncUsdHighlights();
-    return () => {
-      revertUsdHighlights();
-    };
-  }, [revertUsdHighlights, syncUsdHighlights]);
+  useUsdHighlightLifecycle(syncUsdHighlights, revertUsdHighlights);
 
   useEffect(() => {
     const domElement = gl.domElement;

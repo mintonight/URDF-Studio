@@ -520,7 +520,7 @@ test('closedLoopRobotState sanitizes runtime-shaped joints before preview sessio
       w: 0.9682458,
     });
     assert.equal(
-      'setJointValue' in (previewRobotState.joints.joint_a as Record<string, unknown>),
+      'setJointValue' in (previewRobotState.joints.joint_a as unknown as Record<string, unknown>),
       false,
     );
     assert.equal(Object.getPrototypeOf(previewRobotState.joints.joint_a), Object.prototype);

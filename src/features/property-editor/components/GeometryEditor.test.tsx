@@ -362,6 +362,13 @@ function dispatchReactChange(input: HTMLInputElement, value: string) {
   });
 }
 
+async function commitColorPickerValue(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    dispatchReactChange(input, value);
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
 function dispatchReactSelectChange(select: HTMLSelectElement, value: string) {
   const prototype = select.ownerDocument.defaultView?.HTMLSelectElement.prototype;
   const valueSetter = prototype
@@ -472,15 +479,42 @@ test('GeometryEditor reads and updates the selected visual objectIndex instead o
     const colorInput = getColorInput(container);
     assert.equal(colorInput.value.toLowerCase(), '#00ff00');
 
-    await act(async () => {
-      dispatchReactChange(colorInput, '#abcdef');
-      await new Promise((resolve) => setTimeout(resolve, 80));
-    });
+    await commitColorPickerValue(colorInput, '#abcdef');
 
     const nextLink = updates.at(-1);
     assert.ok(nextLink, 'GeometryEditor should emit an updated link');
     assert.equal(nextLink.visual.color, '#ff0000');
     assert.equal(nextLink.visualBodies?.[0]?.color, '#abcdef');
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('GeometryEditor defers visual color picker updates until the picker is committed', async () => {
+  const { dom, container, root } = createComponentRoot();
+  try {
+    const link = createLink('#00ff00');
+    const updates: UrdfLink[] = [];
+
+    await renderGeometryEditor(root, link, (nextLink) => {
+      updates.push(nextLink);
+    });
+
+    const colorInput = getColorInput(container);
+
+    await act(async () => {
+      dispatchReactChange(colorInput, '#abcdef');
+      dispatchReactChange(colorInput, '#123456');
+    });
+
+    assert.equal(updates.length, 0, 'dragging the color picker should stay local');
+
+    await act(async () => {
+      colorInput.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0]?.visualBodies?.[0]?.color, '#123456');
   } finally {
     await destroyComponentRoot(dom, root);
   }
@@ -1493,10 +1527,7 @@ test('GeometryEditor normalizes alpha colors for the picker while preserving alp
     const colorInput = getColorInput(container);
     assert.equal(colorInput.value.toLowerCase(), '#123456');
 
-    await act(async () => {
-      dispatchReactChange(colorInput, '#abcdef');
-      await new Promise((resolve) => setTimeout(resolve, 80));
-    });
+    await commitColorPickerValue(colorInput, '#abcdef');
 
     const nextLink = updates.at(-1);
     assert.ok(nextLink, 'GeometryEditor should emit an updated link');

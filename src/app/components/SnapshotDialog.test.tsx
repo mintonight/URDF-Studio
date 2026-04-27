@@ -89,7 +89,7 @@ test('SnapshotDialog reuses the segmented surface tone for AA choices', async ()
   }
 });
 
-test('SnapshotDialog opens with a wider default width so compression labels fit without truncation', async () => {
+test('SnapshotDialog opens with a narrower default width so the shell does not feel oversized', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -113,8 +113,8 @@ test('SnapshotDialog opens with a wider default width so compression labels fit 
     assert.ok(windowRoot, 'snapshot dialog should render a draggable window root');
     assert.equal(
       windowRoot.style.width,
-      '620px',
-      'snapshot dialog should default to the wider width that can show compression labels cleanly',
+      '560px',
+      'snapshot dialog should default to a narrower width that does not over-stretch the shell',
     );
   } finally {
     await act(async () => {
@@ -209,6 +209,11 @@ test('SnapshotDialog renders the live preview state without the frozen-view hint
     const previewImage = container.querySelector('img[alt="Snapshot live preview"]');
     assert.ok(previewImage, 'snapshot dialog should render the latest preview image');
     assert.equal(previewImage?.getAttribute('src'), 'blob:preview');
+    assert.equal(
+      previewImage?.getAttribute('draggable'),
+      'false',
+      'snapshot dialog preview image should opt out of native browser drag behavior',
+    );
 
     const textContent = container.textContent ?? '';
     assert.match(textContent, /Live Preview/);
@@ -263,7 +268,7 @@ test('SnapshotDialog keeps the live preview inside the scrollable content area',
   }
 });
 
-test('SnapshotDialog keeps the preview in natural document flow instead of stretching it with filler spacing', async () => {
+test('SnapshotDialog keeps the live preview inside an adaptive shell instead of letting it consume the full card width', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -290,15 +295,45 @@ test('SnapshotDialog keeps the preview in natural document flow instead of stret
 
     const scrollableContent = container.querySelector('.overflow-y-auto') as HTMLElement | null;
     assert.ok(scrollableContent, 'snapshot dialog should render the scrollable body');
-    assert.doesNotMatch(
+    assert.match(
       scrollableContent.className,
       /\bflex-col\b/,
-      'scrollable body should rely on the dialog size instead of stretching content with a flex column',
+      'scrollable body should stack sections in a flex column so the preview can consume extra height',
+    );
+
+    const previewCard = container.querySelector(
+      '[data-testid="snapshot-preview-card"]',
+    ) as HTMLElement | null;
+    assert.ok(previewCard, 'snapshot dialog should render the preview card');
+    assert.match(
+      previewCard.className,
+      /\bflex-1\b/,
+      'preview card should expand to use spare dialog height',
+    );
+
+    const previewShell = container.querySelector(
+      '[data-testid="snapshot-preview-frame-shell"]',
+    ) as HTMLElement | null;
+    assert.ok(previewShell, 'snapshot dialog should render the preview frame shell');
+    assert.equal(
+      previewShell.style.maxWidth,
+      '360px',
+      'default snapshot dialog width should keep the preview inside a conservative adaptive cap',
+    );
+
+    const previewFrame = container.querySelector(
+      '[data-testid="snapshot-preview-frame"]',
+    ) as HTMLElement | null;
+    assert.ok(previewFrame, 'snapshot dialog should render the preview frame');
+    assert.match(
+      previewFrame.className,
+      /\bw-full\b/,
+      'preview frame should use the available card width',
     );
     assert.doesNotMatch(
-      scrollableContent.lastElementChild?.className ?? '',
-      /\bmt-auto\b/,
-      'preview card should keep its natural position directly after the scene section',
+      previewFrame.className,
+      /max-w-\[280px\]/,
+      'preview frame should no longer be trapped inside the old narrow width cap',
     );
   } finally {
     await act(async () => {
@@ -486,6 +521,123 @@ test('SnapshotDialog caps its auto-fitted height to the available viewport when 
       );
     } else {
       delete (dom.window.HTMLElement.prototype as { offsetHeight?: number }).offsetHeight;
+    }
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('SnapshotDialog collapses its settings sections into one column on narrow viewports', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const originalInnerWidthDescriptor = Object.getOwnPropertyDescriptor(dom.window, 'innerWidth');
+
+  Object.defineProperty(dom.window, 'innerWidth', {
+    value: 430,
+    configurable: true,
+  });
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: false,
+          lang: 'en',
+          onClose: () => {},
+          onCapture: () => {},
+        }),
+      );
+    });
+
+    const outputSectionTitle = Array.from(container.querySelectorAll('div')).find(
+      (element) => element.textContent?.trim() === 'Output',
+    );
+    assert.ok(outputSectionTitle, 'snapshot dialog should render the output section title');
+
+    const outputSectionGrid = outputSectionTitle.parentElement?.querySelector(
+      '.grid',
+    ) as HTMLElement | null;
+    assert.ok(outputSectionGrid, 'output section should render a settings grid');
+    assert.match(
+      outputSectionGrid.className,
+      /\bgrid-cols-1\b/,
+      'narrow snapshot dialog widths should collapse settings into a single column',
+    );
+
+    const sceneSectionTitle = Array.from(container.querySelectorAll('div')).find(
+      (element) => element.textContent?.trim() === 'Scene',
+    );
+    assert.ok(sceneSectionTitle, 'snapshot dialog should render the scene section title');
+
+    const sceneSectionGrid = sceneSectionTitle.parentElement?.querySelector(
+      '.grid',
+    ) as HTMLElement | null;
+    assert.ok(sceneSectionGrid, 'scene section should render a settings grid');
+    assert.match(
+      sceneSectionGrid.className,
+      /\bgrid-cols-1\b/,
+      'scene settings should also collapse to a single column on narrow widths',
+    );
+  } finally {
+    if (originalInnerWidthDescriptor) {
+      Object.defineProperty(dom.window, 'innerWidth', originalInnerWidthDescriptor);
+    }
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('SnapshotDialog shrinks the preview cap further on narrow layouts so the settings area stays readable', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const originalInnerWidthDescriptor = Object.getOwnPropertyDescriptor(dom.window, 'innerWidth');
+
+  Object.defineProperty(dom.window, 'innerWidth', {
+    value: 430,
+    configurable: true,
+  });
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: false,
+          lang: 'en',
+          onClose: () => {},
+          onCapture: () => {},
+          previewState: {
+            status: 'ready',
+            imageUrl: 'blob:preview',
+            aspectRatio: 16 / 9,
+          },
+        }),
+      );
+    });
+
+    const previewShell = container.querySelector(
+      '[data-testid="snapshot-preview-frame-shell"]',
+    ) as HTMLElement | null;
+    assert.ok(previewShell, 'snapshot dialog should render the compact preview shell');
+    assert.equal(
+      previewShell.style.maxWidth,
+      '300px',
+      'narrow layouts should reduce the preview cap so the preview does not overwhelm the dialog',
+    );
+  } finally {
+    if (originalInnerWidthDescriptor) {
+      Object.defineProperty(dom.window, 'innerWidth', originalInnerWidthDescriptor);
     }
     await act(async () => {
       root.unmount();

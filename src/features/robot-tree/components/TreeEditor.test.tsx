@@ -641,6 +641,79 @@ test('TreeEditor structure section avoids animating its full flex layout when to
   }
 });
 
+test('TreeEditor keeps the structure header height and chevron size stable when a source file is shown', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useUIStore.setState({ sidebarTab: 'structure' });
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={createRobotState()}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          currentFileName="robots/imports/very_long_robot_filename_that_should_truncate_cleanly.urdf"
+        />,
+      );
+    });
+
+    const structureLabel = Array.from(container.querySelectorAll<HTMLElement>('span')).find(
+      (element) => element.textContent?.trim() === 'Structure Tree',
+    );
+    assert.ok(structureLabel, 'structure section label should render');
+
+    const structureHeaderLeft = structureLabel.parentElement;
+    assert.ok(structureHeaderLeft, 'structure header left section should render');
+    assert.match(
+      structureHeaderLeft.className,
+      /\bflex-1\b/,
+      'structure header left section should absorb the remaining width',
+    );
+    assert.match(
+      structureHeaderLeft.className,
+      /\boverflow-hidden\b/,
+      'structure header left section should truncate long source file names instead of shrinking icons',
+    );
+
+    const structureHeader = structureHeaderLeft.parentElement as HTMLElement | null;
+    assert.ok(structureHeader, 'structure header should render');
+    assert.match(
+      structureHeader.className,
+      /\bh-8\b/,
+      'structure header should keep a fixed height when the source file chip appears',
+    );
+
+    const chevron = structureHeaderLeft.querySelector('svg');
+    assert.ok(chevron, 'structure header chevron should render');
+    assert.match(
+      chevron.getAttribute('class') ?? '',
+      /\bshrink-0\b/,
+      'structure header chevron should not shrink when the source file chip is visible',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('TreeEditor joint section can grow past the old compact cap when dragged downward', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');

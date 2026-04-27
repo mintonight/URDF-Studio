@@ -93,26 +93,26 @@ export function TreeEditorStructureSection({
   return (
     <div className="flex flex-col min-h-0 flex-1" style={{ flex: isOpen ? '1 1 0%' : '0 0 auto' }}>
       <div
-        className="flex items-center justify-between px-2.5 py-1.5 bg-element-bg dark:bg-element-bg cursor-pointer select-none"
+        className="flex h-8 items-center justify-between gap-2 px-2.5 bg-element-bg dark:bg-element-bg cursor-pointer select-none"
         onClick={onToggleOpen}
       >
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
           {isOpen ? (
-            <ChevronDown className="w-3.5 h-3.5 text-text-tertiary" />
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
           ) : (
-            <ChevronRight className="w-3.5 h-3.5 text-text-tertiary" />
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
           )}
           <span className="shrink-0 text-[11px] leading-none font-semibold text-text-secondary tracking-[0.02em]">
             {isAssemblyView ? t.assemblyTree : t.structureTree}
           </span>
           {isReadOnly && (
-            <span className="rounded-md border border-system-blue/20 bg-system-blue/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-system-blue">
+            <span className="shrink-0 rounded-md border border-system-blue/20 bg-system-blue/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-system-blue">
               {t.preview}
             </span>
           )}
           {showStructureFilePath && (
             <div
-              className="flex min-w-0 items-center gap-1 rounded-md border border-border-black bg-white px-1.5 py-0.5 dark:bg-panel-bg"
+              className="flex min-w-0 max-w-full flex-1 items-center gap-1 overflow-hidden rounded-md border border-border-black bg-white px-1.5 py-0.5 dark:bg-panel-bg"
               title={currentFileName}
               onClick={(event) => event.stopPropagation()}
               onMouseDown={(event) => event.stopPropagation()}
@@ -136,7 +136,7 @@ export function TreeEditorStructureSection({
           )}
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors ${

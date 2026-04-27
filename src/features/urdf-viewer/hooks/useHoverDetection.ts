@@ -376,12 +376,11 @@ export function useHoverDetection({
   }, [clearRaycastTargetCaches, clearTransientHoverState, needsRaycastRef, robot, robotVersion]);
 
   useEffect(() => {
-    clearTransientHoverState();
+    setHighlightedFace((current) => (current ? null : current));
     clearRaycastTargetCaches();
     needsRaycastRef.current = true;
   }, [
     clearRaycastTargetCaches,
-    clearTransientHoverState,
     interactionLayerPriority,
     needsRaycastRef,
     showCollision,
@@ -592,7 +591,9 @@ export function useHoverDetection({
       hoverFrozen || isDraggingJoint.current || Boolean(isOrbitDragging?.current);
     if (hoverSuppressedByDrag) {
       if (!hoverSuppressedByDragRef.current) {
-        clearTransientHoverState();
+        if (!justSelectedRef?.current) {
+          clearTransientHoverState();
+        }
         needsRaycastRef.current = false;
         hoverSuppressedByDragRef.current = true;
       }

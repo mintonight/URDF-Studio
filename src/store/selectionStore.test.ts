@@ -70,6 +70,30 @@ test('clearHover during a frozen drag clears the deferred hover so release does 
   assert.deepEqual(useSelectionStore.getState().hoveredSelection, { type: null, id: null });
 });
 
+test('setHoverFrozen(false) preserves the current hover when hover is already unfrozen', () => {
+  resetSelectionStore();
+
+  const state = useSelectionStore.getState();
+  state.setHoveredSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+
+  state.setHoverFrozen(false);
+
+  const nextState = useSelectionStore.getState();
+  assert.equal(nextState.hoverFrozen, false);
+  assert.deepEqual(nextState.hoveredSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+  assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
+});
+
 test('hover blocks preserve the existing hover intent and do not let new hover updates replace it before release', () => {
   resetSelectionStore();
 

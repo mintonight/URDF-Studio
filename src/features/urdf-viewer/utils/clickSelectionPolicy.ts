@@ -16,6 +16,16 @@ export interface PointerInteractionFinalizationOptions {
   hasPendingSelection: boolean;
 }
 
+export interface DeferredSelectionHoverStateOptions extends PointerClickThresholdOptions {
+  hasPendingSelection: boolean;
+  alreadyExceededClickThreshold: boolean;
+}
+
+export interface DeferredSelectionHoverState {
+  pointerExceededClickThreshold: boolean;
+  shouldClearHover: boolean;
+}
+
 export function shouldDeferSelectionUntilPointerUp(
   toolMode: ToolMode,
   hasDirectJointDragTarget = false,
@@ -50,4 +60,32 @@ export function shouldFinalizePointerInteraction({
   hasPendingSelection,
 }: PointerInteractionFinalizationOptions): boolean {
   return interactionStarted || dragging || hasPendingSelection;
+}
+
+export function resolveDeferredSelectionHoverState({
+  hasPendingSelection,
+  alreadyExceededClickThreshold,
+  ...pointerThresholdOptions
+}: DeferredSelectionHoverStateOptions): DeferredSelectionHoverState {
+  if (!hasPendingSelection) {
+    return {
+      pointerExceededClickThreshold: alreadyExceededClickThreshold,
+      shouldClearHover: false,
+    };
+  }
+
+  if (alreadyExceededClickThreshold) {
+    return {
+      pointerExceededClickThreshold: true,
+      shouldClearHover: false,
+    };
+  }
+
+  const pointerExceededClickThreshold =
+    !isPointerInteractionWithinClickThreshold(pointerThresholdOptions);
+
+  return {
+    pointerExceededClickThreshold,
+    shouldClearHover: pointerExceededClickThreshold,
+  };
 }

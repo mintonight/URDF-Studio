@@ -26,6 +26,7 @@ interface ResolvePointerUpBackgroundMissOptions {
   dragging: boolean;
   interactionHitTarget: boolean;
   wasGizmoDrag: boolean;
+  pointerMovedBeyondClickThreshold?: boolean;
 }
 
 const DEFAULT_SELECTION_SETTLE_MS = 100;
@@ -85,6 +86,13 @@ export function shouldTreatPointerUpAsBackgroundMiss({
   dragging,
   interactionHitTarget,
   wasGizmoDrag,
+  pointerMovedBeyondClickThreshold = false,
 }: ResolvePointerUpBackgroundMissOptions): boolean {
-  return !hasPendingSelection && !dragging && !interactionHitTarget && !wasGizmoDrag;
+  return (
+    !hasPendingSelection &&
+    !dragging &&
+    !interactionHitTarget &&
+    !wasGizmoDrag &&
+    !pointerMovedBeyondClickThreshold
+  );
 }

@@ -33,16 +33,22 @@ const FIELD_ROW_CLASS_NAME = 'grid grid-cols-[78px_minmax(0,1fr)] items-center g
 const FIELD_LABEL_CLASS_NAME =
   'truncate text-[10px] font-medium tracking-[0.01em] text-text-secondary';
 const SNAPSHOT_DIALOG_DEFAULT_SIZE = {
-  width: 620,
+  width: 560,
   height: 690,
 } as const;
 const SNAPSHOT_DIALOG_MIN_SIZE = {
-  width: 500,
+  width: 360,
   height: 420,
 } as const;
 const SNAPSHOT_DIALOG_HEADER_HEIGHT = 40;
 const SNAPSHOT_DIALOG_VIEWPORT_MARGIN = 24;
 const SNAPSHOT_DIALOG_VIEWPORT_MIN_HEIGHT = 320;
+const SNAPSHOT_DIALOG_COMPACT_LAYOUT_WIDTH = 520;
+const SNAPSHOT_PREVIEW_MIN_WIDTH = 220;
+const SNAPSHOT_PREVIEW_REGULAR_MAX_WIDTH = 360;
+const SNAPSHOT_PREVIEW_COMPACT_MAX_WIDTH = 300;
+const SNAPSHOT_PREVIEW_REGULAR_WIDTH_GUTTER = 180;
+const SNAPSHOT_PREVIEW_COMPACT_WIDTH_GUTTER = 96;
 
 const clamp = (value: number, min: number, max: number) => {
   if (max < min) {
@@ -370,6 +376,13 @@ export function SnapshotDialog({
         : 60
     : 'lossless';
   const effectivePreviewState = previewState ?? internalPreviewState;
+  const isCompactLayout = windowState.size.width <= SNAPSHOT_DIALOG_COMPACT_LAYOUT_WIDTH;
+  const settingsGridClassName = isCompactLayout
+    ? 'grid grid-cols-1 gap-y-1.5'
+    : 'grid grid-cols-2 gap-x-3 gap-y-1.5';
+  const previewCardClassName = `rounded-xl border border-border-black bg-element-bg px-3 py-2 shadow-sm ${
+    isCompactLayout ? 'flex min-h-[220px] flex-col' : 'flex min-h-[260px] flex-1 flex-col'
+  }`;
   const previewStatusText =
     effectivePreviewState.status === 'loading' || effectivePreviewState.status === 'idle'
       ? t.snapshotPreviewLoading
@@ -380,6 +393,14 @@ export function SnapshotDialog({
           : t.snapshotPreviewReady;
   const previewAspectRatio =
     effectivePreviewState.aspectRatio > 0 ? effectivePreviewState.aspectRatio : 16 / 9;
+  const previewFrameMaxWidth = clamp(
+    windowState.size.width -
+      (isCompactLayout
+        ? SNAPSHOT_PREVIEW_COMPACT_WIDTH_GUTTER
+        : SNAPSHOT_PREVIEW_REGULAR_WIDTH_GUTTER),
+    SNAPSHOT_PREVIEW_MIN_WIDTH,
+    isCompactLayout ? SNAPSHOT_PREVIEW_COMPACT_MAX_WIDTH : SNAPSHOT_PREVIEW_REGULAR_MAX_WIDTH,
+  );
 
   if (!isOpen) {
     return null;
@@ -422,9 +443,12 @@ export function SnapshotDialog({
       closeTitle={t.close}
     >
       <div className="flex h-[calc(100%-40px)] min-h-0 flex-col overflow-hidden bg-panel-bg">
-        <div ref={scrollBodyRef} className="flex-1 min-h-0 space-y-1.5 overflow-y-auto px-2.5 py-2">
+        <div
+          ref={scrollBodyRef}
+          className="flex flex-1 min-h-0 flex-col gap-1.5 overflow-y-auto px-2.5 py-2"
+        >
           <SnapshotSection title={compactLabels.output}>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+            <div className={settingsGridClassName}>
               <SnapshotField label={compactLabels.resolution}>
                 <PanelSelect
                   variant="snapshot"
@@ -475,7 +499,7 @@ export function SnapshotDialog({
           </SnapshotSection>
 
           <SnapshotSection title={compactLabels.scene}>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+            <div className={settingsGridClassName}>
               <SnapshotField label={compactLabels.lighting}>
                 <PanelSelect
                   variant="snapshot"
@@ -547,8 +571,10 @@ export function SnapshotDialog({
             </div>
           </SnapshotSection>
 
-          <div className="rounded-xl border border-border-black bg-element-bg px-3 py-2 shadow-sm">
-            <div className="mb-2 flex items-start justify-between gap-3">
+          <div data-testid="snapshot-preview-card" className={previewCardClassName}>
+            <div
+              className={`mb-2 flex shrink-0 gap-3 ${isCompactLayout ? 'flex-col items-start' : 'items-start justify-between'}`}
+            >
               <div className="min-w-0">
                 <div className="text-[10px] font-semibold tracking-[0.02em] text-text-primary">
                   {t.snapshotPreviewTitle}
@@ -559,40 +585,56 @@ export function SnapshotDialog({
               </div>
             </div>
 
-            <div className="mx-auto w-full max-w-[280px]">
+            <div className="flex min-h-[160px] flex-1 items-center justify-center">
               <div
-                className="overflow-hidden rounded-lg border border-border-black bg-panel-bg"
-                style={{ aspectRatio: String(previewAspectRatio) }}
+                data-testid="snapshot-preview-frame-shell"
+                className="w-full"
+                style={{ maxWidth: `${previewFrameMaxWidth}px` }}
               >
-                {effectivePreviewState.imageUrl ? (
-                  <div className="relative h-full w-full">
-                    <img
-                      src={effectivePreviewState.imageUrl}
-                      alt={t.snapshotPreviewAlt}
-                      className="h-full w-full object-contain"
-                    />
-                    {effectivePreviewState.status === 'refreshing' ? (
-                      <div className="absolute inset-0 flex items-end justify-start bg-panel-bg/18 p-2">
-                        <div className="rounded-md border border-border-black bg-element-bg/92 px-1.5 py-1 text-[10px] font-medium text-text-primary shadow-sm">
-                          {t.snapshotPreviewRefreshing}
+                <div
+                  data-testid="snapshot-preview-frame"
+                  className="w-full overflow-hidden rounded-lg border border-border-black bg-panel-bg"
+                  style={{ aspectRatio: String(previewAspectRatio) }}
+                >
+                  {effectivePreviewState.imageUrl ? (
+                    <div className="relative h-full w-full">
+                      <img
+                        src={effectivePreviewState.imageUrl}
+                        alt={t.snapshotPreviewAlt}
+                        draggable={false}
+                        className="h-full w-full object-contain"
+                      />
+                      {effectivePreviewState.status === 'refreshing' ? (
+                        <div className="absolute inset-0 flex items-end justify-start bg-panel-bg/18 p-2">
+                          <div className="rounded-md border border-border-black bg-element-bg/92 px-1.5 py-1 text-[10px] font-medium text-text-primary shadow-sm">
+                            {t.snapshotPreviewRefreshing}
+                          </div>
                         </div>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div className="flex h-full min-h-[120px] items-center justify-center px-4 text-center text-[11px] text-text-secondary">
-                    {effectivePreviewState.status === 'error'
-                      ? t.snapshotPreviewFailed
-                      : t.snapshotPreviewLoading}
-                  </div>
-                )}
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="flex h-full min-h-[120px] items-center justify-center px-4 text-center text-[11px] text-text-secondary">
+                      {effectivePreviewState.status === 'error'
+                        ? t.snapshotPreviewFailed
+                        : t.snapshotPreviewLoading}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="mt-2 flex items-start justify-between gap-3 text-[10px] text-text-secondary">
-              <div className="min-w-0 truncate">{captureSummary}</div>
+            <div
+              className={`mt-2 flex shrink-0 gap-3 text-[10px] text-text-secondary ${
+                isCompactLayout ? 'flex-col items-start' : 'items-start justify-between'
+              }`}
+            >
+              <div className={`min-w-0 ${isCompactLayout ? 'break-words' : 'truncate'}`}>
+                {captureSummary}
+              </div>
               {effectivePreviewState.status === 'error' ? (
-                <div className="shrink-0 text-right text-[10px] text-danger">
+                <div
+                  className={`text-[10px] text-danger ${isCompactLayout ? '' : 'shrink-0 text-right'}`}
+                >
                   {t.snapshotPreviewRetryingHint}
                 </div>
               ) : null}
@@ -604,7 +646,7 @@ export function SnapshotDialog({
           ref={footerRef}
           className="shrink-0 border-t border-border-black bg-element-bg/95 px-3 py-2.5 backdrop-blur-sm"
         >
-          <div className="flex items-center justify-end gap-1.5">
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
             <Button
               type="button"
               variant="secondary"
