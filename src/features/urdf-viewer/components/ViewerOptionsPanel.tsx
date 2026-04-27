@@ -1,9 +1,7 @@
-import React, { useCallback } from 'react';
-import { Move, ArrowUpRight, Crosshair } from 'lucide-react';
+import React from 'react';
+import { ArrowUpRight, Move, Shapes, Shield } from 'lucide-react';
 import {
   CheckboxOption,
-  GroundPlaneControls,
-  SliderOption,
   OptionsPanelContainer,
   OptionsPanelHeader,
   OptionsPanelContent,
@@ -177,8 +175,6 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
   setShowCollision,
   showCollisionAlwaysOnTop,
   setShowCollisionAlwaysOnTop,
-  modelOpacity,
-  setModelOpacity,
   showOrigins,
   setShowOrigins,
   showOriginsOverlay,
@@ -204,15 +200,9 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
   setShowInertia,
   showInertiaOverlay,
   setShowInertiaOverlay,
-  onAutoFitGround,
-  groundPlaneOffset,
-  groundPlaneOffsetReadOnly = false,
-  setGroundPlaneOffset,
 }) => {
   const { activateHoverBlock, deactivateHoverBlock } = useOverlayHoverBlock();
-  const handleResetGround = useCallback(() => {
-    setGroundPlaneOffset(0);
-  }, [setGroundPlaneOffset]);
+  const detailOptionIconClassName = 'w-3 h-3 text-slate-500';
 
   if (!showOptionsPanel) return null;
 
@@ -244,12 +234,11 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
       onWheel={stopPanelEventPropagation}
     >
       <OptionsPanelContainer
-        width="11rem"
-        minWidth={168}
+        width="9.5rem"
+        minWidth={148}
         resizable={true}
         isCollapsed={isOptionsCollapsed}
         resizeTitle={t.resize}
-        showRightResizeHandle={false}
       >
         <OptionsPanelHeader
           title={t.viewOptions}
@@ -258,14 +247,21 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
           onClose={() => setShowOptionsPanel && setShowOptionsPanel(false)}
           showDragGrip={false}
           onMouseDown={onMouseDown}
+          className="!gap-1.5 !px-1.5 !py-1"
         />
 
         <OptionsPanelContent isCollapsed={isOptionsCollapsed}>
           <div className="px-2 py-2 space-y-2">
-            <CheckboxOption checked={showVisual} onChange={setShowVisual} label={t.showVisual} />
+            <CheckboxOption
+              checked={showVisual}
+              onChange={setShowVisual}
+              icon={<Shapes className="w-3 h-3 text-emerald-500 dark:text-emerald-400" />}
+              label={t.showVisual}
+            />
             <ToggleSliderOption
               checked={showCollision}
               onChange={setShowCollision}
+              icon={<Shield className="w-3 h-3 text-amber-500 dark:text-amber-400" />}
               label={t.showCollision}
               rowClassName="pr-1"
               trailingControl={
@@ -289,7 +285,7 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
 
             <OverlayToggleOption
               checked={showOrigins}
-              icon={<Move className="w-3 h-3 text-slate-500" />}
+              icon={<Move className={detailOptionIconClassName} />}
               label={t.showOrigin}
               onChange={setShowOrigins}
               onToggleOverlay={() => setShowOriginsOverlay(!showOriginsOverlay)}
@@ -356,33 +352,6 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
               onToggleOverlay={() => setShowInertiaOverlay(!showInertiaOverlay)}
               overlayActive={showInertiaOverlay}
               overlayLabel={t.alwaysOnTop}
-            />
-
-            <div className="pt-1">
-              <SliderOption
-                label={t.modelOpacity}
-                value={modelOpacity}
-                onChange={setModelOpacity}
-                min={0.1}
-                max={1.0}
-                step={0.01}
-                showPercentage
-                compact
-                indent={false}
-              />
-            </div>
-
-            <GroundPlaneControls
-              autoFitIcon={<Crosshair size={11} />}
-              autoFitLabel={t.autoFitGround}
-              disabled={groundPlaneOffsetReadOnly}
-              offsetLabel={t.groundPlaneOffset}
-              offsetValue={groundPlaneOffset}
-              onAutoFit={onAutoFitGround}
-              onOffsetChange={setGroundPlaneOffset}
-              onReset={handleResetGround}
-              resetLabel={t.reset}
-              sliderIndent={false}
             />
           </div>
         </OptionsPanelContent>

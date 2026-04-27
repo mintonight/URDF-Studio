@@ -375,6 +375,22 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
     const nameLabel = nameRow.querySelector('label');
     assert.ok(nameLabel, 'name row should keep its label');
     assert.match(nameLabel.className, /justify-end/);
+    const nameControl = nameRow.querySelector('div');
+    assert.ok(nameControl, 'name row should keep a control wrapper');
+    assert.match(
+      nameControl.className,
+      /items-center/,
+      'name row control wrapper should vertically center the input',
+    );
+    const typeRow = identityRow.querySelector<HTMLElement>('[data-bridge-inline-field="type"]');
+    assert.ok(typeRow, 'type row should render');
+    const typeControl = typeRow.querySelector('div');
+    assert.ok(typeControl, 'type row should keep a control wrapper');
+    assert.match(
+      typeControl.className,
+      /items-center/,
+      'type row control wrapper should vertically center the select trigger',
+    );
 
     const parentFieldsRow = parentCard.querySelector<HTMLElement>(
       '[data-bridge-side-fields="parent"]',
@@ -392,9 +408,24 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
       relationConnector,
       'joint relation connector should render between parent and child panels',
     );
+    const relationGrid = relationConnector.parentElement;
+    assert.ok(relationGrid, 'relation connector should stay inside the relation grid');
+    assert.doesNotMatch(
+      relationGrid.className,
+      /_3rem_/,
+      'relation grid should not reserve an oversized fixed connector column',
+    );
 
     const originRow = container.querySelector<HTMLElement>('[data-bridge-row="origin"]');
     assert.ok(originRow, 'origin row should render');
+    const inspectorGrid = originRow.parentElement?.parentElement
+      ?.parentElement as HTMLElement | null;
+    assert.ok(inspectorGrid, 'origin row should stay inside the inspector layout container');
+    assert.match(
+      inspectorGrid.className,
+      /grid-cols-\[/,
+      'default bridge modal width should keep the relation and origin sections side by side',
+    );
     expectInlineFieldRow(originRow, 'origin-x', 'input');
     expectInlineFieldRow(originRow, 'origin-y', 'input');
     expectInlineFieldRow(originRow, 'origin-z', 'input');
@@ -605,6 +636,98 @@ test('bridge create modal keeps joint type compact and omits extra explanation c
     assert.ok(hardwareInterfaceSelect, 'hardware interface select should still render');
     assert.doesNotMatch(container.textContent ?? '', /绕单一轴线旋转/);
     assert.doesNotMatch(container.textContent ?? '', /无位置上下限/);
+  } finally {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      interactionGuard: null,
+    });
+    await destroyComponentRoot(dom, root);
+    console.error = originalConsoleError;
+  }
+});
+
+test('bridge create modal keeps zh hardware interface labels Chinese-only and prevents the field label from wrapping', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const originalConsoleError = console.error;
+
+  useSelectionStore.setState({
+    selection: { type: null, id: null },
+    interactionGuard: null,
+  });
+
+  console.error = (...args: unknown[]) => {
+    if (args.some((arg) => typeof arg === 'string' && arg.includes('not wrapped in act'))) {
+      return;
+    }
+
+    originalConsoleError(...args);
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(BridgeCreateModal, {
+          isOpen: true,
+          onClose: () => {},
+          onCreate: () => {},
+          onPreviewChange: () => {},
+          assemblyState: createAssemblyState(),
+          lang: 'zh',
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      await Promise.resolve();
+    });
+
+    const childButton = findButtonByText(container, '选择子侧');
+    assert.ok(childButton, 'child side picker button should render');
+
+    await act(async () => {
+      childButton.click();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      await Promise.resolve();
+    });
+
+    const jointTypeSelect = findJointTypeSelect(container);
+    assert.ok(jointTypeSelect, 'joint type select should render');
+
+    await act(async () => {
+      setFormControlValue(dom, jointTypeSelect, JointType.REVOLUTE);
+      await Promise.resolve();
+    });
+
+    const fieldLabel = container.querySelector(
+      '[data-bridge-inline-field="hardware-interface"] label',
+    ) as HTMLLabelElement | null;
+    assert.ok(fieldLabel, 'hardware interface field label should render');
+    assert.equal(fieldLabel.textContent?.trim(), '控制接口');
+    assert.match(fieldLabel.className, /\bwhitespace-nowrap\b/);
+    assert.match(fieldLabel.className, /\bw-auto\b/);
+
+    const trigger = container.querySelector(
+      'button[role="combobox"][aria-label="控制接口"]',
+    ) as HTMLButtonElement | null;
+    assert.ok(trigger, 'hardware interface combobox trigger should render');
+    assert.equal(trigger.textContent?.includes('位置'), true);
+    assert.equal(trigger.textContent?.includes('position'), false);
+
+    await act(async () => {
+      trigger.click();
+      await Promise.resolve();
+    });
+
+    const optionLabels = Array.from(
+      dom.window.document.querySelectorAll('button[role="option"] span'),
+    ).map((node) => node.textContent?.trim());
+    assert.deepEqual(optionLabels, ['位置', '力矩', '速度']);
   } finally {
     useSelectionStore.setState({
       selection: { type: null, id: null },

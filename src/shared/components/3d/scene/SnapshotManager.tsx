@@ -30,6 +30,7 @@ import {
   resolveSnapshotRenderTargetSamples,
 } from './snapshotResolution';
 import { renderSceneWithDofToCanvas, resolveSnapshotDofSettings } from './snapshotPostprocessing';
+import { applyWorkspaceCameraSnapshot } from '../workspace/workspaceCameraSnapshot';
 
 const SNAPSHOT_RENDER_TARGET_SAMPLES = {
   viewport: 4,
@@ -360,6 +361,9 @@ export const SnapshotManager = ({
       try {
         const { scene: latestScene, camera: liveCamera } = get();
         const captureCamera = frozenCamera ?? cloneSnapshotCamera(liveCamera);
+        if (snapshotOptions.cameraSnapshot) {
+          applyWorkspaceCameraSnapshot(captureCamera, undefined, snapshotOptions.cameraSnapshot);
+        }
         const backgroundState = applySnapshotBackgroundStyle(
           latestScene,
           gl,

@@ -486,6 +486,84 @@ test('useFileImport reports folder preparation state before handing off the firs
   }
 });
 
+test('useFileImport does not hide-seed an assembly when importing multiple standalone MJCF models', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock();
+
+  const piperFile = new File(
+    [
+      `<mujoco model="piper">
+  <worldbody>
+    <body name="base_link" />
+  </worldbody>
+</mujoco>`,
+    ],
+    'piper.xml',
+    { type: 'text/xml' },
+  );
+  Object.defineProperty(piperFile, 'webkitRelativePath', {
+    configurable: true,
+    value: 'mujoco_menagerie-main/agilex_piper/piper.xml',
+  });
+
+  const t1File = new File(
+    [
+      `<mujoco model="t1">
+  <worldbody>
+    <body name="base_link" />
+  </worldbody>
+</mujoco>`,
+    ],
+    't1.xml',
+    { type: 'text/xml' },
+  );
+  Object.defineProperty(t1File, 'webkitRelativePath', {
+    configurable: true,
+    value: 'mujoco_menagerie-main/booster_t1/t1.xml',
+  });
+
+  const loadCalls: RobotFile[] = [];
+  const rendered = renderHook({
+    onLoadRobot: (file) => {
+      loadCalls.push(file);
+    },
+  });
+
+  try {
+    const result = await rendered.hook.handleImport([piperFile, t1File] as unknown as FileList);
+
+    assert.equal(result.status, 'completed');
+    assert.equal(useUIStore.getState().sidebarTab, 'structure');
+    assert.equal(loadCalls.length, 1);
+    assert.equal(
+      useAssetsStore
+        .getState()
+        .availableFiles.some(
+          (file) => file.name === 'mujoco_menagerie-main/agilex_piper/piper.xml',
+        ),
+      true,
+    );
+    assert.equal(
+      useAssetsStore
+        .getState()
+        .availableFiles.some((file) => file.name === 'mujoco_menagerie-main/booster_t1/t1.xml'),
+      true,
+    );
+    assert.equal(
+      useAssemblyStore.getState().assemblyState,
+      null,
+      'multiple standalone MJCF imports should wait for an explicit advanced-mode seed',
+    );
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
 test('useFileImport keeps editor mode active after importing the first robot', async () => {
   resetStoresToBaseline();
   useUIStore.setState({ appMode: 'editor' });

@@ -24,9 +24,13 @@ import {
 import { FileTreeContextMenu } from './FileTreeContextMenu';
 import type { LibraryDeleteTarget } from './FileTreeNode';
 import { TreeEditorFileBrowserPanel } from './tree-editor/TreeEditorFileBrowserPanel';
+import { TreeEditorJointSection } from './tree-editor/TreeEditorJointSection';
 import { TreeEditorSidebarHeader } from './tree-editor/TreeEditorSidebarHeader';
 import { useTreeEditorLayout } from './tree-editor/useTreeEditorLayout';
 import { TreeEditorStructureSection } from './tree-editor/TreeEditorStructureSection';
+
+export type LibraryRobotLoadIntent = 'direct' | 'save-draft' | 'discard';
+export type LibraryRobotLoadResult = 'loaded' | 'needs-draft-confirm' | 'blocked';
 
 export interface TreeEditorProps {
   robot: RobotState;
@@ -53,7 +57,12 @@ export interface TreeEditorProps {
   theme: Theme;
   availableFiles?: RobotFile[];
   onLoadRobot?: (file: RobotFile) => void;
+  onRequestLoadRobot?: (
+    file: RobotFile,
+    intent: LibraryRobotLoadIntent,
+  ) => Promise<LibraryRobotLoadResult> | LibraryRobotLoadResult;
   currentFileName?: string;
+  sourceFilePath?: string;
   assemblyState?: AssemblyState | null;
   onAddComponent?: (file: RobotFile) => void;
   onDeleteLibraryFile?: (file: RobotFile) => void;
@@ -78,6 +87,8 @@ export interface TreeEditorProps {
     | 'needs-generate-confirm'
     | 'blocked';
   isReadOnly?: boolean;
+  showJointPanel?: boolean;
+  onJointAngleChange?: (jointName: string, angle: number) => void;
 }
 
 export const TreeEditor: React.FC<TreeEditorProps> = ({
@@ -99,7 +110,9 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
   theme: _theme,
   availableFiles = [],
   onLoadRobot,
+  onRequestLoadRobot,
   currentFileName,
+  sourceFilePath,
   assemblyState,
   onAddComponent,
   onDeleteLibraryFile,
@@ -115,6 +128,8 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
   onSwitchToProMode,
   onRequestSwitchToStructure,
   isReadOnly = false,
+  showJointPanel = false,
+  onJointAngleChange,
 }) => {
   const t = translations[lang];
   const {
@@ -140,6 +155,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
   const {
     width,
     fileBrowserHeight,
+    jointPanelHeight,
     isDragging,
     isFileBrowserOpen,
     isStructureOpen,
@@ -147,6 +163,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     setIsStructureOpen,
     handleHorizontalResizeStart,
     handleVerticalResizeStart,
+    handleJointPanelResizeStart,
   } = useTreeEditorLayout();
 
   const isProMode = sidebarTab === 'workspace';
@@ -175,6 +192,9 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     target: LibraryDeleteTarget;
   } | null>(null);
   const [isDeleteAllLibraryDialogOpen, setIsDeleteAllLibraryDialogOpen] = useState(false);
+  const [pendingLoadRobotFile, setPendingLoadRobotFile] = useState<RobotFile | null>(null);
+  const [isLoadRobotDialogOpen, setIsLoadRobotDialogOpen] = useState(false);
+  const [isLoadRobotPending, setIsLoadRobotPending] = useState(false);
   const [isGenerateSwitchDialogOpen, setIsGenerateSwitchDialogOpen] = useState(false);
   const [isStructureSwitchPending, setIsStructureSwitchPending] = useState(false);
 
@@ -191,6 +211,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     () => availableFiles.filter(isVisibleLibraryEntry),
     [availableFiles],
   );
+  const hasVisibleJointPanel = showJointPanel;
   const fileTree = useMemo(() => buildFileTree(browserAvailableFiles), [browserAvailableFiles]);
   const treeRobot = useMemo<RobotState>(() => {
     if (isAssemblyView) {
@@ -530,6 +551,35 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     setIsDeleteAllLibraryDialogOpen(false);
   }, [availableFiles.length, onDeleteAllLibraryFiles]);
 
+  const handleRequestLibraryRobotLoad = useCallback(
+    async (file: RobotFile, intent: LibraryRobotLoadIntent = 'direct') => {
+      if (!onRequestLoadRobot) {
+        if (intent === 'direct') {
+          onLoadRobot?.(file);
+        }
+        return;
+      }
+
+      setIsLoadRobotPending(true);
+      try {
+        const result = await onRequestLoadRobot(file, intent);
+        if (result === 'needs-draft-confirm') {
+          setPendingLoadRobotFile(file);
+          setIsLoadRobotDialogOpen(true);
+          return;
+        }
+
+        if (result === 'loaded') {
+          setPendingLoadRobotFile(null);
+          setIsLoadRobotDialogOpen(false);
+        }
+      } finally {
+        setIsLoadRobotPending(false);
+      }
+    },
+    [onLoadRobot, onRequestLoadRobot],
+  );
+
   const handleRequestStructureSwitch = useCallback(
     async (intent: 'direct' | 'generate' | 'skip-generate') => {
       if (!onRequestSwitchToStructure) {
@@ -557,6 +607,12 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     },
     [onRequestSwitchToStructure, setSidebarTab],
   );
+
+  const handleFileBrowserPrimaryAction = isProMode
+    ? onLoadRobot
+    : onRequestLoadRobot
+      ? handleRequestLibraryRobotLoad
+      : onLoadRobot;
 
   const actualWidth = collapsed ? 0 : width;
   const shouldFileBrowserFillSpace = isFileBrowserOpen && !isStructureOpen;
@@ -620,7 +676,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
             onFolderRenameDraftChange={setFolderRenameDraft}
             onCommitFolderRename={handleCommitFolderRename}
             onCancelFolderRename={handleCancelFolderRename}
-            onLoadRobot={onLoadRobot}
+            onLoadRobot={handleFileBrowserPrimaryAction}
             onAddComponent={onAddComponent}
             onDeleteFromLibrary={
               onDeleteLibraryFile || onDeleteLibraryFolder ? handleDeleteFromLibrary : undefined
@@ -632,57 +688,78 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
 
           {isFileBrowserOpen && isStructureOpen && (
             <div
-              className="h-1 bg-border-black/80 cursor-row-resize hover:bg-system-blue/40 transition-colors shrink-0 z-10"
+              data-testid="tree-editor-file-browser-resize-handle"
+              className="relative -my-1 h-2 shrink-0 cursor-row-resize bg-transparent z-10"
               onMouseDown={handleVerticalResizeStart}
             />
           )}
 
-          <TreeEditorStructureSection
-            isOpen={isStructureOpen}
-            isAssemblyView={isAssemblyView}
-            structureTreeShowGeometryDetails={structureTreeShowGeometryDetails}
-            showVisual={showVisual}
-            showStructureFilePath={showStructureFilePath}
-            currentFileName={currentFileName}
-            mode={mode}
-            assemblyState={assemblyState}
-            robot={treeRobot}
-            treeRootLinkIds={treeRootLinkIds}
-            childJointsByParent={childJointsByParent}
-            selectionBranchLinkIds={selectionBranchLinkIds}
-            t={t}
-            onToggleOpen={() => setIsStructureOpen(!isStructureOpen)}
-            onToggleGeometryDetails={() =>
-              setStructureTreeShowGeometryDetails(!structureTreeShowGeometryDetails)
-            }
-            onAddChildFromSelection={() => {
-              let targetId = getPrimaryTreeRenderRootLinkId(robot) ?? robot.rootLinkId;
-              if (resolvedRobotSelection.type === 'link' && resolvedRobotSelection.id) {
-                targetId = resolvedRobotSelection.id;
-              } else if (resolvedRobotSelection.type === 'joint' && resolvedRobotSelection.id) {
-                const selectedJoint = robot.joints[resolvedRobotSelection.id];
-                if (selectedJoint) {
-                  targetId = selectedJoint.childLinkId;
-                }
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <TreeEditorJointSection
+              robot={robot}
+              lang={lang}
+              onSelect={onSelect}
+              onUpdate={onUpdate}
+              onJointAngleChange={onJointAngleChange}
+              show={showJointPanel}
+              sourceFilePath={sourceFilePath ?? currentFileName}
+              height={jointPanelHeight}
+              isDragging={isDragging}
+            />
+            {hasVisibleJointPanel && (
+              <div
+                data-testid="tree-editor-joint-section-resize-handle"
+                className="relative -my-1 h-2 shrink-0 cursor-row-resize bg-transparent z-10"
+                onMouseDown={handleJointPanelResizeStart}
+              />
+            )}
+            <TreeEditorStructureSection
+              isOpen={isStructureOpen}
+              isAssemblyView={isAssemblyView}
+              structureTreeShowGeometryDetails={structureTreeShowGeometryDetails}
+              showVisual={showVisual}
+              showStructureFilePath={showStructureFilePath}
+              currentFileName={currentFileName}
+              mode={mode}
+              assemblyState={assemblyState}
+              robot={treeRobot}
+              treeRootLinkIds={treeRootLinkIds}
+              childJointsByParent={childJointsByParent}
+              selectionBranchLinkIds={selectionBranchLinkIds}
+              t={t}
+              onToggleOpen={() => setIsStructureOpen(!isStructureOpen)}
+              onToggleGeometryDetails={() =>
+                setStructureTreeShowGeometryDetails(!structureTreeShowGeometryDetails)
               }
-              onAddChild(targetId);
-            }}
-            onToggleVisuals={() => setShowVisual(!showVisual)}
-            onSelect={onSelect}
-            onSelectGeometry={onSelectGeometry}
-            onFocus={onFocus}
-            onAddChild={onAddChild}
-            onAddCollisionBody={onAddCollisionBody}
-            onDelete={onDelete}
-            onUpdate={onUpdate}
-            onRenameAssembly={onRenameAssembly ?? onNameChange}
-            onRemoveComponent={onRemoveComponent}
-            onRemoveBridge={onRemoveBridge}
-            onRenameComponent={onRenameComponent}
-            onCreateBridge={onCreateBridge}
-            onToggleComponentVisibility={toggleComponentVisibility}
-            isReadOnly={isReadOnly}
-          />
+              onAddChildFromSelection={() => {
+                let targetId = getPrimaryTreeRenderRootLinkId(robot) ?? robot.rootLinkId;
+                if (resolvedRobotSelection.type === 'link' && resolvedRobotSelection.id) {
+                  targetId = resolvedRobotSelection.id;
+                } else if (resolvedRobotSelection.type === 'joint' && resolvedRobotSelection.id) {
+                  const selectedJoint = robot.joints[resolvedRobotSelection.id];
+                  if (selectedJoint) {
+                    targetId = selectedJoint.childLinkId;
+                  }
+                }
+                onAddChild(targetId);
+              }}
+              onToggleVisuals={() => setShowVisual(!showVisual)}
+              onSelect={onSelect}
+              onSelectGeometry={onSelectGeometry}
+              onFocus={onFocus}
+              onAddChild={onAddChild}
+              onAddCollisionBody={onAddCollisionBody}
+              onDelete={onDelete}
+              onUpdate={onUpdate}
+              onRenameAssembly={onRenameAssembly ?? onNameChange}
+              onRemoveComponent={onRemoveComponent}
+              onRemoveBridge={onRemoveBridge}
+              onRenameComponent={onRenameComponent}
+              onCreateBridge={onCreateBridge}
+              onToggleComponentVisibility={toggleComponentVisibility}
+              isReadOnly={isReadOnly}
+            />
+          </div>
 
           <div
             className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-system-blue/40 transition-colors z-20"
@@ -745,6 +822,57 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
       >
         <p className="text-sm leading-6 text-text-secondary">
           {t.deleteAllLibraryFilesConfirmMessage}
+        </p>
+      </Dialog>
+
+      <Dialog
+        isOpen={isLoadRobotDialogOpen}
+        onClose={() => {
+          if (!isLoadRobotPending) {
+            setIsLoadRobotDialogOpen(false);
+          }
+        }}
+        title={t.simpleModeSwitchDraftConfirmTitle}
+        width="w-[460px]"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setIsLoadRobotDialogOpen(false)}
+              disabled={isLoadRobotPending}
+            >
+              {t.cancel}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                if (pendingLoadRobotFile) {
+                  void handleRequestLibraryRobotLoad(pendingLoadRobotFile, 'discard');
+                }
+              }}
+              disabled={isLoadRobotPending || !pendingLoadRobotFile}
+            >
+              {t.discardAndOpen}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                if (pendingLoadRobotFile) {
+                  void handleRequestLibraryRobotLoad(pendingLoadRobotFile, 'save-draft');
+                }
+              }}
+              isLoading={isLoadRobotPending}
+              disabled={!pendingLoadRobotFile}
+            >
+              {t.saveDraftAndOpen}
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm leading-6 text-text-secondary">
+          {t.simpleModeSwitchDraftConfirmMessage}
         </p>
       </Dialog>
 

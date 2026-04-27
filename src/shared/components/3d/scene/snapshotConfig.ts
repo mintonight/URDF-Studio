@@ -1,4 +1,5 @@
 import { SNAPSHOT_MIN_LONG_EDGE } from './snapshotResolution';
+import type { WorkspaceCameraSnapshot } from '../workspace/workspaceCameraSnapshot';
 
 export const SNAPSHOT_MAX_LONG_EDGE_INPUT = 16384;
 export const SNAPSHOT_LONG_EDGE_INPUT_STEP = 64;
@@ -46,6 +47,7 @@ export interface SnapshotCaptureOptions {
   dofMode: SnapshotDofMode;
   backgroundStyle: SnapshotBackgroundStyle;
   hideGrid: boolean;
+  cameraSnapshot?: WorkspaceCameraSnapshot | null;
 }
 
 export type SnapshotCaptureAction = (options?: Partial<SnapshotCaptureOptions>) => Promise<void>;
@@ -167,6 +169,7 @@ export function normalizeSnapshotCaptureOptions(
     dofMode,
     backgroundStyle,
     hideGrid: options?.hideGrid ?? DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.hideGrid,
+    cameraSnapshot: options?.cameraSnapshot ?? null,
   };
 }
 

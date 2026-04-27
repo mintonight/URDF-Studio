@@ -33,29 +33,20 @@ export function useSourceEditBaseline({
     snapshot: null,
   });
 
+  const usesPreviewSnapshotBaseline = Boolean(selectedFile && selectedFile.format !== 'xacro');
   const isSelectedUrdfSource = selectedFile?.format === 'urdf';
   const isSelectedXacroSource = selectedFile?.format === 'xacro';
   const isSelectedSdfSource = selectedFile?.format === 'sdf';
 
   useEffect(() => {
-    if (
-      shouldRenderAssembly ||
-      !selectedFile ||
-      (!isSelectedUrdfSource && !isSelectedXacroSource && !isSelectedSdfSource)
-    ) {
+    if (shouldRenderAssembly || !selectedFile) {
       sourceBaselineRef.current = { fileName: null, snapshot: null };
       return;
     }
-  }, [
-    isSelectedSdfSource,
-    isSelectedUrdfSource,
-    isSelectedXacroSource,
-    selectedFile,
-    shouldRenderAssembly,
-  ]);
+  }, [selectedFile, shouldRenderAssembly]);
 
   useEffect(() => {
-    if (shouldRenderAssembly || !selectedFile || !isSelectedUrdfSource) {
+    if (shouldRenderAssembly || !selectedFile || !usesPreviewSnapshotBaseline) {
       return;
     }
 
@@ -76,85 +67,22 @@ export function useSourceEditBaseline({
     };
   }, [
     currentRobotSourceSnapshot,
-    isSelectedUrdfSource,
     selectedFile,
     selectedFilePreviewSourceSnapshot,
     shouldRenderAssembly,
-  ]);
-
-  useEffect(() => {
-    if (shouldRenderAssembly || !selectedFile || !isSelectedXacroSource) {
-      return;
-    }
-
-    if (selectedXacroBaselineSourceSnapshot !== currentRobotSourceSnapshot) {
-      return;
-    }
-
-    if (
-      sourceBaselineRef.current.fileName === selectedFile.name &&
-      sourceBaselineRef.current.snapshot === currentRobotSourceSnapshot
-    ) {
-      return;
-    }
-
-    sourceBaselineRef.current = {
-      fileName: selectedFile.name,
-      snapshot: currentRobotSourceSnapshot,
-    };
-  }, [
-    currentRobotSourceSnapshot,
-    isSelectedXacroSource,
-    selectedFile,
-    selectedXacroBaselineSourceSnapshot,
-    shouldRenderAssembly,
-  ]);
-
-  useEffect(() => {
-    if (shouldRenderAssembly || !selectedFile || !isSelectedSdfSource) {
-      return;
-    }
-
-    if (selectedFilePreviewSourceSnapshot !== currentRobotSourceSnapshot) {
-      return;
-    }
-
-    if (
-      sourceBaselineRef.current.fileName === selectedFile.name &&
-      sourceBaselineRef.current.snapshot === currentRobotSourceSnapshot
-    ) {
-      return;
-    }
-
-    sourceBaselineRef.current = {
-      fileName: selectedFile.name,
-      snapshot: currentRobotSourceSnapshot,
-    };
-  }, [
-    currentRobotSourceSnapshot,
-    isSelectedSdfSource,
-    selectedFile,
-    selectedFilePreviewSourceSnapshot,
-    shouldRenderAssembly,
+    usesPreviewSnapshotBaseline,
   ]);
 
   const hasSourceStoreEdits = useMemo(() => {
-    if (
-      shouldRenderAssembly ||
-      !selectedFile ||
-      (!isSelectedUrdfSource && !isSelectedXacroSource && !isSelectedSdfSource)
-    ) {
+    if (shouldRenderAssembly || !selectedFile) {
       return false;
     }
 
-    if (
-      (isSelectedUrdfSource || isSelectedSdfSource) &&
-      selectedFilePreviewSourceSnapshotStatus === 'failed'
-    ) {
+    if (isSelectedXacroSource && selectedXacroBaselineSourceSnapshotStatus === 'failed') {
       return true;
     }
 
-    if (isSelectedXacroSource && selectedXacroBaselineSourceSnapshotStatus === 'failed') {
+    if (usesPreviewSnapshotBaseline && selectedFilePreviewSourceSnapshotStatus === 'failed') {
       return true;
     }
 
@@ -166,13 +94,12 @@ export function useSourceEditBaseline({
     return baseline.snapshot !== currentRobotSourceSnapshot;
   }, [
     currentRobotSourceSnapshot,
-    isSelectedSdfSource,
-    isSelectedUrdfSource,
     isSelectedXacroSource,
     selectedFile,
     selectedFilePreviewSourceSnapshotStatus,
     selectedXacroBaselineSourceSnapshotStatus,
     shouldRenderAssembly,
+    usesPreviewSnapshotBaseline,
   ]);
 
   return {

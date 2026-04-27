@@ -694,8 +694,21 @@ test('GeometryEditor keeps the type and name header responsive for visual and co
   }
 });
 
-test('GeometryEditor renders mesh scale as a two-line row without stepper buttons', async () => {
+test('GeometryEditor renders mesh scale as a single inline XYZ row without stepper buttons', async () => {
   const { dom, container, root } = createComponentRoot();
+  const originalWorker = globalThis.Worker;
+  const fakeWorker = new FakeWorker();
+
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: class {
+      constructor() {
+        return fakeWorker as unknown as Worker;
+      }
+    },
+  });
+
   try {
     const link = createLink('#00ff00');
     link.visual = {
@@ -705,8 +718,10 @@ test('GeometryEditor renders mesh scale as a two-line row without stepper button
       meshPath: 'meshes/base_link.dae',
       origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
     };
+    const robot = createRobot(link);
+    robot.selection.objectIndex = 0;
 
-    await renderGeometryEditor(root, link, () => {});
+    await renderGeometryEditor(root, link, () => {}, robot);
 
     const meshScaleLabel = Array.from(container.querySelectorAll('label')).find(
       (node) => node.textContent?.trim() === translations.en.meshScale,
@@ -716,27 +731,52 @@ test('GeometryEditor renders mesh scale as a two-line row without stepper button
     const meshScaleSection = meshScaleLabel.parentElement;
     assert.ok(meshScaleSection, 'mesh scale section should render');
 
-    const meshScaleGrid = meshScaleSection.querySelector('div.grid.grid-cols-3');
-    assert.ok(meshScaleGrid, 'mesh scale inputs should render on a separate second line');
+    const meshScaleInlineRows = Array.from(meshScaleSection.querySelectorAll('div')).filter(
+      (node) =>
+        node.className.includes('flex') &&
+        node.className.includes('min-w-0') &&
+        node.className.includes('items-center') &&
+        node.className.includes('gap-1.5'),
+    );
+    assert.equal(meshScaleInlineRows.length, 3, 'mesh scale should render three inline axis rows');
 
-    const xInput = container.querySelector('input[aria-label="X"]');
-    const yInput = container.querySelector('input[aria-label="Y"]');
-    const zInput = container.querySelector('input[aria-label="Z"]');
+    const meshScaleAxisCounts = Array.from(meshScaleSection.querySelectorAll('span')).reduce(
+      (counts, node) => {
+        const label = node.textContent?.trim();
+        if (label === 'X' || label === 'Y' || label === 'Z') {
+          counts[label] += 1;
+        }
+        return counts;
+      },
+      { X: 0, Y: 0, Z: 0 },
+    );
+    assert.deepEqual(
+      meshScaleAxisCounts,
+      { X: 1, Y: 1, Z: 1 },
+      'mesh scale should only render one visible XYZ label set',
+    );
+
+    const xInput = meshScaleSection.querySelectorAll('input[type="text"]').item(0);
+    const yInput = meshScaleSection.querySelectorAll('input[type="text"]').item(1);
+    const zInput = meshScaleSection.querySelectorAll('input[type="text"]').item(2);
     assert.ok(xInput, 'mesh scale X input should render');
     assert.ok(yInput, 'mesh scale Y input should render');
     assert.ok(zInput, 'mesh scale Z input should render');
 
-    assert.equal(
-      container.querySelector('button[aria-label="Increase X"]'),
-      null,
-      'mesh scale X input should not render the increment stepper button',
+    const meshScaleStepperButtons = meshScaleSection.querySelectorAll(
+      'button[aria-label^="Increase"], button[aria-label^="Decrease"]',
     );
     assert.equal(
-      container.querySelector('button[aria-label="Decrease X"]'),
-      null,
-      'mesh scale X input should not render the decrement stepper button',
+      meshScaleStepperButtons.length,
+      0,
+      'mesh scale inputs should not render increment or decrement stepper buttons',
     );
   } finally {
+    Object.defineProperty(globalThis, 'Worker', {
+      configurable: true,
+      writable: true,
+      value: originalWorker,
+    });
     await destroyComponentRoot(dom, root);
   }
 });

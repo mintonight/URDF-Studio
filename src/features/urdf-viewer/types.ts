@@ -185,8 +185,6 @@ export interface ViewerProps {
   focusTarget?: string | null;
   showVisual?: boolean;
   setShowVisual?: (show: boolean) => void;
-  showToolbar?: boolean;
-  setShowToolbar?: (show: boolean) => void;
   showOptionsPanel?: boolean;
   setShowOptionsPanel?: (show: boolean) => void;
   showJointPanel?: boolean;
@@ -367,9 +365,7 @@ export type { JointControlItemProps } from '@/shared/components/Panel/JointContr
 export interface ViewerToolbarProps {
   activeMode: ToolMode;
   setMode: (mode: ToolMode) => void;
-  onClose?: () => void;
   lang?: Language;
-  containerRef?: React.RefObject<HTMLElement | null>;
 }
 
 export interface MeasureToolProps {

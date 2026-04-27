@@ -1,14 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RotateCcw, Settings } from 'lucide-react';
 import { OptionsPanel } from './OptionsPanel';
-import { JointControlItem } from './JointControlItem';
 import { getSingleDofJointEntries } from '@/shared/utils/jointTypes';
-import { resolveViewerJointAngleValue } from '@/shared/utils/jointPanelState';
-import {
-  getMjcfJointDisplayName,
-  getMjcfLinkDisplayName,
-} from '@/shared/utils/robot/mjcfDisplayNames';
 import type { JointPanelActiveJointOptions, JointPanelStore } from '@/shared/utils/jointPanelStore';
+import { JointPanelControls, JointPanelList } from './JointPanelContent';
+
+const JOINT_PANEL_HEADER_ESTIMATED_HEIGHT = 52;
+const JOINT_PANEL_ITEM_ESTIMATED_HEIGHT = 74;
 
 interface JointsPanelProps {
   showJointPanel: boolean;
@@ -44,109 +41,6 @@ interface JointsPanelProps {
   onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
 }
 
-interface JointPanelItemBindingProps {
-  name: string;
-  joint: any;
-  displayName?: string;
-  angleUnit: 'rad' | 'deg';
-  jointPanelStore: JointPanelStore;
-  setActiveJoint: (name: string | null, options?: JointPanelActiveJointOptions) => void;
-  handleJointAngleChange: (name: string, angle: number) => void;
-  handleJointChangeCommit: (name: string, angle: number) => void;
-  onSelect?: (type: 'link' | 'joint', id: string) => void;
-  isAdvanced?: boolean;
-  onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
-}
-
-interface JointPanelItemSnapshot {
-  value: number;
-  isActive: boolean;
-  shouldAutoScroll: boolean;
-}
-
-function areJointPanelItemSnapshotsEqual(a: JointPanelItemSnapshot, b: JointPanelItemSnapshot) {
-  return (
-    a.value === b.value && a.isActive === b.isActive && a.shouldAutoScroll === b.shouldAutoScroll
-  );
-}
-
-function resolveJointPanelItemSnapshot(
-  jointPanelStore: JointPanelStore,
-  name: string,
-  joint: any,
-): JointPanelItemSnapshot {
-  const snapshot = jointPanelStore.getSnapshot();
-
-  return {
-    value: resolveViewerJointAngleValue(snapshot.jointAngles, name, joint, 0),
-    isActive: snapshot.activeJoint === name,
-    shouldAutoScroll: snapshot.activeJoint === name && snapshot.activeJointAutoScroll,
-  };
-}
-
-function useJointPanelItemSnapshot(jointPanelStore: JointPanelStore, name: string, joint: any) {
-  const getSnapshot = useCallback(
-    () => resolveJointPanelItemSnapshot(jointPanelStore, name, joint),
-    [jointPanelStore, joint, name],
-  );
-
-  const [itemSnapshot, setItemSnapshot] = useState<JointPanelItemSnapshot>(() => getSnapshot());
-
-  useEffect(() => {
-    const syncSnapshot = () => {
-      setItemSnapshot((previousSnapshot) => {
-        const nextSnapshot = getSnapshot();
-        return areJointPanelItemSnapshotsEqual(previousSnapshot, nextSnapshot)
-          ? previousSnapshot
-          : nextSnapshot;
-      });
-    };
-
-    syncSnapshot();
-    return jointPanelStore.subscribe(syncSnapshot);
-  }, [getSnapshot, jointPanelStore]);
-
-  return itemSnapshot;
-}
-
-const JointPanelItemBinding = React.memo(function JointPanelItemBinding({
-  name,
-  joint,
-  displayName,
-  angleUnit,
-  jointPanelStore,
-  setActiveJoint,
-  handleJointAngleChange,
-  handleJointChangeCommit,
-  onSelect,
-  isAdvanced = false,
-  onUpdate,
-}: JointPanelItemBindingProps) {
-  const { value, isActive, shouldAutoScroll } = useJointPanelItemSnapshot(
-    jointPanelStore,
-    name,
-    joint,
-  );
-
-  return (
-    <JointControlItem
-      name={name}
-      joint={joint}
-      displayName={displayName}
-      value={value}
-      angleUnit={angleUnit}
-      isActive={isActive}
-      shouldAutoScroll={shouldAutoScroll}
-      setActiveJoint={setActiveJoint}
-      handleJointAngleChange={handleJointAngleChange}
-      handleJointChangeCommit={handleJointChangeCommit}
-      onSelect={onSelect}
-      isAdvanced={isAdvanced}
-      onUpdate={onUpdate}
-    />
-  );
-});
-
 export const JointsPanel: React.FC<JointsPanelProps> = ({
   showJointPanel,
   robot,
@@ -174,17 +68,6 @@ export const JointsPanel: React.FC<JointsPanelProps> = ({
   const onHoverRef = useRef(onHover);
   const jointEntries = useMemo(() => getSingleDofJointEntries(robot?.joints), [robot?.joints]);
   const shouldShow = showJointPanel && jointEntries.length > 0;
-  const sourceFormat = robot?.inspectionContext?.sourceFormat;
-  const linkDisplayNames = useMemo<Record<string, string>>(
-    () =>
-      Object.fromEntries(
-        Object.values(robot?.links ?? {}).map((link: any) => [
-          link.id,
-          sourceFormat === 'mjcf' ? getMjcfLinkDisplayName(link) : link.name || link.id,
-        ]),
-      ),
-    [robot?.links, sourceFormat],
-  );
 
   useEffect(() => {
     onHoverRef.current = onHover;
@@ -200,49 +83,25 @@ export const JointsPanel: React.FC<JointsPanelProps> = ({
     onHoverRef.current?.(null, null);
   }, []);
 
+  const resolvedPanelHeight = useMemo(() => {
+    if (typeof maxHeight !== 'number' || !Number.isFinite(maxHeight)) {
+      return undefined;
+    }
+
+    const estimatedHeight =
+      JOINT_PANEL_HEADER_ESTIMATED_HEIGHT + jointEntries.length * JOINT_PANEL_ITEM_ESTIMATED_HEIGHT;
+    return Math.min(maxHeight, estimatedHeight);
+  }, [jointEntries.length, maxHeight]);
+
   const additionalControls = (
-    <div className="mr-1 flex shrink-0 items-center gap-0.5 @[320px]:gap-1">
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          handleResetJoints();
-        }}
-        className="inline-flex h-6 items-center justify-center gap-1 rounded border border-border-black/60 bg-panel-bg px-1 text-text-secondary transition-colors hover:bg-system-blue/10 hover:text-system-blue @[300px]:px-2"
-        title={t.resetJoints}
-      >
-        <RotateCcw className="w-3 h-3" />
-        <span className="text-[10px] hidden @[300px]:inline whitespace-nowrap">
-          {t.reset || 'Reset'}
-        </span>
-      </button>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setIsAdvanced(!isAdvanced);
-        }}
-        className={`inline-flex h-6 items-center justify-center gap-1 rounded border border-border-black/60 px-1 transition-colors @[300px]:px-2 ${
-          isAdvanced
-            ? 'bg-system-blue-solid text-white border-system-blue-solid'
-            : 'bg-panel-bg text-text-secondary hover:bg-system-blue/10 hover:text-system-blue'
-        }`}
-        title={t.advanced || 'Advanced'}
-      >
-        <Settings className="w-3 h-3" />
-        <span className="text-[10px] hidden @[300px]:inline whitespace-nowrap">
-          {t.advanced || 'Advanced'}
-        </span>
-      </button>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setAngleUnit(angleUnit === 'rad' ? 'deg' : 'rad');
-        }}
-        className="inline-flex h-6 min-w-[26px] items-center justify-center rounded bg-element-bg px-1 text-[10px] font-mono text-text-secondary transition-colors hover:bg-element-hover dark:text-text-secondary @[300px]:min-w-[32px]"
-        title={t.switchUnit}
-      >
-        {angleUnit.toUpperCase()}
-      </button>
-    </div>
+    <JointPanelControls
+      t={t}
+      angleUnit={angleUnit}
+      setAngleUnit={setAngleUnit}
+      isAdvanced={isAdvanced}
+      setIsAdvanced={setIsAdvanced}
+      onReset={handleResetJoints}
+    />
   );
 
   return (
@@ -260,6 +119,7 @@ export const JointsPanel: React.FC<JointsPanelProps> = ({
       onClose={() => setShowJointPanel && setShowJointPanel(false)}
       onMouseDown={onMouseDown}
       resizable={true}
+      height={resolvedPanelHeight}
       maxHeight={maxHeight}
       additionalControls={additionalControls}
       zIndex={40}
@@ -268,32 +128,18 @@ export const JointsPanel: React.FC<JointsPanelProps> = ({
       onMouseEnter={clearGlobalHover}
       onMouseLeave={clearGlobalHover}
     >
-      <div className="px-1 py-1.5 space-y-1">
-        {jointEntries.map(([name, joint]: [string, any]) => (
-          <JointPanelItemBinding
-            key={name}
-            name={name}
-            joint={joint}
-            displayName={
-              sourceFormat === 'mjcf'
-                ? getMjcfJointDisplayName(
-                    joint,
-                    linkDisplayNames[joint.parentLinkId] || joint.parentLinkId,
-                    linkDisplayNames[joint.childLinkId] || joint.childLinkId,
-                  )
-                : joint.name || name
-            }
-            angleUnit={angleUnit}
-            jointPanelStore={jointPanelStore}
-            setActiveJoint={setActiveJoint}
-            handleJointAngleChange={handleJointAngleChange}
-            handleJointChangeCommit={handleJointChangeCommit}
-            onSelect={onSelect}
-            isAdvanced={isAdvanced}
-            onUpdate={onUpdate}
-          />
-        ))}
-      </div>
+      <JointPanelList
+        robot={robot}
+        angleUnit={angleUnit}
+        jointPanelStore={jointPanelStore}
+        setActiveJoint={setActiveJoint}
+        handleJointAngleChange={handleJointAngleChange}
+        handleJointChangeCommit={handleJointChangeCommit}
+        onSelect={onSelect}
+        onHover={onHover}
+        isAdvanced={isAdvanced}
+        onUpdate={onUpdate}
+      />
     </OptionsPanel>
   );
 };

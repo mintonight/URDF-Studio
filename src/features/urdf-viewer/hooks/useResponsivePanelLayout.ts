@@ -14,7 +14,6 @@ interface UseResponsivePanelLayoutOptions {
   jointPanelRef: RefObject<HTMLDivElement>;
   showOptionsPanel: boolean;
   showJointPanel: boolean;
-  showToolbar: boolean;
   preferEdgeDockedOptionsPanel?: boolean;
   preferEdgeDockedJointPanel?: boolean;
 }
@@ -35,12 +34,12 @@ export interface ResponsivePanelLayoutResult {
 
 const EDGE_GAP = 16;
 const PANEL_GAP = 12;
-const TOOLBAR_OFFSET_WITH_PANEL = 56;
-const TOOLBAR_OFFSET_NO_PANEL = 16;
+const TOP_PANEL_OFFSET = 16;
 const FALLBACK_OPTIONS_WIDTH = 208;
 const FALLBACK_OPTIONS_HEIGHT = 208;
 const FALLBACK_JOINTS_WIDTH = 208;
 const MIN_JOINT_PANEL_HEIGHT = 180;
+const SOFT_MAX_JOINT_PANEL_HEIGHT = 420;
 const MIN_CLEAR_VIEWER_WIDTH_WITH_OPTIONS_PANEL = 420;
 const MIN_CLEAR_VIEWER_WIDTH_WITH_JOINT_PANEL = 320;
 const OPTIONS_PANEL_EDGE_REVEAL_WIDTH = 56;
@@ -58,22 +57,22 @@ const readPanelMetrics = (
   jointsWidth: jointPanelRef.current?.offsetWidth ?? FALLBACK_JOINTS_WIDTH,
 });
 
+const resolveJointPanelMaxHeight = (availableHeight: number) =>
+  Math.max(MIN_JOINT_PANEL_HEIGHT, Math.min(SOFT_MAX_JOINT_PANEL_HEIGHT, availableHeight));
+
 export function resolveResponsivePanelLayout({
   metrics,
   showOptionsPanel,
   showJointPanel,
-  showToolbar,
   preferEdgeDockedOptionsPanel = false,
   preferEdgeDockedJointPanel = false,
 }: {
   metrics: ResponsivePanelLayoutMetrics;
   showOptionsPanel: boolean;
   showJointPanel: boolean;
-  showToolbar: boolean;
   preferEdgeDockedOptionsPanel?: boolean;
   preferEdgeDockedJointPanel?: boolean;
 }): ResponsivePanelLayoutResult {
-  const toolbarOffset = showToolbar ? TOOLBAR_OFFSET_WITH_PANEL : TOOLBAR_OFFSET_NO_PANEL;
   const shouldStackPanels =
     showOptionsPanel &&
     showJointPanel &&
@@ -93,22 +92,21 @@ export function resolveResponsivePanelLayout({
       metrics.jointsWidth + EDGE_GAP * 2 + MIN_CLEAR_VIEWER_WIDTH_WITH_JOINT_PANEL;
 
   const optionsDefaultPosition: FloatingPanelPosition = shouldStackPanels
-    ? { top: `${toolbarOffset}px`, left: `${EDGE_GAP}px`, right: 'auto', transform: 'none' }
+    ? { top: `${TOP_PANEL_OFFSET}px`, left: `${EDGE_GAP}px`, right: 'auto', transform: 'none' }
     : shouldEdgeDockOptionsPanel
       ? {
-          top: `${toolbarOffset}px`,
+          top: `${TOP_PANEL_OFFSET}px`,
           right: `${Math.min(EDGE_GAP, OPTIONS_PANEL_EDGE_REVEAL_WIDTH - metrics.optionsWidth)}px`,
           left: 'auto',
           transform: 'none',
         }
       : metrics.containerWidth > 0 && metrics.containerWidth < 520
-        ? { top: `${toolbarOffset}px`, right: `${EDGE_GAP}px`, left: 'auto', transform: 'none' }
+        ? { top: `${TOP_PANEL_OFFSET}px`, right: `${EDGE_GAP}px`, left: 'auto', transform: 'none' }
         : { top: '16px', right: '16px' };
 
   if (shouldStackPanels) {
-    const stackedTop = toolbarOffset + metrics.optionsHeight + PANEL_GAP;
-    const stackedHeight = Math.max(
-      MIN_JOINT_PANEL_HEIGHT,
+    const stackedTop = TOP_PANEL_OFFSET + metrics.optionsHeight + PANEL_GAP;
+    const stackedHeight = resolveJointPanelMaxHeight(
       metrics.containerHeight - stackedTop - EDGE_GAP,
     );
 
@@ -125,11 +123,8 @@ export function resolveResponsivePanelLayout({
   }
 
   if (shouldEdgeDockJointPanel) {
-    const dockedTop = toolbarOffset;
-    const dockedHeight = Math.max(
-      MIN_JOINT_PANEL_HEIGHT,
-      metrics.containerHeight - dockedTop - EDGE_GAP,
-    );
+    const dockedTop = TOP_PANEL_OFFSET;
+    const dockedHeight = resolveJointPanelMaxHeight(metrics.containerHeight - dockedTop - EDGE_GAP);
 
     return {
       optionsDefaultPosition,
@@ -146,7 +141,7 @@ export function resolveResponsivePanelLayout({
   return {
     optionsDefaultPosition,
     jointsDefaultPosition: { top: '50%', left: '16px', transform: 'translateY(-50%)' },
-    jointsPanelMaxHeight: undefined,
+    jointsPanelMaxHeight: resolveJointPanelMaxHeight(metrics.containerHeight - EDGE_GAP * 2),
   };
 }
 
@@ -156,7 +151,6 @@ export function useResponsivePanelLayout({
   jointPanelRef,
   showOptionsPanel,
   showJointPanel,
-  showToolbar,
   preferEdgeDockedOptionsPanel = false,
   preferEdgeDockedJointPanel = false,
 }: UseResponsivePanelLayoutOptions) {
@@ -198,7 +192,6 @@ export function useResponsivePanelLayout({
         metrics,
         showOptionsPanel,
         showJointPanel,
-        showToolbar,
         preferEdgeDockedOptionsPanel,
         preferEdgeDockedJointPanel,
       }),
@@ -208,7 +201,6 @@ export function useResponsivePanelLayout({
       preferEdgeDockedJointPanel,
       showJointPanel,
       showOptionsPanel,
-      showToolbar,
     ],
   );
 }

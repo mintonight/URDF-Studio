@@ -19,7 +19,6 @@ export interface ToolboxItem {
 export type HeaderMenuKey = 'file' | 'edit' | 'toolbox' | 'view' | 'more' | null;
 
 export interface HeaderViewConfig {
-  showToolbar: boolean;
   showOptionsPanel: boolean;
   showJointPanel: boolean;
 }

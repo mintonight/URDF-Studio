@@ -611,6 +611,9 @@ export function useFileImport(options: UseFileImportOptions = {}) {
             preferredFileName,
             preResolvedImports[0]?.fileName ?? null,
           );
+          const visibleRobotDefinitionCount = visibleImportedFiles.filter((file) =>
+            isRobotDefinitionFormat(file.format),
+          ).length;
           const autoSeedAssemblyFiles =
             isArchiveImport && !hadExistingAvailableFiles
               ? collectAutoSeedImportedArchiveAssemblyFiles(
@@ -619,6 +622,8 @@ export function useFileImport(options: UseFileImportOptions = {}) {
                 )
               : [];
           const shouldAutoSeedArchiveAssembly = autoSeedAssemblyFiles.length > 1;
+          const shouldSeedSingleImportedAssembly =
+            !shouldAutoSeedArchiveAssembly && visibleRobotDefinitionCount === 1;
           const activatedImportedFile = shouldAutoSeedArchiveAssembly
             ? (autoSeedAssemblyFiles[0] ?? preferredFile)
             : preferredFile;
@@ -725,7 +730,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
                     }
                   });
                   shouldMarkAssemblyBaselineSaved = true;
-                } else if (canSeedAssembly) {
+                } else if (shouldSeedSingleImportedAssembly && canSeedAssembly) {
                   const component = assemblyStoreState.addComponent(preferredFile, {
                     availableFiles: mergedFiles,
                     assets: mergedAssets,

@@ -34,6 +34,22 @@ const PANEL_SELECT_OPTION_CLASSNAME_BY_VARIANT: Record<PanelSelectVariant, strin
   property: 'text-[10px] leading-4',
 };
 
+const PANEL_SELECT_MENU_CLASSNAME_BY_VARIANT: Record<PanelSelectVariant, string> = {
+  panel: '',
+  compact: '',
+  snapshot: '',
+  dense: 'rounded-md border-border-strong bg-panel-bg p-0.5 shadow-lg',
+  property: 'rounded-md border-border-strong bg-panel-bg p-0.5 shadow-lg',
+};
+
+const PANEL_SELECT_OPTION_BUTTON_CLASSNAME_BY_VARIANT: Record<PanelSelectVariant, string> = {
+  panel: 'rounded-lg px-2.5 py-1.5',
+  compact: 'rounded-lg px-2 py-1.5',
+  snapshot: 'rounded-lg px-2 py-1.5',
+  dense: 'rounded-[5px] px-1.5 py-1',
+  property: 'rounded-[5px] px-1.5 py-1',
+};
+
 export function PanelSelect({
   options,
   variant = 'panel',
@@ -44,7 +60,9 @@ export function PanelSelect({
     <Select
       options={options}
       className={`${PANEL_SELECT_CLASSNAME_BY_VARIANT[variant]} ${className}`.trim()}
+      menuClassName={PANEL_SELECT_MENU_CLASSNAME_BY_VARIANT[variant]}
       optionClassName={PANEL_SELECT_OPTION_CLASSNAME_BY_VARIANT[variant]}
+      optionButtonClassName={PANEL_SELECT_OPTION_BUTTON_CLASSNAME_BY_VARIANT[variant]}
       {...props}
     />
   );

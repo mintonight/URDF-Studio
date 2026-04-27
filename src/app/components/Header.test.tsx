@@ -32,7 +32,6 @@ function renderHeader() {
         onClick: () => {},
       },
       viewConfig: {
-        showToolbar: true,
         showOptionsPanel: true,
         showJointPanel: true,
       },
@@ -57,4 +56,11 @@ test('Header does not reserve empty center dock width when no toolbar is mounted
   assert.match(markup, /id="viewer-toolbar-dock-slot"/);
   assert.match(markup, /min-w-0/);
   assert.doesNotMatch(markup, /min-w-\[240px\]/);
+});
+
+test('Header uses a slimmer top bar height', () => {
+  const markup = renderHeader();
+
+  assert.match(markup, /h-11/, 'header should keep a slightly slimmer top bar height');
+  assert.doesNotMatch(markup, /h-12/, 'header should no longer use the taller top bar height');
 });

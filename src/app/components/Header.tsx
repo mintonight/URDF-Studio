@@ -37,7 +37,6 @@ interface HeaderProps {
   onSnapshot: () => void;
   // View config
   viewConfig: {
-    showToolbar: boolean;
     showOptionsPanel: boolean;
     showJointPanel: boolean;
   };
@@ -106,7 +105,7 @@ export function Header({
   return (
     <header
       ref={headerRef}
-      className="h-12 border-b shrink-0 select-none bg-panel-bg dark:bg-panel-bg border-border-black grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-3"
+      className="h-11 border-b shrink-0 select-none bg-panel-bg dark:bg-panel-bg border-border-black grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-3"
     >
       {/* Left Section - Logo & Menus */}
       <div className="flex items-center gap-1 min-w-0">
@@ -146,7 +145,7 @@ export function Header({
 
       <div
         id="viewer-toolbar-dock-slot"
-        className="flex h-full min-w-0 items-center justify-center"
+        className="pointer-events-none flex h-full min-w-0 items-center justify-center justify-self-center px-2 sm:px-3"
       />
 
       <HeaderActions

@@ -17,7 +17,6 @@ export type MassInertiaChangeBehavior = 'ask' | 'preserve' | 'reestimate';
 
 // View configuration for different modes
 export interface ViewConfig {
-  showToolbar: boolean;
   showOptionsPanel: boolean; // For viewer scene options
   showJointPanel: boolean;
 }
@@ -51,6 +50,7 @@ export interface SidebarState {
 export interface PanelLayoutState {
   propertyEditorWidth: number;
   treeFileBrowserHeight: number;
+  treeJointPanelHeight: number;
   treeSidebarWidth: number;
 }
 
@@ -149,7 +149,6 @@ interface UIState {
 
 // Default values
 const defaultViewConfig: ViewConfig = {
-  showToolbar: true,
   showOptionsPanel: true,
   showJointPanel: true,
 };
@@ -180,6 +179,7 @@ const defaultSidebar: SidebarState = {
 const defaultPanelLayout: PanelLayoutState = {
   propertyEditorWidth: 248,
   treeFileBrowserHeight: 216,
+  treeJointPanelHeight: 132,
   treeSidebarWidth: 264,
 };
 
@@ -483,7 +483,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'urdf-studio-ui',
-      version: 16,
+      version: 17,
       migrate: (persistedState: unknown, persistedVersion) => {
         if (!persistedState || typeof persistedState !== 'object') {
           return persistedState;

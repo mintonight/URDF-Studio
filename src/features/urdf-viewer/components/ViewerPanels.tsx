@@ -12,8 +12,6 @@ interface ViewerPanelsProps {
   controller: ViewerController;
   isMjcfSource?: boolean;
   onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
-  showToolbar?: boolean;
-  setShowToolbar?: (show: boolean) => void;
   showOptionsPanel?: boolean;
   setShowOptionsPanel?: (show: boolean) => void;
   showJointPanel?: boolean;
@@ -27,8 +25,6 @@ export const ViewerPanels = ({
   controller,
   isMjcfSource = false,
   onUpdate,
-  showToolbar = true,
-  setShowToolbar,
   showOptionsPanel = true,
   setShowOptionsPanel,
   showJointPanel = true,
@@ -44,21 +40,16 @@ export const ViewerPanels = ({
       jointPanelRef: controller.jointPanelRef,
       showOptionsPanel,
       showJointPanel,
-      showToolbar,
       preferEdgeDockedOptionsPanel,
     });
 
   return (
     <>
-      {showToolbar && (
-        <ViewerToolbar
-          activeMode={controller.toolMode}
-          setMode={controller.handleToolModeChange}
-          onClose={setShowToolbar ? () => setShowToolbar(false) : undefined}
-          lang={lang}
-          containerRef={controller.containerRef}
-        />
-      )}
+      <ViewerToolbar
+        activeMode={controller.toolMode}
+        setMode={controller.handleToolModeChange}
+        lang={lang}
+      />
 
       <ViewerOptionsPanel
         showOptionsPanel={showOptionsPanel}

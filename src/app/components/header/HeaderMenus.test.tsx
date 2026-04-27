@@ -28,7 +28,6 @@ function renderViewMenu({
       showUndoRedoInline: false,
       t: translations.en,
       viewConfig: {
-        showToolbar: true,
         showOptionsPanel: true,
         showJointPanel,
       },
@@ -58,6 +57,18 @@ function getJointsPanelMenuButton(markup: string) {
   assert.ok(match, 'expected the view menu to render a joints panel menu item');
   return match;
 }
+
+test('view menu no longer renders a toolbar visibility toggle', () => {
+  const markup = renderViewMenu({
+    showJointPanel: true,
+    jointPanelAvailable: true,
+  });
+  const dom = new JSDOM(`<body>${markup}</body>`);
+  const buttons = Array.from(dom.window.document.querySelectorAll('button'));
+  const toolbarButton = buttons.find((button) => button.textContent?.includes('Toolbar'));
+
+  assert.equal(toolbarButton, undefined);
+});
 
 test('view menu shows the joints panel item as checked when the panel is available and enabled', () => {
   const markup = renderViewMenu({

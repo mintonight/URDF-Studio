@@ -1,5 +1,5 @@
 export { TreeEditor } from './TreeEditor';
-export type { TreeEditorProps } from './TreeEditor';
+export type { TreeEditorProps, LibraryRobotLoadIntent, LibraryRobotLoadResult } from './TreeEditor';
 
 export { TreeNode } from './TreeNode';
 export type { TreeNodeProps } from './TreeNode';

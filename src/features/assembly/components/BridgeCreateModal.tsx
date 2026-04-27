@@ -52,7 +52,7 @@ const BRIDGE_INLINE_FIELD_LABEL_CLASS =
   'inline-flex h-[22px] min-w-0 shrink-0 items-center justify-end text-right text-[9px] font-semibold uppercase tracking-[0.08em] leading-4 text-text-tertiary';
 const BRIDGE_INLINE_FIELD_LABEL_WIDTH_CLASS = 'w-[88px]';
 const BRIDGE_SELECT_CLASS =
-  'h-[22px] w-full rounded-md border border-border-strong bg-input-bg px-1.5 pr-6 text-[10px] leading-4 text-text-primary shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_18%,transparent)] outline-none transition-colors focus:border-system-blue focus:ring-2 focus:ring-system-blue/25';
+  '!h-[22px] !w-full min-w-0 rounded-md border border-border-strong bg-input-bg !px-1.5 !pr-6 !text-[10px] !leading-4 text-text-primary shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_18%,transparent)] outline-none transition-colors focus:border-system-blue focus:ring-2 focus:ring-system-blue/25';
 const BRIDGE_NUMBER_FIELD_SHELL_CLASS =
   'flex h-[22px] w-full items-stretch overflow-hidden rounded-md border border-border-strong bg-input-bg text-text-primary shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_18%,transparent)] transition-colors focus-within:border-system-blue focus-within:ring-2 focus-within:ring-system-blue/25';
 const BRIDGE_NUMBER_INPUT_CLASS =
@@ -72,7 +72,7 @@ const BRIDGE_FOOTER_BUTTON_CLASS =
 const BRIDGE_SIDE_CARD_HEADER_ROW_CLASS = 'grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2';
 const BRIDGE_SIDE_CARD_ACTIONS_CLASS = 'flex shrink-0 items-center gap-1.5 justify-self-end';
 const BRIDGE_RELATION_GRID_CLASS =
-  'grid grid-cols-[minmax(0,1fr)_3rem_minmax(0,1fr)] items-stretch gap-1.5';
+  'grid grid-cols-[minmax(0,1fr)_2.25rem_minmax(0,1fr)] items-stretch gap-1.5';
 const BRIDGE_RELATION_CONNECTOR_LINE_CLASS =
   'w-px flex-1 bg-gradient-to-b from-border-black/0 via-border-black to-border-black/0';
 const BRIDGE_SECTION_CLASS =
@@ -170,7 +170,7 @@ function BridgeInlineFieldRow({
       {label}
     </label>
   );
-  const fieldControl = <div className="min-w-0 flex-1">{children}</div>;
+  const fieldControl = <div className="flex min-w-0 items-center">{children}</div>;
 
   if (layout === 'contents') {
     return (
@@ -766,11 +766,11 @@ function BridgeRelationConnector() {
     <div
       data-bridge-connector="joint-link"
       aria-hidden="true"
-      className="flex min-h-[176px] flex-col items-center justify-center gap-2"
+      className="flex min-h-[152px] flex-col items-center justify-center gap-1.5"
     >
       <div className={BRIDGE_RELATION_CONNECTOR_LINE_CLASS} />
-      <div className="flex h-10 w-10 items-center justify-center rounded-full border border-system-blue/25 bg-element-bg text-system-blue shadow-[0_10px_24px_rgba(0,0,0,0.12),inset_0_0_0_1px_color-mix(in_srgb,var(--color-system-blue)_12%,transparent)]">
-        <Link2 className="h-4 w-4" />
+      <div className="flex h-8 w-8 items-center justify-center rounded-full border border-system-blue/25 bg-element-bg text-system-blue shadow-[0_8px_18px_rgba(0,0,0,0.12),inset_0_0_0_1px_color-mix(in_srgb,var(--color-system-blue)_12%,transparent)]">
+        <Link2 className="h-3.5 w-3.5" />
       </div>
       <div className={BRIDGE_RELATION_CONNECTOR_LINE_CLASS} />
     </div>
@@ -928,6 +928,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     lang === 'zh' ? { parent: '父侧', child: '子侧' } : { parent: 'Parent', child: 'Child' };
   const relationSectionTitle = lang === 'zh' ? '拼接关系' : 'Joint Relation';
   const compactLabelWidthClassName = lang === 'zh' ? 'w-[30px]' : 'w-[44px]';
+  const fullRowLabelClassName = 'w-auto whitespace-nowrap';
   const axisLabelWidthClassName = 'w-4 justify-center';
   const nameInputId = React.useId();
   const jointTypeSelectId = React.useId();
@@ -1726,7 +1727,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                 label={t.hardwareInterface}
                 fieldKey="hardware-interface"
                 className={`${usesInlineIdentityRow ? 'col-span-full ' : ''}min-w-0`.trim()}
-                labelClassName={compactLabelWidthClassName}
+                labelClassName={fullRowLabelClassName}
               >
                 <PanelSelect
                   variant="property"

@@ -533,9 +533,9 @@ export const LinkProperties: React.FC<LinkPropertiesProps> = ({
       <InlineInputGroup label={t.originReferenceFrame} labelWidthClassName="w-24">
         <ReadonlyValueField>{parentJoint ? t.parentJointFrame : t.linkFrame}</ReadonlyValueField>
       </InlineInputGroup>
-      <p className={`${PROPERTY_EDITOR_HELPER_TEXT_CLASS} mt-1.5`}>
-        {parentJoint ? t.childLinkFrameMatchesParentJoint : t.rootLinkOnlyFrameHint}
-      </p>
+      {!parentJoint ? (
+        <p className={`${PROPERTY_EDITOR_HELPER_TEXT_CLASS} mt-1.5`}>{t.rootLinkOnlyFrameHint}</p>
+      ) : null}
       {parentJoint ? (
         <div className="mt-2.5 overflow-hidden rounded-md border border-border-black/60">
           <div className="bg-element-bg/70 px-2 py-1 text-[9px] font-semibold tracking-[0.02em] text-text-secondary">

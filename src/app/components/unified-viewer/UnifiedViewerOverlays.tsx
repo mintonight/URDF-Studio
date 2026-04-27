@@ -13,8 +13,6 @@ interface UnifiedViewerOverlaysProps {
   onClosePreview?: () => void;
   viewerController: ViewerController;
   onUpdate: (type: 'link' | 'joint', id: string, data: any) => void;
-  showToolbar?: boolean;
-  setShowToolbar?: (show: boolean) => void;
   showOptionsPanel?: boolean;
   setShowOptionsPanel?: (show: boolean) => void;
   showJointPanel?: boolean;
@@ -27,8 +25,6 @@ export function UnifiedViewerOverlays({
   onClosePreview,
   viewerController,
   onUpdate,
-  showToolbar,
-  setShowToolbar,
   showOptionsPanel,
   setShowOptionsPanel,
   showJointPanel,
@@ -54,8 +50,6 @@ export function UnifiedViewerOverlays({
           lang={lang}
           controller={viewerController}
           onUpdate={onUpdate}
-          showToolbar={showToolbar}
-          setShowToolbar={setShowToolbar}
           showOptionsPanel={showOptionsPanel}
           setShowOptionsPanel={setShowOptionsPanel}
           showJointPanel={false}

@@ -232,11 +232,13 @@ const InlineDimensionInputRow = ({
   columns = 3,
   labelClassName = PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS,
   labelWidthClassName = 'w-2 text-center',
+  showStepper = true,
 }: {
   fields: DimensionInputField[];
   columns?: 1 | 2 | 3;
   labelClassName?: string;
   labelWidthClassName?: string;
+  showStepper?: boolean;
 }) => (
   <div
     className={`min-w-0 ${
@@ -262,6 +264,7 @@ const InlineDimensionInputRow = ({
             min={field.min}
             max={field.max}
             compact
+            showStepper={showStepper}
             step={GEOMETRY_DIMENSION_STEP}
             precision={MAX_GEOMETRY_DIMENSION_DECIMALS}
           />
@@ -1213,8 +1216,10 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
       {geomData.type === GeometryType.MESH && (
         <div className="mb-1">
           <label className={`${PROPERTY_EDITOR_FIELD_LABEL_CLASS} mb-0.5`}>{t.meshScale}</label>
-          <div className="grid gap-1.5 grid-cols-3">
-            {[
+          <InlineDimensionInputRow
+            columns={3}
+            showStepper={false}
+            fields={[
               {
                 label: 'X',
                 value: geomData.dimensions?.x ?? 1,
@@ -1230,23 +1235,8 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
                 value: geomData.dimensions?.z ?? 1,
                 onChange: (v: number) => update({ dimensions: { ...geomData.dimensions, z: v } }),
               },
-            ].map((field) => (
-              <div key={field.label} className="space-y-0.5 min-w-0">
-                <span
-                  className={`${PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS} w-full justify-center`}
-                >
-                  {field.label}
-                </span>
-                <NumberInput
-                  label={field.label}
-                  value={field.value}
-                  onChange={field.onChange}
-                  compact
-                  showStepper={false}
-                />
-              </div>
-            ))}
-          </div>
+            ]}
+          />
         </div>
       )}
 

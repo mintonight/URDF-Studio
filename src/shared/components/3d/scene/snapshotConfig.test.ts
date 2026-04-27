@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { normalizeSnapshotCaptureOptions } from './snapshotConfig.ts';
+import type { WorkspaceCameraSnapshot } from '../workspace/workspaceCameraSnapshot';
 
 test('normalizeSnapshotCaptureOptions defaults the export background to studio', () => {
   const options = normalizeSnapshotCaptureOptions();
@@ -57,4 +58,27 @@ test('normalizeSnapshotCaptureOptions clamps lossy image quality into the suppor
 
   assert.equal(tooLow.imageQuality, 60);
   assert.equal(tooHigh.imageQuality, 100);
+});
+
+test('normalizeSnapshotCaptureOptions preserves a frozen camera snapshot for export', () => {
+  const cameraSnapshot: WorkspaceCameraSnapshot = {
+    kind: 'perspective',
+    position: { x: 2, y: 3, z: 4 },
+    quaternion: { x: 0, y: 0.5, z: 0, w: 0.8660254037844386 },
+    up: { x: 0, y: 1, z: 0 },
+    zoom: 1.2,
+    target: { x: 0.5, y: -0.25, z: 1 },
+    aspectRatio: 1.6,
+    fov: 50,
+    near: 0.1,
+    far: 1000,
+  };
+
+  const options = normalizeSnapshotCaptureOptions({
+    longEdgePx: 3840,
+    cameraSnapshot,
+  });
+
+  assert.equal(options.longEdgePx, 3840);
+  assert.deepEqual(options.cameraSnapshot, cameraSnapshot);
 });

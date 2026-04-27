@@ -8,15 +8,34 @@ interface HeaderResponsiveLayoutOptions {
 }
 
 const OPTIONAL_ACTION_WIDTH_BONUS = 96;
+const CENTER_TOOLBAR_MEDIUM_WIDTH_PENALTY = 160;
+const CENTER_TOOLBAR_COMPACT_WIDTH_PENALTY = 240;
+
+function resolveCenterToolbarWidthPenalty(width: number) {
+  if (width >= 1440) {
+    return 0;
+  }
+
+  if (width >= 1280) {
+    return CENTER_TOOLBAR_MEDIUM_WIDTH_PENALTY;
+  }
+
+  return CENTER_TOOLBAR_COMPACT_WIDTH_PENALTY;
+}
 
 export function getHeaderResponsiveLayout(
   width: number,
   { hasQuickAction, hasSecondaryAction }: HeaderResponsiveLayoutOptions,
 ): HeaderResponsiveLayout {
-  // When optional header actions are absent, reclaim that space so desktop
+  // The header now permanently hosts the mode toolbar in the center. Reserve
+  // space for that cluster before deciding how many left/right controls remain inline.
+  const centerToolbarWidthPenalty = resolveCenterToolbarWidthPenalty(width);
+
+  // When optional header actions are absent, reclaim some of that space so desktop
   // layouts can keep more controls inline before collapsing into overflow.
   const effectiveWidth =
-    width +
+    width -
+    centerToolbarWidthPenalty +
     (hasQuickAction ? 0 : OPTIONAL_ACTION_WIDTH_BONUS) +
     (hasSecondaryAction ? 0 : OPTIONAL_ACTION_WIDTH_BONUS);
 

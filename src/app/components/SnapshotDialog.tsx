@@ -553,9 +553,6 @@ export function SnapshotDialog({
                 <div className="text-[10px] font-semibold tracking-[0.02em] text-text-primary">
                   {t.snapshotPreviewTitle}
                 </div>
-                <div className="mt-0.5 text-[10px] text-text-secondary">
-                  {t.snapshotPreviewFrozenView}
-                </div>
               </div>
               <div className="shrink-0 rounded-md border border-border-black bg-panel-bg px-1.5 py-0.5 text-[9px] font-medium text-text-secondary">
                 {previewStatusText}
@@ -593,10 +590,7 @@ export function SnapshotDialog({
             </div>
 
             <div className="mt-2 flex items-start justify-between gap-3 text-[10px] text-text-secondary">
-              <div className="min-w-0">
-                <div className="truncate">{captureSummary}</div>
-                <div className="mt-0.5">{t.snapshotPreviewQualityHint}</div>
-              </div>
+              <div className="min-w-0 truncate">{captureSummary}</div>
               {effectivePreviewState.status === 'error' ? (
                 <div className="shrink-0 text-right text-[10px] text-danger">
                   {t.snapshotPreviewRetryingHint}

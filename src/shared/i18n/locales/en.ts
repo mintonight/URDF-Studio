@@ -146,8 +146,6 @@ export const en: TranslationKeys = {
   originRelativeParentJoint: 'Origin (Relative to Parent Joint)',
   linkFrame: 'Link',
   parentJointFrame: 'Parent Joint',
-  childLinkFrameMatchesParentJoint:
-    'For child links, the link frame currently matches the parent joint frame.',
   rootLinkOnlyFrameHint: 'This link has no parent joint, so only the link frame is available.',
   position: 'Position',
   rotation: 'Rotation',
@@ -379,6 +377,7 @@ export const en: TranslationKeys = {
   jointControls: 'Joint Controls',
   joints: 'Joints',
   jointsPanel: 'Joints Panel',
+  noJointsYet: 'No joints yet.',
   viewOptions: 'View Options',
   loadingRobot: 'Loading robot...',
   loadingRobotPreparing: 'Preparing scene...',
@@ -498,9 +497,9 @@ export const en: TranslationKeys = {
   webglRuntimeErrorMessage:
     'The 3D viewport stopped rendering because an unexpected runtime error occurred. Refresh the page and check the browser console if the problem persists.',
   emptyAssemblyHint:
-    'Click robot or mesh files in the asset library above to add them. Image files open in preview; right-click for more actions',
+    'Click robot or mesh files in the asset library above to open a preview first. Use the Add button on the right to insert them into the workspace; right-click for more actions',
   clickToAddComponent:
-    'Click robot and mesh files to add them immediately. Images open in preview; right-click for more actions',
+    'Click robot and mesh files to open a preview first. Use the Add button on the right to insert them into the workspace; right-click for more actions',
   removeFromLibrary: 'Remove from Library',
   deleteAllLibraryFiles: 'Delete All',
   deleteAllLibraryFilesConfirmTitle: 'Delete all library files',
@@ -508,6 +507,13 @@ export const en: TranslationKeys = {
     'Delete all files in the asset library? This action cannot be undone.',
   rightClickToRename: 'Right-click to rename',
   rightClickForActions: 'Right-click for actions',
+  simpleModeSwitchDraftConfirmTitle: 'Save current edits before opening another model?',
+  simpleModeSwitchDraftConfirmMessage:
+    'The current model has unsaved edits. Save a draft into the asset library before opening the other model, or discard the current changes.',
+  saveDraftAndOpen: 'Save draft and open',
+  discardAndOpen: 'Discard and open',
+  simpleModeDraftSaved: 'Saved draft: {name}',
+  simpleModeDraftSaveFailed: 'Failed to save the current draft. The active model was not changed.',
   generateWorkspaceUrdf: 'Generate URDF',
   generateWorkspaceUrdfConfirmTitle: 'Generate a URDF before leaving Advanced mode?',
   generateWorkspaceUrdfConfirmMessage:
@@ -668,12 +674,10 @@ export const en: TranslationKeys = {
   snapshotAdvancedLook: 'Advanced Look',
   snapshotPreviewTitle: 'Live Preview',
   snapshotPreviewAlt: 'Snapshot live preview',
-  snapshotPreviewFrozenView: 'Based on the view when this dialog opened',
   snapshotPreviewLoading: 'Generating preview…',
   snapshotPreviewRefreshing: 'Updating preview…',
   snapshotPreviewReady: 'Preview ready',
   snapshotPreviewFailed: 'Preview update failed',
-  snapshotPreviewQualityHint: 'Final export quality still follows the selected resolution.',
   snapshotPreviewRetryingHint: 'Adjusting options will trigger another preview attempt.',
   snapshotCapture: 'Export Snapshot',
   snapshotCapturing: 'Capturing…',

@@ -59,6 +59,10 @@ import {
 } from './workspaceSourceSyncUtils';
 import { useAnimatedWorkspaceViewerRobotData } from './useAnimatedWorkspaceViewerRobotData';
 import {
+  readStoredWorkspaceViewerShowVisualPreference,
+  resolveWorkspaceViewerShowVisual,
+} from './workspaceViewerDetailPreferences';
+import {
   resolveWorkspaceViewerFallbackRobot,
   resolveWorkspaceViewerRobot,
   shouldPersistStableWorkspaceViewerRobot,
@@ -132,23 +136,14 @@ export function useWorkspaceSourceSync({
     assemblyState && Object.keys(assemblyState.components).length > 0,
   );
   const sourceJointsRef = useRef<Record<string, UrdfJoint>>({});
-  const {
-    filePreview,
-    previewRobot,
-    previewFileName,
-    handlePreviewFile,
-    handleClosePreview,
-    activePreviewFile,
-  } = useWorkspaceFilePreview({
-    availableFiles,
-    assets,
-    allFileContents,
-    getUsdPreparedExportCache,
-  });
-  const activeSourceFile = useMemo(
-    () => activePreviewFile ?? selectedFile,
-    [activePreviewFile, selectedFile],
-  );
+  const { filePreview, previewRobot, previewFileName, handlePreviewFile, handleClosePreview } =
+    useWorkspaceFilePreview({
+      availableFiles,
+      assets,
+      allFileContents,
+      getUsdPreparedExportCache,
+    });
+  const activeSourceFile = useMemo(() => selectedFile, [selectedFile]);
   const sourceCodeDocumentFlavor = useMemo<SourceCodeDocumentFlavor>(
     () => getSourceCodeDocumentFlavor(activeSourceFile),
     [activeSourceFile],
@@ -499,7 +494,10 @@ export function useWorkspaceSourceSync({
   }, [robot.joints]);
 
   const showVisual = useMemo(() => {
-    return Object.values(robot.links).some((link) => link.visible !== false);
+    return resolveWorkspaceViewerShowVisual({
+      robotLinks: robot.links,
+      storedPreference: readStoredWorkspaceViewerShowVisualPreference(),
+    });
   }, [robot.links]);
 
   const workspaceViewerMjcfSourceFile = useMemo(
@@ -962,9 +960,7 @@ export function useWorkspaceSourceSync({
   });
 
   const sourceCodeContent =
-    activePreviewFile?.content ??
-    syncedSourceContent ??
-    (selectedFile ? selectedFile.content : urdfContentForViewer);
+    syncedSourceContent ?? (selectedFile ? selectedFile.content : urdfContentForViewer);
   const sourceCodeDocuments = useMemo<SourceCodeDocumentDescriptor[]>(() => {
     const baseDocuments = buildSourceCodeDocuments({
       activeSourceFile,
@@ -972,15 +968,10 @@ export function useWorkspaceSourceSync({
       sourceCodeDocumentFlavor,
       availableFiles,
       allFileContents,
-      forceReadOnly: Boolean(activePreviewFile),
+      forceReadOnly: false,
     });
 
-    if (
-      activePreviewFile ||
-      activeSourceFile?.format !== 'xacro' ||
-      !generatedXacroContent ||
-      !hasSourceStoreEdits
-    ) {
+    if (activeSourceFile?.format !== 'xacro' || !generatedXacroContent || !hasSourceStoreEdits) {
       return baseDocuments;
     }
 
@@ -1014,7 +1005,6 @@ export function useWorkspaceSourceSync({
 
     return [generatedPrimaryDocument, rawEditableDocument, ...baseDocuments.slice(1)];
   }, [
-    activePreviewFile,
     activeSourceFile,
     allFileContents,
     availableFiles,
@@ -1047,6 +1037,8 @@ export function useWorkspaceSourceSync({
     sourceCodeFileName: activeSourceFile?.name,
     sourceCodeContent,
     sourceCodeDocumentFlavor,
+    hasSimpleModeSourceEdits: hasSourceStoreEdits,
+    draftUrdfContent: viewerGeneratedUrdfContent,
     handlePreviewFile,
     handleClosePreview,
   };

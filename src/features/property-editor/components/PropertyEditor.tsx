@@ -64,6 +64,7 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
   robot,
   onUpdate,
   onSelect,
+  onHover,
   onSelectGeometry,
   mode,
   assets,
@@ -188,7 +189,7 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
               <p className="ui-static-copy-guard text-[11px] leading-5">{emptyStateMessage}</p>
             </div>
           ) : (
-            <div className="w-full flex-1 overflow-y-auto custom-scrollbar p-1 space-y-1.5">
+            <div className="w-full min-h-0 flex-1 overflow-y-auto custom-scrollbar p-1 space-y-1.5">
               {isLink ? (
                 <LinkProperties
                   data={linkData as UrdfLink}

@@ -125,11 +125,24 @@ test('PanelSelect property variant keeps dropdown option typography aligned with
       trigger.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     });
 
+    const listbox = dom.window.document.querySelector('[role="listbox"]');
+    assert.ok(listbox, 'property variant should render a listbox portal');
+    const menuSurface = listbox.parentElement;
+    assert.ok(menuSurface, 'property variant listbox should stay inside a menu surface');
+    assert.match(
+      menuSurface.className,
+      /z-\[340\]/,
+      'property variant menu surface should render above high-z overlays',
+    );
+    assert.match(menuSurface.className, /\brounded-md\b/);
+    assert.match(menuSurface.className, /\bborder-border-strong\b/);
+
     const meshOption = Array.from(
       dom.window.document.querySelectorAll('button[role="option"]'),
     ).find((node) => node.textContent?.includes('Mesh'));
     assert.ok(meshOption instanceof dom.window.HTMLButtonElement);
     assert.match(meshOption.className, /text-\[10px\]/);
+    assert.match(meshOption.className, /px-1\.5/);
   } finally {
     await act(async () => {
       root.unmount();

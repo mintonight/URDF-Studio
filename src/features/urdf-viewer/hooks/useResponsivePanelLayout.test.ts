@@ -14,12 +14,11 @@ test('resolveResponsivePanelLayout edge-docks the options panel in narrow unifie
     },
     showOptionsPanel: true,
     showJointPanel: false,
-    showToolbar: true,
     preferEdgeDockedOptionsPanel: true,
   });
 
   assert.deepEqual(layout.optionsDefaultPosition, {
-    top: '56px',
+    top: '16px',
     right: '-152px',
     left: 'auto',
     transform: 'none',
@@ -37,7 +36,6 @@ test('resolveResponsivePanelLayout edge-docks the joint panel in narrow unified 
     },
     showOptionsPanel: false,
     showJointPanel: true,
-    showToolbar: false,
     preferEdgeDockedJointPanel: true,
   });
 
@@ -47,10 +45,10 @@ test('resolveResponsivePanelLayout edge-docks the joint panel in narrow unified 
     right: 'auto',
     transform: 'none',
   });
-  assert.equal(layout.jointsPanelMaxHeight, 488);
+  assert.equal(layout.jointsPanelMaxHeight, 420);
 });
 
-test('resolveResponsivePanelLayout preserves the centered-left joint panel when edge docking is disabled', () => {
+test('resolveResponsivePanelLayout keeps a softer max height for the centered-left joint panel', () => {
   const layout = resolveResponsivePanelLayout({
     metrics: {
       containerWidth: 266,
@@ -61,7 +59,6 @@ test('resolveResponsivePanelLayout preserves the centered-left joint panel when 
     },
     showOptionsPanel: false,
     showJointPanel: true,
-    showToolbar: false,
     preferEdgeDockedJointPanel: false,
   });
 
@@ -70,5 +67,5 @@ test('resolveResponsivePanelLayout preserves the centered-left joint panel when 
     left: '16px',
     transform: 'translateY(-50%)',
   });
-  assert.equal(layout.jointsPanelMaxHeight, undefined);
+  assert.equal(layout.jointsPanelMaxHeight, 420);
 });

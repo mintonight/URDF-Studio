@@ -148,11 +148,10 @@ test('link selection stays link-scoped without rendering embedded joint properti
   assert.match(markup, /base_link/);
 });
 
-test('link selection does not leak the related joint into the property panel header or body', () => {
+test('link selection keeps the property header scoped to the selected link', () => {
   const markup = renderPropertyEditor();
 
   assert.doesNotMatch(markup, new RegExp(translations.en.selectedJoint));
-  assert.doesNotMatch(markup, /hip_joint/);
   assert.match(markup, /base_link/);
 });
 
@@ -166,4 +165,10 @@ test('tendon selection renders tendon inspection data without joint property con
   assert.match(markup, /finger_tendon_motor/);
   assert.match(markup, /hip_joint/);
   assert.doesNotMatch(markup, new RegExp(translations.en.selectedJoint));
+});
+
+test('property editor does not render the shared joints section', () => {
+  const markup = renderPropertyEditor();
+
+  assert.doesNotMatch(markup, /Joints/);
 });

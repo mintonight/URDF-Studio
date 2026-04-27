@@ -129,7 +129,6 @@ export interface TranslationKeys {
   originRelativeParentJoint: string;
   linkFrame: string;
   parentJointFrame: string;
-  childLinkFrameMatchesParentJoint: string;
   rootLinkOnlyFrameHint: string;
   position: string;
   rotation: string;
@@ -341,6 +340,7 @@ export interface TranslationKeys {
   jointControls: string;
   joints: string;
   jointsPanel: string;
+  noJointsYet: string;
   viewOptions: string;
   loadingRobot: string;
   loadingRobotPreparing: string;
@@ -461,6 +461,12 @@ export interface TranslationKeys {
   deleteAllLibraryFilesConfirmMessage: string;
   rightClickToRename: string;
   rightClickForActions: string;
+  simpleModeSwitchDraftConfirmTitle: string;
+  simpleModeSwitchDraftConfirmMessage: string;
+  saveDraftAndOpen: string;
+  discardAndOpen: string;
+  simpleModeDraftSaved: string;
+  simpleModeDraftSaveFailed: string;
   generateWorkspaceUrdf: string;
   generateWorkspaceUrdfConfirmTitle: string;
   generateWorkspaceUrdfConfirmMessage: string;
@@ -602,12 +608,10 @@ export interface TranslationKeys {
   snapshotAdvancedLook: string;
   snapshotPreviewTitle: string;
   snapshotPreviewAlt: string;
-  snapshotPreviewFrozenView: string;
   snapshotPreviewLoading: string;
   snapshotPreviewRefreshing: string;
   snapshotPreviewReady: string;
   snapshotPreviewFailed: string;
-  snapshotPreviewQualityHint: string;
   snapshotPreviewRetryingHint: string;
   snapshotCapture: string;
   snapshotCapturing: string;

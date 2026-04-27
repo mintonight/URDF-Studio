@@ -43,8 +43,8 @@ export const IconButton: React.FC<IconButtonProps> = ({
     variantClasses = 'text-text-tertiary hover:bg-danger hover:text-white active:bg-danger-hover';
   } else if (variant === 'toolbar') {
     variantClasses = isActive
-      ? 'bg-system-blue/10 dark:bg-system-blue-solid text-system-blue dark:text-white shadow-sm'
-      : 'text-text-tertiary hover:bg-element-bg hover:text-text-primary';
+      ? 'bg-system-blue/10 text-system-blue ring-1 ring-system-blue/20 dark:bg-system-blue/15 dark:text-slate-100 dark:ring-system-blue/30'
+      : 'text-text-tertiary hover:bg-slate-100/70 hover:text-text-primary dark:hover:bg-element-bg dark:hover:text-slate-100';
   } else if (variant === 'solid') {
     variantClasses = SOLID_TONE_CLASSES[tone];
   } else {

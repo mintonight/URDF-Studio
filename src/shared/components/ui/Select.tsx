@@ -13,7 +13,9 @@ interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   error?: string;
   containerClassName?: string;
   labelClassName?: string;
+  menuClassName?: string;
   optionClassName?: string;
+  optionButtonClassName?: string;
 }
 
 interface SelectMenuLayout {
@@ -28,6 +30,7 @@ const MENU_MARGIN_PX = 8;
 const MENU_MAX_HEIGHT_PX = 224;
 const MENU_MIN_HEIGHT_PX = 112;
 const OPTION_HEIGHT_PX = 32;
+const MENU_Z_INDEX_CLASS = 'z-[340]';
 
 function resolveOptionValue(
   value: string | number | readonly string[] | undefined,
@@ -103,7 +106,9 @@ export const Select: React.FC<SelectProps> = ({
   error,
   containerClassName = '',
   labelClassName = '',
+  menuClassName = '',
   optionClassName = 'text-sm',
+  optionButtonClassName = 'rounded-lg px-2.5 py-1.5',
   className = '',
   id,
   value,
@@ -409,7 +414,7 @@ export const Select: React.FC<SelectProps> = ({
     isOpen && menuLayout ? (
       <div
         ref={menuRef}
-        className="fixed z-[260] overflow-hidden rounded-xl border border-border-black bg-panel-bg p-1 shadow-xl"
+        className={`fixed ${MENU_Z_INDEX_CLASS} overflow-hidden rounded-xl border border-border-black bg-panel-bg p-1 shadow-xl ${menuClassName}`.trim()}
         style={{
           left: `${menuLayout.left}px`,
           top: `${menuLayout.top}px`,
@@ -435,7 +440,7 @@ export const Select: React.FC<SelectProps> = ({
                 type="button"
                 role="option"
                 aria-selected={isSelected}
-                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left font-medium transition-colors ${optionClassName} ${
+                className={`flex w-full items-center justify-between gap-2 text-left font-medium transition-colors ${optionButtonClassName} ${optionClassName} ${
                   isSelected
                     ? 'bg-system-blue/12 text-system-blue'
                     : 'text-text-primary hover:bg-element-bg hover:text-text-primary'

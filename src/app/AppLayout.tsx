@@ -9,6 +9,7 @@ import { Header } from './components/Header';
 import { IkToolPanel } from './components/IkToolPanel';
 import { AppLayoutOverlays } from './components/AppLayoutOverlays';
 import { ConnectedDocumentLoadingOverlay } from './components/ConnectedDocumentLoadingOverlay';
+import { FilePreviewWindow } from './components/FilePreviewWindow';
 import { FileDropOverlay } from './components/FileDropOverlay';
 import { ImportPreparationOverlay } from './components/ImportPreparationOverlay';
 import { SnapshotDialog } from './components/SnapshotDialog';
@@ -74,7 +75,6 @@ import {
   type SnapshotCaptureOptions,
 } from '@/shared/components/3d';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
-import { hasSingleDofJoints } from '@/shared/utils/jointTypes';
 import { isAssetLibraryOnlyFormat, ROBOT_IMPORT_ACCEPT_ATTRIBUTE } from '@/shared/utils';
 import { toDocumentLoadLifecycleState } from '@/store/assetsStore';
 import { markUnsavedChangesBaselineSaved } from './utils/unsavedChangesBaseline';
@@ -83,6 +83,7 @@ import { resolveDocumentLoadingOverlayTargetFileName } from './utils/documentLoa
 import { clearIkDragHelperSelection } from './utils/ikDragSession';
 import { resolveIkToolSelectionState } from './utils/ikToolSelectionState';
 import { resolveAssemblyRootComponentSelectionAvailability } from './utils/assemblyRootComponentSelection';
+import { buildSimpleModeDraftFile } from './utils/simpleModeDrafts';
 import type { SnapshotPreviewSession } from './components/snapshot-preview/types';
 
 interface ProModeRoundtripSession {
@@ -110,13 +111,11 @@ interface AppLayoutProps {
   headerSecondaryAction?: HeaderAction;
   // View config
   viewConfig: {
-    showToolbar: boolean;
     showOptionsPanel: boolean;
     showJointPanel: boolean;
   };
   setViewConfig: React.Dispatch<
     React.SetStateAction<{
-      showToolbar: boolean;
       showOptionsPanel: boolean;
       showJointPanel: boolean;
     }>
@@ -417,6 +416,8 @@ export function AppLayout({
     viewerSourceFilePath,
     workspaceViewerMjcfSourceFile,
     sourceCodeDocuments,
+    hasSimpleModeSourceEdits,
+    draftUrdfContent,
     filePreview,
     previewRobot,
     previewFileName,
@@ -471,6 +472,16 @@ export function AppLayout({
   const previewFile = previewFileName
     ? (availableFiles.find((file) => file.name === previewFileName) ?? null)
     : null;
+  const selectedFileDraftSourceContent = useMemo(() => {
+    if (!selectedFile) {
+      return null;
+    }
+
+    return (
+      sourceCodeDocuments.find((document) => document.filePath === selectedFile.name)?.content ??
+      selectedFile.content
+    );
+  }, [selectedFile, sourceCodeDocuments]);
 
   const preparedAssetSourceFiles = useMemo(
     () =>
@@ -515,7 +526,7 @@ export function AppLayout({
     handleRequestSwitchTreeEditorToStructure,
     handleSwitchTreeEditorToProMode,
   } = useWorkspaceModeTransitions({
-    previewFile,
+    previewFile: null,
     selectedFile,
     availableFiles,
     allFileContents,
@@ -554,7 +565,7 @@ export function AppLayout({
       failedToParseFormat: t.failedToParseFormat,
     },
     pendingUsdAssemblyFileRef,
-    previewFile,
+    previewFile: null,
     selectedFile,
     setDocumentLoadState,
     setRobot,
@@ -565,8 +576,8 @@ export function AppLayout({
 
   // Keep drag-time joint previews scoped to the active viewer runtime. Feeding them
   // through AppLayout forces the tree and property sidebars into high-frequency re-render.
-  const previewContextRobot = previewRobot ?? robot;
-  const isPreviewingWorkspaceSource = Boolean(previewRobot);
+  const previewContextRobot = robot;
+  const isPreviewingWorkspaceSource = false;
   const ikToolSelectionState = useMemo(
     () =>
       resolveIkToolSelectionState({
@@ -672,11 +683,6 @@ export function AppLayout({
     setAllFileContents,
     showToast,
   });
-  const jointPanelAvailable = useMemo(
-    () => hasSingleDofJoints((previewRobot ?? viewerRobot)?.joints),
-    [previewRobot?.joints, viewerRobot?.joints],
-  );
-
   const {
     handleNameChange,
     handleUpdate,
@@ -771,8 +777,6 @@ export function AppLayout({
     setIsBridgeModalOpen,
     addBridge,
     setIsCollisionOptimizerOpen,
-    setViewConfig,
-    setPendingViewerToolMode,
   });
 
   const {
@@ -867,7 +871,7 @@ export function AppLayout({
       theme,
       cameraSnapshot,
       viewportAspectRatio,
-      robotName: previewFileName ?? (viewerRobot.name || 'robot'),
+      robotName: viewerRobot.name || 'robot',
       robot: viewerRobot,
       assets: viewerAssets,
       availableFiles,
@@ -888,7 +892,6 @@ export function AppLayout({
     groundPlaneOffset,
     jointAngleState,
     jointMotionState,
-    previewFileName,
     selectedFile?.format,
     showVisual,
     theme,
@@ -921,10 +924,9 @@ export function AppLayout({
   );
 
   const handleOpenIkTool = useCallback(() => {
-    setViewConfig((prev) => ({ ...prev, showToolbar: true }));
     handleSetIkDragActive(true);
     setIsIkToolPanelOpen(true);
-  }, [handleSetIkDragActive, setViewConfig]);
+  }, [handleSetIkDragActive]);
 
   const { items: toolboxItems, openTool } = useToolItems({
     t,
@@ -952,12 +954,9 @@ export function AppLayout({
 
   const handleIkDragActiveChange = useCallback(
     (active: boolean) => {
-      if (active) {
-        setViewConfig((prev) => ({ ...prev, showToolbar: true }));
-      }
       handleSetIkDragActive(active);
     },
-    [handleSetIkDragActive, setViewConfig],
+    [handleSetIkDragActive],
   );
 
   const handleCaptureSnapshot = useCallback(
@@ -975,7 +974,10 @@ export function AppLayout({
 
       try {
         setIsSnapshotCapturing(true);
-        await captureAction(options);
+        await captureAction({
+          ...options,
+          cameraSnapshot: snapshotPreviewSession?.cameraSnapshot ?? null,
+        });
       } catch (error) {
         console.error('Snapshot failed:', error);
         showToast(t.snapshotFailed, 'info');
@@ -1031,6 +1033,90 @@ export function AppLayout({
     showToast,
   });
 
+  const handleRequestLoadRobot = useCallback(
+    async (
+      file: RobotFile,
+      intent: 'direct' | 'save-draft' | 'discard',
+    ): Promise<'loaded' | 'needs-draft-confirm' | 'blocked'> => {
+      if (selectedFile?.name === file.name) {
+        return 'loaded';
+      }
+
+      const shouldGuardLibrarySwitch =
+        sidebarTab === 'structure' &&
+        !shouldRenderAssembly &&
+        Boolean(selectedFile) &&
+        hasSimpleModeSourceEdits;
+
+      if (!shouldGuardLibrarySwitch || intent === 'discard') {
+        onLoadRobot(file);
+        return 'loaded';
+      }
+
+      if (intent === 'direct') {
+        return 'needs-draft-confirm';
+      }
+
+      if (!selectedFile) {
+        return 'blocked';
+      }
+
+      const fallbackStandaloneDraftUrdfContent =
+        selectedFile.format === 'mjcf'
+          ? draftUrdfContent
+          : (draftUrdfContent ?? urdfContentForViewer);
+      const draftFile = buildSimpleModeDraftFile({
+        selectedFile,
+        currentSourceContent: selectedFileDraftSourceContent,
+        fallbackUrdfContent: fallbackStandaloneDraftUrdfContent,
+        availableFiles,
+      });
+
+      if (!draftFile) {
+        showToast(t.simpleModeDraftSaveFailed, 'info');
+        return 'blocked';
+      }
+
+      const existingDraftIndex = availableFiles.findIndex((entry) => entry.name === draftFile.name);
+      const nextAvailableFiles =
+        existingDraftIndex === -1
+          ? [...availableFiles, draftFile]
+          : availableFiles.map((entry, index) =>
+              index === existingDraftIndex ? draftFile : entry,
+            );
+      setAvailableFiles(nextAvailableFiles);
+      setAllFileContents({
+        ...allFileContents,
+        [draftFile.name]: draftFile.content,
+      });
+      markUnsavedChangesBaselineSaved('robot');
+      showToast(
+        t.simpleModeDraftSaved.replace('{name}', draftFile.name.split('/').pop() || draftFile.name),
+        'success',
+      );
+
+      onLoadRobot(file);
+      return 'loaded';
+    },
+    [
+      allFileContents,
+      availableFiles,
+      draftUrdfContent,
+      hasSimpleModeSourceEdits,
+      onLoadRobot,
+      selectedFile,
+      selectedFileDraftSourceContent,
+      setAllFileContents,
+      setAvailableFiles,
+      shouldRenderAssembly,
+      showToast,
+      sidebarTab,
+      t.simpleModeDraftSaveFailed,
+      t.simpleModeDraftSaved,
+      urdfContentForViewer,
+    ],
+  );
+
   return (
     <div
       className="flex flex-col h-screen font-sans bg-google-light-bg dark:bg-app-bg text-slate-800 dark:text-slate-200"
@@ -1073,7 +1159,7 @@ export function AppLayout({
         secondaryAction={headerSecondaryAction}
         onSnapshot={handleSnapshot}
         viewConfig={viewConfig}
-        viewAvailability={{ jointPanel: jointPanelAvailable }}
+        viewAvailability={{ jointPanel: true }}
         setViewConfig={setViewConfig}
       />
 
@@ -1106,8 +1192,10 @@ export function AppLayout({
           collapsed={sidebar.leftCollapsed}
           onToggle={() => toggleSidebar('left')}
           availableFiles={availableFiles}
-          onLoadRobot={onLoadRobot}
-          currentFileName={previewFileName ?? selectedFile?.name}
+          onLoadRobot={handlePreviewFileWithFeedback}
+          onRequestLoadRobot={handleRequestLoadRobot}
+          currentFileName={selectedFile?.name}
+          sourceFilePath={viewerSourceFilePath}
           assemblyState={assemblyState}
           onAddComponent={handleAddComponent}
           onDeleteLibraryFile={handleDeleteLibraryFile}
@@ -1122,6 +1210,8 @@ export function AppLayout({
           onSwitchToProMode={handleSwitchTreeEditorToProMode}
           onRequestSwitchToStructure={handleRequestSwitchTreeEditorToStructure}
           isReadOnly={isPreviewingWorkspaceSource}
+          showJointPanel={viewConfig.showJointPanel}
+          onJointAngleChange={handleJointChange}
         />
 
         {/* Viewer Container — z-0 stacking context keeps floating panels below sidebars (z-20);
@@ -1150,14 +1240,9 @@ export function AppLayout({
               onCanvasCreated={(state) => {
                 viewerCanvasStateRef.current = state;
               }}
-              showToolbar={viewConfig.showToolbar}
-              setShowToolbar={(show) => setViewConfig((prev) => ({ ...prev, showToolbar: show }))}
               showOptionsPanel={viewConfig.showOptionsPanel}
               setShowOptionsPanel={handleSetDetailOptionsPanelVisibility}
-              showJointPanel={viewConfig.showJointPanel && jointPanelAvailable}
-              setShowJointPanel={(show) =>
-                setViewConfig((prev) => ({ ...prev, showJointPanel: show }))
-              }
+              showJointPanel={false}
               availableFiles={availableFiles}
               urdfContent={urdfContentForViewer}
               viewerSourceFormat={viewerSourceFormat}
@@ -1183,8 +1268,6 @@ export function AppLayout({
               onAssemblyTransform={handleAssemblyTransform}
               onComponentTransform={handleComponentTransform}
               onBridgeTransform={handleBridgeTransform}
-              filePreview={filePreview}
-              onClosePreview={handleClosePreview}
               ikDragActive={ikDragActive}
               pendingViewerToolMode={pendingViewerToolMode}
               onConsumePendingViewerToolMode={() => setPendingViewerToolMode(null)}
@@ -1195,7 +1278,7 @@ export function AppLayout({
           <ConnectedDocumentLoadingOverlay
             lang={lang}
             targetFileName={resolveDocumentLoadingOverlayTargetFileName({
-              previewFileName: previewFileName ?? null,
+              previewFileName: null,
               selectedFileName: selectedFile?.name ?? null,
               documentLoadState,
             })}
@@ -1211,6 +1294,19 @@ export function AppLayout({
             />
           ) : null}
         </div>
+        <FilePreviewWindow
+          file={previewFile}
+          previewRobot={previewRobot}
+          previewState={filePreview}
+          assets={viewerAssets}
+          allFileContents={allFileContents}
+          availableFiles={availableFiles}
+          documentLoadState={documentLoadState}
+          lang={lang}
+          theme={theme}
+          onClose={handleClosePreview}
+          onAddComponent={sidebarTab === 'workspace' ? handleAddComponent : undefined}
+        />
 
         <PropertyEditor
           robot={propertyEditorSelectionContext.robot}

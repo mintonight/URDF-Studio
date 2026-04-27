@@ -181,7 +181,7 @@ test('SnapshotDialog defaults the grid toggle to enabled with the visible Grid l
   }
 });
 
-test('SnapshotDialog renders the live preview state and frozen-view hint', async () => {
+test('SnapshotDialog renders the live preview state without the frozen-view hint copy', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -212,9 +212,9 @@ test('SnapshotDialog renders the live preview state and frozen-view hint', async
 
     const textContent = container.textContent ?? '';
     assert.match(textContent, /Live Preview/);
-    assert.match(textContent, /Based on the view when this dialog opened/);
     assert.match(textContent, /Updating preview/);
-    assert.match(textContent, /Final export quality still follows the selected resolution/);
+    assert.doesNotMatch(textContent, /Based on the view when this dialog opened/);
+    assert.doesNotMatch(textContent, /Final export quality still follows the selected resolution/);
   } finally {
     await act(async () => {
       root.unmount();

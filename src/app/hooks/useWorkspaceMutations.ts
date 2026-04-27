@@ -25,6 +25,7 @@ import type {
 } from '@/types';
 import type { UpdateCommitMode, UpdateCommitOptions } from '@/types/viewer';
 import { usePendingHistoryCoordinator } from './usePendingHistoryCoordinator';
+import { persistWorkspaceViewerShowVisualPreference } from './workspaceViewerDetailPreferences';
 import { areAssemblyTransformsEqual } from './workspace-mutations/assemblyTransforms';
 import { applyAssemblyUpdate } from './workspace-mutations/assemblyUpdate';
 import {
@@ -973,6 +974,7 @@ export function useWorkspaceMutations({
 
   const handleSetShowVisual = useCallback(
     (target: boolean) => {
+      persistWorkspaceViewerShowVisualPreference(target);
       setAllLinksVisibility(target);
     },
     [setAllLinksVisibility],

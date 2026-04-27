@@ -106,12 +106,15 @@ function renderPanel(
   });
 }
 
-test('visualizer options panel exposes the shared model opacity control', async () => {
+test('visualizer options panel hides model opacity and ground alignment controls', async () => {
   const { dom, container, root } = createComponentRoot();
 
   await renderPanel(root);
 
-  assert.match(container.textContent ?? '', /模型不透明度/);
+  assert.equal(container.textContent?.includes('模型不透明度'), false);
+  assert.equal(container.textContent?.includes('高度偏移'), false);
+  assert.equal(container.textContent?.includes('自动适配'), false);
+  assert.equal(container.textContent?.includes('重置'), false);
 
   await act(async () => {
     root.unmount();
@@ -141,6 +144,26 @@ test('visualizer options panel binds the top toggle to visual visibility', async
 
   assert.deepEqual(visualVisibilityUpdates, [false]);
   assert.equal(geometryToggleCalls, 0);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('visualizer options panel shows geometry and collision icons for the top toggles', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderPanel(root);
+
+  assert.ok(
+    container.querySelector('svg.lucide-shapes'),
+    'show visual toggle should render a geometry icon',
+  );
+  assert.ok(
+    container.querySelector('svg.lucide-shield'),
+    'show collision toggle should render a collision icon',
+  );
 
   await act(async () => {
     root.unmount();
@@ -197,44 +220,7 @@ test('visualizer options panel toggles collision always-on-top state from the tr
   dom.window.close();
 });
 
-test('visualizer options panel allows typing model opacity directly', async () => {
-  const { dom, container, root } = createComponentRoot();
-  const modelOpacityUpdates: number[] = [];
-
-  await renderPanel(root, {
-    setModelOpacity: (nextValue) => {
-      modelOpacityUpdates.push(nextValue);
-    },
-  });
-
-  const valueInputs = Array.from(
-    container.querySelectorAll<HTMLInputElement>('[data-testid="ui-slider-value-input"]'),
-  );
-  const modelOpacityInput = valueInputs.find((input) => input.value === '42%');
-  assert.ok(modelOpacityInput, 'model opacity input should render as an editable textbox');
-  const setNativeInputValue = Object.getOwnPropertyDescriptor(
-    dom.window.HTMLInputElement.prototype,
-    'value',
-  )?.set;
-  assert.ok(setNativeInputValue, 'native input value setter should exist');
-
-  await act(async () => {
-    modelOpacityInput.focus();
-    setNativeInputValue.call(modelOpacityInput, '35');
-    modelOpacityInput.dispatchEvent(new Event('input', { bubbles: true }));
-    modelOpacityInput.dispatchEvent(new Event('change', { bubbles: true }));
-    modelOpacityInput.blur();
-  });
-
-  assert.equal(modelOpacityUpdates.at(-1), 0.35);
-
-  await act(async () => {
-    root.unmount();
-  });
-  dom.window.close();
-});
-
-test('visualizer size sliders keep the same horizontal width as the other view sliders', async () => {
+test('visualizer options panel keeps only the enabled size sliders in the detail section', async () => {
   const { dom, container, root } = createComponentRoot();
 
   await renderPanel(root, {
@@ -245,10 +231,26 @@ test('visualizer size sliders keep the same horizontal width as the other view s
   const sliderTracks = Array.from(
     container.querySelectorAll<HTMLDivElement>('[data-testid="ui-slider-track"]'),
   );
-  assert.ok(
-    sliderTracks.length >= 4,
-    'panel should render size, opacity, and ground offset sliders',
+  assert.ok(sliderTracks.length >= 2, 'visualizer panel should render the enabled size sliders');
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('visualizer size sliders keep the same horizontal width without indentation', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderPanel(root, {
+    showOrigin: true,
+    showJointAxes: true,
+  });
+
+  const sliderTracks = Array.from(
+    container.querySelectorAll<HTMLDivElement>('[data-testid="ui-slider-track"]'),
   );
+  assert.ok(sliderTracks.length >= 2, 'panel should render the enabled size sliders');
 
   const coordinateFrameWrapper = sliderTracks[0].parentElement?.parentElement
     ?.parentElement as HTMLDivElement | null;
@@ -266,15 +268,45 @@ test('visualizer size sliders keep the same horizontal width as the other view s
   dom.window.close();
 });
 
-test('visualizer view options keep corner resize without a right-edge resize hot zone', async () => {
+test('visualizer options panel uses a narrower default width', async () => {
   const { dom, container, root } = createComponentRoot();
 
   await renderPanel(root);
 
-  assert.equal(
+  const panelContainer = container.querySelector<HTMLElement>(':scope > div > div');
+  assert.ok(panelContainer, 'visualizer options panel container should render');
+  assert.equal(panelContainer.style.width, '10rem');
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('visualizer options panel uses a slimmer header bar', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderPanel(root);
+
+  const header = container.querySelector<HTMLElement>(':scope > div > div > div:first-child');
+  assert.ok(header, 'visualizer options panel header should render');
+  assert.match(header.className, /\bpy-1\.5\b/);
+  assert.match(header.className, /\bpx-2\b/);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('visualizer view options keep the same right-edge resize affordance as the joints panel', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderPanel(root);
+
+  assert.ok(
     container.querySelector('[data-testid="ui-options-panel-resize-right"]'),
-    null,
-    'visualizer view options should not render a right-edge resize handle',
+    'visualizer view options should render a right-edge resize handle',
   );
   assert.ok(
     container.querySelector('[data-testid="ui-options-panel-resize-bottom"]'),

@@ -76,13 +76,13 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
       return;
     }
 
-    if (node.file && canAddFileAsComponent && onAddAsComponent) {
-      onAddAsComponent(node.file);
+    if (node.file && canPreviewFile && onLoadRobot) {
+      onLoadRobot(node.file);
       return;
     }
 
-    if (node.file && canPreviewFile && onLoadRobot) {
-      onLoadRobot(node.file);
+    if (node.file && canAddFileAsComponent && onAddAsComponent) {
+      onAddAsComponent(node.file);
     }
   };
 

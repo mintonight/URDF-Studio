@@ -407,6 +407,7 @@ interface OptionsPanelHeaderProps {
   collapseText?: string;
   closeText?: string;
   additionalControls?: ReactNode;
+  className?: string;
 }
 
 export const OptionsPanelHeader: React.FC<OptionsPanelHeaderProps> = ({
@@ -421,10 +422,11 @@ export const OptionsPanelHeader: React.FC<OptionsPanelHeaderProps> = ({
   collapseText = 'Collapse',
   closeText = 'Close',
   additionalControls,
+  className = '',
 }) => {
   return (
     <div
-      className="group flex min-w-0 shrink-0 select-none touch-none items-center justify-between gap-2 border-b border-border-black/60 bg-element-bg px-2.5 py-2 text-[10px] transition-colors hover:bg-element-hover"
+      className={`group flex min-w-0 shrink-0 select-none touch-none items-center justify-between gap-1.5 border-b border-border-black/60 bg-element-bg px-2 py-1.5 text-[10px] transition-colors hover:bg-element-hover ${className}`}
       onMouseDown={onMouseDown}
     >
       <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -488,7 +490,7 @@ export const OptionsPanelContent: React.FC<OptionsPanelContentProps> = ({
     <div
       className={`transition-all duration-200 ease-in-out ${
         isCollapsed ? 'max-h-0 opacity-0' : 'max-h-[70vh] opacity-100'
-      } ${className} flex flex-col min-h-0`}
+      } ${className} flex flex-1 flex-col min-h-0`}
     >
       <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar min-h-0">
         {/* No padding here, padding moved to sections or specific children */}
@@ -533,6 +535,7 @@ export const OptionsPanelContainer: React.FC<OptionsPanelContainerProps> = ({
     height: height || 'auto',
   });
 
+  const hasManualResizeRef = useRef(false);
   const startSize = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
   const startPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const resizeDirection = useRef<'right' | 'bottom' | 'corner' | null>(null);
@@ -575,6 +578,7 @@ export const OptionsPanelContainer: React.FC<OptionsPanelContainerProps> = ({
         if (newHeight > maxHeight) newHeight = maxHeight;
       }
 
+      hasManualResizeRef.current = true;
       setPanelSize((prev) => ({
         width:
           resizeDirection.current === 'right' || resizeDirection.current === 'corner'
@@ -656,6 +660,23 @@ export const OptionsPanelContainer: React.FC<OptionsPanelContainerProps> = ({
     };
   }, [handleResizeEnd]);
 
+  useEffect(() => {
+    if (hasManualResizeRef.current) {
+      return;
+    }
+
+    setPanelSize((previous) => {
+      const nextSize = {
+        width,
+        height: height || 'auto',
+      };
+
+      return previous.width === nextSize.width && previous.height === nextSize.height
+        ? previous
+        : nextSize;
+    });
+  }, [height, width]);
+
   const currentHeight = isCollapsed ? 'auto' : panelSize.height;
   // Prevent panel from expanding beyond its set height when collapsing (if height is not auto)
   const constrainedMaxHeight =
@@ -663,7 +684,7 @@ export const OptionsPanelContainer: React.FC<OptionsPanelContainerProps> = ({
 
   return (
     <div
-      className={`bg-panel-bg rounded-xl border border-border-black flex flex-col shadow-xl overflow-hidden relative @container ${className}`}
+      className={`bg-panel-bg rounded-lg border border-border-black flex flex-col shadow-xl overflow-hidden relative @container ${className}`}
       style={{
         width: panelSize.width,
         height: currentHeight,

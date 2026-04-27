@@ -25,7 +25,6 @@ export function ViewerJointsPanel({
     jointPanelRef: controller.jointPanelRef,
     showOptionsPanel: false,
     showJointPanel,
-    showToolbar: false,
     preferEdgeDockedJointPanel: true,
   });
 

@@ -231,7 +231,7 @@ export default defineConfig(({ mode }) => {
   return {
     server: {
       port: 3000,
-      strictPort: true,
+      strictPort: false,
       host: '127.0.0.1',
       // Verification artifacts are intentionally written into tmp/ by repo policy.
       // Ignore generated directories so exports, screenshots, logs, and pid files

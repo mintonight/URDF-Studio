@@ -139,33 +139,34 @@ async function renderPanel(
   });
 }
 
-test('ViewerOptionsPanel disables ground plane controls when the offset is externally controlled', async () => {
+test('ViewerOptionsPanel hides model opacity and ground plane detail controls', async () => {
   const { dom, container, root } = createComponentRoot();
 
   await renderPanel(root, true);
 
-  const sliders = Array.from(
-    container.querySelectorAll<HTMLInputElement>('input[data-testid="ui-slider-input"]'),
+  assert.equal(container.textContent?.includes('Model Opacity'), false);
+  assert.equal(container.textContent?.includes('Ground Offset'), false);
+  assert.equal(container.textContent?.includes('Auto Fit Ground'), false);
+  assert.equal(container.textContent?.includes('Reset'), false);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('ViewerOptionsPanel shows geometry and collision icons for the top toggles', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderPanel(root, false);
+
+  assert.ok(
+    container.querySelector('svg.lucide-shapes'),
+    'show visual toggle should render a geometry icon',
   );
   assert.ok(
-    sliders.length >= 2,
-    'panel should render both model opacity and ground offset sliders',
-  );
-  assert.equal(
-    sliders.some((slider) => slider.disabled),
-    true,
-  );
-
-  const disabledButtons = Array.from(
-    container.querySelectorAll<HTMLButtonElement>('button[disabled]'),
-  );
-  assert.equal(
-    disabledButtons.some((button) => button.textContent?.includes('Auto Fit Ground')),
-    true,
-  );
-  assert.equal(
-    disabledButtons.some((button) => button.textContent?.includes('Reset')),
-    true,
+    container.querySelector('svg.lucide-shield'),
+    'show collision toggle should render a collision icon',
   );
 
   await act(async () => {
@@ -174,7 +175,7 @@ test('ViewerOptionsPanel disables ground plane controls when the offset is exter
   dom.window.close();
 });
 
-test('viewer size sliders use the same full-width layout as opacity and ground offset', async () => {
+test('viewer size sliders keep the full-width layout without indentation', async () => {
   const { dom, container, root } = createComponentRoot();
 
   await renderPanel(root, false, {
@@ -185,10 +186,7 @@ test('viewer size sliders use the same full-width layout as opacity and ground o
   const sliderTracks = Array.from(
     container.querySelectorAll<HTMLDivElement>('[data-testid="ui-slider-track"]'),
   );
-  assert.ok(
-    sliderTracks.length >= 4,
-    'viewer panel should render size, opacity, and ground offset sliders',
-  );
+  assert.ok(sliderTracks.length >= 2, 'viewer panel should render the enabled size sliders');
 
   const originWrapper = sliderTracks[0].parentElement?.parentElement
     ?.parentElement as HTMLDivElement | null;
@@ -206,15 +204,63 @@ test('viewer size sliders use the same full-width layout as opacity and ground o
   dom.window.close();
 });
 
-test('ViewerOptionsPanel keeps bottom-right resize affordances without a right-edge resize hot zone', async () => {
+test('ViewerOptionsPanel uses a slightly narrower default width', async () => {
   const { dom, container, root } = createComponentRoot();
 
   await renderPanel(root, false);
 
-  assert.equal(
+  const panelContainer = container.querySelector<HTMLElement>('.urdf-options-panel > div');
+  assert.ok(panelContainer, 'viewer options panel container should render');
+  assert.equal(panelContainer.style.width, '9.5rem');
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('ViewerOptionsPanel uses a slightly smaller corner radius', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderPanel(root, false);
+
+  const panelContainer = container.querySelector<HTMLElement>('.urdf-options-panel > div');
+  assert.ok(panelContainer, 'viewer options panel container should render');
+  assert.match(panelContainer.className, /\brounded-lg\b/);
+  assert.doesNotMatch(panelContainer.className, /\brounded-xl\b/);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('ViewerOptionsPanel uses a shorter header bar', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderPanel(root, false);
+
+  const header = container.querySelector<HTMLElement>(
+    '.urdf-options-panel > div > div:first-child',
+  );
+  assert.ok(header, 'viewer options panel header should render');
+  assert.match(header.className, /!py-1/);
+  assert.match(header.className, /!px-1\.5/);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('ViewerOptionsPanel keeps the same right-edge resize affordance as the joints panel', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderPanel(root, false);
+
+  assert.ok(
     container.querySelector('[data-testid="ui-options-panel-resize-right"]'),
-    null,
-    'view options panel should not render a right-edge resize handle',
+    'view options panel should render a right-edge resize handle',
   );
   assert.ok(
     container.querySelector('[data-testid="ui-options-panel-resize-bottom"]'),
