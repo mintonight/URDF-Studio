@@ -8,13 +8,16 @@ import {
   type ViewerDocumentLoadEvent,
   type ViewerRobotDataResolution,
 } from '@/features/editor';
-import { useAssetsStore, useRobotStore } from '@/store';
+import { useAssetsStore, useRobotStore, useSelectionStore } from '@/store';
 import type { DocumentLoadState, DocumentLoadStatus } from '@/store/assetsStore';
-import type { RobotData, RobotFile, UsdSceneSnapshot } from '@/types';
+import type { InteractionSelection, RobotData, RobotFile, UsdSceneSnapshot } from '@/types';
 import { createRobotSemanticSnapshot } from '@/shared/utils/robot/semanticSnapshot';
 import { recordUsdStageLoadDebug } from '@/shared/debug/usdStageLoadDebug';
 import { registerPendingUsdCacheFlusher } from '../utils/pendingUsdCache';
-import { shouldApplyUsdStageHydration } from '../utils/usdStageHydration';
+import {
+  resolveUsdStageHydrationSelection,
+  shouldApplyUsdStageHydration,
+} from '../utils/usdStageHydration';
 import {
   buildUsdHydrationPersistencePlan,
   resolveUsdHydrationRobotData,
@@ -28,6 +31,10 @@ import {
 import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
 import { markUnsavedChangesBaselineSaved } from '../utils/unsavedChangesBaseline';
 import { isGeneratedWorkspaceUrdfFileName } from './workspaceSourceSyncUtils';
+import {
+  scheduleUsdPostReadyBackgroundTask,
+  shouldAutoPrepareUsdPostReadyExportCache,
+} from '../utils/usdPostReadyBackgroundTask';
 
 interface UsdPersistenceBaseline {
   fileName: string | null;
@@ -73,7 +80,7 @@ interface UseUsdDocumentLifecycleOptions {
     data: RobotData,
     options?: { label?: string; resetHistory?: boolean; skipHistory?: boolean },
   ) => void;
-  setSelection: (selection: { type: null; id: null }) => void;
+  setSelection: (selection: InteractionSelection) => void;
   showToast: (message: string, type?: 'info' | 'success') => void;
   updateProModeRoundtripBaseline: (generatedFileName: string | null) => unknown;
 }
@@ -95,6 +102,7 @@ export function useUsdDocumentLifecycle({
   const pendingUsdHydrationFileRef = useRef<string | null>(null);
   const usdPersistenceBaselineRef = useRef<UsdPersistenceBaseline>(EMPTY_USD_PERSISTENCE_BASELINE);
   const usdPreparedExportCacheRequestIdRef = useRef(0);
+  const cancelUsdPreparedExportCacheBuildRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!isSelectedUsdHydrating || selectedFile?.format !== 'usd') {
@@ -113,36 +121,53 @@ export function useUsdDocumentLifecycle({
       robotSnapshot: string;
     }) => {
       const requestId = ++usdPreparedExportCacheRequestIdRef.current;
+      cancelUsdPreparedExportCacheBuildRef.current?.();
+      if (!shouldAutoPrepareUsdPostReadyExportCache(args.sceneSnapshot)) {
+        cancelUsdPreparedExportCacheBuildRef.current = null;
+        return;
+      }
+      cancelUsdPreparedExportCacheBuildRef.current = scheduleUsdPostReadyBackgroundTask(() => {
+        cancelUsdPreparedExportCacheBuildRef.current = null;
 
-      void prepareUsdPreparedExportCacheWithWorker(args.sceneSnapshot, args.resolution)
-        .then((preparedCache) => {
-          if (requestId !== usdPreparedExportCacheRequestIdRef.current) {
-            return;
-          }
+        void prepareUsdPreparedExportCacheWithWorker(args.sceneSnapshot, args.resolution)
+          .then((preparedCache) => {
+            if (requestId !== usdPreparedExportCacheRequestIdRef.current) {
+              return;
+            }
 
-          const liveAssetsState = useAssetsStore.getState();
-          liveAssetsState.setUsdPreparedExportCache(args.fileName, preparedCache);
-          usdPersistenceBaselineRef.current = {
-            fileName: normalizeUsdPersistenceFileName(args.fileName),
-            robotSnapshot: args.robotSnapshot,
-            fallbackSceneSnapshot: args.sceneSnapshot,
-            hadPreparedExportCache: Boolean(preparedCache),
-            hadSceneSnapshot: true,
-          };
-        })
-        .catch((error) => {
-          if (requestId !== usdPreparedExportCacheRequestIdRef.current) {
-            return;
-          }
+            const liveAssetsState = useAssetsStore.getState();
+            liveAssetsState.setUsdPreparedExportCache(args.fileName, preparedCache);
+            usdPersistenceBaselineRef.current = {
+              fileName: normalizeUsdPersistenceFileName(args.fileName),
+              robotSnapshot: args.robotSnapshot,
+              fallbackSceneSnapshot: args.sceneSnapshot,
+              hadPreparedExportCache: Boolean(preparedCache),
+              hadSceneSnapshot: true,
+            };
+          })
+          .catch((error) => {
+            if (requestId !== usdPreparedExportCacheRequestIdRef.current) {
+              return;
+            }
 
-          const reason = error instanceof Error ? error.message : String(error);
-          scheduleFailFastInDev(
-            'useUsdDocumentLifecycle:prepareUsdPreparedExportCacheWithWorker',
-            new Error(`Failed to prepare USD export cache for "${args.fileName}": ${reason}`, {
-              cause: error,
-            }),
-          );
-        });
+            const reason = error instanceof Error ? error.message : String(error);
+            scheduleFailFastInDev(
+              'useUsdDocumentLifecycle:prepareUsdPreparedExportCacheWithWorker',
+              new Error(`Failed to prepare USD export cache for "${args.fileName}": ${reason}`, {
+                cause: error,
+              }),
+            );
+          });
+      });
+    },
+    [],
+  );
+
+  useEffect(
+    () => () => {
+      cancelUsdPreparedExportCacheBuildRef.current?.();
+      cancelUsdPreparedExportCacheBuildRef.current = null;
+      usdPreparedExportCacheRequestIdRef.current += 1;
     },
     [],
   );
@@ -442,7 +467,14 @@ export function useUsdDocumentLifecycle({
               : { skipHistory: true, label: 'Hydrate USD stage' }
             : undefined,
         );
-        setSelection({ type: null, id: null });
+        setSelection(
+          resolvedSelectedFile.format === 'usd'
+            ? resolveUsdStageHydrationSelection({
+                currentSelection: useSelectionStore.getState().selection,
+                robotData: committedRobotData,
+              })
+            : { type: null, id: null },
+        );
         if (isColdUsdHydration) {
           markUnsavedChangesBaselineSaved('robot');
         }

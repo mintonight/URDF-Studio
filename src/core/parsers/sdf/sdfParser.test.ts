@@ -515,6 +515,22 @@ test('parseSDF preserves non-zero child link offsets relative to incoming joint 
   assert.deepEqual(position, { x: 0.1, y: 0.2, z: 0.3005 });
 });
 
+test('parseSDF keeps the Gazebo PR2 gripper closed-loop links inside one rooted tree', () => {
+  const source = fs.readFileSync('test/gazebo_models/pr2/model.sdf', 'utf8');
+  const robot = parseSDF(source, {
+    sourcePath: 'pr2/model.sdf',
+  });
+
+  assert.ok(robot);
+  assert.equal(robot?.joints.r_gripper_r_finger_joint?.parentLinkId, 'r_wrist_roll_link');
+  assert.equal(robot?.joints.r_gripper_r_finger_joint?.childLinkId, 'r_gripper_r_finger_link');
+
+  const childLinkIds = new Set(Object.values(robot?.joints ?? {}).map((joint) => joint.childLinkId));
+  const rootLinkIds = Object.keys(robot?.links ?? {}).filter((linkId) => !childLinkIds.has(linkId));
+
+  assert.deepEqual(rootLinkIds, ['base_footprint']);
+});
+
 test('parseSDF honors joint poses specified in the child link frame by default', () => {
   const robot = parseSDF(`<?xml version="1.0"?>
 <sdf version="1.7">

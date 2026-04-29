@@ -243,6 +243,7 @@ async function renderTreeEditor(root: Root) {
     panelLayout: {
       ...useUIStore.getState().panelLayout,
       treeJointPanelHeight: 132,
+      treePanelHeightMode: 'custom',
     },
   });
 
@@ -276,6 +277,7 @@ async function renderTreeEditorWithRobot(root: Root, robot: RobotState) {
     panelLayout: {
       ...useUIStore.getState().panelLayout,
       treeJointPanelHeight: 132,
+      treePanelHeightMode: 'custom',
     },
   });
 

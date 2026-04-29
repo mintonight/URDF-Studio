@@ -1,6 +1,7 @@
 import React, { forwardRef } from 'react';
 import { Shapes, Shield } from 'lucide-react';
 import { Language, translations } from '@/shared/i18n';
+import { WORKSPACE_OVERLAY_RIGHT_EDGE_GAP } from '@/shared/components/3d/scene';
 import {
   CheckboxOption,
   OptionsPanelContainer,
@@ -125,7 +126,7 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
         style={
           optionsPanelPos
             ? { left: optionsPanelPos.x, top: optionsPanelPos.y, right: 'auto' }
-            : { top: '16px', right: '16px' }
+            : { top: '16px', right: WORKSPACE_OVERLAY_RIGHT_EDGE_GAP }
         }
       >
         <OptionsPanelContainer
@@ -146,6 +147,9 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
             showDragGrip={false}
             onMouseDown={onMouseDown}
             className="gap-1.5 px-2 py-1.5"
+            expandText={t.expand}
+            collapseText={t.collapse}
+            closeText={t.close}
           />
 
           <OptionsPanelContent isCollapsed={isCollapsed}>

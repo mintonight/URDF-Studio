@@ -104,7 +104,7 @@ test('pointer finalization only runs when the viewer actually owns an active int
   );
 });
 
-test('deferred selection keeps hover stable for clicks and only clears once the pointer becomes a drag', () => {
+test('deferred selection keeps hover stable until pointer up, even after the gesture crosses drag threshold', () => {
   assert.deepEqual(
     resolveDeferredSelectionHoverState({
       hasPendingSelection: true,
@@ -131,7 +131,7 @@ test('deferred selection keeps hover stable for clicks and only clears once the 
     }),
     {
       pointerExceededClickThreshold: true,
-      shouldClearHover: true,
+      shouldClearHover: false,
     },
   );
 

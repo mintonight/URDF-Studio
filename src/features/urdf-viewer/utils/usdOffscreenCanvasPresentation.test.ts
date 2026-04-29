@@ -3,15 +3,19 @@ import test from 'node:test';
 
 import { resolveUsdOffscreenCanvasPresentation } from './usdOffscreenCanvasPresentation.ts';
 
-test('resolveUsdOffscreenCanvasPresentation uses an opaque viewer-matched background', () => {
+test('resolveUsdOffscreenCanvasPresentation keeps the USD layer transparent over WorkspaceCanvas', () => {
   assert.deepEqual(resolveUsdOffscreenCanvasPresentation('light'), {
-    alpha: false,
+    alpha: true,
     backgroundColor: '#f3f4f6',
-    clearAlpha: 1,
+    clearAlpha: 0,
+    cssBackgroundColor: 'transparent',
+    sceneBackgroundColor: null,
   });
   assert.deepEqual(resolveUsdOffscreenCanvasPresentation('dark'), {
-    alpha: false,
+    alpha: true,
     backgroundColor: '#1f1f1f',
-    clearAlpha: 1,
+    clearAlpha: 0,
+    cssBackgroundColor: 'transparent',
+    sceneBackgroundColor: null,
   });
 });

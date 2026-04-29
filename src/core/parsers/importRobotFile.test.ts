@@ -701,6 +701,50 @@ test('resolveRobotFileData ignores unrelated workspace assets when auto-validati
   }
 });
 
+test('resolveRobotFileData preserves MJCF inspection context on ready robot data', () => {
+  const file: RobotFile = {
+    name: 'robots/demo/inspection-context.xml',
+    content: `
+      <mujoco model="inspection-context">
+        <default class="main">
+          <site type="sphere" size="0.01" />
+          <tendon width="0.02" />
+        </default>
+        <worldbody>
+          <body name="base_link" childclass="main">
+            <site name="tool_center" pos="0 0 0.1" />
+            <body name="finger_link">
+              <joint name="finger_joint" type="hinge" axis="0 1 0" range="-0.5 0.5" />
+            </body>
+          </body>
+        </worldbody>
+        <tendon>
+          <spatial name="finger_tendon">
+            <site site="tool_center" />
+          </spatial>
+        </tendon>
+        <actuator>
+          <motor name="finger_tendon_motor" tendon="finger_tendon" />
+        </actuator>
+      </mujoco>
+    `,
+    format: 'mjcf',
+  };
+
+  const result = resolveRobotFileData(file, {
+    availableFiles: [file],
+  });
+
+  assert.equal(result.status, 'ready');
+  if (result.status !== 'ready') {
+    assert.fail('Expected MJCF import result to be ready');
+  }
+  assert.equal(result.robotData.inspectionContext?.sourceFormat, 'mjcf');
+  assert.equal(result.robotData.inspectionContext?.mjcf?.siteCount, 1);
+  assert.equal(result.robotData.inspectionContext?.mjcf?.tendonCount, 1);
+  assert.equal(result.robotData.inspectionContext?.mjcf?.tendonActuatorCount, 1);
+});
+
 test('resolveRobotFileData still flags missing MJCF assets in auto mode once related assets are present', () => {
   const file: RobotFile = {
     name: 'robots/demo/paddle.xml',

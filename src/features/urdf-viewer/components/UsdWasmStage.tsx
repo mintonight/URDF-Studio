@@ -11,16 +11,21 @@ import {
 } from 'react';
 import * as THREE from 'three';
 import { getCollisionGeometryEntries } from '@/core/robot';
+import { VIEWER_CORNER_OVERLAY_CLASS_NAME } from '@/shared/components/3d';
 import { setRegressionProjectedInteractionTargetsProvider } from '@/shared/debug/regressionBridge';
 import { normalizeLoadingProgress } from '@/shared/components/3d/loadingHudState';
 import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
-import type { RobotFile, UrdfLink } from '@/types';
+import type { RobotFile, UrdfJoint, UrdfLink } from '@/types';
 import { disposeObject3D } from '@/shared/utils/three/dispose';
 import { failFastInDev, scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
 import {
   UsdCollisionTransformControls,
   type UsdCollisionTransformTarget,
 } from './UsdCollisionTransformControls';
+import {
+  UsdOriginTransformControls,
+  type UsdOriginTransformTarget,
+} from './UsdOriginTransformControls';
 import { ViewerLoadingHud } from './ViewerLoadingHud';
 import { LinkAxesController } from '../runtime/viewer/link-axes.js';
 import { LinkDynamicsController } from '../runtime/viewer/link-dynamics.js';
@@ -58,6 +63,10 @@ import { resolveUsdSceneRobotResolution } from '../utils/usdSceneRobotResolution
 import { resolveUsdRuntimeLinkPathForMesh } from '../utils/usdRuntimeMeshMapping';
 import { createUsdViewerRuntimeRobot } from '../utils/usdViewerRuntimeRobot';
 import {
+  buildUsdOriginPreviewLinkWorldOverrides,
+  resolveUsdOriginTransformTarget,
+} from '../utils/usdOriginTransform';
+import {
   buildUsdLinkDynamicsRecordMap,
   composeUsdMeshOverrideWorldMatrixFromBaseLocal,
   deriveUsdMeshBaseLocalMatrix,
@@ -80,7 +89,10 @@ import {
 } from '../utils/pickFilter';
 import { collectGizmoRaycastTargets, isGizmoObject } from '../utils/raycast';
 import { collectSelectableHelperTargets } from '../utils/pickTargets';
-import { collectRegressionProjectedInteractionTargets } from '../utils/regressionProjectionTargets';
+import {
+  collectProjectedInteractionCandidateMatches,
+  collectRegressionProjectedInteractionTargets,
+} from '../utils/regressionProjectionTargets';
 import { resolveUsdMeasureTargetFromSelection } from '../utils/measureTargetResolvers';
 import { reconcileUsdCollisionMeshAssignments } from '../utils/usdCollisionMeshAssignments';
 import {
@@ -91,6 +103,7 @@ import { prepareUsdVisualMesh } from '../utils/usdVisualRendering';
 import {
   createEmbeddedUsdViewerLoadParams,
   resolveEmbeddedUsdViewerLoadProfile,
+  shouldPreferSlicedEmbeddedUsdLoad,
   type EmbeddedUsdViewerLoadProfile,
 } from '../utils/usdViewerRenderParams';
 import {
@@ -105,7 +118,7 @@ import {
   buildPreparedUsdStageOpenCacheKey,
   loadPreparedUsdStageOpenDataFromWorker,
 } from '../utils/preparedUsdStageOpenCache';
-import { preloadUsdStageEntries } from '../utils/usdStagePreloadExecution';
+import { preloadUsdStageEntries, runWithConcurrency } from '../utils/usdStagePreloadExecution';
 import {
   armSelectionMissGuard,
   disarmSelectionMissGuard,
@@ -131,6 +144,7 @@ import {
   type ResolvedUsdHelperHit,
 } from '../utils/usdInteractionPicking';
 import { resolveScreenSpaceUsdHelperHit } from '../utils/usdScreenSpaceHelperInteraction';
+import { resolveScreenSpaceUsdGeometryHit } from '../utils/usdScreenSpaceGeometryInteraction';
 import { resolveUsdVisualMeshObjectOrder } from '../utils/usdRuntimeMeshObjectOrder';
 
 interface UsdWasmStageProps {
@@ -146,6 +160,7 @@ interface UsdWasmStageProps {
   hoverSelectionEnabled?: boolean;
   onHover?: ViewerProps['onHover'];
   onMeshSelect?: ViewerProps['onMeshSelect'];
+  onUpdate?: ViewerProps['onUpdate'];
   showOrigins: boolean;
   showOriginsOverlay: boolean;
   originSize: number;
@@ -264,6 +279,8 @@ type RuntimePreviewCollisionTransform = {
   rotation: { r: number; p: number; y: number };
 };
 
+type RuntimePreviewOriginTransform = Map<string, THREE.Matrix4>;
+
 type HighlightedMaterialState = {
   depthTest: boolean;
   depthWrite: boolean;
@@ -381,21 +398,6 @@ function getRuntimeWarmupDebugDetail(
     snapshotTextureFailureCount: textureFailureCount,
     runtimeWarmupHasWarnings: driverStageResolveStatus === 'rejected' || materialFailureCount > 0,
   };
-}
-
-function shouldPreferSlicedMainThreadLoadForLargePureUsd(
-  sourceFileName: string,
-  preparedStageOpenData: PreparedUsdStageOpenData,
-): boolean {
-  const normalizedSourceFileName = String(sourceFileName || '')
-    .trim()
-    .toLowerCase();
-
-  return (
-    normalizedSourceFileName.endsWith('.usd') &&
-    preparedStageOpenData.preloadFiles.length > 1 &&
-    preparedStageOpenData.criticalDependencyPaths.length > 0
-  );
 }
 
 function getPathBasename(path: string | null | undefined): string {
@@ -792,59 +794,64 @@ async function ensureCriticalUsdDependenciesLoaded(
   if (requiredPaths.length === 0) return;
 
   const missingPaths: string[] = [];
-  for (const requiredPath of requiredPaths) {
-    if (!isActive()) return;
+  const pathsToLoad = requiredPaths.filter(
+    (p) => !runtime.usdFsHelper.hasVirtualFilePath(p),
+  );
 
-    if (runtime.usdFsHelper.hasVirtualFilePath(requiredPath)) continue;
+  await runWithConcurrency(
+    pathsToLoad,
+    Math.min(4, pathsToLoad.length),
+    isActive,
+    async (requiredPath) => {
+      const exactEntry = entryByPath.get(requiredPath);
 
-    const exactEntry = entryByPath.get(requiredPath);
+      let loaded = false;
 
-    let loaded = false;
+      if (exactEntry) {
+        loaded = await preloadUsdEntry(runtime, exactEntry, isActive);
+      }
 
-    if (exactEntry) {
-      loaded = await preloadUsdEntry(runtime, exactEntry, isActive);
-    }
+      if (!loaded) {
+        const fileName = requiredPath.split('/').pop();
+        const sharedConfigurationPath = fileName ? `/configuration/${fileName}` : null;
 
-    if (!loaded) {
-      const fileName = requiredPath.split('/').pop();
-      const sharedConfigurationPath = fileName ? `/configuration/${fileName}` : null;
-
-      if (sharedConfigurationPath) {
-        try {
-          const response = await fetch(sharedConfigurationPath);
-          if (response.ok) {
-            const sharedConfigurationBlob = await response.blob();
-            const sharedConfigurationBytes = await readUsdBlobBytes(
-              sharedConfigurationBlob,
-              isActive,
-            );
-            if (sharedConfigurationBytes) {
-              loaded = await writeUsdBytesToVirtualPath(
-                runtime,
-                sharedConfigurationPath,
-                sharedConfigurationBytes,
+        if (sharedConfigurationPath) {
+          try {
+            const response = await fetch(sharedConfigurationPath);
+            if (response.ok) {
+              const sharedConfigurationBlob = await response.blob();
+              const sharedConfigurationBytes = await readUsdBlobBytes(
+                sharedConfigurationBlob,
                 isActive,
               );
+              if (sharedConfigurationBytes) {
+                loaded = await writeUsdBytesToVirtualPath(
+                  runtime,
+                  sharedConfigurationPath,
+                  sharedConfigurationBytes,
+                  isActive,
+                );
+              }
+              if (loaded) {
+                loaded = await writeUsdBytesToVirtualPath(
+                  runtime,
+                  requiredPath,
+                  sharedConfigurationBytes!,
+                  isActive,
+                );
+              }
             }
-            if (loaded) {
-              loaded = await writeUsdBytesToVirtualPath(
-                runtime,
-                requiredPath,
-                sharedConfigurationBytes!,
-                isActive,
-              );
-            }
+          } catch (error) {
+            console.error(`Skipping shared USD configuration preload for ${requiredPath}`, error);
           }
-        } catch (error) {
-          console.error(`Skipping shared USD configuration preload for ${requiredPath}`, error);
         }
       }
-    }
 
-    if (!loaded) {
-      missingPaths.push(requiredPath);
-    }
-  }
+      if (!loaded) {
+        missingPaths.push(requiredPath);
+      }
+    },
+  );
 
   if (missingPaths.length > 0) {
     throw failFastInDev(
@@ -869,6 +876,7 @@ export function UsdWasmStage({
   hoverSelectionEnabled = true,
   onHover,
   onMeshSelect,
+  onUpdate,
   showOrigins,
   showOriginsOverlay,
   originSize,
@@ -975,6 +983,8 @@ export function UsdWasmStage({
   const [visibleStagePath, setVisibleStagePath] = useState<string | null>(null);
   const [previewCollisionTransform, setPreviewCollisionTransform] =
     useState<RuntimePreviewCollisionTransform | null>(null);
+  const [previewOriginTransform, setPreviewOriginTransform] =
+    useState<RuntimePreviewOriginTransform | null>(null);
   const runtimeDecorationRefreshTimerRef = useRef<number | null>(null);
   const pendingCameraFrameRef = useRef<CameraFrameResult | null>(null);
   const cameraFrameFocusTargetRef = useRef<THREE.Vector3 | null>(null);
@@ -1357,10 +1367,84 @@ export function UsdWasmStage({
     (pending: boolean) => {
       if (!pending) {
         setPreviewCollisionTransform(null);
+        setPreviewOriginTransform(null);
       }
       onTransformPending?.(pending);
     },
     [onTransformPending],
+  );
+
+  const resolveUsdOriginTransformControlTarget = useCallback(
+    (currentSelection: NonNullable<ViewerProps['selection']>): UsdOriginTransformTarget | null => {
+      const resolvedRobotData = resolvedRobotDataRef.current;
+      const renderInterface = renderInterfaceRef.current;
+      const resolvedTarget = resolveUsdOriginTransformTarget(currentSelection, resolvedRobotData);
+      if (!resolvedRobotData || !renderInterface || !resolvedTarget) {
+        return null;
+      }
+
+      return {
+        jointId: resolvedTarget.jointId,
+        getOrigin: () => resolvedRobotDataRef.current?.robotData.joints[resolvedTarget.jointId]?.origin,
+        getParentLinkWorldMatrix: () => {
+          if (!resolvedTarget.parentLinkPath) {
+            return new THREE.Matrix4().identity();
+          }
+
+          return (
+            linkRotationControllerRef.current.getCurrentLinkFrameMatrix(resolvedTarget.parentLinkPath) ??
+            renderInterfaceRef.current?.getPreferredLinkWorldTransform?.(resolvedTarget.parentLinkPath) ??
+            renderInterfaceRef.current?.getWorldTransformForPrimPath?.(resolvedTarget.parentLinkPath) ??
+            null
+          );
+        },
+      };
+    },
+    [],
+  );
+
+  const handleUsdOriginTransformPreview = useCallback(
+    (jointId: string, origin: UrdfJoint['origin']) => {
+      const resolvedRobotData = resolvedRobotDataRef.current;
+      if (!resolvedRobotData || !origin) {
+        setPreviewOriginTransform(null);
+        return;
+      }
+
+      const linkWorldMatrices = buildUsdOriginPreviewLinkWorldOverrides({
+        resolution: resolvedRobotData,
+        jointId,
+        nextOrigin: origin,
+        linkWorldMatrixResolver: (linkPath) =>
+          linkRotationControllerRef.current.getCurrentLinkFrameMatrix(linkPath) ??
+          renderInterfaceRef.current?.getPreferredLinkWorldTransform?.(linkPath) ??
+          renderInterfaceRef.current?.getWorldTransformForPrimPath?.(linkPath) ??
+          null,
+      });
+
+      if (!linkWorldMatrices) {
+        setPreviewOriginTransform(null);
+        return;
+      }
+
+      setPreviewOriginTransform(linkWorldMatrices);
+    },
+    [],
+  );
+
+  const handleUsdOriginTransformEnd = useCallback(
+    (jointId: string, origin: UrdfJoint['origin']) => {
+      const currentJoint = resolvedRobotDataRef.current?.robotData.joints[jointId];
+      if (!currentJoint || !origin) {
+        return;
+      }
+
+      onUpdate?.('joint', jointId, {
+        ...currentJoint,
+        origin,
+      });
+    },
+    [onUpdate],
   );
 
   const rebuildRuntimeMeshIndex = useCallback((): RuntimeMeshIndex => {
@@ -1780,6 +1864,20 @@ export function UsdWasmStage({
     [camera, controls, rootGroup, sourceFile.name, startUsdCameraFrameTransition],
   );
 
+  const getEffectiveLinkWorldMatrix = useCallback((linkPath: string): THREE.Matrix4 | null => {
+    const previewWorldMatrix = previewOriginTransform?.get(linkPath);
+    if (previewWorldMatrix) {
+      return previewWorldMatrix.clone();
+    }
+
+    return (
+      linkRotationControllerRef.current.getCurrentLinkFrameMatrix(linkPath) ??
+      renderInterfaceRef.current?.getPreferredLinkWorldTransform?.(linkPath) ??
+      renderInterfaceRef.current?.getWorldTransformForPrimPath?.(linkPath) ??
+      null
+    );
+  }, [previewOriginTransform]);
+
   const applyUsdRuntimeLinkOverrides = useCallback(() => {
     const resolvedRobotData = resolvedRobotDataRef.current;
     const renderInterface = renderInterfaceRef.current;
@@ -1849,11 +1947,7 @@ export function UsdWasmStage({
         return;
       }
 
-      const linkWorldMatrix =
-        linkRotationControllerRef.current.getCurrentLinkFrameMatrix(meta.linkPath) ??
-        renderInterface.getPreferredLinkWorldTransform?.(meta.linkPath) ??
-        renderInterface.getWorldTransformForPrimPath?.(meta.linkPath) ??
-        null;
+      const linkWorldMatrix = getEffectiveLinkWorldMatrix(meta.linkPath);
       if (!linkWorldMatrix) {
         return;
       }
@@ -1883,7 +1977,7 @@ export function UsdWasmStage({
       resolution: resolvedRobotData,
       robotLinks: currentRobotLinks,
     });
-  }, [previewCollisionTransform, robotLinks, showCollision, showVisual]);
+  }, [getEffectiveLinkWorldMatrix, previewCollisionTransform, robotLinks, showCollision, showVisual]);
 
   const refreshRuntimeDecorations = useCallback(() => {
     const runtime = runtimeRef.current;
@@ -1905,13 +1999,13 @@ export function UsdWasmStage({
     linkAxesControllerRef.current.rebuild(rootGroup, renderInterface, {
       showLinkAxes: effectiveShowOrigins,
       axisSize: originSize,
-      linkFrameResolver: (linkPath) => linkRotationController.getCurrentLinkFrameMatrix(linkPath),
+      linkFrameResolver: getEffectiveLinkWorldMatrix,
       overlay: effectiveShowOrigins && showOriginsOverlay,
     });
 
     jointAxesControllerRef.current.rebuild({
       jointAxisSize,
-      linkFrameResolver: (linkPath) => linkRotationController.getCurrentLinkFrameMatrix(linkPath),
+      linkFrameResolver: getEffectiveLinkWorldMatrix,
       overlay: effectiveShowJointAxes && showJointAxesOverlay,
       renderInterface,
       resolution: jointAxesResolutionRef.current ?? resolvedRobotDataRef.current,
@@ -1920,9 +2014,7 @@ export function UsdWasmStage({
     });
 
     const linkDynamicsController = linkDynamicsControllerRef.current;
-    linkDynamicsController.setCurrentLinkFrameResolver((linkPath) =>
-      linkRotationController.getCurrentLinkFrameMatrix(linkPath),
-    );
+    linkDynamicsController.setCurrentLinkFrameResolver(getEffectiveLinkWorldMatrix);
     linkDynamicsController.clear(rootGroup, { invalidateRequestId: false });
     const linkDynamicsRebuild = linkDynamicsController.rebuild(rootGroup, renderInterface, {
       showCenterOfMass: effectiveShowCenterOfMass,
@@ -1959,6 +2051,7 @@ export function UsdWasmStage({
     effectiveShowInertia,
     effectiveShowJointAxes,
     effectiveShowOrigins,
+    getEffectiveLinkWorldMatrix,
     showInertiaOverlay,
     showJointAxesOverlay,
     showOriginsOverlay,
@@ -2057,6 +2150,16 @@ export function UsdWasmStage({
         pickedMeshMeta?.role === 'collision' && !Number.isInteger(pickedMeshMeta.objectIndex)
           ? null
           : pickedMeshMeta;
+      const previousSelection = lastRuntimeSelectionRef.current;
+      if (
+        !effectivePickedMeshMeta &&
+        previousSelection?.type === 'link' &&
+        previousSelection.id === linkId &&
+        previousSelection.subType
+      ) {
+        return;
+      }
+
       const nextSelection: ViewerProps['selection'] = {
         type: 'link',
         id: linkId,
@@ -2303,9 +2406,89 @@ export function UsdWasmStage({
         };
       }
 
+      const projectedGeometry = collectProjectedInteractionCandidateMatches({
+        camera,
+        canvasRect: {
+          x: 0,
+          y: 0,
+          width,
+          height,
+        },
+        candidates: pickMeshes.flatMap((object) => {
+          if (
+            object.visible === false ||
+            isGizmoObject(object) ||
+            isInternalHelperObject(object) ||
+            !isVisibleInHierarchy(object) ||
+            !hasPickableMaterial(object.material)
+          ) {
+            return [];
+          }
+
+          const meta = meshMetaByObject.get(object);
+          if (!meta) {
+            return [];
+          }
+          if (meta.role === 'visual' && !showVisual) {
+            return [];
+          }
+          if (meta.role === 'collision' && !showCollision) {
+            return [];
+          }
+          if (meta.role === 'collision' && !Number.isInteger(meta.objectIndex)) {
+            return [];
+          }
+
+          return [
+            {
+              object,
+              selection: {
+                type: 'link' as const,
+                id: meta.meshId,
+                subType: meta.role,
+                objectIndex: meta.objectIndex,
+                meta,
+                layer: meta.role,
+              },
+            },
+          ];
+        }),
+      }).map((candidate) => ({
+        meta: candidate.selection.meta,
+        layer: candidate.selection.layer,
+        clientX: candidate.clientX,
+        clientY: candidate.clientY,
+        projectedWidth: candidate.projectedWidth,
+        projectedHeight: candidate.projectedHeight,
+        projectedArea: candidate.projectedArea,
+        averageDepth: candidate.averageDepth,
+      }));
+
+      const screenSpaceGeometryHit = resolveScreenSpaceUsdGeometryHit({
+        pointerClientX: localX,
+        pointerClientY: localY,
+        projectedGeometry,
+        interactionLayerPriority,
+      });
+
+      if (screenSpaceGeometryHit) {
+        return {
+          kind: 'geometry',
+          meta: screenSpaceGeometryHit.meta,
+        };
+      }
+
       return null;
     },
-    [camera, getGizmoTargets, getRuntimeMeshIndex, gl.domElement, interactionLayerPriority],
+    [
+      camera,
+      getGizmoTargets,
+      getRuntimeMeshIndex,
+      gl.domElement,
+      interactionLayerPriority,
+      showCollision,
+      showVisual,
+    ],
   );
 
   const pickRuntimeInteractionTargetAtPointer = useCallback(
@@ -3046,8 +3229,11 @@ export function UsdWasmStage({
           totalCount: null,
         });
 
-        const preferSlicedMainThreadLoadForLargePureUsd =
-          shouldPreferSlicedMainThreadLoadForLargePureUsd(sourceFile.name, preparedStageOpenData);
+        const preferSlicedMainThreadLoadForLargePureUsd = shouldPreferSlicedEmbeddedUsdLoad({
+          sourceFileName: sourceFile.name,
+          preloadFileCount: preparedStageOpenData.preloadFiles.length,
+          criticalDependencyCount: preparedStageOpenData.criticalDependencyPaths.length,
+        });
         const params = createEmbeddedUsdViewerLoadParams(runtime.threadCount, {
           dependenciesPreloadedToVirtualFs: true,
           preferSlicedMainThreadLoadForLargePureUsd,
@@ -3532,19 +3718,30 @@ export function UsdWasmStage({
     <>
       {visibleStagePath === sourceFile.name ? <primitive object={rootGroup} /> : null}
       {!snapshotRenderActive && (
-        <UsdCollisionTransformControls
-          selection={selection}
-          transformMode={transformMode}
-          resolveTarget={resolveUsdCollisionTransformTarget}
-          onTransformChange={handleUsdCollisionTransformPreview}
-          onTransformEnd={handleUsdCollisionTransformEnd}
-          onTransformPending={handleUsdCollisionTransformPending}
-          setIsDragging={setIsDragging ?? (() => {})}
-        />
+        <>
+          <UsdOriginTransformControls
+            selection={selection}
+            transformMode={transformMode}
+            resolveTarget={resolveUsdOriginTransformControlTarget}
+            onTransformChange={handleUsdOriginTransformPreview}
+            onTransformEnd={handleUsdOriginTransformEnd}
+            onTransformPending={handleUsdCollisionTransformPending}
+            setIsDragging={setIsDragging ?? (() => {})}
+          />
+          <UsdCollisionTransformControls
+            selection={selection}
+            transformMode={transformMode}
+            resolveTarget={resolveUsdCollisionTransformTarget}
+            onTransformChange={handleUsdCollisionTransformPreview}
+            onTransformEnd={handleUsdCollisionTransformEnd}
+            onTransformPending={handleUsdCollisionTransformPending}
+            setIsDragging={setIsDragging ?? (() => {})}
+          />
+        </>
       )}
       {isLoading && !onDocumentLoadEvent && (
         <Html fullscreen>
-          <div className="pointer-events-none absolute inset-0 flex items-end justify-end p-4">
+          <div className={VIEWER_CORNER_OVERLAY_CLASS_NAME}>
             <ViewerLoadingHud
               title={loadingLabel}
               detail={loadingDetail}

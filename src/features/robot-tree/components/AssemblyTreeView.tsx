@@ -10,6 +10,7 @@ import {
   EyeOff,
   Folder,
   Link2,
+  LockKeyhole,
   Plus,
   Trash2,
 } from 'lucide-react';
@@ -522,10 +523,15 @@ export const AssemblyTreeView = memo(
                           </span>
                           {!isComponentTransformable && (
                             <span
-                              className="shrink-0 rounded border border-amber-400/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold tracking-[0.08em] text-amber-600 dark:text-amber-300"
+                              className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
                               title={t.bridgedComponentLockedHint}
+                              role="img"
+                              aria-label={t.bridgedComponentLockedHint}
                             >
-                              {t.bridgedComponent}
+                              <Link2 size={10} strokeWidth={2.5} aria-hidden="true" />
+                              <span className="absolute -right-0.5 -bottom-0.5 flex h-2 w-2 items-center justify-center rounded-full border border-background-primary bg-background-primary text-amber-600 dark:text-amber-300">
+                                <LockKeyhole size={5.5} strokeWidth={3} aria-hidden="true" />
+                              </span>
                             </span>
                           )}
                         </div>

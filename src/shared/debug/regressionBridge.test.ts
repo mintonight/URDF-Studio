@@ -7,6 +7,7 @@ import {
   setRegressionAppHandlers,
   setRegressionRuntimeRobot,
 } from './regressionBridge';
+import { DEFAULT_JOINT, DEFAULT_LINK, type RobotState } from '@/types';
 
 test('getRegressionSnapshot summarizes joint-only runtime proxies without requiring traverse()', () => {
   setRegressionRuntimeRobot({
@@ -262,4 +263,151 @@ test('regression debug API waits for final USD handoff runtime before resolving 
 
   setRegressionRuntimeRobot(null);
   setRegressionAppHandlers(null);
+});
+
+test('regression debug API keeps waiting for slow USD hydration beyond twenty seconds', async () => {
+  const fileName = 'robots/slow/slow.usda';
+  const targetWindow = {
+    __usdStageLoadDebugHistory: [],
+  } as unknown as Window & {
+    __usdStageLoadDebugHistory: Array<Record<string, unknown>>;
+  };
+  let logicalNow = 0;
+  let documentLoadState = {
+    status: 'idle',
+    fileName: null,
+    format: null,
+    error: null,
+  } as {
+    status: string;
+    fileName: string | null;
+    format: string | null;
+    error: string | null;
+  };
+  let robotState: RobotState = {
+    name: 'previous_robot',
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+      },
+    },
+    joints: {},
+    selection: { type: null, id: null },
+  };
+  const originalDateNow = Date.now;
+  const originalSetTimeout = globalThis.setTimeout;
+
+  Date.now = () => logicalNow;
+  globalThis.setTimeout = ((callback: TimerHandler, timeout?: number, ...args: unknown[]) => {
+    logicalNow += Number(timeout ?? 0);
+    return originalSetTimeout(callback, 0, ...args);
+  }) as typeof globalThis.setTimeout;
+
+  try {
+    setRegressionRuntimeRobot(null);
+    setRegressionAppHandlers({
+      getAvailableFiles: () => [
+        {
+          name: fileName,
+          format: 'usd',
+          content: '#usda 1.0',
+        },
+      ],
+      getSelectedFile: () => ({
+        name: fileName,
+        format: 'usd',
+        content: '#usda 1.0',
+      }),
+      getUsdSceneSnapshot: () => null,
+      getDocumentLoadState: () => documentLoadState,
+      getRobotState: () => robotState,
+      getAssetDebugState: () => ({
+        appAssetKeys: [fileName],
+        preparedUsdCacheKeysByFile: {},
+      }),
+      getInteractionState: () => ({
+        selection: { type: null, id: null },
+        hoveredSelection: { type: null, id: null },
+      }),
+      loadRobotByName: async (requestedFileName: string) => {
+        documentLoadState = {
+          status: 'hydrating',
+          fileName: requestedFileName,
+          format: 'usd',
+          error: null,
+        };
+        globalThis.setTimeout(() => {
+          robotState = {
+            name: 'slow_usd_robot',
+            rootLinkId: 'base',
+            links: {
+              base: {
+                ...DEFAULT_LINK,
+                id: 'base',
+                name: 'base',
+              },
+              thigh: {
+                ...DEFAULT_LINK,
+                id: 'thigh',
+                name: 'thigh',
+              },
+            },
+            joints: {
+              hip: {
+                ...DEFAULT_JOINT,
+                id: 'hip',
+                name: 'hip',
+                parentLinkId: 'base',
+                childLinkId: 'thigh',
+                origin: {
+                  xyz: { x: 0, y: 0, z: 0 },
+                  rpy: { r: 0, p: 0, y: 0 },
+                },
+                axis: { x: 0, y: 0, z: 1 },
+              },
+            },
+            selection: { type: null, id: null },
+          };
+          targetWindow.__usdStageLoadDebugHistory.push({
+            sourceFileName: requestedFileName,
+            step: 'commit-worker-robot-data',
+            status: 'resolved',
+            timestamp: Date.now(),
+            detail: {
+              linkCount: 2,
+              jointCount: 1,
+            },
+          });
+          documentLoadState = {
+            status: 'ready',
+            fileName: requestedFileName,
+            format: 'usd',
+            error: null,
+          };
+        }, 30_000);
+
+        return {
+          loaded: true,
+          selectedFile: requestedFileName,
+        };
+      },
+    });
+
+    installRegressionDebugApi(targetWindow);
+
+    const result = await targetWindow.__URDF_STUDIO_DEBUG__?.loadRobotByName(fileName);
+
+    assert.equal(result?.loaded, true);
+    assert.equal(result?.snapshot.store?.name, 'slow_usd_robot');
+    assert.equal(result?.snapshot.store?.linkCount, 2);
+    assert.equal(result?.snapshot.store?.jointCount, 1);
+  } finally {
+    Date.now = originalDateNow;
+    globalThis.setTimeout = originalSetTimeout;
+    setRegressionRuntimeRobot(null);
+    setRegressionAppHandlers(null);
+  }
 });

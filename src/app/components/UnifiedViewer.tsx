@@ -16,6 +16,7 @@ import {
   STUDIO_ENVIRONMENT_INTENSITY,
   WORKSPACE_CANVAS_BACKGROUND,
   type SnapshotCaptureAction,
+  type WorkspaceOverlayGizmoMargin,
 } from '@/shared/components/3d';
 import {
   useViewerController,
@@ -105,6 +106,7 @@ interface UnifiedViewerProps {
   onJointChange?: (jointName: string, angle: number) => void;
   syncJointChangesToApp?: boolean;
   selection?: InteractionSelection;
+  modelInteractionEnabled?: boolean;
   focusTarget?: string | null;
   isMeshPreview?: boolean;
   onTransformPendingChange?: (pending: boolean) => void;
@@ -151,6 +153,7 @@ interface UnifiedViewerProps {
   onConsumePendingViewerToolMode?: () => void;
   viewerReloadKey?: number;
   documentLoadState: DocumentLoadLifecycleState;
+  gizmoMargin?: WorkspaceOverlayGizmoMargin;
 }
 
 const INACTIVE_SCENE_UNMOUNT_DELAY_MS = 15_000;
@@ -191,6 +194,7 @@ export const UnifiedViewer = React.memo(
     onJointChange,
     syncJointChangesToApp = false,
     selection,
+    modelInteractionEnabled = true,
     focusTarget,
     isMeshPreview = false,
     onTransformPendingChange,
@@ -210,6 +214,7 @@ export const UnifiedViewer = React.memo(
     onConsumePendingViewerToolMode,
     viewerReloadKey = 0,
     documentLoadState,
+    gizmoMargin,
   }: UnifiedViewerProps) => {
     const t = translations[lang];
     const clearHover = useSelectionStore((state) => state.clearHover);
@@ -336,7 +341,10 @@ export const UnifiedViewer = React.memo(
       },
       [clearRetainedViewerRobot],
     );
-    const viewerDefaultToolMode = resolveDefaultViewerToolMode(effectiveSourceFile?.format);
+    const viewerReadOnlyInteraction = isPreviewing || !modelInteractionEnabled;
+    const viewerDefaultToolMode = viewerReadOnlyInteraction
+      ? 'view'
+      : resolveDefaultViewerToolMode(effectiveSourceFile?.format);
     const viewerToolModeScopeKey = effectiveSourceFile
       ? `${effectiveSourceFile.format}:${effectiveSourceFile.name}`
       : effectiveSourceFilePath
@@ -449,13 +457,20 @@ export const UnifiedViewer = React.memo(
     );
 
     const handleViewerPointerMissed = React.useCallback(() => {
-      viewerController.handlePointerMissed();
+      if (!viewerReadOnlyInteraction) {
+        viewerController.handlePointerMissed();
+      }
       restoreOptionsPanelIfNeeded(
         optionsVisibleAtPointerDownRef.current.viewer,
         viewerOptionsVisibleRef,
         setShowOptionsPanel,
       );
-    }, [restoreOptionsPanelIfNeeded, setShowOptionsPanel, viewerController]);
+    }, [
+      restoreOptionsPanelIfNeeded,
+      setShowOptionsPanel,
+      viewerController,
+      viewerReadOnlyInteraction,
+    ]);
 
     useEffect(() => {
       const root = viewerGroupRef.current;
@@ -562,6 +577,7 @@ export const UnifiedViewer = React.memo(
         environmentIntensity={workspaceEnvironmentIntensity}
         cameraFollowPrimary={useViewerCanvasPresentation}
         controlLayerKey={controlLayerKey}
+        gizmoMargin={gizmoMargin}
         showWorldOriginAxes={showWorldOriginAxes}
         orbitControlsProps={{
           minDistance: 0.05,
@@ -596,6 +612,7 @@ export const UnifiedViewer = React.memo(
           viewerVisible={viewerVisible}
           viewerController={viewerController}
           activePreview={activePreview}
+          modelInteractionEnabled={modelInteractionEnabled}
           viewerResourceScope={viewerResourceScope}
           retainedRobot={retainedViewerRobot}
           effectiveSourceFile={effectiveSourceFile}

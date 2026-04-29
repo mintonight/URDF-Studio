@@ -102,6 +102,37 @@ function getPathParent(path: string | null | undefined): string {
   return `/${segments.slice(0, -1).join('/')}`;
 }
 
+function isUsdInternalMeshLibraryPath(path: string | null | undefined): boolean {
+  const segments = normalizeUsdPath(path).split('/').filter(Boolean);
+  return segments.some((segment) => segment.toLowerCase() === '__meshlibrary');
+}
+
+function shouldOmitUsdInternalMeshLibraryPaths(
+  paths: Iterable<string | null | undefined>,
+): boolean {
+  let hasInternalMeshLibraryPath = false;
+  let hasRobotLinkPath = false;
+
+  for (const path of paths) {
+    const normalized = normalizeUsdPath(path);
+    if (!normalized) {
+      continue;
+    }
+
+    if (isUsdInternalMeshLibraryPath(normalized)) {
+      hasInternalMeshLibraryPath = true;
+    } else {
+      hasRobotLinkPath = true;
+    }
+
+    if (hasInternalMeshLibraryPath && hasRobotLinkPath) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function buildMeshOnlyHierarchyFallback({
   defaultPrimPath,
   linkPaths,
@@ -1281,14 +1312,44 @@ export function adaptUsdViewerSnapshotToRobotData(
   rootLinkPaths.forEach((entry) => addLinkPath(entry));
   Object.keys(metadata.meshCountsByLinkPath || {}).forEach((path) => addLinkPath(path));
 
-  const meshCountsByLinkPath = deriveMeshCountsByLinkPath(snapshot, linkPaths);
+  let meshCountsByLinkPath = deriveMeshCountsByLinkPath(snapshot, linkPaths);
   Object.keys(meshCountsByLinkPath).forEach((path) => addLinkPath(path));
+  const shouldOmitInternalMeshLibraryPaths = shouldOmitUsdInternalMeshLibraryPaths(linkPaths);
+  const effectiveSourceLinkPaths = shouldOmitInternalMeshLibraryPaths
+    ? new Set(Array.from(linkPaths).filter((path) => !isUsdInternalMeshLibraryPath(path)))
+    : linkPaths;
+  const effectiveSourceLinkParentPairs = shouldOmitInternalMeshLibraryPaths
+    ? linkParentPairs.filter(
+        ([childPath, parentPath]) =>
+          !isUsdInternalMeshLibraryPath(childPath) && !isUsdInternalMeshLibraryPath(parentPath),
+      )
+    : linkParentPairs;
+  const effectiveJointCatalogEntries = shouldOmitInternalMeshLibraryPaths
+    ? jointCatalogEntries.filter(
+        (entry) =>
+          !isUsdInternalMeshLibraryPath(entry.linkPath) &&
+          !isUsdInternalMeshLibraryPath(entry.childLinkPath) &&
+          !isUsdInternalMeshLibraryPath(entry.parentLinkPath),
+      )
+    : jointCatalogEntries;
+  const effectiveSourceRootLinkPaths = shouldOmitInternalMeshLibraryPaths
+    ? rootLinkPaths.filter((path) => !isUsdInternalMeshLibraryPath(path))
+    : rootLinkPaths;
+
+  if (shouldOmitInternalMeshLibraryPaths) {
+    meshCountsByLinkPath = Object.fromEntries(
+      Object.entries(meshCountsByLinkPath).filter(
+        ([linkPath]) => !isUsdInternalMeshLibraryPath(linkPath),
+      ),
+    );
+  }
+
   const hierarchyFallback = buildMeshOnlyHierarchyFallback({
     defaultPrimPath: snapshot.stage?.defaultPrimPath,
-    linkPaths,
-    linkParentPairs,
-    jointCatalogEntries,
-    rootLinkPaths,
+    linkPaths: effectiveSourceLinkPaths,
+    linkParentPairs: effectiveSourceLinkParentPairs,
+    jointCatalogEntries: effectiveJointCatalogEntries,
+    rootLinkPaths: effectiveSourceRootLinkPaths,
   });
   const effectiveLinkPaths = hierarchyFallback.linkPaths;
   const effectiveLinkParentPairs = hierarchyFallback.linkParentPairs;
@@ -1340,7 +1401,7 @@ export function adaptUsdViewerSnapshotToRobotData(
   const childLinkPathByJointId = new Map<string, string>();
   const parentLinkPathByJointId = new Map<string, string>();
 
-  for (const entry of jointCatalogEntries) {
+  for (const entry of effectiveJointCatalogEntries) {
     const joint = createJointFromViewerEntry(entry, linkIdByPath, usedJointIds);
     if (!joint) continue;
     joints[joint.id] = joint;

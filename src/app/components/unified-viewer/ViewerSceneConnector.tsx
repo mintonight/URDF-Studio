@@ -26,6 +26,7 @@ interface ViewerSceneConnectorProps {
   controller: ViewerController;
   active: boolean;
   activePreview?: FilePreviewState;
+  modelInteractionEnabled?: boolean;
   viewerResourceScope: ViewerResourceScope;
   retainedRobot?: import('three').Object3D | null;
   effectiveSourceFile: RobotFile | null | undefined;
@@ -112,6 +113,7 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
   controller,
   active,
   activePreview,
+  modelInteractionEnabled = true,
   viewerResourceScope,
   retainedRobot,
   effectiveSourceFile,
@@ -156,6 +158,7 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
     controller,
     active,
     hasActivePreview: Boolean(activePreview),
+    modelInteractionEnabled,
     hoveredSelection,
     viewerResourceScope,
     retainedRobot,

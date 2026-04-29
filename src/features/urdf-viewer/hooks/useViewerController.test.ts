@@ -710,7 +710,7 @@ test('empty jointMotionState does not clear the runtime baseline used by IK prev
   }
 });
 
-test('setIsDragging freezes hover state immediately for active viewers', async () => {
+test('setIsDragging freezes hover updates without clearing the visible hover for active viewers', async () => {
   resetSelectionStore();
   const { root, getHook } = await mountControllerWithProps({
     active: true,
@@ -730,7 +730,18 @@ test('setIsDragging freezes hover state immediately for active viewers', async (
 
     let selectionState = useSelectionStore.getState();
     assert.equal(selectionState.hoverFrozen, true);
-    assert.deepEqual(selectionState.hoveredSelection, { type: null, id: null });
+    assert.deepEqual(selectionState.hoveredSelection, {
+      type: 'link',
+      id: 'base_link',
+      subType: 'visual',
+      objectIndex: 0,
+    });
+    assert.deepEqual(selectionState.deferredHoveredSelection, {
+      type: 'link',
+      id: 'base_link',
+      subType: 'visual',
+      objectIndex: 0,
+    });
 
     await act(async () => {
       getHook().setIsDragging(false);

@@ -39,6 +39,23 @@ export function resolveEmbeddedUsdViewerLoadProfile(
   return 'default-embedded';
 }
 
+export function shouldPreferSlicedEmbeddedUsdLoad({
+  sourceFileName,
+  preloadFileCount,
+  criticalDependencyCount,
+}: {
+  sourceFileName: string;
+  preloadFileCount: number;
+  criticalDependencyCount: number;
+}): boolean {
+  const normalizedSourceFileName = String(sourceFileName || '')
+    .trim()
+    .toLowerCase();
+  const isUsdLayerRoot = /\.usda?$/i.test(normalizedSourceFileName);
+
+  return isUsdLayerRoot && preloadFileCount > 1 && criticalDependencyCount > 0;
+}
+
 export function createEmbeddedUsdViewerLoadParams(
   threadCount: number,
   options: CreateEmbeddedUsdViewerLoadParamsOptions = {},
@@ -61,6 +78,9 @@ export function createEmbeddedUsdViewerLoadParams(
     safeLoadFlags.yieldDuringLoad = '1';
     safeLoadFlags.resolveRobotMetadataBeforeReady = '0';
     safeLoadFlags.requireCompleteRobotMetadata = '0';
+    // The offscreen worker has no UI responsiveness requirement; draw in larger
+    // bursts to reach mesh readiness faster without starving the compositor.
+    safeLoadFlags.initialDrawBurst = '4';
   }
 
   if (loadProfile === 'large-pure-usd-sliced') {

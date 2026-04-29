@@ -849,6 +849,9 @@ interface OptionsPanelProps {
   panelClassName?: string;
   onMouseEnter?: React.MouseEventHandler<HTMLDivElement>;
   onMouseLeave?: React.MouseEventHandler<HTMLDivElement>;
+  expandText?: string;
+  collapseText?: string;
+  closeText?: string;
 }
 
 export const OptionsPanel: React.FC<OptionsPanelProps> = ({
@@ -873,6 +876,9 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
   panelClassName = '',
   onMouseEnter,
   onMouseLeave,
+  expandText,
+  collapseText,
+  closeText,
 }) => {
   const { activateHoverBlock, deactivateHoverBlock } = useOverlayHoverBlock();
   if (!show) return null;
@@ -926,6 +932,9 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
           showDragGrip={showDragGrip}
           onMouseDown={onMouseDown}
           additionalControls={additionalControls}
+          expandText={expandText}
+          collapseText={collapseText}
+          closeText={closeText}
         />
         <OptionsPanelContent isCollapsed={isCollapsed}>{children}</OptionsPanelContent>
       </OptionsPanelContainer>

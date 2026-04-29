@@ -49,6 +49,12 @@ export interface UsdPackageLayoutOptions {
   fileFormat?: UsdLayerFileFormat;
 }
 
+type OmittedIsaacRootAnchor = {
+  articulationRootLinkId: string;
+  omittedJointIds: Set<string>;
+  omittedLinkIds: Set<string>;
+};
+
 export const resolveUsdPackageLayoutProfile = (
   layoutProfile?: UsdPackageLayoutProfile,
 ): ResolvedUsdPackageLayoutProfile => {
@@ -80,6 +86,83 @@ const resolveUsdConfigStem = (
 
 const rpyToQuaternion = (r: number, p: number, y: number): THREE.Quaternion => {
   return new THREE.Quaternion().setFromEuler(new THREE.Euler(r, p, y, 'ZYX'));
+};
+
+const ZERO_EPSILON = 1e-9;
+
+const hasExportableGeometry = (geometry: UrdfLink['visual'] | UrdfLink['collision'] | undefined): boolean => {
+  return Boolean(geometry) && getGeometryType(geometry.type) !== GEOMETRY_TYPES.NONE;
+};
+
+const linkHasExportablePayload = (link: UrdfLink | undefined): boolean => {
+  if (!link) {
+    return false;
+  }
+
+  return (
+    hasExportableGeometry(link.visual) ||
+    hasExportableGeometry(link.collision) ||
+    (link.visualBodies || []).some((body) => getGeometryType(body.type) !== GEOMETRY_TYPES.NONE) ||
+    (link.collisionBodies || []).some((body) => getGeometryType(body.type) !== GEOMETRY_TYPES.NONE) ||
+    (link.mjcfSites?.length ?? 0) > 0
+  );
+};
+
+const isNearZero = (value: number | null | undefined): boolean => {
+  return Math.abs(Number(value || 0)) <= ZERO_EPSILON;
+};
+
+const isMasslessLink = (link: UrdfLink | undefined): boolean => {
+  if (!link?.inertial) {
+    return true;
+  }
+
+  return (
+    isNearZero(link.inertial.mass) &&
+    isNearZero(link.inertial.inertia?.ixx) &&
+    isNearZero(link.inertial.inertia?.ixy) &&
+    isNearZero(link.inertial.inertia?.ixz) &&
+    isNearZero(link.inertial.inertia?.iyy) &&
+    isNearZero(link.inertial.inertia?.iyz) &&
+    isNearZero(link.inertial.inertia?.izz)
+  );
+};
+
+const resolveOmittedIsaacRootAnchor = (
+  robot: RobotState,
+  layoutProfile: ResolvedUsdPackageLayoutProfile,
+): OmittedIsaacRootAnchor | null => {
+  if (layoutProfile !== 'isaacsim' || robot.inspectionContext?.sourceFormat !== 'mjcf') {
+    return null;
+  }
+
+  const rootLink = robot.links[robot.rootLinkId];
+  if (!rootLink || linkHasExportablePayload(rootLink) || !isMasslessLink(rootLink)) {
+    return null;
+  }
+
+  if (Object.values(robot.joints).some((joint) => joint.childLinkId === robot.rootLinkId)) {
+    return null;
+  }
+
+  const childJoints = Object.values(robot.joints).filter(
+    (joint) => joint.parentLinkId === robot.rootLinkId,
+  );
+  if (childJoints.length !== 1) {
+    return null;
+  }
+
+  const childJoint = childJoints[0];
+  const childJointType = String(childJoint?.type || '').toLowerCase();
+  if ((childJointType !== 'fixed' && childJointType !== 'floating') || !robot.links[childJoint.childLinkId]) {
+    return null;
+  }
+
+  return {
+    articulationRootLinkId: childJoint.childLinkId,
+    omittedJointIds: new Set([childJoint.id]),
+    omittedLinkIds: new Set([robot.rootLinkId]),
+  };
 };
 
 const getAxisToken = (axis: THREE.Vector3 | UrdfJoint['axis'] | undefined): 'X' | 'Y' | 'Z' => {
@@ -446,6 +529,8 @@ export const buildUsdPhysicsLayerContent = (
   options: UsdPackageLayoutOptions = {},
 ): string => {
   const layerExtension = getUsdLayerExtension(options.fileFormat);
+  const layoutProfile = resolveUsdPackageLayoutProfile(options.layoutProfile);
+  const omittedRootAnchor = resolveOmittedIsaacRootAnchor(robot, layoutProfile);
   const lines = [
     '#usda 1.0',
     '(',
@@ -467,17 +552,18 @@ export const buildUsdPhysicsLayerContent = (
   lines.push('');
 
   serializeUsdPrimSpecWithMetadata(lines, 0, `over "${rootPrimName}"`, [
-    ...(resolveUsdPackageLayoutProfile(options.layoutProfile) === 'isaacsim'
-      ? []
-      : ['prepend apiSchemas = ["PhysicsArticulationRootAPI"]']),
+    ...(layoutProfile === 'isaacsim' ? [] : ['prepend apiSchemas = ["PhysicsArticulationRootAPI"]']),
   ]);
   lines.push('{');
 
-  const layoutProfile = resolveUsdPackageLayoutProfile(options.layoutProfile);
   if (layoutProfile === 'isaacsim') {
     Array.from(pathMaps.linkPaths.keys()).forEach((linkId) => {
+      if (omittedRootAnchor?.omittedLinkIds.has(linkId)) {
+        return;
+      }
       serializeLinkPhysicsOverride(robot, linkId, lines, 1, {
-        addArticulationRootApi: linkId === robot.rootLinkId,
+        addArticulationRootApi:
+          linkId === (omittedRootAnchor?.articulationRootLinkId || robot.rootLinkId),
       });
     });
   } else {
@@ -495,6 +581,9 @@ export const buildUsdPhysicsLayerContent = (
   lines.push('    {');
 
   Object.values(robot.joints).forEach((joint) => {
+    if (omittedRootAnchor?.omittedJointIds.has(joint.id)) {
+      return;
+    }
     serializeJointDefinition(joint, pathMaps.linkPaths, lines, 2);
   });
   (robot.closedLoopConstraints || []).forEach((constraint) => {
@@ -686,6 +775,8 @@ export const buildUsdRobotLayerContent = (
   rootPrimName: string,
   options: UsdPackageLayoutOptions = {},
 ): string => {
+  const layoutProfile = resolveUsdPackageLayoutProfile(options.layoutProfile);
+  const omittedRootAnchor = resolveOmittedIsaacRootAnchor(robot, layoutProfile);
   const lines = [
     '#usda 1.0',
     '(',
@@ -696,13 +787,15 @@ export const buildUsdRobotLayerContent = (
     '',
   ];
 
-  const rootLinkPaths = Array.from(pathMaps.linkPaths.values()).map(
-    (linkPath) => `        <${linkPath}>,`,
-  );
-  const jointPaths = Object.values(robot.joints).map(
-    (joint) =>
-      `        </${rootPrimName}/joints/${sanitizeUsdIdentifier(joint.id || joint.name || 'joint')}>,`,
-  );
+  const rootLinkPaths = Array.from(pathMaps.linkPaths.entries())
+    .filter(([linkId]) => !omittedRootAnchor?.omittedLinkIds.has(linkId))
+    .map(([, linkPath]) => `        <${linkPath}>,`);
+  const jointPaths = Object.values(robot.joints)
+    .filter((joint) => !omittedRootAnchor?.omittedJointIds.has(joint.id))
+    .map(
+      (joint) =>
+        `        </${rootPrimName}/joints/${sanitizeUsdIdentifier(joint.id || joint.name || 'joint')}>,`,
+    );
 
   serializeUsdPrimSpecWithMetadata(lines, 0, `def Xform "${rootPrimName}"`, [
     'prepend apiSchemas = ["IsaacRobotAPI"]',
@@ -718,11 +811,13 @@ export const buildUsdRobotLayerContent = (
   lines.push('    ]');
   lines.push('');
 
-  const layoutProfile = resolveUsdPackageLayoutProfile(options.layoutProfile);
   if (layoutProfile !== 'isaacsim') {
     serializeNestedIsaacLinkOverrides(robot.rootLinkId, robot, pathMaps.childIdsByParent, lines, 1);
   } else {
     Array.from(pathMaps.linkPaths.keys()).forEach((linkId) => {
+      if (omittedRootAnchor?.omittedLinkIds.has(linkId)) {
+        return;
+      }
       serializeIsaacLinkOverride(linkId, robot, lines, 1);
     });
   }
@@ -730,10 +825,12 @@ export const buildUsdRobotLayerContent = (
   lines.push('    over "joints"');
   lines.push('    {');
 
-  Object.values(robot.joints).forEach((joint, index) => {
-    const jointName = sanitizeUsdIdentifier(joint.id || joint.name || 'joint');
-    serializeUsdPrimSpecWithMetadata(lines, 2, `over "${jointName}"`, [
-      'prepend apiSchemas = ["IsaacJointAPI"]',
+  Object.values(robot.joints)
+    .filter((joint) => !omittedRootAnchor?.omittedJointIds.has(joint.id))
+    .forEach((joint, index) => {
+      const jointName = sanitizeUsdIdentifier(joint.id || joint.name || 'joint');
+      serializeUsdPrimSpecWithMetadata(lines, 2, `over "${jointName}"`, [
+        'prepend apiSchemas = ["IsaacJointAPI"]',
     ]);
     lines.push('        {');
     lines.push('            string isaac:nameOverride');
@@ -747,8 +844,8 @@ export const buildUsdRobotLayerContent = (
     lines.push('            int isaac:physics:Tr_Y:DofOffset');
     lines.push('            int isaac:physics:Tr_Z:DofOffset');
     lines.push('        }');
-    lines.push('');
-  });
+      lines.push('');
+    });
 
   lines.push('    }');
   lines.push('}');

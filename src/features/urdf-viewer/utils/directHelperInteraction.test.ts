@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 
 import { resolveDirectHelperInteraction } from './directHelperInteraction.ts';
+import { collectSelectableHelperTargets } from './pickTargets.ts';
+import { createInertiaBox } from './visualizationFactories.ts';
 
 function createBoxMesh(material?: THREE.Material): THREE.Mesh {
   return new THREE.Mesh(
@@ -85,4 +87,33 @@ test('resolveDirectHelperInteraction returns null when the ray does not hit a he
   });
 
   assert.equal(result, null);
+});
+
+test('resolveDirectHelperInteraction keeps inertia hover stable across the filled box surface', () => {
+  const robot = new THREE.Group();
+
+  const linkObject = new THREE.Group() as THREE.Group & { isURDFLink?: boolean; type?: string };
+  linkObject.name = 'base_link';
+  linkObject.isURDFLink = true;
+  linkObject.type = 'URDFLink';
+
+  const inertiaBox = createInertiaBox(1, 1, 1, new THREE.Quaternion());
+  inertiaBox.position.set(0, 0, -2);
+  linkObject.add(inertiaBox);
+  robot.add(linkObject);
+
+  robot.updateMatrixWorld(true);
+
+  const raycaster = new THREE.Raycaster(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1));
+  const result = resolveDirectHelperInteraction({
+    robot,
+    raycaster,
+    helperTargets: collectSelectableHelperTargets(robot),
+    interactionLayerPriority: ['inertia', 'collision', 'visual'],
+  });
+
+  assert.equal(result?.targetKind, 'helper');
+  assert.equal(result?.type, 'link');
+  assert.equal(result?.id, 'base_link');
+  assert.equal(result?.helperKind, 'inertia');
 });

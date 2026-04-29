@@ -1,4 +1,5 @@
 import { Html } from '@react-three/drei';
+import { useFrame, useThree } from '@react-three/fiber';
 import {
   useCallback,
   useEffect,
@@ -8,6 +9,8 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react';
+import * as THREE from 'three';
+import { VIEWER_CORNER_OVERLAY_CLASS_NAME } from '@/shared/components/3d';
 import { ViewerLoadingHud } from './ViewerLoadingHud';
 import { normalizeLoadingProgress } from '@/shared/components/3d/loadingHudState';
 import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
@@ -51,6 +54,14 @@ import {
   resolveUsdExportResolution,
 } from '../utils/usdExportBundle';
 import { recordUsdStageLoadDebug } from '@/shared/debug/usdStageLoadDebug';
+import { resolveUsdOffscreenFullscreenHtmlPosition } from '../utils/usdOffscreenHtmlPosition';
+import {
+  applyUsdOffscreenCameraState,
+  areUsdOffscreenCameraStatesEqual,
+  captureUsdOffscreenCameraState,
+  type UsdOffscreenCameraState,
+  type UsdOffscreenOrbitControlsLike,
+} from '../utils/usdOffscreenCameraState';
 
 interface UsdOffscreenStageProps {
   resolvedTheme?: 'light' | 'dark';
@@ -131,6 +142,60 @@ function getCanvasPointerPosition(event: ReactPointerEvent<HTMLCanvasElement>): 
   };
 }
 
+function trySetPointerCapture(element: HTMLCanvasElement, pointerId: number): void {
+  try {
+    element.setPointerCapture(pointerId);
+  } catch {
+    // Synthetic pointer events used in browser regression checks are not always
+    // backed by an active browser pointer stream.
+  }
+}
+
+function tryReleasePointerCapture(element: HTMLCanvasElement, pointerId: number): void {
+  try {
+    if (element.hasPointerCapture(pointerId)) {
+      element.releasePointerCapture(pointerId);
+    }
+  } catch {
+    // See trySetPointerCapture.
+  }
+}
+
+function scheduleUsdPreparedExportCacheAfterInteractionWindow(run: () => void): () => void {
+  let cancelled = false;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let idleCallbackId: number | null = null;
+
+  const runOnce = () => {
+    if (cancelled) {
+      return;
+    }
+    timeoutId = null;
+    idleCallbackId = null;
+    run();
+  };
+
+  if (
+    typeof window !== 'undefined' &&
+    typeof window.requestIdleCallback === 'function' &&
+    typeof window.cancelIdleCallback === 'function'
+  ) {
+    idleCallbackId = window.requestIdleCallback(runOnce, { timeout: 2_500 });
+  } else {
+    timeoutId = setTimeout(runOnce, 900);
+  }
+
+  return () => {
+    cancelled = true;
+    if (idleCallbackId !== null && typeof window !== 'undefined') {
+      window.cancelIdleCallback?.(idleCallbackId);
+    }
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+  };
+}
+
 function resolveRuntimeProxyJointAngle(
   joint:
     | {
@@ -189,6 +254,9 @@ export function UsdOffscreenStage({
   const jointInfoByLinkPathRef = useRef(new Map<string, UsdRuntimeJointInfoLike>());
   const lastRobotResolutionRef = useRef<ViewerRobotDataResolution | null>(null);
   const runtimeRobotProxyRef = useRef<any | null>(null);
+  const pendingWorkerCameraStateRef = useRef<UsdOffscreenCameraState | null>(null);
+  const lastSentCameraStateRef = useRef<UsdOffscreenCameraState | null>(null);
+  const cancelPendingPreparedCacheBuildRef = useRef<(() => void) | null>(null);
   const [containerElement, setContainerElement] = useState<HTMLDivElement | null>(null);
   const [canvasElement, setCanvasElement] = useState<HTMLCanvasElement | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -202,6 +270,7 @@ export function UsdOffscreenStage({
     loadedCount: null,
     totalCount: null,
   });
+  const invalidate = useThree((state) => state.invalidate);
 
   const postWorkerMessage = useCallback((message: UsdOffscreenViewerWorkerRequest) => {
     workerRef.current?.postMessage(message);
@@ -435,56 +504,66 @@ export function UsdOffscreenStage({
           }
 
           assetsState.setUsdPreparedExportCache(sourceFile.name, null);
-          if (debugSourceFileName) {
-            recordUsdStageLoadDebug({
-              sourceFileName: debugSourceFileName,
-              step: 'prepare-deferred-usd-export-cache',
-              status: 'pending',
-              timestamp: Date.now(),
-              detail: {
-                stageSourcePath: normalizedMessageStagePath || null,
-              },
-            });
-          }
-          void prepareUsdPreparedExportCacheWithWorker(message.snapshot, existingResolution)
-            .then((preparedCache) => {
-              useAssetsStore.getState().setUsdPreparedExportCache(sourceFile.name, preparedCache);
+          cancelPendingPreparedCacheBuildRef.current?.();
+          cancelPendingPreparedCacheBuildRef.current =
+            scheduleUsdPreparedExportCacheAfterInteractionWindow(() => {
+              cancelPendingPreparedCacheBuildRef.current = null;
+              if (disposed) {
+                return;
+              }
               if (debugSourceFileName) {
                 recordUsdStageLoadDebug({
                   sourceFileName: debugSourceFileName,
                   step: 'prepare-deferred-usd-export-cache',
-                  status: 'resolved',
+                  status: 'pending',
                   timestamp: Date.now(),
                   detail: {
                     stageSourcePath: normalizedMessageStagePath || null,
-                    meshFileCount: Object.keys(preparedCache?.meshFiles || {}).length,
                   },
                 });
               }
-            })
-            .catch((error) => {
-              const reason = error instanceof Error ? error.message : String(error);
-              if (debugSourceFileName) {
-                recordUsdStageLoadDebug({
-                  sourceFileName: debugSourceFileName,
-                  step: 'prepare-deferred-usd-export-cache',
-                  status: 'rejected',
-                  timestamp: Date.now(),
-                  detail: {
-                    stageSourcePath: normalizedMessageStagePath || null,
-                    error: reason,
-                  },
+              void prepareUsdPreparedExportCacheWithWorker(message.snapshot, existingResolution)
+                .then((preparedCache) => {
+                  useAssetsStore
+                    .getState()
+                    .setUsdPreparedExportCache(sourceFile.name, preparedCache);
+                  if (debugSourceFileName) {
+                    recordUsdStageLoadDebug({
+                      sourceFileName: debugSourceFileName,
+                      step: 'prepare-deferred-usd-export-cache',
+                      status: 'resolved',
+                      timestamp: Date.now(),
+                      detail: {
+                        stageSourcePath: normalizedMessageStagePath || null,
+                        meshFileCount: Object.keys(preparedCache?.meshFiles || {}).length,
+                      },
+                    });
+                  }
+                })
+                .catch((error) => {
+                  const reason = error instanceof Error ? error.message : String(error);
+                  if (debugSourceFileName) {
+                    recordUsdStageLoadDebug({
+                      sourceFileName: debugSourceFileName,
+                      step: 'prepare-deferred-usd-export-cache',
+                      status: 'rejected',
+                      timestamp: Date.now(),
+                      detail: {
+                        stageSourcePath: normalizedMessageStagePath || null,
+                        error: reason,
+                      },
+                    });
+                  }
+                  scheduleFailFastInDev(
+                    'UsdOffscreenStage:prepareUsdPreparedExportCacheWithWorker',
+                    new Error(
+                      `Failed to prepare USD export cache for "${sourceFile.name}" after deferred scene snapshot hydration: ${reason}`,
+                      {
+                        cause: error,
+                      },
+                    ),
+                  );
                 });
-              }
-              scheduleFailFastInDev(
-                'UsdOffscreenStage:prepareUsdPreparedExportCacheWithWorker',
-                new Error(
-                  `Failed to prepare USD export cache for "${sourceFile.name}" after deferred scene snapshot hydration: ${reason}`,
-                  {
-                    cause: error,
-                  },
-                ),
-              );
             });
           return;
         }
@@ -548,6 +627,11 @@ export function UsdOffscreenStage({
           }
 
           runtimeBridge?.onJointAnglesChange?.(message.jointAngles);
+          return;
+        }
+        case 'camera-state': {
+          pendingWorkerCameraStateRef.current = message.cameraState;
+          invalidate();
           return;
         }
         case 'load-debug': {
@@ -686,6 +770,7 @@ export function UsdOffscreenStage({
         worker.postMessage(initRequest, [offscreenCanvas]);
         stageOpenDispatch.commitStageOpenContext();
         initCompleteRef.current = true;
+        lastSentCameraStateRef.current = null;
 
         resizeObserver = new ResizeObserver((entries) => {
           const nextEntry = entries[0];
@@ -717,13 +802,60 @@ export function UsdOffscreenStage({
 
     return () => {
       disposed = true;
+      cancelPendingPreparedCacheBuildRef.current?.();
+      cancelPendingPreparedCacheBuildRef.current = null;
       initCompleteRef.current = false;
       resizeObserver?.disconnect();
       detachWorkerListeners();
       disposeUsdOffscreenViewerStageInBackground();
       workerRef.current = null;
+      pendingWorkerCameraStateRef.current = null;
+      lastSentCameraStateRef.current = null;
     };
   }, [canvasElement, containerElement, resolvedTheme]);
+
+  useFrame((state) => {
+    if (!active || !initCompleteRef.current) {
+      return;
+    }
+
+    if (!(state.camera instanceof THREE.PerspectiveCamera)) {
+      return;
+    }
+
+    const controls = (state as typeof state & { controls?: UsdOffscreenOrbitControlsLike })
+      .controls;
+    const pendingWorkerCameraState = pendingWorkerCameraStateRef.current;
+    if (pendingWorkerCameraState) {
+      pendingWorkerCameraStateRef.current = null;
+      applyUsdOffscreenCameraState(state.camera, controls, pendingWorkerCameraState);
+      lastSentCameraStateRef.current = captureUsdOffscreenCameraState(
+        state.camera,
+        controls?.target ??
+          new THREE.Vector3(
+            pendingWorkerCameraState.target[0],
+            pendingWorkerCameraState.target[1],
+            pendingWorkerCameraState.target[2],
+          ),
+      );
+      state.invalidate();
+      return;
+    }
+
+    const nextCameraState = captureUsdOffscreenCameraState(
+      state.camera,
+      controls?.target ?? new THREE.Vector3(0, 0, 0),
+    );
+    if (areUsdOffscreenCameraStatesEqual(nextCameraState, lastSentCameraStateRef.current)) {
+      return;
+    }
+
+    lastSentCameraStateRef.current = nextCameraState;
+    postWorkerMessage({
+      type: 'set-camera-state',
+      cameraState: nextCameraState,
+    });
+  });
 
   useEffect(() => {
     postWorkerMessage({
@@ -828,7 +960,7 @@ export function UsdOffscreenStage({
 
       const pointer = getCanvasPointerPosition(event);
       activePointerIdRef.current = event.pointerId;
-      event.currentTarget.setPointerCapture(event.pointerId);
+      trySetPointerCapture(event.currentTarget, event.pointerId);
       postWorkerMessage({
         type: 'pointer-down',
         pointerId: event.pointerId,
@@ -865,9 +997,7 @@ export function UsdOffscreenStage({
       if (activePointerIdRef.current === event.pointerId) {
         activePointerIdRef.current = null;
       }
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
+      tryReleasePointerCapture(event.currentTarget, event.pointerId);
       postWorkerMessage({
         type: 'pointer-up',
         pointerId: event.pointerId,
@@ -900,14 +1030,14 @@ export function UsdOffscreenStage({
   );
 
   return (
-    <Html fullscreen>
+    <Html fullscreen calculatePosition={resolveUsdOffscreenFullscreenHtmlPosition}>
       <div ref={handleContainerRef} className="absolute inset-0">
         <canvas
           ref={handleCanvasRef}
           data-testid="usd-offscreen-canvas"
           className="block h-full w-full"
           style={{
-            backgroundColor: offscreenCanvasPresentation.backgroundColor,
+            backgroundColor: offscreenCanvasPresentation.cssBackgroundColor,
             height: '100%',
             opacity: active ? 1 : 0,
             pointerEvents: active ? 'auto' : 'none',
@@ -925,7 +1055,7 @@ export function UsdOffscreenStage({
         />
 
         {isLoading && !onDocumentLoadEvent ? (
-          <div className="pointer-events-none absolute inset-0 flex items-end justify-end p-4">
+          <div className={VIEWER_CORNER_OVERLAY_CLASS_NAME}>
             <ViewerLoadingHud
               title={loadingLabel}
               detail={loadingDetail}

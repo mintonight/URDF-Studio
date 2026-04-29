@@ -7,6 +7,7 @@ import type {
 } from '../types';
 import type { ViewerRobotDataResolution } from './viewerRobotData';
 import type { UsdStageOpenPreparationWorkerContextSnapshot } from './usdStageOpenPreparationWorkerPayload';
+import type { UsdOffscreenCameraState } from './usdOffscreenCameraState';
 
 type OffscreenViewerSourceFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl'>;
 export type OffscreenViewerInteractionSelection = Pick<
@@ -127,6 +128,11 @@ export interface UsdOffscreenViewerSetJointAngleRequest {
   angleRad: number;
 }
 
+export interface UsdOffscreenViewerSetCameraStateRequest {
+  type: 'set-camera-state';
+  cameraState: UsdOffscreenCameraState;
+}
+
 export interface UsdOffscreenViewerPrewarmRuntimeRequest {
   type: 'prewarm-runtime';
 }
@@ -154,6 +160,7 @@ export type UsdOffscreenViewerWorkerRequest =
   | UsdOffscreenViewerSetActiveRequest
   | UsdOffscreenViewerSetInteractionStateRequest
   | UsdOffscreenViewerSetJointAngleRequest
+  | UsdOffscreenViewerSetCameraStateRequest
   | UsdOffscreenViewerPrewarmRuntimeRequest
   | UsdOffscreenViewerDisposeStageRequest
   | UsdOffscreenViewerDisposeRequest;
@@ -199,6 +206,11 @@ export interface UsdOffscreenViewerJointAnglesChangeResponse {
   jointAngles: Record<string, number>;
 }
 
+export interface UsdOffscreenViewerCameraStateResponse {
+  type: 'camera-state';
+  cameraState: UsdOffscreenCameraState;
+}
+
 export interface UsdOffscreenViewerFatalErrorResponse {
   type: 'fatal-error';
   error: string;
@@ -228,5 +240,6 @@ export type UsdOffscreenViewerWorkerResponse =
   | UsdOffscreenViewerSelectionChangeResponse
   | UsdOffscreenViewerHoverChangeResponse
   | UsdOffscreenViewerJointAnglesChangeResponse
+  | UsdOffscreenViewerCameraStateResponse
   | UsdOffscreenViewerFatalErrorResponse
   | UsdOffscreenViewerLoadDebugResponse;

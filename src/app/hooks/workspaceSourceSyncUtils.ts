@@ -524,6 +524,10 @@ export function getSingleComponentWorkspaceMjcfViewerSource({
   return sourceFile?.format === 'mjcf' ? sourceFile : null;
 }
 
+function hasNormalizedMjcfMultiJointStages(component: AssemblyComponent): boolean {
+  return Object.keys(component.robot.links).some((linkId) => linkId.includes('__joint_stage_'));
+}
+
 export function buildSingleComponentWorkspaceMjcfViewerContent({
   assemblyState,
   sourceFile,
@@ -542,6 +546,12 @@ export function buildSingleComponentWorkspaceMjcfViewerContent({
   );
 
   if (!visibleComponent) {
+    return null;
+  }
+
+  // Component data normalizes MJCF multi-joint bodies into stage links; keep those
+  // components on the same structured viewer path so articulated wings stay aligned.
+  if (hasNormalizedMjcfMultiJointStages(visibleComponent)) {
     return null;
   }
 

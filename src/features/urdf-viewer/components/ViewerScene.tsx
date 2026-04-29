@@ -16,6 +16,7 @@ import {
   shouldBootstrapUsdOffscreenStage,
   shouldUseUsdOffscreenStage,
 } from '../utils/usdOffscreenStagePolicy';
+import { resolveUsdStageMountState } from '../utils/usdStageMountState';
 import { normalizeUsdBootstrapDocumentLoadEvent } from '../utils/usdBootstrapDocumentLoadEvent';
 import { getViewerRobotSourceFormat } from '../utils/sourceFormat';
 import type { ViewerSceneBaseProps } from '../utils/viewerSceneProps';
@@ -106,6 +107,7 @@ export const ViewerScene = ({
         focusTarget,
         sourceFile: usdSourceFile,
         availableFiles,
+        assets,
       })
     : false;
   const effectiveHoverSelectionEnabled =
@@ -114,6 +116,7 @@ export const ViewerScene = ({
   const readyNotificationFrameARef = useRef<number | null>(null);
   const readyNotificationFrameBRef = useRef<number | null>(null);
   const [offscreenBootstrapReady, setOffscreenBootstrapReady] = useState(false);
+  const [offscreenBootstrapFailed, setOffscreenBootstrapFailed] = useState(false);
   const [interactiveUsdStageReady, setInteractiveUsdStageReady] = useState(false);
   const runtimeBridge = useMemo<ViewerRuntimeStageBridge>(
     () => ({
@@ -193,8 +196,24 @@ export const ViewerScene = ({
   );
   useEffect(() => {
     setOffscreenBootstrapReady(false);
+    setOffscreenBootstrapFailed(false);
     setInteractiveUsdStageReady(false);
   }, [usdStageSessionKey]);
+  const {
+    useUsdOffscreenBootstrapHandoff,
+    mountUsdOffscreenStage,
+    mountUsdWasmStage,
+    usdOffscreenStageActive,
+    usdWasmStageActive,
+  } = resolveUsdStageMountState({
+    hasUsdSourceFile: Boolean(usdSourceFile),
+    active,
+    useUsdOffscreenOnlyRenderer,
+    useUsdOffscreenBootstrap,
+    offscreenBootstrapReady,
+    offscreenBootstrapFailed,
+    interactiveUsdStageReady,
+  });
   useEffect(() => {
     const regressionRuntimeEnabled =
       import.meta.env.DEV ||
@@ -218,21 +237,38 @@ export const ViewerScene = ({
     (event: ViewerDocumentLoadEvent) => {
       if (event.status === 'ready') {
         setOffscreenBootstrapReady(true);
-        if (!useUsdOffscreenBootstrap) {
+        if (!useUsdOffscreenBootstrapHandoff) {
           scheduleSceneReadyForDisplay();
         }
       }
+
+      if (event.status === 'error' && useUsdOffscreenBootstrapHandoff) {
+        setOffscreenBootstrapFailed(true);
+        setInteractiveUsdStageReady(false);
+        onDocumentLoadEvent?.({
+          status: 'loading',
+          phase: 'finalizing-scene',
+          message: null,
+          progressMode: 'indeterminate',
+          progressPercent: null,
+          loadedCount: null,
+          totalCount: null,
+          error: null,
+        });
+        return;
+      }
+
       onDocumentLoadEvent?.(
         normalizeUsdBootstrapDocumentLoadEvent(event, {
-          useUsdOffscreenBootstrap,
+          useUsdOffscreenBootstrap: useUsdOffscreenBootstrapHandoff,
         }),
       );
     },
-    [onDocumentLoadEvent, scheduleSceneReadyForDisplay, useUsdOffscreenBootstrap],
+    [onDocumentLoadEvent, scheduleSceneReadyForDisplay, useUsdOffscreenBootstrapHandoff],
   );
   const handleUsdWasmDocumentLoadEvent = useCallback(
     (event: ViewerDocumentLoadEvent) => {
-      if (useUsdOffscreenBootstrap) {
+      if (useUsdOffscreenBootstrapHandoff) {
         if (event.status === 'loading') {
           return;
         }
@@ -258,7 +294,7 @@ export const ViewerScene = ({
       }
       onDocumentLoadEvent?.(event);
     },
-    [onDocumentLoadEvent, scheduleSceneReadyForDisplay, useUsdOffscreenBootstrap],
+    [onDocumentLoadEvent, scheduleSceneReadyForDisplay, useUsdOffscreenBootstrapHandoff],
   );
   const handleRobotLoaded = useCallback(
     (robot: Parameters<NonNullable<RobotModelProps['onRobotLoaded']>>[0]) => {
@@ -268,25 +304,6 @@ export const ViewerScene = ({
     },
     [controller.handleRobotLoaded, onRuntimeRobotLoaded, scheduleSceneReadyForDisplay],
   );
-  // For default USD select mode, keep the worker-rendered stage on screen until
-  // the interactive main-thread stage has finished its own hidden handoff load.
-  const mountUsdOffscreenStage = Boolean(
-    usdSourceFile &&
-    (useUsdOffscreenOnlyRenderer || (useUsdOffscreenBootstrap && !interactiveUsdStageReady)),
-  );
-  const mountUsdWasmStage = Boolean(
-    usdSourceFile &&
-    !useUsdOffscreenOnlyRenderer &&
-    (!useUsdOffscreenBootstrap || offscreenBootstrapReady),
-  );
-  const usdOffscreenStageActive =
-    active &&
-    (useUsdOffscreenOnlyRenderer || (useUsdOffscreenBootstrap && !interactiveUsdStageReady));
-  const usdWasmStageActive =
-    active &&
-    !useUsdOffscreenOnlyRenderer &&
-    (!useUsdOffscreenBootstrap || interactiveUsdStageReady);
-
   return (
     <>
       {!snapshotRenderActive && (
@@ -334,7 +351,7 @@ export const ViewerScene = ({
               toolMode={toolMode}
               runtimeBridge={runtimeBridge}
               registerAutoFitGroundHandler={controller.registerRuntimeAutoFitGroundHandler}
-              retainReadyAsLoadingDuringBootstrapHandoff={useUsdOffscreenBootstrap}
+              retainReadyAsLoadingDuringBootstrapHandoff={useUsdOffscreenBootstrapHandoff}
             />
           ) : null}
           {mountUsdWasmStage ? (
@@ -352,6 +369,7 @@ export const ViewerScene = ({
               hoverSelectionEnabled={effectiveHoverSelectionEnabled}
               onHover={onHover}
               onMeshSelect={onMeshSelect}
+              onUpdate={onUpdate}
               showOrigins={controller.showOrigins}
               showOriginsOverlay={controller.showOriginsOverlay}
               originSize={controller.originSize}

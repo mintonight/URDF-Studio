@@ -186,3 +186,44 @@ test('buildUnifiedViewerSceneProps disables hover interaction for inactive retai
   assert.equal(sceneProps.allowUrdfXmlFallback, false);
   assert.equal(sceneProps.robotLinks?.base_link !== undefined, true);
 });
+
+test('buildUnifiedViewerSceneProps disables model interaction for standalone read-only previews', () => {
+  const controller = createControllerStub();
+  const onHover = () => {};
+  const onMeshSelect = () => {};
+  const onUpdate = () => {};
+
+  const sceneProps = buildUnifiedViewerSceneProps({
+    controller,
+    active: true,
+    hasActivePreview: false,
+    modelInteractionEnabled: false,
+    hoveredSelection: { type: 'joint', id: 'hip_joint' },
+    viewerResourceScope: createScopeStub(),
+    effectiveSourceFile: {
+      name: 'meshes/gripper.stl',
+      content: '',
+      format: 'mesh',
+    },
+    effectiveUrdfContent: '<robot name="mesh-preview" />',
+    mode: 'editor',
+    selection: { type: 'link', id: 'base_link' },
+    onHover,
+    onMeshSelect,
+    onUpdate,
+    robot: createRobotStub(),
+    focusTarget: 'base_link',
+    isMeshPreview: true,
+  });
+
+  assert.deepEqual(sceneProps.selection, EMPTY_VIEWER_SELECTION);
+  assert.equal(sceneProps.hoveredSelection, undefined);
+  assert.equal(sceneProps.hoverSelectionEnabled, false);
+  assert.equal(sceneProps.onHover, undefined);
+  assert.equal(sceneProps.onMeshSelect, undefined);
+  assert.equal(sceneProps.onUpdate, undefined);
+  assert.equal(sceneProps.robotLinks, undefined);
+  assert.equal(sceneProps.robotJoints, undefined);
+  assert.equal(sceneProps.focusTarget, undefined);
+  assert.equal(sceneProps.isMeshPreview, true);
+});

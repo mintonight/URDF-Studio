@@ -56,6 +56,22 @@ export function resolveGizmoHoverAxis(gizmoHitObject: THREE.Object3D): string | 
   return null;
 }
 
+export function shouldBlockBackgroundInteractionForGizmoHit(
+  gizmoHitObject: THREE.Object3D | null,
+): boolean {
+  return Boolean(
+    gizmoHitObject &&
+      isGizmoObject(gizmoHitObject) &&
+      resolveGizmoHoverAxis(gizmoHitObject) !== null,
+  );
+}
+
+export function shouldPreserveSelectionForGizmoPointerDown(
+  gizmoHitObject: THREE.Object3D | null,
+): boolean {
+  return shouldBlockBackgroundInteractionForGizmoHit(gizmoHitObject);
+}
+
 export function findFirstIntersection(
   intersections: THREE.Intersection[],
   predicate: (hit: THREE.Intersection) => boolean,

@@ -59,6 +59,7 @@ import {
 } from '../utils/usdSceneSnapshotWorkerTransfer.ts';
 import {
   applyUsdWorkerOrbitPointerDelta,
+  applyUsdWorkerOrbitPanDelta,
   applyUsdWorkerOrbitToCamera,
   applyUsdWorkerOrbitZoomDelta,
   createUsdWorkerOrbitState,
@@ -75,6 +76,17 @@ import {
   type UsdOffscreenStudioEnvironmentHandle,
 } from '../utils/usdOffscreenLighting.ts';
 import { resolveUsdOffscreenCanvasPresentation } from '../utils/usdOffscreenCanvasPresentation.ts';
+import {
+  applyUsdOffscreenCameraState,
+  captureUsdOffscreenCameraState,
+  type UsdOffscreenCameraState,
+} from '../utils/usdOffscreenCameraState.ts';
+import {
+  resolveDeferredUsdSceneSnapshotDelayMs,
+  USD_DEFERRED_SCENE_SNAPSHOT_INITIAL_DELAY_MS,
+  USD_DEFERRED_SCENE_SNAPSHOT_INTERACTION_IDLE_MS,
+  USD_DEFERRED_SCENE_SNAPSHOT_MAX_DELAY_MS,
+} from '../utils/deferredUsdSceneSnapshot.ts';
 import { resolveCameraFollowLightingStyle } from '@/shared/components/3d/scene/constants.ts';
 import {
   computeCameraFrame,
@@ -117,6 +129,7 @@ type RuntimeWindow = typeof globalThis & {
 
 interface ActivePointerState {
   pointerId: number;
+  button: number;
   x: number;
   y: number;
 }
@@ -176,6 +189,14 @@ let offscreenStudioEnvironment: UsdOffscreenStudioEnvironmentHandle | null = nul
 let offscreenGroundShadowPlane: THREE.Mesh | null = null;
 let currentDriver: unknown = null;
 let activePointer: ActivePointerState | null = null;
+let lastInteractionAt = 0;
+let deferredSceneSnapshotTimeout: ReturnType<typeof setTimeout> | null = null;
+let pendingDeferredSceneSnapshot: {
+  loadGeneration: number;
+  requestedAt: number;
+  snapshot: ViewerRobotDataResolution['usdSceneSnapshot'];
+  sourceFileName: string;
+} | null = null;
 let currentLoadGeneration = 0;
 let disposed = false;
 let viewerActive = true;
@@ -603,6 +624,38 @@ function renderScene(): void {
   renderer.render(scene, camera);
 }
 
+function getWorkerCameraState(): UsdOffscreenCameraState | null {
+  if (!camera || !controls) {
+    return null;
+  }
+
+  return captureUsdOffscreenCameraState(camera, controls.target);
+}
+
+function emitWorkerCameraState(): void {
+  const cameraState = getWorkerCameraState();
+  if (!cameraState) {
+    return;
+  }
+
+  postWorkerMessage({
+    type: 'camera-state',
+    cameraState,
+  });
+}
+
+function applyMainThreadCameraState(cameraState: UsdOffscreenCameraState): void {
+  if (!camera) {
+    return;
+  }
+
+  const changed = applyUsdOffscreenCameraState(camera, controls, cameraState);
+  syncOrbitFromCamera();
+  if (changed) {
+    renderScene();
+  }
+}
+
 function getCurrentInteractionPolicy() {
   return resolveUsdStageInteractionPolicy('editor', interactionToolMode);
 }
@@ -668,6 +721,10 @@ function emitHoverChange(selection: OffscreenViewerInteractionSelection | null):
 
 function clearRuntimeHover(): void {
   emitHoverChange(null);
+}
+
+function markWorkerInteractionActivity(): void {
+  lastInteractionAt = Date.now();
 }
 
 function captureHighlightedMeshSnapshot(mesh: THREE.Mesh): HighlightedMeshSnapshot {
@@ -1230,6 +1287,7 @@ function disposeUsdRootChildren(rootGroup: THREE.Group): void {
 function disposeStageResources(): void {
   clearScheduledAutoFrame();
   clearScheduledGroundAlignmentPasses();
+  clearScheduledDeferredSceneSnapshot();
   shouldSettleGroundAlignmentAfterLoad = true;
   useCollisionVisualProxyMode = false;
   resolvedRobotData = null;
@@ -1294,7 +1352,9 @@ function createWorkerRenderer(
 function initializeSceneGraph(canvas: OffscreenCanvas, theme: 'light' | 'dark'): void {
   const presentation = resolveUsdOffscreenCanvasPresentation(theme);
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(presentation.backgroundColor);
+  scene.background = presentation.sceneBackgroundColor
+    ? new THREE.Color(presentation.sceneBackgroundColor)
+    : null;
   camera = new THREE.PerspectiveCamera(
     WORKSPACE_DEFAULT_CAMERA_FOV,
     runtimeWindow.innerWidth / runtimeWindow.innerHeight,
@@ -1324,7 +1384,7 @@ function initializeSceneGraph(canvas: OffscreenCanvas, theme: 'light' | 'dark'):
   runtimeWindow.renderer = renderer;
   runtimeWindow.usdRoot = usdRoot;
   runtimeWindow._controls = controls;
-  currentOrbit = createUsdWorkerOrbitState(camera.position, controls.target);
+  currentOrbit = createUsdWorkerOrbitState(camera.position, controls.target, camera.up);
 }
 
 function resizeViewer(width: number, height: number, devicePixelRatio: number): void {
@@ -1346,7 +1406,7 @@ function syncOrbitFromCamera(): void {
     return;
   }
 
-  currentOrbit = createUsdWorkerOrbitState(camera.position, controls.target);
+  currentOrbit = createUsdWorkerOrbitState(camera.position, controls.target, camera.up);
 }
 
 function sampleWorkerAutoFrameBounds() {
@@ -1373,6 +1433,7 @@ function applyWorkerCameraFrame(sample: ReturnType<typeof sampleWorkerAutoFrameB
   camera.updateMatrixWorld(true);
   syncOrbitFromCamera();
   renderScene();
+  emitWorkerCameraState();
   return true;
 }
 
@@ -1432,7 +1493,7 @@ function summarizeWorkerRenderedScene() {
   };
 }
 
-async function waitForWorkerSceneSettle(loadGeneration: number, delayMs = 320): Promise<boolean> {
+async function waitForWorkerSceneSettle(loadGeneration: number, delayMs = 80): Promise<boolean> {
   await new Promise<void>((resolve) => {
     setTimeout(() => resolve(), delayMs);
   });
@@ -1803,6 +1864,92 @@ function publishDeferredSceneSnapshot(
   }
 }
 
+function clearScheduledDeferredSceneSnapshot(): void {
+  if (deferredSceneSnapshotTimeout) {
+    clearTimeout(deferredSceneSnapshotTimeout);
+    deferredSceneSnapshotTimeout = null;
+  }
+  pendingDeferredSceneSnapshot = null;
+}
+
+function scheduleDeferredSceneSnapshotPublish(
+  snapshot: ViewerRobotDataResolution['usdSceneSnapshot'],
+  sourceFileName: string,
+  loadGeneration: number,
+): void {
+  clearScheduledDeferredSceneSnapshot();
+
+  if (!snapshot || !hasUsdSceneSnapshotHeavyBuffers(snapshot)) {
+    return;
+  }
+
+  pendingDeferredSceneSnapshot = {
+    loadGeneration,
+    requestedAt: Date.now(),
+    snapshot,
+    sourceFileName,
+  };
+  emitLoadDebugEntry({
+    sourceFileName,
+    step: 'defer-scene-snapshot',
+    status: 'pending',
+    timestamp: Date.now(),
+    detail: {
+      initialDelayMs: USD_DEFERRED_SCENE_SNAPSHOT_INITIAL_DELAY_MS,
+      interactionIdleMs: USD_DEFERRED_SCENE_SNAPSHOT_INTERACTION_IDLE_MS,
+      maxDelayMs: USD_DEFERRED_SCENE_SNAPSHOT_MAX_DELAY_MS,
+    },
+  });
+
+  const scheduleNextAttempt = (delayMs: number): void => {
+    deferredSceneSnapshotTimeout = setTimeout(() => {
+      deferredSceneSnapshotTimeout = null;
+      const pendingSnapshot = pendingDeferredSceneSnapshot;
+      if (!pendingSnapshot) {
+        return;
+      }
+      if (!isLoadGenerationActive(pendingSnapshot.loadGeneration)) {
+        pendingDeferredSceneSnapshot = null;
+        return;
+      }
+
+      const now = Date.now();
+      const nextDelayMs = resolveDeferredUsdSceneSnapshotDelayMs({
+        activeInteraction: Boolean(activePointer),
+        lastInteractionAt,
+        now,
+        requestedAt: pendingSnapshot.requestedAt,
+      });
+      if (nextDelayMs > 0) {
+        scheduleNextAttempt(nextDelayMs);
+        return;
+      }
+
+      pendingDeferredSceneSnapshot = null;
+      publishDeferredSceneSnapshot(pendingSnapshot.snapshot, pendingSnapshot.sourceFileName);
+      emitLoadDebugEntry({
+        sourceFileName: pendingSnapshot.sourceFileName,
+        step: 'defer-scene-snapshot',
+        status: 'resolved',
+        timestamp: Date.now(),
+        durationMs: Date.now() - pendingSnapshot.requestedAt,
+        detail: {
+          deferredUntilIdle: true,
+        },
+      });
+    }, Math.max(0, delayMs));
+  };
+
+  scheduleNextAttempt(
+    resolveDeferredUsdSceneSnapshotDelayMs({
+      activeInteraction: Boolean(activePointer),
+      lastInteractionAt,
+      now: Date.now(),
+      requestedAt: pendingDeferredSceneSnapshot.requestedAt,
+    }),
+  );
+}
+
 async function publishResolvedRobotData(): Promise<PublishedWorkerRobotData> {
   if (!runtimeWindow.renderInterface) {
     throw new Error(
@@ -2161,9 +2308,10 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
       }),
     );
 
-    publishDeferredSceneSnapshot(
+    scheduleDeferredSceneSnapshotPublish(
       workerResolvedRobotData.fullSceneSnapshot,
       message.sourceFile.name,
+      loadGeneration,
     );
   } catch (error) {
     disposeStageResources();
@@ -2203,12 +2351,14 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
 function handlePointerDown(
   message: Extract<UsdOffscreenViewerWorkerRequest, { type: 'pointer-down' }>,
 ): void {
+  markWorkerInteractionActivity();
   if (!viewerActive || !camera) {
     return;
   }
 
   activePointer = {
     pointerId: message.pointerId,
+    button: message.button,
     x: message.localX,
     y: message.localY,
   };
@@ -2263,6 +2413,7 @@ function handlePointerDown(
 function handlePointerMove(
   message: Extract<UsdOffscreenViewerWorkerRequest, { type: 'pointer-move' }>,
 ): void {
+  markWorkerInteractionActivity();
   if (!viewerActive || !camera || !currentOrbit) {
     return;
   }
@@ -2272,15 +2423,26 @@ function handlePointerMove(
     const deltaY = message.localY - activePointer.y;
     activePointer = {
       pointerId: message.pointerId,
+      button: activePointer.button,
       x: message.localX,
       y: message.localY,
     };
 
     if (message.buttons !== 0) {
       clearRuntimeHover();
-      applyUsdWorkerOrbitPointerDelta(currentOrbit, deltaX, deltaY);
-      applyUsdWorkerOrbitToCamera(currentOrbit, camera);
+      if (activePointer.button === 2 || (message.buttons & 2) === 2) {
+        applyUsdWorkerOrbitPanDelta(currentOrbit, camera, deltaX, deltaY, {
+          viewportHeight: runtimeWindow.innerHeight,
+          panSpeed: 0.9,
+        });
+      } else {
+        applyUsdWorkerOrbitPointerDelta(currentOrbit, deltaX, deltaY, {
+          rotationSpeed: (2 * Math.PI * 0.85) / Math.max(1, runtimeWindow.innerHeight),
+        });
+      }
+      applyUsdWorkerOrbitToCamera(currentOrbit, camera, controls);
       renderScene();
+      emitWorkerCameraState();
       return;
     }
   }
@@ -2303,25 +2465,29 @@ function handlePointerMove(
 function handlePointerUp(
   message: Extract<UsdOffscreenViewerWorkerRequest, { type: 'pointer-up' }>,
 ): void {
+  markWorkerInteractionActivity();
   if (activePointer?.pointerId === message.pointerId) {
     activePointer = null;
   }
 }
 
 function handlePointerLeave(): void {
+  markWorkerInteractionActivity();
   activePointer = null;
   clearRuntimeHover();
   syncInteractionHighlights();
 }
 
 function handleWheel(message: Extract<UsdOffscreenViewerWorkerRequest, { type: 'wheel' }>): void {
+  markWorkerInteractionActivity();
   if (!viewerActive || !camera || !currentOrbit) {
     return;
   }
 
   applyUsdWorkerOrbitZoomDelta(currentOrbit, message.deltaY);
-  applyUsdWorkerOrbitToCamera(currentOrbit, camera);
+  applyUsdWorkerOrbitToCamera(currentOrbit, camera, controls);
   renderScene();
+  emitWorkerCameraState();
 }
 
 function handleSetInteractionState(
@@ -2575,6 +2741,10 @@ workerScope.addEventListener('message', (event: MessageEvent<UsdOffscreenViewerW
     }
     case 'set-joint-angle': {
       handleSetJointAngle(message);
+      return;
+    }
+    case 'set-camera-state': {
+      applyMainThreadCameraState(message.cameraState);
       return;
     }
     case 'prewarm-runtime': {

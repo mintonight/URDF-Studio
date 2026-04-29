@@ -17,7 +17,7 @@ function resetSelectionStore() {
   state.setFocusTarget(null);
 }
 
-test('setHoverFrozen clears the current hover and immediately restores the last hover intent on release', () => {
+test('setHoverFrozen preserves the visible hover and applies the last hover intent on release', () => {
   resetSelectionStore();
 
   const state = useSelectionStore.getState();
@@ -26,7 +26,18 @@ test('setHoverFrozen clears the current hover and immediately restores the last 
 
   let nextState = useSelectionStore.getState();
   assert.equal(nextState.hoverFrozen, true);
-  assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
+  assert.deepEqual(nextState.hoveredSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+  assert.deepEqual(nextState.deferredHoveredSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
 
   nextState.setHoveredSelection({
     type: 'link',
@@ -37,7 +48,12 @@ test('setHoverFrozen clears the current hover and immediately restores the last 
   nextState.hoverJoint('joint_1');
   nextState = useSelectionStore.getState();
 
-  assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
+  assert.deepEqual(nextState.hoveredSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
   assert.deepEqual(nextState.deferredHoveredSelection, { type: 'joint', id: 'joint_1' });
 
   nextState.setHoverFrozen(false);
@@ -63,7 +79,7 @@ test('clearHover during a frozen drag clears the deferred hover so release does 
   nextState.clearHover();
 
   nextState = useSelectionStore.getState();
-  assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
+  assert.deepEqual(nextState.hoveredSelection, { type: 'link', id: 'base_link' });
   assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
 
   nextState.setHoverFrozen(false);

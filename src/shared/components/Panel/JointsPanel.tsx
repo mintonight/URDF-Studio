@@ -118,6 +118,9 @@ export const JointsPanel: React.FC<JointsPanelProps> = ({
       onToggleCollapse={toggleJointsCollapsed}
       onClose={() => setShowJointPanel && setShowJointPanel(false)}
       onMouseDown={onMouseDown}
+      expandText={t.expand}
+      collapseText={t.collapse}
+      closeText={t.close}
       resizable={true}
       height={resolvedPanelHeight}
       maxHeight={maxHeight}

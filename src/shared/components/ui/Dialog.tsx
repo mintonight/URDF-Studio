@@ -12,6 +12,7 @@ interface DialogProps {
   className?: string;
   width?: string;
   zIndexClassName?: string;
+  closeLabel?: string;
 }
 
 export const Dialog: React.FC<DialogProps> = ({
@@ -23,6 +24,7 @@ export const Dialog: React.FC<DialogProps> = ({
   className = '',
   width = 'w-[400px]',
   zIndexClassName = 'z-[100]',
+  closeLabel = 'Close dialog',
 }) => {
   if (!isOpen) return null;
 
@@ -52,8 +54,8 @@ export const Dialog: React.FC<DialogProps> = ({
           <IconButton
             onClick={onClose}
             variant="close"
-            aria-label="Close dialog"
-            title="Close dialog"
+            aria-label={closeLabel}
+            title={closeLabel}
           >
             <X className="w-4 h-4" />
           </IconButton>

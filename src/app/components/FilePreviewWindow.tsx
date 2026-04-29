@@ -128,8 +128,11 @@ export function FilePreviewWindow({
   }
 
   const displayName = file.name.split('/').pop() ?? file.name;
+  const hasMatching3dPreview = Boolean(
+    previewState?.fileName === file.name && previewState.urdfContent && previewRobot,
+  );
   const canRender3dPreview = Boolean(
-    previewState?.urdfContent && previewRobot && fileKind !== 'image',
+    hasMatching3dPreview && fileKind !== 'image',
   );
   const canAddComponent = Boolean(onAddComponent && isLibraryComponentAddableFile(file));
   const showLoadingState = previewLoadState === 'loading' && !canRender3dPreview && !imageUrl;
@@ -181,6 +184,7 @@ export function FilePreviewWindow({
             }
           >
             <LazyUnifiedViewer
+              key={previewState.fileName}
               robot={previewRobot}
               editorRobot={previewRobot}
               mode="editor"
@@ -198,6 +202,7 @@ export function FilePreviewWindow({
               sourceFilePath={file.name}
               sourceFile={file}
               selection={previewRobot.selection}
+              modelInteractionEnabled={false}
               isMeshPreview={file.format === 'mesh'}
               documentLoadState={previewLifecycleState}
               showUsageGuide={false}

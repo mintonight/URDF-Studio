@@ -1,7 +1,11 @@
 import type { RobotFile } from '@/types';
 import type { ToolMode, ViewerProps } from '../types';
 import { supportsUsdWorkerRenderer } from './usdWorkerRendererSupport.ts';
-import { collectUsdStageOpenRelevantVirtualPaths, toVirtualUsdPath } from './usdPreloadSources.ts';
+import {
+  collectUsdStageOpenRelevantVirtualPaths,
+  resolveUsdBlobUrl,
+  toVirtualUsdPath,
+} from './usdPreloadSources.ts';
 
 type OffscreenUsdFileLike = Pick<RobotFile, 'name' | 'content' | 'format' | 'blobUrl'>;
 
@@ -16,6 +20,7 @@ interface ShouldUseUsdOffscreenStageOptions {
   showJointAxes?: boolean;
   showCenterOfMass?: boolean;
   showInertia?: boolean;
+  assets?: Record<string, string>;
   workerRendererSupported?: boolean;
 }
 
@@ -158,40 +163,48 @@ function hasUnsupportedHandArticulation({
   return nextResult;
 }
 
+function hasActiveSelection(selection: ViewerProps['selection'] | ViewerProps['hoveredSelection']) {
+  return Boolean(selection?.type && selection.id);
+}
+
+function requiresBlobBackedPayload(name: string): boolean {
+  return /\.usd[cz]$/i.test(normalizeUsdFileName(name));
+}
+
+function isTextUsdRoot(name: string): boolean {
+  return normalizeUsdFileName(name).toLowerCase().endsWith('.usda');
+}
+
+function hasUsdRootPayload(
+  sourceFile: OffscreenUsdFileLike | null | undefined,
+  assets: Record<string, string> | undefined,
+): boolean {
+  if (!isUsdFileLike(sourceFile)) {
+    return false;
+  }
+
+  if (
+    !requiresBlobBackedPayload(sourceFile.name) &&
+    typeof sourceFile.content === 'string' &&
+    sourceFile.content.length > 0
+  ) {
+    return true;
+  }
+
+  return Boolean(resolveUsdBlobUrl(sourceFile.name, sourceFile.blobUrl, assets ?? {}));
+}
+
 export function shouldUseUsdOffscreenStage({
-  toolMode,
-  selection,
-  hoveredSelection,
-  focusTarget,
   sourceFile,
-  availableFiles,
-  showOrigins = false,
-  showJointAxes = false,
-  showCenterOfMass = false,
-  showInertia = false,
   workerRendererSupported = supportsUsdWorkerRenderer(),
 }: ShouldUseUsdOffscreenStageOptions): boolean {
-  void selection;
-  void hoveredSelection;
-  void focusTarget;
-
-  if (!workerRendererSupported) {
+  if (!workerRendererSupported || !isUsdFileLike(sourceFile)) {
     return false;
   }
 
-  if (toolMode !== 'view' && toolMode !== 'select') {
-    return false;
-  }
-
-  if (showJointAxes || showCenterOfMass || showInertia) {
-    return false;
-  }
-
-  if (hasUnsupportedHandArticulation({ sourceFile, availableFiles })) {
-    return false;
-  }
-
-  return true;
+  // Offscreen rendering is a bootstrap/preload stage only. Final USD/USDA
+  // presentation and interaction stay on the main WorkspaceCanvas viewer.
+  return false;
 }
 
 export function shouldBootstrapUsdOffscreenStage({
@@ -201,17 +214,32 @@ export function shouldBootstrapUsdOffscreenStage({
   focusTarget,
   sourceFile,
   availableFiles,
+  assets,
   workerRendererSupported = supportsUsdWorkerRenderer(),
 }: ShouldUseUsdOffscreenStageOptions): boolean {
-  void toolMode;
-  void selection;
-  void hoveredSelection;
-  void focusTarget;
-  void sourceFile;
-  void availableFiles;
-  void workerRendererSupported;
+  if (!workerRendererSupported || !isUsdFileLike(sourceFile)) {
+    return false;
+  }
 
-  // Keep the bootstrap handoff disabled until a user-facing model can prove
-  // the final presentation matches the original main-thread viewer path.
-  return false;
+  if (!hasUsdRootPayload(sourceFile, assets)) {
+    return false;
+  }
+
+  if (isTextUsdRoot(sourceFile.name)) {
+    return false;
+  }
+
+  if (toolMode !== 'view' && toolMode !== 'select') {
+    return false;
+  }
+
+  if (hasActiveSelection(selection) || hasActiveSelection(hoveredSelection) || focusTarget) {
+    return false;
+  }
+
+  if (hasUnsupportedHandArticulation({ sourceFile, availableFiles })) {
+    return false;
+  }
+
+  return true;
 }

@@ -12,7 +12,7 @@
 
 **在线体验：** [urdf.d-robotics.cc](https://urdf.d-robotics.cc/)
 
-[English](./README.md) | [中文](./README_CN.md)
+[English](../README.md) | [中文](./README_CN.md)
 
 </div>
 
@@ -220,7 +220,7 @@ npm run codex:key-router:deploy:dry
 
 ## 测试与验证
 
-当前仓库已经提供统一的根级质量命令，用于格式化、Lint 和 CI 校验：
+当前仓库已经提供统一的根级质量命令，用于格式化、Lint 和本地校验：
 
 - `npm run format`
 - `npm run format:check`
@@ -228,12 +228,9 @@ npm run codex:key-router:deploy:dry
 - `npm run typecheck:quality`
 - `npm run check`
 
-`npm run typecheck` 仍保留为全仓 TypeScript 债务检查。CI 和 `npm run check` 当前使用 `npm run typecheck:quality`，它会先排除 test/spec 文件，以便在测试夹具持续迁移期间保持 runtime 编译为绿。
+`npm run typecheck` 仍保留为全仓 TypeScript 债务检查。`npm run check` 当前使用 `npm run typecheck:quality`，它会先排除 test/spec 文件，以便在测试夹具持续迁移期间保持 runtime 编译为绿。
 
-Git hooks 通过 Husky + lint-staged + Commitlint 接入：
-
-- `pre-commit`：对 staged 文件执行格式化，并在 staged diff 上运行 ESLint / Stylelint
-- `commit-msg`：校验 Conventional Commit 提交信息
+Git hooks 和托管 CI 配置不是运行项目的必要条件；共享改动前手动运行对应质量命令即可。
 
 `npm test` 当前只覆盖仓库内可自给的测试，不包含依赖 `test/` 外部大型语料的 fixture 回归。
 

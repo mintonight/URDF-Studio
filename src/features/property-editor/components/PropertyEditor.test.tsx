@@ -141,6 +141,12 @@ function renderPropertyEditor(selection: RobotState['selection'] = createRobot()
   );
 }
 
+function getClassName(markup: string, testId: string): string {
+  const match = markup.match(new RegExp(`data-testid="${testId}"[^>]*class="([^"]+)"`));
+  assert.ok(match, `${testId} should render`);
+  return match[1];
+}
+
 test('link selection stays link-scoped without rendering embedded joint properties', () => {
   const markup = renderPropertyEditor();
 
@@ -171,4 +177,23 @@ test('property editor does not render the shared joints section', () => {
   const markup = renderPropertyEditor();
 
   assert.doesNotMatch(markup, /Joints/);
+});
+
+test('property editor sidebar resize handle uses a thin visible rail', () => {
+  const markup = renderPropertyEditor();
+  const resizeHandleClassName = getClassName(markup, 'property-editor-sidebar-resize-handle');
+
+  assert.match(resizeHandleClassName, /\btop-0\b/);
+  assert.match(resizeHandleClassName, /\bbottom-0\b/);
+  assert.match(resizeHandleClassName, /\bcursor-col-resize\b/);
+  assert.ok(
+    !/\bhover:bg-/.test(resizeHandleClassName),
+    'the broad hit area should stay visually transparent on hover',
+  );
+
+  const visibleRailClassName = getClassName(markup, 'property-editor-sidebar-resize-rail');
+  assert.match(visibleRailClassName, /\btop-0\b/);
+  assert.match(visibleRailClassName, /\bbottom-0\b/);
+  assert.match(visibleRailClassName, /\bw-px\b/);
+  assert.match(visibleRailClassName, /\bgroup-hover:bg-system-blue\/50\b/);
 });

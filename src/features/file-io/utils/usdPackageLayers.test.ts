@@ -79,6 +79,123 @@ const createLayeredRobot = (): RobotState => {
   };
 };
 
+const createMjcfFloatingRootRobot = (): RobotState => {
+  return {
+    name: 'mjcf_go2_like',
+    rootLinkId: 'world',
+    selection: { type: null, id: null },
+    joints: {
+      joint_0: {
+        id: 'joint_0',
+        name: 'joint_0',
+        type: JointType.FLOATING,
+        parentLinkId: 'world',
+        childLinkId: 'base',
+        origin: { xyz: { x: 0, y: 0, z: 0.445 }, rpy: { r: 0, p: 0, y: 0 } },
+        axis: { x: 0, y: 0, z: 1 },
+        angle: 0,
+        dynamics: { damping: 2, friction: 0.2 },
+        hardware: { armature: 0.01, motorType: 'None', motorId: '', motorDirection: 1 },
+      },
+      hip_joint: {
+        id: 'hip_joint',
+        name: 'hip_joint',
+        type: JointType.REVOLUTE,
+        parentLinkId: 'base',
+        childLinkId: 'hip',
+        origin: { xyz: { x: 0.19, y: 0.0465, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        axis: { x: 1, y: 0, z: 0 },
+        angle: 0,
+        limit: { lower: -1, upper: 1, effort: 12, velocity: 4 },
+        dynamics: { damping: 0.2, friction: 0 },
+        hardware: { armature: 0, motorType: 'None', motorId: '', motorDirection: 1 },
+      },
+    },
+    links: {
+      world: {
+        id: 'world',
+        name: 'world',
+        visible: true,
+        visual: {
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+          color: '#808080',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collision: {
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+          color: '#808080',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collisionBodies: [],
+        inertial: {
+          mass: 0,
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          inertia: { ixx: 0, ixy: 0, ixz: 0, iyy: 0, iyz: 0, izz: 0 },
+        },
+      },
+      base: {
+        id: 'base',
+        name: 'base',
+        visible: true,
+        visual: {
+          type: GeometryType.BOX,
+          dimensions: { x: 0.4, y: 0.2, z: 0.1 },
+          color: '#ffffff',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collision: {
+          type: GeometryType.BOX,
+          dimensions: { x: 0.4, y: 0.2, z: 0.1 },
+          color: '#ff0000',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collisionBodies: [],
+        inertial: {
+          mass: 6.9,
+          origin: { xyz: { x: 0.02, y: 0, z: -0.005 }, rpy: { r: 0, p: 0, y: 0 } },
+          inertia: { ixx: 0.1, ixy: 0, ixz: 0, iyy: 0.09, iyz: 0, izz: 0.02 },
+        },
+      },
+      hip: {
+        id: 'hip',
+        name: 'hip',
+        visible: true,
+        visual: {
+          type: GeometryType.CYLINDER,
+          dimensions: { x: 0.05, y: 0.08, z: 0 },
+          color: '#00ff00',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collision: {
+          type: GeometryType.CYLINDER,
+          dimensions: { x: 0.05, y: 0.08, z: 0 },
+          color: '#00ff00',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collisionBodies: [],
+        inertial: {
+          mass: 0.67,
+          origin: { xyz: { x: -0.005, y: 0.002, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          inertia: { ixx: 0.0008, ixy: 0, ixz: 0, iyy: 0.0006, iyz: 0, izz: 0.0005 },
+        },
+      },
+    },
+    materials: {},
+    inspectionContext: {
+      sourceFormat: 'mjcf',
+      mjcf: {
+        siteCount: 0,
+        tendonCount: 0,
+        tendonActuatorCount: 0,
+        bodiesWithSites: [],
+        tendons: [],
+      },
+    },
+  };
+};
+
 test('usd package layers serialize root and sensor configuration prims', () => {
   const rootLayer = buildUsdRootLayerContent('demo_robot_description', 'demo_robot_description');
   const sensorLayer = buildUsdSensorLayerContent('demo_robot_description');
@@ -195,6 +312,36 @@ test('isaacsim usd package layers author the articulation root on the root link 
     physicsLayer,
     /over "base_link" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysicsArticulationRootAPI"\]\n\s*\)\n\s+\{/,
   );
+});
+
+test('isaacsim mjcf package layers omit an empty floating world anchor from robot and physics catalogs', () => {
+  const robot = createMjcfFloatingRootRobot();
+  const pathMaps = buildUsdLinkPathMaps(robot, 'mjcf_go2', {
+    layoutProfile: 'isaacsim',
+  });
+  const physicsLayer = buildUsdPhysicsLayerContent(robot, pathMaps, 'mjcf_go2', 'mjcf_go2', {
+    layoutProfile: 'isaacsim',
+    fileFormat: 'usda',
+  });
+  const robotLayer = buildUsdRobotLayerContent(robot, pathMaps, 'mjcf_go2', {
+    layoutProfile: 'isaacsim',
+  });
+
+  assert.doesNotMatch(
+    physicsLayer,
+    /over "world" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI"/,
+  );
+  assert.doesNotMatch(physicsLayer, /def PhysicsFixedJoint "joint_0"/);
+  assert.match(
+    physicsLayer,
+    /over "base" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysicsArticulationRootAPI"\]\n\s*\)\n\s+\{/,
+  );
+
+  assert.doesNotMatch(robotLayer, /<\/mjcf_go2\/world>/);
+  assert.doesNotMatch(robotLayer, /<\/mjcf_go2\/joints\/joint_0>/);
+  assert.match(robotLayer, /<\/mjcf_go2\/base>/);
+  assert.match(robotLayer, /<\/mjcf_go2\/hip>/);
+  assert.match(robotLayer, /<\/mjcf_go2\/joints\/hip_joint>/);
 });
 
 test('usd package layers omit centerOfMass when inertial origin is not authored', () => {

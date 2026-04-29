@@ -45,6 +45,7 @@ import {
   getPreferredSdfContent,
   getPreferredUrdfContent,
   getPreferredXacroContent,
+  buildSingleComponentWorkspaceMjcfViewerContent,
   getWorkspaceAssemblyViewerRobotData,
   getSingleComponentWorkspaceMjcfViewerSource,
   getWorkspaceAssemblyRenderFailureReason,
@@ -915,6 +916,59 @@ test('getSingleComponentWorkspaceMjcfViewerSource returns the lone visible MJCF 
       availableFiles: [sourceFile],
     }),
     sourceFile,
+  );
+});
+
+test('buildSingleComponentWorkspaceMjcfViewerContent falls back to structured viewer for flybody multi-joint wings', () => {
+  const fixturePath = path.resolve('test/mujoco_menagerie-main/flybody/fruitfly.xml');
+  const sourceFile: RobotFile = {
+    name: fixturePath.replace(/\\/g, '/'),
+    format: 'mjcf',
+    content: fs.readFileSync(fixturePath, 'utf8'),
+  };
+  const importResult = resolveRobotFileData(sourceFile, {
+    availableFiles: [sourceFile],
+    allFileContents: { [sourceFile.name]: sourceFile.content },
+    assets: {},
+  });
+  assert.equal(importResult.status, 'ready');
+  if (importResult.status !== 'ready') {
+    return;
+  }
+
+  const componentRobot = prepareAssemblyRobotData(importResult.robotData, {
+    componentId: 'comp_fruitfly',
+    rootName: 'fruitfly',
+    sourceFilePath: sourceFile.name,
+    sourceFormat: 'mjcf',
+  });
+
+  assert.ok(
+    componentRobot.links.comp_fruitfly_wing_left__joint_stage_0,
+    'expected flybody wing to keep the normalized multi-joint stage links',
+  );
+
+  const assemblyState: AssemblyState = {
+    name: 'flybody_workspace',
+    components: {
+      comp_fruitfly: {
+        id: 'comp_fruitfly',
+        name: 'fruitfly',
+        sourceFile: sourceFile.name,
+        robot: componentRobot,
+        visible: true,
+      },
+    },
+    bridges: {},
+  };
+
+  assert.equal(
+    buildSingleComponentWorkspaceMjcfViewerContent({
+      assemblyState,
+      sourceFile,
+      resolvedMjcfSourceContent: sourceFile.content,
+    }),
+    null,
   );
 });
 

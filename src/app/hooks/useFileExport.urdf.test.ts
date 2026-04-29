@@ -633,7 +633,7 @@ test('useFileExport requires an explicit disconnected-workspace decision before 
       type: 'disconnected-workspace-urdf',
       componentCount: 2,
       connectedGroupCount: 2,
-      exportName: 'demo_workspace',
+      exportName: 'left_arm_right_arm',
     });
   } finally {
     rendered.cleanup();
@@ -707,7 +707,7 @@ test('useFileExport rejects URDF export when the current robot contains unsuppor
   }
 });
 
-test('useFileExport rejects URDF export when the current robot contains unsupported ellipsoid collisions', async () => {
+test('useFileExport downgrades unsupported ellipsoid collisions during URDF export', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const robot = createRobotData('base_link', 'ellipsoid_robot');
@@ -723,12 +723,16 @@ test('useFileExport rejects URDF export when the current robot contains unsuppor
   const rendered = renderHook();
 
   try {
-    await assert.rejects(
-      rendered.hook.handleExportWithConfig(createUrdfExportConfig()),
-      /unsupported ellipsoid type/i,
-    );
+    await rendered.hook.handleExportWithConfig(createUrdfExportConfig());
 
-    assert.equal(downloadMocks.clicked, false, 'unsupported URDF export should not download');
+    assert.equal(downloadMocks.clicked, true, 'compatible URDF fallback should download');
+    assert.ok(downloadMocks.capturedBlob, 'expected a URDF blob to be captured');
+    const archive = await JSZip.loadAsync(await downloadMocks.capturedBlob.arrayBuffer());
+    const urdfFile = archive.file('ellipsoid_robot/ellipsoid_robot.urdf');
+    assert.ok(urdfFile, 'expected exported URDF entry to exist');
+    const urdf = await urdfFile.async('text');
+    assert.match(urdf, /<box size="0\.2 0\.3 0\.4" \/>/);
+    assert.doesNotMatch(urdf, /<ellipsoid/i);
   } finally {
     rendered.cleanup();
     downloadMocks.restore();
@@ -853,7 +857,7 @@ test('useFileExport still allows a single URDF export when workspace components 
       true,
       'connected assembly should export a single URDF archive',
     );
-    assert.match(downloadMocks.appendedAnchor?.download ?? '', /demo_workspace_urdf\.zip$/);
+    assert.match(downloadMocks.appendedAnchor?.download ?? '', /left_arm_right_arm_urdf\.zip$/);
   } finally {
     rendered.cleanup();
     downloadMocks.restore();

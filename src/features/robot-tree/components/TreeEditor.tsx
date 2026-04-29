@@ -153,6 +153,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
   );
 
   const {
+    contentRef,
     width,
     fileBrowserHeight,
     jointPanelHeight,
@@ -164,7 +165,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     handleHorizontalResizeStart,
     handleVerticalResizeStart,
     handleJointPanelResizeStart,
-  } = useTreeEditorLayout();
+  } = useTreeEditorLayout({ hasJointPanel: showJointPanel });
 
   const isProMode = sidebarTab === 'workspace';
   const isAssemblyView = !isReadOnly && sidebarTab === 'workspace' && Boolean(assemblyState);
@@ -653,7 +654,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
       />
 
       {!collapsed && (
-        <div className="flex flex-col h-full overflow-hidden w-full relative">
+        <div ref={contentRef} className="flex flex-col h-full overflow-hidden w-full relative">
           <TreeEditorFileBrowserPanel
             isOpen={isFileBrowserOpen}
             isDragging={isDragging}
@@ -760,10 +761,18 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
               isReadOnly={isReadOnly}
             />
           </div>
+        </div>
+      )}
 
+      {!collapsed && (
+        <div
+          data-testid="tree-editor-sidebar-resize-handle"
+          className="group absolute right-0 top-0 bottom-0 z-30 w-2 cursor-col-resize bg-transparent"
+          onMouseDown={handleHorizontalResizeStart}
+        >
           <div
-            className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-system-blue/40 transition-colors z-20"
-            onMouseDown={handleHorizontalResizeStart}
+            data-testid="tree-editor-sidebar-resize-rail"
+            className="pointer-events-none absolute right-0 top-0 bottom-0 w-px bg-transparent transition-colors group-hover:bg-system-blue/50 group-active:bg-system-blue/60"
           />
         </div>
       )}

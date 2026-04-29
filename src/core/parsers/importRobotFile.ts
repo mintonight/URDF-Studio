@@ -79,6 +79,7 @@ function toRobotData(robot: RobotState | RobotData): RobotData {
     rootLinkId: robot.rootLinkId,
     materials: robot.materials,
     closedLoopConstraints: robot.closedLoopConstraints,
+    inspectionContext: robot.inspectionContext,
   };
 }
 

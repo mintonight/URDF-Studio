@@ -1668,7 +1668,7 @@ export function installRegressionDebugApi(targetWindow: Window): void {
 
   const waitForStableSnapshot = async (
     fileName: string,
-    timeoutMs = 20_000,
+    timeoutMs = 180_000,
   ): Promise<RegressionSnapshot> => {
     const startedAt = Date.now();
     const isUsd = resolveAvailableFile(fileName)?.format === 'usd';

@@ -1,4 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import {
+  WORKSPACE_OVERLAY_LEFT_INSET_VAR,
+  WORKSPACE_OVERLAY_RIGHT_INSET_VAR,
+} from '@/shared/components/3d/scene/viewerOverlaySafeArea';
 
 type PanelType = 'options' | 'joints' | 'measure';
 type PanelPosition = { x: number; y: number };
@@ -16,15 +20,23 @@ interface PositionMap {
   measure: PanelPosition | null;
 }
 
-const EMPTY_POSITIONS: PositionMap = {
-  options: null,
-  joints: null,
-  measure: null,
-};
-
 const PANEL_EDGE_PADDING = 2;
 const MIN_VISIBLE_PANEL_WIDTH = 56;
 const MIN_VISIBLE_PANEL_HEADER_HEIGHT = 40;
+
+const readCssPixelValue = (value: string | undefined): number => {
+  if (!value) return 0;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+};
+
+const readWorkspaceOverlayInsets = (element: HTMLElement) => {
+  const style = window.getComputedStyle(element);
+  return {
+    left: readCssPixelValue(style.getPropertyValue(WORKSPACE_OVERLAY_LEFT_INSET_VAR)),
+    right: readCssPixelValue(style.getPropertyValue(WORKSPACE_OVERLAY_RIGHT_INSET_VAR)),
+  };
+};
 
 export function usePanelDrag(
   containerRef: React.RefObject<HTMLDivElement>,
@@ -40,7 +52,11 @@ export function usePanelDrag(
   const detachDocumentListenersRef = useRef<() => void>(() => {});
   const bodyUserSelectRef = useRef<string>('');
   const bodyCursorRef = useRef<string>('');
-  const positionsRef = useRef<PositionMap>(EMPTY_POSITIONS);
+  const positionsRef = useRef<PositionMap>({
+    options: null,
+    joints: null,
+    measure: null,
+  });
 
   const [optionsPanelPos, setOptionsPanelPos] = useState<PanelPosition | null>(null);
   const [jointPanelPos, setJointPanelPos] = useState<PanelPosition | null>(null);
@@ -89,8 +105,15 @@ export function usePanelDrag(
 
     const containerRect = containerRef.current.getBoundingClientRect();
     const panelRect = panelRef.current.getBoundingClientRect();
-    const minX = Math.min(PANEL_EDGE_PADDING, MIN_VISIBLE_PANEL_WIDTH - panelRect.width);
-    const maxX = Math.max(PANEL_EDGE_PADDING, containerRect.width - MIN_VISIBLE_PANEL_WIDTH);
+    const overlayInsets = readWorkspaceOverlayInsets(containerRef.current);
+    const minX =
+      overlayInsets.left > 0
+        ? overlayInsets.left + PANEL_EDGE_PADDING
+        : Math.min(PANEL_EDGE_PADDING, MIN_VISIBLE_PANEL_WIDTH - panelRect.width);
+    const maxX = Math.max(
+      overlayInsets.left + PANEL_EDGE_PADDING,
+      containerRect.width - overlayInsets.right - MIN_VISIBLE_PANEL_WIDTH,
+    );
     const minY = PANEL_EDGE_PADDING;
     const maxY = Math.max(PANEL_EDGE_PADDING, containerRect.height - MIN_VISIBLE_PANEL_HEADER_HEIGHT);
 
@@ -99,6 +122,84 @@ export function usePanelDrag(
       y: Math.max(minY, Math.min(position.y, maxY)),
     };
   }, [containerRef]);
+
+  // Tighter clamping for container resize — keeps the entire panel visible
+  // (drag clamping allows peeking with only MIN_VISIBLE_PANEL_WIDTH visible).
+  const clampPositionFullyVisible = useCallback((position: PanelPosition, panelRef: React.RefObject<HTMLDivElement>) => {
+    if (!containerRef.current || !panelRef.current) {
+      return position;
+    }
+
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const panelRect = panelRef.current.getBoundingClientRect();
+    const overlayInsets = readWorkspaceOverlayInsets(containerRef.current);
+    const minX = overlayInsets.left + PANEL_EDGE_PADDING;
+    const maxX = Math.max(
+      minX,
+      containerRect.width - overlayInsets.right - panelRect.width - PANEL_EDGE_PADDING,
+    );
+    const maxY = Math.max(PANEL_EDGE_PADDING, containerRect.height - panelRect.height - PANEL_EDGE_PADDING);
+
+    return {
+      x: Math.max(minX, Math.min(position.x, maxX)),
+      y: Math.max(PANEL_EDGE_PADDING, Math.min(position.y, maxY)),
+    };
+  }, [containerRef]);
+
+  const reclampCommittedPositions = useCallback((options?: { requireOverlayInset?: boolean }) => {
+    if (activePanelRef.current || !containerRef.current) {
+      return;
+    }
+
+    if (options?.requireOverlayInset) {
+      const overlayInsets = readWorkspaceOverlayInsets(containerRef.current);
+      if (overlayInsets.left <= 0 && overlayInsets.right <= 0) {
+        return;
+      }
+    }
+
+    const nextOptions = positionsRef.current.options
+      ? clampPositionFullyVisible(positionsRef.current.options, optionsPanelRef)
+      : null;
+    const nextJoints = positionsRef.current.joints
+      ? clampPositionFullyVisible(positionsRef.current.joints, jointPanelRef)
+      : null;
+    const nextMeasure = positionsRef.current.measure
+      ? clampPositionFullyVisible(positionsRef.current.measure, measurePanelRef)
+      : null;
+
+    if (
+      nextOptions &&
+      positionsRef.current.options &&
+      (nextOptions.x !== positionsRef.current.options.x ||
+        nextOptions.y !== positionsRef.current.options.y)
+    ) {
+      commitPanelPosition('options', nextOptions);
+    }
+    if (
+      nextJoints &&
+      positionsRef.current.joints &&
+      (nextJoints.x !== positionsRef.current.joints.x ||
+        nextJoints.y !== positionsRef.current.joints.y)
+    ) {
+      commitPanelPosition('joints', nextJoints);
+    }
+    if (
+      nextMeasure &&
+      positionsRef.current.measure &&
+      (nextMeasure.x !== positionsRef.current.measure.x ||
+        nextMeasure.y !== positionsRef.current.measure.y)
+    ) {
+      commitPanelPosition('measure', nextMeasure);
+    }
+  }, [
+    clampPositionFullyVisible,
+    commitPanelPosition,
+    containerRef,
+    jointPanelRef,
+    measurePanelRef,
+    optionsPanelRef,
+  ]);
 
   const updatePositionFromPointer = useCallback((clientX: number, clientY: number) => {
     const activePanel = activePanelRef.current;
@@ -242,42 +343,16 @@ export function usePanelDrag(
     if (!containerRef.current) return;
 
     const observer = new ResizeObserver(() => {
-      const nextOptions = positionsRef.current.options
-        ? clampPosition(positionsRef.current.options, optionsPanelRef)
-        : null;
-      const nextJoints = positionsRef.current.joints
-        ? clampPosition(positionsRef.current.joints, jointPanelRef)
-        : null;
-      const nextMeasure = positionsRef.current.measure
-        ? clampPosition(positionsRef.current.measure, measurePanelRef)
-        : null;
-
-      if (
-        nextOptions &&
-        positionsRef.current.options &&
-        (nextOptions.x !== positionsRef.current.options.x || nextOptions.y !== positionsRef.current.options.y)
-      ) {
-        commitPanelPosition('options', nextOptions);
-      }
-      if (
-        nextJoints &&
-        positionsRef.current.joints &&
-        (nextJoints.x !== positionsRef.current.joints.x || nextJoints.y !== positionsRef.current.joints.y)
-      ) {
-        commitPanelPosition('joints', nextJoints);
-      }
-      if (
-        nextMeasure &&
-        positionsRef.current.measure &&
-        (nextMeasure.x !== positionsRef.current.measure.x || nextMeasure.y !== positionsRef.current.measure.y)
-      ) {
-        commitPanelPosition('measure', nextMeasure);
-      }
+      reclampCommittedPositions();
     });
 
     observer.observe(containerRef.current);
     return () => observer.disconnect();
-  }, [clampPosition, commitPanelPosition, containerRef, jointPanelRef, measurePanelRef, optionsPanelRef]);
+  }, [containerRef, reclampCommittedPositions]);
+
+  useEffect(() => {
+    reclampCommittedPositions({ requireOverlayInset: true });
+  });
 
   return {
     optionsPanelPos,

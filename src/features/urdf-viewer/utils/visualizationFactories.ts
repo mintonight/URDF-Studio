@@ -534,7 +534,6 @@ export function createInertiaBox(
   mesh.quaternion.copy(rotation);
   mesh.userData = createSelectableHelperUserData();
   mesh.renderOrder = INERTIA_BOX_RENDER_ORDER;
-  mesh.raycast = ignoreRaycast;
   inertiaBox.add(mesh);
 
   const edges = new THREE.EdgesGeometry(geom);
@@ -550,8 +549,7 @@ export function createInertiaBox(
   line.quaternion.copy(rotation);
   line.userData = createSelectableHelperUserData();
   line.renderOrder = GIZMO_BASE_RENDER_ORDER;
-  // Let the visible outline own picking with a narrow threshold so hover/click
-  // stays close to the 2D silhouette users actually see on screen.
+  // Keep outline picking narrow; the filled mesh owns stable surface hover.
   line.raycast = narrowLineRaycast;
   inertiaBox.add(line);
 

@@ -20,6 +20,7 @@ interface UnifiedViewerSceneRootsProps {
   viewerVisible: boolean;
   viewerController: ReturnType<typeof import('@/features/editor').useViewerController>;
   activePreview?: FilePreviewState;
+  modelInteractionEnabled?: boolean;
   viewerResourceScope: ViewerResourceScope;
   retainedRobot: ThreeObject3D | null;
   effectiveSourceFile: import('@/types').RobotFile | null | undefined;
@@ -102,6 +103,7 @@ export function UnifiedViewerSceneRoots({
   viewerVisible,
   viewerController,
   activePreview,
+  modelInteractionEnabled = true,
   viewerResourceScope,
   retainedRobot,
   effectiveSourceFile,
@@ -142,6 +144,7 @@ export function UnifiedViewerSceneRoots({
           controller={viewerController}
           active={viewerVisible}
           activePreview={activePreview}
+          modelInteractionEnabled={modelInteractionEnabled}
           viewerResourceScope={viewerResourceScope}
           retainedRobot={retainedRobot}
           effectiveSourceFile={effectiveSourceFile}

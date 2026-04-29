@@ -58,6 +58,7 @@ import {
 import {
   assertAssemblyUrdfExportSupported,
   assertUrdfExportSupported,
+  buildAssemblyExportName,
   createBoxFaceTextureFallbackWarnings,
   resolveDisconnectedWorkspaceUrdfAction,
 } from './file-export/urdfSupport';
@@ -219,7 +220,11 @@ export function useFileExport() {
     // workspace tab -> merged assembly; structure tab -> current robot store.
     if (assemblyState && sidebarTab === 'workspace') {
       const mergedData = buildExportableAssemblyRobotData(assemblyState);
-      return { ...mergedData, selection: { type: null, id: null } };
+      return {
+        ...mergedData,
+        name: buildAssemblyExportName(assemblyState),
+        selection: { type: null, id: null },
+      };
     }
 
     return buildCurrentRobotExportState({

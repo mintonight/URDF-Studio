@@ -5,6 +5,7 @@ import type { Group, Object3D } from 'three';
 import {
   LinkIkTransformControls,
   SceneCompileWarmup,
+  VIEWER_CORNER_OVERLAY_CLASS_NAME,
   shouldUseIndeterminateStreamingMeshProgress,
 } from '@/shared/components/3d';
 import { isAssemblyTransformSelectionArmed } from '@/shared/utils/assembly/transformSelection';
@@ -38,7 +39,7 @@ import { ViewerLoadingHud } from './ViewerLoadingHud';
 import type { RobotModelProps, ViewerPaintFaceHit } from '../types';
 import { buildViewerLoadingHudState } from '../utils/viewerLoadingHud';
 import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
-import { useRobotStore, useUIStore } from '@/store';
+import { useRobotStore, useSelectionStore, useUIStore } from '@/store';
 import { GeometryType } from '@/types';
 
 import { useRobotLoader } from '../hooks/useRobotLoader';
@@ -47,6 +48,7 @@ import { useCameraFocus } from '../hooks/useCameraFocus';
 import { useMouseInteraction } from '../hooks/useMouseInteraction';
 import { useHoverDetection } from '../hooks/useHoverDetection';
 import { useVisualizationEffects } from '../hooks/useVisualizationEffects';
+import { resolveCameraAutoFrameLoadScopeKey } from '../utils/cameraAutoFrame';
 import { isSingleDofJoint } from '../utils/jointTypes';
 import {
   createRuntimeSceneLinkMetadataState,
@@ -136,6 +138,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     const { invalidate } = useThree();
     const snapshotRenderActive = useSnapshotRenderActive();
     const showMjcfWorldLink = useUIStore((state) => state.viewOptions.showMjcfWorldLink);
+    const setHoverFrozen = useSelectionStore((state) => state.setHoverFrozen);
     const autoFrameScopeFallbackRef = useRef<string | null>(null);
     const [sourceSceneComponentRoot, setSourceSceneComponentRoot] = useState<Group | null>(null);
     const resolvedSourceFormat = useMemo(
@@ -155,6 +158,11 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     if (!autoFrameScopeFallbackRef.current) {
       autoFrameScopeFallbackRef.current = `viewer-session:${Math.random().toString(36).slice(2)}`;
     }
+    const autoFrameLoadScopeKey = resolveCameraAutoFrameLoadScopeKey({
+      sourceFilePath,
+      reloadToken,
+      fallbackScopeKey: autoFrameScopeFallbackRef.current,
+    });
 
     // Keep ref for setIsDragging to avoid stale closures
     const setIsDraggingRef = useRef(setIsDragging);
@@ -362,7 +370,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       selection,
       mode,
       autoFrameOnRobotChange: active && !focusTarget && !isLoading,
-      autoFrameScopeKey: sourceFilePath ?? autoFrameScopeFallbackRef.current,
+      autoFrameScopeKey: autoFrameLoadScopeKey,
       active,
     });
 
@@ -499,6 +507,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         onJointChangeCommit,
         throttleJointChangeDuringDrag: true,
         setIsDragging,
+        setHoverFrozen,
         setActiveJoint,
         justSelectedRef,
         isOrbitDragging,
@@ -723,7 +732,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         </group>
         {isLoading && !onDocumentLoadEvent ? (
           <Html fullscreen>
-            <div className="pointer-events-none absolute inset-0 flex items-end justify-end p-4">
+            <div className={VIEWER_CORNER_OVERLAY_CLASS_NAME}>
               <ViewerLoadingHud
                 title={t.loadingRobot}
                 detail={loadingDetail}

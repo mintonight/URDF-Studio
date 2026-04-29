@@ -65,6 +65,8 @@ export function namespaceAssemblyRobotData(
   const idPrefix = `${componentId}_`;
   const linkIdMap: Record<string, string> = {};
   const linkNameMap: Record<string, string> = {};
+  const jointIdMap: Record<string, string> = {};
+  const jointNameMap: Record<string, string> = {};
   const links: Record<string, UrdfLink> = {};
   const joints: Record<string, UrdfJoint> = {};
   const closedLoopConstraints: RobotClosedLoopConstraint[] = [];
@@ -92,9 +94,19 @@ export function namespaceAssemblyRobotData(
 
   for (const [id, joint] of Object.entries(data.joints)) {
     const newId = idPrefix + id;
+    const originalName = joint.name?.trim() || id;
+    jointIdMap[id] = newId;
+    jointNameMap[originalName] = newId;
+  }
+
+  for (const [id, joint] of Object.entries(data.joints)) {
+    const newId = idPrefix + id;
     const parentId = linkIdMap[joint.parentLinkId] ?? idPrefix + joint.parentLinkId;
     const childId = linkIdMap[joint.childLinkId] ?? idPrefix + joint.childLinkId;
     const originalName = joint.name?.trim() || id;
+    const mimicJoint = joint.mimic?.joint
+      ? (jointIdMap[joint.mimic.joint] ?? jointNameMap[joint.mimic.joint] ?? joint.mimic.joint)
+      : undefined;
 
     joints[newId] = {
       ...joint,
@@ -102,6 +114,12 @@ export function namespaceAssemblyRobotData(
       name: `${rootName}_${originalName}`,
       parentLinkId: parentId,
       childLinkId: childId,
+      mimic: joint.mimic
+        ? {
+            ...joint.mimic,
+            ...(mimicJoint ? { joint: mimicJoint } : {}),
+          }
+        : undefined,
     };
   }
 

@@ -20,6 +20,7 @@ interface BuildUnifiedViewerScenePropsArgs {
   controller: ViewerController;
   active: boolean;
   hasActivePreview: boolean;
+  modelInteractionEnabled?: boolean;
   hoveredSelection?: ViewerProps['hoveredSelection'];
   viewerResourceScope: ViewerResourceScope;
   retainedRobot?: ThreeObject3D | null;
@@ -61,6 +62,7 @@ export function buildUnifiedViewerSceneProps({
   controller,
   active,
   hasActivePreview,
+  modelInteractionEnabled = true,
   hoveredSelection,
   viewerResourceScope,
   retainedRobot,
@@ -94,7 +96,8 @@ export function buildUnifiedViewerSceneProps({
   showSourceSceneAssemblyComponentControls = false,
   onSourceSceneAssemblyComponentTransform,
 }: BuildUnifiedViewerScenePropsArgs): ViewerSceneBaseProps {
-  const previewBlocksInteraction = hasActivePreview || !active;
+  const blocksReadOnlyModelInteraction = hasActivePreview || !modelInteractionEnabled;
+  const previewBlocksInteraction = blocksReadOnlyModelInteraction || !active;
 
   return buildViewerSceneProps({
     controller,
@@ -112,33 +115,37 @@ export function buildUnifiedViewerSceneProps({
     onRuntimeRobotLoaded,
     sourceFilePath: effectiveSourceFilePath,
     mode: hasActivePreview ? 'editor' : mode,
-    selection: hasActivePreview ? EMPTY_VIEWER_SELECTION : selection,
-    hoveredSelection: hasActivePreview ? undefined : hoveredSelection,
+    selection: blocksReadOnlyModelInteraction ? EMPTY_VIEWER_SELECTION : selection,
+    hoveredSelection: blocksReadOnlyModelInteraction ? undefined : hoveredSelection,
     hoverSelectionEnabled: !previewBlocksInteraction,
     onHover: previewBlocksInteraction ? undefined : onHover,
     onMeshSelect: previewBlocksInteraction ? undefined : onMeshSelect,
-    onUpdate: hasActivePreview ? undefined : onUpdate,
-    robotLinks: hasActivePreview ? undefined : robot.links,
-    robotJoints: hasActivePreview ? undefined : robot.joints,
-    focusTarget: hasActivePreview ? undefined : focusTarget,
-    onCollisionTransformPreview: hasActivePreview ? undefined : onCollisionTransformPreview,
-    onCollisionTransform: hasActivePreview ? undefined : onCollisionTransform,
+    onUpdate: blocksReadOnlyModelInteraction ? undefined : onUpdate,
+    robotLinks: blocksReadOnlyModelInteraction ? undefined : robot.links,
+    robotJoints: blocksReadOnlyModelInteraction ? undefined : robot.joints,
+    focusTarget: blocksReadOnlyModelInteraction ? undefined : focusTarget,
+    onCollisionTransformPreview: blocksReadOnlyModelInteraction
+      ? undefined
+      : onCollisionTransformPreview,
+    onCollisionTransform: blocksReadOnlyModelInteraction ? undefined : onCollisionTransform,
     isMeshPreview: hasActivePreview ? false : isMeshPreview,
-    ikDragActive: hasActivePreview ? false : ikDragActive,
+    ikDragActive: blocksReadOnlyModelInteraction ? false : ikDragActive,
     runtimeInstanceKey: viewerReloadKey,
-    assemblyState: hasActivePreview ? null : assemblyState,
-    assemblySelection: hasActivePreview ? undefined : assemblySelection,
-    onAssemblyTransform: hasActivePreview ? undefined : onAssemblyTransform,
-    onComponentTransform: hasActivePreview ? undefined : onComponentTransform,
-    onBridgeTransform: hasActivePreview ? undefined : onBridgeTransform,
-    sourceSceneAssemblyComponentId: hasActivePreview ? null : sourceSceneAssemblyComponentId,
-    sourceSceneAssemblyComponentTransform: hasActivePreview
+    assemblyState: blocksReadOnlyModelInteraction ? null : assemblyState,
+    assemblySelection: blocksReadOnlyModelInteraction ? undefined : assemblySelection,
+    onAssemblyTransform: blocksReadOnlyModelInteraction ? undefined : onAssemblyTransform,
+    onComponentTransform: blocksReadOnlyModelInteraction ? undefined : onComponentTransform,
+    onBridgeTransform: blocksReadOnlyModelInteraction ? undefined : onBridgeTransform,
+    sourceSceneAssemblyComponentId: blocksReadOnlyModelInteraction
+      ? null
+      : sourceSceneAssemblyComponentId,
+    sourceSceneAssemblyComponentTransform: blocksReadOnlyModelInteraction
       ? null
       : sourceSceneAssemblyComponentTransform,
-    showSourceSceneAssemblyComponentControls: hasActivePreview
+    showSourceSceneAssemblyComponentControls: blocksReadOnlyModelInteraction
       ? false
       : showSourceSceneAssemblyComponentControls,
-    onSourceSceneAssemblyComponentTransform: hasActivePreview
+    onSourceSceneAssemblyComponentTransform: blocksReadOnlyModelInteraction
       ? undefined
       : onSourceSceneAssemblyComponentTransform,
   });

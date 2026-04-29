@@ -9,6 +9,22 @@ export interface AutoFrameRobotChangeOptions {
   active?: boolean;
 }
 
+interface ResolveCameraAutoFrameLoadScopeKeyOptions {
+  sourceFilePath: string | null | undefined;
+  reloadToken: number;
+  fallbackScopeKey: string;
+}
+
+export function resolveCameraAutoFrameLoadScopeKey({
+  sourceFilePath,
+  reloadToken,
+  fallbackScopeKey,
+}: ResolveCameraAutoFrameLoadScopeKeyOptions): string {
+  const resolvedBaseScopeKey =
+    sourceFilePath && sourceFilePath.length > 0 ? sourceFilePath : fallbackScopeKey;
+  return `${resolvedBaseScopeKey}:reload:${reloadToken}`;
+}
+
 export function resolveCameraAutoFrameScopeKey(
   autoFrameScopeKey: string | null | undefined,
   robotUuid: string,

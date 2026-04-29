@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { shouldAutoFrameRobotChange } from './cameraAutoFrame.ts';
+import {
+  resolveCameraAutoFrameLoadScopeKey,
+  shouldAutoFrameRobotChange,
+} from './cameraAutoFrame.ts';
 
 test('auto-frames when the current model scope has not been framed yet', () => {
   assert.equal(
@@ -66,5 +69,35 @@ test('skips auto-frame when the viewer layer is inactive', () => {
       active: false,
     }),
     false,
+  );
+});
+
+test('inline imports get a fresh auto-frame scope when the viewer reload token changes', () => {
+  assert.notEqual(
+    resolveCameraAutoFrameLoadScopeKey({
+      sourceFilePath: null,
+      reloadToken: 1,
+      fallbackScopeKey: 'viewer-session:inline',
+    }),
+    resolveCameraAutoFrameLoadScopeKey({
+      sourceFilePath: null,
+      reloadToken: 2,
+      fallbackScopeKey: 'viewer-session:inline',
+    }),
+  );
+});
+
+test('path-based reloads keep the file identity but still re-arm auto-frame on reload', () => {
+  assert.notEqual(
+    resolveCameraAutoFrameLoadScopeKey({
+      sourceFilePath: 'robots/example.urdf',
+      reloadToken: 4,
+      fallbackScopeKey: 'viewer-session:inline',
+    }),
+    resolveCameraAutoFrameLoadScopeKey({
+      sourceFilePath: 'robots/example.urdf',
+      reloadToken: 5,
+      fallbackScopeKey: 'viewer-session:inline',
+    }),
   );
 });

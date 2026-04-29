@@ -5,10 +5,19 @@ export type { SourceCodeDocumentFlavor } from '@/features/code-editor';
 
 type SourceCodeFileLike = Pick<RobotFile, 'name' | 'format' | 'content'>;
 
+function hasTextUsdSource(file: SourceCodeFileLike): boolean {
+  const normalizedName = file.name.toLowerCase();
+  if (normalizedName.endsWith('.usda')) {
+    return true;
+  }
+
+  return file.content.trimStart().startsWith('#usda');
+}
+
 export function shouldUseEquivalentMjcfForUsdSource(
   file: SourceCodeFileLike | null | undefined,
 ): boolean {
-  return Boolean(file && file.format === 'usd');
+  return Boolean(file && file.format === 'usd' && !hasTextUsdSource(file));
 }
 
 export function getSourceCodeDocumentFlavor(
@@ -30,12 +39,8 @@ export function getSourceCodeDocumentFlavor(
     return 'sdf';
   }
 
-  if (shouldUseEquivalentMjcfForUsdSource(file)) {
-    return 'equivalent-mjcf';
-  }
-
   if (file.format === 'usd') {
-    return 'usd';
+    return shouldUseEquivalentMjcfForUsdSource(file) ? 'equivalent-mjcf' : 'usd';
   }
 
   return 'urdf';

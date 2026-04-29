@@ -12,7 +12,7 @@ Professional robot design, assembly, visualization, and export workstation for `
 
 **Live demo:** [urdf.d-robotics.cc](https://urdf.d-robotics.cc/)
 
-[English](./README.md) | [中文](./README_CN.md)
+[English](./README.md) | [中文](./docs/README_CN.md)
 
 </div>
 
@@ -220,7 +220,7 @@ Additional script families under `scripts/` include URDF inspection helpers, rob
 
 ## Testing and Verification
 
-This repository now exposes root quality commands for formatting, linting, and CI validation:
+This repository exposes root quality commands for formatting, linting, and local validation:
 
 - `npm run format`
 - `npm run format:check`
@@ -228,12 +228,9 @@ This repository now exposes root quality commands for formatting, linting, and C
 - `npm run typecheck:quality`
 - `npm run check`
 
-`npm run typecheck` remains available as the full-repo TypeScript debt check. CI and `npm run check` use `npm run typecheck:quality`, which currently excludes test/spec files so runtime compilation can stay green while test fixtures are still being updated.
+`npm run typecheck` remains available as the full-repo TypeScript debt check. `npm run check` uses `npm run typecheck:quality`, which currently excludes test/spec files so runtime compilation can stay green while test fixtures are still being updated.
 
-Git hooks are wired through Husky + lint-staged + Commitlint:
-
-- `pre-commit`: formats staged files and runs ESLint / Stylelint on the staged diff
-- `commit-msg`: validates Conventional Commit messages
+Git hooks and hosted CI configuration are intentionally not required; run the quality commands manually before sharing changes.
 
 `npm test` stays limited to repo-contained tests that do not require the external fixture corpora under `test/`.
 

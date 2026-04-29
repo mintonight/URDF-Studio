@@ -134,3 +134,20 @@ test('isAssemblyTransformSelectionArmed only arms component transforms for a roo
     true,
   );
 });
+
+test('isAssemblyTransformSelectionArmed ignores root-link helper selections', () => {
+  const assemblyState = createAssemblyState();
+
+  assert.equal(
+    isAssemblyTransformSelectionArmed(
+      assemblyState,
+      { type: 'component', id: 'component_a' },
+      {
+        type: 'link',
+        id: 'component_a/base_link',
+        helperKind: 'origin-axes',
+      },
+    ),
+    false,
+  );
+});

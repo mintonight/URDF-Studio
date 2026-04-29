@@ -5,7 +5,10 @@ import { useSelectionStore } from '@/store';
 import type { InteractionSelection, UrdfJoint, UrdfLink } from '@/types';
 import { setRegressionProjectedInteractionTargetsProvider } from '@/shared/debug/regressionBridge';
 import { highlightFaceMaterial } from '../utils/materials';
-import { collectGizmoRaycastTargets, isGizmoObject } from '../utils/raycast';
+import {
+  collectGizmoRaycastTargets,
+  shouldBlockBackgroundInteractionForGizmoHit,
+} from '../utils/raycast';
 import {
   collectPickTargets,
   collectSelectableHelperTargets,
@@ -733,7 +736,7 @@ export function useHoverDetection({
         gizmoTargets.length > 0
           ? raycasterRef.current.intersectObjects(gizmoTargets, false)[0]
           : undefined;
-      if (nearestSceneHit && isGizmoObject(nearestSceneHit.object)) {
+      if (shouldBlockBackgroundInteractionForGizmoHit(nearestSceneHit?.object ?? null)) {
         if (highlightedFace) setHighlightedFace(null);
         resetHoverState();
         return;
@@ -808,7 +811,7 @@ export function useHoverDetection({
       gizmoTargets.length > 0
         ? raycasterRef.current.intersectObjects(gizmoTargets, false)[0]
         : undefined;
-    if (nearestSceneHit && isGizmoObject(nearestSceneHit.object)) {
+    if (shouldBlockBackgroundInteractionForGizmoHit(nearestSceneHit?.object ?? null)) {
       resetHoverState();
       return;
     }

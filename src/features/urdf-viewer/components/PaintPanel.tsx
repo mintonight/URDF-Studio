@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
+import { WORKSPACE_OVERLAY_RIGHT_EDGE_GAP } from '@/shared/components/3d/scene';
 import { OptionsPanel } from '@/shared/components/Panel/OptionsPanel';
 import type {
   ToolMode,
@@ -84,11 +85,14 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({
       isCollapsed={isCollapsed}
       onToggleCollapse={() => setIsCollapsed((previous) => !previous)}
       onClose={onClose}
-      defaultPosition={{ right: '16px', bottom: '16px' }}
+      defaultPosition={{ right: WORKSPACE_OVERLAY_RIGHT_EDGE_GAP, bottom: '16px' }}
       width="14rem"
       maxHeight={320}
       zIndex={50}
       panelClassName="paint-panel"
+      expandText={t.expand}
+      collapseText={t.collapse}
+      closeText={t.close}
     >
       <div className="space-y-3 p-[10px]">
         <p className="text-[10px] leading-4 text-text-secondary">{t.paintToolHint}</p>

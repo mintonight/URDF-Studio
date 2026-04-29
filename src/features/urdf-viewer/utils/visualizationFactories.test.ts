@@ -44,7 +44,7 @@ test('createOriginAxes defaults to participating in depth occlusion', () => {
   });
 });
 
-test('createInertiaBox keeps fill visual-only and uses the outline for narrow picking', () => {
+test('createInertiaBox uses the fill surface for stable hover and the outline for narrow picking', () => {
   const inertiaBox = createInertiaBox(1, 2, 3, new THREE.Quaternion());
   const fillMesh = inertiaBox.children.find((child) => (child as Mesh).isMesh) as Mesh | undefined;
   const outline = inertiaBox.children.find((child) => (child as LineSegments).isLineSegments) as
@@ -53,7 +53,7 @@ test('createInertiaBox keeps fill visual-only and uses the outline for narrow pi
 
   assert.ok(fillMesh, 'inertia box should include a filled mesh');
   assert.ok(outline, 'inertia box should include an outline');
-  assert.equal(fillMesh?.raycast, ignoreRaycast);
+  assert.notEqual(fillMesh?.raycast, ignoreRaycast);
   assert.equal(outline?.raycast, narrowLineRaycast);
 });
 

@@ -299,6 +299,93 @@ test('maps authored USD physics schema joint type names back onto URDF joint typ
   assert.equal(joint.type, JointType.FIXED);
 });
 
+test('ignores USDA internal mesh libraries when robot link metadata is present', () => {
+  const result = adaptUsdViewerSnapshotToRobotData(
+    {
+      stageSourcePath: '/unitree_ros/b2_description/urdf/b2_description.usda',
+      stage: {
+        defaultPrimPath: '/b2_description',
+      },
+      robotTree: {
+        linkParentPairs: [
+          ['/b2_description/__MeshLibrary', null],
+          ['/b2_description/base_link', null],
+          ['/b2_description/FL_hip', '/b2_description/base_link'],
+        ],
+        rootLinkPaths: ['/b2_description/__MeshLibrary', '/b2_description/base_link'],
+      },
+      robotMetadataSnapshot: {
+        stageSourcePath: '/unitree_ros/b2_description/urdf/b2_description.usda',
+        source: 'usd-stage-worker',
+        linkParentPairs: [
+          ['/b2_description/__MeshLibrary', null],
+          ['/b2_description/base_link', null],
+          ['/b2_description/FL_hip', '/b2_description/base_link'],
+        ],
+        jointCatalogEntries: [
+          {
+            linkPath: '/b2_description/FL_hip',
+            parentLinkPath: '/b2_description/base_link',
+            jointName: 'FL_hip_joint',
+            jointTypeName: 'revolute',
+            axisToken: 'X',
+            axisLocal: [1, 0, 0],
+            lowerLimitDeg: -90,
+            upperLimitDeg: 90,
+            originXyz: [0, 0, 0],
+            originQuatWxyz: [1, 0, 0, 0],
+          },
+        ],
+        meshCountsByLinkPath: {
+          '/b2_description/__MeshLibrary': {
+            visualMeshCount: 24,
+            collisionMeshCount: 0,
+            collisionPrimitiveCounts: {},
+          },
+          '/b2_description/base_link': {
+            visualMeshCount: 1,
+            collisionMeshCount: 1,
+            collisionPrimitiveCounts: { box: 1 },
+          },
+          '/b2_description/FL_hip': {
+            visualMeshCount: 1,
+            collisionMeshCount: 0,
+            collisionPrimitiveCounts: {},
+          },
+        },
+      },
+      render: {
+        meshDescriptors: [
+          {
+            meshId: '/b2_description/__MeshLibrary/body_mesh',
+            sectionName: 'visuals',
+            resolvedPrimPath: '/b2_description/__MeshLibrary/body_mesh',
+            primType: 'mesh',
+          },
+          {
+            meshId: '/b2_description/base_link/visuals.proto_mesh_id0',
+            sectionName: 'visuals',
+            resolvedPrimPath: '/b2_description/base_link/visuals/body',
+            primType: 'mesh',
+          },
+        ],
+      },
+    },
+    {
+      fileName: 'b2_description.usda',
+    },
+  );
+
+  assert.ok(result);
+  assert.equal(result.robotData.rootLinkId, 'base_link');
+  assert.equal(result.linkIdByPath['/b2_description/__MeshLibrary'], undefined);
+  assert.equal(result.linkIdByPath['/b2_description/base_link'], 'base_link');
+  assert.equal(result.linkIdByPath['/b2_description/FL_hip'], 'FL_hip');
+  assert.deepEqual(Object.keys(result.robotData.links).sort(), ['FL_hip', 'base_link']);
+  assert.equal(result.robotData.joints.FL_hip_joint?.parentLinkId, 'base_link');
+  assert.equal(result.robotData.joints.FL_hip_joint?.childLinkId, 'FL_hip');
+});
+
 test('adapts generic mesh-only CAD USD assemblies into a browseable hierarchy rooted at the default prim', () => {
   const result = adaptUsdViewerSnapshotToRobotData(
     {

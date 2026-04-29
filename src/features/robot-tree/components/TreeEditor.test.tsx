@@ -43,6 +43,66 @@ function installDom() {
   return dom;
 }
 
+function installFixedHeightResizeObserver(dom: JSDOM, height: number) {
+  class FixedHeightResizeObserver {
+    private readonly callback: ResizeObserverCallback;
+
+    constructor(callback: ResizeObserverCallback) {
+      this.callback = callback;
+    }
+
+    observe(target: Element) {
+      this.callback(
+        [
+          {
+            target,
+            contentRect: {
+              width: 264,
+              height,
+              x: 0,
+              y: 0,
+              top: 0,
+              right: 264,
+              bottom: height,
+              left: 0,
+              toJSON: () => ({}),
+            },
+          } as ResizeObserverEntry,
+        ],
+        this as unknown as ResizeObserver,
+      );
+    }
+
+    unobserve() {
+      return undefined;
+    }
+
+    disconnect() {
+      return undefined;
+    }
+  }
+
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    value: FixedHeightResizeObserver,
+    configurable: true,
+  });
+  Object.defineProperty(dom.window, 'ResizeObserver', {
+    value: FixedHeightResizeObserver,
+    configurable: true,
+  });
+}
+
+function clearResizeObserver(dom: JSDOM) {
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    value: undefined,
+    configurable: true,
+  });
+  Object.defineProperty(dom.window, 'ResizeObserver', {
+    value: undefined,
+    configurable: true,
+  });
+}
+
 function createRobotState(): RobotState {
   return {
     name: 'demo',
@@ -381,6 +441,7 @@ test('TreeEditor uses an invisible edge hit area for the file browser resize han
     panelLayout: {
       ...useUIStore.getState().panelLayout,
       treeFileBrowserHeight: 216,
+      treePanelHeightMode: 'custom',
     },
   });
   useSelectionStore.setState({ selection: { type: null, id: null } });
@@ -428,6 +489,78 @@ test('TreeEditor uses an invisible edge hit area for the file browser resize han
   }
 });
 
+test('TreeEditor sidebar resize handle spans the full sidebar with a thin visible rail', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useUIStore.setState({
+    sidebarTab: 'structure',
+    panelLayout: {
+      ...useUIStore.getState().panelLayout,
+      treeSidebarWidth: 288,
+    },
+  });
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+
+  try {
+    await renderTreeEditor({
+      root,
+      availableFiles: [],
+      onRequestLoadRobot: () => 'loaded',
+    });
+
+    const resizeHandle = container.querySelector<HTMLElement>(
+      '[data-testid="tree-editor-sidebar-resize-handle"]',
+    );
+    assert.ok(resizeHandle, 'sidebar resize handle should render');
+    assert.match(resizeHandle.className, /\btop-0\b/);
+    assert.match(resizeHandle.className, /\bbottom-0\b/);
+    assert.match(resizeHandle.className, /\bcursor-col-resize\b/);
+    assert.ok(
+      !/\bhover:bg-/.test(resizeHandle.className),
+      'the broad hit area should stay visually transparent on hover',
+    );
+
+    const visibleRail = resizeHandle.querySelector<HTMLElement>(
+      '[data-testid="tree-editor-sidebar-resize-rail"]',
+    );
+    assert.ok(visibleRail, 'sidebar resize handle should render a separate visible rail');
+    assert.match(visibleRail.className, /\btop-0\b/);
+    assert.match(visibleRail.className, /\bbottom-0\b/);
+    assert.match(visibleRail.className, /\bw-px\b/);
+    assert.match(visibleRail.className, /\bgroup-hover:bg-system-blue\/50\b/);
+
+    await act(async () => {
+      resizeHandle.dispatchEvent(
+        new dom.window.MouseEvent('mousedown', {
+          bubbles: true,
+          clientX: 288,
+        }),
+      );
+      dom.window.document.dispatchEvent(
+        new dom.window.MouseEvent('mousemove', {
+          bubbles: true,
+          clientX: 338,
+        }),
+      );
+      dom.window.document.dispatchEvent(
+        new dom.window.MouseEvent('mouseup', {
+          bubbles: true,
+        }),
+      );
+    });
+
+    assert.equal(useUIStore.getState().panelLayout.treeSidebarWidth, 338);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('TreeEditor lets the joint section grow by dragging the boundary downward', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
@@ -440,6 +573,7 @@ test('TreeEditor lets the joint section grow by dragging the boundary downward',
     panelLayout: {
       ...useUIStore.getState().panelLayout,
       treeJointPanelHeight: 132,
+      treePanelHeightMode: 'custom',
     },
   });
   useSelectionStore.setState({ selection: { type: null, id: null } });
@@ -503,6 +637,147 @@ test('TreeEditor lets the joint section grow by dragging the boundary downward',
   }
 });
 
+test('TreeEditor balances the initial asset, joint, and structure sections', async () => {
+  const dom = installDom();
+  installFixedHeightResizeObserver(dom, 720);
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useUIStore.setState({
+    sidebarTab: 'structure',
+    panelSections: {},
+    panelLayout: {
+      ...useUIStore.getState().panelLayout,
+      treeFileBrowserHeight: 216,
+      treeJointPanelHeight: 132,
+      treePanelHeightMode: 'balanced',
+    },
+  });
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={createRobotStateWithJoint()}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          showJointPanel
+          onJointAngleChange={() => {}}
+        />,
+      );
+    });
+
+    const fileBrowserRoot = findSectionRootByLabel(container, 'Asset Library');
+    const jointSectionRoot = container.querySelector<HTMLElement>(
+      '[data-testid="tree-editor-joint-section-content"]',
+    )?.parentElement as HTMLDivElement | null;
+    assert.ok(jointSectionRoot, 'joint section root should render');
+
+    assert.equal(fileBrowserRoot.style.height, '240px');
+    assert.equal(jointSectionRoot.style.height, '240px');
+    assert.equal(useUIStore.getState().panelLayout.treePanelHeightMode, 'balanced');
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    clearResizeObserver(dom);
+    dom.window.close();
+  }
+});
+
+test('TreeEditor switches balanced sections to persisted custom heights after drag', async () => {
+  const dom = installDom();
+  installFixedHeightResizeObserver(dom, 720);
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useUIStore.setState({
+    sidebarTab: 'structure',
+    panelSections: {},
+    panelLayout: {
+      ...useUIStore.getState().panelLayout,
+      treeFileBrowserHeight: 216,
+      treeJointPanelHeight: 132,
+      treePanelHeightMode: 'balanced',
+    },
+  });
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={createRobotStateWithJoint()}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          showJointPanel
+          onJointAngleChange={() => {}}
+        />,
+      );
+    });
+
+    const resizeHandle = container.querySelector<HTMLElement>(
+      '[data-testid="tree-editor-joint-section-resize-handle"]',
+    );
+    assert.ok(resizeHandle, 'joint section resize handle should render');
+
+    await act(async () => {
+      resizeHandle.dispatchEvent(
+        new dom.window.MouseEvent('mousedown', {
+          bubbles: true,
+          clientY: 200,
+        }),
+      );
+      dom.window.document.dispatchEvent(
+        new dom.window.MouseEvent('mousemove', {
+          bubbles: true,
+          clientY: 260,
+        }),
+      );
+      dom.window.document.dispatchEvent(
+        new dom.window.MouseEvent('mouseup', {
+          bubbles: true,
+        }),
+      );
+    });
+
+    assert.equal(useUIStore.getState().panelLayout.treePanelHeightMode, 'custom');
+    assert.equal(useUIStore.getState().panelLayout.treeFileBrowserHeight, 240);
+    assert.equal(useUIStore.getState().panelLayout.treeJointPanelHeight, 300);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    clearResizeObserver(dom);
+    dom.window.close();
+  }
+});
+
 test('TreeEditor restores file browser and structure disclosure state after remounting', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
@@ -516,6 +791,7 @@ test('TreeEditor restores file browser and structure disclosure state after remo
     panelLayout: {
       ...useUIStore.getState().panelLayout,
       treeFileBrowserHeight: 216,
+      treePanelHeightMode: 'custom',
     },
   });
   useSelectionStore.setState({ selection: { type: null, id: null } });
@@ -572,6 +848,7 @@ test('TreeEditor keeps the file browser at its fixed height when the structure t
     panelLayout: {
       ...useUIStore.getState().panelLayout,
       treeFileBrowserHeight: 216,
+      treePanelHeightMode: 'custom',
     },
   });
   useSelectionStore.setState({ selection: { type: null, id: null } });
@@ -726,6 +1003,7 @@ test('TreeEditor joint section can grow past the old compact cap when dragged do
     panelLayout: {
       ...useUIStore.getState().panelLayout,
       treeJointPanelHeight: 240,
+      treePanelHeightMode: 'custom',
     },
   });
   useSelectionStore.setState({ selection: { type: null, id: null } });
@@ -800,6 +1078,7 @@ test('TreeEditor still renders the joint section when the robot has no joints', 
     panelLayout: {
       ...useUIStore.getState().panelLayout,
       treeJointPanelHeight: 132,
+      treePanelHeightMode: 'custom',
     },
   });
   useSelectionStore.setState({ selection: { type: null, id: null } });
@@ -857,6 +1136,7 @@ test('TreeEditor renders the joint section before the structure section so colla
     panelLayout: {
       ...useUIStore.getState().panelLayout,
       treeJointPanelHeight: 132,
+      treePanelHeightMode: 'custom',
     },
   });
   useSelectionStore.setState({ selection: { type: null, id: null } });
