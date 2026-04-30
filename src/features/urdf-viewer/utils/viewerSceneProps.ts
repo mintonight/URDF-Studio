@@ -4,7 +4,6 @@ import type { AssemblyTransform } from '@/types';
 import type { AssemblySelection } from '@/store/assemblySelectionStore';
 import type { ViewerController } from '../hooks/useViewerController';
 import type { ToolMode, ViewerProps, ViewerDocumentLoadEvent, ViewerSceneMode } from '../types';
-import type { ViewerRobotDataResolution } from './viewerRobotData';
 
 interface BuildViewerScenePropsArgs {
   resolvedTheme?: 'light' | 'dark';
@@ -16,7 +15,6 @@ interface BuildViewerScenePropsArgs {
   availableFiles: RobotFile[];
   urdfContent: string;
   assets: Record<string, string>;
-  onRobotDataResolved?: (result: ViewerRobotDataResolution) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   onSceneReadyForDisplay?: () => void;
   retainedRobot?: ThreeObject3D | null;
@@ -66,7 +64,6 @@ export function buildViewerSceneProps({
   availableFiles,
   urdfContent,
   assets,
-  onRobotDataResolved,
   onDocumentLoadEvent,
   onSceneReadyForDisplay,
   retainedRobot,
@@ -107,7 +104,6 @@ export function buildViewerSceneProps({
     availableFiles,
     urdfContent,
     assets,
-    onRobotDataResolved,
     onDocumentLoadEvent,
     onSceneReadyForDisplay,
     retainedRobot,

@@ -30,6 +30,17 @@ test("inferDependencyStemForUsdPath trims configuration suffixes for Isaac sidec
     );
 });
 
+test("inferDependencyStemForUsdPath applies Unitree root filename aliases", () => {
+    assert.equal(
+        inferDependencyStemForUsdPath("/unitree_model/Go2/usd/go2.usd", "go2.usd"),
+        "go2_description",
+    );
+    assert.equal(
+        inferDependencyStemForUsdPath("/unitree_model/B2W/usd/b2w.usd", "b2w.usd"),
+        "b2w_description",
+    );
+});
+
 test("getUsdConfigurationMirrorPlan still seeds shared configuration aliases when only local files are preloaded", () => {
     const paths = getUsdConfigurationMirrorPaths(
         "/unitree_model/go2_description/urdf/go2_description.usda",

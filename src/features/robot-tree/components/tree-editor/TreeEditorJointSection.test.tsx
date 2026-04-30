@@ -350,6 +350,75 @@ test('TreeEditor joint section exposes an invisible boundary resize handle', asy
   dom.window.close();
 });
 
+test('TreeEditor joint reset restores imported joints without authored angles to zero', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const baseRobot = createRobotState();
+  const movedRobot: RobotState = {
+    ...baseRobot,
+    joints: {
+      ...baseRobot.joints,
+      joint_1: {
+        ...baseRobot.joints.joint_1,
+        angle: 0.5,
+      },
+    },
+  };
+  const jointAngleChanges: Array<{ jointName: string; angle: number }> = [];
+
+  useUIStore.setState({
+    panelSections: {},
+    panelLayout: {
+      ...useUIStore.getState().panelLayout,
+      treeJointPanelHeight: 132,
+      treePanelHeightMode: 'custom',
+    },
+  });
+
+  const renderWithRobot = async (robot: RobotState) => {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={robot}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          showJointPanel
+          onJointAngleChange={(jointName, angle) => {
+            jointAngleChanges.push({ jointName, angle });
+          }}
+        />,
+      );
+    });
+  };
+
+  await renderWithRobot(baseRobot);
+  await renderWithRobot(movedRobot);
+
+  const resetButton = container.querySelector<HTMLButtonElement>('button[title="Reset joints"]');
+  assert.ok(resetButton, 'joint reset button should render');
+
+  await act(async () => {
+    resetButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+
+  assert.deepEqual(jointAngleChanges.at(-1), { jointName: 'joint_1', angle: 0 });
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
 test('TreeEditor joint section grows when dragging its boundary downward', async () => {
   const { dom, container, root } = createComponentRoot();
 

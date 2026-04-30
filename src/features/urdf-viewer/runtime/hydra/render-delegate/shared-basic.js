@@ -557,7 +557,7 @@ export function extractScopeBodyText(layerText, scopeName) {
 }
 const USD_PRIM_HEADER_REGEX = /^\s*(?:def|over|class)(?:\s+(\w+))?\s+"([^"]+)"/gm;
 const VISUAL_SCOPE_NAMES = new Set(['visuals']);
-const COLLISION_SCOPE_NAMES = new Set(['colliders', 'collisions']);
+const COLLISION_SCOPE_NAMES = new Set(['collider', 'colliders', 'collision', 'collisions']);
 function buildUsdPathFromSegments(segments) {
     if (!Array.isArray(segments) || segments.length === 0) {
         return '';

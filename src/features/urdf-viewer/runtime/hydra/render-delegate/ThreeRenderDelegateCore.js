@@ -109,6 +109,7 @@ export class ThreeRenderDelegateCore {
         this._guideCollisionPrimPathCache = new Map();
         this._guideCollisionRefMapByStageSource = new Map();
         this._visualSemanticChildMapByStageSource = new Map();
+        this._stageLayerTextParseCacheByStageSource = new Map();
         this._openedGuideStages = new Map();
         this._protoDataBlobBatchCache = new Map();
         this._protoDataBlobBatchPrimed = false;
@@ -268,6 +269,7 @@ export class ThreeRenderDelegateCore {
             this._stageVisualProtoOverridesByStageSource,
             this._stageVisualProtoOverridePromisesByStageSource,
             this._guideCollisionReferenceCache,
+            this._stageLayerTextParseCacheByStageSource,
             this._urdfTruthByStageSource,
             this._urdfTruthLoadPromisesByStageSource,
             this._urdfTruthLoadErrorByStageSource,
@@ -902,12 +904,7 @@ export class ThreeRenderDelegateCore {
                 return cachedSnapshot;
             }
         }
-        // Round-tripped USD files can legitimately arrive without C++ driver
-        // metadata, especially when re-importing URDF Studio-authored layers.
-        // In that case we still want to recover link/joint/dynamics metadata
-        // from the stage text instead of collapsing into a synthetic mesh root.
-        const allowJsStageFallback = true;
-        const shouldReadStageDataInJs = !!truth || allowJsStageFallback;
+        const shouldReadStageDataInJs = false;
         let resolvedStage = null;
         let resolvedStageInitialized = false;
         const getStageForMetadataFallback = () => {
@@ -1292,17 +1289,8 @@ export class ThreeRenderDelegateCore {
                 addKnownLinkPath(dynamicsRecord?.linkPath);
             }
         }
-        if (allowJsStageFallback) {
-            metadataLayerTexts = this.getStageMetadataLayerTexts(getStageForMetadataFallback(), normalizedStagePath);
-            for (const layerText of metadataLayerTexts) {
-                for (const jointRecord of extractJointRecordsFromLayerText(layerText)) {
-                    addKnownLinkPath(jointRecord?.body0Path);
-                    addKnownLinkPath(jointRecord?.body1Path);
-                }
-                for (const linkPath of parseLinkDynamicsPatchesFromLayerText(layerText).keys()) {
-                    addKnownLinkPath(linkPath);
-                }
-            }
+        if (truth && !hasDriverPhysicsAccess) {
+            registerMetadataErrorFlag('usd-driver-metadata-missing');
         }
         const truthLinkNameSet = new Set();
         addTruthLinkNames(truthLinkNameSet, truth?.visualsByLinkName);
@@ -1702,33 +1690,34 @@ export class ThreeRenderDelegateCore {
                     : 0;
                 const cxxHasCompleteStageMetadata = cxxJointCount > 0 && cxxDynamicsCount > 0;
                 const cxxHasAnyStageMetadata = cxxLinkParentCount > 0 || cxxJointCount > 0 || cxxDynamicsCount > 0;
-                const stage = allowJsStageFallback ? getStageForMetadataFallback() : null;
-                if (cxxHasCompleteStageMetadata || (!stage && cxxHasAnyStageMetadata) || !allowJsStageFallback) {
+                if (cxxHasAnyStageMetadata) {
+                    const cxxAnnotationErrorFlags = cxxHasCompleteStageMetadata
+                        ? annotationErrorFlags
+                        : [...annotationErrorFlags, 'usd-driver-metadata-incomplete'];
                     return this.applyRobotMetadataErrorAnnotations(cxxSnapshot, {
-                        errorFlags: annotationErrorFlags,
+                        errorFlags: cxxAnnotationErrorFlags,
                         truthLoadError,
                     });
                 }
             }
-            if (!allowJsStageFallback) {
-                return this.applyRobotMetadataErrorAnnotations({
-                    stageSourcePath: normalizedStagePath,
-                    generatedAtMs: this._nowPerfMs(),
-                    source: 'mesh-only',
-                    linkParentPairs: [],
-                    jointCatalogEntries: [],
-                    linkDynamicsEntries: [],
-                    closedLoopConstraintEntries: [],
-                    meshCountsByLinkPath,
-                }, {
-                    errorFlags: annotationErrorFlags,
-                    truthLoadError,
-                });
+            annotationErrorFlags.push('usd-driver-metadata-missing');
+            const meshOnlySnapshot = this.applyRobotMetadataErrorAnnotations({
+                stageSourcePath: normalizedStagePath,
+                generatedAtMs: this._nowPerfMs(),
+                source: 'mesh-only',
+                linkParentPairs: [],
+                jointCatalogEntries: [],
+                linkDynamicsEntries: [],
+                closedLoopConstraintEntries: [],
+                meshCountsByLinkPath,
+            }, {
+                errorFlags: annotationErrorFlags,
+                truthLoadError,
+            });
+            if (normalizedStagePath && this._robotMetadataSnapshotByStageSource?.set) {
+                this._robotMetadataSnapshotByStageSource.set(normalizedStagePath, meshOnlySnapshot);
             }
-            const stage = getStageForMetadataFallback();
-            if (metadataLayerTexts.length <= 0) {
-                metadataLayerTexts = this.getStageMetadataLayerTexts(stage, normalizedStagePath);
-            }
+            return meshOnlySnapshot;
         }
         const jointCatalogEntries = [];
         const linkDynamicsEntries = [];
@@ -1931,7 +1920,7 @@ export class ThreeRenderDelegateCore {
                 }
             }
         };
-        if (allowJsStageFallback) {
+        if (hasDriverPhysicsAccess) {
             const driverRecords = (() => {
                 const activeDriver = typeof window !== 'undefined' ? window?.driver : null;
                 if (!activeDriver) {
@@ -2766,6 +2755,179 @@ export class ThreeRenderDelegateCore {
             return '';
         }
     }
+    getStageLayerTextParseCache(stageSourcePath = null) {
+        if (!(this._stageLayerTextParseCacheByStageSource instanceof Map)) {
+            this._stageLayerTextParseCacheByStageSource = new Map();
+        }
+        const stageKey = String(stageSourcePath || this.getStageSourcePath?.() || '__unknown_stage__').trim().split('?')[0] || '__unknown_stage__';
+        let stageCache = this._stageLayerTextParseCacheByStageSource.get(stageKey);
+        if (!(stageCache instanceof Map)) {
+            stageCache = new Map();
+            this._stageLayerTextParseCacheByStageSource.set(stageKey, stageCache);
+        }
+        return stageCache;
+    }
+    getStageLayerTextParseKey(layerPath, layerText = '') {
+        const normalizedLayerPath = normalizeHydraPath(String(layerPath || '').trim()).split('?')[0];
+        if (normalizedLayerPath) {
+            return normalizedLayerPath;
+        }
+        const text = String(layerText || '');
+        return `__inline__:${text.length}:${text.slice(0, 128)}:${text.slice(-128)}`;
+    }
+    shouldSkipStageLayerTextParsing(layerPath, layerText = null) {
+        const normalizedLayerPath = normalizeHydraPath(String(layerPath || '').trim()).split('?')[0];
+        if (normalizedLayerPath && isPotentiallyLargeBaseAssetPath(normalizedLayerPath)) {
+            return true;
+        }
+        if (!normalizedLayerPath && typeof layerText === 'string' && layerText.length > materialBindingRepairMaxLayerTextLength) {
+            return true;
+        }
+        return false;
+    }
+    createStageLayerTextParseBundle(layerPath, layerText, skipped = false) {
+        const text = skipped ? '' : String(layerText || '');
+        const emptyMap = () => new Map();
+        return {
+            layerPath: String(layerPath || '').trim() || null,
+            skipped: skipped === true,
+            getAssetReferences() {
+                if (this.assetReferences === undefined) {
+                    this.assetReferences = text ? extractUsdAssetReferencesFromLayerText(text) : [];
+                }
+                return this.assetReferences;
+            },
+            getGuideCollisionReferences() {
+                if (this.guideCollisionReferences === undefined) {
+                    this.guideCollisionReferences = text ? parseGuideCollisionReferencesFromLayerText(text) : emptyMap();
+                }
+                return this.guideCollisionReferences;
+            },
+            getColliderEntries() {
+                if (this.colliderEntries === undefined) {
+                    this.colliderEntries = text ? parseColliderEntriesFromLayerText(text) : emptyMap();
+                }
+                return this.colliderEntries;
+            },
+            getVisualSemanticChildNames() {
+                if (this.visualSemanticChildNames === undefined) {
+                    this.visualSemanticChildNames = text ? parseVisualSemanticChildNamesFromLayerText(text) : emptyMap();
+                }
+                return this.visualSemanticChildNames;
+            },
+            getXformOpFallbacks() {
+                if (this.xformOpFallbacks === undefined) {
+                    this.xformOpFallbacks = text ? parseXformOpFallbacksFromLayerText(text) : emptyMap();
+                }
+                return this.xformOpFallbacks;
+            },
+        };
+    }
+    getCachedStageLayerTextParseBundle(stageSourcePath, layerPath, layerText, skipped = false) {
+        const stageCache = this.getStageLayerTextParseCache(stageSourcePath);
+        const cacheKey = this.getStageLayerTextParseKey(layerPath, skipped ? '' : layerText);
+        if (stageCache.has(cacheKey)) {
+            return stageCache.get(cacheKey);
+        }
+        const bundle = this.createStageLayerTextParseBundle(layerPath, layerText, skipped);
+        stageCache.set(cacheKey, bundle);
+        return bundle;
+    }
+    getStageLayerTextParseBundleForLayer(stageSourcePath, layerPath, layer) {
+        const normalizedLayerPath = normalizeHydraPath(String(layerPath || layer?.identifier || layer?.GetDisplayName?.() || '').trim()).split('?')[0];
+        if (this.shouldSkipStageLayerTextParsing(normalizedLayerPath, null)) {
+            return this.getCachedStageLayerTextParseBundle(stageSourcePath, normalizedLayerPath, '', true);
+        }
+        const layerText = this.safeExportLayerText(layer);
+        const shouldSkipText = this.shouldSkipStageLayerTextParsing(normalizedLayerPath, layerText);
+        return this.getCachedStageLayerTextParseBundle(stageSourcePath, normalizedLayerPath, shouldSkipText ? '' : layerText, shouldSkipText);
+    }
+    getParsedStageLayerTextBundlesForCurrentStage() {
+        const stageSourcePath = this.getStageSourcePath();
+        const stageCache = this.getStageLayerTextParseCache(stageSourcePath);
+        const bundleListCacheKey = '__bundle_list__';
+        if (stageCache.has(bundleListCacheKey)) {
+            return stageCache.get(bundleListCacheKey) || [];
+        }
+        const stage = this.getStage();
+        if (!stage) {
+            stageCache.set(bundleListCacheKey, []);
+            return [];
+        }
+        const bundles = [];
+        const visitedLayerPaths = new Set();
+        const seenBundles = new Set();
+        const addBundle = (bundle) => {
+            if (!bundle || bundle.skipped === true || seenBundles.has(bundle)) {
+                return;
+            }
+            seenBundles.add(bundle);
+            bundles.push(bundle);
+        };
+        const addLayer = (layer, layerPath = null) => {
+            if (!layer) {
+                return null;
+            }
+            const normalizedLayerPath = normalizeHydraPath(String(layerPath || layer.identifier || layer.GetDisplayName?.() || '').trim()).split('?')[0];
+            if (normalizedLayerPath) {
+                if (visitedLayerPaths.has(normalizedLayerPath)) {
+                    return null;
+                }
+                visitedLayerPaths.add(normalizedLayerPath);
+            }
+            const bundle = this.getStageLayerTextParseBundleForLayer(stageSourcePath, normalizedLayerPath || layerPath || null, layer);
+            addBundle(bundle);
+            return bundle;
+        };
+        const visitLayerReferences = (layerPath, bundle) => {
+            if (!bundle || bundle.skipped === true) {
+                return;
+            }
+            const resolveBasePath = (layerPath && String(layerPath).startsWith('/')) ? layerPath : stageSourcePath;
+            for (const assetPath of bundle.getAssetReferences()) {
+                if (this.shouldSkipStageLayerTextParsing(assetPath, null)) {
+                    continue;
+                }
+                const resolvedPath = resolveUsdAssetPath(resolveBasePath, assetPath);
+                if (!resolvedPath || visitedLayerPaths.has(resolvedPath)) {
+                    continue;
+                }
+                if (this.shouldSkipStageLayerTextParsing(resolvedPath, null)) {
+                    continue;
+                }
+                const referencedStage = this.safeOpenUsdStage(resolvedPath);
+                if (!referencedStage) {
+                    continue;
+                }
+                const referencedBundle = addLayer(referencedStage.GetRootLayer?.(), resolvedPath);
+                visitLayerReferences(resolvedPath, referencedBundle);
+            }
+        };
+        const rootBundle = addLayer(stage.GetRootLayer?.(), stageSourcePath || null);
+        visitLayerReferences(stageSourcePath || null, rootBundle);
+        try {
+            const usedLayers = toArrayLike(stage.GetUsedLayers?.());
+            if (Array.isArray(usedLayers)) {
+                for (const layer of usedLayers) {
+                    const layerPath = normalizeHydraPath(String(layer?.identifier || layer?.GetDisplayName?.() || '').trim()).split('?')[0];
+                    const bundle = addLayer(layer, layerPath || null);
+                    visitLayerReferences(layerPath || null, bundle);
+                }
+            }
+        }
+        catch { }
+        stageCache.set(bundleListCacheKey, bundles);
+        return bundles;
+    }
+    getParsedRootStageLayerTextBundleForCurrentStage() {
+        const stageSourcePath = this.getStageSourcePath();
+        const stage = this.getStage();
+        const rootLayer = stage?.GetRootLayer?.() || null;
+        if (!rootLayer) {
+            return this.createStageLayerTextParseBundle(stageSourcePath, '', true);
+        }
+        return this.getStageLayerTextParseBundleForLayer(stageSourcePath, stageSourcePath || rootLayer.identifier || null, rootLayer);
+    }
     safeOpenUsdStage(stagePath) {
         if (!stagePath)
             return null;
@@ -2797,6 +2959,9 @@ export class ThreeRenderDelegateCore {
     }
     getGuideCollisionReferenceMapForCurrentStage() {
         const stageSourcePath = this.getStageSourcePath() || '__unknown_stage__';
+        if (!(this._guideCollisionRefMapByStageSource instanceof Map)) {
+            this._guideCollisionRefMapByStageSource = new Map();
+        }
         if (this._guideCollisionRefMapByStageSource.has(stageSourcePath)) {
             return this._guideCollisionRefMapByStageSource.get(stageSourcePath);
         }
@@ -2823,25 +2988,9 @@ export class ThreeRenderDelegateCore {
                 mergedMap.set(linkName, existing);
             }
         };
-        const stage = this.getStage();
-        const rootLayerText = this.safeExportRootLayerText(stage);
-        mergeMap(parseGuideCollisionReferencesFromLayerText(rootLayerText));
-        mergeMap(parseColliderEntriesFromLayerText(rootLayerText));
-        const referencedAssets = extractUsdAssetReferencesFromLayerText(rootLayerText);
-        for (const assetPath of referencedAssets) {
-            if (isPotentiallyLargeBaseAssetPath(assetPath))
-                continue;
-            const resolvedPath = resolveUsdAssetPath(stageSourcePath, assetPath);
-            if (!resolvedPath)
-                continue;
-            if (isPotentiallyLargeBaseAssetPath(resolvedPath))
-                continue;
-            const referencedStage = this.safeOpenUsdStage(resolvedPath);
-            if (!referencedStage)
-                continue;
-            const layerText = this.safeExportRootLayerText(referencedStage);
-            mergeMap(parseGuideCollisionReferencesFromLayerText(layerText));
-            mergeMap(parseColliderEntriesFromLayerText(layerText));
+        for (const bundle of this.getParsedStageLayerTextBundlesForCurrentStage()) {
+            mergeMap(bundle.getGuideCollisionReferences());
+            mergeMap(bundle.getColliderEntries());
         }
         this._guideCollisionRefMapByStageSource.set(stageSourcePath, mergedMap);
         return mergedMap;
@@ -2866,49 +3015,16 @@ export class ThreeRenderDelegateCore {
     getVisualSemanticChildMapForCurrentStage() {
         const stageSourcePath = this.getStageSourcePath();
         const cacheKey = stageSourcePath || '__unknown_stage__';
+        if (!(this._visualSemanticChildMapByStageSource instanceof Map)) {
+            this._visualSemanticChildMapByStageSource = new Map();
+        }
         if (this._visualSemanticChildMapByStageSource.has(cacheKey)) {
             return this._visualSemanticChildMapByStageSource.get(cacheKey);
         }
-        const stage = this.getStage();
         const mergedMap = new Map();
-        if (!stage) {
-            this._visualSemanticChildMapByStageSource.set(cacheKey, mergedMap);
-            return mergedMap;
+        for (const bundle of this.getParsedStageLayerTextBundlesForCurrentStage()) {
+            this.mergeVisualSemanticChildMaps(mergedMap, bundle.getVisualSemanticChildNames());
         }
-        const allowLargeBaseAssetScan = shouldAllowLargeBaseAssetScan(stageSourcePath);
-        const visitedLayerPaths = new Set();
-        const seenLayerTexts = new Set();
-        const visitLayer = (layerPath, layerText) => {
-            if (!layerText || typeof layerText !== 'string')
-                return;
-            const serializedLayerText = String(layerText || '').trim();
-            if (!serializedLayerText || seenLayerTexts.has(serializedLayerText))
-                return;
-            seenLayerTexts.add(serializedLayerText);
-            this.mergeVisualSemanticChildMaps(mergedMap, parseVisualSemanticChildNamesFromLayerText(layerText));
-            const resolveBasePath = (layerPath && layerPath.startsWith('/')) ? layerPath : stageSourcePath;
-            const referencedAssets = extractUsdAssetReferencesFromLayerText(layerText);
-            for (const assetPath of referencedAssets) {
-                if (!allowLargeBaseAssetScan && isPotentiallyLargeBaseAssetPath(assetPath))
-                    continue;
-                const resolvedPath = resolveUsdAssetPath(resolveBasePath, assetPath);
-                if (!resolvedPath || visitedLayerPaths.has(resolvedPath))
-                    continue;
-                if (!allowLargeBaseAssetScan && isPotentiallyLargeBaseAssetPath(resolvedPath))
-                    continue;
-                visitedLayerPaths.add(resolvedPath);
-                const referencedStage = this.safeOpenUsdStage(resolvedPath);
-                if (!referencedStage)
-                    continue;
-                const referencedLayerText = this.safeExportRootLayerText(referencedStage);
-                visitLayer(resolvedPath, referencedLayerText);
-            }
-        };
-        const rootLayerText = this.safeExportRootLayerText(stage);
-        if (stageSourcePath) {
-            visitedLayerPaths.add(stageSourcePath);
-        }
-        visitLayer(stageSourcePath || '__current_stage__', rootLayerText);
         this._visualSemanticChildMapByStageSource.set(cacheKey, mergedMap);
         return mergedMap;
     }
@@ -2933,66 +3049,30 @@ export class ThreeRenderDelegateCore {
     getXformOpFallbackMapForCurrentStage() {
         const stageSourcePath = this.getStageSourcePath();
         const cacheKey = stageSourcePath || '__unknown_stage__';
+        if (!(this._xformOpFallbackMapByStageSource instanceof Map)) {
+            this._xformOpFallbackMapByStageSource = new Map();
+        }
         if (this._xformOpFallbackMapByStageSource.has(cacheKey)) {
             return this._xformOpFallbackMapByStageSource.get(cacheKey);
         }
-        const stage = this.getStage();
         const mergedMap = new Map();
-        if (!stage) {
-            this._xformOpFallbackMapByStageSource.set(cacheKey, mergedMap);
-            return mergedMap;
+        for (const bundle of this.getParsedStageLayerTextBundlesForCurrentStage()) {
+            this.mergeXformOpFallbackMaps(mergedMap, bundle.getXformOpFallbacks());
         }
-        const allowLargeBaseAssetScan = shouldAllowLargeBaseAssetScan(stageSourcePath);
-        const visitedLayerPaths = new Set();
-        const seenLayerTexts = new Set();
-        const visitLayer = (layerPath, layerText) => {
-            if (!layerText || typeof layerText !== 'string')
-                return;
-            const serializedLayerText = String(layerText || '').trim();
-            if (!serializedLayerText || seenLayerTexts.has(serializedLayerText))
-                return;
-            seenLayerTexts.add(serializedLayerText);
-            const resolveBasePath = (layerPath && layerPath.startsWith('/')) ? layerPath : stageSourcePath;
-            const referencedAssets = extractUsdAssetReferencesFromLayerText(layerText);
-            for (const assetPath of referencedAssets) {
-                if (!allowLargeBaseAssetScan && isPotentiallyLargeBaseAssetPath(assetPath))
-                    continue;
-                const resolvedPath = resolveUsdAssetPath(resolveBasePath, assetPath);
-                if (!resolvedPath || visitedLayerPaths.has(resolvedPath))
-                    continue;
-                if (!allowLargeBaseAssetScan && isPotentiallyLargeBaseAssetPath(resolvedPath))
-                    continue;
-                visitedLayerPaths.add(resolvedPath);
-                const referencedStage = this.safeOpenUsdStage(resolvedPath);
-                if (!referencedStage)
-                    continue;
-                const referencedLayerText = this.safeExportRootLayerText(referencedStage);
-                visitLayer(resolvedPath, referencedLayerText);
-            }
-            this.mergeXformOpFallbackMaps(mergedMap, parseXformOpFallbacksFromLayerText(layerText));
-        };
-        const rootLayerText = this.safeExportRootLayerText(stage);
-        if (stageSourcePath) {
-            visitedLayerPaths.add(stageSourcePath);
-        }
-        visitLayer(stageSourcePath || '__current_stage__', rootLayerText);
         this._xformOpFallbackMapByStageSource.set(cacheKey, mergedMap);
         return mergedMap;
     }
     getRootLayerXformOpFallbackMapForCurrentStage() {
         const stageSourcePath = this.getStageSourcePath();
         const cacheKey = stageSourcePath || '__unknown_stage__';
+        if (!(this._rootLayerXformOpFallbackMapByStageSource instanceof Map)) {
+            this._rootLayerXformOpFallbackMapByStageSource = new Map();
+        }
         if (this._rootLayerXformOpFallbackMapByStageSource.has(cacheKey)) {
             return this._rootLayerXformOpFallbackMapByStageSource.get(cacheKey);
         }
-        const stage = this.getStage();
-        if (!stage) {
-            const empty = new Map();
-            this._rootLayerXformOpFallbackMapByStageSource.set(cacheKey, empty);
-            return empty;
-        }
-        const rootLayerText = this.safeExportRootLayerText(stage);
-        const parsedMap = parseXformOpFallbacksFromLayerText(rootLayerText);
+        const rootBundle = this.getParsedRootStageLayerTextBundleForCurrentStage();
+        const parsedMap = rootBundle.getXformOpFallbacks();
         const fallbackMap = parsedMap instanceof Map ? parsedMap : new Map();
         this._rootLayerXformOpFallbackMapByStageSource.set(cacheKey, fallbackMap);
         return fallbackMap;

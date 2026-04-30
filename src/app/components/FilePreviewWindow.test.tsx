@@ -10,6 +10,7 @@ import type { DocumentLoadState } from '@/store/assetsStore';
 import type { RobotFile, RobotState } from '@/types';
 
 import { FilePreviewWindow } from './FilePreviewWindow.tsx';
+import { resolveFilePreviewViewerSourceFile } from './FilePreviewWindow.tsx';
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -56,6 +57,14 @@ function createRobotFile(name: string): RobotFile {
   };
 }
 
+function createUsdFile(name: string): RobotFile {
+  return {
+    name,
+    format: 'usd',
+    content: '#usda 1.0',
+  };
+}
+
 function createRobotState(name: string): RobotState {
   return {
     name,
@@ -99,6 +108,16 @@ function renderWindow(options: {
     );
   });
 }
+
+test('resolveFilePreviewViewerSourceFile routes USD previews through RobotState source', () => {
+  const usdFile = createUsdFile('robots/demo/demo.usda');
+
+  assert.deepEqual(resolveFilePreviewViewerSourceFile(usdFile), {
+    ...usdFile,
+    content: '',
+    format: 'urdf',
+  });
+});
 
 test('FilePreviewWindow does not render stale robot preview content after switching files', async () => {
   const dom = installDom();

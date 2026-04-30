@@ -3,15 +3,14 @@ import test from 'node:test';
 
 import { resolveCurrentUsdExportMode } from './currentUsdExportMode.ts';
 
-test('prefers live-stage export when the USD viewer bridge is ready even if hydration is still pending', () => {
+test('keeps USD export unavailable while hydration is pending even if cached data exists', () => {
   assert.equal(
     resolveCurrentUsdExportMode({
       isHydrating: true,
-      hasLiveStageExportHandler: true,
-      hasPreparedExportCache: false,
-      hasSceneSnapshot: false,
+      hasPreparedExportCache: true,
+      hasSceneSnapshot: true,
     }),
-    'live-stage',
+    'unavailable',
   );
 });
 
@@ -19,7 +18,6 @@ test('falls back to cached bundle export once USD hydration is finished', () => 
   assert.equal(
     resolveCurrentUsdExportMode({
       isHydrating: false,
-      hasLiveStageExportHandler: false,
       hasPreparedExportCache: true,
       hasSceneSnapshot: false,
     }),
@@ -27,11 +25,10 @@ test('falls back to cached bundle export once USD hydration is finished', () => 
   );
 });
 
-test('reports USD export unavailable when neither the live bridge nor cached export data exist', () => {
+test('reports USD export unavailable when cached export data does not exist', () => {
   assert.equal(
     resolveCurrentUsdExportMode({
       isHydrating: true,
-      hasLiveStageExportHandler: false,
       hasPreparedExportCache: false,
       hasSceneSnapshot: false,
     }),

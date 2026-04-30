@@ -165,8 +165,9 @@ export function useHoverDetection({
   const lastToolModeRef = useRef(toolMode);
   const hoverSuppressedByDragRef = useRef(false);
   const useExternalHover = typeof onHover === 'function';
+  const importMetaEnv = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env;
   const regressionDebugEnabled =
-    import.meta.env.DEV ||
+    importMetaEnv?.DEV === true ||
     (typeof window !== 'undefined' &&
       new URLSearchParams(window.location.search).get('regressionDebug') === '1');
 
@@ -261,38 +262,41 @@ export function useHoverDetection({
     return projectedHelperCacheRef.current.targets;
   };
 
-  const emitHoverSelection = (
-    type: InteractionSelection['type'],
-    id: string | null,
-    subType?: 'visual' | 'collision',
-    objectIndex?: number,
-    helperKind?: ViewerHelperKind,
-    highlightObjectId?: number,
-  ) => {
-    if (!onHover) return;
+  const emitHoverSelection = useCallback(
+    (
+      type: InteractionSelection['type'],
+      id: string | null,
+      subType?: 'visual' | 'collision',
+      objectIndex?: number,
+      helperKind?: ViewerHelperKind,
+      highlightObjectId?: number,
+    ) => {
+      if (!onHover) return;
 
-    const previous = emittedHoverSelectionRef.current;
-    if (
-      previous.type === type &&
-      previous.id === id &&
-      previous.subType === subType &&
-      (previous.objectIndex ?? 0) === (objectIndex ?? 0) &&
-      previous.helperKind === helperKind &&
-      (previous.highlightObjectId ?? null) === (highlightObjectId ?? null)
-    ) {
-      return;
-    }
+      const previous = emittedHoverSelectionRef.current;
+      if (
+        previous.type === type &&
+        previous.id === id &&
+        previous.subType === subType &&
+        (previous.objectIndex ?? 0) === (objectIndex ?? 0) &&
+        previous.helperKind === helperKind &&
+        (previous.highlightObjectId ?? null) === (highlightObjectId ?? null)
+      ) {
+        return;
+      }
 
-    emittedHoverSelectionRef.current = {
-      type,
-      id,
-      subType,
-      objectIndex,
-      helperKind,
-      highlightObjectId,
-    };
-    onHover(type, id, subType, objectIndex, helperKind, highlightObjectId);
-  };
+      emittedHoverSelectionRef.current = {
+        type,
+        id,
+        subType,
+        objectIndex,
+        helperKind,
+        highlightObjectId,
+      };
+      onHover(type, id, subType, objectIndex, helperKind, highlightObjectId);
+    },
+    [onHover],
+  );
 
   const getPickTargets = (targetMode: PickTargetMode) => {
     const cache = pickTargetCachesRef.current[targetMode];

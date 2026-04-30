@@ -90,6 +90,15 @@ function mergeSnapshotMaterialRecordWithFallback(record, fallbackRecord) {
         return record;
     }
     const mergedRecord = { ...record };
+    if (fallbackRecord.emissiveEnabled === false) {
+        mergedRecord.emissiveEnabled = false;
+        delete mergedRecord.emissive;
+        delete mergedRecord.emissiveIntensity;
+        delete mergedRecord.emissiveMapPath;
+    }
+    if (fallbackRecord.isOmniPbr === true && mergedRecord.isOmniPbr !== true) {
+        mergedRecord.isOmniPbr = true;
+    }
     for (const [key, value] of Object.entries(fallbackRecord)) {
         if (key === 'materialId' || key === 'id') {
             continue;
@@ -104,6 +113,15 @@ function serializePreferredMaterialRecord(material) {
     if (!material || typeof material !== 'object') {
         return null;
     }
+    const materialUserData = material.userData && typeof material.userData === 'object'
+        ? material.userData
+        : {};
+    const materialEmissiveEnabled = typeof material.emissiveEnabled === 'boolean'
+        ? material.emissiveEnabled
+        : (typeof materialUserData.usdEmissiveEnabled === 'boolean'
+            ? materialUserData.usdEmissiveEnabled
+            : null);
+    const materialIsOmniPbr = material.isOmniPbr === true || materialUserData.usdIsOmniPbr === true;
     const normalizeTexturePath = (texture) => {
         const normalized = String(texture?.userData?.usdSourcePath || texture?.name || '').trim();
         return normalized || null;
@@ -131,8 +149,12 @@ function serializePreferredMaterialRecord(material) {
     };
     const record = {
         ...(String(material.name || '').trim() ? { name: String(material.name || '').trim() } : {}),
+        ...(materialIsOmniPbr ? { isOmniPbr: true } : {}),
+        ...(materialEmissiveEnabled !== null ? { emissiveEnabled: materialEmissiveEnabled } : {}),
         ...(normalizeColor(material.color) ? { color: normalizeColor(material.color) } : {}),
-        ...(normalizeColor(material.emissive) ? { emissive: normalizeColor(material.emissive) } : {}),
+        ...(materialEmissiveEnabled !== false && normalizeColor(material.emissive)
+            ? { emissive: normalizeColor(material.emissive) }
+            : {}),
         ...(normalizeColor(material.specularColor) ? { specularColor: normalizeColor(material.specularColor) } : {}),
         ...(normalizeColor(material.attenuationColor) ? { attenuationColor: normalizeColor(material.attenuationColor) } : {}),
         ...(normalizeColor(material.sheenColor) ? { sheenColor: normalizeColor(material.sheenColor) } : {}),
@@ -155,10 +177,10 @@ function serializePreferredMaterialRecord(material) {
         ...(normalizeScalar(material.iridescenceIOR, { min: 1 }) !== null ? { iridescenceIOR: normalizeScalar(material.iridescenceIOR, { min: 1 }) } : {}),
         ...(normalizeScalar(material.anisotropy, { clamp01: true }) !== null ? { anisotropy: normalizeScalar(material.anisotropy, { clamp01: true }) } : {}),
         ...(normalizeScalar(material.anisotropyRotation) !== null ? { anisotropyRotation: normalizeScalar(material.anisotropyRotation) } : {}),
-        ...(normalizeScalar(material.emissiveIntensity, { min: 0 }) !== null ? { emissiveIntensity: normalizeScalar(material.emissiveIntensity, { min: 0 }) } : {}),
+        ...(materialEmissiveEnabled !== false && normalizeScalar(material.emissiveIntensity, { min: 0 }) !== null ? { emissiveIntensity: normalizeScalar(material.emissiveIntensity, { min: 0 }) } : {}),
         ...(normalizeScalar(material.ior, { min: 1 }) !== null ? { ior: normalizeScalar(material.ior, { min: 1 }) } : {}),
         ...(normalizeTexturePath(material.map) ? { mapPath: normalizeTexturePath(material.map) } : {}),
-        ...(normalizeTexturePath(material.emissiveMap) ? { emissiveMapPath: normalizeTexturePath(material.emissiveMap) } : {}),
+        ...(materialEmissiveEnabled !== false && normalizeTexturePath(material.emissiveMap) ? { emissiveMapPath: normalizeTexturePath(material.emissiveMap) } : {}),
         ...(normalizeTexturePath(material.roughnessMap) ? { roughnessMapPath: normalizeTexturePath(material.roughnessMap) } : {}),
         ...(normalizeTexturePath(material.metalnessMap) ? { metalnessMapPath: normalizeTexturePath(material.metalnessMap) } : {}),
         ...(normalizeTexturePath(material.normalMap) ? { normalMapPath: normalizeTexturePath(material.normalMap) } : {}),
@@ -483,6 +505,17 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             'inputs:enable_emission',
             'inputs:enableEmission',
         ]);
+        const effectiveEmissiveEnabled = emissiveEnabled === true
+            ? true
+            : (emissiveEnabled === false ? false : !isOmniPbrShader);
+        if (material.userData && typeof material.userData === 'object') {
+            if (isOmniPbrShader) {
+                material.userData.usdIsOmniPbr = true;
+            }
+            if (emissiveEnabled !== undefined || isOmniPbrShader) {
+                material.userData.usdEmissiveEnabled = effectiveEmissiveEnabled;
+            }
+        }
         const opacityEnabled = this.readPrimBooleanAttribute(shaderPrim, [
             'inputs:enable_opacity',
             'inputs:enableOpacity',
@@ -631,12 +664,12 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             'inputs:emissive_color_constant',
         ], 'emissive', {
             colorSpace: SRGBColorSpace,
-            requireValue: emissiveEnabled === true || emissiveEnabled === undefined,
+            requireValue: effectiveEmissiveEnabled,
         });
-        if (emissiveColor && emissiveEnabled === false) {
+        if (emissiveColor && !effectiveEmissiveEnabled) {
             material.emissive = new Color(0x000000);
         }
-        if (emissiveEnabled === false) {
+        if (!effectiveEmissiveEnabled) {
             material.emissive = new Color(0x000000);
             material.emissiveIntensity = 1;
         }
@@ -685,7 +718,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 material.color = new Color(0xffffff);
             },
         });
-        if (emissiveEnabled !== false) {
+        if (effectiveEmissiveEnabled) {
             this.applyStageFallbackTextureInput(material, shaderPrim, [
                 'inputs:emissiveColor_texture',
                 'inputs:emissive_color_texture',

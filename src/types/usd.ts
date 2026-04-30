@@ -113,7 +113,11 @@ export interface UsdJointCatalogEntry {
   upperLimitDeg?: number | null;
   driveDamping?: number | null;
   driveMaxForce?: number | null;
+  localPos0?: ArrayLike<number> | null;
+  localRot0Wxyz?: ArrayLike<number> | null;
   localPivotInLink?: ArrayLike<number> | null;
+  localPos1?: ArrayLike<number> | null;
+  localRot1Wxyz?: ArrayLike<number> | null;
   originXyz?: ArrayLike<number> | null;
   originQuatWxyz?: ArrayLike<number> | null;
 }

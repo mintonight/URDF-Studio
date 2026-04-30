@@ -62,6 +62,7 @@ import {
   WORKSPACE_VIEWER_COMPONENT_ROOT_JOINT_PREFIX,
 } from './workspaceSourceSyncUtils.ts';
 import { buildGeneratedWorkspaceFileState } from './workspaceGeneratedSourceState.ts';
+import { USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF } from './workspace-source-sync/usdViewerPlaceholder.ts';
 
 const { window } = new JSDOM();
 
@@ -841,6 +842,39 @@ test('getViewerSourceFile keeps the selected file outside assembly rendering', (
     }),
     selectedFile,
   );
+});
+
+test('getViewerSourceFile routes selected USD through a RobotState URDF virtual source', () => {
+  const selectedFile = createUsdFile('robots/demo/demo.usd');
+
+  const routedFile = getViewerSourceFile({
+    selectedFile,
+    shouldRenderAssembly: false,
+    renderSelectedUsdFromRobotState: true,
+  });
+
+  assert.notEqual(routedFile, selectedFile);
+  assert.deepEqual(routedFile, {
+    ...selectedFile,
+    content: USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF,
+    format: 'urdf',
+  });
+});
+
+test('getViewerSourceFile never forwards selected USD directly to the visible renderer', () => {
+  const selectedFile = createUsdFile('robots/demo/demo.usd');
+
+  const routedFile = getViewerSourceFile({
+    selectedFile,
+    shouldRenderAssembly: false,
+  });
+
+  assert.notEqual(routedFile, selectedFile);
+  assert.deepEqual(routedFile, {
+    ...selectedFile,
+    content: USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF,
+    format: 'urdf',
+  });
 });
 
 test('getViewerSourceFile keeps an explicit workspace source file while rendering an assembly view', () => {

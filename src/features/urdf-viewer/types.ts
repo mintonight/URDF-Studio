@@ -18,7 +18,6 @@ import type {
   UrdfOrigin,
 } from '@/types';
 import type { AssemblySelection } from '@/store/assemblySelectionStore';
-import type { ViewerRobotDataResolution } from './utils/viewerRobotData';
 import type {
   MeasureAnchorMode,
   MeasureGroup,
@@ -144,7 +143,6 @@ export interface ViewerProps {
   sourceFormat?: ViewerRobotSourceFormat;
   availableFiles?: RobotFile[];
   sourceFilePath?: string;
-  onRobotDataResolved?: (result: ViewerRobotDataResolution) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   onJointChange?: (jointName: string, angle: number) => void;
   syncJointChangesToApp?: boolean;
@@ -223,6 +221,8 @@ export interface ViewerProps {
 export interface RobotModelProps {
   urdfContent: string;
   assets: Record<string, string>;
+  sourceFile?: RobotFile | null;
+  availableFiles?: RobotFile[];
   sourceFormat?: ViewerRobotSourceFormat;
   allowUrdfXmlFallback?: boolean;
   reloadToken?: number;
@@ -230,6 +230,7 @@ export interface RobotModelProps {
   sourceFilePath?: string;
   onRobotLoaded?: (robot: any) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
+  runtimeBridge?: ViewerRuntimeStageBridge;
   showCollision?: boolean;
   showVisual?: boolean;
   showIkHandles?: boolean;

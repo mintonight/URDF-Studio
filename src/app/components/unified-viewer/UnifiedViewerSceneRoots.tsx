@@ -7,7 +7,6 @@ import type {
   ViewerDocumentLoadEvent,
   ViewerHelperKind,
   ViewerResourceScope,
-  ViewerRobotDataResolution,
   ViewerRobotSourceFormat,
 } from '@/features/editor';
 
@@ -27,7 +26,6 @@ interface UnifiedViewerSceneRootsProps {
   effectiveSourceFilePath?: string;
   effectiveUrdfContent: string;
   effectiveSourceFormat?: ViewerRobotSourceFormat;
-  onRobotDataResolved?: (result: ViewerRobotDataResolution) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   onSceneReadyForDisplay?: () => void;
   onRuntimeRobotLoaded?: (robot: ThreeObject3D) => void;
@@ -110,7 +108,6 @@ export function UnifiedViewerSceneRoots({
   effectiveSourceFilePath,
   effectiveUrdfContent,
   effectiveSourceFormat,
-  onRobotDataResolved,
   onDocumentLoadEvent,
   onSceneReadyForDisplay,
   onRuntimeRobotLoaded,
@@ -151,7 +148,6 @@ export function UnifiedViewerSceneRoots({
           effectiveSourceFilePath={effectiveSourceFilePath}
           effectiveUrdfContent={effectiveUrdfContent}
           effectiveSourceFormat={effectiveSourceFormat}
-          onRobotDataResolved={onRobotDataResolved}
           onDocumentLoadEvent={onDocumentLoadEvent}
           onSceneReadyForDisplay={onSceneReadyForDisplay}
           onRuntimeRobotLoaded={onRuntimeRobotLoaded}

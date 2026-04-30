@@ -1,6 +1,7 @@
 import { isStandaloneXacroEntry } from '@/core/parsers/importRobotFile';
 import { pickPreferredUsdRootFile } from '@/core/parsers/usd/usdFormatUtils';
 import { isAssetLibraryOnlyFormat, isVisibleLibraryEntry } from '@/shared/utils/robotFileSupport';
+import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 import {
   isUrdfSelfContainedInImportBundle,
   pickPreferredImportFile,
@@ -49,7 +50,7 @@ const FAST_IMPORT_HELPER_PENALTY_BY_TOKEN = new Map<string, number>([
 ]);
 
 function normalizeImportPath(path: string): string {
-  return path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/');
+  return normalizeLibraryPathKey(path);
 }
 
 function getImportPathDepth(path: string): number {

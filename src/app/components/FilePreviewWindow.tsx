@@ -47,6 +47,18 @@ function resolvePreviewDocumentLoadLifecycleState(file: RobotFile): DocumentLoad
   };
 }
 
+export function resolveFilePreviewViewerSourceFile(file: RobotFile): RobotFile {
+  if (file.format !== 'usd') {
+    return file;
+  }
+
+  return {
+    ...file,
+    content: '',
+    format: 'urdf',
+  };
+}
+
 export function FilePreviewWindow({
   file,
   previewRobot,
@@ -122,6 +134,11 @@ export function FilePreviewWindow({
     () => (file ? resolvePreviewDocumentLoadLifecycleState(file) : null),
     [file],
   );
+  const previewViewerSourceFile = useMemo(
+    () => (file ? resolveFilePreviewViewerSourceFile(file) : null),
+    [file],
+  );
+  const previewViewerSourceFormat = file?.format === 'usd' ? 'urdf' : undefined;
 
   if (!file) {
     return null;
@@ -199,8 +216,9 @@ export function FilePreviewWindow({
               showJointPanel={false}
               availableFiles={availableFiles}
               urdfContent={previewState.urdfContent}
+              viewerSourceFormat={previewViewerSourceFormat}
               sourceFilePath={file.name}
-              sourceFile={file}
+              sourceFile={previewViewerSourceFile}
               selection={previewRobot.selection}
               modelInteractionEnabled={false}
               isMeshPreview={file.format === 'mesh'}

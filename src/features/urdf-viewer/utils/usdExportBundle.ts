@@ -2541,6 +2541,10 @@ export function prepareUsdExportCacheFromResolvedSnapshot(
     const descriptor = descriptorByPath.get(meshPath);
     if (!descriptor) return;
 
+    // Prepared caches are rendered under the hydrated RobotState link hierarchy.
+    // Snapshot descriptor matrices are scene transforms, so baking them into the
+    // OBJ vertices would apply the same link pose a second time in the viewer.
+    descriptor.bakeTransformIntoMesh = false;
     const asset = buildObjBlobFromDescriptor(descriptor, snapshot.buffers || null);
     if (!asset) return;
 

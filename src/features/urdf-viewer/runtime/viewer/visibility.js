@@ -5,7 +5,7 @@ import {
 } from "../../utils/materials.ts";
 
 const VISUAL_SEGMENT_PATTERN = /(?:^|\/)visuals?(?:$|[/.])/i;
-const COLLISION_SEGMENT_PATTERN = /(?:^|\/)collisions?(?:$|[/.])/i;
+const COLLISION_SEGMENT_PATTERN = /(?:^|\/)coll(?:isions?|iders?)(?:$|[/.])/i;
 function matchesVisualIdentifier(value = "") {
     const source = String(value || "").toLowerCase();
     return VISUAL_SEGMENT_PATTERN.test(source);

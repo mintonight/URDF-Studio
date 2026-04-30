@@ -11,6 +11,7 @@ import type {
   UsdSceneSnapshot,
 } from '@/types';
 import { DEFAULT_MOTOR_LIBRARY, normalizeMotorLibrary } from '@/shared/data/motorLibrary';
+import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 
 export type DocumentLoadStatus = 'idle' | 'loading' | 'hydrating' | 'ready' | 'error';
 
@@ -49,14 +50,11 @@ export function toDocumentLoadLifecycleState(state: DocumentLoadState): Document
 }
 
 function normalizeUsdSceneSnapshotKey(path: string | null | undefined): string {
-  return String(path || '')
-    .trim()
-    .replace(/^\/+/, '')
-    .split('?')[0];
+  return normalizeLibraryPathKey(path);
 }
 
 function normalizeLibraryPath(path: string | null | undefined): string {
-  return normalizeUsdSceneSnapshotKey(path).replace(/\/+/g, '/').replace(/\/+$/, '');
+  return normalizeLibraryPathKey(path);
 }
 
 function isSameOrNestedLibraryPath(path: string, basePath: string): boolean {

@@ -117,6 +117,25 @@ test('removeRobotFile clears matching prepared USD export cache', () => {
   assert.equal(useAssetsStore.getState().getUsdPreparedExportCache('robots/demo/demo.usd'), null);
 });
 
+test('USD cache lookups normalize virtual and library path variants', () => {
+  resetAssetsStore();
+
+  const state = useAssetsStore.getState();
+  state.setUsdSceneSnapshot(
+    '/robots//demo/../demo/demo.usd?v=1',
+    createUsdSceneSnapshot('/robots/demo/demo.usd'),
+  );
+  state.setUsdPreparedExportCache(
+    'robots\\demo\\.\\demo.usd?v=1',
+    createPreparedUsdExportCache('/robots/demo/demo.usd'),
+  );
+
+  assert.ok(state.getUsdSceneSnapshot('robots/demo/demo.usd'));
+  assert.ok(state.getUsdSceneSnapshot('/robots/demo/demo.usd?other=1'));
+  assert.ok(state.getUsdPreparedExportCache('robots/demo/demo.usd'));
+  assert.ok(state.getUsdPreparedExportCache('/robots//demo/demo.usd?other=1'));
+});
+
 test('clearRobotLibrary clears all prepared USD export caches', () => {
   resetAssetsStore();
 

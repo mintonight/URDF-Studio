@@ -172,7 +172,7 @@ type HighlightedMeshSnapshot = {
 };
 
 const USD_VISUAL_SEGMENT_PATTERN = /(?:^|\/)visuals?(?:$|[/.])/i;
-const USD_COLLISION_SEGMENT_PATTERN = /(?:^|\/)collisions?(?:$|[/.])/i;
+const USD_COLLISION_SEGMENT_PATTERN = /(?:^|\/)coll(?:isions?|iders?)(?:$|[/.])/i;
 
 const workerScope = globalThis as unknown as DedicatedWorkerGlobalScope;
 const runtimeWindow = globalThis as RuntimeWindow;
@@ -2704,6 +2704,7 @@ workerScope.addEventListener('message', (event: MessageEvent<UsdOffscreenViewerW
       showCollision = message.showCollision;
       showCollisionAlwaysOnTop = message.showCollisionAlwaysOnTop;
       applyRuntimeVisibility();
+      renderScene();
       return;
     }
     case 'set-decoration-state': {

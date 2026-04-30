@@ -11,14 +11,14 @@ function getLinkPathFromMeshId(meshId) {
     const markerIndex = normalized.indexOf(marker);
     if (markerIndex > 0) {
         let linkPath = normalized.substring(0, markerIndex);
-        if (linkPath.endsWith("/visuals") || linkPath.endsWith("/collisions")) {
+        if (linkPath.endsWith("/visuals") || linkPath.endsWith("/collisions") || linkPath.endsWith("/collision") || linkPath.endsWith("/colliders") || linkPath.endsWith("/collider")) {
             const parentSlash = linkPath.lastIndexOf("/");
             if (parentSlash > 0)
                 linkPath = linkPath.substring(0, parentSlash);
         }
         return linkPath || null;
     }
-    const authoredPathMatch = normalized.match(/^(.*?)(?:\/(?:visuals?|collisions?))(?:$|[/.])/i);
+    const authoredPathMatch = normalized.match(/^(.*?)(?:\/(?:visuals?|coll(?:isions?|iders?)))(?:$|[/.])/i);
     if (authoredPathMatch && authoredPathMatch[1]) {
         return authoredPathMatch[1];
     }

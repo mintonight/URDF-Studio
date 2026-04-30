@@ -6,7 +6,6 @@ import {
   type ViewerSceneBaseProps,
   type ViewerDocumentLoadEvent,
   type ViewerResourceScope,
-  type ViewerRobotDataResolution,
 } from '@/features/editor';
 import type { AssemblyState, AssemblyTransform, RobotFile, RobotState } from '@/types';
 import type { AssemblySelection } from '@/store/assemblySelectionStore';
@@ -28,7 +27,6 @@ interface BuildUnifiedViewerScenePropsArgs {
   effectiveSourceFilePath?: string;
   effectiveUrdfContent: string;
   effectiveSourceFormat?: ViewerProps['sourceFormat'];
-  onRobotDataResolved?: (result: ViewerRobotDataResolution) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   onSceneReadyForDisplay?: () => void;
   onRuntimeRobotLoaded?: (robot: ThreeObject3D) => void;
@@ -70,7 +68,6 @@ export function buildUnifiedViewerSceneProps({
   effectiveSourceFilePath,
   effectiveUrdfContent,
   effectiveSourceFormat,
-  onRobotDataResolved,
   onDocumentLoadEvent,
   onSceneReadyForDisplay,
   onRuntimeRobotLoaded,
@@ -108,7 +105,6 @@ export function buildUnifiedViewerSceneProps({
     sourceFormat: effectiveSourceFormat,
     allowUrdfXmlFallback: hasActivePreview,
     assets: viewerResourceScope.assets,
-    onRobotDataResolved,
     onDocumentLoadEvent,
     onSceneReadyForDisplay,
     retainedRobot,

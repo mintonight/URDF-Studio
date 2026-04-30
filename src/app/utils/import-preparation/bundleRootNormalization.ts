@@ -1,5 +1,6 @@
 import { inferCommonPackageAssetBundleRoot } from '@/app/utils/importPackageAssetReferences.ts';
 import { isAssetLibraryOnlyFormat } from '@/shared/utils/robotFileSupport';
+import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 import type { RobotFile } from '@/types';
 
 interface BundleRootPayload {
@@ -41,7 +42,7 @@ const LOOSE_IMPORT_ROOTLESS_FOLDERS = new Set([
 ]);
 
 function normalizeImportPath(path: string): string {
-  return path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/');
+  return normalizeLibraryPathKey(path);
 }
 
 function getTopLevelImportSegment(path: string): string | null {

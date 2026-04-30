@@ -1,14 +1,8 @@
 import { getDirectoryFromVirtualPath, normalizeUsdPath } from "./path-utils.js";
+import { inferUsdDependencyStemForPath } from "../../utils/usdDependencyPathRules.js";
 
 export function inferDependencyStemForUsdPath(stagePath, fileName) {
-    const normalizedPath = String(stagePath || "").toLowerCase();
-    const normalizedFileName = String(fileName || "").trim();
-    const inferredStem = normalizedFileName.replace(/\.usd[a-z]?$/i, "");
-    if (!inferredStem)
-        return "";
-    if (!normalizedPath.includes("/configuration/"))
-        return inferredStem;
-    return inferredStem.replace(/_(base|physics|robot|sensor)$/i, "");
+    return inferUsdDependencyStemForPath(stagePath, fileName);
 }
 
 export function getUsdDependencyExtension(stagePath) {

@@ -428,6 +428,7 @@ export function AppLayout({
     urdfContentForViewer,
     viewerSourceFormat,
     viewerSourceFilePath,
+    renderSelectedUsdFromRobotState,
     workspaceViewerMjcfSourceFile,
     sourceCodeDocuments,
     hasSimpleModeSourceEdits,
@@ -566,7 +567,6 @@ export function AppLayout({
     proModeRoundtripSessionRef,
   });
   const {
-    handleRobotDataResolved,
     handleViewerDocumentLoadEvent,
     handleViewerRuntimeRobotLoaded,
     handleViewerRuntimeSceneReadyForDisplay,
@@ -884,8 +884,14 @@ export function AppLayout({
         selectedFile,
         shouldRenderAssembly,
         workspaceSourceFile: workspaceViewerMjcfSourceFile,
+        renderSelectedUsdFromRobotState,
       }),
-    [selectedFile, shouldRenderAssembly, workspaceViewerMjcfSourceFile],
+    [
+      renderSelectedUsdFromRobotState,
+      selectedFile,
+      shouldRenderAssembly,
+      workspaceViewerMjcfSourceFile,
+    ],
   );
 
   const handleCloseSnapshotDialog = useCallback(() => {
@@ -1269,7 +1275,6 @@ export function AppLayout({
               viewerSourceFormat={viewerSourceFormat}
               sourceFilePath={viewerSourceFilePath}
               sourceFile={viewerSourceFile}
-              onRobotDataResolved={handleRobotDataResolved}
               onDocumentLoadEvent={handleViewerDocumentLoadEvent}
               onRuntimeRobotLoaded={handleViewerRuntimeRobotLoaded}
               onRuntimeSceneReadyForDisplay={handleViewerRuntimeSceneReadyForDisplay}

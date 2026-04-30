@@ -11,6 +11,7 @@ import {
   getCollisionGeometryEntries,
   hasGeometryMeshMaterialGroups,
   getVisualGeometryEntries,
+  resolveVisualMaterialOverride as resolveRobotVisualMaterialOverride,
 } from '@/core/robot';
 import { createBoxFaceMaterialArray } from '@/core/utils/boxFaceMaterialArray';
 import { createMatteMaterial } from '@/core/utils/materialFactory';
@@ -23,6 +24,7 @@ import {
 import {
   GeometryType,
   JointType,
+  type RobotData,
   type UrdfJoint as RobotJoint,
   type UrdfLink as RobotLink,
 } from '@/types';
@@ -35,6 +37,7 @@ import {
   URDFVisual,
 } from './URDFClasses';
 import type { MeshLoadFunc } from './URDFLoader';
+import type { VisualMaterialOverride } from '@/core/utils/visualMaterialOverrides';
 
 const DEFAULT_COLOR = '#808080';
 const DEFAULT_ORIGIN = {
@@ -264,6 +267,69 @@ function createPrimitiveMaterial(color?: string): THREE.MeshStandardMaterial {
     color: color || DEFAULT_COLOR,
     preserveExactColor: Boolean(color),
   });
+}
+
+function colorRgbaToHex(colorRgba: [number, number, number, number] | undefined): string | undefined {
+  if (!Array.isArray(colorRgba) || colorRgba.length !== 4) {
+    return undefined;
+  }
+
+  const channels = colorRgba.map((value) => Number(value));
+  if (!channels.every((value) => Number.isFinite(value))) {
+    return undefined;
+  }
+
+  const to255 = (channel: number) => (Math.abs(channel) <= 1 ? channel * 255 : channel);
+  const toHex = (channel: number) =>
+    Math.max(0, Math.min(255, Math.round(to255(channel))))
+      .toString(16)
+      .padStart(2, '0');
+  const [red, green, blue, alpha] = channels;
+  const rgb = `${toHex(red)}${toHex(green)}${toHex(blue)}`;
+  return alpha < 0.999 ? `#${rgb}${toHex(alpha)}` : `#${rgb}`;
+}
+
+function resolveStateVisualMaterialOverride({
+  geometry,
+  isPrimaryVisual,
+  link,
+  materials,
+}: {
+  geometry: RobotLink['visual'];
+  isPrimaryVisual: boolean;
+  link: Pick<RobotLink, 'id' | 'name'>;
+  materials: RobotData['materials'] | undefined;
+}): { override: VisualMaterialOverride | null; isExplicit: boolean } {
+  const resolved = resolveRobotVisualMaterialOverride(
+    { materials },
+    link,
+    geometry,
+    { isPrimaryVisual },
+  );
+
+  if (resolved.source === 'none' || resolved.isMultiMaterial) {
+    return { override: null, isExplicit: false };
+  }
+
+  const color = resolved.color ?? colorRgbaToHex(resolved.colorRgba);
+  const override: VisualMaterialOverride = {
+    ...(color ? { color } : {}),
+    ...(resolved.texture ? { texture: resolved.texture } : {}),
+    ...(resolved.opacity !== undefined ? { opacity: resolved.opacity } : {}),
+    ...(resolved.roughness !== undefined ? { roughness: resolved.roughness } : {}),
+    ...(resolved.metalness !== undefined ? { metalness: resolved.metalness } : {}),
+    ...(resolved.emissive ? { emissive: resolved.emissive } : {}),
+    ...(resolved.emissiveIntensity !== undefined
+      ? { emissiveIntensity: resolved.emissiveIntensity }
+      : {}),
+  };
+
+  return {
+    override: Object.keys(override).length > 0 ? override : null,
+    isExplicit:
+      resolved.source === 'legacy-link' ||
+      hasExplicitGeometryMaterialOverride(geometry),
+  };
 }
 
 function applyMeshScale(group: THREE.Object3D, geometry: RobotLink['visual']): void {
@@ -563,6 +629,7 @@ export interface BuildRuntimeRobotFromStateOptions {
   robotName?: string;
   links: Record<string, RobotLink>;
   joints: Record<string, RobotJoint>;
+  materials?: RobotData['materials'];
   manager: THREE.LoadingManager;
   loadMeshCb: MeshLoadFunc;
   parseVisual?: boolean;
@@ -575,6 +642,7 @@ export async function buildRuntimeRobotFromState({
   robotName,
   links,
   joints,
+  materials,
   manager,
   loadMeshCb,
   parseVisual = true,
@@ -599,15 +667,27 @@ export async function buildRuntimeRobotFromState({
     geometry: RobotLink['visual'],
     runtimeKey: string,
     isCollision: boolean,
+    objectIndex: number,
   ) => {
     const group = isCollision ? new URDFCollider() : new URDFVisual();
     const hasBoxFacePalette = !isCollision && getBoxFaceMaterialPalette(geometry).length > 0;
-    const visualMaterialOverride =
+    const resolvedMaterialOverride =
       !isCollision && !hasBoxFacePalette
+        ? resolveStateVisualMaterialOverride({
+            geometry,
+            isPrimaryVisual: objectIndex === 0,
+            link: links[linkKey] ?? { id: linkKey, name: linkKey },
+            materials,
+          })
+        : { override: null, isExplicit: false };
+    const visualMaterialOverride =
+      resolvedMaterialOverride.override ??
+      (!isCollision && !hasBoxFacePalette
         ? resolveVisualMaterialOverrideFromGeometry(geometry)
-        : null;
+        : null);
     const hasExplicitMaterialOverride =
-      !isCollision && hasExplicitGeometryMaterialOverride(geometry);
+      resolvedMaterialOverride.isExplicit ||
+      (!resolvedMaterialOverride.override && hasExplicitGeometryMaterialOverride(geometry));
     group.name = runtimeKey;
     group.urdfName = runtimeKey;
     group.userData.runtimeKey = runtimeKey;
@@ -774,6 +854,7 @@ export async function buildRuntimeRobotFromState({
           entry.geometry,
           `${linkKey}::visual::${entry.objectIndex}`,
           false,
+          entry.objectIndex,
         );
       });
 
@@ -791,6 +872,7 @@ export async function buildRuntimeRobotFromState({
           entry.geometry,
           `${linkKey}::collision::${entry.objectIndex}`,
           true,
+          entry.objectIndex,
         );
       });
     }

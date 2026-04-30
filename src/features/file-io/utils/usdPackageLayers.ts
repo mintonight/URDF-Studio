@@ -219,6 +219,45 @@ const getUsdDriveInstanceName = (typeName: string): 'angular' | 'linear' | null 
   return null;
 };
 
+function normalizeUsdPhysicsQuaternionWxyz(
+  value: ArrayLike<number> | null | undefined,
+): THREE.Quaternion | null {
+  if (!value || typeof value.length !== 'number' || value.length < 4) {
+    return null;
+  }
+
+  const w = Number(value[0]);
+  const x = Number(value[1]);
+  const y = Number(value[2]);
+  const z = Number(value[3]);
+  if (![w, x, y, z].every((entry) => Number.isFinite(entry))) {
+    return null;
+  }
+
+  const quaternion = new THREE.Quaternion(x, y, z, w);
+  if (!Number.isFinite(quaternion.lengthSq()) || quaternion.lengthSq() <= 1e-12) {
+    return null;
+  }
+
+  return quaternion.normalize();
+}
+
+function resolveUsdPhysicsLocalPos1(joint: UrdfJoint): [number, number, number] {
+  const source = joint.usdPhysics?.localPos1;
+  if (!source) {
+    return [0, 0, 0];
+  }
+
+  const x = Number(source.x);
+  const y = Number(source.y);
+  const z = Number(source.z);
+  if (![x, y, z].every((entry) => Number.isFinite(entry))) {
+    return [0, 0, 0];
+  }
+
+  return [x, y, z];
+}
+
 const serializeJointDefinition = (
   joint: UrdfJoint,
   linkPaths: Map<string, string>,
@@ -315,6 +354,11 @@ const serializeJointDefinition = (
     joint.origin?.rpy?.p ?? 0,
     joint.origin?.rpy?.y ?? 0,
   );
+  const localRot1Quaternion =
+    normalizeUsdPhysicsQuaternionWxyz(joint.usdPhysics?.localRot1Wxyz) ??
+    new THREE.Quaternion();
+  const localRot0Quaternion = originQuaternion.clone().multiply(localRot1Quaternion);
+  const localPos1 = resolveUsdPhysicsLocalPos1(joint);
   lines.push(
     `${childIndent}custom point3f urdf:originXyz = ${formatUsdTuple([
       joint.origin?.xyz?.x ?? 0,
@@ -325,9 +369,13 @@ const serializeJointDefinition = (
   lines.push(
     `${childIndent}custom quatf urdf:originQuatWxyz = ${quaternionToUsdTuple(originQuaternion)}`,
   );
-  lines.push(`${childIndent}quatf physics:localRot0 = ${quaternionToUsdTuple(originQuaternion)}`);
-  lines.push(`${childIndent}point3f physics:localPos1 = (0, 0, 0)`);
-  lines.push(`${childIndent}quatf physics:localRot1 = (1, 0, 0, 0)`);
+  lines.push(
+    `${childIndent}quatf physics:localRot0 = ${quaternionToUsdTuple(localRot0Quaternion)}`,
+  );
+  lines.push(`${childIndent}point3f physics:localPos1 = ${formatUsdTuple(localPos1)}`);
+  lines.push(
+    `${childIndent}quatf physics:localRot1 = ${quaternionToUsdTuple(localRot1Quaternion)}`,
+  );
   lines.push(`${indent}}`);
 };
 

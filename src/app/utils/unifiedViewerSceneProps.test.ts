@@ -101,6 +101,30 @@ test('buildUnifiedViewerSceneProps preserves live interaction wiring without pre
   assert.equal(sceneProps.onBridgeTransform, onBridgeTransform);
 });
 
+test('buildUnifiedViewerSceneProps does not forward legacy robot data callbacks', () => {
+  const controller = createControllerStub();
+  const onRobotDataResolved = () => {};
+
+  const args = {
+    controller,
+    active: true,
+    hasActivePreview: false,
+    hoveredSelection: undefined,
+    viewerResourceScope: createScopeStub(),
+    effectiveSourceFile: null,
+    effectiveUrdfContent: '<robot name="go2" />',
+    mode: 'editor',
+    robot: createRobotStub(),
+    onRobotDataResolved,
+  } as Parameters<typeof buildUnifiedViewerSceneProps>[0] & {
+    onRobotDataResolved: () => void;
+  };
+
+  const sceneProps = buildUnifiedViewerSceneProps(args);
+
+  assert.equal('onRobotDataResolved' in sceneProps, false);
+});
+
 test('buildUnifiedViewerSceneProps clamps preview sessions to a read-only editor scene', () => {
   const controller = createControllerStub();
   const onHover = () => {};

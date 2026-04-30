@@ -6,7 +6,6 @@ import {
   type ExportDialogConfig,
 } from '@/features/file-io';
 import { convertUsdArchiveFilesToBinaryWithWorker } from '@/app/utils/usdBinaryArchiveWorkerBridge';
-import { buildLiveUsdRoundtripArchive } from '@/app/utils/liveUsdRoundtripExport';
 import { translations } from '@/shared/i18n';
 import type { RobotFile, RobotState } from '@/types';
 
@@ -31,12 +30,7 @@ interface ExecuteUsdExportParams {
   config: ExportDialogConfig;
   target: ExportTarget;
   options: HandleExportWithConfigOptions;
-  selectedFile: RobotFile | null;
-  sidebarTab: string;
-  currentUsdExportMode: string;
-  availableFiles: RobotFile[];
   assets: Record<string, string>;
-  allFileContents: Record<string, string>;
   requiresResolvedUsdContext: boolean;
   t: ExportTranslations;
   resolveLibraryRobotForExport: (file: RobotFile) => Promise<RobotState>;
@@ -61,12 +55,7 @@ export async function executeUsdExport({
   config,
   target,
   options,
-  selectedFile,
-  sidebarTab,
-  currentUsdExportMode,
-  availableFiles,
   assets,
-  allFileContents,
   requiresResolvedUsdContext,
   t,
   resolveLibraryRobotForExport,
@@ -94,53 +83,7 @@ export async function executeUsdExport({
         }
       : resolveExportContext(target);
 
-  const shouldFallbackToLiveUsdStage =
-    target.type === 'current' &&
-    selectedFile?.format === 'usd' &&
-    sidebarTab !== 'workspace' &&
-    currentUsdExportMode === 'live-stage' &&
-    config.usd.fileFormat === 'usd' &&
-    selectedFile.name.toLowerCase().endsWith('.usd');
-
   if (!exportContext) {
-    if (shouldFallbackToLiveUsdStage && selectedFile) {
-      reportProgress(2, t.exportProgressBuildingUsdScene, t.exportProgressUsdScenePreparingDetail, {
-        stageProgress: 0.16,
-        indeterminate: true,
-      });
-
-      const roundtripArchive = await buildLiveUsdRoundtripArchive({
-        sourceFile: selectedFile,
-        availableFiles,
-        assets,
-        allFileContents,
-      });
-
-      reportProgress(3, t.exportProgressPreparing, t.exportProgressPreparingDetail, {
-        stageProgress: 0.64,
-        indeterminate: true,
-      });
-
-      const zip = new JSZip();
-      roundtripArchive.archiveFiles.forEach((blob, filePath) => {
-        zip.file(filePath, blob);
-      });
-
-      const content = await generateZipBlobWithProgress(
-        zip,
-        reportProgress,
-        shouldConvertUsdLayers ? 4 : 3,
-      );
-      downloadBlob(content, roundtripArchive.archiveFileName);
-      markCurrentTargetSaved();
-
-      return {
-        partial: false,
-        warnings: [],
-        issues: [],
-      };
-    }
-
     if (requiresResolvedUsdContext) {
       throw new Error(t.usdExportUnavailable);
     }

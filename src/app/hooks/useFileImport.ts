@@ -48,6 +48,7 @@ import {
 import { primePreResolvedRobotImports } from '@/app/utils/preResolvedRobotImportCache';
 import { prewarmUsdSelectionInBackground } from '@/app/utils/usdSelectionPrewarm';
 import { markUnsavedChangesBaselineSaved } from '@/app/utils/unsavedChangesBaseline';
+import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 
 export interface ImportPreparationOverlayState {
   label: string;
@@ -79,7 +80,7 @@ function revokeBlobUrls(urls: readonly string[]): void {
 }
 
 function normalizeImportSourcePath(path: string): string {
-  return path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/');
+  return normalizeLibraryPathKey(path);
 }
 
 function resolveImportSourceFilePath(file: File): string {

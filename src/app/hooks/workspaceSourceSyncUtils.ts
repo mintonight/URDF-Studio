@@ -44,6 +44,7 @@ import { collectURDFMaterialsFromLinks } from '@/features/editor';
 import { BRIDGE_PREVIEW_ID } from '@/features/assembly';
 import { createRobotSemanticSnapshot } from '@/shared/utils/robot/semanticSnapshot';
 import { parseEditableRobotSourceWithWorker } from './robotImportWorkerBridge';
+import { USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF } from './workspace-source-sync/usdViewerPlaceholder';
 
 type JsonLike = null | boolean | number | string | JsonLike[] | { [key: string]: JsonLike };
 
@@ -443,12 +444,26 @@ export function getViewerSourceFile({
   selectedFile,
   shouldRenderAssembly,
   workspaceSourceFile = null,
+  renderSelectedUsdFromRobotState = false,
 }: {
   selectedFile: RobotFile | null;
   shouldRenderAssembly: boolean;
   workspaceSourceFile?: RobotFile | null;
+  renderSelectedUsdFromRobotState?: boolean;
 }): RobotFile | null {
-  return shouldRenderAssembly ? workspaceSourceFile : selectedFile;
+  if (shouldRenderAssembly) {
+    return workspaceSourceFile;
+  }
+
+  if (selectedFile?.format === 'usd') {
+    return {
+      ...selectedFile,
+      content: USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF,
+      format: 'urdf',
+    };
+  }
+
+  return selectedFile;
 }
 
 export type WorkspaceAssemblyRenderFailureReason =

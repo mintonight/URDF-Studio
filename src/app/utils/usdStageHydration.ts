@@ -1,7 +1,8 @@
 import type { InteractionSelection, RobotInspectionContext } from '@/types';
+import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 
 function normalizeUsdStagePath(path: string | null | undefined): string {
-  return String(path || '').trim().replace(/^\/+/, '');
+  return normalizeLibraryPathKey(path);
 }
 
 export interface UsdStageHydrationDecision {

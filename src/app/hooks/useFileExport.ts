@@ -18,12 +18,10 @@ import { rewriteUrdfAssetPathsForExport } from '@/core/parsers/meshPathUtils';
 import { useAssemblyStore, useAssetsStore, useRobotStore, useUIStore } from '@/store';
 import { toDocumentLoadLifecycleState } from '@/store/assetsStore';
 import { prepareMjcfMeshExportAssets, type ExportDialogConfig } from '@/features/file-io';
-import { getUsdStageExportHandler } from '@/features/editor';
 import { translations } from '@/shared/i18n';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
 import type { RobotAssetPackagingFailure } from '../utils/exportArchiveAssets';
 import { addRobotAssetsToZip } from '../utils/exportArchiveAssets';
-import { resolveCurrentUsdExportMode } from '../utils/currentUsdExportMode';
 import { flushPendingHistory } from '../utils/pendingHistory';
 import { buildCurrentRobotExportState } from './projectRobotStateUtils';
 import { resolveCurrentUsdExportBundle } from '../utils/usdExportContext';
@@ -205,16 +203,6 @@ export function useFileExport() {
     selectedFile?.format === 'usd' &&
     documentLoadLifecycleState.status === 'hydrating' &&
     documentLoadLifecycleState.fileName === selectedFile.name;
-  const currentUsdExportMode =
-    selectedFile?.format === 'usd' && sidebarTab !== 'workspace'
-      ? resolveCurrentUsdExportMode({
-          isHydrating: isCurrentUsdHydrating,
-          hasLiveStageExportHandler: Boolean(getUsdStageExportHandler()),
-          hasPreparedExportCache: Boolean(getUsdPreparedExportCache(selectedFile.name)),
-          hasSceneSnapshot: Boolean(getUsdSceneSnapshot(selectedFile.name)),
-        })
-      : 'unavailable';
-
   const buildRobotForExport = useCallback((): RobotState => {
     // Keep export source aligned with current viewer:
     // workspace tab -> merged assembly; structure tab -> current robot store.
@@ -729,12 +717,7 @@ export function useFileExport() {
           config,
           target,
           options,
-          selectedFile,
-          sidebarTab,
-          currentUsdExportMode,
-          availableFiles,
           assets,
-          allFileContents,
           requiresResolvedUsdContext,
           t,
           resolveLibraryRobotForExport,
@@ -1195,14 +1178,11 @@ export function useFileExport() {
     },
     [
       addMeshesToZip,
-      currentUsdExportMode,
       createProgressReporter,
       bomLabels,
       boxFaceFallbackWarningLabels,
       downloadBlob,
-      availableFiles,
       assets,
-      allFileContents,
       generateZipBlobWithProgress,
       buildUrdfSourceExportContent,
       replaceTemplate,

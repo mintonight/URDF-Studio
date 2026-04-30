@@ -299,6 +299,71 @@ test('maps authored USD physics schema joint type names back onto URDF joint typ
   assert.equal(joint.type, JointType.FIXED);
 });
 
+test('preserves USD physics child joint frame rotations for IsaacSim-authored fixed links', () => {
+  const childFrame = [Math.SQRT1_2, 0, Math.SQRT1_2, 0];
+  const result = adaptUsdViewerSnapshotToRobotData(
+    {
+      stageSourcePath: '/robots/unitree/go2_description.usda',
+      stage: {
+        defaultPrimPath: '/go2_description',
+      },
+      robotTree: {
+        linkParentPairs: [
+          ['/go2_description/base', null],
+          ['/go2_description/FL_foot', '/go2_description/base'],
+        ],
+        rootLinkPaths: ['/go2_description/base'],
+      },
+      robotMetadataSnapshot: {
+        stageSourcePath: '/robots/unitree/go2_description.usda',
+        linkParentPairs: [
+          ['/go2_description/base', null],
+          ['/go2_description/FL_foot', '/go2_description/base'],
+        ],
+        jointCatalogEntries: [
+          {
+            linkPath: '/go2_description/FL_foot',
+            parentLinkPath: '/go2_description/base',
+            jointName: 'FL_foot_joint',
+            jointTypeName: 'PhysicsFixedJoint',
+            axisToken: 'X',
+            axisLocal: [1, 0, 0],
+            originXyz: [0, 0, -0.213],
+            originQuatWxyz: [1, 0, 0, 0],
+            localRot0Wxyz: childFrame,
+            localPos1: [0, 0, 0],
+            localRot1Wxyz: childFrame,
+          },
+        ],
+        meshCountsByLinkPath: {
+          '/go2_description/base': {
+            visualMeshCount: 1,
+            collisionMeshCount: 0,
+            collisionPrimitiveCounts: {},
+          },
+          '/go2_description/FL_foot': {
+            visualMeshCount: 1,
+            collisionMeshCount: 0,
+            collisionPrimitiveCounts: {},
+          },
+        },
+      },
+    },
+    {
+      fileName: 'go2_description.usda',
+    },
+  );
+
+  assert.ok(result);
+  const joint = Object.values(result.robotData.joints).find(
+    (candidate) => candidate.name === 'FL_foot_joint',
+  );
+  assert.ok(joint);
+  assert.deepEqual(joint.usdPhysics?.localRot1Wxyz, childFrame);
+  assert.deepEqual(joint.usdPhysics?.localRot0Wxyz, childFrame);
+  assert.deepEqual(joint.usdPhysics?.localPos1, { x: 0, y: 0, z: 0 });
+});
+
 test('ignores USDA internal mesh libraries when robot link metadata is present', () => {
   const result = adaptUsdViewerSnapshotToRobotData(
     {
@@ -657,6 +722,84 @@ test('preserves multiple authored materials from USD geom subset sections on a s
     ['#597c95', '#e7e7e7'],
   );
   assert.equal(result.robotData.materials?.base_link, undefined);
+});
+
+test('does not preserve disabled OmniPBR default white emission as authored USD emissive material', () => {
+  const result = adaptUsdViewerSnapshotToRobotData(
+    {
+      stageSourcePath: '/robots/unitree/b2.usd',
+      stage: {
+        defaultPrimPath: '/b2_description',
+      },
+      robotTree: {
+        linkParentPairs: [['/b2_description/base_link', null]],
+        rootLinkPaths: ['/b2_description/base_link'],
+      },
+      robotMetadataSnapshot: {
+        stageSourcePath: '/robots/unitree/b2.usd',
+        linkParentPairs: [['/b2_description/base_link', null]],
+        jointCatalogEntries: [],
+        meshCountsByLinkPath: {
+          '/b2_description/base_link': {
+            visualMeshCount: 1,
+            collisionMeshCount: 0,
+          },
+        },
+      },
+      render: {
+        meshDescriptors: [
+          {
+            meshId: '/b2_description/base_link/visuals.proto_mesh_id0',
+            sectionName: 'visuals',
+            resolvedPrimPath: '/b2_description/base_link/visuals/base_link/mesh',
+            primType: 'mesh',
+            geometry: {
+              geomSubsetSections: [
+                { start: 0, length: 3, materialId: '/b2_description/Looks/material_______023' },
+                { start: 3, length: 3, materialId: '/b2_description/Looks/material_______024' },
+              ],
+            },
+          },
+        ],
+        materials: [
+          {
+            materialId: '/b2_description/Looks/material_______023',
+            name: 'material_______023',
+            isOmniPbr: true,
+            emissiveEnabled: false,
+            color: [0, 0, 0],
+            emissive: [1, 1, 1],
+            emissiveIntensity: 10000,
+          },
+          {
+            materialId: '/b2_description/Looks/material_______024',
+            name: 'material_______024',
+            isOmniPbr: true,
+            emissiveEnabled: false,
+            color: [0.003, 0.003, 0.003],
+            emissive: [1, 1, 1],
+            emissiveIntensity: 10000,
+          },
+        ],
+      },
+    },
+    {
+      fileName: 'b2.usd',
+    },
+  );
+
+  assert.ok(result);
+  assert.deepEqual(
+    result.robotData.links.base_link.visual.authoredMaterials?.map((material) => ({
+      color: material.color,
+      emissive: material.emissive,
+      emissiveIntensity: material.emissiveIntensity,
+    })),
+    [
+      { color: '#000000', emissive: undefined, emissiveIntensity: undefined },
+      { color: '#0a0a0a', emissive: undefined, emissiveIntensity: undefined },
+    ],
+  );
 });
 
 test('keeps USD mesh descriptors as mesh visuals when no mesh asset path exists', () => {

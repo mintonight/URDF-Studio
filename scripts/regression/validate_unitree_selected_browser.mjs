@@ -107,6 +107,22 @@ function hasResolvedRobotData(result) {
   );
 }
 
+function hasPreparedRobotStateCache(result) {
+  const preparedCacheKeys =
+    result?.assetDebugState?.preparedUsdCacheKeysByFile?.[result?.selectedFileName] ??
+    result?.assetDebugState?.preparedUsdCacheKeysByFile?.[result?.targetFileName] ??
+    null;
+  return Array.isArray(preparedCacheKeys) && preparedCacheKeys.length > 0;
+}
+
+function hasRobotStateRenderEvidence(result) {
+  return Boolean(
+    hasPreparedRobotStateCache(result) ||
+      result?.stageReady === true ||
+      result?.selectedUsdSceneSummary?.available === true,
+  );
+}
+
 function hasFiniteVector(value, expectedLength) {
   return (
     Array.isArray(value) &&
@@ -175,6 +191,12 @@ function hasExpectedB2VisualMaterialRendering(result) {
       const color = String(material?.color || '')
         .trim()
         .toLowerCase();
+      const emissive = String(material?.emissive || '')
+        .trim()
+        .toLowerCase();
+      if (emissive && emissive !== '#000000') {
+        return false;
+      }
       if (name && color && !materialColorsByName.has(name)) {
         materialColorsByName.set(name, color);
       }
@@ -198,39 +220,16 @@ function hasExpectedB2VisualMaterialRendering(result) {
   );
 }
 
-function isExpectedMainThreadModel(result) {
-  const targetPath = String(
-    result?.selectedFileName || result?.targetFileName || result?.modelKey || '',
-  )
-    .replace(/\\/g, '/')
-    .toLowerCase();
-
-  return (
-    targetPath.includes('/b2/') ||
-    targetPath.includes('b2_description') ||
-    targetPath.includes('/h1_2/') ||
-    targetPath.includes('/h1_2_handless/')
-  );
-}
-
 function validateResult(result) {
-  const expectsOffscreenRenderer = !isExpectedMainThreadModel(result);
-  const usesOffscreenRenderer =
-    result?.workerResolveEntry?.status === 'resolved' &&
-    !result?.runtimeResolveEntry &&
-    result?.orbitInteraction?.canvasLabel === 'usd-offscreen-canvas' &&
-    result?.orbitInteraction?.changed === true;
-  const usesMainThreadRenderer = result?.runtimeResolveEntry?.status === 'resolved';
   return Boolean(
     result?.loaded === true &&
     hasResolvedRobotData(result) &&
-    result?.stageReady === true &&
-    result?.stagePreparationMode === 'worker' &&
+    result?.workerResolveEntry?.status === 'resolved' &&
+    result?.documentLoadState?.status === 'ready' &&
+    hasRobotStateRenderEvidence(result) &&
     result?.metadataSourcePass === true &&
     hasSceneBindingCoverage(result) &&
     hasExpectedB2VisualMaterialRendering(result) &&
-    (!expectsOffscreenRenderer || usesOffscreenRenderer) &&
-    (expectsOffscreenRenderer || usesMainThreadRenderer) &&
     (result?.consoleErrors?.length ?? 0) === 0 &&
     (result?.consoleWarnings?.length ?? 0) === 0 &&
     (result?.pageErrors?.length ?? 0) === 0,
@@ -250,6 +249,8 @@ function summarizeFailures(report) {
       stagePreparationMode: result.stagePreparationMode,
       metadataSource: result.metadataSource,
       metadataSourcePass: result.metadataSourcePass,
+      hasPreparedRobotStateCache: hasPreparedRobotStateCache(result),
+      hasRobotStateRenderEvidence: hasRobotStateRenderEvidence(result),
       selectedUsdSceneSummary: result.selectedUsdSceneSummary ?? null,
       selectedUsdVisualMaterialSummary: result.selectedUsdVisualMaterialSummary ?? null,
       orbitInteraction: result.orbitInteraction ?? null,

@@ -5,7 +5,7 @@ import { getUsdConfigurationMirrorPlan, getUsdDependencyExtension, getUsdDepende
 import { getDirectoryFromVirtualPath, isLikelyNonRenderableUsdConfig, normalizeUsdPath, parseBooleanFlag } from "./path-utils.js";
 import { applyStageAxisAlignmentToRoot } from "./stage-up-axis.js";
 import { getTextureLoadProgress, waitForTextureLoadReady } from "./usd-loader-progress.js";
-const COLLISION_SEGMENT_PATTERN = /(?:^|\/)collisions?(?:$|[/.])/i;
+const COLLISION_SEGMENT_PATTERN = /(?:^|\/)coll(?:isions?|iders?)(?:$|[/.])/i;
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -52,7 +52,7 @@ function getMeshLoadStats(renderInterface) {
             return true;
         if (normalizedId.includes(".proto_"))
             return true;
-        const isTopLevelPlaceholderMesh = /^\/(?:meshes|visuals|colliders?|collision)\//i.test(normalizedId);
+        const isTopLevelPlaceholderMesh = /^\/(?:meshes|visuals|coll(?:isions?|iders?))\//i.test(normalizedId);
         if (!isTopLevelPlaceholderMesh)
             return true;
         const resolvedPath = renderInterface?.getResolvedPrimPathForMeshId?.(normalizedId)
@@ -406,17 +406,6 @@ export async function loadUsdStage(args) {
         totalCount: null,
     });
     setMessage("Preloading USD dependencies...");
-    const unitreeDependencyStemByRootUsdFile = {
-        "g1_29dof_rev_1_0.usd": "g1_29dof_rev_1_0",
-        "g1_23dof_rev_1_0.usd": "g1_23dof_rev_1_0",
-        "go2.usd": "go2_description",
-        "go2w.usd": "go2w_description",
-        "h1.usd": "h1",
-        "h1_2.usd": "h1_2",
-        "h1_2_handless.usd": "h1_2_handless",
-        "b2.usd": "b2_description",
-        "b2w.usd": "b2w_description",
-    };
     const usdModule = window.USD;
     const canWriteVirtualFs = !!usdModule
         && typeof usdModule.FS_createPath === "function"
@@ -620,8 +609,7 @@ export async function loadUsdStage(args) {
         }
     }
     const normalizedFileName = normalizedPath.split("/").pop()?.toLowerCase() || "";
-    const inferredStem = inferDependencyStemForUsdPath(normalizedPath, normalizedFileName);
-    const dependencyStem = unitreeDependencyStemByRootUsdFile[normalizedFileName] || inferredStem;
+    const dependencyStem = inferDependencyStemForUsdPath(normalizedPath, normalizedFileName);
     const normalizedPathLower = normalizedPath.toLowerCase();
     const shouldAutoLoadDependenciesFromVirtualFs = usdFsHelper.hasVirtualFilePath(normalizedPath);
     const shouldAutoLoadDependenciesFromUnitreePath = normalizedPathLower.startsWith("/unitree_model/");

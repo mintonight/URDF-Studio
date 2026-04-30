@@ -710,7 +710,7 @@ test('useFileExport skips binary USD conversion when exporting authored USDA lay
   }
 });
 
-test('useFileExport prefers prepared USD bundle export over live-stage roundtrip when both are available', async () => {
+test('useFileExport prefers prepared USD bundle export over the viewer runtime export handler', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const downloadMocks = installDownloadMocks();
@@ -787,7 +787,7 @@ test('useFileExport prefers prepared USD bundle export over live-stage roundtrip
   }
 });
 
-test('useFileExport falls back to live-stage roundtrip when no prepared USD export bundle is available', async () => {
+test('useFileExport rejects current USD export when only the viewer runtime export handler is available', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const downloadMocks = installDownloadMocks();
@@ -829,21 +829,17 @@ test('useFileExport falls back to live-stage roundtrip when no prepared USD expo
       const rendered = renderHook();
 
       try {
-        const result = await rendered.hook.handleExportWithConfig(createUsdExportConfig(), {
-          type: 'current',
-        });
-
-        assert.deepEqual(result, {
-          partial: false,
-          warnings: [],
-          issues: [],
-        });
+        await assert.rejects(
+          rendered.hook.handleExportWithConfig(createUsdExportConfig(), {
+            type: 'current',
+          }),
+          /USD export is not ready yet/i,
+        );
         assert.equal(workerMocks.usdExportRequestCount, 0);
         assert.equal(workerMocks.usdBinaryRequestCount, 0);
-        assert.equal(liveStageExport.callCount, 1);
-        assert.ok(downloadMocks.clicked);
-        assert.equal(downloadMocks.appendedAnchor?.download, 'demo.zip');
-        assert.ok(downloadMocks.capturedBlob);
+        assert.equal(liveStageExport.callCount, 0);
+        assert.equal(downloadMocks.clicked, false);
+        assert.equal(downloadMocks.capturedBlob, null);
       } finally {
         rendered.cleanup();
       }

@@ -30,10 +30,10 @@ features/editor/
 features/urdf-viewer/
   components/                 # React 组件层
     ViewerCanvas.tsx          # viewer 画布层与共享 canvas 适配
+    ViewerScene.tsx           # 统一场景编排，格式差异下沉到 RobotModel/backend
+    RobotModel.tsx            # 后端驱动的机器人渲染与交互入口
     ViewerToolbar.tsx         # 顶部工具条
     ViewerLoadingHud.tsx      # loading 状态 HUD
-    UsdWasmStage.tsx          # WASM stage 嵌入入口
-    UsdOffscreenStage.tsx     # offscreen canvas + worker 模式宿主
   hooks/                      # React hooks
   utils/                      # 适配层 & 工具
   types.ts                    # 共享类型收口
@@ -53,7 +53,8 @@ features/urdf-viewer/
 - `useMouseInteraction`：鼠标交互处理
 - `useHoverDetection`：悬停检测
 - `useVisualizationEffects`：惯性、质心、原点等辅助可视化
-- `useRobotLoader`：模型加载
+- `useRendererBackend`：统一模型加载与格式后端生命周期
+- `useRobotLoader`：旧 Three.js 路径的加载工具，保留给兼容/迁移场景
 - `useHighlightManager`：高亮管理
 
 工具模式：`select | translate | rotate | universal | view | face | measure`
@@ -95,7 +96,7 @@ features/urdf-viewer/
 
 ## 7. USD offscreen / runtime 生命周期约束
 
-适用范围：`UsdOffscreenStage.tsx`、`usdOffscreenViewer.worker.ts`、`runtime/hydra/render-delegate/*`、`shared/utils/three/dispose.ts`
+适用范围：`usdOffscreenViewer.worker.ts`、`runtime/hydra/render-delegate/*`、`shared/utils/three/dispose.ts`
 
 必须遵循：
 

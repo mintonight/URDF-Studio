@@ -660,7 +660,7 @@ export class LinkRotationController {
             const mesh = hydraMesh?._mesh;
             if (!mesh || !mesh.visible)
                 continue;
-            if (this.pickSubType === "visual" && (mesh.userData?.isCollisionMesh === true || /\/collisions?(?:\/|\.|$)/i.test(meshId)))
+            if (this.pickSubType === "visual" && (mesh.userData?.isCollisionMesh === true || /\/coll(?:isions?|iders?)(?:\/|\.|$)/i.test(meshId)))
                 continue;
             if (this.pickSubType === "collision" && (mesh.userData?.isVisualMesh === true || /\/visuals?(?:\/|\.|$)/i.test(meshId)))
                 continue;

@@ -794,6 +794,44 @@ test('serializes joint origin quaternions using URDF ZYX rpy semantics', async (
   assert.match(physicsLayer, /custom float3 urdf:axisLocal = \(0, 0, -1\)/);
 });
 
+test('serializes preserved USD physics child joint frames for IsaacSim parity', async () => {
+  const robot = createTwoLinkRobot();
+  const childFrame = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(0, 1, 0),
+    Math.PI / 2,
+  );
+  robot.joints.joint_link1.type = JointType.FIXED;
+  robot.joints.joint_link1.origin.rpy = { r: 0, p: 0.05, y: 0 };
+  (
+    robot.joints.joint_link1 as typeof robot.joints.joint_link1 & {
+      usdPhysics: {
+        localRot1Wxyz: [number, number, number, number];
+      };
+    }
+  ).usdPhysics = {
+    localRot1Wxyz: [childFrame.w, childFrame.x, childFrame.y, childFrame.z],
+  };
+
+  const payload = await exportRobotToUsd({
+    robot,
+    exportName: 'two_link_robot',
+    assets: createTwoLinkAssets(),
+  });
+
+  const physicsLayer = await readArchiveText(
+    payload,
+    'two_link_robot/usd/configuration/two_link_robot_description_physics.usd',
+  );
+  const exportedLocalRot0 = extractTuples(physicsLayer, 'physics:localRot0').at(0);
+  const exportedLocalRot1 = extractTuples(physicsLayer, 'physics:localRot1').at(0);
+  assert.ok(exportedLocalRot0, 'expected physics:localRot0 on the exported joint');
+  assert.ok(exportedLocalRot1, 'expected physics:localRot1 on the exported joint');
+
+  const originQuaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.05, 0, 'ZYX'));
+  assertQuaternionClose(exportedLocalRot1, childFrame);
+  assertQuaternionClose(exportedLocalRot0, originQuaternion.multiply(childFrame));
+});
+
 test('serializes visual and collision origins using URDF ZYX rpy semantics', async () => {
   const robot = createTwoLinkRobot();
   robot.links.base_link.visual.origin = {

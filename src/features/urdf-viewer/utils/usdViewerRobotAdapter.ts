@@ -9,6 +9,7 @@ import {
   type Euler,
   type RobotClosedLoopConstraint,
   type RobotData,
+  type UrdfJointUsdPhysicsFrame,
   type UrdfJoint,
   type UrdfLink,
   type UrdfVisual,
@@ -361,6 +362,21 @@ function resolveSnapshotMaterialTexturePath(
   return texturePath || undefined;
 }
 
+function resolveSnapshotMaterialEmissionEnabled(
+  material: MaterialRecord | null | undefined,
+): boolean {
+  if (!material || typeof material !== 'object') {
+    return true;
+  }
+  if (material.emissiveEnabled === true) {
+    return true;
+  }
+  if (material.emissiveEnabled === false) {
+    return false;
+  }
+  return material.isOmniPbr === true ? false : true;
+}
+
 function resolveSnapshotAuthoredMaterial(
   material: MaterialRecord | null | undefined,
   materialId?: string | null,
@@ -378,8 +394,9 @@ function resolveSnapshotAuthoredMaterial(
   const opacity = Number(material.opacity);
   const roughness = Number(material.roughness);
   const metalness = Number(material.metalness);
-  const emissive = colorArrayToHex(material.emissive) || undefined;
-  const emissiveIntensity = Number(material.emissiveIntensity);
+  const emissiveEnabled = resolveSnapshotMaterialEmissionEnabled(material);
+  const emissive = emissiveEnabled ? colorArrayToHex(material.emissive) || undefined : undefined;
+  const emissiveIntensity = emissiveEnabled ? Number(material.emissiveIntensity) : Number.NaN;
 
   if (
     !name &&
@@ -663,6 +680,61 @@ function toVector3(
     x: Number.isFinite(Number(value?.[0])) ? Number(value?.[0]) : fallback.x,
     y: Number.isFinite(Number(value?.[1])) ? Number(value?.[1]) : fallback.y,
     z: Number.isFinite(Number(value?.[2])) ? Number(value?.[2]) : fallback.z,
+  };
+}
+
+function toOptionalVector3(value: ArrayLike<number> | null | undefined): Vector3 | undefined {
+  if (!value || typeof value.length !== 'number' || value.length < 3) {
+    return undefined;
+  }
+
+  const x = Number(value[0]);
+  const y = Number(value[1]);
+  const z = Number(value[2]);
+  if (![x, y, z].every((entry) => Number.isFinite(entry))) {
+    return undefined;
+  }
+
+  return { x, y, z };
+}
+
+function toQuaternionWxyz(
+  value: ArrayLike<number> | null | undefined,
+): [number, number, number, number] | undefined {
+  if (!value || typeof value.length !== 'number' || value.length < 4) {
+    return undefined;
+  }
+
+  const w = Number(value[0]);
+  const x = Number(value[1]);
+  const y = Number(value[2]);
+  const z = Number(value[3]);
+  if (![w, x, y, z].every((entry) => Number.isFinite(entry))) {
+    return undefined;
+  }
+
+  return [w, x, y, z];
+}
+
+function resolveUsdPhysicsFrameFromViewerEntry(
+  entry: JointCatalogEntry,
+): UrdfJointUsdPhysicsFrame | undefined {
+  const localPos0 = toOptionalVector3(entry.localPos0);
+  const localRot0Wxyz = toQuaternionWxyz(entry.localRot0Wxyz);
+  const localPos1 = toOptionalVector3(entry.localPos1);
+  const localRot1Wxyz = toQuaternionWxyz(entry.localRot1Wxyz);
+  const axisToken = String(entry.axisToken || '').trim();
+
+  if (!localPos0 && !localRot0Wxyz && !localPos1 && !localRot1Wxyz && !axisToken) {
+    return undefined;
+  }
+
+  return {
+    ...(axisToken ? { axisToken } : {}),
+    ...(localPos0 ? { localPos0 } : {}),
+    ...(localRot0Wxyz ? { localRot0Wxyz } : {}),
+    ...(localPos1 ? { localPos1 } : {}),
+    ...(localRot1Wxyz ? { localRot1Wxyz } : {}),
   };
 }
 
@@ -1169,6 +1241,7 @@ function createJointFromViewerEntry(
     entry.originQuatWxyz && typeof entry.originQuatWxyz.length === 'number'
       ? Array.from(entry.originQuatWxyz).slice(0, 4)
       : null;
+  const usdPhysics = resolveUsdPhysicsFrameFromViewerEntry(entry);
 
   return {
     ...DEFAULT_JOINT,
@@ -1199,6 +1272,7 @@ function createJointFromViewerEntry(
       ...(upper !== undefined ? { upper } : {}),
       ...(driveMaxForce !== undefined ? { effort: driveMaxForce } : {}),
     },
+    ...(usdPhysics ? { usdPhysics } : {}),
   };
 }
 

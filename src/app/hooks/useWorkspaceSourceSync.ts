@@ -185,6 +185,7 @@ export function useWorkspaceSourceSync({
 
     return getUsdPreparedExportCache(selectedFile.name)?.robotData ?? null;
   }, [getUsdPreparedExportCache, selectedFile]);
+  const renderSelectedUsdFromRobotState = selectedFile?.format === 'usd';
   const shouldReuseSelectedFileViewerForWorkspace = useMemo(
     () =>
       isWorkspaceAssembly &&
@@ -912,8 +913,15 @@ export function useWorkspaceSourceSync({
       return workspaceViewerMjcfContent ? 'mjcf' : 'urdf';
     }
 
-    return resolveStandaloneViewerSourceFormat(selectedFile?.format);
-  }, [selectedFile?.format, shouldRenderAssembly, workspaceViewerMjcfContent]);
+    return resolveStandaloneViewerSourceFormat(selectedFile?.format, {
+      renderSelectedUsdFromRobotState,
+    });
+  }, [
+    renderSelectedUsdFromRobotState,
+    selectedFile?.format,
+    shouldRenderAssembly,
+    workspaceViewerMjcfContent,
+  ]);
 
   const syncTextFileContent = useWorkspaceTextFileSync({
     selectedFile,
@@ -938,9 +946,11 @@ export function useWorkspaceSourceSync({
       viewerUrdfContent,
       viewerGeneratedUrdfContent,
       isSelectedUsdHydrating,
+      renderSelectedUsdFromRobotState,
     });
   }, [
     isSelectedUsdHydrating,
+    renderSelectedUsdFromRobotState,
     resolvedMjcfSource,
     selectedFile,
     viewerGeneratedUrdfContent,
@@ -1102,6 +1112,7 @@ export function useWorkspaceSourceSync({
     urdfContentForViewer,
     viewerSourceFormat,
     viewerSourceFilePath,
+    renderSelectedUsdFromRobotState,
     workspaceViewerMjcfSourceFile,
     filePreview,
     previewRobot,

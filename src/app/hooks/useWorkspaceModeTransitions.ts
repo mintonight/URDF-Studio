@@ -6,10 +6,6 @@ import { createRobotSemanticSnapshot } from '@/shared/utils/robot/semanticSnapsh
 import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
 import { markUnsavedChangesBaselineSaved } from '@/app/utils/unsavedChangesBaseline';
 import {
-  getCurrentUsdViewerSceneSnapshot,
-  prepareUsdExportCacheFromSnapshot,
-} from '@/features/editor';
-import {
   createGeneratedWorkspaceUrdfFile,
   isGeneratedWorkspaceUrdfFileName,
   resolveWorkspaceGeneratedUrdfRobotData,
@@ -32,8 +28,6 @@ interface ResolveUsdAssemblySeedRobotDataOptions {
   getUsdPreparedExportCache: (
     fileName: string,
   ) => { robotData?: RobotData | null } | null | undefined;
-  getCurrentSceneSnapshot?: typeof getCurrentUsdViewerSceneSnapshot;
-  prepareExportCacheFromSnapshot?: typeof prepareUsdExportCacheFromSnapshot;
 }
 
 interface ResolveUsdAssemblySeedRobotDataResult {
@@ -56,8 +50,6 @@ export function resolveUsdAssemblySeedRobotData({
   selectedFile,
   currentRobotData,
   getUsdPreparedExportCache,
-  getCurrentSceneSnapshot = getCurrentUsdViewerSceneSnapshot,
-  prepareExportCacheFromSnapshot = prepareUsdExportCacheFromSnapshot,
 }: ResolveUsdAssemblySeedRobotDataOptions): ResolveUsdAssemblySeedRobotDataResult {
   if (activeFile?.format !== 'usd') {
     return {
@@ -84,21 +76,6 @@ export function resolveUsdAssemblySeedRobotData({
     return {
       preResolvedRobotData: currentRobotData,
       preparedCache: null,
-      requiresRobotReload: false,
-    };
-  }
-
-  const fallbackSceneSnapshot = getCurrentSceneSnapshot({
-    stageSourcePath: activeFile.name,
-  });
-  const preparedCache = fallbackSceneSnapshot
-    ? prepareExportCacheFromSnapshot(fallbackSceneSnapshot, { fileName: activeFile.name })
-    : null;
-
-  if (hasUsableRobotData(preparedCache?.robotData ?? null)) {
-    return {
-      preResolvedRobotData: preparedCache?.robotData ?? null,
-      preparedCache,
       requiresRobotReload: false,
     };
   }

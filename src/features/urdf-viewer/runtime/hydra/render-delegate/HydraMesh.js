@@ -32,7 +32,7 @@ const FAST_COLLISION_PRIMITIVE_SEGMENTS = {
     capsuleRadial: 12,
 };
 const VISUAL_SEGMENT_PATTERN = /(?:^|\/)visuals?(?:$|[/.])/i;
-const COLLISION_SEGMENT_PATTERN = /(?:^|\/)collisions?(?:$|[/.])/i;
+const COLLISION_SEGMENT_PATTERN = /(?:^|\/)coll(?:isions?|iders?)(?:$|[/.])/i;
 const PRIMITIVE_GEOMETRY_TEMPLATE_CACHE = new Map();
 const warnedMissingMaterials = new Set();
 function toPrimitiveKeyNumber(value, digits = 6) {

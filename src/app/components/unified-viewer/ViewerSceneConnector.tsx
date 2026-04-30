@@ -11,7 +11,6 @@ import type {
   ViewerController,
   ViewerDocumentLoadEvent,
   ViewerHelperKind,
-  ViewerRobotDataResolution,
   ViewerRobotSourceFormat,
   ViewerResourceScope,
 } from '@/features/editor';
@@ -33,7 +32,6 @@ interface ViewerSceneConnectorProps {
   effectiveSourceFilePath?: string;
   effectiveUrdfContent: string;
   effectiveSourceFormat?: ViewerRobotSourceFormat;
-  onRobotDataResolved?: (result: ViewerRobotDataResolution) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   onSceneReadyForDisplay?: () => void;
   onRuntimeRobotLoaded?: (robot: import('three').Object3D) => void;
@@ -120,7 +118,6 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
   effectiveSourceFilePath,
   effectiveUrdfContent,
   effectiveSourceFormat,
-  onRobotDataResolved,
   onDocumentLoadEvent,
   onSceneReadyForDisplay,
   onRuntimeRobotLoaded,
@@ -166,7 +163,6 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
     effectiveSourceFilePath,
     effectiveUrdfContent,
     effectiveSourceFormat,
-    onRobotDataResolved,
     onDocumentLoadEvent,
     onSceneReadyForDisplay,
     onRuntimeRobotLoaded,

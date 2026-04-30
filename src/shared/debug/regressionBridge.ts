@@ -389,7 +389,12 @@ function isUsdCollisionDescriptor(descriptor: UsdSceneMeshDescriptor): boolean {
   }
 
   const resolvedPrimPath = normalizeUsdDebugPathWithLeadingSlash(descriptor.resolvedPrimPath);
-  return resolvedPrimPath.includes('/collision/') || resolvedPrimPath.includes('/collisions/');
+  return (
+    resolvedPrimPath.includes('/collision/') ||
+    resolvedPrimPath.includes('/collisions/') ||
+    resolvedPrimPath.includes('/collider/') ||
+    resolvedPrimPath.includes('/colliders/')
+  );
 }
 
 function getUsdDescriptorMaterialIds(descriptor: UsdSceneMeshDescriptor): {
@@ -491,8 +496,16 @@ function summarizeRegressionUsdMaterial(
     String(material.shaderInfoId || '').trim() ||
     String(material.shaderPath || '').trim() ||
     null;
+  const emissiveEnabled =
+    material.emissiveEnabled === true
+      ? true
+      : material.emissiveEnabled === false
+        ? false
+        : material.isOmniPbr === true
+          ? false
+          : true;
   const color = colorArrayToRegressionHex(material.color, material.opacity);
-  const emissive = colorArrayToRegressionHex(material.emissive);
+  const emissive = emissiveEnabled ? colorArrayToRegressionHex(material.emissive) : null;
 
   if (!name && !type && !color && !emissive) {
     return null;

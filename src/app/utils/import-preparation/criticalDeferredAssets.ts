@@ -2,12 +2,13 @@ import type { RobotImportResult } from '@/core/parsers/importRobotFile';
 import { resolveImportedAssetPath, resolveMeshAssetUrl } from '@/core/parsers/meshPathUtils';
 import { validateMJCFImportExternalAssets } from '@/core/parsers/mjcf/mjcfImportValidation';
 import { resolveMJCFSource } from '@/core/parsers/mjcf/mjcfSourceResolver';
+import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 import { GeometryType, type RobotData, type RobotFile, type UrdfLink } from '@/types';
 
 import { extractStandaloneImportAssetReferences } from '../importPackageAssetReferences.ts';
 
 function normalizeImportPath(path: string): string {
-  return path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/');
+  return normalizeLibraryPathKey(path);
 }
 
 function normalizeResolvedImportAssetPath(

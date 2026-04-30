@@ -210,6 +210,41 @@ test('resolveRobotFileData keeps all Aliengo leg links when importing the genera
   }
 });
 
+test('resolveRobotFileData preserves nested folder-import paths for package URDF meshes', () => {
+  const sourceFile: RobotFile = {
+    name: 'unitree_ros/robots/a1_description/urdf/a1.urdf',
+    format: 'urdf',
+    content: `<?xml version="1.0"?>
+<robot name="a1">
+  <link name="trunk">
+    <visual>
+      <geometry>
+        <mesh filename="package://a1_description/meshes/trunk.dae" />
+      </geometry>
+    </visual>
+  </link>
+</robot>`,
+  };
+  const meshFile: RobotFile = {
+    name: 'unitree_ros/robots/a1_description/meshes/trunk.dae',
+    format: 'mesh',
+    content: '',
+  };
+
+  const result = resolveRobotFileData(sourceFile, {
+    availableFiles: [sourceFile, meshFile],
+  });
+
+  assert.equal(result.status, 'ready');
+  if (result.status !== 'ready') {
+    assert.fail('Expected nested Unitree URDF import result to be ready');
+  }
+  assert.equal(
+    result.robotData.links.trunk?.visual.meshPath,
+    'unitree_ros/robots/a1_description/meshes/trunk.dae',
+  );
+});
+
 test('resolveRobotFileData restores empty URDF inline content from exact contextual sources', () => {
   const contextualUrdf = '<robot name="contextual"><link name="base_link" /></robot>';
   const result = resolveRobotFileData(

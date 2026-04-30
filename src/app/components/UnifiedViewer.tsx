@@ -26,7 +26,6 @@ import {
   type ViewerDocumentLoadEvent,
   type ViewerJointMotionStateValue,
   type ViewerRobotSourceFormat,
-  type ViewerRobotDataResolution,
 } from '@/features/editor';
 import { resolveViewerJointScopeKey } from '@/app/utils/viewerJointScopeKey';
 import { resolveUnifiedViewerForcedSessionState } from '@/app/utils/unifiedViewerForcedSessionState';
@@ -97,7 +96,6 @@ interface UnifiedViewerProps {
   viewerSourceFormat?: ViewerRobotSourceFormat;
   sourceFilePath?: string;
   sourceFile?: RobotFile | null;
-  onRobotDataResolved?: (result: ViewerRobotDataResolution) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   onRuntimeRobotLoaded?: (robot: ThreeObject3D) => void;
   onRuntimeSceneReadyForDisplay?: () => void;
@@ -185,7 +183,6 @@ export const UnifiedViewer = React.memo(
     viewerSourceFormat,
     sourceFilePath,
     sourceFile,
-    onRobotDataResolved,
     onDocumentLoadEvent,
     onRuntimeRobotLoaded,
     onRuntimeSceneReadyForDisplay,
@@ -619,7 +616,6 @@ export const UnifiedViewer = React.memo(
           effectiveSourceFilePath={effectiveSourceFilePath}
           effectiveUrdfContent={effectiveUrdfContent}
           effectiveSourceFormat={viewerSourceFormat}
-          onRobotDataResolved={onRobotDataResolved}
           onDocumentLoadEvent={handleViewerDocumentLoadEvent}
           onSceneReadyForDisplay={handleViewerSceneReadyForDisplay}
           onRuntimeRobotLoaded={(loadedRobot) => {

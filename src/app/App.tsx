@@ -92,7 +92,6 @@ import { translations, type Language } from '@/shared/i18n';
 import { isLibraryRobotExportableFormat } from '@/shared/utils';
 import type { ExportDialogConfig } from '@/features/file-io/components/ExportDialog/ExportDialog';
 import type { ExportProgressState } from '@/features/file-io/types';
-import { getUsdStageExportHandler } from '@/features/editor';
 import type { ImportPreparationOverlayState } from './hooks/useFileImport';
 import { consumeHandoffImportFromUrl } from './handoff/bootstrap';
 import {
@@ -380,7 +379,6 @@ function ExportDialogConnector({
     selectedFile?.format === 'usd' && sidebarTab !== 'workspace'
       ? resolveCurrentUsdExportMode({
           isHydrating: isSelectedUsdHydrating,
-          hasLiveStageExportHandler: Boolean(getUsdStageExportHandler()),
           hasPreparedExportCache: Boolean(getUsdPreparedExportCache(selectedFile.name)),
           hasSceneSnapshot: Boolean(getUsdSceneSnapshot(selectedFile.name)),
         })
