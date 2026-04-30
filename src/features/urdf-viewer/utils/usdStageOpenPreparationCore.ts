@@ -9,7 +9,10 @@ import {
   type UsdPreloadEntry,
 } from './usdPreloadSources.ts';
 import { buildCriticalUsdDependencyPaths } from './usdCriticalDependencyPaths.ts';
-import { normalizeUsdInstanceableVisualScopeVisibility } from './usdStageOpenTextNormalization.ts';
+import {
+  blobNeedsUsdInstanceableVisualScopeNormalization,
+  normalizeUsdInstanceableVisualScopeVisibility,
+} from './usdStageOpenTextNormalization.ts';
 
 export { buildCriticalUsdDependencyPaths } from './usdCriticalDependencyPaths.ts';
 
@@ -109,6 +112,15 @@ async function loadPreparedUsdBlob(entry: UsdPreloadEntry): Promise<PreparedUsdP
     }
 
     const blob = await entry.loadBlob();
+    const needsNormalization = await blobNeedsUsdInstanceableVisualScopeNormalization(blob);
+
+    if (!needsNormalization) {
+      return {
+        blob: null,
+        bytes: new Uint8Array(await blob.arrayBuffer()),
+      };
+    }
+
     const sourceText = await blob.text();
     const normalizedText = normalizeUsdInstanceableVisualScopeVisibility(sourceText);
     return {
