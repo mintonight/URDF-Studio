@@ -50,6 +50,7 @@ public/__codex_anymal_c.zip
 .codex/
 .husky/
 .superpowers/
+docs/superpowers/
 skills-lock.json
 
 .vscode/
