@@ -11,6 +11,7 @@ scripts/
 !scripts/
 scripts/*
 !scripts/regression/
+!scripts/wasm/
 scripts/regression/*
 !scripts/regression/validate_sdf_cli_truth.ts
 !scripts/regression/run_shadow_hand_hover_regression.mjs

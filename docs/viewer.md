@@ -1,7 +1,7 @@
 # Editor / Viewer 子域
 
-> 最后更新：2026-04-15 | 覆盖源码：`src/features/editor/`、`src/features/urdf-viewer/`、`src/app/components/unified-viewer/`、`src/shared/components/3d/`
-> 交叉引用：[architecture.md](architecture.md)、[file-io.md](file-io.md)、[style-guide.md](style-guide.md)
+> 最后更新：2026-05-01 | 覆盖源码：`src/features/editor/`、`src/features/urdf-viewer/`、`src/app/components/unified-viewer/`、`src/shared/components/3d/`
+> 交叉引用：[architecture.md](architecture.md)、[file-io.md](file-io.md)、[style-guide.md](style-guide.md)、[wasm-build.md](wasm-build.md)
 
 ## 1. 单模式 Editor
 
@@ -75,6 +75,14 @@ features/urdf-viewer/
 - `runtime/*` 是 vendored usd-viewer runtime，不要在 `core/parsers/usd/*` 重复实现 viewer runtime 职责
 - URDF Studio 应把 runtime 输出适配到 `ViewerRobotDataResolution` / `RobotData`
 - `public/usd/bindings/*` 必须保留在静态资源目录，供浏览器运行时 fetch
+- **WASM 构建系统**位于 `third_party/OpenUSD` 和 `scripts/wasm/`，详见 [wasm-build.md](wasm-build.md)
+- 如需重新编译 WASM bindings：
+  ```bash
+  bash scripts/wasm/rebuild-usd-wasm.sh \
+    --robot-trim \
+    --usd-repo ./third_party/OpenUSD \
+    --build-dir ~/.localdeps/openusd-wasm-speed
+  ```
 
 ## 6. USD worker / metadata 链路约束
 
