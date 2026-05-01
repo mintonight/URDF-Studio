@@ -45,6 +45,41 @@ function normalizeImportPath(path: string): string {
   return normalizeLibraryPathKey(path);
 }
 
+interface PathStructureInfo {
+  depth: number;
+  topLevelSegment: string | null;
+  hasMultipleTopLevelSegments: boolean;
+  topSegmentsAreRootlessFolders: boolean;
+}
+
+function analyzeImportPathStructure(paths: readonly string[]): PathStructureInfo {
+  const normalizedPaths = paths.map(normalizeImportPath);
+
+  if (normalizedPaths.length === 0) {
+    return { depth: 0, topLevelSegment: null, hasMultipleTopLevelSegments: false, topSegmentsAreRootlessFolders: false };
+  }
+
+  const topLevelSegments = new Set(
+    normalizedPaths
+      .map(getTopLevelImportSegment)
+      .filter((s): s is string => s !== null)
+  );
+
+  const hasMultipleTopLevelSegments = topLevelSegments.size > 1;
+  const topLevelSegment = topLevelSegments.size === 1 ? Array.from(topLevelSegments)[0] : null;
+
+  const topSegmentsAreRootlessFolders = Array.from(topLevelSegments).every((segment) =>
+    LOOSE_IMPORT_ROOTLESS_FOLDERS.has(segment.toLowerCase())
+  );
+
+  return {
+    depth: Math.min(...normalizedPaths.map((p) => p.split('/').length)),
+    topLevelSegment,
+    hasMultipleTopLevelSegments,
+    topSegmentsAreRootlessFolders,
+  };
+}
+
 function getTopLevelImportSegment(path: string): string | null {
   const normalized = normalizeImportPath(path);
   const separatorIndex = normalized.indexOf('/');
@@ -98,6 +133,17 @@ function inferBundleRootFromRobotFiles(robotFiles: readonly RobotFile[]): string
         return inferred;
       }
     }
+  }
+
+  const allFilePaths = robotFiles.map((file) => file.name);
+  const pathStructure = analyzeImportPathStructure(allFilePaths);
+
+  if (
+    pathStructure.topLevelSegment &&
+    !pathStructure.hasMultipleTopLevelSegments &&
+    !pathStructure.topSegmentsAreRootlessFolders
+  ) {
+    return null;
   }
 
   const firstDefinitionFile =
