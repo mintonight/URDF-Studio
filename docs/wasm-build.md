@@ -38,12 +38,34 @@ source ./emsdk_env.sh
 # Python 3
 python3 --version
 
+# CMake 3.24+ (重要：需要 3.24+ 才能编译 OpenUSD)
+cmake --version  # 检查版本
+
 # Binaryen (wasm-opt)
 # Ubuntu/Debian
 sudo apt install binaryen
 # macOS
 brew install binaryen
 ```
+
+### 3. CMake 版本升级（如果 < 3.24）
+
+如果系统的 CMake 版本低于 3.24，需要手动安装：
+
+```bash
+# Ubuntu/Debian
+wget https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-linux-x86_64.sh
+sudo sh cmake-3.28.3-linux-x86_64.sh --prefix=/usr/local --skip-license
+
+# 或者添加 Kitware APT 源（推荐）
+sudo apt install -y wget gpg
+wget -qO- https://apt.kitware.com/keys/kitware-archive-latest.asc | sudo gpg --dearmor -o /usr/share/keyrings/kitware-archive-keyring.gpg
+echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ jammy main' | sudo tee /etc/apt/sources.list.d/kitware.list >/dev/null
+sudo apt update
+sudo apt install cmake
+```
+
+**注意**：OpenUSD 声明需要 CMake 3.14+，但实际上需要 3.24+ 才能正确编译（使用了 `LINK_LIBRARY` generator expression）。
 
 ## 快速开始
 
@@ -110,6 +132,19 @@ WASM_OPT_LEVEL=-O3        # wasm-opt 优化级别
    - `fileSystem.patch`: 文件系统 API 适配
 
 ## 故障排查
+
+### CMake 配置失败：`Error evaluating generator expression`
+
+```
+Error evaluating generator expression:
+    $<LINK_LIBRARY:LOAD_PLUGIN,hdStorm_internal>
+
+  Expression did not evaluate to a known generator expression
+```
+
+**原因**：CMake 版本太老，OpenUSD 需要 3.24+
+
+**解决**：升级 CMake 到 3.24+，见上方"依赖"章节。
 
 ### 缺少 emcc 命令
 
