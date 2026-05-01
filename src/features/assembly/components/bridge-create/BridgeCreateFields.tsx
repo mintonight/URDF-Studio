@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link2, Minus, Plus } from 'lucide-react';
 import { PanelSelect, type SelectOption } from '@/shared/components/ui';
+import { usePressAndHoldRepeat } from '@/shared/hooks';
 import { roundToMaxDecimals } from '@/core/utils/numberPrecision';
 import type { BridgePickTarget } from '../../utils/bridgeSelection';
 import {
@@ -84,79 +85,14 @@ function useBridgePressAndHoldAction(
   onAction: () => void,
   repeatIntervalMs: number = BRIDGE_STEPPER_REPEAT_INTERVAL_MS,
 ) {
-  const holdTimeoutRef = useRef<number | null>(null);
-  const holdIntervalRef = useRef<number | null>(null);
-  const suppressClickRef = useRef(false);
-  const onActionRef = useRef(onAction);
-
-  useEffect(() => {
-    onActionRef.current = onAction;
-  }, [onAction]);
-
-  const clearTimers = useCallback(() => {
-    if (holdTimeoutRef.current !== null) {
-      window.clearTimeout(holdTimeoutRef.current);
-      holdTimeoutRef.current = null;
-    }
-    if (holdIntervalRef.current !== null) {
-      window.clearInterval(holdIntervalRef.current);
-      holdIntervalRef.current = null;
-    }
-  }, []);
-
-  const invokeAction = useCallback(() => {
-    onActionRef.current();
-  }, []);
-
-  const stopPressAndHold = useCallback(() => {
-    clearTimers();
-  }, [clearTimers]);
-
-  useEffect(() => clearTimers, [clearTimers]);
-
-  const startPressAndHold = useCallback(() => {
-    clearTimers();
-    suppressClickRef.current = true;
-    invokeAction();
-    holdTimeoutRef.current = window.setTimeout(() => {
-      holdIntervalRef.current = window.setInterval(() => {
-        invokeAction();
-      }, repeatIntervalMs);
-    }, BRIDGE_STEPPER_REPEAT_DELAY_MS);
-  }, [clearTimers, invokeAction, repeatIntervalMs]);
+  const { repeatButtonProps } = usePressAndHoldRepeat<void>(onAction, {
+    repeatDelayMs: BRIDGE_STEPPER_REPEAT_DELAY_MS,
+    repeatIntervalMs,
+  });
 
   const buttonProps = useCallback(
-    (label: string) => ({
-      type: 'button' as const,
-      'aria-label': label,
-      onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => {
-        event.preventDefault();
-        event.currentTarget.setPointerCapture?.(event.pointerId);
-        startPressAndHold();
-      },
-      onPointerUp: (event: React.PointerEvent<HTMLButtonElement>) => {
-        if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
-          event.currentTarget.releasePointerCapture?.(event.pointerId);
-        }
-        stopPressAndHold();
-      },
-      onPointerCancel: () => {
-        stopPressAndHold();
-        suppressClickRef.current = false;
-      },
-      onLostPointerCapture: () => {
-        stopPressAndHold();
-      },
-      onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
-        if (suppressClickRef.current) {
-          suppressClickRef.current = false;
-          event.preventDefault();
-          return;
-        }
-        invokeAction();
-      },
-    }),
-    [invokeAction, startPressAndHold, stopPressAndHold],
+    (label: string) => repeatButtonProps(undefined, label),
+    [repeatButtonProps],
   );
 
   return { buttonProps };

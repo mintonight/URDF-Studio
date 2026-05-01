@@ -25,15 +25,29 @@ export interface UsdSceneMeshDescriptor {
   height?: number | null;
   extentSize?: ArrayLike<number> | null;
   materialId?: string | null;
+  renderReady?: boolean | null;
+  topologyMode?: 'indexed' | 'nonIndexed' | string | null;
   geometry?: {
     materialId?: string | null;
+    renderReady?: boolean | null;
+    topologyMode?: 'indexed' | 'nonIndexed' | string | null;
+    uvSource?: string | null;
     geomSubsetSections?: Array<{
       start?: number | null;
       length?: number | null;
       materialId?: string | null;
     }> | null;
+    normalDiagnostics?: UsdSceneMeshNormalDiagnostics | null;
   } | null;
   ranges?: UsdMeshDescriptorRanges | null;
+  normalDiagnostics?: UsdSceneMeshNormalDiagnostics | null;
+}
+
+export interface UsdSceneMeshNormalDiagnostics {
+  normalSource?: string | null;
+  normalRepairCount?: number | null;
+  normalFallbackCount?: number | null;
+  postRepairLowDotCount?: number | null;
 }
 
 export interface UsdSceneMaterialRecord {
@@ -46,6 +60,9 @@ export interface UsdSceneMaterialRecord {
   opacityEnabled?: boolean | null;
   opacityTextureEnabled?: boolean | null;
   emissiveEnabled?: boolean | null;
+  colorSpace?: string | null;
+  emissiveColorSpace?: string | null;
+  specularColorSpace?: string | null;
   color?: ArrayLike<number> | null;
   emissive?: ArrayLike<number> | null;
   specularColor?: ArrayLike<number> | null;
@@ -111,6 +128,7 @@ export interface UsdJointCatalogEntry {
   axisLocal?: ArrayLike<number> | null;
   lowerLimitDeg?: number | null;
   upperLimitDeg?: number | null;
+  angleDeg?: number | null;
   driveDamping?: number | null;
   driveMaxForce?: number | null;
   localPos0?: ArrayLike<number> | null;

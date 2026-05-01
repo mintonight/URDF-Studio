@@ -115,7 +115,8 @@ export function usePanelDrag(
       containerRect.width - overlayInsets.right - MIN_VISIBLE_PANEL_WIDTH,
     );
     const minY = PANEL_EDGE_PADDING;
-    const maxY = Math.max(PANEL_EDGE_PADDING, containerRect.height - MIN_VISIBLE_PANEL_HEADER_HEIGHT);
+    // Ensure title bar stays visible: maxY should keep at least MIN_VISIBLE_PANEL_HEADER_HEIGHT of the panel visible at the bottom
+    const maxY = containerRect.height - MIN_VISIBLE_PANEL_HEADER_HEIGHT - PANEL_EDGE_PADDING;
 
     return {
       x: Math.max(minX, Math.min(position.x, maxX)),

@@ -60,7 +60,7 @@ export function buildViewerSceneProps({
   active = true,
   sourceFile,
   sourceFormat,
-  allowUrdfXmlFallback = true,
+  allowUrdfXmlFallback = false,
   availableFiles,
   urdfContent,
   assets,

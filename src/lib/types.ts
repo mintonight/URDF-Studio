@@ -3,7 +3,7 @@ import type { Object3D } from 'three';
 import type { Language } from '../shared/i18n';
 import type { SnapshotCaptureAction } from '../shared/components/3d';
 import type { AppMode, Theme, UrdfJoint, UrdfLink } from '../types';
-import type { ToolMode } from '../features/urdf-viewer/types';
+import type { ToolMode } from '../shared/components/3d/viewerInteractionTypes';
 
 export type RobotCanvasSourceFormat = 'auto' | 'urdf' | 'mjcf';
 
@@ -89,6 +89,7 @@ export interface RobotCanvasProps {
   onJointAnglesChange?: (jointAngles: Record<string, number>) => void;
   onJointChange?: (jointName: string, angle: number) => void;
   display?: Partial<RobotCanvasDisplayOptions>;
+  allowUrdfXmlFallback?: boolean;
   robotLinks?: Record<string, UrdfLink>;
   robotJoints?: Record<string, UrdfJoint>;
   focusTarget?: string | null;

@@ -7,6 +7,7 @@ interface CreateRendererBackendLoadScopeKeyOptions {
   availableFiles?: RobotFile[];
   assets: Record<string, string>;
   reloadToken?: number;
+  allowUrdfXmlFallback?: boolean;
   robotLinks?: Record<string, UrdfLink>;
   robotJoints?: Record<string, UrdfJoint>;
   robotData?: RobotData | null;
@@ -64,6 +65,7 @@ export function createRendererBackendLoadScopeKey({
   availableFiles,
   assets,
   reloadToken = 0,
+  allowUrdfXmlFallback = false,
   robotLinks,
   robotJoints,
   robotData,
@@ -95,6 +97,7 @@ export function createRendererBackendLoadScopeKey({
   return hashStableValue({
     format,
     reloadToken,
+    allowUrdfXmlFallback,
     source: sourceSignature,
     input: robotInputSignature,
     assets: createAssetSignature(assets),

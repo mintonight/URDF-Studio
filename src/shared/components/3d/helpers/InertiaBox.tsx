@@ -7,7 +7,7 @@ import React from 'react';
 import * as THREE from 'three';
 import type { UrdfLink } from '@/types';
 import { MathUtils as DataUtils } from '@/shared/utils/math';
-import { narrowLineRaycast } from '@/shared/utils/three/narrowLineRaycast';
+import { ignoreRaycast } from '@/shared/utils/three/ignoreRaycast';
 
 interface InertiaBoxProps {
   link: UrdfLink;
@@ -45,7 +45,7 @@ export const InertiaBox = React.memo(
 
     React.useLayoutEffect(() => {
       if (outlineRef.current) {
-        outlineRef.current.raycast = narrowLineRaycast;
+        outlineRef.current.raycast = ignoreRaycast;
       }
     }, []);
 

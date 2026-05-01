@@ -12,7 +12,6 @@ import {
 } from '@/shared/components/3d/unified-transform-controls/gizmoCore';
 import { markMaterialAsShared } from '@/core/utils/three/materialProtection';
 import { ignoreRaycast } from '@/shared/utils/three/ignoreRaycast';
-import { narrowLineRaycast } from '@/shared/utils/three/narrowLineRaycast';
 
 export interface MjcfSiteVisualizationData {
   name: string;
@@ -549,8 +548,9 @@ export function createInertiaBox(
   line.quaternion.copy(rotation);
   line.userData = createSelectableHelperUserData();
   line.renderOrder = GIZMO_BASE_RENDER_ORDER;
-  // Keep outline picking narrow; the filled mesh owns stable surface hover.
-  line.raycast = narrowLineRaycast;
+  // The filled box owns exact inertia hover; line raycast thresholds are
+  // world-space and can make hover trigger before the cursor reaches the box.
+  line.raycast = ignoreRaycast;
   inertiaBox.add(line);
 
   return inertiaBox;

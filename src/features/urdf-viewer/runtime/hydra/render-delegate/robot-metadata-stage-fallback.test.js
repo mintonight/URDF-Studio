@@ -1073,3 +1073,35 @@ test('startRobotMetadataWarmupForStage annotates stale metadata when URDF truth 
     assert.deepEqual(snapshot.errorFlags, ['urdf-truth-load-failed']);
     assert.match(String(snapshot.truthLoadError || ''), /truth-load-failed/);
 });
+
+test('safeOpenUsdStage does not cache failed opens as a permanent null result', () => {
+    const previousWindow = globalThis.window;
+    let openAttempts = 0;
+    const recoveredStage = { stage: true };
+
+    globalThis.window = {
+        USD: {
+            UsdStage: {
+                Open(stagePath) {
+                    openAttempts += 1;
+                    assert.equal(stagePath, '/robots/retryable.usd');
+                    if (openAttempts === 1) {
+                        throw new Error('transient-open-failure');
+                    }
+                    return recoveredStage;
+                },
+            },
+        },
+    };
+
+    try {
+        const delegate = Object.create(ThreeRenderDelegateCore.prototype);
+
+        assert.equal(delegate.safeOpenUsdStage('/robots/retryable.usd'), null);
+        assert.equal(delegate.safeOpenUsdStage('/robots/retryable.usd'), recoveredStage);
+        assert.equal(openAttempts, 2);
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});

@@ -120,3 +120,20 @@ test('createRendererBackendLoadScopeKey changes when reload token changes', () =
 
   assert.notEqual(secondKey, firstKey);
 });
+
+test('createRendererBackendLoadScopeKey changes when XML fallback policy changes', () => {
+  const firstKey = createRendererBackendLoadScopeKey({
+    sourceFile,
+    assets: {},
+    reloadToken: 0,
+    allowUrdfXmlFallback: false,
+  });
+  const secondKey = createRendererBackendLoadScopeKey({
+    sourceFile,
+    assets: {},
+    reloadToken: 0,
+    allowUrdfXmlFallback: true,
+  });
+
+  assert.notEqual(secondKey, firstKey);
+});

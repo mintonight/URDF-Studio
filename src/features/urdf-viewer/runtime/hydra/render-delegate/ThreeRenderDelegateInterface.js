@@ -19,6 +19,41 @@ function normalizeDescriptorSectionName(sectionName) {
     }
     return normalized;
 }
+function normalizeNormalDiagnostics(source) {
+    if (!source || typeof source !== 'object') {
+        return null;
+    }
+    const candidate = source.normalDiagnostics && typeof source.normalDiagnostics === 'object'
+        ? source.normalDiagnostics
+        : (source.normalDiagnostic && typeof source.normalDiagnostic === 'object'
+            ? source.normalDiagnostic
+            : source);
+    const normalizeCount = (value) => {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) && numeric >= 0 ? Math.floor(numeric) : null;
+    };
+    const normalSource = String(candidate.normalSource || '').trim();
+    const normalRepairCount = normalizeCount(candidate.normalRepairCount);
+    const normalFallbackCount = normalizeCount(candidate.normalFallbackCount);
+    const postRepairLowDotCount = normalizeCount(candidate.postRepairLowDotCount);
+    const diagnostics = {
+        ...(normalSource ? { normalSource } : {}),
+        ...(normalRepairCount !== null ? { normalRepairCount } : {}),
+        ...(normalFallbackCount !== null ? { normalFallbackCount } : {}),
+        ...(postRepairLowDotCount !== null ? { postRepairLowDotCount } : {}),
+    };
+    return Object.keys(diagnostics).length > 0 ? diagnostics : null;
+}
+function normalizeTopologyMode(value) {
+    const normalized = String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+    if (normalized === 'nonindexed' || normalized === 'nonindex') {
+        return 'nonIndexed';
+    }
+    if (normalized === 'indexed' || normalized === 'index') {
+        return 'indexed';
+    }
+    return null;
+}
 function parseColorAndOpacityFromHexString(value) {
     const raw = String(value || '').trim();
     if (!raw) {
@@ -1443,6 +1478,12 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             normalsPtr: toAlignedPtr(rawBlob.normalsPtr),
             numNormals: toNonNegativeInt(rawBlob.numNormals),
             normalsDimension: toNonNegativeInt(rawBlob.normalsDimension),
+            renderReady: rawBlob.renderReady === true,
+            topologyMode: normalizeTopologyMode(rawBlob.topologyMode)
+                || (toNonNegativeInt(rawBlob.numIndices) > 0 ? 'indexed' : 'nonIndexed'),
+            uvSource: typeof rawBlob.uvSource === 'string'
+                ? String(rawBlob.uvSource || '').trim()
+                : '',
             materialId: typeof rawBlob.materialId === 'string'
                 ? normalizeHydraPath(rawBlob.materialId)
                 : '',
@@ -1452,6 +1493,9 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             normals: keepTypedArrayView(rawBlob.normals),
             transform: keepSmallArrayLike(rawBlob.transform, 32),
             geomSubsetSections: normalizeGeomSubsetSections(rawBlob.geomSubsetSections),
+            ...(normalizeNormalDiagnostics(rawBlob)
+                ? { normalDiagnostics: normalizeNormalDiagnostics(rawBlob) }
+                : {}),
         };
     }
     normalizeCollisionProtoOverride(rawOverride) {
@@ -2502,6 +2546,16 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             && typeof renderPayload.meshDescriptorGeomSubsetSections === 'object'
             ? renderPayload.meshDescriptorGeomSubsetSections
             : null;
+        const packedNormalDiagnosticsByMeshId = renderPayload.meshDescriptorNormalDiagnostics
+            && typeof renderPayload.meshDescriptorNormalDiagnostics === 'object'
+            ? renderPayload.meshDescriptorNormalDiagnostics
+            : (renderPayload.meshDescriptorDiagnostics
+                && typeof renderPayload.meshDescriptorDiagnostics === 'object'
+                ? renderPayload.meshDescriptorDiagnostics
+                : (renderPayload.normalDiagnosticsByMeshId
+                    && typeof renderPayload.normalDiagnosticsByMeshId === 'object'
+                    ? renderPayload.normalDiagnosticsByMeshId
+                    : null));
         const packedDescriptorHeaderLength = Number(renderPayload?.meshDescriptorHeaders?.length || 0);
         const packedDescriptorScalarLength = Number(renderPayload?.meshDescriptorScalars?.length || 0);
         const hasPackedDescriptorRecords = packedDescriptorFormat === 'packed-v2'
@@ -2562,6 +2616,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             if (!source || typeof source !== 'object')
                 return null;
             const materialId = normalizeHydraPath(source.materialId || '');
+            const normalDiagnostics = normalizeNormalDiagnostics(source);
             return {
                 numVertices: Number(source.numVertices || 0),
                 numIndices: Number(source.numIndices || 0),
@@ -2569,8 +2624,15 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 numUVs: Number(source.numUVs || 0),
                 uvDimension: Number(source.uvDimension || 0),
                 normalsDimension: Number(source.normalsDimension || 0),
+                renderReady: source.renderReady === true,
+                topologyMode: normalizeTopologyMode(source.topologyMode)
+                    || (Number(source.numIndices || 0) > 0 ? 'indexed' : 'nonIndexed'),
+                uvSource: typeof source.uvSource === 'string'
+                    ? String(source.uvSource || '').trim()
+                    : '',
                 materialId: materialId || null,
                 geomSubsetSections: normalizeGeomSubsetSections(source.geomSubsetSections),
+                ...(normalDiagnostics ? { normalDiagnostics } : {}),
             };
         };
         const normalizeFiniteNumber = (value) => {
@@ -2880,6 +2942,9 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 const geomSubsetSections = normalizeGeomSubsetSections(packedGeomSubsetSectionsByMeshId && meshId
                     ? packedGeomSubsetSectionsByMeshId[meshId]
                     : null);
+                const normalDiagnostics = normalizeNormalDiagnostics(packedNormalDiagnosticsByMeshId && meshId
+                    ? packedNormalDiagnosticsByMeshId[meshId]
+                    : null);
                 const valid = Number(packedDescriptorHeaders[headerBase + 6]) === 1;
                 const applyGeometry = Number(packedDescriptorHeaders[headerBase + 7]) === 1;
                 const dirtyMask = Math.max(0, Math.floor(Number(packedDescriptorHeaders[headerBase + 8]) || 0));
@@ -2898,8 +2963,13 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                     numUVs: Math.max(0, Math.floor(Number(packedDescriptorHeaders[headerBase + 27]) || 0)),
                     uvDimension: Math.max(0, Math.floor(Number(packedDescriptorHeaders[headerBase + 28]) || 0)),
                     normalsDimension: Math.max(0, Math.floor(Number(packedDescriptorHeaders[headerBase + 29]) || 0)),
+                    renderReady: true,
+                    topologyMode: Math.max(0, Math.floor(Number(packedDescriptorHeaders[headerBase + 25]) || 0)) > 0
+                        ? 'indexed'
+                        : 'nonIndexed',
                     materialId,
                     geomSubsetSections,
+                    ...(normalDiagnostics ? { normalDiagnostics } : {}),
                 };
                 const extentValues = [
                     readPackedScalar(scalarBase, 3),
@@ -2918,6 +2988,10 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                         numUVs: geometry.numUVs,
                         uvDimension: geometry.uvDimension,
                         normalsDimension: geometry.normalsDimension,
+                        renderReady: geometry.renderReady === true,
+                        topologyMode: normalizeTopologyMode(geometry.topologyMode)
+                            || (geometry.numIndices > 0 ? 'indexed' : 'nonIndexed'),
+                        uvSource: geometry.uvSource || '',
                         materialId: geometry.materialId,
                         geomSubsetSections: geometry.geomSubsetSections,
                         points: makeFloatView(positionPool, normalizedRanges?.positions || null),
@@ -2925,6 +2999,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                         normals: makeFloatView(normalPool, normalizedRanges?.normals || null),
                         uv: makeFloatView(uvPool, normalizedRanges?.uvs || null),
                         transform: makeFloatView(transformPool, normalizedRanges?.transform || null),
+                        ...(normalDiagnostics ? { normalDiagnostics } : {}),
                     }
                     : undefined;
                 const worldTransform = normalizedRanges?.transform
@@ -2947,6 +3022,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                     ranges: normalizedRanges,
                     geometry,
                     meshPayload,
+                    ...(normalDiagnostics ? { normalDiagnostics } : {}),
                 });
                 const normalizedMeshId = normalizeHydraPath(meshId || '');
                 if (normalizedMeshId && normalizedRanges) {
@@ -3010,6 +3086,8 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             normalizedMeshDescriptors = rawMeshDescriptors.map((rawDescriptor) => {
                 const meshId = normalizeHydraPath(rawDescriptor?.meshId || '');
                 const resolvedPrimPath = normalizeHydraPath(rawDescriptor?.resolvedPrimPath || '');
+                const normalDiagnostics = normalizeNormalDiagnostics(rawDescriptor)
+                    || normalizeNormalDiagnostics(rawDescriptor?.geometry);
                 return {
                     meshId: meshId || null,
                     sectionName: String(rawDescriptor?.sectionName || '').trim() || null,
@@ -3020,6 +3098,10 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                     dirtyMask: Number(rawDescriptor?.dirtyMask || 0),
                     ranges: normalizeMeshRanges(rawDescriptor?.ranges) || (meshId ? (bufferRangesByMeshId[meshId] || null) : null),
                     geometry: normalizeGeometrySummary(rawDescriptor?.geometry, null),
+                    renderReady: rawDescriptor?.renderReady === true || rawDescriptor?.geometry?.renderReady === true,
+                    topologyMode: normalizeTopologyMode(rawDescriptor?.topologyMode)
+                        || normalizeTopologyMode(rawDescriptor?.geometry?.topologyMode),
+                    ...(normalDiagnostics ? { normalDiagnostics } : {}),
                 };
             });
             if (protoBlobSummary.count <= 0) {
@@ -3153,6 +3235,9 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 const meshId = normalizeHydraPath(rawDescriptor?.meshId || '');
                 const resolvedPrimPath = normalizeHydraPath(rawDescriptor?.resolvedPrimPath || '');
                 const normalizedBlob = meshId ? protoPayloadByKey.get(meshId)?.payload || null : null;
+                const normalDiagnostics = normalizeNormalDiagnostics(rawDescriptor)
+                    || normalizeNormalDiagnostics(normalizedBlob)
+                    || normalizeNormalDiagnostics(rawDescriptor?.geometry);
                 return {
                     meshId: meshId || null,
                     sectionName: String(rawDescriptor?.sectionName || '').trim() || null,
@@ -3162,6 +3247,9 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                     applyGeometry: rawDescriptor?.applyGeometry === true,
                     dirtyMask: Number(rawDescriptor?.dirtyMask || 0),
                     ranges: meshId ? (bufferRangesByMeshId[meshId] || null) : null,
+                    renderReady: rawDescriptor?.renderReady === true || normalizedBlob?.renderReady === true,
+                    topologyMode: normalizeTopologyMode(rawDescriptor?.topologyMode)
+                        || normalizeTopologyMode(normalizedBlob?.topologyMode),
                     geometry: normalizedBlob ? {
                         numVertices: Number(normalizedBlob.numVertices || 0),
                         numIndices: Number(normalizedBlob.numIndices || 0),
@@ -3169,11 +3257,19 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                         numUVs: Number(normalizedBlob.numUVs || 0),
                         uvDimension: Number(normalizedBlob.uvDimension || 0),
                         normalsDimension: Number(normalizedBlob.normalsDimension || 0),
+                        renderReady: normalizedBlob.renderReady === true,
+                        topologyMode: normalizeTopologyMode(normalizedBlob.topologyMode)
+                            || (Number(normalizedBlob.numIndices || 0) > 0 ? 'indexed' : 'nonIndexed'),
+                        uvSource: typeof normalizedBlob.uvSource === 'string'
+                            ? String(normalizedBlob.uvSource || '').trim()
+                            : '',
                         materialId: normalizeHydraPath(normalizedBlob.materialId || '') || null,
                         geomSubsetSections: Array.isArray(normalizedBlob.geomSubsetSections)
                             ? normalizedBlob.geomSubsetSections
                             : [],
+                        ...(normalDiagnostics ? { normalDiagnostics } : {}),
                     } : null,
+                    ...(normalDiagnostics ? { normalDiagnostics } : {}),
                 };
             });
         }
@@ -3196,6 +3292,12 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                     numUVs: Number(geometry?.numUVs || 0),
                     uvDimension: Number(geometry?.uvDimension || 0),
                     normalsDimension: Number(geometry?.normalsDimension || 0),
+                    renderReady: geometry?.renderReady === true || hasPackedDescriptorRecords,
+                    topologyMode: normalizeTopologyMode(geometry?.topologyMode)
+                        || (Number(geometry?.numIndices || 0) > 0 ? 'indexed' : 'nonIndexed'),
+                    uvSource: typeof geometry?.uvSource === 'string'
+                        ? String(geometry.uvSource || '').trim()
+                        : '',
                     materialId: normalizeHydraPath(geometry?.materialId || '') || '',
                     points: sliceFloatPool(positionPool, ranges?.positions || null),
                     indices: sliceUintPool(indexPool, ranges?.indices || null),
@@ -3205,6 +3307,13 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                     geomSubsetSections: Array.isArray(geometry?.geomSubsetSections)
                         ? geometry.geomSubsetSections
                         : [],
+                    ...(normalizeNormalDiagnostics(descriptor)
+                        || normalizeNormalDiagnostics(geometry)
+                        ? {
+                            normalDiagnostics: normalizeNormalDiagnostics(descriptor)
+                                || normalizeNormalDiagnostics(geometry),
+                        }
+                        : {}),
                 });
                 if (!normalizedBlob)
                     continue;

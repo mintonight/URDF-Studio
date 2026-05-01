@@ -39,6 +39,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <iostream>
 #include <utility>
 
@@ -66,6 +67,616 @@ void runInMainThread(std::function<void()> fun) {
     emscripten_sync_run_in_main_runtime_thread(EM_FUNC_SIG_VI, _runInMainThread, (void *) &fun);
 }
 
+namespace {
+
+constexpr float kNormalRepairDotThreshold = 0.2f;
+constexpr float kNormalRepairNearZeroLengthSq = 1.0e-20f;
+
+struct _NormalRepairVec3
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 1.0f;
+};
+
+static std::string
+_LowerAscii(std::string value)
+{
+    std::transform(
+        value.begin(),
+        value.end(),
+        value.begin(),
+        [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return value;
+}
+
+static bool
+_IsFinite(_NormalRepairVec3 const& value)
+{
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+static float
+_LengthSq(_NormalRepairVec3 const& value)
+{
+    return value.x * value.x + value.y * value.y + value.z * value.z;
+}
+
+static bool
+_Normalize(_NormalRepairVec3* value)
+{
+    if (!value || !_IsFinite(*value)) return false;
+    const float lengthSq = _LengthSq(*value);
+    if (!std::isfinite(lengthSq) || lengthSq <= kNormalRepairNearZeroLengthSq) {
+        return false;
+    }
+    const float invLength = 1.0f / std::sqrt(lengthSq);
+    value->x *= invLength;
+    value->y *= invLength;
+    value->z *= invLength;
+    return true;
+}
+
+static _NormalRepairVec3
+_ReadVec3(std::vector<float> const& values, size_t index)
+{
+    const size_t offset = index * 3;
+    if (offset + 2 >= values.size()) return _NormalRepairVec3();
+    return _NormalRepairVec3{values[offset], values[offset + 1], values[offset + 2]};
+}
+
+static void
+_AppendVec3(std::vector<float>* values, _NormalRepairVec3 const& value)
+{
+    if (!values) return;
+    values->push_back(value.x);
+    values->push_back(value.y);
+    values->push_back(value.z);
+}
+
+static void
+_SetVec3(std::vector<float>* values, size_t index, _NormalRepairVec3 const& value)
+{
+    if (!values) return;
+    const size_t offset = index * 3;
+    if (offset + 2 >= values->size()) return;
+    (*values)[offset] = value.x;
+    (*values)[offset + 1] = value.y;
+    (*values)[offset + 2] = value.z;
+}
+
+static float
+_Dot(_NormalRepairVec3 const& left, _NormalRepairVec3 const& right)
+{
+    return left.x * right.x + left.y * right.y + left.z * right.z;
+}
+
+static bool
+_TryGetFaceNormal(
+    WebRenderDelegate::ProtoDataBlobRecord const& record,
+    size_t triangleOffset,
+    _NormalRepairVec3* outFaceNormal)
+{
+    if (!outFaceNormal || triangleOffset + 2 >= record.indices.size()) return false;
+    const uint32_t i0 = record.indices[triangleOffset];
+    const uint32_t i1 = record.indices[triangleOffset + 1];
+    const uint32_t i2 = record.indices[triangleOffset + 2];
+    const size_t pointCount = record.points.size() / 3;
+    if (i0 >= pointCount || i1 >= pointCount || i2 >= pointCount) return false;
+
+    const _NormalRepairVec3 p0 = _ReadVec3(record.points, i0);
+    const _NormalRepairVec3 p1 = _ReadVec3(record.points, i1);
+    const _NormalRepairVec3 p2 = _ReadVec3(record.points, i2);
+    if (!_IsFinite(p0) || !_IsFinite(p1) || !_IsFinite(p2)) return false;
+
+    _NormalRepairVec3 edge01{p1.x - p0.x, p1.y - p0.y, p1.z - p0.z};
+    _NormalRepairVec3 edge02{p2.x - p0.x, p2.y - p0.y, p2.z - p0.z};
+    _NormalRepairVec3 faceNormal{
+        edge01.y * edge02.z - edge01.z * edge02.y,
+        edge01.z * edge02.x - edge01.x * edge02.z,
+        edge01.x * edge02.y - edge01.y * edge02.x,
+    };
+    if (!_Normalize(&faceNormal)) return false;
+    *outFaceNormal = faceNormal;
+    return true;
+}
+
+static bool
+_IsFallbackCandidate(_NormalRepairVec3* normal)
+{
+    return !_Normalize(normal);
+}
+
+static int
+_SafeTupleDimension(int dimension, int fallback)
+{
+    return dimension > 0 ? dimension : fallback;
+}
+
+static size_t
+_FloatTupleCount(std::vector<float> const& values, int dimension)
+{
+    const int safeDimension = _SafeTupleDimension(dimension, 0);
+    if (safeDimension <= 0 || values.empty()) return 0;
+    return values.size() / static_cast<size_t>(safeDimension);
+}
+
+static bool
+_ExpandFloatTuplesByIndices(
+    std::vector<float> const& source,
+    int dimension,
+    std::vector<uint32_t> const& indices,
+    std::vector<float>* outValues)
+{
+    if (!outValues) return false;
+    outValues->clear();
+
+    const int safeDimension = _SafeTupleDimension(dimension, 0);
+    if (source.empty() || indices.empty() || safeDimension <= 0) return false;
+
+    const size_t sourceTupleCount = source.size() / static_cast<size_t>(safeDimension);
+    if (sourceTupleCount == 0) return false;
+
+    outValues->reserve(indices.size() * static_cast<size_t>(safeDimension));
+    for (uint32_t sourceIndex : indices) {
+        const size_t tupleIndex = static_cast<size_t>(sourceIndex);
+        if (tupleIndex >= sourceTupleCount) {
+            outValues->clear();
+            return false;
+        }
+
+        const size_t sourceOffset = tupleIndex * static_cast<size_t>(safeDimension);
+        for (int component = 0; component < safeDimension; ++component) {
+            outValues->push_back(source[sourceOffset + static_cast<size_t>(component)]);
+        }
+    }
+
+    return !outValues->empty();
+}
+
+static bool
+_LooksLikeExpandedPayloadWithStaleSharedIndex(
+    std::vector<uint32_t> const& indices,
+    size_t pointCount)
+{
+    if (indices.empty() || pointCount == 0 || indices.size() != pointCount) {
+        return false;
+    }
+
+    bool sawNonIdentityIndex = false;
+    uint32_t maxReferencedVertex = 0;
+    for (size_t index = 0; index < indices.size(); ++index) {
+        const uint32_t referencedVertex = indices[index];
+        if (referencedVertex > maxReferencedVertex) {
+            maxReferencedVertex = referencedVertex;
+        }
+        if (!sawNonIdentityIndex && referencedVertex != index) {
+            sawNonIdentityIndex = true;
+        }
+    }
+
+    return sawNonIdentityIndex
+        && static_cast<size_t>(maxReferencedVertex) + 1 < pointCount;
+}
+
+static bool
+_TryGetSequentialFaceNormal(
+    std::vector<float> const& points,
+    size_t triangleVertexOffset,
+    _NormalRepairVec3* outFaceNormal)
+{
+    if (!outFaceNormal) return false;
+    const size_t pointCount = points.size() / 3;
+    if (triangleVertexOffset + 2 >= pointCount) return false;
+
+    const _NormalRepairVec3 p0 = _ReadVec3(points, triangleVertexOffset);
+    const _NormalRepairVec3 p1 = _ReadVec3(points, triangleVertexOffset + 1);
+    const _NormalRepairVec3 p2 = _ReadVec3(points, triangleVertexOffset + 2);
+    if (!_IsFinite(p0) || !_IsFinite(p1) || !_IsFinite(p2)) return false;
+
+    _NormalRepairVec3 edge01{p1.x - p0.x, p1.y - p0.y, p1.z - p0.z};
+    _NormalRepairVec3 edge02{p2.x - p0.x, p2.y - p0.y, p2.z - p0.z};
+    _NormalRepairVec3 faceNormal{
+        edge01.y * edge02.z - edge01.z * edge02.y,
+        edge01.z * edge02.x - edge01.x * edge02.z,
+        edge01.x * edge02.y - edge01.y * edge02.x,
+    };
+    if (!_Normalize(&faceNormal)) return false;
+
+    *outFaceNormal = faceNormal;
+    return true;
+}
+
+static bool
+_ComputeIndexedVertexNormals(
+    WebRenderDelegate::ProtoDataBlobRecord const& record,
+    std::vector<float>* outNormals)
+{
+    if (!outNormals) return false;
+    outNormals->clear();
+
+    const size_t pointCount = record.points.size() / 3;
+    const size_t indexCount = record.indices.size();
+    if (pointCount == 0 || indexCount < 3) return false;
+
+    std::vector<float> accumulated(pointCount * 3, 0.0f);
+    int assignedFaceCount = 0;
+    for (size_t triangleOffset = 0; triangleOffset + 2 < indexCount; triangleOffset += 3) {
+        _NormalRepairVec3 faceNormal;
+        if (!_TryGetFaceNormal(record, triangleOffset, &faceNormal)) continue;
+
+        for (size_t corner = 0; corner < 3; ++corner) {
+            const size_t pointIndex = static_cast<size_t>(record.indices[triangleOffset + corner]);
+            if (pointIndex >= pointCount) continue;
+            const size_t offset = pointIndex * 3;
+            accumulated[offset] += faceNormal.x;
+            accumulated[offset + 1] += faceNormal.y;
+            accumulated[offset + 2] += faceNormal.z;
+        }
+        assignedFaceCount += 1;
+    }
+
+    if (assignedFaceCount <= 0) return false;
+
+    outNormals->resize(pointCount * 3, 0.0f);
+    int assignedNormalCount = 0;
+    for (size_t pointIndex = 0; pointIndex < pointCount; ++pointIndex) {
+        const size_t offset = pointIndex * 3;
+        _NormalRepairVec3 normal{
+            accumulated[offset],
+            accumulated[offset + 1],
+            accumulated[offset + 2],
+        };
+        if (!_Normalize(&normal)) continue;
+        (*outNormals)[offset] = normal.x;
+        (*outNormals)[offset + 1] = normal.y;
+        (*outNormals)[offset + 2] = normal.z;
+        assignedNormalCount += 1;
+    }
+
+    if (assignedNormalCount <= 0) {
+        outNormals->clear();
+        return false;
+    }
+
+    return true;
+}
+
+static bool
+_ComputeNonIndexedFaceNormals(
+    std::vector<float> const& points,
+    std::vector<float>* outNormals)
+{
+    if (!outNormals) return false;
+    outNormals->clear();
+
+    const size_t pointCount = points.size() / 3;
+    if (pointCount < 3) return false;
+
+    outNormals->resize(pointCount * 3, 0.0f);
+    int assignedFaceCount = 0;
+    for (size_t triangleVertexOffset = 0; triangleVertexOffset + 2 < pointCount; triangleVertexOffset += 3) {
+        _NormalRepairVec3 faceNormal;
+        if (!_TryGetSequentialFaceNormal(points, triangleVertexOffset, &faceNormal)) continue;
+
+        for (size_t corner = 0; corner < 3; ++corner) {
+            _SetVec3(outNormals, triangleVertexOffset + corner, faceNormal);
+        }
+        assignedFaceCount += 1;
+    }
+
+    if (assignedFaceCount <= 0) {
+        outNormals->clear();
+        return false;
+    }
+
+    return true;
+}
+
+} // namespace
+
+void
+WebRenderDelegate::RepairProtoDataBlobNormals(
+    ProtoDataBlobRecord* record,
+    std::string const& normalSource)
+{
+    if (!record) return;
+
+    record->normalSource = normalSource.empty() ? record->normalSource : normalSource;
+    if (record->normalSource.empty()) {
+        record->normalSource = "unknown";
+    }
+    record->normalRepairCount = 0;
+    record->normalFallbackCount = 0;
+    record->postRepairLowDotCount = 0;
+
+    const size_t pointCount = record->points.size() / 3;
+    const size_t indexCount = record->indices.size();
+    const size_t normalCount = record->normals.size() / 3;
+    if (pointCount == 0 || indexCount < 3 || normalCount == 0) {
+        if (normalCount == 0) {
+            record->normalSource = "none";
+        }
+        record->numNormals = static_cast<int>(normalCount);
+        record->normalsDimension = normalCount > 0 ? 3 : 0;
+        return;
+    }
+
+    const std::string lowerSource = _LowerAscii(record->normalSource);
+    const bool sourceIsVertex = lowerSource.find("vertex") != std::string::npos
+        || lowerSource.find("generated") != std::string::npos;
+    const bool sourceIsFaceVarying = lowerSource.find("facevarying") != std::string::npos
+        || lowerSource.find("face-varying") != std::string::npos
+        || lowerSource.find("percorner") != std::string::npos
+        || lowerSource.find("per-corner") != std::string::npos;
+
+    enum class _NormalMode
+    {
+        Unsupported,
+        FaceVarying,
+        Vertex,
+    };
+
+    _NormalMode mode = _NormalMode::Unsupported;
+    if (sourceIsFaceVarying && normalCount == indexCount) {
+        mode = _NormalMode::FaceVarying;
+    } else if (sourceIsVertex && normalCount == pointCount) {
+        mode = _NormalMode::Vertex;
+    } else if (normalCount == indexCount) {
+        mode = _NormalMode::FaceVarying;
+    } else if (normalCount == pointCount) {
+        mode = _NormalMode::Vertex;
+    }
+
+    if (mode == _NormalMode::Unsupported) {
+        record->numNormals = static_cast<int>(normalCount);
+        record->normalsDimension = 3;
+        return;
+    }
+
+    bool vertexModeNeedsExpansion = false;
+    for (size_t triOffset = 0; triOffset + 2 < indexCount; triOffset += 3) {
+        _NormalRepairVec3 faceNormal = _NormalRepairVec3();
+        const bool hasFaceNormal = _TryGetFaceNormal(*record, triOffset, &faceNormal);
+        for (size_t corner = 0; corner < 3; ++corner) {
+            const size_t cornerOffset = triOffset + corner;
+            const size_t normalIndex = mode == _NormalMode::FaceVarying
+                ? cornerOffset
+                : static_cast<size_t>(record->indices[cornerOffset]);
+            if (normalIndex >= normalCount) continue;
+
+            _NormalRepairVec3 normal = _ReadVec3(record->normals, normalIndex);
+            const bool fallbackCandidate = _IsFallbackCandidate(&normal);
+            const bool lowDot = hasFaceNormal
+                && !fallbackCandidate
+                && _Dot(faceNormal, normal) < kNormalRepairDotThreshold;
+            if (mode == _NormalMode::Vertex && (fallbackCandidate || lowDot)) {
+                vertexModeNeedsExpansion = true;
+            }
+            if (mode == _NormalMode::FaceVarying && (fallbackCandidate || lowDot)) {
+                const _NormalRepairVec3 repaired = hasFaceNormal ? faceNormal : _NormalRepairVec3();
+                _SetVec3(&record->normals, normalIndex, repaired);
+                record->normalRepairCount += 1;
+                if (fallbackCandidate) {
+                    record->normalFallbackCount += 1;
+                }
+            }
+        }
+    }
+
+    if (mode == _NormalMode::Vertex && vertexModeNeedsExpansion) {
+        std::vector<float> expandedNormals;
+        expandedNormals.reserve(indexCount * 3);
+        for (size_t triOffset = 0; triOffset + 2 < indexCount; triOffset += 3) {
+            _NormalRepairVec3 faceNormal = _NormalRepairVec3();
+            const bool hasFaceNormal = _TryGetFaceNormal(*record, triOffset, &faceNormal);
+            for (size_t corner = 0; corner < 3; ++corner) {
+                const size_t cornerOffset = triOffset + corner;
+                const size_t normalIndex = static_cast<size_t>(record->indices[cornerOffset]);
+                _NormalRepairVec3 normal = normalIndex < normalCount
+                    ? _ReadVec3(record->normals, normalIndex)
+                    : _NormalRepairVec3();
+                const bool fallbackCandidate = _IsFallbackCandidate(&normal);
+                const bool lowDot = hasFaceNormal
+                    && !fallbackCandidate
+                    && _Dot(faceNormal, normal) < kNormalRepairDotThreshold;
+                if (fallbackCandidate || lowDot) {
+                    _AppendVec3(&expandedNormals, hasFaceNormal ? faceNormal : _NormalRepairVec3());
+                    record->normalRepairCount += 1;
+                    if (fallbackCandidate) {
+                        record->normalFallbackCount += 1;
+                    }
+                } else {
+                    _AppendVec3(&expandedNormals, normal);
+                }
+            }
+        }
+        if (!expandedNormals.empty()) {
+            record->normals = std::move(expandedNormals);
+            if (record->normalSource.find("Expanded") == std::string::npos) {
+                record->normalSource += "Expanded";
+            }
+        }
+    }
+
+    const size_t finalNormalCount = record->normals.size() / 3;
+    const bool finalNormalsAreFaceVarying = finalNormalCount == indexCount;
+    const bool finalNormalsAreVertex = finalNormalCount == pointCount && !finalNormalsAreFaceVarying;
+    for (size_t triOffset = 0; triOffset + 2 < indexCount; triOffset += 3) {
+        _NormalRepairVec3 faceNormal;
+        if (!_TryGetFaceNormal(*record, triOffset, &faceNormal)) continue;
+        for (size_t corner = 0; corner < 3; ++corner) {
+            const size_t cornerOffset = triOffset + corner;
+            size_t normalIndex = finalNormalsAreFaceVarying
+                ? cornerOffset
+                : (finalNormalsAreVertex ? static_cast<size_t>(record->indices[cornerOffset]) : finalNormalCount);
+            if (normalIndex >= finalNormalCount) continue;
+            _NormalRepairVec3 normal = _ReadVec3(record->normals, normalIndex);
+            if (!_Normalize(&normal) || _Dot(faceNormal, normal) < kNormalRepairDotThreshold) {
+                record->postRepairLowDotCount += 1;
+            }
+        }
+    }
+
+    record->numNormals = static_cast<int>(finalNormalCount);
+    record->normalsDimension = finalNormalCount > 0 ? 3 : 0;
+}
+
+void
+WebRenderDelegate::FinalizeProtoDataBlobRenderBuffers(
+    ProtoDataBlobRecord* record)
+{
+    if (!record) return;
+
+    record->numVertices = static_cast<int>(record->points.size() / 3);
+    record->numIndices = static_cast<int>(record->indices.size());
+    record->uvDimension = record->uv.empty()
+        ? 0
+        : _SafeTupleDimension(record->uvDimension, 2);
+    record->numUVs = record->uvDimension > 0
+        ? static_cast<int>(_FloatTupleCount(record->uv, record->uvDimension))
+        : 0;
+    record->normalsDimension = record->normals.empty()
+        ? 0
+        : _SafeTupleDimension(record->normalsDimension, 3);
+    record->numNormals = record->normalsDimension > 0
+        ? static_cast<int>(_FloatTupleCount(record->normals, record->normalsDimension))
+        : 0;
+
+    const size_t pointCount = static_cast<size_t>(std::max(0, record->numVertices));
+    const size_t indexCount = record->indices.size();
+    if (pointCount == 0) {
+        record->renderReady = false;
+        record->topologyMode = "nonIndexed";
+        record->valid = false;
+        return;
+    }
+
+    const int normalDimension = _SafeTupleDimension(record->normalsDimension, 3);
+    const int uvDimension = _SafeTupleDimension(record->uvDimension, 2);
+    const size_t normalCount = _FloatTupleCount(record->normals, normalDimension);
+    const size_t uvCount = _FloatTupleCount(record->uv, uvDimension);
+    const std::string normalSource = _LowerAscii(record->normalSource);
+    const std::string uvSource = _LowerAscii(record->uvSource);
+
+    const bool normalSourceIsCorner =
+        normalSource.find("facevarying") != std::string::npos
+        || normalSource.find("face-varying") != std::string::npos
+        || normalSource.find("percorner") != std::string::npos
+        || normalSource.find("per-corner") != std::string::npos
+        || normalSource.find("expanded") != std::string::npos;
+    const bool uvSourceIsCorner =
+        uvSource.find("facevarying") != std::string::npos
+        || uvSource.find("face-varying") != std::string::npos
+        || uvSource.find("percorner") != std::string::npos
+        || uvSource.find("per-corner") != std::string::npos
+        || uvSource.find("expanded") != std::string::npos;
+
+    const bool normalsAreCornerCount = indexCount > 0 && normalCount == indexCount;
+    const bool uvsAreCornerCount = indexCount > 0 && uvCount == indexCount;
+    const bool normalsRequireCornerTopology = normalsAreCornerCount
+        && (normalSourceIsCorner || normalCount != pointCount);
+    const bool uvsRequireCornerTopology = uvsAreCornerCount
+        && (uvSourceIsCorner || uvCount != pointCount);
+    const bool staleExpandedIndex = normalSource.find("expanded") != std::string::npos
+        && _LooksLikeExpandedPayloadWithStaleSharedIndex(record->indices, pointCount);
+    const bool shouldUseNonIndexedTopology = indexCount > 0
+        && (normalsRequireCornerTopology || uvsRequireCornerTopology || staleExpandedIndex);
+
+    if (shouldUseNonIndexedTopology) {
+        const std::vector<uint32_t> sourceIndices = record->indices;
+        const size_t sourcePointCount = pointCount;
+        const bool pointsAlreadyExpanded = staleExpandedIndex;
+        bool pointsAreExpanded = pointsAlreadyExpanded;
+        if (!pointsAlreadyExpanded) {
+            std::vector<float> expandedPoints;
+            if (_ExpandFloatTuplesByIndices(record->points, 3, sourceIndices, &expandedPoints)) {
+                record->points = std::move(expandedPoints);
+                pointsAreExpanded = true;
+            }
+        }
+
+        if (pointsAreExpanded) {
+            const size_t finalPointCount = record->points.size() / 3;
+
+            if (!record->normals.empty()) {
+                std::vector<float> expandedNormals;
+                const size_t updatedNormalCount = _FloatTupleCount(record->normals, normalDimension);
+                if (!pointsAlreadyExpanded
+                    && updatedNormalCount == sourcePointCount
+                    && _ExpandFloatTuplesByIndices(record->normals, normalDimension, sourceIndices, &expandedNormals)) {
+                    record->normals = std::move(expandedNormals);
+                } else if (updatedNormalCount != finalPointCount) {
+                    record->normals.clear();
+                }
+            }
+
+            if (!record->uv.empty()) {
+                std::vector<float> expandedUv;
+                const size_t updatedUvCount = _FloatTupleCount(record->uv, uvDimension);
+                if (!pointsAlreadyExpanded
+                    && updatedUvCount == sourcePointCount
+                    && _ExpandFloatTuplesByIndices(record->uv, uvDimension, sourceIndices, &expandedUv)) {
+                    record->uv = std::move(expandedUv);
+                } else if (updatedUvCount != finalPointCount) {
+                    record->uv.clear();
+                }
+            }
+
+            record->indices.clear();
+            record->topologyMode = "nonIndexed";
+        } else {
+            record->topologyMode = indexCount > 0 ? "indexed" : "nonIndexed";
+        }
+    } else {
+        record->topologyMode = indexCount > 0 ? "indexed" : "nonIndexed";
+    }
+
+    const bool finalIsIndexed = record->topologyMode == "indexed" && !record->indices.empty();
+    const size_t finalPointCount = record->points.size() / 3;
+    const int finalUvDimension = _SafeTupleDimension(record->uvDimension, 2);
+    const size_t finalUvCount = _FloatTupleCount(record->uv, finalUvDimension);
+    if (!record->uv.empty() && finalUvCount != finalPointCount) {
+        record->uv.clear();
+    }
+
+    const int finalNormalDimension = _SafeTupleDimension(record->normalsDimension, 3);
+    const size_t finalNormalCount = _FloatTupleCount(record->normals, finalNormalDimension);
+    if (!record->normals.empty() && (finalNormalDimension != 3 || finalNormalCount != finalPointCount)) {
+        record->normals.clear();
+    }
+
+    if (record->normals.empty()) {
+        std::vector<float> generatedNormals;
+        const bool generated = finalIsIndexed
+            ? _ComputeIndexedVertexNormals(*record, &generatedNormals)
+            : _ComputeNonIndexedFaceNormals(record->points, &generatedNormals);
+        if (generated) {
+            record->normals = std::move(generatedNormals);
+            record->normalSource = finalIsIndexed ? "generatedVertex" : "generatedFaceVarying";
+        }
+    }
+
+    record->numVertices = static_cast<int>(record->points.size() / 3);
+    record->numIndices = static_cast<int>(record->indices.size());
+    record->uvDimension = record->uv.empty() ? 0 : finalUvDimension;
+    record->numUVs = record->uvDimension > 0
+        ? static_cast<int>(_FloatTupleCount(record->uv, record->uvDimension))
+        : 0;
+    record->normalsDimension = record->normals.empty() ? 0 : 3;
+    record->numNormals = record->normalsDimension > 0
+        ? static_cast<int>(_FloatTupleCount(record->normals, record->normalsDimension))
+        : 0;
+    if (record->uv.empty()) {
+        record->uvSource = "none";
+    }
+    if (record->normals.empty()) {
+        record->normalSource = "none";
+    }
+    record->renderReady = true;
+    record->valid = record->numVertices > 0;
+}
+
 class Emscripten_Rprim final : public HdMesh {
 public:
     Emscripten_Rprim(TfToken const& typeId,
@@ -81,6 +692,7 @@ public:
      , _transform(1.0f)
      , _materialIdPath()
      , _uvPrimvar()
+     , _uvPrimvarInterpolation("none")
      , _adjacencyValid(false)
      , _normalsValid(false)
      , _smoothNormals(false)
@@ -324,6 +936,7 @@ private:
     std::string _materialIdPath;
     VtVec3fArray _points;
     VtVec2fArray _uvPrimvar;
+    std::string _uvPrimvarInterpolation;
     Hd_VertexAdjacency _adjacency;
     struct PrimvarPayload {
         std::string name;
@@ -511,6 +1124,8 @@ private:
         record.numNormals = static_cast<int>(_computedNormals.size());
         record.normalsDimension = record.numNormals > 0 ? 3 : 0;
         record.materialId = _materialIdPath;
+        record.normalSource = "generatedVertex";
+        record.uvSource = _uvPrimvar.empty() ? "none" : _uvPrimvarInterpolation;
 
         const HdGeomSubsets geomSubsets = _topology.GetGeomSubsets();
         if (!geomSubsets.empty()) {
@@ -548,6 +1163,8 @@ private:
             }
         }
 
+        WebRenderDelegate::RepairProtoDataBlobNormals(&record, record.normalSource);
+        WebRenderDelegate::FinalizeProtoDataBlobRenderBuffers(&record);
         _ownerDelegate->UpsertProtoDataBlob(GetId().GetAsString(), record);
     }
 
@@ -585,6 +1202,7 @@ private:
             VtVec2fArray primvarData = value.Get<VtVec2fArray>();
             if (_ShouldCapturePrimvarForProtoBlob(name)) {
                 _uvPrimvar = primvarData;
+                _uvPrimvarInterpolation = ip;
             }
             if (!queueToJs) return;
             std::vector<float> flattened = _FlattenFloatTupleArray<VtVec2fArray, 2>(primvarData);

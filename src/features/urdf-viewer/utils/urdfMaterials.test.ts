@@ -93,6 +93,49 @@ test('applyURDFMaterials matches normalized Collada material names from URDF inl
     );
 });
 
+test('applyURDFMaterials keeps vertex-colored OBJ materials on a neutral material base', () => {
+    const materials = new Map([
+        [
+            'material_____________005',
+            { name: 'material_____________005', rgba: [0, 0, 0, 1] as [number, number, number, number] },
+        ],
+    ]);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+        'position',
+        new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+    );
+    geometry.setAttribute(
+        'color',
+        new THREE.Float32BufferAttribute([0.67, 0.69, 0.77, 0.67, 0.69, 0.77, 0, 0, 0], 3),
+    );
+    const originalMaterial = new THREE.MeshStandardMaterial({
+        name: 'material_____________005',
+        color: 0x000000,
+        vertexColors: true,
+    });
+    originalMaterial.userData = {
+        usesVertexColors: true,
+        urdfColorApplied: true,
+        urdfColor: new THREE.Color(0x000000),
+    };
+    const mesh = new THREE.Mesh(geometry, originalMaterial);
+    const robot = new THREE.Group();
+    robot.add(mesh);
+
+    applyURDFMaterials(robot, materials);
+
+    const appliedMaterial = mesh.material as THREE.MeshStandardMaterial;
+    assert.notEqual(appliedMaterial, originalMaterial);
+    assert.equal(appliedMaterial.vertexColors, true);
+    assert.equal(appliedMaterial.color.getHexString(), 'ffffff');
+    assert.equal(appliedMaterial.toneMapped, false);
+    assert.equal(appliedMaterial.userData.usesVertexColors, true);
+    assert.notEqual(appliedMaterial.userData.urdfColorApplied, true);
+    assert.equal(appliedMaterial.userData.urdfColor, undefined);
+    assert.equal(appliedMaterial.userData.urdfMaterialName, 'material_____________005');
+});
+
 test('applyURDFMaterials interprets unitree-style orange as sRGB instead of linear RGB', () => {
     const materials = parseURDFMaterials(`<?xml version="1.0"?>
 <robot name="b1_description">

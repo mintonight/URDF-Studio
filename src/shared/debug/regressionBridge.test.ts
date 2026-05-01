@@ -7,7 +7,7 @@ import {
   setRegressionAppHandlers,
   setRegressionRuntimeRobot,
 } from './regressionBridge';
-import { DEFAULT_JOINT, DEFAULT_LINK, type RobotState } from '@/types';
+import { DEFAULT_JOINT, DEFAULT_LINK, type RobotFile, type RobotState } from '@/types';
 
 test('getRegressionSnapshot summarizes joint-only runtime proxies without requiring traverse()', () => {
   setRegressionRuntimeRobot({
@@ -83,6 +83,22 @@ test('regression debug API summarizes USD visual materials from stored scene sna
               ],
             },
           },
+          {
+            meshId: '/Robot/FL_thigh/visuals.proto_mesh_id0',
+            resolvedPrimPath: '/Robot/FL_thigh/visuals/thigh/mesh',
+            sectionName: 'visuals',
+            normalDiagnostics: {
+              normalSource: 'repairedAuthored',
+              normalRepairCount: 6,
+              normalFallbackCount: 0,
+              postRepairLowDotCount: 0,
+            },
+            geometry: {
+              geomSubsetSections: [
+                { start: 0, length: 3, materialId: '/Robot/Looks/LegShell' },
+              ],
+            },
+          },
         ],
         materials: [
           {
@@ -96,6 +112,12 @@ test('regression debug API summarizes USD visual materials from stored scene sna
             name: 'material_______024',
             shaderName: 'UsdPreviewSurface',
             color: [0.035, 0.035, 0.035],
+          },
+          {
+            materialId: '/Robot/Looks/LegShell',
+            name: 'material_____________001',
+            shaderName: 'UsdPreviewSurface',
+            color: [0.671705, 0.692426, 0.77427],
           },
         ],
       },
@@ -153,8 +175,122 @@ test('regression debug API summarizes USD visual materials from stored scene sna
           },
         ],
       },
+      {
+        meshId: '/Robot/FL_thigh/visuals.proto_mesh_id0',
+        linkPath: '/Robot/FL_thigh',
+        overrideColor: null,
+        hasOverrideMaterial: false,
+        materials: [
+          {
+            name: 'material_____________001',
+            type: 'UsdPreviewSurface',
+            color: '#abb1c5',
+            emissive: null,
+          },
+        ],
+      },
     ],
   });
+
+  assert.deepEqual(targetWindow.__URDF_STUDIO_DEBUG__?.getSelectedUsdNormalDiagnostics?.(), {
+    available: true,
+    fileName: 'robots/demo/demo.usd',
+    meshDescriptorCount: 2,
+    diagnosticsCount: 1,
+    meshes: [
+      {
+        meshId: '/Robot/FL_thigh/visuals.proto_mesh_id0',
+        resolvedPrimPath: '/Robot/FL_thigh/visuals/thigh/mesh',
+        linkPath: '/Robot/FL_thigh',
+        sectionName: 'visuals',
+        normalDiagnostics: {
+          normalSource: 'repairedAuthored',
+          normalRepairCount: 6,
+          normalFallbackCount: 0,
+          postRepairLowDotCount: 0,
+        },
+      },
+    ],
+  });
+
+  setRegressionAppHandlers(null);
+});
+
+test('regression debug API seeds fixture files through registered app handlers', () => {
+  const availableFiles: Array<{ name: string; format: RobotFile['format'] }> = [];
+  let resetCount = 0;
+
+  setRegressionAppHandlers({
+    getAvailableFiles: () =>
+      availableFiles.map((file) => ({
+        name: file.name,
+        format: file.format,
+        content: '',
+      })),
+    getSelectedFile: () => null,
+    getUsdSceneSnapshot: () => null,
+    getDocumentLoadState: () => ({
+      status: 'idle',
+      fileName: null,
+      format: null,
+      error: null,
+    }),
+    getRobotState: () => ({
+      name: 'demo',
+      rootLinkId: 'base_link',
+      links: {},
+      joints: {},
+      selection: { type: null, id: null },
+    }),
+    getAssetDebugState: () => ({
+      appAssetKeys: [],
+      preparedUsdCacheKeysByFile: {},
+    }),
+    getInteractionState: () => ({
+      selection: { type: null, id: null },
+      hoveredSelection: { type: null, id: null },
+    }),
+    resetFixtureFiles: () => {
+      resetCount += 1;
+      availableFiles.length = 0;
+    },
+    seedFixtureFile: (file) => {
+      availableFiles.push({ name: file.name, format: file.format });
+      return { availableFileCount: availableFiles.length };
+    },
+    loadRobotByName: async () => ({
+      loaded: false,
+      selectedFile: null,
+    }),
+  });
+
+  const targetWindow = {} as Window;
+  installRegressionDebugApi(targetWindow);
+
+  assert.deepEqual(targetWindow.__URDF_STUDIO_DEBUG__?.resetFixtureFiles(), {
+    ok: true,
+    availableFileCount: 0,
+  });
+  assert.deepEqual(
+    targetWindow.__URDF_STUDIO_DEBUG__?.seedFixtureFile({
+      name: '/unitree_model/Go2/usd/go2.usd',
+      content: '#usda 1.0',
+      format: 'usd',
+      blobUrl: 'http://127.0.0.1/unitree_model/Go2/usd/go2.usd',
+      addFileContent: true,
+    }),
+    {
+      ok: true,
+      availableFileCount: 1,
+    },
+  );
+  assert.equal(resetCount, 1);
+  assert.deepEqual(targetWindow.__URDF_STUDIO_DEBUG__?.getAvailableFiles(), [
+    {
+      name: '/unitree_model/Go2/usd/go2.usd',
+      format: 'usd',
+    },
+  ]);
 
   setRegressionAppHandlers(null);
 });

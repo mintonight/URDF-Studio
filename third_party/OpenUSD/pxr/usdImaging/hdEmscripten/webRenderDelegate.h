@@ -59,6 +59,13 @@ public:
         std::array<float, 16> transform = {0.0f};
         std::string materialId;
         std::vector<GeomSubsetSection> geomSubsetSections;
+        std::string normalSource = "none";
+        std::string uvSource = "none";
+        bool renderReady = false;
+        std::string topologyMode = "indexed";
+        int normalRepairCount = 0;
+        int normalFallbackCount = 0;
+        int postRepairLowDotCount = 0;
     };
 
     struct RprimPrimvarDeltaRecord
@@ -165,6 +172,9 @@ public:
 
     void UpsertProtoDataBlob(std::string const& rprimPath,
                              ProtoDataBlobRecord const& record);
+    static void RepairProtoDataBlobNormals(ProtoDataBlobRecord* record,
+                                           std::string const& normalSource);
+    static void FinalizeProtoDataBlobRenderBuffers(ProtoDataBlobRecord* record);
     bool ReadProtoDataBlob(
         std::string const& rprimPath,
         std::function<void(ProtoDataBlobRecord const&)> const& reader) const;

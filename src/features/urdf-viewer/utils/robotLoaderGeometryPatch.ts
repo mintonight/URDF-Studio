@@ -1,7 +1,11 @@
 import type { RefObject } from 'react';
 import * as THREE from 'three';
 import { URDFCollider, URDFVisual } from '@/core/parsers/urdf/loader';
-import { createLoadingManager, type ColladaRootNormalizationHints } from '@/core/loaders';
+import {
+  createLoadingManager,
+  createMeshLoader,
+  type ColladaRootNormalizationHints,
+} from '@/core/loaders';
 import {
   getBoxFaceMaterialPalette,
   getCollisionGeometryEntries,
@@ -10,6 +14,7 @@ import {
 } from '@/core/robot';
 import { createBoxFaceMaterialArray } from '@/core/utils/boxFaceMaterialArray';
 import { applyVisualMeshMaterialGroupsToObject } from '@/core/utils/meshMaterialGroups';
+import { forceObjectMaterialSide } from '@/core/utils/three/materialSide';
 import {
   applyVisualMaterialOverrideToObject,
   resolveVisualMaterialOverrideFromGeometry,
@@ -38,7 +43,6 @@ import {
   updateVisualMaterialPalette,
   updateVisualMaterial,
 } from './robotLoaderPatchUtils';
-import { createViewerMeshLoader } from './createViewerMeshLoader';
 import { applyURDFMaterials, collectURDFMaterialsFromVisualGeometry } from './urdfMaterials';
 import { getSyntheticGeomParentName, resolveRuntimeGeometryRoot } from './runtimeGeometrySelection';
 
@@ -263,7 +267,7 @@ function patchGeometryCategory({
 
     const urdfDir = sourceFileDir ?? '';
     const manager = textureManager ?? createLoadingManager(assets, urdfDir);
-    const meshLoader = createViewerMeshLoader(assets, manager, urdfDir, {
+    const meshLoader = createMeshLoader(assets, manager, urdfDir, {
       colladaRootNormalizationHints,
     });
 
@@ -294,6 +298,9 @@ function patchGeometryCategory({
         }
         if (hasGeometryMeshMaterialGroups(geometry)) {
           applyVisualMeshMaterialGroupsToObject(obj, geometry, { manager });
+        }
+        if (geometry.doubleSided === true) {
+          forceObjectMaterialSide(obj, THREE.DoubleSide);
         }
       }
 
@@ -858,6 +865,10 @@ function patchGeometryGroupInPlace({
     targetGroup.children.forEach((child) => {
       applyVisualMeshMaterialGroupsToObject(child, geometry);
     });
+  }
+
+  if (!isCollision && geometry.doubleSided === true) {
+    forceObjectMaterialSide(targetGroup, THREE.DoubleSide);
   }
 
   robotModel.updateMatrixWorld(true);

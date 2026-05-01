@@ -7,6 +7,7 @@ import {
   configureCollisionOverlayMaterial,
   createCollisionOverlayMaterial,
   createHighlightOverrideMaterial,
+  applyMatteMaterialToMesh,
   enhanceMaterials,
   enhanceSingleMaterial,
 } from './materials';
@@ -26,7 +27,43 @@ test('enhanceSingleMaterial preserves OBJ vertex colors for baked export meshes'
   assert.equal(enhancedMaterial instanceof THREE.MeshStandardMaterial, true);
   assert.equal(enhancedMaterial.vertexColors, true);
   assert.equal(enhancedMaterial.toneMapped, false);
-  assert.equal(enhancedMaterial.color.getHexString(), 'f7f7f7');
+  assert.equal(enhancedMaterial.color.getHexString(), 'ffffff');
+});
+
+test('enhanceSingleMaterial uses a neutral base for vertex-colored OBJ materials', () => {
+  const sourceMaterial = new THREE.MeshPhongMaterial({
+    color: 0x000000,
+    vertexColors: true,
+    name: 'material_black_subset',
+  });
+  sourceMaterial.userData.urdfColorApplied = true;
+  sourceMaterial.userData.urdfColor = new THREE.Color(0x000000);
+
+  const enhancedMaterial = enhanceSingleMaterial(sourceMaterial) as THREE.MeshStandardMaterial;
+
+  assert.equal(enhancedMaterial instanceof THREE.MeshStandardMaterial, true);
+  assert.equal(enhancedMaterial.vertexColors, true);
+  assert.equal(enhancedMaterial.color.getHexString(), 'ffffff');
+  assert.notEqual(enhancedMaterial.userData.urdfColorApplied, true);
+  assert.equal(enhancedMaterial.userData.urdfColor, undefined);
+});
+
+test('applyMatteMaterialToMesh preserves vertex-colored materials on a neutral base', () => {
+  const mesh = new THREE.Mesh(
+    new THREE.BufferGeometry(),
+    new THREE.MeshPhongMaterial({
+      color: 0x000000,
+      vertexColors: true,
+    }),
+  );
+
+  applyMatteMaterialToMesh(mesh);
+
+  const material = mesh.material as unknown as THREE.MeshStandardMaterial;
+  assert.equal(material.vertexColors, true);
+  assert.equal(material.color.getHexString(), 'ffffff');
+  assert.equal(material.toneMapped, false);
+  assert.equal(material.userData.usesVertexColors, true);
 });
 
 test('enhanceSingleMaterial keeps textured materials in exact-color mode', () => {

@@ -10,6 +10,7 @@ import {
   Sun,
   Undo,
 } from 'lucide-react';
+import { HeaderMenuItem, HeaderMenuSeparator } from './HeaderMenuItem';
 import type { HeaderOverflowMenuProps } from './types';
 
 export function HeaderOverflowMenu({
@@ -74,20 +75,19 @@ export function HeaderOverflowMenu({
             {showPrimaryGroup && (
               <>
                 {showQuickAction && quickAction && QuickActionIcon && (
-                  <button
-                    type="button"
+                  <HeaderMenuItem
+                    icon={QuickActionIcon}
                     onClick={(event) => {
                       quickAction.onClick(event);
                       setActiveMenu(null);
                     }}
-                    className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-element-bg dark:hover:bg-element-bg transition-colors text-text-primary dark:text-text-secondary flex items-center gap-3"
                   >
-                    <QuickActionIcon className="w-4 h-4" /> {quickAction.label}
-                  </button>
+                    {quickAction.label}
+                  </HeaderMenuItem>
                 )}
                 {showSourceCode && (
-                  <button
-                    type="button"
+                  <HeaderMenuItem
+                    icon={Code}
                     onClick={() => {
                       onOpenCodeViewer();
                       setActiveMenu(null);
@@ -95,97 +95,90 @@ export function HeaderOverflowMenu({
                     onMouseEnter={onPrefetchCodeViewer}
                     onFocus={onPrefetchCodeViewer}
                     onTouchStart={onPrefetchCodeViewer}
-                    className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-element-bg dark:hover:bg-element-bg transition-colors text-text-primary dark:text-text-secondary flex items-center gap-3"
                   >
-                    <Code className="w-4 h-4" /> {t.sourceCode}
-                  </button>
+                    {t.sourceCode}
+                  </HeaderMenuItem>
                 )}
                 {showUndoRedo && (
                   <>
-                    <button
-                      type="button"
+                    <HeaderMenuItem
+                      icon={Undo}
                       onClick={() => {
                         undo();
                         setActiveMenu(null);
                       }}
                       disabled={!canUndo}
-                      className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-element-bg dark:hover:bg-element-bg transition-colors text-text-primary dark:text-text-secondary flex items-center gap-3 disabled:opacity-50"
                     >
-                      <Undo className="w-4 h-4" /> {t.undo}
-                    </button>
-                    <button
-                      type="button"
+                      {t.undo}
+                    </HeaderMenuItem>
+                    <HeaderMenuItem
+                      icon={Redo}
                       onClick={() => {
                         redo();
                         setActiveMenu(null);
                       }}
                       disabled={!canRedo}
-                      className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-element-bg dark:hover:bg-element-bg transition-colors text-text-primary dark:text-text-secondary flex items-center gap-3 disabled:opacity-50"
                     >
-                      <Redo className="w-4 h-4" /> {t.redo}
-                    </button>
+                      {t.redo}
+                    </HeaderMenuItem>
                   </>
                 )}
               </>
             )}
 
             {showPrimaryGroup && showSecondaryGroup && (
-              <div className="h-px bg-element-bg dark:bg-border-black my-1" />
+              <HeaderMenuSeparator />
             )}
 
             {showSecondaryGroup && (
               <>
                 {showSecondaryAction && secondaryAction && SecondaryActionIcon && (
-                  <button
-                    type="button"
+                  <HeaderMenuItem
+                    icon={SecondaryActionIcon}
                     onClick={(event) => {
                       secondaryAction.onClick(event);
                       setActiveMenu(null);
                     }}
-                    className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-element-bg dark:hover:bg-element-bg transition-colors text-text-primary dark:text-text-secondary flex items-center gap-3"
                   >
-                    <SecondaryActionIcon className="w-4 h-4" /> {secondaryAction.label}
-                  </button>
+                    {secondaryAction.label}
+                  </HeaderMenuItem>
                 )}
                 {showSnapshot && (
-                  <button
-                    type="button"
+                  <HeaderMenuItem
+                    icon={Camera}
                     onClick={() => {
                       onSnapshot();
                       setActiveMenu(null);
                     }}
-                    className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-element-bg dark:hover:bg-element-bg transition-colors text-text-primary dark:text-text-secondary flex items-center gap-3"
                   >
-                    <Camera className="w-4 h-4" /> {t.snapshot}
-                  </button>
+                    {t.snapshot}
+                  </HeaderMenuItem>
                 )}
                 {showSettings && (
-                  <button
-                    type="button"
+                  <HeaderMenuItem
+                    icon={Settings}
                     onClick={() => {
                       onOpenSettings();
                       setActiveMenu(null);
                     }}
-                    className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-element-bg dark:hover:bg-element-bg transition-colors text-text-primary dark:text-text-secondary flex items-center gap-3"
                   >
-                    <Settings className="w-4 h-4" /> {t.settings}
-                  </button>
+                    {t.settings}
+                  </HeaderMenuItem>
                 )}
                 {showLanguage && (
-                  <button
-                    type="button"
+                  <HeaderMenuItem
+                    icon={Globe}
                     onClick={() => {
                       setLang(lang === 'en' ? 'zh' : 'en');
                       setActiveMenu(null);
                     }}
-                    className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-element-bg dark:hover:bg-element-bg transition-colors text-text-primary dark:text-text-secondary flex items-center gap-3"
                   >
-                    <Globe className="w-4 h-4" /> {t.switchLanguage}
-                  </button>
+                    {t.switchLanguage}
+                  </HeaderMenuItem>
                 )}
                 {showTheme && (
-                  <button
-                    type="button"
+                  <HeaderMenuItem
+                    icon={theme === 'system' ? Monitor : theme === 'dark' ? Sun : Moon}
                     onClick={() => {
                       if (theme === 'system') {
                         const isSystemDark = window.matchMedia(
@@ -197,17 +190,9 @@ export function HeaderOverflowMenu({
                       }
                       setActiveMenu(null);
                     }}
-                    className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-element-bg dark:hover:bg-element-bg transition-colors text-text-primary dark:text-text-secondary flex items-center gap-3"
                   >
-                    {theme === 'system' ? (
-                      <Monitor className="w-4 h-4" />
-                    ) : theme === 'dark' ? (
-                      <Sun className="w-4 h-4" />
-                    ) : (
-                      <Moon className="w-4 h-4" />
-                    )}{' '}
                     {t.toggleTheme}
-                  </button>
+                  </HeaderMenuItem>
                 )}
               </>
             )}

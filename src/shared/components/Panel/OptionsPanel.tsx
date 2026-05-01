@@ -755,8 +755,20 @@ export function useDraggablePanel(initialCollapsed: boolean = false): UseDraggab
       const newX = e.clientX - dragOffset.current.x;
       const newY = e.clientY - dragOffset.current.y;
 
-      panelRef.current.style.left = `${newX}px`;
-      panelRef.current.style.top = `${newY}px`;
+      const rect = panelRef.current.getBoundingClientRect();
+      const headerHeight = 36; // Approximate header height to ensure title bar remains visible
+
+      // Clamp position to keep the title bar visible within viewport
+      const minX = -rect.width + headerHeight;
+      const maxX = window.innerWidth - headerHeight;
+      const minY = 0; // Top edge can't go above viewport
+      const maxY = window.innerHeight - headerHeight;
+
+      const clampedX = Math.max(minX, Math.min(maxX, newX));
+      const clampedY = Math.max(minY, Math.min(maxY, newY));
+
+      panelRef.current.style.left = `${clampedX}px`;
+      panelRef.current.style.top = `${clampedY}px`;
     }
   }, []);
 

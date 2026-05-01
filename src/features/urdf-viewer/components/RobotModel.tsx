@@ -49,13 +49,13 @@ import { useMouseInteraction } from '../hooks/useMouseInteraction';
 import { useHoverDetection } from '../hooks/useHoverDetection';
 import { useVisualizationEffects } from '../hooks/useVisualizationEffects';
 import { resolveCameraAutoFrameLoadScopeKey } from '../utils/cameraAutoFrame';
-import { isSingleDofJoint } from '../utils/jointTypes';
+import { isSingleDofJoint } from '@/shared/utils/jointTypes';
 import {
   createRuntimeSceneLinkMetadataState,
   resolveRuntimeSceneLinkMetadataState,
 } from '../utils/runtimeSceneMetadata';
 import { resolveSelectedIkDragLinkId } from '../utils/selectedIkDragLink';
-import { resolveViewerRobotSourceFormat } from '../utils/sourceFormat';
+import { resolveViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
 import { shouldEnableViewerSceneCompileWarmup } from '../utils/sceneCompileWarmupPolicy';
 
 const EMPTY_ROBOT_FILES: RobotFile[] = [];
@@ -68,6 +68,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     sourceFile,
     availableFiles = EMPTY_ROBOT_FILES,
     sourceFormat = 'auto',
+    allowUrdfXmlFallback = false,
     reloadToken = 0,
     initialRobot = null,
     sourceFilePath,
@@ -193,6 +194,31 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     useEffect(() => {
       setIsDraggingRef.current = setIsDragging;
     }, [setIsDragging]);
+    type LinkIkHistorySnapshot = ReturnType<
+      NonNullable<React.ComponentProps<typeof LinkIkTransformControls>['createHistorySnapshot']>
+    >;
+    type LinkIkCommitArgs = Parameters<
+      NonNullable<React.ComponentProps<typeof LinkIkTransformControls>['onCommitKinematicOverrides']>
+    >;
+    const createIkHistorySnapshot = useCallback((): LinkIkHistorySnapshot => {
+      const state = useRobotStore.getState();
+      return structuredClone({
+        name: state.name,
+        links: state.links,
+        joints: state.joints,
+        rootLinkId: state.rootLinkId,
+        materials: state.materials,
+        closedLoopConstraints: state.closedLoopConstraints,
+      });
+    }, []);
+    const commitIkKinematicOverrides = useCallback((...args: LinkIkCommitArgs) => {
+      const [overrides, historySnapshot, label] = args;
+      const storeState = useRobotStore.getState();
+      storeState.applyJointKinematicOverrides(overrides, {
+        skipHistory: true,
+      });
+      storeState.pushHistorySnapshot(historySnapshot, label);
+    }, []);
     const backendRobotData = useMemo(() => {
       if (!robotLinks || !robotJoints) {
         return null;
@@ -235,6 +261,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       showCollision,
       showVisual,
       showCollisionAlwaysOnTop,
+      allowUrdfXmlFallback,
       robotLinks,
       robotJoints,
       robotData: backendRobotData,
@@ -819,9 +846,11 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
             enabled={active && Boolean(selectedIkHandleDescriptor?.jointIds.length)}
             historyLabel="Move IK handle"
             setIsDragging={setIsDragging}
+            createHistorySnapshot={createIkHistorySnapshot}
             onPreviewKinematicOverrides={(overrides) =>
               onIkPreviewKinematicOverrides?.(overrides.angles, overrides.quaternions)
             }
+            onCommitKinematicOverrides={commitIkKinematicOverrides}
             onClearPreviewKinematicOverrides={onClearIkPreviewKinematicOverrides}
           />
         )}

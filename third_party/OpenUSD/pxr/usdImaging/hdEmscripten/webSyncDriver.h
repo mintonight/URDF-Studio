@@ -28,6 +28,7 @@
 #include "pxr/usd/usdGeom/xformCache.h"
 #include "pxr/usd/usdGeom/metrics.h"
 #include "pxr/usd/usdGeom/mesh.h"
+#include "pxr/usd/usdGeom/primvar.h"
 #include "pxr/usd/usdGeom/subset.h"
 #include "pxr/usd/usdGeom/cube.h"
 #include "pxr/usd/usdGeom/sphere.h"
@@ -517,6 +518,7 @@ public:
         render.set("meshDescriptorHeaders", emptyArray);
         render.set("meshDescriptorScalars", emptyArray);
         render.set("meshDescriptorGeomSubsetSections", emptyObject);
+        render.set("meshDescriptorDiagnostics", emptyObject);
         render.set("meshDescriptors", emptyArray);
         render.set("materials", emptyArray);
 
@@ -603,6 +605,7 @@ public:
         std::vector<int32_t> meshDescriptorHeaders;
         std::vector<float> meshDescriptorScalars;
         emscripten::val meshDescriptorGeomSubsetSections = emscripten::val::object();
+        emscripten::val meshDescriptorDiagnostics = emscripten::val::object();
         std::vector<float> positionPool;
         std::vector<uint32_t> indexPool;
         std::vector<float> normalPool;
@@ -751,6 +754,9 @@ public:
                         meshId,
                         _GeomSubsetSectionsToJsArray(meshPayload.geomSubsetSections));
                 }
+                meshDescriptorDiagnostics.set(
+                    meshId,
+                    _NormalDiagnosticsToJsVal(meshPayload));
             }
 
             const auto transformRange = appendMatrixComponents(transformPool, rawEntry.worldTransform);
@@ -917,6 +923,7 @@ public:
         render.set("meshDescriptorHeaders", makeInt32ArrayCopy(meshDescriptorHeaders));
         render.set("meshDescriptorScalars", makeFloat32ArrayCopy(meshDescriptorScalars));
         render.set("meshDescriptorGeomSubsetSections", meshDescriptorGeomSubsetSections);
+        render.set("meshDescriptorDiagnostics", meshDescriptorDiagnostics);
         render.set("meshDescriptors", emscripten::val::array());
         render.set("materials", snapshotMaterials);
         buffers.set("positions", makeFloat32ArrayCopy(positionPool));
@@ -2681,6 +2688,9 @@ private:
             "inputs:albedo",
             "inputs:albedo_constant",
         });
+        if (hasBaseColor) {
+            record.set("colorSpace", std::string("srgb"));
+        }
         (void)hasBaseColor;
 
         const bool roughnessAssigned = setScalar("roughness", {
@@ -2738,14 +2748,18 @@ private:
         setScalar("anisotropyRotation", { "inputs:anisotropyRotation", "inputs:anisotropy_rotation" });
         setScalar("emissiveIntensity", { "inputs:emissive_intensity" }, false, true, 0.0);
 
-        setColor("specularColor", { "inputs:specularColor", "inputs:specular_color" });
+        if (setColor("specularColor", { "inputs:specularColor", "inputs:specular_color" })) {
+            record.set("specularColorSpace", std::string("srgb"));
+        }
         setColor("attenuationColor", { "inputs:attenuationColor", "inputs:attenuation_color" });
         setColor("sheenColor", { "inputs:sheenColor", "inputs:sheen_color" });
-        setColor("emissive", {
+        if (setColor("emissive", {
             "inputs:emissiveColor",
             "inputs:emissive_color",
             "inputs:emissive_color_constant",
-        });
+        })) {
+            record.set("emissiveColorSpace", std::string("srgb"));
+        }
 
         setVec2("normalScale", { "inputs:normalScale", "inputs:normal_scale" });
         setVec2("clearcoatNormalScale", { "inputs:clearcoatNormalScale", "inputs:clearcoat_normal_scale" });
@@ -3524,6 +3538,58 @@ private:
         return !outValues->empty();
     }
 
+    static bool _TryTriangulateFaceVaryingVec3f(
+        VtIntArray const& faceVertexCounts,
+        VtVec3fArray const& sourceValues,
+        VtVec3fArray* outValues) {
+        if (!outValues) return false;
+        outValues->clear();
+        if (sourceValues.empty()) return false;
+
+        if (faceVertexCounts.empty()) {
+            *outValues = sourceValues;
+            return true;
+        }
+
+        size_t expectedSourceCount = 0;
+        size_t totalTriangleCount = 0;
+        for (const int countValue : faceVertexCounts) {
+            const size_t count = countValue > 0 ? static_cast<size_t>(countValue) : static_cast<size_t>(0);
+            expectedSourceCount += count;
+            if (count >= 3) {
+                totalTriangleCount += (count - 2);
+            }
+        }
+
+        if (expectedSourceCount == 0 || sourceValues.size() < expectedSourceCount || totalTriangleCount == 0) {
+            return false;
+        }
+
+        outValues->reserve(totalTriangleCount * 3);
+        size_t cursor = 0;
+        for (const int countValue : faceVertexCounts) {
+            const size_t count = countValue > 0 ? static_cast<size_t>(countValue) : static_cast<size_t>(0);
+            if (count >= 3) {
+                if (cursor + count > sourceValues.size()) {
+                    outValues->clear();
+                    return false;
+                }
+                const GfVec3f first = sourceValues[cursor];
+                for (size_t vertexIndex = 1; vertexIndex + 1 < count; ++vertexIndex) {
+                    outValues->push_back(first);
+                    outValues->push_back(sourceValues[cursor + vertexIndex]);
+                    outValues->push_back(sourceValues[cursor + vertexIndex + 1]);
+                }
+            }
+            cursor += count;
+            if (cursor >= sourceValues.size()) {
+                break;
+            }
+        }
+
+        return !outValues->empty();
+    }
+
     static bool _TryReadSplitFaceVaryingUvPrimvars(
         UsdPrim const& prim,
         UsdTimeCode const& timeCode,
@@ -3744,9 +3810,16 @@ private:
         }
 
         VtVec2fArray uvValues;
-        if (!_TryReadSplitFaceVaryingUvPrimvars(prim, timeCode, expectedFaceVaryingCount, &uvValues)) {
+        std::string uvSource = "none";
+        if (_TryReadSplitFaceVaryingUvPrimvars(prim, timeCode, expectedFaceVaryingCount, &uvValues)) {
+            uvSource = "faceVarying";
+        } else {
             const UsdAttribute uvAttr = prim.GetAttribute(TfToken("primvars:st"));
             if (uvAttr) {
+                const UsdGeomPrimvar uvPrimvar(uvAttr);
+                const TfToken uvInterpolation = uvPrimvar
+                    ? uvPrimvar.GetInterpolation()
+                    : TfToken();
                 VtVec2fArray uvF;
                 if (uvAttr.Get(&uvF, timeCode) && !uvF.empty()) {
                     uvValues = std::move(uvF);
@@ -3761,13 +3834,24 @@ private:
                         }
                     }
                 }
+                if (!uvValues.empty()) {
+                    if (uvInterpolation == UsdGeomTokens->faceVarying) {
+                        uvSource = "faceVarying";
+                    } else if (uvInterpolation == UsdGeomTokens->vertex
+                        || uvInterpolation == UsdGeomTokens->varying) {
+                        uvSource = "vertex";
+                    } else {
+                        uvSource = "authored";
+                    }
+                }
             }
         }
 
         if (!uvValues.empty()) {
             VtVec2fArray triangulatedUvValues;
             VtVec2fArray const* finalUvValues = &uvValues;
-            if (_TryTriangulateFaceVaryingVec2f(faceVertexCounts, uvValues, &triangulatedUvValues)) {
+            if (uvSource == "faceVarying"
+                && _TryTriangulateFaceVaryingVec2f(faceVertexCounts, uvValues, &triangulatedUvValues)) {
                 finalUvValues = &triangulatedUvValues;
             }
 
@@ -3777,29 +3861,58 @@ private:
                 outRecord->uv.push_back(uv[1]);
             }
         }
+        outRecord->uvSource = uvSource;
 
         const UsdAttribute normalsAttr = mesh.GetNormalsAttr();
+        std::string normalSource = "none";
         if (normalsAttr) {
+            VtVec3fArray normalValues;
             VtVec3fArray normalsF;
             if (normalsAttr.Get(&normalsF, timeCode) && !normalsF.empty()) {
-                outRecord->normals.reserve(normalsF.size() * 3);
-                for (GfVec3f const& normal : normalsF) {
+                normalValues = std::move(normalsF);
+            } else {
+                VtVec3dArray normalsD;
+                if (normalsAttr.Get(&normalsD, timeCode) && !normalsD.empty()) {
+                    normalValues.reserve(normalsD.size());
+                    for (GfVec3d const& normal : normalsD) {
+                        normalValues.push_back(GfVec3f(
+                            static_cast<float>(normal[0]),
+                            static_cast<float>(normal[1]),
+                            static_cast<float>(normal[2])));
+                    }
+                }
+            }
+
+            if (!normalValues.empty()) {
+                const TfToken normalsInterpolation = mesh.GetNormalsInterpolation();
+                VtVec3fArray triangulatedNormalValues;
+                VtVec3fArray const* finalNormalValues = &normalValues;
+                if (normalsInterpolation == UsdGeomTokens->faceVarying) {
+                    normalSource = "authoredFaceVarying";
+                    if (normalValues.size() == outRecord->indices.size()) {
+                        finalNormalValues = &normalValues;
+                    } else if (_TryTriangulateFaceVaryingVec3f(
+                            faceVertexCounts,
+                            normalValues,
+                            &triangulatedNormalValues)) {
+                        finalNormalValues = &triangulatedNormalValues;
+                    }
+                } else if (normalsInterpolation == UsdGeomTokens->vertex
+                    || normalsInterpolation == UsdGeomTokens->varying) {
+                    normalSource = "authoredVertex";
+                } else {
+                    normalSource = "authored";
+                }
+
+                outRecord->normals.reserve(finalNormalValues->size() * 3);
+                for (GfVec3f const& normal : *finalNormalValues) {
                     outRecord->normals.push_back(normal[0]);
                     outRecord->normals.push_back(normal[1]);
                     outRecord->normals.push_back(normal[2]);
                 }
-            } else {
-                VtVec3dArray normalsD;
-                if (normalsAttr.Get(&normalsD, timeCode) && !normalsD.empty()) {
-                    outRecord->normals.reserve(normalsD.size() * 3);
-                    for (GfVec3d const& normal : normalsD) {
-                        outRecord->normals.push_back(static_cast<float>(normal[0]));
-                        outRecord->normals.push_back(static_cast<float>(normal[1]));
-                        outRecord->normals.push_back(static_cast<float>(normal[2]));
-                    }
-                }
             }
         }
+        outRecord->normalSource = normalSource;
 
         _Matrix4dToFloat16(worldMatrix, &outRecord->transform);
         outRecord->materialId = _ResolveBoundMaterialId(prim);
@@ -3818,6 +3931,8 @@ private:
         outRecord->uvDimension = outRecord->numUVs > 0 ? 2 : 0;
         outRecord->numNormals = static_cast<int>(outRecord->normals.size() / 3);
         outRecord->normalsDimension = outRecord->numNormals > 0 ? 3 : 0;
+        WebRenderDelegate::RepairProtoDataBlobNormals(outRecord, outRecord->normalSource);
+        WebRenderDelegate::FinalizeProtoDataBlobRenderBuffers(outRecord);
         outRecord->valid = outRecord->numVertices > 0;
         return outRecord->valid;
     }
@@ -3981,6 +4096,13 @@ private:
         blob.set("numNormals", record.numNormals);
         blob.set("normalsDimension", record.normalsDimension);
         blob.set("materialId", record.materialId);
+        blob.set("renderReady", record.renderReady);
+        blob.set("topologyMode", record.topologyMode);
+        blob.set("uvSource", record.uvSource);
+        blob.set("normalSource", record.normalSource);
+        blob.set("normalRepairCount", record.normalRepairCount);
+        blob.set("normalFallbackCount", record.normalFallbackCount);
+        blob.set("postRepairLowDotCount", record.postRepairLowDotCount);
         blob.set("pointsPtr", _PointerToJsNumber(record.points.empty() ? nullptr : record.points.data()));
         blob.set("indicesPtr", _PointerToJsNumber(record.indices.empty() ? nullptr : record.indices.data()));
         blob.set("uvPtr", _PointerToJsNumber(record.uv.empty() ? nullptr : record.uv.data()));
@@ -3990,6 +4112,16 @@ private:
         blob.set("transform", _Float16ToJsArray(record.transform));
         blob.set("geomSubsetSections", _GeomSubsetSectionsToJsArray(record.geomSubsetSections));
         return blob;
+    }
+
+    static emscripten::val _NormalDiagnosticsToJsVal(
+        WebRenderDelegate::ProtoDataBlobRecord const& record) {
+        emscripten::val diagnostics = emscripten::val::object();
+        diagnostics.set("normalSource", record.normalSource);
+        diagnostics.set("normalRepairCount", record.normalRepairCount);
+        diagnostics.set("normalFallbackCount", record.normalFallbackCount);
+        diagnostics.set("postRepairLowDotCount", record.postRepairLowDotCount);
+        return diagnostics;
     }
 
     bool _BuildSnapshotPrimOverrideDataFromPrim(
@@ -4283,6 +4415,13 @@ private:
             out.set("uvDimension", payload["uvDimension"]);
             out.set("numNormals", payload["numNormals"]);
             out.set("normalsDimension", payload["normalsDimension"]);
+            out.set("renderReady", payload["renderReady"]);
+            out.set("topologyMode", payload["topologyMode"]);
+            out.set("uvSource", payload["uvSource"]);
+            out.set("normalSource", payload["normalSource"]);
+            out.set("normalRepairCount", payload["normalRepairCount"]);
+            out.set("normalFallbackCount", payload["normalFallbackCount"]);
+            out.set("postRepairLowDotCount", payload["postRepairLowDotCount"]);
             out.set("pointsPtr", payload["pointsPtr"]);
             out.set("indicesPtr", payload["indicesPtr"]);
             out.set("uvPtr", payload["uvPtr"]);

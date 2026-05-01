@@ -11,11 +11,11 @@ import type { InteractionSelection, RobotData, RobotFile, UrdfJoint, UrdfLink } 
 import type {
   ToolMode,
   ViewerSceneMode,
-  ViewerDocumentLoadEvent,
   ViewerHelperKind,
   ViewerInteractiveLayer,
   ViewerRuntimeStageBridge,
-} from '@/features/urdf-viewer/types';
+} from '@/shared/components/3d/viewerInteractionTypes';
+import type { ViewerDocumentLoadEvent } from '@/shared/components/3d/loadingTypes';
 
 /**
  * Raycast hit result returned by backend raycast operations
@@ -125,6 +125,8 @@ export interface RendererSceneProps {
   showCollision?: boolean;
   /** Show collision always on top */
   showCollisionAlwaysOnTop?: boolean;
+  /** Allow raw URDF XML parsing before structured robot state is available */
+  allowUrdfXmlFallback?: boolean;
   /** Existing robot links data (for incremental updates) */
   robotLinks?: Record<string, UrdfLink>;
   /** Existing robot joints data (for incremental updates) */

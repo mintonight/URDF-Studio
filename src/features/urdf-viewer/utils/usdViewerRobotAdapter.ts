@@ -247,6 +247,7 @@ function getDescriptorMaterialId(descriptor: MeshDescriptor): string {
 function colorArrayToHex(
   value: ArrayLike<number> | null | undefined,
   opacityOverride?: number | null,
+  colorSpace?: string | null,
 ): string | null {
   const source = Array.isArray(value)
     ? value
@@ -269,18 +270,26 @@ function colorArrayToHex(
     Math.max(0, Math.min(255, Math.round(channel)))
       .toString(16)
       .padStart(2, '0');
-  const linearColor =
+  const colorSpaceToken = String(colorSpace || '')
+    .trim()
+    .toLowerCase();
+  const shouldReadAsSrgb =
+    colorSpaceToken === 'srgb' ||
+    colorSpaceToken === 'srgbcolorspace' ||
+    colorSpaceToken === 's-rgb';
+  const normalizedColor =
     Math.abs(r) <= 1 && Math.abs(g) <= 1 && Math.abs(b) <= 1
-      ? new THREE.Color(
+      ? new THREE.Color().setRGB(
           Math.max(0, Math.min(1, r)),
           Math.max(0, Math.min(1, g)),
           Math.max(0, Math.min(1, b)),
+          shouldReadAsSrgb ? THREE.SRGBColorSpace : THREE.LinearSRGBColorSpace,
         )
       : null;
 
   const a = opacityOverride ?? (source.length >= 4 ? Number(source[3]) : null);
-  const rgb = linearColor
-    ? [linearColor.getHexString()]
+  const rgb = normalizedColor
+    ? [normalizedColor.getHexString()]
     : [toHex(to255(r)), toHex(to255(g)), toHex(to255(b))];
 
   if (a !== null && Number.isFinite(a) && a < 0.999) {
@@ -315,7 +324,7 @@ function hasMaterialRecordContent(material: MaterialRecord | null | undefined): 
 function resolveSnapshotMaterialColorHex(
   material: MaterialRecord | null | undefined,
 ): string | null {
-  const authoredColor = colorArrayToHex(material?.color, material?.opacity);
+  const authoredColor = colorArrayToHex(material?.color, material?.opacity, material?.colorSpace);
   if (authoredColor) {
     return authoredColor;
   }
@@ -395,7 +404,9 @@ function resolveSnapshotAuthoredMaterial(
   const roughness = Number(material.roughness);
   const metalness = Number(material.metalness);
   const emissiveEnabled = resolveSnapshotMaterialEmissionEnabled(material);
-  const emissive = emissiveEnabled ? colorArrayToHex(material.emissive) || undefined : undefined;
+  const emissive = emissiveEnabled
+    ? colorArrayToHex(material.emissive, null, material.emissiveColorSpace) || undefined
+    : undefined;
   const emissiveIntensity = emissiveEnabled ? Number(material.emissiveIntensity) : Number.NaN;
 
   if (
@@ -1225,6 +1236,7 @@ function createJointFromViewerEntry(
   const jointType = jointTypeFromViewerValue(entry.jointTypeName || entry.jointType);
   const lower = degreesToRadians(entry.lowerLimitDeg);
   const upper = degreesToRadians(entry.upperLimitDeg);
+  const angle = degreesToRadians(entry.angleDeg);
   const driveDamping =
     typeof entry.driveDamping === 'number' && Number.isFinite(entry.driveDamping)
       ? entry.driveDamping
@@ -1250,6 +1262,7 @@ function createJointFromViewerEntry(
     type: jointType,
     parentLinkId,
     childLinkId,
+    ...(typeof angle === 'number' && Number.isFinite(angle) ? { angle } : {}),
     origin: {
       xyz: originXyz,
       rpy: originQuatWxyz
@@ -1388,10 +1401,25 @@ export function adaptUsdViewerSnapshotToRobotData(
 
   let meshCountsByLinkPath = deriveMeshCountsByLinkPath(snapshot, linkPaths);
   Object.keys(meshCountsByLinkPath).forEach((path) => addLinkPath(path));
-  const shouldOmitInternalMeshLibraryPaths = shouldOmitUsdInternalMeshLibraryPaths(linkPaths);
+  const normalizedDefaultPrimPath = normalizeUsdPath(snapshot.stage?.defaultPrimPath);
+  const hasInternalMeshLibraryPath = Array.from(linkPaths).some((path) =>
+    isUsdInternalMeshLibraryPath(path),
+  );
+  const shouldOmitInternalMeshLibraryPaths =
+    shouldOmitUsdInternalMeshLibraryPaths(linkPaths) ||
+    (hasInternalMeshLibraryPath &&
+      Boolean(normalizedDefaultPrimPath) &&
+      !isUsdInternalMeshLibraryPath(normalizedDefaultPrimPath));
   const effectiveSourceLinkPaths = shouldOmitInternalMeshLibraryPaths
     ? new Set(Array.from(linkPaths).filter((path) => !isUsdInternalMeshLibraryPath(path)))
-    : linkPaths;
+    : new Set(linkPaths);
+  if (
+    shouldOmitInternalMeshLibraryPaths &&
+    effectiveSourceLinkPaths.size === 0 &&
+    normalizedDefaultPrimPath
+  ) {
+    effectiveSourceLinkPaths.add(normalizedDefaultPrimPath);
+  }
   const effectiveSourceLinkParentPairs = shouldOmitInternalMeshLibraryPaths
     ? linkParentPairs.filter(
         ([childPath, parentPath]) =>
@@ -1409,6 +1437,13 @@ export function adaptUsdViewerSnapshotToRobotData(
   const effectiveSourceRootLinkPaths = shouldOmitInternalMeshLibraryPaths
     ? rootLinkPaths.filter((path) => !isUsdInternalMeshLibraryPath(path))
     : rootLinkPaths;
+  if (
+    shouldOmitInternalMeshLibraryPaths &&
+    effectiveSourceRootLinkPaths.length === 0 &&
+    normalizedDefaultPrimPath
+  ) {
+    effectiveSourceRootLinkPaths.push(normalizedDefaultPrimPath);
+  }
 
   if (shouldOmitInternalMeshLibraryPaths) {
     meshCountsByLinkPath = Object.fromEntries(

@@ -179,3 +179,28 @@ test('collectUsdExportAssetFiles keeps asset collection complete and progress mo
     globalThis.fetch = originalFetch;
   }
 });
+
+test('collectUsdExportAssetFiles rejects when a required texture asset is missing', async () => {
+  const root = new THREE.Group();
+  root.name = 'demo_robot';
+
+  const mesh = new THREE.Mesh(createTexturedTriangleGeometry(), createUsdBaseMaterial('#ffffff'));
+  mesh.name = 'mesh';
+  mesh.userData.usdDisplayColor = '#ffffff';
+  applyUsdMaterialMetadata(mesh, { texture: 'textures/missing.png' });
+  root.add(mesh);
+
+  const context = await collectUsdSerializationContext(root, {
+    rootPrimName: 'demo_robot',
+  });
+  const { registry } = createUsdAssetRegistry({});
+
+  await assert.rejects(
+    collectUsdExportAssetFiles({
+      sceneRoot: root,
+      context,
+      registry,
+    }),
+    /Texture asset not found for: textures\/missing\.png/,
+  );
+});

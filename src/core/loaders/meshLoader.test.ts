@@ -38,6 +38,20 @@ globalThis.Image = dom.window.Image as typeof Image;
 globalThis.XMLSerializer = dom.window.XMLSerializer as typeof XMLSerializer;
 globalThis.ProgressEvent = dom.window.ProgressEvent as typeof ProgressEvent;
 
+test('createMeshLoader exposes unresolved visual meshes as errors instead of placeholders', async () => {
+  const manager = new THREE.LoadingManager();
+  const loadMesh = createMeshLoader({}, manager, 'urdf/');
+
+  const result = await new Promise<{ object: THREE.Object3D | null; error?: Error }>((resolve) => {
+    loadMesh('package://aliengo_description/meshes/hip.dae', manager, (object, error) => {
+      resolve({ object, error });
+    });
+  });
+
+  assert.ok(result.error);
+  assert.equal(result.object, null);
+});
+
 function getFirstRenderable(object: THREE.Object3D): THREE.Object3D {
   const first = object.children[0];
   assert.ok(first, 'expected Collada scene to contain a child object');

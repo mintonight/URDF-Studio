@@ -9,27 +9,27 @@
 import * as THREE from 'three';
 import { buildRuntimeRobotFromState, URDFLoader } from '@/core/parsers/urdf/loader';
 import { normalizeLoadingProgress } from '@/shared/components/3d/loadingHudState';
-import { disposeObject3D } from '@/features/urdf-viewer/utils/dispose';
+import { disposeObject3D } from '@/shared/utils/three/dispose';
 import {
   alignRobotToGroundBeforeFirstMount,
-  copyRobotRootTransform,
   offsetRobotToGround,
-  setInitialGroundAlignment,
-  setPreserveAuthoredRootTransform,
-} from '@/features/urdf-viewer/utils/robotPositioning';
-import { SHARED_MATERIALS } from '@/features/urdf-viewer/constants';
-import { buildColladaRootNormalizationHints, createLoadingManager } from '@/core/loaders';
+} from '@/shared/components/3d/robotPositioning';
+import { SHARED_MATERIALS } from '@/shared/components/3d/sharedMaterials';
+import {
+  buildColladaRootNormalizationHints,
+  createLoadingManager,
+  createMeshLoader,
+} from '@/core/loaders';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
 import { loadMJCFToThreeJS } from '@/core/parsers/mjcf';
 import { getSourceFileDirectory } from '@/core/parsers/meshPathUtils';
 import type { RobotData, UrdfJoint, UrdfLink } from '@/types';
-import { isSingleDofJoint } from '@/features/urdf-viewer/utils/jointTypes';
-import { resolveURDFMaterialsForScene } from '@/features/urdf-viewer/utils/urdfMaterials';
-import { syncLoadedRobotScene } from '@/features/urdf-viewer/utils/loadedRobotSceneSync';
-import { resolveRobotLoaderSourceMetadata } from '@/features/urdf-viewer/utils/robotLoaderSourceMetadata';
-import { resolveViewerRobotSourceFormat } from '@/features/urdf-viewer/utils/sourceFormat';
-import { shouldWaitForStructuredUrdfRobotState } from '@/features/urdf-viewer/utils/urdfXmlFallbackPolicy';
-import { createViewerMeshLoader } from '@/features/urdf-viewer/utils/createViewerMeshLoader';
+import { isSingleDofJoint } from '@/shared/utils/jointTypes';
+import { resolveURDFMaterialsForScene } from '@/shared/components/3d/urdfMaterials';
+import { syncLoadedRobotScene } from '@/shared/components/3d/renderers/loadedRobotSceneSync';
+import { resolveRobotLoaderSourceMetadata } from '@/shared/components/3d/renderers/robotLoaderSourceMetadata';
+import { resolveViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
+import { shouldWaitForStructuredUrdfRobotState } from '@/shared/components/3d/renderers/urdfXmlFallbackPolicy';
 import type {
   RobotRendererBackend,
   RobotSceneGraph,
@@ -39,7 +39,7 @@ import type {
   RendererSceneProps,
   BackendCapabilities,
 } from './types';
-import type { RobotLoadingPhase, ViewerDocumentLoadEvent } from '@/features/urdf-viewer/types';
+import type { RobotLoadingPhase, ViewerDocumentLoadEvent } from '@/shared/components/3d/loadingTypes';
 
 const VIEWER_LOAD_YIELD_BUDGET_MS = 4;
 
@@ -152,6 +152,7 @@ export class ThreeJsBackend implements RobotRendererBackend {
       showVisual = true,
       showCollision = true,
       showCollisionAlwaysOnTop = true,
+      allowUrdfXmlFallback = false,
       robotLinks: providedRobotLinks,
       robotJoints: providedRobotJoints,
       robotData: providedRobotData,
@@ -187,6 +188,7 @@ export class ThreeJsBackend implements RobotRendererBackend {
         showVisual,
         showCollision,
         showCollisionAlwaysOnTop,
+        allowUrdfXmlFallback,
         onDocumentLoadEvent,
       });
 
@@ -262,12 +264,14 @@ export class ThreeJsBackend implements RobotRendererBackend {
     showVisual: boolean;
     showCollision: boolean;
     showCollisionAlwaysOnTop: boolean;
+    allowUrdfXmlFallback: boolean;
     onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   }): Promise<THREE.Object3D> {
     const {
       showVisual,
       showCollision,
       showCollisionAlwaysOnTop,
+      allowUrdfXmlFallback,
       onDocumentLoadEvent,
     } = options;
 
@@ -308,7 +312,7 @@ export class ThreeJsBackend implements RobotRendererBackend {
     const shouldWaitForStructuredRobotState = shouldWaitForStructuredUrdfRobotState({
       resolvedSourceFormat,
       hasStructuredRobotState,
-      allowUrdfXmlFallback: true,
+      allowUrdfXmlFallback,
     });
 
     // Check if content is MJCF
@@ -394,7 +398,7 @@ export class ThreeJsBackend implements RobotRendererBackend {
       const yieldIfNeeded = createMainThreadYieldController(VIEWER_LOAD_YIELD_BUDGET_MS);
       loader.parseCollision = shouldParseCollisionMeshes;
       loader.parseVisual = true;
-      loader.loadMeshCb = createViewerMeshLoader(this.assets, manager, sourceFileDir, {
+      loader.loadMeshCb = createMeshLoader(this.assets, manager, sourceFileDir, {
         colladaRootNormalizationHints,
         explicitScaleMeshPaths: explicitlyScaledMeshPaths,
         yieldIfNeeded,

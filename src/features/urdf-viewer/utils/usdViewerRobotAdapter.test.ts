@@ -35,6 +35,7 @@ test('adapts usd-viewer robot scene snapshot into URDF Studio RobotData', () => 
             axisLocal: [0, 0, -1],
             lowerLimitDeg: -90,
             upperLimitDeg: 90,
+            angleDeg: 30,
             driveDamping: 0.15,
             driveMaxForce: 8,
             localPivotInLink: [1, 2, 3],
@@ -150,6 +151,7 @@ test('adapts usd-viewer robot scene snapshot into URDF Studio RobotData', () => 
   assert.deepEqual(joint.axis, { x: 0, y: 0, z: -1 });
   assert.equal(joint.limit.lower, -Math.PI / 2);
   assert.equal(joint.limit.upper, Math.PI / 2);
+  assert.ok(Math.abs((joint.angle ?? Number.NaN) - Math.PI / 6) < 1e-6);
   assert.equal(joint.limit.effort, 8);
   assert.equal(joint.dynamics.damping, 0.15);
   assert.deepEqual(joint.origin.xyz, { x: 4, y: 5, z: 6 });
@@ -451,6 +453,48 @@ test('ignores USDA internal mesh libraries when robot link metadata is present',
   assert.equal(result.robotData.joints.FL_hip_joint?.childLinkId, 'FL_hip');
 });
 
+test('does not expose USDA internal mesh libraries as the RobotState root when no robot metadata was recovered', () => {
+  const result = adaptUsdViewerSnapshotToRobotData(
+    {
+      stageSourcePath: '/unitree_ros/go2_description/urdf/go2_description.usda',
+      stage: {
+        defaultPrimPath: '/go2_description',
+      },
+      robotTree: {
+        linkParentPairs: [],
+        rootLinkPaths: ['/go2_description/__MeshLibrary'],
+      },
+      robotMetadataSnapshot: {
+        stageSourcePath: '/unitree_ros/go2_description/urdf/go2_description.usda',
+        source: 'usd-stage-cpp',
+        linkParentPairs: [],
+        jointCatalogEntries: [],
+        meshCountsByLinkPath: {},
+      },
+      render: {
+        meshDescriptors: [
+          {
+            meshId: '/go2_description/__MeshLibrary/Geometry_6',
+            sectionName: 'visuals',
+            resolvedPrimPath: '/go2_description/__MeshLibrary/Geometry_6',
+            primType: 'mesh',
+          },
+        ],
+      },
+    },
+    {
+      fileName: 'go2_description.usda',
+    },
+  );
+
+  assert.ok(result);
+  assert.equal(result.robotData.rootLinkId, 'go2_description');
+  assert.equal(result.linkIdByPath['/go2_description'], 'go2_description');
+  assert.equal(result.linkIdByPath['/go2_description/__MeshLibrary'], undefined);
+  assert.deepEqual(Object.keys(result.robotData.links), ['go2_description']);
+  assert.equal(result.robotData.links.go2_description.visual.type, GeometryType.NONE);
+});
+
 test('adapts generic mesh-only CAD USD assemblies into a browseable hierarchy rooted at the default prim', () => {
   const result = adaptUsdViewerSnapshotToRobotData(
     {
@@ -700,10 +744,12 @@ test('preserves multiple authored materials from USD geom subset sections on a s
         materials: [
           {
             materialId: '/Looks/Body',
+            colorSpace: 'srgb',
             color: [0.1, 0.2, 0.3, 1],
           },
           {
             materialId: '/Looks/Trim',
+            colorSpace: 'srgb',
             color: [0.8, 0.8, 0.8, 1],
           },
         ],
@@ -719,9 +765,59 @@ test('preserves multiple authored materials from USD geom subset sections on a s
   assert.equal(result.robotData.links.base_link.visual.materialSource, 'named');
   assert.deepEqual(
     result.robotData.links.base_link.visual.authoredMaterials?.map((material) => material.color),
-    ['#597c95', '#e7e7e7'],
+    ['#1a334d', '#cccccc'],
   );
   assert.equal(result.robotData.materials?.base_link, undefined);
+});
+
+test('keeps synthetic displayColor material records in raw linear color space', () => {
+  const result = adaptUsdViewerSnapshotToRobotData(
+    {
+      stageSourcePath: '/robots/unitree/display_color.usd',
+      stage: {
+        defaultPrimPath: '/Robot',
+      },
+      robotTree: {
+        linkParentPairs: [['/Robot/base_link', null]],
+        rootLinkPaths: ['/Robot/base_link'],
+      },
+      robotMetadataSnapshot: {
+        stageSourcePath: '/robots/unitree/display_color.usd',
+        linkParentPairs: [['/Robot/base_link', null]],
+        jointCatalogEntries: [],
+        meshCountsByLinkPath: {
+          '/Robot/base_link': {
+            visualMeshCount: 1,
+            collisionMeshCount: 0,
+          },
+        },
+      },
+      render: {
+        meshDescriptors: [
+          {
+            meshId: '/Robot/base_link/visuals.proto_mesh_id0',
+            sectionName: 'visuals',
+            resolvedPrimPath: '/Robot/base_link/visuals/mesh_0',
+            primType: 'mesh',
+            materialId: '/__viewer_snapshot_materials__/displayColor_19334D_FF',
+          },
+        ],
+        materials: [
+          {
+            materialId: '/__viewer_snapshot_materials__/displayColor_19334D_FF',
+            name: 'displayColor_19334D',
+            color: [0.1, 0.2, 0.3, 1],
+          },
+        ],
+      },
+    },
+    {
+      fileName: 'display_color.usd',
+    },
+  );
+
+  assert.ok(result);
+  assert.equal(result.robotData.links.base_link.visual.color, '#597c95');
 });
 
 test('does not preserve disabled OmniPBR default white emission as authored USD emissive material', () => {
@@ -767,6 +863,8 @@ test('does not preserve disabled OmniPBR default white emission as authored USD 
             name: 'material_______023',
             isOmniPbr: true,
             emissiveEnabled: false,
+            colorSpace: 'srgb',
+            emissiveColorSpace: 'srgb',
             color: [0, 0, 0],
             emissive: [1, 1, 1],
             emissiveIntensity: 10000,
@@ -776,6 +874,8 @@ test('does not preserve disabled OmniPBR default white emission as authored USD 
             name: 'material_______024',
             isOmniPbr: true,
             emissiveEnabled: false,
+            colorSpace: 'srgb',
+            emissiveColorSpace: 'srgb',
             color: [0.003, 0.003, 0.003],
             emissive: [1, 1, 1],
             emissiveIntensity: 10000,
@@ -797,7 +897,7 @@ test('does not preserve disabled OmniPBR default white emission as authored USD 
     })),
     [
       { color: '#000000', emissive: undefined, emissiveIntensity: undefined },
-      { color: '#0a0a0a', emissive: undefined, emissiveIntensity: undefined },
+      { color: '#010101', emissive: undefined, emissiveIntensity: undefined },
     ],
   );
 });

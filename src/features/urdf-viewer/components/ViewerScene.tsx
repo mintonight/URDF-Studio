@@ -9,7 +9,7 @@ import type {
   ViewerRuntimeStageBridge,
 } from '../types';
 import { isContinuousHoverEnabledForToolMode } from '../utils/usdInteractionPolicy';
-import { getViewerRobotSourceFormat } from '../utils/sourceFormat';
+import { getViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
 import type { ViewerSceneBaseProps } from '../utils/viewerSceneProps';
 
 export interface ViewerSceneProps extends ViewerSceneBaseProps {
@@ -21,7 +21,7 @@ export const ViewerScene = ({
   active = true,
   sourceFile,
   sourceFormat,
-  allowUrdfXmlFallback = true,
+  allowUrdfXmlFallback = false,
   availableFiles,
   urdfContent,
   assets,

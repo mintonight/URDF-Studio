@@ -123,6 +123,102 @@ def Xform "Robot" (
 {
 }`;
 
+const unitreeReferencedMeshLibraryLayerText = `#usda 1.0
+def Xform "go2_description"
+{
+    def Scope "__MeshLibrary"
+    {
+        def Mesh "Geometry_6"
+        {
+        }
+    }
+    def Scope "Looks"
+    {
+        def Material "Material_0"
+        {
+        }
+        def Material "Material_6"
+        {
+        }
+    }
+    def Xform "FR_calf"
+    {
+        def Xform "visuals"
+        {
+            def Xform "visual_0"
+            {
+                def Mesh "mesh" (
+                    prepend references = </go2_description/__MeshLibrary/Geometry_6>
+                )
+                {
+                    def GeomSubset "subset_0" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        token elementType = "face"
+                        token familyName = "materialBind"
+                        int[] indices = [0, 1, 2, 3]
+                        rel material:binding = </go2_description/Looks/Material_6>
+                    }
+                    def GeomSubset "subset_1" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        token elementType = "face"
+                        token familyName = "materialBind"
+                        int[] indices = [4, 5, 6]
+                        rel material:binding = </go2_description/Looks/Material_0>
+                    }
+                }
+            }
+        }
+    }
+}`;
+
+const unitreeReferencedMeshLibraryWithLibraryDefaultLayerText = `#usda 1.0
+def Xform "go2_description"
+{
+    def Scope "__MeshLibrary"
+    {
+        def Mesh "Geometry_6"
+        {
+            rel material:binding = </go2_description/Looks/LibraryDefault>
+        }
+    }
+    def Scope "Looks"
+    {
+        def Material "LibraryDefault"
+        {
+        }
+        def Material "Material_6"
+        {
+        }
+    }
+    def Xform "FR_calf"
+    {
+        def Xform "visuals"
+        {
+            def Xform "visual_0"
+            {
+                def Mesh "mesh" (
+                    prepend references = </go2_description/__MeshLibrary/Geometry_6>
+                )
+                {
+                    def GeomSubset "subset_0" (
+                        prepend apiSchemas = ["MaterialBindingAPI"]
+                    )
+                    {
+                        token elementType = "face"
+                        token familyName = "materialBind"
+                        int[] indices = [0, 1, 2, 3]
+                        rel material:binding = </go2_description/Looks/Material_6>
+                    }
+                }
+            }
+        }
+    }
+}`;
+
 test('parseVisualSemanticChildNamesFromLayerText finds semantic children across nested link-local scopes', () => {
     const result = parseVisualSemanticChildNamesFromLayerText(exportedBaseLayerText);
 
@@ -169,6 +265,107 @@ test('parseUsdMaterialBindingsFromLayerText extracts direct bindings and compres
         materialId: '/Robot/Looks/Mat_2',
         geomSubsetSections: [],
     });
+});
+
+test('parseUsdMaterialBindingsFromLayerText aliases authored GeomSubset bindings to referenced mesh library targets', () => {
+    const result = SharedBasic.parseUsdMaterialBindingsFromLayerText(
+        unitreeReferencedMeshLibraryLayerText,
+    );
+
+    const expectedBinding = {
+        materialId: null,
+        geomSubsetSections: [
+            { start: 0, length: 4, materialId: '/go2_description/Looks/Material_6' },
+            { start: 4, length: 3, materialId: '/go2_description/Looks/Material_0' },
+        ],
+    };
+    assert.deepEqual(result.get('/go2_description/FR_calf/visuals/visual_0/mesh'), expectedBinding);
+    assert.deepEqual(result.get('/go2_description/__MeshLibrary/Geometry_6'), expectedBinding);
+});
+
+test('parseUsdMaterialBindingsFromLayerText preserves mesh library direct bindings while aliasing authored GeomSubsets', () => {
+    const result = SharedBasic.parseUsdMaterialBindingsFromLayerText(
+        unitreeReferencedMeshLibraryWithLibraryDefaultLayerText,
+    );
+
+    assert.deepEqual(result.get('/go2_description/FR_calf/visuals/visual_0/mesh'), {
+        materialId: null,
+        geomSubsetSections: [
+            { start: 0, length: 4, materialId: '/go2_description/Looks/Material_6' },
+        ],
+    });
+    assert.deepEqual(result.get('/go2_description/__MeshLibrary/Geometry_6'), {
+        materialId: '/go2_description/Looks/LibraryDefault',
+        geomSubsetSections: [
+            { start: 0, length: 4, materialId: '/go2_description/Looks/Material_6' },
+        ],
+    });
+});
+
+test('normalizeRobotSceneSnapshot restores Unitree authored GeomSubset materials for mesh library descriptors', () => {
+    const previousWindow = globalThis.window;
+    globalThis.window = {
+        location: { search: '' },
+    };
+    try {
+        const delegate = new ThreeRenderDelegateInterface({
+            stage: () => ({
+                GetRootLayer: () => ({
+                    ExportToString: () => unitreeReferencedMeshLibraryLayerText,
+                }),
+                GetUsedLayers: () => [],
+                GetDefaultPrim: () => ({
+                    GetPath: () => ({ pathString: '/go2_description' }),
+                }),
+            }),
+            driver: () => null,
+            allowDriverStageLookup: false,
+        });
+
+        const snapshot = delegate.normalizeRobotSceneSnapshot({
+            generatedAtMs: 1,
+            stage: {
+                stageSourcePath: '/tmp/go2_description.usda',
+                defaultPrimPath: '/go2_description',
+            },
+            robotTree: {
+                linkParentPairs: [['/go2_description/FR_calf', null]],
+                jointCatalogEntries: [],
+                rootLinkPaths: ['/go2_description/FR_calf'],
+            },
+            physics: {
+                linkDynamicsEntries: [],
+            },
+            render: {
+                meshDescriptors: [{
+                    meshId: '/go2_description/__MeshLibrary/Geometry_6',
+                    resolvedPrimPath: '/go2_description/__MeshLibrary/Geometry_6',
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                }],
+                materials: [{
+                    materialId: '/go2_description/Looks/Material_0',
+                    name: 'Material_0',
+                }, {
+                    materialId: '/go2_description/Looks/Material_6',
+                    name: 'Material_6',
+                }],
+            },
+        }, {
+            stageSourcePath: '/tmp/go2_description.usda',
+        });
+
+        assert.ok(snapshot);
+        assert.deepEqual(snapshot.render.meshDescriptors[0].geometry.geomSubsetSections, [
+            { start: 0, length: 4, materialId: '/go2_description/Looks/Material_6' },
+            { start: 4, length: 3, materialId: '/go2_description/Looks/Material_0' },
+        ]);
+        assert.equal(snapshot.render.meshDescriptors[0].materialId, null);
+        assert.equal(snapshot.render.meshDescriptors[0].geometry.materialId, null);
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
 });
 
 test('normalizeRobotSceneSnapshot synthesizes fallback material records from exported URDF metadata', () => {
@@ -788,6 +985,10 @@ test('normalizeRobotSceneSnapshot synthesizes mesh descriptors from proto blobs 
                             0, 0, 0, 1,
                         ]),
                         materialId: '/Robot/Looks/base_link',
+                        normalSource: 'repairedAuthored',
+                        normalRepairCount: 2,
+                        normalFallbackCount: 0,
+                        postRepairLowDotCount: 0,
                     },
                 },
             },
@@ -803,6 +1004,18 @@ test('normalizeRobotSceneSnapshot synthesizes mesh descriptors from proto blobs 
         assert.equal(snapshot.render.meshDescriptors[0].primType, 'mesh');
         assert.equal(snapshot.render.meshDescriptors[0].geometry.numVertices, 3);
         assert.equal(snapshot.render.meshDescriptors[0].geometry.materialId, '/Robot/Looks/base_link');
+        assert.deepEqual(snapshot.render.meshDescriptors[0].normalDiagnostics, {
+            normalSource: 'repairedAuthored',
+            normalRepairCount: 2,
+            normalFallbackCount: 0,
+            postRepairLowDotCount: 0,
+        });
+        assert.deepEqual(snapshot.render.meshDescriptors[0].geometry.normalDiagnostics, {
+            normalSource: 'repairedAuthored',
+            normalRepairCount: 2,
+            normalFallbackCount: 0,
+            postRepairLowDotCount: 0,
+        });
         assert.equal(snapshot.render.meshDescriptors[0].ranges.positions.count, 9);
         assert.equal(snapshot.render.meshDescriptors[0].ranges.indices.count, 3);
         assert.equal(snapshot.render.protoBlobCount, 1);

@@ -49,6 +49,29 @@ require_cmd() {
   fi
 }
 
+prefer_non_android_cmake() {
+  local entry
+  local clean_path=""
+  local separator=""
+  local -a path_entries
+
+  IFS=':' read -r -a path_entries <<< "$PATH"
+  for entry in "${path_entries[@]}"; do
+    case "$entry" in
+      "$HOME"/Android/Sdk/cmake/*/bin|*/Android/Sdk/cmake/*/bin)
+        continue
+        ;;
+    esac
+    clean_path="${clean_path}${separator}${entry}"
+    separator=":"
+  done
+
+  export PATH="$clean_path"
+  if [[ -d "${HOME}/.local/bin" ]]; then
+    export PATH="${HOME}/.local/bin:${PATH}"
+  fi
+}
+
 detect_cpu_count() {
   if command -v nproc >/dev/null 2>&1; then
     nproc
@@ -157,13 +180,18 @@ if [[ -n "${EMSDK:-}" && -d "${EMSDK}/upstream/bin" ]]; then
   export PATH="${EMSDK}/upstream/bin:${PATH}"
 fi
 
+prefer_non_android_cmake
+
 require_cmd python3
 require_cmd patch
 require_cmd emcc
+require_cmd cmake
 
 if [[ "$SKIP_WASM_OPT" -eq 0 ]]; then
   require_cmd wasm-opt
 fi
+
+echo "Using cmake: $(command -v cmake) ($(cmake --version | head -n 1))"
 
 if [[ ! -f "${USD_REPO}/build_scripts/build_usd.py" ]]; then
   echo "Invalid usd repo path, missing build script: ${USD_REPO}/build_scripts/build_usd.py" >&2
@@ -339,7 +367,7 @@ if "allow continued loading after one failed asset" not in text:
         changed = True
 
 cleaned_text = re.sub(
-    r'\s*Module\["FS_readdir"\]\s*=\s*FS\.readdir;\s*Module\["FS_analyzePath"\]\s*=\s*FS\.analyzePath;\s*$',
+    r'\s*Module\["FS_readdir"\]\s*=\s*FS\.readdir;\s*Module\["FS_analyzePath"\]\s*=\s*FS\.analyzePath;\s*Module\["FS_readFile"\]\s*=\s*FS\.readFile;\s*Module\["FS_writeFile"\]\s*=\s*FS\.writeFile;\s*$',
     '\n',
     text,
     count=1,
@@ -349,7 +377,7 @@ if cleaned_text != text:
     changed = True
 
 has_fs_exports = re.search(
-    r'Module\["PThread"\]\s*=\s*PThread;\s*Module\["FS_readdir"\]\s*=\s*FS\.readdir;\s*Module\["FS_analyzePath"\]\s*=\s*FS\.analyzePath;',
+    r'Module\["PThread"\]\s*=\s*PThread;\s*Module\["FS_readdir"\]\s*=\s*FS\.readdir;\s*Module\["FS_analyzePath"\]\s*=\s*FS\.analyzePath;\s*Module\["FS_readFile"\]\s*=\s*FS\.readFile;\s*Module\["FS_writeFile"\]\s*=\s*FS\.writeFile;',
     text,
 )
 if not has_fs_exports:
@@ -361,7 +389,9 @@ if not has_fs_exports:
         ),
         """Module["PThread"]=PThread;
 Module["FS_readdir"]=FS.readdir;
-Module["FS_analyzePath"]=FS.analyzePath;""",
+Module["FS_analyzePath"]=FS.analyzePath;
+Module["FS_readFile"]=FS.readFile;
+Module["FS_writeFile"]=FS.writeFile;""",
     )
     changed = changed or did_replace
 

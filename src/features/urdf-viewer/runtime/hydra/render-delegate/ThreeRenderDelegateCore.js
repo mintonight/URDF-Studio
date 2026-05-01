@@ -1555,6 +1555,7 @@ export class ThreeRenderDelegateCore {
                     ? normalizeVector3(jointRecord.axisLocal, rotateAxisByQuaternionWxyz(axisToken, localRot1Wxyz))
                     : rotateAxisByQuaternionWxyz(axisToken, localRot1Wxyz);
                 const limits = normalizeStageJointLimits(jointTypeName || jointType, Number(jointRecord?.lowerLimitDeg), Number(jointRecord?.upperLimitDeg));
+                const angleDeg = toFiniteNumber(jointRecord?.angleDeg);
                 const driveDamping = toFiniteNumber(jointRecord?.driveDamping);
                 const driveMaxForce = toFiniteNumber(jointRecord?.driveMaxForce);
                 const childLinkPaths = resolveRuntimeLinkPathsFromSourcePathForMerge(body1Path);
@@ -1604,6 +1605,10 @@ export class ThreeRenderDelegateCore {
                             existingEntry.axisLocal = axisLocal;
                             mutated = true;
                         }
+                        if ((existingEntry.angleDeg === undefined || existingEntry.angleDeg === null) && angleDeg !== undefined) {
+                            existingEntry.angleDeg = angleDeg;
+                            mutated = true;
+                        }
                         if (isNonRotationalStageJointType(jointTypeName || jointType)) {
                             const existingLowerLimit = Number(existingEntry.lowerLimitDeg);
                             const existingUpperLimit = Number(existingEntry.upperLimitDeg);
@@ -1649,6 +1654,7 @@ export class ThreeRenderDelegateCore {
                         axisLocal,
                         lowerLimitDeg: limits.lower,
                         upperLimitDeg: limits.upper,
+                        angleDeg: angleDeg ?? null,
                         driveDamping: driveDamping ?? null,
                         driveMaxForce: driveMaxForce ?? null,
                         localPivotInLink: localPos1,
@@ -1855,6 +1861,7 @@ export class ThreeRenderDelegateCore {
                 const axisLocal = jointRecord?.axisLocal && typeof jointRecord.axisLocal.length === 'number'
                     ? normalizeVector3(jointRecord.axisLocal, rotateAxisByQuaternionWxyz(axisToken, localRot1Wxyz))
                     : rotateAxisByQuaternionWxyz(axisToken, localRot1Wxyz);
+                const angleDeg = toFiniteNumber(jointRecord?.angleDeg);
                 const driveDamping = toFiniteNumber(jointRecord?.driveDamping);
                 const driveMaxForce = toFiniteNumber(jointRecord?.driveMaxForce);
                 if (closedLoopType) {
@@ -1909,6 +1916,7 @@ export class ThreeRenderDelegateCore {
                         axisLocal,
                         lowerLimitDeg: limits.lower,
                         upperLimitDeg: limits.upper,
+                        angleDeg: angleDeg ?? null,
                         driveDamping: driveDamping ?? null,
                         driveMaxForce: driveMaxForce ?? null,
                         originXyz: normalizedOriginXyz,
@@ -2071,6 +2079,7 @@ export class ThreeRenderDelegateCore {
                 const originQuatWxyz = jointEntry.originQuatWxyz && typeof jointEntry.originQuatWxyz.length === 'number'
                     ? normalizeQuaternionWxyz(jointEntry.originQuatWxyz, [1, 0, 0, 0])
                     : null;
+                const angleDeg = toFiniteNumber(jointEntry.angleDeg);
                 const driveDamping = toFiniteNumber(jointEntry.driveDamping);
                 const driveMaxForce = toFiniteNumber(jointEntry.driveMaxForce);
                 jointCatalogEntries.push({
@@ -2084,6 +2093,7 @@ export class ThreeRenderDelegateCore {
                     axisLocal: resolvedAxisLocal,
                     lowerLimitDeg: limits.lower,
                     upperLimitDeg: limits.upper,
+                    angleDeg: angleDeg ?? null,
                     driveDamping: driveDamping ?? null,
                     driveMaxForce: driveMaxForce ?? null,
                     localPivotInLink,
@@ -2939,21 +2949,27 @@ export class ThreeRenderDelegateCore {
         }
         const usdModule = typeof window !== 'undefined' ? window.USD : null;
         if (!usdModule?.UsdStage?.Open) {
-            this._openedGuideStages.set(stagePath, null);
             return null;
         }
         try {
             const openedStage = usdModule.UsdStage.Open(stagePath);
             if (openedStage && typeof openedStage.then === 'function') {
-                this._openedGuideStages.set(stagePath, null);
+                console.error('[HydraDelegate] USD guide stage open returned a Promise; synchronous stage access is required.', {
+                    stagePath,
+                });
                 return null;
             }
             const stage = openedStage || null;
-            this._openedGuideStages.set(stagePath, stage);
+            if (stage) {
+                this._openedGuideStages.set(stagePath, stage);
+            }
             return stage;
         }
-        catch {
-            this._openedGuideStages.set(stagePath, null);
+        catch (error) {
+            console.error('[HydraDelegate] Failed to open USD guide stage.', {
+                stagePath,
+                error,
+            });
             return null;
         }
     }

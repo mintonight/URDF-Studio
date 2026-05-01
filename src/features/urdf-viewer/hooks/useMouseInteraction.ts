@@ -12,7 +12,7 @@ import type {
   ViewerPaintFaceHit,
   ViewerSceneMode,
 } from '../types';
-import { isSingleDofJoint } from '../utils/jointTypes';
+import { isSingleDofJoint } from '@/shared/utils/jointTypes';
 import {
   collectGizmoRaycastTargets,
   isGizmoObject,

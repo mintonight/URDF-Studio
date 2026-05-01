@@ -1,4 +1,4 @@
-import { Matrix4, Quaternion, Vector3 } from 'three';
+import { Color, Matrix4, Quaternion, SRGBColorSpace, Vector3 } from 'three';
 import type {
   InteractionHelperKind,
   InteractionSelection,
@@ -52,6 +52,14 @@ interface AppRegressionHandlers {
     selection: InteractionSelection;
     hoveredSelection: InteractionSelection;
   };
+  resetFixtureFiles?: () => void;
+  seedFixtureFile?: (file: {
+    name: string;
+    content: string;
+    format: RobotFile['format'];
+    blobUrl?: string;
+    addFileContent?: boolean;
+  }) => { availableFileCount: number };
   loadRobotByName: (fileName: string) => Promise<{ loaded: boolean; selectedFile: string | null }>;
 }
 
@@ -199,6 +207,30 @@ interface RegressionUsdBaseLinkDescriptorSummary {
   geometryMaterialId: string | null;
   geomSubsetSectionCount: number;
   geomSubsetMaterialIds: string[];
+  normalDiagnostics?: RegressionUsdNormalDiagnostics | null;
+}
+
+interface RegressionUsdNormalDiagnostics {
+  normalSource?: string;
+  normalRepairCount?: number;
+  normalFallbackCount?: number;
+  postRepairLowDotCount?: number;
+}
+
+interface RegressionUsdMeshNormalDiagnosticSummary {
+  meshId: string | null;
+  resolvedPrimPath: string | null;
+  linkPath: string | null;
+  sectionName: string | null;
+  normalDiagnostics: RegressionUsdNormalDiagnostics;
+}
+
+interface RegressionSelectedUsdNormalDiagnosticsSummary {
+  available: boolean;
+  fileName: string | null;
+  meshDescriptorCount: number;
+  diagnosticsCount: number;
+  meshes: RegressionUsdMeshNormalDiagnosticSummary[];
 }
 
 export interface RegressionSelectedUsdSceneSummary {
@@ -257,8 +289,17 @@ export interface RegressionDebugApi {
   getAssetDebugState: () => RegressionAssetDebugState;
   getSelectedUsdSceneSummary: () => RegressionSelectedUsdSceneSummary | null;
   getSelectedUsdVisualMaterialSummary: () => RegressionSelectedUsdVisualMaterialSummary | null;
+  getSelectedUsdNormalDiagnostics: () => RegressionSelectedUsdNormalDiagnosticsSummary | null;
   getRuntimeSceneTransforms: () => ReturnType<typeof summarizeRuntimeSceneTransforms> | null;
   setBeforeUnloadPromptEnabled: (enabled: boolean) => { ok: boolean; enabled: boolean };
+  resetFixtureFiles: () => { ok: boolean; availableFileCount: number };
+  seedFixtureFile: (file: {
+    name: string;
+    content?: string;
+    format: RobotFile['format'];
+    blobUrl?: string;
+    addFileContent?: boolean;
+  }) => { ok: boolean; availableFileCount: number };
   loadRobotByName: (fileName: string) => Promise<{ loaded: boolean; snapshot: RegressionSnapshot }>;
   setViewerFlags: (flags: RegressionViewerFlags) => { ok: boolean };
   setViewerToolMode: (toolMode: string) => {
@@ -429,24 +470,24 @@ function getUsdDescriptorCandidatePaths(descriptor: UsdSceneMeshDescriptor): str
   ].filter(Boolean);
 }
 
-function isUsdDescriptorWithinLinkPath(
-  descriptor: UsdSceneMeshDescriptor,
-  linkPath: string | null | undefined,
-): boolean {
-  const normalizedLinkPath = normalizeUsdDebugPathWithLeadingSlash(linkPath);
-  if (!normalizedLinkPath) {
-    return false;
+function getUsdVisualDescriptorLinkPath(descriptor: UsdSceneMeshDescriptor): string | null {
+  const visualPathMarkers = ['/visuals/', '/visual/', '/visuals.', '/visual.'];
+  for (const candidatePath of getUsdDescriptorCandidatePaths(descriptor)) {
+    for (const marker of visualPathMarkers) {
+      const markerIndex = candidatePath.indexOf(marker);
+      if (markerIndex > 0) {
+        return candidatePath.slice(0, markerIndex);
+      }
+    }
   }
 
-  return getUsdDescriptorCandidatePaths(descriptor).some(
-    (candidatePath) =>
-      candidatePath === normalizedLinkPath || candidatePath.startsWith(`${normalizedLinkPath}/`),
-  );
+  return null;
 }
 
 function colorArrayToRegressionHex(
   source: ArrayLike<number> | null | undefined,
   opacityOverride?: number | null,
+  colorSpace?: string | null,
 ): string | null {
   if (!source || typeof source.length !== 'number' || source.length < 3) {
     return null;
@@ -464,8 +505,29 @@ function colorArrayToRegressionHex(
     Math.max(0, Math.min(255, Math.round(channel)))
       .toString(16)
       .padStart(2, '0');
+  const colorSpaceToken = String(colorSpace || '')
+    .trim()
+    .toLowerCase();
+  const shouldReadAsSrgb =
+    colorSpaceToken === 'srgb' ||
+    colorSpaceToken === 'srgbcolorspace' ||
+    colorSpaceToken === 's-rgb';
+  const normalizedColor =
+    shouldReadAsSrgb &&
+    Math.abs(r) <= 1 &&
+    Math.abs(g) <= 1 &&
+    Math.abs(b) <= 1
+      ? new Color().setRGB(
+          Math.max(0, Math.min(1, r)),
+          Math.max(0, Math.min(1, g)),
+          Math.max(0, Math.min(1, b)),
+          SRGBColorSpace,
+        )
+      : null;
   const a = opacityOverride ?? (source.length >= 4 ? Number(source[3]) : null);
-  const rgb = [toHex(to255(r)), toHex(to255(g)), toHex(to255(b))];
+  const rgb = normalizedColor
+    ? [normalizedColor.getHexString()]
+    : [toHex(to255(r)), toHex(to255(g)), toHex(to255(b))];
 
   if (a !== null && Number.isFinite(a) && a < 0.999) {
     rgb.push(toHex(to255(Number(a))));
@@ -504,8 +566,10 @@ function summarizeRegressionUsdMaterial(
         : material.isOmniPbr === true
           ? false
           : true;
-  const color = colorArrayToRegressionHex(material.color, material.opacity);
-  const emissive = emissiveEnabled ? colorArrayToRegressionHex(material.emissive) : null;
+  const color = colorArrayToRegressionHex(material.color, material.opacity, material.colorSpace);
+  const emissive = emissiveEnabled
+    ? colorArrayToRegressionHex(material.emissive, null, material.emissiveColorSpace)
+    : null;
 
   if (!name && !type && !color && !emissive) {
     return null;
@@ -516,6 +580,48 @@ function summarizeRegressionUsdMaterial(
     type,
     color,
     emissive,
+  };
+}
+
+function normalizeUsdMeshNormalDiagnostics(
+  descriptor: UsdSceneMeshDescriptor,
+): RegressionUsdNormalDiagnostics | null {
+  const rawDiagnostics = descriptor.normalDiagnostics ?? descriptor.geometry?.normalDiagnostics ?? null;
+  if (!rawDiagnostics || typeof rawDiagnostics !== 'object') {
+    return null;
+  }
+
+  const normalSource = String(rawDiagnostics.normalSource || '').trim();
+  const normalizeCount = (value: unknown) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric >= 0 ? Math.floor(numeric) : undefined;
+  };
+  const normalRepairCount = normalizeCount(rawDiagnostics.normalRepairCount);
+  const normalFallbackCount = normalizeCount(rawDiagnostics.normalFallbackCount);
+  const postRepairLowDotCount = normalizeCount(rawDiagnostics.postRepairLowDotCount);
+  const normalized = {
+    ...(normalSource ? { normalSource } : {}),
+    ...(normalRepairCount !== undefined ? { normalRepairCount } : {}),
+    ...(normalFallbackCount !== undefined ? { normalFallbackCount } : {}),
+    ...(postRepairLowDotCount !== undefined ? { postRepairLowDotCount } : {}),
+  };
+  return Object.keys(normalized).length > 0 ? normalized : null;
+}
+
+function summarizeUsdMeshNormalDiagnostic(
+  descriptor: UsdSceneMeshDescriptor,
+): RegressionUsdMeshNormalDiagnosticSummary | null {
+  const normalDiagnostics = normalizeUsdMeshNormalDiagnostics(descriptor);
+  if (!normalDiagnostics) {
+    return null;
+  }
+
+  return {
+    meshId: normalizeUsdDebugPathWithLeadingSlash(descriptor.meshId) || null,
+    resolvedPrimPath: normalizeUsdDebugPathWithLeadingSlash(descriptor.resolvedPrimPath) || null,
+    linkPath: getUsdVisualDescriptorLinkPath(descriptor),
+    sectionName: getUsdDescriptorSectionName(descriptor) || null,
+    normalDiagnostics,
   };
 }
 
@@ -871,6 +977,7 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
   const baseLinkDescriptorSummaries = visualBaseLinkDescriptors.map((descriptor) => {
     const { descriptorMaterialId, geometryMaterialId, geomSubsetMaterialIds } =
       getUsdDescriptorMaterialIds(descriptor);
+    const normalDiagnostics = normalizeUsdMeshNormalDiagnostics(descriptor);
     return {
       meshId: normalizeUsdDebugPathWithLeadingSlash(descriptor.meshId) || null,
       resolvedPrimPath: normalizeUsdDebugPathWithLeadingSlash(descriptor.resolvedPrimPath) || null,
@@ -881,6 +988,7 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
         ? descriptor.geometry.geomSubsetSections.length
         : 0,
       geomSubsetMaterialIds,
+      ...(normalDiagnostics ? { normalDiagnostics } : {}),
     } satisfies RegressionUsdBaseLinkDescriptorSummary;
   });
   const runtimeSceneTransforms = summarizeRuntimeSceneTransforms(runtimeRobot);
@@ -975,24 +1083,16 @@ function summarizeSelectedUsdVisualMaterials(): RegressionSelectedUsdVisualMater
     return null;
   }
 
-  const selectedSceneSummary = summarizeSelectedUsdScene();
-  const baseLinkPath = selectedSceneSummary?.baseLink?.linkPath ?? null;
-  if (!baseLinkPath) {
-    return null;
-  }
-
   const materialLookup = new Map<string, UsdSceneMaterialRecord>();
   Array.from(snapshot.render?.materials || []).forEach((material, index) => {
     const materialId = normalizeUsdDebugPathWithLeadingSlash(material?.materialId);
     materialLookup.set(materialId || `__material-index:${index}`, material);
   });
-  const preferredVisualMaterial =
-    snapshot.render?.preferredVisualMaterialsByLinkPath?.[baseLinkPath] ?? null;
 
   const meshes = Array.from(snapshot.render?.meshDescriptors || [])
     .filter(isUsdVisualDescriptor)
-    .filter((descriptor) => isUsdDescriptorWithinLinkPath(descriptor, baseLinkPath))
     .map((descriptor) => {
+      const linkPath = getUsdVisualDescriptorLinkPath(descriptor);
       const { descriptorMaterialId, geometryMaterialId, geomSubsetMaterialIds } =
         getUsdDescriptorMaterialIds(descriptor);
       const materialIds = Array.from(
@@ -1002,6 +1102,9 @@ function summarizeSelectedUsdVisualMaterials(): RegressionSelectedUsdVisualMater
           ),
         ),
       );
+      const preferredVisualMaterial = linkPath
+        ? snapshot.render?.preferredVisualMaterialsByLinkPath?.[linkPath] ?? null
+        : null;
       const materials = materialIds
         .map((materialId) =>
           summarizeRegressionUsdMaterial(materialLookup.get(materialId) || null, materialId),
@@ -1020,7 +1123,7 @@ function summarizeSelectedUsdVisualMaterials(): RegressionSelectedUsdVisualMater
 
       return {
         meshId: normalizeUsdDebugPathWithLeadingSlash(descriptor.meshId) || null,
-        linkPath: baseLinkPath,
+        linkPath,
         overrideColor: null,
         hasOverrideMaterial: false,
         materials,
@@ -1029,6 +1132,31 @@ function summarizeSelectedUsdVisualMaterials(): RegressionSelectedUsdVisualMater
     .filter((entry) => entry.materials.length > 0);
 
   return meshes.length > 0 ? { meshes } : null;
+}
+
+function summarizeSelectedUsdNormalDiagnostics(): RegressionSelectedUsdNormalDiagnosticsSummary | null {
+  const selectedFile = appHandlers?.getSelectedFile() ?? null;
+  if (!selectedFile || selectedFile.format !== 'usd') {
+    return null;
+  }
+
+  const snapshot = appHandlers?.getUsdSceneSnapshot(selectedFile.name) ?? null;
+  if (!snapshot) {
+    return null;
+  }
+
+  const descriptors = Array.from(snapshot.render?.meshDescriptors || []);
+  const meshes = descriptors
+    .map(summarizeUsdMeshNormalDiagnostic)
+    .filter((entry): entry is RegressionUsdMeshNormalDiagnosticSummary => Boolean(entry));
+
+  return {
+    available: true,
+    fileName: selectedFile.name,
+    meshDescriptorCount: descriptors.length,
+    diagnosticsCount: meshes.length,
+    meshes,
+  };
 }
 
 function summarizeGeometry(geometry: UrdfLink['visual'] | UrdfLink['collision']) {
@@ -1771,10 +1899,39 @@ export function installRegressionDebugApi(targetWindow: Window): void {
     },
     getSelectedUsdSceneSummary: () => summarizeSelectedUsdScene(),
     getSelectedUsdVisualMaterialSummary: () => summarizeSelectedUsdVisualMaterials(),
+    getSelectedUsdNormalDiagnostics: () => summarizeSelectedUsdNormalDiagnostics(),
     getRuntimeSceneTransforms: () => summarizeRuntimeSceneTransforms(runtimeRobot),
     setBeforeUnloadPromptEnabled: (enabled: boolean) => {
       setRegressionBeforeUnloadPromptSuppressed(!enabled);
       return { ok: true, enabled };
+    },
+    resetFixtureFiles: () => {
+      if (!appHandlers?.resetFixtureFiles) {
+        return { ok: false, availableFileCount: getAvailableFilesSummary().length };
+      }
+
+      appHandlers.resetFixtureFiles();
+      return { ok: true, availableFileCount: getAvailableFilesSummary().length };
+    },
+    seedFixtureFile: (file) => {
+      if (!appHandlers?.seedFixtureFile) {
+        return { ok: false, availableFileCount: getAvailableFilesSummary().length };
+      }
+
+      const rawFormat = String(file?.format || '');
+      const format = (
+        ['urdf', 'mjcf', 'usd', 'xacro', 'sdf', 'mesh', 'asset'].includes(rawFormat)
+          ? rawFormat
+          : 'asset'
+      ) as RobotFile['format'];
+      const result = appHandlers.seedFixtureFile({
+        name: String(file?.name || ''),
+        content: String(file?.content || ''),
+        format,
+        blobUrl: typeof file?.blobUrl === 'string' ? file.blobUrl : undefined,
+        addFileContent: file?.addFileContent === true,
+      });
+      return { ok: true, availableFileCount: result.availableFileCount };
     },
     loadRobotByName: async (fileName: string) => {
       if (!appHandlers) {

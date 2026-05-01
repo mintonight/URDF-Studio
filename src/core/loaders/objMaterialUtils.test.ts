@@ -167,3 +167,46 @@ test('loadObjScene tolerates missing mtllib files under strict asset managers', 
   const scene = await loadObjScene('robot/model.obj', manager, 'robot/model.obj');
   assert.ok(scene.children.length > 0);
 });
+
+test('loadObjScene keeps vertex-colored OBJ meshes on a neutral material base', async () => {
+  const manager = new THREE.LoadingManager();
+  manager.setURLModifier((url) => `resolved:${url}`);
+
+  const originalFetch = globalThis.fetch;
+  const assetTexts = new Map<string, string>([
+    [
+      'resolved:robot/calf.obj',
+      [
+        'mtllib calf.mtl',
+        'o Calf',
+        'v 0 0 0 0.67 0.69 0.77',
+        'v 1 0 0 0.67 0.69 0.77',
+        'v 0 1 0 0.67 0.69 0.77',
+        'usemtl BlackPatch',
+        'f 1 2 3',
+      ].join('\n'),
+    ],
+    ['resolved:robot/calf.mtl', 'newmtl BlackPatch\nKd 0 0 0'],
+  ]);
+
+  globalThis.fetch = async (input) => {
+    const body = assetTexts.get(String(input));
+    if (!body) {
+      return new Response('', { status: 404, statusText: 'Not Found' });
+    }
+
+    return new Response(body, { status: 200, statusText: 'OK' });
+  };
+
+  try {
+    const scene = await loadObjScene('robot/calf.obj', manager, 'robot/calf.obj');
+    const mesh = scene.children.find((child): child is THREE.Mesh => (child as THREE.Mesh).isMesh);
+    assert.ok(mesh, 'expected OBJ loader to create a mesh');
+    assert.ok(mesh.geometry.getAttribute('color'));
+    const material = mesh.material as THREE.MeshStandardMaterial;
+    assert.equal(material.vertexColors, true);
+    assert.equal(material.color.getHexString(), 'ffffff');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

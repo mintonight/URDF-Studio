@@ -117,3 +117,32 @@ test('resolveDirectHelperInteraction keeps inertia hover stable across the fille
   assert.equal(result?.id, 'base_link');
   assert.equal(result?.helperKind, 'inertia');
 });
+
+test('resolveDirectHelperInteraction does not trigger inertia hover outside the box footprint', () => {
+  const robot = new THREE.Group();
+
+  const linkObject = new THREE.Group() as THREE.Group & { isURDFLink?: boolean; type?: string };
+  linkObject.name = 'base_link';
+  linkObject.isURDFLink = true;
+  linkObject.type = 'URDFLink';
+
+  const inertiaBox = createInertiaBox(1, 1, 1, new THREE.Quaternion());
+  inertiaBox.position.set(0, 0, -2);
+  linkObject.add(inertiaBox);
+  robot.add(linkObject);
+
+  robot.updateMatrixWorld(true);
+
+  const raycaster = new THREE.Raycaster(
+    new THREE.Vector3(0.55, 0, 0),
+    new THREE.Vector3(0, 0, -1),
+  );
+  const result = resolveDirectHelperInteraction({
+    robot,
+    raycaster,
+    helperTargets: collectSelectableHelperTargets(robot),
+    interactionLayerPriority: ['inertia', 'collision', 'visual'],
+  });
+
+  assert.equal(result, null);
+});

@@ -395,7 +395,9 @@ export async function loadUsdStage(args) {
         setMessage(`Cannot find USD file at '${normalizedPath}'.`);
         setProgress(0, true);
         hideProgress();
-        state.ready = true;
+        state.ready = false;
+        state.drawFailed = true;
+        state.drawFailureReason = "root-path-unavailable";
         return state;
     }
     setProgress(10);
@@ -797,7 +799,8 @@ export async function loadUsdStage(args) {
             }
             return summary && typeof summary === "object" ? summary : null;
         }
-        catch {
+        catch (error) {
+            console.error("[usd-loader] Failed to warm up runtime bridge during " + phaseLabel + ".", error);
             return null;
         }
     };
@@ -845,6 +848,16 @@ export async function loadUsdStage(args) {
         const pendingCount = getPendingProtoHydrationCount(summary);
         return pendingCount === 0;
     };
+    const markHydrationFailure = (reason, error) => {
+        console.error(`[usd-loader] ${reason} while hydrating USD meshes for ${normalizedPath}.`, error);
+        state.ready = false;
+        state.drawFailed = true;
+        state.drawFailureReason = reason;
+        setMessage(error instanceof Error && error.message
+            ? error.message
+            : "Failed to hydrate USD meshes before interactive readiness.");
+        return null;
+    };
     const runProtoHydrationPass = () => {
         const activeRenderInterface = window.renderInterface;
         if (!activeRenderInterface || typeof activeRenderInterface.hydratePendingProtoMeshes !== "function")
@@ -856,8 +869,8 @@ export async function loadUsdStage(args) {
         try {
             return activeRenderInterface.hydratePendingProtoMeshes({ allowDeferredFinalBatch: false }) || null;
         }
-        catch {
-            return null;
+        catch (error) {
+            return markHydrationFailure("proto-hydration-failed", error);
         }
     };
     const getPendingResolvedPrimHydrationCount = (summary) => {
@@ -888,8 +901,8 @@ export async function loadUsdStage(args) {
                 force: options.force === true,
             }) || null;
         }
-        catch {
-            return null;
+        catch (error) {
+            return markHydrationFailure("resolved-prim-hydration-failed", error);
         }
     };
     const getRobotSceneStageSnapshot = () => {
@@ -1050,11 +1063,14 @@ export async function loadUsdStage(args) {
                 ? maybePromise
                 : Promise.resolve(maybePromise ?? null);
             primedRobotMetadataWarmupPromise = normalizedPromise;
-            void primedRobotMetadataWarmupPromise.catch(() => { });
+            void primedRobotMetadataWarmupPromise.catch((error) => {
+                console.error(`[usd-loader] ${warmupPhaseLabel} rejected for ${normalizedPath}.`, error);
+            });
             return normalizedPromise;
         }
-        catch (error) {
-            const rejectedPromise = Promise.reject(error);
+        catch (caughtError) {
+            console.error(`[usd-loader] Failed to start ${warmupPhaseLabel} for ${normalizedPath}.`, caughtError);
+            const rejectedPromise = Promise.reject(caughtError);
             void rejectedPromise.catch(() => { });
             primedRobotMetadataWarmupPromise = rejectedPromise;
             return rejectedPromise;
@@ -1216,6 +1232,8 @@ export async function loadUsdStage(args) {
     if (!isLoadStillActive())
         return state;
     runResolvedPrimHydrationPass({ force: true });
+    if (state.drawFailed)
+        return state;
     updateStreamingStatus();
     await yieldBetweenInteractiveLoadSteps();
     if (!isLoadStillActive())
@@ -1231,10 +1249,14 @@ export async function loadUsdStage(args) {
     startRobotMetadataWarmup(window.renderInterface, { force: true });
     if (needsFinalProtoHydrationPass) {
         const postInitialDrawHydrationSummary = runProtoHydrationPass();
+        if (state.drawFailed)
+            return state;
         const pendingProtoHydrationCount = getPendingProtoHydrationCount(postInitialDrawHydrationSummary);
         needsFinalProtoHydrationPass = pendingProtoHydrationCount === null || pendingProtoHydrationCount > 0;
     }
     const postInitialDrawResolvedPrimHydrationSummary = runResolvedPrimHydrationPass({ force: true });
+    if (state.drawFailed)
+        return state;
     const pendingResolvedPrimHydrationCount = getPendingResolvedPrimHydrationCount(postInitialDrawResolvedPrimHydrationSummary);
     needsFinalResolvedPrimHydrationPass = (pendingResolvedPrimHydrationCount !== null
         && pendingResolvedPrimHydrationCount > 0);
@@ -1305,6 +1327,8 @@ export async function loadUsdStage(args) {
                 return;
             const hydrationSummary = runProtoHydrationPass();
             const resolvedPrimHydrationSummary = runResolvedPrimHydrationPass();
+            if (state.drawFailed)
+                return;
             const pendingProtoCount = Math.max(0, Number(getPendingProtoHydrationCount(hydrationSummary) ?? 0));
             const pendingResolvedPrimCount = Math.max(0, Number(getPendingResolvedPrimHydrationCount(resolvedPrimHydrationSummary) ?? 0));
             stats = updateStreamingStatus();
@@ -1367,9 +1391,13 @@ export async function loadUsdStage(args) {
     }
     if (needsFinalProtoHydrationPass) {
         runProtoHydrationPass();
+        if (state.drawFailed)
+            return state;
     }
     if (needsFinalResolvedPrimHydrationPass) {
         runResolvedPrimHydrationPass({ force: true });
+        if (state.drawFailed)
+            return state;
     }
     const getCameraFitSelection = () => collectCameraFitSelection(window.usdRoot);
     const refitCameraToUsdRoot = () => {

@@ -5,7 +5,7 @@ import { useResolvedTheme } from '../../shared/hooks/useTheme';
 import { ViewerCanvas } from '../../features/urdf-viewer/components/ViewerCanvas';
 import { JointInteraction } from '../../features/urdf-viewer/components/JointInteraction';
 import { RobotModel } from '../../features/urdf-viewer/components/RobotModel';
-import { isSingleDofJoint } from '../../features/urdf-viewer/utils/jointTypes';
+import { isSingleDofJoint } from '../../shared/utils/jointTypes';
 import { useControllableState } from '../hooks/useControllableState';
 import {
   DEFAULT_ROBOT_CANVAS_DISPLAY_OPTIONS,
@@ -40,6 +40,7 @@ export const RobotCanvas = memo(function RobotCanvas({
   onJointAnglesChange,
   onJointChange,
   display,
+  allowUrdfXmlFallback = true,
   robotLinks,
   robotJoints,
   focusTarget,
@@ -267,6 +268,7 @@ export const RobotCanvas = memo(function RobotCanvas({
           urdfContent={source.content}
           assets={assets}
           sourceFormat={source.format}
+          allowUrdfXmlFallback={allowUrdfXmlFallback}
           sourceFilePath={source.sourceFilePath}
           onRobotLoaded={handleRobotLoaded}
           showCollision={resolvedDisplay.showCollision}

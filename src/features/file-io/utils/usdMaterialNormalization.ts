@@ -31,24 +31,42 @@ const isMeshStandardMaterial = (
   return Boolean((material as THREE.MeshStandardMaterial).isMeshStandardMaterial);
 };
 
+const applyVertexColorMaterialState = (material: THREE.Material): void => {
+  (material as { vertexColors?: boolean }).vertexColors = true;
+  const materialColor = (material as { color?: THREE.Color }).color;
+  if (materialColor?.isColor) {
+    materialColor.set(0xffffff);
+  }
+  material.toneMapped = false;
+  material.userData = {
+    ...(material.userData ?? {}),
+    usesVertexColors: true,
+  };
+  material.needsUpdate = true;
+};
+
 const convertUsdMaterialToStandard = (
   material: THREE.Material,
   fallbackColor: string | undefined,
+  usesVertexColors: boolean,
 ): THREE.MeshStandardMaterial => {
   if (isMeshStandardMaterial(material)) {
     const cloned = material.clone();
     cloned.side = THREE.FrontSide;
+    if (usesVertexColors) {
+      applyVertexColorMaterialState(cloned);
+    }
     cloned.needsUpdate = true;
     return cloned;
   }
 
-  const nextMaterial = createUsdBaseMaterial(fallbackColor);
+  const nextMaterial = createUsdBaseMaterial(usesVertexColors ? '#ffffff' : fallbackColor);
   const source = material as THREE.MeshStandardMaterial & {
     color?: THREE.Color;
     map?: THREE.Texture | null;
   };
 
-  if (source.color) {
+  if (source.color && !usesVertexColors) {
     nextMaterial.color.copy(source.color);
   }
 
@@ -64,6 +82,9 @@ const convertUsdMaterialToStandard = (
   nextMaterial.opacity = material.opacity ?? 1;
   nextMaterial.name = material.name;
   nextMaterial.side = THREE.FrontSide;
+  if (usesVertexColors) {
+    applyVertexColorMaterialState(nextMaterial);
+  }
   nextMaterial.needsUpdate = true;
 
   disposeMaterial(material, false);
@@ -77,18 +98,22 @@ export const normalizeUsdRenderableMaterials = (
   object.traverse((child) => {
     if (!isUsdMeshObject(child)) return;
 
+    const usesVertexColors = Boolean(child.geometry.getAttribute('color'));
     if (Array.isArray(child.material)) {
       child.material = child.material.map((material) =>
-        convertUsdMaterialToStandard(material, fallbackColor),
+        convertUsdMaterialToStandard(material, fallbackColor, usesVertexColors),
       );
       return;
     }
 
     if (!child.material) {
       child.material = createUsdBaseMaterial(fallbackColor);
+      if (usesVertexColors) {
+        applyVertexColorMaterialState(child.material);
+      }
       return;
     }
 
-    child.material = convertUsdMaterialToStandard(child.material, fallbackColor);
+    child.material = convertUsdMaterialToStandard(child.material, fallbackColor, usesVertexColors);
   });
 };
