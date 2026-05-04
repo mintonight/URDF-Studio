@@ -50,7 +50,7 @@ function createOriginQuaternion(inertial: InertialLike | undefined): THREE.Quate
       inertial?.origin?.rpy?.r ?? 0,
       inertial?.origin?.rpy?.p ?? 0,
       inertial?.origin?.rpy?.y ?? 0,
-      'XYZ',
+      'ZYX',
     ),
   );
 }

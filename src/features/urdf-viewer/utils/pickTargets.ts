@@ -358,7 +358,7 @@ export function findPickIntersections(
     return sortByInteractionPriority(directHits.concat(helperHits), interactionLayerPriority);
   }
 
-  if (directHits.length > 0 || !fallbackOnMiss) {
+  if (directHits.length > 0 || (!fallbackOnMiss && pickTargets.length > 0)) {
     return sortByInteractionPriority(directHits, interactionLayerPriority);
   }
 

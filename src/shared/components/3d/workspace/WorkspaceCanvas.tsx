@@ -6,6 +6,10 @@ import * as THREE from 'three';
 import type { Theme } from '@/types';
 import type { Language } from '@/shared/i18n';
 import { attachContextMenuBlocker } from '@/shared/utils';
+import {
+  POINTER_RESIZE_END_EVENT,
+  POINTER_RESIZE_START_EVENT,
+} from '@/shared/hooks/pointerResizeEvents';
 
 import { UsageGuide } from '../UsageGuide';
 import { WorldOriginAxes } from '../helpers';
@@ -16,8 +20,10 @@ import {
   NeutralStudioEnvironment,
   SceneLighting,
   SnapshotManager,
+  DEFAULT_WORKSPACE_OVERLAY_GIZMO_MARGIN,
   type SnapshotCaptureAction,
   type SnapshotPreviewAction,
+  type WorkspaceOverlayGizmoMargin,
   useAdaptiveInteractionQuality,
   WorkspaceCanvasInteractionStateProvider,
   WorkspaceOrbitControls,
@@ -79,6 +85,7 @@ interface WorkspaceCanvasProps {
   showUsageGuide?: boolean;
   renderKey?: string;
   initialCameraSnapshot?: WorkspaceCameraSnapshot | null;
+  gizmoMargin?: WorkspaceOverlayGizmoMargin;
 }
 
 interface PointerMissGesture {
@@ -87,6 +94,36 @@ interface PointerMissGesture {
   startY: number;
   endX: number;
   endY: number;
+}
+
+const WORKSPACE_CANVAS_RESIZE_OPTIONS = {
+  debounce: {
+    scroll: 50,
+    resize: 120,
+  },
+};
+const WORKSPACE_CANVAS_ACTIVE_RESIZE_OPTIONS = {
+  debounce: {
+    scroll: 50,
+    resize: 0,
+  },
+};
+
+export function resolveWorkspaceCanvasResizeOptions(layoutResizeActive: boolean) {
+  return layoutResizeActive
+    ? WORKSPACE_CANVAS_ACTIVE_RESIZE_OPTIONS
+    : WORKSPACE_CANVAS_RESIZE_OPTIONS;
+}
+
+interface WorkspaceCanvasResizeEventTarget {
+  dispatchEvent: (event: Event) => boolean;
+  requestAnimationFrame: (callback: FrameRequestCallback) => number;
+}
+
+export function scheduleWorkspaceCanvasResizeEvent(target: WorkspaceCanvasResizeEventTarget) {
+  return target.requestAnimationFrame(() => {
+    target.dispatchEvent(new Event('resize'));
+  });
 }
 
 function CanvasRenderKeyInvalidator({ renderKey }: { renderKey: string }) {
@@ -132,10 +169,12 @@ export const WorkspaceCanvas = ({
   showUsageGuide = true,
   renderKey = 'default',
   initialCameraSnapshot = null,
+  gizmoMargin = DEFAULT_WORKSPACE_OVERLAY_GIZMO_MARGIN,
 }: WorkspaceCanvasProps) => {
   const effectiveTheme = useWorkspaceCanvasTheme(theme);
   const [contextEpoch, setContextEpoch] = useState(0);
   const [canvasFailure, setCanvasFailure] = useState(false);
+  const [layoutResizeActive, setLayoutResizeActive] = useState(false);
   const [webglSupport, setWebglSupport] = useState<WorkspaceCanvasWebglSupportState | null>(null);
   const [snapshotRenderActive, setSnapshotRenderActive] = useState(false);
   const contextMenuCleanupRef = useRef<(() => void) | null>(null);
@@ -216,6 +255,25 @@ export const WorkspaceCanvas = ({
         support.detail ?? support.reason ?? 'Unknown WebGL support failure.',
       );
     }
+  }, []);
+
+  useEffect(() => {
+    const handleResizeStart = () => {
+      setLayoutResizeActive(true);
+    };
+    const handleResizeEnd = () => {
+      setLayoutResizeActive(false);
+      window.requestAnimationFrame(() => {
+        window.dispatchEvent(new Event('resize'));
+      });
+    };
+
+    window.addEventListener(POINTER_RESIZE_START_EVENT, handleResizeStart);
+    window.addEventListener(POINTER_RESIZE_END_EVENT, handleResizeEnd);
+    return () => {
+      window.removeEventListener(POINTER_RESIZE_START_EVENT, handleResizeStart);
+      window.removeEventListener(POINTER_RESIZE_END_EVENT, handleResizeEnd);
+    };
   }, []);
 
   const handleCreated = useCallback(
@@ -407,11 +465,22 @@ export const WorkspaceCanvas = ({
   );
 
   const shouldRenderCanvas = webglSupport?.supported === true && !canvasFailure;
+  const rootClassName = `${className} [&_canvas]:!h-full [&_canvas]:!w-full`;
+  const resizeOptions = resolveWorkspaceCanvasResizeOptions(layoutResizeActive);
+
+  useEffect(() => {
+    if (!shouldRenderCanvas) {
+      return undefined;
+    }
+
+    const frameId = scheduleWorkspaceCanvasResizeEvent(window);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [canvasResetKey, shouldRenderCanvas]);
 
   return (
     <div
       ref={containerRef}
-      className={className}
+      className={rootClassName}
       style={{
         touchAction: 'none',
         userSelect: 'none',
@@ -438,6 +507,7 @@ export const WorkspaceCanvas = ({
             key={canvasResetKey}
             dpr={dpr}
             shadows
+            resize={resizeOptions}
             frameloop="demand"
             camera={canvasCamera}
             gl={canvasGl}
@@ -496,7 +566,7 @@ export const WorkspaceCanvas = ({
                   <GizmoHelper
                     key={`gizmo-${controlLayerKey}`}
                     alignment="bottom-right"
-                    margin={[68, 68]}
+                    margin={gizmoMargin}
                   >
                     <GizmoViewport
                       axisColors={['#ef4444', '#22c55e', '#3b82f6']}

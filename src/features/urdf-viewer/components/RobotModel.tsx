@@ -5,6 +5,7 @@ import type { Group, Object3D } from 'three';
 import {
   LinkIkTransformControls,
   SceneCompileWarmup,
+  VIEWER_CORNER_OVERLAY_CLASS_NAME,
   shouldUseIndeterminateStreamingMeshProgress,
 } from '@/shared/components/3d';
 import { isAssemblyTransformSelectionArmed } from '@/shared/utils/assembly/transformSelection';
@@ -38,36 +39,42 @@ import { ViewerLoadingHud } from './ViewerLoadingHud';
 import type { RobotModelProps, ViewerPaintFaceHit } from '../types';
 import { buildViewerLoadingHudState } from '../utils/viewerLoadingHud';
 import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
-import { useRobotStore, useUIStore } from '@/store';
-import { GeometryType } from '@/types';
+import { useRobotStore, useSelectionStore, useUIStore } from '@/store';
+import { GeometryType, type RobotFile } from '@/types';
 
-import { useRobotLoader } from '../hooks/useRobotLoader';
+import { useRendererBackend } from '../hooks/useRendererBackend';
 import { useHighlightManager } from '../hooks/useHighlightManager';
 import { useCameraFocus } from '../hooks/useCameraFocus';
 import { useMouseInteraction } from '../hooks/useMouseInteraction';
 import { useHoverDetection } from '../hooks/useHoverDetection';
 import { useVisualizationEffects } from '../hooks/useVisualizationEffects';
-import { isSingleDofJoint } from '../utils/jointTypes';
+import { resolveCameraAutoFrameLoadScopeKey } from '../utils/cameraAutoFrame';
+import { isSingleDofJoint } from '@/shared/utils/jointTypes';
 import {
   createRuntimeSceneLinkMetadataState,
   resolveRuntimeSceneLinkMetadataState,
 } from '../utils/runtimeSceneMetadata';
 import { resolveSelectedIkDragLinkId } from '../utils/selectedIkDragLink';
-import { resolveViewerRobotSourceFormat } from '../utils/sourceFormat';
+import { resolveViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
 import { shouldEnableViewerSceneCompileWarmup } from '../utils/sceneCompileWarmupPolicy';
+
+const EMPTY_ROBOT_FILES: RobotFile[] = [];
 
 // Wrap with memo and custom comparison to prevent unnecessary re-renders
 export const RobotModel: React.FC<RobotModelProps> = memo(
   ({
     urdfContent,
     assets,
+    sourceFile,
+    availableFiles = EMPTY_ROBOT_FILES,
     sourceFormat = 'auto',
-    allowUrdfXmlFallback = true,
+    allowUrdfXmlFallback = false,
     reloadToken = 0,
     initialRobot = null,
     sourceFilePath,
     onRobotLoaded,
     onDocumentLoadEvent,
+    runtimeBridge,
     showCollision = false,
     showVisual = true,
     showIkHandles = false,
@@ -136,12 +143,33 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     const { invalidate } = useThree();
     const snapshotRenderActive = useSnapshotRenderActive();
     const showMjcfWorldLink = useUIStore((state) => state.viewOptions.showMjcfWorldLink);
+    const setHoverFrozen = useSelectionStore((state) => state.setHoverFrozen);
     const autoFrameScopeFallbackRef = useRef<string | null>(null);
     const [sourceSceneComponentRoot, setSourceSceneComponentRoot] = useState<Group | null>(null);
     const resolvedSourceFormat = useMemo(
       () => resolveViewerRobotSourceFormat(urdfContent, sourceFormat),
       [sourceFormat, urdfContent],
     );
+    const sourceFileForBackend = useMemo<RobotFile>(() => {
+      if (sourceFile) {
+        return sourceFile;
+      }
+
+      const fallbackFormat: RobotFile['format'] =
+        sourceFormat === 'mjcf'
+          ? 'mjcf'
+          : sourceFormat === 'sdf'
+            ? 'sdf'
+            : sourceFormat === 'xacro'
+              ? 'xacro'
+              : resolvedSourceFormat;
+
+      return {
+        name: sourceFilePath ?? `inline.${fallbackFormat}`,
+        content: urdfContent,
+        format: fallbackFormat,
+      };
+    }, [resolvedSourceFormat, sourceFile, sourceFilePath, sourceFormat, urdfContent]);
     const runtimeSceneMetadataScopeKey = `${sourceFilePath ?? 'viewer-inline'}:${reloadToken}`;
     const runtimeSceneLinkMetadataRef = useRef(
       createRuntimeSceneLinkMetadataState({
@@ -155,35 +183,102 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     if (!autoFrameScopeFallbackRef.current) {
       autoFrameScopeFallbackRef.current = `viewer-session:${Math.random().toString(36).slice(2)}`;
     }
+    const autoFrameLoadScopeKey = resolveCameraAutoFrameLoadScopeKey({
+      sourceFilePath,
+      reloadToken,
+      fallbackScopeKey: autoFrameScopeFallbackRef.current,
+    });
 
     // Keep ref for setIsDragging to avoid stale closures
     const setIsDraggingRef = useRef(setIsDragging);
     useEffect(() => {
       setIsDraggingRef.current = setIsDragging;
     }, [setIsDragging]);
+    type LinkIkHistorySnapshot = ReturnType<
+      NonNullable<React.ComponentProps<typeof LinkIkTransformControls>['createHistorySnapshot']>
+    >;
+    type LinkIkCommitArgs = Parameters<
+      NonNullable<React.ComponentProps<typeof LinkIkTransformControls>['onCommitKinematicOverrides']>
+    >;
+    const createIkHistorySnapshot = useCallback((): LinkIkHistorySnapshot => {
+      const state = useRobotStore.getState();
+      return structuredClone({
+        name: state.name,
+        links: state.links,
+        joints: state.joints,
+        rootLinkId: state.rootLinkId,
+        materials: state.materials,
+        closedLoopConstraints: state.closedLoopConstraints,
+      });
+    }, []);
+    const commitIkKinematicOverrides = useCallback((...args: LinkIkCommitArgs) => {
+      const [overrides, historySnapshot, label] = args;
+      const storeState = useRobotStore.getState();
+      storeState.applyJointKinematicOverrides(overrides, {
+        skipHistory: true,
+      });
+      storeState.pushHistorySnapshot(historySnapshot, label);
+    }, []);
+    const backendRobotData = useMemo(() => {
+      if (!robotLinks || !robotJoints) {
+        return null;
+      }
+
+      const storeState = useRobotStore.getState();
+      const childLinkIds = new Set(Object.values(robotJoints).map((joint) => joint.childLinkId));
+      const computedRootLinkId =
+        storeState.rootLinkId ||
+        Object.keys(robotLinks).find((linkId) => !childLinkIds.has(linkId)) ||
+        Object.keys(robotLinks)[0] ||
+        '';
+
+      return {
+        name: storeState.name || sourceFileForBackend.name,
+        links: robotLinks,
+        joints: robotJoints,
+        rootLinkId: computedRootLinkId,
+        materials: storeState.materials,
+      };
+    }, [robotJoints, robotLinks, sourceFileForBackend.name]);
     // ============================================================
     // HOOK: Robot Loading
     // ============================================================
-    const { robot, isLoading, loadingProgress, robotVersion, linkMeshMapRef } = useRobotLoader({
-      urdfContent,
+    const {
+      robot,
+      isLoading,
+      loadingProgress,
+      robotVersion,
+      linkMeshMapRef,
+      robotLinks: loadedRobotLinks,
+      robotJoints: loadedRobotJoints,
+      rootLinkId: loadedRootLinkId,
+    } = useRendererBackend({
+      sourceFile: sourceFileForBackend,
+      availableFiles,
       assets,
-      sourceFormat,
-      allowUrdfXmlFallback,
       reloadToken,
       initialRobot,
-      sourceFilePath,
       showCollision,
       showVisual,
       showCollisionAlwaysOnTop,
-      isMeshPreview,
+      allowUrdfXmlFallback,
       robotLinks,
       robotJoints,
+      robotData: backendRobotData,
       initialJointAngles,
       onRobotLoaded,
       onDocumentLoadEvent,
+      runtimeBridge,
       groundPlaneOffset,
-      showMjcfWorldLink,
     });
+    const effectiveRobotLinks = useMemo(
+      () => (Object.keys(loadedRobotLinks).length > 0 ? loadedRobotLinks : robotLinks),
+      [loadedRobotLinks, robotLinks],
+    );
+    const effectiveRobotJoints = useMemo(
+      () => (Object.keys(loadedRobotJoints).length > 0 ? loadedRobotJoints : robotJoints),
+      [loadedRobotJoints, robotJoints],
+    );
 
     // Keep scene metadata pinned to the currently mounted runtime robot while a
     // different source file is still streaming in. This prevents the old scene
@@ -194,13 +289,16 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         scopeKey: runtimeSceneMetadataScopeKey,
         robot,
         robotVersion,
-        robotLinks,
+        robotLinks: effectiveRobotLinks,
       },
     );
     const runtimeRobotLinks = runtimeSceneLinkMetadataRef.current.robotLinks;
     const runtimeRobotRootLinkId = useMemo(() => {
+      if (loadedRootLinkId) {
+        return loadedRootLinkId;
+      }
       const links = runtimeRobotLinks ?? {};
-      const joints = robotJoints ?? {};
+      const joints = effectiveRobotJoints ?? {};
       const linkIds = Object.keys(links);
 
       if (linkIds.length === 0) {
@@ -209,17 +307,17 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
 
       const childLinkIds = new Set(Object.values(joints).map((joint) => joint.childLinkId));
       return linkIds.find((linkId) => !childLinkIds.has(linkId)) ?? linkIds[0] ?? null;
-    }, [robotJoints, runtimeRobotLinks]);
+    }, [effectiveRobotJoints, loadedRootLinkId, runtimeRobotLinks]);
     const selectedIkHandleLinkId = useMemo(
       () =>
         resolveSelectedIkDragLinkId({
           selection,
           ikDragActive,
           robotLinks: runtimeRobotLinks,
-          robotJoints,
+          robotJoints: effectiveRobotJoints,
           rootLinkId: runtimeRobotRootLinkId,
         }),
-      [ikDragActive, robotJoints, runtimeRobotLinks, runtimeRobotRootLinkId, selection],
+      [effectiveRobotJoints, ikDragActive, runtimeRobotLinks, runtimeRobotRootLinkId, selection],
     );
     const selectedIkRuntimeLink = useMemo(() => {
       if (!robot || !selectedIkHandleLinkId) {
@@ -252,7 +350,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         !selectedIkHandleLinkId ||
         !runtimeRobotRootLinkId ||
         !runtimeRobotLinks ||
-        !robotJoints
+        !effectiveRobotJoints
       ) {
         return null;
       }
@@ -260,18 +358,18 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       return resolveLinkIkHandleDescriptor(
         {
           links: runtimeRobotLinks,
-          joints: robotJoints,
+          joints: effectiveRobotJoints,
           rootLinkId: runtimeRobotRootLinkId,
         },
         selectedIkHandleLinkId,
       );
-    }, [robotJoints, runtimeRobotLinks, runtimeRobotRootLinkId, selectedIkHandleLinkId]);
+    }, [effectiveRobotJoints, runtimeRobotLinks, runtimeRobotRootLinkId, selectedIkHandleLinkId]);
     const selectedDirectIkHandleDescriptor = useMemo(() => {
       if (
         !selectedIkHandleLinkId ||
         !runtimeRobotRootLinkId ||
         !runtimeRobotLinks ||
-        !robotJoints
+        !effectiveRobotJoints
       ) {
         return null;
       }
@@ -279,12 +377,12 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       return resolveDirectManipulableLinkIkDescriptor(
         {
           links: runtimeRobotLinks,
-          joints: robotJoints,
+          joints: effectiveRobotJoints,
           rootLinkId: runtimeRobotRootLinkId,
         },
         selectedIkHandleLinkId,
       );
-    }, [robotJoints, runtimeRobotLinks, runtimeRobotRootLinkId, selectedIkHandleLinkId]);
+    }, [effectiveRobotJoints, runtimeRobotLinks, runtimeRobotRootLinkId, selectedIkHandleLinkId]);
     const selectedIkHandleDescriptor =
       selectedDirectIkHandleDescriptor ?? selectedPassiveIkHandleDescriptor;
     const selectedJointEntry = useMemo(() => {
@@ -319,15 +417,15 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     }, [selectedJointEntry]);
     const fallbackIkRobotState = useMemo(
       () =>
-        runtimeRobotRootLinkId && runtimeRobotLinks && robotJoints
+        runtimeRobotRootLinkId && runtimeRobotLinks && effectiveRobotJoints
           ? {
               links: runtimeRobotLinks,
-              joints: robotJoints,
+              joints: effectiveRobotJoints,
               rootLinkId: runtimeRobotRootLinkId,
               closedLoopConstraints: [],
             }
           : null,
-      [robotJoints, runtimeRobotLinks, runtimeRobotRootLinkId],
+      [effectiveRobotJoints, runtimeRobotLinks, runtimeRobotRootLinkId],
     );
     const ikRobotState = providedIkRobotState ?? fallbackIkRobotState;
     const assemblyTransformSelectionArmed = useMemo(
@@ -362,7 +460,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       selection,
       mode,
       autoFrameOnRobotChange: active && !focusTarget && !isLoading,
-      autoFrameScopeKey: sourceFilePath ?? autoFrameScopeFallbackRef.current,
+      autoFrameScopeKey: autoFrameLoadScopeKey,
       active,
     });
 
@@ -384,7 +482,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
           return;
         }
 
-        const link = robotLinks?.[linkId];
+        const link = effectiveRobotLinks?.[linkId];
         const visualGeometry = link
           ? getVisualGeometryByObjectIndex(link, objectIndex)?.geometry
           : null;
@@ -470,7 +568,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         paintColor,
         paintOperation,
         paintSelectionScope,
-        robotLinks,
+        effectiveRobotLinks,
         t,
       ],
     );
@@ -490,7 +588,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         interactionLayerPriority,
         linkMeshMapRef,
         robotLinks: runtimeRobotLinks,
-        robotJoints,
+        robotJoints: effectiveRobotJoints,
         onHover,
         onSelect,
         onMeshSelect,
@@ -499,6 +597,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         onJointChangeCommit,
         throttleJointChangeDuringDrag: true,
         setIsDragging,
+        setHoverFrozen,
         setActiveJoint,
         justSelectedRef,
         isOrbitDragging,
@@ -507,12 +606,12 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         rayIntersectsBoundingBox,
         highlightGeometry,
         resolveDirectIkHandleLink:
-          ikDragActive && runtimeRobotRootLinkId && runtimeRobotLinks && robotJoints
+          ikDragActive && runtimeRobotRootLinkId && runtimeRobotLinks && effectiveRobotJoints
             ? (linkId) =>
                 resolveDirectManipulableLinkIkDescriptor(
                   {
                     links: runtimeRobotLinks,
-                    joints: robotJoints,
+                    joints: effectiveRobotJoints,
                     rootLinkId: runtimeRobotRootLinkId,
                   },
                   linkId,
@@ -558,7 +657,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       onHover,
       linkMeshMapRef,
       robotLinks: runtimeRobotLinks,
-      robotJoints,
+      robotJoints: effectiveRobotJoints,
       mouseRef,
       raycasterRef,
       hoveredLinkRef,
@@ -596,7 +695,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       jointAxisSize,
       modelOpacity,
       robotLinks: runtimeRobotLinks,
-      robotJoints,
+      robotJoints: effectiveRobotJoints,
       selection,
       highlightGeometry,
       highlightedMeshesRef,
@@ -723,7 +822,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         </group>
         {isLoading && !onDocumentLoadEvent ? (
           <Html fullscreen>
-            <div className="pointer-events-none absolute inset-0 flex items-end justify-end p-4">
+            <div className={VIEWER_CORNER_OVERLAY_CLASS_NAME}>
               <ViewerLoadingHud
                 title={t.loadingRobot}
                 detail={loadingDetail}
@@ -747,9 +846,11 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
             enabled={active && Boolean(selectedIkHandleDescriptor?.jointIds.length)}
             historyLabel="Move IK handle"
             setIsDragging={setIsDragging}
+            createHistorySnapshot={createIkHistorySnapshot}
             onPreviewKinematicOverrides={(overrides) =>
               onIkPreviewKinematicOverrides?.(overrides.angles, overrides.quaternions)
             }
+            onCommitKinematicOverrides={commitIkKinematicOverrides}
             onClearPreviewKinematicOverrides={onClearIkPreviewKinematicOverrides}
           />
         )}
@@ -765,7 +866,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
             setIsDragging={handleCollisionTransformDragging}
             onTransformPending={onTransformPending}
             onUpdate={onUpdate}
-            robotJoints={robotJoints}
+            robotJoints={effectiveRobotJoints}
           />
         ) : !snapshotRenderActive && active && selectedJointEntry && transformMode !== 'select' ? (
           <JointInteraction
@@ -787,7 +888,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
               name: 'workspace',
               rootLinkId: runtimeRobotRootLinkId ?? '__workspace_world__',
               links: runtimeRobotLinks ?? {},
-              joints: robotJoints ?? {},
+              joints: effectiveRobotJoints ?? {},
               selection: { type: null, id: null },
             }}
             runtimeRobot={robot}

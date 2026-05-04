@@ -54,7 +54,7 @@
 
 ### app/utils/ 重点
 
-- USD/roundtrip/hydration：`usdExportContext.ts`、`usdHydrationPersistence.ts`、`usdStageHydration.ts`、`liveUsdRoundtripExport.ts`、`usdRoundtripExportArchive.ts`
+- USD/roundtrip/hydration：`usdExportContext.ts`、`usdHydrationPersistence.ts`、`usdStageHydration.ts`
 - 导出辅助：`exportArchiveAssets.ts`、`usdBinaryArchive.ts`、`urdfSourceExportUtils.ts`、`currentUsdExportMode.ts`
 - 历史与缓存：`pendingHistory.ts`、`pendingUsdCache.ts`
 - 导入准备：`documentLoadFlow.ts`、`importPreparation.ts`、`importPreparationTransfer.ts`

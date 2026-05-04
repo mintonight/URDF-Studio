@@ -25,6 +25,7 @@ interface PreviewFeedbackLabels {
 
 interface UsePreviewFileWithFeedbackOptions {
   allFileContents: Record<string, string>;
+  assemblyComponentFileNames?: ReadonlySet<string>;
   assets: Record<string, string>;
   availableFiles: RobotFile[];
   getUsdPreparedExportCache: (path: string) => { robotData?: RobotData } | null;
@@ -36,6 +37,7 @@ interface UsePreviewFileWithFeedbackOptions {
 
 export function usePreviewFileWithFeedback({
   allFileContents,
+  assemblyComponentFileNames,
   assets,
   availableFiles,
   getUsdPreparedExportCache,
@@ -66,15 +68,20 @@ export function usePreviewFileWithFeedback({
         return;
       }
 
+      const isAlreadyAssemblyComponent =
+        assemblyComponentFileNames && assemblyComponentFileNames.has(file.name);
+
       const importedAssetPaths = collectStandaloneImportSupportAssetPaths(assets, availableFiles);
-      const standaloneImportAssetWarning = buildStandaloneImportAssetWarning(
-        file,
-        importedAssetPaths,
-        {
-          allFileContents,
-          sourcePath: file.name,
-        },
-      );
+      const standaloneImportAssetWarning = isAlreadyAssemblyComponent
+        ? null
+        : buildStandaloneImportAssetWarning(
+            file,
+            importedAssetPaths,
+            {
+              allFileContents,
+              sourcePath: file.name,
+            },
+          );
       if (standaloneImportAssetWarning) {
         const assetLabel =
           standaloneImportAssetWarning.missingAssetPaths.length > 3
@@ -101,10 +108,12 @@ export function usePreviewFileWithFeedback({
         }
       }
 
-      const primitiveGeometryHint = buildStandalonePrimitiveGeometryHint(file, importedAssetPaths, {
-        allFileContents,
-        sourcePath: file.name,
-      });
+      const primitiveGeometryHint = isAlreadyAssemblyComponent
+        ? null
+        : buildStandalonePrimitiveGeometryHint(file, importedAssetPaths, {
+            allFileContents,
+            sourcePath: file.name,
+          });
       if (primitiveGeometryHint) {
         const assetLabel =
           primitiveGeometryHint.siblingMeshAssetCount >
@@ -260,6 +269,7 @@ export function usePreviewFileWithFeedback({
     },
     [
       allFileContents,
+      assemblyComponentFileNames,
       assets,
       availableFiles,
       getUsdPreparedExportCache,

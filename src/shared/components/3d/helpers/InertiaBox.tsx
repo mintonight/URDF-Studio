@@ -8,7 +8,6 @@ import * as THREE from 'three';
 import type { UrdfLink } from '@/types';
 import { MathUtils as DataUtils } from '@/shared/utils/math';
 import { ignoreRaycast } from '@/shared/utils/three/ignoreRaycast';
-import { narrowLineRaycast } from '@/shared/utils/three/narrowLineRaycast';
 
 interface InertiaBoxProps {
   link: UrdfLink;
@@ -18,7 +17,6 @@ interface InertiaBoxProps {
 
 export const InertiaBox = React.memo(
   ({ link, hovered = false, selected = false }: InertiaBoxProps) => {
-    const fillMeshRef = React.useRef<THREE.Mesh>(null);
     const outlineRef = React.useRef<THREE.LineSegments>(null);
     const inertial = link.inertial;
     if (!inertial) return null;
@@ -46,17 +44,14 @@ export const InertiaBox = React.memo(
     const opacity = hovered ? 0.58 : selected ? 0.5 : 0.35;
 
     React.useLayoutEffect(() => {
-      if (fillMeshRef.current) {
-        fillMeshRef.current.raycast = ignoreRaycast;
-      }
       if (outlineRef.current) {
-        outlineRef.current.raycast = narrowLineRaycast;
+        outlineRef.current.raycast = ignoreRaycast;
       }
     }, []);
 
     return (
       <group position={[pos.x, pos.y, pos.z]} rotation={finalEuler}>
-        <mesh ref={fillMeshRef} renderOrder={9999}>
+        <mesh renderOrder={9999}>
           <boxGeometry args={[width, height, depth]} />
           <meshPhongMaterial
             color={fillColor}

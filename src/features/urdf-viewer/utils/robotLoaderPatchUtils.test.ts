@@ -5,7 +5,7 @@ import * as THREE from 'three';
 
 import { URDFLink, URDFVisual } from '@/core/parsers/urdf/loader/URDFClasses';
 
-import { rebuildLinkMeshMapFromRobot } from './robotLoaderPatchUtils';
+import { markVisualObject, rebuildLinkMeshMapFromRobot } from './robotLoaderPatchUtils';
 
 test('rebuildLinkMeshMapFromRobot restores collision meshes from collider ancestors when collisions become visible', () => {
   const robot = new THREE.Group();
@@ -52,4 +52,29 @@ test('rebuildLinkMeshMapFromRobot restores collision meshes from collider ancest
   assert.equal(collisionMesh.userData.parentLinkName, 'base_link');
   assert.equal(collisionMesh.userData.isCollisionMesh, true);
   assert.equal(collisionMesh.userData.isVisualMesh, false);
+});
+
+test('markVisualObject does not tint baked OBJ vertex colors with link fallback color', () => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+  );
+  geometry.setAttribute(
+    'color',
+    new THREE.Float32BufferAttribute([0.67, 0.69, 0.77, 0.67, 0.69, 0.77, 0.67, 0.69, 0.77], 3),
+  );
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+  });
+  material.userData.usesVertexColors = true;
+  const mesh = new THREE.Mesh(geometry, material);
+
+  markVisualObject(mesh, 'FL_calf', '#000000', true);
+
+  assert.equal(mesh.userData.parentLinkName, 'FL_calf');
+  assert.equal(mesh.visible, true);
+  assert.equal((mesh.material as THREE.MeshStandardMaterial).vertexColors, true);
+  assert.equal((mesh.material as THREE.MeshStandardMaterial).color.getHexString(), 'ffffff');
 });

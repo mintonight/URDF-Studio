@@ -15,6 +15,7 @@ import {
   remapImportedPath,
 } from '@/features/file-io/utils/libraryImportPathCollisions';
 import { isMotorLibraryDataFilePath } from '@/shared/data/motorLibrary';
+import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 import { isAssetLibraryOnlyFormat, isVisibleLibraryEntry } from '@/shared/utils/robotFileSupport';
 import { pickPreferredImportFile } from '@/app/hooks/importPreferredFile';
 import { buildPreResolvedImportContentSignature } from './preResolvedImportSignature.ts';
@@ -236,7 +237,7 @@ function resolveImportInputPath(input: ImportPreparationFileInput): string {
 }
 
 function normalizeImportPath(path: string): string {
-  return path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/');
+  return normalizeLibraryPathKey(path);
 }
 
 function normalizeResolvedImportAssetPath(

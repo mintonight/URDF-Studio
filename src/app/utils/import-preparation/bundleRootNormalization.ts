@@ -1,5 +1,6 @@
 import { inferCommonPackageAssetBundleRoot } from '@/app/utils/importPackageAssetReferences.ts';
 import { isAssetLibraryOnlyFormat } from '@/shared/utils/robotFileSupport';
+import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 import type { RobotFile } from '@/types';
 
 interface BundleRootPayload {
@@ -41,7 +42,39 @@ const LOOSE_IMPORT_ROOTLESS_FOLDERS = new Set([
 ]);
 
 function normalizeImportPath(path: string): string {
-  return path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/');
+  return normalizeLibraryPathKey(path);
+}
+
+interface PathStructureInfo {
+  topLevelSegments: string[];
+  topSegmentsAreRootlessFolders: boolean;
+}
+
+function analyzeImportPathStructure(paths: readonly string[]): PathStructureInfo {
+  const normalizedPaths = paths.map(normalizeImportPath).filter(Boolean);
+
+  if (normalizedPaths.length === 0) {
+    return {
+      topLevelSegments: [],
+      topSegmentsAreRootlessFolders: false,
+    };
+  }
+
+  const topLevelSegments = new Set(
+    normalizedPaths
+      .map(getTopLevelImportSegment)
+      .filter((segment): segment is string => segment !== null),
+  );
+  const topLevelSegmentList = Array.from(topLevelSegments);
+
+  const topSegmentsAreRootlessFolders = Array.from(topLevelSegments).every((segment) =>
+    LOOSE_IMPORT_ROOTLESS_FOLDERS.has(segment.toLowerCase()),
+  );
+
+  return {
+    topLevelSegments: topLevelSegmentList,
+    topSegmentsAreRootlessFolders,
+  };
 }
 
 function getTopLevelImportSegment(path: string): string | null {
@@ -66,6 +99,17 @@ function sanitizeInferredImportRoot(rootName: string | null | undefined): string
     .trim();
 
   return sanitized || null;
+}
+
+function collectPayloadImportPaths(payload: BundleRootPayload): string[] {
+  return [
+    ...payload.robotFiles.map((file) => file.name),
+    ...payload.assetFiles.map((file) => file.name),
+    ...payload.deferredAssetFiles.map((file) => file.name),
+    ...payload.usdSourceFiles.map((file) => file.name),
+    ...payload.libraryFiles.map((file) => file.path),
+    ...payload.textFiles.map((file) => file.path),
+  ].map(normalizeImportPath);
 }
 
 function inferBundleRootFromRobotFiles(robotFiles: readonly RobotFile[]): string | null {
@@ -121,13 +165,7 @@ function hasExistingBundleRootPrefix(payload: BundleRootPayload, bundleRoot: str
     return false;
   }
 
-  const allPaths = [
-    ...payload.robotFiles.map((file) => file.name),
-    ...payload.assetFiles.map((file) => file.name),
-    ...payload.usdSourceFiles.map((file) => file.name),
-    ...payload.libraryFiles.map((file) => file.path),
-    ...payload.textFiles.map((file) => file.path),
-  ].map(normalizeImportPath);
+  const allPaths = collectPayloadImportPaths(payload);
 
   return allPaths.some(
     (path) => path === normalizedBundleRoot || path.startsWith(`${normalizedBundleRoot}/`),
@@ -141,13 +179,7 @@ function shouldWrapLooseImportUnderBundleRoot(
     allowRootLevelDefinitionWithSingleFolder?: boolean;
   } = {},
 ): boolean {
-  const allPaths = [
-    ...payload.robotFiles.map((file) => file.name),
-    ...payload.assetFiles.map((file) => file.name),
-    ...payload.usdSourceFiles.map((file) => file.name),
-    ...payload.libraryFiles.map((file) => file.path),
-    ...payload.textFiles.map((file) => file.path),
-  ].map(normalizeImportPath);
+  const allPaths = collectPayloadImportPaths(payload);
 
   if (allPaths.length === 0) {
     return false;
@@ -157,9 +189,7 @@ function shouldWrapLooseImportUnderBundleRoot(
     return false;
   }
 
-  const topLevelSegments = new Set(
-    allPaths.map(getTopLevelImportSegment).filter((segment): segment is string => Boolean(segment)),
-  );
+  const pathStructure = analyzeImportPathStructure(allPaths);
 
   const hasRootLevelDefinitionFile = payload.robotFiles.some(
     (file) =>
@@ -168,27 +198,23 @@ function shouldWrapLooseImportUnderBundleRoot(
       getTopLevelImportSegment(file.name) === null,
   );
 
-  if (topLevelSegments.size === 0) {
+  if (pathStructure.topLevelSegments.length === 0) {
     return false;
   }
 
-  const hasConventionalRobotFolders = Array.from(topLevelSegments).every((segment) =>
-    LOOSE_IMPORT_ROOTLESS_FOLDERS.has(segment.toLowerCase()),
-  );
-
-  if (!hasConventionalRobotFolders) {
+  if (!pathStructure.topSegmentsAreRootlessFolders) {
     return false;
   }
 
   if (
     options.allowRootLevelDefinitionWithSingleFolder &&
-    topLevelSegments.size === 1 &&
+    pathStructure.topLevelSegments.length === 1 &&
     hasRootLevelDefinitionFile
   ) {
     return true;
   }
 
-  if (topLevelSegments.size <= 1) {
+  if (pathStructure.topLevelSegments.length <= 1) {
     return false;
   }
 

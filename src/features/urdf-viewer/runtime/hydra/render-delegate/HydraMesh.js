@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { BackSide, BoxGeometry, BufferGeometry, CapsuleGeometry, Color, CylinderGeometry, DoubleSide, Float32BufferAttribute, FrontSide, Matrix4, Mesh, MeshPhysicalMaterial, Quaternion, SkinnedMesh, SphereGeometry, SRGBColorSpace, Uint32BufferAttribute, Vector3, } from 'three';
+import { BackSide, BoxGeometry, BufferGeometry, CapsuleGeometry, Color, CylinderGeometry, DoubleSide, Float32BufferAttribute, FrontSide, Matrix4, Mesh, MeshPhysicalMaterial, Quaternion, SkinnedMesh, SphereGeometry, Uint32BufferAttribute, Vector3, } from 'three';
 import * as Shared from './shared.js';
 import { mitigateCoplanarMaterialZFighting } from '../../../../../core/loaders/coplanarMaterialOffset.shared.js';
 import { stackCoincidentVisualRoots } from '../../../../../core/loaders/visualMeshStacking.ts';
@@ -32,9 +32,12 @@ const FAST_COLLISION_PRIMITIVE_SEGMENTS = {
     capsuleRadial: 12,
 };
 const VISUAL_SEGMENT_PATTERN = /(?:^|\/)visuals?(?:$|[/.])/i;
-const COLLISION_SEGMENT_PATTERN = /(?:^|\/)collisions?(?:$|[/.])/i;
+const COLLISION_SEGMENT_PATTERN = /(?:^|\/)coll(?:isions?|iders?)(?:$|[/.])/i;
 const PRIMITIVE_GEOMETRY_TEMPLATE_CACHE = new Map();
 const warnedMissingMaterials = new Set();
+const NORMAL_REPAIR_DOT_THRESHOLD = 0.2;
+// Unitree cooked USDs contain very thin triangles whose normals still affect shading.
+const NORMAL_REPAIR_EPSILON = 1e-12;
 function toPrimitiveKeyNumber(value, digits = 6) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed))
@@ -46,6 +49,14 @@ function normalizeLength(value) {
     if (!Number.isFinite(numeric) || numeric <= 0)
         return 0;
     return Math.floor(numeric);
+}
+function normalizeTopologyMode(value) {
+    const normalized = String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+    if (normalized === 'nonindexed' || normalized === 'nonindex')
+        return 'nonIndexed';
+    if (normalized === 'indexed' || normalized === 'index')
+        return 'indexed';
+    return null;
 }
 function shouldProfileHydraSync() {
     return HYDRA_SYNC_PROFILE_FROM_QUERY || globalThis?.__HYDRA_PROFILE_SYNC__ === true;
@@ -88,7 +99,9 @@ class HydraMesh {
         this._lastGeomSubsetSignature = '';
         this._pendingGeomSubsetSections = null;
         this._doubleSided = false;
+        this._hasExplicitDoubleSided = false;
         this._cullStyle = null;
+        this._hasExplicitCullStyle = false;
         this._resolvedFaceTopologyCache = new Map();
         this._decomposeScratchPositionA = new Vector3();
         this._decomposeScratchQuaternionA = new Quaternion();
@@ -97,7 +110,7 @@ class HydraMesh {
         this._decomposeScratchQuaternionB = new Quaternion();
         this._decomposeScratchScaleB = new Vector3();
         let material = createUnifiedHydraStandardMaterial({
-            side: FrontSide,
+            side: DoubleSide,
             // envMap: hydraInterface.config.envMap,
         });
         this._materials.push(material);
@@ -121,9 +134,45 @@ class HydraMesh {
         }
         return material ? [material] : [];
     }
+    _isSharedMaterialInstance(material) {
+        if (!material) {
+            return false;
+        }
+        if (material === getDefaultMaterial()) {
+            return true;
+        }
+        const materialRecords = this._interface?.materials && typeof this._interface.materials === 'object'
+            ? Object.values(this._interface.materials)
+            : [];
+        return materialRecords.some((record) => record?._material === material);
+    }
+    _prepareMaterialForSurfaceSide(material, side) {
+        if (!material) {
+            return material;
+        }
+        if (material.side === side) {
+            return material;
+        }
+        const isLocalSurfaceMaterial = material.userData?.hydraSurfaceLocalMeshId === this._id;
+        const canMutateInPlace = isLocalSurfaceMaterial || !this._isSharedMaterialInstance(material);
+        const targetMaterial = canMutateInPlace ? material : material.clone();
+        targetMaterial.side = side;
+        targetMaterial.needsUpdate = true;
+        if (!canMutateInPlace) {
+            targetMaterial.userData = {
+                ...(targetMaterial.userData || {}),
+                hydraSurfaceLocalMeshId: this._id,
+                hydraSurfaceSourceUuid: material.uuid || '',
+            };
+        }
+        return targetMaterial;
+    }
     _resolveMaterialSide() {
         const normalizedCullStyle = String(this._cullStyle || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
-        if (!normalizedCullStyle || normalizedCullStyle === 'derived' || normalizedCullStyle === 'default') {
+        if (!this._hasExplicitCullStyle || !normalizedCullStyle || normalizedCullStyle === 'derived' || normalizedCullStyle === 'default') {
+            if (!this._hasExplicitDoubleSided) {
+                return DoubleSide;
+            }
             return this._doubleSided ? DoubleSide : FrontSide;
         }
         if (normalizedCullStyle.includes('nothing') || normalizedCullStyle === 'none' || normalizedCullStyle === 'dontcare') {
@@ -138,22 +187,43 @@ class HydraMesh {
         if (normalizedCullStyle.includes('back')) {
             return FrontSide;
         }
+        if (!this._hasExplicitDoubleSided) {
+            return DoubleSide;
+        }
         return this._doubleSided ? DoubleSide : FrontSide;
     }
     _applySurfaceState() {
         const side = this._resolveMaterialSide();
-        for (const material of this._getAssignedMaterials()) {
-            if (material && material.side !== side) {
-                material.side = side;
+        const assignedMaterial = this._mesh?.material;
+        if (Array.isArray(assignedMaterial)) {
+            let changed = false;
+            const nextMaterials = assignedMaterial.map((material) => {
+                const nextMaterial = this._prepareMaterialForSurfaceSide(material, side);
+                if (nextMaterial !== material) {
+                    changed = true;
+                }
+                return nextMaterial;
+            });
+            if (changed) {
+                this._mesh.material = nextMaterials;
+                this._materials = nextMaterials.filter(Boolean);
             }
+            return;
+        }
+        const nextMaterial = this._prepareMaterialForSurfaceSide(assignedMaterial, side);
+        if (nextMaterial && nextMaterial !== assignedMaterial) {
+            this._mesh.material = nextMaterial;
+            this._materials = [nextMaterial];
         }
     }
     setDoubleSided(value) {
         this._doubleSided = !!value;
+        this._hasExplicitDoubleSided = true;
         this._applySurfaceState();
     }
     setCullStyle(value) {
         this._cullStyle = value ?? null;
+        this._hasExplicitCullStyle = this._cullStyle !== null && String(this._cullStyle).trim() !== '';
         this._applySurfaceState();
     }
     _getPrimitiveSegmentProfile() {
@@ -272,6 +342,16 @@ class HydraMesh {
     ensurePrimitiveFallbackGeometry() {
         if (!this._primitiveFallbackType)
             return;
+        if (this._interface?.strictOneShotSceneLoad === true) {
+            const finalStageOverride = this._interface?._finalStageOverrideBatchCache?.get?.(this._id) || null;
+            if (finalStageOverride?.valid === true) {
+                this.applyFinalStageOverrideFromDriver(finalStageOverride, {
+                    skipTransformFallback: true,
+                    skipCollisionRotationFallback: true,
+                });
+                return;
+            }
+        }
         if (this._hasGeneratedPrimitiveFallback) {
             if (this.isCollisionProtoMesh() && !this._appliedCollisionOverride) {
                 this.applyCollisionGeometryFromOverrides();
@@ -290,6 +370,9 @@ class HydraMesh {
             return;
         if (existingPositions && existingPositions.count > 0) {
             this._hasGeneratedPrimitiveFallback = true;
+            return;
+        }
+        if (this._interface?.strictOneShotSceneLoad === true) {
             return;
         }
         const segmentProfile = this._getPrimitiveSegmentProfile();
@@ -510,6 +593,9 @@ class HydraMesh {
         const axis = String(descriptor?.axis || 'Z').toUpperCase();
         const segmentProfile = this._getPrimitiveSegmentProfile();
         if (normalizedType === 'cube') {
+            if (!dimensionsFromExtent && sizeValue === undefined) {
+                return false;
+            }
             const extentMatchesSize = dimensionsFromExtent && sizeValue !== undefined
                 ? nearlyEqual(dimensionsFromExtent[0], sizeValue)
                     && nearlyEqual(dimensionsFromExtent[1], sizeValue)
@@ -517,13 +603,13 @@ class HydraMesh {
                 : false;
             const width = dimensionsFromExtent
                 ? (sizeValue !== undefined && !extentMatchesSize ? sizeValue : dimensionsFromExtent[0])
-                : (sizeValue ?? 1);
+                : sizeValue;
             const height = dimensionsFromExtent
                 ? (sizeValue !== undefined && !extentMatchesSize ? sizeValue : dimensionsFromExtent[1])
-                : (sizeValue ?? 1);
+                : sizeValue;
             const depth = dimensionsFromExtent
                 ? (sizeValue !== undefined && !extentMatchesSize ? sizeValue : dimensionsFromExtent[2])
-                : (sizeValue ?? 1);
+                : sizeValue;
             const safeWidth = Math.max(width, 1e-6);
             const safeHeight = Math.max(height, 1e-6);
             const safeDepth = Math.max(depth, 1e-6);
@@ -539,7 +625,10 @@ class HydraMesh {
             const radiusFromExtent = dimensionsFromExtent
                 ? Math.max(dimensionsFromExtent[0], dimensionsFromExtent[1], dimensionsFromExtent[2]) * 0.5
                 : undefined;
-            const radius = Math.max(radiusValue ?? radiusFromExtent ?? 0.5, 1e-6);
+            if (radiusValue === undefined && radiusFromExtent === undefined) {
+                return false;
+            }
+            const radius = Math.max(radiusValue ?? radiusFromExtent, 1e-6);
             const key = [
                 "descriptor|sphere",
                 toPrimitiveKeyNumber(radius),
@@ -565,8 +654,14 @@ class HydraMesh {
                     radiusFromExtent = Math.max(dimensionsFromExtent[0], dimensionsFromExtent[1]) * 0.5;
                 }
             }
-            const radius = Math.max(radiusValue ?? radiusFromExtent ?? 0.5, 1e-6);
-            const height = Math.max(heightValue ?? heightFromExtent ?? 1, 1e-6);
+            if (radiusValue === undefined && radiusFromExtent === undefined) {
+                return false;
+            }
+            if (heightValue === undefined && heightFromExtent === undefined) {
+                return false;
+            }
+            const radius = Math.max(radiusValue ?? radiusFromExtent, 1e-6);
+            const height = Math.max(heightValue ?? heightFromExtent, 1e-6);
             const key = [
                 "descriptor|cylinder",
                 toPrimitiveKeyNumber(radius),
@@ -603,8 +698,14 @@ class HydraMesh {
                     radiusFromExtent = Math.max(dimensionsFromExtent[0], dimensionsFromExtent[1]) * 0.5;
                 }
             }
-            const radius = Math.max(radiusValue ?? radiusFromExtent ?? 0.5, 1e-6);
-            const totalHeight = Math.max(heightValue ?? totalHeightFromExtent ?? 1, 1e-6);
+            if (radiusValue === undefined && radiusFromExtent === undefined) {
+                return false;
+            }
+            if (heightValue === undefined && totalHeightFromExtent === undefined) {
+                return false;
+            }
+            const radius = Math.max(radiusValue ?? radiusFromExtent, 1e-6);
+            const totalHeight = Math.max(heightValue ?? totalHeightFromExtent, 1e-6);
             const capsuleBodyHeight = Math.max(totalHeight - 2 * radius, 1e-6);
             const key = [
                 "descriptor|capsule",
@@ -858,6 +959,8 @@ class HydraMesh {
     shouldDeferProtoStageSyncUntilSceneSnapshot() {
         const renderInterface = this._interface;
         if (!renderInterface || renderInterface.strictOneShotSceneLoad !== true)
+            return false;
+        if (this.isCollisionProtoMesh())
             return false;
         if (typeof renderInterface.shouldDeferProtoStageSyncUntilSceneSnapshot === 'function') {
             return renderInterface.shouldDeferProtoStageSyncUntilSceneSnapshot() === true;
@@ -1246,16 +1349,134 @@ class HydraMesh {
         const faceVertexIndices = prim.GetAttribute('faceVertexIndices')?.Get?.();
         const faceVertexCounts = prim.GetAttribute('faceVertexCounts')?.Get?.();
         const triangulatedIndices = this.toTriangleIndexArray(faceVertexIndices, faceVertexCounts);
-        const nextGeometry = new BufferGeometry();
+        let nextGeometry = new BufferGeometry();
         nextGeometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
         if (triangulatedIndices.length > 0) {
             nextGeometry.setIndex(triangulatedIndices);
         }
-        nextGeometry.computeVertexNormals();
+
+        // Check if USD has explicit normals - use them instead of recomputing
+        const normalsValue = prim?.GetAttribute?.('normals')?.Get?.();
+        if (normalsValue && normalsValue.length > 0 && normalsValue.length === pointsValue.length) {
+            const normals = new Float32Array(normalsValue.length * 3);
+            for (let index = 0; index < normalsValue.length; index++) {
+                const normal = normalsValue[index];
+                const nx = Number(normal?.[0] ?? normal?.x ?? 0);
+                const ny = Number(normal?.[1] ?? normal?.y ?? 0);
+                const nz = Number(normal?.[2] ?? normal?.z ?? 0);
+                const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+                if (len > 1e-12) {
+                    const invLen = 1 / len;
+                    normals[index * 3 + 0] = nx * invLen;
+                    normals[index * 3 + 1] = ny * invLen;
+                    normals[index * 3 + 2] = nz * invLen;
+                } else {
+                    normals[index * 3 + 0] = 0;
+                    normals[index * 3 + 1] = 1;
+                    normals[index * 3 + 2] = 0;
+                }
+            }
+            nextGeometry.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+        } else {
+            nextGeometry.computeVertexNormals();
+        }
+
         nextGeometry.computeBoundingBox();
         nextGeometry.computeBoundingSphere();
+
+        // Apply vertex normal smoothing to reduce triangle visibility
+        nextGeometry = this._smoothGeometryNormals(nextGeometry);
+
         this.replaceGeometry(nextGeometry);
         return true;
+    }
+
+    /**
+     * Smooth geometry normals to reduce triangle visibility and improve shading
+     * This merges normals for vertices at the same position to create smooth shading
+     */
+    _smoothGeometryNormals(geometry) {
+        const normals = geometry.getAttribute('normal');
+        const position = geometry.getAttribute('position');
+        const index = geometry.getIndex();
+
+        if (!normals || !position) {
+            return geometry;
+        }
+
+        const normalsArray = normals.array;
+        const positionsArray = position.array;
+        const count = position.count;
+
+        // Map from position key to list of vertex indices with same position
+        const vertexMap = new Map();
+        const POSITION_PRECISION = 1e-5; // Precision for position comparison
+
+        // Build vertex position map
+        if (index) {
+            // Indexed geometry: map positions based on vertex indices
+            for (let i = 0; i < index.count; i++) {
+                const idx = index.getX(i);
+                const px = positionsArray[idx * 3];
+                const py = positionsArray[idx * 3 + 1];
+                const pz = positionsArray[idx * 3 + 2];
+                const key = `${Math.round(px / POSITION_PRECISION)},${Math.round(py / POSITION_PRECISION)},${Math.round(pz / POSITION_PRECISION)}`;
+
+                if (!vertexMap.has(key)) {
+                    vertexMap.set(key, []);
+                }
+                vertexMap.get(key).push(idx);
+            }
+        } else {
+            // Non-indexed geometry: direct mapping
+            for (let i = 0; i < count; i++) {
+                const px = positionsArray[i * 3];
+                const py = positionsArray[i * 3 + 1];
+                const pz = positionsArray[i * 3 + 2];
+                const key = `${Math.round(px / POSITION_PRECISION)},${Math.round(py / POSITION_PRECISION)},${Math.round(pz / POSITION_PRECISION)}`;
+
+                if (!vertexMap.has(key)) {
+                    vertexMap.set(key, []);
+                }
+                vertexMap.get(key).push(i);
+            }
+        }
+
+        // Smooth normals for vertices at same position
+        for (const vertices of vertexMap.values()) {
+            if (vertices.length <= 1) {
+                continue;
+            }
+
+            // Calculate average normal for all vertices at same position
+            let nx = 0, ny = 0, nz = 0;
+            for (const vIdx of vertices) {
+                nx += normalsArray[vIdx * 3];
+                ny += normalsArray[vIdx * 3 + 1];
+                nz += normalsArray[vIdx * 3 + 2];
+            }
+
+            // Normalize
+            const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+            if (len > 1e-12) {
+                const invLen = 1 / len;
+                nx *= invLen;
+                ny *= invLen;
+                nz *= invLen;
+            } else {
+                nx = 0; ny = 1; nz = 0;
+            }
+
+            // Apply smoothed normal to all vertices
+            for (const vIdx of vertices) {
+                normalsArray[vIdx * 3] = nx;
+                normalsArray[vIdx * 3 + 1] = ny;
+                normalsArray[vIdx * 3 + 2] = nz;
+            }
+        }
+
+        normals.needsUpdate = true;
+        return geometry;
     }
     getExtentDimensions(prim) {
         const extent = prim?.GetAttribute?.('extent')?.Get?.();
@@ -1313,23 +1534,9 @@ class HydraMesh {
         for (const material of materials) {
             if (!material || !material.color || material.map)
                 continue;
-            setHydraColorFromTuple(material.color, override, SRGBColorSpace);
+            setHydraColorFromTuple(material.color, override);
             material.needsUpdate = true;
         }
-    }
-    _linearizeDisplayColorBuffer(buffer) {
-        if (!(buffer instanceof Float32Array) || buffer.length < 3) {
-            return buffer;
-        }
-        const scratchColor = new Color();
-        const safeLength = buffer.length - (buffer.length % 3);
-        for (let colorIndex = 0; colorIndex < safeLength; colorIndex += 3) {
-            scratchColor.setRGB(buffer[colorIndex], buffer[colorIndex + 1], buffer[colorIndex + 2], SRGBColorSpace);
-            buffer[colorIndex] = scratchColor.r;
-            buffer[colorIndex + 1] = scratchColor.g;
-            buffer[colorIndex + 2] = scratchColor.b;
-        }
-        return buffer;
     }
     _nowMs() {
         return (typeof performance !== "undefined" && typeof performance.now === "function")
@@ -1934,6 +2141,65 @@ class HydraMesh {
         }
         return assignedNormalCount > 0 ? rebuiltNormals : null;
     }
+    _repairNonIndexedNormalsAgainstFaceWinding(positionAttribute, normalAttribute, vertexCount) {
+        if (this._geometry?.getIndex?.()) {
+            return false;
+        }
+        const positions = positionAttribute?.array;
+        const normals = normalAttribute?.array;
+        const count = normalizeLength(vertexCount);
+        if (!(positions && normals) || count < 3 || (count % 3) !== 0) {
+            return false;
+        }
+        if (positions.length < count * 3 || normals.length < count * 3) {
+            return false;
+        }
+        let repaired = false;
+        for (let vertexIndex = 0; vertexIndex < count; vertexIndex += 3) {
+            const p0 = vertexIndex * 3;
+            const p1 = (vertexIndex + 1) * 3;
+            const p2 = (vertexIndex + 2) * 3;
+            const ux = Number(positions[p1]) - Number(positions[p0]);
+            const uy = Number(positions[p1 + 1]) - Number(positions[p0 + 1]);
+            const uz = Number(positions[p1 + 2]) - Number(positions[p0 + 2]);
+            const vx = Number(positions[p2]) - Number(positions[p0]);
+            const vy = Number(positions[p2 + 1]) - Number(positions[p0 + 1]);
+            const vz = Number(positions[p2 + 2]) - Number(positions[p0 + 2]);
+            let faceNormalX = (uy * vz) - (uz * vy);
+            let faceNormalY = (uz * vx) - (ux * vz);
+            let faceNormalZ = (ux * vy) - (uy * vx);
+            const faceLenSq = faceNormalX * faceNormalX + faceNormalY * faceNormalY + faceNormalZ * faceNormalZ;
+            if (!Number.isFinite(faceLenSq) || faceLenSq <= NORMAL_REPAIR_EPSILON) {
+                continue;
+            }
+            const invFaceLen = 1 / Math.sqrt(faceLenSq);
+            faceNormalX *= invFaceLen;
+            faceNormalY *= invFaceLen;
+            faceNormalZ *= invFaceLen;
+            for (let corner = 0; corner < 3; corner++) {
+                const normalBase = (vertexIndex + corner) * 3;
+                const normalX = Number(normals[normalBase]);
+                const normalY = Number(normals[normalBase + 1]);
+                const normalZ = Number(normals[normalBase + 2]);
+                const normalLenSq = normalX * normalX + normalY * normalY + normalZ * normalZ;
+                if (!Number.isFinite(normalLenSq) || normalLenSq <= NORMAL_REPAIR_EPSILON) {
+                    continue;
+                }
+                const invNormalLen = 1 / Math.sqrt(normalLenSq);
+                const dot = (normalX * invNormalLen * faceNormalX)
+                    + (normalY * invNormalLen * faceNormalY)
+                    + (normalZ * invNormalLen * faceNormalZ);
+                if (dot >= NORMAL_REPAIR_DOT_THRESHOLD) {
+                    continue;
+                }
+                normals[normalBase] = faceNormalX;
+                normals[normalBase + 1] = faceNormalY;
+                normals[normalBase + 2] = faceNormalZ;
+                repaired = true;
+            }
+        }
+        return repaired;
+    }
     _countInvalidNormalTriplets(normals, expectedVertexCount = null) {
         const tripletCount = expectedVertexCount !== null
             ? Math.min(normalizeLength(expectedVertexCount), Math.floor(Number(normals?.length || 0) / 3))
@@ -2020,7 +2286,36 @@ class HydraMesh {
             geometry.dispose?.();
         }
     }
-    _dropSuspiciousExpandedIndexIfNeeded() {
+    _hasExpandedPayloadEvidence(source) {
+        const candidate = source?.normalDiagnostics && typeof source.normalDiagnostics === 'object'
+            ? source.normalDiagnostics
+            : (source?.normalDiagnostic && typeof source.normalDiagnostic === 'object'
+                ? source.normalDiagnostic
+                : source);
+        const normalSource = String(candidate?.normalSource || '').trim();
+        return /expanded/i.test(normalSource);
+    }
+    _isSuspiciousExpandedSharedIndex(indices, indexCount, positionCount, evidence = null) {
+        if (!(indices && indexCount > 0 && positionCount > 0 && indexCount === positionCount)) {
+            return false;
+        }
+        if ((indexCount % 3) !== 0 || !this._hasExpandedPayloadEvidence(evidence)) {
+            return false;
+        }
+        let maxReferencedVertex = -1;
+        let sawNonIdentityIndex = false;
+        for (let index = 0; index < indexCount; index++) {
+            const referencedVertex = indices[index] >>> 0;
+            if (referencedVertex > maxReferencedVertex) {
+                maxReferencedVertex = referencedVertex;
+            }
+            if (!sawNonIdentityIndex && referencedVertex !== index) {
+                sawNonIdentityIndex = true;
+            }
+        }
+        return sawNonIdentityIndex && (maxReferencedVertex + 1) < positionCount;
+    }
+    _dropSuspiciousExpandedIndexIfNeeded(evidence = null) {
         const positionAttribute = this._geometry?.getAttribute?.('position');
         const indexAttribute = this._geometry?.getIndex?.();
         if (!(positionAttribute?.count > 0) || !indexAttribute?.array) {
@@ -2031,19 +2326,8 @@ class HydraMesh {
         if (indexCount <= 0 || indexCount !== positionCount) {
             return false;
         }
-        let maxReferencedVertex = -1;
-        let sawNonIdentityIndex = false;
         const indices = indexAttribute.array;
-        for (let index = 0; index < indexCount; index++) {
-            const referencedVertex = indices[index] >>> 0;
-            if (referencedVertex > maxReferencedVertex) {
-                maxReferencedVertex = referencedVertex;
-            }
-            if (!sawNonIdentityIndex && referencedVertex !== index) {
-                sawNonIdentityIndex = true;
-            }
-        }
-        if (!sawNonIdentityIndex || (maxReferencedVertex + 1) >= positionCount) {
+        if (!this._isSuspiciousExpandedSharedIndex(indices, indexCount, positionCount, evidence)) {
             this._expandedSharedVertexIndices = undefined;
             return false;
         }
@@ -2098,6 +2382,7 @@ class HydraMesh {
             || (resolvedMaterialId !== materialId ? this._interface.getOrCreateMaterialById(materialId, this._id) : null);
         if (resolvedMaterial?._material) {
             this._mesh.material = resolvedMaterial._material;
+            this._applySurfaceState();
             this._pendingMaterialId = undefined;
         }
         else {
@@ -2144,7 +2429,7 @@ class HydraMesh {
         //console.log("setting subset material: ", this._id, sections)
         const previousMaterial = Array.isArray(this._mesh.material) ? this._mesh.material.find(Boolean) : this._mesh.material;
         const fallbackMaterial = previousMaterial || this._materials.find(Boolean) || getDefaultMaterial() || createUnifiedHydraStandardMaterial({
-            side: FrontSide,
+            side: DoubleSide,
         });
         const hasExplicitBaseMaterial = Boolean(previousMaterial
             && previousMaterial !== getDefaultMaterial()
@@ -2295,7 +2580,7 @@ class HydraMesh {
         this._colors = null;
         if (interpolation === 'constant') {
             this._mesh.material.vertexColors = false;
-            this._mesh.material.color = setHydraColorFromTuple(new Color(), data, SRGBColorSpace);
+            this._mesh.material.color = setHydraColorFromTuple(new Color(), data);
         }
         else if (interpolation === 'vertex') {
             // Per-vertex buffer attribute
@@ -2308,7 +2593,6 @@ class HydraMesh {
             if (!stableColors)
                 return;
             this._colors = stableColors === data ? stableColors.slice(0) : stableColors;
-            this._linearizeDisplayColorBuffer(this._colors);
             if (!this._colors)
                 return;
             this.updateOrder(this._colors, 'color');
@@ -2494,8 +2778,12 @@ class HydraMesh {
         if (count <= 0)
             return;
         let { invalidIndices, fallbackNormal } = collectInvalidVertexIndices(normals, count);
-        if (invalidIndices.length <= 0)
+        if (invalidIndices.length <= 0) {
+            if (this._repairNonIndexedNormalsAgainstFaceWinding(positionAttribute, normalAttribute, count)) {
+                normalAttribute.needsUpdate = true;
+            }
             return;
+        }
         const indexAttribute = geometry.getIndex?.();
         if (indexAttribute && Number(indexAttribute.count || 0) > 0) {
             try {
@@ -2586,6 +2874,7 @@ class HydraMesh {
             normals[base + 1] = replacement[1];
             normals[base + 2] = replacement[2];
         }
+        this._repairNonIndexedNormalsAgainstFaceWinding(positionAttribute, normalAttribute, count);
         normalAttribute.needsUpdate = true;
     }
     applyUpdates(updates) {
@@ -2739,6 +3028,7 @@ class HydraMesh {
         if (this._pendingMaterialId && this._interface.materials[this._pendingMaterialId]?._material) {
             const materialStart = this._nowMs();
             this._mesh.material = this._interface.materials[this._pendingMaterialId]._material;
+            this._applySurfaceState();
             if (this.isVisualProtoMesh()) {
                 this.restackSiblingVisualProtoMeshes();
             }
@@ -2848,6 +3138,9 @@ class HydraMesh {
                     };
                 }
             }
+            const isRenderReadyPayload = blob.renderReady === true;
+            const renderReadyTopologyMode = normalizeTopologyMode(blob.topologyMode);
+            const renderReadyNonIndexed = isRenderReadyPayload && renderReadyTopologyMode === 'nonIndexed';
             const heapViews = this._resolveWasmHeapViews();
             const moduleRef = heapViews?.moduleRef || null;
             const heapF32 = heapViews?.heapF32 || null;
@@ -3024,10 +3317,20 @@ class HydraMesh {
             }
             const numIndices = normalizeLength(blob.numIndices);
             const existingIndex = this._geometry.getIndex();
-            if ((replaceExistingGeometry || !existingIndex || existingIndex.count === 0) && numIndices > 0) {
+            if (renderReadyNonIndexed) {
+                this._indices = undefined;
+                this._expandedSharedVertexIndices = undefined;
+                measureThreeBuildStage(() => {
+                    this._geometry.setIndex(null);
+                });
+            }
+            else if ((replaceExistingGeometry || !existingIndex || existingIndex.count === 0) && numIndices > 0) {
                 const indicesSource = resolveUintSource(blob.indicesPtr, numIndices, (blob.indices && typeof blob.indices.length === 'number') ? blob.indices : null);
                 indicesCopy = indicesSource ? measureWasmStage(() => copyUint32Payload(indicesSource, numIndices)) : null;
                 if (indicesCopy) {
+                    if (!isRenderReadyPayload) {
+                        indicesCopy = this.triangulateProtoIndicesIfNeeded(indicesCopy);
+                    }
                     this._indices = indicesCopy;
                     this._hasHydraGeometryPayload = true;
                     measureThreeBuildStage(() => {
@@ -3062,51 +3365,42 @@ class HydraMesh {
                     measureThreeBuildStage(() => {
                         this._geometry.setAttribute('normal', new Float32BufferAttribute(normalsCopy, normalsDimension));
                     });
-                    this._needsNormalSanitization = true;
+                    this._needsNormalSanitization = !isRenderReadyPayload;
                 }
             }
-            if (indicesCopy) {
-                indicesCopy = this.triangulateProtoIndicesIfNeeded(indicesCopy);
-            }
+            const effectiveNumIndices = indicesCopy instanceof Uint32Array
+                ? normalizeLength(indicesCopy.length)
+                : numIndices;
+            let acceptedNonIndexedIndexPayload = renderReadyNonIndexed;
             const shouldDropExpandedIdentityMismatchedIndex = (() => {
+                if (isRenderReadyPayload) {
+                    return false;
+                }
                 if (!(pointsCopy instanceof Float32Array) || !(indicesCopy instanceof Uint32Array)) {
                     return false;
-                }
-                if (numVertices <= 0 || numIndices <= 0 || numVertices !== numIndices) {
-                    return false;
-                }
-                let maxReferencedVertex = -1;
-                let sawNonIdentityIndex = false;
-                for (let index = 0; index < numIndices; index++) {
-                    const referencedVertex = indicesCopy[index] >>> 0;
-                    if (referencedVertex > maxReferencedVertex) {
-                        maxReferencedVertex = referencedVertex;
-                    }
-                    if (!sawNonIdentityIndex && referencedVertex !== index) {
-                        sawNonIdentityIndex = true;
-                    }
                 }
                 // Some Hydra proto payloads already expand positions/normals/uvs to one
                 // vertex per triangle corner, but still forward the original shared-vertex
                 // index buffer. Rendering that as indexed geometry reconnects unrelated
                 // vertices into the long diagonal triangles seen on B2 visual meshes.
-                return sawNonIdentityIndex && (maxReferencedVertex + 1) < numVertices;
+                return this._isSuspiciousExpandedSharedIndex(indicesCopy, effectiveNumIndices, numVertices, blob);
             })();
             if (shouldDropExpandedIdentityMismatchedIndex) {
-                this._captureExpandedSharedVertexIndices(indicesCopy, numIndices);
+                this._captureExpandedSharedVertexIndices(indicesCopy, effectiveNumIndices);
                 this._indices = undefined;
                 indicesCopy = undefined;
                 measureThreeBuildStage(() => {
                     this._geometry.setIndex(null);
                 });
+                acceptedNonIndexedIndexPayload = true;
             }
-            const shouldExpandToNonIndexedGeometry = !!(pointsCopy instanceof Float32Array
+            const shouldExpandToNonIndexedGeometry = !isRenderReadyPayload && !!(pointsCopy instanceof Float32Array
                 && indicesCopy instanceof Uint32Array
                 && numVertices > 0
-                && numIndices > 0
-                && numVertices !== numIndices
-                && ((numNormals > 0 && numNormals === numIndices)
-                    || (uvDimension >= 2 && numUVs === numIndices)));
+                && effectiveNumIndices > 0
+                && numVertices !== effectiveNumIndices
+                && ((numNormals > 0 && numNormals === effectiveNumIndices)
+                    || (uvDimension >= 2 && numUVs === effectiveNumIndices)));
             if (shouldExpandToNonIndexedGeometry) {
                 if (!(normalsCopy instanceof Float32Array) && normalValueCount > 0) {
                     const normalsSource = resolveFloatSource(blob.normalsPtr, normalValueCount, (blob.normals && typeof blob.normals.length === 'number') ? blob.normals : null);
@@ -3144,7 +3438,7 @@ class HydraMesh {
                     : null;
                 if (expandedPoints) {
                     this._points = expandedPoints;
-                    this._captureExpandedSharedVertexIndices(indicesCopy, numIndices);
+                    this._captureExpandedSharedVertexIndices(indicesCopy, effectiveNumIndices);
                     this._indices = undefined;
                     if (preferredExpandedNormals)
                         this._normals = preferredExpandedNormals;
@@ -3169,6 +3463,7 @@ class HydraMesh {
                             delete this._geometry.attributes.uv2;
                         }
                     });
+                    acceptedNonIndexedIndexPayload = true;
                 }
             }
             const positionAttributeAfterAssembly = this._geometry.getAttribute('position');
@@ -3177,24 +3472,14 @@ class HydraMesh {
                 const assembledIndexCount = normalizeLength(indexAttributeAfterAssembly.count);
                 const assembledPositionCount = normalizeLength(positionAttributeAfterAssembly.count);
                 if (assembledIndexCount > 0 && assembledIndexCount === assembledPositionCount) {
-                    let maxReferencedVertex = -1;
-                    let sawNonIdentityIndex = false;
                     const assembledIndices = indexAttributeAfterAssembly.array;
-                    for (let index = 0; index < assembledIndexCount; index++) {
-                        const referencedVertex = assembledIndices[index] >>> 0;
-                        if (referencedVertex > maxReferencedVertex) {
-                            maxReferencedVertex = referencedVertex;
-                        }
-                        if (!sawNonIdentityIndex && referencedVertex !== index) {
-                            sawNonIdentityIndex = true;
-                        }
-                    }
-                    if (sawNonIdentityIndex && (maxReferencedVertex + 1) < assembledPositionCount) {
+                    if (this._isSuspiciousExpandedSharedIndex(assembledIndices, assembledIndexCount, assembledPositionCount, blob)) {
                         this._captureExpandedSharedVertexIndices(assembledIndices, assembledIndexCount);
                         this._indices = undefined;
                         measureThreeBuildStage(() => {
                             this._geometry.setIndex(null);
                         });
+                        acceptedNonIndexedIndexPayload = true;
                     }
                 }
             }
@@ -3220,7 +3505,7 @@ class HydraMesh {
             const expectsPositionPayload = pointValueCount > 0;
             const expectsIndexPayload = numIndices > 0;
             const positionReady = !expectsPositionPayload || finalPositionCount > 0;
-            const indexReady = !expectsIndexPayload || finalIndexCount > 0;
+            const indexReady = !expectsIndexPayload || finalIndexCount > 0 || acceptedNonIndexedIndexPayload;
             const geometryReady = positionReady && indexReady;
             if (!geometryReady) {
                 if (allowForceRefreshRetry && !forceRefresh && !useBlobOverride) {

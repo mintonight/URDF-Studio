@@ -112,6 +112,124 @@ function createTwoLinkRobot(): RobotState {
   };
 }
 
+function createMjcfSyntheticAttachmentRobot(): RobotState {
+  return {
+    name: 'mjcf_attachment_robot',
+    rootLinkId: 'world',
+    selection: { type: null, id: null },
+    joints: {
+      world_to_base: {
+        id: 'world_to_base',
+        name: 'world_to_base',
+        type: JointType.FIXED,
+        parentLinkId: 'world',
+        childLinkId: 'base',
+        origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        axis: { x: 1, y: 0, z: 0 },
+        angle: 0,
+        limit: { lower: 0, upper: 0, effort: 0, velocity: 0 },
+        dynamics: { damping: 0, friction: 0 },
+        hardware: { armature: 0, motorType: 'None', motorId: '', motorDirection: 1 },
+      },
+      base_to_base_geom_1: {
+        id: 'base_to_base_geom_1',
+        name: 'base_to_base_geom_1',
+        type: JointType.FIXED,
+        parentLinkId: 'base',
+        childLinkId: 'base_geom_1',
+        origin: { xyz: { x: 0.1, y: 0.2, z: 0.3 }, rpy: { r: 0, p: 0, y: Math.PI / 2 } },
+        axis: { x: 1, y: 0, z: 0 },
+        angle: 0,
+        limit: { lower: 0, upper: 0, effort: 0, velocity: 0 },
+        dynamics: { damping: 0, friction: 0 },
+        hardware: { armature: 0, motorType: 'None', motorId: '', motorDirection: 1 },
+      },
+    },
+    links: {
+      world: {
+        id: 'world',
+        name: 'world',
+        visible: true,
+        visual: {
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+          color: '#808080',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collision: {
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+          color: '#808080',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collisionBodies: [],
+        inertial: {
+          mass: 0,
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          inertia: { ixx: 0, ixy: 0, ixz: 0, iyy: 0, iyz: 0, izz: 0 },
+        },
+      },
+      base: {
+        id: 'base',
+        name: 'base',
+        visible: true,
+        visual: {
+          type: GeometryType.BOX,
+          dimensions: { x: 0.4, y: 0.2, z: 0.1 },
+          color: '#4f46e5',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collision: {
+          type: GeometryType.BOX,
+          dimensions: { x: 0.4, y: 0.2, z: 0.1 },
+          color: '#ef4444',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collisionBodies: [],
+        inertial: {
+          mass: 2,
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          inertia: { ixx: 0.1, ixy: 0, ixz: 0, iyy: 0.2, iyz: 0, izz: 0.3 },
+        },
+      },
+      base_geom_1: {
+        id: 'base_geom_1',
+        name: 'base_geom_1',
+        visible: true,
+        visual: {
+          type: GeometryType.CYLINDER,
+          dimensions: { x: 0.06, y: 0.3, z: 0 },
+          color: '#22c55e',
+          origin: { xyz: { x: 0.3, y: 0, z: 0 }, rpy: { r: 0, p: Math.PI / 2, y: 0 } },
+        },
+        collision: {
+          type: GeometryType.SPHERE,
+          dimensions: { x: 0.08, y: 0, z: 0 },
+          color: '#f59e0b',
+          origin: { xyz: { x: 0.3, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collisionBodies: [],
+        inertial: {
+          mass: 0,
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          inertia: { ixx: 0, ixy: 0, ixz: 0, iyy: 0, iyz: 0, izz: 0 },
+        },
+      },
+    },
+    materials: {},
+    inspectionContext: {
+      sourceFormat: 'mjcf',
+      mjcf: {
+        siteCount: 0,
+        tendonCount: 0,
+        tendonActuatorCount: 0,
+        bodiesWithSites: [],
+        tendons: [],
+      },
+    },
+  };
+}
+
 async function readArchiveText(
   payload: Awaited<ReturnType<typeof exportRobotToUsd>>,
   path: string,
@@ -473,6 +591,48 @@ test('isaacsim USDA export flattens link prim hierarchy for external articulatio
   assert.doesNotMatch(robotLayer, /<\/go1\/base_link\/link1>/);
 });
 
+test('isaacsim USDA export collapses synthetic MJCF geom attachment links back into one rigid body tree', async () => {
+  const payload = await exportRobotToUsd({
+    robot: createMjcfSyntheticAttachmentRobot(),
+    exportName: 'mjcf_go1',
+    assets: {},
+    fileFormat: 'usda',
+    layoutProfile: 'isaacsim',
+  });
+
+  const baseLayer = await readArchiveText(payload, 'mjcf_go1/configuration/mjcf_go1_base.usda');
+  const physicsLayer = await readArchiveText(
+    payload,
+    'mjcf_go1/configuration/mjcf_go1_physics.usda',
+  );
+
+  assert.match(baseLayer, /def Xform "base"/);
+  assert.doesNotMatch(baseLayer, /def Xform "world"/);
+  assert.doesNotMatch(baseLayer, /def Xform "base_geom_1"/);
+  assert.match(baseLayer, /def Xform "visuals"[\s\S]*def Cylinder "cylinder"/);
+  assert.match(baseLayer, /def Xform "collisions"[\s\S]*def Xform "collision_1"[\s\S]*def Sphere "sphere"/);
+  assert.ok(
+    extractTuples(baseLayer, 'xformOp:translate').some(
+      (tuple) =>
+        Math.abs((tuple[0] ?? 0) - 0.1) <= 1e-6 &&
+        Math.abs((tuple[1] ?? 0) - 0.5) <= 1e-6 &&
+        Math.abs((tuple[2] ?? 0) - 0.3) <= 1e-6,
+    ),
+    'expected collapsed synthetic geometry to inherit the fixed-joint translation',
+  );
+  assert.ok(
+    includesQuaternionClose(
+      extractTuples(baseLayer, 'xformOp:orient'),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 2, Math.PI / 2, 'ZYX')),
+    ),
+    'expected collapsed synthetic geometry to inherit the fixed-joint rotation',
+  );
+
+  assert.doesNotMatch(physicsLayer, /def PhysicsFixedJoint "world_to_base"/);
+  assert.doesNotMatch(physicsLayer, /def PhysicsFixedJoint "base_to_base_geom_1"/);
+  assert.doesNotMatch(physicsLayer, /rel physics:body1 = <\/mjcf_go1\/base_geom_1>/);
+});
+
 test('isaacsim USDA export hides mesh library prototypes and collision guide scopes from renderers', async () => {
   const meshPayload = await exportRobotToUsd({
     robot: createSharedMeshRobot('meshes/shared_triangle.obj'),
@@ -632,6 +792,44 @@ test('serializes joint origin quaternions using URDF ZYX rpy semantics', async (
     new THREE.Quaternion().setFromEuler(new THREE.Euler(0.31, -0.47, 0.83, 'ZYX')),
   );
   assert.match(physicsLayer, /custom float3 urdf:axisLocal = \(0, 0, -1\)/);
+});
+
+test('serializes preserved USD physics child joint frames for IsaacSim parity', async () => {
+  const robot = createTwoLinkRobot();
+  const childFrame = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(0, 1, 0),
+    Math.PI / 2,
+  );
+  robot.joints.joint_link1.type = JointType.FIXED;
+  robot.joints.joint_link1.origin.rpy = { r: 0, p: 0.05, y: 0 };
+  (
+    robot.joints.joint_link1 as typeof robot.joints.joint_link1 & {
+      usdPhysics: {
+        localRot1Wxyz: [number, number, number, number];
+      };
+    }
+  ).usdPhysics = {
+    localRot1Wxyz: [childFrame.w, childFrame.x, childFrame.y, childFrame.z],
+  };
+
+  const payload = await exportRobotToUsd({
+    robot,
+    exportName: 'two_link_robot',
+    assets: createTwoLinkAssets(),
+  });
+
+  const physicsLayer = await readArchiveText(
+    payload,
+    'two_link_robot/usd/configuration/two_link_robot_description_physics.usd',
+  );
+  const exportedLocalRot0 = extractTuples(physicsLayer, 'physics:localRot0').at(0);
+  const exportedLocalRot1 = extractTuples(physicsLayer, 'physics:localRot1').at(0);
+  assert.ok(exportedLocalRot0, 'expected physics:localRot0 on the exported joint');
+  assert.ok(exportedLocalRot1, 'expected physics:localRot1 on the exported joint');
+
+  const originQuaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.05, 0, 'ZYX'));
+  assertQuaternionClose(exportedLocalRot1, childFrame);
+  assertQuaternionClose(exportedLocalRot0, originQuaternion.multiply(childFrame));
 });
 
 test('serializes visual and collision origins using URDF ZYX rpy semantics', async () => {

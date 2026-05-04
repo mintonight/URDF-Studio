@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 
 import { GeometryType, JointType } from '@/types';
 import { computeLinkWorldMatrices } from '@/core/robot';
+import { resolveSdfIncludeSource } from './sdfIncludeResolution.ts';
 import { parseSDF } from './sdfParser.ts';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
@@ -428,6 +429,87 @@ test('parseSDF lets parent joints target included model links without injecting 
   assert.equal(robot?.joints['gripper::base__root_fixed'], undefined);
 });
 
+test('parseSDF reuses one SDF include index while resolving multiple includes', () => {
+  const allFileContents = {
+    'arm/model.sdf': `<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="arm">
+    <link name="base">
+      <visual name="body">
+        <geometry>
+          <box>
+            <size>1 1 1</size>
+          </box>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>`,
+    'gripper/model.sdf': `<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="gripper">
+    <link name="base">
+      <visual name="body">
+        <geometry>
+          <box>
+            <size>0.25 0.25 0.25</size>
+          </box>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>`,
+  };
+  const originalEntries = Object.entries;
+  let includeFileContentScans = 0;
+  Object.entries = ((value: object) => {
+    if (value === allFileContents) {
+      includeFileContentScans += 1;
+    }
+    return originalEntries(value);
+  }) as typeof Object.entries;
+
+  try {
+    const robot = parseSDF(
+      `<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="assembly">
+    <include>
+      <name>arm</name>
+      <uri>model://arm</uri>
+    </include>
+    <include>
+      <name>gripper</name>
+      <uri>model://gripper</uri>
+    </include>
+  </model>
+</sdf>`,
+      {
+        sourcePath: 'assembly/model.sdf',
+        allFileContents,
+      },
+    );
+
+    assert.ok(robot);
+    assert.ok(robot?.links['arm::base']);
+    assert.ok(robot?.links['gripper::base']);
+    assert.equal(includeFileContentScans, 1);
+  } finally {
+    Object.entries = originalEntries;
+  }
+});
+
+test('resolveSdfIncludeSource keeps the legacy allFileContents API', () => {
+  const resolved = resolveSdfIncludeSource('model://sensor', {
+    'sensor/model.sdf': '<sdf version="1.7"><model name="sensor" /></sdf>',
+  });
+
+  assert.deepEqual(resolved, {
+    path: 'sensor/model.sdf',
+    content: '<sdf version="1.7"><model name="sensor" /></sdf>',
+  });
+});
+
 test('parseSDF resolves URDF-style link poses relative to joint frames', () => {
   const robot = parseSDF(`<?xml version="1.0"?>
 <sdf version="1.7">
@@ -513,6 +595,22 @@ test('parseSDF preserves non-zero child link offsets relative to incoming joint 
     z: fingerPose.elements[14],
   };
   assert.deepEqual(position, { x: 0.1, y: 0.2, z: 0.3005 });
+});
+
+test('parseSDF keeps the Gazebo PR2 gripper closed-loop links inside one rooted tree', () => {
+  const source = fs.readFileSync('test/gazebo_models/pr2/model.sdf', 'utf8');
+  const robot = parseSDF(source, {
+    sourcePath: 'pr2/model.sdf',
+  });
+
+  assert.ok(robot);
+  assert.equal(robot?.joints.r_gripper_r_finger_joint?.parentLinkId, 'r_wrist_roll_link');
+  assert.equal(robot?.joints.r_gripper_r_finger_joint?.childLinkId, 'r_gripper_r_finger_link');
+
+  const childLinkIds = new Set(Object.values(robot?.joints ?? {}).map((joint) => joint.childLinkId));
+  const rootLinkIds = Object.keys(robot?.links ?? {}).filter((linkId) => !childLinkIds.has(linkId));
+
+  assert.deepEqual(rootLinkIds, ['base_footprint']);
 });
 
 test('parseSDF honors joint poses specified in the child link frame by default', () => {

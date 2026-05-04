@@ -1,10 +1,22 @@
-export function shouldMountRobotBeforeAssetsComplete(sourceFormat: 'urdf' | 'mjcf'): boolean {
+import { isUsdLikeFormat } from '@/core/parsers/usd';
+
+export function shouldMountRobotBeforeAssetsComplete(sourceFormat: 'urdf' | 'mjcf' | 'usd'): boolean {
   void sourceFormat;
   return false;
 }
 
 export function shouldForceViewerRuntimeRemount(
-  sourceFormat: 'urdf' | 'mjcf' | 'usd' | 'xacro' | 'sdf' | 'mesh' | 'asset' | null | undefined,
+  sourceFormat:
+    | 'urdf'
+    | 'mjcf'
+    | 'usd'
+    | 'usda'
+    | 'xacro'
+    | 'sdf'
+    | 'mesh'
+    | 'asset'
+    | null
+    | undefined,
 ): boolean {
-  return sourceFormat === 'usd';
+  return isUsdLikeFormat(sourceFormat);
 }

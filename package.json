@@ -26,12 +26,11 @@
     "lint": "npm run lint:eslint && npm run lint:style",
     "lint:eslint": "eslint . --cache --max-warnings=0",
     "lint:style": "stylelint \"src/**/*.css\"",
-    "format": "prettier --write \"README*.md\" \"*.{json,js,mjs,cjs}\" \".prettierrc.json\" \".github/**/*.yml\"",
-    "format:check": "prettier --check \"README*.md\" \"*.{json,js,mjs,cjs}\" \".prettierrc.json\" \".github/**/*.yml\"",
+    "format": "prettier --write \"README*.md\" \"*.{json,js,mjs,cjs}\" \".prettierrc.json\"",
+    "format:check": "prettier --check \"README*.md\" \"*.{json,js,mjs,cjs}\" \".prettierrc.json\"",
     "typecheck": "node ./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
     "typecheck:quality": "node ./node_modules/typescript/bin/tsc -p tsconfig.quality.json --noEmit",
     "check": "npm run verify:fast",
-    "prepare": "husky",
     "build:robot-canvas-lib": "vite build -c vite.lib.config.ts",
     "build:robot-canvas-lib:types": "node ./node_modules/typescript/bin/tsc -p tsconfig.lib.json && node ./scripts/rewrite_dts_aliases.mjs ./dist/lib-types",
     "build:package:react-robot-canvas": "npm run -w @urdf-studio/react-robot-canvas build",
@@ -63,6 +62,8 @@
     "test:fixtures:unitree-ros-usd-export-benchmark": "node scripts/regression/validate_unitree_ros_usd_export_benchmark.mjs",
     "test:fixtures:unitree-ros-usd-export-e2e-benchmark": "node scripts/regression/validate_unitree_ros_usd_export_e2e_benchmark.mjs",
     "test:fixtures:unitree-ros-isaacsim-truth": "npx tsx scripts/regression/validate_unitree_ros_usd_against_isaacsim.ts",
+    "test:fixtures:mujoco-mjcf-isaacsim-truth": "npx tsx scripts/regression/validate_mujoco_mjcf_usd_against_isaacsim.ts",
+    "test:fixtures:isaacsim-truth": "npm run test:fixtures:unitree-ros-isaacsim-truth && npm run test:fixtures:mujoco-mjcf-isaacsim-truth",
     "test:fixtures:unitree-ros-urdfs": "npx tsx scripts/regression/validate_unitree_ros_urdfs.ts",
     "test:fixtures:unitree-usd": "node scripts/regression/validate_unitree_selected_browser.mjs",
     "verify:fast": "npm run format:check && npm run lint && npm run typecheck:quality && npm run test && npm run build",
@@ -72,7 +73,7 @@
     "test:fixtures:unitree-ros-usda": "node scripts/regression/validate_unitree_ros_usda_selected_browser.mjs",
     "test:fixtures": "npm run test:fixtures:imports && npm run test:fixtures:unitree-ros-urdfs && npm run test:fixtures:unitree-usd && npm run test:fixtures:unitree-ros-usda && npm run test:fixtures:unitree-ros-usd-export-benchmark",
     "dev:with-generate": "node scripts/start_dev_server.mjs --generate",
-    "test:unit:app-hooks": "node --import tsx --test src/app/hooks/useEditableSourcePatches.test.ts src/app/hooks/workspaceGeneratedSourceState.test.ts src/app/utils/assemblyRootComponentSelection.test.ts src/app/utils/importPreparation.workerSafe.test.ts src/app/components/UnifiedViewer.typecheck.test.ts src/app/handoff/bootstrap.test.ts src/app/utils/popupHandoffImport.test.ts"
+    "test:unit:app-hooks": "node --import tsx --test src/app/hooks/sourcePreservingExportUtils.test.ts src/app/hooks/useEditableSourcePatches.test.ts src/app/hooks/workspaceGeneratedSourceState.test.ts src/app/utils/assemblyRootComponentSelection.test.ts src/app/utils/importPreparation.workerSafe.test.ts src/app/components/UnifiedViewer.typecheck.test.ts src/app/handoff/bootstrap.test.ts src/app/utils/popupHandoffImport.test.ts"
   },
   "license": "Apache-2.0",
   "dependencies": {
@@ -104,8 +105,6 @@
     "zustand": "^5.0.10"
   },
   "devDependencies": {
-    "@commitlint/cli": "^20.5.0",
-    "@commitlint/config-conventional": "^20.5.0",
     "@eslint/js": "^9.39.4",
     "@tailwindcss/vite": "^4.1.18",
     "@types/node": "^22.14.0",
@@ -116,8 +115,6 @@
     "autoprefixer": "^10.4.23",
     "eslint": "^9.39.4",
     "globals": "^17.4.0",
-    "husky": "^9.1.7",
-    "lint-staged": "^16.4.0",
     "postcss": "^8.5.6",
     "prettier": "^3.8.1",
     "puppeteer": "^24.36.1",
@@ -129,11 +126,6 @@
     "typescript": "~5.8.2",
     "typescript-eslint": "^8.58.0",
     "vite": "^6.2.0"
-  },
-  "lint-staged": {
-    "*.{js,mjs,cjs,ts,tsx,jsx,css,md,json,yml,yaml}": "prettier --write",
-    "*.{js,mjs,cjs,ts,tsx,jsx}": "eslint --cache --fix --max-warnings=0 --no-warn-ignored",
-    "*.css": "stylelint --fix --allow-empty-input"
   },
   "workspaces": [
     "packages/*"

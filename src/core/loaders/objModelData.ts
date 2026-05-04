@@ -196,42 +196,49 @@ function createMaterialFromSerializedObjMaterial(
     options: { forceVertexColors?: boolean } = {},
 ): Material {
     const vertexColors = data.vertexColors || options.forceVertexColors === true;
+    const materialColor = vertexColors ? 0xffffff : data.color;
 
     if (data.kind === 'line-basic') {
-        const material = new LineBasicMaterial({ color: data.color });
+        const material = new LineBasicMaterial({ color: materialColor });
         material.name = data.name;
         material.vertexColors = vertexColors;
+        material.toneMapped = vertexColors ? false : material.toneMapped;
         material.userData = {
             ...(material.userData ?? {}),
             [GENERATED_OBJ_MATERIAL_USER_DATA_KEY]: true,
+            ...(vertexColors ? { usesVertexColors: true } : {}),
         };
         return material;
     }
 
     if (data.kind === 'points') {
         const material = new PointsMaterial({
-            color: data.color,
+            color: materialColor,
             size: data.size ?? 1,
             sizeAttenuation: data.sizeAttenuation ?? false,
         });
         material.name = data.name;
         material.vertexColors = vertexColors;
+        material.toneMapped = vertexColors ? false : material.toneMapped;
         material.userData = {
             ...(material.userData ?? {}),
             [GENERATED_OBJ_MATERIAL_USER_DATA_KEY]: true,
+            ...(vertexColors ? { usesVertexColors: true } : {}),
         };
         return material;
     }
 
     const material = new MeshPhongMaterial({
-        color: data.color,
+        color: materialColor,
         flatShading: data.flatShading ?? false,
     });
     material.name = data.name;
     material.vertexColors = vertexColors;
+    material.toneMapped = vertexColors ? false : material.toneMapped;
     material.userData = {
         ...(material.userData ?? {}),
         [GENERATED_OBJ_MATERIAL_USER_DATA_KEY]: true,
+        ...(vertexColors ? { usesVertexColors: true } : {}),
     };
     return material;
 }

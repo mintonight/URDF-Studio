@@ -1,6 +1,6 @@
 # 文档索引
 
-> 最后更新：2026-04-15
+> 最后更新：2026-05-01
 
 ## 按任务类型导航
 
@@ -8,6 +8,7 @@
 |-----------|------|-------------|
 | 改 Editor / 3D 场景 / Viewer / USD runtime | [AGENTS.md](../AGENTS.md) | [viewer.md](viewer.md) |
 | 改导入 / 导出 / Workspace / 组装 | [AGENTS.md](../AGENTS.md) | [file-io.md](file-io.md) |
+| 编译 OpenUSD WASM / 重新构建 bindings | [AGENTS.md](../AGENTS.md) | [wasm-build.md](wasm-build.md) |
 | 改 UI 样式 / 颜色 / 主题 / 可访问性 | [AGENTS.md](../AGENTS.md) | [style-guide.md](style-guide.md) |
 | 改 AI 助手 / 审阅 / skill 路由 | [AGENTS.md](../AGENTS.md) | [ai-features.md](ai-features.md) |
 | 改架构边界 / 新增依赖 / 例外管理 | [AGENTS.md](../AGENTS.md) | [architecture.md](architecture.md) |
@@ -22,6 +23,7 @@
 | [AGENTS.md](../AGENTS.md) | 项目入口：定位、结构、红线、Store、导航 | ~150 |
 | [viewer.md](viewer.md) | Editor/Viewer 子域：拓扑、几何/碰撞/测量、USD runtime、offscreen、hydration | ~130 |
 | [file-io.md](file-io.md) | 导入导出链路：App 编排、File I/O、Workspace、组装、project archive | ~140 |
+| [wasm-build.md](wasm-build.md) | OpenUSD WASM 构建：源码迁移、编译脚本、故障排查 | ~150 |
 | [style-guide.md](style-guide.md) | UI 样式：语义色 token、蓝色约束、暗色层级、面板文案、验收标准 | ~70 |
 | [ai-features.md](ai-features.md) | AI 助手：环境变量、审阅标准路径、skill-first 路由 | ~60 |
 | [architecture.md](architecture.md) | 架构边界：依赖方向、例外清单、debuggability first、Linux 哲学、内存约束、检查命令 | ~140 |

@@ -71,6 +71,68 @@ test('namespaceAssemblyRobotData prefixes links, joints, and materials for assem
   assert.equal(namespaced.materials?.comp_demo_base_link?.color, '#ff6600');
 });
 
+test('namespaceAssemblyRobotData rewrites mimic joint targets for assembly components', () => {
+  const robotData: RobotData = {
+    name: 'gripper',
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+      },
+      left_finger: {
+        ...DEFAULT_LINK,
+        id: 'left_finger',
+        name: 'left_finger',
+      },
+      right_finger: {
+        ...DEFAULT_LINK,
+        id: 'right_finger',
+        name: 'right_finger',
+      },
+    },
+    joints: {
+      joint7: {
+        id: 'joint7',
+        name: 'joint7',
+        type: JointType.PRISMATIC,
+        parentLinkId: 'base_link',
+        childLinkId: 'left_finger',
+        origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        axis: { x: 0, y: 0, z: 1 },
+        limit: { lower: 0, upper: 0.035, effort: 1, velocity: 1 },
+        dynamics: { damping: 0, friction: 0 },
+        hardware: { armature: 0, motorType: 'None', motorId: '', motorDirection: 1 },
+      },
+      joint8: {
+        id: 'joint8',
+        name: 'joint8',
+        type: JointType.PRISMATIC,
+        parentLinkId: 'base_link',
+        childLinkId: 'right_finger',
+        origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        axis: { x: 0, y: 0, z: -1 },
+        limit: { lower: -0.035, upper: 0, effort: 1, velocity: 1 },
+        dynamics: { damping: 0, friction: 0 },
+        hardware: { armature: 0, motorType: 'None', motorId: '', motorDirection: 1 },
+        mimic: {
+          joint: 'joint7',
+          multiplier: -1,
+          offset: 0,
+        },
+      },
+    },
+  };
+
+  const namespaced = namespaceAssemblyRobotData(robotData, {
+    componentId: 'comp_piper',
+    rootName: 'piper',
+  });
+
+  assert.equal(namespaced.joints.comp_piper_joint8.mimic?.joint, 'comp_piper_joint7');
+});
+
 test('prepareAssemblyRobotData rewrites USD mesh paths before namespacing', () => {
   const robotData: RobotData = {
     name: 'go2',

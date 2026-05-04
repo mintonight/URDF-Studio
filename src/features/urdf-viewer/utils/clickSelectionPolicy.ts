@@ -86,6 +86,6 @@ export function resolveDeferredSelectionHoverState({
 
   return {
     pointerExceededClickThreshold,
-    shouldClearHover: pointerExceededClickThreshold,
+    shouldClearHover: false,
   };
 }

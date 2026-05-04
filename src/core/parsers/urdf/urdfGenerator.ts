@@ -17,6 +17,7 @@ import {
   collectGeometryTexturePaths,
   getEffectiveGeometryAuthoredMaterials,
   getVisualGeometryEntries,
+  resolveJointKey,
   resolveVisualMaterialOverride,
 } from '@/core/robot';
 import {
@@ -616,7 +617,10 @@ export const generateURDF = (
     }
 
     if (joint.mimic?.joint) {
-      const mimicAttributes = [`joint="${joint.mimic.joint}"`];
+      const targetJointId = resolveJointKey(joints, joint.mimic.joint);
+      const targetJoint = targetJointId ? joints[targetJointId] : undefined;
+      const targetJointName = targetJoint?.name || joint.mimic.joint;
+      const mimicAttributes = [`joint="${targetJointName}"`];
       if (typeof joint.mimic.multiplier === 'number' && Number.isFinite(joint.mimic.multiplier)) {
         mimicAttributes.push(`multiplier="${formatScalar(joint.mimic.multiplier)}"`);
       }

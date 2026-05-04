@@ -81,17 +81,19 @@ test('HydraMaterial.applyNetworkUpdate reuses owned materials and disposes super
     const firstAssignedMap = firstMaterial.map;
 
     assert.ok(firstAssignedMap, 'expected first network update to assign a cloned texture');
+    assert.equal(firstAssignedMap.colorSpace, SRGBColorSpace);
 
     activeSourceTexture = secondSourceTexture;
     await hydraMaterial.applyNetworkUpdate(buildMaterialNetworkUpdate('/textures/albedo-b.png'));
 
     assert.equal(hydraMaterial._material, firstMaterial);
     assert.notEqual(hydraMaterial._material.map, firstAssignedMap);
+    assert.equal(hydraMaterial._material.map.colorSpace, SRGBColorSpace);
     assert.equal(firstCloneDisposeCount, 1);
     assert.equal(secondCloneDisposeCount, 0);
 });
 
-test('HydraMaterial applies authored preview-surface colors using SRGB semantics', async () => {
+test('HydraMaterial applies authored preview-surface scalar colors as sRGB input values', async () => {
     const hydraInterface = {
         registry: {
             async getTexture() {
@@ -126,6 +128,52 @@ test('HydraMaterial applies authored preview-surface colors using SRGB semantics
     assert.notEqual(hydraMaterial._material.isMeshPhysicalMaterial, true);
     assertColorClose(hydraMaterial._material.color, expectedBaseColor);
     assertColorClose(hydraMaterial._material.emissive, expectedEmissiveColor);
+});
+
+test('HydraMaterial applies OmniPBR diffuse_color_constant as the base color without stage fallback', async () => {
+    let fallbackRequestCount = 0;
+    const hydraInterface = {
+        registry: {
+            async getTexture() {
+                return null;
+            },
+        },
+        createFallbackMaterialFromStage() {
+            fallbackRequestCount += 1;
+            return null;
+        },
+    };
+
+    const hydraMaterial = new HydraMaterial('/go2_description/Looks/material_____________001', hydraInterface);
+    const authoredColor = [0.6717055, 0.6924257, 0.7742702];
+
+    await hydraMaterial.applyNetworkUpdate([{
+        networkId: '/go2_description/Looks/material_____________001',
+        nodes: [
+            {
+                path: '/go2_description/Looks/material_____________001/material_____________001',
+                parameters: {
+                    diffuse_color_constant: authoredColor,
+                    enable_emission: false,
+                    opacity_constant: 1,
+                },
+            },
+        ],
+        relationships: [],
+    }]);
+
+    const expectedBaseColor = new Color().setRGB(
+        authoredColor[0],
+        authoredColor[1],
+        authoredColor[2],
+        SRGBColorSpace,
+    );
+
+    assert.equal(fallbackRequestCount, 0);
+    assert.equal(hydraMaterial._material.name, 'material_____________001');
+    assertColorClose(hydraMaterial._material.color, expectedBaseColor);
+    assertColorClose(hydraMaterial._material.emissive, new Color(0x000000));
+    assert.equal(hydraMaterial._material.opacity, 1);
 });
 
 test('HydraMaterial upgrades to MeshPhysicalMaterial when physical-only inputs are authored', async () => {

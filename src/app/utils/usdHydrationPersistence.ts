@@ -1,9 +1,10 @@
 import type { ViewerRobotDataResolution } from '@/features/editor';
-import type { RobotData, UsdPreparedExportCache, UsdSceneSnapshot } from '@/types';
+import type { RobotData, UsdBakedScene, UsdPreparedExportCache, UsdSceneSnapshot } from '@/types';
 
 interface UsdHydrationResolutionLike {
   robotData: RobotData;
   stageSourcePath?: string | null;
+  usdBakedScene?: UsdBakedScene | null;
   usdSceneSnapshot?: UsdSceneSnapshot | null;
 }
 
@@ -14,7 +15,9 @@ interface UsdHydrationPersistencePlanOptions {
 }
 
 export interface UsdHydrationPersistencePlan {
+  bakedScene: unknown | null;
   sceneSnapshot: unknown | null;
+  shouldSeedBakedScene: boolean;
   shouldSeedSceneSnapshot: boolean;
   shouldSeedPreparedExportCache: boolean;
 }
@@ -42,13 +45,19 @@ export function buildUsdHydrationPersistencePlan({
   existingSceneSnapshot = null,
   existingPreparedExportCache = null,
 }: UsdHydrationPersistencePlanOptions): UsdHydrationPersistencePlan {
-  const resolvedSceneSnapshot = existingSceneSnapshot ?? resolution.usdSceneSnapshot ?? null;
+  const resolvedBakedScene =
+    existingSceneSnapshot ?? resolution.usdBakedScene ?? resolution.usdSceneSnapshot ?? null;
+  const shouldSeedBakedScene =
+    existingSceneSnapshot == null &&
+    (resolution.usdBakedScene != null || resolution.usdSceneSnapshot != null);
 
   return {
-    sceneSnapshot: resolvedSceneSnapshot,
-    shouldSeedSceneSnapshot: existingSceneSnapshot == null && resolution.usdSceneSnapshot != null,
+    bakedScene: resolvedBakedScene,
+    sceneSnapshot: resolvedBakedScene,
+    shouldSeedBakedScene,
+    shouldSeedSceneSnapshot: shouldSeedBakedScene,
     shouldSeedPreparedExportCache:
-      existingPreparedExportCache == null && resolvedSceneSnapshot != null,
+      existingPreparedExportCache == null && resolvedBakedScene != null,
   };
 }
 
@@ -58,22 +67,22 @@ export function resolveUsdHydrationRobotData({
   existingPreparedExportCache = null,
   prepareExportCacheFromSnapshot,
 }: ResolveUsdHydrationRobotDataOptions): ResolvedUsdHydrationRobotData {
-  const sceneSnapshot = resolution.usdSceneSnapshot ?? null;
+  const bakedScene = resolution.usdBakedScene ?? resolution.usdSceneSnapshot ?? null;
 
   // Fresh worker snapshots should outrank any previously prepared cache for the
   // same file path. Reusing cached RobotData here can rehydrate a newer USD
   // import with stale mesh assignments or transforms until the deferred full
   // scene snapshot arrives.
-  if (!sceneSnapshot && existingPreparedExportCache?.robotData) {
+  if (!bakedScene && existingPreparedExportCache?.robotData) {
     return {
       robotData: existingPreparedExportCache.robotData,
       preparedExportCache: existingPreparedExportCache,
     };
   }
 
-  if (sceneSnapshot && allowSynchronousPreparedCacheFromSnapshot) {
-    const preparedExportCache = prepareExportCacheFromSnapshot(sceneSnapshot, {
-      fileName: resolution.stageSourcePath || sceneSnapshot.stageSourcePath || undefined,
+  if (bakedScene && allowSynchronousPreparedCacheFromSnapshot) {
+    const preparedExportCache = prepareExportCacheFromSnapshot(bakedScene, {
+      fileName: resolution.stageSourcePath || bakedScene.stageSourcePath || undefined,
       resolution,
     });
     if (preparedExportCache?.robotData) {

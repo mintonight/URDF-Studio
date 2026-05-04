@@ -54,7 +54,10 @@ test('preserves hover for collision geometry even when objectIndex metadata is a
   );
 });
 
-test('clears hover after committed helper selections', () => {
+test('preserves hover for committed inertia helper clicks', () => {
+  const inertiaBox = new THREE.Group();
+  inertiaBox.name = '__inertia_box__';
+
   assert.deepEqual(
     resolveSelectionCommitHoverAction({
       type: 'link',
@@ -62,10 +65,19 @@ test('clears hover after committed helper selections', () => {
       linkId: 'tool_tip',
       subType: undefined,
       targetKind: 'helper',
+      helperKind: 'inertia',
       objectIndex: undefined,
-      highlightTarget: undefined,
+      highlightTarget: inertiaBox,
     }),
-    { mode: 'clear' },
+    {
+      mode: 'preserve',
+      hoveredSelection: {
+        type: 'link',
+        id: 'tool_tip',
+        helperKind: 'inertia',
+        highlightObjectId: inertiaBox.id,
+      },
+    },
   );
 });
 

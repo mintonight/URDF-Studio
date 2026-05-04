@@ -12,9 +12,7 @@ import type {
   RobotData,
   RobotFile,
   UsdPreparedExportCache,
-  UsdSceneSnapshot,
 } from '@/types';
-import type { ViewerRobotDataResolution } from '@/features/editor';
 
 import {
   resolveUsdAssemblySeedRobotData,
@@ -193,12 +191,6 @@ test('resolveUsdAssemblySeedRobotData prefers prepared export cache for usd asse
       assert.equal(fileName, activeFile.name);
       return createPreparedCache(fileName, cachedRobotData);
     },
-    getCurrentSceneSnapshot: () => {
-      assert.fail('scene snapshot fallback should not run when prepared cache already exists');
-    },
-    prepareExportCacheFromSnapshot: () => {
-      assert.fail('prepared cache rebuild should not run when prepared cache already exists');
-    },
   });
 
   assert.equal(result.preResolvedRobotData, cachedRobotData);
@@ -209,77 +201,46 @@ test('resolveUsdAssemblySeedRobotData prefers prepared export cache for usd asse
 test('resolveUsdAssemblySeedRobotData reuses currently loaded usd robot data when cache is missing', () => {
   const activeFile = createUsdFile();
   const liveRobotData = createRobotData('live-go2w');
-  let snapshotCalls = 0;
 
   const result = resolveUsdAssemblySeedRobotData({
     activeFile,
     selectedFile: activeFile,
     currentRobotData: liveRobotData,
     getUsdPreparedExportCache: () => null,
-    getCurrentSceneSnapshot: () => {
-      snapshotCalls += 1;
-      return null;
-    },
-    prepareExportCacheFromSnapshot: () => {
-      assert.fail(
-        'prepared cache rebuild should not run when current usd robot data is already usable',
-      );
-    },
   });
 
   assert.equal(result.preResolvedRobotData, liveRobotData);
   assert.equal(result.preparedCache, null);
   assert.equal(result.requiresRobotReload, false);
-  assert.equal(snapshotCalls, 0);
 });
 
-test('resolveUsdAssemblySeedRobotData rebuilds prepared cache from the current usd scene snapshot as a fallback', () => {
+test('resolveUsdAssemblySeedRobotData requests reload instead of reading live usd scene snapshot fallback', () => {
   const activeFile = createUsdFile();
-  const snapshot = {
-    stageSourcePath: activeFile.name,
-  } satisfies UsdSceneSnapshot;
-  const preparedCache = {
-    ...createPreparedCache(activeFile.name, createRobotData('snapshot-go2w')),
-    resolution: {
-      robotData: createRobotData('snapshot-go2w'),
-      stageSourcePath: activeFile.name,
-      linkIdByPath: {},
-      linkPathById: {},
-      jointPathById: {},
-      childLinkPathByJointId: {},
-      parentLinkPathByJointId: {},
-    } satisfies ViewerRobotDataResolution,
-  };
-  let snapshotRequest: { stageSourcePath?: string | null } | null = null;
-  let preparedFromSnapshot: UsdSceneSnapshot | null = null;
+  let snapshotCalls = 0;
 
-  const result = resolveUsdAssemblySeedRobotData({
+  const options = {
     activeFile,
     selectedFile: createUsdFile('unitree_model/Go2/usd/go2.usd'),
     currentRobotData: null,
     getUsdPreparedExportCache: () => null,
-    getCurrentSceneSnapshot: (request) => {
-      snapshotRequest = request;
-      return snapshot;
+    getCurrentSceneSnapshot: () => {
+      snapshotCalls += 1;
+      assert.fail('scene snapshot fallback should not run for usd assembly seeding');
     },
-    prepareExportCacheFromSnapshot: (sceneSnapshot, options = {}) => {
-      preparedFromSnapshot = sceneSnapshot;
-      assert.equal(options.fileName, activeFile.name);
-      return preparedCache;
-    },
-  });
+  };
 
-  assert.deepEqual(snapshotRequest, { stageSourcePath: activeFile.name });
-  assert.equal(preparedFromSnapshot, snapshot);
-  assert.equal(result.preResolvedRobotData, preparedCache.robotData);
-  assert.equal(result.preparedCache, preparedCache);
-  assert.equal(result.requiresRobotReload, false);
+  const result = resolveUsdAssemblySeedRobotData(options);
+
+  assert.equal(snapshotCalls, 0);
+  assert.equal(result.preResolvedRobotData, null);
+  assert.equal(result.preparedCache, null);
+  assert.equal(result.requiresRobotReload, true);
 });
 
 test('resolveUsdAssemblySeedRobotData requests a fresh usd load when no usable seed data exists', () => {
   const activeFile = createUsdFile();
 
-  const result = resolveUsdAssemblySeedRobotData({
+  const options = {
     activeFile,
     selectedFile: createUsdFile('unitree_model/Go2/usd/go2.usd'),
     currentRobotData: {
@@ -296,11 +257,12 @@ test('resolveUsdAssemblySeedRobotData requests a fresh usd load when no usable s
         joints: {},
       },
     }),
-    getCurrentSceneSnapshot: () => null,
-    prepareExportCacheFromSnapshot: () => {
-      assert.fail('prepared cache rebuild should not run when no snapshot is available');
+    getCurrentSceneSnapshot: () => {
+      assert.fail('scene snapshot fallback should not run when no usable seed data exists');
     },
-  });
+  };
+
+  const result = resolveUsdAssemblySeedRobotData(options);
 
   assert.equal(result.preResolvedRobotData, null);
   assert.equal(result.preparedCache, null);

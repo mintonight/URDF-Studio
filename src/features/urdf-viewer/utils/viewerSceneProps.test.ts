@@ -43,7 +43,7 @@ test('buildViewerSceneProps uses controller-owned defaults for viewer scene wiri
   assert.equal(sceneProps.active, true);
   assert.equal(sceneProps.hoverSelectionEnabled, true);
   assert.equal(sceneProps.onHover, controller.handleHoverWrapper);
-  assert.equal(sceneProps.allowUrdfXmlFallback, true);
+  assert.equal(sceneProps.allowUrdfXmlFallback, false);
   assert.equal(sceneProps.isMeshPreview, false);
   assert.equal(sceneProps.runtimeInstanceKey, 0);
 });

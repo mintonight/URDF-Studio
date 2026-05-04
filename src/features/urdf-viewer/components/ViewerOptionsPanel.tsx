@@ -7,6 +7,7 @@ import {
   OptionsPanelContent,
   ToggleSliderOption,
 } from '@/shared/components/Panel/OptionsPanel';
+import { WORKSPACE_OVERLAY_RIGHT_EDGE_GAP } from '@/shared/components/3d/scene';
 import { useOverlayHoverBlock } from '@/shared/hooks';
 
 interface ViewerOptionsPanelProps {
@@ -223,7 +224,7 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
               bottom: 'auto',
               transform: 'none',
             }
-          : (defaultPosition ?? { top: '16px', right: '16px' })
+          : (defaultPosition ?? { top: '16px', right: WORKSPACE_OVERLAY_RIGHT_EDGE_GAP })
       }
       onClick={stopPanelEventPropagation}
       onContextMenu={stopPanelEventPropagation}
@@ -248,6 +249,9 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
           showDragGrip={false}
           onMouseDown={onMouseDown}
           className="!gap-1.5 !px-1.5 !py-1"
+          expandText={t.expand}
+          collapseText={t.collapse}
+          closeText={t.close}
         />
 
         <OptionsPanelContent isCollapsed={isOptionsCollapsed}>

@@ -57,6 +57,7 @@ import {
   getViewerSourceFile,
   shouldUseEmptyRobotForUsdHydration,
 } from './hooks/workspaceSourceSyncUtils';
+import { shouldDeferUsdStageHydrationSelectionCleanup } from './utils/usdStageHydration';
 import type { ImportPreparationOverlayState } from './hooks/useFileImport';
 import {
   useUIStore,
@@ -71,8 +72,11 @@ import type { BridgeJoint, RobotFile, UrdfJoint, UrdfLink } from '@/types';
 import { translations } from '@/shared/i18n';
 import {
   captureWorkspaceCameraSnapshot,
+  resolveWorkspaceOverlayGizmoMargin,
+  resolveWorkspaceOverlaySafeAreaStyle,
   type SnapshotCaptureAction,
   type SnapshotCaptureOptions,
+  type WorkspaceOverlayGizmoMargin,
 } from '@/shared/components/3d';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
 import { isAssetLibraryOnlyFormat, ROBOT_IMPORT_ACCEPT_ATTRIBUTE } from '@/shared/utils';
@@ -84,6 +88,7 @@ import { clearIkDragHelperSelection } from './utils/ikDragSession';
 import { resolveIkToolSelectionState } from './utils/ikToolSelectionState';
 import { resolveAssemblyRootComponentSelectionAvailability } from './utils/assemblyRootComponentSelection';
 import { buildSimpleModeDraftFile } from './utils/simpleModeDrafts';
+import { resolveWorkspaceOverlayLayoutClassNames } from './utils/workspaceOverlayLayout';
 import type { SnapshotPreviewSession } from './components/snapshot-preview/types';
 
 interface ProModeRoundtripSession {
@@ -166,6 +171,7 @@ export function AppLayout({
     lang,
     theme,
     sidebar,
+    panelLayout,
     toggleSidebar,
     setSidebar,
     sidebarTab,
@@ -178,6 +184,7 @@ export function AppLayout({
       lang: state.lang,
       theme: state.theme,
       sidebar: state.sidebar,
+      panelLayout: state.panelLayout,
       toggleSidebar: state.toggleSidebar,
       setSidebar: state.setSidebar,
       sidebarTab: state.sidebarTab,
@@ -381,6 +388,13 @@ export function AppLayout({
     documentLoadStatus: documentLoadLifecycleState.status,
     documentLoadFileName: documentLoadLifecycleState.fileName,
   });
+  const shouldDeferSelectionCleanup = shouldDeferUsdStageHydrationSelectionCleanup({
+    documentLoadFileName: documentLoadLifecycleState.fileName,
+    documentLoadFormat: documentLoadLifecycleState.format,
+    documentLoadStatus: documentLoadLifecycleState.status,
+    selectedFileFormat: selectedFile?.format ?? null,
+    selectedFileName: selectedFile?.name ?? null,
+  });
 
   const {
     assemblyComponentPreparationOverlay,
@@ -414,6 +428,7 @@ export function AppLayout({
     urdfContentForViewer,
     viewerSourceFormat,
     viewerSourceFilePath,
+    renderSelectedUsdFromRobotState,
     workspaceViewerMjcfSourceFile,
     sourceCodeDocuments,
     hasSimpleModeSourceEdits,
@@ -552,7 +567,6 @@ export function AppLayout({
     proModeRoundtripSessionRef,
   });
   const {
-    handleRobotDataResolved,
     handleViewerDocumentLoadEvent,
     handleViewerRuntimeRobotLoaded,
     handleViewerRuntimeSceneReadyForDisplay,
@@ -621,6 +635,37 @@ export function AppLayout({
   const propertyEditorSelectionContext = useMemo(
     () => buildPropertyEditorSelectionContext(previewContextRobot, assemblyState),
     [assemblyState, previewContextRobot],
+  );
+  const workspaceLayoutClassNames = useMemo(() => resolveWorkspaceOverlayLayoutClassNames(), []);
+  const workspaceOverlaySafeAreaStyle = useMemo(
+    () =>
+      resolveWorkspaceOverlaySafeAreaStyle({
+        leftCollapsed: sidebar.leftCollapsed,
+        propertyEditorWidth: panelLayout.propertyEditorWidth,
+        rightCollapsed: sidebar.rightCollapsed,
+        treeSidebarWidth: panelLayout.treeSidebarWidth,
+      }),
+    [
+      panelLayout.propertyEditorWidth,
+      panelLayout.treeSidebarWidth,
+      sidebar.leftCollapsed,
+      sidebar.rightCollapsed,
+    ],
+  );
+  const workspaceOverlayGizmoMargin = useMemo<WorkspaceOverlayGizmoMargin>(
+    () =>
+      resolveWorkspaceOverlayGizmoMargin({
+        leftCollapsed: sidebar.leftCollapsed,
+        propertyEditorWidth: panelLayout.propertyEditorWidth,
+        rightCollapsed: sidebar.rightCollapsed,
+        treeSidebarWidth: panelLayout.treeSidebarWidth,
+      }),
+    [
+      panelLayout.propertyEditorWidth,
+      panelLayout.treeSidebarWidth,
+      sidebar.leftCollapsed,
+      sidebar.rightCollapsed,
+    ],
   );
 
   const {
@@ -818,6 +863,7 @@ export function AppLayout({
         fileName: document.fileName,
         tabLabel: document.tabLabel,
         filePath: document.filePath ?? undefined,
+        contentUrl: document.contentUrl,
         documentFlavor: document.documentFlavor,
         readOnly: document.readOnly,
         validationEnabled: document.validationEnabled,
@@ -838,8 +884,14 @@ export function AppLayout({
         selectedFile,
         shouldRenderAssembly,
         workspaceSourceFile: workspaceViewerMjcfSourceFile,
+        renderSelectedUsdFromRobotState,
       }),
-    [selectedFile, shouldRenderAssembly, workspaceViewerMjcfSourceFile],
+    [
+      renderSelectedUsdFromRobotState,
+      selectedFile,
+      shouldRenderAssembly,
+      workspaceViewerMjcfSourceFile,
+    ],
   );
 
   const handleCloseSnapshotDialog = useCallback(() => {
@@ -999,6 +1051,7 @@ export function AppLayout({
     robot,
     selection,
     clearSelection,
+    shouldDeferSelectionCleanup,
     onFileDrop,
     onDropError: () => showToast(t.failedToProcessFiles, 'info'),
   });
@@ -1016,8 +1069,22 @@ export function AppLayout({
     onPreloadError: handleSourceCodeEditorPreloadError,
   });
 
+  const assemblyComponentFileNames = useMemo(() => {
+    if (!assemblyState) {
+      return undefined;
+    }
+    const names = new Set<string>();
+    for (const component of Object.values(assemblyState.components)) {
+      if (component.sourceFile) {
+        names.add(component.sourceFile);
+      }
+    }
+    return names.size > 0 ? names : undefined;
+  }, [assemblyState]);
+
   const { handlePreviewFileWithFeedback } = usePreviewFileWithFeedback({
     allFileContents,
+    assemblyComponentFileNames,
     assets,
     availableFiles,
     getUsdPreparedExportCache,
@@ -1173,50 +1240,10 @@ export function AppLayout({
       />
 
       {/* Main Workspace */}
-      <div className="flex-1 flex overflow-hidden">
-        <TreeEditor
-          robot={previewContextRobot}
-          onSelect={handleSelectWithAssemblyClear}
-          onSelectGeometry={handleSelectGeometryWithAssemblyClear}
-          onFocus={handleFocus}
-          onAddChild={handleAddChild}
-          onAddCollisionBody={handleAddCollisionBody}
-          onDelete={handleDelete}
-          onNameChange={handleNameChange}
-          onUpdate={handleUpdate}
-          showVisual={showVisual}
-          setShowVisual={handleSetShowVisual}
-          mode={mergedAppMode}
-          lang={lang}
-          theme={theme}
-          collapsed={sidebar.leftCollapsed}
-          onToggle={() => toggleSidebar('left')}
-          availableFiles={availableFiles}
-          onLoadRobot={handlePreviewFileWithFeedback}
-          onRequestLoadRobot={handleRequestLoadRobot}
-          currentFileName={selectedFile?.name}
-          sourceFilePath={viewerSourceFilePath}
-          assemblyState={assemblyState}
-          onAddComponent={handleAddComponent}
-          onDeleteLibraryFile={handleDeleteLibraryFile}
-          onDeleteLibraryFolder={handleDeleteLibraryFolder}
-          onRenameLibraryFolder={handleRenameLibraryFolder}
-          onDeleteAllLibraryFiles={handleDeleteAllLibraryFiles}
-          onExportLibraryFile={handleExportLibraryFile}
-          onCreateBridge={handleCreateBridge}
-          onRemoveComponent={removeComponent}
-          onRemoveBridge={removeBridge}
-          onRenameComponent={handleRenameComponent}
-          onSwitchToProMode={handleSwitchTreeEditorToProMode}
-          onRequestSwitchToStructure={handleRequestSwitchTreeEditorToStructure}
-          isReadOnly={isPreviewingWorkspaceSource}
-          showJointPanel={viewConfig.showJointPanel}
-          onJointAngleChange={handleJointChange}
-        />
-
-        {/* Viewer Container — z-0 stacking context keeps floating panels below sidebars (z-20);
-            overflow-hidden prevents panels from being dragged outside the 3D view area. */}
-        <div className="flex-1 relative z-0 min-w-0 overflow-hidden">
+      <div className={workspaceLayoutClassNames.root}>
+        {/* Viewer Container — fills the workspace while sidebars cover it, so sidebar width
+            changes do not resize or stretch the Three.js canvas. */}
+        <div className={workspaceLayoutClassNames.viewerLayer} style={workspaceOverlaySafeAreaStyle}>
           <Suspense
             fallback={
               <div className="flex-1 h-full bg-google-light-bg dark:bg-app-bg animate-pulse" />
@@ -1248,7 +1275,6 @@ export function AppLayout({
               viewerSourceFormat={viewerSourceFormat}
               sourceFilePath={viewerSourceFilePath}
               sourceFile={viewerSourceFile}
-              onRobotDataResolved={handleRobotDataResolved}
               onDocumentLoadEvent={handleViewerDocumentLoadEvent}
               onRuntimeRobotLoaded={handleViewerRuntimeRobotLoaded}
               onRuntimeSceneReadyForDisplay={handleViewerRuntimeSceneReadyForDisplay}
@@ -1273,6 +1299,7 @@ export function AppLayout({
               onConsumePendingViewerToolMode={() => setPendingViewerToolMode(null)}
               viewerReloadKey={viewerReloadKey}
               documentLoadState={documentLoadLifecycleState}
+              gizmoMargin={workspaceOverlayGizmoMargin}
             />
           </Suspense>
           <ConnectedDocumentLoadingOverlay
@@ -1294,6 +1321,49 @@ export function AppLayout({
             />
           ) : null}
         </div>
+
+        <div className={workspaceLayoutClassNames.leftSidebarLayer}>
+          <TreeEditor
+            robot={previewContextRobot}
+            onSelect={handleSelectWithAssemblyClear}
+            onSelectGeometry={handleSelectGeometryWithAssemblyClear}
+            onFocus={handleFocus}
+            onAddChild={handleAddChild}
+            onAddCollisionBody={handleAddCollisionBody}
+            onDelete={handleDelete}
+            onNameChange={handleNameChange}
+            onUpdate={handleUpdate}
+            showVisual={showVisual}
+            setShowVisual={handleSetShowVisual}
+            mode={mergedAppMode}
+            lang={lang}
+            theme={theme}
+            collapsed={sidebar.leftCollapsed}
+            onToggle={() => toggleSidebar('left')}
+            availableFiles={availableFiles}
+            onLoadRobot={handlePreviewFileWithFeedback}
+            onRequestLoadRobot={handleRequestLoadRobot}
+            currentFileName={selectedFile?.name}
+            sourceFilePath={viewerSourceFilePath}
+            assemblyState={assemblyState}
+            onAddComponent={handleAddComponent}
+            onDeleteLibraryFile={handleDeleteLibraryFile}
+            onDeleteLibraryFolder={handleDeleteLibraryFolder}
+            onRenameLibraryFolder={handleRenameLibraryFolder}
+            onDeleteAllLibraryFiles={handleDeleteAllLibraryFiles}
+            onExportLibraryFile={handleExportLibraryFile}
+            onCreateBridge={handleCreateBridge}
+            onRemoveComponent={removeComponent}
+            onRemoveBridge={removeBridge}
+            onRenameComponent={handleRenameComponent}
+            onSwitchToProMode={handleSwitchTreeEditorToProMode}
+            onRequestSwitchToStructure={handleRequestSwitchTreeEditorToStructure}
+            isReadOnly={isPreviewingWorkspaceSource}
+            showJointPanel={viewConfig.showJointPanel}
+            onJointAngleChange={handleJointChange}
+          />
+        </div>
+
         <FilePreviewWindow
           file={previewFile}
           previewRobot={previewRobot}
@@ -1308,25 +1378,27 @@ export function AppLayout({
           onAddComponent={sidebarTab === 'workspace' ? handleAddComponent : undefined}
         />
 
-        <PropertyEditor
-          robot={propertyEditorSelectionContext.robot}
-          onUpdate={handleUpdate}
-          onSelect={handleSelectWithAssemblyClear}
-          onSelectGeometry={handleSelectGeometryWithAssemblyClear}
-          onAddCollisionBody={handleAddCollisionBody}
-          onHover={handleHover}
-          mode={mergedAppMode}
-          assets={viewerAssets}
-          onUploadAsset={handleUploadAsset}
-          motorLibrary={motorLibrary}
-          lang={lang}
-          theme={theme}
-          collapsed={sidebar.rightCollapsed}
-          onToggle={() => toggleSidebar('right')}
-          readOnlyMessage={isPreviewingWorkspaceSource ? t.previewReadOnlyHint : undefined}
-          jointTypeLocked={Boolean(propertyEditorSelectionContext.selectedClosedLoopBridge)}
-          sourceFilePath={viewerSourceFilePath}
-        />
+        <div className={workspaceLayoutClassNames.rightSidebarLayer}>
+          <PropertyEditor
+            robot={propertyEditorSelectionContext.robot}
+            onUpdate={handleUpdate}
+            onSelect={handleSelectWithAssemblyClear}
+            onSelectGeometry={handleSelectGeometryWithAssemblyClear}
+            onAddCollisionBody={handleAddCollisionBody}
+            onHover={handleHover}
+            mode={mergedAppMode}
+            assets={viewerAssets}
+            onUploadAsset={handleUploadAsset}
+            motorLibrary={motorLibrary}
+            lang={lang}
+            theme={theme}
+            collapsed={sidebar.rightCollapsed}
+            onToggle={() => toggleSidebar('right')}
+            readOnlyMessage={isPreviewingWorkspaceSource ? t.previewReadOnlyHint : undefined}
+            jointTypeLocked={Boolean(propertyEditorSelectionContext.selectedClosedLoopBridge)}
+            sourceFilePath={viewerSourceFilePath}
+          />
+        </div>
       </div>
 
       <SnapshotDialog

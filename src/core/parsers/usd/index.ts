@@ -3,4 +3,4 @@
  * Runtime scene parsing/metadata comes from usd-viewer WASM.
  */
 
-export { isUSDA, isUSDCBinary } from './usdFormatUtils';
+export { isUSDA, isUSDCBinary, isUsdLikeFormat } from './usdFormatUtils';

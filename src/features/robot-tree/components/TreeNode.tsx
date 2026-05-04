@@ -241,7 +241,7 @@ export const TreeNode = memo(
 
     const robotSelection = effectiveSelection;
 
-    const linkRowIndentPx = 8;
+    const linkRowIndentPx = 4;
     const jointRowIndentPx = 10;
     const geometryRowIndentPx = 24;
     const hasChildren = childJoints.length > 0;

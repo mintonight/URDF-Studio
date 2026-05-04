@@ -12,7 +12,6 @@ import {
 } from '@/shared/components/3d/unified-transform-controls/gizmoCore';
 import { markMaterialAsShared } from '@/core/utils/three/materialProtection';
 import { ignoreRaycast } from '@/shared/utils/three/ignoreRaycast';
-import { narrowLineRaycast } from '@/shared/utils/three/narrowLineRaycast';
 
 export interface MjcfSiteVisualizationData {
   name: string;
@@ -534,7 +533,6 @@ export function createInertiaBox(
   mesh.quaternion.copy(rotation);
   mesh.userData = createSelectableHelperUserData();
   mesh.renderOrder = INERTIA_BOX_RENDER_ORDER;
-  mesh.raycast = ignoreRaycast;
   inertiaBox.add(mesh);
 
   const edges = new THREE.EdgesGeometry(geom);
@@ -550,9 +548,9 @@ export function createInertiaBox(
   line.quaternion.copy(rotation);
   line.userData = createSelectableHelperUserData();
   line.renderOrder = GIZMO_BASE_RENDER_ORDER;
-  // Let the visible outline own picking with a narrow threshold so hover/click
-  // stays close to the 2D silhouette users actually see on screen.
-  line.raycast = narrowLineRaycast;
+  // The filled box owns exact inertia hover; line raycast thresholds are
+  // world-space and can make hover trigger before the cursor reaches the box.
+  line.raycast = ignoreRaycast;
   inertiaBox.add(line);
 
   return inertiaBox;

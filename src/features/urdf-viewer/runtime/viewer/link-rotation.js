@@ -660,7 +660,7 @@ export class LinkRotationController {
             const mesh = hydraMesh?._mesh;
             if (!mesh || !mesh.visible)
                 continue;
-            if (this.pickSubType === "visual" && (mesh.userData?.isCollisionMesh === true || /\/collisions?(?:\/|\.|$)/i.test(meshId)))
+            if (this.pickSubType === "visual" && (mesh.userData?.isCollisionMesh === true || /\/coll(?:isions?|iders?)(?:\/|\.|$)/i.test(meshId)))
                 continue;
             if (this.pickSubType === "collision" && (mesh.userData?.isVisualMesh === true || /\/visuals?(?:\/|\.|$)/i.test(meshId)))
                 continue;
@@ -1218,7 +1218,7 @@ export class LinkRotationController {
             axisLocal: entry.axisLocal.clone(),
             lowerLimitDeg: entry.lowerLimitDeg,
             upperLimitDeg: entry.upperLimitDeg,
-            angleDeg: 0,
+            angleDeg: Number.isFinite(Number(entry.angleDeg)) ? Number(entry.angleDeg) : 0,
             localPivotInLink: entry.localPivotInLink ? entry.localPivotInLink.clone() : null,
         };
     }
@@ -1394,7 +1394,6 @@ export class LinkRotationController {
             existingState.lowerLimitDeg = cachedEntry.lowerLimitDeg;
             existingState.upperLimitDeg = cachedEntry.upperLimitDeg;
             existingState.localPivotInLink = cachedEntry.localPivotInLink ? cachedEntry.localPivotInLink.clone() : null;
-            existingState.angleDeg = clampJointAnglePreservingNeutralZero(existingState.angleDeg, existingState.lowerLimitDeg, existingState.upperLimitDeg);
         }
         return true;
     }
@@ -1570,6 +1569,7 @@ export class LinkRotationController {
                     axisLocal,
                     lowerLimitDeg: limits.lower,
                     upperLimitDeg: limits.upper,
+                    ...(Number.isFinite(Number(entry.angleDeg)) ? { angleDeg: Number(entry.angleDeg) } : {}),
                     localPivotInLink,
                 });
                 imported++;
@@ -1612,7 +1612,6 @@ export class LinkRotationController {
         existingState.lowerLimitDeg = normalizedEntry.lowerLimitDeg;
         existingState.upperLimitDeg = normalizedEntry.upperLimitDeg;
         existingState.localPivotInLink = normalizedEntry.localPivotInLink ? normalizedEntry.localPivotInLink.clone() : null;
-        existingState.angleDeg = clampJointAnglePreservingNeutralZero(existingState.angleDeg, existingState.lowerLimitDeg, existingState.upperLimitDeg);
     }
     resolveJointPathFromName(stage, rootPaths, jointName) {
         if (!jointName)

@@ -47,6 +47,18 @@ function resolvePreviewDocumentLoadLifecycleState(file: RobotFile): DocumentLoad
   };
 }
 
+export function resolveFilePreviewViewerSourceFile(file: RobotFile): RobotFile {
+  if (file.format !== 'usd') {
+    return file;
+  }
+
+  return {
+    ...file,
+    content: '',
+    format: 'urdf',
+  };
+}
+
 export function FilePreviewWindow({
   file,
   previewRobot,
@@ -122,14 +134,22 @@ export function FilePreviewWindow({
     () => (file ? resolvePreviewDocumentLoadLifecycleState(file) : null),
     [file],
   );
+  const previewViewerSourceFile = useMemo(
+    () => (file ? resolveFilePreviewViewerSourceFile(file) : null),
+    [file],
+  );
+  const previewViewerSourceFormat = file?.format === 'usd' ? 'urdf' : undefined;
 
   if (!file) {
     return null;
   }
 
   const displayName = file.name.split('/').pop() ?? file.name;
+  const hasMatching3dPreview = Boolean(
+    previewState?.fileName === file.name && previewState.urdfContent && previewRobot,
+  );
   const canRender3dPreview = Boolean(
-    previewState?.urdfContent && previewRobot && fileKind !== 'image',
+    hasMatching3dPreview && fileKind !== 'image',
   );
   const canAddComponent = Boolean(onAddComponent && isLibraryComponentAddableFile(file));
   const showLoadingState = previewLoadState === 'loading' && !canRender3dPreview && !imageUrl;
@@ -181,6 +201,7 @@ export function FilePreviewWindow({
             }
           >
             <LazyUnifiedViewer
+              key={previewState.fileName}
               robot={previewRobot}
               editorRobot={previewRobot}
               mode="editor"
@@ -195,9 +216,11 @@ export function FilePreviewWindow({
               showJointPanel={false}
               availableFiles={availableFiles}
               urdfContent={previewState.urdfContent}
+              viewerSourceFormat={previewViewerSourceFormat}
               sourceFilePath={file.name}
-              sourceFile={file}
+              sourceFile={previewViewerSourceFile}
               selection={previewRobot.selection}
+              modelInteractionEnabled={false}
               isMeshPreview={file.format === 'mesh'}
               documentLoadState={previewLifecycleState}
               showUsageGuide={false}

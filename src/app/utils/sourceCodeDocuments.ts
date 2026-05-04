@@ -1,7 +1,11 @@
-import type { RobotFile } from '@/types';
+import type { AssemblyState, RobotFile } from '@/types';
 import type { SourceCodeDocumentFlavor } from './sourceCodeDisplay';
 import { detectImportFormat } from './import-preparation/formatDetection.ts';
-import { isSourceCodeDocumentReadOnly } from './sourceCodeDisplay.ts';
+import {
+  extractUsdLayerReferencesFromText,
+  resolveUsdLayerReferencePath,
+} from '@/features/urdf-viewer/utils/usdPreloadSources.ts';
+import { getSourceCodeDocumentFlavor, isSourceCodeDocumentReadOnly } from './sourceCodeDisplay.ts';
 
 type SourceFileFormat = RobotFile['format'] | null;
 
@@ -9,6 +13,7 @@ interface SourceTextFileEntry {
   path: string;
   content: string;
   format: SourceFileFormat;
+  blobUrl?: string;
 }
 
 export interface SourceCodeDocumentChangeTarget {
@@ -24,6 +29,7 @@ export interface SourceCodeDocumentDescriptor {
   tabLabel?: string;
   filePath: string | null;
   content: string;
+  contentUrl?: string;
   documentFlavor: SourceCodeDocumentFlavor;
   readOnly: boolean;
   validationEnabled?: boolean;
@@ -37,6 +43,14 @@ interface BuildSourceCodeDocumentsParams {
   availableFiles: RobotFile[];
   allFileContents: Record<string, string>;
   forceReadOnly?: boolean;
+}
+
+interface BuildWorkspaceAssemblySourceCodeDocumentsParams {
+  assemblyState: AssemblyState | null;
+  generatedMergedFileName: string;
+  generatedMergedContent: string;
+  availableFiles: RobotFile[];
+  allFileContents: Record<string, string>;
 }
 
 const XACRO_INCLUDE_REGEX =
@@ -87,6 +101,7 @@ function buildSourceFileIndex(
       path: file.name,
       content: file.content,
       format: file.format,
+      blobUrl: file.blobUrl,
     });
   });
 
@@ -98,9 +113,10 @@ function buildSourceFileIndex(
     const normalizedPath = normalizeSourcePath(path);
     const existingEntry = index.get(normalizedPath);
     index.set(normalizedPath, {
-      path,
+      path: existingEntry?.path ?? path,
       content,
       format: existingEntry?.format ?? detectImportFormat(content, path),
+      blobUrl: existingEntry?.blobUrl,
     });
   });
 
@@ -118,6 +134,10 @@ function extractIncludeReferences(format: SourceFileFormat, content: string): st
     return Array.from(content.matchAll(MJCF_INCLUDE_REGEX), (match) => match[1]?.trim()).filter(
       (value): value is string => Boolean(value),
     );
+  }
+
+  if (format === 'usd') {
+    return extractUsdLayerReferencesFromText(content);
   }
 
   return [];
@@ -223,11 +243,44 @@ function resolveMjcfReference(
   return null;
 }
 
+function resolveUsdReference(
+  reference: string,
+  fileIndex: Map<string, SourceTextFileEntry>,
+  parentPath: string,
+): string | null {
+  const resolvedVirtualPath = resolveUsdLayerReferencePath(parentPath, reference);
+  if (!resolvedVirtualPath) {
+    return null;
+  }
+
+  const normalizedResolvedPath = normalizeSourcePath(resolvedVirtualPath);
+  if (fileIndex.has(normalizedResolvedPath)) {
+    return normalizedResolvedPath;
+  }
+
+  const normalizedReference = normalizeSourcePath(reference);
+  if (fileIndex.has(normalizedReference)) {
+    return normalizedReference;
+  }
+
+  const normalizedKeys = Array.from(fileIndex.keys());
+  return (
+    normalizedKeys.find(
+      (candidate) =>
+        candidate === normalizedResolvedPath ||
+        candidate.endsWith(`/${normalizedResolvedPath}`) ||
+        candidate === normalizedReference ||
+        candidate.endsWith(`/${normalizedReference}`),
+    ) ?? null
+  );
+}
+
 function resolveIncludedFilePath(
   parentFormat: SourceFileFormat,
   reference: string,
   fileIndex: Map<string, SourceTextFileEntry>,
   basePath: string,
+  parentPath: string,
 ): string | null {
   if (parentFormat === 'xacro') {
     return resolveXacroReference(reference, fileIndex, basePath);
@@ -235,6 +288,10 @@ function resolveIncludedFilePath(
 
   if (parentFormat === 'mjcf') {
     return resolveMjcfReference(reference, fileIndex, basePath);
+  }
+
+  if (parentFormat === 'usd') {
+    return resolveUsdReference(reference, fileIndex, parentPath);
   }
 
   return null;
@@ -345,6 +402,73 @@ function buildDisplayNames(filePaths: string[]): Map<string, string> {
   return displayNames;
 }
 
+function getVisibleWorkspaceComponents(assemblyState: AssemblyState | null) {
+  return Object.values(assemblyState?.components ?? {}).filter(
+    (component) => component.visible !== false,
+  );
+}
+
+function getVisibleWorkspaceBridges(assemblyState: AssemblyState | null) {
+  const visibleComponentIds = new Set(
+    getVisibleWorkspaceComponents(assemblyState).map((component) => component.id),
+  );
+
+  return Object.values(assemblyState?.bridges ?? {}).filter(
+    (bridge) =>
+      visibleComponentIds.has(bridge.parentComponentId) &&
+      visibleComponentIds.has(bridge.childComponentId),
+  );
+}
+
+export function shouldUseMergedWorkspaceSourceDocument(
+  assemblyState: AssemblyState | null,
+): boolean {
+  const visibleComponents = getVisibleWorkspaceComponents(assemblyState);
+  if (visibleComponents.length <= 1) {
+    return false;
+  }
+
+  const visibleBridges = getVisibleWorkspaceBridges(assemblyState);
+  if (visibleBridges.length === 0) {
+    return false;
+  }
+
+  const componentIds = new Set(visibleComponents.map((component) => component.id));
+  const adjacency = new Map<string, Set<string>>();
+  componentIds.forEach((componentId) => {
+    adjacency.set(componentId, new Set());
+  });
+
+  visibleBridges.forEach((bridge) => {
+    adjacency.get(bridge.parentComponentId)?.add(bridge.childComponentId);
+    adjacency.get(bridge.childComponentId)?.add(bridge.parentComponentId);
+  });
+
+  const startComponentId = visibleComponents[0]?.id;
+  if (!startComponentId) {
+    return false;
+  }
+
+  const visited = new Set<string>([startComponentId]);
+  const queue = [startComponentId];
+  while (queue.length > 0) {
+    const componentId = queue.shift();
+    if (!componentId) {
+      continue;
+    }
+
+    adjacency.get(componentId)?.forEach((neighborId) => {
+      if (visited.has(neighborId)) {
+        return;
+      }
+      visited.add(neighborId);
+      queue.push(neighborId);
+    });
+  }
+
+  return visited.size === componentIds.size;
+}
+
 function collectRelatedSourceEntries(
   rootFile: RobotFile,
   rootContent: string,
@@ -361,7 +485,13 @@ function collectRelatedSourceEntries(
 
     const basePath = getSourceBasePath(entryPath);
     includeReferences.forEach((reference) => {
-      const resolvedPath = resolveIncludedFilePath(entryFormat, reference, fileIndex, basePath);
+      const resolvedPath = resolveIncludedFilePath(
+        entryFormat,
+        reference,
+        fileIndex,
+        basePath,
+        entryPath,
+      );
       if (!resolvedPath || visitedPaths.has(resolvedPath)) {
         return;
       }
@@ -422,6 +552,10 @@ export function buildSourceCodeDocuments({
       tabLabel: getSourceFileName(primaryDocumentPath),
       filePath: primaryDocumentPath,
       content: sourceCodeContent,
+      contentUrl:
+        activeSourceFile.format === 'usd' && !sourceCodeContent
+          ? activeSourceFile.blobUrl
+          : undefined,
       documentFlavor: sourceCodeDocumentFlavor,
       readOnly: forceReadOnly || isSourceCodeDocumentReadOnly(sourceCodeDocumentFlavor),
       changeTarget: {
@@ -432,7 +566,9 @@ export function buildSourceCodeDocuments({
   ];
 
   const canCollectRelatedSources =
-    (activeSourceFile.format === 'xacro' || activeSourceFile.format === 'mjcf') &&
+    (activeSourceFile.format === 'xacro' ||
+      activeSourceFile.format === 'mjcf' ||
+      activeSourceFile.format === 'usd') &&
     (activeSourceFile.format !== 'mjcf' || sourceCodeContent === activeSourceFile.content);
 
   if (!canCollectRelatedSources) {
@@ -468,6 +604,7 @@ export function buildSourceCodeDocuments({
       tabLabel: displayNames.get(entry.path) ?? getSourceFileName(entry.path),
       filePath: entry.path,
       content: entry.content,
+      contentUrl: entry.format === 'usd' && !entry.content ? entry.blobUrl : undefined,
       documentFlavor,
       readOnly: forceReadOnly || isSourceCodeDocumentReadOnly(documentFlavor),
       validationEnabled: shouldEnableValidationForDocument(documentFlavor, entry.content, false),
@@ -479,4 +616,62 @@ export function buildSourceCodeDocuments({
   });
 
   return [...primaryDocuments, ...relatedDocuments];
+}
+
+export function buildWorkspaceAssemblySourceCodeDocuments({
+  assemblyState,
+  generatedMergedFileName,
+  generatedMergedContent,
+  availableFiles,
+  allFileContents,
+}: BuildWorkspaceAssemblySourceCodeDocumentsParams): SourceCodeDocumentDescriptor[] | null {
+  const visibleComponents = getVisibleWorkspaceComponents(assemblyState);
+  if (visibleComponents.length <= 1) {
+    return null;
+  }
+
+  if (shouldUseMergedWorkspaceSourceDocument(assemblyState)) {
+    const fileName = getSourceFileName(generatedMergedFileName);
+    return [
+      {
+        id: 'source:workspace-assembly',
+        fileName,
+        tabLabel: fileName,
+        filePath: null,
+        content: generatedMergedContent,
+        documentFlavor: 'urdf',
+        readOnly: true,
+        validationEnabled: true,
+      },
+    ];
+  }
+
+  const seenSourceFiles = new Set<string>();
+  const sourceDocuments = visibleComponents.flatMap<SourceCodeDocumentDescriptor>((component) => {
+    if (!component.sourceFile || seenSourceFiles.has(component.sourceFile)) {
+      return [];
+    }
+    seenSourceFiles.add(component.sourceFile);
+
+    const sourceFile = availableFiles.find((file) => file.name === component.sourceFile);
+    if (!sourceFile || sourceFile.format === 'mesh' || sourceFile.format === 'asset') {
+      return [];
+    }
+
+    const content = allFileContents[sourceFile.name] ?? sourceFile.content;
+    const documentFlavor = getSourceCodeDocumentFlavor(sourceFile);
+    return [
+      {
+        id: `source:${sourceFile.name}`,
+        fileName: getSourceFileName(sourceFile.name),
+        tabLabel: getSourceFileName(sourceFile.name),
+        filePath: sourceFile.name,
+        content,
+        documentFlavor,
+        readOnly: true,
+      },
+    ];
+  });
+
+  return sourceDocuments.length > 0 ? sourceDocuments : null;
 }

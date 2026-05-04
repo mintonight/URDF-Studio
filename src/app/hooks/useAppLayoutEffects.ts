@@ -15,6 +15,7 @@ interface UseAppLayoutEffectsParams {
   robot: Pick<RobotState, 'links' | 'joints' | 'inspectionContext'>;
   selection: LayoutSelection;
   clearSelection: () => void;
+  shouldDeferSelectionCleanup?: boolean;
   onFileDrop: (files: File[]) => void;
   onDropError: () => void;
 }
@@ -28,6 +29,7 @@ export function useAppLayoutEffects({
   robot,
   selection,
   clearSelection,
+  shouldDeferSelectionCleanup = false,
   onFileDrop,
   onDropError,
 }: UseAppLayoutEffectsParams) {
@@ -69,10 +71,21 @@ export function useAppLayoutEffects({
   }, [canRedo, canUndo, redo, undo]);
 
   useEffect(() => {
+    if (shouldDeferSelectionCleanup) {
+      return;
+    }
+
     if (!validateSelection(selection, robot.links, robot.joints, robot.inspectionContext ?? null)) {
       clearSelection();
     }
-  }, [clearSelection, robot.inspectionContext, robot.joints, robot.links, selection]);
+  }, [
+    clearSelection,
+    robot.inspectionContext,
+    robot.joints,
+    robot.links,
+    selection,
+    shouldDeferSelectionCleanup,
+  ]);
 
   useEffect(() => {
     const handleWindowReset = () => {

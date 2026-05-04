@@ -793,6 +793,7 @@ export function AIConversationModal({
         title={confirmDialogTitle}
         width="w-[460px]"
         zIndexClassName="z-[130]"
+        closeLabel={t.close}
         footer={
           <div className="flex items-center justify-end gap-2">
             <Button type="button" variant="secondary" onClick={() => setPendingResetAction(null)}>

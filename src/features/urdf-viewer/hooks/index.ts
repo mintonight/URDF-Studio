@@ -6,3 +6,4 @@ export * from './useHoverDetection';
 export * from './useVisualizationEffects';
 export * from './useViewerController';
 export * from './useResponsivePanelLayout';
+export * from './useRendererBackend';

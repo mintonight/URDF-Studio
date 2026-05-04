@@ -1,10 +1,9 @@
+import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
+
 const DUPLICATE_SUFFIX_PATTERN = /^(.*?)(?: \((\d+)\))?$/;
 
 function normalizeImportPath(path: string): string {
-  return path
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '')
-    .replace(/\/+/g, '/');
+  return normalizeLibraryPathKey(path);
 }
 
 function getTopLevelFolder(path: string): string | null {

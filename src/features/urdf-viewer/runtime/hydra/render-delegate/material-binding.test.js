@@ -388,6 +388,94 @@ test('HydraMesh.tryApplyProtoDataBlobFastPath prefers indexed smooth normals whe
     ]);
 });
 
+test('HydraMesh.tryApplyProtoDataBlobFastPath keeps triangulated polygon indices for expanded USD face corners', () => {
+    const hydraInterface = {
+        config: {
+            usdRoot: new Group(),
+        },
+        materials: {},
+        resolveMaterialIdForMesh(materialId) {
+            return materialId;
+        },
+        getOrCreateMaterialById(materialId) {
+            return this.materials[materialId] || null;
+        },
+        getPreferredVisualMaterialForLink() {
+            return null;
+        },
+        getResolvedPrimPathForMeshId() {
+            return '/b2_description/FL_calf/visuals/FL_calf/mesh';
+        },
+        getStage() {
+            return {};
+        },
+        safeGetPrimAtPath() {
+            return {
+                GetAttribute(name) {
+                    if (name === 'faceVertexCounts') {
+                        return {
+                            Get() {
+                                return Uint32Array.from([4]);
+                            },
+                        };
+                    }
+                    return null;
+                },
+            };
+        },
+        getProtoDataBlob() {
+            return {
+                valid: true,
+                transform: Float32Array.from([
+                    1, 0, 0, 0,
+                    0, 1, 0, 0,
+                    0, 0, 1, 0,
+                    0, 0, 0, 1,
+                ]),
+                numVertices: 4,
+                points: Float32Array.from([
+                    0, 0, 0,
+                    1, 0, 0,
+                    1, 1, 0,
+                    0, 1, 0,
+                ]),
+                numIndices: 4,
+                indices: Uint32Array.from([0, 1, 2, 3]),
+                normalsDimension: 3,
+                numNormals: 4,
+                normals: Float32Array.from([
+                    0, 0, 1,
+                    0, 0, 1,
+                    0, 0, 1,
+                    0, 0, 1,
+                ]),
+                uvDimension: 2,
+                numUVs: 4,
+                uv: Float32Array.from([
+                    0, 0,
+                    1, 0,
+                    1, 1,
+                    0, 1,
+                ]),
+                materialId: '',
+                geomSubsetSections: [],
+            };
+        },
+        _preferredVisualMaterialByLinkCache: new Map(),
+    };
+    const hydraMesh = new HydraMesh('mesh', '/b2_description/FL_calf/visuals.proto_mesh_id0', hydraInterface);
+
+    hydraMesh.tryApplyProtoDataBlobFastPath();
+
+    const indexAttribute = hydraMesh._geometry.getIndex();
+    assert.ok(indexAttribute);
+    assert.equal(indexAttribute.count, 6);
+    assert.deepEqual(Array.from(indexAttribute.array), [0, 1, 2, 0, 2, 3]);
+    assert.equal(hydraMesh._geometry.getAttribute('position').count, 4);
+    assert.equal(hydraMesh._geometry.getAttribute('normal').count, 4);
+    assert.equal(hydraMesh._geometry.getAttribute('uv').count, 4);
+});
+
 test('HydraMesh.updateNormals replaces invalid normals on non-indexed geometry', () => {
     const hydraInterface = {
         config: {

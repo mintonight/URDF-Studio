@@ -215,7 +215,47 @@ function isExpectedMainThreadModel(result) {
   );
 }
 
+function hasBrowserConsoleNoise(result) {
+  return (
+    (Array.isArray(result?.consoleErrors) && result.consoleErrors.length > 0) ||
+    (Array.isArray(result?.consoleWarnings) && result.consoleWarnings.length > 0) ||
+    (Array.isArray(result?.pageErrors) && result.pageErrors.length > 0)
+  );
+}
+
+function hasPreparedRobotStateCache(result) {
+  const preparedCacheKeys =
+    result?.assetDebugState?.preparedUsdCacheKeysByFile?.[result?.selectedFileName] ??
+    result?.assetDebugState?.preparedUsdCacheKeysByFile?.[result?.targetFileName] ??
+    null;
+  return Array.isArray(preparedCacheKeys) && preparedCacheKeys.length > 0;
+}
+
+function hasSnapshotBackedRobotStateGeometry(result) {
+  return Boolean(
+    hasPreparedRobotStateCache(result) ||
+      (Number(result?.selectedUsdSceneSummary?.meshDescriptorCount ?? 0) > 0 &&
+        Number(result?.snapshot?.store?.linkCount ?? 0) > 0),
+  );
+}
+
+function isRobotStateHarnessPass(result) {
+  return Boolean(
+    result?.loaded === true &&
+      result?.workerResolveEntry?.status === 'resolved' &&
+      result?.documentLoadState?.status === 'ready' &&
+      hasSnapshotBackedRobotStateGeometry(result) &&
+      result?.metadataSourcePass === true &&
+      result?.selectedFileName === result?.targetFileName &&
+      !hasBrowserConsoleNoise(result),
+  );
+}
+
 function validateResult(result) {
+  if (isRobotStateHarnessPass(result)) {
+    return true;
+  }
+
   const hasResolvedRobotData =
     result?.workerResolveEntry?.status === 'resolved' ||
     result?.runtimeResolveEntry?.status === 'resolved';

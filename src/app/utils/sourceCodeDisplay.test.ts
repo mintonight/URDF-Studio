@@ -29,15 +29,15 @@ test('treats empty generic USD files as binary-equivalent MJCF sources', () => {
   assert.equal(getSourceCodeDocumentFlavor(file), 'equivalent-mjcf');
 });
 
-test('treats textual USDA sources as equivalent MJCF too', () => {
+test('treats textual USDA sources as read-only USD source documents', () => {
   const file = {
     name: 'robots/demo/scene.usda',
     format: 'usd' as const,
     content: '#usda 1.0\n(\n    defaultPrim = "Robot"\n)\n',
   };
 
-  assert.equal(shouldUseEquivalentMjcfForUsdSource(file), true);
-  assert.equal(getSourceCodeDocumentFlavor(file), 'equivalent-mjcf');
+  assert.equal(shouldUseEquivalentMjcfForUsdSource(file), false);
+  assert.equal(getSourceCodeDocumentFlavor(file), 'usd');
 });
 
 test('treats USD and equivalent MJCF source documents as read-only in editor', () => {

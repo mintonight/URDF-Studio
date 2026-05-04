@@ -30,7 +30,7 @@ export function getTextureLoadProgress(renderInterface) {
         total: Math.max(total, settled),
     };
 }
-export async function waitForTextureLoadReady({ getTextureProgress, isLoadStillActive, emitProgress, setMessage, setProgress, yieldForNextCheck, now = defaultNow, timeoutMs = 8000, quietPollsRequired = 2, }) {
+export async function waitForTextureLoadReady({ getTextureProgress, isLoadStillActive, emitProgress, setMessage, setProgress, yieldForNextCheck, now = defaultNow, timeoutMs = 8000, quietPollsRequired = 1, }) {
     const startedAtMs = now();
     let quietPolls = 0;
     let lastProgress = null;
@@ -87,6 +87,6 @@ export async function waitForTextureLoadReady({ getTextureProgress, isLoadStillA
                 progress: textureProgress,
             };
         }
-        await yieldForNextCheck?.(textureProgress.pending > 0 ? 48 : 0);
+        await yieldForNextCheck?.(textureProgress.pending > 0 ? 16 : 0);
     }
 }

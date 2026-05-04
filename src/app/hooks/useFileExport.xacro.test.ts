@@ -46,6 +46,8 @@ function installDomEnvironment() {
   const originalMutationObserver = globalThis.MutationObserver;
   const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
   const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+  const originalDOMParser = globalThis.DOMParser;
+  const originalXMLSerializer = globalThis.XMLSerializer;
 
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'http://localhost/',
@@ -96,6 +98,16 @@ function installDomEnvironment() {
     writable: true,
     value: (handle: number) => clearTimeout(handle),
   });
+  Object.defineProperty(globalThis, 'DOMParser', {
+    configurable: true,
+    writable: true,
+    value: dom.window.DOMParser,
+  });
+  Object.defineProperty(globalThis, 'XMLSerializer', {
+    configurable: true,
+    writable: true,
+    value: dom.window.XMLSerializer,
+  });
 
   return {
     restore() {
@@ -109,6 +121,8 @@ function installDomEnvironment() {
       restoreGlobalProperty('MutationObserver', originalMutationObserver);
       restoreGlobalProperty('requestAnimationFrame', originalRequestAnimationFrame);
       restoreGlobalProperty('cancelAnimationFrame', originalCancelAnimationFrame);
+      restoreGlobalProperty('DOMParser', originalDOMParser);
+      restoreGlobalProperty('XMLSerializer', originalXMLSerializer);
     },
   };
 }
@@ -452,7 +466,7 @@ test('useFileExport packages selected xacro sources as an exportable xacro zip',
       /<xacro:if value="\$\{xacro\.arg\('ros_profile'\) == 'ros2' and xacro\.arg\('ros_hardware_interface'\) == 'effort'\}">/,
     );
     assert.match(exportedXml, /<box size="0\.5 0\.25 0\.15"\s*\/>/);
-    assert.doesNotMatch(exportedXml, /xacro:property name="box_size"/);
+    assert.match(exportedXml, /xacro:property name="box_size"/);
     assert.doesNotMatch(exportedXml, /\$\{box_size\}/);
 
     const expandedXml = processXacro(exportedXml);

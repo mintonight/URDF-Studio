@@ -90,6 +90,50 @@ function createRobotWithCollision(): RobotState {
   };
 }
 
+function createRobotWithChildLink(): RobotState {
+  return {
+    name: 'child-link-robot',
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+    joints: {
+      elbow_joint: {
+        id: 'elbow_joint',
+        name: 'elbow_joint',
+        type: JointType.REVOLUTE,
+        parentLinkId: 'base_link',
+        childLinkId: 'forearm_link',
+        origin: {
+          xyz: { x: 0, y: 0, z: 0 },
+          rpy: { r: 0, p: 0, y: 0 },
+        },
+        axis: { x: 0, y: 0, z: 1 },
+        limit: { lower: -1, upper: 1, effort: 1, velocity: 1 },
+        dynamics: { damping: 0, friction: 0 },
+        hardware: {
+          armature: 0,
+          motorType: '',
+          motorId: '',
+          motorDirection: 1,
+        },
+      },
+    },
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+      },
+      forearm_link: {
+        ...DEFAULT_LINK,
+        id: 'forearm_link',
+        name: 'forearm_link',
+      },
+    },
+    materials: {},
+    closedLoopConstraints: [],
+  };
+}
+
 function findButtonByText(text: string): HTMLButtonElement | null {
   return Array.from(document.querySelectorAll('button')).find((button) =>
     button.textContent?.includes(text),
@@ -215,6 +259,59 @@ test('TreeNode link context menu is portaled and exposes collision add/delete ac
     });
 
     assert.deepEqual(addedCollisionTargets, ['base_link']);
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('TreeNode keeps a child link visually close to the joint that owns it', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  try {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      hoveredSelection: { type: null, id: null },
+      deferredHoveredSelection: { type: null, id: null },
+      hoverFrozen: false,
+      attentionSelection: { type: null, id: null },
+      focusTarget: null,
+    });
+
+    const robot = createRobotWithChildLink();
+
+    await act(async () => {
+      root.render(
+        <div style={{ containIntrinsicSize: '320px', contentVisibility: 'auto' }}>
+          <TreeNode
+            linkId="base_link"
+            robot={robot}
+            childJointsByParent={{
+              base_link: [robot.joints.elbow_joint],
+            }}
+            onSelect={() => {}}
+            onAddChild={() => {}}
+            onAddCollisionBody={() => {}}
+            onDelete={() => {}}
+            onUpdate={() => {}}
+            mode="editor"
+            t={translations.en}
+          />
+        </div>,
+      );
+    });
+
+    const jointRow = container.querySelector(
+      '[title="elbow_joint · Revolute"]',
+    ) as HTMLDivElement | null;
+    const childLinkRow = container.querySelector('[title="forearm_link"]') as HTMLDivElement | null;
+    assert.ok(jointRow, 'joint row should render');
+    assert.ok(childLinkRow, 'child link row should render');
+
+    assert.equal(
+      childLinkRow.style.marginLeft,
+      '4px',
+      'joint-owned child links should avoid the older wide nested link indent',
+    );
   } finally {
     await destroyComponentRoot(dom, root);
   }

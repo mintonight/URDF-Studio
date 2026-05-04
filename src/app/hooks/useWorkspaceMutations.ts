@@ -259,14 +259,35 @@ export function useWorkspaceMutations({
           return;
         }
 
-        if (type === 'joint' && latestAssemblyState.bridges[id]) {
-          const historyKey = options.historyKey ?? `assembly:bridge:${id}`;
+        const bridge =
+          type === 'joint'
+            ? (latestAssemblyState.bridges[id] ??
+              Object.values(latestAssemblyState.bridges).find(
+                (candidate) =>
+                  candidate.joint.id === id ||
+                  candidate.name === id ||
+                  candidate.joint.name === id,
+              ))
+            : null;
+        if (type === 'joint' && bridge) {
+          const jointPatch = data as Partial<UrdfJoint>;
+          const nextJoint: UrdfJoint = {
+            ...bridge.joint,
+            ...jointPatch,
+            limit: jointPatch.limit
+              ? {
+                  ...bridge.joint.limit,
+                  ...jointPatch.limit,
+                }
+              : bridge.joint.limit,
+          };
+          const historyKey = options.historyKey ?? `assembly:bridge:${bridge.id}`;
           const historyLabel = options.historyLabel ?? 'Update bridge joint';
 
           ensurePendingAssemblyHistory(historyKey, historyLabel);
           useAssemblyStore.getState().updateBridge(
-            id,
-            { joint: data as UrdfJoint },
+            bridge.id,
+            { joint: nextJoint },
             {
               skipHistory: true,
               label: historyLabel,

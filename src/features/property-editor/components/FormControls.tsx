@@ -11,6 +11,7 @@ import {
   roundToMaxDecimals,
 } from '@/core/utils/numberPrecision';
 import { CollapsibleSection as SharedCollapsibleSection } from '@/shared/components/Panel/OptionsPanel';
+import { usePressAndHoldRepeat } from '@/shared/hooks';
 import {
   PROPERTY_EDITOR_STEPPER_REPEAT_DELAY_MS,
   PROPERTY_EDITOR_STEPPER_REPEAT_INTERVAL_MS,
@@ -285,74 +286,10 @@ const usePressAndHoldStepper = (
   onStep: (direction: 1 | -1) => void,
   repeatIntervalMs: number = PROPERTY_EDITOR_STEPPER_REPEAT_INTERVAL_MS,
 ) => {
-  const holdTimeoutRef = useRef<number | null>(null);
-  const holdIntervalRef = useRef<number | null>(null);
-  const suppressClickRef = useRef(false);
-
-  const clearTimers = useCallback(() => {
-    if (holdTimeoutRef.current !== null) {
-      window.clearTimeout(holdTimeoutRef.current);
-      holdTimeoutRef.current = null;
-    }
-    if (holdIntervalRef.current !== null) {
-      window.clearInterval(holdIntervalRef.current);
-      holdIntervalRef.current = null;
-    }
-  }, []);
-
-  const stopPressAndHold = useCallback(() => {
-    clearTimers();
-  }, [clearTimers]);
-
-  useEffect(() => clearTimers, [clearTimers]);
-
-  const startPressAndHold = useCallback(
-    (direction: 1 | -1) => {
-      clearTimers();
-      suppressClickRef.current = true;
-      onStep(direction);
-      holdTimeoutRef.current = window.setTimeout(() => {
-        holdIntervalRef.current = window.setInterval(() => {
-          onStep(direction);
-        }, repeatIntervalMs);
-      }, PROPERTY_EDITOR_STEPPER_REPEAT_DELAY_MS);
-    },
-    [clearTimers, onStep, repeatIntervalMs],
-  );
-
-  const stepperButtonProps = useCallback(
-    (direction: 1 | -1, label: string) => ({
-      type: 'button' as const,
-      'aria-label': label,
-      onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
-        e.preventDefault();
-        e.currentTarget.setPointerCapture?.(e.pointerId);
-        startPressAndHold(direction);
-      },
-      onPointerUp: (e: React.PointerEvent<HTMLButtonElement>) => {
-        if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
-          e.currentTarget.releasePointerCapture?.(e.pointerId);
-        }
-        stopPressAndHold();
-      },
-      onPointerCancel: () => {
-        stopPressAndHold();
-        suppressClickRef.current = false;
-      },
-      onLostPointerCapture: () => {
-        stopPressAndHold();
-      },
-      onClick: (e: React.MouseEvent<HTMLButtonElement>) => {
-        if (suppressClickRef.current) {
-          suppressClickRef.current = false;
-          e.preventDefault();
-          return;
-        }
-        onStep(direction);
-      },
-    }),
-    [onStep, startPressAndHold, stopPressAndHold],
-  );
+  const { repeatButtonProps: stepperButtonProps } = usePressAndHoldRepeat(onStep, {
+    repeatDelayMs: PROPERTY_EDITOR_STEPPER_REPEAT_DELAY_MS,
+    repeatIntervalMs,
+  });
 
   return { stepperButtonProps };
 };

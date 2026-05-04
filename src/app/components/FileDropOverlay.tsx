@@ -1,4 +1,4 @@
-import { Upload } from 'lucide-react';
+import { Import } from 'lucide-react';
 
 interface FileDropOverlayProps {
   visible: boolean;
@@ -21,7 +21,7 @@ export function FileDropOverlay({ visible, title, hint }: FileDropOverlayProps) 
       <div className="relative mx-6 w-full max-w-xl animate-in zoom-in-95 duration-200">
         <div className="flex flex-col items-center gap-4 rounded-[28px] border border-border-black bg-panel-bg/96 px-8 py-10 text-center shadow-2xl">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-system-blue/20 bg-system-blue/10 text-system-blue shadow-lg">
-            <Upload className="h-8 w-8" strokeWidth={2.2} />
+            <Import className="h-8 w-8" strokeWidth={2.2} />
           </div>
 
           <div className="space-y-1">

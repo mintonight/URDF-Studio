@@ -14,6 +14,7 @@ import {
   setActiveMeasureSlot,
 } from '../utils/measurements';
 import { Language, translations } from '@/shared/i18n';
+import { WORKSPACE_OVERLAY_RIGHT_EDGE_GAP } from '@/shared/components/3d/scene';
 import { OptionsPanel } from '@/shared/components/Panel/OptionsPanel';
 import { CompactSwitch, PanelSelect } from '@/shared/components/ui';
 import { useSelectionStore } from '@/store/selectionStore';
@@ -222,7 +223,7 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
       show={true}
       panelRef={measurePanelRef}
       position={measurePanelPos}
-      defaultPosition={{ right: '16px', bottom: '16px' }}
+      defaultPosition={{ right: WORKSPACE_OVERLAY_RIGHT_EDGE_GAP, bottom: '16px' }}
       isCollapsed={isCollapsed}
       onToggleCollapse={() => setIsCollapsed((prev) => !prev)}
       onClose={onClose}
@@ -231,6 +232,9 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
       maxHeight={420}
       zIndex={50}
       panelClassName="measure-panel"
+      expandText={t.expand}
+      collapseText={t.collapse}
+      closeText={t.close}
     >
       <div className="space-y-[5px] p-[5px]">
         <div className="rounded-md border border-border-black/60 bg-panel-bg p-1">

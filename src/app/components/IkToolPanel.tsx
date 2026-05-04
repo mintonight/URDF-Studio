@@ -149,6 +149,9 @@ export const IkToolPanel: React.FC<IkToolPanelProps> = ({
       panelRef={panelRef}
       width="14rem"
       panelClassName="ik-tool-panel fixed z-50"
+      expandText={t.expand}
+      collapseText={t.collapse}
+      closeText={t.close}
     >
       <div className="space-y-2 p-2">
         <p className="text-[11px] leading-relaxed text-text-secondary">{t.ikToolboxDesc}</p>

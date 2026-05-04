@@ -11,7 +11,6 @@ import type {
   ViewerController,
   ViewerDocumentLoadEvent,
   ViewerHelperKind,
-  ViewerRobotDataResolution,
   ViewerRobotSourceFormat,
   ViewerResourceScope,
 } from '@/features/editor';
@@ -26,13 +25,13 @@ interface ViewerSceneConnectorProps {
   controller: ViewerController;
   active: boolean;
   activePreview?: FilePreviewState;
+  modelInteractionEnabled?: boolean;
   viewerResourceScope: ViewerResourceScope;
   retainedRobot?: import('three').Object3D | null;
   effectiveSourceFile: RobotFile | null | undefined;
   effectiveSourceFilePath?: string;
   effectiveUrdfContent: string;
   effectiveSourceFormat?: ViewerRobotSourceFormat;
-  onRobotDataResolved?: (result: ViewerRobotDataResolution) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   onSceneReadyForDisplay?: () => void;
   onRuntimeRobotLoaded?: (robot: import('three').Object3D) => void;
@@ -112,13 +111,13 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
   controller,
   active,
   activePreview,
+  modelInteractionEnabled = true,
   viewerResourceScope,
   retainedRobot,
   effectiveSourceFile,
   effectiveSourceFilePath,
   effectiveUrdfContent,
   effectiveSourceFormat,
-  onRobotDataResolved,
   onDocumentLoadEvent,
   onSceneReadyForDisplay,
   onRuntimeRobotLoaded,
@@ -156,6 +155,7 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
     controller,
     active,
     hasActivePreview: Boolean(activePreview),
+    modelInteractionEnabled,
     hoveredSelection,
     viewerResourceScope,
     retainedRobot,
@@ -163,7 +163,6 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
     effectiveSourceFilePath,
     effectiveUrdfContent,
     effectiveSourceFormat,
-    onRobotDataResolved,
     onDocumentLoadEvent,
     onSceneReadyForDisplay,
     onRuntimeRobotLoaded,

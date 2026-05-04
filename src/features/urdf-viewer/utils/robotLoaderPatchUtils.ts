@@ -4,6 +4,7 @@ import { URDFJoint as RuntimeURDFJoint } from '@/core/parsers/urdf/loader';
 import { parseThreeColorWithOpacity } from '@/core/utils/color.ts';
 import type { VisualMaterialOverride } from '@/core/utils/visualMaterialOverrides';
 import { disposeObject3D, disposeMaterial } from './dispose';
+import { disposeReplacedMaterials } from '@/shared/components/3d/materialDisposal';
 import {
   COLLISION_OVERLAY_RENDER_ORDER,
   collisionBaseMaterial,
@@ -16,9 +17,25 @@ import { syncMjcfTendonVisualMeshMap } from './mjcfTendonVisualMeshMap';
 import type { UrdfJoint, UrdfVisual as LinkGeometry } from '@/types';
 import { applyURDFMaterialInfoToMaterial, type URDFMaterialInfo } from './urdfMaterials';
 
+export { disposeReplacedMaterials } from '@/shared/components/3d/materialDisposal';
+
 function normalizeVisualColorOverride(color: string | undefined): string | undefined {
   const trimmed = color?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function meshUsesAuthoredVertexColors(mesh: THREE.Mesh): boolean {
+  if (!mesh.geometry?.getAttribute('color')) {
+    return false;
+  }
+
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  return materials.some(
+    (material) =>
+      Boolean(material) &&
+      ((material as { vertexColors?: boolean }).vertexColors === true ||
+        material.userData?.usesVertexColors === true),
+  );
 }
 
 function normalizeUnitIntervalValue(value: unknown): number | undefined {
@@ -215,21 +232,6 @@ export function applyOriginToJoint(
 export function clearGroupChildren(group: THREE.Object3D): void {
   while (group.children.length > 0) {
     disposeObject3D(group.children[0], true, SHARED_MATERIALS);
-  }
-}
-
-export function disposeReplacedMaterials(
-  material: THREE.Material | THREE.Material[] | undefined,
-  disposedMaterials: Set<THREE.Material>,
-  disposeTextures: boolean,
-): void {
-  if (!material) return;
-
-  const mats = Array.isArray(material) ? material : [material];
-  for (const mat of mats) {
-    if (!mat || disposedMaterials.has(mat) || SHARED_MATERIALS.has(mat)) continue;
-    disposeMaterial(mat, disposeTextures, SHARED_MATERIALS);
-    disposedMaterials.add(mat);
   }
 }
 
@@ -445,7 +447,7 @@ export function markVisualObject(
     child.userData.parentLinkName = linkName;
     child.userData.isVisualMesh = true;
     child.visible = showVisual;
-    if (colorOverride) {
+    if (colorOverride && !meshUsesAuthoredVertexColors(child)) {
       updateVisualMaterial(child, colorOverride, disposedMaterials);
     }
   });

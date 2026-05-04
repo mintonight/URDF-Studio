@@ -84,14 +84,24 @@ export function computeCameraFrame(
   }
   direction.normalize();
 
-  const verticalFov = camera instanceof THREE.PerspectiveCamera
-    ? THREE.MathUtils.degToRad(camera.fov)
-    : THREE.MathUtils.degToRad(50);
-  const distance = Math.max(radius / Math.sin(Math.max(verticalFov * 0.5, 0.35)), 0.85);
+  const verticalHalfFov = camera instanceof THREE.PerspectiveCamera
+    ? THREE.MathUtils.degToRad(THREE.MathUtils.clamp(camera.fov, 1, 175)) * 0.5
+    : THREE.MathUtils.degToRad(50) * 0.5;
+  const aspect = camera instanceof THREE.PerspectiveCamera &&
+    Number.isFinite(camera.aspect) &&
+    camera.aspect > 0
+    ? camera.aspect
+    : 1;
+  const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * aspect);
+  const distance = Math.max(
+    radius / Math.sin(Math.max(verticalHalfFov, 0.01)),
+    radius / Math.sin(Math.max(horizontalHalfFov, 0.01)),
+    0.85,
+  );
 
   return {
     focusTarget: sphere.center.clone(),
-    cameraPosition: sphere.center.clone().add(direction.multiplyScalar(distance * 1.34)),
+    cameraPosition: sphere.center.clone().add(direction.multiplyScalar(distance * 1.38)),
   };
 }
 

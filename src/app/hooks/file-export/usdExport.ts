@@ -6,7 +6,7 @@ import {
   type ExportDialogConfig,
 } from '@/features/file-io';
 import { convertUsdArchiveFilesToBinaryWithWorker } from '@/app/utils/usdBinaryArchiveWorkerBridge';
-import { buildLiveUsdRoundtripArchive } from '@/app/utils/liveUsdRoundtripExport';
+import { isUSDCBinary } from '@/core/parsers/usd';
 import { translations } from '@/shared/i18n';
 import type { RobotFile, RobotState } from '@/types';
 
@@ -27,16 +27,50 @@ const USD_EXPORT_STAGE_PROGRESS_RANGES = {
   assets: { start: 0.92, end: 0.99 },
 } as const;
 
+async function readBlobArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
+  if (typeof blob.arrayBuffer === 'function') {
+    return blob.arrayBuffer();
+  }
+
+  if (typeof FileReader !== 'undefined') {
+    return new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (reader.result instanceof ArrayBuffer) {
+          resolve(reader.result);
+          return;
+        }
+        reject(new Error('Failed to read USD blob as ArrayBuffer.'));
+      };
+      reader.onerror = () => reject(reader.error ?? new Error('Failed to read USD blob.'));
+      reader.readAsArrayBuffer(blob);
+    });
+  }
+
+  return new Response(blob).arrayBuffer();
+}
+
+async function assertConvertedUsdLayersAreBinary(archiveFiles: Map<string, Blob>): Promise<void> {
+  const usdLayerEntries = Array.from(archiveFiles.entries()).filter(([filePath]) =>
+    /\.usd$/i.test(filePath),
+  );
+
+  for (const [filePath, blob] of usdLayerEntries) {
+    const headerBytes = await readBlobArrayBuffer(blob.slice(0, 8));
+    const magic = String.fromCharCode(...new Uint8Array(headerBytes));
+    if (!isUSDCBinary(headerBytes)) {
+      throw new Error(
+        `USD binary export failed for ${filePath}: converted layer is not USDC (${magic}).`,
+      );
+    }
+  }
+}
+
 interface ExecuteUsdExportParams {
   config: ExportDialogConfig;
   target: ExportTarget;
   options: HandleExportWithConfigOptions;
-  selectedFile: RobotFile | null;
-  sidebarTab: string;
-  currentUsdExportMode: string;
-  availableFiles: RobotFile[];
   assets: Record<string, string>;
-  allFileContents: Record<string, string>;
   requiresResolvedUsdContext: boolean;
   t: ExportTranslations;
   resolveLibraryRobotForExport: (file: RobotFile) => Promise<RobotState>;
@@ -61,12 +95,7 @@ export async function executeUsdExport({
   config,
   target,
   options,
-  selectedFile,
-  sidebarTab,
-  currentUsdExportMode,
-  availableFiles,
   assets,
-  allFileContents,
   requiresResolvedUsdContext,
   t,
   resolveLibraryRobotForExport,
@@ -94,53 +123,7 @@ export async function executeUsdExport({
         }
       : resolveExportContext(target);
 
-  const shouldFallbackToLiveUsdStage =
-    target.type === 'current' &&
-    selectedFile?.format === 'usd' &&
-    sidebarTab !== 'workspace' &&
-    currentUsdExportMode === 'live-stage' &&
-    config.usd.fileFormat === 'usd' &&
-    selectedFile.name.toLowerCase().endsWith('.usd');
-
   if (!exportContext) {
-    if (shouldFallbackToLiveUsdStage && selectedFile) {
-      reportProgress(2, t.exportProgressBuildingUsdScene, t.exportProgressUsdScenePreparingDetail, {
-        stageProgress: 0.16,
-        indeterminate: true,
-      });
-
-      const roundtripArchive = await buildLiveUsdRoundtripArchive({
-        sourceFile: selectedFile,
-        availableFiles,
-        assets,
-        allFileContents,
-      });
-
-      reportProgress(3, t.exportProgressPreparing, t.exportProgressPreparingDetail, {
-        stageProgress: 0.64,
-        indeterminate: true,
-      });
-
-      const zip = new JSZip();
-      roundtripArchive.archiveFiles.forEach((blob, filePath) => {
-        zip.file(filePath, blob);
-      });
-
-      const content = await generateZipBlobWithProgress(
-        zip,
-        reportProgress,
-        shouldConvertUsdLayers ? 4 : 3,
-      );
-      downloadBlob(content, roundtripArchive.archiveFileName);
-      markCurrentTargetSaved();
-
-      return {
-        partial: false,
-        warnings: [],
-        issues: [],
-      };
-    }
-
     if (requiresResolvedUsdContext) {
       throw new Error(t.usdExportUnavailable);
     }
@@ -248,6 +231,7 @@ export async function executeUsdExport({
         },
       },
     );
+    await assertConvertedUsdLayersAreBinary(binaryArchiveFiles);
 
     binaryArchiveFiles.forEach((blob, filePath) => {
       zip.file(filePath, blob);

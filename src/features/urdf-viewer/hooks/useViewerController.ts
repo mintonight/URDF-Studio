@@ -12,7 +12,7 @@ import {
   setRegressionViewerHandlers,
   type RegressionViewerFlags,
 } from '@/shared/debug/regressionBridge';
-import { getJointType, isSingleDofJoint } from '../utils/jointTypes';
+import { getJointType, isSingleDofJoint } from '@/shared/utils/jointTypes';
 import { resolveActiveViewerJointKeyFromSelection } from '../utils/activeJointSelection';
 import type {
   MeasureAnchorMode,
@@ -28,7 +28,7 @@ import type {
 } from '../types';
 import { resolveInitialJointControlState } from '../utils/jointControlState';
 import { createEmptyMeasureState } from '../utils/measurements';
-import { beginInitialGroundAlignment } from '../utils/robotPositioning';
+import { beginInitialGroundAlignment } from '@/shared/components/3d/robotPositioning';
 import { createScopedToolModeState, resolveScopedToolModeState } from '../utils/scopedToolMode';
 import { usePanelDrag } from './usePanelDrag';
 import { useViewerSettings } from './useViewerSettings';

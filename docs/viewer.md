@@ -1,7 +1,7 @@
 # Editor / Viewer 子域
 
-> 最后更新：2026-04-15 | 覆盖源码：`src/features/editor/`、`src/features/urdf-viewer/`、`src/app/components/unified-viewer/`、`src/shared/components/3d/`
-> 交叉引用：[architecture.md](architecture.md)、[file-io.md](file-io.md)、[style-guide.md](style-guide.md)
+> 最后更新：2026-05-01 | 覆盖源码：`src/features/editor/`、`src/features/urdf-viewer/`、`src/app/components/unified-viewer/`、`src/shared/components/3d/`
+> 交叉引用：[architecture.md](architecture.md)、[file-io.md](file-io.md)、[style-guide.md](style-guide.md)、[wasm-build.md](wasm-build.md)
 
 ## 1. 单模式 Editor
 
@@ -30,10 +30,10 @@ features/editor/
 features/urdf-viewer/
   components/                 # React 组件层
     ViewerCanvas.tsx          # viewer 画布层与共享 canvas 适配
+    ViewerScene.tsx           # 统一场景编排，格式差异下沉到 RobotModel/backend
+    RobotModel.tsx            # 后端驱动的机器人渲染与交互入口
     ViewerToolbar.tsx         # 顶部工具条
     ViewerLoadingHud.tsx      # loading 状态 HUD
-    UsdWasmStage.tsx          # WASM stage 嵌入入口
-    UsdOffscreenStage.tsx     # offscreen canvas + worker 模式宿主
   hooks/                      # React hooks
   utils/                      # 适配层 & 工具
   types.ts                    # 共享类型收口
@@ -53,7 +53,8 @@ features/urdf-viewer/
 - `useMouseInteraction`：鼠标交互处理
 - `useHoverDetection`：悬停检测
 - `useVisualizationEffects`：惯性、质心、原点等辅助可视化
-- `useRobotLoader`：模型加载
+- `useRendererBackend`：统一模型加载与格式后端生命周期
+- `useRobotLoader`：旧 Three.js 路径的加载工具，保留给兼容/迁移场景
 - `useHighlightManager`：高亮管理
 
 工具模式：`select | translate | rotate | universal | view | face | measure`
@@ -74,6 +75,14 @@ features/urdf-viewer/
 - `runtime/*` 是 vendored usd-viewer runtime，不要在 `core/parsers/usd/*` 重复实现 viewer runtime 职责
 - URDF Studio 应把 runtime 输出适配到 `ViewerRobotDataResolution` / `RobotData`
 - `public/usd/bindings/*` 必须保留在静态资源目录，供浏览器运行时 fetch
+- **WASM 构建系统**位于 `third_party/OpenUSD` 和 `scripts/wasm/`，详见 [wasm-build.md](wasm-build.md)
+- 如需重新编译 WASM bindings：
+  ```bash
+  bash scripts/wasm/rebuild-usd-wasm.sh \
+    --robot-trim \
+    --usd-repo ./third_party/OpenUSD \
+    --build-dir ~/.localdeps/openusd-wasm-speed
+  ```
 
 ## 6. USD worker / metadata 链路约束
 
@@ -95,7 +104,7 @@ features/urdf-viewer/
 
 ## 7. USD offscreen / runtime 生命周期约束
 
-适用范围：`UsdOffscreenStage.tsx`、`usdOffscreenViewer.worker.ts`、`runtime/hydra/render-delegate/*`、`shared/utils/three/dispose.ts`
+适用范围：`usdOffscreenViewer.worker.ts`、`runtime/hydra/render-delegate/*`、`shared/utils/three/dispose.ts`
 
 必须遵循：
 

@@ -20,7 +20,10 @@ import {
   type SdfHeightmap,
 } from '@/types';
 import { resolveGazeboScriptMaterial } from './gazeboMaterialScripts';
-import { resolveSdfIncludeSource } from './sdfIncludeResolution';
+import {
+  createSdfIncludeResolutionContext,
+  type SdfIncludeResolutionContext,
+} from './sdfIncludeResolution';
 
 type Pose = { xyz: Vector3; rpy: Euler };
 type ParsedPose = { pose: Pose; relativeTo: string | null; specified: boolean };
@@ -120,6 +123,7 @@ interface ParseSdfModelOptions extends ParseSDFOptions {
   parentMatrix?: THREE.Matrix4;
   namespacePrefix?: string;
   includeStack?: Set<string>;
+  includeResolutionContext?: SdfIncludeResolutionContext;
   /** SDF spec version string (e.g. "1.5"). Affects axis-frame defaults. */
   sdfVersion?: string;
 }
@@ -746,12 +750,228 @@ function buildClosedLoopConstraintFromSdfJoint(
   };
 }
 
+function collectSelectedChildLinkIds(joints: Record<string, UrdfJoint>): Set<string> {
+  return new Set(Object.values(joints).map((joint) => joint.childLinkId));
+}
+
+function collectSelectedParentJointByChild(
+  joints: Record<string, UrdfJoint>,
+): Map<string, UrdfJoint> {
+  const parentJointByChild = new Map<string, UrdfJoint>();
+  Object.values(joints).forEach((joint) => {
+    parentJointByChild.set(joint.childLinkId, joint);
+  });
+  return parentJointByChild;
+}
+
+function collectSelectedChildJointsByParent(
+  joints: Record<string, UrdfJoint>,
+): Map<string, UrdfJoint[]> {
+  const childJointsByParent = new Map<string, UrdfJoint[]>();
+  Object.values(joints).forEach((joint) => {
+    const childJoints = childJointsByParent.get(joint.parentLinkId) ?? [];
+    childJoints.push(joint);
+    childJointsByParent.set(joint.parentLinkId, childJoints);
+  });
+  return childJointsByParent;
+}
+
+function findSelectedTreeRootLinkId(
+  linkId: string,
+  parentJointByChild: Map<string, UrdfJoint>,
+): string {
+  const visitedLinkIds = new Set<string>();
+  let currentLinkId = linkId;
+
+  while (!visitedLinkIds.has(currentLinkId)) {
+    visitedLinkIds.add(currentLinkId);
+    const parentJoint = parentJointByChild.get(currentLinkId);
+    if (!parentJoint?.parentLinkId) {
+      return currentLinkId;
+    }
+    currentLinkId = parentJoint.parentLinkId;
+  }
+
+  return currentLinkId;
+}
+
+function collectSelectedReachableLinkIds(
+  rootLinkId: string,
+  childJointsByParent: Map<string, UrdfJoint[]>,
+): Set<string> {
+  const reachableLinkIds = new Set<string>();
+  const queue = [rootLinkId];
+
+  while (queue.length > 0) {
+    const linkId = queue.shift();
+    if (!linkId || reachableLinkIds.has(linkId)) {
+      continue;
+    }
+
+    reachableLinkIds.add(linkId);
+    (childJointsByParent.get(linkId) ?? []).forEach((joint) => {
+      queue.push(joint.childLinkId);
+    });
+  }
+
+  return reachableLinkIds;
+}
+
+function buildSdfTreeAttachmentJointId(
+  sourceJointId: string,
+  orphanRootLinkId: string,
+  selectedJoints: Record<string, UrdfJoint>,
+  graph: ParsedSdfGraph,
+): string {
+  let index = 0;
+  let candidateId = `${sourceJointId}__${orphanRootLinkId}__tree_attachment_fixed`;
+
+  while (selectedJoints[candidateId] || graph.joints[candidateId]) {
+    index += 1;
+    candidateId = `${sourceJointId}__${orphanRootLinkId}__tree_attachment_${index}_fixed`;
+  }
+
+  return candidateId;
+}
+
+function createSdfTreeAttachmentJoint(
+  sourceJointId: string,
+  connectedLinkId: string,
+  orphanRootLinkId: string,
+  selectedJoints: Record<string, UrdfJoint>,
+  graph: ParsedSdfGraph,
+): UrdfJoint | null {
+  const connectedWorldMatrix = graph.linkRecords.get(connectedLinkId)?.worldMatrix;
+  const orphanRootWorldMatrix = graph.linkRecords.get(orphanRootLinkId)?.worldMatrix;
+  if (!connectedWorldMatrix || !orphanRootWorldMatrix) {
+    return null;
+  }
+
+  return createFixedJoint(
+    buildSdfTreeAttachmentJointId(sourceJointId, orphanRootLinkId, selectedJoints, graph),
+    connectedLinkId,
+    orphanRootLinkId,
+    matrixToPose(connectedWorldMatrix.clone().invert().multiply(orphanRootWorldMatrix)),
+  );
+}
+
+function attachSkippedSdfRootComponents(
+  graph: ParsedSdfGraph,
+  selectedJoints: Record<string, UrdfJoint>,
+  skippedJointIds: string[],
+): void {
+  let attachedInPreviousPass = true;
+
+  while (attachedInPreviousPass) {
+    attachedInPreviousPass = false;
+
+    const childLinkIds = collectSelectedChildLinkIds(selectedJoints);
+    const rootLinkIds = Object.keys(graph.links).filter((linkId) => !childLinkIds.has(linkId));
+    if (rootLinkIds.length <= 1) {
+      return;
+    }
+
+    const primaryRootLinkId = rootLinkIds[0];
+    const parentJointByChild = collectSelectedParentJointByChild(selectedJoints);
+    const childJointsByParent = collectSelectedChildJointsByParent(selectedJoints);
+    const reachableLinkIds = collectSelectedReachableLinkIds(
+      primaryRootLinkId,
+      childJointsByParent,
+    );
+
+    for (const orphanRootLinkId of rootLinkIds.slice(1)) {
+      let attachmentJoint: UrdfJoint | null = null;
+
+      for (const skippedJointId of skippedJointIds) {
+        const skippedJoint = graph.joints[skippedJointId];
+        if (!skippedJoint?.parentLinkId || !skippedJoint.childLinkId) {
+          continue;
+        }
+
+        const parentRootLinkId = findSelectedTreeRootLinkId(
+          skippedJoint.parentLinkId,
+          parentJointByChild,
+        );
+        const childRootLinkId = findSelectedTreeRootLinkId(
+          skippedJoint.childLinkId,
+          parentJointByChild,
+        );
+
+        if (
+          reachableLinkIds.has(skippedJoint.parentLinkId) &&
+          childRootLinkId === orphanRootLinkId
+        ) {
+          attachmentJoint = createSdfTreeAttachmentJoint(
+            skippedJointId,
+            skippedJoint.parentLinkId,
+            orphanRootLinkId,
+            selectedJoints,
+            graph,
+          );
+        } else if (
+          reachableLinkIds.has(skippedJoint.childLinkId) &&
+          parentRootLinkId === orphanRootLinkId
+        ) {
+          attachmentJoint = createSdfTreeAttachmentJoint(
+            skippedJointId,
+            skippedJoint.childLinkId,
+            orphanRootLinkId,
+            selectedJoints,
+            graph,
+          );
+        }
+
+        if (attachmentJoint) {
+          selectedJoints[attachmentJoint.id] = attachmentJoint;
+          attachedInPreviousPass = true;
+          break;
+        }
+      }
+    }
+  }
+}
+
+function parseJointMimic(
+  axisEl: Element | null | undefined,
+  namespacePrefix?: string,
+): UrdfJoint['mimic'] | undefined {
+  if (!axisEl) {
+    return undefined;
+  }
+
+  const mimicEl = getFirstDirectChild(axisEl, 'mimic');
+  if (!mimicEl) {
+    return undefined;
+  }
+
+  const leaderAxis = mimicEl.getAttribute('axis')?.trim() || 'axis';
+  if (leaderAxis !== 'axis') {
+    return undefined;
+  }
+
+  const joint = qualifyScopedReference(mimicEl.getAttribute('joint'), namespacePrefix);
+  if (!joint) {
+    return undefined;
+  }
+
+  const multiplier = parseFloatSafe(getFirstDirectChild(mimicEl, 'multiplier')?.textContent, 1);
+  const offset = parseFloatSafe(getFirstDirectChild(mimicEl, 'offset')?.textContent, 0);
+  const reference = parseFloatSafe(getFirstDirectChild(mimicEl, 'reference')?.textContent, 0);
+
+  return {
+    joint,
+    multiplier,
+    offset: offset - multiplier * reference,
+  };
+}
+
 function selectTreeJointsAndClosedLoops(graph: ParsedSdfGraph): {
   joints: Record<string, UrdfJoint>;
   closedLoopConstraints?: RobotClosedLoopConstraint[];
 } {
   const selectedJoints: Record<string, UrdfJoint> = {};
   const closedLoopConstraints: RobotClosedLoopConstraint[] = [];
+  const skippedJointIds: string[] = [];
   const childLinkIds = new Set<string>();
   const disjointSet = new LinkDisjointSet(Object.keys(graph.links));
 
@@ -779,11 +999,14 @@ function selectTreeJointsAndClosedLoops(graph: ParsedSdfGraph): {
       return;
     }
 
+    skippedJointIds.push(jointId);
     const closedLoopConstraint = buildClosedLoopConstraintFromSdfJoint(jointId, joint, graph);
     if (closedLoopConstraint) {
       closedLoopConstraints.push(closedLoopConstraint);
     }
   });
+
+  attachSkippedSdfRootComponents(graph, selectedJoints, skippedJointIds);
 
   return {
     joints: selectedJoints,
@@ -869,6 +1092,7 @@ function parseIncludedModelGraph(
     parentMatrix = new THREE.Matrix4().identity(),
     namespacePrefix,
     includeStack = new Set<string>(),
+    includeResolutionContext = createSdfIncludeResolutionContext(allFileContents),
   }: ParseSdfModelOptions,
 ): void {
   const includeUri = getFirstDirectChild(includeEl, 'uri')?.textContent?.trim() || '';
@@ -876,7 +1100,7 @@ function parseIncludedModelGraph(
     return;
   }
 
-  const resolvedInclude = resolveSdfIncludeSource(includeUri, allFileContents, sourcePath);
+  const resolvedInclude = includeResolutionContext.resolve(includeUri, sourcePath);
   if (!resolvedInclude || includeStack.has(resolvedInclude.path)) {
     return;
   }
@@ -908,6 +1132,7 @@ function parseIncludedModelGraph(
     parentMatrix: parentMatrix.clone().multiply(poseToMatrix(includePose.pose)),
     namespacePrefix: qualifyScopedName(includeName, namespacePrefix),
     includeStack: nextIncludeStack,
+    includeResolutionContext,
   });
 
   if (includeGraph) {
@@ -925,6 +1150,7 @@ function parseNestedModelGraph(
     parentMatrix = new THREE.Matrix4().identity(),
     namespacePrefix,
     includeStack = new Set<string>(),
+    includeResolutionContext = createSdfIncludeResolutionContext(allFileContents),
     sdfVersion,
   }: ParseSdfModelOptions,
 ): void {
@@ -939,6 +1165,7 @@ function parseNestedModelGraph(
     parentMatrix: nestedModelMatrix,
     namespacePrefix: nestedNamespacePrefix,
     includeStack,
+    includeResolutionContext,
     sdfVersion,
   });
 
@@ -956,6 +1183,7 @@ function parseSdfModel(
     parentMatrix = new THREE.Matrix4().identity(),
     namespacePrefix,
     includeStack = new Set<string>(),
+    includeResolutionContext = createSdfIncludeResolutionContext(allFileContents),
     sdfVersion,
   }: ParseSdfModelOptions = {},
 ): ParsedSdfGraph | null {
@@ -1200,6 +1428,7 @@ function parseSdfModel(
       parentMatrix: modelMatrix,
       namespacePrefix,
       includeStack,
+      includeResolutionContext,
     });
   }
 
@@ -1211,6 +1440,7 @@ function parseSdfModel(
       parentMatrix: modelMatrix,
       namespacePrefix,
       includeStack,
+      includeResolutionContext,
       sdfVersion,
     });
   }
@@ -1253,6 +1483,7 @@ function parseSdfModel(
     const axisEl = getFirstDirectChild(jointEl, 'axis');
     const limitEl = getFirstDirectChild(axisEl ?? jointEl, 'limit');
     const dynamicsEl = getFirstDirectChild(axisEl ?? jointEl, 'dynamics');
+    const mimic = parseJointMimic(axisEl, namespacePrefix);
 
     // Resolve the axis direction.
     // SDF <use_parent_model_frame> determines whether the xyz vector is
@@ -1331,6 +1562,7 @@ function parseSdfModel(
         motorId: '',
         motorDirection: 1,
       },
+      mimic,
     };
     graph.joints[jointId] = joint;
 
@@ -1453,7 +1685,14 @@ export function parseSDF(xmlString: string, options: ParseSDFOptions = {}): Robo
   const sdfVersion = sdfEl?.getAttribute('version') || undefined;
 
   const modelName = modelEl.getAttribute('name')?.trim() || 'imported_sdf_model';
-  const parsedGraph = parseSdfModel(modelEl, { ...options, sdfVersion });
+  const includeResolutionContext = createSdfIncludeResolutionContext(
+    options.allFileContents ?? {},
+  );
+  const parsedGraph = parseSdfModel(modelEl, {
+    ...options,
+    sdfVersion,
+    includeResolutionContext,
+  });
   if (!parsedGraph) {
     return null;
   }

@@ -1,10 +1,21 @@
 import type { RobotFile } from '@/types';
+import { USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF } from './usdViewerPlaceholder';
+
+export { USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF } from './usdViewerPlaceholder';
 
 export type ViewerRuntimeSourceFormat = 'auto' | 'urdf' | 'mjcf' | 'sdf' | 'xacro';
 
 export function resolveStandaloneViewerSourceFormat(
   selectedFileFormat: RobotFile['format'] | null | undefined,
+  options: {
+    renderSelectedUsdFromRobotState?: boolean;
+  } = {},
 ): ViewerRuntimeSourceFormat {
+  void options;
+  if (selectedFileFormat === 'usd') {
+    return 'urdf';
+  }
+
   switch (selectedFileFormat) {
     case 'urdf':
     case 'mjcf':
@@ -22,7 +33,6 @@ export function resolveStandaloneViewerContent({
   resolvedMjcfSourceContent,
   viewerUrdfContent,
   viewerGeneratedUrdfContent,
-  isSelectedUsdHydrating,
 }: {
   selectedFileFormat: RobotFile['format'] | null | undefined;
   selectedFileContent?: string | null;
@@ -30,9 +40,10 @@ export function resolveStandaloneViewerContent({
   viewerUrdfContent?: string | null;
   viewerGeneratedUrdfContent?: string | null;
   isSelectedUsdHydrating: boolean;
+  renderSelectedUsdFromRobotState?: boolean;
 }): string {
-  if (selectedFileFormat === 'usd' && isSelectedUsdHydrating) {
-    return selectedFileContent ?? '';
+  if (selectedFileFormat === 'usd') {
+    return USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF;
   }
 
   if (selectedFileFormat === 'mjcf') {

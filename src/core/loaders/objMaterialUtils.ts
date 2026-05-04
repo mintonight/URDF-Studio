@@ -431,6 +431,42 @@ async function loadObjMaterialCreator(
   return materials;
 }
 
+function normalizeObjVertexColorMaterials(root: THREE.Object3D): void {
+  root.traverse((child) => {
+    const renderable = child as THREE.Mesh | THREE.LineSegments | THREE.Points;
+    if (!renderable.geometry || !('material' in renderable)) {
+      return;
+    }
+
+    const hasVertexColorAttribute = Boolean(renderable.geometry.getAttribute('color'));
+    if (!hasVertexColorAttribute) {
+      return;
+    }
+
+    const materials = Array.isArray(renderable.material)
+      ? renderable.material
+      : [renderable.material];
+
+    materials.forEach((material) => {
+      if (!material) {
+        return;
+      }
+
+      (material as { vertexColors?: boolean }).vertexColors = true;
+      const materialColor = (material as { color?: THREE.Color }).color;
+      if (materialColor?.isColor) {
+        materialColor.set(0xffffff);
+      }
+      material.toneMapped = false;
+      material.userData = {
+        ...(material.userData ?? {}),
+        usesVertexColors: true,
+      };
+      material.needsUpdate = true;
+    });
+  });
+}
+
 export async function loadObjScene(
   assetUrl: string,
   manager: THREE.LoadingManager,
@@ -444,7 +480,9 @@ export async function loadObjScene(
     loader.setMaterials(materials);
   }
 
-  return loader.parse(objText);
+  const object = loader.parse(objText);
+  normalizeObjVertexColorMaterials(object);
+  return object;
 }
 
 function cloneTextureWithOwnedInstance<TValue>(value: TValue): TValue {
@@ -502,5 +540,6 @@ export function cloneObjSceneWithOwnedResources<TObject extends THREE.Object3D>(
     }
   });
 
+  normalizeObjVertexColorMaterials(clonedRoot);
   return clonedRoot;
 }

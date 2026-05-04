@@ -90,11 +90,7 @@ export const collectUsdExportAssetFiles = async ({
     const label = normalizeUsdProgressLabel(exportPath, 'asset');
     const resolvedUrl = resolveUsdAssetUrl(sourcePath, registry);
     if (!resolvedUrl) {
-      console.error(`[USD export] Texture asset not found for: ${sourcePath}`);
-      advanceUsdProgress(progressTracker, label);
-      completedCount += 1;
-      await yieldPeriodically(completedCount, recordYieldInterval);
-      return;
+      throw new Error(`Texture asset not found for: ${sourcePath}`);
     }
 
     try {
@@ -105,7 +101,10 @@ export const collectUsdExportAssetFiles = async ({
 
       archiveFilesByIndex[index] = [`assets/${exportPath}`, await response.blob()];
     } catch (error) {
-      console.error(`[USD export] Failed to load texture ${sourcePath}`, error);
+      const reason = error instanceof Error && error.message ? error.message : String(error);
+      throw new Error(`Failed to load texture ${sourcePath}: ${reason}`, {
+        cause: error,
+      });
     }
 
     advanceUsdProgress(progressTracker, label);

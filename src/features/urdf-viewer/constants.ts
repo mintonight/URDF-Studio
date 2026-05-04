@@ -1,21 +1,10 @@
 import * as THREE from 'three';
-import {
-    highlightMaterial,
-    highlightFaceMaterial,
-    collisionHighlightMaterial,
-    collisionBaseMaterial
-} from './utils/materials';
 
 // ============================================================
 // SHARED MATERIALS
 // Set of shared materials that should NOT be disposed (module-level singletons)
 // ============================================================
-export const SHARED_MATERIALS = new Set<THREE.Material>([
-    highlightMaterial,
-    highlightFaceMaterial,
-    collisionHighlightMaterial,
-    collisionBaseMaterial
-]);
+export { SHARED_MATERIALS } from '@/shared/components/3d/sharedMaterials';
 
 // ============================================================
 // PERFORMANCE: Module-level object pool to eliminate GC pressure

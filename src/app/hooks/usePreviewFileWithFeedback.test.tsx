@@ -133,6 +133,7 @@ function createRobotFile(name = 'robots/demo.urdf'): RobotFile {
 
 function renderHook(options: {
   allFileContents: Record<string, string>;
+  assemblyComponentFileNames?: ReadonlySet<string>;
   assets: Record<string, string>;
   availableFiles: RobotFile[];
   getUsdPreparedExportCache: (path: string) => { robotData?: null } | null;
@@ -239,6 +240,87 @@ test('usePreviewFileWithFeedback clears the preview loading overlay after a succ
       loadedCount: null,
       totalCount: null,
     });
+  } finally {
+    rendered.cleanup();
+    clearPreResolvedRobotImportCache();
+    useAssetsStore.getState().resetDocumentLoadState();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    domEnvironment.restore();
+  }
+});
+
+test('usePreviewFileWithFeedback suppresses asset warning when file is already an assembly component', async () => {
+  const domEnvironment = installDomEnvironment();
+
+  const meshUrdfFile: RobotFile = {
+    name: 'mujoco_menagerie-main/agilex_piper/piper.urdf',
+    format: 'urdf',
+    content: `<robot name="piper">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://mujoco_menagerie-main/agilex_piper/meshes/assets/base_link.stl" />
+      </geometry>
+    </visual>
+  </link>
+</robot>`,
+  };
+
+  const documentLoadStates: DocumentLoadState[] = [];
+  const toastMessages: string[] = [];
+  const previewRequests: string[] = [];
+
+  useAssetsStore.getState().resetDocumentLoadState();
+  clearPreResolvedRobotImportCache();
+
+  primePreResolvedRobotImports([
+    {
+      fileName: meshUrdfFile.name,
+      format: meshUrdfFile.format,
+      contentSignature: buildPreResolvedImportContentSignature(meshUrdfFile.content),
+      result: resolveRobotFileData(meshUrdfFile),
+    },
+  ]);
+
+  const assemblyComponentFileNames = new Set([meshUrdfFile.name]);
+
+  const rendered = renderHook({
+    allFileContents: { [meshUrdfFile.name]: meshUrdfFile.content },
+    assemblyComponentFileNames,
+    assets: {},
+    availableFiles: [meshUrdfFile],
+    getUsdPreparedExportCache: () => null,
+    handlePreviewFile: (file) => {
+      previewRequests.push(file.name);
+    },
+    labels: {
+      failedToParseFormat: 'Failed to parse {format}',
+      importPackageAssetBundleHint: 'Missing assets: {assets}',
+      importPrimitiveGeometryHint: 'Primitive geometry: {assets}',
+      usdPreviewRequiresOpen: 'Open the USD file first',
+      xacroSourceOnlyPreviewHint: 'Source-only preview unavailable',
+    },
+    setDocumentLoadState: (state) => {
+      documentLoadStates.push(state);
+      useAssetsStore.getState().setDocumentLoadState(state);
+    },
+    showToast: (message) => {
+      toastMessages.push(message);
+    },
+  });
+
+  try {
+    await act(async () => {
+      rendered.hook.handlePreviewFileWithFeedback(meshUrdfFile);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+
+    assert.deepEqual(previewRequests, [meshUrdfFile.name]);
+    assert.equal(
+      toastMessages.every((msg) => !msg.includes('Missing assets')),
+      true,
+      'should not show asset warning for files already in the assembly',
+    );
   } finally {
     rendered.cleanup();
     clearPreResolvedRobotImportCache();

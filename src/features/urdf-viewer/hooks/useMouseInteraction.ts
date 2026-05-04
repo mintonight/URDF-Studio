@@ -12,8 +12,12 @@ import type {
   ViewerPaintFaceHit,
   ViewerSceneMode,
 } from '../types';
-import { isSingleDofJoint } from '../utils/jointTypes';
-import { collectGizmoRaycastTargets, isGizmoObject, resolveGizmoHoverAxis } from '../utils/raycast';
+import { isSingleDofJoint } from '@/shared/utils/jointTypes';
+import {
+  collectGizmoRaycastTargets,
+  isGizmoObject,
+  shouldPreserveSelectionForGizmoPointerDown,
+} from '../utils/raycast';
 import {
   collectPickTargets,
   collectSelectableHelperTargets,
@@ -112,6 +116,7 @@ export interface UseMouseInteractionOptions {
   onJointChangeCommit?: (name: string, angle: number) => void;
   throttleJointChangeDuringDrag?: boolean;
   setIsDragging?: (dragging: boolean) => void;
+  setHoverFrozen?: (frozen: boolean) => void;
   setActiveJoint?: (jointName: string | null, options?: JointPanelActiveJointOptions) => void;
   justSelectedRef?: React.RefObject<boolean>;
   isOrbitDragging?: React.RefObject<boolean>;
@@ -157,6 +162,7 @@ export function useMouseInteraction({
   onJointChangeCommit,
   throttleJointChangeDuringDrag = false,
   setIsDragging,
+  setHoverFrozen,
   setActiveJoint,
   justSelectedRef,
   isOrbitDragging,
@@ -186,6 +192,7 @@ export function useMouseInteraction({
   const lastRayRef = useRef(new THREE.Ray());
   const selectionResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingPointerSelectionRef = useRef<PendingPointerSelection | null>(null);
+  const deferredSelectionHoverFrozenRef = useRef(false);
   const pointerInteractionActiveRef = useRef(false);
   const pointerInteractionHitTargetRef = useRef(false);
   const pointerDownPositionRef = useRef<{ x: number; y: number } | null>(null);
@@ -413,6 +420,24 @@ export function useMouseInteraction({
       }
     };
 
+    const freezeDeferredSelectionHover = () => {
+      if (deferredSelectionHoverFrozenRef.current) {
+        return;
+      }
+
+      deferredSelectionHoverFrozenRef.current = true;
+      setHoverFrozen?.(true);
+    };
+
+    const releaseDeferredSelectionHover = () => {
+      if (!deferredSelectionHoverFrozenRef.current) {
+        return;
+      }
+
+      deferredSelectionHoverFrozenRef.current = false;
+      setHoverFrozen?.(false);
+    };
+
     const clearHoveredState = () => {
       hoveredLinkRef.current = null;
       (hoveredLinkRef as any).currentMesh = null;
@@ -470,7 +495,7 @@ export function useMouseInteraction({
         // The TransformControls picker meshes extend far beyond the visible
         // handles; blocking orbit for those would prevent camera rotation in
         // a large area around the gizmo.
-        if (resolveGizmoHoverAxis(nearestSceneHit.object) !== null) {
+        if (shouldPreserveSelectionForGizmoPointerDown(nearestSceneHit.object)) {
           return true;
         }
       }
@@ -879,22 +904,16 @@ export function useMouseInteraction({
         gizmoTargets.length > 0
           ? raycasterRef.current.intersectObjects(gizmoTargets, false)[0]
           : undefined;
-      if (nearestSceneHit && isGizmoObject(nearestSceneHit.object)) {
+      if (shouldPreserveSelectionForGizmoPointerDown(nearestSceneHit?.object ?? null)) {
         pointerInteractionHitTargetRef.current = true;
         // TransformControls lives outside the robot pick tree, so R3F can still
         // emit pointer-missed for a valid gizmo click. Keep the current joint
         // selection alive through this interaction instead of clearing it.
-        // When the click lands on an invisible picker mesh (not a visible
-        // handle), arm the selection-miss guard so the selection is preserved on
-        // mouseup.  Picker meshes extend far beyond the visible handles, so
-        // without this guard clicking anywhere near the gizmo would clear the
-        // selection.  Clicks on visible handles are handled by the
-        // TransformControls drag lifecycle, which arms the guard through
-        // handleCollisionTransformDragging.
+        // Only visible gizmo handles should capture the click here; invisible
+        // picker meshes extend beyond the rendered handles and should still let
+        // background clicks dismiss the controller.
         gizmoPointerDownRef.current = { x: e.clientX, y: e.clientY };
-        if (resolveGizmoHoverAxis(nearestSceneHit.object) === null) {
-          armSelectionMissGuard(justSelectedRef);
-        }
+        armSelectionMissGuard(justSelectedRef);
         syncActiveJointFromCurrentSelection();
         return;
       }
@@ -1097,6 +1116,7 @@ export function useMouseInteraction({
 
       if (shouldDeferSelection) {
         armSelectionMissGuard(justSelectedRef);
+        freezeDeferredSelectionHover();
         pendingPointerSelectionRef.current = pendingSelection;
         pointerDownPositionRef.current = { x: e.clientX, y: e.clientY };
         pointerExceededClickThresholdRef.current = false;
@@ -1194,8 +1214,10 @@ export function useMouseInteraction({
 
         if (shouldCommitPendingSelection) {
           applyResolvedSelection(pendingSelection);
+          releaseDeferredSelectionHover();
           shouldResetSelectionMissGuard = true;
         } else {
+          releaseDeferredSelectionHover();
           shouldResetSelectionMissGuard = false;
           disarmSelectionMissGuard(justSelectedRef, selectionResetTimerRef);
         }
@@ -1314,6 +1336,7 @@ export function useMouseInteraction({
       jointDragFrameSync.cancel();
       jointDragStoreSync.dispose();
       clearSelectionMissGuardTimer(selectionResetTimerRef);
+      releaseDeferredSelectionHover();
       setOrbitControlsEnabled(true);
       gl.domElement.removeEventListener('pointerdown', handlePointerDownCapture, true);
       gl.domElement.removeEventListener(hoverMoveEventName, handleMouseMove as EventListener);

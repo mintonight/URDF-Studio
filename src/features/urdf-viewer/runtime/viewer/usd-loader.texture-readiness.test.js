@@ -113,7 +113,7 @@ test("waitForTextureLoadReady stays in finalizing-scene until texture pending co
         "Loading scene textures... 2/2",
     ]);
     assert.deepEqual(percentUpdates, [96, 97.5, 99, 99]);
-    assert.deepEqual(yieldCalls, [48, 48, 0]);
+    assert.deepEqual(yieldCalls, [16, 16, 0]);
 });
 
 test("usd-loader waits for texture readiness before switching the stage to ready", async () => {

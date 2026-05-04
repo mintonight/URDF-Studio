@@ -5,6 +5,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import { ImportPreparationOverlay } from './ImportPreparationOverlay.tsx';
+import { VIEWER_CORNER_OVERLAY_CLASS_NAME } from '@/shared/components/3d/scene';
 
 test('ImportPreparationOverlay keeps the workspace visible while folder imports prepare', () => {
   const markup = renderToStaticMarkup(
@@ -31,6 +32,8 @@ test('ImportPreparationOverlay can share the viewer corner presentation', () => 
     }),
   );
 
-  assert.match(markup, /absolute inset-0 z-20 flex items-end justify-end p-4/);
+  for (const className of VIEWER_CORNER_OVERLAY_CLASS_NAME.split(' ')) {
+    assert.match(markup, new RegExp(className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
   assert.doesNotMatch(markup, /fixed inset-x-0 bottom-4/);
 });

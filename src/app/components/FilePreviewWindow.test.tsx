@@ -7,9 +7,10 @@ import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import type { DocumentLoadState } from '@/store/assetsStore';
-import type { RobotFile } from '@/types';
+import type { RobotFile, RobotState } from '@/types';
 
 import { FilePreviewWindow } from './FilePreviewWindow.tsx';
+import { resolveFilePreviewViewerSourceFile } from './FilePreviewWindow.tsx';
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -56,9 +57,29 @@ function createRobotFile(name: string): RobotFile {
   };
 }
 
+function createUsdFile(name: string): RobotFile {
+  return {
+    name,
+    format: 'usd',
+    content: '#usda 1.0',
+  };
+}
+
+function createRobotState(name: string): RobotState {
+  return {
+    name,
+    links: {},
+    joints: {},
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+  };
+}
+
 function renderWindow(options: {
   root: Root;
   file: RobotFile | null;
+  previewRobot?: RobotState | null;
+  previewState?: { urdfContent: string; fileName: string };
   assets?: Record<string, string>;
   documentLoadState?: DocumentLoadState;
   onClose?: () => void;
@@ -74,8 +95,8 @@ function renderWindow(options: {
     options.root.render(
       <FilePreviewWindow
         file={options.file}
-        previewRobot={null}
-        previewState={undefined}
+        previewRobot={options.previewRobot ?? null}
+        previewState={options.previewState}
         assets={options.assets ?? {}}
         allFileContents={{}}
         availableFiles={options.file ? [options.file] : []}
@@ -87,6 +108,57 @@ function renderWindow(options: {
     );
   });
 }
+
+test('resolveFilePreviewViewerSourceFile routes USD previews through RobotState source', () => {
+  const usdFile = createUsdFile('robots/demo/demo.usda');
+
+  assert.deepEqual(resolveFilePreviewViewerSourceFile(usdFile), {
+    ...usdFile,
+    content: '',
+    format: 'urdf',
+  });
+});
+
+test('FilePreviewWindow does not render stale robot preview content after switching files', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  const previousFile = createRobotFile('robots/previous.urdf');
+  const nextFile = createRobotFile('robots/next.urdf');
+
+  try {
+    await renderWindow({
+      root,
+      file: nextFile,
+      previewRobot: createRobotState('previous'),
+      previewState: {
+        urdfContent: previousFile.content,
+        fileName: previousFile.name,
+      },
+      documentLoadState: {
+        status: 'ready',
+        fileName: nextFile.name,
+        format: nextFile.format,
+        error: null,
+      },
+    });
+
+    assert.equal(container.textContent?.includes('File Preview: next.urdf'), true);
+    assert.equal(
+      container.textContent?.includes('Loading robot...'),
+      false,
+      'stale preview content should not mount the 3D viewer for the next file',
+    );
+    assert.equal(container.textContent?.includes('No preview image available'), true);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
 
 test('FilePreviewWindow renders image previews in a floating window and closes from the header control', async () => {
   const dom = installDom();

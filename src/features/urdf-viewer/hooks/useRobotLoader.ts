@@ -12,26 +12,29 @@ import {
   offsetRobotToGround,
   setInitialGroundAlignment,
   setPreserveAuthoredRootTransform,
-} from '../utils/robotPositioning';
-import { SHARED_MATERIALS } from '../constants';
-import { buildColladaRootNormalizationHints, createLoadingManager } from '@/core/loaders';
+} from '@/shared/components/3d/robotPositioning';
+import { SHARED_MATERIALS } from '@/shared/components/3d/sharedMaterials';
+import {
+  buildColladaRootNormalizationHints,
+  createLoadingManager,
+  createMeshLoader,
+} from '@/core/loaders';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
 import { loadMJCFToThreeJS } from '@/core/parsers/mjcf';
 import { getSourceFileDirectory } from '@/core/parsers/meshPathUtils';
 import type { UrdfJoint, UrdfLink } from '@/types';
 import { setRegressionRuntimeRobot } from '@/shared/debug/regressionBridge';
-import { isSingleDofJoint } from '../utils/jointTypes';
+import { isSingleDofJoint } from '@/shared/utils/jointTypes';
 import { detectJointPatches, detectSingleGeometryPatch } from '../utils/robotLoaderDiff';
 import { applyGeometryPatchInPlace } from '../utils/robotLoaderGeometryPatch';
 import { patchJointsInPlace } from '../utils/robotLoaderJointPatch';
-import { resolveURDFMaterialsForScene } from '../utils/urdfMaterials';
-import { syncLoadedRobotScene } from '../utils/loadedRobotSceneSync';
+import { resolveURDFMaterialsForScene } from '@/shared/components/3d/urdfMaterials';
+import { syncLoadedRobotScene } from '@/shared/components/3d/renderers/loadedRobotSceneSync';
 import { shouldMountRobotBeforeAssetsComplete } from '../utils/loadStrategy';
-import { resolveRobotLoaderSourceMetadata } from '../utils/robotLoaderSourceMetadata';
+import { resolveRobotLoaderSourceMetadata } from '@/shared/components/3d/renderers/robotLoaderSourceMetadata';
 import { createViewerRobotLoadInputSignature } from '../utils/robotLoadScope';
-import { resolveViewerRobotSourceFormat } from '../utils/sourceFormat';
-import { shouldWaitForStructuredUrdfRobotState } from '../utils/urdfXmlFallbackPolicy';
-import { createViewerMeshLoader } from '../utils/createViewerMeshLoader';
+import { resolveViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
+import { shouldWaitForStructuredUrdfRobotState } from '@/shared/components/3d/renderers/urdfXmlFallbackPolicy';
 import type { RobotLoadingPhase, ViewerDocumentLoadEvent, ViewerRobotSourceFormat } from '../types';
 
 const VIEWER_LOAD_YIELD_BUDGET_MS = 4;
@@ -138,7 +141,7 @@ export function useRobotLoader({
   urdfContent,
   assets,
   sourceFormat = 'auto',
-  allowUrdfXmlFallback = true,
+  allowUrdfXmlFallback = false,
   reloadToken = 0,
   initialRobot = null,
   showCollision,
@@ -877,7 +880,7 @@ export function useRobotLoader({
           const yieldIfNeeded = createMainThreadYieldController(VIEWER_LOAD_YIELD_BUDGET_MS);
           loader.parseCollision = shouldParseCollisionMeshes;
           loader.parseVisual = true;
-          loader.loadMeshCb = createViewerMeshLoader(assets, manager, urdfDir, {
+          loader.loadMeshCb = createMeshLoader(assets, manager, urdfDir, {
             colladaRootNormalizationHints,
             explicitScaleMeshPaths: explicitlyScaledMeshPaths,
             yieldIfNeeded,

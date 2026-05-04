@@ -493,8 +493,13 @@ export const patchVisibleHoverHitFallback = (controls: any) => {
 
     // Hover should only react to the currently visible gizmo geometry,
     // not the oversized invisible picker volume used for dragging.
-    controls.axis = resolveVisibleAxisHit(controls, pointer);
-    cacheVisibleAxisHit(controls, pointer, controls.axis);
+    const visibleAxis = resolveVisibleAxisHit(controls, pointer);
+    if (visibleAxis) {
+      controls.axis = visibleAxis;
+    }
+    // When the visible hit test finds nothing, keep the axis set by the
+    // stock raycaster above so that pointerDown can still initiate a drag.
+    cacheVisibleAxisHit(controls, pointer, visibleAxis);
   };
 
   controls.userData = {
@@ -526,11 +531,15 @@ export const patchVisiblePointerDownFallback = (controls: any) => {
       const visibleAxis =
         getCachedVisibleAxisHit(controls, pointer) ??
         (pointer ? resolveVisibleAxisHit(controls, pointer) : null);
-      controls.axis = visibleAxis;
-      cacheVisibleAxisHit(controls, pointer, visibleAxis);
 
-      if (!visibleAxis) {
-        return;
+      if (visibleAxis) {
+        controls.axis = visibleAxis;
+        cacheVisibleAxisHit(controls, pointer, visibleAxis);
+      } else if (controls.axis === null) {
+        // The visible hit test failed but the stock raycaster (called by
+        // the onPointerDown -> pointerHover chain just before this
+        // pointerDown) may have already set a valid axis. Keep it so the
+        // original pointerDown can still initiate the drag.
       }
     }
 

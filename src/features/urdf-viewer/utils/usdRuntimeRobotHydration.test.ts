@@ -7,6 +7,7 @@ import { DEFAULT_JOINT, DEFAULT_LINK, GeometryType, JointType } from '@/types';
 import { createOriginMatrix } from '@/core/robot/kinematics';
 import type { ViewerRobotDataResolution } from './viewerRobotData';
 import { hydrateUsdViewerRobotResolutionFromRuntime } from './usdRuntimeRobotHydration.ts';
+import { createUsdViewerRuntimeRobot } from './usdViewerRuntimeRobot.ts';
 
 function composeMatrix(
   position: { x: number; y: number; z: number },
@@ -677,7 +678,7 @@ test('hydrateUsdViewerRobotResolutionFromRuntime preserves the B2 leg mesh basis
   );
 });
 
-test('hydrateUsdViewerRobotResolutionFromRuntime composes authored approximation offsets with runtime prim transforms', () => {
+test('hydrateUsdViewerRobotResolutionFromRuntime composes authored mesh offsets with runtime prim transforms', () => {
   const baseWorld = composeMatrix({ x: 0, y: 0, z: 0 });
   const childWorld = composeMatrix({ x: 1, y: -2, z: 3 }, { r: 0.02, p: -0.04, y: 0.06 });
   const visualPrimWorld = childWorld
@@ -803,7 +804,7 @@ test('hydrateUsdViewerRobotResolutionFromRuntime composes authored approximation
       .invert()
       .multiply(visualPrimWorld.clone())
       .multiply(createOriginMatrix(authoredVisualOrigin)),
-    'visual origin should preserve authored approximation center offsets',
+    'visual origin should preserve authored mesh center offsets',
   );
   assertMatrixClose(
     hydrated.robotData.links.arm_link.collision.origin,
@@ -812,7 +813,7 @@ test('hydrateUsdViewerRobotResolutionFromRuntime composes authored approximation
       .invert()
       .multiply(collisionPrimWorld.clone())
       .multiply(createOriginMatrix(authoredCollisionOrigin)),
-    'collision origin should preserve authored approximation center offsets',
+    'collision origin should preserve authored mesh center offsets',
   );
 });
 
@@ -1153,4 +1154,145 @@ test('hydrateUsdViewerRobotResolutionFromRuntime falls back to RobotData kinemat
     childLinkWorld.clone().invert().multiply(collisionWorld.clone()),
     'collision origin should fall back to the current RobotData link frame when runtime link matrices are absent',
   );
+});
+
+test('hydrateUsdViewerRobotResolutionFromRuntime writes runtime joint angles into RobotState', () => {
+  const resolution: ViewerRobotDataResolution = {
+    stageSourcePath: '/robots/demo/joint_angles.usd',
+    linkIdByPath: {
+      '/Robot/base_link': 'base_link',
+      '/Robot/leg_link': 'leg_link',
+    },
+    linkPathById: {
+      base_link: '/Robot/base_link',
+      leg_link: '/Robot/leg_link',
+    },
+    jointPathById: {
+      leg_joint: '/Robot/joints/leg_joint',
+    },
+    childLinkPathByJointId: {
+      leg_joint: '/Robot/leg_link',
+    },
+    parentLinkPathByJointId: {
+      leg_joint: '/Robot/base_link',
+    },
+    robotData: {
+      name: 'joint_angles',
+      rootLinkId: 'base_link',
+      links: {
+        base_link: {
+          ...DEFAULT_LINK,
+          id: 'base_link',
+          name: 'base_link',
+        },
+        leg_link: {
+          ...DEFAULT_LINK,
+          id: 'leg_link',
+          name: 'leg_link',
+        },
+      },
+      joints: {
+        leg_joint: {
+          ...DEFAULT_JOINT,
+          id: 'leg_joint',
+          name: 'leg_joint',
+          type: JointType.REVOLUTE,
+          parentLinkId: 'base_link',
+          childLinkId: 'leg_link',
+          axis: { x: 0, y: 1, z: 0 },
+        },
+      },
+    },
+  };
+
+  const hydrated = hydrateUsdViewerRobotResolutionFromRuntime(resolution, null, {
+    getPreferredLinkWorldTransform: () => null,
+    getWorldTransformForPrimPath: () => null,
+    getJointInfoForLink: (linkPath: string) =>
+      linkPath === '/Robot/leg_link' ? { angleDeg: 45 } : null,
+  });
+
+  assert.ok(hydrated);
+  assert.equal(hydrated.robotData.joints.leg_joint?.angle, Math.PI / 4);
+});
+
+test('hydrated USD RobotState joint angles drive the next runtime initialization', () => {
+  const resolution: ViewerRobotDataResolution = {
+    stageSourcePath: '/robots/demo/joint_angle_round_trip.usd',
+    linkIdByPath: {
+      '/Robot/base_link': 'base_link',
+      '/Robot/leg_link': 'leg_link',
+    },
+    linkPathById: {
+      base_link: '/Robot/base_link',
+      leg_link: '/Robot/leg_link',
+    },
+    jointPathById: {
+      leg_joint: '/Robot/joints/leg_joint',
+    },
+    childLinkPathByJointId: {
+      leg_joint: '/Robot/leg_link',
+    },
+    parentLinkPathByJointId: {
+      leg_joint: '/Robot/base_link',
+    },
+    robotData: {
+      name: 'joint_angle_round_trip',
+      rootLinkId: 'base_link',
+      links: {
+        base_link: {
+          ...DEFAULT_LINK,
+          id: 'base_link',
+          name: 'base_link',
+        },
+        leg_link: {
+          ...DEFAULT_LINK,
+          id: 'leg_link',
+          name: 'leg_link',
+        },
+      },
+      joints: {
+        leg_joint: {
+          ...DEFAULT_JOINT,
+          id: 'leg_joint',
+          name: 'leg_joint',
+          type: JointType.REVOLUTE,
+          parentLinkId: 'base_link',
+          childLinkId: 'leg_link',
+          axis: { x: 0, y: 1, z: 0 },
+        },
+      },
+    },
+  };
+
+  const hydrated = hydrateUsdViewerRobotResolutionFromRuntime(resolution, null, {
+    getPreferredLinkWorldTransform: () => null,
+    getWorldTransformForPrimPath: () => null,
+    getJointInfoForLink: (linkPath: string) =>
+      linkPath === '/Robot/leg_link' ? { angleDeg: 45 } : null,
+  });
+  assert.ok(hydrated);
+
+  const appliedAngles: Array<{ linkPath: string; angleDeg: number }> = [];
+  createUsdViewerRuntimeRobot({
+    resolution: hydrated,
+    linkRotationController: {
+      apply: () => {},
+      getJointInfoForLink: () => ({
+        angleDeg: 0,
+        lowerLimitDeg: -90,
+        upperLimitDeg: 90,
+      }),
+      setJointAngleForLink: (linkPath: string, angleDeg: number) => {
+        appliedAngles.push({ linkPath, angleDeg });
+        return {
+          angleDeg,
+          lowerLimitDeg: -90,
+          upperLimitDeg: 90,
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(appliedAngles, [{ linkPath: '/Robot/leg_link', angleDeg: 45 }]);
 });

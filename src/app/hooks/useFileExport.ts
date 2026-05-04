@@ -14,23 +14,24 @@ import {
   injectGazeboTags,
 } from '@/core/parsers';
 import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
-import { rewriteUrdfAssetPathsForExport } from '@/core/parsers/meshPathUtils';
 import { useAssemblyStore, useAssetsStore, useRobotStore, useUIStore } from '@/store';
 import { toDocumentLoadLifecycleState } from '@/store/assetsStore';
 import { prepareMjcfMeshExportAssets, type ExportDialogConfig } from '@/features/file-io';
-import { getUsdStageExportHandler } from '@/features/editor';
 import { translations } from '@/shared/i18n';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
 import type { RobotAssetPackagingFailure } from '../utils/exportArchiveAssets';
 import { addRobotAssetsToZip } from '../utils/exportArchiveAssets';
-import { resolveCurrentUsdExportMode } from '../utils/currentUsdExportMode';
 import { flushPendingHistory } from '../utils/pendingHistory';
 import { buildCurrentRobotExportState } from './projectRobotStateUtils';
 import { resolveCurrentUsdExportBundle } from '../utils/usdExportContext';
-import { resolveUrdfSourceExportContent } from './urdfSourceExportUtils';
 import { buildGeneratedUrdfOptions } from '../utils/generatedUrdfOptions';
 import { resolveRobotFileDataWithWorker } from './robotImportWorkerBridge';
 import { markUnsavedChangesBaselineSaved } from '../utils/unsavedChangesBaseline';
+import {
+  resolveSourcePreservingExportContent,
+  type SourcePreservingExportFile,
+  type SourcePreservingExportFormat,
+} from './sourcePreservingExportUtils';
 import {
   addArchiveFilesToZip,
   addSkeletonToZip,
@@ -58,6 +59,7 @@ import {
 import {
   assertAssemblyUrdfExportSupported,
   assertUrdfExportSupported,
+  buildAssemblyExportName,
   createBoxFaceTextureFallbackWarnings,
   resolveDisconnectedWorkspaceUrdfAction,
 } from './file-export/urdfSupport';
@@ -204,22 +206,16 @@ export function useFileExport() {
     selectedFile?.format === 'usd' &&
     documentLoadLifecycleState.status === 'hydrating' &&
     documentLoadLifecycleState.fileName === selectedFile.name;
-  const currentUsdExportMode =
-    selectedFile?.format === 'usd' && sidebarTab !== 'workspace'
-      ? resolveCurrentUsdExportMode({
-          isHydrating: isCurrentUsdHydrating,
-          hasLiveStageExportHandler: Boolean(getUsdStageExportHandler()),
-          hasPreparedExportCache: Boolean(getUsdPreparedExportCache(selectedFile.name)),
-          hasSceneSnapshot: Boolean(getUsdSceneSnapshot(selectedFile.name)),
-        })
-      : 'unavailable';
-
   const buildRobotForExport = useCallback((): RobotState => {
     // Keep export source aligned with current viewer:
     // workspace tab -> merged assembly; structure tab -> current robot store.
     if (assemblyState && sidebarTab === 'workspace') {
       const mergedData = buildExportableAssemblyRobotData(assemblyState);
-      return { ...mergedData, selection: { type: null, id: null } };
+      return {
+        ...mergedData,
+        name: buildAssemblyExportName(assemblyState),
+        selection: { type: null, id: null },
+      };
     }
 
     return buildCurrentRobotExportState({
@@ -342,44 +338,85 @@ export function useFileExport() {
     ],
   );
 
-  const buildUrdfSourceExportContent = useCallback(
-    async (
+  const resolveSourcePreservingSourceFile = useCallback(
+    (
+      format: SourcePreservingExportFormat,
       target: ExportTarget,
-      exportName: string,
-      options: UrdfSourceExportPreference = {},
-    ): Promise<string | null> => {
-      const { useRelativePaths = false, preferSourceVisualMeshes = true } = options;
-
-      if (!preferSourceVisualMeshes) {
-        return null;
-      }
-
+    ): SourcePreservingExportFile | null => {
       if (target.type === 'library-file') {
-        if (target.file.format !== 'urdf') {
-          return null;
-        }
-
-        return rewriteUrdfAssetPathsForExport(target.file.content, {
-          exportRobotName: exportName,
-          useRelativePaths,
-        });
+        return target.file.format === format
+          ? {
+              name: target.file.name,
+              format,
+              content: target.file.content,
+            }
+          : null;
       }
 
-      if (sidebarTab === 'workspace' || selectedFile?.format !== 'urdf' || isCurrentUsdHydrating) {
+      if (
+        sidebarTab === 'workspace' ||
+        isCurrentUsdHydrating ||
+        !selectedFile ||
+        selectedFile.format !== format
+      ) {
         return null;
       }
 
-      return resolveUrdfSourceExportContent({
-        currentRobot: buildRobotForExport(),
-        exportRobotName: exportName,
-        selectedFileName: selectedFile.name,
-        selectedFileContent: selectedFile.content,
-        originalUrdfContent,
-        useRelativePaths,
-        preferSourceVisualMeshes,
+      const candidateContents = [
+        allFileContents[selectedFile.name],
+        selectedFile.content,
+        originalFileFormat === format ? originalUrdfContent : null,
+      ].filter((content, index, values): content is string => {
+        const trimmed = content?.trim();
+        return Boolean(trimmed) && values.indexOf(content) === index;
       });
+
+      const content = candidateContents[0] ?? null;
+      return content
+        ? {
+            name: selectedFile.name,
+            format,
+            content,
+          }
+        : null;
     },
-    [buildRobotForExport, isCurrentUsdHydrating, originalUrdfContent, selectedFile, sidebarTab],
+    [
+      allFileContents,
+      isCurrentUsdHydrating,
+      originalFileFormat,
+      originalUrdfContent,
+      selectedFile,
+      sidebarTab,
+    ],
+  );
+
+  const buildSourcePreservingExportContent = useCallback(
+    (
+      format: SourcePreservingExportFormat,
+      target: ExportTarget,
+      currentRobot: RobotState,
+      generatedContent: string,
+      options: UrdfSourceExportPreference = {},
+    ): string | null => {
+      if (options.preferSourceVisualMeshes === false) {
+        return null;
+      }
+
+      const sourceFile = resolveSourcePreservingSourceFile(format, target);
+      if (!sourceFile) {
+        return null;
+      }
+
+      return resolveSourcePreservingExportContent({
+        format,
+        currentRobot,
+        sourceFile,
+        generatedContent,
+        availableFiles,
+        allFileContents,
+      }).content;
+    },
+    [allFileContents, availableFiles, resolveSourcePreservingSourceFile],
   );
 
   const buildCurrentUsdExportContext = useCallback((): ExportContext | null => {
@@ -459,11 +496,12 @@ export function useFileExport() {
     const zip = new JSZip();
     const archiveRoot = createArchiveRoot(zip, exportName);
     const generatedUrdfOptions = await buildGeneratedUrdfOptions(extraMeshFiles);
+    const generatedUrdfContent = generateURDF(robot, generatedUrdfOptions);
 
     archiveRoot.file(
       `${exportName}.urdf`,
-      (await buildUrdfSourceExportContent(target, exportName)) ??
-        generateURDF(robot, generatedUrdfOptions),
+      buildSourcePreservingExportContent('urdf', target, robot, generatedUrdfContent) ??
+        generatedUrdfContent,
     );
     await addMeshesToZip(robot, archiveRoot, undefined, extraMeshFiles);
 
@@ -471,7 +509,7 @@ export function useFileExport() {
     downloadBlob(content, `${exportName}_urdf.zip`);
   }, [
     resolveExportContext,
-    buildUrdfSourceExportContent,
+    buildSourcePreservingExportContent,
     addMeshesToZip,
     downloadBlob,
     t.exportClosedLoopUrdfUnsupported,
@@ -492,14 +530,16 @@ export function useFileExport() {
     });
     const zip = new JSZip();
     const archiveRoot = createArchiveRoot(zip, exportName);
+    const generatedMjcfContent = generateMujocoXML(robot, {
+      meshdir: 'meshes/',
+      meshPathOverrides: mjcfMeshExport.meshPathOverrides,
+      visualMeshVariants: mjcfMeshExport.visualMeshVariants,
+    });
 
     archiveRoot.file(
       `${exportName}.xml`,
-      generateMujocoXML(robot, {
-        meshdir: 'meshes/',
-        meshPathOverrides: mjcfMeshExport.meshPathOverrides,
-        visualMeshVariants: mjcfMeshExport.visualMeshVariants,
-      }),
+      buildSourcePreservingExportContent('mjcf', DEFAULT_EXPORT_TARGET, robot, generatedMjcfContent) ??
+        generatedMjcfContent,
     );
     await addMeshesToZip(
       robot,
@@ -512,7 +552,14 @@ export function useFileExport() {
 
     const content = await zip.generateAsync({ type: 'blob' });
     downloadBlob(content, `${exportName}_mjcf.zip`);
-  }, [resolveExportContext, assets, addMeshesToZip, downloadBlob, t.exportFailedParse]);
+  }, [
+    resolveExportContext,
+    assets,
+    buildSourcePreservingExportContent,
+    addMeshesToZip,
+    downloadBlob,
+    t.exportFailedParse,
+  ]);
 
   // Export handler
   const handleExport = useCallback(async () => {
@@ -541,10 +588,11 @@ export function useFileExport() {
     const hardwareFolder = archiveRoot.folder('hardware');
 
     // 1. Generate Standard URDF
+    const generatedStandardUrdf = generateURDF(robot, generatedUrdfOptions);
     archiveRoot.file(
       `${exportName}.urdf`,
-      (await buildUrdfSourceExportContent(target, exportName)) ??
-        generateURDF(robot, generatedUrdfOptions),
+      buildSourcePreservingExportContent('urdf', target, robot, generatedStandardUrdf) ??
+        generatedStandardUrdf,
     );
 
     // 2. Generate Extended URDF (with hardware info)
@@ -564,7 +612,10 @@ export function useFileExport() {
       meshPathOverrides: mjcfMeshExport.meshPathOverrides,
       visualMeshVariants: mjcfMeshExport.visualMeshVariants,
     });
-    archiveRoot.file(`${exportName}.xml`, mujocoXml);
+    archiveRoot.file(
+      `${exportName}.xml`,
+      buildSourcePreservingExportContent('mjcf', target, robot, mujocoXml) ?? mujocoXml,
+    );
 
     // 5. Add Meshes
     await addMeshesToZip(robot, archiveRoot, undefined, extraMeshFiles);
@@ -576,7 +627,7 @@ export function useFileExport() {
   }, [
     resolveExportContext,
     assets,
-    buildUrdfSourceExportContent,
+    buildSourcePreservingExportContent,
     buildBomCsv,
     addMeshesToZip,
     downloadBlob,
@@ -633,21 +684,24 @@ export function useFileExport() {
         const generatedUrdfOptions = await buildGeneratedUrdfOptions(undefined, {
           useRelativePaths,
         });
+        const generatedUrdfContent = generateURDF(exportRobot, generatedUrdfOptions);
         const urdfContent = includeExtended
           ? generateURDF(
               exportRobot,
               await buildGeneratedUrdfOptions(undefined, { extended: true, useRelativePaths }),
             )
           : ((sourceFile && fallbackResult.records.length === 0
-              ? await buildUrdfSourceExportContent(
+              ? buildSourcePreservingExportContent(
+                  'urdf',
                   { type: 'library-file', file: sourceFile },
-                  componentExportName,
+                  exportRobot,
+                  generatedUrdfContent,
                   {
                     useRelativePaths,
                     preferSourceVisualMeshes,
                   },
                 )
-              : null) ?? generateURDF(exportRobot, generatedUrdfOptions));
+              : null) ?? generatedUrdfContent);
 
         componentFolder.file(`${componentExportName}.urdf`, urdfContent);
 
@@ -695,7 +749,7 @@ export function useFileExport() {
       availableFiles,
       bomLabels,
       boxFaceFallbackWarningLabels,
-      buildUrdfSourceExportContent,
+      buildSourcePreservingExportContent,
       downloadBlob,
       replaceTemplate,
       t.exportClosedLoopUrdfUnsupported,
@@ -724,12 +778,7 @@ export function useFileExport() {
           config,
           target,
           options,
-          selectedFile,
-          sidebarTab,
-          currentUsdExportMode,
-          availableFiles,
           assets,
-          allFileContents,
           requiresResolvedUsdContext,
           t,
           resolveLibraryRobotForExport,
@@ -871,16 +920,18 @@ export function useFileExport() {
           indeterminate: false,
         });
 
+        const generatedMjcfContent = generateMujocoXML(robot, {
+          meshdir,
+          addFloatBase,
+          includeActuators,
+          actuatorType,
+          meshPathOverrides: mjcfMeshExport.meshPathOverrides,
+          visualMeshVariants: mjcfMeshExport.visualMeshVariants,
+        });
         archiveRoot.file(
           `${exportName}.xml`,
-          generateMujocoXML(robot, {
-            meshdir,
-            addFloatBase,
-            includeActuators,
-            actuatorType,
-            meshPathOverrides: mjcfMeshExport.meshPathOverrides,
-            visualMeshVariants: mjcfMeshExport.visualMeshVariants,
-          }),
+          buildSourcePreservingExportContent('mjcf', target, robot, generatedMjcfContent) ??
+            generatedMjcfContent,
         );
         if (includeMeshes) {
           reportProgress(
@@ -962,12 +1013,23 @@ export function useFileExport() {
               exportRobot,
               await buildGeneratedUrdfOptions(extraMeshFiles, { extended: true, useRelativePaths }),
             )
-          : ((boxFaceFallbackCount === 0
-              ? await buildUrdfSourceExportContent(target, exportName, {
-                  useRelativePaths,
-                  preferSourceVisualMeshes,
-                })
-              : null) ?? generateURDF(exportRobot, generatedUrdfOptions));
+          : (() => {
+              const generatedUrdfContent = generateURDF(exportRobot, generatedUrdfOptions);
+              return (
+                (boxFaceFallbackCount === 0
+                  ? buildSourcePreservingExportContent(
+                      'urdf',
+                      target,
+                      exportRobot,
+                      generatedUrdfContent,
+                      {
+                        useRelativePaths,
+                        preferSourceVisualMeshes,
+                      },
+                    )
+                  : null) ?? generatedUrdfContent
+              );
+            })();
         archiveRoot.file(`${exportName}.urdf`, urdfContent);
         if (includeBOM) {
           const hardwareFolder = archiveRoot.folder('hardware');
@@ -1034,11 +1096,13 @@ export function useFileExport() {
           indeterminate: false,
         });
 
+        const generatedSdfContent = generateSDF(exportRobot, {
+          packageName: exportName,
+        });
         archiveRoot.file(
           'model.sdf',
-          generateSDF(exportRobot, {
-            packageName: exportName,
-          }),
+          buildSourcePreservingExportContent('sdf', target, exportRobot, generatedSdfContent) ??
+            generatedSdfContent,
         );
         archiveRoot.file(
           'model.config',
@@ -1121,16 +1185,23 @@ export function useFileExport() {
           replaceTemplate,
           boxFaceFallbackWarningLabels,
         );
-        const xacroBaseUrdf =
-          (boxFaceFallbackCount === 0
-            ? await buildUrdfSourceExportContent(target, exportName, { useRelativePaths })
-            : null) ?? generateURDF(exportRobot, generatedUrdfOptions);
-        const xacroContent = injectGazeboTags(
-          xacroBaseUrdf,
+        const generatedXacroBaseUrdf = generateURDF(exportRobot, generatedUrdfOptions);
+        const generatedXacroContent = injectGazeboTags(
+          generatedXacroBaseUrdf,
           exportRobot,
           rosVersion,
           rosHardwareInterface,
         );
+        const xacroContent =
+          (boxFaceFallbackCount === 0
+            ? buildSourcePreservingExportContent(
+                'xacro',
+                target,
+                exportRobot,
+                generatedXacroContent,
+                { useRelativePaths },
+              )
+            : null) ?? generatedXacroContent;
         archiveRoot.file(`${exportName}.urdf.xacro`, xacroContent);
         if (includeMeshes) {
           reportProgress(
@@ -1190,16 +1261,13 @@ export function useFileExport() {
     },
     [
       addMeshesToZip,
-      currentUsdExportMode,
       createProgressReporter,
       bomLabels,
       boxFaceFallbackWarningLabels,
       downloadBlob,
-      availableFiles,
       assets,
-      allFileContents,
       generateZipBlobWithProgress,
-      buildUrdfSourceExportContent,
+      buildSourcePreservingExportContent,
       replaceTemplate,
       resolveLibraryRobotForExport,
       resolveExportContext,

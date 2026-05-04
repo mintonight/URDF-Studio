@@ -42,4 +42,12 @@ test('shouldWaitForStructuredUrdfRobotState does not block structured or MJCF lo
     }),
     false,
   );
+  assert.equal(
+    shouldWaitForStructuredUrdfRobotState({
+      resolvedSourceFormat: 'xacro',
+      hasStructuredRobotState: false,
+      allowUrdfXmlFallback: false,
+    }),
+    false,
+  );
 });

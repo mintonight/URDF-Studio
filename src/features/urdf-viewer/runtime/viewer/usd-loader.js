@@ -5,7 +5,7 @@ import { getUsdConfigurationMirrorPlan, getUsdDependencyExtension, getUsdDepende
 import { getDirectoryFromVirtualPath, isLikelyNonRenderableUsdConfig, normalizeUsdPath, parseBooleanFlag } from "./path-utils.js";
 import { applyStageAxisAlignmentToRoot } from "./stage-up-axis.js";
 import { getTextureLoadProgress, waitForTextureLoadReady } from "./usd-loader-progress.js";
-const COLLISION_SEGMENT_PATTERN = /(?:^|\/)collisions?(?:$|[/.])/i;
+const COLLISION_SEGMENT_PATTERN = /(?:^|\/)coll(?:isions?|iders?)(?:$|[/.])/i;
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -52,7 +52,7 @@ function getMeshLoadStats(renderInterface) {
             return true;
         if (normalizedId.includes(".proto_"))
             return true;
-        const isTopLevelPlaceholderMesh = /^\/(?:meshes|visuals|colliders?|collision)\//i.test(normalizedId);
+        const isTopLevelPlaceholderMesh = /^\/(?:meshes|visuals|coll(?:isions?|iders?))\//i.test(normalizedId);
         if (!isTopLevelPlaceholderMesh)
             return true;
         const resolvedPath = renderInterface?.getResolvedPrimPathForMeshId?.(normalizedId)
@@ -150,7 +150,7 @@ export async function loadUsdStage(args) {
         // thread right after the first visible frame.
         const aggressiveBurst = maxCpuDraw
             ? Math.max(2, Math.min(24, inferredThreadHint * 2))
-            : 2;
+            : Math.max(2, Math.min(8, inferredThreadHint));
         const fallback = aggressiveInitialDraw
             ? Math.max(baselineBurst, aggressiveBurst)
             : baselineBurst;
@@ -178,7 +178,7 @@ export async function loadUsdStage(args) {
     })();
     const initialDrawYieldMs = (() => {
         const requested = Number(params.get("initialDrawYieldMs"));
-        const fallback = aggressiveInitialDraw ? 4 : 8;
+        const fallback = aggressiveInitialDraw ? 1 : 8;
         if (!Number.isFinite(requested))
             return fallback;
         return Math.max(0, Math.min(1000, Math.floor(requested)));
@@ -395,7 +395,9 @@ export async function loadUsdStage(args) {
         setMessage(`Cannot find USD file at '${normalizedPath}'.`);
         setProgress(0, true);
         hideProgress();
-        state.ready = true;
+        state.ready = false;
+        state.drawFailed = true;
+        state.drawFailureReason = "root-path-unavailable";
         return state;
     }
     setProgress(10);
@@ -406,17 +408,6 @@ export async function loadUsdStage(args) {
         totalCount: null,
     });
     setMessage("Preloading USD dependencies...");
-    const unitreeDependencyStemByRootUsdFile = {
-        "g1_29dof_rev_1_0.usd": "g1_29dof_rev_1_0",
-        "g1_23dof_rev_1_0.usd": "g1_23dof_rev_1_0",
-        "go2.usd": "go2_description",
-        "go2w.usd": "go2w_description",
-        "h1.usd": "h1",
-        "h1_2.usd": "h1_2",
-        "h1_2_handless.usd": "h1_2_handless",
-        "b2.usd": "b2_description",
-        "b2w.usd": "b2w_description",
-    };
     const usdModule = window.USD;
     const canWriteVirtualFs = !!usdModule
         && typeof usdModule.FS_createPath === "function"
@@ -620,8 +611,7 @@ export async function loadUsdStage(args) {
         }
     }
     const normalizedFileName = normalizedPath.split("/").pop()?.toLowerCase() || "";
-    const inferredStem = inferDependencyStemForUsdPath(normalizedPath, normalizedFileName);
-    const dependencyStem = unitreeDependencyStemByRootUsdFile[normalizedFileName] || inferredStem;
+    const dependencyStem = inferDependencyStemForUsdPath(normalizedPath, normalizedFileName);
     const normalizedPathLower = normalizedPath.toLowerCase();
     const shouldAutoLoadDependenciesFromVirtualFs = usdFsHelper.hasVirtualFilePath(normalizedPath);
     const shouldAutoLoadDependenciesFromUnitreePath = normalizedPathLower.startsWith("/unitree_model/");
@@ -665,7 +655,7 @@ export async function loadUsdStage(args) {
         // In snapshot/one-shot mode, all heavy bridge payloads should arrive before
         // ready; disable on-demand fallback pulls so interaction stays cache-only.
         strictOneShotSceneLoad: strictOneShot,
-        autoBatchProtoBlobsOnFirstAccess: false,
+        autoBatchProtoBlobsOnFirstAccess: strictOneShot,
         autoBatchPrimTransformsOnFirstAccess: false,
         autoBatchCollisionProtoOverridesOnFirstAccess: false,
         autoBatchVisualProtoOverridesOnFirstAccess: false,
@@ -809,7 +799,8 @@ export async function loadUsdStage(args) {
             }
             return summary && typeof summary === "object" ? summary : null;
         }
-        catch {
+        catch (error) {
+            console.error("[usd-loader] Failed to warm up runtime bridge during " + phaseLabel + ".", error);
             return null;
         }
     };
@@ -857,6 +848,16 @@ export async function loadUsdStage(args) {
         const pendingCount = getPendingProtoHydrationCount(summary);
         return pendingCount === 0;
     };
+    const markHydrationFailure = (reason, error) => {
+        console.error(`[usd-loader] ${reason} while hydrating USD meshes for ${normalizedPath}.`, error);
+        state.ready = false;
+        state.drawFailed = true;
+        state.drawFailureReason = reason;
+        setMessage(error instanceof Error && error.message
+            ? error.message
+            : "Failed to hydrate USD meshes before interactive readiness.");
+        return null;
+    };
     const runProtoHydrationPass = () => {
         const activeRenderInterface = window.renderInterface;
         if (!activeRenderInterface || typeof activeRenderInterface.hydratePendingProtoMeshes !== "function")
@@ -868,8 +869,8 @@ export async function loadUsdStage(args) {
         try {
             return activeRenderInterface.hydratePendingProtoMeshes({ allowDeferredFinalBatch: false }) || null;
         }
-        catch {
-            return null;
+        catch (error) {
+            return markHydrationFailure("proto-hydration-failed", error);
         }
     };
     const getPendingResolvedPrimHydrationCount = (summary) => {
@@ -900,9 +901,24 @@ export async function loadUsdStage(args) {
                 force: options.force === true,
             }) || null;
         }
-        catch {
-            return null;
+        catch (error) {
+            return markHydrationFailure("resolved-prim-hydration-failed", error);
         }
+    };
+    const ensureNoPendingMeshHydrationBeforeReady = () => {
+        const protoHydrationSummary = runProtoHydrationPass();
+        if (state.drawFailed)
+            return false;
+        const resolvedPrimHydrationSummary = runResolvedPrimHydrationPass({ force: true });
+        if (state.drawFailed)
+            return false;
+        const pendingProtoCount = Math.max(0, Number(getPendingProtoHydrationCount(protoHydrationSummary) ?? 0));
+        const pendingResolvedPrimCount = Math.max(0, Number(getPendingResolvedPrimHydrationCount(resolvedPrimHydrationSummary) ?? 0));
+        if (pendingProtoCount <= 0 && pendingResolvedPrimCount <= 0) {
+            return true;
+        }
+        markHydrationFailure("mesh-hydration-pending-before-ready", new Error(`USD mesh hydration still has pending work before ready (proto: ${pendingProtoCount}, resolved prim: ${pendingResolvedPrimCount}).`));
+        return false;
     };
     const getRobotSceneStageSnapshot = () => {
         const activeRenderInterface = window.renderInterface;
@@ -1062,11 +1078,14 @@ export async function loadUsdStage(args) {
                 ? maybePromise
                 : Promise.resolve(maybePromise ?? null);
             primedRobotMetadataWarmupPromise = normalizedPromise;
-            void primedRobotMetadataWarmupPromise.catch(() => { });
+            void primedRobotMetadataWarmupPromise.catch((error) => {
+                console.error(`[usd-loader] ${warmupPhaseLabel} rejected for ${normalizedPath}.`, error);
+            });
             return normalizedPromise;
         }
-        catch (error) {
-            const rejectedPromise = Promise.reject(error);
+        catch (caughtError) {
+            console.error(`[usd-loader] Failed to start ${warmupPhaseLabel} for ${normalizedPath}.`, caughtError);
+            const rejectedPromise = Promise.reject(caughtError);
             void rejectedPromise.catch(() => { });
             primedRobotMetadataWarmupPromise = rejectedPromise;
             return rejectedPromise;
@@ -1228,6 +1247,8 @@ export async function loadUsdStage(args) {
     if (!isLoadStillActive())
         return state;
     runResolvedPrimHydrationPass({ force: true });
+    if (state.drawFailed)
+        return state;
     updateStreamingStatus();
     await yieldBetweenInteractiveLoadSteps();
     if (!isLoadStillActive())
@@ -1240,12 +1261,17 @@ export async function loadUsdStage(args) {
     // so strict one-shot loads can overlap metadata work with mesh drain/finalize
     // instead of blocking a second long CPU phase right before ready.
     startRobotMetadataWarmup(window.renderInterface, { force: false });
+    startRobotMetadataWarmup(window.renderInterface, { force: true });
     if (needsFinalProtoHydrationPass) {
         const postInitialDrawHydrationSummary = runProtoHydrationPass();
+        if (state.drawFailed)
+            return state;
         const pendingProtoHydrationCount = getPendingProtoHydrationCount(postInitialDrawHydrationSummary);
         needsFinalProtoHydrationPass = pendingProtoHydrationCount === null || pendingProtoHydrationCount > 0;
     }
     const postInitialDrawResolvedPrimHydrationSummary = runResolvedPrimHydrationPass({ force: true });
+    if (state.drawFailed)
+        return state;
     const pendingResolvedPrimHydrationCount = getPendingResolvedPrimHydrationCount(postInitialDrawResolvedPrimHydrationSummary);
     needsFinalResolvedPrimHydrationPass = (pendingResolvedPrimHydrationCount !== null
         && pendingResolvedPrimHydrationCount > 0);
@@ -1310,17 +1336,27 @@ export async function loadUsdStage(args) {
         let previousPendingProto = -1;
         let previousPendingResolvedPrim = -1;
         let stagnantPassCount = 0;
+        let drainPassCount = 0;
         for (;;) {
             if (!isLoadStillActive())
                 return;
             const hydrationSummary = runProtoHydrationPass();
             const resolvedPrimHydrationSummary = runResolvedPrimHydrationPass();
+            if (state.drawFailed)
+                return;
             const pendingProtoCount = Math.max(0, Number(getPendingProtoHydrationCount(hydrationSummary) ?? 0));
             const pendingResolvedPrimCount = Math.max(0, Number(getPendingResolvedPrimHydrationCount(resolvedPrimHydrationSummary) ?? 0));
             stats = updateStreamingStatus();
             const allMeshesReady = stats.total <= 0 || stats.ready >= stats.total;
             if (allMeshesReady && pendingProtoCount === 0 && pendingResolvedPrimCount === 0) {
                 return;
+            }
+            if (pendingProtoCount > 0 && pendingResolvedPrimCount === 0 && allMeshesReady) {
+                drainPassCount += 1;
+                if (drainPassCount % 8 === 0) {
+                    await nextAnimationFrame();
+                }
+                continue;
             }
             const isStagnant = (stats.ready === previousReady
                 && stats.total === previousTotal
@@ -1332,7 +1368,7 @@ export async function loadUsdStage(args) {
             previousPendingProto = pendingProtoCount;
             previousPendingResolvedPrim = pendingResolvedPrimCount;
             const elapsedMs = profileNow() - drainStartedAtMs;
-            if ((finalSceneDrainBudgetMs > 0 && elapsedMs >= finalSceneDrainBudgetMs) || stagnantPassCount >= 6) {
+            if ((finalSceneDrainBudgetMs > 0 && elapsedMs >= finalSceneDrainBudgetMs) || stagnantPassCount >= 10) {
                 console.error(`[usd-loader] Strict one-shot drain stopped with ${stats.ready}/${Math.max(stats.total, 1)} meshes ready and ${pendingProtoCount} pending proto meshes.`);
                 return;
             }
@@ -1347,7 +1383,12 @@ export async function loadUsdStage(args) {
             }
             if (!drewInBurst || state.drawFailed)
                 return;
-            await yieldToMainThread(initialDrawYieldMs);
+            drainPassCount += 1;
+            if (yieldDuringLoad) {
+                await yieldToMainThread(initialDrawYieldMs);
+            } else if (drainPassCount % 8 === 0) {
+                await nextAnimationFrame();
+            }
         }
     };
     await drainStrictOneShotMeshReadiness();
@@ -1365,9 +1406,13 @@ export async function loadUsdStage(args) {
     }
     if (needsFinalProtoHydrationPass) {
         runProtoHydrationPass();
+        if (state.drawFailed)
+            return state;
     }
     if (needsFinalResolvedPrimHydrationPass) {
         runResolvedPrimHydrationPass({ force: true });
+        if (state.drawFailed)
+            return state;
     }
     const getCameraFitSelection = () => collectCameraFitSelection(window.usdRoot);
     const refitCameraToUsdRoot = () => {
@@ -1457,6 +1502,7 @@ export async function loadUsdStage(args) {
         emitProgress,
         setMessage,
         setProgress,
+        timeoutMs: nonBlockingLoad ? 4000 : 5000,
         yieldForNextCheck: async (minDelayMs = 0) => {
             if (yieldDuringLoad) {
                 await yieldToMainThread(Math.max(minDelayMs, 0));
@@ -1472,6 +1518,9 @@ export async function loadUsdStage(args) {
     if (!isLoadStillActive())
         return state;
     runEagerRender("post-texture-drain", { forceRender: true });
+    if (!ensureNoPendingMeshHydrationBeforeReady()) {
+        return state;
+    }
     state.ready = true;
     setProgress(100, true);
     emitProgress({

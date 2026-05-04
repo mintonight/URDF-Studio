@@ -1,4 +1,9 @@
 import type { RobotFile } from '@/types';
+import {
+  normalizeLibraryPathKey,
+  normalizeVirtualDirectoryPath,
+  normalizeVirtualUsdPath,
+} from '@/shared/utils/pathKeys';
 import { buildCriticalUsdDependencyPaths } from './usdCriticalDependencyPaths.ts';
 import { USD_INSTANCEABLE_VISUAL_SCOPE_NORMALIZATION_VERSION } from './usdStageOpenTextNormalization.ts';
 import {
@@ -36,37 +41,28 @@ function hashString(value: string): string {
 }
 
 function normalizeUsdAssetPath(path: string): string {
-  return String(path || '')
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '');
+  return normalizeLibraryPathKey(path);
 }
 
 function normalizeUsdBundleVirtualDirectory(path: string): string {
-  const normalized = String(path || '')
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '')
-    .replace(/\/+/g, '/')
-    .replace(/\/?$/, '/');
-  if (!normalized || normalized === '/') {
-    return '/';
-  }
-  return `/${normalized}`;
+  return normalizeVirtualDirectoryPath(path);
 }
 
 export function toVirtualUsdPath(path: string): string {
-  const normalizedPath = normalizeUsdAssetPath(path);
-  if (!normalizedPath) {
-    return '/';
-  }
-  return `/${normalizedPath}`;
+  return normalizeVirtualUsdPath(path);
 }
 
 function isUsdLayerPath(path: string): boolean {
   return /\.usd(?:a|c|z)?$/i.test(normalizeUsdAssetPath(path));
 }
 
+export function isTextualUsdLayerCandidatePath(path: string): boolean {
+  const normalizedPath = normalizeUsdAssetPath(path).toLowerCase();
+  return normalizedPath.endsWith('.usd') || normalizedPath.endsWith('.usda');
+}
+
 function shouldBuildUsdNormalizationCacheKey(path: string): boolean {
-  return normalizeUsdAssetPath(path).toLowerCase().endsWith('.usda');
+  return isTextualUsdLayerCandidatePath(path);
 }
 
 function hasInlineUsdLayerTextContent(
@@ -392,7 +388,9 @@ export function createUsdPreloadSource(
     return {
       kind: 'blob-url',
       loadBlob: () => fetchBlobFromUrl(resolvedBlobUrl),
-      loadText: normalizedPath.endsWith('.usda') ? () => fetchTextFromUrl(resolvedBlobUrl) : null,
+      loadText: isTextualUsdLayerCandidatePath(normalizedPath)
+        ? () => fetchTextFromUrl(resolvedBlobUrl)
+        : null,
       normalizationCacheKey: buildUsdPreloadNormalizationCacheKey(file, resolvedBlobUrl),
     };
   }
@@ -450,7 +448,7 @@ export function buildUsdBundlePreloadEntries(
       addEntry(
         virtualPath,
         () => fetchBlobFromUrl(resolvedBlobUrl),
-        virtualPath.toLowerCase().endsWith('.usda')
+        isTextualUsdLayerCandidatePath(virtualPath)
           ? () => fetchTextFromUrl(resolvedBlobUrl)
           : null,
         buildUsdPreloadNormalizationCacheKey(

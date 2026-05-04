@@ -183,14 +183,15 @@ function resolveHoverFreezeState(
   }
 
   if (interactionHoverFrozen) {
+    const nextHoveredSelection = sanitizedHoveredSelection;
     const nextDeferredHoveredSelection = state.hoverFrozen
       ? state.deferredHoveredSelection
-      : sanitizeSelection(state.hoveredSelection, state.interactionGuard);
+      : nextHoveredSelection;
 
     return state.interactionHoverFrozen === interactionHoverFrozen &&
       state.hoverBlockCount === clampedHoverBlockCount &&
       state.hoverFrozen === nextHoverFrozen &&
-      matchesSelection(state.hoveredSelection, emptySelection, {
+      matchesSelection(state.hoveredSelection, nextHoveredSelection, {
         ignoreHelperKind: false,
         ignoreHighlightObjectId: false,
       }) &&
@@ -203,7 +204,7 @@ function resolveHoverFreezeState(
           interactionHoverFrozen,
           hoverBlockCount: clampedHoverBlockCount,
           hoverFrozen: nextHoverFrozen,
-          hoveredSelection: emptySelection,
+          hoveredSelection: nextHoveredSelection,
           deferredHoveredSelection: nextDeferredHoveredSelection,
         };
   }

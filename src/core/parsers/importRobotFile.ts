@@ -79,6 +79,7 @@ function toRobotData(robot: RobotState | RobotData): RobotData {
     rootLinkId: robot.rootLinkId,
     materials: robot.materials,
     closedLoopConstraints: robot.closedLoopConstraints,
+    inspectionContext: robot.inspectionContext,
   };
 }
 
@@ -159,23 +160,29 @@ function createMeshRobotData(file: RobotFile): RobotData {
   };
 }
 
+interface CreateReadyImportResultOptions {
+  sourceFilePath?: string;
+  resolvedUrdfContent?: string | null;
+  allFileContents?: Record<string, string>;
+  assetPaths?: Iterable<string>;
+  importAssetPaths?: Iterable<string>;
+}
+
 function createReadyImportResult(
   file: RobotFile,
   robotData: RobotData,
-  options: {
-    sourceFilePath?: string;
-    resolvedUrdfContent?: string | null;
-    allFileContents?: Record<string, string>;
-    assetPaths?: Iterable<string>;
-  } = {},
+  options: CreateReadyImportResultOptions = {},
 ): RobotImportResult {
   const {
     sourceFilePath = file.name,
     resolvedUrdfContent = null,
     allFileContents = {},
     assetPaths = [],
+    importAssetPaths = [],
   } = options;
-  const rewrittenRobotData = rewriteRobotMeshPathsForSource(robotData, sourceFilePath);
+  const rewrittenRobotData = rewriteRobotMeshPathsForSource(robotData, sourceFilePath, {
+    candidateAssetPaths: importAssetPaths,
+  });
   const meshTextMaterialSyncedRobotData =
     file.format === 'mjcf'
       ? rewrittenRobotData
@@ -299,6 +306,28 @@ function buildMeshTextMaterialAssetPaths(options: {
     if (isImageAssetPath(file.name)) {
       paths.add(file.name);
     }
+  });
+
+  return paths;
+}
+
+function buildImportAssetPaths(options: {
+  availableFiles: RobotFile[];
+  assets: Record<string, string>;
+  allFileContents: Record<string, string>;
+}): Set<string> {
+  const paths = new Set<string>();
+
+  options.availableFiles.forEach((file) => {
+    paths.add(file.name);
+  });
+
+  Object.keys(options.assets).forEach((assetPath) => {
+    paths.add(assetPath);
+  });
+
+  Object.keys(options.allFileContents).forEach((contentPath) => {
+    paths.add(contentPath);
   });
 
   return paths;
@@ -457,6 +486,21 @@ export function resolveRobotFileData(
         allFileContents,
       })
     : null;
+  const importAssetPaths = buildImportAssetPaths({
+    availableFiles,
+    assets,
+    allFileContents,
+  });
+  importAssetPaths.add(file.name);
+  const createReady = (
+    targetFile: RobotFile,
+    robotData: RobotData,
+    resultOptions: CreateReadyImportResultOptions = {},
+  ) =>
+    createReadyImportResult(targetFile, robotData, {
+      ...resultOptions,
+      importAssetPaths,
+    });
 
   try {
     switch (file.format) {
@@ -484,7 +528,7 @@ export function resolveRobotFileData(
         }
 
         emitRobotImportProgress(reportProgress, 100, 'Finalizing robot document');
-        return createReadyImportResult(file, toRobotData(parsed), resolvedUrdfOptions);
+        return createReady(file, toRobotData(parsed), resolvedUrdfOptions);
       }
       case 'mjcf': {
         emitRobotImportProgress(reportProgress, 10, 'Resolving MJCF source');
@@ -531,7 +575,7 @@ export function resolveRobotFileData(
         }
 
         emitRobotImportProgress(reportProgress, 100, 'Finalizing robot document');
-        return createReadyImportResult(file, toRobotData(parsed), {
+        return createReady(file, toRobotData(parsed), {
           sourceFilePath: resolved.sourceFile.name,
           allFileContents,
           ...(meshTextMaterialAssetPaths ? { assetPaths: meshTextMaterialAssetPaths } : {}),
@@ -550,7 +594,7 @@ export function resolveRobotFileData(
         }
 
         emitRobotImportProgress(reportProgress, 100, 'Finalizing robot document');
-        return createReadyImportResult(file, toRobotData(parsed), {
+        return createReady(file, toRobotData(parsed), {
           allFileContents,
           ...(meshTextMaterialAssetPaths ? { assetPaths: meshTextMaterialAssetPaths } : {}),
         });
@@ -567,7 +611,7 @@ export function resolveRobotFileData(
           usdRobotData ? 'Handing off prepared USD document' : 'Waiting for USD hydration',
         );
         return usdRobotData
-          ? createReadyImportResult(file, usdRobotData, {
+          ? createReady(file, usdRobotData, {
               allFileContents,
               ...(meshTextMaterialAssetPaths ? { assetPaths: meshTextMaterialAssetPaths } : {}),
             })
@@ -583,7 +627,7 @@ export function resolveRobotFileData(
           const truthRobot = parseURDF(truthFile.content);
           if (truthRobot) {
             emitRobotImportProgress(reportProgress, 100, 'Finalizing robot document');
-            return createReadyImportResult(file, toRobotData(truthRobot), {
+            return createReady(file, toRobotData(truthRobot), {
               sourceFilePath: truthFile.name,
               resolvedUrdfContent: truthFile.content,
               allFileContents,
@@ -614,7 +658,7 @@ export function resolveRobotFileData(
         const parsed = parseURDF(urdfContent);
         if (parsed) {
           emitRobotImportProgress(reportProgress, 100, 'Finalizing robot document');
-          return createReadyImportResult(file, toRobotData(parsed), {
+          return createReady(file, toRobotData(parsed), {
             resolvedUrdfContent: urdfContent,
             allFileContents,
             ...(meshTextMaterialAssetPaths ? { assetPaths: meshTextMaterialAssetPaths } : {}),
@@ -629,7 +673,7 @@ export function resolveRobotFileData(
       }
       case 'mesh':
         emitRobotImportProgress(reportProgress, 100, 'Preparing mesh preview');
-        return createReadyImportResult(file, createMeshRobotData(file), {
+        return createReady(file, createMeshRobotData(file), {
           allFileContents,
           ...(meshTextMaterialAssetPaths ? { assetPaths: meshTextMaterialAssetPaths } : {}),
         });

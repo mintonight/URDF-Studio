@@ -288,6 +288,46 @@ test('derives USD runtime visibility from link and geometry flags', () => {
   );
 });
 
+test('can keep USD runtime collisions visible in collision-only mode when link visibility is off', () => {
+  assert.equal(
+    isUsdRuntimeGeometryVisible({
+      link: {
+        ...DEFAULT_LINK,
+        visible: false,
+        collision: {
+          ...DEFAULT_LINK.collision,
+          visible: true,
+        },
+      },
+      role: 'collision',
+      objectIndex: 0,
+      showVisual: false,
+      showCollision: true,
+      respectLinkVisibility: false,
+    }),
+    true,
+  );
+
+  assert.equal(
+    isUsdRuntimeGeometryVisible({
+      link: {
+        ...DEFAULT_LINK,
+        visible: false,
+        collision: {
+          ...DEFAULT_LINK.collision,
+          visible: false,
+        },
+      },
+      role: 'collision',
+      objectIndex: 0,
+      showVisual: false,
+      showCollision: true,
+      respectLinkVisibility: false,
+    }),
+    false,
+  );
+});
+
 test('builds link dynamics records from the current robot links', () => {
   const resolution = {
     robotData: {

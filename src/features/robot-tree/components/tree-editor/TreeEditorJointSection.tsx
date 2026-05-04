@@ -10,6 +10,7 @@ import type { Language } from '@/store';
 import { useUIStore } from '@/store';
 
 const TREE_EDITOR_JOINT_SECTION_KEY = 'tree_editor_joint_panel';
+
 interface TreeEditorJointSectionProps {
   robot: {
     name?: string;
@@ -29,16 +30,18 @@ interface TreeEditorJointSectionProps {
   isDragging?: boolean;
 }
 
+function resolveJointSnapshotAngle(joint: any) {
+  const angle = Number(joint?.angle ?? joint?.jointValue);
+  return Number.isFinite(angle) ? angle : 0;
+}
+
 function buildJointAngleSnapshot(joints: Record<string, any>) {
   const nextAngles: Record<string, number> = {};
-  Object.entries(joints).forEach(([jointId, joint]) => {
-    if (typeof joint?.angle !== 'number' || !Number.isFinite(joint.angle)) {
-      return;
-    }
-
-    nextAngles[jointId] = joint.angle;
+  getSingleDofJointEntries(joints).forEach(([jointId, joint]) => {
+    const angle = resolveJointSnapshotAngle(joint);
+    nextAngles[jointId] = angle;
     if (typeof joint.name === 'string' && joint.name.length > 0) {
-      nextAngles[joint.name] = joint.angle;
+      nextAngles[joint.name] = angle;
     }
   });
 
@@ -106,9 +109,10 @@ export function TreeEditorJointSection({
 
   const handleResetJoints = React.useCallback(() => {
     jointEntries.forEach(([jointId, joint]) => {
-      const nextAngle =
+      const initialAngle =
         initialJointAnglesRef.current[jointId] ??
-        (typeof joint?.angle === 'number' && Number.isFinite(joint.angle) ? joint.angle : 0);
+        (typeof joint.name === 'string' ? initialJointAnglesRef.current[joint.name] : undefined);
+      const nextAngle = initialAngle ?? 0;
       onJointAngleChange?.(jointId, nextAngle);
     });
   }, [jointEntries, onJointAngleChange]);

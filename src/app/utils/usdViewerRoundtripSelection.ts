@@ -1,11 +1,9 @@
 import { isViewerRoundtripUsdRootPath } from '@/core/parsers/usd/usdFormatUtils';
+import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 import type { RobotFile } from '@/types';
 
 function normalizeUsdPath(path: string): string {
-  return String(path || '')
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '')
-    .replace(/\/+/g, '/');
+  return normalizeLibraryPathKey(path);
 }
 
 function buildViewerRoundtripCandidateName(fileName: string): string | null {

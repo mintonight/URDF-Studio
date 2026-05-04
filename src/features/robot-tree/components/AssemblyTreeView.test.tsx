@@ -417,6 +417,63 @@ test('AssemblyTreeView keeps component selection by default and routes component
   }
 });
 
+test('AssemblyTreeView marks bridged components with an icon-only connected lock status', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  try {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      hoveredSelection: { type: null, id: null },
+      deferredHoveredSelection: { type: null, id: null },
+      hoverFrozen: false,
+      attentionSelection: { type: null, id: null },
+      interactionGuard: null,
+      focusTarget: null,
+    });
+    useAssemblySelectionStore.setState({
+      selection: { type: null, id: null },
+    });
+
+    await act(async () => {
+      root.render(
+        <AssemblyTreeView
+          assemblyState={createAssemblyState()}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onUpdate={() => {}}
+          onRenameAssembly={() => {}}
+          onRemoveBridge={() => {}}
+          mode="editor"
+          t={translations.en}
+        />,
+      );
+    });
+
+    const lockedStatus = container.querySelector(
+      `[title="${translations.en.bridgedComponentLockedHint}"]`,
+    );
+    assert.ok(lockedStatus, 'bridged component locked status should render');
+    assert.equal(
+      lockedStatus.textContent?.trim(),
+      '',
+      'bridged component status should not render a visible text badge',
+    );
+    assert.ok(
+      lockedStatus.querySelector('.lucide-link-2'),
+      'bridged component status should use a connection icon as the primary cue',
+    );
+    assert.ok(
+      lockedStatus.querySelector('.lucide-lock-keyhole'),
+      'bridged component status should keep a lock cue for constrained motion',
+    );
+    assert.equal(container.textContent?.includes(translations.en.bridgedComponent), false);
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
 test('AssemblyTreeView highlights the owning component row when hover targets one of its links', async () => {
   const { dom, container, root } = createComponentRoot();
 

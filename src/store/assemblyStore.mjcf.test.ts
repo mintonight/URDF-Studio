@@ -6,6 +6,10 @@ import { JSDOM } from 'jsdom';
 
 import { detectImportFormat } from '@/app/utils/importPreparation';
 import { buildWorkspaceViewerRobotData } from '@/app/hooks/workspaceSourceSyncUtils.ts';
+import { generateSDF, generateURDF, parseSDF, parseURDF } from '@/core/parsers';
+import { generateMujocoXML } from '@/core/parsers/mjcf/mjcfGenerator.ts';
+import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
+import { resolveJointKey } from '@/core/robot/identity';
 import type { RobotFile } from '@/types';
 import { JointType } from '@/types';
 import { useAssemblyStore } from './assemblyStore.ts';
@@ -70,6 +74,113 @@ function loadImportableRobotFilesFromDirectory(relativeDir: string): RobotFile[]
     });
 }
 
+function buildT1PiperAssemblyExportRobot() {
+  resetAssemblyStore();
+
+  const t1Files = loadImportableRobotFilesFromDirectory('test/mujoco_menagerie-main/booster_t1');
+  const piperFiles = loadImportableRobotFilesFromDirectory(
+    'test/mujoco_menagerie-main/agilex_piper',
+  );
+  const t1File = t1Files.find((file) => file.name.endsWith('/t1.xml'));
+  const piperFile = piperFiles.find((file) => file.name.endsWith('/piper.xml'));
+
+  assert.ok(t1File, 'expected t1.xml fixture');
+  assert.ok(piperFile, 'expected piper.xml fixture');
+
+  const store = useAssemblyStore.getState();
+  store.initAssembly('t1-piper-export');
+
+  const t1Component = store.addComponent(t1File, {
+    availableFiles: t1Files,
+    assets: {},
+    allFileContents: {},
+  });
+  const piperComponent = store.addComponent(piperFile, {
+    availableFiles: piperFiles,
+    assets: {},
+    allFileContents: {},
+  });
+
+  assert.ok(t1Component, 'expected t1 component to be imported');
+  assert.ok(piperComponent, 'expected piper component to be imported');
+
+  store.addBridge({
+    name: 'attach_piper_to_t1',
+    parentComponentId: t1Component.id,
+    parentLinkId: t1Component.robot.rootLinkId,
+    childComponentId: piperComponent.id,
+    childLinkId: piperComponent.robot.rootLinkId,
+    joint: { type: JointType.FIXED },
+  });
+
+  const assemblyState = useAssemblyStore.getState().assemblyState;
+  assert.ok(assemblyState, 'expected assembly state after adding the bridge');
+
+  return {
+    assemblyState,
+    exportRobot: {
+      ...buildExportableAssemblyRobotData(assemblyState),
+      selection: { type: null, id: null as string | null },
+    },
+  };
+}
+
+function buildT1PiperLink5AssemblyExportRobot() {
+  resetAssemblyStore();
+
+  const t1Files = loadImportableRobotFilesFromDirectory('test/mujoco_menagerie-main/booster_t1');
+  const piperFiles = loadImportableRobotFilesFromDirectory(
+    'test/mujoco_menagerie-main/agilex_piper',
+  );
+  const t1File = t1Files.find((file) => file.name.endsWith('/t1.xml'));
+  const piperFile = piperFiles.find((file) => file.name.endsWith('/piper.xml'));
+
+  assert.ok(t1File, 'expected t1.xml fixture');
+  assert.ok(piperFile, 'expected piper.xml fixture');
+
+  const store = useAssemblyStore.getState();
+  store.initAssembly('t1-piper-link5-export');
+
+  const t1Component = store.addComponent(t1File, {
+    availableFiles: t1Files,
+    assets: {},
+    allFileContents: {},
+  });
+  const piperComponent = store.addComponent(piperFile, {
+    availableFiles: piperFiles,
+    assets: {},
+    allFileContents: {},
+  });
+
+  assert.ok(t1Component, 'expected t1 component to be imported');
+  assert.ok(piperComponent, 'expected piper component to be imported');
+
+  const t1HeadLinkId = `${t1Component.id}_H2`;
+  const piperLink5Id = `${piperComponent.id}_link5`;
+  assert.ok(t1Component.robot.links[t1HeadLinkId], 'expected T1 H2 head link');
+  assert.ok(piperComponent.robot.links[piperLink5Id], 'expected PiPER link5');
+
+  store.addBridge({
+    name: 'attach_piper_link5_to_t1_head',
+    parentComponentId: t1Component.id,
+    parentLinkId: t1HeadLinkId,
+    childComponentId: piperComponent.id,
+    childLinkId: piperLink5Id,
+    joint: { type: JointType.FIXED },
+  });
+
+  const assemblyState = useAssemblyStore.getState().assemblyState;
+  assert.ok(assemblyState, 'expected assembly state after adding the link5 bridge');
+
+  return {
+    assemblyState,
+    exportRobot: {
+      ...buildExportableAssemblyRobotData(assemblyState),
+      selection: { type: null, id: null as string | null },
+    },
+  };
+}
+
 test('MJCF assembly merge re-roots the merged graph after bridge joints change the parent component', () => {
   resetAssemblyStore();
 
@@ -121,6 +232,88 @@ test('MJCF assembly merge re-roots the merged graph after bridge joints change t
   const workspaceViewerRobot = buildWorkspaceViewerRobotData(merged);
   assert.equal(workspaceViewerRobot.rootLinkId, go2Component.robot.rootLinkId);
   assert.ok(!workspaceViewerRobot.links.__workspace_world__);
+});
+
+test('MJCF assembly export keeps PiPER mimic joints valid after bridge creation', () => {
+  const { exportRobot } = buildT1PiperAssemblyExportRobot();
+  const merged = useAssemblyStore.getState().getMergedRobotData();
+  assert.ok(merged, 'expected merged robot data after adding the bridge');
+
+  const piperJoint8 = Object.values(merged.joints).find((joint) => joint.name === 'piper_joint8');
+  assert.equal(piperJoint8?.mimic?.joint, 'comp_piper_joint7');
+
+  const generated = generateMujocoXML(exportRobot, { includeSceneHelpers: false });
+  assert.match(
+    generated,
+    /<joint name="piper_joint8_mimic" joint1="piper_joint8" joint2="piper_joint7" polycoef="0 -1 0 0 0" \/>/,
+  );
+});
+
+test('URDF assembly export keeps PiPER mimic joints resolvable after bridge creation', () => {
+  const { exportRobot } = buildT1PiperAssemblyExportRobot();
+
+  const urdf = generateURDF(exportRobot);
+  const reparsed = parseURDF(urdf);
+
+  const followerJoint = Object.values(reparsed?.joints ?? {}).find(
+    (joint) => joint.name === 'piper_joint8',
+  );
+  assert.ok(followerJoint?.mimic, 'expected URDF roundtrip to preserve the PiPER mimic joint');
+  assert.equal(
+    resolveJointKey(reparsed?.joints ?? {}, followerJoint?.mimic?.joint),
+    'piper_joint7',
+  );
+});
+
+test('URDF assembly export preserves PiPER joint ranges when link5 is bridged to the T1 head', () => {
+  const { exportRobot } = buildT1PiperLink5AssemblyExportRobot();
+  const urdf = generateURDF(exportRobot);
+  const reparsed = parseURDF(urdf);
+
+  assert.ok(reparsed, 'expected generated link5 bridge URDF to parse');
+  assert.equal(reparsed?.rootLinkId, 't1');
+
+  const childLinkIds = new Set(
+    Object.values(reparsed?.joints ?? {}).map((joint) => joint.childLinkId),
+  );
+  const graphRoots = Object.keys(reparsed?.links ?? {}).filter(
+    (linkId) => !childLinkIds.has(linkId),
+  );
+  assert.deepEqual(graphRoots, ['t1']);
+
+  const attachJoint = Object.values(reparsed?.joints ?? {}).find(
+    (joint) => joint.name === 'attach_piper_link5_to_t1_head',
+  );
+  assert.equal(attachJoint?.parentLinkId, 't1_H2');
+  assert.equal(attachJoint?.childLinkId, 'piper_link5');
+
+  const piperJoint2 = Object.values(reparsed?.joints ?? {}).find(
+    (joint) => joint.name === 'piper_joint2',
+  );
+  const piperJoint3 = Object.values(reparsed?.joints ?? {}).find(
+    (joint) => joint.name === 'piper_joint3',
+  );
+
+  assert.equal(piperJoint2?.limit?.lower, 0);
+  assert.equal(piperJoint2?.limit?.upper, 3.14);
+  assert.equal(piperJoint3?.limit?.lower, -2.697);
+  assert.equal(piperJoint3?.limit?.upper, 0);
+});
+
+test('SDF assembly export keeps PiPER mimic joints resolvable after bridge creation', () => {
+  const { exportRobot } = buildT1PiperAssemblyExportRobot();
+
+  const sdf = generateSDF(exportRobot, { packageName: 't1_piper_export' });
+  const reparsed = parseSDF(sdf, { sourcePath: 't1_piper_export/model.sdf' });
+
+  const followerJoint = Object.values(reparsed?.joints ?? {}).find(
+    (joint) => joint.name === 'piper_joint8',
+  );
+  assert.ok(followerJoint?.mimic, 'expected SDF roundtrip to preserve the PiPER mimic joint');
+  assert.equal(
+    resolveJointKey(reparsed?.joints ?? {}, followerJoint?.mimic?.joint),
+    'piper_joint7',
+  );
 });
 
 test('addComponent surfaces actionable MyoSuite template placeholder errors for MJCF assembly imports', () => {

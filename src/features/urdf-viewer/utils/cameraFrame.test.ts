@@ -2,10 +2,38 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 
-import { computeCameraFrame, createCameraFrameStabilityKey, isBoundsVisibleToCamera } from './cameraFrame.ts';
+import {
+  computeCameraFrame,
+  computeVisibleBounds,
+  createCameraFrameStabilityKey,
+  isBoundsVisibleToCamera,
+} from './cameraFrame.ts';
 
 function assertVectorClose(actual: THREE.Vector3, expected: THREE.Vector3, epsilon = 1e-6): void {
   assert.ok(actual.distanceTo(expected) <= epsilon, `expected ${actual.toArray()} to be close to ${expected.toArray()}`);
+}
+
+function assertBoundsFullyInsideCamera(bounds: THREE.Box3 | null, camera: THREE.Camera): void {
+  assert.ok(bounds, 'expected bounds');
+  camera.updateMatrixWorld(true);
+  const corners = [
+    new THREE.Vector3(bounds.min.x, bounds.min.y, bounds.min.z),
+    new THREE.Vector3(bounds.min.x, bounds.min.y, bounds.max.z),
+    new THREE.Vector3(bounds.min.x, bounds.max.y, bounds.min.z),
+    new THREE.Vector3(bounds.min.x, bounds.max.y, bounds.max.z),
+    new THREE.Vector3(bounds.max.x, bounds.min.y, bounds.min.z),
+    new THREE.Vector3(bounds.max.x, bounds.min.y, bounds.max.z),
+    new THREE.Vector3(bounds.max.x, bounds.max.y, bounds.min.z),
+    new THREE.Vector3(bounds.max.x, bounds.max.y, bounds.max.z),
+  ];
+
+  for (const corner of corners) {
+    const projected = corner.clone().project(camera);
+    assert.ok(
+      projected.x >= -1 && projected.x <= 1 && projected.y >= -1 && projected.y <= 1,
+      `expected projected corner ${projected.toArray()} to be inside the camera frame`,
+    );
+  }
 }
 
 test('computeCameraFrame centers on the visible mesh bounds and preserves orbit direction', () => {
@@ -74,4 +102,26 @@ test('isBoundsVisibleToCamera reports whether the framed bounds intersect the cu
 
   assert.equal(isBoundsVisibleToCamera(visibleBounds, camera), true);
   assert.equal(isBoundsVisibleToCamera(hiddenBounds, camera), false);
+});
+
+test('computeCameraFrame keeps wide bounds visible in a narrow viewport', () => {
+  const camera = new THREE.PerspectiveCamera(60, 0.25, 0.1, 1000);
+  camera.position.set(0, 4, 1);
+
+  const currentOrbitTarget = new THREE.Vector3(0, 0, 0);
+  const group = new THREE.Group();
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(4, 0.5, 0.5));
+  group.add(mesh);
+  group.updateWorldMatrix(true, true);
+
+  const bounds = computeVisibleBounds(group);
+  const frame = computeCameraFrame(group, camera, currentOrbitTarget, bounds);
+  assert.ok(frame, 'expected a camera frame result');
+
+  camera.position.copy(frame.cameraPosition);
+  camera.lookAt(frame.focusTarget);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+
+  assertBoundsFullyInsideCamera(bounds, camera);
 });

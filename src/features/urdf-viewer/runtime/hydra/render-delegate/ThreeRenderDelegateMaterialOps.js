@@ -55,6 +55,15 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         }
         return hydraMaterialRequiresPhysicalExtensions(candidateNames);
     }
+    resolveSnapshotMaterialEmissionEnabled(record) {
+        if (!record || typeof record !== 'object')
+            return true;
+        if (record.emissiveEnabled === true)
+            return true;
+        if (record.emissiveEnabled === false)
+            return false;
+        return record.isOmniPbr === true ? false : true;
+    }
     getActiveStageRootPrimPath() {
         const snapshotDefaultPrimPath = normalizeHydraPath(this.getCachedRobotSceneSnapshot?.()?.stage?.defaultPrimPath || '');
         if (snapshotDefaultPrimPath)
@@ -81,7 +90,7 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         const normalizedMeshId = normalizeHydraPath(meshId || '');
         if (!normalizedMeshId || normalizedMeshId.includes('.proto_'))
             return false;
-        if (!/^\/(?:meshes|visuals|colliders?|collision)(?:$|[/.])/i.test(normalizedMeshId))
+        if (!/^\/(?:meshes|visuals|coll(?:isions?|iders?))(?:$|[/.])/i.test(normalizedMeshId))
             return false;
         const activeStageRootPrimPath = this.getActiveStageRootPrimPath?.();
         if (!activeStageRootPrimPath)
@@ -1820,6 +1829,12 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
                     normalizedRecord.color = inferredColor;
                 }
             }
+            if (this.resolveSnapshotMaterialEmissionEnabled(normalizedRecord) === false) {
+                normalizedRecord.emissiveEnabled = false;
+                normalizedRecord.emissive = null;
+                normalizedRecord.emissiveIntensity = null;
+                normalizedRecord.emissiveMapPath = null;
+            }
             if (normalizedRecord.roughness === null && normalizedRecord.isOmniPbr) {
                 normalizedRecord.roughness = HYDRA_UNIFIED_MATERIAL_DEFAULTS.roughness;
             }
@@ -2064,7 +2079,8 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         assignColor('specularColor', 'specularColor');
         assignColor('attenuationColor', 'attenuationColor');
         assignColor('sheenColor', 'sheenColor');
-        if (record?.emissiveEnabled !== false) {
+        const emissiveEnabled = this.resolveSnapshotMaterialEmissionEnabled(record);
+        if (emissiveEnabled) {
             assignColor('emissive', 'emissive');
         }
         assignScalar('roughness', 'roughness');
@@ -2085,7 +2101,7 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
         assignScalar('iridescenceIOR', 'iridescenceIOR');
         assignScalar('anisotropy', 'anisotropy');
         assignScalar('anisotropyRotation', 'anisotropyRotation');
-        if (record?.emissiveEnabled === false) {
+        if (!emissiveEnabled) {
             material.emissive = new Color(0x000000);
             material.emissiveIntensity = 1;
         }
@@ -2115,7 +2131,7 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
                 material.color = new Color(0xffffff);
             },
         });
-        if (record?.emissiveEnabled !== false) {
+        if (emissiveEnabled) {
             this.applySnapshotTextureInput(material, record?.emissiveMapPath, 'emissiveMap', {
                 colorSpace: SRGBColorSpace,
                 onAssigned: () => {

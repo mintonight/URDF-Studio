@@ -92,7 +92,6 @@ import { translations, type Language } from '@/shared/i18n';
 import { isLibraryRobotExportableFormat } from '@/shared/utils';
 import type { ExportDialogConfig } from '@/features/file-io/components/ExportDialog/ExportDialog';
 import type { ExportProgressState } from '@/features/file-io/types';
-import { getUsdStageExportHandler } from '@/features/editor';
 import type { ImportPreparationOverlayState } from './hooks/useFileImport';
 import { consumeHandoffImportFromUrl } from './handoff/bootstrap';
 import {
@@ -380,7 +379,6 @@ function ExportDialogConnector({
     selectedFile?.format === 'usd' && sidebarTab !== 'workspace'
       ? resolveCurrentUsdExportMode({
           isHydrating: isSelectedUsdHydrating,
-          hasLiveStageExportHandler: Boolean(getUsdStageExportHandler()),
           hasPreparedExportCache: Boolean(getUsdPreparedExportCache(selectedFile.name)),
           hasSceneSnapshot: Boolean(getUsdSceneSnapshot(selectedFile.name)),
         })
@@ -968,6 +966,39 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         selection: useSelectionStore.getState().selection,
         hoveredSelection: useSelectionStore.getState().hoveredSelection,
       }),
+      resetFixtureFiles: () => {
+        const assetsState = useAssetsStore.getState();
+        assetsState.revokeAllAssets();
+        assetsState.setAssets({});
+        assetsState.setAvailableFiles([]);
+        assetsState.setAllFileContents({});
+        assetsState.clearUsdSceneSnapshots();
+        assetsState.clearUsdPreparedExportCaches();
+        assetsState.setSelectedFile(null);
+        assetsState.resetDocumentLoadState();
+      },
+      seedFixtureFile: (file) => {
+        const assetsState = useAssetsStore.getState();
+        const normalizedName = file.name.replace(/\\/g, '/').replace(/^\/+/, '');
+        const nextFile = {
+          name: normalizedName,
+          content: file.content,
+          format: file.format,
+          ...(file.blobUrl ? { blobUrl: file.blobUrl } : {}),
+        };
+
+        if (file.blobUrl) {
+          assetsState.addAsset(normalizedName, file.blobUrl);
+        }
+        assetsState.addRobotFile(nextFile);
+        if (file.addFileContent) {
+          assetsState.addFileContent(normalizedName, file.content);
+        }
+
+        return {
+          availableFileCount: useAssetsStore.getState().availableFiles.length,
+        };
+      },
       loadRobotByName: async (fileName: string) => {
         const file =
           useAssetsStore.getState().availableFiles.find((entry) => entry.name === fileName) ?? null;

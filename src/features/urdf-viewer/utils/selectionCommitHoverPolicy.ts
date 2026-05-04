@@ -14,9 +14,32 @@ export type SelectionCommitHoverAction =
 export function resolveSelectionCommitHoverAction(
   resolvedHit: Pick<
     ResolvedInteractionSelectionHit,
-    'type' | 'id' | 'subType' | 'targetKind' | 'linkId' | 'objectIndex' | 'highlightTarget'
+    | 'type'
+    | 'id'
+    | 'subType'
+    | 'targetKind'
+    | 'helperKind'
+    | 'linkId'
+    | 'objectIndex'
+    | 'highlightTarget'
   >,
 ): SelectionCommitHoverAction {
+  if (
+    resolvedHit.targetKind === 'helper' &&
+    resolvedHit.type === 'link' &&
+    resolvedHit.helperKind === 'inertia'
+  ) {
+    return {
+      mode: 'preserve',
+      hoveredSelection: {
+        type: 'link',
+        id: resolvedHit.linkId ?? resolvedHit.id,
+        helperKind: resolvedHit.helperKind,
+        highlightObjectId: resolvedHit.highlightTarget?.id,
+      },
+    };
+  }
+
   if (
     resolvedHit.targetKind !== 'geometry' ||
     resolvedHit.type !== 'link' ||

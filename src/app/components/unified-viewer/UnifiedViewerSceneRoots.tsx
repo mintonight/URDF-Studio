@@ -7,7 +7,6 @@ import type {
   ViewerDocumentLoadEvent,
   ViewerHelperKind,
   ViewerResourceScope,
-  ViewerRobotDataResolution,
   ViewerRobotSourceFormat,
 } from '@/features/editor';
 
@@ -20,13 +19,13 @@ interface UnifiedViewerSceneRootsProps {
   viewerVisible: boolean;
   viewerController: ReturnType<typeof import('@/features/editor').useViewerController>;
   activePreview?: FilePreviewState;
+  modelInteractionEnabled?: boolean;
   viewerResourceScope: ViewerResourceScope;
   retainedRobot: ThreeObject3D | null;
   effectiveSourceFile: import('@/types').RobotFile | null | undefined;
   effectiveSourceFilePath?: string;
   effectiveUrdfContent: string;
   effectiveSourceFormat?: ViewerRobotSourceFormat;
-  onRobotDataResolved?: (result: ViewerRobotDataResolution) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   onSceneReadyForDisplay?: () => void;
   onRuntimeRobotLoaded?: (robot: ThreeObject3D) => void;
@@ -102,13 +101,13 @@ export function UnifiedViewerSceneRoots({
   viewerVisible,
   viewerController,
   activePreview,
+  modelInteractionEnabled = true,
   viewerResourceScope,
   retainedRobot,
   effectiveSourceFile,
   effectiveSourceFilePath,
   effectiveUrdfContent,
   effectiveSourceFormat,
-  onRobotDataResolved,
   onDocumentLoadEvent,
   onSceneReadyForDisplay,
   onRuntimeRobotLoaded,
@@ -142,13 +141,13 @@ export function UnifiedViewerSceneRoots({
           controller={viewerController}
           active={viewerVisible}
           activePreview={activePreview}
+          modelInteractionEnabled={modelInteractionEnabled}
           viewerResourceScope={viewerResourceScope}
           retainedRobot={retainedRobot}
           effectiveSourceFile={effectiveSourceFile}
           effectiveSourceFilePath={effectiveSourceFilePath}
           effectiveUrdfContent={effectiveUrdfContent}
           effectiveSourceFormat={effectiveSourceFormat}
-          onRobotDataResolved={onRobotDataResolved}
           onDocumentLoadEvent={onDocumentLoadEvent}
           onSceneReadyForDisplay={onSceneReadyForDisplay}
           onRuntimeRobotLoaded={onRuntimeRobotLoaded}

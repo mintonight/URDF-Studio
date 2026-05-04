@@ -2,6 +2,20 @@ import type { UrdfLink } from '@/types';
 
 export const WORKSPACE_VIEWER_SHOW_VISUAL_STORAGE_KEY = 'urdf_viewer_show_visual_workspace';
 
+type PreferenceListener = () => void;
+const preferenceListeners = new Set<PreferenceListener>();
+
+function notifyPreferenceListeners() {
+  preferenceListeners.forEach((listener) => listener());
+}
+
+export function subscribeToShowVisualPreference(listener: PreferenceListener): () => void {
+  preferenceListeners.add(listener);
+  return () => {
+    preferenceListeners.delete(listener);
+  };
+}
+
 export function readStoredWorkspaceViewerShowVisualPreference(): boolean | null {
   if (typeof window === 'undefined') {
     return null;
@@ -32,6 +46,8 @@ export function persistWorkspaceViewerShowVisualPreference(enabled: boolean) {
   } catch {
     // Ignore storage write failures and keep the live session state.
   }
+
+  notifyPreferenceListeners();
 }
 
 export function resolveWorkspaceViewerShowVisual({

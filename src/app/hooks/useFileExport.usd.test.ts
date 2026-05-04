@@ -5,6 +5,7 @@ import React from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
+import JSZip from 'jszip';
 
 import { useFileExport } from './useFileExport.ts';
 import { disposeUsdBinaryArchiveWorker } from '../utils/usdBinaryArchiveWorkerBridge.ts';
@@ -268,6 +269,25 @@ function installDownloadMocks() {
   };
 }
 
+function readBlobArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
+  if (typeof blob.arrayBuffer === 'function') {
+    return blob.arrayBuffer();
+  }
+
+  return new Promise<ArrayBuffer>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error('Failed to read test blob as ArrayBuffer.'));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read test blob.'));
+    reader.readAsArrayBuffer(blob);
+  });
+}
+
 function installLiveStageExportMock(
   implementation: (options?: Record<string, unknown>) => Promise<{
     ok: boolean;
@@ -385,8 +405,19 @@ function installUsdExportPipelineWorkerMock() {
 
         usdBinaryRequestCount += 1;
         queueMicrotask(() => {
-          const archiveFiles = Array.isArray(message.archiveFiles) ? message.archiveFiles : [];
+          const archiveFiles = Array.isArray(message.archiveFiles?.files)
+            ? message.archiveFiles.files
+            : [];
           const firstFilePath = String(archiveFiles[0]?.path || 'worker_bot/usd/worker_bot.usd');
+          const binaryArchiveFiles = archiveFiles.map((file: any) =>
+            String(file.path || '').toLowerCase().endsWith('.usd')
+              ? {
+                  ...file,
+                  mimeType: 'application/octet-stream',
+                  bytes: new TextEncoder().encode('PXR-USDCMOCK').buffer,
+                }
+              : file,
+          );
 
           this.listeners.get('message')?.forEach((handler) => {
             handler({
@@ -404,7 +435,7 @@ function installUsdExportPipelineWorkerMock() {
               data: {
                 type: 'convert-usd-archive-files-to-binary-result',
                 requestId: message.requestId,
-                result: message.archiveFiles,
+                result: { files: binaryArchiveFiles },
               },
             });
           });
@@ -627,10 +658,12 @@ test('useFileExport routes USD exports through usd export worker and binary arch
       assert.equal(downloadMocks.appendedAnchor?.download, 'edited_worker_bot_usd.zip');
       assert.ok(downloadMocks.capturedBlob);
 
-      const zipBytes = new Uint8Array(
-        await new Response(downloadMocks.capturedBlob!).arrayBuffer(),
-      );
-      assert.ok(zipBytes.length > 0);
+      const archive = await JSZip.loadAsync(await readBlobArrayBuffer(downloadMocks.capturedBlob));
+      const rootLayerPath = Object.keys(archive.files).find((path) => path.endsWith('.usd'));
+      assert.ok(rootLayerPath, 'expected a binary .usd root layer in the archive');
+      const rootLayer = archive.file(rootLayerPath);
+      assert.ok(rootLayer);
+      assert.equal(await rootLayer.async('string'), 'PXR-USDCMOCK');
     } finally {
       rendered.cleanup();
     }
@@ -710,7 +743,7 @@ test('useFileExport skips binary USD conversion when exporting authored USDA lay
   }
 });
 
-test('useFileExport prefers prepared USD bundle export over live-stage roundtrip when both are available', async () => {
+test('useFileExport prefers prepared USD bundle export over the viewer runtime export handler', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const downloadMocks = installDownloadMocks();
@@ -787,7 +820,7 @@ test('useFileExport prefers prepared USD bundle export over live-stage roundtrip
   }
 });
 
-test('useFileExport falls back to live-stage roundtrip when no prepared USD export bundle is available', async () => {
+test('useFileExport rejects current USD export when only the viewer runtime export handler is available', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const downloadMocks = installDownloadMocks();
@@ -829,21 +862,17 @@ test('useFileExport falls back to live-stage roundtrip when no prepared USD expo
       const rendered = renderHook();
 
       try {
-        const result = await rendered.hook.handleExportWithConfig(createUsdExportConfig(), {
-          type: 'current',
-        });
-
-        assert.deepEqual(result, {
-          partial: false,
-          warnings: [],
-          issues: [],
-        });
+        await assert.rejects(
+          rendered.hook.handleExportWithConfig(createUsdExportConfig(), {
+            type: 'current',
+          }),
+          /USD export is not ready yet/i,
+        );
         assert.equal(workerMocks.usdExportRequestCount, 0);
         assert.equal(workerMocks.usdBinaryRequestCount, 0);
-        assert.equal(liveStageExport.callCount, 1);
-        assert.ok(downloadMocks.clicked);
-        assert.equal(downloadMocks.appendedAnchor?.download, 'demo.zip');
-        assert.ok(downloadMocks.capturedBlob);
+        assert.equal(liveStageExport.callCount, 0);
+        assert.equal(downloadMocks.clicked, false);
+        assert.equal(downloadMocks.capturedBlob, null);
       } finally {
         rendered.cleanup();
       }

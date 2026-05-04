@@ -45,6 +45,7 @@ import {
   getPreferredSdfContent,
   getPreferredUrdfContent,
   getPreferredXacroContent,
+  buildSingleComponentWorkspaceMjcfViewerContent,
   getWorkspaceAssemblyViewerRobotData,
   getSingleComponentWorkspaceMjcfViewerSource,
   getWorkspaceAssemblyRenderFailureReason,
@@ -61,6 +62,7 @@ import {
   WORKSPACE_VIEWER_COMPONENT_ROOT_JOINT_PREFIX,
 } from './workspaceSourceSyncUtils.ts';
 import { buildGeneratedWorkspaceFileState } from './workspaceGeneratedSourceState.ts';
+import { USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF } from './workspace-source-sync/usdViewerPlaceholder.ts';
 
 const { window } = new JSDOM();
 
@@ -842,6 +844,39 @@ test('getViewerSourceFile keeps the selected file outside assembly rendering', (
   );
 });
 
+test('getViewerSourceFile routes selected USD through a RobotState URDF virtual source', () => {
+  const selectedFile = createUsdFile('robots/demo/demo.usd');
+
+  const routedFile = getViewerSourceFile({
+    selectedFile,
+    shouldRenderAssembly: false,
+    renderSelectedUsdFromRobotState: true,
+  });
+
+  assert.notEqual(routedFile, selectedFile);
+  assert.deepEqual(routedFile, {
+    ...selectedFile,
+    content: USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF,
+    format: 'urdf',
+  });
+});
+
+test('getViewerSourceFile never forwards selected USD directly to the visible renderer', () => {
+  const selectedFile = createUsdFile('robots/demo/demo.usd');
+
+  const routedFile = getViewerSourceFile({
+    selectedFile,
+    shouldRenderAssembly: false,
+  });
+
+  assert.notEqual(routedFile, selectedFile);
+  assert.deepEqual(routedFile, {
+    ...selectedFile,
+    content: USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF,
+    format: 'urdf',
+  });
+});
+
 test('getViewerSourceFile keeps an explicit workspace source file while rendering an assembly view', () => {
   const workspaceSourceFile = createMjcfFile('robots/demo/workspace.xml');
 
@@ -915,6 +950,59 @@ test('getSingleComponentWorkspaceMjcfViewerSource returns the lone visible MJCF 
       availableFiles: [sourceFile],
     }),
     sourceFile,
+  );
+});
+
+test('buildSingleComponentWorkspaceMjcfViewerContent falls back to structured viewer for flybody multi-joint wings', () => {
+  const fixturePath = path.resolve('test/mujoco_menagerie-main/flybody/fruitfly.xml');
+  const sourceFile: RobotFile = {
+    name: fixturePath.replace(/\\/g, '/'),
+    format: 'mjcf',
+    content: fs.readFileSync(fixturePath, 'utf8'),
+  };
+  const importResult = resolveRobotFileData(sourceFile, {
+    availableFiles: [sourceFile],
+    allFileContents: { [sourceFile.name]: sourceFile.content },
+    assets: {},
+  });
+  assert.equal(importResult.status, 'ready');
+  if (importResult.status !== 'ready') {
+    return;
+  }
+
+  const componentRobot = prepareAssemblyRobotData(importResult.robotData, {
+    componentId: 'comp_fruitfly',
+    rootName: 'fruitfly',
+    sourceFilePath: sourceFile.name,
+    sourceFormat: 'mjcf',
+  });
+
+  assert.ok(
+    componentRobot.links.comp_fruitfly_wing_left__joint_stage_0,
+    'expected flybody wing to keep the normalized multi-joint stage links',
+  );
+
+  const assemblyState: AssemblyState = {
+    name: 'flybody_workspace',
+    components: {
+      comp_fruitfly: {
+        id: 'comp_fruitfly',
+        name: 'fruitfly',
+        sourceFile: sourceFile.name,
+        robot: componentRobot,
+        visible: true,
+      },
+    },
+    bridges: {},
+  };
+
+  assert.equal(
+    buildSingleComponentWorkspaceMjcfViewerContent({
+      assemblyState,
+      sourceFile,
+      resolvedMjcfSourceContent: sourceFile.content,
+    }),
+    null,
   );
 });
 

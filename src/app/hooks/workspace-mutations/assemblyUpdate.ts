@@ -221,12 +221,27 @@ export function applyAssemblyUpdate(params: AssemblyUpdateParams): boolean {
       const historyKey =
         params.options.historyKey ?? `assembly:component:${comp.id}:joint:${resolvedJointId}`;
       const historyLabel = params.options.historyLabel ?? 'Update assembly component';
+      const currentJoint = comp.robot.joints[resolvedJointId];
+      if (!currentJoint) {
+        return false;
+      }
+      const jointPatch = params.data as Partial<UrdfJoint>;
+      const nextJoint: UrdfJoint = {
+        ...currentJoint,
+        ...jointPatch,
+        limit: jointPatch.limit
+          ? {
+              ...currentJoint.limit,
+              ...jointPatch.limit,
+            }
+          : currentJoint.limit,
+      };
 
       params.ensurePendingAssemblyHistory(historyKey, historyLabel);
       params.updateComponentRobot(
         comp.id,
         {
-          joints: { ...comp.robot.joints, [resolvedJointId]: params.data as UrdfJoint },
+          joints: { ...comp.robot.joints, [resolvedJointId]: nextJoint },
         },
         {
           skipHistory: true,
@@ -234,17 +249,15 @@ export function applyAssemblyUpdate(params: AssemblyUpdateParams): boolean {
         },
       );
 
-      const currentJoint = comp.robot.joints[resolvedJointId];
-      const nextJoint = params.data as UrdfJoint;
-      if (currentJoint && nextJoint.limit) {
+      if (jointPatch.limit) {
         params.patchEditableSourceUpdateJointLimit?.({
           sourceFileName: comp.sourceFile,
           jointName: currentJoint.name,
-          jointType: nextJoint.type,
-          limit: nextJoint.limit,
+          jointType: jointPatch.type ?? currentJoint.type,
+          limit: nextJoint.limit ?? jointPatch.limit,
         });
       }
-      if (currentJoint && currentJoint.name !== (params.data as UrdfJoint).name) {
+      if (typeof jointPatch.name === 'string' && currentJoint.name !== jointPatch.name) {
         params.patchEditableSourceRenameEntities?.({
           sourceFileName: comp.sourceFile,
           operations: [
