@@ -15,7 +15,7 @@ export { generateMujocoXML } from './mjcf/mjcfGenerator';
 export { generateSkeletonXML } from './mjcf/skeletonGenerator';
 
 // USD Parser (Universal Scene Description)
-export { isUSDA, isUSDCBinary } from './usd/usdFormatUtils';
+export { isUSDA, isUSDCBinary, isUsdLikeFormat } from './usd/usdFormatUtils';
 
 // Xacro Parser (ROS Xacro format)
 export { isXacro, processXacro, parseXacro, getXacroArgs } from './xacro/xacroParser';

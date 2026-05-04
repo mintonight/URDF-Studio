@@ -50,6 +50,14 @@ export interface UrdfVisualMeshMaterialGroup {
   materialIndex: number;
 }
 
+export interface UrdfUsdMeshDescriptorRef {
+  meshId?: string | null;
+  sectionName?: string | null;
+  resolvedPrimPath?: string | null;
+  primType?: string | null;
+  materialId?: string | null;
+}
+
 export interface MjcfHfieldAssetSize {
   radiusX: number;
   radiusY: number;
@@ -105,6 +113,7 @@ export interface UrdfVisual {
   meshMaterialGroups?: UrdfVisualMeshMaterialGroup[];
   doubleSided?: boolean; // Force visual mesh materials to render both sides.
   meshPath?: string; // For later detailed design
+  usdMeshDescriptors?: UrdfUsdMeshDescriptorRef[];
   submeshName?: string; // SDF submesh name to select a specific named group from a shared mesh file
   submeshCenter?: boolean; // SDF submesh center flag — when true, re-center the extracted submesh to its own origin
   assetRef?: string; // MJCF-only asset reference (e.g. hfield name or sdf mesh asset)

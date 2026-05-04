@@ -21,7 +21,7 @@ import { getGeometryObjectIndexUserDataKey } from '../runtimeGeometrySelection';
 
 export interface SyncLoadedRobotSceneOptions {
   robot: THREE.Object3D;
-  sourceFormat: 'urdf' | 'mjcf';
+  sourceFormat: 'urdf' | 'mjcf' | 'usd';
   showCollision: boolean;
   showVisual: boolean;
   showMjcfWorldLink?: boolean;
@@ -301,7 +301,7 @@ function resolveRobotLinkDataByRuntimeName(
 }
 
 function resolveSemanticLinkIdForRuntimeLink(
-  sourceFormat: 'urdf' | 'mjcf',
+  sourceFormat: 'urdf' | 'mjcf' | 'usd',
   robotLinks: Record<string, UrdfLink> | undefined,
   runtimeLinkName: string,
 ): string {
@@ -317,7 +317,7 @@ function hasVisualGeometry(link: UrdfLink | null | undefined): boolean {
 }
 
 function shouldHideMjcfWorldRuntimeLink(
-  sourceFormat: 'urdf' | 'mjcf',
+  sourceFormat: 'urdf' | 'mjcf' | 'usd',
   showMjcfWorldLink: boolean,
   runtimeLinkName: string | undefined,
 ): boolean {

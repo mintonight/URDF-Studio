@@ -50,6 +50,18 @@ export interface UsdSceneMeshNormalDiagnostics {
   postRepairLowDotCount?: number | null;
 }
 
+export interface UsdAuthoredXformOpsInfo {
+  hasAuthoredOps: boolean;
+  resetsXformStack: boolean;
+  xformOpOrder?: string[] | null;
+}
+
+export interface UsdLayerInfo {
+  rootLayerPath: string | null;
+  usedLayerPaths: string[];
+  layerTextByPath?: Record<string, string>;
+}
+
 export interface UsdSceneMaterialRecord {
   materialId?: string | null;
   name?: string | null;
@@ -200,7 +212,15 @@ export interface UsdSceneSnapshot {
   } | null;
   robotMetadataSnapshot?: UsdRobotMetadataSnapshot | null;
   buffers?: UsdSceneBuffers | null;
+  authoredXformOpsByPrimPath?: Record<string, UsdAuthoredXformOpsInfo> | null;
+  layerInfo?: UsdLayerInfo | null;
 }
+
+/**
+ * C++/WASM-baked USD scene payload used as the render/export sidecar.
+ * Kept as a type alias while legacy snapshot call sites are migrated.
+ */
+export type UsdBakedScene = UsdSceneSnapshot;
 
 export interface UsdPreparedExportCache {
   stageSourcePath?: string | null;

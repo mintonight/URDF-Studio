@@ -73,7 +73,7 @@
     "test:fixtures:unitree-ros-usda": "node scripts/regression/validate_unitree_ros_usda_selected_browser.mjs",
     "test:fixtures": "npm run test:fixtures:imports && npm run test:fixtures:unitree-ros-urdfs && npm run test:fixtures:unitree-usd && npm run test:fixtures:unitree-ros-usda && npm run test:fixtures:unitree-ros-usd-export-benchmark",
     "dev:with-generate": "node scripts/start_dev_server.mjs --generate",
-    "test:unit:app-hooks": "node --import tsx --test src/app/hooks/useEditableSourcePatches.test.ts src/app/hooks/workspaceGeneratedSourceState.test.ts src/app/utils/assemblyRootComponentSelection.test.ts src/app/utils/importPreparation.workerSafe.test.ts src/app/components/UnifiedViewer.typecheck.test.ts src/app/handoff/bootstrap.test.ts src/app/utils/popupHandoffImport.test.ts"
+    "test:unit:app-hooks": "node --import tsx --test src/app/hooks/sourcePreservingExportUtils.test.ts src/app/hooks/useEditableSourcePatches.test.ts src/app/hooks/workspaceGeneratedSourceState.test.ts src/app/utils/assemblyRootComponentSelection.test.ts src/app/utils/importPreparation.workerSafe.test.ts src/app/components/UnifiedViewer.typecheck.test.ts src/app/handoff/bootstrap.test.ts src/app/utils/popupHandoffImport.test.ts"
   },
   "license": "Apache-2.0",
   "dependencies": {

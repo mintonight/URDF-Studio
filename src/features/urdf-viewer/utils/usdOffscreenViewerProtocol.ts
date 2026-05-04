@@ -9,6 +9,7 @@ import type { ViewerRobotDataResolution } from './viewerRobotData';
 import type { UsdStageOpenPreparationWorkerContextSnapshot } from './usdStageOpenPreparationWorkerPayload';
 import type { UsdOffscreenCameraState } from './usdOffscreenCameraState';
 import type { PreparedUsdExportCacheWorkerPayload } from './usdPreparedExportCacheWorkerTransfer';
+import type { UsdBakedScene } from '@/types';
 
 type OffscreenViewerSourceFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl'>;
 export type OffscreenViewerInteractionSelection = Pick<
@@ -185,6 +186,7 @@ export interface UsdOffscreenViewerRobotDataResponse {
 export interface UsdOffscreenViewerSceneSnapshotResponse {
   type: 'scene-snapshot';
   stageSourcePath: string | null;
+  bakedScene?: UsdBakedScene;
   snapshot: UsdSceneSnapshot;
 }
 

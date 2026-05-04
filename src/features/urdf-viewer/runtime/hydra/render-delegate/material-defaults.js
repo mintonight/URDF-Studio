@@ -1,11 +1,11 @@
 // @ts-nocheck
-import { Color, DoubleSide, MeshPhysicalMaterial, MeshStandardMaterial, SRGBColorSpace } from 'three';
+import { Color, DoubleSide, FrontSide, MeshPhysicalMaterial, MeshStandardMaterial, SRGBColorSpace } from 'three';
 
 export const HYDRA_DEFAULT_GRAY_HEX = 0x888888;
 export const HYDRA_UNIFIED_MATERIAL_DEFAULTS = Object.freeze({
-    roughness: 0.56,
-    metalness: 0.035,
-    envMapIntensity: 0.42,
+    roughness: 0.7,
+    metalness: 0.01,
+    envMapIntensity: 0.3,
 });
 
 export const HYDRA_PHYSICAL_ONLY_PROPERTY_NAMES = new Set([
@@ -82,7 +82,7 @@ export function applyUnifiedHydraMaterialDefaults(material) {
 export function createUnifiedHydraPhysicalMaterial(options = {}) {
     const {
         color = HYDRA_DEFAULT_GRAY_HEX,
-        side = DoubleSide,
+        side = FrontSide,
         name = '',
     } = options;
     const material = new MeshPhysicalMaterial({
@@ -100,7 +100,7 @@ export function createUnifiedHydraPhysicalMaterial(options = {}) {
 export function createUnifiedHydraStandardMaterial(options = {}) {
     const {
         color = HYDRA_DEFAULT_GRAY_HEX,
-        side = DoubleSide,
+        side = FrontSide,
         name = '',
     } = options;
     const material = new MeshStandardMaterial({

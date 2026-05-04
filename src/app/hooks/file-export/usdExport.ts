@@ -6,6 +6,7 @@ import {
   type ExportDialogConfig,
 } from '@/features/file-io';
 import { convertUsdArchiveFilesToBinaryWithWorker } from '@/app/utils/usdBinaryArchiveWorkerBridge';
+import { isUSDCBinary } from '@/core/parsers/usd';
 import { translations } from '@/shared/i18n';
 import type { RobotFile, RobotState } from '@/types';
 
@@ -25,6 +26,45 @@ const USD_EXPORT_STAGE_PROGRESS_RANGES = {
   scene: { start: 0.62, end: 0.92 },
   assets: { start: 0.92, end: 0.99 },
 } as const;
+
+async function readBlobArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
+  if (typeof blob.arrayBuffer === 'function') {
+    return blob.arrayBuffer();
+  }
+
+  if (typeof FileReader !== 'undefined') {
+    return new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (reader.result instanceof ArrayBuffer) {
+          resolve(reader.result);
+          return;
+        }
+        reject(new Error('Failed to read USD blob as ArrayBuffer.'));
+      };
+      reader.onerror = () => reject(reader.error ?? new Error('Failed to read USD blob.'));
+      reader.readAsArrayBuffer(blob);
+    });
+  }
+
+  return new Response(blob).arrayBuffer();
+}
+
+async function assertConvertedUsdLayersAreBinary(archiveFiles: Map<string, Blob>): Promise<void> {
+  const usdLayerEntries = Array.from(archiveFiles.entries()).filter(([filePath]) =>
+    /\.usd$/i.test(filePath),
+  );
+
+  for (const [filePath, blob] of usdLayerEntries) {
+    const headerBytes = await readBlobArrayBuffer(blob.slice(0, 8));
+    const magic = String.fromCharCode(...new Uint8Array(headerBytes));
+    if (!isUSDCBinary(headerBytes)) {
+      throw new Error(
+        `USD binary export failed for ${filePath}: converted layer is not USDC (${magic}).`,
+      );
+    }
+  }
+}
 
 interface ExecuteUsdExportParams {
   config: ExportDialogConfig;
@@ -191,6 +231,7 @@ export async function executeUsdExport({
         },
       },
     );
+    await assertConvertedUsdLayersAreBinary(binaryArchiveFiles);
 
     binaryArchiveFiles.forEach((blob, filePath) => {
       zip.file(filePath, blob);

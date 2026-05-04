@@ -368,6 +368,92 @@ test('normalizeRobotSceneSnapshot restores Unitree authored GeomSubset materials
     }
 });
 
+test('normalizeRobotSceneSnapshot attaches referenced mesh library payloads to semantic Unitree visual descriptors', () => {
+    const previousWindow = globalThis.window;
+    globalThis.window = {
+        location: { search: '' },
+    };
+    try {
+        const delegate = new ThreeRenderDelegateInterface({
+            stage: () => ({
+                GetRootLayer: () => ({
+                    ExportToString: () => unitreeReferencedMeshLibraryLayerText,
+                }),
+                GetUsedLayers: () => [],
+                GetDefaultPrim: () => ({
+                    GetPath: () => ({ pathString: '/go2_description' }),
+                }),
+            }),
+            driver: () => null,
+            allowDriverStageLookup: false,
+        });
+
+        const semanticMeshId = '/go2_description/FR_calf/visuals/visual_0/mesh';
+        const libraryMeshId = '/go2_description/__MeshLibrary/Geometry_6';
+        const snapshot = delegate.normalizeRobotSceneSnapshot({
+            generatedAtMs: 1,
+            stage: {
+                stageSourcePath: '/tmp/go2_description.usda',
+                defaultPrimPath: '/go2_description',
+            },
+            robotTree: {
+                linkParentPairs: [['/go2_description/FR_calf', null]],
+                jointCatalogEntries: [],
+                rootLinkPaths: ['/go2_description/FR_calf'],
+            },
+            physics: {
+                linkDynamicsEntries: [],
+            },
+            render: {
+                meshDescriptors: [{
+                    meshId: semanticMeshId,
+                    resolvedPrimPath: semanticMeshId,
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                }, {
+                    meshId: libraryMeshId,
+                    resolvedPrimPath: libraryMeshId,
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                    geometry: {
+                        numVertices: 3,
+                        numIndices: 3,
+                        renderReady: true,
+                        topologyMode: 'indexed',
+                    },
+                }],
+                materials: [],
+            },
+            buffers: {
+                positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+                indices: new Uint32Array([0, 1, 2]),
+                rangesByMeshId: {
+                    [libraryMeshId]: {
+                        positions: { offset: 0, count: 9, stride: 3 },
+                        indices: { offset: 0, count: 3, stride: 1 },
+                    },
+                },
+            },
+        }, {
+            stageSourcePath: '/tmp/go2_description.usda',
+        });
+
+        const semanticDescriptor = snapshot.render.meshDescriptors.find(
+            (descriptor) => descriptor.meshId === semanticMeshId,
+        );
+
+        assert.ok(semanticDescriptor);
+        assert.equal(semanticDescriptor.geometry.numVertices, 3);
+        assert.equal(semanticDescriptor.geometry.numIndices, 3);
+        assert.equal(semanticDescriptor.ranges.positions.count, 9);
+        assert.equal(semanticDescriptor.ranges.indices.count, 3);
+        assert.equal(snapshot.buffers.rangesByMeshId[semanticMeshId].positions.count, 9);
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});
+
 test('normalizeRobotSceneSnapshot synthesizes fallback material records from exported URDF metadata', () => {
     const previousWindow = globalThis.window;
     globalThis.window = {

@@ -911,6 +911,28 @@ export function parseUsdMaterialBindingsFromLayerText(layerText) {
     });
     return materialBindingsByPrimPath;
 }
+
+export function parseUsdReferenceTargetsByPrimPathFromLayerText(layerText) {
+    const referenceTargetsByPrimPath = new Map();
+    walkUsdNamedPrimBlocks(layerText, ({ path, text, body }) => {
+        const openingBraceIndex = text.indexOf('{');
+        const headerText = openingBraceIndex >= 0 ? text.slice(0, openingBraceIndex) : text;
+        const immediateProperties = extractImmediatePropertyTextFromPrimBody(body);
+        const metadataText = `${headerText}\n${immediateProperties}`;
+        const normalizedPath = normalizeUsdPathToken(path);
+        if (!normalizedPath) {
+            return;
+        }
+        const referenceTargets = extractReferencePrimTargets(metadataText)
+            .map((target) => normalizeUsdPathToken(target))
+            .filter(Boolean);
+        if (referenceTargets.length > 0) {
+            referenceTargetsByPrimPath.set(normalizedPath, referenceTargets);
+        }
+    });
+    return referenceTargetsByPrimPath;
+}
+
 export function findMatchingClosingBraceIndex(source, openingBraceIndex) {
     return findMatchingClosingBraceIndexFromPackage(source, openingBraceIndex);
 }

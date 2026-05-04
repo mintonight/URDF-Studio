@@ -21,6 +21,7 @@ EMSCRIPTEN_BINDINGS(test_usd_imaging_emscripten) {
     .function("GetPrimPathSet", &pxr::HdWebSyncDriver::GetPrimPathSet)
     .function("GetPhysicsJointRecords", &pxr::HdWebSyncDriver::GetPhysicsJointRecords)
     .function("GetPhysicsLinkDynamicsRecords", &pxr::HdWebSyncDriver::GetPhysicsLinkDynamicsRecords)
+    .function("GetRootLayerText", &pxr::HdWebSyncDriver::GetRootLayerText)
     .function("GetRobotMetadataSnapshot", &pxr::HdWebSyncDriver::GetRobotMetadataSnapshot)
     .function("GetLastInitProfile", &pxr::HdWebSyncDriver::GetLastInitProfile)
     .function(

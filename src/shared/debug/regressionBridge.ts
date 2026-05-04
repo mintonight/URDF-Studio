@@ -205,6 +205,13 @@ interface RegressionUsdBaseLinkDescriptorSummary {
   sectionName: string | null;
   materialId: string | null;
   geometryMaterialId: string | null;
+  geometryVertexCount?: number | null;
+  geometryIndexCount?: number | null;
+  positionRangeCount?: number | null;
+  indexRangeCount?: number | null;
+  normalRangeCount?: number | null;
+  uvRangeCount?: number | null;
+  transformRangeCount?: number | null;
   geomSubsetSectionCount: number;
   geomSubsetMaterialIds: string[];
   normalDiagnostics?: RegressionUsdNormalDiagnostics | null;
@@ -241,6 +248,14 @@ export interface RegressionSelectedUsdSceneSummary {
   rootLinkId: string | null;
   meshDescriptorCount: number;
   materialCount: number;
+  bufferSummary?: {
+    positionCount: number;
+    indexCount: number;
+    normalCount: number;
+    uvCount: number;
+    transformCount: number;
+    meshRangeCount: number;
+  };
   bindingSummary: RegressionUsdBindingSummary;
   baseLink: {
     found: boolean;
@@ -810,6 +825,27 @@ function summarizeUsdDescriptorBounds(
   return readUsdPositionBounds(descriptor, snapshot) || readUsdExtentBounds(descriptor);
 }
 
+function getUsdRangeCount(range: { count?: number | null } | null | undefined): number | null {
+  if (!range || typeof range.count !== 'number') {
+    return null;
+  }
+
+  const count = Number(range.count);
+  return Number.isFinite(count) ? count : null;
+}
+
+function getUsdBufferLength(buffer: ArrayLike<number> | null | undefined): number {
+  return buffer && typeof buffer.length === 'number' ? Number(buffer.length) : 0;
+}
+
+function getUsdGeometryCount(
+  geometry: UsdSceneMeshDescriptor['geometry'],
+  key: 'numVertices' | 'numIndices',
+): number | null {
+  const value = (geometry as Record<string, unknown> | null | undefined)?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? Number(value) : null;
+}
+
 function summarizeUsdDescriptorTransform(
   descriptor: UsdSceneMeshDescriptor,
   snapshot: UsdSceneSnapshot,
@@ -920,6 +956,14 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
 
   const rootLinkId = appHandlers?.getRobotState()?.rootLinkId ?? null;
   const descriptors = Array.from(snapshot.render?.meshDescriptors || []);
+  const bufferSummary = {
+    positionCount: getUsdBufferLength(snapshot.buffers?.positions),
+    indexCount: getUsdBufferLength(snapshot.buffers?.indices),
+    normalCount: getUsdBufferLength(snapshot.buffers?.normals),
+    uvCount: getUsdBufferLength(snapshot.buffers?.uvs),
+    transformCount: getUsdBufferLength(snapshot.buffers?.transforms),
+    meshRangeCount: Object.keys(snapshot.buffers?.rangesByMeshId || {}).length,
+  };
   const allBindingSummary = summarizeUsdDescriptorBindings(descriptors);
   const normalizedDefaultPrimPath =
     normalizeUsdDebugPathWithLeadingSlash(snapshot.stage?.defaultPrimPath) || null;
@@ -984,6 +1028,13 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
       sectionName: getUsdDescriptorSectionName(descriptor) || null,
       materialId: descriptorMaterialId,
       geometryMaterialId,
+      geometryVertexCount: getUsdGeometryCount(descriptor.geometry, 'numVertices'),
+      geometryIndexCount: getUsdGeometryCount(descriptor.geometry, 'numIndices'),
+      positionRangeCount: getUsdRangeCount(descriptor.ranges?.positions),
+      indexRangeCount: getUsdRangeCount(descriptor.ranges?.indices),
+      normalRangeCount: getUsdRangeCount(descriptor.ranges?.normals),
+      uvRangeCount: getUsdRangeCount(descriptor.ranges?.uvs),
+      transformRangeCount: getUsdRangeCount(descriptor.ranges?.transform),
       geomSubsetSectionCount: Array.isArray(descriptor.geometry?.geomSubsetSections)
         ? descriptor.geometry.geomSubsetSections.length
         : 0,
@@ -1012,6 +1063,7 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
     rootLinkId,
     meshDescriptorCount: descriptors.length,
     materialCount: Array.from(snapshot.render?.materials || []).length,
+    bufferSummary,
     bindingSummary: allBindingSummary,
     baseLink: {
       found:

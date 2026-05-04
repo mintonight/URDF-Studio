@@ -716,28 +716,37 @@ public:
         std::string const& materialId,
         std::vector<WebRenderDelegate::GeomSubsetSection>& sections,
         const VtArray<int>& faceVertexCounts) {
-        if (faces.empty()) return; // Return early if the input vector is empty
+        if (faces.empty()) return;
 
-        int currentStart = 0;
-        for (size_t i = 0; i < faces[0]; ++i) {
-            currentStart += (faceVertexCounts[i] - 2) * 3;
+        // Precompute triangle start offset per face
+        const int totalFaces = static_cast<int>(faceVertexCounts.size());
+        std::vector<int> triangleStartByFace(totalFaces, 0);
+        for (int f = 1; f < totalFaces; ++f) {
+            triangleStartByFace[f] = triangleStartByFace[f - 1] + (faceVertexCounts[f - 1] - 2) * 3;
         }
 
-        int currentLength = (faceVertexCounts[0] - 2) * 3;
+        // Copy, sort, deduplicate face ordinals
+        VtArray<int> sortedFaceIndices(faces);
+        std::sort(sortedFaceIndices.begin(), sortedFaceIndices.end());
+        auto last = std::unique(sortedFaceIndices.begin(), sortedFaceIndices.end());
+        sortedFaceIndices.erase(last, sortedFaceIndices.end());
 
-        for (size_t i = 1; i < faces.size(); ++i) {
-            if (faces[i] == faces[i - 1] + 1) {
-                currentLength += (faceVertexCounts[i] - 2) * 3;
+        // Group contiguous faces into sections
+        int firstFace = sortedFaceIndices[0];
+        int currentStart = triangleStartByFace[firstFace];
+        int currentLength = (faceVertexCounts[firstFace] - 2) * 3;
+
+        for (size_t i = 1; i < sortedFaceIndices.size(); ++i) {
+            int face = sortedFaceIndices[i];
+            if (face == sortedFaceIndices[i - 1] + 1) {
+                currentLength += (faceVertexCounts[face] - 2) * 3;
             } else {
                 sections.push_back({currentStart, currentLength, materialId});
-                currentStart = currentLength;
-                currentLength = (faceVertexCounts[i] - 2) * 3;
+                currentStart = triangleStartByFace[face];
+                currentLength = (faceVertexCounts[face] - 2) * 3;
             }
         }
-
         sections.push_back({currentStart, currentLength, materialId});
-
-        return;
     }
 
     virtual void Sync(HdSceneDelegate *delegate,

@@ -36,6 +36,6 @@ test('createRendererBackendForFormat does not expose usda as a source format', (
   assert.equal(isFormatSupported('usda'), false);
   assert.throws(
     () => createRendererBackendForFormat('usda', usdSourceFile, {}),
-    /Unsupported renderer source format: usda/,
+    /USD sources must be hydrated to RobotState before rendering/,
   );
 });

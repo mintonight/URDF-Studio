@@ -37,7 +37,7 @@ const PRIMITIVE_GEOMETRY_TEMPLATE_CACHE = new Map();
 const warnedMissingMaterials = new Set();
 const NORMAL_REPAIR_DOT_THRESHOLD = 0.2;
 // Unitree cooked USDs contain very thin triangles whose normals still affect shading.
-const NORMAL_REPAIR_EPSILON = 0;
+const NORMAL_REPAIR_EPSILON = 1e-12;
 function toPrimitiveKeyNumber(value, digits = 6) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed))
@@ -342,6 +342,16 @@ class HydraMesh {
     ensurePrimitiveFallbackGeometry() {
         if (!this._primitiveFallbackType)
             return;
+        if (this._interface?.strictOneShotSceneLoad === true) {
+            const finalStageOverride = this._interface?._finalStageOverrideBatchCache?.get?.(this._id) || null;
+            if (finalStageOverride?.valid === true) {
+                this.applyFinalStageOverrideFromDriver(finalStageOverride, {
+                    skipTransformFallback: true,
+                    skipCollisionRotationFallback: true,
+                });
+                return;
+            }
+        }
         if (this._hasGeneratedPrimitiveFallback) {
             if (this.isCollisionProtoMesh() && !this._appliedCollisionOverride) {
                 this.applyCollisionGeometryFromOverrides();
@@ -360,6 +370,9 @@ class HydraMesh {
             return;
         if (existingPositions && existingPositions.count > 0) {
             this._hasGeneratedPrimitiveFallback = true;
+            return;
+        }
+        if (this._interface?.strictOneShotSceneLoad === true) {
             return;
         }
         const segmentProfile = this._getPrimitiveSegmentProfile();
@@ -580,6 +593,9 @@ class HydraMesh {
         const axis = String(descriptor?.axis || 'Z').toUpperCase();
         const segmentProfile = this._getPrimitiveSegmentProfile();
         if (normalizedType === 'cube') {
+            if (!dimensionsFromExtent && sizeValue === undefined) {
+                return false;
+            }
             const extentMatchesSize = dimensionsFromExtent && sizeValue !== undefined
                 ? nearlyEqual(dimensionsFromExtent[0], sizeValue)
                     && nearlyEqual(dimensionsFromExtent[1], sizeValue)
@@ -587,13 +603,13 @@ class HydraMesh {
                 : false;
             const width = dimensionsFromExtent
                 ? (sizeValue !== undefined && !extentMatchesSize ? sizeValue : dimensionsFromExtent[0])
-                : (sizeValue ?? 1);
+                : sizeValue;
             const height = dimensionsFromExtent
                 ? (sizeValue !== undefined && !extentMatchesSize ? sizeValue : dimensionsFromExtent[1])
-                : (sizeValue ?? 1);
+                : sizeValue;
             const depth = dimensionsFromExtent
                 ? (sizeValue !== undefined && !extentMatchesSize ? sizeValue : dimensionsFromExtent[2])
-                : (sizeValue ?? 1);
+                : sizeValue;
             const safeWidth = Math.max(width, 1e-6);
             const safeHeight = Math.max(height, 1e-6);
             const safeDepth = Math.max(depth, 1e-6);
@@ -609,7 +625,10 @@ class HydraMesh {
             const radiusFromExtent = dimensionsFromExtent
                 ? Math.max(dimensionsFromExtent[0], dimensionsFromExtent[1], dimensionsFromExtent[2]) * 0.5
                 : undefined;
-            const radius = Math.max(radiusValue ?? radiusFromExtent ?? 0.5, 1e-6);
+            if (radiusValue === undefined && radiusFromExtent === undefined) {
+                return false;
+            }
+            const radius = Math.max(radiusValue ?? radiusFromExtent, 1e-6);
             const key = [
                 "descriptor|sphere",
                 toPrimitiveKeyNumber(radius),
@@ -635,8 +654,14 @@ class HydraMesh {
                     radiusFromExtent = Math.max(dimensionsFromExtent[0], dimensionsFromExtent[1]) * 0.5;
                 }
             }
-            const radius = Math.max(radiusValue ?? radiusFromExtent ?? 0.5, 1e-6);
-            const height = Math.max(heightValue ?? heightFromExtent ?? 1, 1e-6);
+            if (radiusValue === undefined && radiusFromExtent === undefined) {
+                return false;
+            }
+            if (heightValue === undefined && heightFromExtent === undefined) {
+                return false;
+            }
+            const radius = Math.max(radiusValue ?? radiusFromExtent, 1e-6);
+            const height = Math.max(heightValue ?? heightFromExtent, 1e-6);
             const key = [
                 "descriptor|cylinder",
                 toPrimitiveKeyNumber(radius),
@@ -673,8 +698,14 @@ class HydraMesh {
                     radiusFromExtent = Math.max(dimensionsFromExtent[0], dimensionsFromExtent[1]) * 0.5;
                 }
             }
-            const radius = Math.max(radiusValue ?? radiusFromExtent ?? 0.5, 1e-6);
-            const totalHeight = Math.max(heightValue ?? totalHeightFromExtent ?? 1, 1e-6);
+            if (radiusValue === undefined && radiusFromExtent === undefined) {
+                return false;
+            }
+            if (heightValue === undefined && totalHeightFromExtent === undefined) {
+                return false;
+            }
+            const radius = Math.max(radiusValue ?? radiusFromExtent, 1e-6);
+            const totalHeight = Math.max(heightValue ?? totalHeightFromExtent, 1e-6);
             const capsuleBodyHeight = Math.max(totalHeight - 2 * radius, 1e-6);
             const key = [
                 "descriptor|capsule",
@@ -928,6 +959,8 @@ class HydraMesh {
     shouldDeferProtoStageSyncUntilSceneSnapshot() {
         const renderInterface = this._interface;
         if (!renderInterface || renderInterface.strictOneShotSceneLoad !== true)
+            return false;
+        if (this.isCollisionProtoMesh())
             return false;
         if (typeof renderInterface.shouldDeferProtoStageSyncUntilSceneSnapshot === 'function') {
             return renderInterface.shouldDeferProtoStageSyncUntilSceneSnapshot() === true;
@@ -1316,16 +1349,134 @@ class HydraMesh {
         const faceVertexIndices = prim.GetAttribute('faceVertexIndices')?.Get?.();
         const faceVertexCounts = prim.GetAttribute('faceVertexCounts')?.Get?.();
         const triangulatedIndices = this.toTriangleIndexArray(faceVertexIndices, faceVertexCounts);
-        const nextGeometry = new BufferGeometry();
+        let nextGeometry = new BufferGeometry();
         nextGeometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
         if (triangulatedIndices.length > 0) {
             nextGeometry.setIndex(triangulatedIndices);
         }
-        nextGeometry.computeVertexNormals();
+
+        // Check if USD has explicit normals - use them instead of recomputing
+        const normalsValue = prim?.GetAttribute?.('normals')?.Get?.();
+        if (normalsValue && normalsValue.length > 0 && normalsValue.length === pointsValue.length) {
+            const normals = new Float32Array(normalsValue.length * 3);
+            for (let index = 0; index < normalsValue.length; index++) {
+                const normal = normalsValue[index];
+                const nx = Number(normal?.[0] ?? normal?.x ?? 0);
+                const ny = Number(normal?.[1] ?? normal?.y ?? 0);
+                const nz = Number(normal?.[2] ?? normal?.z ?? 0);
+                const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+                if (len > 1e-12) {
+                    const invLen = 1 / len;
+                    normals[index * 3 + 0] = nx * invLen;
+                    normals[index * 3 + 1] = ny * invLen;
+                    normals[index * 3 + 2] = nz * invLen;
+                } else {
+                    normals[index * 3 + 0] = 0;
+                    normals[index * 3 + 1] = 1;
+                    normals[index * 3 + 2] = 0;
+                }
+            }
+            nextGeometry.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+        } else {
+            nextGeometry.computeVertexNormals();
+        }
+
         nextGeometry.computeBoundingBox();
         nextGeometry.computeBoundingSphere();
+
+        // Apply vertex normal smoothing to reduce triangle visibility
+        nextGeometry = this._smoothGeometryNormals(nextGeometry);
+
         this.replaceGeometry(nextGeometry);
         return true;
+    }
+
+    /**
+     * Smooth geometry normals to reduce triangle visibility and improve shading
+     * This merges normals for vertices at the same position to create smooth shading
+     */
+    _smoothGeometryNormals(geometry) {
+        const normals = geometry.getAttribute('normal');
+        const position = geometry.getAttribute('position');
+        const index = geometry.getIndex();
+
+        if (!normals || !position) {
+            return geometry;
+        }
+
+        const normalsArray = normals.array;
+        const positionsArray = position.array;
+        const count = position.count;
+
+        // Map from position key to list of vertex indices with same position
+        const vertexMap = new Map();
+        const POSITION_PRECISION = 1e-5; // Precision for position comparison
+
+        // Build vertex position map
+        if (index) {
+            // Indexed geometry: map positions based on vertex indices
+            for (let i = 0; i < index.count; i++) {
+                const idx = index.getX(i);
+                const px = positionsArray[idx * 3];
+                const py = positionsArray[idx * 3 + 1];
+                const pz = positionsArray[idx * 3 + 2];
+                const key = `${Math.round(px / POSITION_PRECISION)},${Math.round(py / POSITION_PRECISION)},${Math.round(pz / POSITION_PRECISION)}`;
+
+                if (!vertexMap.has(key)) {
+                    vertexMap.set(key, []);
+                }
+                vertexMap.get(key).push(idx);
+            }
+        } else {
+            // Non-indexed geometry: direct mapping
+            for (let i = 0; i < count; i++) {
+                const px = positionsArray[i * 3];
+                const py = positionsArray[i * 3 + 1];
+                const pz = positionsArray[i * 3 + 2];
+                const key = `${Math.round(px / POSITION_PRECISION)},${Math.round(py / POSITION_PRECISION)},${Math.round(pz / POSITION_PRECISION)}`;
+
+                if (!vertexMap.has(key)) {
+                    vertexMap.set(key, []);
+                }
+                vertexMap.get(key).push(i);
+            }
+        }
+
+        // Smooth normals for vertices at same position
+        for (const vertices of vertexMap.values()) {
+            if (vertices.length <= 1) {
+                continue;
+            }
+
+            // Calculate average normal for all vertices at same position
+            let nx = 0, ny = 0, nz = 0;
+            for (const vIdx of vertices) {
+                nx += normalsArray[vIdx * 3];
+                ny += normalsArray[vIdx * 3 + 1];
+                nz += normalsArray[vIdx * 3 + 2];
+            }
+
+            // Normalize
+            const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+            if (len > 1e-12) {
+                const invLen = 1 / len;
+                nx *= invLen;
+                ny *= invLen;
+                nz *= invLen;
+            } else {
+                nx = 0; ny = 1; nz = 0;
+            }
+
+            // Apply smoothed normal to all vertices
+            for (const vIdx of vertices) {
+                normalsArray[vIdx * 3] = nx;
+                normalsArray[vIdx * 3 + 1] = ny;
+                normalsArray[vIdx * 3 + 2] = nz;
+            }
+        }
+
+        normals.needsUpdate = true;
+        return geometry;
     }
     getExtentDimensions(prim) {
         const extent = prim?.GetAttribute?.('extent')?.Get?.();

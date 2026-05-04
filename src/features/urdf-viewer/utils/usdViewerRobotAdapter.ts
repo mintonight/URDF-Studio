@@ -12,6 +12,7 @@ import {
   type UrdfJointUsdPhysicsFrame,
   type UrdfJoint,
   type UrdfLink,
+  type UrdfUsdMeshDescriptorRef,
   type UrdfVisual,
   type UrdfVisualMaterial,
   type UsdClosedLoopConstraintEntry,
@@ -32,7 +33,10 @@ import {
   resolveUsdDescriptorTargetLinkPath,
 } from './usdDescriptorLinkResolution';
 import { shouldUseUsdCollisionVisualProxy } from './usdCollisionVisualProxy';
-import { resolveUsdPrimitiveGeometryFromDescriptor } from './usdPrimitiveGeometry';
+import {
+  getUsdDescriptorPrimitiveType,
+  resolveUsdPrimitiveGeometryFromDescriptor,
+} from './usdPrimitiveGeometry';
 
 type MeshPrimitiveCounts = Record<string, number | undefined>;
 type MeshCountsEntry = UsdMeshCountsEntry;
@@ -56,6 +60,58 @@ interface DescriptorEntry {
 interface DescriptorGroup {
   groupKey: string;
   entries: DescriptorEntry[];
+}
+
+function createUsdMeshDescriptorRef(
+  descriptor: MeshDescriptor,
+): UrdfUsdMeshDescriptorRef {
+  return {
+    meshId: descriptor.meshId ?? null,
+    sectionName: descriptor.sectionName ?? null,
+    resolvedPrimPath: descriptor.resolvedPrimPath ?? null,
+    primType: descriptor.primType ?? null,
+    materialId: descriptor.materialId ?? descriptor.geometry?.materialId ?? null,
+  };
+}
+
+function createUsdMeshDescriptorRefs(
+  group: DescriptorGroup | null | undefined,
+): UrdfUsdMeshDescriptorRef[] | undefined {
+  const refs = group?.entries
+    .map(({ descriptor }) => createUsdMeshDescriptorRef(descriptor))
+    .filter((descriptor) => descriptor.meshId || descriptor.resolvedPrimPath);
+  return refs && refs.length > 0 ? refs : undefined;
+}
+
+function attachUsdMeshDescriptorRefs<T extends UrdfVisual>(
+  geometry: T,
+  group: DescriptorGroup | null | undefined,
+): T {
+  const refs = createUsdMeshDescriptorRefs(group);
+  if (!refs) {
+    return geometry;
+  }
+  return {
+    ...geometry,
+    usdMeshDescriptors: refs,
+  };
+}
+
+function isUsdMeshLikeDescriptor(descriptor: MeshDescriptor): boolean {
+  if (getUsdDescriptorPrimitiveType(descriptor)) {
+    return false;
+  }
+
+  const primType = String(descriptor.primType || '').trim().toLowerCase();
+  if (primType === 'mesh') {
+    return true;
+  }
+
+  return Boolean(
+    descriptor.ranges?.positions ||
+      descriptor.ranges?.indices ||
+      descriptor.geometry?.topologyMode,
+  );
 }
 
 interface DescriptorGeomSubsetSection {
@@ -747,129 +803,6 @@ function resolveUsdPhysicsFrameFromViewerEntry(
     ...(localPos1 ? { localPos1 } : {}),
     ...(localRot1Wxyz ? { localRot1Wxyz } : {}),
   };
-}
-
-function getDescriptorExtentDimensions(
-  descriptor: MeshDescriptor,
-): [number, number, number] | null {
-  const source = descriptor.extentSize;
-  if (!source || typeof source.length !== 'number' || source.length < 3) {
-    return null;
-  }
-
-  const dimensions = [
-    Math.abs(Number(source[0] ?? 0)),
-    Math.abs(Number(source[1] ?? 0)),
-    Math.abs(Number(source[2] ?? 0)),
-  ];
-
-  if (dimensions.some((value) => !Number.isFinite(value) || value <= 1e-9)) {
-    return null;
-  }
-
-  return [
-    Math.max(dimensions[0], 1e-6),
-    Math.max(dimensions[1], 1e-6),
-    Math.max(dimensions[2], 1e-6),
-  ];
-}
-
-function resolveUsdMeshApproximationFromBuffers(
-  snapshot: RobotSceneSnapshot,
-  descriptor: MeshDescriptor,
-): ResolvedUsdGeometry | null {
-  const positions = snapshot.buffers?.positions;
-  const range = descriptor.ranges?.positions;
-  if (!positions || !range || typeof positions.length !== 'number') {
-    return null;
-  }
-
-  const offset = Math.max(0, Number(range.offset ?? 0));
-  const count = Math.max(0, Number(range.count ?? 0));
-  const stride = Math.max(3, Number(range.stride ?? 3));
-  if (
-    !Number.isFinite(offset) ||
-    !Number.isFinite(count) ||
-    !Number.isFinite(stride) ||
-    count < 3
-  ) {
-    return null;
-  }
-
-  const end = Math.min(positions.length, offset + count);
-  let minX = Number.POSITIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let minZ = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-  let maxZ = Number.NEGATIVE_INFINITY;
-
-  for (let index = offset; index + 2 < end; index += stride) {
-    const x = Number(positions[index]);
-    const y = Number(positions[index + 1]);
-    const z = Number(positions[index + 2]);
-    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
-      continue;
-    }
-
-    if (x < minX) minX = x;
-    if (y < minY) minY = y;
-    if (z < minZ) minZ = z;
-    if (x > maxX) maxX = x;
-    if (y > maxY) maxY = y;
-    if (z > maxZ) maxZ = z;
-  }
-
-  if (
-    !Number.isFinite(minX) ||
-    !Number.isFinite(minY) ||
-    !Number.isFinite(minZ) ||
-    !Number.isFinite(maxX) ||
-    !Number.isFinite(maxY) ||
-    !Number.isFinite(maxZ)
-  ) {
-    return null;
-  }
-
-  return {
-    type: GeometryType.BOX,
-    dimensions: {
-      x: Math.max(maxX - minX, 1e-6),
-      y: Math.max(maxY - minY, 1e-6),
-      z: Math.max(maxZ - minZ, 1e-6),
-    },
-    origin: {
-      xyz: {
-        x: (minX + maxX) * 0.5,
-        y: (minY + maxY) * 0.5,
-        z: (minZ + maxZ) * 0.5,
-      },
-      rpy: { r: 0, p: 0, y: 0 },
-    },
-  };
-}
-
-export function resolveUsdMeshApproximationGeometry(
-  snapshot: RobotSceneSnapshot,
-  descriptor: MeshDescriptor,
-): ResolvedUsdGeometry | null {
-  const extentDimensions = getDescriptorExtentDimensions(descriptor);
-  if (extentDimensions) {
-    return {
-      type: GeometryType.BOX,
-      dimensions: {
-        x: extentDimensions[0],
-        y: extentDimensions[1],
-        z: extentDimensions[2],
-      },
-      origin: {
-        xyz: { x: 0, y: 0, z: 0 },
-        rpy: { r: 0, p: 0, y: 0 },
-      },
-    };
-  }
-
-  return resolveUsdMeshApproximationFromBuffers(snapshot, descriptor);
 }
 
 function quaternionComponentsToEuler(
@@ -1639,6 +1572,10 @@ export function adaptUsdViewerSnapshotToRobotData(
       materialLookup,
       materials,
     );
+    links[parentLinkId].visual = attachUsdMeshDescriptorRefs(
+      links[parentLinkId].visual,
+      primaryGroup,
+    );
 
     groupedEntries.slice(1).forEach((group, index) => {
       const descriptor = group.entries[0]?.descriptor;
@@ -1689,6 +1626,10 @@ export function adaptUsdViewerSnapshotToRobotData(
         materialLookup,
         materials,
       );
+      links[childLinkId].visual = attachUsdMeshDescriptorRefs(
+        links[childLinkId].visual,
+        group,
+      );
 
       group.entries.forEach(({ descriptor: groupDescriptor, ordinal }) => {
         visualDescriptorTargetLinkIds.set(
@@ -1716,6 +1657,7 @@ export function adaptUsdViewerSnapshotToRobotData(
       const nextGeometry: ResolvedUsdGeometry | null = resolveUsdPrimitiveGeometryFromDescriptor(
         descriptor,
         links[targetLinkId].visual,
+        snapshot,
       );
       if (!nextGeometry) {
         return;
@@ -1744,21 +1686,55 @@ export function adaptUsdViewerSnapshotToRobotData(
       }
 
       const currentCollision = index === 0 ? link.collision : link.collisionBodies?.[index - 1];
-      const nextGeometry: ResolvedUsdGeometry | null =
-        resolveUsdPrimitiveGeometryFromDescriptor(descriptor, currentCollision) ??
-        resolveUsdMeshApproximationGeometry(snapshot, descriptor);
+      const primitiveGeometry = resolveUsdPrimitiveGeometryFromDescriptor(
+        descriptor,
+        currentCollision,
+        snapshot,
+      );
+      const nextGeometry: ResolvedUsdGeometry | null = primitiveGeometry ?? (
+        isUsdMeshLikeDescriptor(descriptor)
+          ? {
+              type: GeometryType.MESH,
+              dimensions: currentCollision?.dimensions ?? { x: 1, y: 1, z: 1 },
+            }
+          : null
+      );
       if (!nextGeometry) {
+        const unresolvedCollision = attachUsdMeshDescriptorRefs(
+          {
+            ...DEFAULT_LINK.collision,
+            ...(currentCollision || {}),
+            type: GeometryType.NONE,
+            dimensions: { x: 0, y: 0, z: 0 },
+            meshPath: undefined,
+            origin: currentCollision?.origin ?? { ...DEFAULT_LINK.collision.origin },
+            verbose: `USD collision descriptor is missing real primitive or mesh payload data: ${
+              descriptor.resolvedPrimPath || descriptor.meshId || 'unknown'
+            }`,
+          },
+          group,
+        );
+        if (index === 0) {
+          link.collision = unresolvedCollision;
+          return;
+        }
+        const collisionBodies = [...(link.collisionBodies || [])];
+        collisionBodies[index - 1] = unresolvedCollision;
+        link.collisionBodies = collisionBodies;
         return;
       }
 
-      const nextCollision = {
-        ...DEFAULT_LINK.collision,
-        ...(currentCollision || {}),
-        ...nextGeometry,
-        meshPath: undefined,
-        origin: nextGeometry.origin ??
-          currentCollision?.origin ?? { ...DEFAULT_LINK.collision.origin },
-      };
+      const nextCollision = attachUsdMeshDescriptorRefs(
+        {
+          ...DEFAULT_LINK.collision,
+          ...(currentCollision || {}),
+          ...nextGeometry,
+          meshPath: undefined,
+          origin: nextGeometry.origin ??
+            currentCollision?.origin ?? { ...DEFAULT_LINK.collision.origin },
+        },
+        group,
+      );
 
       if (index === 0) {
         link.collision = nextCollision;

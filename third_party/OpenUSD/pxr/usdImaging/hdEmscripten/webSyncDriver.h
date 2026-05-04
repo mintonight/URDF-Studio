@@ -304,6 +304,18 @@ public:
         return primPaths;
     }
 
+    emscripten::val GetRootLayerText() {
+        emscripten::val result = emscripten::val::null();
+        if (!_stage) return result;
+        const SdfLayerHandle rootLayer = _stage->GetRootLayer();
+        if (!rootLayer) return result;
+        std::string text;
+        if (rootLayer->ExportToString(&text) && !text.empty()) {
+            result = emscripten::val(text);
+        }
+        return result;
+    }
+
     emscripten::val GetPhysicsJointRecords() {
         emscripten::val records = emscripten::val::array();
         if (!_stage) return records;
@@ -3379,6 +3391,30 @@ private:
         return "X";
     }
 
+    static std::string _ReadGeomAxisToken(
+        UsdPrim const& prim,
+        UsdTimeCode const& timeCode) {
+        std::string axis = "Z";
+        UsdAttribute axisAttr = prim.GetAttribute(TfToken("axis"));
+        if (axisAttr) {
+            TfToken axisToken;
+            if (axisAttr.Get(&axisToken, timeCode) && !axisToken.IsEmpty()) {
+                axis = axisToken.GetString();
+            } else {
+                std::string axisString;
+                if (axisAttr.Get(&axisString, timeCode) && !axisString.empty()) {
+                    axis = axisString;
+                }
+            }
+        }
+
+        axis = _ToLowerAscii(axis);
+        if (axis == "x") return "X";
+        if (axis == "y") return "Y";
+        if (axis == "z") return "Z";
+        return "Z";
+    }
+
     static void _Matrix4dToFloat16(
         GfMatrix4d const& matrix,
         std::array<float, 16>* outValues) {
@@ -4196,7 +4232,7 @@ private:
                     out->hasHeight = true;
                     dirtyMask |= kFinalStageDirtyPrimitiveParams;
                 }
-                out->axis = _ReadAxisToken(prim, timeCode);
+                out->axis = _ReadGeomAxisToken(prim, timeCode);
                 dirtyMask |= kFinalStageDirtyPrimitiveParams;
             }
         }

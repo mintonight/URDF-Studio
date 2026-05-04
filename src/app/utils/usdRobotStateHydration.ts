@@ -10,7 +10,7 @@ import type {
 import type { PreparedUsdExportCacheResult } from '@/features/urdf-viewer/utils/usdExportBundle';
 import { hydratePreparedUsdExportCacheFromWorker } from '@/features/urdf-viewer/utils/usdPreparedExportCacheWorkerTransfer';
 import type { ViewerRobotDataResolution } from '@/features/urdf-viewer/utils/viewerRobotData';
-import type { RobotData, RobotFile, UsdSceneSnapshot } from '@/types';
+import type { RobotData, RobotFile, UsdBakedScene, UsdSceneSnapshot } from '@/types';
 import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 
 type HydrationWorkerEventHandler = (
@@ -50,6 +50,7 @@ export interface UsdRobotStateHydrationResult {
   robotData: RobotData;
   preparedCache: PreparedUsdExportCacheResult;
   resolution: ViewerRobotDataResolution;
+  bakedScene: UsdBakedScene;
   sceneSnapshot: UsdSceneSnapshot;
 }
 
@@ -66,7 +67,7 @@ export interface StartUsdRobotStateHydrationOptions {
   createCanvas?: () => OffscreenCanvas;
   workerClient?: UsdRobotStateHydrationWorkerClient;
   prepareExportCache?: (
-    snapshot: UsdSceneSnapshot,
+    snapshot: UsdBakedScene,
     resolution: ViewerRobotDataResolution,
   ) => Promise<PreparedUsdExportCacheResult | null>;
   onDeferredSceneSnapshot?: (snapshot: UsdSceneSnapshot, stageSourcePath: string | null) => void;
@@ -132,7 +133,7 @@ export function startUsdRobotStateHydration({
   let settled = false;
   let cleanedUp = false;
   let resolution: ViewerRobotDataResolution | null = null;
-  let sceneSnapshot: UsdSceneSnapshot | null = null;
+  let sceneSnapshot: UsdBakedScene | null = null;
   let workerPreparedCache: PreparedUsdExportCacheResult | null = null;
   let rejectPromise: (reason?: unknown) => void = () => {};
   let deferredSceneSnapshotShutdownTimer: ReturnType<typeof setTimeout> | null = null;
@@ -179,17 +180,19 @@ export function startUsdRobotStateHydration({
     }
 
     try {
-      const resolvedSceneSnapshot =
+      const resolvedBakedScene =
         sceneSnapshot ??
+        resolution.usdBakedScene ??
         resolution.usdSceneSnapshot ??
+        workerPreparedCache?.resolution.usdBakedScene ??
         workerPreparedCache?.resolution.usdSceneSnapshot ??
         null;
-      if (!resolvedSceneSnapshot) {
+      if (!resolvedBakedScene) {
         return;
       }
 
       const preparedCache =
-        workerPreparedCache ?? (await prepareExportCache(resolvedSceneSnapshot, resolution));
+        workerPreparedCache ?? (await prepareExportCache(resolvedBakedScene, resolution));
       if (settled) {
         return;
       }
@@ -213,7 +216,8 @@ export function startUsdRobotStateHydration({
         robotData: preparedCache.robotData,
         preparedCache,
         resolution,
-        sceneSnapshot: resolvedSceneSnapshot,
+        bakedScene: resolvedBakedScene,
+        sceneSnapshot: resolvedBakedScene,
       });
     } catch (error) {
       if (settled) {
@@ -280,7 +284,7 @@ export function startUsdRobotStateHydration({
       if (!isMatchingSceneSnapshot(normalizedSourceFileName, resolution, message.stageSourcePath)) {
         return;
       }
-      sceneSnapshot = message.snapshot;
+      sceneSnapshot = message.bakedScene ?? message.snapshot;
       void tryResolve(resolvePromise, rejectPromise);
     }
   }

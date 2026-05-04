@@ -5,6 +5,15 @@
  */
 
 const SUPPORTED_USD_EXTENSIONS = new Set(['usd', 'usda', 'usdc', 'usdz']);
+const USD_LIKE_FORMATS = new Set(['usd', 'usda']);
+
+export function isUsdLikeFormat(format: string | null | undefined): boolean {
+  return USD_LIKE_FORMATS.has(
+    String(format || '')
+      .trim()
+      .toLowerCase(),
+  );
+}
 
 function getUsdExtension(path: string): string {
   const normalizedPath = String(path || '')

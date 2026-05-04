@@ -13,6 +13,7 @@ import {
   getVisualGeometryEntries,
 } from '@/core/robot';
 import { createBoxFaceMaterialArray } from '@/core/utils/boxFaceMaterialArray';
+import { getCollisionBoxDisplayCylinderTransform } from '@/core/utils/collisionBoxDisplay';
 import { applyVisualMeshMaterialGroupsToObject } from '@/core/utils/meshMaterialGroups';
 import { forceObjectMaterialSide } from '@/core/utils/three/materialSide';
 import {
@@ -689,6 +690,22 @@ function patchPrimitiveDimensionsInPlace(
 
   switch (geometry.type) {
     case GeometryType.BOX:
+      if (isCollision) {
+        if (
+          !(mesh.geometry instanceof THREE.CylinderGeometry) &&
+          mesh.geometry.type !== 'CylinderGeometry'
+        ) {
+          const previousMeshGeometry = mesh.geometry;
+          mesh.geometry = new THREE.CylinderGeometry(1, 1, 1, 30);
+          previousMeshGeometry?.dispose?.();
+        }
+
+        const { scale, rotation } = getCollisionBoxDisplayCylinderTransform(dims);
+        mesh.scale.set(...scale);
+        mesh.rotation.set(...rotation);
+        return true;
+      }
+
       if (!(mesh.geometry instanceof THREE.BoxGeometry) && mesh.geometry.type !== 'BoxGeometry') {
         const previousMeshGeometry = mesh.geometry;
         mesh.geometry = new THREE.BoxGeometry(1, 1, 1);

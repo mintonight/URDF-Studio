@@ -304,7 +304,7 @@ export class ThreeJsBackend implements RobotRendererBackend {
 
     const shouldParseCollisionMeshes = true;
     const hasStructuredRobotState =
-      resolvedSourceFormat === 'urdf' &&
+      (resolvedSourceFormat === 'urdf' || resolvedSourceFormat === 'usd') &&
       Boolean(this.robotLinks && this.robotJoints) &&
       (Object.keys(this.robotLinks ?? {}).length > 0 ||
         Object.keys(this.robotJoints ?? {}).length > 0);

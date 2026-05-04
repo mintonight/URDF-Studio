@@ -628,12 +628,26 @@ test('keeps authored visual and collision slots grouped when a single USD visual
   assert.equal(result.robotData.rootLinkId, 'base_link');
   assert.equal(result.robotData.links.base_link.visual.type, GeometryType.MESH);
   assert.equal(result.robotData.links.base_link.visual.meshPath, undefined);
-  assert.equal(result.robotData.links.base_link.collision.type, GeometryType.BOX);
+  assert.deepEqual(
+    result.robotData.links.base_link.visual.usdMeshDescriptors?.map((descriptor) => descriptor.resolvedPrimPath),
+    [
+      '/Robot/base_link/visuals/visual_0/Scene/ros_body1',
+      '/Robot/base_link/visuals/visual_0/Scene/ros_body1_1',
+    ],
+  );
+  assert.equal(result.robotData.links.base_link.collision.type, GeometryType.MESH);
   assert.deepEqual(result.robotData.links.base_link.collision.dimensions, {
-    x: 1.1,
-    y: 0.45,
-    z: 0.35,
+    x: 1,
+    y: 1,
+    z: 1,
   });
+  assert.deepEqual(
+    result.robotData.links.base_link.collision.usdMeshDescriptors?.map((descriptor) => descriptor.resolvedPrimPath),
+    [
+      '/Robot/base_link/collisions/collision_0/Scene/collider',
+      '/Robot/base_link/collisions/collision_0/Scene/collider_1',
+    ],
+  );
   assert.equal(result.robotData.links.base_link.collisionBodies?.length ?? 0, 0);
   assert.equal(result.robotData.materials?.base_link?.color, '#7c8995');
 });

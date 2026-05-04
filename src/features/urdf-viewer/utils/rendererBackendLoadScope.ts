@@ -1,4 +1,5 @@
 import type { RobotData, RobotFile, UrdfJoint, UrdfLink } from '@/types';
+import { isUsdLikeFormat } from '@/core/parsers/usd';
 import { createStableJsonSnapshot } from '@/shared/utils/robot/semanticSnapshot';
 import { createViewerRobotLoadInputSignature } from './robotLoadScope';
 
@@ -85,7 +86,7 @@ export function createRendererBackendLoadScopeKey({
     resolvedRobotJoints,
   );
   const robotInputSignature =
-    format === 'usd'
+    isUsdLikeFormat(format)
       ? `usd-source:${sourceContentHash}`
       : createViewerRobotLoadInputSignature({
           urdfContent: sourceFile.content ?? '',

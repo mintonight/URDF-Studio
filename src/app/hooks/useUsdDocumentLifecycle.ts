@@ -474,7 +474,7 @@ export function useUsdDocumentLifecycle({
         );
         const robotSnapshot = createRobotSemanticSnapshot(result.robotData);
 
-        liveAssetsState.setUsdSceneSnapshot(liveSelectedFile.name, result.sceneSnapshot);
+        liveAssetsState.setUsdBakedScene(liveSelectedFile.name, result.bakedScene);
         liveAssetsState.setUsdPreparedExportCache(liveSelectedFile.name, result.preparedCache);
         usdPersistenceBaselineRef.current = {
           fileName: normalizedSelectedFileName,
@@ -508,7 +508,7 @@ export function useUsdDocumentLifecycle({
             childLinkPathByJointIdCount: Object.keys(
               result.resolution.childLinkPathByJointId || {},
             ).length,
-            metadataSource: result.sceneSnapshot.robotMetadataSnapshot?.source ?? null,
+            metadataSource: result.bakedScene.robotMetadataSnapshot?.source ?? null,
             commitMode: 'reset-history',
             rendererMode: 'offscreen-worker-robotstate',
           },

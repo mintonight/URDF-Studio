@@ -12,7 +12,7 @@ test('getViewerRobotSourceFormat keeps SDF and Xacro on explicit viewer source b
   assert.equal(getViewerRobotSourceFormat('xacro'), 'xacro');
   assert.equal(getViewerRobotSourceFormat('urdf'), 'urdf');
   assert.equal(getViewerRobotSourceFormat('mjcf'), 'mjcf');
-  assert.equal(getViewerRobotSourceFormat('usd'), 'auto');
+  assert.equal(getViewerRobotSourceFormat('usd'), 'usd');
   assert.equal(getViewerRobotSourceFormat(null), 'auto');
 });
 
@@ -32,5 +32,5 @@ test('resolvePreferredViewerRobotSourceFormat keeps explicit viewer overrides ah
   assert.equal(resolvePreferredViewerRobotSourceFormat('urdf', 'mjcf'), 'urdf');
   assert.equal(resolvePreferredViewerRobotSourceFormat('auto', 'mjcf'), 'auto');
   assert.equal(resolvePreferredViewerRobotSourceFormat(undefined, 'mjcf'), 'mjcf');
-  assert.equal(resolvePreferredViewerRobotSourceFormat(undefined, 'usd'), 'auto');
+  assert.equal(resolvePreferredViewerRobotSourceFormat(undefined, 'usd'), 'usd');
 });

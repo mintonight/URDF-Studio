@@ -63,16 +63,7 @@ export function applyMeshVisibilityFilters(
             mesh.userData = mesh.userData || {};
             mesh.userData.isCollisionMesh = true;
             mesh.userData.geometryRole = "collision";
-            const wasVisible = mesh.visible === true;
             mesh.visible = showCollisionMeshes;
-            if (showCollisionMeshes && !wasVisible) {
-                try {
-                    hydraMesh?.ensureProtoReadyForVisibility?.();
-                }
-                catch {
-                    // Keep visibility toggles resilient even if a single proto mesh fails.
-                }
-            }
             setCollisionMeshStyle(mesh, showCollisionMeshes, collisionAlwaysOnTop);
             continue;
         }

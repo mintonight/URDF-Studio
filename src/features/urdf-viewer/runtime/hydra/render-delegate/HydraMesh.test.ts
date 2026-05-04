@@ -108,6 +108,27 @@ test('HydraMesh defaults to double-sided USD surfaces and honors explicit sidedn
     assert.equal(material.side, DoubleSide);
 });
 
+test('HydraMesh does not infer front-sided rendering from open mesh normals', () => {
+    const hydraMesh = new HydraMesh(
+        'Mesh',
+        '/robot/open_panel/mesh',
+        createHydraInterfaceStub(),
+    ) as any;
+    const material = Array.isArray(hydraMesh._mesh.material)
+        ? hydraMesh._mesh.material[0]
+        : hydraMesh._mesh.material;
+
+    hydraMesh._primType = 'mesh';
+    hydraMesh._normals = new Float32Array([
+        0, 0, 1,
+        0, 0, 1,
+        0, 0, 1,
+    ]);
+    hydraMesh._applySurfaceState();
+
+    assert.equal(material.side, DoubleSide);
+});
+
 test('HydraMesh reapplies sidedness when setMaterial replaces the assigned material', () => {
     const hydraInterface = createHydraInterfaceStub();
     const replacementMaterial = new MeshPhysicalMaterial({ name: 'replacement', color: 0xffffff });
@@ -529,4 +550,119 @@ test('HydraMesh preserves valid indexed proto geometry with unused trailing vert
     assert.ok(renderedIndex);
     assert.deepEqual(Array.from(renderedIndex.array), Array.from(indices));
     assert.equal(hydraMesh._expandedSharedVertexIndices, undefined);
+});
+
+test('HydraMesh completes collision proto sync from baked scene data even while strict scene bake is pending', () => {
+    const hydraInterface = createHydraInterfaceStub() as any;
+    hydraInterface.strictOneShotSceneLoad = true;
+    hydraInterface.shouldDeferProtoStageSyncUntilSceneSnapshot = () => true;
+    hydraInterface._finalStageOverrideBatchCache = new Map([
+        [
+            '/Robot/base_link/collisions.proto_box_id0',
+            {
+                valid: true,
+                meshId: '/Robot/base_link/collisions.proto_box_id0',
+                sectionName: 'collisions',
+                primType: 'cube',
+                size: 1,
+                worldTransformElements: [
+                    1, 0, 0, 0,
+                    0, 1, 0, 0,
+                    0, 0, 1, 0,
+                    0, 0, 0, 1,
+                ],
+            },
+        ],
+    ]);
+    hydraInterface.getCollisionProtoOverride = (meshId: string) =>
+        hydraInterface._finalStageOverrideBatchCache.get(meshId) ?? null;
+    hydraInterface.getResolvedPrimPathForMeshId = () => null;
+    hydraInterface.getCollisionLocalXformOverride = () => null;
+    hydraInterface.getWorldTransformForPrimPath = () => null;
+
+    const hydraMesh = new HydraMesh(
+        'Mesh',
+        '/Robot/base_link/collisions.proto_box_id0',
+        hydraInterface,
+    );
+
+    hydraMesh.applyProtoStageSync({ allowDeferredFinalBatch: false });
+
+    assert.equal(hydraMesh._hasCompletedProtoSync, true);
+    assert.equal(hydraMesh._appliedCollisionOverride, true);
+    assert.ok(hydraMesh._geometry.getAttribute('position')?.count > 0);
+});
+
+test('HydraMesh does not generate JS primitive fallback geometry for strict USD proto meshes', () => {
+    const hydraInterface = createHydraInterfaceStub() as any;
+    hydraInterface.strictOneShotSceneLoad = true;
+    hydraInterface.shouldDeferProtoStageSyncUntilSceneSnapshot = () => false;
+    hydraInterface.getCollisionProtoOverride = () => null;
+    hydraInterface.getResolvedPrimPathForMeshId = () => null;
+    hydraInterface.getCollisionOverridePrimPath = () => null;
+    hydraInterface.getVisualColorOverride = () => null;
+    hydraInterface.getCollisionLocalXformOverride = () => null;
+    hydraInterface.getWorldTransformForPrimPath = () => null;
+    hydraInterface.getSafeFallbackTransformForMeshId = () => null;
+    hydraInterface.getVisualWorldTransformFromUrdfTruth = () => null;
+    hydraInterface.getCollisionWorldTransformFromUrdfTruth = () => null;
+    hydraInterface.getRepresentativeVisualTransformForMeshId = () => null;
+
+    const hydraMesh = new HydraMesh(
+        'Mesh',
+        '/Robot/base_link/collisions.proto_box_id0',
+        hydraInterface,
+    );
+
+    hydraMesh.commit();
+
+    assert.equal(hydraMesh._hasGeneratedPrimitiveFallback, false);
+    assert.equal(hydraMesh._geometry.getAttribute('position'), undefined);
+    assert.equal(hydraMesh._hasCompletedProtoSync, false);
+});
+
+test('HydraMesh strict baked primitive overrides require authored size evidence', () => {
+    const cases = [
+        ['cube', 'box'],
+        ['sphere', 'sphere'],
+        ['cylinder', 'cylinder'],
+        ['capsule', 'capsule'],
+    ] as const;
+
+    for (const [primType, protoType] of cases) {
+        const meshId = `/Robot/base_link/collisions.proto_${protoType}_id0`;
+        const hydraInterface = createHydraInterfaceStub() as any;
+        hydraInterface.strictOneShotSceneLoad = true;
+        hydraInterface._finalStageOverrideBatchCache = new Map([
+            [
+                meshId,
+                {
+                    valid: true,
+                    meshId,
+                    sectionName: 'collisions',
+                    primType,
+                    worldTransformElements: [
+                        1, 0, 0, 0,
+                        0, 1, 0, 0,
+                        0, 0, 1, 0,
+                        0, 0, 0, 1,
+                    ],
+                },
+            ],
+        ]);
+        hydraInterface.getCollisionLocalXformOverride = () => null;
+        hydraInterface.getWorldTransformForPrimPath = () => null;
+
+        const hydraMesh = new HydraMesh('Mesh', meshId, hydraInterface);
+
+        hydraMesh.ensurePrimitiveFallbackGeometry();
+
+        assert.equal(
+            hydraMesh._geometry.getAttribute('position'),
+            undefined,
+            `${primType} should not synthesize geometry without descriptor dimensions`,
+        );
+        assert.equal(hydraMesh._appliedCollisionOverride, false, `${primType} should not apply collision override`);
+        assert.equal(hydraMesh._hasCompletedProtoSync, false, `${primType} should keep proto sync pending`);
+    }
 });

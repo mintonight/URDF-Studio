@@ -916,6 +916,16 @@ export class ThreeRenderDelegateCore {
             return resolvedStage;
         };
         let metadataLayerTexts = [];
+        if (activeDriver && typeof activeDriver.GetRootLayerText === 'function') {
+            try {
+                const rootLayerText = activeDriver.GetRootLayerText();
+                if (typeof rootLayerText === 'string' && rootLayerText.length > 0) {
+                    metadataLayerTexts.push(rootLayerText);
+                }
+            } catch {
+                registerMetadataErrorFlag('root-layer-text-unavailable');
+            }
+        }
         const meshCountsByLinkPath = {};
         const linkPathSet = new Set();
         const syntheticSemanticChildParentPathByChildLinkPath = new Map();
@@ -2755,6 +2765,16 @@ export class ThreeRenderDelegateCore {
         }
     }
     safeExportRootLayerText(stage) {
+        // First try to get layer text from snapshot (USD-free path)
+        const snapshot = this.getCachedRobotSceneSnapshot?.();
+        if (snapshot?.layerInfo?.layerTextByPath) {
+            const rootLayerPath = snapshot.layerInfo.rootLayerPath;
+            if (rootLayerPath && snapshot.layerInfo.layerTextByPath[rootLayerPath]) {
+                return snapshot.layerInfo.layerTextByPath[rootLayerPath] || '';
+            }
+        }
+
+        // Fallback to USD stage if snapshot doesn't have the data
         if (!stage || typeof stage.GetRootLayer !== 'function')
             return '';
         try {
@@ -2859,6 +2879,40 @@ export class ThreeRenderDelegateCore {
         if (stageCache.has(bundleListCacheKey)) {
             return stageCache.get(bundleListCacheKey) || [];
         }
+
+        // Try to get layer info from snapshot (USD-free path)
+        const snapshot = this.getCachedRobotSceneSnapshot?.();
+        if (snapshot?.layerInfo?.usedLayerPaths?.length > 0) {
+            const bundles = [];
+            const visitedLayerPaths = new Set();
+            const seenBundles = new Set();
+
+            const addBundle = (bundle) => {
+                if (!bundle || bundle.skipped === true || seenBundles.has(bundle)) {
+                    return;
+                }
+                seenBundles.add(bundle);
+                bundles.push(bundle);
+            };
+
+            const layerTextByPath = snapshot.layerInfo.layerTextByPath || {};
+
+            // Process all layers from snapshot
+            for (const layerPath of snapshot.layerInfo.usedLayerPaths) {
+                if (visitedLayerPaths.has(layerPath)) continue;
+                visitedLayerPaths.add(layerPath);
+
+                const layerText = layerTextByPath[layerPath] || '';
+                const skipped = !layerText || this.shouldSkipStageLayerTextParsing(layerPath, layerText);
+                const bundle = this.createStageLayerTextParseBundle(layerPath, layerText, skipped);
+                addBundle(bundle);
+            }
+
+            stageCache.set(bundleListCacheKey, bundles);
+            return bundles;
+        }
+
+        // Fallback to USD stage if snapshot doesn't have the data
         const stage = this.getStage();
         if (!stage) {
             stageCache.set(bundleListCacheKey, []);

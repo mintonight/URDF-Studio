@@ -1837,6 +1837,7 @@ function publishDeferredSceneSnapshot(
       {
         type: 'scene-snapshot',
         stageSourcePath,
+        bakedScene: snapshot,
         snapshot,
       },
       transferables,
@@ -1977,6 +1978,7 @@ async function publishResolvedRobotData(): Promise<PublishedWorkerRobotData> {
 
   const resolutionWithSnapshot: ViewerRobotDataResolution = {
     ...resolvedViewerRobotData,
+    usdBakedScene: lightweightSnapshot,
     usdSceneSnapshot: lightweightSnapshot,
   };
   resolvedRobotData = resolutionWithSnapshot;
@@ -2318,6 +2320,7 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
         rendererMode: 'offscreen-worker',
         stageSourcePath: workerResolvedRobotData.resolution.stageSourcePath,
         metadataSource:
+          workerResolvedRobotData.resolution.usdBakedScene?.robotMetadataSnapshot?.source ??
           workerResolvedRobotData.resolution.usdSceneSnapshot?.robotMetadataSnapshot?.source ??
           null,
         rootChildrenCount: usdRoot?.children.length ?? 0,

@@ -678,7 +678,7 @@ test('hydrateUsdViewerRobotResolutionFromRuntime preserves the B2 leg mesh basis
   );
 });
 
-test('hydrateUsdViewerRobotResolutionFromRuntime composes authored approximation offsets with runtime prim transforms', () => {
+test('hydrateUsdViewerRobotResolutionFromRuntime composes authored mesh offsets with runtime prim transforms', () => {
   const baseWorld = composeMatrix({ x: 0, y: 0, z: 0 });
   const childWorld = composeMatrix({ x: 1, y: -2, z: 3 }, { r: 0.02, p: -0.04, y: 0.06 });
   const visualPrimWorld = childWorld
@@ -804,7 +804,7 @@ test('hydrateUsdViewerRobotResolutionFromRuntime composes authored approximation
       .invert()
       .multiply(visualPrimWorld.clone())
       .multiply(createOriginMatrix(authoredVisualOrigin)),
-    'visual origin should preserve authored approximation center offsets',
+    'visual origin should preserve authored mesh center offsets',
   );
   assertMatrixClose(
     hydrated.robotData.links.arm_link.collision.origin,
@@ -813,7 +813,7 @@ test('hydrateUsdViewerRobotResolutionFromRuntime composes authored approximation
       .invert()
       .multiply(collisionPrimWorld.clone())
       .multiply(createOriginMatrix(authoredCollisionOrigin)),
-    'collision origin should preserve authored approximation center offsets',
+    'collision origin should preserve authored mesh center offsets',
   );
 });
 

@@ -905,6 +905,21 @@ export async function loadUsdStage(args) {
             return markHydrationFailure("resolved-prim-hydration-failed", error);
         }
     };
+    const ensureNoPendingMeshHydrationBeforeReady = () => {
+        const protoHydrationSummary = runProtoHydrationPass();
+        if (state.drawFailed)
+            return false;
+        const resolvedPrimHydrationSummary = runResolvedPrimHydrationPass({ force: true });
+        if (state.drawFailed)
+            return false;
+        const pendingProtoCount = Math.max(0, Number(getPendingProtoHydrationCount(protoHydrationSummary) ?? 0));
+        const pendingResolvedPrimCount = Math.max(0, Number(getPendingResolvedPrimHydrationCount(resolvedPrimHydrationSummary) ?? 0));
+        if (pendingProtoCount <= 0 && pendingResolvedPrimCount <= 0) {
+            return true;
+        }
+        markHydrationFailure("mesh-hydration-pending-before-ready", new Error(`USD mesh hydration still has pending work before ready (proto: ${pendingProtoCount}, resolved prim: ${pendingResolvedPrimCount}).`));
+        return false;
+    };
     const getRobotSceneStageSnapshot = () => {
         const activeRenderInterface = window.renderInterface;
         if (!activeRenderInterface || typeof activeRenderInterface.getCachedRobotSceneSnapshot !== "function") {
@@ -1503,6 +1518,9 @@ export async function loadUsdStage(args) {
     if (!isLoadStillActive())
         return state;
     runEagerRender("post-texture-drain", { forceRender: true });
+    if (!ensureNoPendingMeshHydrationBeforeReady()) {
+        return state;
+    }
     state.ready = true;
     setProgress(100, true);
     emitProgress({

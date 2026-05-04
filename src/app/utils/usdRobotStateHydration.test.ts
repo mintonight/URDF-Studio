@@ -275,6 +275,8 @@ test('startUsdRobotStateHydration resolves a prepared cache after robot-data and
   assert.equal(prepareCalls[0].snapshot, sceneSnapshot);
   assert.equal(prepareCalls[0].resolution, workerResolution);
   assert.equal(result.preparedCache, preparedCache);
+  assert.equal(result.bakedScene, sceneSnapshot);
+  assert.equal(result.sceneSnapshot, sceneSnapshot);
   assert.equal(result.robotData.links.base_link.visual.meshPath, 'base_link_visual_0.obj');
   assert.equal(Object.keys(result.preparedCache.meshFiles).length, 1);
   assert.equal(worker.listenerCount('message'), 0);
@@ -321,6 +323,7 @@ test('startUsdRobotStateHydration resolves from worker-prepared cache without wa
   assert.equal(fallbackPrepareCallCount, 0);
   assert.equal(result.preparedCache.stageSourcePath, preparedCache.stageSourcePath);
   assert.equal(result.robotData.links.base_link.visual.meshPath, 'base_link_visual_0.obj');
+  assert.equal(result.bakedScene, sceneSnapshot);
   assert.equal(result.sceneSnapshot, sceneSnapshot);
   assert.equal(client.shutdownCalls, 0);
 

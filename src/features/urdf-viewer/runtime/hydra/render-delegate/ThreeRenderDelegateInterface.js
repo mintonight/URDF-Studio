@@ -7,7 +7,7 @@ import { HydraMaterial } from './HydraMaterial.js';
 import { HydraMesh } from './HydraMesh.js';
 import { getDefaultMaterial } from './default-material-state.js';
 import { createHydraColorFromTuple, HYDRA_UNIFIED_MATERIAL_DEFAULTS } from './material-defaults.js';
-const { buildProtoPrimPathCandidates, clamp01, createMatrixFromXformOp, debugInstancer, debugMaterials, debugMeshes, debugPrims, debugTextures, defaultGrayComponent, disableMaterials, disableTextures, extractPrimPathFromMaterialBindingWarning, extractReferencePrimTargets, extractScopeBodyText, extractUsdAssetReferencesFromLayerText, getActiveMaterialBindingWarningOwner, getAngleInRadians, getCollisionGeometryTypeFromUrdfElement, getExpectedPrimTypesForCollisionProto, getExpectedPrimTypesForProtoType, getMatrixMaxElementDelta, getPathBasename, getPathWithoutRoot, getRawConsoleMethod, getRootPathFromPrimPath, getSafePrimTypeName, hasNonZeroTranslation, hydraCallbackErrorCounts, installMaterialBindingApiWarningInterceptor, isIdentityQuaternion, isLikelyDefaultGrayMaterial, isLikelyInverseTransform, isMaterialBindingApiWarningMessage, isMatrixApproximatelyIdentity, isNonZero, isPotentiallyLargeBaseAssetPath, logHydraCallbackError, materialBindingRepairMaxLayerTextLength, materialBindingWarningHandlers, maxHydraCallbackErrorLogsPerMethod, nearlyEqual, normalizeHydraPath, normalizeUsdPathToken, parseGuideCollisionReferencesFromLayerText, parseProtoMeshIdentifier, parseUrdfMaterialMetadataFromLayerText, parseUrdfTruthFromText, parseUsdMaterialBindingsFromLayerText, parseVector3Text, parseXformOpFallbacksFromLayerText, rawConsoleError, rawConsoleWarn, registerMaterialBindingApiWarningHandler, remapRootPathIfNeeded, resolveUrdfTruthFileNameForStagePath, resolveUsdAssetPath, setActiveMaterialBindingWarningOwner, shouldAllowLargeBaseAssetScan, stringifyConsoleArgs, toArrayLike, toColorArray, toFiniteNumber, toFiniteQuaternionWxyzTuple, toFiniteVector2Tuple, toFiniteVector3Tuple, toMatrixFromUrdfOrigin, toQuaternionWxyzFromRpy, transformEpsilon, wrapHydraCallbackObject } = Shared;
+const { buildProtoPrimPathCandidates, clamp01, createMatrixFromXformOp, debugInstancer, debugMaterials, debugMeshes, debugPrims, debugTextures, defaultGrayComponent, disableMaterials, disableTextures, extractPrimPathFromMaterialBindingWarning, extractReferencePrimTargets, extractScopeBodyText, extractUsdAssetReferencesFromLayerText, getActiveMaterialBindingWarningOwner, getAngleInRadians, getCollisionGeometryTypeFromUrdfElement, getExpectedPrimTypesForCollisionProto, getExpectedPrimTypesForProtoType, getMatrixMaxElementDelta, getPathBasename, getPathWithoutRoot, getRawConsoleMethod, getRootPathFromPrimPath, getSafePrimTypeName, hasNonZeroTranslation, hydraCallbackErrorCounts, installMaterialBindingApiWarningInterceptor, isIdentityQuaternion, isLikelyDefaultGrayMaterial, isLikelyInverseTransform, isMaterialBindingApiWarningMessage, isMatrixApproximatelyIdentity, isNonZero, isPotentiallyLargeBaseAssetPath, logHydraCallbackError, materialBindingRepairMaxLayerTextLength, materialBindingWarningHandlers, maxHydraCallbackErrorLogsPerMethod, nearlyEqual, normalizeHydraPath, normalizeUsdPathToken, parseGuideCollisionReferencesFromLayerText, parseProtoMeshIdentifier, parseUrdfMaterialMetadataFromLayerText, parseUrdfTruthFromText, parseUsdMaterialBindingsFromLayerText, parseUsdReferenceTargetsByPrimPathFromLayerText, parseVector3Text, parseXformOpFallbacksFromLayerText, rawConsoleError, rawConsoleWarn, registerMaterialBindingApiWarningHandler, remapRootPathIfNeeded, resolveUrdfTruthFileNameForStagePath, resolveUsdAssetPath, setActiveMaterialBindingWarningOwner, shouldAllowLargeBaseAssetScan, stringifyConsoleArgs, toArrayLike, toColorArray, toFiniteNumber, toFiniteQuaternionWxyzTuple, toFiniteVector2Tuple, toFiniteVector3Tuple, toMatrixFromUrdfOrigin, toQuaternionWxyzFromRpy, transformEpsilon, wrapHydraCallbackObject } = Shared;
 const COLLISION_SEGMENT_PATTERN = /(?:^|\/)coll(?:isions?|iders?)(?:$|[/.])/i;
 function normalizeDescriptorSectionName(sectionName) {
     const normalized = String(sectionName || '').trim().toLowerCase();
@@ -2891,6 +2891,251 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         let transformPool = new Float32Array(0);
         let bufferRangesByMeshId = {};
         let normalizedMeshDescriptors = [];
+        const stageLayerTexts = (() => {
+            const stage = this.getStage?.();
+            return this.getStageMetadataLayerTexts(stage || null, resolvedStageSourcePath);
+        })();
+        const cloneMeshRanges = (ranges) => normalizeMeshRanges(ranges) || null;
+        const descriptorHasMeshPayload = (descriptor) => {
+            const ranges = normalizeMeshRanges(descriptor?.ranges) || null;
+            const geometry = descriptor?.geometry && typeof descriptor.geometry === 'object'
+                ? descriptor.geometry
+                : null;
+            return Boolean(
+                Number(geometry?.numVertices || 0) > 0 ||
+                Number(geometry?.numIndices || 0) > 0 ||
+                Number(ranges?.positions?.count || 0) > 0 ||
+                Number(ranges?.indices?.count || 0) > 0
+            );
+        };
+        const mergeReferencedMeshGeometry = (targetGeometry, sourceGeometry) => {
+            const target = targetGeometry && typeof targetGeometry === 'object'
+                ? targetGeometry
+                : {};
+            const source = sourceGeometry && typeof sourceGeometry === 'object'
+                ? sourceGeometry
+                : {};
+            if (Object.keys(source).length === 0 && Object.keys(target).length === 0) {
+                return null;
+            }
+            const pickCount = (key) => {
+                const targetValue = Number(target[key] || 0);
+                const sourceValue = Number(source[key] || 0);
+                return targetValue > 0 ? targetValue : sourceValue;
+            };
+            const pickText = (key) => String(target[key] || source[key] || '').trim();
+            const targetGeomSubsetSections = normalizeGeomSubsetSections(target.geomSubsetSections);
+            const sourceGeomSubsetSections = normalizeGeomSubsetSections(source.geomSubsetSections);
+            const materialId =
+                normalizeHydraPath(target.materialId || '') ||
+                normalizeHydraPath(source.materialId || '') ||
+                null;
+            return {
+                ...source,
+                ...target,
+                numVertices: pickCount('numVertices'),
+                numIndices: pickCount('numIndices'),
+                numNormals: pickCount('numNormals'),
+                numUVs: pickCount('numUVs'),
+                uvDimension: pickCount('uvDimension'),
+                normalsDimension: pickCount('normalsDimension'),
+                renderReady: target.renderReady === true || source.renderReady === true,
+                topologyMode:
+                    normalizeTopologyMode(target.topologyMode) ||
+                    normalizeTopologyMode(source.topologyMode) ||
+                    (pickCount('numIndices') > 0 ? 'indexed' : null),
+                uvSource: pickText('uvSource'),
+                materialId,
+                geomSubsetSections: targetGeomSubsetSections.length > 0
+                    ? targetGeomSubsetSections
+                    : sourceGeomSubsetSections,
+            };
+        };
+        const buildReferencedMeshLibraryPayloadAliases = () => {
+            const aliases = new Map();
+            for (const layerText of stageLayerTexts) {
+                const referencesByPrimPath = parseUsdReferenceTargetsByPrimPathFromLayerText?.(layerText);
+                if (!(referencesByPrimPath instanceof Map)) {
+                    continue;
+                }
+                for (const [rawPrimPath, rawTargets] of referencesByPrimPath.entries()) {
+                    const primPath = normalizeHydraPath(rawPrimPath);
+                    if (!primPath) {
+                        continue;
+                    }
+                    const target = toPlainArray(rawTargets)
+                        .map((entry) => normalizeHydraPath(entry))
+                        .find((entry) => entry.includes('/__MeshLibrary/'));
+                    if (target) {
+                        aliases.set(primPath, target);
+                    }
+                }
+            }
+            return aliases;
+        };
+        const appendFloatPayloadToPool = (pool, values) => {
+            const source = values && typeof values.length === 'number'
+                ? Float32Array.from(values)
+                : new Float32Array(0);
+            if (source.length <= 0) {
+                return { pool, range: null };
+            }
+            const offset = pool.length;
+            const nextPool = new Float32Array(pool.length + source.length);
+            nextPool.set(pool, 0);
+            nextPool.set(source, offset);
+            return {
+                pool: nextPool,
+                range: { offset, count: source.length },
+            };
+        };
+        const appendUintPayloadToPool = (pool, values) => {
+            const source = values && typeof values.length === 'number'
+                ? Uint32Array.from(values)
+                : new Uint32Array(0);
+            if (source.length <= 0) {
+                return { pool, range: null };
+            }
+            const offset = pool.length;
+            const nextPool = new Uint32Array(pool.length + source.length);
+            nextPool.set(pool, 0);
+            nextPool.set(source, offset);
+            return {
+                pool: nextPool,
+                range: { offset, count: source.length },
+            };
+        };
+        const appendReferencedPayloadEntryToSnapshotBuffers = (meshId, packedEntry) => {
+            if (!meshId || !packedEntry?.payload) {
+                return null;
+            }
+            const existingRanges = normalizeMeshRanges(bufferRangesByMeshId[meshId]);
+            if (existingRanges && Number(existingRanges.positions?.count || 0) > 0) {
+                return {
+                    ranges: existingRanges,
+                    geometry: normalizeGeometrySummary(null, packedEntry.payload),
+                };
+            }
+
+            const positionsAppend = appendFloatPayloadToPool(positionPool, packedEntry.positions);
+            positionPool = positionsAppend.pool;
+            const indicesAppend = appendUintPayloadToPool(indexPool, packedEntry.indices);
+            indexPool = indicesAppend.pool;
+            const normalsAppend = appendFloatPayloadToPool(normalPool, packedEntry.normals);
+            normalPool = normalsAppend.pool;
+            const uvsAppend = appendFloatPayloadToPool(uvPool, packedEntry.uvs);
+            uvPool = uvsAppend.pool;
+            const transformsAppend = appendFloatPayloadToPool(transformPool, packedEntry.transform);
+            transformPool = transformsAppend.pool;
+
+            const ranges = {
+                positions: positionsAppend.range
+                    ? { ...positionsAppend.range, stride: 3 }
+                    : null,
+                indices: indicesAppend.range
+                    ? { ...indicesAppend.range, stride: 1 }
+                    : null,
+                normals: normalsAppend.range
+                    ? {
+                        ...normalsAppend.range,
+                        stride: Math.max(1, Number(packedEntry.payload.normalsDimension || 3)),
+                    }
+                    : null,
+                uvs: uvsAppend.range
+                    ? {
+                        ...uvsAppend.range,
+                        stride: Math.max(1, Number(packedEntry.payload.uvDimension || 2)),
+                    }
+                    : null,
+                transform: transformsAppend.range
+                    ? { ...transformsAppend.range, stride: 16 }
+                    : null,
+            };
+            const normalizedRanges = normalizeMeshRanges(ranges);
+            if (!normalizedRanges) {
+                return null;
+            }
+            bufferRangesByMeshId[meshId] = normalizedRanges;
+            return {
+                ranges: normalizedRanges,
+                geometry: normalizeGeometrySummary(null, packedEntry.payload),
+                normalDiagnostics: normalizeNormalDiagnostics(packedEntry.payload),
+            };
+        };
+        const attachReferencedMeshLibraryPayloads = () => {
+            if (!Array.isArray(normalizedMeshDescriptors) || normalizedMeshDescriptors.length === 0) {
+                return;
+            }
+            const referenceAliasByPrimPath = buildReferencedMeshLibraryPayloadAliases();
+            if (referenceAliasByPrimPath.size === 0) {
+                return;
+            }
+            const descriptorByMeshId = new Map();
+            normalizedMeshDescriptors.forEach((descriptor) => {
+                const meshId = normalizeHydraPath(descriptor?.meshId || '');
+                if (meshId) {
+                    descriptorByMeshId.set(meshId, descriptor);
+                }
+            });
+            normalizedMeshDescriptors = normalizedMeshDescriptors.map((descriptor) => {
+                if (descriptorHasMeshPayload(descriptor)) {
+                    return descriptor;
+                }
+                if (normalizeDescriptorSectionName(descriptor?.sectionName) !== 'visuals') {
+                    return descriptor;
+                }
+                const meshId = normalizeHydraPath(descriptor?.meshId || '');
+                const resolvedPrimPath = normalizeHydraPath(descriptor?.resolvedPrimPath || '');
+                const referencedMeshId =
+                    referenceAliasByPrimPath.get(resolvedPrimPath) ||
+                    referenceAliasByPrimPath.get(meshId) ||
+                    '';
+                if (!referencedMeshId) {
+                    return descriptor;
+                }
+                const sourceDescriptor = descriptorByMeshId.get(referencedMeshId);
+                let sourceRanges = cloneMeshRanges(sourceDescriptor?.ranges);
+                let sourceGeometry = sourceDescriptor?.geometry;
+                let sourceNormalDiagnostics = normalizeNormalDiagnostics(sourceDescriptor);
+                if (!descriptorHasMeshPayload(sourceDescriptor)) {
+                    const livePackedEntry = extractPackedProtoPayloadEntryFromLiveMesh(referencedMeshId);
+                    const appendedPayload = appendReferencedPayloadEntryToSnapshotBuffers(
+                        referencedMeshId,
+                        livePackedEntry,
+                    );
+                    sourceRanges = appendedPayload?.ranges || sourceRanges;
+                    sourceGeometry = appendedPayload?.geometry || sourceGeometry;
+                    sourceNormalDiagnostics = appendedPayload?.normalDiagnostics || sourceNormalDiagnostics;
+                }
+                if (!sourceRanges && !sourceGeometry) {
+                    return descriptor;
+                }
+                const nextRanges = cloneMeshRanges(descriptor?.ranges) || sourceRanges;
+                if (meshId && nextRanges) {
+                    bufferRangesByMeshId[meshId] = nextRanges;
+                }
+                return {
+                    ...descriptor,
+                    ranges: nextRanges,
+                    renderReady: descriptor?.renderReady === true || sourceDescriptor?.renderReady === true,
+                    topologyMode:
+                        normalizeTopologyMode(descriptor?.topologyMode) ||
+                        normalizeTopologyMode(sourceDescriptor?.topologyMode),
+                    geometry: mergeReferencedMeshGeometry(
+                        descriptor?.geometry,
+                        sourceGeometry,
+                    ),
+                    ...(normalizeNormalDiagnostics(descriptor) ||
+                    sourceNormalDiagnostics
+                        ? {
+                            normalDiagnostics:
+                                normalizeNormalDiagnostics(descriptor) ||
+                                sourceNormalDiagnostics,
+                        }
+                        : {}),
+                };
+            });
+        };
         if (hasPackedDescriptorRecords) {
             positionPool = useFloat32(rawBuffers.positions);
             indexPool = useUint32(rawBuffers.indices);
@@ -3273,6 +3518,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 };
             });
         }
+        attachReferencedMeshLibraryPayloads();
         if (hasPackedMeshBuffers) {
             this._protoDataBlobBatchCache?.clear?.();
             let packedBlobCount = 0;
@@ -3329,10 +3575,6 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             }
         }
         let snapshotMaterialRecords = toPlainArray(renderPayload.materials);
-        const stageLayerTexts = (() => {
-            const stage = this.getStage?.();
-            return this.getStageMetadataLayerTexts(stage || null, resolvedStageSourcePath);
-        })();
         const requiresStandardMaterialBindingRecovery = normalizedMeshDescriptors.some((descriptor) => {
             if (normalizeDescriptorSectionName(descriptor?.sectionName) !== 'visuals') {
                 return false;
@@ -3558,6 +3800,80 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             framesPerSecond: Number(rawStage.framesPerSecond || 0),
             metersPerUnit: Number(rawStage.metersPerUnit || 0),
         };
+
+        // Extract authoredXformOps and layerInfo for USD-free rendering
+        const authoredXformOpsByPrimPath = {};
+        const layerInfo = {
+            rootLayerPath: null,
+            usedLayerPaths: [],
+            layerTextByPath: {}
+        };
+
+        const stage = this.getStage?.();
+        if (stage && typeof stage.GetPrimAtPath === 'function') {
+            // Extract xformOp info for all mesh descriptors
+            const processedPrimPaths = new Set();
+            for (const descriptor of normalizedMeshDescriptors) {
+                const primPath = descriptor.resolvedPrimPath || descriptor.primPath;
+                if (!primPath || processedPrimPaths.has(primPath)) continue;
+                processedPrimPaths.add(primPath);
+
+                try {
+                    const prim = stage.GetPrimAtPath(primPath);
+                    if (!prim || typeof prim.GetAttribute !== 'function') continue;
+
+                    // Get xformOpOrder
+                    let xformOrder = [];
+                    const xformOpOrderAttr = prim.GetAttribute('xformOpOrder');
+                    if (xformOpOrderAttr) {
+                        try {
+                            xformOrder = xformOpOrderAttr.Get() || [];
+                            if (!Array.isArray(xformOrder) && xformOrder && typeof xformOrder[Symbol.iterator] === 'function') {
+                                xformOrder = Array.from(xformOrder);
+                            }
+                        } catch {}
+                    }
+
+                    // Check for authored ops
+                    const normalizedOrder = Array.isArray(xformOrder)
+                        ? xformOrder.map((entry) => normalizeHydraPath(entry)).filter(Boolean)
+                        : [];
+                    const hasAuthoredOps = normalizedOrder.some((entry) =>
+                        entry === '!resetXformStack!' || entry.startsWith('xformOp:')
+                    );
+                    const resetsXformStack = normalizedOrder.some((entry) =>
+                        normalizeHydraPath(entry) === '!resetXformStack!'
+                    );
+
+                    authoredXformOpsByPrimPath[primPath] = {
+                        hasAuthoredOps,
+                        resetsXformStack,
+                        xformOpOrder: normalizedOrder.length > 0 ? normalizedOrder : undefined
+                    };
+                } catch {}
+            }
+
+            // Extract layer info
+            try {
+                if (typeof stage.GetRootLayer === 'function') {
+                    const rootLayer = stage.GetRootLayer();
+                    if (rootLayer && typeof rootLayer.GetIdentifier === 'function') {
+                        layerInfo.rootLayerPath = rootLayer.GetIdentifier() || null;
+                    }
+                }
+                if (typeof stage.GetUsedLayers === 'function') {
+                    const usedLayers = stage.GetUsedLayers(false);
+                    if (Array.isArray(usedLayers) || (usedLayers && typeof usedLayers[Symbol.iterator] === 'function')) {
+                        const layers = Array.isArray(usedLayers) ? usedLayers : Array.from(usedLayers);
+                        layerInfo.usedLayerPaths = layers
+                            .filter((layer) => layer && typeof layer.GetIdentifier === 'function')
+                            .map((layer) => layer.GetIdentifier() || '')
+                            .filter(Boolean);
+                    }
+                }
+            } catch {}
+        }
+
         const preferredVisualMaterialsByLinkPath = {};
         const visualLinkPaths = new Set();
         for (const descriptor of normalizedMeshDescriptors) {
@@ -3619,6 +3935,12 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 rangesByMeshId: bufferRangesByMeshId,
             },
             robotMetadataSnapshot: normalizedRobotMetadataSnapshot,
+            authoredXformOpsByPrimPath: Object.keys(authoredXformOpsByPrimPath).length > 0
+                ? authoredXformOpsByPrimPath
+                : null,
+            layerInfo: (layerInfo.rootLayerPath || layerInfo.usedLayerPaths.length > 0)
+                ? layerInfo
+                : null,
         };
     }
     warmupRobotSceneSnapshotFromDriver(driver, options = {}) {
@@ -4301,6 +4623,19 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (this._localXformAuthoredOpsCache instanceof Map && this._localXformAuthoredOpsCache.has(primPath)) {
             return this._localXformAuthoredOpsCache.get(primPath) === true;
         }
+
+        // First try to get data from snapshot (USD-free path)
+        const snapshot = this.getCachedRobotSceneSnapshot?.();
+        if (snapshot?.authoredXformOpsByPrimPath) {
+            const normalizedPath = normalizeHydraPath(primPath);
+            const xformInfo = snapshot.authoredXformOpsByPrimPath[normalizedPath];
+            if (xformInfo && typeof xformInfo.hasAuthoredOps === 'boolean') {
+                this._localXformAuthoredOpsCache.set(primPath, xformInfo.hasAuthoredOps);
+                return xformInfo.hasAuthoredOps;
+            }
+        }
+
+        // Fallback to USD stage if snapshot doesn't have the data
         if (!stage || typeof stage.GetPrimAtPath !== 'function') {
             if (this._localXformAuthoredOpsCache instanceof Map) {
                 this._localXformAuthoredOpsCache.set(primPath, false);
@@ -4364,6 +4699,19 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (this._localXformResetsStackCache instanceof Map && this._localXformResetsStackCache.has(primPath)) {
             return this._localXformResetsStackCache.get(primPath) === true;
         }
+
+        // First try to get data from snapshot (USD-free path)
+        const snapshot = this.getCachedRobotSceneSnapshot?.();
+        if (snapshot?.authoredXformOpsByPrimPath) {
+            const normalizedPath = normalizeHydraPath(primPath);
+            const xformInfo = snapshot.authoredXformOpsByPrimPath[normalizedPath];
+            if (xformInfo && typeof xformInfo.resetsXformStack === 'boolean') {
+                this._localXformResetsStackCache.set(primPath, xformInfo.resetsXformStack);
+                return xformInfo.resetsXformStack;
+            }
+        }
+
+        // Fallback to USD stage if snapshot doesn't have the data
         const allowStageFallback = options?.allowStageFallback !== false;
         if (!allowStageFallback || !stage || typeof stage.GetPrimAtPath !== 'function') {
             if (this._localXformResetsStackCache instanceof Map) {

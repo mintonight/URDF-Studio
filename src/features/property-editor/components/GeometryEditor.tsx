@@ -887,6 +887,22 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
     e.target.value = '';
   };
 
+  // Handle editing individual authored material colors
+  const handleAuthoredMaterialColorChange = (index: number, newColor: string) => {
+    const currentAuthoredMaterials = geomData.authoredMaterials || [];
+    if (!currentAuthoredMaterials[index]) {
+      return;
+    }
+
+    const nextAuthoredMaterials = [...currentAuthoredMaterials];
+    nextAuthoredMaterials[index] = {
+      ...nextAuthoredMaterials[index],
+      color: newColor,
+    };
+
+    update({ authoredMaterials: nextAuthoredMaterials });
+  };
+
   // Memoized auto-align calculation
   const autoAlignResult = useMemo(() => computeAutoAlign(robot, data.id), [robot.joints, data.id]);
 
@@ -1571,20 +1587,35 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
                   <ReadonlyValueField className="bg-element-bg text-[10px] font-medium">
                     {authoredMaterialDisplayLabel}
                   </ReadonlyValueField>
-                  <div className="flex flex-wrap gap-1">
-                    {authoredMaterialColors.map((color) => (
+                  <div className="flex flex-col gap-1">
+                    {(geomData.authoredMaterials || []).map((material, index) => (
                       <div
-                        key={normalizeColor(color) ?? color}
-                        className="inline-flex items-center gap-1 rounded-md border border-border-black/70 bg-element-bg px-1.5 py-0.5 text-[9px] font-medium text-text-secondary"
+                        key={`${material.name || material.color || ''}-${index}`}
+                        className="flex items-center gap-1.5"
                       >
+                        <input
+                          type="text"
+                          value={material.color || ''}
+                          onChange={(e) => handleAuthoredMaterialColorChange(index, e.target.value)}
+                          className={`${PROPERTY_EDITOR_INPUT_CLASS} flex-1 font-mono uppercase tracking-[0.04em] text-[10px]`}
+                          spellCheck={false}
+                        />
                         <span
                           aria-hidden="true"
-                          className="h-2.5 w-2.5 shrink-0 rounded-full border border-border-black/70"
-                          style={{ backgroundColor: color }}
+                          className="h-5 w-5 shrink-0 rounded-full border border-border-black/70"
+                          style={{ backgroundColor: material.color || 'transparent' }}
                         />
-                        <span className="font-mono uppercase tracking-[0.04em] text-text-primary">
-                          {color}
-                        </span>
+                        <DeferredColorPickerInput
+                          value={getColorPickerHexValue(material.color || '')}
+                          onCommit={(nextColor) =>
+                            handleAuthoredMaterialColorChange(
+                              index,
+                              mergeColorPickerHexValue(nextColor, material.color || '')
+                            )
+                          }
+                          ariaLabel={`Color ${index + 1}`}
+                          className="h-6 w-7 shrink-0 cursor-pointer rounded-md border border-border-strong bg-input-bg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_28%,transparent)]"
+                        />
                       </div>
                     ))}
                   </div>

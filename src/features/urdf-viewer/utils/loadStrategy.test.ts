@@ -21,4 +21,5 @@ test('only forces a full runtime remount for USD documents', () => {
   assert.equal(shouldForceViewerRuntimeRemount('sdf'), false);
   assert.equal(shouldForceViewerRuntimeRemount('asset'), false);
   assert.equal(shouldForceViewerRuntimeRemount('usd'), true);
+  assert.equal(shouldForceViewerRuntimeRemount('usda' as never), true);
 });

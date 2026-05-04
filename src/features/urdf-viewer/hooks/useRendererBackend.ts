@@ -13,9 +13,13 @@ import {
   type RobotRendererBackend,
   type RendererSceneProps,
 } from '@/shared/components/3d/renderers';
+import { buildColladaRootNormalizationHints } from '@/core/loaders';
+import { getSourceFileDirectory } from '@/core/parsers/meshPathUtils';
 import type { UrdfJoint, UrdfLink } from '@/types';
 import type { ViewerDocumentLoadEvent, ViewerRuntimeStageBridge } from '../types';
 import { createRendererBackendLoadScopeKey } from '../utils/rendererBackendLoadScope';
+import { detectSingleGeometryPatch } from '../utils/robotLoaderDiff';
+import { applyGeometryPatchInPlace } from '../utils/robotLoaderGeometryPatch';
 
 export interface UseRendererBackendOptions extends RendererSceneProps {
   /** Reload token to force re-loading */
@@ -93,6 +97,7 @@ export function useRendererBackend(
   const [resolvedRootLinkId, setResolvedRootLinkId] = useState<string | null>(
     () => robotData?.rootLinkId ?? null,
   );
+  const [patchReloadRevision, setPatchReloadRevision] = useState(0);
 
   // Refs
   const robotRef = useRef<THREE.Object3D | null>(initialRobot);
@@ -108,6 +113,10 @@ export function useRendererBackend(
   const onDocumentLoadEventRef = useRef(onDocumentLoadEvent);
   const onRuntimeRobotLoadedRef = useRef(onRuntimeRobotLoaded);
   const runtimeBridgeRef = useRef(runtimeBridge);
+  const activeLoadScopeKeyRef = useRef<string | null>(null);
+  const previousPatchRobotLinksRef = useRef<Record<string, UrdfLink> | null>(
+    robotData?.links ?? providedRobotLinks ?? null,
+  );
   const runtimeBridgeProxyRef = useRef<ViewerRuntimeStageBridge>({
     onRobotResolved: (robot) => runtimeBridgeRef.current?.onRobotResolved?.(robot),
     onSelectionChange: (type, id, subType, helperKind) =>
@@ -118,7 +127,7 @@ export function useRendererBackend(
       runtimeBridgeRef.current?.onJointAnglesChange?.(jointAngles),
   });
 
-  const loadScopeKey = useMemo(
+  const baseLoadScopeKey = useMemo(
     () =>
       createRendererBackendLoadScopeKey({
         sourceFile,
@@ -140,6 +149,10 @@ export function useRendererBackend(
       robotData,
       sourceFile,
     ],
+  );
+  const loadScopeKey = useMemo(
+    () => `${baseLoadScopeKey}|patch-reload:${patchReloadRevision}`,
+    [baseLoadScopeKey, patchReloadRevision],
   );
 
   const emitDocumentLoadEvent = useCallback((event: ViewerDocumentLoadEvent) => {
@@ -190,6 +203,61 @@ export function useRendererBackend(
   useEffect(() => {
     robotRef.current = robot;
   }, [robot]);
+
+  useEffect(() => {
+    const nextLinks = robotData?.links ?? providedRobotLinks ?? null;
+    const previousLinks = previousPatchRobotLinksRef.current;
+    previousPatchRobotLinksRef.current = nextLinks;
+
+    if (!previousLinks || !nextLinks || !robotRef.current) {
+      return;
+    }
+
+    if (activeLoadScopeKeyRef.current !== loadScopeKey) {
+      return;
+    }
+
+    const patch = detectSingleGeometryPatch(previousLinks, nextLinks);
+    if (!patch) {
+      return;
+    }
+
+    const currentRobot = robotRef.current;
+    const applied = applyGeometryPatchInPlace({
+      robotModel: currentRobot,
+      patch,
+      assets,
+      sourceFileDir: getSourceFileDirectory(sourceFile.name),
+      colladaRootNormalizationHints: buildColladaRootNormalizationHints(nextLinks),
+      showVisual,
+      showCollision,
+      linkMeshMapRef,
+      invalidate,
+      isPatchTargetValid: () => isMountedRef.current && robotRef.current === currentRobot,
+    });
+
+    if (!applied) {
+      setPatchReloadRevision((revision) => revision + 1);
+      return;
+    }
+
+    setResolvedRobotLinks(nextLinks);
+    if (robotData?.rootLinkId) {
+      setResolvedRootLinkId(robotData.rootLinkId);
+    }
+    setRobotVersion((version) => version + 1);
+    setError(null);
+  }, [
+    assets,
+    invalidate,
+    linkMeshMapRef,
+    loadScopeKey,
+    providedRobotLinks,
+    robotData,
+    showCollision,
+    showVisual,
+    sourceFile,
+  ]);
 
   // Track component mount state
   useEffect(() => {
@@ -301,6 +369,7 @@ export function useRendererBackend(
 
         const previousBackend = backendRef.current;
         backendRef.current = backend;
+        activeLoadScopeKeyRef.current = loadScopeKey;
         if (inFlightBackendRef.current === backend) {
           inFlightBackendRef.current = null;
         }
@@ -312,6 +381,7 @@ export function useRendererBackend(
         setResolvedRobotLinks(sceneGraph.robotLinks);
         setResolvedRobotJoints(sceneGraph.robotJoints);
         setResolvedRootLinkId(sceneGraph.rootLinkId);
+        previousPatchRobotLinksRef.current = sceneGraph.robotLinks;
         setRobotVersion((v) => v + 1);
         setIsLoading(false);
         setLoadingProgress(null);

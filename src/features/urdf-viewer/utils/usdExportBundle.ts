@@ -19,10 +19,7 @@ import {
   type UsdSceneSnapshot,
 } from '../../../types/index.ts';
 import { getVisualGeometryEntries } from '@/core/robot';
-import {
-  adaptUsdViewerSnapshotToRobotData,
-  resolveUsdMeshApproximationGeometry,
-} from './usdViewerRobotAdapter.ts';
+import { adaptUsdViewerSnapshotToRobotData } from './usdViewerRobotAdapter.ts';
 import { resolveUsdPrimitiveGeometryFromDescriptor as resolvePrimitiveGeometryFromDescriptor } from './usdPrimitiveGeometry.ts';
 import { toVirtualUsdPath } from './usdPreloadSources.ts';
 import { hydrateUsdViewerRobotResolutionFromRuntime } from './usdRuntimeRobotHydration.ts';
@@ -878,33 +875,6 @@ function originsApproximatelyEqual(
   );
 }
 
-function stripSyntheticMeshApproximationOrigin(
-  geometry: UrdfVisual | null | undefined,
-  descriptor: SnapshotMeshDescriptor,
-  snapshot: UsdExportSnapshot,
-): UrdfVisual | null | undefined {
-  if (!geometry?.origin || geometry.type === GeometryType.NONE) {
-    return geometry;
-  }
-
-  if (resolvePrimitiveGeometryFromDescriptor(descriptor, geometry)) {
-    return geometry;
-  }
-
-  const approximation = resolveUsdMeshApproximationGeometry(snapshot, descriptor);
-  if (!approximation?.origin || !originsApproximatelyEqual(geometry.origin, approximation.origin)) {
-    return geometry;
-  }
-
-  return {
-    ...geometry,
-    origin: {
-      xyz: { x: 0, y: 0, z: 0 },
-      rpy: { r: 0, p: 0, y: 0 },
-    },
-  };
-}
-
 function buildObjBlobFromDescriptor(
   descriptor: ExportDescriptor,
   buffers: SnapshotBuffers | null | undefined,
@@ -1646,7 +1616,7 @@ export function canPrepareUsdExportCacheFromSnapshot(
   }
 
   const bufferBackedDescriptors = descriptors.filter(
-    (descriptor) => !resolvePrimitiveGeometryFromDescriptor(descriptor, null),
+    (descriptor) => !resolvePrimitiveGeometryFromDescriptor(descriptor, null, snapshot),
   );
   if (bufferBackedDescriptors.length === 0) {
     return true;
@@ -2481,7 +2451,11 @@ function assignVisualDescriptorToLink(
     explicitFallbackColor ||
     preferredFallbackColor;
 
-  const primitiveGeometry = resolvePrimitiveGeometryFromDescriptor(entry.descriptor, link.visual);
+  const primitiveGeometry = resolvePrimitiveGeometryFromDescriptor(
+    entry.descriptor,
+    link.visual,
+    snapshot,
+  );
   if (primitiveGeometry) {
     link.visual = {
       ...DEFAULT_LINK.visual,
@@ -2500,8 +2474,7 @@ function assignVisualDescriptorToLink(
     return;
   }
 
-  const visual =
-    stripSyntheticMeshApproximationOrigin(link.visual, entry.descriptor, snapshot) || link.visual;
+  const visual = link.visual;
   link.visual = {
     ...DEFAULT_LINK.visual,
     ...(visual || {}),
@@ -2551,6 +2524,7 @@ function assignCollisionDescriptorToLink(
   const primitiveGeometry = resolvePrimitiveGeometryFromDescriptor(
     entry.descriptor,
     currentCollision,
+    snapshot,
   );
   if (primitiveGeometry) {
     const nextCollision = {
@@ -2572,9 +2546,7 @@ function assignCollisionDescriptorToLink(
     return;
   }
 
-  const sanitizedCollision =
-    stripSyntheticMeshApproximationOrigin(currentCollision, entry.descriptor, snapshot) ||
-    currentCollision;
+  const sanitizedCollision = currentCollision;
   if (collisionIndex === 0) {
     link.collision = {
       ...DEFAULT_LINK.collision,

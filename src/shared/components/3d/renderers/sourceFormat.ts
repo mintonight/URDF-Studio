@@ -1,8 +1,9 @@
 import { isMJCFContent } from '@/core/parsers/mjcf';
+import { isUsdLikeFormat } from '@/core/parsers/usd';
 import type { RobotFile } from '@/types';
 
-export type ViewerRobotSourceFormat = 'auto' | 'urdf' | 'mjcf' | 'sdf' | 'xacro';
-export type ResolvedViewerRobotSourceFormat = 'urdf' | 'mjcf';
+export type ViewerRobotSourceFormat = 'auto' | 'urdf' | 'mjcf' | 'sdf' | 'xacro' | 'usd';
+export type ResolvedViewerRobotSourceFormat = 'urdf' | 'mjcf' | 'usd';
 
 export function getViewerRobotSourceFormat(
   fileFormat: RobotFile['format'] | null | undefined,
@@ -12,6 +13,7 @@ export function getViewerRobotSourceFormat(
     case 'mjcf':
     case 'sdf':
     case 'xacro':
+    case 'usd':
       return fileFormat;
     default:
       return 'auto';
@@ -37,8 +39,17 @@ export function resolveViewerRobotSourceFormat(
     return 'mjcf';
   }
 
+  if (isUsdLikeFormat(sourceFormat)) {
+    return 'usd';
+  }
+
   if (sourceFormat === 'urdf' || sourceFormat === 'sdf' || sourceFormat === 'xacro') {
     return 'urdf';
+  }
+
+  // Check if content is USD format
+  if (content.includes('#usda') || content.includes('def Xform') || content.includes('def Sphere')) {
+    return 'usd';
   }
 
   return isMJCFContent(content) ? 'mjcf' : 'urdf';

@@ -34,8 +34,30 @@ test('buildUsdHydrationPersistencePlan seeds missing USD export fallbacks from t
   });
 
   assert.equal(plan.sceneSnapshot, usdSceneSnapshot);
+  assert.equal(plan.bakedScene, usdSceneSnapshot);
   assert.equal(plan.shouldSeedSceneSnapshot, true);
+  assert.equal(plan.shouldSeedBakedScene, true);
   assert.equal(plan.shouldSeedPreparedExportCache, true);
+});
+
+test('buildUsdHydrationPersistencePlan accepts baked scene naming as the preferred USD payload', () => {
+  const usdBakedScene = {
+    stageSourcePath: '/robots/demo/demo.usd',
+  };
+
+  const plan = buildUsdHydrationPersistencePlan({
+    resolution: {
+      robotData: EMPTY_ROBOT_DATA,
+      usdBakedScene,
+    },
+    existingSceneSnapshot: null,
+    existingPreparedExportCache: null,
+  });
+
+  assert.equal(plan.bakedScene, usdBakedScene);
+  assert.equal(plan.sceneSnapshot, usdBakedScene);
+  assert.equal(plan.shouldSeedBakedScene, true);
+  assert.equal(plan.shouldSeedSceneSnapshot, true);
 });
 
 test('buildUsdHydrationPersistencePlan preserves any existing USD export fallbacks', () => {

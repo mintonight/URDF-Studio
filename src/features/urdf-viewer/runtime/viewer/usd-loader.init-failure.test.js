@@ -138,3 +138,16 @@ test("usd-loader does not swallow mesh hydration pass failures before reporting 
         /const runResolvedPrimHydrationPass = \(options = \{\}\) => \{[\s\S]*?hydratePendingResolvedPrimMeshes[\s\S]*?catch \(error\) \{\s*return markHydrationFailure\("resolved-prim-hydration-failed", error\);/m,
     );
 });
+
+test("usd-loader blocks ready when final mesh hydration still has pending work", async () => {
+    const source = await readFile(loaderPath, "utf8");
+
+    assert.match(
+        source,
+        /const ensureNoPendingMeshHydrationBeforeReady = \(\) => \{[\s\S]*?mesh-hydration-pending-before-ready/m,
+    );
+    assert.match(
+        source,
+        /if \(!ensureNoPendingMeshHydrationBeforeReady\(\)\) \{\s*return state;\s*\}[\s\S]*state\.ready = true;/m,
+    );
+});

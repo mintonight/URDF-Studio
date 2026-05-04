@@ -6,13 +6,9 @@
 
 import type { RobotRendererBackend, RendererSceneProps, BackendFactory, BackendRegistry } from './types';
 import { createThreeJsBackend } from './ThreeJsBackend';
+import { isUsdLikeFormat } from '@/core/parsers/usd';
 
 const USD_HYDRATION_REQUIRED_MESSAGE = 'USD sources must be hydrated to RobotState before rendering';
-
-function isUsdFormat(format: string | null | undefined): boolean {
-  const normalizedFormat = format?.toLowerCase();
-  return normalizedFormat === 'usd';
-}
 
 function rejectUsdRendererSource(): never {
   throw new Error(USD_HYDRATION_REQUIRED_MESSAGE);
@@ -58,7 +54,7 @@ export function createRendererBackend(props: RendererSceneProps): RobotRendererB
   const normalizedFormat = format.toLowerCase();
 
   // Determine which backend to use
-  if (isUsdFormat(normalizedFormat)) {
+  if (isUsdLikeFormat(normalizedFormat)) {
     return rejectUsdRendererSource();
   }
 
@@ -86,7 +82,7 @@ export function createRendererBackendForFormat(
   invalidate?: () => void,
 ): RobotRendererBackend {
   const normalizedFormat = format.toLowerCase();
-  if (isUsdFormat(normalizedFormat)) {
+  if (isUsdLikeFormat(normalizedFormat)) {
     return rejectUsdRendererSource();
   }
 

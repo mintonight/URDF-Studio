@@ -1,0 +1,213 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import React, { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { JSDOM } from 'jsdom';
+import * as THREE from 'three';
+import { context as r3fContext } from '@react-three/fiber';
+import { create } from 'zustand';
+
+import { DEFAULT_LINK, GeometryType, type RobotData, type RobotFile } from '@/types';
+import { useRendererBackend } from './useRendererBackend.ts';
+
+const sourceFile: RobotFile = {
+  name: 'robots/demo/demo.usd',
+  format: 'urdf',
+  content: '<robot name="usd_robotstate_placeholder"><link name="world" /></robot>',
+};
+
+function installDom() {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+    url: 'http://localhost/',
+    pretendToBeVisual: true,
+  });
+
+  (globalThis as { window?: Window }).window = dom.window as unknown as Window;
+  (globalThis as { document?: Document }).document = dom.window.document;
+  Object.defineProperty(globalThis, 'navigator', {
+    value: dom.window.navigator,
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, 'HTMLElement', {
+    value: dom.window.HTMLElement,
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, 'DOMParser', {
+    value: dom.window.DOMParser,
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, 'Document', {
+    value: dom.window.Document,
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, 'Element', {
+    value: dom.window.Element,
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, 'requestAnimationFrame', {
+    value: dom.window.requestAnimationFrame.bind(dom.window),
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, 'cancelAnimationFrame', {
+    value: dom.window.cancelAnimationFrame.bind(dom.window),
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
+    value: true,
+    configurable: true,
+  });
+
+  return dom;
+}
+
+function createComponentRoot() {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  return { dom, root: createRoot(container) };
+}
+
+function createRobotData(color: string): RobotData {
+  return {
+    name: 'demo',
+    rootLinkId: 'base',
+    links: {
+      base: {
+        ...structuredClone(DEFAULT_LINK),
+        id: 'base',
+        name: 'base',
+        visual: {
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color,
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+      },
+    },
+    joints: {},
+    materials: {
+      base: { color },
+    },
+  };
+}
+
+const useR3fStore = create(() => ({
+  invalidate: () => {},
+  camera: new THREE.PerspectiveCamera(),
+  scene: new THREE.Scene(),
+  controls: null,
+  internal: {
+    subscribe: () => () => {},
+  },
+}));
+
+function findFirstMesh(root: THREE.Object3D): THREE.Mesh {
+  let found: THREE.Mesh | null = null;
+  root.traverse((child) => {
+    if (!found && (child as THREE.Mesh).isMesh) {
+      found = child as THREE.Mesh;
+    }
+  });
+  assert.ok(found, 'expected rendered robot to contain a mesh');
+  return found;
+}
+
+function getMeshHexColor(mesh: THREE.Mesh): string {
+  const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+  assert.ok(material && 'color' in material && material.color instanceof THREE.Color);
+  return `#${material.color.getHexString()}`;
+}
+
+function Probe({
+  robotData,
+  onRobotLoaded,
+}: {
+  robotData: RobotData;
+  onRobotLoaded: (robot: THREE.Object3D) => void;
+}) {
+  useRendererBackend({
+    sourceFile,
+    assets: {},
+    showVisual: true,
+    showCollision: false,
+    showCollisionAlwaysOnTop: true,
+    allowUrdfXmlFallback: false,
+    robotData,
+    onRobotLoaded,
+  });
+
+  return null;
+}
+
+function renderProbe(
+  root: Root,
+  robotData: RobotData,
+  onRobotLoaded: (robot: THREE.Object3D) => void,
+) {
+  return root.render(
+    React.createElement(
+      r3fContext.Provider,
+      { value: useR3fStore as unknown as React.ContextType<typeof r3fContext> },
+      React.createElement(Probe, { robotData, onRobotLoaded }),
+    ),
+  );
+}
+
+async function flushAsyncWork() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function waitForCondition(condition: () => boolean, message: string) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    await act(async () => {
+      await flushAsyncWork();
+    });
+
+    if (condition()) {
+      return;
+    }
+  }
+
+  assert.fail(message);
+}
+
+test('useRendererBackend patches a link color edit without reloading the backend scene', async () => {
+  const { dom, root } = createComponentRoot();
+  const loadedRobots: THREE.Object3D[] = [];
+
+  try {
+    await act(async () => {
+      renderProbe(root, createRobotData('#808080'), (robot) => {
+        loadedRobots.push(robot);
+      });
+    });
+    await waitForCondition(
+      () => loadedRobots.length === 1,
+      'expected initial robot load to complete',
+    );
+
+    assert.equal(loadedRobots.length, 1);
+    const runtimeRobot = loadedRobots[0];
+    const mesh = findFirstMesh(runtimeRobot);
+    assert.equal(getMeshHexColor(mesh), '#808080');
+
+    await act(async () => {
+      renderProbe(root, createRobotData('#12ab34'), (robot) => {
+        loadedRobots.push(robot);
+      });
+    });
+    await waitForCondition(
+      () => getMeshHexColor(mesh) === '#12ab34',
+      'expected link color patch to update the existing mesh',
+    );
+
+    assert.equal(loadedRobots.length, 1);
+    assert.equal(getMeshHexColor(mesh), '#12ab34');
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
