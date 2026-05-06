@@ -445,6 +445,7 @@ function prefixAttachedModelDocument(doc: Document, prefix: string): void {
     'site',
     'site1',
     'site2',
+    'sidesite',
     'geom',
     'geom1',
     'geom2',
@@ -814,13 +815,27 @@ export function prefixMJCFSourceIdentifiers(content: string, prefix: string): st
     return content;
   }
 
-  const bodyReferenceAttributes = ['body', 'body1', 'body2'] as const;
-  const jointReferenceAttributes = ['joint', 'joint1', 'joint2'] as const;
+  const prefixedNameTags = new Set(['body', 'joint', 'site', 'spatial', 'fixed']);
+  const referenceAttributes = [
+    'body',
+    'body1',
+    'body2',
+    'joint',
+    'joint1',
+    'joint2',
+    'site',
+    'site1',
+    'site2',
+    'sidesite',
+    'tendon',
+    'tendon1',
+    'tendon2',
+  ] as const;
   const elements = Array.from(doc.querySelectorAll('*'));
 
   elements.forEach((element) => {
     const tagName = element.tagName.toLowerCase();
-    if (tagName === 'body' || tagName === 'joint') {
+    if (prefixedNameTags.has(tagName)) {
       const name = element.getAttribute('name');
       if (name) {
         element.setAttribute('name', prefixIdentifier(name, normalizedPrefix));
@@ -829,14 +844,7 @@ export function prefixMJCFSourceIdentifiers(content: string, prefix: string): st
   });
 
   elements.forEach((element) => {
-    bodyReferenceAttributes.forEach((attributeName) => {
-      const value = element.getAttribute(attributeName);
-      if (value) {
-        element.setAttribute(attributeName, prefixIdentifier(value, normalizedPrefix));
-      }
-    });
-
-    jointReferenceAttributes.forEach((attributeName) => {
+    referenceAttributes.forEach((attributeName) => {
       const value = element.getAttribute(attributeName);
       if (value) {
         element.setAttribute(attributeName, prefixIdentifier(value, normalizedPrefix));

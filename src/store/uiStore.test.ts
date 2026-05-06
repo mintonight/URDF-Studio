@@ -102,6 +102,26 @@ test('MJCF world visibility defaults to visible for fresh sessions', async () =>
   dom.window.close();
 });
 
+test('setSidebarTab ignores redundant tab updates', async () => {
+  const { dom, useUIStore } = await loadUIStore();
+  const updates: string[] = [];
+
+  const unsubscribe = useUIStore.subscribe((state) => {
+    updates.push(state.sidebarTab);
+  });
+
+  try {
+    useUIStore.getState().setSidebarTab('structure');
+    assert.deepEqual(updates, []);
+
+    useUIStore.getState().setSidebarTab('workspace');
+    assert.deepEqual(updates, ['workspace']);
+  } finally {
+    unsubscribe();
+    dom.window.close();
+  }
+});
+
 test('legacy default tree panel heights migrate to balanced sizing', async () => {
   const { dom, useUIStore } = await loadUIStore(
     {

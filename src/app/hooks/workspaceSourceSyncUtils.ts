@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   computeLinkWorldMatrices,
+  getVisualGeometryEntries,
   isSyntheticWorldRoot,
   mergeAssembly,
   prepareAssemblyRobotData,
@@ -40,8 +41,7 @@ import {
   type UrdfJoint,
   type UrdfLink,
 } from '@/types';
-import { collectURDFMaterialsFromLinks } from '@/features/editor';
-import { BRIDGE_PREVIEW_ID } from '@/features/assembly';
+import { BRIDGE_PREVIEW_ID } from '@/shared/utils/assembly/bridgePreviewId';
 import { createRobotSemanticSnapshot } from '@/shared/utils/robot/semanticSnapshot';
 import { parseEditableRobotSourceWithWorker } from './robotImportWorkerBridge';
 import { USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF } from './workspace-source-sync/usdViewerPlaceholder';
@@ -108,20 +108,26 @@ export function createRobotSourceSnapshot(robot: RobotState): string {
 export function canUseLightweightWorkspaceViewerReloadContent(
   robotLinks?: Record<string, UrdfLink> | null,
 ): boolean {
-  return collectURDFMaterialsFromLinks(robotLinks).size > 0;
+  if (!robotLinks) {
+    return false;
+  }
+
+  return Object.values(robotLinks).some((link) =>
+    getVisualGeometryEntries(link).some((entry) =>
+      (entry.geometry.authoredMaterials ?? []).some((material) => {
+        const name = material.name?.trim();
+        return Boolean(name && (material.color || material.texture || material.colorRgba));
+      }),
+    ),
+  );
 }
 
 export function shouldUseGeneratedWorkspaceViewerReloadContent({
   robotLinks,
-  hasActiveTransformTarget = false,
 }: {
   robotLinks?: Record<string, UrdfLink> | null;
   hasActiveTransformTarget?: boolean;
 }): boolean {
-  if (hasActiveTransformTarget) {
-    return true;
-  }
-
   return !canUseLightweightWorkspaceViewerReloadContent(robotLinks);
 }
 

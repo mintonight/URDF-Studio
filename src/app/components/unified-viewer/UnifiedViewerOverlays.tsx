@@ -1,7 +1,7 @@
 import React from 'react';
 
 import type { Language } from '@/shared/i18n';
-import type { ViewerController } from '@/features/editor';
+import type { ViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
 
 import { FilePreviewBanner, FilePreviewError } from './FilePreviewOverlay';
 import { LazyViewerJointsPanel, LazyViewerPanels } from './modeModuleLoaders';

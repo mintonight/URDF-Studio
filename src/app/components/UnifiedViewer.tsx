@@ -19,14 +19,14 @@ import {
   type WorkspaceOverlayGizmoMargin,
 } from '@/shared/components/3d';
 import {
-  useViewerController,
-  resolveDefaultViewerToolMode,
   type ViewerHelperKind,
   type ToolMode,
   type ViewerDocumentLoadEvent,
   type ViewerJointMotionStateValue,
   type ViewerRobotSourceFormat,
-} from '@/features/editor';
+} from '@/features/urdf-viewer/types';
+import { useViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
+import { resolveDefaultViewerToolMode } from '@/features/urdf-viewer/utils/scopedToolMode';
 import { resolveViewerJointScopeKey } from '@/app/utils/viewerJointScopeKey';
 import { resolveUnifiedViewerForcedSessionState } from '@/app/utils/unifiedViewerForcedSessionState';
 import { resolveUnifiedViewerUsageGuideVisibility } from '@/app/utils/unifiedViewerUsageGuide';
@@ -42,11 +42,12 @@ import {
   syncGroupRaycastInteractivity,
   type RaycastableObject,
 } from './unified-viewer/raycastInteractivity';
-import { preloadViewerModeModules } from './unified-viewer/modeModuleLoaders';
+import { preloadDeferredViewerModeModules } from './unified-viewer/modeModuleLoaders';
 import {
   buildUnifiedViewerRetainedRobotScopeKey,
   shouldReuseUnifiedViewerRetainedRobot,
 } from '@/app/utils/unifiedViewerRetainedRobot';
+import { schedulePostReadyBackgroundTask } from '@/app/utils/postReadyBackgroundTask';
 import { UnifiedViewerOverlays } from './unified-viewer/UnifiedViewerOverlays';
 import { UnifiedViewerSceneRoots } from './unified-viewer/UnifiedViewerSceneRoots';
 import type { FilePreviewState } from './unified-viewer/types';
@@ -143,6 +144,7 @@ interface UnifiedViewerProps {
       rpy: { r: number; p: number; y: number };
       quatXyzw?: { x: number; y: number; z: number; w: number };
     },
+    options?: UpdateCommitOptions,
   ) => void;
   filePreview?: FilePreviewState;
   onClosePreview?: () => void;
@@ -526,9 +528,17 @@ export const UnifiedViewer = React.memo(
     }, [isViewerMode, onConsumePendingViewerToolMode, pendingViewerToolMode, viewerController]);
 
     useEffect(() => {
-      void preloadViewerModeModules().catch((error) => {
-        console.warn('[UnifiedViewer] Failed to preload active mode modules.', error);
-      });
+      return schedulePostReadyBackgroundTask(
+        () => {
+          void preloadDeferredViewerModeModules().catch((error) => {
+            console.warn('[UnifiedViewer] Failed to preload deferred mode modules.', error);
+          });
+        },
+        {
+          delayMs: 1_500,
+          idleTimeoutMs: 5_000,
+        },
+      );
     }, []);
 
     useEffect(() => {

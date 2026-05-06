@@ -5,7 +5,7 @@ import { useAssemblyStore, useRobotStore } from '@/store';
 import {
   isRegressionBeforeUnloadPromptSuppressed,
   subscribeRegressionBeforeUnloadPromptSuppression,
-} from '@/shared/debug/regressionBridge';
+} from '@/shared/debug/regressionPromptSuppression';
 import { createAssemblyPersistenceSnapshot } from '@/shared/utils/assembly/semanticSnapshot';
 import { createRobotPersistenceSnapshot } from '@/shared/utils/robot/semanticSnapshot';
 

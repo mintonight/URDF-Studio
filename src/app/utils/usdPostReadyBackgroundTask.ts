@@ -2,14 +2,14 @@ export const USD_POST_READY_BACKGROUND_DELAY_MS = 8_000;
 export const USD_POST_READY_BACKGROUND_IDLE_TIMEOUT_MS = 15_000;
 export const USD_POST_READY_AUTO_EXPORT_CACHE_POSITION_LIMIT = 1_000_000;
 
-interface TimeoutLike {
+export interface UsdPostReadyBackgroundTaskScheduler {
   setTimeout: (callback: () => void, delayMs: number) => number;
   clearTimeout: (handle: number) => void;
   requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
   cancelIdleCallback?: (handle: number) => void;
 }
 
-function getDefaultScheduler(): TimeoutLike {
+function getDefaultScheduler(): UsdPostReadyBackgroundTaskScheduler {
   return {
     setTimeout: (callback, delayMs) => window.setTimeout(callback, delayMs),
     clearTimeout: (handle) => window.clearTimeout(handle),
@@ -23,7 +23,7 @@ export function scheduleUsdPostReadyBackgroundTask(
   options: {
     delayMs?: number;
     idleTimeoutMs?: number;
-    scheduler?: TimeoutLike;
+    scheduler?: UsdPostReadyBackgroundTaskScheduler;
   } = {},
 ): () => void {
   const scheduler = options.scheduler ?? getDefaultScheduler();

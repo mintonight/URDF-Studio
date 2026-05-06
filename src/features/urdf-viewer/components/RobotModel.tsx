@@ -238,6 +238,8 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         joints: robotJoints,
         rootLinkId: computedRootLinkId,
         materials: storeState.materials,
+        closedLoopConstraints: storeState.closedLoopConstraints,
+        inspectionContext: storeState.inspectionContext,
       };
     }, [robotJoints, robotLinks, sourceFileForBackend.name]);
     // ============================================================

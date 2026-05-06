@@ -52,7 +52,7 @@ export function HeaderOverflowMenu({
       <button
         type="button"
         onClick={() => setActiveMenu(activeMenu === 'more' ? null : 'more')}
-        className={`relative z-50 flex items-center justify-center w-8 h-8 rounded-md transition-colors ${
+        className={`relative z-50 flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
           activeMenu === 'more'
             ? 'bg-element-bg dark:bg-element-active text-text-primary dark:text-white'
             : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg'
@@ -62,7 +62,7 @@ export function HeaderOverflowMenu({
         aria-haspopup="menu"
         aria-expanded={activeMenu === 'more'}
       >
-        <MoreHorizontal className="w-5 h-5" />
+        <MoreHorizontal className="w-4 h-4" />
       </button>
       {activeMenu === 'more' && (
         <>

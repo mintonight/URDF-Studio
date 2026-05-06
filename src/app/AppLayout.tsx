@@ -12,7 +12,9 @@ import { ConnectedDocumentLoadingOverlay } from './components/ConnectedDocumentL
 import { FilePreviewWindow } from './components/FilePreviewWindow';
 import { FileDropOverlay } from './components/FileDropOverlay';
 import { ImportPreparationOverlay } from './components/ImportPreparationOverlay';
-import { SnapshotDialog } from './components/SnapshotDialog';
+import { LazyOverlayFallback } from './components/LazyOverlayFallback';
+import { TreeEditor } from '@/features/robot-tree/components/TreeEditor';
+import { PropertyEditor } from '@/features/property-editor/components/PropertyEditor';
 import { resolveSnapshotCaptureAction } from './components/snapshot-preview/resolveSnapshotCaptureAction';
 import {
   loadBridgeCreateModalModule,
@@ -24,35 +26,31 @@ import { preloadSourceCodeEditorRuntime } from './utils/sourceCodeEditorLoader';
 const UnifiedViewer = lazy(() =>
   import('./components/UnifiedViewer').then((m) => ({ default: m.UnifiedViewer })),
 );
-
-// Prefetch UnifiedViewer when AppLayout is loaded to reduce perceived latency
-const prefetchUnifiedViewer = () => import('./components/UnifiedViewer');
+const SnapshotDialog = lazy(() =>
+  import('./components/SnapshotDialog').then((m) => ({ default: m.SnapshotDialog })),
+);
 
 import type { HeaderAction } from './components/header/types';
 import { setOptionsPanelVisibility } from './components/header/viewMenuState.js';
-import { TreeEditor } from '@/features/robot-tree';
-import { PropertyEditor } from '@/features/property-editor';
-import { type ToolMode } from '@/features/editor';
-import {
-  useAppLayoutEffects,
-  useAssemblyComponentPreparation,
-  useCollisionOptimizationWorkflow,
-  useEditableSourceCodeApply,
-  useEditableSourcePatches,
-  useLibraryFileActions,
-  usePreviewFileWithFeedback,
-  usePreparedUsdViewerAssets,
-  useSourceCodeEditorWarmup,
-  useToolItems,
-  useUsdDocumentLifecycle,
-  useWorkspaceAssemblyRenderFailureNotice,
-  useViewerOrchestration,
-  useWorkspaceMutations,
-  useWorkspaceOverlayActions,
-  useWorkspaceModeTransitions,
-  useWorkspaceSourceSync,
-  useWorkspaceViewerSelectionBridge,
-} from './hooks';
+import type { ToolMode } from '@/features/urdf-viewer/types';
+import { useAppLayoutEffects } from './hooks/useAppLayoutEffects';
+import { useAssemblyComponentPreparation } from './hooks/assemblyComponentPreparation';
+import { useCollisionOptimizationWorkflow } from './hooks/useCollisionOptimizationWorkflow';
+import { useEditableSourceCodeApply } from './hooks/useEditableSourceCodeApply';
+import { useEditableSourcePatches } from './hooks/useEditableSourcePatches';
+import { useLibraryFileActions } from './hooks/useLibraryFileActions';
+import { usePreviewFileWithFeedback } from './hooks/usePreviewFileWithFeedback';
+import { usePreparedUsdViewerAssets } from './hooks/usePreparedUsdViewerAssets';
+import { useSourceCodeEditorWarmup } from './hooks/useSourceCodeEditorWarmup';
+import { useToolItems } from './hooks/useToolItems';
+import { useUsdDocumentLifecycle } from './hooks/useUsdDocumentLifecycle';
+import { useWorkspaceAssemblyRenderFailureNotice } from './hooks/useWorkspaceAssemblyRenderFailureNotice';
+import { useViewerOrchestration } from './hooks/useViewerOrchestration';
+import { useWorkspaceMutations } from './hooks/useWorkspaceMutations';
+import { useWorkspaceOverlayActions } from './hooks/useWorkspaceOverlayActions';
+import { useWorkspaceModeTransitions } from './hooks/useWorkspaceModeTransitions';
+import { useWorkspaceSourceSync } from './hooks/useWorkspaceSourceSync';
+import { useWorkspaceViewerSelectionBridge } from './hooks/useWorkspaceViewerSelectionBridge';
 import {
   getViewerSourceFile,
   shouldUseEmptyRobotForUsdHydration,
@@ -71,13 +69,15 @@ import {
 import type { BridgeJoint, RobotFile, UrdfJoint, UrdfLink } from '@/types';
 import { translations } from '@/shared/i18n';
 import {
-  captureWorkspaceCameraSnapshot,
   resolveWorkspaceOverlayGizmoMargin,
   resolveWorkspaceOverlaySafeAreaStyle,
-  type SnapshotCaptureAction,
-  type SnapshotCaptureOptions,
   type WorkspaceOverlayGizmoMargin,
-} from '@/shared/components/3d';
+} from '@/shared/components/3d/scene/viewerOverlaySafeArea';
+import type {
+  SnapshotCaptureAction,
+  SnapshotCaptureOptions,
+} from '@/shared/components/3d/scene/snapshotConfig';
+import { resolveViewerDocumentLifecycleCallbacks } from './utils/viewerDocumentLifecycleCallbacks';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
 import { isAssetLibraryOnlyFormat, ROBOT_IMPORT_ACCEPT_ATTRIBUTE } from '@/shared/utils';
 import { toDocumentLoadLifecycleState } from '@/store/assetsStore';
@@ -159,12 +159,6 @@ export function AppLayout({
   importPreparationOverlay = null,
   onExposeLayoutActions,
 }: AppLayoutProps) {
-  useEffect(() => {
-    prefetchUnifiedViewer();
-    // Warm up the code editor too as it's a common next step
-    preloadSourceCodeEditorRuntime();
-  }, []);
-
   // UI Store (grouped with useShallow to reduce subscriptions)
   const {
     appMode,
@@ -174,6 +168,7 @@ export function AppLayout({
     panelLayout,
     toggleSidebar,
     setSidebar,
+    setSidebarTab,
     sidebarTab,
     sourceCodeAutoApply,
     setViewOption,
@@ -187,6 +182,7 @@ export function AppLayout({
       panelLayout: state.panelLayout,
       toggleSidebar: state.toggleSidebar,
       setSidebar: state.setSidebar,
+      setSidebarTab: state.setSidebarTab,
       sidebarTab: state.sidebarTab,
       sourceCodeAutoApply: state.sourceCodeAutoApply,
       setViewOption: state.setViewOption,
@@ -823,6 +819,13 @@ export function AppLayout({
     addBridge,
     setIsCollisionOptimizerOpen,
   });
+  const handleAddComponentAndShowWorkspace = useCallback(
+    (file: RobotFile) => {
+      setSidebarTab('workspace');
+      handleAddComponent(file);
+    },
+    [handleAddComponent, setSidebarTab],
+  );
 
   const {
     collisionOptimizationSource,
@@ -893,6 +896,23 @@ export function AppLayout({
       workspaceViewerMjcfSourceFile,
     ],
   );
+  const viewerDocumentLifecycleCallbacks = useMemo(
+    () =>
+      resolveViewerDocumentLifecycleCallbacks({
+        shouldRenderAssembly,
+        callbacks: {
+          onDocumentLoadEvent: handleViewerDocumentLoadEvent,
+          onRuntimeRobotLoaded: handleViewerRuntimeRobotLoaded,
+          onRuntimeSceneReadyForDisplay: handleViewerRuntimeSceneReadyForDisplay,
+        },
+      }),
+    [
+      handleViewerDocumentLoadEvent,
+      handleViewerRuntimeRobotLoaded,
+      handleViewerRuntimeSceneReadyForDisplay,
+      shouldRenderAssembly,
+    ],
+  );
 
   const handleCloseSnapshotDialog = useCallback(() => {
     setIsSnapshotDialogOpen(false);
@@ -907,11 +927,19 @@ export function AppLayout({
     [],
   );
 
-  const handleSnapshot = useCallback(() => {
+  const handleSnapshot = useCallback(async () => {
     const viewerCanvasState = viewerCanvasStateRef.current;
-    const cameraSnapshot = viewerCanvasState
-      ? captureWorkspaceCameraSnapshot(viewerCanvasState)
-      : null;
+    let cameraSnapshot: SnapshotPreviewSession['cameraSnapshot'] = null;
+    if (viewerCanvasState) {
+      try {
+        const { captureWorkspaceCameraSnapshot } = await import(
+          '@/shared/components/3d/workspace/workspaceCameraSnapshot'
+        );
+        cameraSnapshot = captureWorkspaceCameraSnapshot(viewerCanvasState);
+      } catch (error) {
+        console.error('[AppLayout] Failed to capture workspace camera snapshot:', error);
+      }
+    }
     const viewportAspectRatio =
       cameraSnapshot?.aspectRatio ??
       (viewerCanvasState?.size.width && viewerCanvasState.size.height
@@ -1110,10 +1138,7 @@ export function AppLayout({
       }
 
       const shouldGuardLibrarySwitch =
-        sidebarTab === 'structure' &&
-        !shouldRenderAssembly &&
-        Boolean(selectedFile) &&
-        hasSimpleModeSourceEdits;
+        !shouldRenderAssembly && Boolean(selectedFile) && hasSimpleModeSourceEdits;
 
       if (!shouldGuardLibrarySwitch || intent === 'discard') {
         onLoadRobot(file);
@@ -1177,7 +1202,6 @@ export function AppLayout({
       setAvailableFiles,
       shouldRenderAssembly,
       showToast,
-      sidebarTab,
       t.simpleModeDraftSaveFailed,
       t.simpleModeDraftSaved,
       urdfContentForViewer,
@@ -1243,7 +1267,10 @@ export function AppLayout({
       <div className={workspaceLayoutClassNames.root}>
         {/* Viewer Container — fills the workspace while sidebars cover it, so sidebar width
             changes do not resize or stretch the Three.js canvas. */}
-        <div className={workspaceLayoutClassNames.viewerLayer} style={workspaceOverlaySafeAreaStyle}>
+        <div
+          className={workspaceLayoutClassNames.viewerLayer}
+          style={workspaceOverlaySafeAreaStyle}
+        >
           <Suspense
             fallback={
               <div className="flex-1 h-full bg-google-light-bg dark:bg-app-bg animate-pulse" />
@@ -1275,9 +1302,11 @@ export function AppLayout({
               viewerSourceFormat={viewerSourceFormat}
               sourceFilePath={viewerSourceFilePath}
               sourceFile={viewerSourceFile}
-              onDocumentLoadEvent={handleViewerDocumentLoadEvent}
-              onRuntimeRobotLoaded={handleViewerRuntimeRobotLoaded}
-              onRuntimeSceneReadyForDisplay={handleViewerRuntimeSceneReadyForDisplay}
+              onDocumentLoadEvent={viewerDocumentLifecycleCallbacks.onDocumentLoadEvent}
+              onRuntimeRobotLoaded={viewerDocumentLifecycleCallbacks.onRuntimeRobotLoaded}
+              onRuntimeSceneReadyForDisplay={
+                viewerDocumentLifecycleCallbacks.onRuntimeSceneReadyForDisplay
+              }
               jointAngleState={jointAngleState}
               jointMotionState={jointMotionState}
               onJointChange={handleJointChange}
@@ -1346,7 +1375,7 @@ export function AppLayout({
             currentFileName={selectedFile?.name}
             sourceFilePath={viewerSourceFilePath}
             assemblyState={assemblyState}
-            onAddComponent={handleAddComponent}
+            onAddComponent={handleAddComponentAndShowWorkspace}
             onDeleteLibraryFile={handleDeleteLibraryFile}
             onDeleteLibraryFolder={handleDeleteLibraryFolder}
             onRenameLibraryFolder={handleRenameLibraryFolder}
@@ -1375,7 +1404,7 @@ export function AppLayout({
           lang={lang}
           theme={theme}
           onClose={handleClosePreview}
-          onAddComponent={sidebarTab === 'workspace' ? handleAddComponent : undefined}
+          onAddComponent={handleAddComponentAndShowWorkspace}
         />
 
         <div className={workspaceLayoutClassNames.rightSidebarLayer}>
@@ -1401,15 +1430,19 @@ export function AppLayout({
         </div>
       </div>
 
-      <SnapshotDialog
-        isOpen={isSnapshotDialogOpen}
-        isCapturing={isSnapshotCapturing}
-        lang={lang}
-        previewSession={snapshotPreviewSession}
-        onPreviewCaptureActionChange={handleSnapshotPreviewCaptureActionChange}
-        onClose={handleCloseSnapshotDialog}
-        onCapture={handleCaptureSnapshot}
-      />
+      {isSnapshotDialogOpen ? (
+        <Suspense fallback={<LazyOverlayFallback label={t.loadingPanel} />}>
+          <SnapshotDialog
+            isOpen={isSnapshotDialogOpen}
+            isCapturing={isSnapshotCapturing}
+            lang={lang}
+            previewSession={snapshotPreviewSession}
+            onPreviewCaptureActionChange={handleSnapshotPreviewCaptureActionChange}
+            onClose={handleCloseSnapshotDialog}
+            onCapture={handleCaptureSnapshot}
+          />
+        </Suspense>
+      ) : null}
 
       {assemblyComponentPreparationOverlay ? (
         <ImportPreparationOverlay

@@ -3,9 +3,9 @@
  */
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { Link2 } from 'lucide-react';
-import { DraggableWindow } from '@/shared/components';
+import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { PanelSelect, SegmentedControl, type SelectOption } from '@/shared/components/ui';
-import { useDraggableWindow } from '@/shared/hooks';
+import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { resolveSuggestedBridgeOriginForVisualContact } from '@/core/robot/assemblyBridgeAlignment';
 import { wouldBridgeCreateUnsupportedAssemblyCycle } from '@/core/robot/assemblyBridgeTopology';
 import { degToRad, radToDeg } from '@/core/robot/transforms';

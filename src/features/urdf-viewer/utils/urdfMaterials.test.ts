@@ -225,3 +225,26 @@ test('resolveURDFMaterialsForScene prefers pre-parsed link materials when availa
 
     assert.equal(materials.has('Orange-effect'), true);
 });
+
+test('resolveURDFMaterialsForScene treats empty source content as no material definitions', () => {
+    const materials = resolveURDFMaterialsForScene('', {
+        base_link: {
+            id: 'base_link',
+            name: 'base_link',
+            visual: {
+                type: GeometryType.BOX,
+                dimensions: { x: 1, y: 1, z: 1 },
+                color: '#ffffff',
+                origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+            },
+            collision: {
+                type: GeometryType.NONE,
+                dimensions: { x: 0, y: 0, z: 0 },
+                color: '#ffffff',
+                origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+            },
+        },
+    });
+
+    assert.equal(materials.size, 0);
+});

@@ -14,13 +14,83 @@ import {
   type JointQuaternion,
   type RobotState,
 } from '@/types';
+import { resolveClosedLoopDrivenJointMotion } from '@/core/robot';
 import {
   EMPTY_JOINT_INTERACTION_PREVIEW,
   useJointInteractionPreviewStore,
   useSelectionStore,
 } from '@/store';
+import { disposeClosedLoopMotionPreviewWorker } from '@/shared/utils/robot/closedLoopMotionPreviewWorkerBridge';
 
 import { useViewerController } from './useViewerController.ts';
+
+class ClosedLoopPreviewMockWorker {
+  private readonly messageListeners = new Set<(event: MessageEvent) => void>();
+  private readonly errorListeners = new Set<(event: ErrorEvent) => void>();
+
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    if (type === 'message') {
+      this.messageListeners.add(listener as (event: MessageEvent) => void);
+      return;
+    }
+
+    if (type === 'error') {
+      this.errorListeners.add(listener as (event: ErrorEvent) => void);
+    }
+  }
+
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    if (type === 'message') {
+      this.messageListeners.delete(listener as (event: MessageEvent) => void);
+      return;
+    }
+
+    if (type === 'error') {
+      this.errorListeners.delete(listener as (event: ErrorEvent) => void);
+    }
+  }
+
+  postMessage(message: {
+    requestId: number;
+    robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>;
+    jointId: string;
+    angle: number;
+    options?: Parameters<typeof resolveClosedLoopDrivenJointMotion>[3];
+  }): void {
+    queueMicrotask(() => {
+      try {
+        const solution = resolveClosedLoopDrivenJointMotion(
+          message.robot,
+          message.jointId,
+          message.angle,
+          message.options ?? {},
+        );
+        const event = {
+          data: {
+            type: 'resolve-motion-preview-result',
+            requestId: message.requestId,
+            solution,
+          },
+        } as MessageEvent;
+        this.messageListeners.forEach((listener) => listener(event));
+      } catch (error) {
+        const event = {
+          data: {
+            type: 'resolve-motion-preview-error',
+            requestId: message.requestId,
+            error: error instanceof Error ? error.message : 'mock worker failed',
+          },
+        } as MessageEvent;
+        this.messageListeners.forEach((listener) => listener(event));
+      }
+    });
+  }
+
+  terminate(): void {
+    this.messageListeners.clear();
+    this.errorListeners.clear();
+  }
+}
 
 function renderHook() {
   let hookValue: ReturnType<typeof useViewerController> | null = null;
@@ -36,6 +106,7 @@ function renderHook() {
 }
 
 function installDom() {
+  disposeClosedLoopMotionPreviewWorker();
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'http://localhost/',
     pretendToBeVisual: true,
@@ -65,6 +136,14 @@ function installDom() {
   });
   Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
     value: true,
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, 'Worker', {
+    value: ClosedLoopPreviewMockWorker,
+    configurable: true,
+  });
+  Object.defineProperty(dom.window, 'Worker', {
+    value: ClosedLoopPreviewMockWorker,
     configurable: true,
   });
 
@@ -226,6 +305,7 @@ function createSimpleRobotFixture(): RobotState {
 
 type RuntimeJoint = RobotState['joints'][string] & {
   jointValue: number;
+  jointQuaternion?: JointQuaternion;
   quaternion?: JointQuaternion;
   setJointValue: (angle: number) => void;
   finalizeJointValue: () => void;
@@ -298,6 +378,8 @@ async function nextAnimationFrame(dom: JSDOM) {
   await new Promise<void>((resolve) => {
     dom.window.requestAnimationFrame(() => resolve());
   });
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 function assertAlmostEqual(actual: number | undefined, expected: number, epsilon = 1e-3) {
@@ -480,6 +562,45 @@ test('handleRobotLoaded sanitizes runtime Three.js quaternions before closed-loo
     });
     assert.equal(Object.getPrototypeOf(mergedQuaternion), Object.prototype);
     assert.notEqual(mergedQuaternion, runtimeRobot.joints.joint_a.quaternion);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('handleRobotLoaded stores runtime ball joint motion quaternion in RobotState', async () => {
+  const closedLoopRobotState = createClosedLoopRobotFixture();
+  const runtimeRobot = createRuntimeRobotFixture(closedLoopRobotState);
+  runtimeRobot.joints.joint_a.jointQuaternion = new THREE.Quaternion(
+    0,
+    0.5,
+    0,
+    0.8660254,
+  ) as unknown as JointQuaternion;
+  runtimeRobot.joints.joint_a.quaternion = new THREE.Quaternion(
+    0.1,
+    0.6,
+    0.2,
+    0.7,
+  ) as unknown as JointQuaternion;
+  const { dom, root, getHook } = await mountController(closedLoopRobotState);
+
+  try {
+    await act(async () => {
+      getHook().handleRobotLoaded(runtimeRobot);
+    });
+
+    const mergedQuaternion = getHook().closedLoopRobotState?.joints.joint_a?.quaternion;
+    assert.deepEqual(mergedQuaternion, {
+      x: 0,
+      y: 0.5,
+      z: 0,
+      w: 0.8660254,
+    });
+    assert.equal(Object.getPrototypeOf(mergedQuaternion), Object.prototype);
+    assert.notEqual(mergedQuaternion, runtimeRobot.joints.joint_a.jointQuaternion);
   } finally {
     await act(async () => {
       root.unmount();

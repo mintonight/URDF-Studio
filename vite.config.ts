@@ -111,13 +111,11 @@ function isMonacoCoreChunkModule(normalizedId: string): boolean {
   );
 }
 
-function isCodeEditorRuntimeChunkModule(normalizedId: string): boolean {
-  return normalizedId.includes('/src/features/code-editor/utils/monacoLoader.ts');
-}
-
 const INITIAL_HTML_MODULE_PRELOAD_BLOCKLIST = [
   'feature-file-io-',
   'export-vendor-',
+  'feature-property-editor-',
+  'feature-robot-tree-',
   'feature-editor-runtime-',
   'feature-urdf-viewer-runtime-',
   'ViewerSceneConnector-',
@@ -226,6 +224,24 @@ function createConditionalIsolationHeadersPlugin() {
   };
 }
 
+function createStaticHostingHeadersAssetPlugin() {
+  return {
+    name: 'static-hosting-headers-asset',
+    generateBundle(this: import('rollup').PluginContext) {
+      const headersPath = path.resolve(__dirname, 'public/_headers');
+      if (!fs.existsSync(headersPath)) {
+        return;
+      }
+
+      this.emitFile({
+        type: 'asset',
+        fileName: '_headers',
+        source: fs.readFileSync(headersPath),
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
@@ -258,34 +274,6 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks(id) {
             const normalizedId = id.replace(/\\/g, '/');
-
-            if (normalizedId.includes('/src/features/property-editor/')) {
-              return 'feature-property-editor';
-            }
-
-            if (isCodeEditorRuntimeChunkModule(normalizedId)) {
-              return 'feature-code-editor-runtime';
-            }
-
-            if (normalizedId.includes('/src/features/code-editor/')) {
-              return 'feature-code-editor';
-            }
-
-            if (normalizedId.includes('/src/features/ai-assistant/')) {
-              return 'feature-ai-assistant';
-            }
-
-            if (normalizedId.includes('/src/features/file-io/')) {
-              return 'feature-file-io';
-            }
-
-            if (normalizedId.includes('/src/features/assembly/')) {
-              return 'feature-assembly';
-            }
-
-            if (normalizedId.includes('/src/features/robot-tree/')) {
-              return 'feature-robot-tree';
-            }
 
             if (normalizedId.includes('/src/core/parsers/')) {
               return 'core-parsers';
@@ -363,6 +351,7 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       createUsdConfigurationProxyPlugin(),
       createConditionalIsolationHeadersPlugin(),
+      createStaticHostingHeadersAssetPlugin(),
     ],
     define: {
       __APP_VERSION__: JSON.stringify(appPackageVersion),

@@ -37,6 +37,7 @@ import {
   parseMJCFModel,
   type MJCFModelConnectConstraint,
   type MJCFModelJointEqualityConstraint,
+  type MJCFModelTendonAttachment,
   type ParsedMJCFModel,
 } from './mjcfModel';
 
@@ -996,6 +997,16 @@ function buildMjcfInspectionContext(
     tendonActuatorNamesByTendon.set(actuator.tendon, names);
   });
 
+  const resolveTendonVisualizationAttachmentRef = (
+    attachment: MJCFModelTendonAttachment,
+  ): string | undefined => {
+    if (attachment.type === 'geom' && attachment.sidesite) {
+      return attachment.sidesite;
+    }
+
+    return attachment.ref || attachment.sidesite;
+  };
+
   return {
     sourceFormat: 'mjcf',
     mjcf: {
@@ -1015,7 +1026,7 @@ function buildMjcfInspectionContext(
         springlength: tendon.springlength,
         rgba: tendon.rgba,
         attachmentRefs: tendon.attachments
-          .map((attachment) => attachment.ref || attachment.sidesite)
+          .map(resolveTendonVisualizationAttachmentRef)
           .filter((value): value is string => typeof value === 'string' && value.length > 0),
         attachments: tendon.attachments.map((attachment) => ({
           type: attachment.type,

@@ -48,6 +48,8 @@ export interface AssemblyTreeViewProps {
   onRenameComponent?: (id: string, name: string) => void;
   onCreateBridge?: () => void;
   onToggleComponentVisibility?: (id: string) => void;
+  onActivateAssemblyView?: () => void;
+  showAssemblyRoot?: boolean;
   mode: AppMode;
   t: TranslationKeys;
 }
@@ -115,6 +117,8 @@ export const AssemblyTreeView = memo(
     onRenameComponent,
     onCreateBridge,
     onToggleComponentVisibility,
+    onActivateAssemblyView,
+    showAssemblyRoot = true,
     mode,
     t,
   }: AssemblyTreeViewProps) => {
@@ -285,6 +289,7 @@ export const AssemblyTreeView = memo(
 
     const handleRenameFromMenu = () => {
       if (!contextMenu) return;
+      onActivateAssemblyView?.();
       if (contextMenu.kind === 'assembly') {
         beginAssemblyRename();
       } else if (contextMenu.kind === 'component') {
@@ -301,6 +306,7 @@ export const AssemblyTreeView = memo(
 
     const handleDeleteFromMenu = () => {
       if (!contextMenu || contextMenu.kind === 'assembly') return;
+      onActivateAssemblyView?.();
       if (contextMenu.kind === 'component') {
         onRemoveComponent?.(contextMenu.id);
       } else {
@@ -325,53 +331,56 @@ export const AssemblyTreeView = memo(
 
     return (
       <div className="space-y-1 select-none">
-        <div
-          className={`flex items-center py-1 px-2 mx-1 my-0.5 rounded-md text-text-primary cursor-pointer transition-colors ${
-            assemblySelection.type === 'assembly'
-              ? itemSelectedClass
-              : `bg-element-bg ${itemHoverClass}`
-          }`}
-          onClick={() => {
-            setSelection({ type: null, id: null });
-            selectAssembly();
-          }}
-          onContextMenu={(event) => openContextMenu(event, { kind: 'assembly' }, 1)}
-        >
-          <Cuboid size={14} className="mr-1.5 text-system-blue" />
-          {isEditingAssembly ? (
-            <input
-              ref={renameInputRef}
-              value={editingTarget?.draft ?? ''}
-              onChange={(event) => {
-                setEditingTarget((prev) =>
-                  prev?.kind === 'assembly' ? { ...prev, draft: event.target.value } : prev,
-                );
-              }}
-              onClick={(event) => event.stopPropagation()}
-              onBlur={commitRename}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  commitRename();
-                } else if (event.key === 'Escape') {
-                  cancelRename();
-                }
-              }}
-              className={renameInputClassName}
-            />
-          ) : (
-            <span
-              className="min-w-0 flex-1 text-[11px] font-medium leading-none truncate"
-              title={assemblyState.name}
-              onDoubleClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                beginAssemblyRename();
-              }}
-            >
-              {assemblyState.name}
-            </span>
-          )}
-        </div>
+        {showAssemblyRoot && (
+          <div
+            className={`flex items-center py-1 px-2 mx-1 my-0.5 rounded-md text-text-primary cursor-pointer transition-colors ${
+              assemblySelection.type === 'assembly'
+                ? itemSelectedClass
+                : `bg-element-bg ${itemHoverClass}`
+            }`}
+            onClick={() => {
+              onActivateAssemblyView?.();
+              setSelection({ type: null, id: null });
+              selectAssembly();
+            }}
+            onContextMenu={(event) => openContextMenu(event, { kind: 'assembly' }, 1)}
+          >
+            <Cuboid size={14} className="mr-1.5 text-system-blue" />
+            {isEditingAssembly ? (
+              <input
+                ref={renameInputRef}
+                value={editingTarget?.draft ?? ''}
+                onChange={(event) => {
+                  setEditingTarget((prev) =>
+                    prev?.kind === 'assembly' ? { ...prev, draft: event.target.value } : prev,
+                  );
+                }}
+                onClick={(event) => event.stopPropagation()}
+                onBlur={commitRename}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    commitRename();
+                  } else if (event.key === 'Escape') {
+                    cancelRename();
+                  }
+                }}
+                className={renameInputClassName}
+              />
+            ) : (
+              <span
+                className="min-w-0 flex-1 text-[11px] font-medium leading-none truncate"
+                title={assemblyState.name}
+                onDoubleClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  beginAssemblyRename();
+                }}
+              >
+                {assemblyState.name}
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="mt-2">
           <div
@@ -442,6 +451,7 @@ export const AssemblyTreeView = memo(
                       }
                       ${!isVisible ? 'opacity-60' : ''}`}
                       onClick={() => {
+                        onActivateAssemblyView?.();
                         if (interactionGuard && componentHoverLinkId) {
                           setExpandedComponents((prev) =>
                             prev[component.id] ? prev : { ...prev, [component.id]: true },
@@ -541,6 +551,7 @@ export const AssemblyTreeView = memo(
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            onActivateAssemblyView?.();
                             onToggleComponentVisibility?.(component.id);
                           }}
                           className="p-1 rounded hover:bg-element-hover text-text-tertiary transition-colors"
@@ -551,6 +562,7 @@ export const AssemblyTreeView = memo(
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            onActivateAssemblyView?.();
                             onRemoveComponent?.(component.id);
                           }}
                           className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-colors"
@@ -612,6 +624,7 @@ export const AssemblyTreeView = memo(
             <button
               onClick={(e) => {
                 e.stopPropagation();
+                onActivateAssemblyView?.();
                 onCreateBridge?.();
               }}
               className="px-1.5 py-0.5 rounded bg-system-blue/10 dark:bg-system-blue/20 hover:bg-system-blue/15 dark:hover:bg-system-blue/25 text-system-blue border border-system-blue/25 dark:border-system-blue/35 flex items-center gap-1 transition-colors group/btn"
@@ -643,7 +656,10 @@ export const AssemblyTreeView = memo(
                             ? itemSelectedClass
                             : `text-text-secondary dark:text-text-secondary ${itemHoverClass}`
                     }`}
-                    onClick={() => onSelect('joint', bridge.id)}
+                    onClick={() => {
+                      onActivateAssemblyView?.();
+                      onSelect('joint', bridge.id);
+                    }}
                     onContextMenu={(event) =>
                       openContextMenu(event, { kind: 'bridge', id: bridge.id })
                     }
@@ -693,6 +709,7 @@ export const AssemblyTreeView = memo(
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        onActivateAssemblyView?.();
                         onRemoveBridge?.(bridge.id);
                       }}
                       className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-opacity"

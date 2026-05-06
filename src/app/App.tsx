@@ -6,15 +6,12 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useShallow } from 'zustand/react/shallow';
 import { Providers } from './Providers';
 import { AppLayout } from './AppLayout';
-import { SettingsModal } from './components/SettingsModal';
 import { LazyOverlayFallback } from './components/LazyOverlayFallback';
-import {
-  useAppShellState,
-  useFileImport,
-  useFileExport,
-  useImportInputBinding,
-  useUnsavedChangesPrompt,
-} from './hooks';
+import { useAppShellState } from './hooks/useAppShellState';
+import { useFileImport } from './hooks/useFileImport';
+import { useFileExport } from './hooks/useFileExport';
+import { useImportInputBinding } from './hooks/useImportInputBinding';
+import { useUnsavedChangesPrompt } from './hooks/useUnsavedChangesPrompt';
 import { resolveRobotFileDataWithWorker } from './hooks/robotImportWorkerBridge';
 import { resolveCurrentUsdExportMode } from './utils/currentUsdExportMode';
 import {
@@ -26,7 +23,7 @@ import {
 } from './utils/documentLoadFlow';
 import { peekPreResolvedRobotImport } from './utils/preResolvedRobotImportCache';
 import { prewarmUsdSelectionInBackground } from './utils/usdSelectionPrewarm';
-import { prewarmUsdViewerRuntimesInBackground } from './utils/usdRuntimeStartupPrewarm';
+import { scheduleUsdRuntimeStartupIdlePrewarm } from './utils/usdRuntimeStartupPrewarm';
 import { commitResolvedRobotLoad } from './utils/commitResolvedRobotLoad';
 import { resolveUsdViewerRoundtripSelection } from './utils/usdViewerRoundtripSelection';
 import { resolveAppModeAfterRobotContentChange } from './utils/contentChangeAppMode';
@@ -99,11 +96,7 @@ import {
   pruneExpiredPendingHandoffImports,
   readPendingHandoffImport,
 } from './handoff/storage';
-import {
-  installRegressionDebugApi,
-  setRegressionAppHandlers,
-  setRegressionBeforeUnloadPromptSuppressed,
-} from '@/shared/debug/regressionBridge';
+import { setRegressionBeforeUnloadPromptSuppressed } from '@/shared/debug/regressionPromptSuppression';
 import { markUnsavedChangesBaselineSaved } from './utils/unsavedChangesBaseline';
 import type {
   AIConversationFocusedIssue,
@@ -122,6 +115,7 @@ const loadDisconnectedWorkspaceUrdfExportDialogModule = () =>
   import('@/features/file-io/components/DisconnectedWorkspaceUrdfExportDialog');
 const loadExportProgressDialogModule = () =>
   import('@/features/file-io/components/ExportProgressDialog');
+const loadSettingsModalModule = () => import('./components/SettingsModal');
 
 const AIInspectionModal = lazy(() =>
   loadAIInspectionModalModule().then((module) => ({ default: module.AIInspectionModal })),
@@ -143,6 +137,10 @@ const ExportProgressDialog = lazy(() =>
 
 const ExportDialog = lazy(() =>
   loadExportDialogModule().then((module) => ({ default: module.ExportDialog })),
+);
+
+const SettingsModal = lazy(() =>
+  loadSettingsModalModule().then((module) => ({ default: module.SettingsModal })),
 );
 
 function cloneAISnapshot<T>(value: T): T {
@@ -482,12 +480,13 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
     useState<ImportPreparationOverlayState | null>(null);
 
   // UI Store
-  const { lang, setAppMode, setSidebarTab, openSettings } = useUIStore(
+  const { lang, setAppMode, setSidebarTab, openSettings, isSettingsOpen } = useUIStore(
     useShallow((state) => ({
       lang: state.lang,
       setAppMode: state.setAppMode,
       setSidebarTab: state.setSidebarTab,
       openSettings: state.openSettings,
+      isSettingsOpen: state.isSettingsOpen,
     })),
   );
   const t = translations[lang];
@@ -882,42 +881,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
 
   loadRobotByNameRef.current = loadRobotFile;
 
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const requestIdle = window.requestIdleCallback?.bind(window);
-    const cancelIdle = window.cancelIdleCallback?.bind(window);
-    let idleHandle: number | null = null;
-    let timeoutHandle: number | null = null;
-
-    const runPrewarm = () => {
-      prewarmUsdViewerRuntimesInBackground();
-    };
-
-    if (requestIdle) {
-      idleHandle = requestIdle(
-        () => {
-          runPrewarm();
-        },
-        { timeout: 1200 },
-      );
-
-      return () => {
-        if (idleHandle !== null && cancelIdle) {
-          cancelIdle(idleHandle);
-        }
-      };
-    }
-
-    timeoutHandle = window.setTimeout(runPrewarm, 16);
-    return () => {
-      if (timeoutHandle !== null) {
-        window.clearTimeout(timeoutHandle);
-      }
-    };
-  }, []);
+  useEffect(() => scheduleUsdRuntimeStartupIdlePrewarm(), []);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -931,94 +895,114 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       return;
     }
 
-    installRegressionDebugApi(window);
+    let disposed = false;
+    let clearRegressionAppHandlers: (() => void) | null = null;
 
-    setRegressionAppHandlers({
-      getAvailableFiles: () => useAssetsStore.getState().availableFiles,
-      getSelectedFile: () => useAssetsStore.getState().selectedFile,
-      getUsdSceneSnapshot: (fileName: string) =>
-        useAssetsStore.getState().getUsdSceneSnapshot(fileName),
-      getDocumentLoadState: () => useAssetsStore.getState().documentLoadState,
-      getRobotState: () => ({
-        name: useRobotStore.getState().name,
-        links: useRobotStore.getState().links,
-        joints: useRobotStore.getState().joints,
-        rootLinkId: useRobotStore.getState().rootLinkId,
-        selection: useSelectionStore.getState().selection,
-      }),
-      getAssetDebugState: () => {
-        const assetsState = useAssetsStore.getState();
-        return {
-          appAssetKeys: Object.keys(assetsState.assets).sort((left, right) =>
-            left.localeCompare(right),
-          ),
-          preparedUsdCacheKeysByFile: Object.fromEntries(
-            Object.entries(assetsState.usdPreparedExportCaches)
-              .sort(([left], [right]) => left.localeCompare(right))
-              .map(([fileName, cache]) => [
-                fileName,
-                Object.keys(cache.meshFiles || {}).sort((left, right) => left.localeCompare(right)),
-              ]),
-          ),
-        };
-      },
-      getInteractionState: () => ({
-        selection: useSelectionStore.getState().selection,
-        hoveredSelection: useSelectionStore.getState().hoveredSelection,
-      }),
-      resetFixtureFiles: () => {
-        const assetsState = useAssetsStore.getState();
-        assetsState.revokeAllAssets();
-        assetsState.setAssets({});
-        assetsState.setAvailableFiles([]);
-        assetsState.setAllFileContents({});
-        assetsState.clearUsdSceneSnapshots();
-        assetsState.clearUsdPreparedExportCaches();
-        assetsState.setSelectedFile(null);
-        assetsState.resetDocumentLoadState();
-      },
-      seedFixtureFile: (file) => {
-        const assetsState = useAssetsStore.getState();
-        const normalizedName = file.name.replace(/\\/g, '/').replace(/^\/+/, '');
-        const nextFile = {
-          name: normalizedName,
-          content: file.content,
-          format: file.format,
-          ...(file.blobUrl ? { blobUrl: file.blobUrl } : {}),
-        };
-
-        if (file.blobUrl) {
-          assetsState.addAsset(normalizedName, file.blobUrl);
-        }
-        assetsState.addRobotFile(nextFile);
-        if (file.addFileContent) {
-          assetsState.addFileContent(normalizedName, file.content);
+    void import('@/shared/debug/regressionBridge').then(
+      ({ installRegressionDebugApi, setRegressionAppHandlers }) => {
+        if (disposed) {
+          setRegressionAppHandlers(null);
+          return;
         }
 
-        return {
-          availableFileCount: useAssetsStore.getState().availableFiles.length,
-        };
-      },
-      loadRobotByName: async (fileName: string) => {
-        const file =
-          useAssetsStore.getState().availableFiles.find((entry) => entry.name === fileName) ?? null;
-        if (!file) {
-          return {
-            loaded: false,
-            selectedFile: useAssetsStore.getState().selectedFile?.name ?? null,
-          };
-        }
+        installRegressionDebugApi(window);
 
-        loadRobotByNameRef.current?.(file, { forceReload: true });
-        return {
-          loaded: true,
-          selectedFile: file.name,
+        setRegressionAppHandlers({
+          getAvailableFiles: () => useAssetsStore.getState().availableFiles,
+          getSelectedFile: () => useAssetsStore.getState().selectedFile,
+          getUsdSceneSnapshot: (fileName: string) =>
+            useAssetsStore.getState().getUsdSceneSnapshot(fileName),
+          getDocumentLoadState: () => useAssetsStore.getState().documentLoadState,
+          getRobotState: () => ({
+            name: useRobotStore.getState().name,
+            links: useRobotStore.getState().links,
+            joints: useRobotStore.getState().joints,
+            rootLinkId: useRobotStore.getState().rootLinkId,
+            selection: useSelectionStore.getState().selection,
+          }),
+          getAssetDebugState: () => {
+            const assetsState = useAssetsStore.getState();
+            return {
+              appAssetKeys: Object.keys(assetsState.assets).sort((left, right) =>
+                left.localeCompare(right),
+              ),
+              preparedUsdCacheKeysByFile: Object.fromEntries(
+                Object.entries(assetsState.usdPreparedExportCaches)
+                  .sort(([left], [right]) => left.localeCompare(right))
+                  .map(([fileName, cache]) => [
+                    fileName,
+                    Object.keys(cache.meshFiles || {}).sort((left, right) =>
+                      left.localeCompare(right),
+                    ),
+                  ]),
+              ),
+            };
+          },
+          getInteractionState: () => ({
+            selection: useSelectionStore.getState().selection,
+            hoveredSelection: useSelectionStore.getState().hoveredSelection,
+          }),
+          resetFixtureFiles: () => {
+            const assetsState = useAssetsStore.getState();
+            assetsState.revokeAllAssets();
+            assetsState.setAssets({});
+            assetsState.setAvailableFiles([]);
+            assetsState.setAllFileContents({});
+            assetsState.clearUsdSceneSnapshots();
+            assetsState.clearUsdPreparedExportCaches();
+            assetsState.setSelectedFile(null);
+            assetsState.resetDocumentLoadState();
+          },
+          seedFixtureFile: (file) => {
+            const assetsState = useAssetsStore.getState();
+            const normalizedName = file.name.replace(/\\/g, '/').replace(/^\/+/, '');
+            const nextFile = {
+              name: normalizedName,
+              content: file.content,
+              format: file.format,
+              ...(file.blobUrl ? { blobUrl: file.blobUrl } : {}),
+            };
+
+            if (file.blobUrl) {
+              assetsState.addAsset(normalizedName, file.blobUrl);
+            }
+            assetsState.addRobotFile(nextFile);
+            if (file.addFileContent) {
+              assetsState.addFileContent(normalizedName, file.content);
+            }
+
+            return {
+              availableFileCount: useAssetsStore.getState().availableFiles.length,
+            };
+          },
+          loadRobotByName: async (fileName: string) => {
+            const file =
+              useAssetsStore.getState().availableFiles.find((entry) => entry.name === fileName) ??
+              null;
+            if (!file) {
+              return {
+                loaded: false,
+                selectedFile: useAssetsStore.getState().selectedFile?.name ?? null,
+              };
+            }
+
+            loadRobotByNameRef.current?.(file, { forceReload: true });
+            return {
+              loaded: true,
+              selectedFile: file.name,
+            };
+          },
+        });
+
+        clearRegressionAppHandlers = () => {
+          setRegressionAppHandlers(null);
         };
       },
-    });
+    );
 
     return () => {
-      setRegressionAppHandlers(null);
+      disposed = true;
+      clearRegressionAppHandlers?.();
       setRegressionBeforeUnloadPromptSuppressed(false);
       delete window.__URDF_STUDIO_DEBUG__;
     };
@@ -1371,7 +1355,11 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       />
 
       {/* Modals */}
-      <SettingsModal />
+      {isSettingsOpen && (
+        <Suspense fallback={<LazyOverlayFallback label={loadingLabel} />}>
+          <SettingsModal />
+        </Suspense>
+      )}
       {shouldRenderAIInspectionModal && (
         <Suspense fallback={<LazyOverlayFallback label={loadingLabel} />}>
           {/* Keep the modal mounted after first open so inspection results survive close/reopen. */}

@@ -24,3 +24,17 @@ test('viewer and package entrypoints import shared/core helper implementations d
     assert.doesNotMatch(source, /createViewerMeshLoader/);
   }
 });
+
+test('viewer runtime does not import the MJCF-specific Three.js loader', async () => {
+  const runtimeFiles = [
+    new URL('../hooks/useRobotLoader.ts', import.meta.url),
+    new URL('../../../shared/components/3d/renderers/ThreeJsBackend.ts', import.meta.url),
+  ];
+
+  for (const fileUrl of runtimeFiles) {
+    const source = await readFile(fileUrl, 'utf8');
+
+    assert.doesNotMatch(source, /loadMJCFToThreeJS/);
+    assert.doesNotMatch(source, /['"]@\/core\/parsers\/mjcf['"]/);
+  }
+});

@@ -399,7 +399,8 @@ export const useUIStore = create<UIState>()(
 
       // Sidebar Tab
       sidebarTab: 'structure',
-      setSidebarTab: (tab) => set({ sidebarTab: tab }),
+      setSidebarTab: (tab) =>
+        set((state) => (state.sidebarTab === tab ? state : { sidebarTab: tab })),
 
       // Resizable panel layout
       panelLayout: defaultPanelLayout,

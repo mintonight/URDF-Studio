@@ -19,6 +19,7 @@ test('USD selection prewarm is a no-op for non-USD files', () => {
     prewarmStageOpen: () => {
       stageOpenPrewarmCalls += 1;
     },
+    hasBlobBackedLargeUsdaInStageScope: () => false,
   });
 
   prewarm(
@@ -59,6 +60,7 @@ test('USD selection prewarm warms runtime and stage-open data together', () => {
         assetKeys: Object.keys(assets).sort(),
       });
     },
+    hasBlobBackedLargeUsdaInStageScope: () => false,
   });
 
   prewarm(
@@ -110,6 +112,7 @@ test('USD selection prewarm skips worker stage-open prewarm for blob-backed larg
     prewarmStageOpen: () => {
       stageOpenPrewarmCalls += 1;
     },
+    hasBlobBackedLargeUsdaInStageScope: () => true,
   });
 
   prewarm(

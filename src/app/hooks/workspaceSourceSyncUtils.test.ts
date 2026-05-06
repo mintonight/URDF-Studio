@@ -402,19 +402,10 @@ test('canUseLightweightWorkspaceViewerReloadContent returns false when authored 
   assert.equal(canUseLightweightWorkspaceViewerReloadContent(createRobotState().links), false);
 });
 
-test('shouldUseGeneratedWorkspaceViewerReloadContent keeps real workspace geometry when a transform target is active', () => {
-  const robot = createRobotState();
-  robot.links.base_link = {
-    ...robot.links.base_link,
-    visual: {
-      ...robot.links.base_link.visual,
-      authoredMaterials: [{ name: 'body_blue', color: '#0088ff' }],
-    },
-  };
-
+test('shouldUseGeneratedWorkspaceViewerReloadContent keeps generated reloads for geometry that still needs source material inference', () => {
   assert.equal(
     shouldUseGeneratedWorkspaceViewerReloadContent({
-      robotLinks: robot.links,
+      robotLinks: createRobotState().links,
       hasActiveTransformTarget: true,
     }),
     true,
@@ -451,7 +442,7 @@ test('isActiveWorkspaceTransformSession stays false for passive component select
   );
 });
 
-test('shouldUseGeneratedWorkspaceViewerReloadContent respects transform pending gating even when authored materials exist', () => {
+test('shouldUseGeneratedWorkspaceViewerReloadContent avoids generated reload churn while transform target is active', () => {
   const robot = createRobotState();
   robot.links.base_link = {
     ...robot.links.base_link,
@@ -473,7 +464,7 @@ test('shouldUseGeneratedWorkspaceViewerReloadContent respects transform pending 
       robotLinks: robot.links,
       hasActiveTransformTarget,
     }),
-    true,
+    false,
   );
 });
 

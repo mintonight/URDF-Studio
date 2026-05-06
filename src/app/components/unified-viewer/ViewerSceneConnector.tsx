@@ -8,13 +8,13 @@ import type {
   UrdfOrigin,
 } from '@/types';
 import type {
-  ViewerController,
   ViewerDocumentLoadEvent,
   ViewerHelperKind,
   ViewerRobotSourceFormat,
-  ViewerResourceScope,
-} from '@/features/editor';
-import { ViewerScene } from '@/features/editor';
+} from '@/features/urdf-viewer/types';
+import type { ViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
+import type { ViewerResourceScope } from '@/features/urdf-viewer/utils/viewerResourceScope';
+import { ViewerScene } from '@/features/urdf-viewer/components/ViewerScene';
 import { useSelectionStore } from '@/store/selectionStore';
 import type { AssemblySelection } from '@/store/assemblySelectionStore';
 
@@ -89,7 +89,11 @@ interface ViewerSceneConnectorProps {
     },
     options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
-  onBridgeTransform?: (bridgeId: string, origin: UrdfOrigin) => void;
+  onBridgeTransform?: (
+    bridgeId: string,
+    origin: UrdfOrigin,
+    options?: import('@/types/viewer').UpdateCommitOptions,
+  ) => void;
   sourceSceneAssemblyComponentId?: string | null;
   sourceSceneAssemblyComponentTransform?: {
     position: { x: number; y: number; z: number };

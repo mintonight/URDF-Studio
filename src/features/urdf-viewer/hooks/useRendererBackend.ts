@@ -17,7 +17,10 @@ import { buildColladaRootNormalizationHints } from '@/core/loaders';
 import { getSourceFileDirectory } from '@/core/parsers/meshPathUtils';
 import type { UrdfJoint, UrdfLink } from '@/types';
 import type { ViewerDocumentLoadEvent, ViewerRuntimeStageBridge } from '../types';
-import { createRendererBackendLoadScopeKey } from '../utils/rendererBackendLoadScope';
+import {
+  createMemoizedRendererBackendLoadScopeKey,
+  type RendererBackendLoadScopeKeyMemo,
+} from '../utils/rendererBackendLoadScope';
 import { detectSingleGeometryPatch } from '../utils/robotLoaderDiff';
 import { applyGeometryPatchInPlace } from '../utils/robotLoaderGeometryPatch';
 
@@ -114,6 +117,7 @@ export function useRendererBackend(
   const onRuntimeRobotLoadedRef = useRef(onRuntimeRobotLoaded);
   const runtimeBridgeRef = useRef(runtimeBridge);
   const activeLoadScopeKeyRef = useRef<string | null>(null);
+  const loadScopeKeyMemoRef = useRef<RendererBackendLoadScopeKeyMemo>({});
   const previousPatchRobotLinksRef = useRef<Record<string, UrdfLink> | null>(
     robotData?.links ?? providedRobotLinks ?? null,
   );
@@ -129,16 +133,19 @@ export function useRendererBackend(
 
   const baseLoadScopeKey = useMemo(
     () =>
-      createRendererBackendLoadScopeKey({
-        sourceFile,
-        availableFiles,
-        assets,
-        reloadToken,
-        allowUrdfXmlFallback,
-        robotLinks: providedRobotLinks,
-        robotJoints: providedRobotJoints,
-        robotData,
-      }),
+      createMemoizedRendererBackendLoadScopeKey(
+        {
+          sourceFile,
+          availableFiles,
+          assets,
+          reloadToken,
+          allowUrdfXmlFallback,
+          robotLinks: providedRobotLinks,
+          robotJoints: providedRobotJoints,
+          robotData,
+        },
+        loadScopeKeyMemoRef.current,
+      ),
     [
       assets,
       allowUrdfXmlFallback,

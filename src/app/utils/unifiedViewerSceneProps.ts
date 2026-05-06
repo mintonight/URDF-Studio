@@ -1,12 +1,11 @@
 import type { Object3D as ThreeObject3D } from 'three';
+import type { ViewerDocumentLoadEvent, ViewerProps } from '@/features/urdf-viewer/types';
+import type { ViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
 import {
   buildViewerSceneProps,
-  type ViewerController,
-  type ViewerProps,
   type ViewerSceneBaseProps,
-  type ViewerDocumentLoadEvent,
-  type ViewerResourceScope,
-} from '@/features/editor';
+} from '@/features/urdf-viewer/utils/viewerSceneProps';
+import type { ViewerResourceScope } from '@/features/urdf-viewer/utils/viewerResourceScope';
 import type { AssemblyState, AssemblyTransform, RobotFile, RobotState } from '@/types';
 import type { AssemblySelection } from '@/store/assemblySelectionStore';
 

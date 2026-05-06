@@ -1,7 +1,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef } from 'react';
 import { MeasureTool } from './MeasureTool';
 import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
-import { setRegressionRuntimeRobot } from '@/shared/debug/regressionBridge';
+import { setRegressionRuntimeRobot } from '@/shared/debug/regressionState';
 import { RobotModel } from './RobotModel';
 import type {
   MeasureTargetResolver,
@@ -11,6 +11,7 @@ import type {
 import { isContinuousHoverEnabledForToolMode } from '../utils/usdInteractionPolicy';
 import { getViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
 import type { ViewerSceneBaseProps } from '../utils/viewerSceneProps';
+import { resolveRegressionRuntimeRobot } from '../utils/regressionRuntimeRobot';
 
 export interface ViewerSceneProps extends ViewerSceneBaseProps {
   t: RobotModelProps['t'];
@@ -64,6 +65,10 @@ export const ViewerScene = ({
   const measureTargetResolverRef = useRef<MeasureTargetResolver | null>(null);
   const readyNotificationFrameARef = useRef<number | null>(null);
   const readyNotificationFrameBRef = useRef<number | null>(null);
+  const regressionRuntimeEnabled =
+    import.meta.env.DEV ||
+    (typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).get('regressionDebug') === '1');
 
   const runtimeBridge = useMemo<ViewerRuntimeStageBridge>(
     () => ({
@@ -124,29 +129,57 @@ export const ViewerScene = ({
   );
 
   useEffect(() => {
-    const regressionRuntimeEnabled =
-      import.meta.env.DEV ||
-      (typeof window !== 'undefined' &&
-        new URLSearchParams(window.location.search).get('regressionDebug') === '1');
+    if (!regressionRuntimeEnabled) {
+      return;
+    }
 
+    setRegressionRuntimeRobot(null);
+    return () => {
+      setRegressionRuntimeRobot(null);
+    };
+  }, [regressionRuntimeEnabled, sourceFile]);
+
+  useEffect(() => {
     if (!regressionRuntimeEnabled || !sourceFile) {
       return;
     }
 
-    setRegressionRuntimeRobot(controller.jointPanelRobot ?? null);
+    const runtimeRobot = resolveRegressionRuntimeRobot({
+      robot: controller.robot,
+      jointPanelRobot: controller.jointPanelRobot,
+      includePrimaryRobot: false,
+    });
+    if (!runtimeRobot) {
+      return;
+    }
 
+    setRegressionRuntimeRobot(runtimeRobot);
     return () => {
       setRegressionRuntimeRobot(null);
     };
-  }, [controller.jointPanelRobot, sourceFile]);
+  }, [controller.jointPanelRobot, controller.robot, regressionRuntimeEnabled, sourceFile]);
 
   const handleRobotLoaded = useCallback(
     (robot: Parameters<NonNullable<RobotModelProps['onRobotLoaded']>>[0]) => {
       controller.handleRobotLoaded(robot);
+      if (regressionRuntimeEnabled && sourceFile) {
+        setRegressionRuntimeRobot(
+          resolveRegressionRuntimeRobot({
+            robot,
+            jointPanelRobot: null,
+          }),
+        );
+      }
       onRuntimeRobotLoaded?.(robot);
       scheduleSceneReadyForDisplay();
     },
-    [controller.handleRobotLoaded, onRuntimeRobotLoaded, scheduleSceneReadyForDisplay],
+    [
+      controller.handleRobotLoaded,
+      onRuntimeRobotLoaded,
+      regressionRuntimeEnabled,
+      scheduleSceneReadyForDisplay,
+      sourceFile,
+    ],
   );
 
   return (

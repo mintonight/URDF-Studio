@@ -11,7 +11,7 @@ import {
   roundToMaxDecimals,
 } from '@/core/utils/numberPrecision';
 import { CollapsibleSection as SharedCollapsibleSection } from '@/shared/components/Panel/OptionsPanel';
-import { usePressAndHoldRepeat } from '@/shared/hooks';
+import { usePressAndHoldRepeat } from '@/shared/hooks/usePressAndHoldRepeat';
 import {
   PROPERTY_EDITOR_STEPPER_REPEAT_DELAY_MS,
   PROPERTY_EDITOR_STEPPER_REPEAT_INTERVAL_MS,

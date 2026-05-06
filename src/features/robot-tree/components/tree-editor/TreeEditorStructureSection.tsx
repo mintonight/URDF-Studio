@@ -1,4 +1,5 @@
 import {
+  Cuboid,
   ChevronDown,
   ChevronRight,
   Eye,
@@ -8,6 +9,7 @@ import {
   Shapes,
   Shield,
 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { translations } from '@/shared/i18n';
 import type { AppMode, AssemblyState, RobotState } from '@/types';
 import { AssemblyTreeView } from '../AssemblyTreeView';
@@ -47,11 +49,13 @@ interface TreeEditorStructureSectionProps {
   onDelete: (id: string) => void;
   onUpdate: (type: 'link' | 'joint', id: string, data: unknown) => void;
   onRenameAssembly?: (name: string) => void;
+  onRenameRobot?: (name: string) => void;
   onRemoveComponent?: (id: string) => void;
   onRemoveBridge?: (id: string) => void;
   onRenameComponent?: (id: string, name: string) => void;
   onCreateBridge?: () => void;
   onToggleComponentVisibility: (componentId: string) => void;
+  onActivateAssemblyView?: () => void;
   isReadOnly?: boolean;
 }
 
@@ -81,14 +85,51 @@ export function TreeEditorStructureSection({
   onDelete,
   onUpdate,
   onRenameAssembly,
+  onRenameRobot,
   onRemoveComponent,
   onRemoveBridge,
   onRenameComponent,
   onCreateBridge,
   onToggleComponentVisibility,
+  onActivateAssemblyView,
   isReadOnly = false,
 }: TreeEditorStructureSectionProps) {
   const useStoreDrivenTree = !isAssemblyView && !isReadOnly;
+  const [isEditingRobotName, setIsEditingRobotName] = useState(false);
+  const [robotNameDraft, setRobotNameDraft] = useState('');
+  const robotNameInputRef = useRef<HTMLInputElement>(null);
+  const robotNamePlaceholder = t.enterRobotName;
+  const currentRobotName = robot.name;
+
+  useEffect(() => {
+    if (!isEditingRobotName) return;
+
+    const id = window.requestAnimationFrame(() => {
+      robotNameInputRef.current?.focus();
+      robotNameInputRef.current?.select();
+    });
+
+    return () => window.cancelAnimationFrame(id);
+  }, [isEditingRobotName]);
+
+  const startRobotNameEditing = () => {
+    if (isReadOnly) return;
+    setRobotNameDraft(currentRobotName || '');
+    setIsEditingRobotName(true);
+  };
+
+  const cancelRobotNameEditing = () => {
+    setRobotNameDraft('');
+    setIsEditingRobotName(false);
+  };
+
+  const commitRobotNameEditing = () => {
+    const nextName = (robotNameInputRef.current?.value ?? robotNameDraft).trim();
+    if (nextName && nextName !== currentRobotName) {
+      onRenameRobot?.(nextName);
+    }
+    cancelRobotNameEditing();
+  };
 
   return (
     <div className="flex flex-col min-h-0 flex-1" style={{ flex: isOpen ? '1 1 0%' : '0 0 auto' }}>
@@ -103,7 +144,7 @@ export function TreeEditorStructureSection({
             <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
           )}
           <span className="shrink-0 text-[11px] leading-none font-semibold text-text-secondary tracking-[0.02em]">
-            {isAssemblyView ? t.assemblyTree : t.structureTree}
+            {t.structureTree}
           </span>
           {isReadOnly && (
             <span className="shrink-0 rounded-md border border-system-blue/20 bg-system-blue/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-system-blue">
@@ -206,37 +247,81 @@ export function TreeEditorStructureSection({
                   onRenameComponent={onRenameComponent}
                   onCreateBridge={onCreateBridge}
                   onToggleComponentVisibility={onToggleComponentVisibility}
+                  onActivateAssemblyView={onActivateAssemblyView}
+                  showAssemblyRoot={false}
                   mode={mode}
                   t={t}
                 />
               ) : (
-                treeRootLinkIds.map((treeRootLinkId) => (
+                <div className="space-y-1 select-none">
                   <div
-                    key={treeRootLinkId}
-                    style={{ containIntrinsicSize: '320px', contentVisibility: 'auto' }}
+                    className="mx-1 my-0.5 flex items-center rounded-md bg-element-bg px-2 py-1 text-text-primary transition-colors hover:bg-system-blue/10 hover:text-text-primary hover:ring-1 hover:ring-inset hover:ring-system-blue/15 dark:hover:bg-system-blue/20 dark:hover:ring-system-blue/25"
+                    onDoubleClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      startRobotNameEditing();
+                    }}
                   >
-                    <TreeNode
-                      linkId={treeRootLinkId}
-                      robot={useStoreDrivenTree ? undefined : robot}
-                      showGeometryDetailsByDefault={structureTreeShowGeometryDetails}
-                      childJointsByParent={useStoreDrivenTree ? undefined : childJointsByParent}
-                      selectionBranchLinkIds={
-                        useStoreDrivenTree ? undefined : selectionBranchLinkIds
-                      }
-                      onSelect={onSelect}
-                      onSelectGeometry={onSelectGeometry}
-                      onFocus={onFocus}
-                      onAddChild={onAddChild}
-                      onAddCollisionBody={onAddCollisionBody}
-                      onDelete={onDelete}
-                      onUpdate={onUpdate}
-                      mode={mode}
-                      t={t}
-                      readOnly={isReadOnly}
-                      storeDriven={useStoreDrivenTree}
-                    />
+                    <Cuboid size={14} className="mr-1.5 shrink-0 text-system-blue" />
+                    {isEditingRobotName ? (
+                      <input
+                        ref={robotNameInputRef}
+                        type="text"
+                        value={robotNameDraft}
+                        onChange={(event) => setRobotNameDraft(event.target.value)}
+                        onClick={(event) => event.stopPropagation()}
+                        onBlur={commitRobotNameEditing}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            commitRobotNameEditing();
+                          } else if (event.key === 'Escape') {
+                            cancelRobotNameEditing();
+                          }
+                        }}
+                        className="min-w-0 flex-1 select-text rounded border border-border-strong bg-input-bg px-1 py-0.5 text-[11px] font-medium leading-4 text-text-primary outline-none transition-colors focus:border-system-blue"
+                        placeholder={robotNamePlaceholder}
+                      />
+                    ) : (
+                      <span
+                        className="min-w-0 flex-1 truncate text-[11px] font-medium leading-4"
+                        title={currentRobotName || robotNamePlaceholder}
+                      >
+                        {currentRobotName || robotNamePlaceholder}
+                      </span>
+                    )}
                   </div>
-                ))
+                  <div className="ml-2 border-l border-border-black">
+                    {treeRootLinkIds.map((treeRootLinkId) => (
+                      <div
+                        key={treeRootLinkId}
+                        style={{ containIntrinsicSize: '320px', contentVisibility: 'auto' }}
+                      >
+                        <TreeNode
+                          linkId={treeRootLinkId}
+                          robot={useStoreDrivenTree ? undefined : robot}
+                          showGeometryDetailsByDefault={structureTreeShowGeometryDetails}
+                          childJointsByParent={
+                            useStoreDrivenTree ? undefined : childJointsByParent
+                          }
+                          selectionBranchLinkIds={
+                            useStoreDrivenTree ? undefined : selectionBranchLinkIds
+                          }
+                          onSelect={onSelect}
+                          onSelectGeometry={onSelectGeometry}
+                          onFocus={onFocus}
+                          onAddChild={onAddChild}
+                          onAddCollisionBody={onAddCollisionBody}
+                          onDelete={onDelete}
+                          onUpdate={onUpdate}
+                          mode={mode}
+                          t={t}
+                          readOnly={isReadOnly}
+                          storeDriven={useStoreDrivenTree}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
           </div>

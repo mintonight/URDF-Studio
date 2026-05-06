@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 import type { InteractionHelperKind } from '@/types';
-import type { RegressionProjectedInteractionTarget } from '@/shared/debug/regressionBridge';
+import type { RegressionProjectedInteractionTarget } from '@/shared/debug/regressionState';
 
 export interface RegressionProjectionSelection {
   type: 'link' | 'joint';

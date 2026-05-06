@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import * as THREE from 'three';
 import { JSDOM } from 'jsdom';
 
-import { GeometryType } from '@/types';
+import { GeometryType, type RobotFile } from '@/types';
 import { loadMJCFToThreeJS } from './mjcfLoader.ts';
 import { disposeTransientObject3D } from './mjcfLoadLifecycle.ts';
 import {
@@ -14,6 +16,7 @@ import {
   parseMJCFModel,
 } from './mjcfModel.ts';
 import { parseMJCF } from './mjcfParser.ts';
+import { resolveMJCFSource } from './mjcfSourceResolver.ts';
 import { computeLinkWorldMatrices } from '@/core/robot';
 
 function waitForNextMacrotask(): Promise<void> {
@@ -43,6 +46,58 @@ function installDomGlobals(): void {
   globalThis.Node = dom.window.Node as any;
   globalThis.Element = dom.window.Element as any;
   globalThis.Document = dom.window.Document as any;
+}
+
+const MYOSUITE_FIXTURE_ROOT = path.resolve('test/myosuite-main');
+let myosuiteMjcfFilesCache: RobotFile[] | null = null;
+
+function loadMyosuiteMjcfFiles(): RobotFile[] {
+  if (myosuiteMjcfFilesCache) {
+    return myosuiteMjcfFilesCache;
+  }
+
+  const files: RobotFile[] = [];
+  const visitDirectory = (absoluteDirectory: string, relativeDirectory = ''): void => {
+    fs.readdirSync(absoluteDirectory, { withFileTypes: true }).forEach((entry) => {
+      const absolutePath = path.join(absoluteDirectory, entry.name);
+      const relativePath = relativeDirectory
+        ? path.posix.join(relativeDirectory, entry.name)
+        : entry.name;
+
+      if (entry.isDirectory()) {
+        visitDirectory(absolutePath, relativePath);
+        return;
+      }
+
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.xml')) {
+        return;
+      }
+
+      files.push({
+        name: path.posix.join('myosuite-main', relativePath),
+        format: 'mjcf',
+        content: fs.readFileSync(absolutePath, 'utf8'),
+      });
+    });
+  };
+
+  visitDirectory(MYOSUITE_FIXTURE_ROOT);
+  myosuiteMjcfFilesCache = files;
+  return files;
+}
+
+function parseResolvedMyosuiteMjcf(relativePath: string) {
+  const files = loadMyosuiteMjcfFiles();
+  const fileName = path.posix.join('myosuite-main', relativePath);
+  const file = files.find((candidate) => candidate.name === fileName);
+  assert.ok(file, `expected MyoSuite fixture to exist: ${fileName}`);
+
+  const resolved = resolveMJCFSource(file, files);
+  assert.deepEqual(resolved.issues, []);
+
+  const robot = parseMJCF(resolved.content);
+  assert.ok(robot, `expected resolved MyoSuite MJCF to parse: ${fileName}`);
+  return robot;
 }
 
 test('parseMJCFModel cache can be cleared explicitly', () => {
@@ -278,6 +333,50 @@ test('loadMJCFToThreeJS exposes MJCF tendon visualization metadata on the runtim
       name: 'guide',
       rgba: [1, 0, 0, 1],
       attachmentRefs: ['site_a', 'site_b'],
+    },
+  ]);
+
+  disposeTransientObject3D(root);
+});
+
+test('MJCF spatial tendon visualization uses geom sidesite anchors instead of wrap geom names', async () => {
+  installDomGlobals();
+  clearParsedMJCFModelCache();
+
+  const xml = `
+        <mujoco model="runtime-tendon-geom-sidesite">
+          <worldbody>
+            <body name="base_link">
+              <site name="origin_site" pos="0 0 0" rgba="1 0 0 1" />
+              <site name="wrap_sidesite" pos="0 0.05 0" rgba="1 0 0 1" />
+              <geom name="wrap_geom" type="sphere" size="0.01" />
+              <site name="insert_site" pos="0 0.1 0" rgba="1 0 0 1" />
+            </body>
+          </worldbody>
+          <tendon>
+            <spatial name="wrapped_path" rgba="1 0 0 1">
+              <site site="origin_site" />
+              <geom geom="wrap_geom" sidesite="wrap_sidesite" />
+              <site site="insert_site" />
+            </spatial>
+          </tendon>
+        </mujoco>
+    `;
+
+  const robot = parseMJCF(xml);
+  assert.ok(robot);
+  assert.deepEqual(robot.inspectionContext?.mjcf?.tendons[0]?.attachmentRefs, [
+    'origin_site',
+    'wrap_sidesite',
+    'insert_site',
+  ]);
+
+  const root = await loadMJCFToThreeJS(xml, {});
+  assert.deepEqual(root.userData.__mjcfTendonsData, [
+    {
+      name: 'wrapped_path',
+      rgba: [1, 0, 0, 1],
+      attachmentRefs: ['origin_site', 'wrap_sidesite', 'insert_site'],
     },
   ]);
 
@@ -1007,6 +1106,90 @@ test('parseMJCFModel exposes site and tendon metadata without changing joint act
   assert.deepEqual(jointActuators[0]?.forcerange, [-5, 5]);
   assert.equal(jointActuators[0]?.ctrllimited, true);
   assert.equal(jointActuators[0]?.forcelimited, true);
+});
+
+test('parseMJCFModel merges sibling root tendon and actuator sections in source order', () => {
+  installDomGlobals();
+
+  const parsed = parseMJCFModel(`
+        <mujoco model="multi-root-sections">
+          <worldbody>
+            <body name="base_link">
+              <site name="site_a" pos="0 0 0" />
+              <site name="site_b" pos="0 0 0.1" />
+              <body name="finger_link">
+                <joint name="finger_joint" type="hinge" axis="0 0 1" />
+              </body>
+            </body>
+          </worldbody>
+          <tendon>
+            <spatial name="first_tendon">
+              <site site="site_a" />
+              <site site="site_b" />
+            </spatial>
+          </tendon>
+          <tendon>
+            <fixed name="second_tendon">
+              <joint joint="finger_joint" coef="1" />
+            </fixed>
+          </tendon>
+          <actuator>
+            <motor name="finger_motor" joint="finger_joint" forcerange="-2 2" />
+          </actuator>
+          <actuator>
+            <motor name="second_motor" tendon="second_tendon" gear="3" />
+          </actuator>
+        </mujoco>
+    `);
+
+  assert.ok(parsed);
+  assert.deepEqual(Array.from(parsed.tendonMap.keys()), ['first_tendon', 'second_tendon']);
+  assert.equal(parsed.actuatorMap.get('finger_joint')?.length, 1);
+  assert.equal(parsed.actuatorMap.get('finger_joint')?.[0]?.name, 'finger_motor');
+  assert.equal(parsed.tendonActuators.length, 1);
+  assert.equal(parsed.tendonActuators[0]?.name, 'second_motor');
+  assert.equal(parsed.tendonActuators[0]?.tendon, 'second_tendon');
+  assert.deepEqual(parsed.tendonActuators[0]?.gear, [3]);
+});
+
+test('parseMJCF matches MuJoCo tendon metadata counts for MyoSuite arm fixtures', () => {
+  installDomGlobals();
+
+  const cases = [
+    {
+      relativePath: 'myosuite/envs/myo/assets/arm/myoarm_bionic_bimanual.xml',
+      siteCount: 532,
+      tendonCount: 75,
+      tendonActuatorCount: 63,
+      lastTendonName: 'prosthesis/T_pinky21_cpl',
+    },
+    {
+      relativePath: 'myosuite/envs/myo/assets/arm/myoarm_relocate.xml',
+      siteCount: 516,
+      tendonCount: 67,
+      tendonActuatorCount: 63,
+      lastTendonName: 'UI_UB5_tendon',
+    },
+    {
+      relativePath: 'myosuite/envs/myo/assets/arm/myoarm_tabletennis.xml',
+      siteCount: 1514,
+      tendonCount: 277,
+      tendonActuatorCount: 273,
+      lastTendonName: 'UI_UB5_tendon',
+    },
+  ];
+
+  cases.forEach(
+    ({ relativePath, siteCount, tendonCount, tendonActuatorCount, lastTendonName }) => {
+      const robot = parseResolvedMyosuiteMjcf(relativePath);
+      const mjcfContext = robot.inspectionContext?.mjcf;
+
+      assert.equal(mjcfContext?.siteCount, siteCount, relativePath);
+      assert.equal(mjcfContext?.tendonCount, tendonCount, relativePath);
+      assert.equal(mjcfContext?.tendonActuatorCount, tendonActuatorCount, relativePath);
+      assert.equal(mjcfContext?.tendons.at(-1)?.name, lastTendonName, relativePath);
+    },
+  );
 });
 
 test('parseMJCF preserves rebased MJCF site metadata on imported links', () => {

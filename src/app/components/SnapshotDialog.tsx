@@ -8,13 +8,13 @@ import {
   type SegmentedControlOption,
   type SelectOption,
 } from '@/shared/components/ui';
-import { DraggableWindow } from '@/shared/components';
-import { useDraggableWindow } from '@/shared/hooks';
+import { DraggableWindow } from '@/shared/components/DraggableWindow';
+import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import {
   DEFAULT_SNAPSHOT_CAPTURE_OPTIONS,
   type SnapshotCaptureAction,
   type SnapshotCaptureOptions,
-} from '@/shared/components/3d';
+} from '@/shared/components/3d/scene/snapshotConfig';
 import { translations, type Language } from '@/shared/i18n';
 import { SnapshotPreviewRenderer } from './snapshot-preview/SnapshotPreviewRenderer';
 import type { SnapshotDialogPreviewState, SnapshotPreviewSession } from './snapshot-preview/types';

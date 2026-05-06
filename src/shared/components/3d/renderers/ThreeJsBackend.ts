@@ -21,8 +21,12 @@ import {
   createMeshLoader,
 } from '@/core/loaders';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
-import { loadMJCFToThreeJS } from '@/core/parsers/mjcf';
 import { getSourceFileDirectory } from '@/core/parsers/meshPathUtils';
+import {
+  getJointActualAngleFromMotionAngle,
+  getJointMotionAngleFromActualAngle,
+  resolveJointKey,
+} from '@/core/robot';
 import type { RobotData, UrdfJoint, UrdfLink } from '@/types';
 import { isSingleDofJoint } from '@/shared/utils/jointTypes';
 import { resolveURDFMaterialsForScene } from '@/shared/components/3d/urdfMaterials';
@@ -39,7 +43,7 @@ import type {
   RendererSceneProps,
   BackendCapabilities,
 } from './types';
-import type { RobotLoadingPhase, ViewerDocumentLoadEvent } from '@/shared/components/3d/loadingTypes';
+import type { ViewerDocumentLoadEvent } from '@/shared/components/3d/loadingTypes';
 
 const VIEWER_LOAD_YIELD_BUDGET_MS = 4;
 
@@ -49,14 +53,6 @@ type ThreeJsBackendSourceFileLike = {
   content?: string;
   format?: string;
 };
-
-interface RobotLoadingProgress {
-  phase: RobotLoadingPhase;
-  progressMode?: ViewerDocumentLoadEvent['progressMode'];
-  loadedCount?: number | null;
-  totalCount?: number | null;
-  progressPercent?: number | null;
-}
 
 function preprocessURDFForLoader(content: string): string {
   // Remove <transmission> blocks to prevent urdf-loader from finding duplicate joints
@@ -144,6 +140,21 @@ export class ThreeJsBackend implements RobotRendererBackend {
     return resolveThreeJsBackendSourceFileDirectory(this.sourceFile);
   }
 
+  private resolveRobotJoint(jointName: string): UrdfJoint | undefined {
+    const jointKey = resolveJointKey(this.robotJoints, jointName);
+    return jointKey ? this.robotJoints[jointKey] : undefined;
+  }
+
+  private toRuntimeJointMotion(jointName: string, actualAngle: number): number {
+    const joint = this.resolveRobotJoint(jointName);
+    return joint ? getJointMotionAngleFromActualAngle(joint, actualAngle) : actualAngle;
+  }
+
+  private toRobotJointActualAngle(jointName: string, motionAngle: number): number {
+    const joint = this.resolveRobotJoint(jointName);
+    return joint ? getJointActualAngleFromMotionAngle(joint, motionAngle) : motionAngle;
+  }
+
   async load(props: RendererSceneProps): Promise<RobotSceneGraph> {
     const {
       sourceFile,
@@ -203,7 +214,7 @@ export class ThreeJsBackend implements RobotRendererBackend {
           if (!isSingleDofJoint(joint) || typeof angle !== 'number') {
             return;
           }
-          joint.setJointValue?.(angle);
+          joint.setJointValue?.(this.toRuntimeJointMotion(jointName, angle));
         });
         robotModel.updateMatrixWorld(true);
       }
@@ -216,6 +227,8 @@ export class ThreeJsBackend implements RobotRendererBackend {
         joints: this.robotJoints,
         rootLinkId: this.rootLinkId ?? providedRobotData?.rootLinkId ?? '',
         materials: providedRobotData?.materials ?? {},
+        closedLoopConstraints: providedRobotData?.closedLoopConstraints,
+        inspectionContext: providedRobotData?.inspectionContext,
       };
 
       this.robot = robotModel;
@@ -282,9 +295,10 @@ export class ThreeJsBackend implements RobotRendererBackend {
     );
 
     let robotModel: THREE.Object3D | null = null;
-    const urdfMaterials = resolvedSourceFormat === 'mjcf'
-      ? null
-      : resolveURDFMaterialsForScene(this.sourceFile?.content, this.robotLinks);
+    const urdfMaterials =
+      resolvedSourceFormat === 'mjcf'
+        ? null
+        : resolveURDFMaterialsForScene(this.sourceFile?.content, this.robotLinks);
 
     const syncLoadedRobot = (loadedRobot: THREE.Object3D) => {
       const { changed, linkMeshMap } = syncLoadedRobotScene({
@@ -304,7 +318,6 @@ export class ThreeJsBackend implements RobotRendererBackend {
 
     const shouldParseCollisionMeshes = true;
     const hasStructuredRobotState =
-      (resolvedSourceFormat === 'urdf' || resolvedSourceFormat === 'usd') &&
       Boolean(this.robotLinks && this.robotJoints) &&
       (Object.keys(this.robotLinks ?? {}).length > 0 ||
         Object.keys(this.robotJoints ?? {}).length > 0);
@@ -315,49 +328,9 @@ export class ThreeJsBackend implements RobotRendererBackend {
       allowUrdfXmlFallback,
     });
 
-    // Check if content is MJCF
-    if (resolvedSourceFormat === 'mjcf') {
-      robotModel = await loadMJCFToThreeJS(
-        this.sourceFile?.content || '',
-        this.assets,
-        sourceFileDir,
-        (nextProgress) => {
-          if (this.abortController?.aborted) return;
-
-          if (nextProgress.phase !== 'ready') {
-            const normalizedProgress = normalizeLoadingProgress<RobotLoadingProgress>({
-              phase: nextProgress.phase,
-              loadedCount: nextProgress.loadedCount ?? null,
-              totalCount: nextProgress.totalCount ?? null,
-              progressPercent: nextProgress.progressPercent ?? null,
-            });
-            this.loadingProgress = normalizeLoadingProgress<ViewerDocumentLoadEvent>({
-              status: 'loading',
-              phase: nextProgress.phase,
-              progressPercent: nextProgress.progressPercent ?? null,
-              loadedCount: nextProgress.loadedCount ?? null,
-              totalCount: nextProgress.totalCount ?? null,
-              message: null,
-            });
-            onDocumentLoadEvent?.(this.loadingProgress);
-          }
-        },
-        {
-          abortSignal: this.abortController,
-          onAsyncSceneMutation: () => this.invalidateCallback?.(),
-        },
-      );
-
-      if (this.abortController?.aborted && robotModel) {
-        disposeObject3D(robotModel, true, SHARED_MATERIALS);
-        throw new Error('Load aborted');
-      }
-
-      if (!robotModel) {
-        throw new Error('Failed to build MJCF runtime scene.');
-      }
-    } else {
-      // Standard URDF loading
+    {
+      // Standard runtime loading from canonical RobotState, with URDF XML as the
+      // only fallback path when explicitly allowed by the source policy.
       const {
         robotJoints: sourceRobotJoints,
         explicitlyScaledMeshPaths,
@@ -399,6 +372,7 @@ export class ThreeJsBackend implements RobotRendererBackend {
       loader.parseCollision = shouldParseCollisionMeshes;
       loader.parseVisual = true;
       loader.loadMeshCb = createMeshLoader(this.assets, manager, sourceFileDir, {
+        allowPlaceholderMeshes: true,
         colladaRootNormalizationHints,
         explicitScaleMeshPaths: explicitlyScaledMeshPaths,
         yieldIfNeeded,
@@ -409,16 +383,22 @@ export class ThreeJsBackend implements RobotRendererBackend {
       try {
         if (hasStructuredRobotState) {
           robotModel = await buildRuntimeRobotFromState({
+            robotName: this.robotData?.name ?? this.sourceFile?.name,
             links: this.robotLinks!,
             joints: this.robotJoints!,
             materials: this.robotData?.materials,
+            inspectionContext: this.robotData?.inspectionContext,
             manager,
             loadMeshCb: loader.loadMeshCb,
             parseVisual: true,
             parseCollision: shouldParseCollisionMeshes,
+            rootLinkId: this.robotData?.rootLinkId,
             yieldIfNeeded,
           });
         } else {
+          if (resolvedSourceFormat === 'mjcf') {
+            throw new Error('MJCF sources must be resolved to RobotState before rendering.');
+          }
           if (shouldWaitForStructuredRobotState) {
             throw new Error('Waiting for structured robot state');
           }
@@ -632,7 +612,7 @@ export class ThreeJsBackend implements RobotRendererBackend {
     Object.entries(jointAngles).forEach(([jointName, angle]) => {
       const joint = (this.robot as any).joints?.[jointName];
       if (joint && isSingleDofJoint(joint)) {
-        joint.setJointValue?.(angle);
+        joint.setJointValue?.(this.toRuntimeJointMotion(jointName, angle));
       }
     });
 
@@ -646,8 +626,11 @@ export class ThreeJsBackend implements RobotRendererBackend {
     const angles: Record<string, number> = {};
     Object.entries((this.robot as any).joints).forEach(([name, joint]) => {
       if (joint && isSingleDofJoint(joint)) {
-        const typedJoint = joint as { getJointValue?: () => number };
-        angles[name] = typedJoint.getJointValue?.() ?? 0;
+        const typedJoint = joint as { angle?: number; jointValue?: number[] };
+        const motionAngle = Number.isFinite(typedJoint.angle)
+          ? typedJoint.angle!
+          : (typedJoint.jointValue?.[0] ?? 0);
+        angles[name] = this.toRobotJointActualAngle(name, motionAngle);
       }
     });
 

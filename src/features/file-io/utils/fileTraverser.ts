@@ -2,6 +2,10 @@
 /**
  * File System Access API utilities for handling drag and drop folders
  */
+import {
+  hasHiddenImportPathSegment,
+  isRobotImportCandidatePath,
+} from '@/shared/utils/robotFileSupport';
 
 // Helper to read all entries in a directory reader
 async function readAllEntries(directoryReader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
@@ -21,7 +25,13 @@ async function readAllEntries(directoryReader: FileSystemDirectoryReader): Promi
 
 // Recursive function to traverse file system entries
 async function traverseEntry(entry: FileSystemEntry, path: string = ''): Promise<File[]> {
+  const entryPath = path + entry.name;
+
   if (entry.isFile) {
+    if (!isRobotImportCandidatePath(entryPath)) {
+      return [];
+    }
+
     const fileEntry = entry as FileSystemFileEntry;
     return new Promise<File[]>((resolve, reject) => {
       fileEntry.file((file) => {
@@ -29,19 +39,23 @@ async function traverseEntry(entry: FileSystemEntry, path: string = ''): Promise
         // because File object from drag-and-drop usually has empty webkitRelativePath
         // We can attach a custom property or define a new property
         Object.defineProperty(file, 'webkitRelativePath', {
-          value: path + file.name,
+          value: entryPath,
           writable: true,
         });
         resolve([file]);
       }, reject);
     });
   } else if (entry.isDirectory) {
+    if (hasHiddenImportPathSegment(entryPath)) {
+      return [];
+    }
+
     const dirEntry = entry as FileSystemDirectoryEntry;
     const dirReader = dirEntry.createReader();
     const entries = await readAllEntries(dirReader);
     const files: File[] = [];
     for (const childEntry of entries) {
-      const childFiles = await traverseEntry(childEntry, path + entry.name + '/');
+      const childFiles = await traverseEntry(childEntry, `${entryPath}/`);
       files.push(...childFiles);
     }
     return files;
@@ -53,14 +67,30 @@ async function traverseEntry(entry: FileSystemEntry, path: string = ''): Promise
  * Process DataTransferItems from a drop event
  * Handles both files and nested folders
  */
-export async function getDroppedFiles(items: DataTransferItemList): Promise<File[]> {
+export async function getDroppedFilesFromEntries(entries: readonly FileSystemEntry[]): Promise<File[]> {
   const files: File[] = [];
+
+  for (const entry of entries) {
+    const entryFiles = await traverseEntry(entry);
+    files.push(...entryFiles);
+  }
+
+  return files;
+}
+
+/**
+ * Process DataTransferItems from a drop event.
+ * This must be called synchronously from the drop event when callers pass
+ * live DataTransferItems. Lazy callers should capture entries first and then
+ * call getDroppedFilesFromEntries after the traverser module loads.
+ */
+export async function getDroppedFiles(items: DataTransferItemList): Promise<File[]> {
   const entries: FileSystemEntry[] = [];
 
   // 1. Get all entries first
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
-    if (item.kind === 'file') {
+    if (item.kind === 'file' && typeof item.webkitGetAsEntry === 'function') {
       const entry = item.webkitGetAsEntry();
       if (entry) {
         entries.push(entry);
@@ -68,11 +98,5 @@ export async function getDroppedFiles(items: DataTransferItemList): Promise<File
     }
   }
 
-  // 2. Traverse all entries
-  for (const entry of entries) {
-    const entryFiles = await traverseEntry(entry);
-    files.push(...entryFiles);
-  }
-
-  return files;
+  return getDroppedFilesFromEntries(entries);
 }

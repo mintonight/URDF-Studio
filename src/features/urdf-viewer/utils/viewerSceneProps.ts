@@ -47,6 +47,7 @@ interface BuildViewerScenePropsArgs {
   onSourceSceneAssemblyComponentTransform?: (
     componentId: string,
     transform: AssemblyTransform,
+    options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
 }
 

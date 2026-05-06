@@ -17,8 +17,6 @@ const LOOSE_IMPORT_ROOTLESS_FOLDERS = new Set([
   'mesh',
   'mjcf',
   'urdf',
-  'robot',
-  'robots',
   'textures',
   'texture',
   'dae',
@@ -221,6 +219,45 @@ function shouldWrapLooseImportUnderBundleRoot(
   return payload.robotFiles.some((file) => !isAssetLibraryOnlyFormat(file.format));
 }
 
+function shouldWrapLooseImportUnderPackageAssetRoot(
+  payload: BundleRootPayload,
+  bundleRoot: string | null,
+): boolean {
+  if (!bundleRoot || hasExistingBundleRootPrefix(payload, bundleRoot)) {
+    return false;
+  }
+
+  const allPaths = collectPayloadImportPaths(payload);
+  if (allPaths.length === 0) {
+    return false;
+  }
+
+  const hasDefinitionFile = payload.robotFiles.some(
+    (file) => !isAssetLibraryOnlyFormat(file.format) && file.format !== 'usd',
+  );
+  if (!hasDefinitionFile) {
+    return false;
+  }
+
+  const hasRootLevelDefinitionFile = payload.robotFiles.some(
+    (file) =>
+      !isAssetLibraryOnlyFormat(file.format) &&
+      file.format !== 'usd' &&
+      getTopLevelImportSegment(file.name) === null,
+  );
+  const pathStructure = analyzeImportPathStructure(allPaths);
+
+  if (pathStructure.topLevelSegments.length === 0) {
+    return false;
+  }
+
+  if (pathStructure.topLevelSegments.length === 1 && !hasRootLevelDefinitionFile) {
+    return false;
+  }
+
+  return true;
+}
+
 function prefixCollectedImportPath(path: string, bundleRoot: string): string {
   const normalized = normalizeImportPath(path);
   if (!normalized) {
@@ -238,10 +275,7 @@ export function normalizeLooseImportBundleRoot<T extends BundleRootPayload>(payl
   );
   const bundleRoot =
     packageAssetBundleRoot &&
-    shouldWrapLooseImportUnderBundleRoot(payload, {
-      bundleRoot: packageAssetBundleRoot,
-      allowRootLevelDefinitionWithSingleFolder: true,
-    })
+    shouldWrapLooseImportUnderPackageAssetRoot(payload, packageAssetBundleRoot)
       ? packageAssetBundleRoot
       : shouldWrapLooseImportUnderBundleRoot(payload)
         ? inferBundleRootFromRobotFiles(payload.robotFiles)

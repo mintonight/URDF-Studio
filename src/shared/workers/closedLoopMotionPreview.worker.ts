@@ -1,8 +1,16 @@
 /// <reference lib="webworker" />
 
-import { resolveClosedLoopJointMotionCompensation } from '@/core/robot';
-import type { ClosedLoopMotionCompensation } from '@/core/robot/closedLoops';
+import { resolveClosedLoopDrivenJointMotion } from '@/core/robot';
+import type {
+  ClosedLoopDrivenJointMotionResult,
+  ClosedLoopMotionSolveOptions,
+} from '@/core/robot/closedLoops';
 import type { RobotState } from '@/types';
+
+type ClosedLoopMotionPreviewWorkerSolveOptions = Omit<
+  ClosedLoopMotionSolveOptions,
+  'angles' | 'quaternions' | 'lockedJointIds'
+>;
 
 interface ClosedLoopMotionPreviewWorkerRequest {
   type: 'resolve-motion-preview';
@@ -10,12 +18,13 @@ interface ClosedLoopMotionPreviewWorkerRequest {
   robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>;
   jointId: string;
   angle: number;
+  options?: ClosedLoopMotionPreviewWorkerSolveOptions;
 }
 
 interface ClosedLoopMotionPreviewWorkerSuccessResponse {
   type: 'resolve-motion-preview-result';
   requestId: number;
-  compensation: ClosedLoopMotionCompensation;
+  solution: ClosedLoopDrivenJointMotionResult;
 }
 
 interface ClosedLoopMotionPreviewWorkerErrorResponse {
@@ -39,16 +48,17 @@ workerScope.addEventListener(
     }
 
     try {
-      const compensation = resolveClosedLoopJointMotionCompensation(
+      const solution = resolveClosedLoopDrivenJointMotion(
         message.robot,
         message.jointId,
         message.angle,
+        message.options ?? {},
       );
 
       const response: ClosedLoopMotionPreviewWorkerResponse = {
         type: 'resolve-motion-preview-result',
         requestId: message.requestId,
-        compensation,
+        solution,
       };
       workerScope.postMessage(response);
     } catch (error) {

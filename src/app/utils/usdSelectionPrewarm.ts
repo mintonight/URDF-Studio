@@ -1,10 +1,4 @@
 import type { RobotFile } from '@/types';
-import {
-  hasBlobBackedLargeUsdaInStageScope,
-  prewarmPreparedUsdStageOpenDataInBackground,
-  prewarmUsdOffscreenViewerRuntimeInBackground,
-  prewarmUsdWasmRuntimeInBackground,
-} from '@/features/editor';
 
 type StageOpenSourceFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl' | 'format'>;
 type StageOpenAvailableFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl' | 'format'>;
@@ -17,12 +11,17 @@ interface UsdSelectionPrewarmDependencies {
     availableFiles: StageOpenAvailableFile[],
     assets: Record<string, string>,
   ) => void;
+  hasBlobBackedLargeUsdaInStageScope: (
+    file: StageOpenSourceFile,
+    availableFiles: StageOpenAvailableFile[],
+  ) => boolean;
 }
 
 export function createUsdSelectionPrewarmHandler({
   prewarmMainThreadRuntime,
   prewarmOffscreenRuntime,
   prewarmStageOpen,
+  hasBlobBackedLargeUsdaInStageScope,
 }: UsdSelectionPrewarmDependencies): (
   file: StageOpenSourceFile,
   availableFiles: StageOpenAvailableFile[],
@@ -44,8 +43,45 @@ export function createUsdSelectionPrewarmHandler({
   };
 }
 
-export const prewarmUsdSelectionInBackground = createUsdSelectionPrewarmHandler({
-  prewarmMainThreadRuntime: prewarmUsdWasmRuntimeInBackground,
-  prewarmOffscreenRuntime: prewarmUsdOffscreenViewerRuntimeInBackground,
-  prewarmStageOpen: prewarmPreparedUsdStageOpenDataInBackground,
-});
+let usdSelectionPrewarmHandlerPromise: Promise<
+  ReturnType<typeof createUsdSelectionPrewarmHandler>
+> | null = null;
+
+function loadUsdSelectionPrewarmHandler() {
+  if (!usdSelectionPrewarmHandlerPromise) {
+    usdSelectionPrewarmHandlerPromise = Promise.all([
+      import('@/features/urdf-viewer/utils/usdBlobBackedUsda'),
+      import('@/features/urdf-viewer/utils/preparedUsdStageOpenCache'),
+      import('@/features/urdf-viewer/utils/usdOffscreenViewerWorkerClient'),
+      import('@/features/urdf-viewer/utils/usdWasmRuntime'),
+    ])
+      .then(([blobBackedUsda, preparedStageOpenCache, offscreenRuntime, mainThreadRuntime]) =>
+        createUsdSelectionPrewarmHandler({
+          hasBlobBackedLargeUsdaInStageScope: blobBackedUsda.hasBlobBackedLargeUsdaInStageScope,
+          prewarmMainThreadRuntime: mainThreadRuntime.prewarmUsdWasmRuntimeInBackground,
+          prewarmOffscreenRuntime: offscreenRuntime.prewarmUsdOffscreenViewerRuntimeInBackground,
+          prewarmStageOpen: preparedStageOpenCache.prewarmPreparedUsdStageOpenDataInBackground,
+        }),
+      )
+      .catch((error) => {
+        usdSelectionPrewarmHandlerPromise = null;
+        throw error;
+      });
+  }
+
+  return usdSelectionPrewarmHandlerPromise;
+}
+
+export function prewarmUsdSelectionInBackground(
+  file: StageOpenSourceFile,
+  availableFiles: StageOpenAvailableFile[],
+  assets: Record<string, string>,
+): void {
+  if (file.format !== 'usd') {
+    return;
+  }
+
+  void loadUsdSelectionPrewarmHandler()
+    .then((prewarm) => prewarm(file, availableFiles, assets))
+    .catch(() => {});
+}

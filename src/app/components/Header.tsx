@@ -105,16 +105,16 @@ export function Header({
   return (
     <header
       ref={headerRef}
-      className="h-11 border-b shrink-0 select-none bg-panel-bg dark:bg-panel-bg border-border-black grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-3"
+      className="h-10 border-b shrink-0 select-none bg-panel-bg dark:bg-panel-bg border-border-black grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-2.5"
     >
       {/* Left Section - Logo & Menus */}
       <div className="flex items-center gap-1 min-w-0">
-        <div className="mr-1 flex shrink-0 items-center gap-2 border-r border-border-black pr-3">
+        <div className="mr-1 flex shrink-0 items-center gap-2 border-r border-border-black pr-2.5">
           <img
             src="/logos/logo.png"
             alt="Logo"
             draggable={false}
-            className="h-8 w-8 shrink-0 object-contain"
+            className="h-7 w-7 shrink-0 object-contain"
           />
         </div>
 

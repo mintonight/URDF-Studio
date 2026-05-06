@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link2, Minus, Plus } from 'lucide-react';
 import { PanelSelect, type SelectOption } from '@/shared/components/ui';
-import { usePressAndHoldRepeat } from '@/shared/hooks';
+import { usePressAndHoldRepeat } from '@/shared/hooks/usePressAndHoldRepeat';
 import { roundToMaxDecimals } from '@/core/utils/numberPrecision';
 import type { BridgePickTarget } from '../../utils/bridgeSelection';
 import {

@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo } from 'react';
 import { AlertCircle, FileCode, LoaderCircle, Plus } from 'lucide-react';
 
-import { DraggableWindow } from '@/shared/components';
-import { useDraggableWindow } from '@/shared/hooks';
+import { DraggableWindow } from '@/shared/components/DraggableWindow';
+import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { translations } from '@/shared/i18n';
 import {
   classifyLibraryFileKind,

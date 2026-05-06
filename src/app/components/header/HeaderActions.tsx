@@ -69,7 +69,7 @@ export function HeaderActions({
         <button
           type="button"
           onClick={quickAction.onClick}
-          className="flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium text-system-blue dark:text-white hover:bg-system-blue-solid hover:text-white dark:hover:bg-system-blue-solid transition-colors hidden sm:flex"
+          className="flex items-center justify-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium text-system-blue dark:text-white hover:bg-system-blue-solid hover:text-white dark:hover:bg-system-blue-solid transition-colors hidden sm:flex"
           title={quickAction.title ?? quickAction.label}
           aria-label={quickAction.title ?? quickAction.label}
         >
@@ -82,7 +82,7 @@ export function HeaderActions({
         <button
           type="button"
           onClick={onSnapshot}
-          className="flex items-center justify-center w-8 h-8 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
+          className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
           title={t.snapshot}
           aria-label={t.snapshot}
         >
@@ -94,7 +94,7 @@ export function HeaderActions({
         <button
           type="button"
           onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}
-          className="flex items-center justify-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
+          className="flex items-center justify-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
           title={t.switchLanguage}
           aria-label={t.switchLanguage}
         >
@@ -114,7 +114,7 @@ export function HeaderActions({
               setTheme(theme === 'dark' ? 'light' : 'dark');
             }
           }}
-          className="flex items-center justify-center w-8 h-8 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
+          className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
           title={t.toggleTheme}
           aria-label={t.toggleTheme}
         >
@@ -167,7 +167,7 @@ export function HeaderActions({
         <button
           type="button"
           onClick={secondaryAction.onClick}
-          className="flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium text-system-blue dark:text-white hover:bg-system-blue-solid hover:text-white dark:hover:bg-system-blue-solid transition-colors hidden sm:flex"
+          className="flex items-center justify-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium text-system-blue dark:text-white hover:bg-system-blue-solid hover:text-white dark:hover:bg-system-blue-solid transition-colors hidden sm:flex"
           title={secondaryAction.title ?? secondaryAction.label}
           aria-label={secondaryAction.title ?? secondaryAction.label}
         >
@@ -180,7 +180,7 @@ export function HeaderActions({
         <button
           type="button"
           onClick={onOpenSettings}
-          className="flex items-center justify-center w-8 h-8 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
+          className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
           title={t.settings}
           aria-label={t.settings}
         >

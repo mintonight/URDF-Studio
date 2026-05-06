@@ -101,6 +101,29 @@ test('resolveRobotFileData returns cached USD robot data when provided', () => {
   assert.deepEqual(result.robotData.links, usdRobotData.links);
 });
 
+test('resolveRobotFileData stamps source format onto ready RobotData', () => {
+  const urdfResult = resolveRobotFileData({
+    name: 'robots/demo.urdf',
+    content: `<?xml version="1.0"?><robot name="demo"><link name="base_link" /></robot>`,
+    format: 'urdf',
+  });
+  const sdfResult = resolveRobotFileData(createSdfFile());
+  const usdResult = resolveRobotFileData(createUsdFile(), {
+    usdRobotData: createResolvedUsdRobotData('cached_usd_robot'),
+  });
+
+  assert.equal(urdfResult.status, 'ready');
+  assert.equal(sdfResult.status, 'ready');
+  assert.equal(usdResult.status, 'ready');
+  if (urdfResult.status !== 'ready' || sdfResult.status !== 'ready' || usdResult.status !== 'ready') {
+    assert.fail('Expected all import results to be ready');
+  }
+
+  assert.equal(urdfResult.robotData.inspectionContext?.sourceFormat, 'urdf');
+  assert.equal(sdfResult.robotData.inspectionContext?.sourceFormat, 'sdf');
+  assert.equal(usdResult.robotData.inspectionContext?.sourceFormat, 'usd');
+});
+
 test('resolveRobotFileData syncs cached USD material colors back onto link visuals', () => {
   const baseRobotData = createResolvedUsdRobotData('cached_usd_robot');
   const usdRobotData: RobotData = {
@@ -1182,14 +1205,26 @@ test('resolveRobotFileData tolerates MuJoCo-style MJCF with missing attribute wh
     format: 'mjcf' as const,
   };
 
-  const result = resolveRobotFileData(file, {
-    availableFiles: [file],
-  });
+  const warnings: unknown[][] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+
+  let result: ReturnType<typeof resolveRobotFileData>;
+  try {
+    result = resolveRobotFileData(file, {
+      availableFiles: [file],
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
 
   assert.equal(result.status, 'ready');
   if (result.status !== 'ready') {
     assert.fail('Expected malformed-but-MuJoCo-compatible MJCF to import successfully');
   }
+  assert.deepEqual(warnings, []);
   assert.equal(result.robotData.name, 'arm26');
   assert.ok(Object.keys(result.robotData.links).length >= 4);
   assert.ok(Object.keys(result.robotData.joints).length >= 1);

@@ -45,8 +45,8 @@ test('Header keeps the leading logo at a readable non-shrinking size', () => {
 
   const logoTag = markup.match(/<img[^>]*src="\/logos\/logo\.png"[^>]*>/)?.[0];
   assert.ok(logoTag, 'header should render the leading brand logo');
-  assert.match(logoTag, /h-8/, 'logo should keep a balanced readable height');
-  assert.match(logoTag, /w-8/, 'logo should keep a balanced readable width');
+  assert.match(logoTag, /h-7/, 'logo should keep a compact readable height');
+  assert.match(logoTag, /w-7/, 'logo should keep a compact readable width');
   assert.match(logoTag, /shrink-0/, 'logo should not shrink when header content gets dense');
 });
 
@@ -61,6 +61,7 @@ test('Header does not reserve empty center dock width when no toolbar is mounted
 test('Header uses a slimmer top bar height', () => {
   const markup = renderHeader();
 
-  assert.match(markup, /h-11/, 'header should keep a slightly slimmer top bar height');
-  assert.doesNotMatch(markup, /h-12/, 'header should no longer use the taller top bar height');
+  assert.match(markup, /h-10/, 'header should keep a compact top bar height');
+  assert.doesNotMatch(markup, /h-11/, 'header should no longer use the taller top bar height');
+  assert.doesNotMatch(markup, /h-12/, 'header should no longer use the tallest top bar height');
 });

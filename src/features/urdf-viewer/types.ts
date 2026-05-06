@@ -169,7 +169,11 @@ export interface ViewerProps {
     transform: AssemblyTransform,
     options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
-  onBridgeTransform?: (bridgeId: string, origin: UrdfOrigin) => void;
+  onBridgeTransform?: (
+    bridgeId: string,
+    origin: UrdfOrigin,
+    options?: import('@/types/viewer').UpdateCommitOptions,
+  ) => void;
 }
 
 export interface RobotModelProps {
@@ -282,13 +286,18 @@ export interface RobotModelProps {
     transform: AssemblyTransform,
     options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
-  onBridgeTransform?: (bridgeId: string, origin: UrdfOrigin) => void;
+  onBridgeTransform?: (
+    bridgeId: string,
+    origin: UrdfOrigin,
+    options?: import('@/types/viewer').UpdateCommitOptions,
+  ) => void;
   sourceSceneAssemblyComponentId?: string | null;
   sourceSceneAssemblyComponentTransform?: AssemblyTransform | null;
   showSourceSceneAssemblyComponentControls?: boolean;
   onSourceSceneAssemblyComponentTransform?: (
     componentId: string,
     transform: AssemblyTransform,
+    options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
 }
 

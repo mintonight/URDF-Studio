@@ -1,4 +1,4 @@
-import { JointsPanel } from '@/shared/components/Panel/JointsPanel';
+import React from 'react';
 import { MeasurePanel } from './MeasurePanel';
 import { PaintPanel } from './PaintPanel';
 import { ViewerOptionsPanel } from './ViewerOptionsPanel';
@@ -6,6 +6,10 @@ import { ViewerToolbar } from './ViewerToolbar';
 import { translations, type Language } from '@/shared/i18n';
 import type { ViewerController } from '../hooks/useViewerController';
 import { useResponsivePanelLayout } from '../hooks/useResponsivePanelLayout';
+
+const LazyJointsPanel = React.lazy(async () => ({
+  default: (await import('@/shared/components/Panel/JointsPanel')).JointsPanel,
+}));
 
 interface ViewerPanelsProps {
   lang: Language;
@@ -100,29 +104,33 @@ export const ViewerPanels = ({
         setGroundPlaneOffset={controller.setGroundPlaneOffset}
       />
 
-      <JointsPanel
-        showJointPanel={showJointPanel}
-        robot={controller.jointPanelRobot ?? controller.robot}
-        jointPanelRef={controller.jointPanelRef}
-        jointPanelPos={controller.jointPanelPos}
-        defaultPosition={jointsDefaultPosition}
-        maxHeight={jointsPanelMaxHeight}
-        onMouseDown={(event) => controller.handleMouseDown('joints', event)}
-        t={t}
-        handleResetJoints={controller.handleResetJoints}
-        angleUnit={controller.angleUnit}
-        setAngleUnit={controller.setAngleUnit}
-        isJointsCollapsed={controller.isJointsCollapsed}
-        toggleJointsCollapsed={controller.toggleJointsCollapsed}
-        setShowJointPanel={setShowJointPanel}
-        jointPanelStore={controller.jointPanelStore}
-        setActiveJoint={controller.setActiveJoint}
-        handleJointAngleChange={controller.handleJointAngleChange}
-        handleJointChangeCommit={controller.handleJointChangeCommit}
-        onSelect={controller.handleSelectWrapper}
-        onHover={controller.handleHoverWrapper}
-        onUpdate={onUpdate}
-      />
+      {showJointPanel ? (
+        <React.Suspense fallback={null}>
+          <LazyJointsPanel
+            showJointPanel={showJointPanel}
+            robot={controller.jointPanelRobot ?? controller.robot}
+            jointPanelRef={controller.jointPanelRef}
+            jointPanelPos={controller.jointPanelPos}
+            defaultPosition={jointsDefaultPosition}
+            maxHeight={jointsPanelMaxHeight}
+            onMouseDown={(event) => controller.handleMouseDown('joints', event)}
+            t={t}
+            handleResetJoints={controller.handleResetJoints}
+            angleUnit={controller.angleUnit}
+            setAngleUnit={controller.setAngleUnit}
+            isJointsCollapsed={controller.isJointsCollapsed}
+            toggleJointsCollapsed={controller.toggleJointsCollapsed}
+            setShowJointPanel={setShowJointPanel}
+            jointPanelStore={controller.jointPanelStore}
+            setActiveJoint={controller.setActiveJoint}
+            handleJointAngleChange={controller.handleJointAngleChange}
+            handleJointChangeCommit={controller.handleJointChangeCommit}
+            onSelect={controller.handleSelectWrapper}
+            onHover={controller.handleHoverWrapper}
+            onUpdate={onUpdate}
+          />
+        </React.Suspense>
+      ) : null}
 
       <MeasurePanel
         toolMode={controller.toolMode}

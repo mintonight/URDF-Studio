@@ -53,6 +53,7 @@ export type RobotImportResult =
     };
 
 type RobotImportProgressReporter = (progress: RobotImportProgress) => void;
+type RobotInspectionSourceFormat = NonNullable<RobotData['inspectionContext']>['sourceFormat'];
 
 const ROBOT_IMPORT_FAILURE_MESSAGE_PREFIX = /^Failed to import [A-Z0-9_+-]+ file "[^"]+"\.\s*/i;
 
@@ -80,6 +81,31 @@ function toRobotData(robot: RobotState | RobotData): RobotData {
     materials: robot.materials,
     closedLoopConstraints: robot.closedLoopConstraints,
     inspectionContext: robot.inspectionContext,
+  };
+}
+
+function isRobotInspectionSourceFormat(format: RobotFile['format']): format is RobotInspectionSourceFormat {
+  return (
+    format === 'urdf' ||
+    format === 'mjcf' ||
+    format === 'usd' ||
+    format === 'xacro' ||
+    format === 'sdf' ||
+    format === 'mesh'
+  );
+}
+
+function stampRobotDataSourceFormat(robotData: RobotData, format: RobotFile['format']): RobotData {
+  if (!isRobotInspectionSourceFormat(format)) {
+    return robotData;
+  }
+
+  return {
+    ...robotData,
+    inspectionContext: {
+      ...robotData.inspectionContext,
+      sourceFormat: format,
+    },
   };
 }
 
@@ -194,11 +220,12 @@ function createReadyImportResult(
     file.format === 'mjcf'
       ? syncMjcfMeshTextMaterialColors(rewrittenRobotData, allFileContents)
       : meshTextMaterialSyncedRobotData;
+  const syncedRobotData = syncRobotVisualColorsFromMaterials(mjcfMeshColorSyncedRobotData);
 
   return {
     status: 'ready',
     format: file.format,
-    robotData: syncRobotVisualColorsFromMaterials(mjcfMeshColorSyncedRobotData),
+    robotData: stampRobotDataSourceFormat(syncedRobotData, file.format),
     resolvedUrdfContent,
     resolvedUrdfSourceFilePath: resolvedUrdfContent ? sourceFilePath : null,
   };

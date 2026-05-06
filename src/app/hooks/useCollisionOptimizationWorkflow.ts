@@ -6,8 +6,7 @@ import type {
   CollisionOptimizationOperation,
   CollisionOptimizationSource,
   CollisionTargetRef,
-} from '@/features/property-editor';
-import { applyCollisionOptimizationOperationsToLinks } from '@/features/property-editor';
+} from '@/features/property-editor/utils';
 
 interface SelectionPayload {
   type: 'link';
@@ -90,11 +89,15 @@ export function useCollisionOptimizationWorkflow({
   );
 
   const handleApplyCollisionOptimization = useCallback(
-    (operations: CollisionOptimizationOperation[]) => {
+    async (operations: CollisionOptimizationOperation[]) => {
       if (operations.length === 0) {
         showToast(t.noCollisionOptimizationApplied, 'info');
         return;
       }
+
+      const { applyCollisionOptimizationOperationsToLinks } = await import(
+        '@/features/property-editor/utils/collisionOptimization'
+      );
 
       if (assemblyState && sidebarTab === 'workspace') {
         const operationsByComponent = new Map<string, CollisionOptimizationOperation[]>();

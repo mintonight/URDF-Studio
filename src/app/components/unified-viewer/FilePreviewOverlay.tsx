@@ -3,7 +3,7 @@ import { AlertCircle, FileCode, X } from 'lucide-react';
 
 import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
-import { useOverlayHoverBlock } from '@/shared/hooks';
+import { useOverlayHoverBlock } from '@/shared/hooks/useOverlayHoverBlock';
 
 export function FilePreviewBanner({
   fileName,

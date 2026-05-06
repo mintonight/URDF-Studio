@@ -1,6 +1,6 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import { matchesSelection, useSelectionStore } from '@/store/selectionStore';
-import { BRIDGE_PREVIEW_ID } from '@/features/assembly';
+import { BRIDGE_PREVIEW_ID } from '@/shared/utils/assembly/bridgePreviewId';
 import { resolveAssemblyRootComponentSelection } from '@/shared/utils/assembly/transformSelection';
 import type { AssemblyState, InteractionSelection } from '@/types';
 

@@ -7,7 +7,12 @@ import * as THREE from 'three';
 import { type MJCFMeshCache } from './mjcfGeometry';
 import { buildMJCFHierarchy } from './mjcfHierarchyBuilder';
 import { resolveMJCFMeshBackedPrimitiveGeoms } from './mjcfMeshBackedPrimitiveResolver';
-import { clearParsedMJCFModelCache, getParsedMJCFModelError, parseMJCFModel } from './mjcfModel';
+import {
+  clearParsedMJCFModelCache,
+  getParsedMJCFModelError,
+  parseMJCFModel,
+  type MJCFModelTendonAttachment,
+} from './mjcfModel';
 import { looksLikeMJCFDocument } from './mjcfUtils';
 import { disposeColladaParseWorkerPoolClient } from '@/core/loaders/colladaParseWorkerBridge';
 import { disposeObjParseWorkerPoolClient } from '@/core/loaders/objParseWorkerBridge';
@@ -73,6 +78,16 @@ interface MJCFTendonVisualizationData {
   rgba?: [number, number, number, number];
   attachmentRefs: string[];
   width?: number;
+}
+
+function resolveTendonVisualizationAttachmentRef(
+  attachment: MJCFModelTendonAttachment,
+): string | undefined {
+  if (attachment.type === 'geom' && attachment.sidesite) {
+    return attachment.sidesite;
+  }
+
+  return attachment.ref || attachment.sidesite;
 }
 
 export interface MJCFLoadProgress {
@@ -169,8 +184,8 @@ export async function loadMJCFToThreeJS(
           rgba: tendon.rgba,
           ...(typeof tendon.width === 'number' ? { width: tendon.width } : {}),
           attachmentRefs: tendon.attachments
-            .filter((attachment) => attachment.type === 'site' && attachment.ref)
-            .map((attachment) => attachment.ref!),
+            .map(resolveTendonVisualizationAttachmentRef)
+            .filter((value): value is string => typeof value === 'string' && value.length > 0),
         }) satisfies MJCFTendonVisualizationData,
     );
 

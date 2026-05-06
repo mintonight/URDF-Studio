@@ -486,6 +486,56 @@ test('useFileImport reports folder preparation state before handing off the firs
   }
 });
 
+test('useFileImport avoids preparation worker Blob round-trips for broad loose folder imports', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock();
+
+  const importedFiles: File[] = [
+    new File(['<robot name="demo"><link name="base_link" /></robot>'], 'demo.urdf', {
+      type: 'text/xml',
+    }),
+  ];
+  Object.defineProperty(importedFiles[0], 'webkitRelativePath', {
+    configurable: true,
+    value: 'unitree_ros/robots/demo_description/urdf/demo.urdf',
+  });
+
+  for (let index = 0; index < 80; index += 1) {
+    const meshFile = new File([new Uint8Array([index])], `mesh_${index}.stl`);
+    Object.defineProperty(meshFile, 'webkitRelativePath', {
+      configurable: true,
+      value: `unitree_ros/robots/demo_description/meshes/mesh_${index}.stl`,
+    });
+    importedFiles.push(meshFile);
+  }
+
+  const loadCalls: RobotFile[] = [];
+  const rendered = renderHook({
+    onLoadRobot: (file) => {
+      loadCalls.push(file);
+    },
+  });
+
+  try {
+    const result = await rendered.hook.handleImport(importedFiles);
+
+    assert.equal(result.status, 'completed');
+    assert.equal(workerMock.prepareRequestCount, 0);
+    assert.equal(workerMock.resolveRequestCount, 0);
+    assert.equal(loadCalls.length, 1);
+    assert.equal(loadCalls[0]?.name, 'unitree_ros/robots/demo_description/urdf/demo.urdf');
+    assert.equal(useAssetsStore.getState().availableFiles.length, 81);
+    assert.equal(Object.keys(useAssetsStore.getState().assets).length, 80);
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
 test('useFileImport does not hide-seed an assembly when importing multiple standalone MJCF models', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
@@ -848,6 +898,131 @@ test('useFileImport opens a single archive before background hydration finishes 
     assert.ok(useAssetsStore.getState().assets['demo/assets/unused.png']);
     const result = await importPromise;
     assert.equal(result.status, 'completed');
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
+test('useFileImport auto-seeds multi-MJCF archives while non-preferred deferred meshes are still hydrating', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock({ deferHydrate: true });
+
+  const zip = new JSZip();
+  zip.file(
+    'demo/first.xml',
+    `<mujoco model="first_component">
+      <compiler meshdir="assets" />
+      <asset>
+        <mesh name="first_mesh" file="first.msh" />
+      </asset>
+      <worldbody>
+        <body name="first_body">
+          <geom type="mesh" mesh="first_mesh" />
+        </body>
+      </worldbody>
+    </mujoco>`,
+  );
+  zip.file(
+    'demo/second.xml',
+    `<mujoco model="second_component">
+      <compiler meshdir="assets" />
+      <asset>
+        <mesh name="already_hydrated_mesh" file="first.msh" />
+        <mesh name="still_deferred_mesh" file="second.msh" />
+      </asset>
+      <worldbody>
+        <body name="second_body">
+          <geom type="mesh" mesh="still_deferred_mesh" />
+        </body>
+      </worldbody>
+    </mujoco>`,
+  );
+  zip.file('demo/assets/first.msh', new Uint8Array([1, 2, 3]));
+  zip.file('demo/assets/second.msh', new Uint8Array([4, 5, 6]));
+
+  const importedFile = new File([await zip.generateAsync({ type: 'uint8array' })], 'demo.zip', {
+    type: 'application/zip',
+  });
+
+  const rendered = renderHook();
+
+  try {
+    const result = await rendered.hook.handleImport([importedFile] as unknown as FileList);
+
+    assert.equal(result.status, 'completed');
+    const assemblyState = useAssemblyStore.getState().assemblyState;
+    assert.ok(assemblyState, 'expected imported archive to seed an assembly');
+    assert.equal(Object.keys(assemblyState.components).length, 2);
+    assert.ok(useAssetsStore.getState().assets['demo/assets/first.msh']);
+    assert.equal(useAssetsStore.getState().assets['demo/assets/second.msh'], undefined);
+
+    workerMock.releaseHydrate();
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
+test('useFileImport skips unresolved MJCF templates when auto-seeding archive assemblies', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock();
+
+  const zip = new JSZip();
+  zip.file(
+    'myosuite/ready.xml',
+    `<mujoco model="ready_component">
+      <worldbody>
+        <body name="ready_body">
+          <geom type="box" size="0.1 0.1 0.1" />
+        </body>
+      </worldbody>
+    </mujoco>`,
+  );
+  zip.file(
+    'myosuite/myohand_object.xml',
+    `<mujoco model="hand_object_template">
+      <include file="../simhive/object_sim/OBJECT_NAME/assets.xml" />
+      <worldbody>
+        <body name="OBJECT_NAME">
+          <include file="../simhive/object_sim/OBJECT_NAME/body.xml" />
+        </body>
+      </worldbody>
+    </mujoco>`,
+  );
+
+  const importedFile = new File(
+    [await zip.generateAsync({ type: 'uint8array' })],
+    'myosuite-template.zip',
+    { type: 'application/zip' },
+  );
+
+  const rendered = renderHook();
+
+  try {
+    const result = await rendered.hook.handleImport([importedFile] as unknown as FileList);
+    const assemblyState = useAssemblyStore.getState().assemblyState;
+    const sourceFiles = Object.values(assemblyState?.components ?? {}).map(
+      (component) => component.sourceFile,
+    );
+
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(sourceFiles, ['myosuite/ready.xml']);
+    assert.ok(
+      useAssetsStore
+        .getState()
+        .availableFiles.some((file) => file.name === 'myosuite/myohand_object.xml'),
+      'expected unresolved template source to remain available in the library',
+    );
   } finally {
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1253,6 +1428,106 @@ test('useFileImport imports loose mesh and image files into the asset library', 
       useAssetsStore
         .getState()
         .availableFiles.some((file) => file.name === 'poster.png' && file.format === 'mesh'),
+    );
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
+test('useFileImport imports all loose folder meshes into the asset library', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock();
+
+  function looseFile(name: string, content: BlobPart, relativePath: string): File {
+    const file = new File([content], name);
+    Object.defineProperty(file, 'webkitRelativePath', {
+      configurable: true,
+      value: relativePath,
+    });
+    return file;
+  }
+
+  const loadCalls: RobotFile[] = [];
+  const rendered = renderHook({
+    onLoadRobot: (file) => {
+      loadCalls.push(file);
+    },
+  });
+
+  try {
+    const result = await rendered.hook.handleImport([
+      looseFile(
+        'alpha.urdf',
+        `<?xml version="1.0"?>
+<robot name="alpha_description">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://alpha_description/meshes/alpha_base.stl" />
+      </geometry>
+    </visual>
+  </link>
+</robot>`,
+        'unitree_ros/robots/alpha_description/urdf/alpha.urdf',
+      ),
+      looseFile(
+        'beta.urdf',
+        `<?xml version="1.0"?>
+<robot name="beta_description">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://beta_description/meshes/beta_base.stl" />
+      </geometry>
+    </visual>
+  </link>
+</robot>`,
+        'unitree_ros/robots/beta_description/urdf/beta.urdf',
+      ),
+      looseFile(
+        'alpha_base.stl',
+        'solid alpha',
+        'unitree_ros/robots/alpha_description/meshes/alpha_base.stl',
+      ),
+      looseFile(
+        'beta_base.stl',
+        'solid beta',
+        'unitree_ros/robots/beta_description/meshes/beta_base.stl',
+      ),
+    ] as unknown as FileList);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    assert.equal(result.status, 'completed');
+    assert.ok(
+      new Set([
+        'unitree_ros/robots/alpha_description/urdf/alpha.urdf',
+        'unitree_ros/robots/beta_description/urdf/beta.urdf',
+      ]).has(loadCalls[0]?.name ?? ''),
+    );
+    assert.ok(
+      useAssetsStore
+        .getState()
+        .availableFiles.some(
+          (file) =>
+            file.name === 'unitree_ros/robots/beta_description/meshes/beta_base.stl' &&
+            file.format === 'mesh',
+        ),
+    );
+    assert.ok(
+      useAssetsStore.getState().assets[
+        'unitree_ros/robots/alpha_description/meshes/alpha_base.stl'
+      ],
+    );
+    assert.ok(
+      useAssetsStore.getState().assets[
+        'unitree_ros/robots/beta_description/meshes/beta_base.stl'
+      ],
     );
   } finally {
     rendered.cleanup();

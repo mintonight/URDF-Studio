@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
+import type { Object3D } from 'three';
 
+import { DEFAULT_JOINT, DEFAULT_LINK, JointType, type RobotData } from '@/types';
 import { ThreeJsBackend, resolveThreeJsBackendSourceFileDirectory } from './ThreeJsBackend';
 
 const rendererSourceDirUrl = new URL('./', import.meta.url);
@@ -35,6 +37,45 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>');
 globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
 globalThis.Document = dom.window.Document as typeof Document;
 globalThis.Element = dom.window.Element as typeof Element;
+
+function createReferencedJointRobotData(): RobotData {
+  return {
+    name: 'referenced_joint_robot',
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+      },
+      child_link: {
+        ...DEFAULT_LINK,
+        id: 'child_link',
+        name: 'child_link',
+      },
+    },
+    joints: {
+      hip_joint: {
+        ...DEFAULT_JOINT,
+        id: 'hip_joint',
+        name: 'hip_joint',
+        type: JointType.REVOLUTE,
+        parentLinkId: 'base_link',
+        childLinkId: 'child_link',
+        axis: { x: 0, y: 0, z: 1 },
+        referencePosition: Math.PI / 4,
+        angle: Math.PI / 4,
+      },
+    },
+  };
+}
+
+function getRuntimeJointValue(robot: Object3D | null, jointId: string): number {
+  const joint = (robot as { joints?: Record<string, { jointValue?: number[] }> } | null)?.joints?.[
+    jointId
+  ];
+  return joint?.jointValue?.[0] ?? Number.NaN;
+}
 
 test('resolveThreeJsBackendSourceFileDirectory falls back to RobotFile name for virtual sources', () => {
   assert.equal(
@@ -151,4 +192,56 @@ test('ThreeJsBackend respects disabled URDF XML fallback when structured state i
   await assert.rejects(() => backend.load(loadProps), {
     message: 'Waiting for structured robot state',
   });
+});
+
+test('ThreeJsBackend applies initialJointAngles as RobotState actual angles relative to referencePosition', async () => {
+  const robotData = createReferencedJointRobotData();
+  const sourceFile = {
+    id: 'referenced-joint.urdf',
+    name: 'referenced-joint.urdf',
+    content: '<robot name="referenced_joint_robot" />',
+    format: 'urdf' as const,
+  };
+
+  const backend = new ThreeJsBackend(sourceFile, {});
+  await backend.load({
+    sourceFile,
+    assets: {},
+    robotData,
+    showVisual: false,
+    showCollision: false,
+    showCollisionAlwaysOnTop: true,
+    initialJointAngles: {
+      hip_joint: Math.PI / 4 + 0.25,
+    },
+  });
+
+  assert.ok(Math.abs(getRuntimeJointValue(backend.getRobotObject(), 'hip_joint') - 0.25) <= 1e-12);
+});
+
+test('ThreeJsBackend updateJointAngles and getJointAngles preserve RobotState actual angle semantics', async () => {
+  const robotData = createReferencedJointRobotData();
+  const sourceFile = {
+    id: 'referenced-joint.urdf',
+    name: 'referenced-joint.urdf',
+    content: '<robot name="referenced_joint_robot" />',
+    format: 'urdf' as const,
+  };
+
+  const backend = new ThreeJsBackend(sourceFile, {});
+  await backend.load({
+    sourceFile,
+    assets: {},
+    robotData,
+    showVisual: false,
+    showCollision: false,
+    showCollisionAlwaysOnTop: true,
+  });
+
+  backend.updateJointAngles({
+    hip_joint: Math.PI / 4 + 0.4,
+  });
+
+  assert.ok(Math.abs(getRuntimeJointValue(backend.getRobotObject(), 'hip_joint') - 0.4) <= 1e-12);
+  assert.ok(Math.abs((backend.getJointAngles().hip_joint ?? Number.NaN) - (Math.PI / 4 + 0.4)) <= 1e-12);
 });

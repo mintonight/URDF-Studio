@@ -480,11 +480,18 @@ test('prefixMJCFSourceIdentifiers rewrites standalone MJCF identifiers without c
       <worldbody>
         <body name="lh_forearm" childclass="hand">
           <geom name="lh_forearm_visual" mesh="forearm_mesh" material="metallic" />
+          <site name="lh_wrap_side" />
           <body name="lh_wrist">
             <joint name="lh_WRJ2" />
           </body>
         </body>
       </worldbody>
+      <tendon>
+        <spatial name="lh_tendon">
+          <site site="lh_wrap_side" />
+          <geom geom="lh_forearm_visual" sidesite="lh_wrap_side" />
+        </spatial>
+      </tendon>
       <contact>
         <exclude body1="lh_wrist" body2="lh_forearm" />
       </contact>
@@ -499,6 +506,9 @@ test('prefixMJCFSourceIdentifiers rewrites standalone MJCF identifiers without c
   assert.match(prefixed, /name="left_hand_lh_forearm"/);
   assert.match(prefixed, /name="left_hand_lh_wrist"/);
   assert.match(prefixed, /name="left_hand_lh_WRJ2"/);
+  assert.match(prefixed, /name="left_hand_lh_wrap_side"/);
+  assert.match(prefixed, /site="left_hand_lh_wrap_side"/);
+  assert.match(prefixed, /sidesite="left_hand_lh_wrap_side"/);
   assert.match(prefixed, /body1="left_hand_lh_wrist"/);
   assert.match(prefixed, /body2="left_hand_lh_forearm"/);
   assert.match(prefixed, /joint="left_hand_lh_WRJ2"/);

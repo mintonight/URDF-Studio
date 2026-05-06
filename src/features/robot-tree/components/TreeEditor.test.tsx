@@ -7,7 +7,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { DEFAULT_LINK } from '@/types/constants';
-import type { RobotFile, RobotState } from '@/types';
+import type { AssemblyState, RobotFile, RobotState } from '@/types';
 import { GeometryType, JointType } from '@/types';
 import { useSelectionStore, useUIStore } from '@/store';
 
@@ -178,6 +178,30 @@ function createRobotFile(name: string): RobotFile {
   };
 }
 
+function createMeshFile(name: string): RobotFile {
+  return {
+    name,
+    format: 'mesh',
+    content: '',
+  };
+}
+
+function createAssemblyState(): AssemblyState {
+  return {
+    name: 'demo_assembly',
+    components: {
+      comp_arm: {
+        id: 'comp_arm',
+        name: 'arm_component',
+        sourceFile: 'robots/arm_component.urdf',
+        robot: createRobotState(),
+        visible: true,
+      },
+    },
+    bridges: {},
+  };
+}
+
 async function clickByText(dom: JSDOM, container: HTMLElement, text: string) {
   const target = Array.from(dom.window.document.querySelectorAll('button, span')).find(
     (element) => element.textContent?.trim() === text,
@@ -329,6 +353,75 @@ test('TreeEditor asks whether to save a draft before opening another library mod
   }
 });
 
+test('TreeEditor shows and edits the robot name from the structure tree root', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+  const nameChanges: string[] = [];
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={createRobotState()}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={(name) => nameChanges.push(name)}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          availableFiles={[]}
+        />,
+      );
+    });
+
+    assert.equal(container.textContent?.includes('Robot Name'), false);
+    const robotName = Array.from(container.querySelectorAll('span')).find(
+      (element) => element.textContent?.trim() === 'demo',
+    );
+    assert.ok(robotName, 'expected robot name in structure tree');
+
+    await act(async () => {
+      robotName.dispatchEvent(
+        new dom.window.MouseEvent('dblclick', {
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>('input');
+    assert.ok(input, 'expected robot name edit input');
+    assert.equal(input.value, 'demo');
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        dom.window.HTMLInputElement.prototype,
+        'value',
+      )?.set;
+      valueSetter?.call(input, 'renamed_demo');
+      input.dispatchEvent(
+        new dom.window.FocusEvent('focusout', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    assert.deepEqual(nameChanges, ['renamed_demo']);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('TreeEditor forwards the save-draft decision for pending library switches', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
@@ -366,13 +459,13 @@ test('TreeEditor forwards the save-draft decision for pending library switches',
   }
 });
 
-test('TreeEditor keeps file-row clicks in workspace mode as preview and reserves add button for insertion', async () => {
+test('TreeEditor opens robot files as the current model and reserves add for assembly insertion', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
 
-  useUIStore.setState({ sidebarTab: 'workspace' });
+  useUIStore.setState({ sidebarTab: 'structure' });
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   const targetFile = createRobotFile('robots/arm_preview.urdf');
@@ -415,13 +508,120 @@ test('TreeEditor keeps file-row clicks in workspace mode as preview and reserves
 
     await clickByText(dom, container, 'arm_preview.urdf');
 
-    assert.deepEqual(previewRequests, ['robots/arm_preview.urdf']);
-    assert.deepEqual(loadRequests, []);
+    assert.deepEqual(previewRequests, []);
+    assert.deepEqual(loadRequests, [{ fileName: 'robots/arm_preview.urdf', intent: 'direct' }]);
     assert.deepEqual(addRequests, []);
 
     await clickButtonByTitle(dom, 'Load to Workspace');
 
     assert.deepEqual(addRequests, ['robots/arm_preview.urdf']);
+    assert.equal(useUIStore.getState().sidebarTab, 'workspace');
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('TreeEditor renders workspace components and bridges inside the single structure tree', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useUIStore.setState({ sidebarTab: 'workspace' });
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={createRobotState()}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          availableFiles={[]}
+          assemblyState={createAssemblyState()}
+          onAddComponent={() => {}}
+        />,
+      );
+    });
+
+    const structureTreeLabels = Array.from(container.querySelectorAll('span')).filter(
+      (element) => element.textContent?.trim() === 'Structure Tree',
+    );
+    assert.equal(structureTreeLabels.length, 1);
+    assert.doesNotMatch(container.textContent ?? '', /Assembly View/);
+    assert.match(container.textContent ?? '', /Components/);
+    assert.match(container.textContent ?? '', /arm_component/);
+    assert.match(container.textContent ?? '', /Bridges/);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('TreeEditor keeps non-robot asset row clicks as previews', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useUIStore.setState({ sidebarTab: 'workspace' });
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+
+  const targetFile = createMeshFile('assets/poster.png');
+  const previewRequests: string[] = [];
+  const loadRequests: Array<{ fileName: string; intent: 'direct' | 'save-draft' | 'discard' }> = [];
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={createRobotState()}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          availableFiles={[targetFile]}
+          onLoadRobot={(file) => {
+            previewRequests.push(file.name);
+          }}
+          onRequestLoadRobot={async (file, intent) => {
+            loadRequests.push({ fileName: file.name, intent });
+            return 'loaded' as const;
+          }}
+          onAddComponent={() => {}}
+        />,
+      );
+    });
+
+    await clickByText(dom, container, 'poster.png');
+
+    assert.deepEqual(previewRequests, ['assets/poster.png']);
+    assert.deepEqual(loadRequests, []);
   } finally {
     await act(async () => {
       root.unmount();

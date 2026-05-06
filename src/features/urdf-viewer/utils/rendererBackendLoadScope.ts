@@ -1,6 +1,9 @@
 import type { RobotData, RobotFile, UrdfJoint, UrdfLink } from '@/types';
 import { isUsdLikeFormat } from '@/core/parsers/usd';
-import { createStableJsonSnapshot } from '@/shared/utils/robot/semanticSnapshot';
+import {
+  createStableJsonSnapshot,
+  stripTransientJointMotionFromJoint,
+} from '@/shared/utils/robot/semanticSnapshot';
 import { createViewerRobotLoadInputSignature } from './robotLoadScope';
 
 interface CreateRendererBackendLoadScopeKeyOptions {
@@ -12,6 +15,18 @@ interface CreateRendererBackendLoadScopeKeyOptions {
   robotLinks?: Record<string, UrdfLink>;
   robotJoints?: Record<string, UrdfJoint>;
   robotData?: RobotData | null;
+}
+
+export interface RendererBackendLoadScopeKeyMemo {
+  lastKey?: string;
+  lastSourceFile?: RobotFile;
+  lastAvailableFiles?: RobotFile[];
+  lastAssets?: Record<string, string>;
+  lastReloadToken?: number;
+  lastAllowUrdfXmlFallback?: boolean;
+  lastResolvedRobotLinks?: Record<string, UrdfLink>;
+  lastResolvedRobotJoints?: Record<string, UrdfJoint>;
+  lastResolvedRobotJointsSignature?: string;
 }
 
 function hashStringFNV1a(value: string): string {
@@ -47,6 +62,25 @@ function createAvailableFilesSignature(availableFiles: RobotFile[] | undefined):
       .sort((left, right) =>
         `${left.format}:${left.name}`.localeCompare(`${right.format}:${right.name}`),
       ),
+  );
+}
+
+function createJointStructureSignature(joints: Record<string, UrdfJoint> | undefined): string {
+  if (!joints) {
+    return '';
+  }
+
+  return hashStableValue(stripTransientJointMotionFromJointsForSignature(joints));
+}
+
+function stripTransientJointMotionFromJointsForSignature(
+  joints: Record<string, UrdfJoint>,
+): Record<string, UrdfJoint> {
+  return Object.fromEntries(
+    Object.entries(joints).map(([jointId, joint]) => [
+      jointId,
+      stripTransientJointMotionFromJoint(joint),
+    ]),
   );
 }
 
@@ -104,4 +138,41 @@ export function createRendererBackendLoadScopeKey({
     assets: createAssetSignature(assets),
     availableFiles: createAvailableFilesSignature(availableFiles),
   });
+}
+
+export function createMemoizedRendererBackendLoadScopeKey(
+  options: CreateRendererBackendLoadScopeKeyOptions,
+  memo: RendererBackendLoadScopeKeyMemo,
+): string {
+  const resolvedRobotLinks = options.robotData?.links ?? options.robotLinks;
+  const resolvedRobotJoints = options.robotData?.joints ?? options.robotJoints;
+
+  if (
+    memo.lastKey &&
+    memo.lastSourceFile === options.sourceFile &&
+    memo.lastAvailableFiles === options.availableFiles &&
+    memo.lastAssets === options.assets &&
+    memo.lastReloadToken === (options.reloadToken ?? 0) &&
+    memo.lastAllowUrdfXmlFallback === (options.allowUrdfXmlFallback ?? false) &&
+    memo.lastResolvedRobotLinks === resolvedRobotLinks
+  ) {
+    const nextJointStructureSignature = createJointStructureSignature(resolvedRobotJoints);
+    if (memo.lastResolvedRobotJointsSignature === nextJointStructureSignature) {
+      memo.lastResolvedRobotJoints = resolvedRobotJoints;
+      return memo.lastKey;
+    }
+  }
+
+  const nextKey = createRendererBackendLoadScopeKey(options);
+  memo.lastKey = nextKey;
+  memo.lastSourceFile = options.sourceFile;
+  memo.lastAvailableFiles = options.availableFiles;
+  memo.lastAssets = options.assets;
+  memo.lastReloadToken = options.reloadToken ?? 0;
+  memo.lastAllowUrdfXmlFallback = options.allowUrdfXmlFallback ?? false;
+  memo.lastResolvedRobotLinks = resolvedRobotLinks;
+  memo.lastResolvedRobotJoints = resolvedRobotJoints;
+  memo.lastResolvedRobotJointsSignature = createJointStructureSignature(resolvedRobotJoints);
+
+  return nextKey;
 }
