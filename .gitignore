@@ -37,6 +37,7 @@ scripts/versioning/*
 output/
 tmp/
 .playwright-mcp/
+.playwright-cli/
 log/COLCON_IGNORE
 log/latest
 log/latest_*
@@ -52,6 +53,7 @@ public/__codex_anymal_c.zip
 .husky/
 .superpowers/
 docs/superpowers/
+plans/
 skills-lock.json
 
 .vscode/
