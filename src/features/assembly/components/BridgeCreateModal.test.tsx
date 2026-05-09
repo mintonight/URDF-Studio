@@ -291,6 +291,82 @@ function expectSelectSlot(container: ParentNode, fieldKey: string) {
   assert.ok(row.querySelector('select'), `expected select slot "${fieldKey}" to contain a select`);
 }
 
+async function selectBridgeTab(container: ParentNode, tabId: 'relation' | 'transform' | 'joint') {
+  const tab = container.querySelector<HTMLButtonElement>(`[data-bridge-tab="${tabId}"]`);
+  assert.ok(tab, `expected ${tabId} tab to render`);
+
+  await act(async () => {
+    tab.click();
+    await Promise.resolve();
+  });
+}
+
+test('bridge create modal opens as a smaller tabbed adaptive editor', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(BridgeCreateModal, {
+          isOpen: true,
+          onClose: () => {},
+          onCreate: () => {},
+          onPreviewChange: () => {},
+          assemblyState: createAssemblyState(),
+          lang: 'zh',
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const dialogRoot = container.firstElementChild as HTMLElement | null;
+    assert.ok(dialogRoot, 'bridge dialog should render');
+    assert.equal(dialogRoot.style.width, '600px');
+
+    const tabList = container.querySelector<HTMLElement>('[data-bridge-tabs]');
+    assert.ok(tabList, 'bridge dialog should expose tab navigation');
+
+    const relationTab = tabList.querySelector<HTMLButtonElement>('[data-bridge-tab="relation"]');
+    const transformTab = tabList.querySelector<HTMLButtonElement>('[data-bridge-tab="transform"]');
+    assert.ok(relationTab, 'relation tab should render');
+    assert.ok(transformTab, 'transform tab should render');
+    assert.equal(relationTab.getAttribute('aria-selected'), 'true');
+    assert.equal(transformTab.getAttribute('aria-selected'), 'false');
+    assert.ok(
+      container.querySelector('[data-bridge-tab-panel="relation"]'),
+      'relation panel should be visible by default',
+    );
+    assert.equal(
+      container.querySelector('[data-bridge-tab-panel="transform"]'),
+      null,
+      'transform panel should stay hidden until selected',
+    );
+
+    await act(async () => {
+      transformTab.click();
+      await Promise.resolve();
+    });
+
+    assert.equal(relationTab.getAttribute('aria-selected'), 'false');
+    assert.equal(transformTab.getAttribute('aria-selected'), 'true');
+    assert.equal(
+      container.querySelector('[data-bridge-tab-panel="relation"]'),
+      null,
+      'relation panel should hide after switching tabs',
+    );
+    assert.ok(
+      container.querySelector('[data-bridge-row="origin"]'),
+      'transform tab should reveal origin controls',
+    );
+    assert.ok(
+      container.querySelector('[data-bridge-tab-panel="transform"]'),
+      'transform panel should render after switching tabs',
+    );
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
 test('bridge create modal keeps the compact grouped layout and removes legacy hint copy', async () => {
   const { dom, container, root } = createComponentRoot();
   const originalConsoleError = console.error;
@@ -324,7 +400,7 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
 
     const dialogRoot = container.firstElementChild as HTMLElement | null;
     assert.ok(dialogRoot, 'bridge dialog should render');
-    assert.equal(dialogRoot.style.width, '620px');
+    assert.equal(dialogRoot.style.width, '600px');
 
     assert.doesNotMatch(container.textContent ?? '', /桥接关节/);
     assert.doesNotMatch(container.textContent ?? '', /保持窗口打开时/);
@@ -416,35 +492,6 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
       'relation grid should not reserve an oversized fixed connector column',
     );
 
-    const originRow = container.querySelector<HTMLElement>('[data-bridge-row="origin"]');
-    assert.ok(originRow, 'origin row should render');
-    const inspectorGrid = originRow.parentElement?.parentElement
-      ?.parentElement as HTMLElement | null;
-    assert.ok(inspectorGrid, 'origin row should stay inside the inspector layout container');
-    assert.match(
-      inspectorGrid.className,
-      /grid-cols-\[/,
-      'default bridge modal width should keep the relation and origin sections side by side',
-    );
-    expectInlineFieldRow(originRow, 'origin-x', 'input');
-    expectInlineFieldRow(originRow, 'origin-y', 'input');
-    expectInlineFieldRow(originRow, 'origin-z', 'input');
-    assert.equal(
-      originRow.querySelector('[data-bridge-axis="x"]') !== null,
-      true,
-      'origin X should render an axis-coded shell',
-    );
-    assert.equal(
-      originRow.querySelector('[data-bridge-axis="y"]') !== null,
-      true,
-      'origin Y should render an axis-coded shell',
-    );
-    assert.equal(
-      originRow.querySelector('[data-bridge-axis="z"]') !== null,
-      true,
-      'origin Z should render an axis-coded shell',
-    );
-
     const childButton = findButtonByText(container, '选择子侧');
     assert.ok(childButton, 'child side picker button should render');
 
@@ -499,6 +546,7 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
 
 test('bridge create modal uses friendly MJCF link labels in summaries and selectors', async () => {
   const { dom, container, root } = createComponentRoot();
+  const originalConsoleError = console.error;
   const assemblyState = createAssemblyState();
   const mjcfRootLink = assemblyState.components.component_a.robot.links['component_a/base_link'];
 
@@ -526,6 +574,14 @@ test('bridge create modal uses friendly MJCF link labels in summaries and select
     selection: { type: null, id: null },
     interactionGuard: null,
   });
+
+  console.error = (...args: unknown[]) => {
+    if (args.some((arg) => typeof arg === 'string' && arg.includes('not wrapped in act'))) {
+      return;
+    }
+
+    originalConsoleError(...args);
+  };
 
   try {
     await act(async () => {
@@ -568,6 +624,7 @@ test('bridge create modal uses friendly MJCF link labels in summaries and select
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
+    console.error = originalConsoleError;
   }
 });
 
@@ -868,6 +925,8 @@ test('bridge create modal adds compact +/-90 degree rotation shortcuts for each 
       await Promise.resolve();
     });
 
+    await selectBridgeTab(container, 'transform');
+
     const rollDecreaseButton = container.querySelector('button[aria-label="横滚 减少 90°"]');
     const rollIncreaseButton = container.querySelector('button[aria-label="横滚 增加 90°"]');
     assert.ok(rollDecreaseButton, 'roll decrease shortcut button should exist');
@@ -888,6 +947,109 @@ test('bridge create modal adds compact +/-90 degree rotation shortcuts for each 
     });
 
     assert.equal(previewUpdates.at(-1), 0);
+  } finally {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      interactionGuard: null,
+    });
+    await destroyComponentRoot(dom, root);
+    console.error = originalConsoleError;
+  }
+});
+
+test('bridge create modal maps X/Y/Z keyboard shortcuts to Euler flip steps', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const previewUpdates: Array<{
+    r: number;
+    p: number;
+    y: number;
+  } | null> = [];
+  const originalConsoleError = console.error;
+
+  useSelectionStore.setState({
+    selection: { type: null, id: null },
+    interactionGuard: null,
+  });
+
+  console.error = (...args: unknown[]) => {
+    if (args.some((arg) => typeof arg === 'string' && arg.includes('not wrapped in act'))) {
+      return;
+    }
+
+    originalConsoleError(...args);
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(BridgeCreateModal, {
+          isOpen: true,
+          onClose: () => {},
+          onCreate: () => {},
+          onPreviewChange: (bridge) => {
+            previewUpdates.push(bridge ? bridge.joint.origin.rpy : null);
+          },
+          assemblyState: createAssemblyState(),
+          lang: 'zh',
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      await Promise.resolve();
+    });
+
+    const childButton = findButtonByText(container, '选择子侧');
+    assert.ok(childButton, 'child side picker button should render');
+
+    await act(async () => {
+      childButton.click();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      dom.window.document.dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'x', bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    assertNearlyEqual(previewUpdates.at(-1)?.r ?? 0, Math.PI / 2);
+
+    await act(async () => {
+      dom.window.document.dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'Y', bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    assertNearlyEqual(previewUpdates.at(-1)?.p ?? 0, Math.PI / 2);
+
+    await act(async () => {
+      dom.window.document.dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'z', shiftKey: true, bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    assertNearlyEqual(previewUpdates.at(-1)?.y ?? 0, -Math.PI / 2);
+
+    const nameInput = findTextInput(container);
+    assert.ok(nameInput, 'name input should render');
+    await act(async () => {
+      nameInput.focus();
+      nameInput.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'x', bubbles: true }));
+      await Promise.resolve();
+    });
+    assertNearlyEqual(
+      previewUpdates.at(-1)?.r ?? 0,
+      Math.PI / 2,
+      'typing inside an input should not trigger bridge rotation shortcuts',
+    );
   } finally {
     useSelectionStore.setState({
       selection: { type: null, id: null },
@@ -1388,6 +1550,8 @@ test('bridge create modal updates the preview immediately when origin steppers c
       await Promise.resolve();
     });
 
+    await selectBridgeTab(container, 'transform');
+
     const increaseXButton = container.querySelector(
       'button[aria-label="Increase X"]',
     ) as HTMLButtonElement | null;
@@ -1462,6 +1626,8 @@ test('bridge create modal keeps incrementing origin steppers while the + button 
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
     });
+
+    await selectBridgeTab(container, 'transform');
 
     const increaseXButton = container.querySelector(
       'button[aria-label="Increase X"]',
@@ -1544,6 +1710,8 @@ test('bridge create modal wires press-and-hold handlers onto the quick +90 rotat
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
     });
+
+    await selectBridgeTab(container, 'transform');
 
     const rollIncreaseButton = container.querySelector(
       'button[aria-label="横滚 增加 90°"]',
@@ -1632,6 +1800,8 @@ test('bridge create modal submits configurable limits for non-fixed joints', asy
       setFormControlValue(dom, jointTypeSelect, JointType.REVOLUTE);
       await Promise.resolve();
     });
+
+    await selectBridgeTab(container, 'joint');
 
     const hardwareInterfaceSelect = findHardwareInterfaceSelect(container);
     assert.ok(hardwareInterfaceSelect, 'hardware interface select should render for motion joints');
@@ -1744,6 +1914,8 @@ test('bridge create modal disables confirm when the lower limit exceeds the uppe
       setFormControlValue(dom, jointTypeSelect, JointType.REVOLUTE);
       await Promise.resolve();
     });
+
+    await selectBridgeTab(container, 'joint');
 
     const lowerInput = findInputByAriaLabel(container, '位置下限');
     const upperInput = findInputByAriaLabel(container, '位置上限');

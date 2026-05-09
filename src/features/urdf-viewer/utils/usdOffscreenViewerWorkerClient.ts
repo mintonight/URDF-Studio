@@ -175,7 +175,15 @@ export function createUsdOffscreenViewerWorkerClient({
     prewarmRuntime: () => {
       try {
         postSharedMessage({ type: 'prewarm-runtime' });
-      } catch {}
+      } catch (error) {
+        logRuntimeFailure(
+          'prewarmUsdOffscreenViewerRuntime',
+          error instanceof Error
+            ? error
+            : new Error('Failed to prewarm the shared USD offscreen viewer runtime.'),
+          'warn',
+        );
+      }
     },
     disposeStage: () => {
       if (!sharedWorker) {

@@ -43,6 +43,7 @@ import {
 } from '@/types';
 import { BRIDGE_PREVIEW_ID } from '@/shared/utils/assembly/bridgePreviewId';
 import { createRobotSemanticSnapshot } from '@/shared/utils/robot/semanticSnapshot';
+import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
 import { parseEditableRobotSourceWithWorker } from './robotImportWorkerBridge';
 import { USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF } from './workspace-source-sync/usdViewerPlaceholder';
 
@@ -960,7 +961,12 @@ function parseRobotSourceSnapshot(sourceSnapshot: string | null): RobotData | nu
 
   try {
     return JSON.parse(sourceSnapshot) as RobotData;
-  } catch {
+  } catch (error) {
+    scheduleFailFastInDev(
+      'workspaceSourceSyncUtils:parseRobotSourceSnapshot',
+      new Error('Failed to parse workspace source snapshot.', { cause: error }),
+      'error',
+    );
     return null;
   }
 }

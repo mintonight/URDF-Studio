@@ -1,7 +1,47 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { resolveSdfIncludeSource } from './sdfIncludeResolution.ts';
 import { resolveGazeboScriptMaterial } from './gazeboMaterialScripts.ts';
+
+test('SDF includes and Gazebo material scripts normalize equivalent relative paths', () => {
+  const sdf = '<sdf version="1.7"><model name="sensor" /></sdf>';
+  const resolvedInclude = resolveSdfIncludeSource(
+    'model://demo/./nested/../sensor',
+    {
+      'demo/sensor/model.sdf': sdf,
+    },
+    'worlds/main.sdf',
+  );
+
+  const material = resolveGazeboScriptMaterial({
+    allFileContents: {
+      'demo/materials/scripts/demo.material': `
+        material Demo/Painted
+        {
+          technique
+          {
+            pass
+            {
+              texture_unit
+              {
+                texture ../textures/coat.png
+              }
+            }
+          }
+        }`,
+    },
+    scriptName: 'Demo/Painted',
+    scriptUris: ['model://demo/./materials\\scripts/../scripts'],
+    sourcePath: 'worlds/main.sdf',
+  });
+
+  assert.deepEqual(resolvedInclude, {
+    path: 'demo/sensor/model.sdf',
+    content: sdf,
+  });
+  assert.equal(material?.texture, 'demo/materials/textures/coat.png');
+});
 
 test('resolveGazeboScriptMaterial resolves texture paths relative to gazebo material script roots', () => {
   const material = resolveGazeboScriptMaterial({

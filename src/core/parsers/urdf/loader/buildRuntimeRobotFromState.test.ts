@@ -237,9 +237,48 @@ test('buildRuntimeRobotFromState exposes MJCF sites and tendons from RobotState 
       name: 'main_tendon',
       rgba: [0, 1, 0, 1],
       attachmentRefs: ['anchor_site', 'anchor_site'],
+      attachments: [
+        { type: 'site', ref: 'anchor_site' },
+        { type: 'site', ref: 'anchor_site' },
+      ],
       width: 0.004,
     },
   ]);
+});
+
+test('buildRuntimeRobotFromState labels RobotState geometry groups for MJCF tendon wrap anchors', async () => {
+  const robot = await buildRuntimeRobotFromState({
+    robotName: 'mjcf_wrap_geometry_robot',
+    links: {
+      world: {
+        ...DEFAULT_LINK,
+        id: 'world',
+        name: 'world',
+        collision: {
+          ...DEFAULT_LINK.collision,
+          name: 'wrap_geom',
+          type: GeometryType.SPHERE,
+          dimensions: { x: 0.02, y: 0, z: 0 },
+          origin: {
+            xyz: { x: 0.1, y: 0.2, z: 0.3 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+        },
+      },
+    },
+    joints: {},
+    manager: new THREE.LoadingManager(),
+    loadMeshCb: createNoopMeshLoadCb(),
+  });
+
+  const wrapGeometry = robot.links.world.children.find(
+    (child) => child.userData?.geometryName === 'wrap_geom',
+  );
+  assert.ok(wrapGeometry);
+  assert.equal(wrapGeometry.userData.geometryRole, 'collision');
+  assert.equal(wrapGeometry.userData.geometryType, GeometryType.SPHERE);
+  assert.deepEqual(wrapGeometry.userData.geometryDimensions, { x: 0.02, y: 0, z: 0 });
+  assert.deepEqual(wrapGeometry.position.toArray(), [0.1, 0.2, 0.3]);
 });
 
 test('buildRuntimeRobotFromState applies RobotState joint angles to runtime joints', async () => {

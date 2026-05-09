@@ -166,7 +166,6 @@ function resetStoresToBaseline() {
   useUIStore.setState({
     lang: 'en',
     appMode: 'editor',
-    sidebarTab: 'structure',
   });
 
   useAssemblyStore.setState({
@@ -608,7 +607,6 @@ test('useFileExport routes USD exports through usd export worker and binary arch
     useUIStore.setState({
       lang: 'en',
       appMode: 'editor',
-      sidebarTab: 'structure',
     });
 
     useAssetsStore.getState().setAvailableFiles([selectedFile]);
@@ -691,7 +689,6 @@ test('useFileExport skips binary USD conversion when exporting authored USDA lay
     useUIStore.setState({
       lang: 'en',
       appMode: 'editor',
-      sidebarTab: 'structure',
     });
 
     useAssetsStore.getState().setAvailableFiles([selectedFile]);
@@ -765,7 +762,6 @@ test('useFileExport prefers prepared USD bundle export over the viewer runtime e
       useUIStore.setState({
         lang: 'en',
         appMode: 'editor',
-        sidebarTab: 'structure',
       });
 
       useAssetsStore.getState().setAvailableFiles([selectedFile]);
@@ -842,7 +838,6 @@ test('useFileExport rejects current USD export when only the viewer runtime expo
       useUIStore.setState({
         lang: 'en',
         appMode: 'editor',
-        sidebarTab: 'structure',
       });
 
       useAssetsStore.getState().setAvailableFiles([selectedFile]);
@@ -903,7 +898,6 @@ test('useFileExport fails fast before starting workers when USD worker export en
     useUIStore.setState({
       lang: 'en',
       appMode: 'editor',
-      sidebarTab: 'structure',
     });
 
     useAssetsStore.getState().setAvailableFiles([selectedFile]);

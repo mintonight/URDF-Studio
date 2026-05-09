@@ -8,7 +8,6 @@ import {
   Edit3,
   Eye,
   EyeOff,
-  Folder,
   Link2,
   LockKeyhole,
   Plus,
@@ -48,7 +47,6 @@ export interface AssemblyTreeViewProps {
   onRenameComponent?: (id: string, name: string) => void;
   onCreateBridge?: () => void;
   onToggleComponentVisibility?: (id: string) => void;
-  onActivateAssemblyView?: () => void;
   showAssemblyRoot?: boolean;
   mode: AppMode;
   t: TranslationKeys;
@@ -117,7 +115,6 @@ export const AssemblyTreeView = memo(
     onRenameComponent,
     onCreateBridge,
     onToggleComponentVisibility,
-    onActivateAssemblyView,
     showAssemblyRoot = true,
     mode,
     t,
@@ -148,7 +145,6 @@ export const AssemblyTreeView = memo(
         selectComponent: state.selectComponent,
       })),
     );
-    const [isComponentsExpanded, setIsComponentsExpanded] = useState(true);
     const [isBridgesExpanded, setIsBridgesExpanded] = useState(true);
     const [expandedComponents, setExpandedComponents] = useState<Record<string, boolean>>({});
     const [editingTarget, setEditingTarget] = useState<AssemblyRenameTarget | null>(null);
@@ -289,7 +285,6 @@ export const AssemblyTreeView = memo(
 
     const handleRenameFromMenu = () => {
       if (!contextMenu) return;
-      onActivateAssemblyView?.();
       if (contextMenu.kind === 'assembly') {
         beginAssemblyRename();
       } else if (contextMenu.kind === 'component') {
@@ -306,7 +301,6 @@ export const AssemblyTreeView = memo(
 
     const handleDeleteFromMenu = () => {
       if (!contextMenu || contextMenu.kind === 'assembly') return;
-      onActivateAssemblyView?.();
       if (contextMenu.kind === 'component') {
         onRemoveComponent?.(contextMenu.id);
       } else {
@@ -339,7 +333,6 @@ export const AssemblyTreeView = memo(
                 : `bg-element-bg ${itemHoverClass}`
             }`}
             onClick={() => {
-              onActivateAssemblyView?.();
               setSelection({ type: null, id: null });
               selectAssembly();
             }}
@@ -382,228 +375,203 @@ export const AssemblyTreeView = memo(
           </div>
         )}
 
-        <div className="mt-2">
-          <div
-            className={`flex items-center gap-1.5 py-1 px-2 cursor-pointer transition-all duration-200 group rounded-md ${sectionHoverClass}`}
-            onClick={() => setIsComponentsExpanded(!isComponentsExpanded)}
-          >
-            {isComponentsExpanded ? (
-              <ChevronDown size={12} className="text-text-tertiary" />
-            ) : (
-              <ChevronRight size={12} className="text-text-tertiary" />
-            )}
-            <Folder size={12} className="text-amber-500" />
-            <span className="text-[11px] font-semibold text-text-tertiary dark:text-text-tertiary tracking-[0.02em]">
-              {t.components}
-            </span>
-            <span className="text-[10px] text-text-tertiary ml-auto">{components.length}</span>
-          </div>
-
-          {isComponentsExpanded && (
-            <div className="ml-2 border-l border-border-black space-y-0.5 mt-0.5">
-              {components.length === 0 && (
-                <div className="px-4 py-3 text-[11px] text-text-tertiary italic text-center">
-                  {t.emptyAssemblyHint}
-                </div>
-              )}
-
-              {components.map((component) => {
-                const isExpanded = expandedComponents[component.id] ?? false;
-                const isVisible = component.visible !== false;
-                const isEditingComponent =
-                  editingTarget?.kind === 'component' && editingTarget.id === component.id;
-                const isComponentSelected =
-                  assemblySelection.type === 'component' && assemblySelection.id === component.id;
-                const isComponentSelectionHighlighted = componentContainsSelection(
-                  component,
-                  effectiveSelection,
-                );
-                const isComponentHovered = componentContainsSelection(component, hoveredSelection);
-                const isComponentAttentionHighlighted = componentContainsSelection(
-                  component,
-                  attentionSelection,
-                );
-                const isComponentTransformable = isAssemblyComponentIndividuallyTransformable(
-                  assemblyState,
-                  component.id,
-                );
-                const componentHoverLinkId = resolveComponentHoverLinkId(
-                  component,
-                  componentRootLinkIds,
-                );
-                const componentRobotState: RobotState = {
-                  ...component.robot,
-                  selection: effectiveSelection,
-                };
-                const componentRowStateClass = isComponentAttentionHighlighted
-                  ? itemAttentionClass
-                  : isComponentSelected || isComponentSelectionHighlighted
-                    ? itemSelectedClass
-                    : isComponentHovered
-                      ? itemHoveredClass
-                      : itemHoverClass;
-
-                return (
-                  <div key={component.id}>
-                    <div
-                      className={`flex items-center gap-1.5 py-1 px-2 mx-1 rounded-md cursor-pointer group transition-all duration-200 ${
-                        componentRowStateClass
-                      }
-                      ${!isVisible ? 'opacity-60' : ''}`}
-                      onClick={() => {
-                        onActivateAssemblyView?.();
-                        if (interactionGuard && componentHoverLinkId) {
-                          setExpandedComponents((prev) =>
-                            prev[component.id] ? prev : { ...prev, [component.id]: true },
-                          );
-                          onSelect('link', componentHoverLinkId);
-                          return;
-                        }
-
-                        setSelection({ type: null, id: null });
-                        selectComponent(component.id);
-                      }}
-                      onContextMenu={(event) =>
-                        openContextMenu(event, { kind: 'component', id: component.id })
-                      }
-                      onMouseEnter={() => {
-                        if (componentHoverLinkId) {
-                          setHoveredSelection({ type: 'link', id: componentHoverLinkId });
-                        }
-                      }}
-                      onMouseLeave={clearHover}
-                    >
-                      <button
-                        type="button"
-                        className="flex items-center justify-center rounded p-0.5 text-text-tertiary hover:bg-element-hover"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleComponent(component.id);
-                        }}
-                        aria-label={
-                          isExpanded
-                            ? `${t.collapse} ${component.name}`
-                            : `${t.expand} ${component.name}`
-                        }
-                      >
-                        {isExpanded ? (
-                          <ChevronDown size={12} className="text-text-tertiary" />
-                        ) : (
-                          <ChevronRight size={12} className="text-text-tertiary" />
-                        )}
-                      </button>
-                      <Box size={12} className="text-system-blue" />
-
-                      {isEditingComponent ? (
-                        <input
-                          ref={renameInputRef}
-                          value={editingTarget?.draft ?? ''}
-                          onChange={(event) => {
-                            setEditingTarget((prev) =>
-                              prev?.kind === 'component' && prev.id === component.id
-                                ? { ...prev, draft: event.target.value }
-                                : prev,
-                            );
-                          }}
-                          onClick={(event) => event.stopPropagation()}
-                          onBlur={commitRename}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              commitRename();
-                            } else if (event.key === 'Escape') {
-                              cancelRename();
-                            }
-                          }}
-                          className={renameInputClassName}
-                        />
-                      ) : (
-                        <div
-                          className="min-w-0 flex flex-1 items-center gap-2"
-                          onDoubleClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            beginComponentRename(component.id, component.name);
-                          }}
-                        >
-                          <span
-                            className="text-[11px] font-medium text-text-primary truncate flex-1"
-                            title={component.name}
-                          >
-                            {component.name}
-                          </span>
-                          {!isComponentTransformable && (
-                            <span
-                              className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
-                              title={t.bridgedComponentLockedHint}
-                              role="img"
-                              aria-label={t.bridgedComponentLockedHint}
-                            >
-                              <Link2 size={10} strokeWidth={2.5} aria-hidden="true" />
-                              <span className="absolute -right-0.5 -bottom-0.5 flex h-2 w-2 items-center justify-center rounded-full border border-background-primary bg-background-primary text-amber-600 dark:text-amber-300">
-                                <LockKeyhole size={5.5} strokeWidth={3} aria-hidden="true" />
-                              </span>
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onActivateAssemblyView?.();
-                            onToggleComponentVisibility?.(component.id);
-                          }}
-                          className="p-1 rounded hover:bg-element-hover text-text-tertiary transition-colors"
-                          title={isVisible ? t.hide : t.show}
-                        >
-                          {isVisible ? <Eye size={12} /> : <EyeOff size={12} />}
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onActivateAssemblyView?.();
-                            onRemoveComponent?.(component.id);
-                          }}
-                          className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-colors"
-                          title={t.deleteBranch}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {isExpanded && (
-                      <div
-                        className="ml-2"
-                        style={{ containIntrinsicSize: '280px', contentVisibility: 'auto' }}
-                      >
-                        {componentRootLinkIds[component.id]?.map((treeRootLinkId) => (
-                          <TreeNode
-                            key={treeRootLinkId}
-                            linkId={treeRootLinkId}
-                            robot={componentRobotState}
-                            showGeometryDetailsByDefault={showGeometryDetailsByDefault}
-                            childJointsByParent={componentChildJointsByParent[component.id]}
-                            onSelect={onSelect}
-                            onSelectGeometry={onSelectGeometry}
-                            onFocus={onFocus}
-                            onAddChild={onAddChild}
-                            onAddCollisionBody={onAddCollisionBody}
-                            onDelete={onDelete}
-                            onUpdate={onUpdate}
-                            mode={mode}
-                            t={t}
-                            depth={0}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+        <div className="mt-1 space-y-0.5">
+          {components.length === 0 && (
+            <div className="px-4 py-3 text-center text-[11px] italic text-text-tertiary">
+              {t.emptyAssemblyHint}
             </div>
           )}
+
+          {components.map((component) => {
+            const isExpanded = expandedComponents[component.id] ?? false;
+            const isVisible = component.visible !== false;
+            const isEditingComponent =
+              editingTarget?.kind === 'component' && editingTarget.id === component.id;
+            const isComponentSelected =
+              assemblySelection.type === 'component' && assemblySelection.id === component.id;
+            const isComponentSelectionHighlighted = componentContainsSelection(
+              component,
+              effectiveSelection,
+            );
+            const isComponentHovered = componentContainsSelection(component, hoveredSelection);
+            const isComponentAttentionHighlighted = componentContainsSelection(
+              component,
+              attentionSelection,
+            );
+            const isComponentTransformable = isAssemblyComponentIndividuallyTransformable(
+              assemblyState,
+              component.id,
+            );
+            const componentHoverLinkId = resolveComponentHoverLinkId(
+              component,
+              componentRootLinkIds,
+            );
+            const componentRobotState: RobotState = {
+              ...component.robot,
+              selection: effectiveSelection,
+            };
+            const componentRowStateClass = isComponentAttentionHighlighted
+              ? itemAttentionClass
+              : isComponentSelected || isComponentSelectionHighlighted
+                ? itemSelectedClass
+                : isComponentHovered
+                  ? itemHoveredClass
+                  : itemHoverClass;
+
+            return (
+              <div key={component.id}>
+                <div
+                  className={`mx-1 flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 transition-all duration-200 group ${componentRowStateClass}
+                  ${!isVisible ? 'opacity-60' : ''}`}
+                  onClick={() => {
+                    if (interactionGuard && componentHoverLinkId) {
+                      setExpandedComponents((prev) =>
+                        prev[component.id] ? prev : { ...prev, [component.id]: true },
+                      );
+                      onSelect('link', componentHoverLinkId);
+                      return;
+                    }
+
+                    setSelection({ type: null, id: null });
+                    selectComponent(component.id);
+                  }}
+                  onContextMenu={(event) =>
+                    openContextMenu(event, { kind: 'component', id: component.id })
+                  }
+                  onMouseEnter={() => {
+                    if (componentHoverLinkId) {
+                      setHoveredSelection({ type: 'link', id: componentHoverLinkId });
+                    }
+                  }}
+                  onMouseLeave={clearHover}
+                >
+                  <button
+                    type="button"
+                    className="flex items-center justify-center rounded p-0.5 text-text-tertiary hover:bg-element-hover"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleComponent(component.id);
+                    }}
+                    aria-label={
+                      isExpanded
+                        ? `${t.collapse} ${component.name}`
+                        : `${t.expand} ${component.name}`
+                    }
+                  >
+                    {isExpanded ? (
+                      <ChevronDown size={12} className="text-text-tertiary" />
+                    ) : (
+                      <ChevronRight size={12} className="text-text-tertiary" />
+                    )}
+                  </button>
+                  <Box size={12} className="text-system-blue" />
+
+                  {isEditingComponent ? (
+                    <input
+                      ref={renameInputRef}
+                      value={editingTarget?.draft ?? ''}
+                      onChange={(event) => {
+                        setEditingTarget((prev) =>
+                          prev?.kind === 'component' && prev.id === component.id
+                            ? { ...prev, draft: event.target.value }
+                            : prev,
+                        );
+                      }}
+                      onClick={(event) => event.stopPropagation()}
+                      onBlur={commitRename}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          commitRename();
+                        } else if (event.key === 'Escape') {
+                          cancelRename();
+                        }
+                      }}
+                      className={renameInputClassName}
+                    />
+                  ) : (
+                    <div
+                      className="flex min-w-0 flex-1 items-center gap-2"
+                      onDoubleClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        beginComponentRename(component.id, component.name);
+                      }}
+                    >
+                      <span
+                        className="flex-1 truncate text-[11px] font-medium text-text-primary"
+                        title={component.name}
+                      >
+                        {component.name}
+                      </span>
+                      {!isComponentTransformable && (
+                        <span
+                          className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
+                          title={t.bridgedComponentLockedHint}
+                          role="img"
+                          aria-label={t.bridgedComponentLockedHint}
+                        >
+                          <Link2 size={10} strokeWidth={2.5} aria-hidden="true" />
+                          <span className="absolute -right-0.5 -bottom-0.5 flex h-2 w-2 items-center justify-center rounded-full border border-background-primary bg-background-primary text-amber-600 dark:text-amber-300">
+                            <LockKeyhole size={5.5} strokeWidth={3} aria-hidden="true" />
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleComponentVisibility?.(component.id);
+                      }}
+                      className="rounded p-1 text-text-tertiary transition-colors hover:bg-element-hover"
+                      title={isVisible ? t.hide : t.show}
+                    >
+                      {isVisible ? <Eye size={12} /> : <EyeOff size={12} />}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRemoveComponent?.(component.id);
+                      }}
+                      className="rounded p-1 text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-900/30"
+                      title={t.deleteBranch}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div
+                    className="ml-4 border-l border-border-black/70"
+                    style={{ containIntrinsicSize: '280px', contentVisibility: 'auto' }}
+                  >
+                    {componentRootLinkIds[component.id]?.map((treeRootLinkId) => (
+                      <TreeNode
+                        key={treeRootLinkId}
+                        linkId={treeRootLinkId}
+                        robot={componentRobotState}
+                        showGeometryDetailsByDefault={showGeometryDetailsByDefault}
+                        childJointsByParent={componentChildJointsByParent[component.id]}
+                        onSelect={onSelect}
+                        onSelectGeometry={onSelectGeometry}
+                        onFocus={onFocus}
+                        onAddChild={onAddChild}
+                        onAddCollisionBody={onAddCollisionBody}
+                        onDelete={onDelete}
+                        onUpdate={onUpdate}
+                        mode={mode}
+                        t={t}
+                        depth={0}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         <div className="mt-2">
@@ -624,7 +592,6 @@ export const AssemblyTreeView = memo(
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onActivateAssemblyView?.();
                 onCreateBridge?.();
               }}
               className="px-1.5 py-0.5 rounded bg-system-blue/10 dark:bg-system-blue/20 hover:bg-system-blue/15 dark:hover:bg-system-blue/25 text-system-blue border border-system-blue/25 dark:border-system-blue/35 flex items-center gap-1 transition-colors group/btn"
@@ -657,7 +624,6 @@ export const AssemblyTreeView = memo(
                             : `text-text-secondary dark:text-text-secondary ${itemHoverClass}`
                     }`}
                     onClick={() => {
-                      onActivateAssemblyView?.();
                       onSelect('joint', bridge.id);
                     }}
                     onContextMenu={(event) =>
@@ -709,7 +675,6 @@ export const AssemblyTreeView = memo(
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        onActivateAssemblyView?.();
                         onRemoveBridge?.(bridge.id);
                       }}
                       className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-opacity"

@@ -1,4 +1,5 @@
 import { resolveImportedAssetPath } from '@/core/parsers/meshPathUtils';
+import { normalizeRelativePath } from '@/core/utils/pathNormalization';
 
 export interface ResolvedSdfIncludeSource {
   path: string;
@@ -14,28 +15,6 @@ interface SdfIncludeSourceIndex {
   byPath: Map<string, ResolvedSdfIncludeSource>;
 }
 
-function normalizePath(path: string): string {
-  const segments = path.replace(/\\/g, '/').split('/');
-  const stack: string[] = [];
-
-  for (const segment of segments) {
-    if (!segment || segment === '.') {
-      continue;
-    }
-
-    if (segment === '..') {
-      if (stack.length > 0) {
-        stack.pop();
-      }
-      continue;
-    }
-
-    stack.push(segment);
-  }
-
-  return stack.join('/');
-}
-
 function resolveIncludePath(uri: string, sourcePath?: string): string | null {
   const trimmed = uri.trim();
   if (!trimmed) {
@@ -47,10 +26,10 @@ function resolveIncludePath(uri: string, sourcePath?: string): string | null {
   }
 
   if (trimmed.startsWith('file://')) {
-    return normalizePath(trimmed.slice('file://'.length));
+    return normalizeRelativePath(trimmed.slice('file://'.length));
   }
 
-  return normalizePath(resolveImportedAssetPath(trimmed, sourcePath));
+  return normalizeRelativePath(resolveImportedAssetPath(trimmed, sourcePath));
 }
 
 function preferCandidate(left: ResolvedSdfIncludeSource, right: ResolvedSdfIncludeSource): number {
@@ -70,7 +49,7 @@ function createSdfIncludeSourceIndex(
 ): SdfIncludeSourceIndex {
   const entries = Object.entries(allFileContents)
     .map(([path, content]) => ({
-      path: normalizePath(path),
+      path: normalizeRelativePath(path),
       content,
     }))
     .filter(({ path }) => path.toLowerCase().endsWith('.sdf'));

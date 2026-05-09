@@ -216,11 +216,6 @@ function AIInspectionConnector({
     },
   ) => void;
 }) {
-  const { sidebarTab } = useUIStore(
-    useShallow((state) => ({
-      sidebarTab: state.sidebarTab,
-    })),
-  );
   const { selection, setSelection, focusOn, pulseSelection } = useSelectionStore(
     useShallow((state) => ({
       selection: state.selection,
@@ -256,12 +251,12 @@ function AIInspectionConnector({
   );
 
   const mergedWorkspaceRobot = useMemo(() => {
-    if (!assemblyState || sidebarTab !== 'workspace') {
+    if (!assemblyState) {
       return null;
     }
 
     return getMergedRobotData();
-  }, [assemblyState, getMergedRobotData, sidebarTab]);
+  }, [assemblyState, getMergedRobotData]);
 
   const robot: RobotState = useMemo(() => {
     if (mergedWorkspaceRobot) {
@@ -349,11 +344,6 @@ function ExportDialogConnector({
     options?: { onProgress?: (progress: ExportProgressState) => void },
   ) => Promise<void>;
 }) {
-  const { sidebarTab } = useUIStore(
-    useShallow((state) => ({
-      sidebarTab: state.sidebarTab,
-    })),
-  );
   const { selectedFile, documentLoadState, getUsdSceneSnapshot, getUsdPreparedExportCache } =
     useAssetsStore(
       useShallow((state) => ({
@@ -374,7 +364,7 @@ function ExportDialogConnector({
     documentLoadLifecycleState.fileName === selectedFile.name;
 
   const currentUsdExportMode =
-    selectedFile?.format === 'usd' && sidebarTab !== 'workspace'
+    selectedFile?.format === 'usd'
       ? resolveCurrentUsdExportMode({
           isHydrating: isSelectedUsdHydrating,
           hasPreparedExportCache: Boolean(getUsdPreparedExportCache(selectedFile.name)),
@@ -384,7 +374,7 @@ function ExportDialogConnector({
 
   const canExportUsd =
     target.type === 'current'
-      ? selectedFile?.format === 'usd' && sidebarTab !== 'workspace'
+      ? selectedFile?.format === 'usd'
         ? currentUsdExportMode !== 'unavailable'
         : !isSelectedUsdHydrating
       : isLibraryRobotExportableFormat(target.file.format);
@@ -417,12 +407,11 @@ function waitForNextPaint(): Promise<void> {
 type ExportDialogTarget = { type: 'current' } | { type: 'library-file'; file: RobotFile };
 
 function resolveCurrentAIRobotSnapshot(): RobotState {
-  const { sidebarTab } = useUIStore.getState();
   const { selection } = useSelectionStore.getState();
   const { assemblyState, getMergedRobotData } = useAssemblyStore.getState();
   const robotState = useRobotStore.getState();
 
-  if (assemblyState && sidebarTab === 'workspace') {
+  if (assemblyState) {
     const mergedWorkspaceRobot = getMergedRobotData();
     if (mergedWorkspaceRobot) {
       return cloneAISnapshot({
@@ -480,15 +469,15 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
     useState<ImportPreparationOverlayState | null>(null);
 
   // UI Store
-  const { lang, setAppMode, setSidebarTab, openSettings, isSettingsOpen } = useUIStore(
+  const { lang, setAppMode, openSettings, isSettingsOpen } = useUIStore(
     useShallow((state) => ({
       lang: state.lang,
       setAppMode: state.setAppMode,
-      setSidebarTab: state.setSidebarTab,
       openSettings: state.openSettings,
       isSettingsOpen: state.isSettingsOpen,
     })),
   );
+  const setAssembly = useAssemblyStore((state) => state.setAssembly);
   const t = translations[lang];
 
   // Selection Store
@@ -710,6 +699,10 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         if (shouldCommitResolvedRobotSelection(preResolvedImportResult)) {
           lastLoadSupportContextKeyRef.current = nextLoadSupportContextKey;
           commitResolvedRobotLoad({
+            assets: liveAssetsState.assets,
+            allFileContents: liveAssetsState.allFileContents,
+            availableFiles: liveAssetsState.availableFiles,
+            currentAssemblyState: useAssemblyStore.getState().assemblyState,
             currentAppMode: useUIStore.getState().appMode,
             file,
             importResult: preResolvedImportResult,
@@ -717,12 +710,12 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
             onViewerReload: () => setViewerReloadKey((value) => value + 1),
             reloadViewer: shouldReloadViewer,
             setAppMode,
+            setAssembly,
             setOriginalFileFormat,
             setOriginalUrdfContent,
             setRobot,
             setSelectedFile,
             setSelection,
-            setSidebarTab,
           });
         }
         applyResolvedRobotImport(file, preResolvedImportResult);
@@ -825,6 +818,10 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       if (shouldCommitResolvedRobotSelection(importResult)) {
         lastLoadSupportContextKeyRef.current = nextLoadSupportContextKey;
         commitResolvedRobotLoad({
+          assets: liveAssetsState.assets,
+          allFileContents: liveAssetsState.allFileContents,
+          availableFiles: liveAssetsState.availableFiles,
+          currentAssemblyState: useAssemblyStore.getState().assemblyState,
           currentAppMode: useUIStore.getState().appMode,
           file,
           importResult,
@@ -832,12 +829,12 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
           onViewerReload: () => setViewerReloadKey((value) => value + 1),
           reloadViewer: shouldReloadViewer,
           setAppMode,
+          setAssembly,
           setOriginalFileFormat,
           setOriginalUrdfContent,
           setRobot,
           setSelectedFile,
           setSelection,
-          setSidebarTab,
         });
       }
       applyResolvedRobotImport(file, importResult);
@@ -860,12 +857,12 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       applyResolvedRobotImport,
       setDocumentLoadState,
       setAppMode,
+      setAssembly,
       setOriginalFileFormat,
       setOriginalUrdfContent,
       setRobot,
       setSelectedFile,
       setSelection,
-      setSidebarTab,
       setViewerReloadKey,
       showToast,
       t,

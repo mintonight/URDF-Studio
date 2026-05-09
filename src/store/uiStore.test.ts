@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
 type UIStoreModule = typeof import('./uiStore.ts');
-const UI_STORE_PERSIST_VERSION = 18;
+const UI_STORE_PERSIST_VERSION = 19;
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -100,26 +100,6 @@ test('MJCF world visibility defaults to visible for fresh sessions', async () =>
   assert.equal(state.panelLayout.treePanelHeightMode, 'balanced');
 
   dom.window.close();
-});
-
-test('setSidebarTab ignores redundant tab updates', async () => {
-  const { dom, useUIStore } = await loadUIStore();
-  const updates: string[] = [];
-
-  const unsubscribe = useUIStore.subscribe((state) => {
-    updates.push(state.sidebarTab);
-  });
-
-  try {
-    useUIStore.getState().setSidebarTab('structure');
-    assert.deepEqual(updates, []);
-
-    useUIStore.getState().setSidebarTab('workspace');
-    assert.deepEqual(updates, ['workspace']);
-  } finally {
-    unsubscribe();
-    dom.window.close();
-  }
 });
 
 test('legacy default tree panel heights migrate to balanced sizing', async () => {

@@ -1664,6 +1664,87 @@ test('prepareImportPayload does not heuristically mirror SDF OBJ sidecars from m
   ]);
 });
 
+test('prepareImportPayload logs XML probe exceptions without throwing from SDF preparation', async () => {
+  const originalDomParser = globalThis.DOMParser;
+  const originalConsoleError = console.error;
+  const originalNodeEnv = process.env.NODE_ENV;
+  const consoleErrors: unknown[][] = [];
+
+  process.env.NODE_ENV = 'production';
+  class ThrowingDomParser {
+    parseFromString(): Document {
+      throw new Error('DOM parser probe failed');
+    }
+  }
+
+  Object.defineProperty(globalThis, 'DOMParser', {
+    configurable: true,
+    writable: true,
+    value: ThrowingDomParser as unknown as typeof DOMParser,
+  });
+  console.error = (...args: unknown[]) => {
+    consoleErrors.push(args);
+  };
+
+  try {
+    const result = await prepareImportPayload({
+      files: [
+        createLooseFile(
+          'model.sdf',
+          `<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="ambulance">
+    <link name="base_link">
+      <visual name="body">
+        <geometry>
+          <mesh>
+            <uri>model://ambulance/meshes/ambulance.obj</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>`,
+          'ambulance/model.sdf',
+        ),
+        createLooseFile(
+          'ambulance.obj',
+          ['mtllib ambulance.mtl', 'usemtl Ambulance', 'o AmbulanceBody'].join('\n'),
+          'ambulance/meshes/ambulance.obj',
+        ),
+        createLooseFile('ambulance.mtl', 'newmtl Ambulance', 'ambulance/meshes/ambulance.mtl'),
+      ],
+      existingPaths: [],
+      preResolvePreferredImport: false,
+    });
+
+    assert.equal(result.preferredFileName, 'ambulance/model.sdf');
+    assert.equal(
+      result.textFiles.some((file) => file.path === 'ambulance/meshes/ambulance.obj'),
+      false,
+    );
+    assert.equal(
+      consoleErrors.some(([scope]) =>
+        String(scope).includes('[importPreparation:canParseXmlDocumentStrict]'),
+      ),
+      true,
+      'expected XML probe failure to be logged through runtime diagnostics',
+    );
+  } finally {
+    console.error = originalConsoleError;
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    if (originalDomParser) {
+      globalThis.DOMParser = originalDomParser;
+    } else {
+      delete globalThis.DOMParser;
+    }
+  }
+});
+
 test('prepareImportPayload keeps referenced SDF OBJ material sidecars blob-backed for loose folder imports', async () => {
   const files = [
     createLooseFile(

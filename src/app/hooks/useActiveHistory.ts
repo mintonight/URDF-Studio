@@ -6,12 +6,10 @@ import {
   useCanRedo,
   useCanUndo,
   useRobotStore,
-  useUIStore,
 } from '@/store';
 import { flushPendingHistory } from '../utils/pendingHistory';
 
 export function useActiveHistory() {
-  const sidebarTab = useUIStore((state) => state.sidebarTab);
   const hasAssembly = useAssemblyStore((state) => state.assemblyState !== null);
 
   const robotUndo = useRobotStore((state) => state.undo);
@@ -24,7 +22,7 @@ export function useActiveHistory() {
   const assemblyCanUndo = useAssemblyCanUndo();
   const assemblyCanRedo = useAssemblyCanRedo();
 
-  const useAssemblyHistory = sidebarTab === 'workspace' && hasAssembly;
+  const useAssemblyHistory = hasAssembly;
 
   return useMemo(
     () => ({

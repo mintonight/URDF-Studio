@@ -411,7 +411,14 @@ function canParseXmlDocumentStrict(content: string): boolean {
   try {
     const doc = new DOMParser().parseFromString(content, 'text/xml');
     return doc.querySelector('parsererror') === null;
-  } catch {
+  } catch (error) {
+    scheduleFailFastInDev(
+      'importPreparation:canParseXmlDocumentStrict',
+      new Error('Failed to probe XML document while preparing import dependencies.', {
+        cause: error,
+      }),
+      'error',
+    );
     return false;
   }
 }

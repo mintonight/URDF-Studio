@@ -87,11 +87,10 @@ async function prepareMjcfMeshExportAssetsLazy(
 }
 
 export function useFileExport() {
-  const { lang, appMode, sidebarTab } = useUIStore(
+  const { lang, appMode } = useUIStore(
     useShallow((state) => ({
       lang: state.lang,
       appMode: state.appMode,
-      sidebarTab: state.sidebarTab,
     })),
   );
   const mergedAppMode = normalizeMergedAppMode(appMode);
@@ -220,9 +219,8 @@ export function useFileExport() {
     documentLoadLifecycleState.status === 'hydrating' &&
     documentLoadLifecycleState.fileName === selectedFile.name;
   const buildRobotForExport = useCallback((): RobotState => {
-    // Keep export source aligned with current viewer:
-    // workspace tab -> merged assembly; structure tab -> current robot store.
-    if (assemblyState && sidebarTab === 'workspace') {
+    // Assembly is always the primary view; use merged assembly data when available.
+    if (assemblyState) {
       const mergedData = buildExportableAssemblyRobotData(assemblyState);
       return {
         ...mergedData,
@@ -242,7 +240,6 @@ export function useFileExport() {
   }, [
     assemblyState,
     closedLoopConstraints,
-    sidebarTab,
     getMergedRobotData,
     robotJoints,
     robotLinks,
@@ -367,7 +364,6 @@ export function useFileExport() {
       }
 
       if (
-        sidebarTab === 'workspace' ||
         isCurrentUsdHydrating ||
         !selectedFile ||
         selectedFile.format !== format
@@ -399,7 +395,6 @@ export function useFileExport() {
       originalFileFormat,
       originalUrdfContent,
       selectedFile,
-      sidebarTab,
     ],
   );
 
@@ -433,7 +428,7 @@ export function useFileExport() {
   );
 
   const buildCurrentUsdExportContext = useCallback(async (): Promise<ExportContext | null> => {
-    if (selectedFile?.format !== 'usd' || sidebarTab === 'workspace' || isCurrentUsdHydrating) {
+    if (selectedFile?.format !== 'usd' || isCurrentUsdHydrating) {
       return null;
     }
 
@@ -460,7 +455,6 @@ export function useFileExport() {
     getUsdSceneSnapshot,
     isCurrentUsdHydrating,
     selectedFile,
-    sidebarTab,
   ]);
 
   const resolveExportContext = useCallback(
@@ -469,7 +463,7 @@ export function useFileExport() {
         return null;
       }
 
-      if (selectedFile?.format === 'usd' && sidebarTab !== 'workspace') {
+      if (selectedFile?.format === 'usd') {
         return buildCurrentUsdExportContext();
       }
 
@@ -489,7 +483,6 @@ export function useFileExport() {
       buildRobotForExport,
       getRobotExportName,
       selectedFile,
-      sidebarTab,
     ],
   );
 
@@ -785,7 +778,7 @@ export function useFileExport() {
         }
       };
       const requiresResolvedUsdContext =
-        target.type === 'current' && selectedFile?.format === 'usd' && sidebarTab !== 'workspace';
+        target.type === 'current' && selectedFile?.format === 'usd';
 
       if (config.format === 'usd') {
         const { executeUsdExport } = await import('./file-export/usdExport');
@@ -811,7 +804,6 @@ export function useFileExport() {
       if (
         config.format === 'urdf' &&
         target.type === 'current' &&
-        sidebarTab === 'workspace' &&
         assemblyState
       ) {
         assertAssemblyUrdfExportSupported(
@@ -824,7 +816,6 @@ export function useFileExport() {
       const disconnectedWorkspaceUrdfAction = resolveDisconnectedWorkspaceUrdfAction(
         target,
         config,
-        sidebarTab,
         assemblyState,
       );
       if (disconnectedWorkspaceUrdfAction) {
@@ -1287,7 +1278,6 @@ export function useFileExport() {
       resolveLibraryRobotForExport,
       resolveExportContext,
       selectedFile,
-      sidebarTab,
       t.exportClosedLoopUrdfUnsupported,
       t.exportFailedParse,
       t,

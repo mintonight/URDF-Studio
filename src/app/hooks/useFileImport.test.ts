@@ -142,7 +142,6 @@ function resetStoresToBaseline() {
   useUIStore.setState({
     lang: 'en',
     appMode: 'editor',
-    sidebarTab: 'structure',
   });
 
   useAssemblyStore.setState({
@@ -584,7 +583,6 @@ test('useFileImport does not hide-seed an assembly when importing multiple stand
     const result = await rendered.hook.handleImport([piperFile, t1File] as unknown as FileList);
 
     assert.equal(result.status, 'completed');
-    assert.equal(useUIStore.getState().sidebarTab, 'structure');
     assert.equal(loadCalls.length, 1);
     assert.equal(
       useAssetsStore
@@ -1383,7 +1381,6 @@ test('useFileImport seeds a multi-component workspace from the first imported ar
     );
 
     assert.equal(result.status, 'completed');
-    assert.equal(useUIStore.getState().sidebarTab, 'workspace');
     assert.deepEqual(
       assemblySourceFiles.sort((left, right) => left.localeCompare(right)),
       ['demo_bundle/base/base.urdf', 'demo_bundle/tool/tool.urdf'],
@@ -1852,7 +1849,6 @@ test('useFileImport restores project-import state when usp import fails after mu
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const workerMock = installRobotImportWorkerMock();
-  const originalSetSidebarTab = useUIStore.getState().setSidebarTab;
 
   const existingFile: RobotFile = {
     name: 'library/existing.urdf',
@@ -1877,15 +1873,12 @@ test('useFileImport restores project-import state when usp import fails after mu
     },
   });
 
-  useUIStore.setState({
-    setSidebarTab: (() => {
-      throw new Error('sidebar exploded');
-    }) as typeof originalSetSidebarTab,
-  });
-
   const projectFile = new File(['unused'], 'project.usp', { type: 'application/octet-stream' });
 
   const rendered = renderHook({
+    onProjectImported: () => {
+      throw new Error('project imported exploded');
+    },
     projectImporter: async () => {
       return {
         manifest: {
@@ -1966,9 +1959,8 @@ test('useFileImport restores project-import state when usp import fails after mu
     assert.equal(useAssetsStore.getState().selectedFile?.name, existingFile.name);
     assert.equal(useRobotStore.getState().name, 'my_robot');
     assert.deepEqual(useSelectionStore.getState().selection, { type: 'link', id: 'base_link' });
-    assert.match(alertMessage, /sidebar exploded/i);
+    assert.match(alertMessage, /project imported exploded/i);
   } finally {
-    useUIStore.setState({ setSidebarTab: originalSetSidebarTab });
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 20));
     workerMock.restore();

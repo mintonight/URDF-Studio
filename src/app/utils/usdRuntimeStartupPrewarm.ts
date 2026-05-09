@@ -1,9 +1,18 @@
+import { logRuntimeFailure } from '@/core/utils/runtimeDiagnostics';
 import { scheduleUsdPostReadyBackgroundTask } from './usdPostReadyBackgroundTask';
 import type { UsdPostReadyBackgroundTaskScheduler } from './usdPostReadyBackgroundTask';
 
 interface UsdRuntimeStartupPrewarmDependencies {
   prewarmMainThreadRuntime: () => void;
   prewarmOffscreenRuntime: () => void;
+}
+
+interface UsdRuntimeStartupBackgroundPrewarmDependencies {
+  loadMainThreadRuntime: () => Promise<{ prewarmUsdWasmRuntimeInBackground: () => void }>;
+  loadOffscreenRuntime: () => Promise<{
+    prewarmUsdOffscreenViewerRuntimeInBackground: () => void;
+  }>;
+  logFailure?: typeof logRuntimeFailure;
 }
 
 interface NetworkInformationLike {
@@ -48,22 +57,35 @@ export function createUsdRuntimeStartupPrewarmHandler({
   };
 }
 
-let usdRuntimeStartupPrewarmPromise: Promise<void> | null = null;
+export function createUsdRuntimeStartupBackgroundPrewarm({
+  loadMainThreadRuntime,
+  loadOffscreenRuntime,
+  logFailure = logRuntimeFailure,
+}: UsdRuntimeStartupBackgroundPrewarmDependencies): () => void {
+  let prewarmPromise: Promise<void> | null = null;
+
+  return () => {
+    if (!prewarmPromise) {
+      prewarmPromise = Promise.all([loadMainThreadRuntime(), loadOffscreenRuntime()])
+        .then(([mainThreadRuntime, offscreenRuntime]) => {
+          mainThreadRuntime.prewarmUsdWasmRuntimeInBackground();
+          offscreenRuntime.prewarmUsdOffscreenViewerRuntimeInBackground();
+        })
+        .catch((error) => {
+          logFailure('prewarmUsdViewerRuntimesInBackground', error, 'warn');
+          prewarmPromise = null;
+        });
+    }
+  };
+}
+
+const prewarmUsdViewerRuntimesInBackgroundImpl = createUsdRuntimeStartupBackgroundPrewarm({
+  loadMainThreadRuntime: () => import('@/features/urdf-viewer/utils/usdWasmRuntime'),
+  loadOffscreenRuntime: () => import('@/features/urdf-viewer/utils/usdOffscreenViewerWorkerClient'),
+});
 
 export function prewarmUsdViewerRuntimesInBackground(): void {
-  if (!usdRuntimeStartupPrewarmPromise) {
-    usdRuntimeStartupPrewarmPromise = Promise.all([
-      import('@/features/urdf-viewer/utils/usdWasmRuntime'),
-      import('@/features/urdf-viewer/utils/usdOffscreenViewerWorkerClient'),
-    ])
-      .then(([mainThreadRuntime, offscreenRuntime]) => {
-        mainThreadRuntime.prewarmUsdWasmRuntimeInBackground();
-        offscreenRuntime.prewarmUsdOffscreenViewerRuntimeInBackground();
-      })
-      .catch(() => {
-        usdRuntimeStartupPrewarmPromise = null;
-      });
-  }
+  prewarmUsdViewerRuntimesInBackgroundImpl();
 }
 
 function getNavigatorConnection(): NetworkInformationLike | null {

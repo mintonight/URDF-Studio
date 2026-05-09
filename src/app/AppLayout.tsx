@@ -89,6 +89,7 @@ import { resolveIkToolSelectionState } from './utils/ikToolSelectionState';
 import { resolveAssemblyRootComponentSelectionAvailability } from './utils/assemblyRootComponentSelection';
 import { buildSimpleModeDraftFile } from './utils/simpleModeDrafts';
 import { resolveWorkspaceOverlayLayoutClassNames } from './utils/workspaceOverlayLayout';
+import { resolveLibraryRobotLoadAction } from './utils/libraryRobotLoadPolicy';
 import type { SnapshotPreviewSession } from './components/snapshot-preview/types';
 
 interface ProModeRoundtripSession {
@@ -168,8 +169,6 @@ export function AppLayout({
     panelLayout,
     toggleSidebar,
     setSidebar,
-    setSidebarTab,
-    sidebarTab,
     sourceCodeAutoApply,
     setViewOption,
     groundPlaneOffset,
@@ -182,8 +181,6 @@ export function AppLayout({
       panelLayout: state.panelLayout,
       toggleSidebar: state.toggleSidebar,
       setSidebar: state.setSidebar,
-      setSidebarTab: state.setSidebarTab,
-      sidebarTab: state.sidebarTab,
       sourceCodeAutoApply: state.sourceCodeAutoApply,
       setViewOption: state.setViewOption,
       groundPlaneOffset: state.groundPlaneOffset,
@@ -440,7 +437,6 @@ export function AppLayout({
     assemblyBridgePreview: bridgePreview,
     assemblySelection,
     workspaceTransformPending,
-    sidebarTab,
     selection,
     robotName,
     robotLinks,
@@ -513,7 +509,7 @@ export function AppLayout({
   });
 
   useEffect(() => {
-    if (sidebarTab !== 'workspace' || !assemblyState) {
+    if (!assemblyState) {
       clearAssemblySelection();
       return;
     }
@@ -529,7 +525,6 @@ export function AppLayout({
     assemblySelection.type,
     assemblyState,
     clearAssemblySelection,
-    sidebarTab,
   ]);
 
   const {
@@ -738,7 +733,6 @@ export function AppLayout({
     handleSetShowVisual,
     handleJointChange,
   } = useWorkspaceMutations({
-    sidebarTab,
     assemblyState,
     robotLinks,
     rootLinkId,
@@ -819,21 +813,12 @@ export function AppLayout({
     addBridge,
     setIsCollisionOptimizerOpen,
   });
-  const handleAddComponentAndShowWorkspace = useCallback(
-    (file: RobotFile) => {
-      setSidebarTab('workspace');
-      handleAddComponent(file);
-    },
-    [handleAddComponent, setSidebarTab],
-  );
-
   const {
     collisionOptimizationSource,
     handlePreviewCollisionOptimizationTarget,
     handleApplyCollisionOptimization,
   } = useCollisionOptimizationWorkflow({
     assemblyState,
-    sidebarTab,
     robotName,
     robotLinks,
     robotJoints,
@@ -1137,19 +1122,33 @@ export function AppLayout({
         return 'loaded';
       }
 
-      const shouldGuardLibrarySwitch =
-        !shouldRenderAssembly && Boolean(selectedFile) && hasSimpleModeSourceEdits;
+      const loadAction = resolveLibraryRobotLoadAction({
+        selectedFileName: selectedFile?.name,
+        targetFileName: file.name,
+        shouldRenderAssembly,
+        hasSimpleModeSourceEdits,
+        intent,
+      });
 
-      if (!shouldGuardLibrarySwitch || intent === 'discard') {
+      if (loadAction === 'already-loaded') {
+        return 'loaded';
+      }
+
+      if (loadAction === 'preview') {
+        handlePreviewFileWithFeedback(file);
+        return 'loaded';
+      }
+
+      if (loadAction === 'load') {
         onLoadRobot(file);
         return 'loaded';
       }
 
-      if (intent === 'direct') {
+      if (loadAction === 'needs-draft-confirm') {
         return 'needs-draft-confirm';
       }
 
-      if (!selectedFile) {
+      if (loadAction === 'blocked' || !selectedFile) {
         return 'blocked';
       }
 
@@ -1194,6 +1193,7 @@ export function AppLayout({
       allFileContents,
       availableFiles,
       draftUrdfContent,
+      handlePreviewFileWithFeedback,
       hasSimpleModeSourceEdits,
       onLoadRobot,
       selectedFile,
@@ -1375,7 +1375,7 @@ export function AppLayout({
             currentFileName={selectedFile?.name}
             sourceFilePath={viewerSourceFilePath}
             assemblyState={assemblyState}
-            onAddComponent={handleAddComponentAndShowWorkspace}
+            onAddComponent={handleAddComponent}
             onDeleteLibraryFile={handleDeleteLibraryFile}
             onDeleteLibraryFolder={handleDeleteLibraryFolder}
             onRenameLibraryFolder={handleRenameLibraryFolder}
@@ -1404,7 +1404,7 @@ export function AppLayout({
           lang={lang}
           theme={theme}
           onClose={handleClosePreview}
-          onAddComponent={handleAddComponentAndShowWorkspace}
+          onAddComponent={handleAddComponent}
         />
 
         <div className={workspaceLayoutClassNames.rightSidebarLayer}>

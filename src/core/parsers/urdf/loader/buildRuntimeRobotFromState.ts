@@ -761,12 +761,15 @@ export async function buildRuntimeRobotFromState({
   robot.urdfName = robot.name;
   robot.userData.displayName = robotName || '';
   if (inspectionContext?.sourceFormat === 'mjcf' && inspectionContext.mjcf?.tendons.length) {
-    robot.userData.__mjcfTendonsData = inspectionContext.mjcf.tendons.map((tendon) => ({
-      name: tendon.name,
-      rgba: tendon.rgba ? ([...tendon.rgba] as [number, number, number, number]) : undefined,
-      attachmentRefs: [...tendon.attachmentRefs],
-      width: tendon.width,
-    }));
+    robot.userData.__mjcfTendonsData = inspectionContext.mjcf.tendons
+      .filter((tendon) => tendon.type === 'spatial')
+      .map((tendon) => ({
+        name: tendon.name,
+        rgba: tendon.rgba ? ([...tendon.rgba] as [number, number, number, number]) : undefined,
+        attachmentRefs: [...tendon.attachmentRefs],
+        attachments: tendon.attachments.map((attachment) => ({ ...attachment })),
+        width: tendon.width,
+      }));
   }
 
   const addGeometryGroup = (
@@ -801,6 +804,12 @@ export async function buildRuntimeRobotFromState({
     group.userData.runtimeKey = runtimeKey;
     group.userData.parentLinkId = linkKey;
     group.userData.displayName = runtimeKey;
+    group.userData.geometryRole = isCollision ? 'collision' : 'visual';
+    group.userData.geometryType = geometry.type;
+    group.userData.geometryDimensions = { ...geometry.dimensions };
+    if (geometry.name) {
+      group.userData.geometryName = geometry.name;
+    }
 
     applyOrigin(group, geometry.origin);
     applyMeshScale(group, geometry);

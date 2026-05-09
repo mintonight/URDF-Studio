@@ -1,3 +1,4 @@
+import { logRuntimeFailure } from '@/core/utils/runtimeDiagnostics';
 import type { RobotFile } from '@/types';
 
 type StageOpenSourceFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl' | 'format'>;
@@ -15,6 +16,11 @@ interface UsdSelectionPrewarmDependencies {
     file: StageOpenSourceFile,
     availableFiles: StageOpenAvailableFile[],
   ) => boolean;
+}
+
+interface UsdSelectionBackgroundPrewarmDependencies {
+  loadHandler: () => Promise<ReturnType<typeof createUsdSelectionPrewarmHandler>>;
+  logFailure?: typeof logRuntimeFailure;
 }
 
 export function createUsdSelectionPrewarmHandler({
@@ -72,16 +78,35 @@ function loadUsdSelectionPrewarmHandler() {
   return usdSelectionPrewarmHandlerPromise;
 }
 
+export function createUsdSelectionBackgroundPrewarm({
+  loadHandler,
+  logFailure = logRuntimeFailure,
+}: UsdSelectionBackgroundPrewarmDependencies): (
+  file: StageOpenSourceFile,
+  availableFiles: StageOpenAvailableFile[],
+  assets: Record<string, string>,
+) => void {
+  return (file, availableFiles, assets) => {
+    if (file.format !== 'usd') {
+      return;
+    }
+
+    void loadHandler()
+      .then((prewarm) => prewarm(file, availableFiles, assets))
+      .catch((error) => {
+        logFailure('prewarmUsdSelectionInBackground', error, 'warn');
+      });
+  };
+}
+
+const prewarmUsdSelectionInBackgroundImpl = createUsdSelectionBackgroundPrewarm({
+  loadHandler: loadUsdSelectionPrewarmHandler,
+});
+
 export function prewarmUsdSelectionInBackground(
   file: StageOpenSourceFile,
   availableFiles: StageOpenAvailableFile[],
   assets: Record<string, string>,
 ): void {
-  if (file.format !== 'usd') {
-    return;
-  }
-
-  void loadUsdSelectionPrewarmHandler()
-    .then((prewarm) => prewarm(file, availableFiles, assets))
-    .catch(() => {});
+  prewarmUsdSelectionInBackgroundImpl(file, availableFiles, assets);
 }

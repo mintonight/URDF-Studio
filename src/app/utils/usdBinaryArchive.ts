@@ -97,52 +97,76 @@ function isUsdCrateFile(data: Uint8Array | string | null | undefined): boolean {
   return data != null && readUsdMagic(data).startsWith('PXR-USDC');
 }
 
+function describeExportAttemptFailure(label: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `${label}: ${message || 'unknown error'}`;
+}
+
 function exportUsdLayerAsCrate(
   module: BinaryReadyUsdModule,
   stage: BinaryReadyUsdStage,
   targetFsPath: string,
 ): void {
   const rootLayer = stage.GetRootLayer?.();
+  const failedAttempts: string[] = [];
 
   if (rootLayer && typeof rootLayer.Export === 'function') {
-    const rootLayerAttempts: Array<unknown[]> = [
-      [targetFsPath, '', USDC_FILE_FORMAT_ARGS],
-      [targetFsPath, USDC_FILE_FORMAT_ARGS],
+    const rootLayerAttempts: Array<{ label: string; args: unknown[] }> = [
+      {
+        label: 'root layer Export(path, "", { format: "usdc" })',
+        args: [targetFsPath, '', USDC_FILE_FORMAT_ARGS],
+      },
+      {
+        label: 'root layer Export(path, { format: "usdc" })',
+        args: [targetFsPath, USDC_FILE_FORMAT_ARGS],
+      },
     ];
 
-    for (const args of rootLayerAttempts) {
+    for (const { label, args } of rootLayerAttempts) {
       try {
         rootLayer.Export(...args);
-      } catch {
+      } catch (error) {
+        failedAttempts.push(describeExportAttemptFailure(label, error));
         continue;
       }
 
       if (isUsdCrateFile(readUsdFileFromFs(module, targetFsPath))) {
         return;
       }
+      failedAttempts.push(`${label}: did not produce a binary USD crate`);
     }
   }
 
   if (typeof stage.Export === 'function') {
-    const stageExportAttempts: Array<unknown[]> = [
-      [targetFsPath, false, USDC_FILE_FORMAT_ARGS],
-      [targetFsPath, false],
+    const stageExportAttempts: Array<{ label: string; args: unknown[] }> = [
+      {
+        label: 'stage Export(path, false, { format: "usdc" })',
+        args: [targetFsPath, false, USDC_FILE_FORMAT_ARGS],
+      },
+      {
+        label: 'stage Export(path, false)',
+        args: [targetFsPath, false],
+      },
     ];
 
-    for (const args of stageExportAttempts) {
+    for (const { label, args } of stageExportAttempts) {
       try {
         stage.Export(...args);
-      } catch {
+      } catch (error) {
+        failedAttempts.push(describeExportAttemptFailure(label, error));
         continue;
       }
 
       if (isUsdCrateFile(readUsdFileFromFs(module, targetFsPath))) {
         return;
       }
+      failedAttempts.push(`${label}: did not produce a binary USD crate`);
     }
   }
 
-  throw new Error(`Failed to export binary USD crate layer: ${targetFsPath}`);
+  const attemptDetail =
+    failedAttempts.length > 0 ? ` Attempts failed: ${failedAttempts.join('; ')}` : '';
+  throw new Error(`Failed to export binary USD crate layer: ${targetFsPath}.${attemptDetail}`);
 }
 
 export async function convertUsdArchiveFilesToBinaryCore(

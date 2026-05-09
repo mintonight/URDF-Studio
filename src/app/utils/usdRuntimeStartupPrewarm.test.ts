@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  createUsdRuntimeStartupBackgroundPrewarm,
   createUsdRuntimeStartupPrewarmHandler,
   scheduleUsdRuntimeStartupIdlePrewarm,
   shouldSkipUsdRuntimeStartupIdlePrewarm,
@@ -83,6 +84,10 @@ function createLoadTarget() {
   };
 }
 
+async function flushAsyncCatchHandlers(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 test('USD runtime startup prewarm warms both runtime lanes once', () => {
   let mainThreadRuntimePrewarmCalls = 0;
   let offscreenRuntimePrewarmCalls = 0;
@@ -101,6 +106,34 @@ test('USD runtime startup prewarm warms both runtime lanes once', () => {
 
   assert.equal(mainThreadRuntimePrewarmCalls, 1);
   assert.equal(offscreenRuntimePrewarmCalls, 1);
+});
+
+test('USD runtime startup background prewarm logs import failures and can retry', async () => {
+  const error = new Error('startup import failed');
+  const failures: unknown[] = [];
+  let loadAttempts = 0;
+
+  const prewarm = createUsdRuntimeStartupBackgroundPrewarm({
+    loadMainThreadRuntime: async () => {
+      loadAttempts += 1;
+      throw error;
+    },
+    loadOffscreenRuntime: async () => {
+      throw new Error('should not load after main runtime failure');
+    },
+    logFailure: (_scope, failure) => {
+      failures.push(failure);
+      return failure instanceof Error ? failure : new Error(String(failure));
+    },
+  });
+
+  prewarm();
+  await flushAsyncCatchHandlers();
+  prewarm();
+  await flushAsyncCatchHandlers();
+
+  assert.equal(loadAttempts, 2);
+  assert.deepEqual(failures, [error, error]);
 });
 
 test('scheduleUsdRuntimeStartupIdlePrewarm waits for delay and idle before prewarming', () => {

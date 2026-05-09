@@ -488,9 +488,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
         attentionSelection: selectionState.attentionSelection,
         focusTarget: selectionState.focusTarget,
       });
-      const uiSnapshot = {
-        sidebarTab: uiState.sidebarTab,
-      };
+      const uiSnapshot = {};
       let importOverlayActive = false;
 
       const setImportPreparationOverlay = (state: ImportPreparationOverlayState | null) => {
@@ -551,7 +549,6 @@ export function useFileImport(options: UseFileImportOptions = {}) {
             _activity: result.assemblyActivity,
           });
 
-          uiState.setSidebarTab(result.assemblyState ? 'workspace' : 'structure');
           markUnsavedChangesBaselineSaved('all');
 
           return { status: 'completed' };
@@ -931,7 +928,6 @@ export function useFileImport(options: UseFileImportOptions = {}) {
                   shouldMarkAssemblyBaselineSaved = true;
                 }
 
-                uiState.setSidebarTab(shouldAutoSeedArchiveAssembly ? 'workspace' : 'structure');
                 clearImportPreparationOverlay();
                 prewarmUsdSelectionInBackground(
                   fileForStandaloneImportOpen,
@@ -952,7 +948,6 @@ export function useFileImport(options: UseFileImportOptions = {}) {
                   markUnsavedChangesBaselineSaved('assembly');
                 }
               } else if (!hadSelectedFile) {
-                uiState.setSidebarTab('structure');
                 clearImportPreparationOverlay();
                 prewarmUsdSelectionInBackground(
                   fileForStandaloneImportOpen,

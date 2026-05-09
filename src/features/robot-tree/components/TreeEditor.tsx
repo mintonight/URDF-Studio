@@ -131,14 +131,10 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
 }) => {
   const t = translations[lang];
   const {
-    sidebarTab,
-    setSidebarTab,
     structureTreeShowGeometryDetails,
     setStructureTreeShowGeometryDetails,
   } = useUIStore(
     useShallow((state) => ({
-      sidebarTab: state.sidebarTab,
-      setSidebarTab: state.setSidebarTab,
       structureTreeShowGeometryDetails: state.structureTreeShowGeometryDetails,
       setStructureTreeShowGeometryDetails: state.setStructureTreeShowGeometryDetails,
     })),
@@ -164,7 +160,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     handleJointPanelResizeStart,
   } = useTreeEditorLayout({ hasJointPanel: showJointPanel });
 
-  const showAssemblyTools = !isReadOnly && sidebarTab === 'workspace' && Boolean(assemblyState);
+  const showAssemblyTools = !isReadOnly && Boolean(assemblyState);
   const showAddAsComponent = !isReadOnly && Boolean(onAddComponent);
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
@@ -425,24 +421,15 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     remapExpandedFolderPaths,
   ]);
 
-  const activateAssemblyView = useCallback(() => {
-    setSidebarTab('workspace');
-  }, [setSidebarTab]);
-
-  const activateCurrentModelView = useCallback(() => {
-    setSidebarTab('structure');
-  }, [setSidebarTab]);
-
   const handleAddComponentFromLibrary = useCallback(
     (file: RobotFile) => {
       if (!onAddComponent || !isLibraryComponentAddableFile(file)) {
         return;
       }
 
-      activateAssemblyView();
       onAddComponent(file);
     },
-    [activateAssemblyView, onAddComponent],
+    [onAddComponent],
   );
 
   const handleAddFileToAssembly = useCallback(() => {
@@ -488,7 +475,6 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
       if (!onRequestLoadRobot) {
         if (intent === 'direct') {
           onLoadRobot?.(file);
-          activateCurrentModelView();
         }
         return;
       }
@@ -505,13 +491,12 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
         if (result === 'loaded') {
           setPendingLoadRobotFile(null);
           setIsLoadRobotDialogOpen(false);
-          activateCurrentModelView();
         }
       } finally {
         setIsLoadRobotPending(false);
       }
     },
-    [activateCurrentModelView, onLoadRobot, onRequestLoadRobot],
+    [onLoadRobot, onRequestLoadRobot],
   );
 
   const handleFileBrowserPrimaryAction = useCallback(
@@ -523,13 +508,12 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
         }
 
         onLoadRobot?.(file);
-        activateCurrentModelView();
         return;
       }
 
       onLoadRobot?.(file);
     },
-    [activateCurrentModelView, handleRequestLibraryRobotLoad, onLoadRobot, onRequestLoadRobot],
+    [handleRequestLibraryRobotLoad, onLoadRobot, onRequestLoadRobot],
   );
 
   const actualWidth = collapsed ? 0 : width;
@@ -659,7 +643,6 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
               onRenameComponent={onRenameComponent}
               onCreateBridge={onCreateBridge}
               onToggleComponentVisibility={toggleComponentVisibility}
-              onActivateAssemblyView={activateAssemblyView}
               isReadOnly={isReadOnly}
             />
           </div>

@@ -5,8 +5,10 @@ import { prepareAssemblyRobotData } from '@/core/robot/assemblyComponentPreparat
 import { buildDefaultAssemblyComponentPlacementTransform } from '@/core/robot/assemblyPlacement';
 import { parseEditableRobotSource } from '@/app/utils/parseEditableRobotSource';
 import { generateEditableRobotSource } from '@/app/utils/generateEditableRobotSource';
+import { applyEditableSourceChange } from '@/app/utils/applyEditableSourceChange';
 import { computeRobotRenderableBoundsFromAssets } from '@/app/utils/assemblyRenderableBounds';
 import type {
+  ApplyEditableSourceChangeWorkerResponse,
   GenerateEditableRobotSourceWorkerResponse,
   PrepareAssemblyComponentWorkerResponse,
   RobotImportWorkerContextSnapshot,
@@ -175,6 +177,19 @@ async function handleWorkerMessage(event: MessageEvent<RobotImportWorkerRequest>
       return;
     }
 
+    if (message.type === 'apply-editable-source-change') {
+      const result = applyEditableSourceChange(
+        applyWorkerContextSnapshot(message.options, message.contextId),
+      );
+      const response: ApplyEditableSourceChangeWorkerResponse = {
+        type: 'apply-editable-source-change-result',
+        requestId: message.requestId,
+        result,
+      };
+      workerScope.postMessage(response);
+      return;
+    }
+
     if (message.type === 'generate-editable-robot-source') {
       const response: GenerateEditableRobotSourceWorkerResponse = {
         type: 'generate-editable-robot-source-result',
@@ -191,6 +206,7 @@ async function handleWorkerMessage(event: MessageEvent<RobotImportWorkerRequest>
     const response:
       | ResolveRobotImportWorkerResponse
       | ParseEditableRobotSourceWorkerResponse
+      | ApplyEditableSourceChangeWorkerResponse
       | GenerateEditableRobotSourceWorkerResponse
       | PrepareAssemblyComponentWorkerResponse =
       message.type === 'parse-editable-robot-source'
@@ -199,6 +215,13 @@ async function handleWorkerMessage(event: MessageEvent<RobotImportWorkerRequest>
             requestId: message.requestId,
             error: error instanceof Error ? error.message : 'Editable source parse worker failed',
           }
+        : message.type === 'apply-editable-source-change'
+          ? {
+              type: 'apply-editable-source-change-error',
+              requestId: message.requestId,
+              error:
+                error instanceof Error ? error.message : 'Editable source apply worker failed',
+            }
         : message.type === 'generate-editable-robot-source'
           ? {
               type: 'generate-editable-robot-source-error',

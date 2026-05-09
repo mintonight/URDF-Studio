@@ -90,13 +90,11 @@ export function buildAssemblyExportName(assembly: AssemblyState): string {
 export function resolveDisconnectedWorkspaceUrdfAction(
   target: ExportTarget,
   config: { format: string },
-  sidebarTab: string,
   assemblyState: AssemblyState | null,
 ): ExportActionRequired | null {
   if (
     target.type !== 'current' ||
     config.format !== 'urdf' ||
-    sidebarTab !== 'workspace' ||
     !assemblyState
   ) {
     return null;

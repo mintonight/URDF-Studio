@@ -5,7 +5,13 @@ import { convertUsdArchiveFilesToBinary } from './usdBinaryArchive.ts';
 
 type FakeFsData = Uint8Array;
 
-function createFakeUsdRuntime(options: { disableRootLayerExport?: boolean } = {}) {
+function createFakeUsdRuntime(
+  options: {
+    disableRootLayerExport?: boolean;
+    failRootLayerExport?: boolean;
+    failStageExport?: boolean;
+  } = {},
+) {
   const files = new Map<string, FakeFsData>();
   const rootLayerExportCalls: unknown[][] = [];
   const stageExportCalls: unknown[][] = [];
@@ -39,6 +45,9 @@ function createFakeUsdRuntime(options: { disableRootLayerExport?: boolean } = {}
           return {
             Export: (...args: unknown[]) => {
               stageExportCalls.push(args);
+              if (options.failStageExport) {
+                throw new Error('stage export rejected');
+              }
               const [targetPath] = args as [string];
               const nextData = new Uint8Array(sourceData.length + 12);
               nextData.set(new TextEncoder().encode('PXR-USDCFLAT'));
@@ -50,6 +59,9 @@ function createFakeUsdRuntime(options: { disableRootLayerExport?: boolean } = {}
               : () => ({
                   Export: (...args: unknown[]) => {
                     rootLayerExportCalls.push(args);
+                    if (options.failRootLayerExport) {
+                      throw new Error('root export rejected');
+                    }
                     const [targetPath] = args as [string];
                     const nextData = new Uint8Array(sourceData.length + 12);
                     nextData.set(new TextEncoder().encode('PXR-USDCROOT'));
@@ -103,6 +115,42 @@ test('convertUsdArchiveFilesToBinary prefers root layer crate export and leaves 
     assert.equal(String(rootLayerExportCalls[0]?.[0]).endsWith('/robot/usd/robot.usd'), true);
     assert.equal(rootLayerExportCalls[0]?.[1], '');
     assert.deepEqual(rootLayerExportCalls[0]?.[2], { format: 'usdc' });
+  } finally {
+    if (previousDocument === undefined) {
+      delete (globalThis as typeof globalThis & { document?: object }).document;
+    } else {
+      (globalThis as typeof globalThis & { document?: object }).document = previousDocument;
+    }
+  }
+});
+
+test('convertUsdArchiveFilesToBinary preserves failed USD export attempt causes', async () => {
+  const previousDocument = globalThis.document;
+  (globalThis as typeof globalThis & { document?: Document & object }).document =
+    {} as unknown as Document & object;
+
+  try {
+    const usdLayer = new Blob(['#usda 1.0\n'], { type: 'text/plain;charset=utf-8' });
+    const archiveFiles = new Map<string, Blob>([['robot/usd/robot.usd', usdLayer]]);
+    const { runtime } = createFakeUsdRuntime({
+      failRootLayerExport: true,
+      failStageExport: true,
+    });
+
+    await assert.rejects(
+      () =>
+        (
+          convertUsdArchiveFilesToBinary as typeof convertUsdArchiveFilesToBinary &
+            ((...args: any[]) => Promise<Map<string, Blob>>)
+        )(archiveFiles, {
+          loadRuntime: async () => runtime,
+        } as any),
+      (error: unknown) => {
+        assert.match(String(error), /root export rejected/);
+        assert.match(String(error), /stage export rejected/);
+        return true;
+      },
+    );
   } finally {
     if (previousDocument === undefined) {
       delete (globalThis as typeof globalThis & { document?: object }).document;

@@ -15,22 +15,7 @@ import {
   type SdfHeightmapTexture,
   type UrdfLink,
 } from '@/types';
-
-const normalizeRelativePath = (path: string): string => {
-  const segments = path.split('/');
-  const stack: string[] = [];
-
-  for (const segment of segments) {
-    if (!segment || segment === '.') continue;
-    if (segment === '..') {
-      if (stack.length > 0) stack.pop();
-      continue;
-    }
-    stack.push(segment);
-  }
-
-  return stack.join('/');
-};
+import { normalizeRelativePath } from '@/core/utils/pathNormalization';
 
 const MESH_EXPORT_ROOT_SEGMENTS = new Set([
   'assets',

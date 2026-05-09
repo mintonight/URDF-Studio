@@ -461,9 +461,31 @@ test('resolveRobotFileData returns a parse error when XML parser APIs are unavai
     }
     assert.equal(result.reason, 'parse_failed');
     assert.match(result.message ?? '', /robots\/demo\/model\.sdf/);
+    assert.match(result.message ?? '', /phase: parsing SDF/i);
   } finally {
     globalThis.DOMParser = previousDomParser;
   }
+});
+
+test('resolveRobotFileData includes source file and phase on malformed SDF imports', () => {
+  const result = resolveRobotFileData({
+    name: 'robots/demo/broken.sdf',
+    content: [
+      '<?xml version="1.0"?>',
+      '<sdf version="1.7">',
+      '  <model name="broken">',
+      '    <link name="base_link">',
+    ].join('\n'),
+    format: 'sdf',
+  });
+
+  assert.equal(result.status, 'error');
+  if (result.status !== 'error') {
+    assert.fail('Expected malformed SDF import result to be an error');
+  }
+  assert.equal(result.reason, 'parse_failed');
+  assert.match(result.message ?? '', /SDF file "robots\/demo\/broken\.sdf"/);
+  assert.match(result.message ?? '', /phase: parsing SDF/i);
 });
 
 test('resolveRobotFileData keeps file context on malformed URDF imports', () => {
@@ -479,6 +501,7 @@ test('resolveRobotFileData keeps file context on malformed URDF imports', () => 
   }
   assert.equal(result.reason, 'parse_failed');
   assert.match(result.message ?? '', /URDF file "robots\/demo\/broken\.urdf"/);
+  assert.match(result.message ?? '', /phase: parsing URDF/i);
 });
 
 test('resolveRobotFileData does not hide malformed URDF inline content behind contextual truth', () => {

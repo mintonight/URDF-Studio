@@ -333,13 +333,17 @@ test('loadMJCFToThreeJS exposes MJCF tendon visualization metadata on the runtim
       name: 'guide',
       rgba: [1, 0, 0, 1],
       attachmentRefs: ['site_a', 'site_b'],
+      attachments: [
+        { type: 'site', ref: 'site_a' },
+        { type: 'site', ref: 'site_b' },
+      ],
     },
   ]);
 
   disposeTransientObject3D(root);
 });
 
-test('MJCF spatial tendon visualization uses geom sidesite anchors instead of wrap geom names', async () => {
+test('MJCF spatial tendon visualization keeps geom wrap refs and preserves sidesite metadata', async () => {
   installDomGlobals();
   clearParsedMJCFModelCache();
 
@@ -367,8 +371,19 @@ test('MJCF spatial tendon visualization uses geom sidesite anchors instead of wr
   assert.ok(robot);
   assert.deepEqual(robot.inspectionContext?.mjcf?.tendons[0]?.attachmentRefs, [
     'origin_site',
-    'wrap_sidesite',
+    'wrap_geom',
     'insert_site',
+  ]);
+  assert.deepEqual(robot.inspectionContext?.mjcf?.tendons[0]?.attachments, [
+    { type: 'site', ref: 'origin_site', sidesite: undefined, divisor: undefined, coef: undefined },
+    {
+      type: 'geom',
+      ref: 'wrap_geom',
+      sidesite: 'wrap_sidesite',
+      divisor: undefined,
+      coef: undefined,
+    },
+    { type: 'site', ref: 'insert_site', sidesite: undefined, divisor: undefined, coef: undefined },
   ]);
 
   const root = await loadMJCFToThreeJS(xml, {});
@@ -376,7 +391,16 @@ test('MJCF spatial tendon visualization uses geom sidesite anchors instead of wr
     {
       name: 'wrapped_path',
       rgba: [1, 0, 0, 1],
-      attachmentRefs: ['origin_site', 'wrap_sidesite', 'insert_site'],
+      attachmentRefs: ['origin_site', 'wrap_geom', 'insert_site'],
+      attachments: [
+        { type: 'site', ref: 'origin_site' },
+        {
+          type: 'geom',
+          ref: 'wrap_geom',
+          sidesite: 'wrap_sidesite',
+        },
+        { type: 'site', ref: 'insert_site' },
+      ],
     },
   ]);
 

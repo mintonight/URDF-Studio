@@ -128,7 +128,7 @@ test('buildAssemblyExportName derives workspace export names from component name
   assert.equal(buildAssemblyExportName(assembly), 't1_piper_hidden');
 });
 
-test('resolveDisconnectedWorkspaceUrdfAction only fires for workspace URDF targets with disconnected components', () => {
+test('resolveDisconnectedWorkspaceUrdfAction only fires for current URDF targets with disconnected components', () => {
   const assembly: AssemblyState = {
     name: 'assembly',
     components: {
@@ -141,7 +141,6 @@ test('resolveDisconnectedWorkspaceUrdfAction only fires for workspace URDF targe
   const action = resolveDisconnectedWorkspaceUrdfAction(
     { type: 'current' },
     { format: 'urdf' },
-    'workspace',
     assembly,
   );
   assert.strictEqual(action?.type, 'disconnected-workspace-urdf');
@@ -151,7 +150,6 @@ test('resolveDisconnectedWorkspaceUrdfAction only fires for workspace URDF targe
   const noAction = resolveDisconnectedWorkspaceUrdfAction(
     { type: 'current' },
     { format: 'sdf' },
-    'workspace',
     assembly,
   );
   assert.strictEqual(noAction, null);

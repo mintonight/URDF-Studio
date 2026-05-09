@@ -85,7 +85,6 @@ interface UseWorkspaceSourceSyncOptions {
   assemblyBridgePreview?: BridgeJoint | null;
   assemblySelection?: { type: 'assembly' | 'component' | null; id: string | null };
   workspaceTransformPending: boolean;
-  sidebarTab: string;
   selection: RobotState['selection'];
   robotName: string;
   robotLinks: Record<string, UrdfLink>;
@@ -113,7 +112,6 @@ export function useWorkspaceSourceSync({
   assemblyBridgePreview = null,
   assemblySelection,
   workspaceTransformPending,
-  sidebarTab,
   selection,
   robotName,
   robotLinks,
@@ -136,7 +134,7 @@ export function useWorkspaceSourceSync({
 }: UseWorkspaceSourceSyncOptions) {
   const generatedSourceCacheRef = useRef(new Map<string, string>());
   const lastStableWorkspaceViewerGeneratedUrdfContentRef = useRef<string | null>(null);
-  const isWorkspaceAssembly = Boolean(assemblyState && sidebarTab === 'workspace');
+  const isWorkspaceAssembly = Boolean(assemblyState);
   const hasWorkspaceComponents = Boolean(
     assemblyState && Object.keys(assemblyState.components).length > 0,
   );

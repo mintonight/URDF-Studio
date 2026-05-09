@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { RobotFile } from '@/types';
-import { createUsdSelectionPrewarmHandler } from './usdSelectionPrewarm.ts';
+import {
+  createUsdSelectionBackgroundPrewarm,
+  createUsdSelectionPrewarmHandler,
+} from './usdSelectionPrewarm.ts';
 
 test('USD selection prewarm is a no-op for non-USD files', () => {
   let mainThreadRuntimePrewarmCalls = 0;
@@ -142,4 +145,30 @@ test('USD selection prewarm skips worker stage-open prewarm for blob-backed larg
   assert.equal(mainThreadRuntimePrewarmCalls, 1);
   assert.equal(offscreenRuntimePrewarmCalls, 1);
   assert.equal(stageOpenPrewarmCalls, 0);
+});
+
+test('USD selection background prewarm logs loader failures without blocking callers', async () => {
+  const file = {
+    name: 'robots/demo/robot.usd',
+    format: 'usd',
+    content: '#usda 1.0',
+  } as const;
+  const error = new Error('selection prewarm load failed');
+  const failures: unknown[] = [];
+
+  const prewarm = createUsdSelectionBackgroundPrewarm({
+    loadHandler: async () => {
+      throw error;
+    },
+    logFailure: (_scope, failure) => {
+      failures.push(failure);
+      return failure instanceof Error ? failure : new Error(String(failure));
+    },
+  });
+
+  assert.doesNotThrow(() => prewarm(file, [], {}));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(failures, [error]);
 });

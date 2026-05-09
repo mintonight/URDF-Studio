@@ -14,13 +14,13 @@ interface PendingHistoryEntry<T> {
 }
 
 interface UsePendingHistoryCoordinatorParams {
-  sidebarTab: string;
+  scopeKey: string;
   createRobotSnapshot: () => RobotData;
   createAssemblySnapshot: () => AssemblyState | null;
 }
 
 export function usePendingHistoryCoordinator({
-  sidebarTab,
+  scopeKey,
   createRobotSnapshot,
   createAssemblySnapshot,
 }: UsePendingHistoryCoordinatorParams) {
@@ -151,7 +151,7 @@ export function usePendingHistoryCoordinator({
   useEffect(() => {
     commitPendingRobotHistory();
     commitPendingAssemblyHistory();
-  }, [sidebarTab, commitPendingAssemblyHistory, commitPendingRobotHistory]);
+  }, [scopeKey, commitPendingAssemblyHistory, commitPendingRobotHistory]);
 
   return {
     commitPendingRobotHistory,

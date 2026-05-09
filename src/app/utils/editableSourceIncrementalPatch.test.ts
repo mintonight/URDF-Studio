@@ -4,7 +4,8 @@ import { JSDOM } from 'jsdom';
 
 import { parseMJCF, parseURDF } from '@/core/parsers';
 
-import { tryPatchRobotStateFromEditableSourceChange } from './editableSourceIncrementalPatch';
+import { applyEditableSourceIncrementalPatch } from './editableSourceIncrementalPatch';
+import { detectEditableSourceIncrementalPatch } from './editableSourceIncrementalPatchDetection';
 
 const { window } = new JSDOM();
 
@@ -59,7 +60,7 @@ const MJCF_FIXTURE = `<mujoco model="mjcf_patch_demo">
   </worldbody>
 </mujoco>`;
 
-test('tryPatchRobotStateFromEditableSourceChange patches a URDF link fragment in place', () => {
+test('detectEditableSourceIncrementalPatch detects and applies a URDF link fragment update', () => {
   const currentState = parseURDF(URDF_LINK_FIXTURE);
   assert.ok(currentState, 'expected URDF fixture to parse');
 
@@ -67,21 +68,28 @@ test('tryPatchRobotStateFromEditableSourceChange patches a URDF link fragment in
   const dirtyStart = nextContent.indexOf('length="1"');
   assert.notEqual(dirtyStart, -1);
 
-  const patchedState = tryPatchRobotStateFromEditableSourceChange({
+  const patch = detectEditableSourceIncrementalPatch({
     file: { name: 'robot.urdf', format: 'urdf' },
     previousContent: URDF_LINK_FIXTURE,
     nextContent,
     dirtyRanges: [{ startOffset: dirtyStart, endOffset: dirtyStart + 'length="1"'.length }],
-    currentState,
   });
+  const patchedState = patch
+    ? applyEditableSourceIncrementalPatch({
+        patch,
+        currentState,
+      })
+    : null;
 
+  assert.equal(patch?.kind, 'urdf-link-fragment-update');
+  assert.equal(patch?.previousLinkName, 'base_link');
   assert.ok(patchedState);
   assert.equal(patchedState?.links.base_link.id, 'base_link');
   assert.equal(patchedState?.links.base_link.visual.dimensions.y, 1);
   assert.equal(currentState?.links.base_link.visual.dimensions.y, 0.5);
 });
 
-test('tryPatchRobotStateFromEditableSourceChange patches a URDF joint fragment without changing the stable joint id', () => {
+test('detectEditableSourceIncrementalPatch detects and applies a URDF joint fragment update', () => {
   const currentState = parseURDF(URDF_JOINT_FIXTURE);
   assert.ok(currentState, 'expected URDF joint fixture to parse');
 
@@ -89,21 +97,28 @@ test('tryPatchRobotStateFromEditableSourceChange patches a URDF joint fragment w
   const dirtyStart = nextContent.indexOf('damping="0.2"');
   assert.notEqual(dirtyStart, -1);
 
-  const patchedState = tryPatchRobotStateFromEditableSourceChange({
+  const patch = detectEditableSourceIncrementalPatch({
     file: { name: 'robot.urdf', format: 'urdf' },
     previousContent: URDF_JOINT_FIXTURE,
     nextContent,
     dirtyRanges: [{ startOffset: dirtyStart, endOffset: dirtyStart + 'damping="0.2"'.length }],
-    currentState,
   });
+  const patchedState = patch
+    ? applyEditableSourceIncrementalPatch({
+        patch,
+        currentState,
+      })
+    : null;
 
+  assert.equal(patch?.kind, 'urdf-joint-fragment-update');
+  assert.equal(patch?.previousJointName, 'shoulder_joint');
   assert.ok(patchedState);
   assert.equal(patchedState?.joints.shoulder_joint.id, 'shoulder_joint');
   assert.equal(patchedState?.joints.shoulder_joint.dynamics.damping, 0.2);
   assert.equal(currentState?.joints.shoulder_joint.dynamics.damping, 0);
 });
 
-test('tryPatchRobotStateFromEditableSourceChange patches an MJCF body geom fragment in place', () => {
+test('detectEditableSourceIncrementalPatch detects and applies an MJCF body subtree update', () => {
   const currentState = parseMJCF(MJCF_FIXTURE);
   assert.ok(currentState, 'expected MJCF fixture to parse');
 
@@ -111,21 +126,29 @@ test('tryPatchRobotStateFromEditableSourceChange patches an MJCF body geom fragm
   const dirtyStart = nextContent.indexOf('size="0.03"');
   assert.notEqual(dirtyStart, -1);
 
-  const patchedState = tryPatchRobotStateFromEditableSourceChange({
+  const patch = detectEditableSourceIncrementalPatch({
     file: { name: 'robot.xml', format: 'mjcf' },
     previousContent: MJCF_FIXTURE,
     nextContent,
     dirtyRanges: [{ startOffset: dirtyStart, endOffset: dirtyStart + 'size="0.03"'.length }],
-    currentState,
   });
+  const patchedState = patch
+    ? applyEditableSourceIncrementalPatch({
+        patch,
+        currentState,
+      })
+    : null;
 
+  assert.equal(patch?.kind, 'mjcf-body-subtree-update');
+  assert.deepEqual(patch?.stableLinkNames, ['foot_link']);
+  assert.deepEqual(patch?.stableJointNames, ['foot_joint']);
   assert.ok(patchedState);
   assert.equal(patchedState?.links.foot_link.id, 'foot_link');
   assert.equal(patchedState?.links.foot_link.visual.dimensions.x, 0.03);
   assert.equal(currentState?.links.foot_link.visual.dimensions.x, 0.0165);
 });
 
-test('tryPatchRobotStateFromEditableSourceChange patches an MJCF body joint fragment without changing the stable joint id', () => {
+test('applyEditableSourceIncrementalPatch applies an MJCF body joint patch without changing stable joint ids', () => {
   const currentState = parseMJCF(MJCF_FIXTURE);
   assert.ok(currentState, 'expected MJCF fixture to parse');
 
@@ -133,13 +156,18 @@ test('tryPatchRobotStateFromEditableSourceChange patches an MJCF body joint frag
   const dirtyStart = nextContent.indexOf('damping="0.2"');
   assert.notEqual(dirtyStart, -1);
 
-  const patchedState = tryPatchRobotStateFromEditableSourceChange({
+  const patch = detectEditableSourceIncrementalPatch({
     file: { name: 'robot.xml', format: 'mjcf' },
     previousContent: MJCF_FIXTURE,
     nextContent,
     dirtyRanges: [{ startOffset: dirtyStart, endOffset: dirtyStart + 'damping="0.2"'.length }],
-    currentState,
   });
+  const patchedState = patch
+    ? applyEditableSourceIncrementalPatch({
+        patch,
+        currentState,
+      })
+    : null;
 
   assert.ok(patchedState);
   assert.equal(patchedState?.joints.foot_joint.id, 'foot_joint');
@@ -147,10 +175,7 @@ test('tryPatchRobotStateFromEditableSourceChange patches an MJCF body joint frag
   assert.equal(currentState?.joints.foot_joint.dynamics.damping, 0);
 });
 
-test('tryPatchRobotStateFromEditableSourceChange falls back for MJCF structural subtree changes', () => {
-  const currentState = parseMJCF(MJCF_FIXTURE);
-  assert.ok(currentState, 'expected MJCF fixture to parse');
-
+test('detectEditableSourceIncrementalPatch returns null for MJCF structural subtree changes', () => {
   const nextContent = MJCF_FIXTURE.replace(
     '<geom type="sphere" size="0.0165" rgba="0.8 0.8 0.8 1" />',
     [
@@ -161,13 +186,77 @@ test('tryPatchRobotStateFromEditableSourceChange falls back for MJCF structural 
   const dirtyStart = nextContent.indexOf('size="0.01"');
   assert.notEqual(dirtyStart, -1);
 
-  const patchedState = tryPatchRobotStateFromEditableSourceChange({
+  const patch = detectEditableSourceIncrementalPatch({
     file: { name: 'robot.xml', format: 'mjcf' },
     previousContent: MJCF_FIXTURE,
     nextContent,
     dirtyRanges: [{ startOffset: dirtyStart, endOffset: dirtyStart + 'size="0.01"'.length }],
-    currentState,
   });
 
-  assert.equal(patchedState, null);
+  assert.equal(patch, null);
+});
+
+test('detectEditableSourceIncrementalPatch returns null when dirty ranges span multiple URDF elements', () => {
+  const nextContent = URDF_JOINT_FIXTURE.replace('name="base_link"', 'name="base_root"').replace(
+    'damping="0"',
+    'damping="0.2"',
+  );
+  const linkDirtyStart = nextContent.indexOf('name="base_root"');
+  const jointDirtyStart = nextContent.indexOf('damping="0.2"');
+  assert.notEqual(linkDirtyStart, -1);
+  assert.notEqual(jointDirtyStart, -1);
+
+  const patch = detectEditableSourceIncrementalPatch({
+    file: { name: 'robot.urdf', format: 'urdf' },
+    previousContent: URDF_JOINT_FIXTURE,
+    nextContent,
+    dirtyRanges: [
+      { startOffset: linkDirtyStart, endOffset: linkDirtyStart + 'name="base_root"'.length },
+      { startOffset: jointDirtyStart, endOffset: jointDirtyStart + 'damping="0.2"'.length },
+    ],
+  });
+
+  assert.equal(patch, null);
+});
+
+test('detectEditableSourceIncrementalPatch skips MJCF patches when requested', () => {
+  const nextContent = MJCF_FIXTURE.replace('size="0.0165"', 'size="0.03"');
+  const dirtyStart = nextContent.indexOf('size="0.03"');
+  assert.notEqual(dirtyStart, -1);
+
+  const patch = detectEditableSourceIncrementalPatch({
+    file: { name: 'robot.xml', format: 'mjcf' },
+    previousContent: MJCF_FIXTURE,
+    nextContent,
+    dirtyRanges: [{ startOffset: dirtyStart, endOffset: dirtyStart + 'size="0.03"'.length }],
+    skipMjcfPatch: true,
+  });
+
+  assert.equal(patch, null);
+});
+
+test('applyEditableSourceIncrementalPatch returns null when the current state no longer matches the patch', () => {
+  const currentState = parseURDF(URDF_LINK_FIXTURE);
+  assert.ok(currentState, 'expected URDF fixture to parse');
+  const nextContent = URDF_LINK_FIXTURE.replace('length="0.5"', 'length="1"');
+  const dirtyStart = nextContent.indexOf('length="1"');
+  assert.notEqual(dirtyStart, -1);
+
+  const patch = detectEditableSourceIncrementalPatch({
+    file: { name: 'robot.urdf', format: 'urdf' },
+    previousContent: URDF_LINK_FIXTURE,
+    nextContent,
+    dirtyRanges: [{ startOffset: dirtyStart, endOffset: dirtyStart + 'length="1"'.length }],
+  });
+  assert.ok(patch);
+
+  delete currentState.links.base_link;
+
+  assert.equal(
+    applyEditableSourceIncrementalPatch({
+      patch,
+      currentState,
+    }),
+    null,
+  );
 });

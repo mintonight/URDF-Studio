@@ -55,7 +55,6 @@ interface TreeEditorStructureSectionProps {
   onRenameComponent?: (id: string, name: string) => void;
   onCreateBridge?: () => void;
   onToggleComponentVisibility: (componentId: string) => void;
-  onActivateAssemblyView?: () => void;
   isReadOnly?: boolean;
 }
 
@@ -91,7 +90,6 @@ export function TreeEditorStructureSection({
   onRenameComponent,
   onCreateBridge,
   onToggleComponentVisibility,
-  onActivateAssemblyView,
   isReadOnly = false,
 }: TreeEditorStructureSectionProps) {
   const useStoreDrivenTree = !isAssemblyView && !isReadOnly;
@@ -247,7 +245,6 @@ export function TreeEditorStructureSection({
                   onRenameComponent={onRenameComponent}
                   onCreateBridge={onCreateBridge}
                   onToggleComponentVisibility={onToggleComponentVisibility}
-                  onActivateAssemblyView={onActivateAssemblyView}
                   showAssemblyRoot={false}
                   mode={mode}
                   t={t}

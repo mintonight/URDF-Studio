@@ -1000,10 +1000,6 @@ function buildMjcfInspectionContext(
   const resolveTendonVisualizationAttachmentRef = (
     attachment: MJCFModelTendonAttachment,
   ): string | undefined => {
-    if (attachment.type === 'geom' && attachment.sidesite) {
-      return attachment.sidesite;
-    }
-
     return attachment.ref || attachment.sidesite;
   };
 

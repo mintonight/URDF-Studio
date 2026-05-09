@@ -179,3 +179,5 @@ export {
   formatVector,
   formatEuler,
 } from './transforms';
+
+export { buildDeletionPlan, applyDeletionPlan, type DeletionPlan } from './treeOperations';

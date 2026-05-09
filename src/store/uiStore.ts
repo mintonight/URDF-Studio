@@ -91,10 +91,6 @@ interface UIState {
   toggleSidebar: (side: 'left' | 'right') => void;
   setSidebar: (side: 'left' | 'right', collapsed: boolean) => void;
 
-  // Sidebar Tab (structure/workspace)
-  sidebarTab: 'structure' | 'workspace';
-  setSidebarTab: (tab: 'structure' | 'workspace') => void;
-
   // Resizable panel layout
   panelLayout: PanelLayoutState;
   setPanelLayout: <K extends keyof PanelLayoutState>(key: K, value: PanelLayoutState[K]) => void;
@@ -397,11 +393,6 @@ export const useUIStore = create<UIState>()(
           };
         }),
 
-      // Sidebar Tab
-      sidebarTab: 'structure',
-      setSidebarTab: (tab) =>
-        set((state) => (state.sidebarTab === tab ? state : { sidebarTab: tab })),
-
       // Resizable panel layout
       panelLayout: defaultPanelLayout,
       setPanelLayout: (key, value) =>
@@ -493,7 +484,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'urdf-studio-ui',
-      version: 18,
+      version: 19,
       migrate: (persistedState: unknown, persistedVersion) => {
         if (!persistedState || typeof persistedState !== 'object') {
           return persistedState;

@@ -77,16 +77,13 @@ interface MJCFTendonVisualizationData {
   name: string;
   rgba?: [number, number, number, number];
   attachmentRefs: string[];
+  attachments?: MJCFModelTendonAttachment[];
   width?: number;
 }
 
 function resolveTendonVisualizationAttachmentRef(
   attachment: MJCFModelTendonAttachment,
 ): string | undefined {
-  if (attachment.type === 'geom' && attachment.sidesite) {
-    return attachment.sidesite;
-  }
-
   return attachment.ref || attachment.sidesite;
 }
 
@@ -177,8 +174,9 @@ export async function loadMJCFToThreeJS(
     rootGroup = new THREE.Group();
     rootGroup.name = modelName;
     (rootGroup as any).isURDFRobot = true;
-    rootGroup.userData.__mjcfTendonsData = Array.from(parsedModel.tendonMap.values()).map(
-      (tendon) =>
+    rootGroup.userData.__mjcfTendonsData = Array.from(parsedModel.tendonMap.values())
+      .filter((tendon) => tendon.type === 'spatial')
+      .map((tendon) =>
         ({
           name: tendon.name,
           rgba: tendon.rgba,
@@ -186,8 +184,9 @@ export async function loadMJCFToThreeJS(
           attachmentRefs: tendon.attachments
             .map(resolveTendonVisualizationAttachmentRef)
             .filter((value): value is string => typeof value === 'string' && value.length > 0),
+          attachments: tendon.attachments.map((attachment) => ({ ...attachment })),
         }) satisfies MJCFTendonVisualizationData,
-    );
+      );
 
     const { linksMap, jointsMap, deferredTextureApplicationsReady } = await buildMJCFHierarchy({
       bodies,

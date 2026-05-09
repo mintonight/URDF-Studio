@@ -2663,6 +2663,42 @@ test('shouldReuseSourceViewerForSingleComponentAssembly keeps pristine single-co
   );
 });
 
+test('shouldReuseSourceViewerForSingleComponentAssembly logs malformed source snapshots without throwing', () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalConsoleError = console.error;
+  const consoleErrors: unknown[][] = [];
+
+  process.env.NODE_ENV = 'production';
+  console.error = (...args: unknown[]) => {
+    consoleErrors.push(args);
+  };
+
+  try {
+    assert.equal(
+      shouldReuseSourceViewerForSingleComponentAssembly({
+        assemblyState: createSeededSingleComponentAssemblyState('robots/demo/demo.urdf'),
+        activeFile: createUrdfFile('robots/demo/demo.urdf'),
+        sourceSnapshot: '{"rootLinkId":',
+      }),
+      false,
+    );
+    assert.equal(
+      consoleErrors.some(([scope]) =>
+        String(scope).includes('[workspaceSourceSyncUtils:parseRobotSourceSnapshot]'),
+      ),
+      true,
+      'expected malformed source snapshot to be logged through runtime diagnostics',
+    );
+  } finally {
+    console.error = originalConsoleError;
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  }
+});
+
 test('shouldReuseSourceViewerForSingleComponentAssembly reuses pristine USD seeds that require assembly preparation normalization', () => {
   const sourceRobot = createRobotState();
   sourceRobot.links.base_link = {

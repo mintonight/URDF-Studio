@@ -314,7 +314,6 @@ test('TreeEditor asks whether to save a draft before opening another library mod
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
 
-  useUIStore.setState({ sidebarTab: 'structure' });
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   const targetFile = createRobotFile('robots/arm_b.urdf');
@@ -428,7 +427,6 @@ test('TreeEditor forwards the save-draft decision for pending library switches',
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
 
-  useUIStore.setState({ sidebarTab: 'structure' });
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   const targetFile = createRobotFile('robots/arm_c.urdf');
@@ -465,7 +463,6 @@ test('TreeEditor opens robot files as the current model and reserves add for ass
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
 
-  useUIStore.setState({ sidebarTab: 'structure' });
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   const targetFile = createRobotFile('robots/arm_preview.urdf');
@@ -515,7 +512,6 @@ test('TreeEditor opens robot files as the current model and reserves add for ass
     await clickButtonByTitle(dom, 'Load to Workspace');
 
     assert.deepEqual(addRequests, ['robots/arm_preview.urdf']);
-    assert.equal(useUIStore.getState().sidebarTab, 'workspace');
   } finally {
     await act(async () => {
       root.unmount();
@@ -530,7 +526,6 @@ test('TreeEditor renders workspace components and bridges inside the single stru
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
 
-  useUIStore.setState({ sidebarTab: 'workspace' });
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   try {
@@ -563,7 +558,7 @@ test('TreeEditor renders workspace components and bridges inside the single stru
     );
     assert.equal(structureTreeLabels.length, 1);
     assert.doesNotMatch(container.textContent ?? '', /Assembly View/);
-    assert.match(container.textContent ?? '', /Components/);
+    assert.doesNotMatch(container.textContent ?? '', /Components/);
     assert.match(container.textContent ?? '', /arm_component/);
     assert.match(container.textContent ?? '', /Bridges/);
   } finally {
@@ -580,7 +575,6 @@ test('TreeEditor keeps non-robot asset row clicks as previews', async () => {
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
 
-  useUIStore.setState({ sidebarTab: 'workspace' });
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   const targetFile = createMeshFile('assets/poster.png');
@@ -637,7 +631,6 @@ test('TreeEditor uses an invisible edge hit area for the file browser resize han
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelLayout: {
       ...useUIStore.getState().panelLayout,
       treeFileBrowserHeight: 216,
@@ -696,7 +689,6 @@ test('TreeEditor sidebar resize handle spans the full sidebar with a thin visibl
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelLayout: {
       ...useUIStore.getState().panelLayout,
       treeSidebarWidth: 288,
@@ -768,7 +760,6 @@ test('TreeEditor lets the joint section grow by dragging the boundary downward',
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,
@@ -845,7 +836,6 @@ test('TreeEditor balances the initial asset, joint, and structure sections', asy
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,
@@ -906,7 +896,6 @@ test('TreeEditor switches balanced sections to persisted custom heights after dr
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,
@@ -986,7 +975,6 @@ test('TreeEditor restores file browser and structure disclosure state after remo
   let remountedRoot: Root | null = null;
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,
@@ -1043,7 +1031,6 @@ test('TreeEditor keeps the file browser at its fixed height when the structure t
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,
@@ -1094,7 +1081,6 @@ test('TreeEditor structure section avoids animating its full flex layout when to
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
 
-  useUIStore.setState({ sidebarTab: 'structure' });
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   try {
@@ -1124,7 +1110,6 @@ test('TreeEditor keeps the structure header height and chevron size stable when 
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
 
-  useUIStore.setState({ sidebarTab: 'structure' });
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   try {
@@ -1198,7 +1183,6 @@ test('TreeEditor joint section can grow past the old compact cap when dragged do
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,
@@ -1273,7 +1257,6 @@ test('TreeEditor still renders the joint section when the robot has no joints', 
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,
@@ -1331,7 +1314,6 @@ test('TreeEditor renders the joint section before the structure section so colla
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,

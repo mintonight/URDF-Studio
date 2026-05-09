@@ -7,6 +7,13 @@ import {
   buildGeneratedMjcfGeomName,
   buildGeneratedMjcfJointName,
 } from './mjcfGeneratedNames';
+import {
+  createMuJoCoFromToQuaternion,
+  diagonalizeMjcfSymmetric3x3,
+  mjcfQuatTupleFromQuaternion,
+  normalizeMjcfQuatTuple,
+  type MJCFSymmetric3x3,
+} from './mjcfMath';
 
 const NUMBER_PRECISION = 6;
 const EPSILON = 1e-5;
@@ -211,23 +218,7 @@ function normalizeQuatFromEuler(
 function normalizeQuat(
   value: number[] | undefined | null,
 ): [number, number, number, number] | null {
-  const raw = normalizeVector(value, 4);
-  if (!raw) {
-    return null;
-  }
-
-  const [w, x, y, z] = raw;
-  const length = Math.hypot(w, x, y, z);
-  if (length <= 1e-8) {
-    return [1, 0, 0, 0];
-  }
-
-  return [
-    roundNumber(w / length),
-    roundNumber(x / length),
-    roundNumber(y / length),
-    roundNumber(z / length),
-  ];
+  return normalizeMjcfQuatTuple(value, { precision: NUMBER_PRECISION });
 }
 
 function normalizePos(value: number[] | undefined | null): [number, number, number] {
@@ -260,27 +251,7 @@ function normalizeGeomRGBA(value: number[] | undefined | null): [number, number,
 }
 
 function quaternionToMjcfTuple(quaternion: THREE.Quaternion): [number, number, number, number] {
-  const normalized = quaternion.normalize();
-  return [
-    roundNumber(normalized.w),
-    roundNumber(normalized.x),
-    roundNumber(normalized.y),
-    roundNumber(normalized.z),
-  ];
-}
-
-function createMuJoCoFromToQuaternion(direction: THREE.Vector3): THREE.Quaternion {
-  const normalizedDirection = direction.clone().normalize();
-  const localNegativeZ = new THREE.Vector3(0, 0, -1);
-  const dot = localNegativeZ.dot(normalizedDirection);
-
-  // MuJoCo resolves the 180deg ambiguity for fromto primitives by rotating
-  // around +X when the canonical -Z axis needs to flip to +Z.
-  if (dot <= -1 + 1e-9) {
-    return new THREE.Quaternion(1, 0, 0, 0);
-  }
-
-  return new THREE.Quaternion().setFromUnitVectors(localNegativeZ, normalizedDirection);
+  return mjcfQuatTupleFromQuaternion(quaternion, { precision: NUMBER_PRECISION });
 }
 
 function normalizeQuaternionFromDirection(
@@ -326,32 +297,6 @@ function canonicalizeFromToGeom(
   };
 }
 
-function sortEigenvectorsByDescendingValues(
-  eigenvalues: [number, number, number],
-  eigenvectors: [THREE.Vector3, THREE.Vector3, THREE.Vector3],
-): {
-  values: [number, number, number];
-  vectors: [THREE.Vector3, THREE.Vector3, THREE.Vector3];
-} {
-  const pairs = eigenvalues
-    .map((value, index) => ({
-      value,
-      vector: eigenvectors[index]!.clone(),
-    }))
-    .sort((left, right) => right.value - left.value);
-
-  const vectors = pairs.map((pair) => pair.vector) as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
-  const basis = new THREE.Matrix4().makeBasis(vectors[0], vectors[1], vectors[2]);
-  if (basis.determinant() < 0) {
-    vectors[2] = vectors[2].clone().multiplyScalar(-1);
-  }
-
-  return {
-    values: pairs.map((pair) => roundNumber(pair.value)) as [number, number, number],
-    vectors,
-  };
-}
-
 function diagonalizeFullInertia(
   fullinertia: [number, number, number, number, number, number] | null | undefined,
   boundInertia: number | undefined = undefined,
@@ -363,94 +308,24 @@ function diagonalizeFullInertia(
     return null;
   }
 
-  const matrix = [
+  const matrix: MJCFSymmetric3x3 = [
     [fullinertia[0], fullinertia[3], fullinertia[4]],
     [fullinertia[3], fullinertia[1], fullinertia[5]],
     [fullinertia[4], fullinertia[5], fullinertia[2]],
   ];
-  const eigenvectors = [
-    [1, 0, 0],
-    [0, 1, 0],
-    [0, 0, 1],
-  ];
-
-  for (let iteration = 0; iteration < 24; iteration += 1) {
-    let pivotRow = 0;
-    let pivotCol = 1;
-    let pivotValue = Math.abs(matrix[pivotRow]![pivotCol]!);
-
-    for (const [row, col] of [
-      [0, 1],
-      [0, 2],
-      [1, 2],
-    ] as const) {
-      const candidate = Math.abs(matrix[row]![col]!);
-      if (candidate > pivotValue) {
-        pivotRow = row;
-        pivotCol = col;
-        pivotValue = candidate;
-      }
-    }
-
-    if (pivotValue <= 1e-12) {
-      break;
-    }
-
-    const app = matrix[pivotRow]![pivotRow]!;
-    const aqq = matrix[pivotCol]![pivotCol]!;
-    const apq = matrix[pivotRow]![pivotCol]!;
-    const tau = (aqq - app) / (2 * apq);
-    const tangent = Math.sign(tau || 1) / (Math.abs(tau) + Math.sqrt(1 + tau * tau));
-    const cosine = 1 / Math.sqrt(1 + tangent * tangent);
-    const sine = tangent * cosine;
-
-    for (let row = 0; row < 3; row += 1) {
-      if (row === pivotRow || row === pivotCol) {
-        continue;
-      }
-
-      const arp = matrix[row]![pivotRow]!;
-      const arq = matrix[row]![pivotCol]!;
-      matrix[row]![pivotRow] = arp * cosine - arq * sine;
-      matrix[pivotRow]![row] = matrix[row]![pivotRow]!;
-      matrix[row]![pivotCol] = arp * sine + arq * cosine;
-      matrix[pivotCol]![row] = matrix[row]![pivotCol]!;
-    }
-
-    matrix[pivotRow]![pivotRow] =
-      app * cosine * cosine - 2 * apq * cosine * sine + aqq * sine * sine;
-    matrix[pivotCol]![pivotCol] =
-      app * sine * sine + 2 * apq * cosine * sine + aqq * cosine * cosine;
-    matrix[pivotRow]![pivotCol] = 0;
-    matrix[pivotCol]![pivotRow] = 0;
-
-    for (let row = 0; row < 3; row += 1) {
-      const vrp = eigenvectors[row]![pivotRow]!;
-      const vrq = eigenvectors[row]![pivotCol]!;
-      eigenvectors[row]![pivotRow] = vrp * cosine - vrq * sine;
-      eigenvectors[row]![pivotCol] = vrp * sine + vrq * cosine;
-    }
+  const diagonalized = diagonalizeMjcfSymmetric3x3(matrix, { precision: NUMBER_PRECISION });
+  if (!diagonalized) {
+    return null;
   }
 
   const effectiveBoundInertia =
     boundInertia != null && Number.isFinite(boundInertia) ? Math.max(boundInertia, 0) : 0;
-  const sorted = sortEigenvectorsByDescendingValues(
-    [matrix[0]![0]!, matrix[1]![1]!, matrix[2]![2]!],
-    [
-      new THREE.Vector3(eigenvectors[0]![0]!, eigenvectors[1]![0]!, eigenvectors[2]![0]!),
-      new THREE.Vector3(eigenvectors[0]![1]!, eigenvectors[1]![1]!, eigenvectors[2]![1]!),
-      new THREE.Vector3(eigenvectors[0]![2]!, eigenvectors[1]![2]!, eigenvectors[2]![2]!),
-    ],
-  );
-  const quaternion = new THREE.Quaternion().setFromRotationMatrix(
-    new THREE.Matrix4().makeBasis(sorted.vectors[0], sorted.vectors[1], sorted.vectors[2]),
-  );
 
   return {
-    diaginertia: sorted.values.map((value) =>
+    diaginertia: diagonalized.values.map((value) =>
       roundNumber(Math.max(value, effectiveBoundInertia)),
     ) as [number, number, number],
-    quat: quaternionToMjcfTuple(quaternion),
+    quat: diagonalized.quat,
   };
 }
 

@@ -1,11 +1,19 @@
-import { useUIStore } from '@/store/uiStore';
+import { createContext, createElement, useContext, type ReactNode } from 'react';
 import { useResolvedTheme } from './useTheme';
 
-/**
- * Hook to get the effective theme (light or dark)
- * Resolves 'system' theme to the actual current system preference
- */
-export function useEffectiveTheme(): 'light' | 'dark' {
-  const theme = useUIStore((state) => state.theme);
-  return useResolvedTheme(theme);
+const EffectiveThemeContext = createContext<'light' | 'dark'>('light');
+
+interface EffectiveThemeProviderProps {
+  value: 'light' | 'dark';
+  children: ReactNode;
 }
+
+export function EffectiveThemeProvider({ value, children }: EffectiveThemeProviderProps) {
+  return createElement(EffectiveThemeContext.Provider, { value }, children);
+}
+
+export function useEffectiveTheme(): 'light' | 'dark' {
+  return useContext(EffectiveThemeContext);
+}
+
+export { useResolvedTheme };

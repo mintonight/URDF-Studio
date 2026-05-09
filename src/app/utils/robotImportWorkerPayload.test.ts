@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { RobotFile } from '@/types';
 
 import {
+  buildEditableSourceChangeWorkerDispatch,
   buildEditableRobotSourceWorkerDispatch,
   buildEditableRobotSourceWorkerOptions,
   buildPrepareAssemblyComponentWorkerDispatch,
@@ -260,6 +261,49 @@ test('buildEditableRobotSourceWorkerDispatch omits repeated xacro context from t
     ],
   );
   assert.deepEqual(result.contextSnapshot?.allFileContents, allFileContents);
+});
+
+test('buildEditableSourceChangeWorkerDispatch preserves patch metadata while moving MJCF context out of the request payload', () => {
+  const mjcfFile = {
+    name: 'robots/demo/mjcf/demo.xml',
+    format: 'mjcf' as const,
+    content: '<mujoco />',
+  };
+  const result = buildEditableSourceChangeWorkerDispatch({
+    file: {
+      name: mjcfFile.name,
+      format: mjcfFile.format,
+    },
+    content: '<mujoco><worldbody /></mujoco>',
+    previousContent: '<mujoco />',
+    dirtyRanges: [{ startOffset: 8, endOffset: 18 }],
+    attemptIncrementalPatch: true,
+    availableFiles: [
+      demoUrdfFile,
+      mjcfFile,
+      {
+        name: 'robots/demo/meshes/base.stl',
+        format: 'mesh',
+        content: 'solid demo',
+      },
+    ],
+    allFileContents: {
+      'robots/demo/meshes/base.obj': 'o Mesh',
+    },
+  });
+
+  assert.equal(result.options.previousContent, '<mujoco />');
+  assert.deepEqual(result.options.dirtyRanges, [{ startOffset: 8, endOffset: 18 }]);
+  assert.equal(result.options.attemptIncrementalPatch, true);
+  assert.equal(result.options.availableFiles, undefined);
+  assert.equal(result.options.allFileContents, undefined);
+  assert.deepEqual(
+    result.contextSnapshot?.availableFiles?.map((file) => ({
+      name: file.name,
+      format: file.format,
+    })),
+    [{ name: mjcfFile.name, format: 'mjcf' }],
+  );
 });
 
 test('buildPrepareAssemblyComponentWorkerDispatch keeps placement snapshots in the request payload', () => {
