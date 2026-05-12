@@ -142,6 +142,14 @@ const createRobotFixture = (): RobotState => ({
   selection: { type: 'link', id: 'base_link' },
 });
 
+function getNormalCategoryRow(container: Element, index = 0): HTMLButtonElement | null {
+  return (
+    Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[data-inspection-normal-category-row]'),
+    )[index] ?? null
+  );
+}
+
 test('transparent AI inspection backdrop does not intercept pointer events', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
@@ -507,8 +515,15 @@ test('confirming regenerate returns to setup and preserves the prior mode and se
       );
     });
 
+    const firstCategoryRow = getNormalCategoryRow(container);
+    assert.ok(firstCategoryRow, 'expected the normal mode category row control to render');
+
+    await act(async () => {
+      firstCategoryRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
     const firstItemButton = getButtonByText(firstItem!.nameZh);
-    assert.ok(firstItemButton, 'expected the normal mode item button to render');
+    assert.ok(firstItemButton, 'expected the expanded normal mode item button to render');
 
     await act(async () => {
       firstItemButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
@@ -657,8 +672,15 @@ test('inspection setup restores the saved normal mode and keeps selection in syn
       'expected the outdated advanced-mode wording to be removed from the normal mode description',
     );
 
+    const firstCategoryRow = getNormalCategoryRow(container);
+    assert.ok(firstCategoryRow, 'expected the normal mode category row control to render');
+
+    await act(async () => {
+      firstCategoryRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
     const firstItemButton = getButtonByText(firstItem!.nameZh);
-    assert.ok(firstItemButton, 'expected the normal mode item button to render');
+    assert.ok(firstItemButton, 'expected the expanded normal mode item button to render');
 
     await act(async () => {
       firstItemButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
@@ -914,7 +936,7 @@ test('inspection setup normal mode bulk actions keep selection counts and footer
   }
 });
 
-test('inspection setup normal mode uses a compact visual scale aligned with advanced mode', async () => {
+test('inspection setup normal mode uses a scan queue layout aligned with antivirus-style setup', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -964,14 +986,27 @@ test('inspection setup normal mode uses a compact visual scale aligned with adva
       'expected the normal mode bulk actions to match the denser advanced-mode button height',
     );
 
+    const scanList = container.querySelector<HTMLElement>('[data-inspection-normal-scan-list]');
+    assert.ok(scanList, 'expected normal mode to render the scan queue list container');
+    assert.equal(
+      scanList.className.includes('divide-y'),
+      true,
+      'expected the scan queue to use divided rows instead of a card grid',
+    );
+
     const firstCategoryCard = container.querySelector<HTMLElement>(
       '[data-inspection-normal-category]',
     );
-    assert.ok(firstCategoryCard, 'expected a normal mode category card to render');
+    assert.ok(firstCategoryCard, 'expected a normal mode category section to render');
     assert.equal(
       firstCategoryCard.className.includes('rounded-xl'),
       true,
-      'expected the normal mode category card to use the tighter card radius',
+      'expected the normal mode category section to keep the tighter panel radius',
+    );
+    assert.equal(
+      firstCategoryCard.className.includes('border-0'),
+      true,
+      'expected individual category sections to stop rendering standalone card borders',
     );
 
     const categoryIcon = firstCategoryCard.querySelector<HTMLElement>(
@@ -984,14 +1019,149 @@ test('inspection setup normal mode uses a compact visual scale aligned with adva
       'expected the category icon wrapper to use the compact category scale',
     );
 
+    const firstCategoryRow = firstCategoryCard.querySelector<HTMLButtonElement>(
+      '[data-inspection-normal-category-row]',
+    );
+    assert.ok(firstCategoryRow, 'expected each category to render a scan queue row');
+    assert.equal(
+      firstCategoryRow.className.includes('grid-cols-[auto_minmax(0,1fr)_auto]'),
+      true,
+      'expected the category row to use status, content, and disclosure columns',
+    );
+
+    const firstCategoryProgress = firstCategoryCard.querySelector<HTMLElement>(
+      '[data-inspection-normal-category-progress]',
+    );
+    assert.ok(
+      firstCategoryProgress,
+      'expected each category row to expose a compact scan progress indicator',
+    );
+    assert.equal(
+      firstCategoryProgress.style.width,
+      '100%',
+      'expected a fully selected category to render a full progress indicator',
+    );
+
+    const firstCategoryCount = firstCategoryCard.querySelector<HTMLElement>(
+      '[data-inspection-normal-category-count]',
+    );
+    assert.ok(firstCategoryCount, 'expected each category row to render selected/total counts');
+    assert.equal(
+      firstCategoryCount.className.includes('tabular-nums'),
+      true,
+      'expected category counts to use aligned tabular numbers',
+    );
+
+    assert.equal(
+      firstCategoryRow.getAttribute('aria-expanded'),
+      'false',
+      'expected normal mode categories to be collapsed by default',
+    );
+    assert.equal(
+      firstCategoryCard.querySelector('[data-inspection-normal-item-list]'),
+      null,
+      'expected collapsed normal mode categories to hide item-level controls by default',
+    );
+
+    const selectedSummary = container.querySelector<HTMLElement>(
+      '[data-inspection-normal-summary]',
+    );
+    assert.ok(selectedSummary, 'expected the normal mode summary to render');
+    const initialSelectedSummaryText = selectedSummary.textContent;
+    const categorySelectionButton = firstCategoryCard.querySelector<HTMLButtonElement>(
+      '[data-inspection-normal-category-selection]',
+    );
+    assert.ok(
+      categorySelectionButton,
+      'expected each category to expose a dedicated selection checkbox control',
+    );
+    const categorySelectionMark = categorySelectionButton.querySelector<HTMLElement>(
+      '[data-inspection-normal-selection-mark]',
+    );
+    assert.ok(categorySelectionMark, 'expected the category checkbox to render a selection mark');
+    assert.equal(
+      categorySelectionMark.className.includes('bg-system-blue/80'),
+      true,
+      'expected fully selected category checkboxes to use the lighter partial-selection blue',
+    );
+    assert.equal(
+      categorySelectionMark.className.includes('bg-system-blue-solid'),
+      false,
+      'expected fully selected category checkboxes to avoid the deeper solid-blue fill',
+    );
+
+    await act(async () => {
+      firstCategoryRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      firstCategoryRow.getAttribute('aria-expanded'),
+      'true',
+      'expected clicking the category row to expand item-level controls',
+    );
+    assert.equal(
+      selectedSummary.textContent,
+      initialSelectedSummaryText,
+      'expected clicking the category row to leave selected item counts unchanged',
+    );
+
+    await act(async () => {
+      firstCategoryRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      firstCategoryRow.getAttribute('aria-expanded'),
+      'false',
+      'expected clicking the category row again to collapse item-level controls',
+    );
+
+    await act(async () => {
+      categorySelectionButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      firstCategoryRow.getAttribute('aria-expanded'),
+      'false',
+      'expected clicking the category checkbox to leave the category collapsed',
+    );
+    assert.notEqual(
+      selectedSummary.textContent,
+      initialSelectedSummaryText,
+      'expected clicking the category checkbox to change selected item counts',
+    );
+
+    await act(async () => {
+      categorySelectionButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      firstCategoryRow.getAttribute('aria-expanded'),
+      'false',
+      'expected clicking the category checkbox again to keep the category collapsed',
+    );
+    assert.equal(
+      selectedSummary.textContent,
+      initialSelectedSummaryText,
+      'expected clicking the category checkbox again to restore selected item counts',
+    );
+
+    await act(async () => {
+      firstCategoryRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    const itemList = firstCategoryCard.querySelector<HTMLElement>(
+      '[data-inspection-normal-item-list]',
+    );
+    assert.ok(itemList, 'expected expanded scan rows to reveal compact item-level controls');
+
     const firstItemRow = firstCategoryCard.querySelector<HTMLElement>(
       '[data-inspection-normal-item]',
     );
     assert.ok(firstItemRow, 'expected a normal mode item row to render');
     assert.equal(
-      firstItemRow.className.includes('rounded-lg'),
+      firstItemRow.className.includes('rounded-md'),
       true,
-      'expected the normal mode item rows to use a tighter item shape',
+      'expected the normal mode item rows to use a tighter scan-list item shape',
     );
 
     await act(async () => {
@@ -1007,6 +1177,23 @@ test('inspection setup normal mode uses a compact visual scale aligned with adva
       firstItemRow.className.includes('hover:border-system-blue/30'),
       true,
       'expected unchecked normal mode item rows to highlight the border on hover',
+    );
+
+    const summaryAfterItemToggle = selectedSummary.textContent;
+
+    await act(async () => {
+      firstCategoryRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      firstCategoryRow.getAttribute('aria-expanded'),
+      'false',
+      'expected clicking the expanded category row to collapse item-level controls',
+    );
+    assert.equal(
+      selectedSummary.textContent,
+      summaryAfterItemToggle,
+      'expected collapsing the category row to leave selected item counts unchanged',
     );
   } finally {
     await act(async () => {
@@ -1490,6 +1677,49 @@ test('inspection setup keeps the mode switcher visually centered in the header',
       modeSwitcher.className.includes('-translate-x-1/2 -translate-y-1/2'),
       true,
       'expected the setup mode switcher to translate back from the anchor point for true centering',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('inspection setup header uses the toolbox AI inspection logo', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const setupHeaderLogo = container.querySelector<HTMLElement>(
+      '[data-inspection-setup-header-logo]',
+    );
+    assert.ok(setupHeaderLogo, 'expected the setup header logo wrapper to render');
+    assert.ok(
+      setupHeaderLogo.querySelector('svg.lucide-scan-search'),
+      'expected the setup header logo to match the toolbox AI inspection ScanSearch icon',
+    );
+    assert.equal(
+      setupHeaderLogo.querySelector('svg.lucide-bot'),
+      null,
+      'expected the setup header logo to stop rendering the Bot icon',
     );
   } finally {
     await act(async () => {

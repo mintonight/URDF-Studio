@@ -1,13 +1,12 @@
-import React, { forwardRef, useCallback } from 'react';
-import { Crosshair } from 'lucide-react';
+import React, { forwardRef } from 'react';
+import { Shapes, Shield } from 'lucide-react';
 import { Language, translations } from '@/shared/i18n';
+import { WORKSPACE_OVERLAY_RIGHT_EDGE_GAP } from '@/shared/components/3d/scene';
 import {
   CheckboxOption,
-  GroundPlaneControls,
   OptionsPanelContainer,
   OptionsPanelContent,
   OptionsPanelHeader,
-  SliderOption,
   ToggleSliderOption,
 } from './OptionsPanel';
 
@@ -105,17 +104,12 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
       setShowInertia,
       showCenterOfMass,
       setShowCenterOfMass,
-      modelOpacity,
-      setModelOpacity,
       isCollapsed,
       toggleCollapsed,
       onMouseDown,
       onResetPosition,
       onClose,
       optionsPanelPos,
-      onAutoFitGround,
-      groundPlaneOffset,
-      setGroundPlaneOffset,
     },
     ref,
   ) => {
@@ -123,10 +117,7 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
     const isEnglish = lang === 'en';
     const englishCheckboxLabelClassName = isEnglish ? 'text-[10px]' : '';
     const englishSliderLabelClassName = isEnglish ? 'text-[9px]' : '';
-
-    const handleResetGround = useCallback(() => {
-      setGroundPlaneOffset(0);
-    }, [setGroundPlaneOffset]);
+    const detailOptionIconClassName = 'w-3 h-3 text-slate-500';
 
     return (
       <div
@@ -135,16 +126,15 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
         style={
           optionsPanelPos
             ? { left: optionsPanelPos.x, top: optionsPanelPos.y, right: 'auto' }
-            : { top: '16px', right: '16px' }
+            : { top: '16px', right: WORKSPACE_OVERLAY_RIGHT_EDGE_GAP }
         }
       >
         <OptionsPanelContainer
-          width="11rem"
-          minWidth={168}
+          width="10rem"
+          minWidth={156}
           resizable={true}
           isCollapsed={isCollapsed}
           resizeTitle={t.resize}
-          showRightResizeHandle={false}
         >
           <OptionsPanelHeader
             title={t.viewOptions}
@@ -156,6 +146,10 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
             onClose={onClose}
             showDragGrip={false}
             onMouseDown={onMouseDown}
+            className="gap-1.5 px-2 py-1.5"
+            expandText={t.expand}
+            collapseText={t.collapse}
+            closeText={t.close}
           />
 
           <OptionsPanelContent isCollapsed={isCollapsed}>
@@ -163,6 +157,7 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
               <CheckboxOption
                 checked={showVisual}
                 onChange={setShowVisual}
+                icon={<Shapes className="w-3 h-3 text-emerald-500 dark:text-emerald-400" />}
                 label={t.showVisual}
                 labelClassName={englishCheckboxLabelClassName}
               />
@@ -170,6 +165,7 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
               <ToggleSliderOption
                 checked={showCollision}
                 onChange={setShowCollision}
+                icon={<Shield className="w-3 h-3 text-amber-500 dark:text-amber-400" />}
                 label={t.showCollision}
                 labelClassName={englishCheckboxLabelClassName}
                 rowClassName="pr-1"
@@ -254,34 +250,6 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
                 onChange={setShowCenterOfMass}
                 label={t.showCenterOfMass}
                 labelClassName={englishCheckboxLabelClassName}
-              />
-
-              <div className="pt-1">
-                <SliderOption
-                  label={t.modelOpacity}
-                  value={modelOpacity}
-                  onChange={setModelOpacity}
-                  min={0.1}
-                  max={1}
-                  step={0.01}
-                  showPercentage
-                  compact
-                  indent={false}
-                  labelClassName={englishSliderLabelClassName}
-                />
-              </div>
-
-              <GroundPlaneControls
-                autoFitIcon={<Crosshair size={11} />}
-                autoFitLabel={t.autoFitGround}
-                offsetLabel={t.groundPlaneOffset}
-                offsetValue={groundPlaneOffset}
-                onAutoFit={onAutoFitGround}
-                onOffsetChange={setGroundPlaneOffset}
-                onReset={handleResetGround}
-                resetLabel={t.reset}
-                sliderIndent={false}
-                sliderLabelClassName={englishSliderLabelClassName}
               />
             </div>
           </OptionsPanelContent>

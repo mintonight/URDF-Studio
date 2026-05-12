@@ -8,14 +8,13 @@ import type {
   UrdfOrigin,
 } from '@/types';
 import type {
-  ViewerController,
   ViewerDocumentLoadEvent,
   ViewerHelperKind,
-  ViewerRobotDataResolution,
   ViewerRobotSourceFormat,
-  ViewerResourceScope,
-} from '@/features/editor';
-import { ViewerScene } from '@/features/editor';
+} from '@/features/urdf-viewer/types';
+import type { ViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
+import type { ViewerResourceScope } from '@/features/urdf-viewer/utils/viewerResourceScope';
+import { ViewerScene } from '@/features/urdf-viewer/components/ViewerScene';
 import { useSelectionStore } from '@/store/selectionStore';
 import type { AssemblySelection } from '@/store/assemblySelectionStore';
 
@@ -26,13 +25,13 @@ interface ViewerSceneConnectorProps {
   controller: ViewerController;
   active: boolean;
   activePreview?: FilePreviewState;
+  modelInteractionEnabled?: boolean;
   viewerResourceScope: ViewerResourceScope;
   retainedRobot?: import('three').Object3D | null;
   effectiveSourceFile: RobotFile | null | undefined;
   effectiveSourceFilePath?: string;
   effectiveUrdfContent: string;
   effectiveSourceFormat?: ViewerRobotSourceFormat;
-  onRobotDataResolved?: (result: ViewerRobotDataResolution) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   onSceneReadyForDisplay?: () => void;
   onRuntimeRobotLoaded?: (robot: import('three').Object3D) => void;
@@ -58,6 +57,7 @@ interface ViewerSceneConnectorProps {
     objectIndex: number,
     objectType: 'visual' | 'collision',
   ) => void;
+  onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
   robot: RobotState;
   focusTarget?: string | null;
   onCollisionTransformPreview?: (
@@ -89,7 +89,11 @@ interface ViewerSceneConnectorProps {
     },
     options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
-  onBridgeTransform?: (bridgeId: string, origin: UrdfOrigin) => void;
+  onBridgeTransform?: (
+    bridgeId: string,
+    origin: UrdfOrigin,
+    options?: import('@/types/viewer').UpdateCommitOptions,
+  ) => void;
   sourceSceneAssemblyComponentId?: string | null;
   sourceSceneAssemblyComponentTransform?: {
     position: { x: number; y: number; z: number };
@@ -111,13 +115,13 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
   controller,
   active,
   activePreview,
+  modelInteractionEnabled = true,
   viewerResourceScope,
   retainedRobot,
   effectiveSourceFile,
   effectiveSourceFilePath,
   effectiveUrdfContent,
   effectiveSourceFormat,
-  onRobotDataResolved,
   onDocumentLoadEvent,
   onSceneReadyForDisplay,
   onRuntimeRobotLoaded,
@@ -125,6 +129,7 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
   selection,
   onHover,
   onMeshSelect,
+  onUpdate,
   robot,
   focusTarget,
   onCollisionTransformPreview,
@@ -154,6 +159,7 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
     controller,
     active,
     hasActivePreview: Boolean(activePreview),
+    modelInteractionEnabled,
     hoveredSelection,
     viewerResourceScope,
     retainedRobot,
@@ -161,7 +167,6 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
     effectiveSourceFilePath,
     effectiveUrdfContent,
     effectiveSourceFormat,
-    onRobotDataResolved,
     onDocumentLoadEvent,
     onSceneReadyForDisplay,
     onRuntimeRobotLoaded,
@@ -169,6 +174,7 @@ export const ViewerSceneConnector = React.memo(function ViewerSceneConnector({
     selection,
     onHover,
     onMeshSelect,
+    onUpdate,
     robot,
     focusTarget,
     onCollisionTransformPreview,

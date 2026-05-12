@@ -63,7 +63,9 @@ function createComponentRoot() {
   return { dom, container, root };
 }
 
-function Harness() {
+type HarnessStyle = React.CSSProperties & Record<string, string>;
+
+function Harness({ safeAreaStyle }: { safeAreaStyle?: HarnessStyle }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const optionsPanelRef = useRef<HTMLDivElement>(null);
   const jointPanelRef = useRef<HTMLDivElement>(null);
@@ -95,6 +97,7 @@ function Harness() {
     'div',
     {
       ref: containerRef,
+      style: safeAreaStyle,
       onMouseMove: drag.handleMouseMove,
       onMouseUp: drag.handleMouseUp,
     },
@@ -117,9 +120,9 @@ function Harness() {
   );
 }
 
-async function renderHarness(root: Root) {
+async function renderHarness(root: Root, safeAreaStyle?: HarnessStyle) {
   await act(async () => {
-    root.render(React.createElement(Harness));
+    root.render(React.createElement(Harness, { safeAreaStyle }));
   });
 }
 
@@ -236,6 +239,109 @@ test('joint panel dragging can overflow the viewer while keeping a visible grab 
 
   const [committedX] = String(positionOutput.textContent ?? '').split(',');
   assert.ok(Number.parseFloat(committedX) < 0);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('joint panel dragging stays clear of the expanded left workspace sidebar', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderHarness(root, { '--workspace-overlay-left-inset': '264px' });
+
+  const header = container.querySelector('#joint-header');
+  const jointPanel = header?.parentElement as HTMLDivElement | null;
+  const positionOutput = container.querySelector('#joint-pos');
+  assert.ok(header, 'joint drag header should render');
+  assert.ok(jointPanel, 'joint panel should render');
+  assert.ok(positionOutput, 'position output should render');
+
+  await act(async () => {
+    header.dispatchEvent(new dom.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 50,
+      clientY: 60,
+    }));
+  });
+
+  await act(async () => {
+    dom.window.document.dispatchEvent(new dom.window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      clientX: -200,
+      clientY: 120,
+      buttons: 1,
+    }));
+  });
+
+  assert.equal(jointPanel.style.left, '266px');
+  assert.equal(positionOutput.textContent, 'null');
+
+  await act(async () => {
+    dom.window.document.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+      bubbles: true,
+      cancelable: true,
+      clientX: -200,
+      clientY: 120,
+    }));
+  });
+
+  assert.equal(positionOutput.textContent, '266,90');
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('committed panel positions move right when the left workspace sidebar expands', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderHarness(root);
+
+  const header = container.querySelector('#joint-header');
+  const jointPanel = header?.parentElement as HTMLDivElement | null;
+  const positionOutput = container.querySelector('#joint-pos');
+  assert.ok(header, 'joint drag header should render');
+  assert.ok(jointPanel, 'joint panel should render');
+  assert.ok(positionOutput, 'position output should render');
+
+  await act(async () => {
+    header.dispatchEvent(new dom.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 50,
+      clientY: 60,
+    }));
+  });
+
+  await act(async () => {
+    dom.window.document.dispatchEvent(new dom.window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 60,
+      buttons: 1,
+    }));
+  });
+
+  await act(async () => {
+    dom.window.document.dispatchEvent(new dom.window.MouseEvent('mouseup', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 60,
+    }));
+  });
+
+  assert.equal(positionOutput.textContent, '-20,30');
+
+  await renderHarness(root, { '--workspace-overlay-left-inset': '264px' });
+
+  assert.equal(positionOutput.textContent, '266,30');
 
   await act(async () => {
     root.unmount();

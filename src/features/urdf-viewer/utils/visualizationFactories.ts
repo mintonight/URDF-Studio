@@ -12,7 +12,6 @@ import {
 } from '@/shared/components/3d/unified-transform-controls/gizmoCore';
 import { markMaterialAsShared } from '@/core/utils/three/materialProtection';
 import { ignoreRaycast } from '@/shared/utils/three/ignoreRaycast';
-import { narrowLineRaycast } from '@/shared/utils/three/narrowLineRaycast';
 
 export interface MjcfSiteVisualizationData {
   name: string;
@@ -24,11 +23,39 @@ export interface MjcfSiteVisualizationData {
   quat?: [number, number, number, number];
 }
 
+export interface MjcfTendonVisualizationAttachment {
+  type: 'site' | 'geom' | 'joint' | 'pulley';
+  ref?: string;
+  sidesite?: string;
+  divisor?: number;
+  coef?: number;
+}
+
 export interface MjcfTendonVisualizationData {
   name: string;
   rgba?: [number, number, number, number];
   attachmentRefs: string[];
+  attachments?: MjcfTendonVisualizationAttachment[];
   width?: number;
+}
+
+function resolveMjcfTendonPathPointCapacity(tendon: MjcfTendonVisualizationData): number {
+  const visualAttachments = tendon.attachments?.filter((attachment) => {
+    const ref = attachment.ref ?? attachment.sidesite;
+    return typeof ref === 'string' && ref.length > 0;
+  });
+
+  if (!visualAttachments?.length || visualAttachments.length !== tendon.attachmentRefs.length) {
+    return Math.max(tendon.attachmentRefs.length, 2);
+  }
+
+  return Math.max(
+    visualAttachments.reduce(
+      (count, attachment) => count + (attachment.type === 'geom' ? 2 : 1),
+      0,
+    ),
+    2,
+  );
 }
 
 function createSelectableHelperUserData(
@@ -253,7 +280,8 @@ export function createMjcfTendonVisualization(tendon: MjcfTendonVisualizationDat
   };
   material.needsUpdate = true;
 
-  const segmentCount = Math.max(tendon.attachmentRefs.length - 1, 1);
+  const pathPointCapacity = resolveMjcfTendonPathPointCapacity(tendon);
+  const segmentCount = Math.max(pathPointCapacity - 1, 1);
   for (let index = 0; index < segmentCount; index += 1) {
     const segment = new THREE.Group();
     segment.name = `__mjcf_tendon_segment__:${index}`;
@@ -274,7 +302,7 @@ export function createMjcfTendonVisualization(tendon: MjcfTendonVisualizationDat
     tendonGroup.add(segment);
   }
 
-  const anchorCount = Math.max(tendon.attachmentRefs.length, 2);
+  const anchorCount = pathPointCapacity;
   for (let index = 0; index < anchorCount; index += 1) {
     const anchor = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), material);
     anchor.name = `__mjcf_tendon_anchor__:${index}`;
@@ -534,7 +562,6 @@ export function createInertiaBox(
   mesh.quaternion.copy(rotation);
   mesh.userData = createSelectableHelperUserData();
   mesh.renderOrder = INERTIA_BOX_RENDER_ORDER;
-  mesh.raycast = ignoreRaycast;
   inertiaBox.add(mesh);
 
   const edges = new THREE.EdgesGeometry(geom);
@@ -550,9 +577,9 @@ export function createInertiaBox(
   line.quaternion.copy(rotation);
   line.userData = createSelectableHelperUserData();
   line.renderOrder = GIZMO_BASE_RENDER_ORDER;
-  // Let the visible outline own picking with a narrow threshold so hover/click
-  // stays close to the 2D silhouette users actually see on screen.
-  line.raycast = narrowLineRaycast;
+  // The filled box owns exact inertia hover; line raycast thresholds are
+  // world-space and can make hover trigger before the cursor reaches the box.
+  line.raycast = ignoreRaycast;
   inertiaBox.add(line);
 
   return inertiaBox;

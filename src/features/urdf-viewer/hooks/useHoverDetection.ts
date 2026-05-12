@@ -3,9 +3,12 @@ import { useThree, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useSelectionStore } from '@/store';
 import type { InteractionSelection, UrdfJoint, UrdfLink } from '@/types';
-import { setRegressionProjectedInteractionTargetsProvider } from '@/shared/debug/regressionBridge';
+import { setRegressionProjectedInteractionTargetsProvider } from '@/shared/debug/regressionState';
 import { highlightFaceMaterial } from '../utils/materials';
-import { collectGizmoRaycastTargets, isGizmoObject } from '../utils/raycast';
+import {
+  collectGizmoRaycastTargets,
+  shouldBlockBackgroundInteractionForGizmoHit,
+} from '../utils/raycast';
 import {
   collectPickTargets,
   collectSelectableHelperTargets,
@@ -162,8 +165,9 @@ export function useHoverDetection({
   const lastToolModeRef = useRef(toolMode);
   const hoverSuppressedByDragRef = useRef(false);
   const useExternalHover = typeof onHover === 'function';
+  const importMetaEnv = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env;
   const regressionDebugEnabled =
-    import.meta.env.DEV ||
+    importMetaEnv?.DEV === true ||
     (typeof window !== 'undefined' &&
       new URLSearchParams(window.location.search).get('regressionDebug') === '1');
 
@@ -258,38 +262,41 @@ export function useHoverDetection({
     return projectedHelperCacheRef.current.targets;
   };
 
-  const emitHoverSelection = (
-    type: InteractionSelection['type'],
-    id: string | null,
-    subType?: 'visual' | 'collision',
-    objectIndex?: number,
-    helperKind?: ViewerHelperKind,
-    highlightObjectId?: number,
-  ) => {
-    if (!onHover) return;
+  const emitHoverSelection = useCallback(
+    (
+      type: InteractionSelection['type'],
+      id: string | null,
+      subType?: 'visual' | 'collision',
+      objectIndex?: number,
+      helperKind?: ViewerHelperKind,
+      highlightObjectId?: number,
+    ) => {
+      if (!onHover) return;
 
-    const previous = emittedHoverSelectionRef.current;
-    if (
-      previous.type === type &&
-      previous.id === id &&
-      previous.subType === subType &&
-      (previous.objectIndex ?? 0) === (objectIndex ?? 0) &&
-      previous.helperKind === helperKind &&
-      (previous.highlightObjectId ?? null) === (highlightObjectId ?? null)
-    ) {
-      return;
-    }
+      const previous = emittedHoverSelectionRef.current;
+      if (
+        previous.type === type &&
+        previous.id === id &&
+        previous.subType === subType &&
+        (previous.objectIndex ?? 0) === (objectIndex ?? 0) &&
+        previous.helperKind === helperKind &&
+        (previous.highlightObjectId ?? null) === (highlightObjectId ?? null)
+      ) {
+        return;
+      }
 
-    emittedHoverSelectionRef.current = {
-      type,
-      id,
-      subType,
-      objectIndex,
-      helperKind,
-      highlightObjectId,
-    };
-    onHover(type, id, subType, objectIndex, helperKind, highlightObjectId);
-  };
+      emittedHoverSelectionRef.current = {
+        type,
+        id,
+        subType,
+        objectIndex,
+        helperKind,
+        highlightObjectId,
+      };
+      onHover(type, id, subType, objectIndex, helperKind, highlightObjectId);
+    },
+    [onHover],
+  );
 
   const getPickTargets = (targetMode: PickTargetMode) => {
     const cache = pickTargetCachesRef.current[targetMode];
@@ -376,12 +383,11 @@ export function useHoverDetection({
   }, [clearRaycastTargetCaches, clearTransientHoverState, needsRaycastRef, robot, robotVersion]);
 
   useEffect(() => {
-    clearTransientHoverState();
+    setHighlightedFace((current) => (current ? null : current));
     clearRaycastTargetCaches();
     needsRaycastRef.current = true;
   }, [
     clearRaycastTargetCaches,
-    clearTransientHoverState,
     interactionLayerPriority,
     needsRaycastRef,
     showCollision,
@@ -592,7 +598,9 @@ export function useHoverDetection({
       hoverFrozen || isDraggingJoint.current || Boolean(isOrbitDragging?.current);
     if (hoverSuppressedByDrag) {
       if (!hoverSuppressedByDragRef.current) {
-        clearTransientHoverState();
+        if (!justSelectedRef?.current) {
+          clearTransientHoverState();
+        }
         needsRaycastRef.current = false;
         hoverSuppressedByDragRef.current = true;
       }
@@ -654,16 +662,20 @@ export function useHoverDetection({
         helperTargets: getHelperTargets(),
         interactionLayerPriority,
       });
-      if (helperInteraction) {
-        return helperInteraction;
-      }
-
-      helperInteraction = resolveScreenSpaceHelperInteraction({
+      const projectedHelperInteraction = resolveScreenSpaceHelperInteraction({
         pointerClientX,
         pointerClientY,
         projectedHelpers: getProjectedHelperTargets(cameraMoved || cameraRotated),
         interactionLayerPriority,
       });
+      const helperCandidates = [helperInteraction, projectedHelperInteraction].filter(
+        (candidate): candidate is ResolvedHoverInteractionCandidate => candidate !== null,
+      );
+      helperInteraction =
+        helperCandidates.length > 0
+          ? resolveHoverInteractionResolution(helperCandidates, interactionLayerPriority)
+              .primaryInteraction
+          : null;
       return helperInteraction;
     };
     const applyHelperHoverInteraction = (helperInteraction: ResolvedHoverInteractionCandidate) => {
@@ -728,7 +740,7 @@ export function useHoverDetection({
         gizmoTargets.length > 0
           ? raycasterRef.current.intersectObjects(gizmoTargets, false)[0]
           : undefined;
-      if (nearestSceneHit && isGizmoObject(nearestSceneHit.object)) {
+      if (shouldBlockBackgroundInteractionForGizmoHit(nearestSceneHit?.object ?? null)) {
         if (highlightedFace) setHighlightedFace(null);
         resetHoverState();
         return;
@@ -803,7 +815,7 @@ export function useHoverDetection({
       gizmoTargets.length > 0
         ? raycasterRef.current.intersectObjects(gizmoTargets, false)[0]
         : undefined;
-    if (nearestSceneHit && isGizmoObject(nearestSceneHit.object)) {
+    if (shouldBlockBackgroundInteractionForGizmoHit(nearestSceneHit?.object ?? null)) {
       resetHoverState();
       return;
     }

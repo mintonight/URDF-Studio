@@ -3,6 +3,7 @@ import {
   buildUsdBindingsScriptUrl,
   ensureClassicScriptLoaded,
 } from './usdBindingsScriptLoader.ts';
+import { logRuntimeFailure } from '@/core/utils/runtimeDiagnostics';
 import type {
   LoadUsdStageFn,
   UsdFsHelperInstance,
@@ -180,8 +181,12 @@ export async function ensureUsdWasmRuntime(): Promise<UsdWasmRuntime> {
   return usdRuntimePromise;
 }
 
-export function prewarmUsdWasmRuntimeInBackground(): void {
-  void ensureUsdWasmRuntime().catch(() => {});
+export function prewarmUsdWasmRuntimeInBackground(
+  loadRuntime: () => Promise<UsdWasmRuntime> = ensureUsdWasmRuntime,
+): void {
+  void loadRuntime().catch((error) => {
+    logRuntimeFailure('prewarmUsdWasmRuntimeInBackground', error, 'warn');
+  });
 }
 
 export function disposeUsdDriver(runtime: Pick<UsdWasmRuntime, 'USD'>, driver: any): void {

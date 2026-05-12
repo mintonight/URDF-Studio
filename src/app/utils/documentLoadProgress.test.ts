@@ -27,8 +27,22 @@ test('mapViewerDocumentLoadEventToDocumentLoadPercent maps USD viewer progress i
       loadedCount: null,
       totalCount: null,
     }),
-    15,
+    12,
   );
+});
+
+test('mapViewerDocumentLoadEventToDocumentLoadPercent keeps early USD dependency preload progress below the first-quarter jump', () => {
+  const mappedProgress = mapViewerDocumentLoadEventToDocumentLoadPercent('usd', {
+    status: 'loading',
+    phase: 'preloading-dependencies',
+    progressMode: 'percent',
+    progressPercent: 34,
+    loadedCount: null,
+    totalCount: null,
+  });
+
+  assert.ok(mappedProgress < 20);
+  assert.ok(mappedProgress > 18);
 });
 
 test('resolveDocumentLoadingOverlayTargetFileName prefers the actively loading file over preview or selection state', () => {

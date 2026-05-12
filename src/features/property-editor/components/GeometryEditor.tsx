@@ -3,8 +3,8 @@
  * Handles geometry type selection, dimension editing, mesh selection,
  * origin/rotation, color, and auto-align.
  */
-import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Upload, File, Wand, Check, Trash2, Eye, EyeOff } from 'lucide-react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
+import { Upload, File, Wand, Check, Trash2, Eye } from 'lucide-react';
 import type { RobotState, UrdfLink, UrdfVisual } from '@/types';
 import { GeometryType } from '@/types';
 import { translations } from '@/shared/i18n';
@@ -25,6 +25,7 @@ import {
   InputGroup,
   InlineInputGroup,
   NumberInput,
+  PROPERTY_EDITOR_FIELD_LABEL_CLASS,
   PROPERTY_EDITOR_HELPER_TEXT_CLASS,
   PROPERTY_EDITOR_INPUT_CLASS,
   PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS,
@@ -63,7 +64,7 @@ const GEOMETRY_EDITOR_MESH_ANALYSIS_OPTIONS = {
   pointCollectionLimit: 2048,
 } satisfies MeshAnalysisOptions;
 
-const GEOMETRY_EDITOR_COMPACT_ACTIONS_WIDTH = 300;
+const GEOMETRY_EDITOR_COMPACT_ACTIONS_WIDTH = 360;
 const GEOMETRY_EDITOR_RELAXED_OVERLAP_ALLOWANCE_RATIO = 0.12;
 const GEOMETRY_EDITOR_RELAXED_FIT_VOLUME_WINDOW_RATIO = 1.75;
 const EDITABLE_GEOMETRY_TYPES: GeometryType[] = [
@@ -212,6 +213,7 @@ interface GeometryEditorProps {
   isTabbed?: boolean;
   showCollisionDeleteAction?: boolean;
   sourceFilePath?: string;
+  onLinkNameChange?: (name: string) => void;
 }
 
 interface DimensionInputField {
@@ -222,6 +224,88 @@ interface DimensionInputField {
   value: number;
 }
 
+interface DeferredColorPickerInputProps {
+  ariaLabel: string;
+  className?: string;
+  onCommit: (value: string) => void;
+  value: string;
+}
+
+const DeferredColorPickerInput = ({
+  ariaLabel,
+  className,
+  onCommit,
+  value,
+}: DeferredColorPickerInputProps) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [draftValue, setDraftValue] = useState(value);
+  const draftValueRef = useRef(value);
+  const committedValueRef = useRef(value);
+  const onCommitRef = useRef(onCommit);
+
+  useEffect(() => {
+    onCommitRef.current = onCommit;
+  }, [onCommit]);
+
+  useEffect(() => {
+    draftValueRef.current = value;
+    committedValueRef.current = value;
+    setDraftValue(value);
+  }, [value]);
+
+  const setDraft = useCallback((nextValue: string) => {
+    draftValueRef.current = nextValue;
+    setDraftValue((currentValue) => (currentValue === nextValue ? currentValue : nextValue));
+  }, []);
+
+  const commitDraft = useCallback(() => {
+    const nextValue = draftValueRef.current;
+    if (nextValue === committedValueRef.current) {
+      return;
+    }
+
+    committedValueRef.current = nextValue;
+    onCommitRef.current(nextValue);
+  }, []);
+
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) {
+      return;
+    }
+
+    const handleNativeChange = () => {
+      setDraft(input.value);
+      commitDraft();
+    };
+
+    input.addEventListener('change', handleNativeChange);
+    return () => {
+      input.removeEventListener('change', handleNativeChange);
+    };
+  }, [commitDraft, setDraft]);
+
+  return (
+    <input
+      ref={inputRef}
+      type="color"
+      value={draftValue}
+      onInput={(event) => setDraft(event.currentTarget.value)}
+      onChange={(event) => setDraft(event.currentTarget.value)}
+      onPointerUp={commitDraft}
+      onMouseUp={commitDraft}
+      onBlur={commitDraft}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          commitDraft();
+        }
+      }}
+      aria-label={ariaLabel}
+      className={className}
+    />
+  );
+};
+
 const POSITIVE_GEOMETRY_VALUE_MIN = GEOMETRY_DIMENSION_STEP;
 const stripAxisSuffix = (label: string) => label.replace(/\s*\([^)]*\)\s*$/, '');
 
@@ -230,11 +314,13 @@ const InlineDimensionInputRow = ({
   columns = 3,
   labelClassName = PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS,
   labelWidthClassName = 'w-2 text-center',
+  showStepper = true,
 }: {
   fields: DimensionInputField[];
   columns?: 1 | 2 | 3;
   labelClassName?: string;
   labelWidthClassName?: string;
+  showStepper?: boolean;
 }) => (
   <div
     className={`min-w-0 ${
@@ -260,6 +346,7 @@ const InlineDimensionInputRow = ({
             min={field.min}
             max={field.max}
             compact
+            showStepper={showStepper}
             step={GEOMETRY_DIMENSION_STEP}
             precision={MAX_GEOMETRY_DIMENSION_DECIMALS}
           />
@@ -281,18 +368,19 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
   isTabbed = false,
   showCollisionDeleteAction = true,
   sourceFilePath,
+  onLinkNameChange,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textureFileInputRef = useRef<HTMLInputElement>(null);
   const [previewMeshPath, setPreviewMeshPath] = useState<string | null>(null);
   const [previewTexturePath, setPreviewTexturePath] = useState<string | null>(null);
-  const geometryActionRowRef = useRef<HTMLDivElement>(null);
+  const geometryHeaderRowRef = useRef<HTMLDivElement>(null);
   const meshAnalysisRef = useRef<MeshAnalysis | null>(null);
   const meshAnalysisKeyRef = useRef<string | null>(null);
   const meshAnalysisCacheRef = useRef<Record<string, MeshAnalysis | null>>({});
   const meshAnalysisPromiseCacheRef = useRef<Record<string, Promise<MeshAnalysis | null>>>({});
   const typeChangeRequestRef = useRef(0);
-  const [geometryActionRowWidth, setGeometryActionRowWidth] = useState<number | null>(null);
+  const [geometryHeaderRowWidth, setGeometryHeaderRowWidth] = useState<number | null>(null);
   const setSelection = useSelectionStore((state) => state.setSelection);
   const pendingCollisionTransform = useCollisionTransformStore(
     (state) => state.pendingCollisionTransform,
@@ -340,10 +428,10 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
         .sort((left, right) => left.localeCompare(right)),
     [assets],
   );
-  const isGeometryVisible = geomData.visible !== false;
+
   const isCompactGeometryActions =
-    geometryActionRowWidth !== null &&
-    geometryActionRowWidth < GEOMETRY_EDITOR_COMPACT_ACTIONS_WIDTH;
+    geometryHeaderRowWidth !== null &&
+    geometryHeaderRowWidth < GEOMETRY_EDITOR_COMPACT_ACTIONS_WIDTH;
   const materialSourceLabel =
     geomData.materialSource === 'inline'
       ? t.materialSourceInline
@@ -570,7 +658,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
   };
 
   useEffect(() => {
-    const node = geometryActionRowRef.current;
+    const node = geometryHeaderRowRef.current;
 
     if (!node || typeof ResizeObserver === 'undefined') {
       return;
@@ -578,7 +666,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
 
     const updateWidth = () => {
       const nextWidth = Math.round(node.getBoundingClientRect().width);
-      setGeometryActionRowWidth((previousWidth) =>
+      setGeometryHeaderRowWidth((previousWidth) =>
         previousWidth === nextWidth ? previousWidth : nextWidth,
       );
     };
@@ -799,6 +887,22 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
     e.target.value = '';
   };
 
+  // Handle editing individual authored material colors
+  const handleAuthoredMaterialColorChange = (index: number, newColor: string) => {
+    const currentAuthoredMaterials = geomData.authoredMaterials || [];
+    if (!currentAuthoredMaterials[index]) {
+      return;
+    }
+
+    const nextAuthoredMaterials = [...currentAuthoredMaterials];
+    nextAuthoredMaterials[index] = {
+      ...nextAuthoredMaterials[index],
+      color: newColor,
+    };
+
+    update({ authoredMaterials: nextAuthoredMaterials });
+  };
+
   // Memoized auto-align calculation
   const autoAlignResult = useMemo(() => computeAutoAlign(robot, data.id), [robot.joints, data.id]);
 
@@ -859,7 +963,10 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
       let conversionSourceGeometry = geomData;
       let meshAnalysis: MeshAnalysis | undefined;
 
-      if (category === 'collision' && COLLISION_VISUAL_MESH_REFERENCE_TYPES.has(newType)) {
+      if (
+        category === 'collision' &&
+        (COLLISION_VISUAL_MESH_REFERENCE_TYPES.has(newType) || newType === GeometryType.MESH)
+      ) {
         const visualMeshReference = resolveCollisionVisualMeshReference(
           data,
           selectedCollisionObjectIndex,
@@ -867,10 +974,14 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
         );
 
         if (visualMeshReference) {
-          const referenceMeshAnalysis = await resolveMeshAnalysisForGeometry(visualMeshReference);
-          if (referenceMeshAnalysis) {
+          if (newType === GeometryType.MESH) {
             conversionSourceGeometry = visualMeshReference;
-            meshAnalysis = referenceMeshAnalysis;
+          } else {
+            const referenceMeshAnalysis = await resolveMeshAnalysisForGeometry(visualMeshReference);
+            if (referenceMeshAnalysis) {
+              conversionSourceGeometry = visualMeshReference;
+              meshAnalysis = referenceMeshAnalysis;
+            }
           }
         }
       }
@@ -889,15 +1000,25 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
         return;
       }
 
-      const converted = convertGeometryType(
-        conversionSourceGeometry,
-        newType,
-        meshAnalysis,
-        clearanceContext,
-      );
+      const converted =
+        newType === GeometryType.MESH && conversionSourceGeometry.type === GeometryType.MESH
+          ? {
+              type: GeometryType.MESH,
+              dimensions: conversionSourceGeometry.dimensions ?? { x: 1, y: 1, z: 1 },
+              origin: conversionSourceGeometry.origin ?? {
+                xyz: { x: 0, y: 0, z: 0 },
+                rpy: { r: 0, p: 0, y: 0 },
+              },
+            }
+          : convertGeometryType(conversionSourceGeometry, newType, meshAnalysis, clearanceContext);
       const nextGeom = {
         ...converted,
-        meshPath: newType === GeometryType.MESH ? geomData.meshPath : undefined,
+        meshPath:
+          newType === GeometryType.MESH
+            ? conversionSourceGeometry.type === GeometryType.MESH
+              ? conversionSourceGeometry.meshPath
+              : geomData.meshPath
+            : undefined,
         assetRef: MJCF_SPECIAL_GEOMETRY_TYPES.has(newType) ? geomData.assetRef : undefined,
         mjcfHfield: newType === GeometryType.HFIELD ? geomData.mjcfHfield : undefined,
         color:
@@ -960,87 +1081,104 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
         </div>
       )}
 
-      <InlineInputGroup label={t.type} labelWidthClassName="w-11">
-        <div ref={geometryActionRowRef} className="flex items-center gap-1">
-          <PropertyEditorSelect
-            value={currentGeometryType}
-            aria-label={t.type}
-            options={geometryTypeOptions.map((typeOption) => {
-              const label =
-                typeOption === GeometryType.BOX
-                  ? t.box
-                  : typeOption === GeometryType.PLANE
-                    ? t.plane
-                    : typeOption === GeometryType.CYLINDER
-                      ? t.cylinder
-                      : typeOption === GeometryType.SPHERE
-                        ? t.sphere
-                        : typeOption === GeometryType.ELLIPSOID
-                          ? t.ellipsoid
-                          : typeOption === GeometryType.CAPSULE
-                            ? t.capsule
-                            : typeOption === GeometryType.HFIELD
-                              ? t.hfield
-                              : typeOption === GeometryType.SDF
-                                ? t.sdf
-                                : typeOption === GeometryType.MESH
-                                  ? t.mesh
-                                  : t.none;
-
-              return {
-                value: typeOption,
-                label,
-              };
-            })}
-            onChange={handleTypeChange}
-            className="min-w-0 flex-1"
-          />
-          {geomData.type !== GeometryType.NONE && (
-            <button
-              type="button"
-              aria-pressed={isGeometryVisible}
-              aria-label={isGeometryVisible ? t.hide : t.show}
-              title={isGeometryVisible ? t.hide : t.show}
-              onClick={() => update({ visible: !isGeometryVisible })}
-              className={`inline-flex h-[22px] shrink-0 items-center justify-center rounded-md border text-[10px] font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-system-blue/25 ${
-                isCompactGeometryActions ? 'w-6 px-0' : 'gap-1 px-1.5'
-              } ${
-                isGeometryVisible
-                  ? 'border-system-blue/25 bg-system-blue/10 text-system-blue'
-                  : 'border-border-strong bg-panel-bg text-text-tertiary hover:bg-element-hover hover:text-text-primary'
-              }`}
+      <div ref={geometryHeaderRowRef} className="mb-1 flex min-w-0 items-center gap-1.5">
+        {category === 'visual' && onLinkNameChange ? (
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span
+              className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} min-w-0 shrink whitespace-nowrap`}
             >
-              {isGeometryVisible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-              <span className={isCompactGeometryActions ? 'sr-only' : ''}>{t.visible}</span>
-            </button>
-          )}
-          {geomData.type === GeometryType.CYLINDER && !isCompactGeometryActions && (
+              {t.name}
+            </span>
+            <input
+              type="text"
+              value={data.name ?? ''}
+              onChange={(e) => onLinkNameChange(e.target.value)}
+              className={`${PROPERTY_EDITOR_INPUT_CLASS} min-w-0 flex-1`}
+              spellCheck={false}
+            />
+          </div>
+        ) : category === 'collision' ? (
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span
+              className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} min-w-0 shrink whitespace-nowrap`}
+            >
+              {t.name}
+            </span>
+            <input
+              type="text"
+              value={geometryNameValue}
+              onChange={(e) => {
+                const nextName = e.target.value.trim();
+                update({ name: nextName || undefined });
+              }}
+              className={`${PROPERTY_EDITOR_INPUT_CLASS} min-w-0 flex-1`}
+              spellCheck={false}
+            />
+          </div>
+        ) : null}
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span
+            className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} min-w-0 shrink whitespace-nowrap`}
+          >
+            {t.type}
+          </span>
+          <div
+            className="min-w-0 flex-1"
+            style={{
+              height: 22,
+              display: 'flex',
+              alignItems: 'center',
+              overflow: 'hidden',
+              lineHeight: 0,
+            }}
+          >
+            <PropertyEditorSelect
+              value={currentGeometryType}
+              aria-label={t.type}
+              options={geometryTypeOptions.map((typeOption) => {
+                const label =
+                  typeOption === GeometryType.BOX
+                    ? t.box
+                    : typeOption === GeometryType.PLANE
+                      ? t.plane
+                      : typeOption === GeometryType.CYLINDER
+                        ? t.cylinder
+                        : typeOption === GeometryType.SPHERE
+                          ? t.sphere
+                          : typeOption === GeometryType.ELLIPSOID
+                            ? t.ellipsoid
+                            : typeOption === GeometryType.CAPSULE
+                              ? t.capsule
+                              : typeOption === GeometryType.HFIELD
+                                ? t.hfield
+                                : typeOption === GeometryType.SDF
+                                  ? t.sdf
+                                  : typeOption === GeometryType.MESH
+                                    ? t.mesh
+                                    : t.none;
+
+                return {
+                  value: typeOption,
+                  label,
+                };
+              })}
+              onChange={handleTypeChange}
+              className="min-w-0 w-full"
+            />
+          </div>
+        </div>
+        {category === 'collision' &&
+          geomData.type === GeometryType.CYLINDER &&
+          !isCompactGeometryActions && (
             <button
               onClick={handleAutoAlign}
-              className={`${PROPERTY_EDITOR_SECONDARY_BUTTON_CLASS} shrink-0`}
+              className="inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border border-border-strong bg-element-bg text-text-tertiary transition-colors hover:bg-element-hover hover:text-text-primary"
               title={t.autoAlign}
             >
-              <Wand className="w-3.5 h-3.5" />
-              <span>{t.autoAlign}</span>
+              <Wand className="h-3.5 w-3.5" />
             </button>
           )}
-        </div>
-      </InlineInputGroup>
-
-      {category === 'collision' && geomData.type !== GeometryType.NONE && (
-        <InlineInputGroup label={t.name} labelWidthClassName="w-11">
-          <input
-            type="text"
-            value={geometryNameValue}
-            onChange={(e) => {
-              const nextName = e.target.value.trim();
-              update({ name: nextName || undefined });
-            }}
-            className={PROPERTY_EDITOR_INPUT_CLASS}
-            spellCheck={false}
-          />
-        </InlineInputGroup>
-      )}
+      </div>
 
       {/* Mesh Selection UI */}
       {geomData.type === GeometryType.MESH && (
@@ -1174,183 +1312,173 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
       )}
 
       {geomData.type === GeometryType.MESH && (
-        <InlineInputGroup label={t.meshScale} labelWidthClassName="w-11">
+        <div className="mb-1">
+          <label className={`${PROPERTY_EDITOR_FIELD_LABEL_CLASS} mb-0.5`}>{t.meshScale}</label>
           <InlineDimensionInputRow
             columns={3}
+            showStepper={false}
             fields={[
               {
                 label: 'X',
                 value: geomData.dimensions?.x ?? 1,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v } }),
+                onChange: (v: number) => update({ dimensions: { ...geomData.dimensions, x: v } }),
               },
               {
                 label: 'Y',
                 value: geomData.dimensions?.y ?? 1,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
+                onChange: (v: number) => update({ dimensions: { ...geomData.dimensions, y: v } }),
               },
               {
                 label: 'Z',
                 value: geomData.dimensions?.z ?? 1,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, z: v } }),
+                onChange: (v: number) => update({ dimensions: { ...geomData.dimensions, z: v } }),
               },
             ]}
           />
-        </InlineInputGroup>
+        </div>
       )}
 
       {/* Box dimensions: Width (X), Depth (Y), Height (Z) */}
       {geomData.type === GeometryType.BOX && (
-        <InlineInputGroup label={t.dimensions} labelWidthClassName="w-11">
-          <InlineDimensionInputRow
-            columns={3}
-            fields={[
-              {
-                label: stripAxisSuffix(t.width || 'Width'),
-                min: POSITIVE_GEOMETRY_VALUE_MIN,
-                value: geomData.dimensions?.x || 0.1,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v } }),
-              },
-              {
-                label: stripAxisSuffix(t.height || 'Height'),
-                min: POSITIVE_GEOMETRY_VALUE_MIN,
-                value: geomData.dimensions?.z || 0.1,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, z: v } }),
-              },
-              {
-                label: stripAxisSuffix(t.depth || 'Depth'),
-                min: POSITIVE_GEOMETRY_VALUE_MIN,
-                value: geomData.dimensions?.y || 0.1,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
-              },
-            ]}
-            labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
-            labelWidthClassName="whitespace-nowrap"
-          />
-        </InlineInputGroup>
+        <InlineDimensionInputRow
+          columns={3}
+          fields={[
+            {
+              label: stripAxisSuffix(t.width || 'Width'),
+              min: POSITIVE_GEOMETRY_VALUE_MIN,
+              value: geomData.dimensions?.x || 0.1,
+              onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v } }),
+            },
+            {
+              label: stripAxisSuffix(t.height || 'Height'),
+              min: POSITIVE_GEOMETRY_VALUE_MIN,
+              value: geomData.dimensions?.z || 0.1,
+              onChange: (v) => update({ dimensions: { ...geomData.dimensions, z: v } }),
+            },
+            {
+              label: stripAxisSuffix(t.depth || 'Depth'),
+              min: POSITIVE_GEOMETRY_VALUE_MIN,
+              value: geomData.dimensions?.y || 0.1,
+              onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
+            },
+          ]}
+          labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
+          labelWidthClassName="whitespace-nowrap"
+        />
       )}
 
       {geomData.type === GeometryType.PLANE && (
-        <InlineInputGroup label={t.dimensions} labelWidthClassName="w-11">
-          <InlineDimensionInputRow
-            columns={2}
-            fields={[
-              {
-                label: stripAxisSuffix(t.width || 'Width'),
-                min: POSITIVE_GEOMETRY_VALUE_MIN,
-                value: geomData.dimensions?.x || 1,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v } }),
-              },
-              {
-                label: stripAxisSuffix(t.depth || 'Depth'),
-                min: POSITIVE_GEOMETRY_VALUE_MIN,
-                value: geomData.dimensions?.y || 1,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
-              },
-            ]}
-            labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
-            labelWidthClassName="whitespace-nowrap"
-          />
-        </InlineInputGroup>
+        <InlineDimensionInputRow
+          columns={2}
+          fields={[
+            {
+              label: stripAxisSuffix(t.width || 'Width'),
+              min: POSITIVE_GEOMETRY_VALUE_MIN,
+              value: geomData.dimensions?.x || 1,
+              onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v } }),
+            },
+            {
+              label: stripAxisSuffix(t.depth || 'Depth'),
+              min: POSITIVE_GEOMETRY_VALUE_MIN,
+              value: geomData.dimensions?.y || 1,
+              onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
+            },
+          ]}
+          labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
+          labelWidthClassName="whitespace-nowrap"
+        />
       )}
 
       {/* Sphere dimensions: Radius only */}
       {geomData.type === GeometryType.SPHERE && (
-        <InlineInputGroup label={t.dimensions} labelWidthClassName="w-11">
-          <InlineDimensionInputRow
-            columns={1}
-            fields={[
-              {
-                label: t.radius || 'Radius',
-                min: POSITIVE_GEOMETRY_VALUE_MIN,
-                value: geomData.dimensions?.x || 0.1,
-                onChange: (v) => update({ dimensions: { x: v, y: v, z: v } }),
-              },
-            ]}
-            labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
-            labelWidthClassName="whitespace-nowrap"
-          />
-        </InlineInputGroup>
+        <InlineDimensionInputRow
+          columns={1}
+          fields={[
+            {
+              label: t.radius || 'Radius',
+              min: POSITIVE_GEOMETRY_VALUE_MIN,
+              value: geomData.dimensions?.x || 0.1,
+              onChange: (v) => update({ dimensions: { x: v, y: v, z: v } }),
+            },
+          ]}
+          labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
+          labelWidthClassName="whitespace-nowrap"
+        />
       )}
 
       {/* Ellipsoid dimensions: axis radii */}
       {geomData.type === GeometryType.ELLIPSOID && (
-        <InlineInputGroup label={t.dimensions} labelWidthClassName="w-11">
-          <InlineDimensionInputRow
-            columns={3}
-            fields={[
-              {
-                label: t.radiusX || 'Radius X',
-                min: POSITIVE_GEOMETRY_VALUE_MIN,
-                value: geomData.dimensions?.x || 0.1,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v } }),
-              },
-              {
-                label: t.radiusY || 'Radius Y',
-                min: POSITIVE_GEOMETRY_VALUE_MIN,
-                value: geomData.dimensions?.y || geomData.dimensions?.x || 0.1,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
-              },
-              {
-                label: t.radiusZ || 'Radius Z',
-                min: POSITIVE_GEOMETRY_VALUE_MIN,
-                value: geomData.dimensions?.z || geomData.dimensions?.x || 0.1,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, z: v } }),
-              },
-            ]}
-            labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
-            labelWidthClassName="whitespace-nowrap"
-          />
-        </InlineInputGroup>
+        <InlineDimensionInputRow
+          columns={3}
+          fields={[
+            {
+              label: t.radiusX || 'Radius X',
+              min: POSITIVE_GEOMETRY_VALUE_MIN,
+              value: geomData.dimensions?.x || 0.1,
+              onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v } }),
+            },
+            {
+              label: t.radiusY || 'Radius Y',
+              min: POSITIVE_GEOMETRY_VALUE_MIN,
+              value: geomData.dimensions?.y || geomData.dimensions?.x || 0.1,
+              onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
+            },
+            {
+              label: t.radiusZ || 'Radius Z',
+              min: POSITIVE_GEOMETRY_VALUE_MIN,
+              value: geomData.dimensions?.z || geomData.dimensions?.x || 0.1,
+              onChange: (v) => update({ dimensions: { ...geomData.dimensions, z: v } }),
+            },
+          ]}
+          labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
+          labelWidthClassName="whitespace-nowrap"
+        />
       )}
 
       {/* Cylinder dimensions: Radius and Height */}
       {geomData.type === GeometryType.CYLINDER && (
-        <InlineInputGroup label={t.dimensions} labelWidthClassName="w-11">
-          <InlineDimensionInputRow
-            columns={2}
-            fields={[
-              {
-                label: t.radius || 'Radius',
-                min: POSITIVE_GEOMETRY_VALUE_MIN,
-                value: geomData.dimensions?.x || 0.05,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v, z: v } }),
-              },
-              {
-                label: t.height || 'Height',
-                min: POSITIVE_GEOMETRY_VALUE_MIN,
-                value: geomData.dimensions?.y || 0.5,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
-              },
-            ]}
-            labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
-            labelWidthClassName="whitespace-nowrap"
-          />
-        </InlineInputGroup>
+        <InlineDimensionInputRow
+          columns={2}
+          fields={[
+            {
+              label: t.radius || 'Radius',
+              min: POSITIVE_GEOMETRY_VALUE_MIN,
+              value: geomData.dimensions?.x || 0.05,
+              onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v, z: v } }),
+            },
+            {
+              label: t.height || 'Height',
+              min: POSITIVE_GEOMETRY_VALUE_MIN,
+              value: geomData.dimensions?.y || 0.5,
+              onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
+            },
+          ]}
+          labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
+          labelWidthClassName="whitespace-nowrap"
+        />
       )}
 
       {/* Capsule dimensions: Radius and Total Length */}
       {geomData.type === GeometryType.CAPSULE && (
-        <InlineInputGroup label={t.dimensions} labelWidthClassName="w-11">
-          <InlineDimensionInputRow
-            columns={2}
-            fields={[
-              {
-                label: t.radius || 'Radius',
-                min: POSITIVE_GEOMETRY_VALUE_MIN,
-                value: geomData.dimensions?.x || 0.05,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v, z: v } }),
-              },
-              {
-                label: t.totalLength || 'Total Length',
-                min: POSITIVE_GEOMETRY_VALUE_MIN,
-                value: geomData.dimensions?.y || 0.5,
-                onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
-              },
-            ]}
-            labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
-            labelWidthClassName="whitespace-nowrap"
-          />
-        </InlineInputGroup>
+        <InlineDimensionInputRow
+          columns={2}
+          fields={[
+            {
+              label: t.radius || 'Radius',
+              min: POSITIVE_GEOMETRY_VALUE_MIN,
+              value: geomData.dimensions?.x || 0.05,
+              onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v, z: v } }),
+            },
+            {
+              label: t.totalLength || 'Total Length',
+              min: POSITIVE_GEOMETRY_VALUE_MIN,
+              value: geomData.dimensions?.y || 0.5,
+              onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
+            },
+          ]}
+          labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
+          labelWidthClassName="whitespace-nowrap"
+        />
       )}
 
       {(geomData.type === GeometryType.HFIELD || geomData.type === GeometryType.SDF) && (
@@ -1453,26 +1581,41 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
               </InlineInputGroup>
             ) : null}
 
-            <InlineInputGroup label={t.color} labelWidthClassName="w-11">
+            <InlineInputGroup label={t.color} labelWidthClassName="whitespace-nowrap">
               {hasReadonlyAuthoredMaterialDisplay ? (
                 <div className="space-y-1.5">
                   <ReadonlyValueField className="bg-element-bg text-[10px] font-medium">
                     {authoredMaterialDisplayLabel}
                   </ReadonlyValueField>
-                  <div className="flex flex-wrap gap-1">
-                    {authoredMaterialColors.map((color) => (
+                  <div className="flex flex-col gap-1">
+                    {(geomData.authoredMaterials || []).map((material, index) => (
                       <div
-                        key={normalizeColor(color) ?? color}
-                        className="inline-flex items-center gap-1 rounded-md border border-border-black/70 bg-element-bg px-1.5 py-0.5 text-[9px] font-medium text-text-secondary"
+                        key={`${material.name || material.color || ''}-${index}`}
+                        className="flex items-center gap-1.5"
                       >
+                        <input
+                          type="text"
+                          value={material.color || ''}
+                          onChange={(e) => handleAuthoredMaterialColorChange(index, e.target.value)}
+                          className={`${PROPERTY_EDITOR_INPUT_CLASS} flex-1 font-mono uppercase tracking-[0.04em] text-[10px]`}
+                          spellCheck={false}
+                        />
                         <span
                           aria-hidden="true"
-                          className="h-2.5 w-2.5 shrink-0 rounded-full border border-border-black/70"
-                          style={{ backgroundColor: color }}
+                          className="h-5 w-5 shrink-0 rounded-full border border-border-black/70"
+                          style={{ backgroundColor: material.color || 'transparent' }}
                         />
-                        <span className="font-mono uppercase tracking-[0.04em] text-text-primary">
-                          {color}
-                        </span>
+                        <DeferredColorPickerInput
+                          value={getColorPickerHexValue(material.color || '')}
+                          onCommit={(nextColor) =>
+                            handleAuthoredMaterialColorChange(
+                              index,
+                              mergeColorPickerHexValue(nextColor, material.color || '')
+                            )
+                          }
+                          ariaLabel={`Color ${index + 1}`}
+                          className="h-6 w-7 shrink-0 cursor-pointer rounded-md border border-border-strong bg-input-bg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_28%,transparent)]"
+                        />
                       </div>
                     ))}
                   </div>
@@ -1491,22 +1634,21 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
                   >
                     HEX
                   </span>
-                  <input
-                    type="color"
+                  <DeferredColorPickerInput
                     value={getColorPickerHexValue(effectiveColorValue)}
-                    onChange={(e) =>
+                    onCommit={(nextColor) =>
                       update({
-                        color: mergeColorPickerHexValue(e.target.value, effectiveColorValue),
+                        color: mergeColorPickerHexValue(nextColor, effectiveColorValue),
                       })
                     }
-                    aria-label={t.color}
+                    ariaLabel={t.color}
                     className="h-7 w-8 shrink-0 cursor-pointer rounded-md border border-border-strong bg-input-bg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_28%,transparent)]"
                   />
                 </div>
               )}
             </InlineInputGroup>
 
-            <InlineInputGroup label={t.texture} labelWidthClassName="w-11">
+            <InlineInputGroup label={t.texture} labelWidthClassName="whitespace-nowrap">
               <div className="min-w-0 flex-1 space-y-1.5">
                 <div className="flex items-center gap-1.5">
                   <ReadonlyValueField className="min-w-0 flex-1 bg-element-bg text-[10px] font-medium">

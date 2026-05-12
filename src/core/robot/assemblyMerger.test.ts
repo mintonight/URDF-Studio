@@ -296,6 +296,156 @@ function createUnsupportedDynamicComponent(componentId: string, name: string) {
   };
 }
 
+function createFloatingRootComponent(componentId: string, name: string) {
+  const worldLinkId = `${componentId}_world`;
+  const thoraxLinkId = `${componentId}_thorax_link`;
+  const wingMountLinkId = `${componentId}_wing_mount_link`;
+  const wingTipLinkId = `${componentId}_wing_tip_link`;
+  const sensorLinkId = `${componentId}_sensor_link`;
+  const floatingJointId = `${componentId}_free_joint`;
+  const wingMountJointId = `${componentId}_wing_mount_joint`;
+  const wingPitchJointId = `${componentId}_wing_pitch_joint`;
+  const sensorJointId = `${componentId}_sensor_joint`;
+
+  return {
+    id: componentId,
+    name,
+    sourceFile: `robots/${name}.xml`,
+    transform: {
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { r: 0, p: 0, y: 0 },
+    },
+    visible: true,
+    robot: {
+      name: `${name}_robot`,
+      rootLinkId: worldLinkId,
+      links: {
+        [worldLinkId]: {
+          ...DEFAULT_LINK,
+          id: worldLinkId,
+          name: `${name}_world`,
+          visual: {
+            ...DEFAULT_LINK.visual,
+            type: GeometryType.NONE,
+            dimensions: { x: 0, y: 0, z: 0 },
+          },
+          collision: {
+            ...DEFAULT_LINK.collision,
+            type: GeometryType.NONE,
+            dimensions: { x: 0, y: 0, z: 0 },
+          },
+        },
+        [thoraxLinkId]: {
+          ...DEFAULT_LINK,
+          id: thoraxLinkId,
+          name: `${name}_thorax`,
+          visual: {
+            ...DEFAULT_LINK.visual,
+            type: GeometryType.BOX,
+            dimensions: { x: 0.12, y: 0.08, z: 0.05 },
+            origin: {
+              xyz: { x: 0.03, y: -0.01, z: 0.02 },
+              rpy: { r: 0.1, p: -0.2, y: 0.15 },
+            },
+          },
+        },
+        [wingMountLinkId]: {
+          ...DEFAULT_LINK,
+          id: wingMountLinkId,
+          name: `${name}_wing_mount`,
+          visual: {
+            ...DEFAULT_LINK.visual,
+            type: GeometryType.CYLINDER,
+            dimensions: { x: 0.01, y: 0.08, z: 0.01 },
+            origin: {
+              xyz: { x: 0.01, y: 0.03, z: 0 },
+              rpy: { r: 0.25, p: 0.05, y: -0.1 },
+            },
+          },
+        },
+        [wingTipLinkId]: {
+          ...DEFAULT_LINK,
+          id: wingTipLinkId,
+          name: `${name}_wing_tip`,
+          visual: {
+            ...DEFAULT_LINK.visual,
+            type: GeometryType.BOX,
+            dimensions: { x: 0.18, y: 0.03, z: 0.002 },
+            origin: {
+              xyz: { x: 0.08, y: 0.01, z: 0 },
+              rpy: { r: 0.02, p: -0.03, y: 0.2 },
+            },
+          },
+        },
+        [sensorLinkId]: {
+          ...DEFAULT_LINK,
+          id: sensorLinkId,
+          name: `${name}_sensor`,
+        },
+      },
+      joints: {
+        [floatingJointId]: {
+          ...DEFAULT_JOINT,
+          id: floatingJointId,
+          name: floatingJointId,
+          type: JointType.FLOATING,
+          parentLinkId: worldLinkId,
+          childLinkId: thoraxLinkId,
+          origin: {
+            xyz: { x: 0.2, y: -0.1, z: 0.35 },
+            rpy: { r: 0.18, p: -0.22, y: 0.31 },
+          },
+          axis: undefined,
+          limit: undefined,
+        },
+        [wingMountJointId]: {
+          ...DEFAULT_JOINT,
+          id: wingMountJointId,
+          name: wingMountJointId,
+          type: JointType.FIXED,
+          parentLinkId: thoraxLinkId,
+          childLinkId: wingMountLinkId,
+          origin: {
+            xyz: { x: 0.04, y: 0.16, z: 0.03 },
+            rpy: { r: 0.12, p: 0.08, y: -0.05 },
+          },
+          axis: undefined,
+          limit: undefined,
+        },
+        [wingPitchJointId]: {
+          ...DEFAULT_JOINT,
+          id: wingPitchJointId,
+          name: wingPitchJointId,
+          type: JointType.REVOLUTE,
+          parentLinkId: wingMountLinkId,
+          childLinkId: wingTipLinkId,
+          origin: {
+            xyz: { x: 0.05, y: 0.02, z: 0.01 },
+            rpy: { r: -0.08, p: 0.04, y: 0.21 },
+          },
+          axis: { x: 0, y: 1, z: 0 },
+          limit: { lower: -1.1, upper: 0.9, effort: 3, velocity: 12 },
+          angle: 0.37,
+        },
+        [sensorJointId]: {
+          ...DEFAULT_JOINT,
+          id: sensorJointId,
+          name: sensorJointId,
+          type: JointType.FIXED,
+          parentLinkId: thoraxLinkId,
+          childLinkId: sensorLinkId,
+          origin: {
+            xyz: { x: -0.03, y: -0.09, z: 0.02 },
+            rpy: { r: 0.04, p: -0.06, y: 0.09 },
+          },
+          axis: undefined,
+          limit: undefined,
+        },
+      },
+    },
+  };
+}
+
 function getRelativeLinkMatrix(
   robot: RobotData,
   referenceLinkId: string,
@@ -410,29 +560,40 @@ test('mergeAssembly reroots a dynamic child subtree when a bridge targets a non-
   assert.deepEqual(merged.joints.comp_child_shoulder_joint.axis, { x: 0, y: 0, z: -1 });
   assert.deepEqual(merged.joints.comp_child_wrist_slide_joint.axis, { x: -1, y: 0, z: 0 });
   assert.deepEqual(merged.joints.comp_child_shoulder_joint.limit, {
-    lower: -1.6,
-    upper: 1.2,
+    lower: originalChildRobot.joints.comp_child_shoulder_joint.limit?.lower ?? 0,
+    upper: originalChildRobot.joints.comp_child_shoulder_joint.limit?.upper ?? 0,
     effort: originalChildRobot.joints.comp_child_shoulder_joint.limit?.effort ?? 0,
     velocity: originalChildRobot.joints.comp_child_shoulder_joint.limit?.velocity ?? 0,
   });
   assert.deepEqual(merged.joints.comp_child_wrist_slide_joint.limit, {
-    lower: -0.5,
-    upper: 0.1,
+    lower: originalChildRobot.joints.comp_child_wrist_slide_joint.limit?.lower ?? 0,
+    upper: originalChildRobot.joints.comp_child_wrist_slide_joint.limit?.upper ?? 0,
     effort: originalChildRobot.joints.comp_child_wrist_slide_joint.limit?.effort ?? 0,
     velocity: originalChildRobot.joints.comp_child_wrist_slide_joint.limit?.velocity ?? 0,
   });
   assert.deepEqual(merged.joints.comp_child_shoulder_joint.safetyController, {
-    softLowerLimit: -1.1,
-    softUpperLimit: 0.8,
+    softLowerLimit:
+      originalChildRobot.joints.comp_child_shoulder_joint.safetyController?.softLowerLimit,
+    softUpperLimit:
+      originalChildRobot.joints.comp_child_shoulder_joint.safetyController?.softUpperLimit,
     kPosition: originalChildRobot.joints.comp_child_shoulder_joint.safetyController?.kPosition,
     kVelocity: originalChildRobot.joints.comp_child_shoulder_joint.safetyController?.kVelocity,
   });
   assert.deepEqual(merged.joints.comp_child_wrist_slide_joint.safetyController, {
-    softLowerLimit: -0.2,
-    softUpperLimit: 0.04,
+    softLowerLimit:
+      originalChildRobot.joints.comp_child_wrist_slide_joint.safetyController?.softLowerLimit,
+    softUpperLimit:
+      originalChildRobot.joints.comp_child_wrist_slide_joint.safetyController?.softUpperLimit,
     kPosition: originalChildRobot.joints.comp_child_wrist_slide_joint.safetyController?.kPosition,
     kVelocity: originalChildRobot.joints.comp_child_wrist_slide_joint.safetyController?.kVelocity,
   });
+  assert.ok(
+    (merged.joints.comp_child_wrist_slide_joint.angle ?? 0) >=
+      (merged.joints.comp_child_wrist_slide_joint.limit?.lower ?? Number.NEGATIVE_INFINITY) &&
+      (merged.joints.comp_child_wrist_slide_joint.angle ?? 0) <=
+        (merged.joints.comp_child_wrist_slide_joint.limit?.upper ?? Number.POSITIVE_INFINITY),
+    'the rerooted prismatic joint angle should stay inside the preserved source range',
+  );
 
   assert.equal(merged.joints.comp_child_wrist_slide_joint.parentLinkId, 'comp_child_tool_link');
   assert.equal(merged.joints.comp_child_wrist_slide_joint.childLinkId, 'comp_child_elbow_link');
@@ -468,6 +629,97 @@ test('mergeAssembly reroots a dynamic child subtree when a bridge targets a non-
   assert.equal(
     childComponent.robot.joints.comp_child_shoulder_joint.childLinkId,
     originalChildRobot.joints.comp_child_shoulder_joint.childLinkId,
+  );
+});
+
+test('mergeAssembly reroots a floating-root child subtree when a bridge targets a descendant link', () => {
+  const parentComponent = createSingleLinkComponent('comp_parent', 'parent');
+  const childComponent = createFloatingRootComponent('comp_child', 'fruitfly');
+  const originalChildRobot = structuredClone(childComponent.robot);
+
+  const assemblyState: AssemblyState = {
+    name: 'reroot-floating-merge',
+    transform: {
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { r: 0, p: 0, y: 0 },
+    },
+    components: {
+      [parentComponent.id]: parentComponent,
+      [childComponent.id]: childComponent,
+    },
+    bridges: {
+      bridge_attach_wing: {
+        id: 'bridge_attach_wing',
+        name: 'bridge_attach_wing',
+        parentComponentId: parentComponent.id,
+        parentLinkId: `${parentComponent.id}_base_link`,
+        childComponentId: childComponent.id,
+        childLinkId: `${childComponent.id}_wing_tip_link`,
+        joint: {
+          ...DEFAULT_JOINT,
+          id: 'bridge_attach_wing',
+          name: 'bridge_attach_wing',
+          type: JointType.FIXED,
+          parentLinkId: `${parentComponent.id}_base_link`,
+          childLinkId: `${childComponent.id}_wing_tip_link`,
+          origin: {
+            xyz: { x: 0, y: 0, z: 0 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+        },
+      },
+    },
+  };
+
+  const merged = mergeAssembly(assemblyState);
+  const incomingWingTipJoints = Object.values(merged.joints).filter(
+    (joint) => joint.childLinkId === 'comp_child_wing_tip_link',
+  );
+
+  assert.equal(incomingWingTipJoints.length, 1);
+  assert.equal(incomingWingTipJoints[0]?.id, 'bridge_attach_wing');
+  assert.equal(merged.rootLinkId, 'comp_parent_base_link');
+  assert.equal(merged.joints.comp_child_free_joint.parentLinkId, 'comp_child_thorax_link');
+  assert.equal(merged.joints.comp_child_free_joint.childLinkId, 'comp_child_world');
+  assert.deepEqual(merged.joints.comp_child_wing_pitch_joint.axis, { x: 0, y: -1, z: 0 });
+  assert.deepEqual(merged.joints.comp_child_wing_pitch_joint.limit, {
+    lower: originalChildRobot.joints.comp_child_wing_pitch_joint.limit?.lower ?? 0,
+    upper: originalChildRobot.joints.comp_child_wing_pitch_joint.limit?.upper ?? 0,
+    effort: originalChildRobot.joints.comp_child_wing_pitch_joint.limit?.effort ?? 0,
+    velocity: originalChildRobot.joints.comp_child_wing_pitch_joint.limit?.velocity ?? 0,
+  });
+
+  assertMatrixClose(
+    getRelativeLinkMatrix(merged, 'comp_child_wing_tip_link', 'comp_child_wing_tip_link'),
+    getRelativeLinkMatrix(
+      originalChildRobot,
+      'comp_child_wing_tip_link',
+      'comp_child_wing_tip_link',
+    ),
+    'wing tip should stay at the reroot origin',
+  );
+  assertMatrixClose(
+    getRelativeLinkMatrix(merged, 'comp_child_wing_tip_link', 'comp_child_sensor_link'),
+    getRelativeLinkMatrix(originalChildRobot, 'comp_child_wing_tip_link', 'comp_child_sensor_link'),
+    'off-path sensor links should keep the same pose relative to the attached wing tip',
+  );
+  assertMatrixClose(
+    getRelativeVisualMatrix(merged, 'comp_child_wing_tip_link', 'comp_child_wing_mount_link'),
+    getRelativeVisualMatrix(
+      originalChildRobot,
+      'comp_child_wing_tip_link',
+      'comp_child_wing_mount_link',
+    ),
+    'wing mount visuals should keep their physical placement after floating-root rerooting',
+  );
+  assertMatrixClose(
+    getRelativeVisualMatrix(merged, 'comp_child_wing_tip_link', 'comp_child_thorax_link'),
+    getRelativeVisualMatrix(
+      originalChildRobot,
+      'comp_child_wing_tip_link',
+      'comp_child_thorax_link',
+    ),
+    'thorax visuals should keep their physical placement after floating-root rerooting',
   );
 });
 

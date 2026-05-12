@@ -57,6 +57,37 @@ function normalizeSelection(selection: Selection): Selection {
   return isSelectionEmpty(selection) ? emptySelection : selection;
 }
 
+function hasOwnSelectionField<T extends keyof Selection>(selection: Selection, field: T): boolean {
+  return Object.prototype.hasOwnProperty.call(selection, field);
+}
+
+function matchesStoredSelection(selection: Selection, target: Selection): boolean {
+  if (
+    !matchesSelection(selection, target, {
+      ignoreObjectIndex: false,
+      ignoreHelperKind: false,
+      ignoreHighlightObjectId: false,
+    })
+  ) {
+    return false;
+  }
+
+  if (
+    hasOwnSelectionField(selection, 'objectIndex') !== hasOwnSelectionField(target, 'objectIndex')
+  ) {
+    return false;
+  }
+
+  if (
+    hasOwnSelectionField(selection, 'highlightObjectId') !==
+    hasOwnSelectionField(target, 'highlightObjectId')
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function isSelectionAllowed(selection: Selection, guard: SelectionGuard | null): boolean {
   return isSelectionEmpty(selection) || !guard || guard(selection);
 }
@@ -85,7 +116,7 @@ function resolveHoverStateUpdate(
       ignoreHighlightObjectId: false,
     })
       ? state
-      : { deferredHoveredSelection: emptySelection };
+      : state;
   }
 
   if (state.hoverFrozen) {
@@ -120,33 +151,15 @@ function resolveHoverFreezeState(
 ) {
   const clampedHoverBlockCount = Math.max(0, hoverBlockCount);
   const nextHoverFrozen = interactionHoverFrozen || clampedHoverBlockCount > 0;
+  const sanitizedHoveredSelection = sanitizeSelection(
+    state.hoveredSelection,
+    state.interactionGuard,
+  );
 
   if (clampedHoverBlockCount > 0) {
-    return state.interactionHoverFrozen === interactionHoverFrozen &&
-      state.hoverBlockCount === clampedHoverBlockCount &&
-      state.hoverFrozen === nextHoverFrozen &&
-      matchesSelection(state.hoveredSelection, emptySelection, {
-        ignoreHelperKind: false,
-        ignoreHighlightObjectId: false,
-      }) &&
-      matchesSelection(state.deferredHoveredSelection, emptySelection, {
-        ignoreHelperKind: false,
-        ignoreHighlightObjectId: false,
-      })
-      ? state
-      : {
-          interactionHoverFrozen,
-          hoverBlockCount: clampedHoverBlockCount,
-          hoverFrozen: nextHoverFrozen,
-          hoveredSelection: emptySelection,
-          deferredHoveredSelection: emptySelection,
-        };
-  }
-
-  if (interactionHoverFrozen) {
-    const nextDeferredHoveredSelection = state.hoverFrozen
-      ? state.deferredHoveredSelection
-      : sanitizeSelection(state.hoveredSelection, state.interactionGuard);
+    const nextDeferredHoveredSelection = state.interactionHoverFrozen
+      ? emptySelection
+      : sanitizedHoveredSelection;
 
     return state.interactionHoverFrozen === interactionHoverFrozen &&
       state.hoverBlockCount === clampedHoverBlockCount &&
@@ -169,10 +182,36 @@ function resolveHoverFreezeState(
         };
   }
 
-  const nextHoveredSelection = sanitizeSelection(
-    state.deferredHoveredSelection,
-    state.interactionGuard,
-  );
+  if (interactionHoverFrozen) {
+    const nextHoveredSelection = sanitizedHoveredSelection;
+    const nextDeferredHoveredSelection = state.hoverFrozen
+      ? state.deferredHoveredSelection
+      : nextHoveredSelection;
+
+    return state.interactionHoverFrozen === interactionHoverFrozen &&
+      state.hoverBlockCount === clampedHoverBlockCount &&
+      state.hoverFrozen === nextHoverFrozen &&
+      matchesSelection(state.hoveredSelection, nextHoveredSelection, {
+        ignoreHelperKind: false,
+        ignoreHighlightObjectId: false,
+      }) &&
+      matchesSelection(state.deferredHoveredSelection, nextDeferredHoveredSelection, {
+        ignoreHelperKind: false,
+        ignoreHighlightObjectId: false,
+      })
+      ? state
+      : {
+          interactionHoverFrozen,
+          hoverBlockCount: clampedHoverBlockCount,
+          hoverFrozen: nextHoverFrozen,
+          hoveredSelection: nextHoveredSelection,
+          deferredHoveredSelection: nextDeferredHoveredSelection,
+        };
+  }
+
+  const nextHoveredSelection = state.hoverFrozen
+    ? sanitizeSelection(state.deferredHoveredSelection, state.interactionGuard)
+    : sanitizedHoveredSelection;
 
   return state.interactionHoverFrozen === interactionHoverFrozen &&
     state.hoverBlockCount === clampedHoverBlockCount &&
@@ -266,7 +305,7 @@ export const useSelectionStore = create<SelectionState>()((set, get) => ({
       if (
         (!isSelectionEmpty(nextSelection) &&
           !isSelectionAllowed(nextSelection, state.interactionGuard)) ||
-        matchesSelection(state.selection, nextSelection, { ignoreHelperKind: false })
+        matchesStoredSelection(state.selection, nextSelection)
       ) {
         return state;
       }
@@ -278,7 +317,7 @@ export const useSelectionStore = create<SelectionState>()((set, get) => ({
       const selection = { type: 'link' as const, id, subType, objectIndex };
       if (
         !isSelectionAllowed(selection, state.interactionGuard) ||
-        matchesSelection(state.selection, selection, { ignoreHelperKind: false })
+        matchesStoredSelection(state.selection, selection)
       ) {
         return state;
       }
@@ -290,7 +329,7 @@ export const useSelectionStore = create<SelectionState>()((set, get) => ({
       const selection = { type: 'joint' as const, id };
       if (
         !isSelectionAllowed(selection, state.interactionGuard) ||
-        matchesSelection(state.selection, selection, { ignoreHelperKind: false })
+        matchesStoredSelection(state.selection, selection)
       ) {
         return state;
       }

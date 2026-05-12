@@ -6,6 +6,7 @@ import { WORKSPACE_DEFAULT_CAMERA_POSITION } from '../../../shared/components/3d
 import {
   createEmbeddedUsdViewerLoadParams,
   resolveEmbeddedUsdViewerLoadProfile,
+  shouldPreferSlicedEmbeddedUsdLoad,
 } from './usdViewerRenderParams.ts';
 
 test('createEmbeddedUsdViewerLoadParams keeps USD auto-fit aligned with the workspace camera defaults', () => {
@@ -54,6 +55,7 @@ test('createEmbeddedUsdViewerLoadParams can defer robot metadata readiness to a 
   assert.equal(params.get('resolveRobotMetadataBeforeReady'), '0');
   assert.equal(params.get('requireCompleteRobotMetadata'), '0');
   assert.equal(params.get('warmupRuntimeBridge'), '1');
+  assert.equal(params.get('initialDrawBurst'), '4');
 });
 
 test('resolveEmbeddedUsdViewerLoadProfile keeps large pure .usd interactive loads distinct from worker bootstrap loads', () => {
@@ -72,18 +74,45 @@ test('resolveEmbeddedUsdViewerLoadProfile keeps large pure .usd interactive load
   );
 });
 
-test('createEmbeddedUsdViewerLoadParams keeps large pure .usd roots on the stable embedded load profile', () => {
+test('createEmbeddedUsdViewerLoadParams reveals large pure .usd roots before background hydration completes', () => {
   const params = createEmbeddedUsdViewerLoadParams(4, {
     preferSlicedMainThreadLoadForLargePureUsd: true,
   });
 
-  assert.equal(params.get('nonBlockingLoad'), '0');
-  assert.equal(params.get('aggressiveInitialDraw'), '1');
-  assert.equal(params.get('strictOneShot'), '1');
-  assert.equal(params.get('yieldDuringLoad'), '0');
-  assert.equal(params.get('resolveRobotMetadataBeforeReady'), '1');
-  assert.equal(params.get('requireCompleteRobotMetadata'), '1');
+  assert.equal(params.get('nonBlockingLoad'), '1');
+  assert.equal(params.get('aggressiveInitialDraw'), '0');
+  assert.equal(params.get('strictOneShot'), '0');
+  assert.equal(params.get('yieldDuringLoad'), '1');
+  assert.equal(params.get('resolveRobotMetadataBeforeReady'), '0');
+  assert.equal(params.get('requireCompleteRobotMetadata'), '0');
   assert.equal(params.get('warmupRuntimeBridge'), '1');
+});
+
+test('shouldPreferSlicedEmbeddedUsdLoad includes multi-layer USDA roots', () => {
+  assert.equal(
+    shouldPreferSlicedEmbeddedUsdLoad({
+      sourceFileName: 'go2_description/urdf/go2_description.usda',
+      preloadFileCount: 5,
+      criticalDependencyCount: 4,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldPreferSlicedEmbeddedUsdLoad({
+      sourceFileName: 'go2_description/urdf/go2_description.usda',
+      preloadFileCount: 1,
+      criticalDependencyCount: 0,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldPreferSlicedEmbeddedUsdLoad({
+      sourceFileName: 'robot/mesh.obj',
+      preloadFileCount: 5,
+      criticalDependencyCount: 4,
+    }),
+    false,
+  );
 });
 
 test('createEmbeddedUsdViewerLoadParams can skip vendored dependency preload when stage files are already in WASM FS', () => {

@@ -9,7 +9,9 @@ import {
   canPrepareUsdExportCacheFromSnapshot,
   buildUsdExportBundleFromPreparedCache,
   buildUsdExportBundleFromSnapshot,
+  prepareUsdExportCacheFromResolvedSnapshot,
   prepareUsdExportCacheFromSnapshot,
+  repairObjFaceVaryingNormalsForExport,
   resolveUsdExportSceneSnapshot,
 } from './usdExportBundle.ts';
 
@@ -1479,6 +1481,261 @@ test('buildUsdExportBundleFromSnapshot writes OBJ vertex normals for buffered me
   assert.match(objText, /^f 1\/\/1 2\/\/2 3\/\/3$/m);
 });
 
+test('buildUsdExportBundleFromSnapshot repairs USD normals that oppose triangle winding', async () => {
+  const positions = new Float32Array([
+    0, 0, 0,
+    1, 0, 0,
+    1, 1, 0,
+    0, 1, 0,
+  ]);
+  const indices = new Uint32Array([0, 1, 2, 0, 2, 3]);
+  const normals = new Float32Array([
+    0, 0, -1,
+    0, 0, -1,
+    0, 0, -1,
+    0, 0, -1,
+  ]);
+
+  const snapshot = {
+    stageSourcePath: '/robots/demo/reversed-normals.usd',
+    stage: {
+      defaultPrimPath: '/Robot',
+    },
+    robotTree: {
+      linkParentPairs: [['/Robot/base_link', null]] as Array<[string, string | null]>,
+      rootLinkPaths: ['/Robot/base_link'],
+    },
+    robotMetadataSnapshot: {
+      stageSourcePath: '/robots/demo/reversed-normals.usd',
+      linkParentPairs: [['/Robot/base_link', null]] as Array<[string, string | null]>,
+      jointCatalogEntries: [],
+      meshCountsByLinkPath: {
+        '/Robot/base_link': {
+          visualMeshCount: 1,
+          collisionMeshCount: 0,
+        },
+      },
+    },
+    render: {
+      meshDescriptors: [
+        {
+          meshId: '/Robot/base_link/visuals.proto_mesh_id0',
+          sectionName: 'visuals',
+          resolvedPrimPath: '/Robot/base_link/visuals/mesh_0',
+          primType: 'mesh',
+          ranges: {
+            positions: { offset: 0, count: 12, stride: 3 },
+            indices: { offset: 0, count: 6, stride: 1 },
+            normals: { offset: 0, count: 12, stride: 3 },
+          },
+        },
+      ],
+    },
+    buffers: {
+      positions,
+      indices,
+      normals,
+      uvs: new Float32Array(0),
+      transforms: new Float32Array(0),
+      rangesByMeshId: {},
+    },
+  } as unknown as UsdSceneSnapshot;
+
+  const currentRobot: RobotState = {
+    name: 'normal_repair',
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+    links: {
+      base_link: {
+        id: 'base_link',
+        name: 'base_link',
+        visible: true,
+        visual: {
+          type: GeometryType.MESH,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#ffffff',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collision: {
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+          color: '#000000',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collisionBodies: [],
+      },
+    },
+    joints: {},
+    materials: {},
+  };
+
+  const bundle = buildUsdExportBundleFromSnapshot(snapshot, {
+    fileName: 'reversed-normals.usd',
+    currentRobot,
+  });
+
+  assert.ok(bundle);
+  const objText = await bundle.meshFiles.get('base_link_visual_0.obj')?.text();
+  assert.ok(objText);
+  assert.doesNotMatch(objText, /^vn 0 0 -1$/m);
+  assert.match(objText, /^vn 0 0 1$/m);
+  assert.match(objText, /^f 1\/\/1 2\/\/2 3\/\/3$/m);
+  assert.match(objText, /^f 1\/\/4 3\/\/5 4\/\/6$/m);
+});
+
+test('buildUsdExportBundleFromSnapshot repairs individual opposed face-varying normals', async () => {
+  const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  const indices = new Uint32Array([0, 1, 2]);
+  const normals = new Float32Array([
+    0, 0, -1,
+    0, 0, 1,
+    0, 0, 1,
+  ]);
+
+  const snapshot = {
+    stageSourcePath: '/robots/demo/partially-reversed-normals.usd',
+    stage: {
+      defaultPrimPath: '/Robot',
+    },
+    robotTree: {
+      linkParentPairs: [['/Robot/base_link', null]] as Array<[string, string | null]>,
+      rootLinkPaths: ['/Robot/base_link'],
+    },
+    robotMetadataSnapshot: {
+      stageSourcePath: '/robots/demo/partially-reversed-normals.usd',
+      linkParentPairs: [['/Robot/base_link', null]] as Array<[string, string | null]>,
+      jointCatalogEntries: [],
+      meshCountsByLinkPath: {
+        '/Robot/base_link': {
+          visualMeshCount: 1,
+          collisionMeshCount: 0,
+        },
+      },
+    },
+    render: {
+      meshDescriptors: [
+        {
+          meshId: '/Robot/base_link/visuals.proto_mesh_id0',
+          sectionName: 'visuals',
+          resolvedPrimPath: '/Robot/base_link/visuals/mesh_0',
+          primType: 'mesh',
+          ranges: {
+            positions: { offset: 0, count: 9, stride: 3 },
+            indices: { offset: 0, count: 3, stride: 1 },
+            normals: { offset: 0, count: 9, stride: 3 },
+          },
+        },
+      ],
+    },
+    buffers: {
+      positions,
+      indices,
+      normals,
+      uvs: new Float32Array(0),
+      transforms: new Float32Array(0),
+      rangesByMeshId: {},
+    },
+  } as unknown as UsdSceneSnapshot;
+
+  const currentRobot: RobotState = {
+    name: 'partial_normal_repair',
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+    links: {
+      base_link: {
+        id: 'base_link',
+        name: 'base_link',
+        visible: true,
+        visual: {
+          type: GeometryType.MESH,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#ffffff',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collision: {
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+          color: '#000000',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collisionBodies: [],
+      },
+    },
+    joints: {},
+    materials: {},
+  };
+
+  const bundle = buildUsdExportBundleFromSnapshot(snapshot, {
+    fileName: 'partially-reversed-normals.usd',
+    currentRobot,
+  });
+
+  assert.ok(bundle);
+  const objText = await bundle.meshFiles.get('base_link_visual_0.obj')?.text();
+  assert.ok(objText);
+  assert.doesNotMatch(objText, /^vn 0 0 -1$/m);
+  assert.match(objText, /^vn 0 0 1$/m);
+  assert.match(objText, /^f 1\/\/1 2\/\/2 3\/\/3$/m);
+});
+
+test('repairObjFaceVaryingNormalsForExport fixes normals that oppose emitted OBJ faces', () => {
+  const objText = [
+    'o normal_mismatch',
+    'v 0 0 0',
+    'v 1 0 0',
+    'v 0 1 0',
+    'vn 0 0 -1',
+    'vn 0 0 1',
+    'vn 0 0 1',
+    'f 1//1 2//2 3//3',
+    '',
+  ].join('\n');
+
+  const repaired = repairObjFaceVaryingNormalsForExport(objText);
+
+  assert.doesNotMatch(repaired, /^vn 0 0 -1$/m);
+  assert.match(repaired, /^vn 0 0 1$/m);
+  assert.match(repaired, /^f 1\/\/1 2\/\/2 3\/\/3$/m);
+});
+
+test('repairObjFaceVaryingNormalsForExport repairs opposed normals on small valid triangles', () => {
+  const objText = [
+    'o small_triangle',
+    'v 0.020639 -0.365146 0.02741',
+    'v 0.020838 -0.364871 0.02741',
+    'v 0.001299 -0.348476 0.02741',
+    'vn 0 0 -1',
+    'vn 0 0 -1',
+    'vn 0 0 -1',
+    'f 1//1 2//2 3//3',
+    '',
+  ].join('\n');
+
+  const repaired = repairObjFaceVaryingNormalsForExport(objText);
+
+  assert.doesNotMatch(repaired, /^vn 0 0 -1$/m);
+  assert.match(repaired, /^vn 0 0 1$/m);
+});
+
+test('repairObjFaceVaryingNormalsForExport repairs near-sideways normals that make faces render dark', () => {
+  const objText = [
+    'o dark_sideways_normal',
+    'v 0 0 0',
+    'v 1 0 0',
+    'v 0 1 0',
+    'vn 1 0 0',
+    'vn 0 0 1',
+    'vn 0 0 1',
+    'f 1//1 2//2 3//3',
+    '',
+  ].join('\n');
+
+  const repaired = repairObjFaceVaryingNormalsForExport(objText);
+
+  assert.doesNotMatch(repaired, /^vn 1 0 0$/m);
+  assert.match(repaired, /^vn 0 0 1$/m);
+});
+
 test('prepareUsdExportCacheFromSnapshot materializes exportable mesh paths and reusable mesh files', async () => {
   const { positions, indices } = createTriangleBuffers();
 
@@ -1547,6 +1804,159 @@ test('prepareUsdExportCacheFromSnapshot materializes exportable mesh paths and r
   assert.ok(preparedBlob);
   const meshText = await preparedBlob.text();
   assert.match(meshText, /^o base_link_visual_0/m);
+});
+
+test('prepareUsdExportCacheFromResolvedSnapshot keeps descriptor world transforms out of RobotState mesh OBJ vertices', async () => {
+  const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  const indices = new Uint32Array([0, 1, 2]);
+  const transforms = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1]);
+
+  const snapshot = {
+    stageSourcePath: '/robots/demo/robot-state-preview.usd',
+    stage: {
+      defaultPrimPath: '/Robot',
+    },
+    robotTree: {
+      linkParentPairs: [
+        ['/Robot/base_link', null],
+        ['/Robot/child_link', '/Robot/base_link'],
+      ] as Array<[string, string | null]>,
+      rootLinkPaths: ['/Robot/base_link'],
+    },
+    robotMetadataSnapshot: {
+      stageSourcePath: '/robots/demo/robot-state-preview.usd',
+      linkParentPairs: [
+        ['/Robot/base_link', null],
+        ['/Robot/child_link', '/Robot/base_link'],
+      ] as Array<[string, string | null]>,
+      jointCatalogEntries: [],
+      meshCountsByLinkPath: {
+        '/Robot/base_link': {
+          visualMeshCount: 0,
+          collisionMeshCount: 0,
+        },
+        '/Robot/child_link': {
+          visualMeshCount: 1,
+          collisionMeshCount: 0,
+        },
+      },
+    },
+    render: {
+      meshDescriptors: [
+        {
+          meshId: '/Robot/child_link/visuals.proto_mesh_id0',
+          sectionName: 'visuals',
+          resolvedPrimPath: '/Robot/child_link/visuals/mesh_0',
+          primType: 'mesh',
+          ranges: {
+            positions: { offset: 0, count: 9, stride: 3 },
+            indices: { offset: 0, count: 3, stride: 1 },
+            transform: { offset: 0, count: 16, stride: 16 },
+          },
+        },
+      ],
+    },
+    buffers: {
+      positions,
+      indices,
+      normals: new Float32Array(0),
+      uvs: new Float32Array(0),
+      transforms,
+      rangesByMeshId: {},
+    },
+  };
+
+  const resolution = {
+    stageSourcePath: '/robots/demo/robot-state-preview.usd',
+    robotData: {
+      name: 'robot_state_preview',
+      rootLinkId: 'base_link',
+      links: {
+        base_link: {
+          id: 'base_link',
+          name: 'base_link',
+          visible: true,
+          visual: {
+            type: GeometryType.NONE,
+            dimensions: { x: 0, y: 0, z: 0 },
+            color: '#ffffff',
+            origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          },
+          collision: {
+            type: GeometryType.NONE,
+            dimensions: { x: 0, y: 0, z: 0 },
+            color: '#cccccc',
+            origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          },
+          inertial: {
+            mass: 1,
+            origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+            inertia: { ixx: 1, ixy: 0, ixz: 0, iyy: 1, iyz: 0, izz: 1 },
+          },
+        },
+        child_link: {
+          id: 'child_link',
+          name: 'child_link',
+          visible: true,
+          visual: {
+            type: GeometryType.MESH,
+            dimensions: { x: 1, y: 1, z: 1 },
+            color: '#ffffff',
+            origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          },
+          collision: {
+            type: GeometryType.NONE,
+            dimensions: { x: 0, y: 0, z: 0 },
+            color: '#cccccc',
+            origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          },
+          inertial: {
+            mass: 1,
+            origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+            inertia: { ixx: 1, ixy: 0, ixz: 0, iyy: 1, iyz: 0, izz: 1 },
+          },
+        },
+      },
+      joints: {
+        base_to_child: {
+          id: 'base_to_child',
+          name: 'base_to_child',
+          type: JointType.FIXED,
+          parentLinkId: 'base_link',
+          childLinkId: 'child_link',
+          origin: { xyz: { x: 5, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          axis: { x: 0, y: 0, z: 1 },
+          dynamics: { damping: 0, friction: 0 },
+          hardware: { armature: 0, motorType: '', motorId: '', motorDirection: 1 as const },
+        },
+      },
+    },
+    linkIdByPath: {
+      '/Robot/base_link': 'base_link',
+      '/Robot/child_link': 'child_link',
+    },
+    linkPathById: {
+      base_link: '/Robot/base_link',
+      child_link: '/Robot/child_link',
+    },
+    jointPathById: {
+      base_to_child: '/Robot/base_to_child',
+    },
+    childLinkPathByJointId: {
+      base_to_child: '/Robot/child_link',
+    },
+    parentLinkPathByJointId: {
+      base_to_child: '/Robot/base_link',
+    },
+  };
+
+  const prepared = prepareUsdExportCacheFromResolvedSnapshot(snapshot, resolution);
+
+  assert.equal(prepared.robotData.links.child_link.visual.meshPath, 'child_link_visual_0.obj');
+  assert.equal(prepared.robotData.links.child_link.visual.doubleSided, true);
+  const meshText = await prepared.meshFiles['child_link_visual_0.obj'].text();
+  assert.match(meshText, /^v 0 0 0(?:\s|$)/m);
+  assert.doesNotMatch(meshText, /^v 5 0 0(?:\s|$)/m);
 });
 
 test('canPrepareUsdExportCacheFromSnapshot requires mesh buffers for buffer-backed descriptors', () => {

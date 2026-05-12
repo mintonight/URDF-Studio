@@ -9,6 +9,7 @@ import {
 import { computeLinkWorldMatrices, getVisualGeometryEntries } from '@/core/robot';
 import { GeometryType, type RenderableBounds, type RobotData, type UrdfVisual } from '@/types';
 import { disposeObject3D } from '@/shared/utils/three/dispose';
+import { mergeTextMeshSidecarAssets } from '@/core/loaders/textMeshAssetContext';
 
 const IDENTITY_MATRIX = new THREE.Matrix4().identity();
 const UNIT_BOX_GEOMETRY = new THREE.BoxGeometry(1, 1, 1);
@@ -277,14 +278,17 @@ function toRenderableBounds(bounds: THREE.Box3 | null): RenderableBounds | null 
 export async function computeRobotRenderableBoundsFromAssets(
   robot: RobotData,
   assets: Record<string, string> | null | undefined,
+  allFileContents: Record<string, string> | null | undefined = undefined,
 ): Promise<RenderableBounds | null> {
-  if (!assets || Object.keys(assets).length === 0) {
+  const effectiveAssets = mergeTextMeshSidecarAssets(assets ?? {}, allFileContents ?? {});
+
+  if (Object.keys(effectiveAssets).length === 0) {
     return null;
   }
 
   const linkWorldMatrices = computeLinkWorldMatrices(robot);
-  const manager = createLoadingManager(assets, '');
-  const meshLoader = createMeshLoader(assets, manager);
+  const manager = createLoadingManager(effectiveAssets, '');
+  const meshLoader = createMeshLoader(effectiveAssets, manager);
   const meshBoundsCache = new Map<string, Promise<THREE.Box3 | null>>();
   const context = {
     manager,

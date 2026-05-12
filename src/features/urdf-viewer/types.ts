@@ -6,10 +6,8 @@ import type { JointPanelActiveJointOptions } from '@/shared/utils/jointPanelStor
 import type {
   AssemblyState,
   AssemblyTransform,
-  InteractionHelperKind,
   InteractionSelection,
   JointQuaternion,
-  LoadingProgressMode,
   RobotFile,
   RobotState,
   Theme,
@@ -18,7 +16,6 @@ import type {
   UrdfOrigin,
 } from '@/types';
 import type { AssemblySelection } from '@/store/assemblySelectionStore';
-import type { ViewerRobotDataResolution } from './utils/viewerRobotData';
 import type {
   MeasureAnchorMode,
   MeasureGroup,
@@ -30,64 +27,32 @@ import type {
   MeasureTarget,
 } from './utils/measurements';
 import type { MeasureSelectionLike } from './utils/measureTargetResolvers';
+import type { ViewerDocumentLoadEvent } from '@/shared/components/3d/loadingTypes';
+import type { ViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
+import type {
+  ToolMode,
+  ViewerHelperKind,
+  ViewerInteractiveLayer,
+  ViewerRuntimeStageBridge,
+  ViewerSceneMode,
+} from '@/shared/components/3d/viewerInteractionTypes';
 
-export type ToolMode =
-  | 'select'
-  | 'translate'
-  | 'rotate'
-  | 'universal'
-  | 'view'
-  | 'face'
-  | 'measure'
-  | 'paint';
-export type ViewerSceneMode = 'editor';
-export type ViewerHelperKind = InteractionHelperKind;
-export type ViewerInteractiveLayer =
-  | 'ik-handle'
-  | 'visual'
-  | 'collision'
-  | 'origin-axes'
-  | 'joint-axis'
-  | 'center-of-mass'
-  | 'inertia';
-export type ViewerRobotSourceFormat = 'auto' | 'urdf' | 'mjcf' | 'sdf' | 'xacro';
-export type RobotLoadingPhase =
-  | 'preparing-scene'
-  | 'streaming-meshes'
-  | 'finalizing-scene'
-  | 'ready';
-export type UsdLoadingPhase =
-  | 'checking-path'
-  | 'preloading-dependencies'
-  | 'initializing-renderer'
-  | 'streaming-meshes'
-  | 'applying-stage-fixes'
-  | 'resolving-metadata'
-  | 'finalizing-scene'
-  | 'ready';
-
-export interface UsdLoadingProgress {
-  phase: UsdLoadingPhase;
-  message?: string | null;
-  progressMode?: LoadingProgressMode | null;
-  progressPercent?: number | null;
-  loadedCount?: number | null;
-  totalCount?: number | null;
-}
-
-export type ViewerLoadingPhase = RobotLoadingPhase | UsdLoadingPhase;
-export interface ViewerDocumentLoadEvent {
-  status: 'loading' | 'ready' | 'error';
-  phase?: ViewerLoadingPhase | null;
-  message?: string | null;
-  progressMode?: LoadingProgressMode | null;
-  progressPercent?: number | null;
-  loadedCount?: number | null;
-  totalCount?: number | null;
-  error?: string | null;
-}
-
-export type UsdLoadingPhaseLabels = Record<Exclude<UsdLoadingPhase, 'ready'>, string>;
+export type {
+  RobotLoadingPhase,
+  UsdLoadingPhase,
+  UsdLoadingProgress,
+  ViewerDocumentLoadEvent,
+  ViewerLoadingPhase,
+  UsdLoadingPhaseLabels,
+} from '@/shared/components/3d/loadingTypes';
+export type {
+  ToolMode,
+  ViewerHelperKind,
+  ViewerInteractiveLayer,
+  ViewerRuntimeStageBridge,
+  ViewerSceneMode,
+} from '@/shared/components/3d/viewerInteractionTypes';
+export type { ViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
 export type {
   MeasureAnchorMode,
   MeasureGroup,
@@ -120,18 +85,6 @@ export interface ViewerPaintFaceHit {
   faceIndex: number;
 }
 
-export interface ViewerRuntimeStageBridge {
-  onRobotResolved?: (robot: any | null) => void;
-  onSelectionChange?: (
-    type: Exclude<InteractionSelection['type'], null>,
-    id: string,
-    subType?: 'visual' | 'collision',
-    helperKind?: ViewerHelperKind,
-  ) => void;
-  onActiveJointChange?: (jointName: string | null) => void;
-  onJointAnglesChange?: (jointAngles: Record<string, number>) => void;
-}
-
 export interface ViewerJointMotionStateValue {
   angle?: number;
   quaternion?: JointQuaternion;
@@ -144,7 +97,6 @@ export interface ViewerProps {
   sourceFormat?: ViewerRobotSourceFormat;
   availableFiles?: RobotFile[];
   sourceFilePath?: string;
-  onRobotDataResolved?: (result: ViewerRobotDataResolution) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   onJointChange?: (jointName: string, angle: number) => void;
   syncJointChangesToApp?: boolean;
@@ -185,8 +137,6 @@ export interface ViewerProps {
   focusTarget?: string | null;
   showVisual?: boolean;
   setShowVisual?: (show: boolean) => void;
-  showToolbar?: boolean;
-  setShowToolbar?: (show: boolean) => void;
   showOptionsPanel?: boolean;
   setShowOptionsPanel?: (show: boolean) => void;
   showJointPanel?: boolean;
@@ -219,12 +169,18 @@ export interface ViewerProps {
     transform: AssemblyTransform,
     options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
-  onBridgeTransform?: (bridgeId: string, origin: UrdfOrigin) => void;
+  onBridgeTransform?: (
+    bridgeId: string,
+    origin: UrdfOrigin,
+    options?: import('@/types/viewer').UpdateCommitOptions,
+  ) => void;
 }
 
 export interface RobotModelProps {
   urdfContent: string;
   assets: Record<string, string>;
+  sourceFile?: RobotFile | null;
+  availableFiles?: RobotFile[];
   sourceFormat?: ViewerRobotSourceFormat;
   allowUrdfXmlFallback?: boolean;
   reloadToken?: number;
@@ -232,6 +188,7 @@ export interface RobotModelProps {
   sourceFilePath?: string;
   onRobotLoaded?: (robot: any) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
+  runtimeBridge?: ViewerRuntimeStageBridge;
   showCollision?: boolean;
   showVisual?: boolean;
   showIkHandles?: boolean;
@@ -329,13 +286,18 @@ export interface RobotModelProps {
     transform: AssemblyTransform,
     options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
-  onBridgeTransform?: (bridgeId: string, origin: UrdfOrigin) => void;
+  onBridgeTransform?: (
+    bridgeId: string,
+    origin: UrdfOrigin,
+    options?: import('@/types/viewer').UpdateCommitOptions,
+  ) => void;
   sourceSceneAssemblyComponentId?: string | null;
   sourceSceneAssemblyComponentTransform?: AssemblyTransform | null;
   showSourceSceneAssemblyComponentControls?: boolean;
   onSourceSceneAssemblyComponentTransform?: (
     componentId: string,
     transform: AssemblyTransform,
+    options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
 }
 
@@ -367,9 +329,7 @@ export type { JointControlItemProps } from '@/shared/components/Panel/JointContr
 export interface ViewerToolbarProps {
   activeMode: ToolMode;
   setMode: (mode: ToolMode) => void;
-  onClose?: () => void;
   lang?: Language;
-  containerRef?: React.RefObject<HTMLElement | null>;
 }
 
 export interface MeasureToolProps {

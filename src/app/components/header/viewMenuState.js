@@ -1,6 +1,6 @@
 /**
  * @typedef {import('./types').HeaderViewConfig} HeaderViewConfig
- * @typedef {'showToolbar' | 'showOptionsPanel' | 'showJointPanel'} ViewConfigKey
+ * @typedef {'showOptionsPanel' | 'showJointPanel'} ViewConfigKey
  */
 
 /**

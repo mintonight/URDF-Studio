@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ensureUsdWasmRuntime, resolvePreferredUsdThreadCount } from './usdWasmRuntime.ts';
+import {
+  ensureUsdWasmRuntime,
+  prewarmUsdWasmRuntimeInBackground,
+  resolvePreferredUsdThreadCount,
+} from './usdWasmRuntime.ts';
 
 test('resolvePreferredUsdThreadCount caps browser USD runtime concurrency at 4 threads', () => {
   const previousNavigator = globalThis.navigator;
@@ -123,4 +127,26 @@ test('ensureUsdWasmRuntime rejects early when the page is not a secure context',
     configurable: true,
     writable: true,
   });
+});
+
+test('prewarmUsdWasmRuntimeInBackground logs rejected background loads', async () => {
+  const originalConsoleWarn = console.warn;
+  const warnings: unknown[][] = [];
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+
+  try {
+    prewarmUsdWasmRuntimeInBackground(async () => {
+      throw new Error('main thread runtime prewarm failed');
+    });
+
+    await Promise.resolve();
+
+    assert.equal(warnings.length, 1);
+    assert.match(String(warnings[0]?.[0]), /prewarmUsdWasmRuntimeInBackground/);
+    assert.match(String(warnings[0]?.[1]), /main thread runtime prewarm failed/);
+  } finally {
+    console.warn = originalConsoleWarn;
+  }
 });

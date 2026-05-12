@@ -10,6 +10,7 @@ import {
 import {
   assertAssemblyUrdfExportSupported,
   assertUrdfExportSupported,
+  buildAssemblyExportName,
   createBoxFaceTextureFallbackWarnings,
   resolveDisconnectedWorkspaceUrdfAction,
 } from './urdfSupport';
@@ -107,7 +108,27 @@ test('assertAssemblyUrdfExportSupported throws when any component has a constrai
   );
 });
 
-test('resolveDisconnectedWorkspaceUrdfAction only fires for workspace URDF targets with disconnected components', () => {
+test('buildAssemblyExportName derives workspace export names from component names', () => {
+  const assembly: AssemblyState = {
+    name: 'assembly',
+    components: {
+      comp_t1: { id: 'comp_t1', name: 't1', sourceFile: 't1.xml', robot: robotData },
+      comp_piper: { id: 'comp_piper', name: 'piper', sourceFile: 'piper.xml', robot: robotData },
+      comp_hidden: {
+        id: 'comp_hidden',
+        name: 'hidden',
+        sourceFile: 'hidden.xml',
+        robot: robotData,
+        visible: false,
+      },
+    },
+    bridges: {},
+  };
+
+  assert.equal(buildAssemblyExportName(assembly), 't1_piper_hidden');
+});
+
+test('resolveDisconnectedWorkspaceUrdfAction only fires for current URDF targets with disconnected components', () => {
   const assembly: AssemblyState = {
     name: 'assembly',
     components: {
@@ -120,17 +141,15 @@ test('resolveDisconnectedWorkspaceUrdfAction only fires for workspace URDF targe
   const action = resolveDisconnectedWorkspaceUrdfAction(
     { type: 'current' },
     { format: 'urdf' },
-    'workspace',
     assembly,
   );
   assert.strictEqual(action?.type, 'disconnected-workspace-urdf');
   assert.strictEqual(action?.componentCount, 2);
-  assert.strictEqual(action?.exportName, 'assembly');
+  assert.strictEqual(action?.exportName, 'C1_C2');
 
   const noAction = resolveDisconnectedWorkspaceUrdfAction(
     { type: 'current' },
     { format: 'sdf' },
-    'workspace',
     assembly,
   );
   assert.strictEqual(noAction, null);

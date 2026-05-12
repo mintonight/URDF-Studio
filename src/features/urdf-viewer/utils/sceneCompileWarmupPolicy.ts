@@ -1,4 +1,4 @@
-import type { ResolvedViewerRobotSourceFormat } from './sourceFormat';
+import type { ResolvedViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
 
 export function shouldEnableViewerSceneCompileWarmup(
   sourceFormat: ResolvedViewerRobotSourceFormat,

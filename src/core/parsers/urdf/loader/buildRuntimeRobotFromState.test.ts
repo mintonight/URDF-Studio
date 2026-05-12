@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import * as THREE from 'three';
 import { JSDOM } from 'jsdom';
 
 import { createPlaceholderMesh } from '@/core/loaders';
 import { DEFAULT_JOINT, DEFAULT_LINK, GeometryType, JointType } from '@/types';
 import { parseThreeColorWithOpacity } from '@/core/utils/color.ts';
+import { parseMJCF } from '@/core/parsers/mjcf/mjcfParser.ts';
 import { parseURDF } from '@/core/parsers/urdf/parser';
 import { buildRuntimeRobotFromState } from './buildRuntimeRobotFromState';
 
@@ -14,8 +16,56 @@ globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
 globalThis.Document = dom.window.Document as typeof Document;
 globalThis.Element = dom.window.Element as typeof Element;
 
+function createNoopMeshLoadCb() {
+  return (_path: string, _manager: THREE.LoadingManager, done: (object: THREE.Object3D | null) => void) =>
+    done(null);
+}
+
 function toFixedColorArray(color: THREE.Color, digits = 4): number[] {
   return color.toArray().map((value) => Number(value.toFixed(digits)));
+}
+
+function decomposeWorldPose(object: THREE.Object3D): {
+  position: [number, number, number];
+  quaternionWxyz: [number, number, number, number];
+} {
+  object.updateMatrixWorld(true);
+  const position = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  object.matrixWorld.decompose(position, quaternion, scale);
+  return {
+    position: [position.x, position.y, position.z],
+    quaternionWxyz: [quaternion.w, quaternion.x, quaternion.y, quaternion.z],
+  };
+}
+
+function assertTupleClose(
+  actual: readonly number[],
+  expected: readonly number[],
+  tolerance: number,
+  message: string,
+): void {
+  assert.equal(actual.length, expected.length, `${message}: tuple length mismatch`);
+  actual.forEach((value, index) => {
+    assert.ok(
+      Math.abs(value - expected[index]!) <= tolerance,
+      `${message}[${index}] expected ${expected[index]}, got ${value}`,
+    );
+  });
+}
+
+function assertQuaternionClose(
+  actual: { x: number; y: number; z: number; w: number } | null | undefined,
+  expected: THREE.Quaternion,
+  tolerance: number,
+  message: string,
+): void {
+  assert.ok(actual, `${message}: expected quaternion`);
+  assert.ok(Math.abs(actual.x - expected.x) <= tolerance, `${message}.x expected ${expected.x}, got ${actual.x}`);
+  assert.ok(Math.abs(actual.y - expected.y) <= tolerance, `${message}.y expected ${expected.y}, got ${actual.y}`);
+  assert.ok(Math.abs(actual.z - expected.z) <= tolerance, `${message}.z expected ${expected.z}, got ${actual.z}`);
+  assert.ok(Math.abs(actual.w - expected.w) <= tolerance, `${message}.w expected ${expected.w}, got ${actual.w}`);
 }
 
 test('buildRuntimeRobotFromState preserves link and joint hierarchy from parsed robot state', async () => {
@@ -122,6 +172,354 @@ test('buildRuntimeRobotFromState preserves authored joint names when runtime ids
   assert.equal(joint.urdfName, 'joint_1');
   assert.equal(joint.userData.displayName, 'joint_1');
   assert.equal(joint.userData.jointId, 'joint_1743499999999');
+});
+
+test('buildRuntimeRobotFromState exposes MJCF sites and tendons from RobotState metadata', async () => {
+  const robot = await buildRuntimeRobotFromState({
+    robotName: 'mjcf_metadata_robot',
+    links: {
+      world: {
+        ...DEFAULT_LINK,
+        id: 'world',
+        name: 'world',
+        mjcfSites: [
+          {
+            name: 'anchor_site',
+            sourceName: 'anchor_site',
+            type: 'sphere',
+            size: [0.015],
+            rgba: [1, 0, 0, 1],
+            pos: [0.1, 0.2, 0.3],
+          },
+        ],
+      },
+    },
+    joints: {},
+    manager: new THREE.LoadingManager(),
+    loadMeshCb: (_path, _manager, done) => done(null),
+    inspectionContext: {
+      sourceFormat: 'mjcf',
+      mjcf: {
+        siteCount: 1,
+        tendonCount: 1,
+        tendonActuatorCount: 0,
+        bodiesWithSites: [{ bodyId: 'world', siteCount: 1, siteNames: ['anchor_site'] }],
+        tendons: [
+          {
+            name: 'main_tendon',
+            type: 'spatial',
+            attachmentRefs: ['anchor_site', 'anchor_site'],
+            attachments: [
+              { type: 'site', ref: 'anchor_site' },
+              { type: 'site', ref: 'anchor_site' },
+            ],
+            actuatorNames: [],
+            rgba: [0, 1, 0, 1],
+            width: 0.004,
+          },
+        ],
+      },
+    },
+  });
+
+  assert.deepEqual(robot.links.world.userData.__mjcfSitesData, [
+    {
+      name: 'anchor_site',
+      sourceName: 'anchor_site',
+      type: 'sphere',
+      size: [0.015],
+      rgba: [1, 0, 0, 1],
+      pos: [0.1, 0.2, 0.3],
+    },
+  ]);
+  assert.deepEqual(robot.userData.__mjcfTendonsData, [
+    {
+      name: 'main_tendon',
+      rgba: [0, 1, 0, 1],
+      attachmentRefs: ['anchor_site', 'anchor_site'],
+      attachments: [
+        { type: 'site', ref: 'anchor_site' },
+        { type: 'site', ref: 'anchor_site' },
+      ],
+      width: 0.004,
+    },
+  ]);
+});
+
+test('buildRuntimeRobotFromState labels RobotState geometry groups for MJCF tendon wrap anchors', async () => {
+  const robot = await buildRuntimeRobotFromState({
+    robotName: 'mjcf_wrap_geometry_robot',
+    links: {
+      world: {
+        ...DEFAULT_LINK,
+        id: 'world',
+        name: 'world',
+        collision: {
+          ...DEFAULT_LINK.collision,
+          name: 'wrap_geom',
+          type: GeometryType.SPHERE,
+          dimensions: { x: 0.02, y: 0, z: 0 },
+          origin: {
+            xyz: { x: 0.1, y: 0.2, z: 0.3 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+        },
+      },
+    },
+    joints: {},
+    manager: new THREE.LoadingManager(),
+    loadMeshCb: createNoopMeshLoadCb(),
+  });
+
+  const wrapGeometry = robot.links.world.children.find(
+    (child) => child.userData?.geometryName === 'wrap_geom',
+  );
+  assert.ok(wrapGeometry);
+  assert.equal(wrapGeometry.userData.geometryRole, 'collision');
+  assert.equal(wrapGeometry.userData.geometryType, GeometryType.SPHERE);
+  assert.deepEqual(wrapGeometry.userData.geometryDimensions, { x: 0.02, y: 0, z: 0 });
+  assert.deepEqual(wrapGeometry.position.toArray(), [0.1, 0.2, 0.3]);
+});
+
+test('buildRuntimeRobotFromState applies RobotState joint angles to runtime joints', async () => {
+  const robot = await buildRuntimeRobotFromState({
+    robotName: 'joint_angle_robot',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+      },
+      child_link: {
+        ...DEFAULT_LINK,
+        id: 'child_link',
+        name: 'child_link',
+      },
+    },
+    joints: {
+      hip_joint: {
+        ...DEFAULT_JOINT,
+        id: 'hip_joint',
+        name: 'hip_joint',
+        type: JointType.REVOLUTE,
+        parentLinkId: 'base_link',
+        childLinkId: 'child_link',
+        axis: { x: 0, y: 0, z: 1 },
+        angle: 0.45,
+      },
+    },
+    manager: new THREE.LoadingManager(),
+    loadMeshCb: (_path, _manager, done) => done(null),
+  });
+
+  const joint = robot.joints.hip_joint as { angle?: number; jointValue?: number[] };
+
+  assert.equal(joint.angle, 0.45);
+  assert.deepEqual(joint.jointValue, [0.45]);
+});
+
+test('buildRuntimeRobotFromState treats RobotState joint angles as actual positions relative to referencePosition', async () => {
+  const referencePosition = Math.PI / 4;
+  const actualAngle = referencePosition + 0.2;
+  const robot = await buildRuntimeRobotFromState({
+    robotName: 'joint_reference_robot',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+      },
+      child_link: {
+        ...DEFAULT_LINK,
+        id: 'child_link',
+        name: 'child_link',
+      },
+    },
+    joints: {
+      hip_joint: {
+        ...DEFAULT_JOINT,
+        id: 'hip_joint',
+        name: 'hip_joint',
+        type: JointType.REVOLUTE,
+        parentLinkId: 'base_link',
+        childLinkId: 'child_link',
+        axis: { x: 0, y: 0, z: 1 },
+        referencePosition,
+        angle: actualAngle,
+      },
+    },
+    manager: new THREE.LoadingManager(),
+    loadMeshCb: createNoopMeshLoadCb(),
+  });
+
+  const joint = robot.joints.hip_joint as { jointValue?: number[] };
+
+  assert.ok(joint.jointValue);
+  assert.ok(Math.abs((joint.jointValue[0] ?? Number.NaN) - 0.2) <= 1e-12);
+});
+
+test('buildRuntimeRobotFromState applies RobotState ball joint quaternion as motion relative to joint origin', async () => {
+  const originRpy = { r: 0.2, p: -0.15, y: 0.35 };
+  const motionQuaternion = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(0.2, 0.7, -0.1).normalize(),
+    0.6,
+  );
+
+  const robot = await buildRuntimeRobotFromState({
+    robotName: 'ball_joint_state_robot',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+      },
+      child_link: {
+        ...DEFAULT_LINK,
+        id: 'child_link',
+        name: 'child_link',
+      },
+    },
+    joints: {
+      ball_joint: {
+        ...DEFAULT_JOINT,
+        id: 'ball_joint',
+        name: 'ball_joint',
+        type: JointType.BALL,
+        parentLinkId: 'base_link',
+        childLinkId: 'child_link',
+        origin: {
+          xyz: { x: 0.1, y: -0.2, z: 0.3 },
+          rpy: originRpy,
+        },
+        quaternion: {
+          x: motionQuaternion.x,
+          y: motionQuaternion.y,
+          z: motionQuaternion.z,
+          w: motionQuaternion.w,
+        },
+      },
+    },
+    manager: new THREE.LoadingManager(),
+    loadMeshCb: createNoopMeshLoadCb(),
+  });
+
+  const joint = robot.joints.ball_joint as THREE.Object3D & {
+    jointQuaternion?: THREE.Quaternion;
+    setJointQuaternion?: (quaternion: { x: number; y: number; z: number; w: number }) => void;
+  };
+  const originQuaternion = new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(originRpy.r, originRpy.p, originRpy.y, 'ZYX'),
+  );
+
+  assert.equal(typeof joint.setJointQuaternion, 'function');
+  assertQuaternionClose(joint.jointQuaternion, motionQuaternion, 1e-12, 'stored motion quaternion');
+  assertQuaternionClose(
+    joint.quaternion,
+    originQuaternion.clone().multiply(motionQuaternion),
+    1e-12,
+    'joint local quaternion',
+  );
+
+  const nextMotionQuaternion = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(-0.3, 0.4, 0.5).normalize(),
+    -0.25,
+  );
+  joint.setJointQuaternion?.({
+    x: nextMotionQuaternion.x,
+    y: nextMotionQuaternion.y,
+    z: nextMotionQuaternion.z,
+    w: nextMotionQuaternion.w,
+  });
+
+  assertQuaternionClose(
+    joint.jointQuaternion,
+    nextMotionQuaternion,
+    1e-12,
+    'updated stored motion quaternion',
+  );
+  assertQuaternionClose(
+    joint.quaternion,
+    originQuaternion.clone().multiply(nextMotionQuaternion),
+    1e-12,
+    'updated joint local quaternion',
+  );
+});
+
+test('buildRuntimeRobotFromState matches MuJoCo truth for Cassie referenced closed-loop links', async () => {
+  const xml = fs.readFileSync('test/mujoco_menagerie-main/agility_cassie/cassie.xml', 'utf8');
+  const robotState = parseMJCF(xml);
+  assert.ok(robotState, 'expected Cassie MJCF fixture to parse');
+
+  const robot = await buildRuntimeRobotFromState({
+    robotName: robotState.name,
+    links: robotState.links,
+    joints: robotState.joints,
+    materials: robotState.materials,
+    manager: new THREE.LoadingManager(),
+    loadMeshCb: createNoopMeshLoadCb(),
+    parseVisual: false,
+    parseCollision: false,
+    rootLinkId: robotState.rootLinkId,
+  });
+  robot.updateMatrixWorld(true);
+
+  const expectedWorldPositions = {
+    'left-shin': [-0.058383307, 0.1305, 0.813568828],
+    'left-tarsus': [-0.351662916, 0.1305, 0.492004948],
+    'left-foot-crank': [-0.371744312, 0.10775, 0.427843141],
+    'left-plantar-rod': [-0.359371983, 0.11566, 0.374252792],
+    'left-foot': [-0.298857531, 0.1305, 0.08546394],
+    'left-achilles-rod': [-0.049, 0.09, 1.01],
+    'left-heel-spring': [-0.384323527, 0.12958, 0.497488439],
+    'right-shin': [-0.058383307, -0.1305, 0.813568828],
+    'right-tarsus': [-0.351662916, -0.1305, 0.492004948],
+    'right-foot-crank': [-0.371744312, -0.10775, 0.427843141],
+    'right-plantar-rod': [-0.359371983, -0.11566, 0.374252792],
+    'right-foot': [-0.298857531, -0.1305, 0.08546394],
+    'right-achilles-rod': [-0.049, -0.09, 1.01],
+    'right-heel-spring': [-0.384323527, -0.12958, 0.497488439],
+  } satisfies Record<string, [number, number, number]>;
+
+  Object.entries(expectedWorldPositions).forEach(([linkId, expectedPosition]) => {
+    const link = robot.links[linkId];
+    assert.ok(link, `expected runtime link ${linkId}`);
+    const pose = decomposeWorldPose(link);
+    assertTupleClose(pose.position, expectedPosition, 1e-6, `${linkId} world position`);
+  });
+});
+
+test('buildRuntimeRobotFromState renders mirrored MJCF mesh visuals double-sided', async () => {
+  const mirroredMesh = new THREE.Mesh(
+    new THREE.BufferGeometry().setAttribute(
+      'position',
+      new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3),
+    ),
+    new THREE.MeshBasicMaterial({ side: THREE.FrontSide }),
+  );
+
+  const robot = await buildRuntimeRobotFromState({
+    robotName: 'mirrored_mesh_robot',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          meshPath: 'mirrored.obj',
+          dimensions: { x: 1, y: 1, z: -1 },
+        },
+      },
+    },
+    joints: {},
+    manager: new THREE.LoadingManager(),
+    loadMeshCb: (_path, _manager, done) => done(mirroredMesh),
+  });
+
+  const loadedMesh = robot.links.base_link.getObjectByProperty('isMesh', true) as THREE.Mesh;
+  assert.ok(loadedMesh, 'expected mirrored mesh to load');
+  assert.equal((loadedMesh.material as THREE.Material).side, THREE.DoubleSide);
 });
 
 test('buildRuntimeRobotFromState renders collision boxes as cylinders while keeping box semantics', async () => {
@@ -243,6 +641,71 @@ test('buildRuntimeRobotFromState applies mesh scale and visual color overrides o
   assert.deepEqual(toFixedColorArray(material.color), toFixedColorArray(parsedColor.color));
 });
 
+test('buildRuntimeRobotFromState applies double-sided rendering to marked visual meshes', async () => {
+  const manager = new THREE.LoadingManager();
+  const robotState = {
+    name: 'usd_prepared_mesh_robot',
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          meshPath: 'base_link_visual_0.obj',
+          doubleSided: true,
+        },
+        collision: {
+          ...DEFAULT_LINK.collision,
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+        },
+      },
+    },
+    joints: {},
+  };
+
+  let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null;
+  const ready = new Promise<void>((resolve) => {
+    manager.onLoad = () => resolve();
+  });
+  const completionKey = '__build_runtime_robot_from_state_double_sided_test__';
+  manager.itemStart(completionKey);
+  try {
+    robot = await buildRuntimeRobotFromState({
+      robotName: robotState.name,
+      links: robotState.links,
+      joints: robotState.joints,
+      manager,
+      loadMeshCb: (_path, _manager, done) => {
+        const mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(1, 1, 1),
+          new THREE.MeshPhongMaterial({
+            color: new THREE.Color('#ffffff'),
+            side: THREE.FrontSide,
+          }),
+        );
+        done(mesh);
+      },
+    });
+  } finally {
+    manager.itemEnd(completionKey);
+  }
+
+  await ready;
+
+  const visualGroup = robot?.links.base_link.children.find((child: any) => child.isURDFVisual) as
+    | THREE.Object3D
+    | undefined;
+  assert.ok(visualGroup, 'expected visual group');
+
+  const mesh = visualGroup.children[0] as THREE.Mesh;
+  assert.ok(mesh.isMesh, 'expected loaded mesh');
+  assert.equal((mesh.material as THREE.Material).side, THREE.DoubleSide);
+});
+
 test('buildRuntimeRobotFromState applies authored texture overrides onto loaded mesh materials', async () => {
   const originalTextureLoad = THREE.TextureLoader.prototype.load;
   const appliedTexture = new THREE.Texture();
@@ -336,6 +799,104 @@ test('buildRuntimeRobotFromState applies authored texture overrides onto loaded 
     assert.notEqual(mesh.material.color.getHexString(), '444444');
     assert.equal(mesh.material.userData.urdfTextureApplied, true);
     assert.equal(mesh.material.userData.urdfTexturePath, 'textures/coat.png');
+  } finally {
+    THREE.TextureLoader.prototype.load = originalTextureLoad;
+  }
+});
+
+test('buildRuntimeRobotFromState applies link-level RobotData materials to state-built meshes', async () => {
+  const originalTextureLoad = THREE.TextureLoader.prototype.load;
+  const appliedTexture = new THREE.Texture();
+  const requestedTexturePaths: string[] = [];
+
+  THREE.TextureLoader.prototype.load = function mockTextureLoad(
+    url: string,
+    onLoad?: (texture: THREE.Texture<HTMLImageElement>) => void,
+  ) {
+    requestedTexturePaths.push(url);
+    const texture = appliedTexture as THREE.Texture<HTMLImageElement>;
+    onLoad?.(texture);
+    return texture;
+  };
+
+  try {
+    const manager = new THREE.LoadingManager();
+    const robotState = {
+      name: 'usd_prepared_material_robot',
+      rootLinkId: 'base_link',
+      links: {
+        base_link: {
+          ...DEFAULT_LINK,
+          id: 'base_link',
+          name: 'base_link',
+          visual: {
+            ...DEFAULT_LINK.visual,
+            type: GeometryType.MESH,
+            meshPath: 'base_link_visual_0.obj',
+          },
+          collision: {
+            ...DEFAULT_LINK.collision,
+            type: GeometryType.NONE,
+            dimensions: { x: 0, y: 0, z: 0 },
+          },
+        },
+      },
+      joints: {},
+      materials: {
+        base_link: {
+          color: '#102030',
+          texture: 'textures/base_color.png',
+        },
+      },
+    };
+
+    let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null;
+    const ready = new Promise<void>((resolve) => {
+      manager.onLoad = () => resolve();
+    });
+    const completionKey = '__build_runtime_robot_from_state_robot_material_test__';
+    manager.itemStart(completionKey);
+
+    try {
+      robot = await buildRuntimeRobotFromState({
+        robotName: robotState.name,
+        links: robotState.links,
+        joints: robotState.joints,
+        materials: robotState.materials,
+        manager,
+        loadMeshCb: (_path, _manager, done) => {
+          const mesh = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshPhongMaterial({ color: new THREE.Color('#ffffff') }),
+          );
+          done(mesh);
+        },
+      });
+    } finally {
+      manager.itemEnd(completionKey);
+    }
+
+    await ready;
+
+    const visualGroup = robot?.links.base_link.children.find((child: any) => child.isURDFVisual) as
+      | THREE.Object3D
+      | undefined;
+    assert.ok(visualGroup, 'expected visual group');
+
+    const mesh = visualGroup.children[0] as THREE.Mesh;
+    assert.ok(mesh.isMesh, 'expected loaded mesh');
+    assert.deepEqual(requestedTexturePaths, ['textures/base_color.png']);
+    assert.equal(mesh.material instanceof THREE.MeshStandardMaterial, true);
+    if (!(mesh.material instanceof THREE.MeshStandardMaterial)) {
+      assert.fail('expected link material override to rebuild the mesh material');
+    }
+
+    const parsedColor = parseThreeColorWithOpacity('#102030');
+    assert.ok(parsedColor, 'expected parsed material color');
+    assert.deepEqual(toFixedColorArray(mesh.material.color), toFixedColorArray(parsedColor.color));
+    assert.equal(mesh.material.map, appliedTexture);
+    assert.equal(mesh.material.userData.urdfTextureApplied, true);
+    assert.equal(mesh.material.userData.urdfTexturePath, 'textures/base_color.png');
   } finally {
     THREE.TextureLoader.prototype.load = originalTextureLoad;
   }

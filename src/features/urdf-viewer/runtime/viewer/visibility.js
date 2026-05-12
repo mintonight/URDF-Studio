@@ -5,7 +5,7 @@ import {
 } from "../../utils/materials.ts";
 
 const VISUAL_SEGMENT_PATTERN = /(?:^|\/)visuals?(?:$|[/.])/i;
-const COLLISION_SEGMENT_PATTERN = /(?:^|\/)collisions?(?:$|[/.])/i;
+const COLLISION_SEGMENT_PATTERN = /(?:^|\/)coll(?:isions?|iders?)(?:$|[/.])/i;
 function matchesVisualIdentifier(value = "") {
     const source = String(value || "").toLowerCase();
     return VISUAL_SEGMENT_PATTERN.test(source);
@@ -63,16 +63,7 @@ export function applyMeshVisibilityFilters(
             mesh.userData = mesh.userData || {};
             mesh.userData.isCollisionMesh = true;
             mesh.userData.geometryRole = "collision";
-            const wasVisible = mesh.visible === true;
             mesh.visible = showCollisionMeshes;
-            if (showCollisionMeshes && !wasVisible) {
-                try {
-                    hydraMesh?.ensureProtoReadyForVisibility?.();
-                }
-                catch {
-                    // Keep visibility toggles resilient even if a single proto mesh fails.
-                }
-            }
             setCollisionMeshStyle(mesh, showCollisionMeshes, collisionAlwaysOnTop);
             continue;
         }

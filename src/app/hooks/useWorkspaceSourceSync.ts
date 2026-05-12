@@ -1,10 +1,8 @@
-import { useDeferredValue, useEffect, useMemo, useRef } from 'react';
+import { useDeferredValue, useEffect, useMemo, useSyncExternalStore, useRef } from 'react';
 import { findStandaloneXacroTruthFile } from '@/core/parsers/importRobotFile';
-import {
-  prefixMJCFSourceIdentifiers,
-  resolveMJCFSource,
-} from '@/core/parsers/mjcf/mjcfSourceResolver';
+import { resolveMJCFSource } from '@/core/parsers/mjcf/mjcfSourceResolver';
 import { mergeAssembly } from '@/core/robot';
+import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
 import {
   DEFAULT_LINK,
   GeometryType,
@@ -25,6 +23,8 @@ import {
 } from '@/app/utils/sourceCodeDisplay';
 import {
   buildSourceCodeDocuments,
+  buildWorkspaceAssemblySourceCodeDocuments,
+  shouldUseMergedWorkspaceSourceDocument,
   type SourceCodeDocumentDescriptor,
 } from '@/app/utils/sourceCodeDocuments';
 import {
@@ -43,6 +43,8 @@ import { useSourceEditBaseline } from './workspace-source-sync/useSourceEditBase
 import { useWorkspaceFilePreview } from './workspace-source-sync/useWorkspaceFilePreview';
 import { useWorkspaceTextFileSync } from './workspace-source-sync/useWorkspaceTextFileSync';
 import {
+  buildSingleComponentWorkspaceMjcfViewerContent,
+  buildGeneratedWorkspaceUrdfFileName,
   buildLightweightWorkspaceViewerReloadContent,
   buildWorkspaceAssemblyViewerState,
   buildWorkspaceAssemblyViewerDisplayRobotData,
@@ -61,6 +63,11 @@ import {
 } from './workspaceSourceSyncUtils';
 import { useAnimatedWorkspaceViewerRobotData } from './useAnimatedWorkspaceViewerRobotData';
 import {
+  readStoredWorkspaceViewerShowVisualPreference,
+  resolveWorkspaceViewerShowVisual,
+  subscribeToShowVisualPreference,
+} from './workspaceViewerDetailPreferences';
+import {
   resolveWorkspaceViewerFallbackRobot,
   resolveWorkspaceViewerRobot,
   shouldPersistStableWorkspaceViewerRobot,
@@ -78,7 +85,6 @@ interface UseWorkspaceSourceSyncOptions {
   assemblyBridgePreview?: BridgeJoint | null;
   assemblySelection?: { type: 'assembly' | 'component' | null; id: string | null };
   workspaceTransformPending: boolean;
-  sidebarTab: string;
   selection: RobotState['selection'];
   robotName: string;
   robotLinks: Record<string, UrdfLink>;
@@ -106,7 +112,6 @@ export function useWorkspaceSourceSync({
   assemblyBridgePreview = null,
   assemblySelection,
   workspaceTransformPending,
-  sidebarTab,
   selection,
   robotName,
   robotLinks,
@@ -129,28 +134,19 @@ export function useWorkspaceSourceSync({
 }: UseWorkspaceSourceSyncOptions) {
   const generatedSourceCacheRef = useRef(new Map<string, string>());
   const lastStableWorkspaceViewerGeneratedUrdfContentRef = useRef<string | null>(null);
-  const isWorkspaceAssembly = Boolean(assemblyState && sidebarTab === 'workspace');
+  const isWorkspaceAssembly = Boolean(assemblyState);
   const hasWorkspaceComponents = Boolean(
     assemblyState && Object.keys(assemblyState.components).length > 0,
   );
   const sourceJointsRef = useRef<Record<string, UrdfJoint>>({});
-  const {
-    filePreview,
-    previewRobot,
-    previewFileName,
-    handlePreviewFile,
-    handleClosePreview,
-    activePreviewFile,
-  } = useWorkspaceFilePreview({
-    availableFiles,
-    assets,
-    allFileContents,
-    getUsdPreparedExportCache,
-  });
-  const activeSourceFile = useMemo(
-    () => activePreviewFile ?? selectedFile,
-    [activePreviewFile, selectedFile],
-  );
+  const { filePreview, previewRobot, previewFileName, handlePreviewFile, handleClosePreview } =
+    useWorkspaceFilePreview({
+      availableFiles,
+      assets,
+      allFileContents,
+      getUsdPreparedExportCache,
+    });
+  const activeSourceFile = useMemo(() => selectedFile, [selectedFile]);
   const sourceCodeDocumentFlavor = useMemo<SourceCodeDocumentFlavor>(
     () => getSourceCodeDocumentFlavor(activeSourceFile),
     [activeSourceFile],
@@ -187,6 +183,7 @@ export function useWorkspaceSourceSync({
 
     return getUsdPreparedExportCache(selectedFile.name)?.robotData ?? null;
   }, [getUsdPreparedExportCache, selectedFile]);
+  const renderSelectedUsdFromRobotState = selectedFile?.format === 'usd';
   const shouldReuseSelectedFileViewerForWorkspace = useMemo(
     () =>
       isWorkspaceAssembly &&
@@ -500,9 +497,17 @@ export function useWorkspaceSourceSync({
     return motions;
   }, [robot.joints]);
 
+  const showVisualPreference = useSyncExternalStore(
+    subscribeToShowVisualPreference,
+    readStoredWorkspaceViewerShowVisualPreference,
+    () => null as boolean | null,
+  );
   const showVisual = useMemo(() => {
-    return Object.values(robot.links).some((link) => link.visible !== false);
-  }, [robot.links]);
+    return resolveWorkspaceViewerShowVisual({
+      robotLinks: robot.links,
+      storedPreference: showVisualPreference,
+    });
+  }, [robot.links, showVisualPreference]);
 
   const workspaceViewerMjcfSourceFile = useMemo(
     () =>
@@ -578,14 +583,14 @@ export function useWorkspaceSourceSync({
 
   const viewerGeneratedUrdfRequest = useMemo(
     () =>
-      !shouldRenderAssembly && !isSelectedUsdHydrating
+      !shouldRenderAssembly && !isSelectedUsdHydrating && selectedFile?.format !== 'usd'
         ? {
             format: 'urdf' as const,
             robotState: currentRobotSourceState,
             preserveMeshPaths: true,
           }
         : null,
-    [currentRobotSourceState, isSelectedUsdHydrating, shouldRenderAssembly],
+    [currentRobotSourceState, isSelectedUsdHydrating, selectedFile?.format, shouldRenderAssembly],
   );
   const viewerGeneratedUrdfContent = useGeneratedRobotSource({
     cache: generatedSourceCacheRef,
@@ -742,29 +747,59 @@ export function useWorkspaceSourceSync({
       : null,
     scope: 'useWorkspaceSourceSync:workspaceViewerGeneratedUrdfContent',
   });
-  const workspaceViewerMjcfContent = useMemo(() => {
+  const workspaceMergedSourceRobotState = useMemo(() => {
     if (
       !shouldRenderAssembly ||
-      !workspaceViewerMjcfSourceFile ||
-      !workspaceResolvedMjcfSource ||
-      !assemblyState
+      !visibleAssemblyStateForViewerDisplay ||
+      !shouldUseMergedWorkspaceSourceDocument(visibleAssemblyStateForViewerDisplay)
     ) {
       return null;
     }
 
-    const visibleComponent = Object.values(assemblyState.components).find(
-      (component) =>
-        component.visible !== false && component.sourceFile === workspaceViewerMjcfSourceFile.name,
+    const exportableRobotData = buildExportableAssemblyRobotData(
+      visibleAssemblyStateForViewerDisplay,
     );
-
-    if (!visibleComponent) {
+    return {
+      ...exportableRobotData,
+      selection: { type: null, id: null },
+    };
+  }, [shouldRenderAssembly, visibleAssemblyStateForViewerDisplay]);
+  const workspaceMergedSourceContent = useGeneratedRobotSource({
+    cache: generatedSourceCacheRef,
+    cacheKey: workspaceMergedSourceRobotState
+      ? `workspace-merged-source:${createRobotSourceSnapshot(workspaceMergedSourceRobotState)}`
+      : null,
+    options: workspaceMergedSourceRobotState
+      ? {
+          format: 'urdf' as const,
+          robotState: workspaceMergedSourceRobotState,
+          includeHardware: 'auto' as const,
+          preserveMeshPaths: true,
+        }
+      : null,
+    scope: 'useWorkspaceSourceSync:workspaceMergedSourceContent',
+  });
+  const activeWorkspaceMergedSourceContent = workspaceMergedSourceRobotState
+    ? workspaceMergedSourceContent
+    : null;
+  const workspaceMergedSourceFileName = useMemo(
+    () =>
+      buildGeneratedWorkspaceUrdfFileName({
+        assemblyName: visibleAssemblyStateForViewerDisplay?.name ?? 'workspace',
+        availableFiles,
+      }),
+    [availableFiles, visibleAssemblyStateForViewerDisplay?.name],
+  );
+  const workspaceViewerMjcfContent = useMemo(() => {
+    if (!shouldRenderAssembly) {
       return null;
     }
 
-    return prefixMJCFSourceIdentifiers(
-      workspaceResolvedMjcfSource.content,
-      `${visibleComponent.name}_`,
-    );
+    return buildSingleComponentWorkspaceMjcfViewerContent({
+      assemblyState,
+      sourceFile: workspaceViewerMjcfSourceFile,
+      resolvedMjcfSourceContent: workspaceResolvedMjcfSource?.content ?? null,
+    });
   }, [
     assemblyState,
     shouldRenderAssembly,
@@ -876,8 +911,15 @@ export function useWorkspaceSourceSync({
       return workspaceViewerMjcfContent ? 'mjcf' : 'urdf';
     }
 
-    return resolveStandaloneViewerSourceFormat(selectedFile?.format);
-  }, [selectedFile?.format, shouldRenderAssembly, workspaceViewerMjcfContent]);
+    return resolveStandaloneViewerSourceFormat(selectedFile?.format, {
+      renderSelectedUsdFromRobotState,
+    });
+  }, [
+    renderSelectedUsdFromRobotState,
+    selectedFile?.format,
+    shouldRenderAssembly,
+    workspaceViewerMjcfContent,
+  ]);
 
   const syncTextFileContent = useWorkspaceTextFileSync({
     selectedFile,
@@ -902,9 +944,11 @@ export function useWorkspaceSourceSync({
       viewerUrdfContent,
       viewerGeneratedUrdfContent,
       isSelectedUsdHydrating,
+      renderSelectedUsdFromRobotState,
     });
   }, [
     isSelectedUsdHydrating,
+    renderSelectedUsdFromRobotState,
     resolvedMjcfSource,
     selectedFile,
     viewerGeneratedUrdfContent,
@@ -977,25 +1021,34 @@ export function useWorkspaceSourceSync({
   });
 
   const sourceCodeContent =
-    activePreviewFile?.content ??
+    activeWorkspaceMergedSourceContent ??
     syncedSourceContent ??
     (selectedFile ? selectedFile.content : urdfContentForViewer);
   const sourceCodeDocuments = useMemo<SourceCodeDocumentDescriptor[]>(() => {
+    const workspaceDocuments = shouldRenderAssembly
+      ? buildWorkspaceAssemblySourceCodeDocuments({
+          assemblyState: visibleAssemblyStateForViewerDisplay,
+          generatedMergedFileName: workspaceMergedSourceFileName,
+          generatedMergedContent: activeWorkspaceMergedSourceContent ?? '',
+          availableFiles,
+          allFileContents,
+        })
+      : null;
+
+    if (workspaceDocuments) {
+      return workspaceDocuments;
+    }
+
     const baseDocuments = buildSourceCodeDocuments({
       activeSourceFile,
       sourceCodeContent,
       sourceCodeDocumentFlavor,
       availableFiles,
       allFileContents,
-      forceReadOnly: Boolean(activePreviewFile),
+      forceReadOnly: false,
     });
 
-    if (
-      activePreviewFile ||
-      activeSourceFile?.format !== 'xacro' ||
-      !generatedXacroContent ||
-      !hasSourceStoreEdits
-    ) {
+    if (activeSourceFile?.format !== 'xacro' || !generatedXacroContent || !hasSourceStoreEdits) {
       return baseDocuments;
     }
 
@@ -1029,7 +1082,6 @@ export function useWorkspaceSourceSync({
 
     return [generatedPrimaryDocument, rawEditableDocument, ...baseDocuments.slice(1)];
   }, [
-    activePreviewFile,
     activeSourceFile,
     allFileContents,
     availableFiles,
@@ -1037,6 +1089,10 @@ export function useWorkspaceSourceSync({
     hasSourceStoreEdits,
     sourceCodeContent,
     sourceCodeDocumentFlavor,
+    shouldRenderAssembly,
+    activeWorkspaceMergedSourceContent,
+    visibleAssemblyStateForViewerDisplay,
+    workspaceMergedSourceFileName,
   ]);
 
   return {
@@ -1054,6 +1110,7 @@ export function useWorkspaceSourceSync({
     urdfContentForViewer,
     viewerSourceFormat,
     viewerSourceFilePath,
+    renderSelectedUsdFromRobotState,
     workspaceViewerMjcfSourceFile,
     filePreview,
     previewRobot,
@@ -1062,6 +1119,8 @@ export function useWorkspaceSourceSync({
     sourceCodeFileName: activeSourceFile?.name,
     sourceCodeContent,
     sourceCodeDocumentFlavor,
+    hasSimpleModeSourceEdits: hasSourceStoreEdits,
+    draftUrdfContent: viewerGeneratedUrdfContent,
     handlePreviewFile,
     handleClosePreview,
   };

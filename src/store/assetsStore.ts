@@ -7,10 +7,12 @@ import type {
   LoadingProgressMode,
   MotorSpec,
   RobotFile,
+  UsdBakedScene,
   UsdPreparedExportCache,
   UsdSceneSnapshot,
 } from '@/types';
 import { DEFAULT_MOTOR_LIBRARY, normalizeMotorLibrary } from '@/shared/data/motorLibrary';
+import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 
 export type DocumentLoadStatus = 'idle' | 'loading' | 'hydrating' | 'ready' | 'error';
 
@@ -49,14 +51,11 @@ export function toDocumentLoadLifecycleState(state: DocumentLoadState): Document
 }
 
 function normalizeUsdSceneSnapshotKey(path: string | null | undefined): string {
-  return String(path || '')
-    .trim()
-    .replace(/^\/+/, '')
-    .split('?')[0];
+  return normalizeLibraryPathKey(path);
 }
 
 function normalizeLibraryPath(path: string | null | undefined): string {
-  return normalizeUsdSceneSnapshotKey(path).replace(/\/+/g, '/').replace(/\/+$/, '');
+  return normalizeLibraryPathKey(path);
 }
 
 function isSameOrNestedLibraryPath(path: string, basePath: string): boolean {
@@ -202,6 +201,9 @@ interface AssetsState {
   setUsdSceneSnapshot: (path: string, snapshot: UsdSceneSnapshot | null) => void;
   getUsdSceneSnapshot: (path: string) => UsdSceneSnapshot | null;
   clearUsdSceneSnapshots: () => void;
+  setUsdBakedScene: (path: string, bakedScene: UsdBakedScene | null) => void;
+  getUsdBakedScene: (path: string) => UsdBakedScene | null;
+  clearUsdBakedScenes: () => void;
 
   // Prepared USD export caches for export without live snapshot recomputation
   usdPreparedExportCaches: Record<string, UsdPreparedExportCache>;
@@ -596,6 +598,9 @@ export const useAssetsStore = create<AssetsState>()((set, get) => ({
     return get().usdSceneSnapshots[normalizedKey] || null;
   },
   clearUsdSceneSnapshots: () => set({ usdSceneSnapshots: {} }),
+  setUsdBakedScene: (path, bakedScene) => get().setUsdSceneSnapshot(path, bakedScene),
+  getUsdBakedScene: (path) => get().getUsdSceneSnapshot(path),
+  clearUsdBakedScenes: () => get().clearUsdSceneSnapshots(),
 
   // Prepared USD export cache
   usdPreparedExportCaches: {},

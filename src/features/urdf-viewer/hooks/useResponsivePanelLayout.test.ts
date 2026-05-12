@@ -3,6 +3,31 @@ import test from 'node:test';
 
 import { resolveResponsivePanelLayout } from './useResponsivePanelLayout.ts';
 
+test('resolveResponsivePanelLayout offsets default viewer panels by workspace overlay safe area', () => {
+  const layout = resolveResponsivePanelLayout({
+    metrics: {
+      containerWidth: 960,
+      containerHeight: 520,
+      optionsWidth: 208,
+      optionsHeight: 208,
+      jointsWidth: 208,
+    },
+    showOptionsPanel: true,
+    showJointPanel: true,
+    preferEdgeDockedOptionsPanel: true,
+  });
+
+  assert.deepEqual(layout.optionsDefaultPosition, {
+    top: '16px',
+    right: 'calc(var(--workspace-overlay-right-inset,0px) + 16px)',
+  });
+  assert.deepEqual(layout.jointsDefaultPosition, {
+    top: '50%',
+    left: 'calc(var(--workspace-overlay-left-inset,0px) + 16px)',
+    transform: 'translateY(-50%)',
+  });
+});
+
 test('resolveResponsivePanelLayout edge-docks the options panel in narrow unified viewer layouts', () => {
   const layout = resolveResponsivePanelLayout({
     metrics: {
@@ -14,12 +39,11 @@ test('resolveResponsivePanelLayout edge-docks the options panel in narrow unifie
     },
     showOptionsPanel: true,
     showJointPanel: false,
-    showToolbar: true,
     preferEdgeDockedOptionsPanel: true,
   });
 
   assert.deepEqual(layout.optionsDefaultPosition, {
-    top: '56px',
+    top: '16px',
     right: '-152px',
     left: 'auto',
     transform: 'none',
@@ -37,7 +61,6 @@ test('resolveResponsivePanelLayout edge-docks the joint panel in narrow unified 
     },
     showOptionsPanel: false,
     showJointPanel: true,
-    showToolbar: false,
     preferEdgeDockedJointPanel: true,
   });
 
@@ -47,10 +70,54 @@ test('resolveResponsivePanelLayout edge-docks the joint panel in narrow unified 
     right: 'auto',
     transform: 'none',
   });
-  assert.equal(layout.jointsPanelMaxHeight, 488);
+  assert.equal(layout.jointsPanelMaxHeight, 420);
 });
 
-test('resolveResponsivePanelLayout preserves the centered-left joint panel when edge docking is disabled', () => {
+test('resolveResponsivePanelLayout keeps edge-docked panels clear of expanded workspace sidebars', () => {
+  const optionsLayout = resolveResponsivePanelLayout({
+    metrics: {
+      containerWidth: 620,
+      containerHeight: 520,
+      optionsWidth: 208,
+      optionsHeight: 208,
+      jointsWidth: 208,
+      rightInset: 248,
+    },
+    showOptionsPanel: true,
+    showJointPanel: false,
+    preferEdgeDockedOptionsPanel: true,
+  });
+
+  assert.deepEqual(optionsLayout.optionsDefaultPosition, {
+    top: '16px',
+    right: 'calc(var(--workspace-overlay-right-inset,0px) + 16px)',
+    left: 'auto',
+    transform: 'none',
+  });
+
+  const jointsLayout = resolveResponsivePanelLayout({
+    metrics: {
+      containerWidth: 266,
+      containerHeight: 520,
+      optionsWidth: 208,
+      optionsHeight: 208,
+      jointsWidth: 208,
+      leftInset: 264,
+    },
+    showOptionsPanel: false,
+    showJointPanel: true,
+    preferEdgeDockedJointPanel: true,
+  });
+
+  assert.deepEqual(jointsLayout.jointsDefaultPosition, {
+    top: '16px',
+    left: 'calc(var(--workspace-overlay-left-inset,0px) + 16px)',
+    right: 'auto',
+    transform: 'none',
+  });
+});
+
+test('resolveResponsivePanelLayout keeps a softer max height for the centered-left joint panel', () => {
   const layout = resolveResponsivePanelLayout({
     metrics: {
       containerWidth: 266,
@@ -61,14 +128,13 @@ test('resolveResponsivePanelLayout preserves the centered-left joint panel when 
     },
     showOptionsPanel: false,
     showJointPanel: true,
-    showToolbar: false,
     preferEdgeDockedJointPanel: false,
   });
 
   assert.deepEqual(layout.jointsDefaultPosition, {
     top: '50%',
-    left: '16px',
+    left: 'calc(var(--workspace-overlay-left-inset,0px) + 16px)',
     transform: 'translateY(-50%)',
   });
-  assert.equal(layout.jointsPanelMaxHeight, undefined);
+  assert.equal(layout.jointsPanelMaxHeight, 420);
 });

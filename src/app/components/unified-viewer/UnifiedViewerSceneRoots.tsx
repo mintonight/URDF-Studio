@@ -6,10 +6,10 @@ import type { AssemblySelection } from '@/store/assemblySelectionStore';
 import type {
   ViewerDocumentLoadEvent,
   ViewerHelperKind,
-  ViewerResourceScope,
-  ViewerRobotDataResolution,
   ViewerRobotSourceFormat,
-} from '@/features/editor';
+} from '@/features/urdf-viewer/types';
+import type { useViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
+import type { ViewerResourceScope } from '@/features/urdf-viewer/utils/viewerResourceScope';
 
 import { LazyViewerSceneConnector } from './modeModuleLoaders';
 import type { FilePreviewState } from './types';
@@ -18,15 +18,15 @@ interface UnifiedViewerSceneRootsProps {
   shouldRenderViewerScene: boolean;
   viewerGroupRef: React.RefObject<ThreeGroup | null>;
   viewerVisible: boolean;
-  viewerController: ReturnType<typeof import('@/features/editor').useViewerController>;
+  viewerController: ReturnType<typeof useViewerController>;
   activePreview?: FilePreviewState;
+  modelInteractionEnabled?: boolean;
   viewerResourceScope: ViewerResourceScope;
   retainedRobot: ThreeObject3D | null;
   effectiveSourceFile: import('@/types').RobotFile | null | undefined;
   effectiveSourceFilePath?: string;
   effectiveUrdfContent: string;
   effectiveSourceFormat?: ViewerRobotSourceFormat;
-  onRobotDataResolved?: (result: ViewerRobotDataResolution) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   onSceneReadyForDisplay?: () => void;
   onRuntimeRobotLoaded?: (robot: ThreeObject3D) => void;
@@ -46,6 +46,7 @@ interface UnifiedViewerSceneRootsProps {
     objectIndex: number,
     objectType: 'visual' | 'collision',
   ) => void;
+  onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
   robot: RobotState;
   focusTarget?: string | null;
   onCollisionTransformPreview?: (
@@ -76,7 +77,11 @@ interface UnifiedViewerSceneRootsProps {
     },
     options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
-  onBridgeTransform?: (bridgeId: string, origin: UrdfOrigin) => void;
+  onBridgeTransform?: (
+    bridgeId: string,
+    origin: UrdfOrigin,
+    options?: import('@/types/viewer').UpdateCommitOptions,
+  ) => void;
   sourceSceneAssemblyComponent: import('@/types').AssemblyComponent | null;
   sourceSceneAssemblyComponentTransform: {
     position: { x: number; y: number; z: number };
@@ -101,13 +106,13 @@ export function UnifiedViewerSceneRoots({
   viewerVisible,
   viewerController,
   activePreview,
+  modelInteractionEnabled = true,
   viewerResourceScope,
   retainedRobot,
   effectiveSourceFile,
   effectiveSourceFilePath,
   effectiveUrdfContent,
   effectiveSourceFormat,
-  onRobotDataResolved,
   onDocumentLoadEvent,
   onSceneReadyForDisplay,
   onRuntimeRobotLoaded,
@@ -115,6 +120,7 @@ export function UnifiedViewerSceneRoots({
   selection,
   onHover,
   onMeshSelect,
+  onUpdate,
   robot,
   focusTarget,
   onCollisionTransformPreview,
@@ -140,13 +146,13 @@ export function UnifiedViewerSceneRoots({
           controller={viewerController}
           active={viewerVisible}
           activePreview={activePreview}
+          modelInteractionEnabled={modelInteractionEnabled}
           viewerResourceScope={viewerResourceScope}
           retainedRobot={retainedRobot}
           effectiveSourceFile={effectiveSourceFile}
           effectiveSourceFilePath={effectiveSourceFilePath}
           effectiveUrdfContent={effectiveUrdfContent}
           effectiveSourceFormat={effectiveSourceFormat}
-          onRobotDataResolved={onRobotDataResolved}
           onDocumentLoadEvent={onDocumentLoadEvent}
           onSceneReadyForDisplay={onSceneReadyForDisplay}
           onRuntimeRobotLoaded={onRuntimeRobotLoaded}
@@ -154,6 +160,7 @@ export function UnifiedViewerSceneRoots({
           selection={selection}
           onHover={onHover}
           onMeshSelect={onMeshSelect}
+          onUpdate={onUpdate}
           robot={robot}
           focusTarget={focusTarget}
           onCollisionTransformPreview={onCollisionTransformPreview}

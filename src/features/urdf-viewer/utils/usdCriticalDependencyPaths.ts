@@ -1,27 +1,12 @@
-const dependencyStemByRootUsdFile: Record<string, string> = {
-  'g1_29dof_rev_1_0.usd': 'g1_29dof_rev_1_0',
-  'g1_23dof_rev_1_0.usd': 'g1_23dof_rev_1_0',
-  'go2.usd': 'go2_description',
-  'go2w.usd': 'go2w_description',
-  'h1.usd': 'h1',
-  'h1_2.usd': 'h1_2',
-  'h1_2_handless.usd': 'h1_2_handless',
-  'b2.usd': 'b2_description',
-  'b2w.usd': 'b2w_description',
-};
+import { normalizeLibraryPathKey, normalizeVirtualUsdPath } from '@/shared/utils/pathKeys';
+import { inferUsdDependencyStemForPath } from './usdDependencyPathRules.js';
 
 function normalizeUsdAssetPath(path: string): string {
-  return String(path || '')
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '');
+  return normalizeLibraryPathKey(path);
 }
 
 function toVirtualUsdPath(path: string): string {
-  const normalizedPath = normalizeUsdAssetPath(path);
-  if (!normalizedPath) {
-    return '/';
-  }
-  return `/${normalizedPath}`;
+  return normalizeVirtualUsdPath(path);
 }
 
 function getUsdDependencyExtension(stagePath: string): '.usd' | '.usda' | '.usdc' {
@@ -47,14 +32,7 @@ function inferUsdDependencyStem(stagePath: string): string | null {
   const fileName = normalizedPath.split('/').pop() || '';
   if (!fileName) return null;
 
-  const mappedStem = dependencyStemByRootUsdFile[fileName];
-  if (mappedStem) return mappedStem;
-
-  const inferredStem = fileName.replace(/\.usd[a-z]?$/i, '');
-  if (!inferredStem) return null;
-  if (!normalizedPath.includes('/configuration/')) return inferredStem;
-
-  return inferredStem.replace(/_(base|physics|robot|sensor)$/i, '');
+  return inferUsdDependencyStemForPath(normalizedPath, fileName) || null;
 }
 
 export function buildCriticalUsdDependencyPaths(stagePath: string): string[] {

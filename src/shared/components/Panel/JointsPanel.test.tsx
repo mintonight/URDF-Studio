@@ -64,28 +64,39 @@ function createComponentRoot() {
   return { dom, container, root };
 }
 
+function buildRobotWithJointCount(jointCount: number) {
+  return {
+    joints: Object.fromEntries(
+      Array.from({ length: jointCount }, (_, index) => {
+        const jointName = `joint_${index + 1}`;
+        return [
+          jointName,
+          {
+            id: jointName,
+            name: jointName,
+            jointType: 'revolute',
+            limit: { lower: -1.57, upper: 3.49, effort: 1, velocity: 1 },
+          },
+        ];
+      }),
+    ),
+  };
+}
+
 function renderJointsPanel(
   root: Root,
   onHover?: (type: 'link' | 'joint' | null, id: string | null) => void,
+  overrides: Partial<React.ComponentProps<typeof JointsPanel>> = {},
 ) {
   const jointPanelStore = createJointPanelStore({
-    jointAngles: { R_thigh_joint: 0 },
+    jointAngles: { R_thigh_joint: 0, joint_1: 0 },
   });
 
   return act(async () => {
     root.render(
       React.createElement(JointsPanel, {
         showJointPanel: true,
-        robot: {
-          joints: {
-            R_thigh_joint: {
-              id: 'R_thigh_joint',
-              name: 'R_thigh_joint',
-              jointType: 'revolute',
-              limit: { lower: -1.57, upper: 3.49, effort: 1, velocity: 1 },
-            },
-          },
-        },
+        robot: buildRobotWithJointCount(1),
         jointPanelRef: createRef<HTMLDivElement>(),
         jointPanelPos: null,
         defaultPosition: { top: '0px', left: '0px' },
@@ -112,6 +123,7 @@ function renderJointsPanel(
         onSelect: () => {},
         onHover,
         onUpdate: () => {},
+        ...overrides,
       }),
     );
   });
@@ -205,6 +217,83 @@ test('fixed-only robots keep the joints panel hidden even when the preference st
     null,
     'fixed-only robots should not render the joints panel shell',
   );
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('joints panel keeps the resizable side handle and respects the provided max height', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderJointsPanel(root);
+
+  const panelContainer = container.querySelector<HTMLElement>('.urdf-joint-panel > div');
+  assert.ok(panelContainer, 'joint panel container should render');
+  assert.equal(panelContainer.style.maxHeight, '320px');
+  assert.ok(
+    container.querySelector('[data-testid="ui-options-panel-resize-right"]'),
+    'joint panel should keep the right-edge resize handle',
+  );
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('joints panel gives the list area a constrained scroll viewport', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderJointsPanel(root);
+
+  const panelContent = container.querySelector<HTMLElement>('.urdf-joint-panel .custom-scrollbar')
+    ?.parentElement as HTMLDivElement | null;
+  assert.ok(panelContent, 'joint panel content wrapper should render');
+  assert.match(panelContent.className, /\bflex-1\b/);
+  assert.match(panelContent.className, /\bmin-h-0\b/);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('joints panel uses an explicit capped height when the joint list is long', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderJointsPanel(root, undefined, {
+    robot: buildRobotWithJointCount(12),
+    maxHeight: 320,
+  });
+
+  const panelContainer = container.querySelector<HTMLElement>('.urdf-joint-panel > div');
+  assert.ok(panelContainer, 'joint panel container should render');
+  assert.equal(panelContainer.style.height, '320px');
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('joints panel updates its explicit height when a longer robot is rendered into the same panel', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderJointsPanel(root, undefined, {
+    robot: buildRobotWithJointCount(1),
+    maxHeight: 320,
+  });
+
+  await renderJointsPanel(root, undefined, {
+    robot: buildRobotWithJointCount(12),
+    maxHeight: 320,
+  });
+
+  const panelContainer = container.querySelector<HTMLElement>('.urdf-joint-panel > div');
+  assert.ok(panelContainer, 'joint panel container should render');
+  assert.equal(panelContainer.style.height, '320px');
 
   await act(async () => {
     root.unmount();

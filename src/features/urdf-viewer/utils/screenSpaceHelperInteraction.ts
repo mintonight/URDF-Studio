@@ -91,18 +91,34 @@ function getInteractionLayerPriorityScore(
 }
 
 function getHelperPaddingPx(helperKind: ViewerHelperKind): number {
-  if (helperKind === 'joint-axis' || helperKind === 'origin-axes') {
+  if (helperKind === 'joint-axis') {
     return DEFAULT_HELPER_PADDING_PX;
+  }
+
+  if (helperKind === 'origin-axes') {
+    return 0;
   }
 
   return 4;
 }
 
 function supportsScreenSpaceHelperFallback(helperKind: ViewerHelperKind): boolean {
-  // Inertia helpers and origin axes already render solid pickable meshes
-  // (cylinders/cones/boxes). Expanding their footprint in screen space makes
-  // hover/click trigger well outside the visible geometry.
-  return helperKind !== 'inertia' && helperKind !== 'origin-axes';
+  // Inertia helpers already render large pickable solids, so expanding their
+  // footprint in screen space makes hover/click trigger far outside what is
+  // actually visible.
+  if (helperKind === 'inertia' || helperKind === 'origin-axes') {
+    return false;
+  }
+
+  return true;
+}
+
+function getMinimumHelperHalfExtentPx(helperKind: ViewerHelperKind): number {
+  if (helperKind === 'origin-axes') {
+    return 0;
+  }
+
+  return MIN_HELPER_HALF_EXTENT_PX;
 }
 
 function getDistanceToExpandedRect(
@@ -111,10 +127,10 @@ function getDistanceToExpandedRect(
   target: ProjectedHelperInteractionTarget,
 ): number {
   const halfWidth =
-    Math.max(target.projectedWidth * 0.5, MIN_HELPER_HALF_EXTENT_PX) +
+    Math.max(target.projectedWidth * 0.5, getMinimumHelperHalfExtentPx(target.helperKind)) +
     getHelperPaddingPx(target.helperKind);
   const halfHeight =
-    Math.max(target.projectedHeight * 0.5, MIN_HELPER_HALF_EXTENT_PX) +
+    Math.max(target.projectedHeight * 0.5, getMinimumHelperHalfExtentPx(target.helperKind)) +
     getHelperPaddingPx(target.helperKind);
   const dx = Math.max(Math.abs(pointerClientX - target.clientX) - halfWidth, 0);
   const dy = Math.max(Math.abs(pointerClientY - target.clientY) - halfHeight, 0);

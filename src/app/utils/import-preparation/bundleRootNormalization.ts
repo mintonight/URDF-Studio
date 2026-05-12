@@ -1,5 +1,6 @@
 import { inferCommonPackageAssetBundleRoot } from '@/app/utils/importPackageAssetReferences.ts';
 import { isAssetLibraryOnlyFormat } from '@/shared/utils/robotFileSupport';
+import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 import type { RobotFile } from '@/types';
 
 interface BundleRootPayload {
@@ -16,8 +17,6 @@ const LOOSE_IMPORT_ROOTLESS_FOLDERS = new Set([
   'mesh',
   'mjcf',
   'urdf',
-  'robot',
-  'robots',
   'textures',
   'texture',
   'dae',
@@ -41,7 +40,39 @@ const LOOSE_IMPORT_ROOTLESS_FOLDERS = new Set([
 ]);
 
 function normalizeImportPath(path: string): string {
-  return path.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/');
+  return normalizeLibraryPathKey(path);
+}
+
+interface PathStructureInfo {
+  topLevelSegments: string[];
+  topSegmentsAreRootlessFolders: boolean;
+}
+
+function analyzeImportPathStructure(paths: readonly string[]): PathStructureInfo {
+  const normalizedPaths = paths.map(normalizeImportPath).filter(Boolean);
+
+  if (normalizedPaths.length === 0) {
+    return {
+      topLevelSegments: [],
+      topSegmentsAreRootlessFolders: false,
+    };
+  }
+
+  const topLevelSegments = new Set(
+    normalizedPaths
+      .map(getTopLevelImportSegment)
+      .filter((segment): segment is string => segment !== null),
+  );
+  const topLevelSegmentList = Array.from(topLevelSegments);
+
+  const topSegmentsAreRootlessFolders = Array.from(topLevelSegments).every((segment) =>
+    LOOSE_IMPORT_ROOTLESS_FOLDERS.has(segment.toLowerCase()),
+  );
+
+  return {
+    topLevelSegments: topLevelSegmentList,
+    topSegmentsAreRootlessFolders,
+  };
 }
 
 function getTopLevelImportSegment(path: string): string | null {
@@ -66,6 +97,17 @@ function sanitizeInferredImportRoot(rootName: string | null | undefined): string
     .trim();
 
   return sanitized || null;
+}
+
+function collectPayloadImportPaths(payload: BundleRootPayload): string[] {
+  return [
+    ...payload.robotFiles.map((file) => file.name),
+    ...payload.assetFiles.map((file) => file.name),
+    ...payload.deferredAssetFiles.map((file) => file.name),
+    ...payload.usdSourceFiles.map((file) => file.name),
+    ...payload.libraryFiles.map((file) => file.path),
+    ...payload.textFiles.map((file) => file.path),
+  ].map(normalizeImportPath);
 }
 
 function inferBundleRootFromRobotFiles(robotFiles: readonly RobotFile[]): string | null {
@@ -121,13 +163,7 @@ function hasExistingBundleRootPrefix(payload: BundleRootPayload, bundleRoot: str
     return false;
   }
 
-  const allPaths = [
-    ...payload.robotFiles.map((file) => file.name),
-    ...payload.assetFiles.map((file) => file.name),
-    ...payload.usdSourceFiles.map((file) => file.name),
-    ...payload.libraryFiles.map((file) => file.path),
-    ...payload.textFiles.map((file) => file.path),
-  ].map(normalizeImportPath);
+  const allPaths = collectPayloadImportPaths(payload);
 
   return allPaths.some(
     (path) => path === normalizedBundleRoot || path.startsWith(`${normalizedBundleRoot}/`),
@@ -141,13 +177,7 @@ function shouldWrapLooseImportUnderBundleRoot(
     allowRootLevelDefinitionWithSingleFolder?: boolean;
   } = {},
 ): boolean {
-  const allPaths = [
-    ...payload.robotFiles.map((file) => file.name),
-    ...payload.assetFiles.map((file) => file.name),
-    ...payload.usdSourceFiles.map((file) => file.name),
-    ...payload.libraryFiles.map((file) => file.path),
-    ...payload.textFiles.map((file) => file.path),
-  ].map(normalizeImportPath);
+  const allPaths = collectPayloadImportPaths(payload);
 
   if (allPaths.length === 0) {
     return false;
@@ -157,9 +187,7 @@ function shouldWrapLooseImportUnderBundleRoot(
     return false;
   }
 
-  const topLevelSegments = new Set(
-    allPaths.map(getTopLevelImportSegment).filter((segment): segment is string => Boolean(segment)),
-  );
+  const pathStructure = analyzeImportPathStructure(allPaths);
 
   const hasRootLevelDefinitionFile = payload.robotFiles.some(
     (file) =>
@@ -168,31 +196,66 @@ function shouldWrapLooseImportUnderBundleRoot(
       getTopLevelImportSegment(file.name) === null,
   );
 
-  if (topLevelSegments.size === 0) {
+  if (pathStructure.topLevelSegments.length === 0) {
     return false;
   }
 
-  const hasConventionalRobotFolders = Array.from(topLevelSegments).every((segment) =>
-    LOOSE_IMPORT_ROOTLESS_FOLDERS.has(segment.toLowerCase()),
-  );
-
-  if (!hasConventionalRobotFolders) {
+  if (!pathStructure.topSegmentsAreRootlessFolders) {
     return false;
   }
 
   if (
     options.allowRootLevelDefinitionWithSingleFolder &&
-    topLevelSegments.size === 1 &&
+    pathStructure.topLevelSegments.length === 1 &&
     hasRootLevelDefinitionFile
   ) {
     return true;
   }
 
-  if (topLevelSegments.size <= 1) {
+  if (pathStructure.topLevelSegments.length <= 1) {
     return false;
   }
 
   return payload.robotFiles.some((file) => !isAssetLibraryOnlyFormat(file.format));
+}
+
+function shouldWrapLooseImportUnderPackageAssetRoot(
+  payload: BundleRootPayload,
+  bundleRoot: string | null,
+): boolean {
+  if (!bundleRoot || hasExistingBundleRootPrefix(payload, bundleRoot)) {
+    return false;
+  }
+
+  const allPaths = collectPayloadImportPaths(payload);
+  if (allPaths.length === 0) {
+    return false;
+  }
+
+  const hasDefinitionFile = payload.robotFiles.some(
+    (file) => !isAssetLibraryOnlyFormat(file.format) && file.format !== 'usd',
+  );
+  if (!hasDefinitionFile) {
+    return false;
+  }
+
+  const hasRootLevelDefinitionFile = payload.robotFiles.some(
+    (file) =>
+      !isAssetLibraryOnlyFormat(file.format) &&
+      file.format !== 'usd' &&
+      getTopLevelImportSegment(file.name) === null,
+  );
+  const pathStructure = analyzeImportPathStructure(allPaths);
+
+  if (pathStructure.topLevelSegments.length === 0) {
+    return false;
+  }
+
+  if (pathStructure.topLevelSegments.length === 1 && !hasRootLevelDefinitionFile) {
+    return false;
+  }
+
+  return true;
 }
 
 function prefixCollectedImportPath(path: string, bundleRoot: string): string {
@@ -212,10 +275,7 @@ export function normalizeLooseImportBundleRoot<T extends BundleRootPayload>(payl
   );
   const bundleRoot =
     packageAssetBundleRoot &&
-    shouldWrapLooseImportUnderBundleRoot(payload, {
-      bundleRoot: packageAssetBundleRoot,
-      allowRootLevelDefinitionWithSingleFolder: true,
-    })
+    shouldWrapLooseImportUnderPackageAssetRoot(payload, packageAssetBundleRoot)
       ? packageAssetBundleRoot
       : shouldWrapLooseImportUnderBundleRoot(payload)
         ? inferBundleRootFromRobotFiles(payload.robotFiles)

@@ -21,6 +21,22 @@ import {
   syncMjcfTendonVisualizationForRobot,
   syncOriginAxesVisualizationForLinks,
 } from './visualizationObjectSync.ts';
+import { GIZMO_BASE_RENDER_ORDER } from '@/shared/components/3d/unified-transform-controls/gizmoCore.ts';
+
+function assertTupleClose(
+  actual: readonly number[],
+  expected: readonly number[],
+  tolerance: number,
+  message: string,
+): void {
+  assert.equal(actual.length, expected.length, `${message}: tuple length mismatch`);
+  actual.forEach((value, index) => {
+    assert.ok(
+      Math.abs(value - expected[index]!) <= tolerance,
+      `${message}[${index}] expected ${expected[index]}, got ${value}`,
+    );
+  });
+}
 
 test('syncOriginAxesVisualizationForLinks is a no-op on the second identical pass', () => {
   const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
@@ -43,6 +59,24 @@ test('syncOriginAxesVisualizationForLinks is a no-op on the second identical pas
   assert.equal(firstChanged, true);
   assert.equal(secondChanged, false);
   assert.equal(link.userData.__originAxes.visible, true);
+});
+
+test('syncOriginAxesVisualizationForLinks keeps origin overlay below transform gizmo render order', () => {
+  const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  link.isURDFLink = true;
+  link.name = 'base_link';
+
+  syncOriginAxesVisualizationForLinks({
+    links: [link],
+    showOrigins: true,
+    showOriginsOverlay: true,
+    originSize: 0.2,
+  });
+
+  const originAxes = link.userData.__originAxes as THREE.Object3D;
+  const originMesh = originAxes.children.find((child: any) => child.isMesh) as THREE.Mesh;
+
+  assert.ok(originMesh.renderOrder < GIZMO_BASE_RENDER_ORDER);
 });
 
 test('syncJointAxesVisualizationForJoints is a no-op on the second identical pass', () => {
@@ -462,6 +496,601 @@ test('syncMjcfTendonVisualizationForRobot creates hover-pickable tendon meshes w
   });
   assert.equal(hiddenChanged, true);
   assert.equal(robot.userData.__mjcfTendons.visible, false);
+});
+
+test('syncMjcfTendonVisualizationForRobot resolves MJCF wrap geom anchors from RobotState geometry groups', () => {
+  const robot = new THREE.Group();
+  robot.userData.__mjcfTendonsData = [
+    {
+      name: 'wrapped_path',
+      rgba: [1, 0, 0, 1],
+      attachmentRefs: ['site_a', 'wrap_geom', 'site_b'],
+    },
+  ];
+
+  const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  link.isURDFLink = true;
+  link.name = 'link';
+  link.userData.__mjcfSitesData = [
+    { name: 'site_a', pos: [0, 0, 0], size: [0.005] },
+    { name: 'site_b', pos: [0, 2, 0], size: [0.005] },
+  ];
+
+  const wrapGeometry = new THREE.Group();
+  wrapGeometry.name = 'link::collision::0';
+  wrapGeometry.position.set(0, 1, 0);
+  wrapGeometry.userData.geometryName = 'wrap_geom';
+  wrapGeometry.userData.geometryRole = 'collision';
+  link.add(wrapGeometry);
+
+  robot.add(link);
+  robot.updateMatrixWorld(true);
+
+  const changed = syncMjcfTendonVisualizationForRobot({
+    robot,
+    sourceFormat: 'mjcf',
+    showMjcfTendons: true,
+  });
+
+  assert.equal(changed, true);
+  const tendonObject = robot.userData.__mjcfTendons.children[0] as THREE.Group;
+  const firstSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:0') as
+    | THREE.Group
+    | undefined;
+  const secondSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:1') as
+    | THREE.Group
+    | undefined;
+  assert.ok(firstSegment);
+  assert.ok(secondSegment);
+  assert.equal(firstSegment.visible, true);
+  assert.equal(secondSegment.visible, true);
+  assert.deepEqual(firstSegment.position.toArray(), [0, 0.5, 0]);
+  assert.deepEqual(secondSegment.position.toArray(), [0, 1.5, 0]);
+});
+
+test('syncMjcfTendonVisualizationForRobot projects MJCF wrap geom anchors onto adjacent site path', () => {
+  const robot = new THREE.Group();
+  robot.userData.__mjcfTendonsData = [
+    {
+      name: 'wrapped_path',
+      rgba: [1, 0, 0, 1],
+      attachmentRefs: ['site_a', 'wrap_geom', 'site_b'],
+      attachments: [
+        { type: 'site', ref: 'site_a' },
+        { type: 'geom', ref: 'wrap_geom', sidesite: 'wrap_side' },
+        { type: 'site', ref: 'site_b' },
+      ],
+    },
+  ];
+
+  const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  link.isURDFLink = true;
+  link.name = 'link';
+  link.userData.__mjcfSitesData = [
+    { name: 'site_a', pos: [0, 0, 0], size: [0.005] },
+    { name: 'site_b', pos: [0, 2, 0], size: [0.005] },
+    { name: 'wrap_side', pos: [1, 1, 0], size: [0.005] },
+  ];
+
+  const wrapGeometry = new THREE.Group();
+  wrapGeometry.name = 'link::collision::0';
+  wrapGeometry.position.set(1, 1, 0);
+  wrapGeometry.userData.geometryName = 'wrap_geom';
+  wrapGeometry.userData.geometryRole = 'collision';
+  link.add(wrapGeometry);
+
+  robot.add(link);
+  robot.updateMatrixWorld(true);
+
+  syncMjcfTendonVisualizationForRobot({
+    robot,
+    sourceFormat: 'mjcf',
+    showMjcfTendons: true,
+  });
+
+  const tendonObject = robot.userData.__mjcfTendons.children[0] as THREE.Group;
+  const firstSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:0') as THREE.Group;
+  const secondSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:1') as THREE.Group;
+  const wrapAnchor = tendonObject.getObjectByName('__mjcf_tendon_anchor__:1') as THREE.Mesh;
+
+  assert.deepEqual(firstSegment.position.toArray(), [0, 0.5, 0]);
+  assert.deepEqual(secondSegment.position.toArray(), [0, 1.5, 0]);
+  assert.deepEqual(wrapAnchor.position.toArray(), [0, 1, 0]);
+});
+
+test('syncMjcfTendonVisualizationForRobot expands active sphere wraps into tangent contact segments', () => {
+  const robot = new THREE.Group();
+  robot.userData.__mjcfTendonsData = [
+    {
+      name: 'wrapped_path',
+      rgba: [1, 0, 0, 1],
+      attachmentRefs: ['site_a', 'wrap_geom', 'site_b'],
+      attachments: [
+        { type: 'site', ref: 'site_a' },
+        { type: 'geom', ref: 'wrap_geom' },
+        { type: 'site', ref: 'site_b' },
+      ],
+    },
+  ];
+
+  const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  link.isURDFLink = true;
+  link.name = 'link';
+  link.userData.__mjcfSitesData = [
+    { name: 'site_a', pos: [0, 0, 0], size: [0.005] },
+    { name: 'site_b', pos: [4, 0, 0], size: [0.005] },
+  ];
+
+  const wrapGeometry = new THREE.Group();
+  wrapGeometry.name = 'link::collision::0';
+  wrapGeometry.position.set(1, 0.5, 0);
+  wrapGeometry.userData.geometryName = 'wrap_geom';
+  wrapGeometry.userData.geometryRole = 'collision';
+  wrapGeometry.userData.geometryType = GeometryType.SPHERE;
+  wrapGeometry.userData.geometryDimensions = { x: 1, y: 0, z: 0 };
+  link.add(wrapGeometry);
+
+  robot.add(link);
+  robot.updateMatrixWorld(true);
+
+  syncMjcfTendonVisualizationForRobot({
+    robot,
+    sourceFormat: 'mjcf',
+    showMjcfTendons: true,
+  });
+
+  const tendonObject = robot.userData.__mjcfTendons.children[0] as THREE.Group;
+  const firstSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:0') as THREE.Group;
+  const wrapSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:1') as THREE.Group;
+  const lastSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:2') as THREE.Group;
+  const firstContact = tendonObject.getObjectByName('__mjcf_tendon_anchor__:1') as THREE.Mesh;
+  const secondContact = tendonObject.getObjectByName('__mjcf_tendon_anchor__:2') as THREE.Mesh;
+
+  assert.equal(firstSegment.visible, true);
+  assert.equal(wrapSegment.visible, true);
+  assert.equal(lastSegment.visible, true);
+  assertTupleClose(firstContact.position.toArray(), [0.4, -0.3, 0], 1e-7, 'first contact');
+  assertTupleClose(
+    secondContact.position.toArray(),
+    [1.169065850398866, -0.4856047571642403, 0],
+    1e-7,
+    'second contact',
+  );
+  assertTupleClose(firstSegment.position.toArray(), [0.2, -0.15, 0], 1e-7, 'first segment');
+  assertTupleClose(
+    wrapSegment.position.toArray(),
+    [0.784532925199433, -0.39280237858212014, 0],
+    1e-7,
+    'wrap segment',
+  );
+  assertTupleClose(
+    lastSegment.position.toArray(),
+    [2.584532925199433, -0.24280237858212014, 0],
+    1e-7,
+    'last segment',
+  );
+});
+
+test('syncMjcfTendonVisualizationForRobot expands active cylinder wraps with sidesite-selected contacts', () => {
+  const robot = new THREE.Group();
+  robot.userData.__mjcfTendonsData = [
+    {
+      name: 'cylinder_wrapped_path',
+      rgba: [1, 0, 0, 1],
+      attachmentRefs: ['site_a', 'wrap_geom', 'site_b'],
+      attachments: [
+        { type: 'site', ref: 'site_a' },
+        { type: 'geom', ref: 'wrap_geom', sidesite: 'wrap_side' },
+        { type: 'site', ref: 'site_b' },
+      ],
+    },
+  ];
+
+  const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  link.isURDFLink = true;
+  link.name = 'link';
+  link.userData.__mjcfSitesData = [
+    { name: 'site_a', pos: [-0.16543177, 0.10792307, 1.1933433], size: [0.005] },
+    { name: 'site_b', pos: [-0.1940103, 0.0556474, 0.9636949], size: [0.005] },
+    { name: 'wrap_side', pos: [-0.14495786, 0.08223828, 1.11702277], size: [0.005] },
+  ];
+
+  const wrapGeometry = new THREE.Group();
+  wrapGeometry.name = 'link::collision::0';
+  wrapGeometry.position.set(-0.149192, 0.096165, 1.103983);
+  wrapGeometry.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 0, 1),
+    new THREE.Vector3(-0.98226432, -0.13777984, 0.12717513).normalize(),
+  );
+  wrapGeometry.userData.geometryName = 'wrap_geom';
+  wrapGeometry.userData.geometryRole = 'collision';
+  wrapGeometry.userData.geometryType = GeometryType.CYLINDER;
+  wrapGeometry.userData.geometryDimensions = { x: 0.015, y: 0.04, z: 0 };
+  link.add(wrapGeometry);
+
+  robot.add(link);
+  robot.updateMatrixWorld(true);
+
+  syncMjcfTendonVisualizationForRobot({
+    robot,
+    sourceFormat: 'mjcf',
+    showMjcfTendons: true,
+  });
+
+  const tendonObject = robot.userData.__mjcfTendons.children[0] as THREE.Group;
+  const firstSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:0') as THREE.Group;
+  const wrapSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:1') as THREE.Group;
+  const lastSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:2') as THREE.Group;
+  const firstContact = tendonObject.getObjectByName('__mjcf_tendon_anchor__:1') as THREE.Mesh;
+  const secondContact = tendonObject.getObjectByName('__mjcf_tendon_anchor__:2') as THREE.Mesh;
+
+  assert.equal(firstSegment.visible, true);
+  assert.equal(wrapSegment.visible, true);
+  assert.equal(lastSegment.visible, true);
+  assertTupleClose(
+    firstContact.position.toArray(),
+    [-0.17401546, 0.07835477, 1.1123561],
+    1e-5,
+    'first cylinder contact',
+  );
+  assertTupleClose(
+    secondContact.position.toArray(),
+    [-0.17436665, 0.07761139, 1.1094447],
+    1e-5,
+    'second cylinder contact',
+  );
+});
+
+test('syncMjcfTendonVisualizationForRobot skips near-end cylinder wraps that MuJoCo leaves direct', () => {
+  const robot = new THREE.Group();
+  robot.userData.__mjcfTendonsData = [
+    {
+      name: 'near_end_cylinder_path',
+      rgba: [1, 0, 0, 1],
+      attachmentRefs: ['site_a', 'wrap_geom', 'site_b'],
+      attachments: [
+        { type: 'site', ref: 'site_a' },
+        { type: 'geom', ref: 'wrap_geom', sidesite: 'wrap_side' },
+        { type: 'site', ref: 'site_b' },
+      ],
+    },
+  ];
+
+  const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  link.isURDFLink = true;
+  link.name = 'link';
+  link.userData.__mjcfSitesData = [
+    { name: 'site_a', pos: [-0.168790298, 0.093560978, 1.256874798], size: [0.005] },
+    { name: 'site_b', pos: [-0.133004718, 0.092025153, 1.328790843], size: [0.005] },
+    { name: 'wrap_side', pos: [-0.273205782, -0.012493271, 1.406269299], size: [0.005] },
+  ];
+
+  const wrapGeometry = new THREE.Group();
+  wrapGeometry.name = 'link::collision::0';
+  wrapGeometry.position.set(-0.164292616, 0.09650666, 1.297182465);
+  wrapGeometry.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 0, 1),
+    new THREE.Vector3(-0.01980714, 0.01914694, -0.99962046).normalize(),
+  );
+  wrapGeometry.userData.geometryName = 'wrap_geom';
+  wrapGeometry.userData.geometryRole = 'collision';
+  wrapGeometry.userData.geometryType = GeometryType.CYLINDER;
+  wrapGeometry.userData.geometryDimensions = { x: 0.0109, y: 0.24, z: 0 };
+  link.add(wrapGeometry);
+
+  robot.add(link);
+  robot.updateMatrixWorld(true);
+
+  syncMjcfTendonVisualizationForRobot({
+    robot,
+    sourceFormat: 'mjcf',
+    showMjcfTendons: true,
+  });
+
+  const tendonObject = robot.userData.__mjcfTendons.children[0] as THREE.Group;
+  const directSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:0') as THREE.Group;
+  const skippedSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:1') as THREE.Group;
+
+  assert.equal(directSegment.visible, true);
+  assert.equal(skippedSegment.visible, false);
+  assertTupleClose(
+    directSegment.position.toArray(),
+    [-0.150897508, 0.0927930655, 1.2928328205],
+    1e-9,
+    'near-end cylinder direct segment',
+  );
+});
+
+test('syncMjcfTendonVisualizationForRobot expands inverse sphere wraps through side-inside sites', () => {
+  const robot = new THREE.Group();
+  robot.userData.__mjcfTendonsData = [
+    {
+      name: 'inverse_sphere_path',
+      rgba: [1, 0, 0, 1],
+      attachmentRefs: ['site_a', 'wrap_geom', 'site_b'],
+      attachments: [
+        { type: 'site', ref: 'site_a' },
+        { type: 'geom', ref: 'wrap_geom', sidesite: 'wrap_side' },
+        { type: 'site', ref: 'site_b' },
+      ],
+    },
+  ];
+
+  const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  link.isURDFLink = true;
+  link.name = 'link';
+  link.userData.__mjcfSitesData = [
+    { name: 'site_a', pos: [-2, 1, 0], size: [0.005] },
+    { name: 'site_b', pos: [2, 1, 0], size: [0.005] },
+    { name: 'wrap_side', pos: [0, 0, 0], size: [0.005] },
+  ];
+
+  const wrapGeometry = new THREE.Group();
+  wrapGeometry.name = 'link::collision::0';
+  wrapGeometry.position.set(0, 0, 0);
+  wrapGeometry.userData.geometryName = 'wrap_geom';
+  wrapGeometry.userData.geometryRole = 'collision';
+  wrapGeometry.userData.geometryType = GeometryType.SPHERE;
+  wrapGeometry.userData.geometryDimensions = { x: 1, y: 0, z: 0 };
+  link.add(wrapGeometry);
+
+  robot.add(link);
+  robot.updateMatrixWorld(true);
+
+  syncMjcfTendonVisualizationForRobot({
+    robot,
+    sourceFormat: 'mjcf',
+    showMjcfTendons: true,
+  });
+
+  const tendonObject = robot.userData.__mjcfTendons.children[0] as THREE.Group;
+  const firstContact = tendonObject.getObjectByName('__mjcf_tendon_anchor__:1') as THREE.Mesh;
+  const secondContact = tendonObject.getObjectByName('__mjcf_tendon_anchor__:2') as THREE.Mesh;
+  const firstSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:0') as THREE.Group;
+  const wrapSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:1') as THREE.Group;
+  const lastSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:2') as THREE.Group;
+
+  assert.equal(firstSegment.visible, true);
+  assert.equal(wrapSegment.visible, true);
+  assert.equal(lastSegment.visible, true);
+  assertTupleClose(
+    firstContact.position.toArray(),
+    [-0.8944271909999159, 0.4472135954999579, 0],
+    1e-9,
+    'first inverse sphere contact',
+  );
+  assertTupleClose(
+    secondContact.position.toArray(),
+    [0.8944271909999159, 0.4472135954999579, 0],
+    1e-9,
+    'second inverse sphere contact',
+  );
+});
+
+test('syncMjcfTendonVisualizationForRobot expands inverse cylinder wraps through side-inside sites', () => {
+  const robot = new THREE.Group();
+  robot.userData.__mjcfTendonsData = [
+    {
+      name: 'inverse_cylinder_path',
+      rgba: [1, 0, 0, 1],
+      attachmentRefs: ['site_a', 'wrap_geom', 'site_b'],
+      attachments: [
+        { type: 'site', ref: 'site_a' },
+        { type: 'geom', ref: 'wrap_geom', sidesite: 'wrap_side' },
+        { type: 'site', ref: 'site_b' },
+      ],
+    },
+  ];
+
+  const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  link.isURDFLink = true;
+  link.name = 'link';
+  link.userData.__mjcfSitesData = [
+    { name: 'site_a', pos: [-2, 1, 0.4], size: [0.005] },
+    { name: 'site_b', pos: [2, 1, -0.2], size: [0.005] },
+    { name: 'wrap_side', pos: [0, 0, 0], size: [0.005] },
+  ];
+
+  const wrapGeometry = new THREE.Group();
+  wrapGeometry.name = 'link::collision::0';
+  wrapGeometry.position.set(0, 0, 0);
+  wrapGeometry.userData.geometryName = 'wrap_geom';
+  wrapGeometry.userData.geometryRole = 'collision';
+  wrapGeometry.userData.geometryType = GeometryType.CYLINDER;
+  wrapGeometry.userData.geometryDimensions = { x: 1, y: 0.5, z: 0 };
+  link.add(wrapGeometry);
+
+  robot.add(link);
+  robot.updateMatrixWorld(true);
+
+  syncMjcfTendonVisualizationForRobot({
+    robot,
+    sourceFormat: 'mjcf',
+    showMjcfTendons: true,
+  });
+
+  const tendonObject = robot.userData.__mjcfTendons.children[0] as THREE.Group;
+  const firstContact = tendonObject.getObjectByName('__mjcf_tendon_anchor__:1') as THREE.Mesh;
+  const secondContact = tendonObject.getObjectByName('__mjcf_tendon_anchor__:2') as THREE.Mesh;
+  const firstSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:0') as THREE.Group;
+  const wrapSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:1') as THREE.Group;
+  const lastSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:2') as THREE.Group;
+
+  assert.equal(firstSegment.visible, true);
+  assert.equal(wrapSegment.visible, true);
+  assert.equal(lastSegment.visible, true);
+  assertTupleClose(
+    firstContact.position.toArray(),
+    [-0.8944271909999159, 0.4472135954999579, 0.17888543819998318],
+    1e-9,
+    'first inverse cylinder contact',
+  );
+  assertTupleClose(
+    secondContact.position.toArray(),
+    [0.8944271909999159, 0.4472135954999579, -0.08944271909999159],
+    1e-9,
+    'second inverse cylinder contact',
+  );
+});
+
+test('syncMjcfTendonVisualizationForRobot keeps near-surface side-inside cylinder wraps direct', () => {
+  const robot = new THREE.Group();
+  robot.userData.__mjcfTendonsData = [
+    {
+      name: 'near_surface_cylinder_path',
+      rgba: [1, 0, 0, 1],
+      attachmentRefs: ['site_a', 'wrap_geom', 'site_b'],
+      attachments: [
+        { type: 'site', ref: 'site_a' },
+        { type: 'geom', ref: 'wrap_geom', sidesite: 'wrap_side' },
+        { type: 'site', ref: 'site_b' },
+      ],
+    },
+  ];
+
+  const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  link.isURDFLink = true;
+  link.name = 'link';
+  link.userData.__mjcfSitesData = [
+    { name: 'site_a', pos: [-2, 0.2, 0], size: [0.005] },
+    { name: 'site_b', pos: [2, 0.2, 0], size: [0.005] },
+    { name: 'wrap_side', pos: [0, 0.8, 0], size: [0.005] },
+  ];
+
+  const wrapGeometry = new THREE.Group();
+  wrapGeometry.name = 'link::collision::0';
+  wrapGeometry.position.set(0, 0, 0);
+  wrapGeometry.userData.geometryName = 'wrap_geom';
+  wrapGeometry.userData.geometryRole = 'collision';
+  wrapGeometry.userData.geometryType = GeometryType.CYLINDER;
+  wrapGeometry.userData.geometryDimensions = { x: 1, y: 0.5, z: 0 };
+  link.add(wrapGeometry);
+
+  robot.add(link);
+  robot.updateMatrixWorld(true);
+
+  syncMjcfTendonVisualizationForRobot({
+    robot,
+    sourceFormat: 'mjcf',
+    showMjcfTendons: true,
+  });
+
+  const tendonObject = robot.userData.__mjcfTendons.children[0] as THREE.Group;
+  const firstSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:0') as THREE.Group;
+  const wrapSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:1') as THREE.Group;
+  const lastSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:2') as THREE.Group;
+  const directEndpoint = tendonObject.getObjectByName('__mjcf_tendon_anchor__:1') as THREE.Mesh;
+
+  assert.equal(firstSegment.visible, true);
+  assert.equal(wrapSegment.visible, false);
+  assert.equal(lastSegment.visible, false);
+  assertTupleClose(directEndpoint.position.toArray(), [2, 0.2, 0], 1e-9, 'direct endpoint');
+});
+
+test('syncMjcfTendonVisualizationForRobot keeps side-inside sphere wraps direct when the site path already penetrates', () => {
+  const robot = new THREE.Group();
+  robot.userData.__mjcfTendonsData = [
+    {
+      name: 'inverse_sphere_path',
+      rgba: [1, 0, 0, 1],
+      attachmentRefs: ['site_a', 'wrap_geom', 'site_b'],
+      attachments: [
+        { type: 'site', ref: 'site_a' },
+        { type: 'geom', ref: 'wrap_geom', sidesite: 'wrap_side' },
+        { type: 'site', ref: 'site_b' },
+      ],
+    },
+  ];
+
+  const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  link.isURDFLink = true;
+  link.name = 'link';
+  link.userData.__mjcfSitesData = [
+    { name: 'site_a', pos: [-0.133004718, 0.092025153, 1.328790843], size: [0.005] },
+    { name: 'site_b', pos: [-0.176516322, 0.08870263, 1.429928721], size: [0.005] },
+    { name: 'wrap_side', pos: [-0.16538567, 0.09260161, 1.38967722], size: [0.005] },
+  ];
+
+  const wrapGeometry = new THREE.Group();
+  wrapGeometry.name = 'link::collision::0';
+  wrapGeometry.position.set(-0.154140647, 0.106561975, 1.396);
+  wrapGeometry.userData.geometryName = 'wrap_geom';
+  wrapGeometry.userData.geometryRole = 'collision';
+  wrapGeometry.userData.geometryType = GeometryType.SPHERE;
+  wrapGeometry.userData.geometryDimensions = { x: 0.0297339, y: 0, z: 0 };
+  link.add(wrapGeometry);
+
+  robot.add(link);
+  robot.updateMatrixWorld(true);
+
+  syncMjcfTendonVisualizationForRobot({
+    robot,
+    sourceFormat: 'mjcf',
+    showMjcfTendons: true,
+  });
+
+  const tendonObject = robot.userData.__mjcfTendons.children[0] as THREE.Group;
+  const directSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:0') as THREE.Group;
+  const skippedSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:1') as THREE.Group;
+
+  assert.equal(directSegment.visible, true);
+  assert.equal(skippedSegment.visible, false);
+  assertTupleClose(
+    directSegment.position.toArray(),
+    [-0.15476052, 0.0903638915, 1.379359782],
+    1e-9,
+    'side-inside sphere direct segment',
+  );
+});
+
+test('syncMjcfTendonVisualizationForRobot skips inactive geom wraps outside the adjacent site path', () => {
+  const robot = new THREE.Group();
+  robot.userData.__mjcfTendonsData = [
+    {
+      name: 'inactive_wrap_path',
+      rgba: [1, 0, 0, 1],
+      attachmentRefs: ['site_a', 'wrap_geom', 'site_b'],
+      attachments: [
+        { type: 'site', ref: 'site_a' },
+        { type: 'geom', ref: 'wrap_geom' },
+        { type: 'site', ref: 'site_b' },
+      ],
+    },
+  ];
+
+  const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  link.isURDFLink = true;
+  link.name = 'link';
+  link.userData.__mjcfSitesData = [
+    { name: 'site_a', pos: [0, 0, 0], size: [0.005] },
+    { name: 'site_b', pos: [0, 2, 0], size: [0.005] },
+  ];
+
+  const wrapGeometry = new THREE.Group();
+  wrapGeometry.name = 'link::collision::0';
+  wrapGeometry.position.set(1, 1, 0);
+  wrapGeometry.userData.geometryName = 'wrap_geom';
+  wrapGeometry.userData.geometryRole = 'collision';
+  wrapGeometry.userData.geometryType = GeometryType.SPHERE;
+  wrapGeometry.userData.geometryDimensions = { x: 0.1, y: 0, z: 0 };
+  link.add(wrapGeometry);
+
+  robot.add(link);
+  robot.updateMatrixWorld(true);
+
+  syncMjcfTendonVisualizationForRobot({
+    robot,
+    sourceFormat: 'mjcf',
+    showMjcfTendons: true,
+  });
+
+  const tendonObject = robot.userData.__mjcfTendons.children[0] as THREE.Group;
+  const directSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:0') as THREE.Group;
+  const skippedSegment = tendonObject.getObjectByName('__mjcf_tendon_segment__:1') as THREE.Group;
+
+  assert.equal(directSegment.visible, true);
+  assert.equal(skippedSegment.visible, false);
+  assert.deepEqual(directSegment.position.toArray(), [0, 1, 0]);
 });
 
 test('syncMjcfTendonVisualizationForRobot softens near-white tendon colors for better contrast', () => {

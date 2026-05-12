@@ -1,5 +1,5 @@
 import type { Theme } from '@/types';
-import { useResolvedTheme } from '@/shared/hooks';
+import { useResolvedTheme } from '@/shared/hooks/useTheme';
 
 export interface WorkspaceCanvasEnvironmentIntensityByTheme {
   light: number;

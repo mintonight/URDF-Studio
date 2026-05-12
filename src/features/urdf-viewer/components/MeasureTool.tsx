@@ -170,7 +170,7 @@ const MeasurePreviewItem = memo(
           className="pointer-events-none select-none"
           zIndexRange={MEASURE_LABEL_Z_INDEX_RANGE}
         >
-          <div className="rounded-md border border-amber-300/40 bg-slate-950/78 px-1.5 py-0.5 font-mono text-[8px] font-semibold whitespace-nowrap text-amber-50/98 tracking-[-0.01em] backdrop-blur-sm">
+          <div className="rounded-[7px] bg-slate-950/66 px-1.5 py-[3px] font-mono text-[10px] leading-none font-semibold whitespace-nowrap text-amber-50 shadow-[0_1px_8px_rgba(2,6,23,0.28)] [text-rendering:geometricPrecision]">
             {formatMeasurementDistance(metrics.distance)}
           </div>
         </Html>
@@ -370,10 +370,9 @@ const MeasurementItem = memo(
               zIndexRange={MEASURE_LABEL_Z_INDEX_RANGE}
             >
               <div
-                className="rounded-md border bg-slate-950/80 px-1.5 py-0.5 font-mono text-[8px] font-semibold whitespace-nowrap tracking-[-0.01em] backdrop-blur-sm"
+                className="rounded-[7px] bg-slate-950/62 px-1.5 py-[3px] font-mono text-[9px] leading-none font-semibold whitespace-nowrap shadow-[0_1px_6px_rgba(2,6,23,0.24)] [text-rendering:geometricPrecision]"
                 style={{
                   color: `${MEASURE_AXIS_COLORS[segmentLabel.axis]}F2`,
-                  borderColor: `${MEASURE_AXIS_COLORS[segmentLabel.axis]}55`,
                 }}
               >
                 {segmentLabel.text}
@@ -390,10 +389,8 @@ const MeasurementItem = memo(
           zIndexRange={MEASURE_LABEL_Z_INDEX_RANGE}
         >
           <div
-            className={`group pointer-events-auto flex cursor-pointer items-center gap-1 rounded-md border bg-slate-950/80 px-1.5 py-0.5 font-mono text-[8px] font-semibold whitespace-nowrap tracking-[-0.01em] backdrop-blur-sm transition-colors ${
-              isHovered
-                ? 'border-red-200/55 text-red-50'
-                : 'border-red-300/35 text-red-100/96 hover:border-red-200/55 hover:text-red-50'
+            className={`group pointer-events-auto flex cursor-pointer items-center gap-1 rounded-[7px] bg-slate-950/68 px-1.5 py-[3px] font-mono text-[10px] leading-none font-semibold whitespace-nowrap shadow-[0_1px_8px_rgba(2,6,23,0.28)] transition-colors [text-rendering:geometricPrecision] ${
+              isHovered ? 'text-red-50' : 'text-red-100/96 hover:text-red-50'
             }`}
             onMouseEnter={onHover}
             onMouseLeave={onLeave}

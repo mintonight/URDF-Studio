@@ -98,6 +98,16 @@ export interface UrdfJointSafetyController {
   kVelocity?: number;
 }
 
+export type UsdPhysicsQuaternionWxyz = [number, number, number, number];
+
+export interface UrdfJointUsdPhysicsFrame {
+  axisToken?: string;
+  localPos0?: Vector3;
+  localRot0Wxyz?: UsdPhysicsQuaternionWxyz;
+  localPos1?: Vector3;
+  localRot1Wxyz?: UsdPhysicsQuaternionWxyz;
+}
+
 export interface UrdfJoint {
   id: string;
   name: string;
@@ -115,6 +125,7 @@ export interface UrdfJoint {
   referencePosition?: number;
   angle?: number;
   quaternion?: JointQuaternion;
+  usdPhysics?: UrdfJointUsdPhysicsFrame;
 }
 
 export interface RobotClosedLoopConstraintSource {

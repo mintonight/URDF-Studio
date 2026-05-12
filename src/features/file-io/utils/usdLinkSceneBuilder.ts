@@ -80,12 +80,7 @@ const shouldOmitIsaacPlaceholderPrimitiveVisual = (
   materialState: UsdMaterialMetadata,
 ): boolean => {
   const geometryType = getGeometryType(visual.type);
-  if (
-    geometryType !== GEOMETRY_TYPES.BOX &&
-    geometryType !== GEOMETRY_TYPES.SPHERE &&
-    geometryType !== GEOMETRY_TYPES.CYLINDER &&
-    geometryType !== GEOMETRY_TYPES.CAPSULE
-  ) {
+  if (geometryType !== GEOMETRY_TYPES.BOX) {
     return false;
   }
 
@@ -113,6 +108,43 @@ const shouldOmitIsaacPlaceholderPrimitiveVisual = (
     );
   });
   if (!hasNamedPlaceholderMaterial) {
+    return false;
+  }
+
+  return collisions.some((collision) => {
+    return (
+      getGeometryType(collision.type) === geometryType &&
+      hasMatchingVisualDimensions(visual, collision) &&
+      hasMatchingVisualOrigin(visual, collision)
+    );
+  });
+};
+
+const shouldSuppressIsaacPlaceholderPrimitiveMaterial = (
+  visual: UrdfVisual,
+  collisions: UrdfVisual[],
+  materialState: UsdMaterialMetadata,
+): boolean => {
+  const geometryType = getGeometryType(visual.type);
+  if (
+    geometryType !== GEOMETRY_TYPES.SPHERE &&
+    geometryType !== GEOMETRY_TYPES.CYLINDER &&
+    geometryType !== GEOMETRY_TYPES.CAPSULE
+  ) {
+    return false;
+  }
+
+  if (getPrimitiveMaxDimension(visual) > ISAAC_OMITTED_PLACEHOLDER_VISUAL_MAX_DIMENSION) {
+    return false;
+  }
+
+  const rgba = Array.isArray(materialState.colorRgba) ? materialState.colorRgba : null;
+  const isWhite = rgba
+    ? Math.min(rgba[0] ?? 0, rgba[1] ?? 0, rgba[2] ?? 0) >= 0.99
+    : String(materialState.color || '')
+        .trim()
+        .toLowerCase() === '#ffffff';
+  if (!isWhite) {
     return false;
   }
 
@@ -291,10 +323,17 @@ const buildLinkSceneNode = async (
       const materialState = resolveLinkMaterialEntry(robot, link, visualEntry.geometry, {
         isPrimaryVisual: visualEntry.bodyIndex === null,
       });
+      const suppressIsaacPlaceholderMaterial = shouldSuppressIsaacPlaceholderPrimitiveMaterial(
+        visualEntry.geometry,
+        collisions,
+        materialState,
+      );
 
       return {
         visualEntry,
-        materialState,
+        materialState: suppressIsaacPlaceholderMaterial
+          ? { suppressVisualColor: true }
+          : materialState,
         omitIsaacPlaceholderVisual: shouldOmitIsaacPlaceholderPrimitiveVisual(
           visualEntry.geometry,
           collisions,

@@ -116,7 +116,7 @@ function updateReadmeVersions(appVersion, packageVersion) {
       ],
     },
     {
-      filePath: path.join(repoRoot, 'README_CN.md'),
+      filePath: path.join(repoRoot, 'docs/README_CN.md'),
       patterns: [
         {
           pattern: /^(- 根应用：`urdf-studio@)([^`]+)(`.*)$/m,

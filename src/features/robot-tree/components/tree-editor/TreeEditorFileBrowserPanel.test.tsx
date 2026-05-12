@@ -59,14 +59,14 @@ async function destroyComponentRoot(dom: JSDOM, root: Root) {
 function renderPanel({
   root,
   file,
-  isProMode,
+  showAddAsComponent,
   onAddComponent,
   onLoadRobot,
   folderRenameInputRef = createRef<HTMLInputElement>(),
 }: {
   root: Root;
   file: RobotFile;
-  isProMode: boolean;
+  showAddAsComponent: boolean;
   onAddComponent?: (file: RobotFile) => void;
   onLoadRobot?: (file: RobotFile) => void;
   folderRenameInputRef?: RefObject<HTMLInputElement | null>;
@@ -76,7 +76,7 @@ function renderPanel({
       <TreeEditorFileBrowserPanel
         isOpen
         isDragging={false}
-        isProMode={isProMode}
+        showAddAsComponent={showAddAsComponent}
         height={240}
         shouldFillSpace={false}
         availableFiles={[file]}
@@ -102,7 +102,7 @@ function renderPanel({
   });
 }
 
-test('TreeEditorFileBrowserPanel clicks add components directly in pro mode', async () => {
+test('TreeEditorFileBrowserPanel opens files from row clicks and reserves the add button for components', async () => {
   const { dom, container, root } = createComponentRoot();
 
   try {
@@ -117,7 +117,7 @@ test('TreeEditorFileBrowserPanel clicks add components directly in pro mode', as
     await renderPanel({
       root,
       file,
-      isProMode: true,
+      showAddAsComponent: true,
       onAddComponent: (nextFile) => {
         addedFiles.push(nextFile.name);
       },
@@ -140,14 +140,30 @@ test('TreeEditorFileBrowserPanel clicks add components directly in pro mode', as
       );
     });
 
+    assert.deepEqual(addedFiles, []);
+    assert.deepEqual(loadedFiles, ['arm.urdf']);
+
+    const addButton = Array.from(container.querySelectorAll('button')).find(
+      (element) => element.getAttribute('title') === translations.en.addComponent,
+    );
+    assert.ok(addButton, 'add button should render for component-capable files');
+
+    await act(async () => {
+      addButton.dispatchEvent(
+        new dom.window.MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
     assert.deepEqual(addedFiles, ['arm.urdf']);
-    assert.deepEqual(loadedFiles, []);
   } finally {
     await destroyComponentRoot(dom, root);
   }
 });
 
-test('TreeEditorFileBrowserPanel previews image assets instead of adding them in pro mode', async () => {
+test('TreeEditorFileBrowserPanel previews image assets instead of adding them', async () => {
   const { dom, container, root } = createComponentRoot();
 
   try {
@@ -162,7 +178,7 @@ test('TreeEditorFileBrowserPanel previews image assets instead of adding them in
     await renderPanel({
       root,
       file,
-      isProMode: true,
+      showAddAsComponent: true,
       onAddComponent: (nextFile) => {
         addedFiles.push(nextFile.name);
       },

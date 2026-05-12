@@ -13,25 +13,17 @@ import {
 } from './usdPreloadSources.ts';
 
 test('resolveUsdBlobUrl falls back to the assets map when binary USD placeholders lose blobUrl', () => {
-  const resolved = resolveUsdBlobUrl(
-    'Go2/usd/configuration/go2_description_base.usd',
-    undefined,
-    {
-      'Go2/usd/configuration/go2_description_base.usd': 'blob:go2-base',
-    },
-  );
+  const resolved = resolveUsdBlobUrl('Go2/usd/configuration/go2_description_base.usd', undefined, {
+    'Go2/usd/configuration/go2_description_base.usd': 'blob:go2-base',
+  });
 
   assert.equal(resolved, 'blob:go2-base');
 });
 
 test('resolveUsdBlobUrl supports leading-slash virtual paths', () => {
-  const resolved = resolveUsdBlobUrl(
-    '/Go2 (1)/usd/go2.usd',
-    undefined,
-    {
-      'Go2 (1)/usd/go2.usd': 'blob:go2-root',
-    },
-  );
+  const resolved = resolveUsdBlobUrl('/Go2 (1)/usd/go2.usd', undefined, {
+    'Go2 (1)/usd/go2.usd': 'blob:go2-root',
+  });
 
   assert.equal(resolved, 'blob:go2-root');
 });
@@ -79,31 +71,39 @@ test('createUsdPreloadSource prefers inline text content for textual USD files e
   assert.equal(preloadSource.kind, 'text-content');
 });
 
-test('inferUsdBundleVirtualDirectory scopes to the package root before /usd/ when available', () => {
-  const bundleDirectory = inferUsdBundleVirtualDirectory(
-    'robots/unitree/go2/usd/go2.usd',
+test('createUsdPreloadSource keeps binary .usd payloads blob-backed even when content is populated', () => {
+  const preloadSource = createUsdPreloadSource(
+    {
+      name: 'unitree_model/B2/usd/configuration/b2_description_base.usd',
+      content: 'PXR-USDC\u0000\u0000binary-payload',
+      blobUrl: 'blob:b2-base',
+    },
+    {
+      'unitree_model/B2/usd/configuration/b2_description_base.usd': 'blob:b2-base',
+    },
   );
+
+  assert.equal(preloadSource.kind, 'blob-url');
+});
+
+test('inferUsdBundleVirtualDirectory scopes to the package root before /usd/ when available', () => {
+  const bundleDirectory = inferUsdBundleVirtualDirectory('robots/unitree/go2/usd/go2.usd');
 
   assert.equal(bundleDirectory, '/robots/unitree/go2/');
 });
 
 test('isUsdPathWithinBundleDirectory includes only files from the same USD package directory', () => {
-  const bundleDirectory = inferUsdBundleVirtualDirectory(
-    'Go2/usd/go2.usd',
-  );
+  const bundleDirectory = inferUsdBundleVirtualDirectory('Go2/usd/go2.usd');
 
   assert.equal(
-    isUsdPathWithinBundleDirectory('Go2/usd/configuration/go2_description_base.usd', bundleDirectory),
+    isUsdPathWithinBundleDirectory(
+      'Go2/usd/configuration/go2_description_base.usd',
+      bundleDirectory,
+    ),
     true,
   );
-  assert.equal(
-    isUsdPathWithinBundleDirectory('Go2/meshes/base_link.STL', bundleDirectory),
-    true,
-  );
-  assert.equal(
-    isUsdPathWithinBundleDirectory('H1/usd/h1.usd', bundleDirectory),
-    false,
-  );
+  assert.equal(isUsdPathWithinBundleDirectory('Go2/meshes/base_link.STL', bundleDirectory), true);
+  assert.equal(isUsdPathWithinBundleDirectory('H1/usd/h1.usd', bundleDirectory), false);
   assert.equal(
     isUsdPathWithinBundleDirectory('/configuration/go2_description_base.usd', bundleDirectory),
     false,
@@ -122,10 +122,7 @@ test('extractUsdLayerReferencesFromText keeps only USD layer references', () => 
         ]
       )
     `),
-    [
-      './configuration/go2_description_base.usd',
-      './configuration/go2_description_sensor.usda',
-    ],
+    ['./configuration/go2_description_base.usd', './configuration/go2_description_sensor.usda'],
   );
 });
 
@@ -190,6 +187,50 @@ test('collectUsdStageOpenRelevantVirtualPaths keeps the selected root layer, its
   );
 });
 
+test('collectUsdStageOpenRelevantVirtualPaths still keeps critical sidecars for binary .usd roots', () => {
+  assert.deepEqual(
+    collectUsdStageOpenRelevantVirtualPaths(
+      {
+        name: 'unitree_model/B2/usd/b2.usd',
+        content: 'PXR-USDC\u0000\u0000binary-root',
+        blobUrl: 'blob:b2-root',
+      },
+      [
+        {
+          name: 'unitree_model/B2/usd/b2.usd',
+          content: 'PXR-USDC\u0000\u0000binary-root',
+          blobUrl: 'blob:b2-root',
+          format: 'usd',
+        },
+        {
+          name: 'unitree_model/B2/usd/configuration/b2_description_base.usd',
+          content: '',
+          blobUrl: 'blob:b2-base',
+          format: 'usd',
+        },
+        {
+          name: 'unitree_model/B2/usd/configuration/b2_description_physics.usd',
+          content: '',
+          blobUrl: 'blob:b2-physics',
+          format: 'usd',
+        },
+        {
+          name: 'unitree_model/B2/usd/configuration/b2_description_sensor.usd',
+          content: '',
+          blobUrl: 'blob:b2-sensor',
+          format: 'usd',
+        },
+      ],
+    ),
+    [
+      '/unitree_model/B2/usd/b2.usd',
+      '/unitree_model/B2/usd/configuration/b2_description_base.usd',
+      '/unitree_model/B2/usd/configuration/b2_description_physics.usd',
+      '/unitree_model/B2/usd/configuration/b2_description_sensor.usd',
+    ],
+  );
+});
+
 test('buildUsdBundlePreloadEntries only preloads the selected USD root and its referenced layers', () => {
   const preloadEntries = buildUsdBundlePreloadEntries(
     {
@@ -239,9 +280,6 @@ test('buildUsdBundlePreloadEntries only preloads the selected USD root and its r
 
   assert.deepEqual(
     preloadEntries.map((entry) => entry.path),
-    [
-      '/Go2/usd/configuration/go2_description_base.usd',
-      '/Go2/usd/go2.usd',
-    ],
+    ['/Go2/usd/configuration/go2_description_base.usd', '/Go2/usd/go2.usd'],
   );
 });

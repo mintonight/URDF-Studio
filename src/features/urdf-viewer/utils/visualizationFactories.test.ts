@@ -5,7 +5,6 @@ import * as THREE from 'three';
 import type { LineSegments, Material, Mesh } from 'three';
 
 import { ignoreRaycast } from '@/shared/utils/three/ignoreRaycast';
-import { narrowLineRaycast } from '@/shared/utils/three/narrowLineRaycast';
 import {
   createInertiaBox,
   createLinkIkHandle,
@@ -44,7 +43,7 @@ test('createOriginAxes defaults to participating in depth occlusion', () => {
   });
 });
 
-test('createInertiaBox keeps fill visual-only and uses the outline for narrow picking', () => {
+test('createInertiaBox uses the fill surface for hover and keeps the outline decorative', () => {
   const inertiaBox = createInertiaBox(1, 2, 3, new THREE.Quaternion());
   const fillMesh = inertiaBox.children.find((child) => (child as Mesh).isMesh) as Mesh | undefined;
   const outline = inertiaBox.children.find((child) => (child as LineSegments).isLineSegments) as
@@ -53,8 +52,8 @@ test('createInertiaBox keeps fill visual-only and uses the outline for narrow pi
 
   assert.ok(fillMesh, 'inertia box should include a filled mesh');
   assert.ok(outline, 'inertia box should include an outline');
-  assert.equal(fillMesh?.raycast, ignoreRaycast);
-  assert.equal(outline?.raycast, narrowLineRaycast);
+  assert.notEqual(fillMesh?.raycast, ignoreRaycast);
+  assert.equal(outline?.raycast, ignoreRaycast);
 });
 
 test('createLinkIkHandle keeps IK helpers hidden while preserving a pick target', () => {

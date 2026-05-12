@@ -54,6 +54,22 @@ export {
 } from './interactionQuality';
 export { WorkspaceOrbitControls } from './WorkspaceOrbitControls';
 export {
+  DEFAULT_WORKSPACE_OVERLAY_GIZMO_MARGIN,
+  VIEWER_CORNER_OVERLAY_CLASS_NAME,
+  WORKSPACE_OVERLAY_EDGE_GAP_PX,
+  WORKSPACE_OVERLAY_GIZMO_MARGIN_PX,
+  WORKSPACE_OVERLAY_LEFT_EDGE_GAP,
+  WORKSPACE_OVERLAY_LEFT_INSET_VAR,
+  WORKSPACE_OVERLAY_RIGHT_EDGE_GAP,
+  WORKSPACE_OVERLAY_RIGHT_INSET_VAR,
+  resolveWorkspaceOverlayGizmoMargin,
+  resolveWorkspaceOverlayInsetOffset,
+  resolveWorkspaceOverlaySafeAreaStyle,
+  type WorkspaceOverlayGizmoMargin,
+  type WorkspaceOverlaySafeAreaInput,
+  type WorkspaceOverlaySafeAreaStyle,
+} from './viewerOverlaySafeArea';
+export {
   LIGHTING_CONFIG,
   STUDIO_ENVIRONMENT_INTENSITY,
   WORKSPACE_CANVAS_BACKGROUND,

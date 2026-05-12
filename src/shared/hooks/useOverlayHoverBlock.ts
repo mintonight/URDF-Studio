@@ -1,10 +1,50 @@
-import { useCallback, useEffect, useRef } from 'react';
-import { useSelectionStore } from '@/store/selectionStore';
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from 'react';
+
+interface OverlayHoverBlockActions {
+  beginHoverBlock: () => void;
+  endHoverBlock: () => void;
+  clearHover: () => void;
+}
+
+interface OverlayHoverBlockProviderProps {
+  value: OverlayHoverBlockActions;
+  children: ReactNode;
+}
+
+const noopOverlayHoverBlockActions: OverlayHoverBlockActions = {
+  beginHoverBlock: () => {},
+  endHoverBlock: () => {},
+  clearHover: () => {},
+};
+
+const OverlayHoverBlockContext = createContext<OverlayHoverBlockActions>(
+  noopOverlayHoverBlockActions,
+);
+
+export function OverlayHoverBlockProvider({ value, children }: OverlayHoverBlockProviderProps) {
+  const contextValue = useMemo(
+    () => ({
+      beginHoverBlock: value.beginHoverBlock,
+      endHoverBlock: value.endHoverBlock,
+      clearHover: value.clearHover,
+    }),
+    [value.beginHoverBlock, value.clearHover, value.endHoverBlock],
+  );
+
+  return createElement(OverlayHoverBlockContext.Provider, { value: contextValue }, children);
+}
 
 export function useOverlayHoverBlock() {
-  const beginHoverBlock = useSelectionStore((state) => state.beginHoverBlock);
-  const endHoverBlock = useSelectionStore((state) => state.endHoverBlock);
-  const clearHover = useSelectionStore((state) => state.clearHover);
+  const { beginHoverBlock, endHoverBlock, clearHover } = useContext(OverlayHoverBlockContext);
   const blockActiveRef = useRef(false);
 
   const activateHoverBlock = useCallback(() => {

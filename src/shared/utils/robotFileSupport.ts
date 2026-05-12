@@ -49,6 +49,33 @@ export const LIBRARY_MESH_IMPORT_EXTENSIONS = ['.stl', '.obj', '.dae', '.gltf', 
 
 export const LIBRARY_IMAGE_IMPORT_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'] as const;
 
+export const ROBOT_IMPORT_ASSET_EXTENSIONS = [
+  '.stl',
+  '.msh',
+  '.obj',
+  '.dae',
+  '.gltf',
+  '.glb',
+  '.vtk',
+  '.bin',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.tga',
+  '.bmp',
+  '.tiff',
+  '.tif',
+  '.webp',
+  '.hdr',
+] as const;
+
+export const ROBOT_IMPORT_AUXILIARY_TEXT_EXTENSIONS = [
+  '.material',
+  '.gazebo',
+  '.mtl',
+  '.srdf',
+] as const;
+
 export const ROBOT_IMPORT_ACCEPT_EXTENSIONS = [
   ...SUPPORTED_ARCHIVE_IMPORT_EXTENSIONS,
   ...ROBOT_DEFINITION_IMPORT_EXTENSIONS,
@@ -93,6 +120,53 @@ export const LIBRARY_IMAGE_IMPORT_ACCEPT_ATTRIBUTE = buildAcceptAttribute(
 
 export function isSupportedArchiveImportFile(fileName: string): boolean {
   return matchesImportExtension(fileName, SUPPORTED_ARCHIVE_IMPORT_EXTENSIONS);
+}
+
+export function hasHiddenImportPathSegment(path: string): boolean {
+  const normalizedPath = path.replace(/\\/g, '/').trim();
+  return normalizedPath
+    .split('/')
+    .filter(Boolean)
+    .some((part) => part.startsWith('.'));
+}
+
+function isMotorLibraryImportPath(path: string): boolean {
+  const normalizedPath = path.replace(/\\/g, '/').toLowerCase();
+  const fileName = normalizedPath.split('/').pop() ?? normalizedPath;
+
+  if (fileName === 'motor-library.json' || fileName === 'motor_library.json') {
+    return true;
+  }
+
+  return (
+    normalizedPath.includes('motor library') &&
+    (normalizedPath.endsWith('.txt') || normalizedPath.endsWith('.json'))
+  );
+}
+
+export function isRobotImportCandidatePath(path: string): boolean {
+  const normalizedPath = path.replace(/\\/g, '/').trim();
+  if (!normalizedPath || hasHiddenImportPathSegment(normalizedPath)) {
+    return false;
+  }
+
+  const lowerPath = normalizedPath.toLowerCase();
+  const fileName = lowerPath.split('/').pop() ?? lowerPath;
+  if (fileName === 'cmakelists.txt' || fileName === 'package.xml') {
+    return false;
+  }
+
+  return (
+    isMotorLibraryImportPath(lowerPath) ||
+    matchesImportExtension(lowerPath, SUPPORTED_ARCHIVE_IMPORT_EXTENSIONS) ||
+    matchesImportExtension(lowerPath, ROBOT_DEFINITION_IMPORT_EXTENSIONS) ||
+    matchesImportExtension(lowerPath, ROBOT_IMPORT_ASSET_EXTENSIONS) ||
+    matchesImportExtension(lowerPath, ROBOT_IMPORT_AUXILIARY_TEXT_EXTENSIONS)
+  );
+}
+
+export function isRobotImportAssetPath(path: string): boolean {
+  return matchesImportExtension(path, ROBOT_IMPORT_ASSET_EXTENSIONS);
 }
 
 export function isRobotDefinitionFormat(format: RobotFile['format']): boolean {

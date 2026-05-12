@@ -1,14 +1,12 @@
-import type {
-  RobotClosedLoopConstraint,
-  RobotData,
-  RobotFile,
-  UrdfJoint,
-  UrdfLink,
-} from '@/types';
+import type { RobotClosedLoopConstraint, RobotData, RobotFile, UrdfJoint, UrdfLink } from '@/types';
 import { rewriteRobotMeshPathsForSource } from '@/core/parsers/meshPathUtils';
 
 export function sanitizeAssemblyComponentId(filename: string): string {
-  const base = filename.split('/').pop()?.replace(/\.[^/.]+$/, '') ?? 'robot';
+  const base =
+    filename
+      .split('/')
+      .pop()
+      ?.replace(/\.[^/.]+$/, '') ?? 'robot';
   const sanitized = base.replace(/[^a-zA-Z0-9_]/g, '_');
   return sanitized || 'robot';
 }
@@ -67,6 +65,8 @@ export function namespaceAssemblyRobotData(
   const idPrefix = `${componentId}_`;
   const linkIdMap: Record<string, string> = {};
   const linkNameMap: Record<string, string> = {};
+  const jointIdMap: Record<string, string> = {};
+  const jointNameMap: Record<string, string> = {};
   const links: Record<string, UrdfLink> = {};
   const joints: Record<string, UrdfJoint> = {};
   const closedLoopConstraints: RobotClosedLoopConstraint[] = [];
@@ -94,9 +94,19 @@ export function namespaceAssemblyRobotData(
 
   for (const [id, joint] of Object.entries(data.joints)) {
     const newId = idPrefix + id;
+    const originalName = joint.name?.trim() || id;
+    jointIdMap[id] = newId;
+    jointNameMap[originalName] = newId;
+  }
+
+  for (const [id, joint] of Object.entries(data.joints)) {
+    const newId = idPrefix + id;
     const parentId = linkIdMap[joint.parentLinkId] ?? idPrefix + joint.parentLinkId;
     const childId = linkIdMap[joint.childLinkId] ?? idPrefix + joint.childLinkId;
     const originalName = joint.name?.trim() || id;
+    const mimicJoint = joint.mimic?.joint
+      ? (jointIdMap[joint.mimic.joint] ?? jointNameMap[joint.mimic.joint] ?? joint.mimic.joint)
+      : undefined;
 
     joints[newId] = {
       ...joint,
@@ -104,6 +114,12 @@ export function namespaceAssemblyRobotData(
       name: `${rootName}_${originalName}`,
       parentLinkId: parentId,
       childLinkId: childId,
+      mimic: joint.mimic
+        ? {
+            ...joint.mimic,
+            ...(mimicJoint ? { joint: mimicJoint } : {}),
+          }
+        : undefined,
     };
   }
 
@@ -117,10 +133,10 @@ export function namespaceAssemblyRobotData(
       linkBId: linkIdMap[constraint.linkBId] ?? idPrefix + constraint.linkBId,
       source: constraint.source
         ? {
-          ...constraint.source,
-          body1Name: `${rootName}_${constraint.source.body1Name}`,
-          body2Name: `${rootName}_${constraint.source.body2Name}`,
-        }
+            ...constraint.source,
+            body1Name: `${rootName}_${constraint.source.body1Name}`,
+            body2Name: `${rootName}_${constraint.source.body2Name}`,
+          }
         : undefined,
     });
   });
@@ -132,6 +148,7 @@ export function namespaceAssemblyRobotData(
     rootLinkId,
     materials: Object.keys(materials).length > 0 ? materials : undefined,
     closedLoopConstraints: closedLoopConstraints.length > 0 ? closedLoopConstraints : undefined,
+    inspectionContext: data.inspectionContext,
   };
 }
 
@@ -144,9 +161,10 @@ export function prepareAssemblyRobotData(
     sourceFormat?: RobotFile['format'] | null;
   },
 ): RobotData {
-  const sourceRobotData = options.sourceFormat === 'usd'
-    ? rewriteRobotMeshPathsForSource(data, options.sourceFilePath)
-    : data;
+  const sourceRobotData =
+    options.sourceFormat === 'usd'
+      ? rewriteRobotMeshPathsForSource(data, options.sourceFilePath)
+      : data;
 
   return namespaceAssemblyRobotData(sourceRobotData, {
     componentId: options.componentId,

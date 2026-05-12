@@ -12,8 +12,8 @@ import {
 } from 'lucide-react';
 import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
-import { DraggableWindow } from '@/shared/components';
-import { useDraggableWindow } from '@/shared/hooks';
+import { DraggableWindow } from '@/shared/components/DraggableWindow';
+import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { Button } from '@/shared/components/ui/Button';
 import { Dialog } from '@/shared/components/ui/Dialog';
 import {
@@ -793,6 +793,7 @@ export function AIConversationModal({
         title={confirmDialogTitle}
         width="w-[460px]"
         zIndexClassName="z-[130]"
+        closeLabel={t.close}
         footer={
           <div className="flex items-center justify-end gap-2">
             <Button type="button" variant="secondary" onClick={() => setPendingResetAction(null)}>

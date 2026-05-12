@@ -1,6 +1,6 @@
 # URDF Studio Agent Guide
 
-> 最后更新：2026-04-15 | 技术栈：React 19.2 + TypeScript 5.8 + Three.js/R3F + Vite 6.2 + Tailwind CSS 4.1 + Zustand 5
+> 最后更新：2026-04-28 | 技术栈：React 19.2 + TypeScript 5.8 + Three.js/R3F + Vite 6.2 + Tailwind CSS 4.1 + Zustand 5
 > 完整文档索引：[docs/CATALOG.md](docs/CATALOG.md)
 
 URDF Studio 是机器人设计、装配、可视化与导出工作台。核心能力：单模式 Editor 编辑、多 URDF 组装与桥接关节、多格式导入导出（URDF / MJCF / SDF / USD / Xacro / ZIP / .usp）、AI 生成与审阅、PDF/CSV 报告、可复用 react-robot-canvas 画布封装。
@@ -12,7 +12,7 @@ src/
 ├── app/            应用编排层：App shell、viewer 组合、导入导出、workspace/source sync、USD hydration
 ├── features/       业务功能模块
 │   ├── ai-assistant/     AI 生成与审阅
-│   ├── assembly/         桥接组件创建与组装
+│   ├── assembly/         桥接组件创建与组装（桥接弹窗内部模块在 components/bridge-create/）
 │   ├── code-editor/      源码编辑器
 │   ├── editor/           Editor 统一公开入口
 │   ├── file-io/          底层文件能力（格式检测、project archive、USD/SDF export、弹层）
@@ -76,6 +76,7 @@ Editor 统一承载三个子域：
 - 优先复用现有 hooks/utils/components，不重复造轮子
 - 保持类型完整性，避免 `any`
 - 涉及 3D/USD/mesh 时检查材质缓存、资源释放、hydration/export 生命周期
+- 桥接弹窗对外入口保持 `features/assembly/components/BridgeCreateModal.tsx`，内部实现放 `components/bridge-create/`
 - 新增 `ResizeObserver`、timer、worker listener、THREE 资源时必须对称 cleanup
 - 单元测试邻近源码放置（`src/**/*.test.*`）
 

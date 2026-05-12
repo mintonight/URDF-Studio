@@ -45,10 +45,10 @@ function buildQuaternionFromEigenvectors(eigenvectors: number[][]): THREE.Quater
 
 test('preserves raw eigenvalue order and composes inertial-origin rotation using Isaac principal axes', () => {
   const originQuaternion = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(0.2, -0.3, 0.4, 'XYZ'),
+    new THREE.Euler(0.2, -0.3, 0.4, 'ZYX'),
   );
   const principalBasis = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(-0.35, 0.6, -0.15, 'XYZ'),
+    new THREE.Euler(-0.35, 0.6, -0.15, 'ZYX'),
   );
   const diagonalMatrix = new THREE.Matrix3().set(1.3, 0, 0, 0, 4.7, 0, 0, 0, 2.2);
   const rotation = new THREE.Matrix4().makeRotationFromQuaternion(principalBasis);
@@ -86,6 +86,33 @@ test('preserves raw eigenvalue order and composes inertial-origin rotation using
     actual.principalAxesLocal,
     originQuaternion.clone().multiply(expectedPrincipalAxes).normalize(),
   );
+});
+
+test('preserves authored diagonal-inertia principal axes under ZYX rpy semantics', () => {
+  const authoredQuaternion = new THREE.Quaternion(0.499245, 0.505462, 0.498237, 0.497014).normalize();
+  const authoredEuler = new THREE.Euler(0, 0, 0, 'ZYX').setFromQuaternion(authoredQuaternion, 'ZYX');
+
+  const actual = computeUsdInertiaProperties({
+    origin: {
+      xyz: { x: -0.0054, y: 0.00194, z: -0.000105 },
+      rpy: { r: authoredEuler.x, p: authoredEuler.y, y: authoredEuler.z },
+    },
+    inertia: {
+      ixx: 0.00088403,
+      ixy: 0,
+      ixz: 0,
+      iyy: 0.000596003,
+      iyz: 0,
+      izz: 0.000479967,
+    },
+  });
+
+  assert.ok(actual, 'expected USD inertia properties');
+  assert.deepEqual(
+    actual.diagonalInertia.map((value) => Number(value.toFixed(9))),
+    [0.00088403, 0.000596003, 0.000479967],
+  );
+  assertQuaternionClose(actual.principalAxesLocal, authoredQuaternion, 1e-6);
 });
 
 test('matches Isaac Sim principal axes for the Unitree B2 FL_hip inertia tensor', () => {

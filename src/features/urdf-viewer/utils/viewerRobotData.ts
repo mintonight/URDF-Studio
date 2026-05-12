@@ -1,4 +1,4 @@
-import type { RobotData, UsdSceneSnapshot } from '@/types';
+import type { RobotData, UsdBakedScene, UsdSceneSnapshot } from '@/types';
 
 /**
  * Normalized parser/runtime payload consumed by the shared viewer layer.
@@ -13,5 +13,6 @@ export interface ViewerRobotDataResolution {
   childLinkPathByJointId: Record<string, string>;
   parentLinkPathByJointId: Record<string, string>;
   runtimeLinkMappingMode?: 'robot-data' | 'synthetic-root';
+  usdBakedScene?: UsdBakedScene | null;
   usdSceneSnapshot?: UsdSceneSnapshot | null;
 }

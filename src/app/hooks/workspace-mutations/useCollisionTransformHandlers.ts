@@ -4,7 +4,6 @@ import type { AssemblyState, UpdateCommitMode, UrdfJoint, UrdfLink } from '@/typ
 import { useRobotStore } from '@/store';
 
 interface CollisionTransformParams {
-  sidebarTab: string;
   assemblyState: AssemblyState | null;
   robotLinks: Record<string, UrdfLink>;
   setPendingCollisionTransform: (transform: {
@@ -29,7 +28,6 @@ interface CollisionTransformParams {
 }
 
 export function useCollisionTransformHandlers({
-  sidebarTab,
   assemblyState,
   robotLinks,
   setPendingCollisionTransform,
@@ -45,7 +43,7 @@ export function useCollisionTransformHandlers({
       commitMode: UpdateCommitMode,
       objectIndex?: number,
     ) => {
-      const latestAssemblyState = sidebarTab === 'workspace' ? assemblyState : null;
+      const latestAssemblyState = assemblyState;
 
       const updateTransform = () => {
         const resolvedLinkId = resolveLinkKey(useRobotStore.getState().links, linkId);
@@ -91,7 +89,7 @@ export function useCollisionTransformHandlers({
 
       updateTransform();
     },
-    [assemblyState, applyUpdate, sidebarTab],
+    [assemblyState, applyUpdate],
   );
 
   const handleCollisionTransformPreview = useCallback(

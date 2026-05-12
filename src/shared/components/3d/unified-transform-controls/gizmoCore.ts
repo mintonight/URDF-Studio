@@ -183,6 +183,18 @@ const tagGizmoBranch = (branch: unknown) => {
 };
 
 export const markGizmoObjects = (controls: any) => {
+  // The TransformControlsPlane is a direct child of the controls object (sibling
+  // of the gizmo, not a descendant).  It carries a 1e5×1e5 unit plane geometry
+  // used for raycasting but is never visually rendered (material.visible = false).
+  // Tag it so it is excluded from scene bounds calculations regardless of whether
+  // the gizmo branch tagging runs or is skipped by the version guard.
+  if (controls?.plane) {
+    controls.plane.userData = {
+      ...controls.plane.userData,
+      excludeFromSceneBounds: true,
+    };
+  }
+
   const gizmo = getGizmoRoot(controls);
   if (!gizmo || gizmo.userData?.urdfGizmoTagVersion === GIZMO_TAG_VERSION) return;
 

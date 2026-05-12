@@ -14,10 +14,10 @@ export type RotationDisplayMode = 'euler_deg' | 'euler_rad' | 'quaternion';
 export type GlobalFontSize = 'small' | 'medium' | 'large';
 export type CodeEditorFontFamily = 'jetbrains-mono' | 'fira-code' | 'system-mono';
 export type MassInertiaChangeBehavior = 'ask' | 'preserve' | 'reestimate';
+export type TreePanelHeightMode = 'balanced' | 'custom';
 
 // View configuration for different modes
 export interface ViewConfig {
-  showToolbar: boolean;
   showOptionsPanel: boolean; // For viewer scene options
   showJointPanel: boolean;
 }
@@ -51,6 +51,8 @@ export interface SidebarState {
 export interface PanelLayoutState {
   propertyEditorWidth: number;
   treeFileBrowserHeight: number;
+  treeJointPanelHeight: number;
+  treePanelHeightMode: TreePanelHeightMode;
   treeSidebarWidth: number;
 }
 
@@ -88,10 +90,6 @@ interface UIState {
   sidebar: SidebarState;
   toggleSidebar: (side: 'left' | 'right') => void;
   setSidebar: (side: 'left' | 'right', collapsed: boolean) => void;
-
-  // Sidebar Tab (structure/workspace)
-  sidebarTab: 'structure' | 'workspace';
-  setSidebarTab: (tab: 'structure' | 'workspace') => void;
 
   // Resizable panel layout
   panelLayout: PanelLayoutState;
@@ -149,7 +147,6 @@ interface UIState {
 
 // Default values
 const defaultViewConfig: ViewConfig = {
-  showToolbar: true,
   showOptionsPanel: true,
   showJointPanel: true,
 };
@@ -179,9 +176,14 @@ const defaultSidebar: SidebarState = {
 
 const defaultPanelLayout: PanelLayoutState = {
   propertyEditorWidth: 248,
-  treeFileBrowserHeight: 216,
+  treeFileBrowserHeight: 240,
+  treeJointPanelHeight: 240,
+  treePanelHeightMode: 'balanced',
   treeSidebarWidth: 264,
 };
+
+const LEGACY_DEFAULT_TREE_FILE_BROWSER_HEIGHT = 216;
+const LEGACY_DEFAULT_TREE_JOINT_PANEL_HEIGHT = 132;
 
 const normalizeDetailLinkTab = (value: unknown): DetailLinkTab =>
   value === 'collision' || value === 'physics'
@@ -264,6 +266,9 @@ const normalizeCodeEditorFontFamily = (value: unknown): CodeEditorFontFamily =>
 
 const normalizeMassInertiaChangeBehavior = (value: unknown): MassInertiaChangeBehavior =>
   value === 'preserve' || value === 'reestimate' ? value : 'ask';
+
+const normalizeTreePanelHeightMode = (value: unknown): TreePanelHeightMode =>
+  value === 'custom' ? 'custom' : 'balanced';
 
 const clampCodeEditorFontSize = (value: unknown): number => {
   const parsed = Number(value);
@@ -388,10 +393,6 @@ export const useUIStore = create<UIState>()(
           };
         }),
 
-      // Sidebar Tab
-      sidebarTab: 'structure',
-      setSidebarTab: (tab) => set({ sidebarTab: tab }),
-
       // Resizable panel layout
       panelLayout: defaultPanelLayout,
       setPanelLayout: (key, value) =>
@@ -457,7 +458,7 @@ export const useUIStore = create<UIState>()(
         set({ codeEditorFontSize: clampCodeEditorFontSize(codeEditorFontSize) }),
 
       // Source code editor
-      sourceCodeAutoApply: true,
+      sourceCodeAutoApply: false,
       setSourceCodeAutoApply: (sourceCodeAutoApply) => set({ sourceCodeAutoApply }),
 
       // Property editor rotation format
@@ -483,7 +484,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'urdf-studio-ui',
-      version: 16,
+      version: 19,
       migrate: (persistedState: unknown, persistedVersion) => {
         if (!persistedState || typeof persistedState !== 'object') {
           return persistedState;
@@ -498,6 +499,19 @@ export const useUIStore = create<UIState>()(
           codeEditorFontSize?: unknown;
           massInertiaChangeBehavior?: unknown;
         };
+        const persistedPanelLayout = state.panelLayout ?? {};
+        const hasLegacyCustomTreeHeights =
+          Number.isFinite(persistedPanelLayout.treeFileBrowserHeight) &&
+          Number.isFinite(persistedPanelLayout.treeJointPanelHeight) &&
+          (persistedPanelLayout.treeFileBrowserHeight !==
+            LEGACY_DEFAULT_TREE_FILE_BROWSER_HEIGHT ||
+            persistedPanelLayout.treeJointPanelHeight !== LEGACY_DEFAULT_TREE_JOINT_PANEL_HEIGHT);
+        const treePanelHeightMode =
+          (persistedVersion ?? 0) < 18
+            ? hasLegacyCustomTreeHeights
+              ? 'custom'
+              : 'balanced'
+            : normalizeTreePanelHeightMode(persistedPanelLayout.treePanelHeightMode);
 
         const migratedViewOptions: ViewOptions = {
           ...defaultViewOptions,
@@ -529,7 +543,18 @@ export const useUIStore = create<UIState>()(
           viewOptions: migratedViewOptions,
           panelLayout: {
             ...defaultPanelLayout,
-            ...state.panelLayout,
+            ...persistedPanelLayout,
+            treeFileBrowserHeight:
+              (persistedVersion ?? 0) < 18 && !hasLegacyCustomTreeHeights
+                ? defaultPanelLayout.treeFileBrowserHeight
+                : (persistedPanelLayout.treeFileBrowserHeight ??
+                  defaultPanelLayout.treeFileBrowserHeight),
+            treeJointPanelHeight:
+              (persistedVersion ?? 0) < 18 && !hasLegacyCustomTreeHeights
+                ? defaultPanelLayout.treeJointPanelHeight
+                : (persistedPanelLayout.treeJointPanelHeight ??
+                  defaultPanelLayout.treeJointPanelHeight),
+            treePanelHeightMode,
           },
           fontSize: normalizeGlobalFontSize(state.fontSize),
           codeEditorFontFamily: normalizeCodeEditorFontFamily(state.codeEditorFontFamily),

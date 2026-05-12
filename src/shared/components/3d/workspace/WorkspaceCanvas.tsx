@@ -6,6 +6,10 @@ import * as THREE from 'three';
 import type { Theme } from '@/types';
 import type { Language } from '@/shared/i18n';
 import { attachContextMenuBlocker } from '@/shared/utils';
+import {
+  POINTER_RESIZE_END_EVENT,
+  POINTER_RESIZE_START_EVENT,
+} from '@/shared/hooks/pointerResizeEvents';
 
 import { UsageGuide } from '../UsageGuide';
 import { WorldOriginAxes } from '../helpers';
@@ -16,8 +20,10 @@ import {
   NeutralStudioEnvironment,
   SceneLighting,
   SnapshotManager,
+  DEFAULT_WORKSPACE_OVERLAY_GIZMO_MARGIN,
   type SnapshotCaptureAction,
   type SnapshotPreviewAction,
+  type WorkspaceOverlayGizmoMargin,
   useAdaptiveInteractionQuality,
   WorkspaceCanvasInteractionStateProvider,
   WorkspaceOrbitControls,
@@ -40,6 +46,7 @@ import {
   type WorkspaceCanvasWebglSupportState,
 } from './workspaceCanvasWebgl';
 import { cleanupWorkspaceCanvasRenderer } from './workspaceCanvasRendererCleanup';
+import { shouldSuppressWorkspacePointerMissAfterDrag } from './workspacePointerMissPolicy';
 
 interface WorkspaceCanvasProps {
   theme: Theme;
@@ -78,6 +85,45 @@ interface WorkspaceCanvasProps {
   showUsageGuide?: boolean;
   renderKey?: string;
   initialCameraSnapshot?: WorkspaceCameraSnapshot | null;
+  gizmoMargin?: WorkspaceOverlayGizmoMargin;
+}
+
+interface PointerMissGesture {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+}
+
+const WORKSPACE_CANVAS_RESIZE_OPTIONS = {
+  debounce: {
+    scroll: 50,
+    resize: 120,
+  },
+};
+const WORKSPACE_CANVAS_ACTIVE_RESIZE_OPTIONS = {
+  debounce: {
+    scroll: 50,
+    resize: 0,
+  },
+};
+
+export function resolveWorkspaceCanvasResizeOptions(layoutResizeActive: boolean) {
+  return layoutResizeActive
+    ? WORKSPACE_CANVAS_ACTIVE_RESIZE_OPTIONS
+    : WORKSPACE_CANVAS_RESIZE_OPTIONS;
+}
+
+interface WorkspaceCanvasResizeEventTarget {
+  dispatchEvent: (event: Event) => boolean;
+  requestAnimationFrame: (callback: FrameRequestCallback) => number;
+}
+
+export function scheduleWorkspaceCanvasResizeEvent(target: WorkspaceCanvasResizeEventTarget) {
+  return target.requestAnimationFrame(() => {
+    target.dispatchEvent(new Event('resize'));
+  });
 }
 
 function CanvasRenderKeyInvalidator({ renderKey }: { renderKey: string }) {
@@ -123,16 +169,20 @@ export const WorkspaceCanvas = ({
   showUsageGuide = true,
   renderKey = 'default',
   initialCameraSnapshot = null,
+  gizmoMargin = DEFAULT_WORKSPACE_OVERLAY_GIZMO_MARGIN,
 }: WorkspaceCanvasProps) => {
   const effectiveTheme = useWorkspaceCanvasTheme(theme);
   const [contextEpoch, setContextEpoch] = useState(0);
   const [canvasFailure, setCanvasFailure] = useState(false);
+  const [layoutResizeActive, setLayoutResizeActive] = useState(false);
   const [webglSupport, setWebglSupport] = useState<WorkspaceCanvasWebglSupportState | null>(null);
   const [snapshotRenderActive, setSnapshotRenderActive] = useState(false);
   const contextMenuCleanupRef = useRef<(() => void) | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const canvasReadyRef = useRef(false);
   const contextLossInFlightRef = useRef(false);
+  const pointerMissGestureRef = useRef<PointerMissGesture | null>(null);
+  const suppressNextPointerMissRef = useRef(false);
   const { dpr, isInteracting, beginInteraction, endInteraction, pulseInteraction } =
     useAdaptiveInteractionQuality();
 
@@ -205,6 +255,25 @@ export const WorkspaceCanvas = ({
         support.detail ?? support.reason ?? 'Unknown WebGL support failure.',
       );
     }
+  }, []);
+
+  useEffect(() => {
+    const handleResizeStart = () => {
+      setLayoutResizeActive(true);
+    };
+    const handleResizeEnd = () => {
+      setLayoutResizeActive(false);
+      window.requestAnimationFrame(() => {
+        window.dispatchEvent(new Event('resize'));
+      });
+    };
+
+    window.addEventListener(POINTER_RESIZE_START_EVENT, handleResizeStart);
+    window.addEventListener(POINTER_RESIZE_END_EVENT, handleResizeEnd);
+    return () => {
+      window.removeEventListener(POINTER_RESIZE_START_EVENT, handleResizeStart);
+      window.removeEventListener(POINTER_RESIZE_END_EVENT, handleResizeEnd);
+    };
   }, []);
 
   const handleCreated = useCallback(
@@ -306,10 +375,68 @@ export const WorkspaceCanvas = ({
   const handlePointerDownCapture = useCallback<React.PointerEventHandler<HTMLDivElement>>(
     (event) => {
       beginInteraction();
+      if (event.button === 0) {
+        pointerMissGestureRef.current = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          endX: event.clientX,
+          endY: event.clientY,
+        };
+        suppressNextPointerMissRef.current = false;
+      }
       onPointerDownCapture?.(event);
     },
     [beginInteraction, onPointerDownCapture],
   );
+
+  const updatePointerMissGesture = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = pointerMissGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+
+    gesture.endX = event.clientX;
+    gesture.endY = event.clientY;
+  }, []);
+
+  const handlePointerMoveCapture = useCallback<React.PointerEventHandler<HTMLDivElement>>(
+    (event) => {
+      updatePointerMissGesture(event);
+    },
+    [updatePointerMissGesture],
+  );
+
+  const handlePointerUpCapture = useCallback<React.PointerEventHandler<HTMLDivElement>>(
+    (event) => {
+      updatePointerMissGesture(event);
+
+      const gesture = pointerMissGestureRef.current;
+      if (gesture && gesture.pointerId === event.pointerId) {
+        suppressNextPointerMissRef.current = shouldSuppressWorkspacePointerMissAfterDrag(gesture);
+        pointerMissGestureRef.current = null;
+      }
+
+      endInteraction();
+    },
+    [endInteraction, updatePointerMissGesture],
+  );
+
+  const handlePointerLeave = useCallback<React.PointerEventHandler<HTMLDivElement>>(
+    (event) => {
+      updatePointerMissGesture(event);
+      pointerMissGestureRef.current = null;
+      endInteraction(0);
+    },
+    [endInteraction, updatePointerMissGesture],
+  );
+
+  const handlePointerMissed = useCallback(() => {
+    if (suppressNextPointerMissRef.current) {
+      suppressNextPointerMissRef.current = false;
+      return;
+    }
+
+    onPointerMissed?.();
+  }, [onPointerMissed]);
 
   const handleMouseMove = useCallback<React.MouseEventHandler<HTMLDivElement>>(
     (event) => {
@@ -338,19 +465,31 @@ export const WorkspaceCanvas = ({
   );
 
   const shouldRenderCanvas = webglSupport?.supported === true && !canvasFailure;
+  const rootClassName = `${className} [&_canvas]:!h-full [&_canvas]:!w-full`;
+  const resizeOptions = resolveWorkspaceCanvasResizeOptions(layoutResizeActive);
+
+  useEffect(() => {
+    if (!shouldRenderCanvas) {
+      return undefined;
+    }
+
+    const frameId = scheduleWorkspaceCanvasResizeEvent(window);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [canvasResetKey, shouldRenderCanvas]);
 
   return (
     <div
       ref={containerRef}
-      className={className}
+      className={rootClassName}
       style={{
         touchAction: 'none',
         userSelect: 'none',
         backgroundColor: activeBackgroundColor,
       }}
       onPointerDownCapture={handlePointerDownCapture}
-      onPointerUpCapture={() => endInteraction()}
-      onPointerLeave={() => endInteraction(0)}
+      onPointerMoveCapture={handlePointerMoveCapture}
+      onPointerUpCapture={handlePointerUpCapture}
+      onPointerLeave={handlePointerLeave}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
@@ -368,11 +507,12 @@ export const WorkspaceCanvas = ({
             key={canvasResetKey}
             dpr={dpr}
             shadows
+            resize={resizeOptions}
             frameloop="demand"
             camera={canvasCamera}
             gl={canvasGl}
             onCreated={handleCreated}
-            onPointerMissed={onPointerMissed}
+            onPointerMissed={handlePointerMissed}
             translate="no"
           >
             <WorkspaceCanvasInteractionStateProvider isInteracting={isInteracting}>
@@ -426,7 +566,7 @@ export const WorkspaceCanvas = ({
                   <GizmoHelper
                     key={`gizmo-${controlLayerKey}`}
                     alignment="bottom-right"
-                    margin={[68, 68]}
+                    margin={gizmoMargin}
                   >
                     <GizmoViewport
                       axisColors={['#ef4444', '#22c55e', '#3b82f6']}

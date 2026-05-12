@@ -1,24 +1,19 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
-import {
-  canPrepareUsdExportCacheFromSnapshot,
-  getCurrentUsdViewerSceneSnapshot,
-  prepareUsdExportCacheFromSnapshot,
-  prepareUsdPreparedExportCacheWithWorker,
-  resolveUsdExportResolution,
-  type ViewerDocumentLoadEvent,
-  type ViewerRobotDataResolution,
-} from '@/features/editor';
-import { useAssetsStore, useRobotStore } from '@/store';
+import type { ViewerDocumentLoadEvent } from '@/features/urdf-viewer/types';
+import { useAssetsStore, useRobotStore, useSelectionStore } from '@/store';
 import type { DocumentLoadState, DocumentLoadStatus } from '@/store/assetsStore';
-import type { RobotData, RobotFile, UsdSceneSnapshot } from '@/types';
+import type { InteractionSelection, RobotData, RobotFile } from '@/types';
 import { createRobotSemanticSnapshot } from '@/shared/utils/robot/semanticSnapshot';
 import { recordUsdStageLoadDebug } from '@/shared/debug/usdStageLoadDebug';
 import { registerPendingUsdCacheFlusher } from '../utils/pendingUsdCache';
-import { shouldApplyUsdStageHydration } from '../utils/usdStageHydration';
 import {
-  buildUsdHydrationPersistencePlan,
-  resolveUsdHydrationRobotData,
-} from '../utils/usdHydrationPersistence';
+  resolveUsdStageHydrationSelection,
+  shouldApplyUsdStageHydration,
+} from '../utils/usdStageHydration';
+import {
+  resolveUsdPreparedCacheRobotStateUpdate,
+} from '../utils/usdPreparedCacheRobotState';
+import { startUsdRobotStateHydration } from '../utils/usdRobotStateHydration';
 import { mapViewerDocumentLoadEventToDocumentLoadPercent } from '../utils/documentLoadProgress';
 import {
   resolveRuntimeRobotReadyDocumentLoadState,
@@ -32,17 +27,13 @@ import { isGeneratedWorkspaceUrdfFileName } from './workspaceSourceSyncUtils';
 interface UsdPersistenceBaseline {
   fileName: string | null;
   robotSnapshot: string | null;
-  fallbackSceneSnapshot: UsdSceneSnapshot | null;
   hadPreparedExportCache: boolean;
-  hadSceneSnapshot: boolean;
 }
 
 const EMPTY_USD_PERSISTENCE_BASELINE: UsdPersistenceBaseline = {
   fileName: null,
   robotSnapshot: null,
-  fallbackSceneSnapshot: null,
   hadPreparedExportCache: false,
-  hadSceneSnapshot: false,
 };
 
 function normalizeUsdPersistenceFileName(path: string | null | undefined): string {
@@ -73,7 +64,7 @@ interface UseUsdDocumentLifecycleOptions {
     data: RobotData,
     options?: { label?: string; resetHistory?: boolean; skipHistory?: boolean },
   ) => void;
-  setSelection: (selection: { type: null; id: null }) => void;
+  setSelection: (selection: InteractionSelection) => void;
   showToast: (message: string, type?: 'info' | 'success') => void;
   updateProModeRoundtripBaseline: (generatedFileName: string | null) => unknown;
 }
@@ -94,7 +85,6 @@ export function useUsdDocumentLifecycle({
 }: UseUsdDocumentLifecycleOptions) {
   const pendingUsdHydrationFileRef = useRef<string | null>(null);
   const usdPersistenceBaselineRef = useRef<UsdPersistenceBaseline>(EMPTY_USD_PERSISTENCE_BASELINE);
-  const usdPreparedExportCacheRequestIdRef = useRef(0);
 
   useEffect(() => {
     if (!isSelectedUsdHydrating || selectedFile?.format !== 'usd') {
@@ -104,48 +94,6 @@ export function useUsdDocumentLifecycle({
 
     pendingUsdHydrationFileRef.current = selectedFile.name;
   }, [isSelectedUsdHydrating, selectedFile]);
-
-  const queueUsdPreparedExportCacheBuild = useCallback(
-    (args: {
-      fileName: string;
-      sceneSnapshot: UsdSceneSnapshot;
-      resolution: ViewerRobotDataResolution;
-      robotSnapshot: string;
-    }) => {
-      const requestId = ++usdPreparedExportCacheRequestIdRef.current;
-
-      void prepareUsdPreparedExportCacheWithWorker(args.sceneSnapshot, args.resolution)
-        .then((preparedCache) => {
-          if (requestId !== usdPreparedExportCacheRequestIdRef.current) {
-            return;
-          }
-
-          const liveAssetsState = useAssetsStore.getState();
-          liveAssetsState.setUsdPreparedExportCache(args.fileName, preparedCache);
-          usdPersistenceBaselineRef.current = {
-            fileName: normalizeUsdPersistenceFileName(args.fileName),
-            robotSnapshot: args.robotSnapshot,
-            fallbackSceneSnapshot: args.sceneSnapshot,
-            hadPreparedExportCache: Boolean(preparedCache),
-            hadSceneSnapshot: true,
-          };
-        })
-        .catch((error) => {
-          if (requestId !== usdPreparedExportCacheRequestIdRef.current) {
-            return;
-          }
-
-          const reason = error instanceof Error ? error.message : String(error);
-          scheduleFailFastInDev(
-            'useUsdDocumentLifecycle:prepareUsdPreparedExportCacheWithWorker',
-            new Error(`Failed to prepare USD export cache for "${args.fileName}": ${reason}`, {
-              cause: error,
-            }),
-          );
-        });
-    },
-    [],
-  );
 
   const flushPendingUsdCache = useCallback(() => {
     const liveAssetsState = useAssetsStore.getState();
@@ -177,62 +125,43 @@ export function useUsdDocumentLifecycle({
     const hasSemanticEdits = currentRobotSnapshot !== baseline.robotSnapshot;
 
     if (!hasSemanticEdits) {
-      if (!baseline.hadSceneSnapshot) {
-        liveAssetsState.setUsdSceneSnapshot(currentSelectedFile.name, null);
-      }
       if (!baseline.hadPreparedExportCache) {
         liveAssetsState.setUsdPreparedExportCache(currentSelectedFile.name, null);
       }
       return;
     }
 
-    const sceneSnapshot = getCurrentUsdViewerSceneSnapshot({
-      stageSourcePath: currentSelectedFile.name,
+    const preparedCacheUpdate = resolveUsdPreparedCacheRobotStateUpdate({
+      existingPreparedExportCache: liveAssetsState.getUsdPreparedExportCache(currentSelectedFile.name),
+      robotData: currentRobotData,
     });
-
-    if (!sceneSnapshot) {
+    if (preparedCacheUpdate.status === 'missing-cache') {
+      liveAssetsState.setUsdPreparedExportCache(currentSelectedFile.name, null);
+      usdPersistenceBaselineRef.current = {
+        fileName: normalizedSelectedFileName,
+        robotSnapshot: currentRobotSnapshot,
+        hadPreparedExportCache: false,
+      };
       scheduleFailFastInDev(
         'useUsdDocumentLifecycle:flushPendingUsdCache',
         new Error(
-          `Missing live USD scene snapshot for "${currentSelectedFile.name}" while semantic edits are pending.`,
+          `Missing prepared USD RobotState cache for "${currentSelectedFile.name}" while semantic edits are pending.`,
         ),
         'warn',
       );
       return;
     }
 
-    liveAssetsState.setUsdSceneSnapshot(currentSelectedFile.name, sceneSnapshot);
-
-    const resolution = resolveUsdExportResolution(sceneSnapshot, {
-      fileName: currentSelectedFile.name,
-    });
-    if (!resolution) {
-      liveAssetsState.setUsdPreparedExportCache(currentSelectedFile.name, null);
-      usdPersistenceBaselineRef.current = {
-        fileName: normalizedSelectedFileName,
-        robotSnapshot: currentRobotSnapshot,
-        fallbackSceneSnapshot: sceneSnapshot,
-        hadPreparedExportCache: false,
-        hadSceneSnapshot: true,
-      };
-      return;
-    }
-
-    liveAssetsState.setUsdPreparedExportCache(currentSelectedFile.name, null);
+    liveAssetsState.setUsdPreparedExportCache(
+      currentSelectedFile.name,
+      preparedCacheUpdate.preparedExportCache,
+    );
     usdPersistenceBaselineRef.current = {
       fileName: normalizedSelectedFileName,
       robotSnapshot: currentRobotSnapshot,
-      fallbackSceneSnapshot: sceneSnapshot,
-      hadPreparedExportCache: false,
-      hadSceneSnapshot: true,
+      hadPreparedExportCache: true,
     };
-    queueUsdPreparedExportCacheBuild({
-      fileName: currentSelectedFile.name,
-      sceneSnapshot,
-      resolution,
-      robotSnapshot: currentRobotSnapshot,
-    });
-  }, [queueUsdPreparedExportCacheBuild]);
+  }, []);
 
   useEffect(() => {
     registerPendingUsdCacheFlusher(flushPendingUsdCache);
@@ -267,260 +196,6 @@ export function useUsdDocumentLifecycle({
     setDocumentLoadState(nextDocumentLoadState);
   }, [previewFile, selectedFile, setDocumentLoadState]);
 
-  const handleRobotDataResolved = useCallback(
-    (result: ViewerRobotDataResolution) => {
-      const liveAssetsState = useAssetsStore.getState();
-      const normalizedStageSourcePath = String(result.stageSourcePath || '').replace(/^\/+/, '');
-      const emitCommitWorkerRobotData = (
-        status: 'resolved' | 'rejected',
-        detail: Record<string, unknown>,
-      ) => {
-        const sourceFileName =
-          normalizedStageSourcePath ||
-          String(liveAssetsState.selectedFile?.name || selectedFile?.name || '').replace(
-            /^\/+/,
-            '',
-          );
-        if (!sourceFileName) {
-          return;
-        }
-
-        recordUsdStageLoadDebug({
-          sourceFileName,
-          step: 'commit-worker-robot-data',
-          status,
-          timestamp: Date.now(),
-          detail,
-        });
-      };
-
-      const resolvedSelectedFile =
-        liveAssetsState.selectedFile ??
-        (normalizedStageSourcePath
-          ? (liveAssetsState.availableFiles.find(
-              (file) =>
-                file.format === 'usd' &&
-                String(file.name || '').replace(/^\/+/, '') === normalizedStageSourcePath,
-            ) ?? null)
-          : null) ??
-        selectedFile;
-
-      if (!resolvedSelectedFile) {
-        emitCommitWorkerRobotData('rejected', {
-          reason: 'selected-file-unavailable',
-          stageSourcePath: normalizedStageSourcePath || null,
-        });
-        return;
-      }
-
-      const normalizedSelectedFileName = String(resolvedSelectedFile.name || '').replace(
-        /^\/+/,
-        '',
-      );
-      if (
-        normalizedSelectedFileName &&
-        normalizedStageSourcePath &&
-        normalizedSelectedFileName !== normalizedStageSourcePath
-      ) {
-        emitCommitWorkerRobotData('rejected', {
-          reason: 'selected-file-mismatch',
-          selectedFileName: normalizedSelectedFileName,
-          stageSourcePath: normalizedStageSourcePath,
-        });
-        return;
-      }
-
-      let committedRobotData = result.robotData;
-      if (resolvedSelectedFile.format === 'usd') {
-        const hasFreshUsdHydrationSnapshot = Boolean(result.usdSceneSnapshot);
-        const existingSceneSnapshot = hasFreshUsdHydrationSnapshot
-          ? null
-          : liveAssetsState.getUsdSceneSnapshot(resolvedSelectedFile.name);
-        const storedPreparedExportCache = liveAssetsState.getUsdPreparedExportCache(
-          resolvedSelectedFile.name,
-        );
-        if (hasFreshUsdHydrationSnapshot && storedPreparedExportCache) {
-          liveAssetsState.setUsdPreparedExportCache(resolvedSelectedFile.name, null);
-        }
-        const existingPreparedExportCache = hasFreshUsdHydrationSnapshot
-          ? null
-          : storedPreparedExportCache;
-        let resolvedPreparedExportCache = existingPreparedExportCache;
-        try {
-          const hydratedRobotData = resolveUsdHydrationRobotData({
-            resolution: result,
-            allowSynchronousPreparedCacheFromSnapshot: false,
-            existingPreparedExportCache,
-            prepareExportCacheFromSnapshot: prepareUsdExportCacheFromSnapshot,
-          });
-          committedRobotData = hydratedRobotData.robotData;
-          resolvedPreparedExportCache =
-            hydratedRobotData.preparedExportCache ?? existingPreparedExportCache;
-          if (!existingPreparedExportCache && hydratedRobotData.preparedExportCache) {
-            liveAssetsState.setUsdPreparedExportCache(
-              resolvedSelectedFile.name,
-              hydratedRobotData.preparedExportCache,
-            );
-          }
-        } catch (error) {
-          scheduleFailFastInDev(
-            'useUsdDocumentLifecycle:resolveUsdHydrationRobotData',
-            new Error(
-              `Failed to materialize USD hydration robot data for "${resolvedSelectedFile.name}".`,
-              {
-                cause: error,
-              },
-            ),
-          );
-        }
-        const resolvedRobotSnapshot = createRobotSemanticSnapshot(committedRobotData);
-        const hydrationPersistencePlan = buildUsdHydrationPersistencePlan({
-          resolution: result,
-          existingSceneSnapshot,
-          existingPreparedExportCache,
-        });
-        const shouldBuildPreparedHydrationExportCache = Boolean(
-          hydrationPersistencePlan.shouldSeedPreparedExportCache &&
-          hydrationPersistencePlan.sceneSnapshot &&
-          !resolvedPreparedExportCache &&
-          canPrepareUsdExportCacheFromSnapshot(
-            hydrationPersistencePlan.sceneSnapshot as UsdSceneSnapshot | null,
-          ),
-        );
-
-        if (
-          hydrationPersistencePlan.shouldSeedSceneSnapshot &&
-          hydrationPersistencePlan.sceneSnapshot
-        ) {
-          liveAssetsState.setUsdSceneSnapshot(
-            resolvedSelectedFile.name,
-            hydrationPersistencePlan.sceneSnapshot,
-          );
-        }
-        if (shouldBuildPreparedHydrationExportCache && hydrationPersistencePlan.sceneSnapshot) {
-          liveAssetsState.setUsdPreparedExportCache(resolvedSelectedFile.name, null);
-          queueUsdPreparedExportCacheBuild({
-            fileName: resolvedSelectedFile.name,
-            sceneSnapshot: hydrationPersistencePlan.sceneSnapshot,
-            resolution: result,
-            robotSnapshot: resolvedRobotSnapshot,
-          });
-        }
-
-        usdPersistenceBaselineRef.current = {
-          fileName: normalizedSelectedFileName,
-          robotSnapshot: resolvedRobotSnapshot,
-          fallbackSceneSnapshot: hydrationPersistencePlan.sceneSnapshot as UsdSceneSnapshot | null,
-          hadPreparedExportCache: Boolean(resolvedPreparedExportCache),
-          hadSceneSnapshot: Boolean(hydrationPersistencePlan.sceneSnapshot),
-        };
-      }
-
-      const pendingHydrationFileName =
-        pendingUsdHydrationFileRef.current ??
-        (liveAssetsState.documentLoadState.status === 'hydrating'
-          ? liveAssetsState.documentLoadState.fileName
-          : null);
-
-      const shouldApplyResolvedRobotData =
-        resolvedSelectedFile.format !== 'usd' ||
-        shouldApplyUsdStageHydration({
-          pendingFileName: pendingHydrationFileName,
-          selectedFileName: resolvedSelectedFile.name,
-          stageSourcePath: result.stageSourcePath,
-        });
-
-      if (shouldApplyResolvedRobotData) {
-        const isColdUsdHydration =
-          resolvedSelectedFile.format === 'usd' &&
-          pendingHydrationFileName === resolvedSelectedFile.name;
-        setRobot(
-          committedRobotData,
-          resolvedSelectedFile.format === 'usd'
-            ? isColdUsdHydration
-              ? { resetHistory: true, label: 'Hydrate USD stage' }
-              : { skipHistory: true, label: 'Hydrate USD stage' }
-            : undefined,
-        );
-        setSelection({ type: null, id: null });
-        if (isColdUsdHydration) {
-          markUnsavedChangesBaselineSaved('robot');
-        }
-        if (
-          resolvedSelectedFile.format === 'usd' &&
-          pendingUsdHydrationFileRef.current === resolvedSelectedFile.name
-        ) {
-          pendingUsdHydrationFileRef.current = null;
-        }
-        if (resolvedSelectedFile.format === 'usd') {
-          emitCommitWorkerRobotData('resolved', {
-            selectedFileName: normalizedSelectedFileName,
-            stageSourcePath: normalizedStageSourcePath || null,
-            linkCount: Object.keys(committedRobotData.links || {}).length,
-            jointCount: Object.keys(committedRobotData.joints || {}).length,
-            linkIdByPathCount: Object.keys(result.linkIdByPath || {}).length,
-            childLinkPathByJointIdCount: Object.keys(result.childLinkPathByJointId || {}).length,
-            metadataSource: result.usdSceneSnapshot?.robotMetadataSnapshot?.source ?? null,
-            commitMode: isColdUsdHydration ? 'reset-history' : 'skip-history',
-          });
-        }
-      } else if (resolvedSelectedFile.format === 'usd') {
-        emitCommitWorkerRobotData('rejected', {
-          reason: 'hydration-gated',
-          selectedFileName: normalizedSelectedFileName,
-          pendingHydrationFileName,
-          stageSourcePath: normalizedStageSourcePath || null,
-        });
-      }
-
-      const pendingUsdAssemblyFile = pendingUsdAssemblyFileRef.current;
-      if (
-        pendingUsdAssemblyFile &&
-        resolvedSelectedFile.format === 'usd' &&
-        pendingUsdAssemblyFile.name === resolvedSelectedFile.name
-      ) {
-        pendingUsdAssemblyFileRef.current = null;
-        void insertAssemblyComponentIntoWorkspace(pendingUsdAssemblyFile, {
-          preResolvedRobotData: committedRobotData,
-        })
-          .then((component) => {
-            showToast(labels.addedComponent.replace('{name}', component.name), 'success');
-            updateProModeRoundtripBaseline(
-              isGeneratedWorkspaceUrdfFileName(pendingUsdAssemblyFile.name)
-                ? pendingUsdAssemblyFile.name
-                : null,
-            );
-          })
-          .catch((error) => {
-            scheduleFailFastInDev(
-              'useUsdDocumentLifecycle:handleRobotDataResolved:prepareAssemblyComponent',
-              error instanceof Error
-                ? error
-                : new Error(
-                    `Failed to prepare assembly component "${pendingUsdAssemblyFile.name}".`,
-                  ),
-            );
-            showToast(`Failed to add assembly component: ${pendingUsdAssemblyFile.name}`, 'info');
-          })
-          .finally(() => {
-            clearAssemblyComponentPreparationOverlay();
-          });
-      }
-    },
-    [
-      clearAssemblyComponentPreparationOverlay,
-      insertAssemblyComponentIntoWorkspace,
-      labels.addedComponent,
-      pendingUsdAssemblyFileRef,
-      queueUsdPreparedExportCacheBuild,
-      selectedFile,
-      setRobot,
-      setSelection,
-      showToast,
-      updateProModeRoundtripBaseline,
-    ],
-  );
-
   const handleViewerDocumentLoadEvent = useCallback(
     (event: ViewerDocumentLoadEvent) => {
       const liveAssetsState = useAssetsStore.getState();
@@ -528,6 +203,15 @@ export function useUsdDocumentLifecycle({
       const currentDocumentLoadState = liveAssetsState.documentLoadState;
 
       if (!activeDocumentFile) {
+        return;
+      }
+
+      if (
+        !previewFile &&
+        activeDocumentFile.format === 'usd' &&
+        currentDocumentLoadState.status === 'hydrating' &&
+        currentDocumentLoadState.fileName === activeDocumentFile.name
+      ) {
         return;
       }
 
@@ -636,6 +320,296 @@ export function useUsdDocumentLifecycle({
     ],
   );
 
+  useEffect(() => {
+    if (!isSelectedUsdHydrating || selectedFile?.format !== 'usd') {
+      return;
+    }
+
+    const hydrationFile = selectedFile;
+    const controller = new AbortController();
+    let cancelled = false;
+    pendingUsdHydrationFileRef.current = hydrationFile.name;
+
+    const commitHydrationLoadEvent = (event: ViewerDocumentLoadEvent) => {
+      if (cancelled || event.status === 'ready') {
+        return;
+      }
+
+      const liveAssetsState = useAssetsStore.getState();
+      const liveSelectedFile = liveAssetsState.selectedFile;
+      if (liveSelectedFile?.format !== 'usd' || liveSelectedFile.name !== hydrationFile.name) {
+        return;
+      }
+
+      const currentDocumentLoadState = liveAssetsState.documentLoadState;
+      const mappedProgressPercent = mapViewerDocumentLoadEventToDocumentLoadPercent('usd', event);
+      const nextProgressPercent =
+        event.status === 'error'
+          ? 0
+          : currentDocumentLoadState.fileName === hydrationFile.name &&
+              currentDocumentLoadState.status === 'hydrating'
+            ? Math.max(currentDocumentLoadState.progressPercent ?? 0, mappedProgressPercent)
+            : mappedProgressPercent;
+
+      const nextDocumentLoadState: DocumentLoadState = {
+        status: event.status === 'error' ? 'error' : 'hydrating',
+        fileName: hydrationFile.name,
+        format: hydrationFile.format,
+        error:
+          event.status === 'error'
+            ? (event.error ??
+              labels.failedToParseFormat.replace('{format}', hydrationFile.format.toUpperCase()))
+            : null,
+        phase: event.phase ?? null,
+        message: event.message ?? null,
+        progressMode: 'percent',
+        progressPercent: nextProgressPercent,
+        loadedCount: null,
+        totalCount: null,
+      };
+
+      if (
+        currentDocumentLoadState.status !== nextDocumentLoadState.status ||
+        currentDocumentLoadState.fileName !== nextDocumentLoadState.fileName ||
+        currentDocumentLoadState.format !== nextDocumentLoadState.format ||
+        currentDocumentLoadState.error !== nextDocumentLoadState.error ||
+        currentDocumentLoadState.phase !== nextDocumentLoadState.phase ||
+        currentDocumentLoadState.message !== nextDocumentLoadState.message ||
+        currentDocumentLoadState.progressMode !== nextDocumentLoadState.progressMode ||
+        currentDocumentLoadState.progressPercent !== nextDocumentLoadState.progressPercent ||
+        currentDocumentLoadState.loadedCount !== nextDocumentLoadState.loadedCount ||
+        currentDocumentLoadState.totalCount !== nextDocumentLoadState.totalCount
+      ) {
+        setDocumentLoadState(nextDocumentLoadState);
+      }
+    };
+
+    let hydration: ReturnType<typeof startUsdRobotStateHydration>;
+    try {
+      hydration = startUsdRobotStateHydration({
+        sourceFile: hydrationFile,
+        availableFiles: useAssetsStore.getState().availableFiles,
+        assets: useAssetsStore.getState().assets,
+        signal: controller.signal,
+        onDeferredSceneSnapshot: (snapshot, stageSourcePath) => {
+          if (cancelled) {
+            return;
+          }
+          const liveAssetsState = useAssetsStore.getState();
+          const liveSelectedFile = liveAssetsState.selectedFile;
+          if (liveSelectedFile?.format !== 'usd' || liveSelectedFile.name !== hydrationFile.name) {
+            return;
+          }
+          if (
+            !shouldApplyUsdStageHydration({
+              pendingFileName: liveSelectedFile.name,
+              selectedFileName: liveSelectedFile.name,
+              stageSourcePath,
+            })
+          ) {
+            return;
+          }
+          liveAssetsState.setUsdSceneSnapshot(liveSelectedFile.name, snapshot);
+        },
+        onEvent: (event) => {
+          if (event.type === 'document-load') {
+            commitHydrationLoadEvent(event.event);
+          }
+        },
+      });
+    } catch (error) {
+      pendingUsdHydrationFileRef.current = null;
+      const reason = error instanceof Error ? error.message : String(error);
+      scheduleFailFastInDev(
+        'useUsdDocumentLifecycle:startUsdRobotStateHydration:init',
+        error instanceof Error
+          ? error
+          : new Error(`Failed to start USD RobotState hydration for "${hydrationFile.name}".`),
+      );
+      setDocumentLoadState({
+        status: 'error',
+        fileName: hydrationFile.name,
+        format: hydrationFile.format,
+        error: reason,
+        phase: null,
+        message: null,
+        progressMode: 'percent',
+        progressPercent: 0,
+        loadedCount: null,
+        totalCount: null,
+      });
+      return;
+    }
+
+    void hydration.promise
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+
+        const liveAssetsState = useAssetsStore.getState();
+        const liveSelectedFile = liveAssetsState.selectedFile;
+        if (liveSelectedFile?.format !== 'usd' || liveSelectedFile.name !== hydrationFile.name) {
+          return;
+        }
+
+        const pendingHydrationFileName =
+          pendingUsdHydrationFileRef.current ??
+          (liveAssetsState.documentLoadState.status === 'hydrating'
+            ? liveAssetsState.documentLoadState.fileName
+            : null);
+        if (
+          !shouldApplyUsdStageHydration({
+            pendingFileName: pendingHydrationFileName,
+            selectedFileName: liveSelectedFile.name,
+            stageSourcePath: result.resolution.stageSourcePath,
+          })
+        ) {
+          return;
+        }
+
+        const normalizedSelectedFileName = normalizeUsdPersistenceFileName(liveSelectedFile.name);
+        const normalizedStageSourcePath = normalizeUsdPersistenceFileName(
+          result.resolution.stageSourcePath,
+        );
+        const robotSnapshot = createRobotSemanticSnapshot(result.robotData);
+
+        liveAssetsState.setUsdBakedScene(liveSelectedFile.name, result.bakedScene);
+        liveAssetsState.setUsdPreparedExportCache(liveSelectedFile.name, result.preparedCache);
+        usdPersistenceBaselineRef.current = {
+          fileName: normalizedSelectedFileName,
+          robotSnapshot,
+          hadPreparedExportCache: true,
+        };
+
+        setRobot(result.robotData, {
+          resetHistory: true,
+          label: 'Hydrate USD stage',
+        });
+        setSelection(
+          resolveUsdStageHydrationSelection({
+            currentSelection: useSelectionStore.getState().selection,
+            robotData: result.robotData,
+          }),
+        );
+        markUnsavedChangesBaselineSaved('robot');
+        pendingUsdHydrationFileRef.current = null;
+        recordUsdStageLoadDebug({
+          sourceFileName: normalizedSelectedFileName,
+          step: 'commit-worker-robot-data',
+          status: 'resolved',
+          timestamp: Date.now(),
+          detail: {
+            selectedFileName: normalizedSelectedFileName,
+            stageSourcePath: normalizedStageSourcePath || null,
+            linkCount: Object.keys(result.robotData.links || {}).length,
+            jointCount: Object.keys(result.robotData.joints || {}).length,
+            linkIdByPathCount: Object.keys(result.resolution.linkIdByPath || {}).length,
+            childLinkPathByJointIdCount: Object.keys(
+              result.resolution.childLinkPathByJointId || {},
+            ).length,
+            metadataSource: result.bakedScene.robotMetadataSnapshot?.source ?? null,
+            commitMode: 'reset-history',
+            rendererMode: 'offscreen-worker-robotstate',
+          },
+        });
+        setDocumentLoadState({
+          status: 'ready',
+          fileName: liveSelectedFile.name,
+          format: liveSelectedFile.format,
+          error: null,
+          phase: 'ready',
+          message: null,
+          progressMode: 'percent',
+          progressPercent: 100,
+          loadedCount: null,
+          totalCount: null,
+        });
+
+        const pendingUsdAssemblyFile = pendingUsdAssemblyFileRef.current;
+        if (pendingUsdAssemblyFile?.name !== liveSelectedFile.name) {
+          return;
+        }
+
+        pendingUsdAssemblyFileRef.current = null;
+        void insertAssemblyComponentIntoWorkspace(pendingUsdAssemblyFile, {
+          preResolvedRobotData: result.robotData,
+        })
+          .then((component) => {
+            showToast(labels.addedComponent.replace('{name}', component.name), 'success');
+            updateProModeRoundtripBaseline(
+              isGeneratedWorkspaceUrdfFileName(pendingUsdAssemblyFile.name)
+                ? pendingUsdAssemblyFile.name
+                : null,
+            );
+          })
+          .catch((error) => {
+            scheduleFailFastInDev(
+              'useUsdDocumentLifecycle:startUsdRobotStateHydration:prepareAssemblyComponent',
+              error instanceof Error
+                ? error
+                : new Error(
+                    `Failed to prepare assembly component "${pendingUsdAssemblyFile.name}".`,
+                  ),
+            );
+            showToast(`Failed to add assembly component: ${pendingUsdAssemblyFile.name}`, 'info');
+          })
+          .finally(() => {
+            clearAssemblyComponentPreparationOverlay();
+          });
+      })
+      .catch((error) => {
+        if (cancelled || controller.signal.aborted) {
+          return;
+        }
+
+        pendingUsdHydrationFileRef.current = null;
+        const reason = error instanceof Error ? error.message : String(error);
+        scheduleFailFastInDev(
+          'useUsdDocumentLifecycle:startUsdRobotStateHydration',
+          error instanceof Error
+            ? error
+            : new Error(`Failed to hydrate USD RobotState for "${hydrationFile.name}": ${reason}`),
+        );
+        setDocumentLoadState({
+          status: 'error',
+          fileName: hydrationFile.name,
+          format: hydrationFile.format,
+          error: reason,
+          phase: null,
+          message: null,
+          progressMode: 'percent',
+          progressPercent: 0,
+          loadedCount: null,
+          totalCount: null,
+        });
+
+        if (pendingUsdAssemblyFileRef.current?.name === hydrationFile.name) {
+          pendingUsdAssemblyFileRef.current = null;
+          clearAssemblyComponentPreparationOverlay();
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort(new Error(`USD RobotState hydration for "${hydrationFile.name}" was cancelled.`));
+      hydration.cleanup();
+    };
+  }, [
+    clearAssemblyComponentPreparationOverlay,
+    insertAssemblyComponentIntoWorkspace,
+    isSelectedUsdHydrating,
+    labels.addedComponent,
+    labels.failedToParseFormat,
+    pendingUsdAssemblyFileRef,
+    selectedFile,
+    setDocumentLoadState,
+    setRobot,
+    setSelection,
+    showToast,
+    updateProModeRoundtripBaseline,
+  ]);
+
   const handleViewerRuntimeRobotLoaded = useCallback(() => {
     commitRuntimeReadyDocumentLoadState();
   }, [commitRuntimeReadyDocumentLoadState]);
@@ -645,7 +619,6 @@ export function useUsdDocumentLifecycle({
   }, [commitRuntimeReadyDocumentLoadState]);
 
   return {
-    handleRobotDataResolved,
     handleViewerDocumentLoadEvent,
     handleViewerRuntimeRobotLoaded,
     handleViewerRuntimeSceneReadyForDisplay,

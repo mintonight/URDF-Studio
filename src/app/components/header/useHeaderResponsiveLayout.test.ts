@@ -21,15 +21,15 @@ test('reclaims unused header action space so desktop controls stay inline longer
     hasSecondaryAction: false,
   });
 
-  assert.equal(layout.showMenuLabels, true);
-  assert.equal(layout.showSourceInline, true);
+  assert.equal(layout.showMenuLabels, false);
+  assert.equal(layout.showSourceInline, false);
   assert.equal(layout.showSourceText, false);
   assert.equal(layout.showUndoRedoInline, false);
   assert.equal(layout.showDesktopOverflow, true);
 });
 
-test('shows the full desktop inline control set earlier when optional actions are absent', () => {
-  const layout = getHeaderResponsiveLayout(1240, {
+test('still restores the full desktop inline control set on roomy widths', () => {
+  const layout = getHeaderResponsiveLayout(1536, {
     hasQuickAction: false,
     hasSecondaryAction: false,
   });
@@ -39,4 +39,17 @@ test('shows the full desktop inline control set earlier when optional actions ar
   assert.equal(layout.showSourceText, true);
   assert.equal(layout.showUndoRedoInline, true);
   assert.equal(layout.showDesktopOverflow, false);
+});
+
+test('collapses source text and undo earlier on medium widths because the permanent toolbar occupies the header center', () => {
+  const layout = getHeaderResponsiveLayout(1240, {
+    hasQuickAction: false,
+    hasSecondaryAction: false,
+  });
+
+  assert.equal(layout.showMenuLabels, true);
+  assert.equal(layout.showSourceInline, true);
+  assert.equal(layout.showSourceText, false);
+  assert.equal(layout.showUndoRedoInline, false);
+  assert.equal(layout.showDesktopOverflow, true);
 });

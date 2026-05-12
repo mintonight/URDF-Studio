@@ -1,9 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DEFAULT_LINK, type RobotData, type RobotFile, type RobotState } from '@/types';
+import {
+  DEFAULT_JOINT,
+  DEFAULT_LINK,
+  JointType,
+  type RobotData,
+  type RobotFile,
+  type RobotState,
+} from '@/types';
 
-import { commitEditableSourceApply } from './useEditableSourceCodeApply';
+import {
+  commitEditableSourceApply,
+  shouldAttemptEditableSourceIncrementalPatch,
+} from './useEditableSourceCodeApply';
 
 function createSourceFile(format: RobotFile['format']): Pick<RobotFile, 'format' | 'name'> {
   return {
@@ -125,4 +135,72 @@ test('commitEditableSourceApply refreshes the resolved URDF baseline for xacro s
   assert.deepEqual(events, ['sync', 'original', 'robot']);
   assert.match(resolvedUrdfContent ?? '', /<robot name="demo_robot"/);
   assert.match(resolvedUrdfContent ?? '', /<link name="base_link">/);
+});
+
+test('commitEditableSourceApply skips xacro URDF baseline refresh for unsupported ball joints', () => {
+  const events: string[] = [];
+  let resolvedUrdfContent: string | null = '__unset__';
+  const nextState = createRobotState();
+  nextState.links.child_link = {
+    ...DEFAULT_LINK,
+    id: 'child_link',
+    name: 'child_link',
+  };
+  nextState.joints.ball_joint = {
+    ...DEFAULT_JOINT,
+    id: 'ball_joint',
+    name: 'ball_joint',
+    type: JointType.BALL,
+    parentLinkId: 'base_link',
+    childLinkId: 'child_link',
+  };
+
+  commitEditableSourceApply({
+    newCode: '<xacro:robot name="demo_robot" />',
+    sourceFile: createSourceFile('xacro'),
+    targetFileName: 'robot.xacro',
+    nextState,
+    syncSelectedEditableFileContent: () => {
+      events.push('sync');
+    },
+    setOriginalUrdfContent: (content) => {
+      events.push('original');
+      resolvedUrdfContent = content;
+    },
+    setRobot: () => {
+      events.push('robot');
+    },
+  });
+
+  assert.deepEqual(events, ['sync', 'original', 'robot']);
+  assert.equal(resolvedUrdfContent, null);
+});
+
+test('shouldAttemptEditableSourceIncrementalPatch only attempts selected source edits and skips closed-loop MJCF robots', () => {
+  assert.equal(
+    shouldAttemptEditableSourceIncrementalPatch({
+      sourceFile: { name: 'robot.urdf', format: 'urdf' },
+      targetFileName: 'robot.urdf',
+      closedLoopConstraints: [],
+    }),
+    true,
+  );
+
+  assert.equal(
+    shouldAttemptEditableSourceIncrementalPatch({
+      sourceFile: { name: 'robot.urdf', format: 'urdf' },
+      targetFileName: 'meshes/base.stl',
+      closedLoopConstraints: [],
+    }),
+    false,
+  );
+
+  assert.equal(
+    shouldAttemptEditableSourceIncrementalPatch({
+      sourceFile: { name: 'robot.xml', format: 'mjcf' },
+      targetFileName: 'robot.xml',
+      closedLoopConstraints: createRobotState().closedLoopConstraints,
+    }),
+    false,
+  );
 });

@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Upload, Package, FileCode, Layers, Lock, Braces, Loader2, Info } from 'lucide-react';
-import { DraggableWindow } from '@/shared/components';
-import { useDraggableWindow } from '@/shared/hooks';
+import { DraggableWindow } from '@/shared/components/DraggableWindow';
+import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { CompactSwitch, PanelSelect, Slider, Tooltip } from '@/shared/components/ui';
 import { translations } from '@/shared/i18n';
 import type { TranslationKeys } from '@/shared/i18n/types';

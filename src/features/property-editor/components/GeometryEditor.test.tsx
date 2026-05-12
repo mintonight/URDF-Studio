@@ -362,6 +362,13 @@ function dispatchReactChange(input: HTMLInputElement, value: string) {
   });
 }
 
+async function commitColorPickerValue(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    dispatchReactChange(input, value);
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
 function dispatchReactSelectChange(select: HTMLSelectElement, value: string) {
   const prototype = select.ownerDocument.defaultView?.HTMLSelectElement.prototype;
   const valueSetter = prototype
@@ -472,15 +479,42 @@ test('GeometryEditor reads and updates the selected visual objectIndex instead o
     const colorInput = getColorInput(container);
     assert.equal(colorInput.value.toLowerCase(), '#00ff00');
 
-    await act(async () => {
-      dispatchReactChange(colorInput, '#abcdef');
-      await new Promise((resolve) => setTimeout(resolve, 80));
-    });
+    await commitColorPickerValue(colorInput, '#abcdef');
 
     const nextLink = updates.at(-1);
     assert.ok(nextLink, 'GeometryEditor should emit an updated link');
     assert.equal(nextLink.visual.color, '#ff0000');
     assert.equal(nextLink.visualBodies?.[0]?.color, '#abcdef');
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('GeometryEditor defers visual color picker updates until the picker is committed', async () => {
+  const { dom, container, root } = createComponentRoot();
+  try {
+    const link = createLink('#00ff00');
+    const updates: UrdfLink[] = [];
+
+    await renderGeometryEditor(root, link, (nextLink) => {
+      updates.push(nextLink);
+    });
+
+    const colorInput = getColorInput(container);
+
+    await act(async () => {
+      dispatchReactChange(colorInput, '#abcdef');
+      dispatchReactChange(colorInput, '#123456');
+    });
+
+    assert.equal(updates.length, 0, 'dragging the color picker should stay local');
+
+    await act(async () => {
+      colorInput.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0]?.visualBodies?.[0]?.color, '#123456');
   } finally {
     await destroyComponentRoot(dom, root);
   }
@@ -615,6 +649,168 @@ test('GeometryEditor preserves plane and hfield types as explicit MJCF geometry 
     assert.ok(container.textContent?.includes('Rows: 32'));
     assert.ok(container.textContent?.includes('Cols: 48'));
   } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('GeometryEditor keeps the type and name header responsive for visual and collision geometry', async () => {
+  const { dom, container, root } = createComponentRoot();
+  try {
+    for (const category of ['visual', 'collision'] as const) {
+      const link = createLink('#00ff00');
+      const robot = createRobot(link);
+      robot.selection = {
+        type: 'link',
+        id: link.id,
+        subType: category,
+        objectIndex: 0,
+      };
+
+      await renderGeometryEditor(root, link, () => {}, robot, category);
+
+      const typeLabel = Array.from(container.querySelectorAll('span')).find(
+        (node) => node.textContent === translations.en.type,
+      );
+      assert.ok(typeLabel, `${category} geometry should render the type label`);
+
+      const sharedRow = typeLabel.parentElement;
+      assert.ok(sharedRow, `${category} geometry should render the shared header row`);
+
+      const nameLabel = Array.from(sharedRow.querySelectorAll('span')).find(
+        (node) => node.textContent === translations.en.name,
+      );
+      assert.ok(nameLabel, `${category} geometry should render the name label`);
+
+      assert.equal(
+        nameLabel.parentElement,
+        sharedRow,
+        `${category} geometry should keep type and name on the same row`,
+      );
+      assert.match(
+        sharedRow.className,
+        /\bgap-1\.5\b/,
+        `${category} geometry should keep the header spacing aligned with the other property rows`,
+      );
+
+      const geometryTypeSelect = container.querySelector(
+        `button[role="combobox"][aria-label="${translations.en.type}"], select[aria-label="${translations.en.type}"]`,
+      );
+      assert.ok(geometryTypeSelect, `${category} geometry should render the type select`);
+      assert.doesNotMatch(
+        geometryTypeSelect.className,
+        /\bw-28\b/,
+        `${category} geometry should not pin the type select to a fixed width`,
+      );
+      assert.doesNotMatch(
+        geometryTypeSelect.className,
+        /\bshrink-0\b/,
+        `${category} geometry type select should be allowed to shrink with the row`,
+      );
+
+      assert.match(
+        sharedRow.className,
+        /\bmin-w-0\b/,
+        `${category} geometry header row should stay shrinkable inside narrow sidebars`,
+      );
+
+      const geometryNameInput = container.querySelector(
+        'input[type="text"][spellcheck="false"]',
+      ) as HTMLInputElement | null;
+      assert.ok(geometryNameInput, `${category} geometry should render the name input`);
+      assert.match(
+        geometryNameInput.className,
+        /\bflex-1\b/,
+        `${category} geometry name input should fill the available width inside the shared row`,
+      );
+    }
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('GeometryEditor renders mesh scale as a single inline XYZ row without stepper buttons', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const originalWorker = globalThis.Worker;
+  const fakeWorker = new FakeWorker();
+
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: class {
+      constructor() {
+        return fakeWorker as unknown as Worker;
+      }
+    },
+  });
+
+  try {
+    const link = createLink('#00ff00');
+    link.visual = {
+      type: GeometryType.MESH,
+      dimensions: { x: 1, y: 1, z: 1 },
+      color: '#ff0000',
+      meshPath: 'meshes/base_link.dae',
+      origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+    };
+    const robot = createRobot(link);
+    robot.selection.objectIndex = 0;
+
+    await renderGeometryEditor(root, link, () => {}, robot);
+
+    const meshScaleLabel = Array.from(container.querySelectorAll('label')).find(
+      (node) => node.textContent?.trim() === translations.en.meshScale,
+    );
+    assert.ok(meshScaleLabel, 'mesh scale label should render');
+
+    const meshScaleSection = meshScaleLabel.parentElement;
+    assert.ok(meshScaleSection, 'mesh scale section should render');
+
+    const meshScaleInlineRows = Array.from(meshScaleSection.querySelectorAll('div')).filter(
+      (node) =>
+        node.className.includes('flex') &&
+        node.className.includes('min-w-0') &&
+        node.className.includes('items-center') &&
+        node.className.includes('gap-1.5'),
+    );
+    assert.equal(meshScaleInlineRows.length, 3, 'mesh scale should render three inline axis rows');
+
+    const meshScaleAxisCounts = Array.from(meshScaleSection.querySelectorAll('span')).reduce(
+      (counts, node) => {
+        const label = node.textContent?.trim();
+        if (label === 'X' || label === 'Y' || label === 'Z') {
+          counts[label] += 1;
+        }
+        return counts;
+      },
+      { X: 0, Y: 0, Z: 0 },
+    );
+    assert.deepEqual(
+      meshScaleAxisCounts,
+      { X: 1, Y: 1, Z: 1 },
+      'mesh scale should only render one visible XYZ label set',
+    );
+
+    const xInput = meshScaleSection.querySelectorAll('input[type="text"]').item(0);
+    const yInput = meshScaleSection.querySelectorAll('input[type="text"]').item(1);
+    const zInput = meshScaleSection.querySelectorAll('input[type="text"]').item(2);
+    assert.ok(xInput, 'mesh scale X input should render');
+    assert.ok(yInput, 'mesh scale Y input should render');
+    assert.ok(zInput, 'mesh scale Z input should render');
+
+    const meshScaleStepperButtons = meshScaleSection.querySelectorAll(
+      'button[aria-label^="Increase"], button[aria-label^="Decrease"]',
+    );
+    assert.equal(
+      meshScaleStepperButtons.length,
+      0,
+      'mesh scale inputs should not render increment or decrement stepper buttons',
+    );
+  } finally {
+    Object.defineProperty(globalThis, 'Worker', {
+      configurable: true,
+      writable: true,
+      value: originalWorker,
+    });
     await destroyComponentRoot(dom, root);
   }
 });
@@ -1331,10 +1527,7 @@ test('GeometryEditor normalizes alpha colors for the picker while preserving alp
     const colorInput = getColorInput(container);
     assert.equal(colorInput.value.toLowerCase(), '#123456');
 
-    await act(async () => {
-      dispatchReactChange(colorInput, '#abcdef');
-      await new Promise((resolve) => setTimeout(resolve, 80));
-    });
+    await commitColorPickerValue(colorInput, '#abcdef');
 
     const nextLink = updates.at(-1);
     assert.ok(nextLink, 'GeometryEditor should emit an updated link');

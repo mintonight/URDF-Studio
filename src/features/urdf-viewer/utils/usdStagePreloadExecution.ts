@@ -4,7 +4,7 @@ export function resolveUsdPreloadConcurrency(preferredConcurrency?: number): num
   return Math.max(2, Math.min(10, Math.floor(resolvedConcurrency) || 2));
 }
 
-async function runWithConcurrency<T>(
+export async function runWithConcurrency<T>(
   items: readonly T[],
   maxConcurrency: number,
   isActive: () => boolean,

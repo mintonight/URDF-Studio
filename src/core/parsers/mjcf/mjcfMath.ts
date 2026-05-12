@@ -1,0 +1,221 @@
+import * as THREE from 'three';
+
+export type MJCFAngleUnit = 'radian' | 'degree';
+export type MJCFQuatTuple = [number, number, number, number];
+export type MJCFSymmetric3x3 = [
+  [number, number, number],
+  [number, number, number],
+  [number, number, number],
+];
+
+export interface MJCFPrecisionOptions {
+  precision?: number;
+}
+
+export interface MJCFSymmetric3x3Diagonalization {
+  values: [number, number, number];
+  quat: MJCFQuatTuple;
+}
+
+function roundNumber(value: number, precision: number | undefined): number {
+  return precision == null ? value : Number(value.toFixed(precision));
+}
+
+function roundQuatTuple(tuple: MJCFQuatTuple, precision: number | undefined): MJCFQuatTuple {
+  return [
+    roundNumber(tuple[0], precision),
+    roundNumber(tuple[1], precision),
+    roundNumber(tuple[2], precision),
+    roundNumber(tuple[3], precision),
+  ];
+}
+
+function finiteSymmetricRows(matrix: MJCFSymmetric3x3): boolean {
+  return matrix.every((row) => row.every((value) => Number.isFinite(value)));
+}
+
+export function convertMjcfAngle(value: number, angleUnit: MJCFAngleUnit): number {
+  return angleUnit === 'degree' ? (value * Math.PI) / 180 : value;
+}
+
+export function normalizeMjcfQuatTuple(
+  value: readonly number[] | null | undefined,
+  options: MJCFPrecisionOptions = {},
+): MJCFQuatTuple | null {
+  if (!value || value.length === 0) {
+    return null;
+  }
+
+  const raw: MJCFQuatTuple = [
+    roundNumber(value[0] ?? 0, options.precision),
+    roundNumber(value[1] ?? 0, options.precision),
+    roundNumber(value[2] ?? 0, options.precision),
+    roundNumber(value[3] ?? 0, options.precision),
+  ];
+  const length = Math.hypot(raw[0], raw[1], raw[2], raw[3]);
+  if (length <= 1e-8) {
+    return [1, 0, 0, 0];
+  }
+
+  return [
+    roundNumber(raw[0] / length, options.precision),
+    roundNumber(raw[1] / length, options.precision),
+    roundNumber(raw[2] / length, options.precision),
+    roundNumber(raw[3] / length, options.precision),
+  ];
+}
+
+export function mjcfQuatTupleFromQuaternion(
+  quaternion: THREE.Quaternion,
+  options: MJCFPrecisionOptions = {},
+): MJCFQuatTuple {
+  const length = Math.hypot(quaternion.w, quaternion.x, quaternion.y, quaternion.z);
+  if (length <= 1e-8) {
+    return [1, 0, 0, 0];
+  }
+
+  return roundQuatTuple(
+    [
+      quaternion.w / length,
+      quaternion.x / length,
+      quaternion.y / length,
+      quaternion.z / length,
+    ],
+    options.precision,
+  );
+}
+
+export function createMuJoCoFromToQuaternion(direction: THREE.Vector3): THREE.Quaternion {
+  if (direction.lengthSq() <= 1e-12) {
+    return new THREE.Quaternion();
+  }
+
+  const normalizedDirection = direction.clone().normalize();
+  const localNegativeZ = new THREE.Vector3(0, 0, -1);
+  const dot = localNegativeZ.dot(normalizedDirection);
+
+  if (dot <= -1 + 1e-9) {
+    return new THREE.Quaternion(1, 0, 0, 0);
+  }
+
+  return new THREE.Quaternion().setFromUnitVectors(localNegativeZ, normalizedDirection).normalize();
+}
+
+function sortEigenvectorsByDescendingValues(
+  eigenvalues: [number, number, number],
+  eigenvectors: [THREE.Vector3, THREE.Vector3, THREE.Vector3],
+  precision: number | undefined,
+): {
+  values: [number, number, number];
+  vectors: [THREE.Vector3, THREE.Vector3, THREE.Vector3];
+} {
+  const pairs = eigenvalues
+    .map((value, index) => ({
+      value,
+      vector: eigenvectors[index]!.clone(),
+    }))
+    .sort((left, right) => right.value - left.value);
+
+  const vectors = pairs.map((pair) => pair.vector) as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
+  const basis = new THREE.Matrix4().makeBasis(vectors[0], vectors[1], vectors[2]);
+  if (basis.determinant() < 0) {
+    vectors[2] = vectors[2].clone().multiplyScalar(-1);
+  }
+
+  return {
+    values: pairs.map((pair) => roundNumber(pair.value, precision)) as [number, number, number],
+    vectors,
+  };
+}
+
+export function diagonalizeMjcfSymmetric3x3(
+  input: MJCFSymmetric3x3,
+  options: MJCFPrecisionOptions = { precision: 6 },
+): MJCFSymmetric3x3Diagonalization | null {
+  if (!finiteSymmetricRows(input)) {
+    return null;
+  }
+
+  const matrix = input.map((row) => [...row]) as MJCFSymmetric3x3;
+  const eigenvectors = [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+  ];
+
+  for (let iteration = 0; iteration < 24; iteration += 1) {
+    let pivotRow = 0;
+    let pivotCol = 1;
+    let pivotValue = Math.abs(matrix[pivotRow]![pivotCol]!);
+
+    for (const [row, col] of [
+      [0, 1],
+      [0, 2],
+      [1, 2],
+    ] as const) {
+      const candidate = Math.abs(matrix[row]![col]!);
+      if (candidate > pivotValue) {
+        pivotRow = row;
+        pivotCol = col;
+        pivotValue = candidate;
+      }
+    }
+
+    if (pivotValue <= 1e-12) {
+      break;
+    }
+
+    const app = matrix[pivotRow]![pivotRow]!;
+    const aqq = matrix[pivotCol]![pivotCol]!;
+    const apq = matrix[pivotRow]![pivotCol]!;
+    const tau = (aqq - app) / (2 * apq);
+    const tangent = Math.sign(tau || 1) / (Math.abs(tau) + Math.sqrt(1 + tau * tau));
+    const cosine = 1 / Math.sqrt(1 + tangent * tangent);
+    const sine = tangent * cosine;
+
+    for (let row = 0; row < 3; row += 1) {
+      if (row === pivotRow || row === pivotCol) {
+        continue;
+      }
+
+      const arp = matrix[row]![pivotRow]!;
+      const arq = matrix[row]![pivotCol]!;
+      matrix[row]![pivotRow] = arp * cosine - arq * sine;
+      matrix[pivotRow]![row] = matrix[row]![pivotRow]!;
+      matrix[row]![pivotCol] = arp * sine + arq * cosine;
+      matrix[pivotCol]![row] = matrix[row]![pivotCol]!;
+    }
+
+    matrix[pivotRow]![pivotRow] =
+      app * cosine * cosine - 2 * apq * cosine * sine + aqq * sine * sine;
+    matrix[pivotCol]![pivotCol] =
+      app * sine * sine + 2 * apq * cosine * sine + aqq * cosine * cosine;
+    matrix[pivotRow]![pivotCol] = 0;
+    matrix[pivotCol]![pivotRow] = 0;
+
+    for (let row = 0; row < 3; row += 1) {
+      const vrp = eigenvectors[row]![pivotRow]!;
+      const vrq = eigenvectors[row]![pivotCol]!;
+      eigenvectors[row]![pivotRow] = vrp * cosine - vrq * sine;
+      eigenvectors[row]![pivotCol] = vrp * sine + vrq * cosine;
+    }
+  }
+
+  const sorted = sortEigenvectorsByDescendingValues(
+    [matrix[0]![0]!, matrix[1]![1]!, matrix[2]![2]!],
+    [
+      new THREE.Vector3(eigenvectors[0]![0]!, eigenvectors[1]![0]!, eigenvectors[2]![0]!),
+      new THREE.Vector3(eigenvectors[0]![1]!, eigenvectors[1]![1]!, eigenvectors[2]![1]!),
+      new THREE.Vector3(eigenvectors[0]![2]!, eigenvectors[1]![2]!, eigenvectors[2]![2]!),
+    ],
+    options.precision,
+  );
+  const quaternion = new THREE.Quaternion().setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(sorted.vectors[0], sorted.vectors[1], sorted.vectors[2]),
+  );
+
+  return {
+    values: sorted.values,
+    quat: mjcfQuatTupleFromQuaternion(quaternion, { precision: options.precision }),
+  };
+}

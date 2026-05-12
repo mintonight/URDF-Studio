@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
-import { getDroppedFiles } from '@/features/file-io';
 import type { InteractionSelection, RobotState } from '@/types';
 import { preloadSourceCodeEditor } from '@/app/utils/sourceCodeEditorLoader';
 import { validateSelection } from '@/store/selectionStore';
@@ -15,6 +14,7 @@ interface UseAppLayoutEffectsParams {
   robot: Pick<RobotState, 'links' | 'joints' | 'inspectionContext'>;
   selection: LayoutSelection;
   clearSelection: () => void;
+  shouldDeferSelectionCleanup?: boolean;
   onFileDrop: (files: File[]) => void;
   onDropError: () => void;
 }
@@ -24,10 +24,32 @@ function containsFiles(dataTransfer: Pick<DataTransfer, 'types'> | null | undefi
   return Array.from(dataTransfer.types ?? []).includes('Files');
 }
 
+function captureDroppedFileSystemEntries(items: DataTransferItemList | null | undefined) {
+  const entries: FileSystemEntry[] = [];
+  if (!items) {
+    return entries;
+  }
+
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    if (item.kind !== 'file' || typeof item.webkitGetAsEntry !== 'function') {
+      continue;
+    }
+
+    const entry = item.webkitGetAsEntry();
+    if (entry) {
+      entries.push(entry);
+    }
+  }
+
+  return entries;
+}
+
 export function useAppLayoutEffects({
   robot,
   selection,
   clearSelection,
+  shouldDeferSelectionCleanup = false,
   onFileDrop,
   onDropError,
 }: UseAppLayoutEffectsParams) {
@@ -69,10 +91,21 @@ export function useAppLayoutEffects({
   }, [canRedo, canUndo, redo, undo]);
 
   useEffect(() => {
+    if (shouldDeferSelectionCleanup) {
+      return;
+    }
+
     if (!validateSelection(selection, robot.links, robot.joints, robot.inspectionContext ?? null)) {
       clearSelection();
     }
-  }, [clearSelection, robot.inspectionContext, robot.joints, robot.links, selection]);
+  }, [
+    clearSelection,
+    robot.inspectionContext,
+    robot.joints,
+    robot.links,
+    selection,
+    shouldDeferSelectionCleanup,
+  ]);
 
   useEffect(() => {
     const handleWindowReset = () => {
@@ -172,10 +205,14 @@ export function useAppLayoutEffects({
       cancelPendingDragLeaveCheck();
       setIsFileDragActive(false);
 
-      if (!event.dataTransfer.items) return;
+      const entries = captureDroppedFileSystemEntries(event.dataTransfer.items);
+      if (entries.length === 0) return;
 
       try {
-        const files = await getDroppedFiles(event.dataTransfer.items);
+        const { getDroppedFilesFromEntries } = await import(
+          '@/features/file-io/utils/fileTraverser'
+        );
+        const files = await getDroppedFilesFromEntries(entries);
         if (files.length > 0) {
           onFileDrop(files);
         }

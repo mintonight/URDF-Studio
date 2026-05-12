@@ -124,11 +124,10 @@ export const TreeNode = memo(
             },
       [robot?.joints, robot?.links, storeDriven, storeJoints, storeLinks],
     );
-    const effectiveSelection = useMemo(() => {
-      const fallbackSelection = robot?.selection ?? EMPTY_TREE_SELECTION;
-      const rawSelection = storeSelection.type ? storeSelection : fallbackSelection;
-      return resolveTreeSelectionIdentity(rawSelection, selectionRobotContext);
-    }, [robot?.selection, selectionRobotContext, storeSelection]);
+    const effectiveSelection = useMemo(
+      () => resolveTreeSelectionIdentity(storeSelection, selectionRobotContext),
+      [selectionRobotContext, storeSelection],
+    );
     const setHoveredSelection = useSelectionStore((state) => state.setHoveredSelection);
     const clearHover = useSelectionStore((state) => state.clearHover);
     const setSelection = useSelectionStore((state) => state.setSelection);
@@ -241,7 +240,7 @@ export const TreeNode = memo(
 
     const robotSelection = effectiveSelection;
 
-    const linkRowIndentPx = 8;
+    const linkRowIndentPx = 4;
     const jointRowIndentPx = 10;
     const geometryRowIndentPx = 24;
     const hasChildren = childJoints.length > 0;

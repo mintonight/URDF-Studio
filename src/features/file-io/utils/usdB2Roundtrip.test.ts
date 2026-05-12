@@ -198,6 +198,10 @@ function createRoundtripMetadataSnapshot(
     physicsLayer: string;
     sensorLayer: string;
   },
+  runtimeMeshPrimPaths: {
+    visualByMeshId?: Record<string, string>;
+    collisionByMeshId?: Record<string, string>;
+  } = {},
 ) {
   const previousWindow = globalThis.window;
   globalThis.window = { driver: null } as Window & typeof globalThis;
@@ -205,18 +209,27 @@ function createRoundtripMetadataSnapshot(
   try {
     const delegate = Object.create(ThreeRenderDelegateCore.prototype) as ThreeRenderDelegateCore & {
       meshes: Record<string, object>;
+      getResolvedVisualTransformPrimPathForMeshId: (meshId: string) => string | null;
+      getResolvedPrimPathForMeshId: (meshId: string) => string | null;
       getStage: () => {
         GetRootLayer(): { ExportToString(): string };
         GetUsedLayers(): Array<{ ExportToString(): string }>;
       };
     };
 
-    delegate.meshes = {};
+    delegate.meshes = Object.fromEntries([
+      ...Object.keys(runtimeMeshPrimPaths.visualByMeshId || {}).map((meshId) => [meshId, {}]),
+      ...Object.keys(runtimeMeshPrimPaths.collisionByMeshId || {}).map((meshId) => [meshId, {}]),
+    ]);
     delegate._protoMeshMetadataByMeshId = new Map();
     delegate._robotMetadataSnapshotByStageSource = new Map();
     delegate._robotMetadataBuildPromisesByStageSource = new Map();
     delegate._nowPerfMs = () => 1234;
     delegate.getNormalizedStageSourcePath = () => stageSourcePath;
+    delegate.getResolvedVisualTransformPrimPathForMeshId = (meshId: string) =>
+      runtimeMeshPrimPaths.visualByMeshId?.[meshId] || null;
+    delegate.getResolvedPrimPathForMeshId = (meshId: string) =>
+      runtimeMeshPrimPaths.collisionByMeshId?.[meshId] || null;
     delegate.getStage = () => ({
       GetRootLayer() {
         return {
@@ -250,6 +263,29 @@ function createRoundtripMetadataSnapshot(
   } finally {
     globalThis.window = previousWindow;
   }
+}
+
+function createViewerSnapshotFromMetadata(
+  stageSourcePath: string,
+  metadata: ReturnType<typeof createRoundtripMetadataSnapshot>,
+) {
+  return {
+    stageSourcePath,
+    stage: { defaultPrimPath: '/b2_description' },
+    robotMetadataSnapshot: metadata,
+    robotTree: {
+      linkParentPairs: metadata.linkParentPairs,
+      jointCatalogEntries: metadata.jointCatalogEntries,
+      rootLinkPaths: [],
+    },
+    physics: {
+      linkDynamicsEntries: metadata.linkDynamicsEntries,
+    },
+    render: {
+      meshDescriptors: [],
+      materials: [],
+    },
+  };
 }
 
 function buildWorldMatricesByLinkName(robot: RobotState): Record<string, number[]> {
@@ -358,23 +394,9 @@ test('b2 USDA roundtrip preserves the full hierarchy and world transforms', () =
   assert.equal(metadata.jointCatalogEntries.length, Object.keys(robot.joints).length);
   assert.equal(metadata.linkParentPairs.length, Object.keys(robot.links).length - 1);
 
-  const adapted = adaptUsdViewerSnapshotToRobotData({
-    stageSourcePath,
-    stage: { defaultPrimPath: '/b2_description' },
-    robotMetadataSnapshot: metadata,
-    robotTree: {
-      linkParentPairs: metadata.linkParentPairs,
-      jointCatalogEntries: metadata.jointCatalogEntries,
-      rootLinkPaths: [],
-    },
-    physics: {
-      linkDynamicsEntries: metadata.linkDynamicsEntries,
-    },
-    render: {
-      meshDescriptors: [],
-      materials: [],
-    },
-  });
+  const adapted = adaptUsdViewerSnapshotToRobotData(
+    createViewerSnapshotFromMetadata(stageSourcePath, metadata),
+  );
 
   assert.ok(adapted, 'expected B2 USD snapshot to adapt back into robot data');
   if (!adapted) {
@@ -475,23 +497,9 @@ test('b2 isaacsim USD export roundtrip preserves transforms and writes joint/mat
       sensorLayer: sensorLayerText,
     });
 
-    const adapted = adaptUsdViewerSnapshotToRobotData({
-      stageSourcePath,
-      stage: { defaultPrimPath: '/b2_description' },
-      robotMetadataSnapshot: metadata,
-      robotTree: {
-        linkParentPairs: metadata.linkParentPairs,
-        jointCatalogEntries: metadata.jointCatalogEntries,
-        rootLinkPaths: [],
-      },
-      physics: {
-        linkDynamicsEntries: metadata.linkDynamicsEntries,
-      },
-      render: {
-        meshDescriptors: [],
-        materials: [],
-      },
-    });
+    const adapted = adaptUsdViewerSnapshotToRobotData(
+      createViewerSnapshotFromMetadata(stageSourcePath, metadata),
+    );
 
     assert.ok(adapted, 'expected current B2 USD export to adapt back into robot data');
     if (!adapted) {
@@ -506,6 +514,91 @@ test('b2 isaacsim USD export roundtrip preserves transforms and writes joint/mat
       'B2 current USD export roundtrip',
       robot,
       toRobotState(adapted.robotData),
+    );
+  } finally {
+    disposeColladaParseWorkerPoolClient();
+    Object.defineProperty(globalThis, 'Worker', {
+      configurable: true,
+      writable: true,
+      value: originalWorker,
+    });
+  }
+});
+
+test('b2 roundtrip metadata does not promote visual_0 container scopes into fake links when reopening exported USD', async () => {
+  const robot = loadB2RobotState();
+  const assets = buildB2AssetMap();
+  const originalWorker = globalThis.Worker;
+
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: FakeColladaWorker,
+  });
+
+  try {
+    const payload = await withSuppressedColladaLogs(() =>
+      exportRobotToUsd({
+        robot,
+        exportName: 'b2_description',
+        assets,
+        layoutProfile: 'isaacsim',
+      }),
+    );
+
+    const rootLayerText =
+      (await payload.archiveFiles.get('b2_description/b2_description.usd')?.text()) || '';
+    const baseLayerText =
+      (await payload.archiveFiles
+        .get('b2_description/configuration/b2_description_base.usd')
+        ?.text()) || '';
+    const physicsLayerText =
+      (await payload.archiveFiles
+        .get('b2_description/configuration/b2_description_physics.usd')
+        ?.text()) || '';
+    const sensorLayerText =
+      (await payload.archiveFiles
+        .get('b2_description/configuration/b2_description_sensor.usd')
+        ?.text()) || '';
+
+    const stageSourcePath = `/${payload.rootLayerPath}`;
+    const metadata = createRoundtripMetadataSnapshot(
+      stageSourcePath,
+      {
+        rootLayer: rootLayerText,
+        baseLayer: baseLayerText,
+        physicsLayer: physicsLayerText,
+        sensorLayer: sensorLayerText,
+      },
+      {
+        visualByMeshId: {
+          '/b2_description/base_link/visuals.proto_mesh_id0':
+            '/b2_description/base_link/visuals/visual_0/mesh',
+        },
+      },
+    );
+
+    assert.equal(metadata.linkParentPairs.length, Object.keys(robot.links).length - 1);
+    assert.equal(metadata.meshCountsByLinkPath['/b2_description/visual_0'], undefined);
+    assert.ok(
+      !metadata.linkParentPairs.some(([childPath]) => childPath === '/b2_description/visual_0'),
+      'expected roundtrip metadata to keep visual_0 scoped under base_link instead of promoting it to a link',
+    );
+
+    const adapted = adaptUsdViewerSnapshotToRobotData(
+      createViewerSnapshotFromMetadata(stageSourcePath, metadata),
+    );
+
+    assert.ok(adapted);
+    if (!adapted) {
+      return;
+    }
+
+    assert.equal(adapted.linkIdByPath['/b2_description/visual_0'], undefined);
+    assert.equal(adapted.robotData.links.visual_0, undefined);
+    assert.ok(
+      !Object.keys(adapted.robotData.joints).some((jointId) => jointId === 'visual_0_fixed'),
+      'expected reopened USD to omit visual_0_fixed helper joints',
     );
   } finally {
     disposeColladaParseWorkerPoolClient();

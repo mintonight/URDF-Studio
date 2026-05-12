@@ -54,7 +54,7 @@
 
 ### app/utils/ 重点
 
-- USD/roundtrip/hydration：`usdExportContext.ts`、`usdHydrationPersistence.ts`、`usdStageHydration.ts`、`liveUsdRoundtripExport.ts`、`usdRoundtripExportArchive.ts`
+- USD/roundtrip/hydration：`usdExportContext.ts`、`usdHydrationPersistence.ts`、`usdStageHydration.ts`
 - 导出辅助：`exportArchiveAssets.ts`、`usdBinaryArchive.ts`、`urdfSourceExportUtils.ts`、`currentUsdExportMode.ts`
 - 历史与缓存：`pendingHistory.ts`、`pendingUsdCache.ts`
 - 导入准备：`documentLoadFlow.ts`、`importPreparation.ts`、`importPreparationTransfer.ts`
@@ -82,10 +82,10 @@
 
 ## 5. Workspace 交互
 
-- `structure`：简单文件树
-- `workspace`：素材库 + 组装树
+- `structure`：当前模型视图
+- `workspace`：装配工作区视图
 - 文件加入组装入口：右键菜单"添加"、文件行右侧绿色按钮
-- 单击文件直接加入组装
+- 单击机器人文件打开为当前模型；显式"添加"才加入组装
 
 ## 6. 明确热点文件（新增逻辑优先抽离）
 

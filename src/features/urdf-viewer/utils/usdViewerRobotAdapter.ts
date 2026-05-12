@@ -9,8 +9,10 @@ import {
   type Euler,
   type RobotClosedLoopConstraint,
   type RobotData,
+  type UrdfJointUsdPhysicsFrame,
   type UrdfJoint,
   type UrdfLink,
+  type UrdfUsdMeshDescriptorRef,
   type UrdfVisual,
   type UrdfVisualMaterial,
   type UsdClosedLoopConstraintEntry,
@@ -31,7 +33,10 @@ import {
   resolveUsdDescriptorTargetLinkPath,
 } from './usdDescriptorLinkResolution';
 import { shouldUseUsdCollisionVisualProxy } from './usdCollisionVisualProxy';
-import { resolveUsdPrimitiveGeometryFromDescriptor } from './usdPrimitiveGeometry';
+import {
+  getUsdDescriptorPrimitiveType,
+  resolveUsdPrimitiveGeometryFromDescriptor,
+} from './usdPrimitiveGeometry';
 
 type MeshPrimitiveCounts = Record<string, number | undefined>;
 type MeshCountsEntry = UsdMeshCountsEntry;
@@ -55,6 +60,58 @@ interface DescriptorEntry {
 interface DescriptorGroup {
   groupKey: string;
   entries: DescriptorEntry[];
+}
+
+function createUsdMeshDescriptorRef(
+  descriptor: MeshDescriptor,
+): UrdfUsdMeshDescriptorRef {
+  return {
+    meshId: descriptor.meshId ?? null,
+    sectionName: descriptor.sectionName ?? null,
+    resolvedPrimPath: descriptor.resolvedPrimPath ?? null,
+    primType: descriptor.primType ?? null,
+    materialId: descriptor.materialId ?? descriptor.geometry?.materialId ?? null,
+  };
+}
+
+function createUsdMeshDescriptorRefs(
+  group: DescriptorGroup | null | undefined,
+): UrdfUsdMeshDescriptorRef[] | undefined {
+  const refs = group?.entries
+    .map(({ descriptor }) => createUsdMeshDescriptorRef(descriptor))
+    .filter((descriptor) => descriptor.meshId || descriptor.resolvedPrimPath);
+  return refs && refs.length > 0 ? refs : undefined;
+}
+
+function attachUsdMeshDescriptorRefs<T extends UrdfVisual>(
+  geometry: T,
+  group: DescriptorGroup | null | undefined,
+): T {
+  const refs = createUsdMeshDescriptorRefs(group);
+  if (!refs) {
+    return geometry;
+  }
+  return {
+    ...geometry,
+    usdMeshDescriptors: refs,
+  };
+}
+
+function isUsdMeshLikeDescriptor(descriptor: MeshDescriptor): boolean {
+  if (getUsdDescriptorPrimitiveType(descriptor)) {
+    return false;
+  }
+
+  const primType = String(descriptor.primType || '').trim().toLowerCase();
+  if (primType === 'mesh') {
+    return true;
+  }
+
+  return Boolean(
+    descriptor.ranges?.positions ||
+      descriptor.ranges?.indices ||
+      descriptor.geometry?.topologyMode,
+  );
 }
 
 interface DescriptorGeomSubsetSection {
@@ -90,6 +147,144 @@ function getPathBasename(path: string | null | undefined): string {
   return segments[segments.length - 1] || '';
 }
 
+function getPathParent(path: string | null | undefined): string {
+  const normalized = normalizeUsdPath(path);
+  if (!normalized) return '';
+
+  const segments = normalized.split('/').filter(Boolean);
+  if (segments.length <= 1) {
+    return '';
+  }
+
+  return `/${segments.slice(0, -1).join('/')}`;
+}
+
+function isUsdInternalMeshLibraryPath(path: string | null | undefined): boolean {
+  const segments = normalizeUsdPath(path).split('/').filter(Boolean);
+  return segments.some((segment) => segment.toLowerCase() === '__meshlibrary');
+}
+
+function shouldOmitUsdInternalMeshLibraryPaths(
+  paths: Iterable<string | null | undefined>,
+): boolean {
+  let hasInternalMeshLibraryPath = false;
+  let hasRobotLinkPath = false;
+
+  for (const path of paths) {
+    const normalized = normalizeUsdPath(path);
+    if (!normalized) {
+      continue;
+    }
+
+    if (isUsdInternalMeshLibraryPath(normalized)) {
+      hasInternalMeshLibraryPath = true;
+    } else {
+      hasRobotLinkPath = true;
+    }
+
+    if (hasInternalMeshLibraryPath && hasRobotLinkPath) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function buildMeshOnlyHierarchyFallback({
+  defaultPrimPath,
+  linkPaths,
+  linkParentPairs,
+  jointCatalogEntries,
+  rootLinkPaths,
+}: {
+  defaultPrimPath: string | null | undefined;
+  linkPaths: Set<string>;
+  linkParentPairs: Array<[string | null | undefined, string | null | undefined]>;
+  jointCatalogEntries: JointCatalogEntry[];
+  rootLinkPaths: string[];
+}): {
+  linkPaths: Set<string>;
+  linkParentPairs: Array<[string | null, string | null]>;
+  rootLinkPaths: string[];
+} {
+  const hasAuthoredHierarchy =
+    jointCatalogEntries.length > 0 || linkParentPairs.length > 0 || rootLinkPaths.length > 0;
+  if (hasAuthoredHierarchy || linkPaths.size === 0) {
+    return {
+      linkPaths,
+      linkParentPairs: linkParentPairs.map(([childPath, parentPath]) => [
+        normalizeUsdPath(childPath),
+        normalizeUsdPath(parentPath) || null,
+      ]),
+      rootLinkPaths,
+    };
+  }
+
+  const fallbackLinkPaths = new Set(linkPaths);
+  const normalizedDefaultPrimPath = normalizeUsdPath(defaultPrimPath);
+  const sharedRootSegments = Array.from(linkPaths)
+    .map((path) => path.split('/').filter(Boolean))
+    .reduce<string[]>((commonSegments, nextSegments, index) => {
+      if (index === 0) {
+        return nextSegments;
+      }
+
+      let sharedLength = 0;
+      while (
+        sharedLength < commonSegments.length &&
+        sharedLength < nextSegments.length &&
+        commonSegments[sharedLength] === nextSegments[sharedLength]
+      ) {
+        sharedLength += 1;
+      }
+
+      return commonSegments.slice(0, sharedLength);
+    }, []);
+  const normalizedRootPath =
+    normalizedDefaultPrimPath ||
+    (sharedRootSegments.length > 0 ? `/${sharedRootSegments.join('/')}` : '');
+
+  if (normalizedRootPath) {
+    fallbackLinkPaths.add(normalizedRootPath);
+  }
+
+  Array.from(linkPaths).forEach((path) => {
+    let parentPath = getPathParent(path);
+    while (parentPath && parentPath !== normalizedRootPath) {
+      fallbackLinkPaths.add(parentPath);
+      parentPath = getPathParent(parentPath);
+    }
+  });
+
+  const fallbackRootLinkPaths = normalizedRootPath ? [normalizedRootPath] : [];
+  const syntheticLinkParentPairs: Array<[string | null, string | null]> = [];
+  Array.from(fallbackLinkPaths)
+    .sort((left, right) => left.localeCompare(right))
+    .forEach((path) => {
+      if (!path) {
+        return;
+      }
+
+      if (normalizedRootPath && path === normalizedRootPath) {
+        syntheticLinkParentPairs.push([path, null]);
+        return;
+      }
+
+      let parentPath = getPathParent(path);
+      while (parentPath && !fallbackLinkPaths.has(parentPath)) {
+        parentPath = getPathParent(parentPath);
+      }
+
+      syntheticLinkParentPairs.push([path, parentPath || normalizedRootPath || null]);
+    });
+
+  return {
+    linkPaths: fallbackLinkPaths,
+    linkParentPairs: syntheticLinkParentPairs,
+    rootLinkPaths: fallbackRootLinkPaths,
+  };
+}
+
 function normalizeDescriptorSectionName(sectionName: string | null | undefined): string {
   const normalized = String(sectionName || '')
     .trim()
@@ -108,6 +303,7 @@ function getDescriptorMaterialId(descriptor: MeshDescriptor): string {
 function colorArrayToHex(
   value: ArrayLike<number> | null | undefined,
   opacityOverride?: number | null,
+  colorSpace?: string | null,
 ): string | null {
   const source = Array.isArray(value)
     ? value
@@ -130,18 +326,26 @@ function colorArrayToHex(
     Math.max(0, Math.min(255, Math.round(channel)))
       .toString(16)
       .padStart(2, '0');
-  const linearColor =
+  const colorSpaceToken = String(colorSpace || '')
+    .trim()
+    .toLowerCase();
+  const shouldReadAsSrgb =
+    colorSpaceToken === 'srgb' ||
+    colorSpaceToken === 'srgbcolorspace' ||
+    colorSpaceToken === 's-rgb';
+  const normalizedColor =
     Math.abs(r) <= 1 && Math.abs(g) <= 1 && Math.abs(b) <= 1
-      ? new THREE.Color(
+      ? new THREE.Color().setRGB(
           Math.max(0, Math.min(1, r)),
           Math.max(0, Math.min(1, g)),
           Math.max(0, Math.min(1, b)),
+          shouldReadAsSrgb ? THREE.SRGBColorSpace : THREE.LinearSRGBColorSpace,
         )
       : null;
 
   const a = opacityOverride ?? (source.length >= 4 ? Number(source[3]) : null);
-  const rgb = linearColor
-    ? [linearColor.getHexString()]
+  const rgb = normalizedColor
+    ? [normalizedColor.getHexString()]
     : [toHex(to255(r)), toHex(to255(g)), toHex(to255(b))];
 
   if (a !== null && Number.isFinite(a) && a < 0.999) {
@@ -176,7 +380,7 @@ function hasMaterialRecordContent(material: MaterialRecord | null | undefined): 
 function resolveSnapshotMaterialColorHex(
   material: MaterialRecord | null | undefined,
 ): string | null {
-  const authoredColor = colorArrayToHex(material?.color, material?.opacity);
+  const authoredColor = colorArrayToHex(material?.color, material?.opacity, material?.colorSpace);
   if (authoredColor) {
     return authoredColor;
   }
@@ -223,6 +427,21 @@ function resolveSnapshotMaterialTexturePath(
   return texturePath || undefined;
 }
 
+function resolveSnapshotMaterialEmissionEnabled(
+  material: MaterialRecord | null | undefined,
+): boolean {
+  if (!material || typeof material !== 'object') {
+    return true;
+  }
+  if (material.emissiveEnabled === true) {
+    return true;
+  }
+  if (material.emissiveEnabled === false) {
+    return false;
+  }
+  return material.isOmniPbr === true ? false : true;
+}
+
 function resolveSnapshotAuthoredMaterial(
   material: MaterialRecord | null | undefined,
   materialId?: string | null,
@@ -240,8 +459,11 @@ function resolveSnapshotAuthoredMaterial(
   const opacity = Number(material.opacity);
   const roughness = Number(material.roughness);
   const metalness = Number(material.metalness);
-  const emissive = colorArrayToHex(material.emissive) || undefined;
-  const emissiveIntensity = Number(material.emissiveIntensity);
+  const emissiveEnabled = resolveSnapshotMaterialEmissionEnabled(material);
+  const emissive = emissiveEnabled
+    ? colorArrayToHex(material.emissive, null, material.emissiveColorSpace) || undefined
+    : undefined;
+  const emissiveIntensity = emissiveEnabled ? Number(material.emissiveIntensity) : Number.NaN;
 
   if (
     !name &&
@@ -528,127 +750,59 @@ function toVector3(
   };
 }
 
-function getDescriptorExtentDimensions(
-  descriptor: MeshDescriptor,
-): [number, number, number] | null {
-  const source = descriptor.extentSize;
-  if (!source || typeof source.length !== 'number' || source.length < 3) {
-    return null;
+function toOptionalVector3(value: ArrayLike<number> | null | undefined): Vector3 | undefined {
+  if (!value || typeof value.length !== 'number' || value.length < 3) {
+    return undefined;
   }
 
-  const dimensions = [
-    Math.abs(Number(source[0] ?? 0)),
-    Math.abs(Number(source[1] ?? 0)),
-    Math.abs(Number(source[2] ?? 0)),
-  ];
-
-  if (dimensions.some((value) => !Number.isFinite(value) || value <= 1e-9)) {
-    return null;
+  const x = Number(value[0]);
+  const y = Number(value[1]);
+  const z = Number(value[2]);
+  if (![x, y, z].every((entry) => Number.isFinite(entry))) {
+    return undefined;
   }
 
-  return [
-    Math.max(dimensions[0], 1e-6),
-    Math.max(dimensions[1], 1e-6),
-    Math.max(dimensions[2], 1e-6),
-  ];
+  return { x, y, z };
 }
 
-function resolveUsdMeshApproximationFromBuffers(
-  snapshot: RobotSceneSnapshot,
-  descriptor: MeshDescriptor,
-): ResolvedUsdGeometry | null {
-  const positions = snapshot.buffers?.positions;
-  const range = descriptor.ranges?.positions;
-  if (!positions || !range || typeof positions.length !== 'number') {
-    return null;
+function toQuaternionWxyz(
+  value: ArrayLike<number> | null | undefined,
+): [number, number, number, number] | undefined {
+  if (!value || typeof value.length !== 'number' || value.length < 4) {
+    return undefined;
   }
 
-  const offset = Math.max(0, Number(range.offset ?? 0));
-  const count = Math.max(0, Number(range.count ?? 0));
-  const stride = Math.max(3, Number(range.stride ?? 3));
-  if (
-    !Number.isFinite(offset) ||
-    !Number.isFinite(count) ||
-    !Number.isFinite(stride) ||
-    count < 3
-  ) {
-    return null;
+  const w = Number(value[0]);
+  const x = Number(value[1]);
+  const y = Number(value[2]);
+  const z = Number(value[3]);
+  if (![w, x, y, z].every((entry) => Number.isFinite(entry))) {
+    return undefined;
   }
 
-  const end = Math.min(positions.length, offset + count);
-  let minX = Number.POSITIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let minZ = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-  let maxZ = Number.NEGATIVE_INFINITY;
+  return [w, x, y, z];
+}
 
-  for (let index = offset; index + 2 < end; index += stride) {
-    const x = Number(positions[index]);
-    const y = Number(positions[index + 1]);
-    const z = Number(positions[index + 2]);
-    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
-      continue;
-    }
+function resolveUsdPhysicsFrameFromViewerEntry(
+  entry: JointCatalogEntry,
+): UrdfJointUsdPhysicsFrame | undefined {
+  const localPos0 = toOptionalVector3(entry.localPos0);
+  const localRot0Wxyz = toQuaternionWxyz(entry.localRot0Wxyz);
+  const localPos1 = toOptionalVector3(entry.localPos1);
+  const localRot1Wxyz = toQuaternionWxyz(entry.localRot1Wxyz);
+  const axisToken = String(entry.axisToken || '').trim();
 
-    if (x < minX) minX = x;
-    if (y < minY) minY = y;
-    if (z < minZ) minZ = z;
-    if (x > maxX) maxX = x;
-    if (y > maxY) maxY = y;
-    if (z > maxZ) maxZ = z;
-  }
-
-  if (
-    !Number.isFinite(minX) ||
-    !Number.isFinite(minY) ||
-    !Number.isFinite(minZ) ||
-    !Number.isFinite(maxX) ||
-    !Number.isFinite(maxY) ||
-    !Number.isFinite(maxZ)
-  ) {
-    return null;
+  if (!localPos0 && !localRot0Wxyz && !localPos1 && !localRot1Wxyz && !axisToken) {
+    return undefined;
   }
 
   return {
-    type: GeometryType.BOX,
-    dimensions: {
-      x: Math.max(maxX - minX, 1e-6),
-      y: Math.max(maxY - minY, 1e-6),
-      z: Math.max(maxZ - minZ, 1e-6),
-    },
-    origin: {
-      xyz: {
-        x: (minX + maxX) * 0.5,
-        y: (minY + maxY) * 0.5,
-        z: (minZ + maxZ) * 0.5,
-      },
-      rpy: { r: 0, p: 0, y: 0 },
-    },
+    ...(axisToken ? { axisToken } : {}),
+    ...(localPos0 ? { localPos0 } : {}),
+    ...(localRot0Wxyz ? { localRot0Wxyz } : {}),
+    ...(localPos1 ? { localPos1 } : {}),
+    ...(localRot1Wxyz ? { localRot1Wxyz } : {}),
   };
-}
-
-export function resolveUsdMeshApproximationGeometry(
-  snapshot: RobotSceneSnapshot,
-  descriptor: MeshDescriptor,
-): ResolvedUsdGeometry | null {
-  const extentDimensions = getDescriptorExtentDimensions(descriptor);
-  if (extentDimensions) {
-    return {
-      type: GeometryType.BOX,
-      dimensions: {
-        x: extentDimensions[0],
-        y: extentDimensions[1],
-        z: extentDimensions[2],
-      },
-      origin: {
-        xyz: { x: 0, y: 0, z: 0 },
-        rpy: { r: 0, p: 0, y: 0 },
-      },
-    };
-  }
-
-  return resolveUsdMeshApproximationFromBuffers(snapshot, descriptor);
 }
 
 function quaternionComponentsToEuler(
@@ -1015,6 +1169,7 @@ function createJointFromViewerEntry(
   const jointType = jointTypeFromViewerValue(entry.jointTypeName || entry.jointType);
   const lower = degreesToRadians(entry.lowerLimitDeg);
   const upper = degreesToRadians(entry.upperLimitDeg);
+  const angle = degreesToRadians(entry.angleDeg);
   const driveDamping =
     typeof entry.driveDamping === 'number' && Number.isFinite(entry.driveDamping)
       ? entry.driveDamping
@@ -1031,6 +1186,7 @@ function createJointFromViewerEntry(
     entry.originQuatWxyz && typeof entry.originQuatWxyz.length === 'number'
       ? Array.from(entry.originQuatWxyz).slice(0, 4)
       : null;
+  const usdPhysics = resolveUsdPhysicsFrameFromViewerEntry(entry);
 
   return {
     ...DEFAULT_JOINT,
@@ -1039,6 +1195,7 @@ function createJointFromViewerEntry(
     type: jointType,
     parentLinkId,
     childLinkId,
+    ...(typeof angle === 'number' && Number.isFinite(angle) ? { angle } : {}),
     origin: {
       xyz: originXyz,
       rpy: originQuatWxyz
@@ -1061,6 +1218,7 @@ function createJointFromViewerEntry(
       ...(upper !== undefined ? { upper } : {}),
       ...(driveMaxForce !== undefined ? { effort: driveMaxForce } : {}),
     },
+    ...(usdPhysics ? { usdPhysics } : {}),
   };
 }
 
@@ -1174,17 +1332,81 @@ export function adaptUsdViewerSnapshotToRobotData(
   rootLinkPaths.forEach((entry) => addLinkPath(entry));
   Object.keys(metadata.meshCountsByLinkPath || {}).forEach((path) => addLinkPath(path));
 
-  const meshCountsByLinkPath = deriveMeshCountsByLinkPath(snapshot, linkPaths);
+  let meshCountsByLinkPath = deriveMeshCountsByLinkPath(snapshot, linkPaths);
   Object.keys(meshCountsByLinkPath).forEach((path) => addLinkPath(path));
+  const normalizedDefaultPrimPath = normalizeUsdPath(snapshot.stage?.defaultPrimPath);
+  const hasInternalMeshLibraryPath = Array.from(linkPaths).some((path) =>
+    isUsdInternalMeshLibraryPath(path),
+  );
+  const shouldOmitInternalMeshLibraryPaths =
+    shouldOmitUsdInternalMeshLibraryPaths(linkPaths) ||
+    (hasInternalMeshLibraryPath &&
+      Boolean(normalizedDefaultPrimPath) &&
+      !isUsdInternalMeshLibraryPath(normalizedDefaultPrimPath));
+  const effectiveSourceLinkPaths = shouldOmitInternalMeshLibraryPaths
+    ? new Set(Array.from(linkPaths).filter((path) => !isUsdInternalMeshLibraryPath(path)))
+    : new Set(linkPaths);
+  if (
+    shouldOmitInternalMeshLibraryPaths &&
+    effectiveSourceLinkPaths.size === 0 &&
+    normalizedDefaultPrimPath
+  ) {
+    effectiveSourceLinkPaths.add(normalizedDefaultPrimPath);
+  }
+  const effectiveSourceLinkParentPairs = shouldOmitInternalMeshLibraryPaths
+    ? linkParentPairs.filter(
+        ([childPath, parentPath]) =>
+          !isUsdInternalMeshLibraryPath(childPath) && !isUsdInternalMeshLibraryPath(parentPath),
+      )
+    : linkParentPairs;
+  const effectiveJointCatalogEntries = shouldOmitInternalMeshLibraryPaths
+    ? jointCatalogEntries.filter(
+        (entry) =>
+          !isUsdInternalMeshLibraryPath(entry.linkPath) &&
+          !isUsdInternalMeshLibraryPath(entry.childLinkPath) &&
+          !isUsdInternalMeshLibraryPath(entry.parentLinkPath),
+      )
+    : jointCatalogEntries;
+  const effectiveSourceRootLinkPaths = shouldOmitInternalMeshLibraryPaths
+    ? rootLinkPaths.filter((path) => !isUsdInternalMeshLibraryPath(path))
+    : rootLinkPaths;
+  if (
+    shouldOmitInternalMeshLibraryPaths &&
+    effectiveSourceRootLinkPaths.length === 0 &&
+    normalizedDefaultPrimPath
+  ) {
+    effectiveSourceRootLinkPaths.push(normalizedDefaultPrimPath);
+  }
+
+  if (shouldOmitInternalMeshLibraryPaths) {
+    meshCountsByLinkPath = Object.fromEntries(
+      Object.entries(meshCountsByLinkPath).filter(
+        ([linkPath]) => !isUsdInternalMeshLibraryPath(linkPath),
+      ),
+    );
+  }
+
+  const hierarchyFallback = buildMeshOnlyHierarchyFallback({
+    defaultPrimPath: snapshot.stage?.defaultPrimPath,
+    linkPaths: effectiveSourceLinkPaths,
+    linkParentPairs: effectiveSourceLinkParentPairs,
+    jointCatalogEntries: effectiveJointCatalogEntries,
+    rootLinkPaths: effectiveSourceRootLinkPaths,
+  });
+  const effectiveLinkPaths = hierarchyFallback.linkPaths;
+  const effectiveLinkParentPairs = hierarchyFallback.linkParentPairs;
+  const effectiveRootLinkPaths = hierarchyFallback.rootLinkPaths;
 
   const normalizedStageSourcePath = normalizeUsdPath(
     snapshot.stageSourcePath || metadata.stageSourcePath,
   );
-  if (linkPaths.size === 0) {
+  if (effectiveLinkPaths.size === 0) {
     return null;
   }
 
-  const sortedLinkPaths = Array.from(linkPaths).sort((left, right) => left.localeCompare(right));
+  const sortedLinkPaths = Array.from(effectiveLinkPaths).sort((left, right) =>
+    left.localeCompare(right),
+  );
   const dynamicsByLinkPath = new Map<string, LinkDynamicsEntry>();
   linkDynamicsEntries.forEach((entry) => {
     const normalizedPath = normalizeUsdPath(entry.linkPath);
@@ -1221,7 +1443,7 @@ export function adaptUsdViewerSnapshotToRobotData(
   const childLinkPathByJointId = new Map<string, string>();
   const parentLinkPathByJointId = new Map<string, string>();
 
-  for (const entry of jointCatalogEntries) {
+  for (const entry of effectiveJointCatalogEntries) {
     const joint = createJointFromViewerEntry(entry, linkIdByPath, usedJointIds);
     if (!joint) continue;
     joints[joint.id] = joint;
@@ -1241,7 +1463,7 @@ export function adaptUsdViewerSnapshotToRobotData(
     }
   }
 
-  for (const pair of linkParentPairs) {
+  for (const pair of effectiveLinkParentPairs) {
     const childPath = normalizeUsdPath(pair?.[0]);
     const parentPath = normalizeUsdPath(pair?.[1]);
     if (!childPath || !parentPath || explicitChildPaths.has(childPath)) continue;
@@ -1273,7 +1495,7 @@ export function adaptUsdViewerSnapshotToRobotData(
   }
 
   const childLinkIds = new Set(Object.values(joints).map((joint) => joint.childLinkId));
-  const preferredRootPath = normalizeUsdPath(rootLinkPaths[0]);
+  const preferredRootPath = normalizeUsdPath(effectiveRootLinkPaths[0]);
   const rootLinkId =
     (preferredRootPath ? linkIdByPath.get(preferredRootPath) : null) ||
     Object.keys(links).find((linkId) => !childLinkIds.has(linkId)) ||
@@ -1307,7 +1529,7 @@ export function adaptUsdViewerSnapshotToRobotData(
   descriptors.forEach((descriptor) => {
     const linkPath = resolveUsdDescriptorTargetLinkPath({
       descriptor,
-      knownLinkPaths: linkPaths,
+      knownLinkPaths: effectiveLinkPaths,
     });
     if (!linkPath) {
       return;
@@ -1349,6 +1571,10 @@ export function adaptUsdViewerSnapshotToRobotData(
       primaryGroup,
       materialLookup,
       materials,
+    );
+    links[parentLinkId].visual = attachUsdMeshDescriptorRefs(
+      links[parentLinkId].visual,
+      primaryGroup,
     );
 
     groupedEntries.slice(1).forEach((group, index) => {
@@ -1400,6 +1626,10 @@ export function adaptUsdViewerSnapshotToRobotData(
         materialLookup,
         materials,
       );
+      links[childLinkId].visual = attachUsdMeshDescriptorRefs(
+        links[childLinkId].visual,
+        group,
+      );
 
       group.entries.forEach(({ descriptor: groupDescriptor, ordinal }) => {
         visualDescriptorTargetLinkIds.set(
@@ -1427,6 +1657,7 @@ export function adaptUsdViewerSnapshotToRobotData(
       const nextGeometry: ResolvedUsdGeometry | null = resolveUsdPrimitiveGeometryFromDescriptor(
         descriptor,
         links[targetLinkId].visual,
+        snapshot,
       );
       if (!nextGeometry) {
         return;
@@ -1455,21 +1686,55 @@ export function adaptUsdViewerSnapshotToRobotData(
       }
 
       const currentCollision = index === 0 ? link.collision : link.collisionBodies?.[index - 1];
-      const nextGeometry: ResolvedUsdGeometry | null =
-        resolveUsdPrimitiveGeometryFromDescriptor(descriptor, currentCollision) ??
-        resolveUsdMeshApproximationGeometry(snapshot, descriptor);
+      const primitiveGeometry = resolveUsdPrimitiveGeometryFromDescriptor(
+        descriptor,
+        currentCollision,
+        snapshot,
+      );
+      const nextGeometry: ResolvedUsdGeometry | null = primitiveGeometry ?? (
+        isUsdMeshLikeDescriptor(descriptor)
+          ? {
+              type: GeometryType.MESH,
+              dimensions: currentCollision?.dimensions ?? { x: 1, y: 1, z: 1 },
+            }
+          : null
+      );
       if (!nextGeometry) {
+        const unresolvedCollision = attachUsdMeshDescriptorRefs(
+          {
+            ...DEFAULT_LINK.collision,
+            ...(currentCollision || {}),
+            type: GeometryType.NONE,
+            dimensions: { x: 0, y: 0, z: 0 },
+            meshPath: undefined,
+            origin: currentCollision?.origin ?? { ...DEFAULT_LINK.collision.origin },
+            verbose: `USD collision descriptor is missing real primitive or mesh payload data: ${
+              descriptor.resolvedPrimPath || descriptor.meshId || 'unknown'
+            }`,
+          },
+          group,
+        );
+        if (index === 0) {
+          link.collision = unresolvedCollision;
+          return;
+        }
+        const collisionBodies = [...(link.collisionBodies || [])];
+        collisionBodies[index - 1] = unresolvedCollision;
+        link.collisionBodies = collisionBodies;
         return;
       }
 
-      const nextCollision = {
-        ...DEFAULT_LINK.collision,
-        ...(currentCollision || {}),
-        ...nextGeometry,
-        meshPath: undefined,
-        origin: nextGeometry.origin ??
-          currentCollision?.origin ?? { ...DEFAULT_LINK.collision.origin },
-      };
+      const nextCollision = attachUsdMeshDescriptorRefs(
+        {
+          ...DEFAULT_LINK.collision,
+          ...(currentCollision || {}),
+          ...nextGeometry,
+          meshPath: undefined,
+          origin: nextGeometry.origin ??
+            currentCollision?.origin ?? { ...DEFAULT_LINK.collision.origin },
+        },
+        group,
+      );
 
       if (index === 0) {
         link.collision = nextCollision;

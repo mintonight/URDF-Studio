@@ -291,6 +291,82 @@ function expectSelectSlot(container: ParentNode, fieldKey: string) {
   assert.ok(row.querySelector('select'), `expected select slot "${fieldKey}" to contain a select`);
 }
 
+async function selectBridgeTab(container: ParentNode, tabId: 'relation' | 'transform' | 'joint') {
+  const tab = container.querySelector<HTMLButtonElement>(`[data-bridge-tab="${tabId}"]`);
+  assert.ok(tab, `expected ${tabId} tab to render`);
+
+  await act(async () => {
+    tab.click();
+    await Promise.resolve();
+  });
+}
+
+test('bridge create modal opens as a smaller tabbed adaptive editor', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(BridgeCreateModal, {
+          isOpen: true,
+          onClose: () => {},
+          onCreate: () => {},
+          onPreviewChange: () => {},
+          assemblyState: createAssemblyState(),
+          lang: 'zh',
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const dialogRoot = container.firstElementChild as HTMLElement | null;
+    assert.ok(dialogRoot, 'bridge dialog should render');
+    assert.equal(dialogRoot.style.width, '600px');
+
+    const tabList = container.querySelector<HTMLElement>('[data-bridge-tabs]');
+    assert.ok(tabList, 'bridge dialog should expose tab navigation');
+
+    const relationTab = tabList.querySelector<HTMLButtonElement>('[data-bridge-tab="relation"]');
+    const transformTab = tabList.querySelector<HTMLButtonElement>('[data-bridge-tab="transform"]');
+    assert.ok(relationTab, 'relation tab should render');
+    assert.ok(transformTab, 'transform tab should render');
+    assert.equal(relationTab.getAttribute('aria-selected'), 'true');
+    assert.equal(transformTab.getAttribute('aria-selected'), 'false');
+    assert.ok(
+      container.querySelector('[data-bridge-tab-panel="relation"]'),
+      'relation panel should be visible by default',
+    );
+    assert.equal(
+      container.querySelector('[data-bridge-tab-panel="transform"]'),
+      null,
+      'transform panel should stay hidden until selected',
+    );
+
+    await act(async () => {
+      transformTab.click();
+      await Promise.resolve();
+    });
+
+    assert.equal(relationTab.getAttribute('aria-selected'), 'false');
+    assert.equal(transformTab.getAttribute('aria-selected'), 'true');
+    assert.equal(
+      container.querySelector('[data-bridge-tab-panel="relation"]'),
+      null,
+      'relation panel should hide after switching tabs',
+    );
+    assert.ok(
+      container.querySelector('[data-bridge-row="origin"]'),
+      'transform tab should reveal origin controls',
+    );
+    assert.ok(
+      container.querySelector('[data-bridge-tab-panel="transform"]'),
+      'transform panel should render after switching tabs',
+    );
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
 test('bridge create modal keeps the compact grouped layout and removes legacy hint copy', async () => {
   const { dom, container, root } = createComponentRoot();
   const originalConsoleError = console.error;
@@ -324,7 +400,7 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
 
     const dialogRoot = container.firstElementChild as HTMLElement | null;
     assert.ok(dialogRoot, 'bridge dialog should render');
-    assert.equal(dialogRoot.style.width, '620px');
+    assert.equal(dialogRoot.style.width, '600px');
 
     assert.doesNotMatch(container.textContent ?? '', /桥接关节/);
     assert.doesNotMatch(container.textContent ?? '', /保持窗口打开时/);
@@ -375,6 +451,22 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
     const nameLabel = nameRow.querySelector('label');
     assert.ok(nameLabel, 'name row should keep its label');
     assert.match(nameLabel.className, /justify-end/);
+    const nameControl = nameRow.querySelector('div');
+    assert.ok(nameControl, 'name row should keep a control wrapper');
+    assert.match(
+      nameControl.className,
+      /items-center/,
+      'name row control wrapper should vertically center the input',
+    );
+    const typeRow = identityRow.querySelector<HTMLElement>('[data-bridge-inline-field="type"]');
+    assert.ok(typeRow, 'type row should render');
+    const typeControl = typeRow.querySelector('div');
+    assert.ok(typeControl, 'type row should keep a control wrapper');
+    assert.match(
+      typeControl.className,
+      /items-center/,
+      'type row control wrapper should vertically center the select trigger',
+    );
 
     const parentFieldsRow = parentCard.querySelector<HTMLElement>(
       '[data-bridge-side-fields="parent"]',
@@ -392,26 +484,12 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
       relationConnector,
       'joint relation connector should render between parent and child panels',
     );
-
-    const originRow = container.querySelector<HTMLElement>('[data-bridge-row="origin"]');
-    assert.ok(originRow, 'origin row should render');
-    expectInlineFieldRow(originRow, 'origin-x', 'input');
-    expectInlineFieldRow(originRow, 'origin-y', 'input');
-    expectInlineFieldRow(originRow, 'origin-z', 'input');
-    assert.equal(
-      originRow.querySelector('[data-bridge-axis="x"]') !== null,
-      true,
-      'origin X should render an axis-coded shell',
-    );
-    assert.equal(
-      originRow.querySelector('[data-bridge-axis="y"]') !== null,
-      true,
-      'origin Y should render an axis-coded shell',
-    );
-    assert.equal(
-      originRow.querySelector('[data-bridge-axis="z"]') !== null,
-      true,
-      'origin Z should render an axis-coded shell',
+    const relationGrid = relationConnector.parentElement;
+    assert.ok(relationGrid, 'relation connector should stay inside the relation grid');
+    assert.doesNotMatch(
+      relationGrid.className,
+      /_3rem_/,
+      'relation grid should not reserve an oversized fixed connector column',
     );
 
     const childButton = findButtonByText(container, '选择子侧');
@@ -468,6 +546,7 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
 
 test('bridge create modal uses friendly MJCF link labels in summaries and selectors', async () => {
   const { dom, container, root } = createComponentRoot();
+  const originalConsoleError = console.error;
   const assemblyState = createAssemblyState();
   const mjcfRootLink = assemblyState.components.component_a.robot.links['component_a/base_link'];
 
@@ -495,6 +574,14 @@ test('bridge create modal uses friendly MJCF link labels in summaries and select
     selection: { type: null, id: null },
     interactionGuard: null,
   });
+
+  console.error = (...args: unknown[]) => {
+    if (args.some((arg) => typeof arg === 'string' && arg.includes('not wrapped in act'))) {
+      return;
+    }
+
+    originalConsoleError(...args);
+  };
 
   try {
     await act(async () => {
@@ -537,6 +624,7 @@ test('bridge create modal uses friendly MJCF link labels in summaries and select
       interactionGuard: null,
     });
     await destroyComponentRoot(dom, root);
+    console.error = originalConsoleError;
   }
 });
 
@@ -605,6 +693,98 @@ test('bridge create modal keeps joint type compact and omits extra explanation c
     assert.ok(hardwareInterfaceSelect, 'hardware interface select should still render');
     assert.doesNotMatch(container.textContent ?? '', /绕单一轴线旋转/);
     assert.doesNotMatch(container.textContent ?? '', /无位置上下限/);
+  } finally {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      interactionGuard: null,
+    });
+    await destroyComponentRoot(dom, root);
+    console.error = originalConsoleError;
+  }
+});
+
+test('bridge create modal keeps zh hardware interface labels Chinese-only and prevents the field label from wrapping', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const originalConsoleError = console.error;
+
+  useSelectionStore.setState({
+    selection: { type: null, id: null },
+    interactionGuard: null,
+  });
+
+  console.error = (...args: unknown[]) => {
+    if (args.some((arg) => typeof arg === 'string' && arg.includes('not wrapped in act'))) {
+      return;
+    }
+
+    originalConsoleError(...args);
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(BridgeCreateModal, {
+          isOpen: true,
+          onClose: () => {},
+          onCreate: () => {},
+          onPreviewChange: () => {},
+          assemblyState: createAssemblyState(),
+          lang: 'zh',
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      await Promise.resolve();
+    });
+
+    const childButton = findButtonByText(container, '选择子侧');
+    assert.ok(childButton, 'child side picker button should render');
+
+    await act(async () => {
+      childButton.click();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      await Promise.resolve();
+    });
+
+    const jointTypeSelect = findJointTypeSelect(container);
+    assert.ok(jointTypeSelect, 'joint type select should render');
+
+    await act(async () => {
+      setFormControlValue(dom, jointTypeSelect, JointType.REVOLUTE);
+      await Promise.resolve();
+    });
+
+    const fieldLabel = container.querySelector(
+      '[data-bridge-inline-field="hardware-interface"] label',
+    ) as HTMLLabelElement | null;
+    assert.ok(fieldLabel, 'hardware interface field label should render');
+    assert.equal(fieldLabel.textContent?.trim(), '控制接口');
+    assert.match(fieldLabel.className, /\bwhitespace-nowrap\b/);
+    assert.match(fieldLabel.className, /\bw-auto\b/);
+
+    const trigger = container.querySelector(
+      'button[role="combobox"][aria-label="控制接口"]',
+    ) as HTMLButtonElement | null;
+    assert.ok(trigger, 'hardware interface combobox trigger should render');
+    assert.equal(trigger.textContent?.includes('位置'), true);
+    assert.equal(trigger.textContent?.includes('position'), false);
+
+    await act(async () => {
+      trigger.click();
+      await Promise.resolve();
+    });
+
+    const optionLabels = Array.from(
+      dom.window.document.querySelectorAll('button[role="option"] span'),
+    ).map((node) => node.textContent?.trim());
+    assert.deepEqual(optionLabels, ['位置', '力矩', '速度']);
   } finally {
     useSelectionStore.setState({
       selection: { type: null, id: null },
@@ -745,6 +925,8 @@ test('bridge create modal adds compact +/-90 degree rotation shortcuts for each 
       await Promise.resolve();
     });
 
+    await selectBridgeTab(container, 'transform');
+
     const rollDecreaseButton = container.querySelector('button[aria-label="横滚 减少 90°"]');
     const rollIncreaseButton = container.querySelector('button[aria-label="横滚 增加 90°"]');
     assert.ok(rollDecreaseButton, 'roll decrease shortcut button should exist');
@@ -765,6 +947,109 @@ test('bridge create modal adds compact +/-90 degree rotation shortcuts for each 
     });
 
     assert.equal(previewUpdates.at(-1), 0);
+  } finally {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      interactionGuard: null,
+    });
+    await destroyComponentRoot(dom, root);
+    console.error = originalConsoleError;
+  }
+});
+
+test('bridge create modal maps X/Y/Z keyboard shortcuts to Euler flip steps', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const previewUpdates: Array<{
+    r: number;
+    p: number;
+    y: number;
+  } | null> = [];
+  const originalConsoleError = console.error;
+
+  useSelectionStore.setState({
+    selection: { type: null, id: null },
+    interactionGuard: null,
+  });
+
+  console.error = (...args: unknown[]) => {
+    if (args.some((arg) => typeof arg === 'string' && arg.includes('not wrapped in act'))) {
+      return;
+    }
+
+    originalConsoleError(...args);
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(BridgeCreateModal, {
+          isOpen: true,
+          onClose: () => {},
+          onCreate: () => {},
+          onPreviewChange: (bridge) => {
+            previewUpdates.push(bridge ? bridge.joint.origin.rpy : null);
+          },
+          assemblyState: createAssemblyState(),
+          lang: 'zh',
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      await Promise.resolve();
+    });
+
+    const childButton = findButtonByText(container, '选择子侧');
+    assert.ok(childButton, 'child side picker button should render');
+
+    await act(async () => {
+      childButton.click();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      dom.window.document.dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'x', bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    assertNearlyEqual(previewUpdates.at(-1)?.r ?? 0, Math.PI / 2);
+
+    await act(async () => {
+      dom.window.document.dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'Y', bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    assertNearlyEqual(previewUpdates.at(-1)?.p ?? 0, Math.PI / 2);
+
+    await act(async () => {
+      dom.window.document.dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'z', shiftKey: true, bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    assertNearlyEqual(previewUpdates.at(-1)?.y ?? 0, -Math.PI / 2);
+
+    const nameInput = findTextInput(container);
+    assert.ok(nameInput, 'name input should render');
+    await act(async () => {
+      nameInput.focus();
+      nameInput.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'x', bubbles: true }));
+      await Promise.resolve();
+    });
+    assertNearlyEqual(
+      previewUpdates.at(-1)?.r ?? 0,
+      Math.PI / 2,
+      'typing inside an input should not trigger bridge rotation shortcuts',
+    );
   } finally {
     useSelectionStore.setState({
       selection: { type: null, id: null },
@@ -1021,11 +1306,104 @@ test('bridge create modal suggests a default bridge name and auto-uses it on con
       await Promise.resolve();
     });
 
+    await act(async () => {
+      await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
+    });
+
     assert.deepEqual(createdNames, ['Component_A-Component_B']);
     assertNearlyEqual(
       createdOriginXs[0] ?? 0,
       1.002,
       'bridge creation should commit the auto-suggested contact offset by default',
+    );
+  } finally {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      interactionGuard: null,
+    });
+    await destroyComponentRoot(dom, root);
+    console.error = originalConsoleError;
+  }
+});
+
+test('bridge create modal closes before committing a bridge so heavy assemblies do not block click feedback', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const events: string[] = [];
+  const originalConsoleError = console.error;
+
+  useSelectionStore.setState({
+    selection: { type: null, id: null },
+    interactionGuard: null,
+  });
+
+  console.error = (...args: unknown[]) => {
+    if (args.some((arg) => typeof arg === 'string' && arg.includes('not wrapped in act'))) {
+      return;
+    }
+
+    originalConsoleError(...args);
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(BridgeCreateModal, {
+          isOpen: true,
+          onClose: () => {
+            events.push('close');
+          },
+          onCreate: () => {
+            events.push('create');
+          },
+          onPreviewChange: (preview) => {
+            if (preview === null) {
+              events.push('preview-clear');
+            }
+          },
+          assemblyState: createAssemblyState(),
+          lang: 'zh',
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      await Promise.resolve();
+    });
+
+    const childButton = findButtonByText(container, '选择子侧');
+    assert.ok(childButton, 'child side picker button should render');
+
+    await act(async () => {
+      childButton.click();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      await Promise.resolve();
+    });
+
+    const confirmButton = findButtonByText(container, '确认');
+    assert.ok(confirmButton, 'confirm button should render');
+
+    await act(async () => {
+      confirmButton.click();
+      await Promise.resolve();
+    });
+
+    assert.equal(events.includes('create'), false, 'bridge creation should wait until after close');
+    assert.equal(events.includes('close'), true, 'modal should close immediately after confirm');
+
+    await act(async () => {
+      await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
+    });
+
+    assert.ok(events.includes('create'), 'bridge creation should run on the deferred tick');
+    assert.ok(
+      events.indexOf('close') < events.indexOf('create'),
+      'modal close should be observed before bridge creation starts',
     );
   } finally {
     useSelectionStore.setState({
@@ -1172,6 +1550,8 @@ test('bridge create modal updates the preview immediately when origin steppers c
       await Promise.resolve();
     });
 
+    await selectBridgeTab(container, 'transform');
+
     const increaseXButton = container.querySelector(
       'button[aria-label="Increase X"]',
     ) as HTMLButtonElement | null;
@@ -1246,6 +1626,8 @@ test('bridge create modal keeps incrementing origin steppers while the + button 
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
     });
+
+    await selectBridgeTab(container, 'transform');
 
     const increaseXButton = container.querySelector(
       'button[aria-label="Increase X"]',
@@ -1328,6 +1710,8 @@ test('bridge create modal wires press-and-hold handlers onto the quick +90 rotat
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
     });
+
+    await selectBridgeTab(container, 'transform');
 
     const rollIncreaseButton = container.querySelector(
       'button[aria-label="横滚 增加 90°"]',
@@ -1417,6 +1801,8 @@ test('bridge create modal submits configurable limits for non-fixed joints', asy
       await Promise.resolve();
     });
 
+    await selectBridgeTab(container, 'joint');
+
     const hardwareInterfaceSelect = findHardwareInterfaceSelect(container);
     assert.ok(hardwareInterfaceSelect, 'hardware interface select should render for motion joints');
 
@@ -1445,6 +1831,10 @@ test('bridge create modal submits configurable limits for non-fixed joints', asy
     await act(async () => {
       confirmButton.click();
       await Promise.resolve();
+    });
+
+    await act(async () => {
+      await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
     });
 
     assert.deepEqual(createdJoints.at(-1), {
@@ -1524,6 +1914,8 @@ test('bridge create modal disables confirm when the lower limit exceeds the uppe
       setFormControlValue(dom, jointTypeSelect, JointType.REVOLUTE);
       await Promise.resolve();
     });
+
+    await selectBridgeTab(container, 'joint');
 
     const lowerInput = findInputByAriaLabel(container, '位置下限');
     const upperInput = findInputByAriaLabel(container, '位置上限');

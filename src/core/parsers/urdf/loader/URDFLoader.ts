@@ -8,8 +8,8 @@ import {
   URDFVisual,
 } from './URDFClasses';
 import { stackCoincidentVisualRoots } from '@/core/loaders/visualMeshStacking';
-import { getCollisionBoxDisplayCylinderTransform } from '@/core/utils/collisionBoxDisplay';
 import { setThreeColorFromSRGB } from '@/core/utils/color.ts';
+import { getCollisionBoxDisplayCylinderTransform } from '@/core/utils/collisionBoxDisplay';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
 
 const tempQuaternion = new THREE.Quaternion();

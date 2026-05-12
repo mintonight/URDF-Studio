@@ -7,8 +7,8 @@ import {
 
 test('uses the same USD ground alignment settle delays for every stage', () => {
   const delays = resolveUsdGroundAlignmentSettleDelaysMs('/unitree_model/B2/usd/b2.usd');
-  assert.equal(delays.includes(5600), true);
-  assert.equal(delays.includes(7200), true);
+  assert.equal(delays.includes(1600), true);
+  assert.equal(delays.includes(3000), true);
   assert.deepEqual(
     resolveUsdGroundAlignmentSettleDelaysMs('/unitree_model/Go2/usd/go2.usd'),
     delays,

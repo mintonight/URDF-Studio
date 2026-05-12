@@ -7,10 +7,6 @@ import {
 import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
 import type { BridgeJoint, RobotData, RobotFile } from '@/types';
 
-import type { ImportPreparationOverlayState } from './useFileImport';
-
-type ToolMode = 'measure';
-
 interface UseWorkspaceOverlayActionsTranslations {
   addedComponent: string;
   loadingRobot: string;
@@ -48,14 +44,6 @@ interface UseWorkspaceOverlayActionsParams {
     joint: Partial<import('@/types').UrdfJoint>;
   }) => unknown;
   setIsCollisionOptimizerOpen: (value: boolean) => void;
-  setViewConfig: React.Dispatch<
-    React.SetStateAction<
-      {
-        showToolbar: boolean;
-      } & Record<string, unknown>
-    >
-  >;
-  setPendingViewerToolMode: (value: ToolMode | null) => void;
 }
 
 export function useWorkspaceOverlayActions({
@@ -72,8 +60,6 @@ export function useWorkspaceOverlayActions({
   setIsBridgeModalOpen,
   addBridge,
   setIsCollisionOptimizerOpen,
-  setViewConfig,
-  setPendingViewerToolMode,
 }: UseWorkspaceOverlayActionsParams) {
   const handleAddComponent = useCallback(
     (file: RobotFile) => {
@@ -151,11 +137,6 @@ export function useWorkspaceOverlayActions({
     setIsCollisionOptimizerOpen(true);
   }, [setIsCollisionOptimizerOpen]);
 
-  const handleOpenMeasureTool = useCallback(() => {
-    setViewConfig((prev) => ({ ...prev, showToolbar: true }));
-    setPendingViewerToolMode('measure');
-  }, [setPendingViewerToolMode, setViewConfig]);
-
   return {
     handleAddComponent,
     handleCreateBridge,
@@ -163,6 +144,5 @@ export function useWorkspaceOverlayActions({
     handleBridgePreviewChange,
     handleCreateBridgeCommit,
     handleOpenCollisionOptimizer,
-    handleOpenMeasureTool,
   };
 }

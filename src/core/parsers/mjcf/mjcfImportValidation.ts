@@ -15,6 +15,12 @@ export interface MJCFImportExternalAssetIssue {
   detail: string;
 }
 
+export interface MJCFImportExternalAssetValidationSummary {
+  issues: MJCFImportExternalAssetIssue[];
+  referencedAssetCount: number;
+  resolvedAssetCount: number;
+}
+
 const TEXTURE_FILE_ATTRIBUTES = [
   'file',
   'fileback',
@@ -214,7 +220,51 @@ function collectDirectChildElements(parent: Element, tagName: string): Element[]
 }
 
 function collectMissingAssetIssue(
-  issues: MJCFImportExternalAssetIssue[],
+  assetIndex: ReturnType<typeof buildAssetIndex>,
+  options: {
+    sourceFilePath: string;
+    referenceKind: MJCFImportExternalAssetKind;
+    attributeName: string;
+    rawPath: string | null;
+    compilerDirectory: string;
+    elementName: string | null;
+  },
+): MJCFImportExternalAssetIssue | 'matched' | null {
+  const rawPath = options.rawPath?.trim();
+  if (!rawPath) {
+    return null;
+  }
+
+  const resolvedPath = resolveAssetReferencePath(
+    options.sourceFilePath,
+    rawPath,
+    options.compilerDirectory,
+  );
+  if (!resolvedPath) {
+    return null;
+  }
+
+  if (hasValidatedAssetMatch(assetIndex, resolvedPath)) {
+    return 'matched';
+  }
+
+  const label = options.elementName
+    ? `${options.referenceKind} "${options.elementName}"`
+    : `${options.referenceKind} asset`;
+  return {
+    kind: 'missing_external_asset',
+    referenceKind: options.referenceKind,
+    attributeName: options.attributeName,
+    rawPath,
+    resolvedPath,
+    sourceFilePath: options.sourceFilePath,
+    elementName: options.elementName,
+    detail: `Referenced MJCF ${label} file "${resolvedPath}" could not be resolved from "${options.sourceFilePath}".`,
+  };
+}
+
+function appendAssetValidationOutcome(
+  summary: MJCFImportExternalAssetValidationSummary,
   assetIndex: ReturnType<typeof buildAssetIndex>,
   options: {
     sourceFilePath: string;
@@ -225,63 +275,57 @@ function collectMissingAssetIssue(
     elementName: string | null;
   },
 ): void {
-  const rawPath = options.rawPath?.trim();
-  if (!rawPath) {
+  const outcome = collectMissingAssetIssue(assetIndex, options);
+  if (!outcome) {
     return;
   }
 
-  const resolvedPath = resolveAssetReferencePath(
-    options.sourceFilePath,
-    rawPath,
-    options.compilerDirectory,
-  );
-  if (!resolvedPath) {
+  summary.referencedAssetCount += 1;
+  if (outcome === 'matched') {
+    summary.resolvedAssetCount += 1;
     return;
   }
 
-  if (hasValidatedAssetMatch(assetIndex, resolvedPath)) {
-    return;
-  }
-
-  const label = options.elementName
-    ? `${options.referenceKind} "${options.elementName}"`
-    : `${options.referenceKind} asset`;
-  issues.push({
-    kind: 'missing_external_asset',
-    referenceKind: options.referenceKind,
-    attributeName: options.attributeName,
-    rawPath,
-    resolvedPath,
-    sourceFilePath: options.sourceFilePath,
-    elementName: options.elementName,
-    detail: `Referenced MJCF ${label} file "${resolvedPath}" could not be resolved from "${options.sourceFilePath}".`,
-  });
+  summary.issues.push(outcome);
 }
 
-export function validateMJCFImportExternalAssets(
+export function inspectMJCFImportExternalAssets(
   sourceFilePath: string,
   content: string,
   availableFiles: RobotFile[],
   assets: Record<string, string>,
-): MJCFImportExternalAssetIssue[] {
+): MJCFImportExternalAssetValidationSummary {
   const { doc } = parseMJCFXmlDocument(content);
   if (!doc) {
-    return [];
+    return {
+      issues: [],
+      referencedAssetCount: 0,
+      resolvedAssetCount: 0,
+    };
   }
 
   const mujocoEl = doc.querySelector('mujoco');
   if (!mujocoEl) {
-    return [];
+    return {
+      issues: [],
+      referencedAssetCount: 0,
+      resolvedAssetCount: 0,
+    };
   }
 
   const settings = parseCompilerSettings(doc);
-  const assetIndex = buildAssetIndex(buildKnownAssetLookup(availableFiles, assets));
-  const issues: MJCFImportExternalAssetIssue[] = [];
+  const knownAssetLookup = buildKnownAssetLookup(availableFiles, assets);
+  const assetIndex = buildAssetIndex(knownAssetLookup);
+  const summary: MJCFImportExternalAssetValidationSummary = {
+    issues: [],
+    referencedAssetCount: 0,
+    resolvedAssetCount: 0,
+  };
   const assetSections = collectDirectChildElements(mujocoEl, 'asset');
 
   assetSections.forEach((assetEl) => {
     collectDirectChildElements(assetEl, 'mesh').forEach((meshEl) => {
-      collectMissingAssetIssue(issues, assetIndex, {
+      appendAssetValidationOutcome(summary, assetIndex, {
         sourceFilePath,
         referenceKind: 'mesh',
         attributeName: 'file',
@@ -293,7 +337,7 @@ export function validateMJCFImportExternalAssets(
 
     collectDirectChildElements(assetEl, 'texture').forEach((textureEl) => {
       TEXTURE_FILE_ATTRIBUTES.forEach((attributeName) => {
-        collectMissingAssetIssue(issues, assetIndex, {
+        appendAssetValidationOutcome(summary, assetIndex, {
           sourceFilePath,
           referenceKind: 'texture',
           attributeName,
@@ -305,7 +349,7 @@ export function validateMJCFImportExternalAssets(
     });
 
     collectDirectChildElements(assetEl, 'hfield').forEach((hfieldEl) => {
-      collectMissingAssetIssue(issues, assetIndex, {
+      appendAssetValidationOutcome(summary, assetIndex, {
         sourceFilePath,
         referenceKind: 'hfield',
         attributeName: 'file',
@@ -316,7 +360,7 @@ export function validateMJCFImportExternalAssets(
     });
 
     collectDirectChildElements(assetEl, 'model').forEach((modelEl) => {
-      collectMissingAssetIssue(issues, assetIndex, {
+      appendAssetValidationOutcome(summary, assetIndex, {
         sourceFilePath,
         referenceKind: 'model',
         attributeName: 'file',
@@ -327,5 +371,14 @@ export function validateMJCFImportExternalAssets(
     });
   });
 
-  return issues;
+  return summary;
+}
+
+export function validateMJCFImportExternalAssets(
+  sourceFilePath: string,
+  content: string,
+  availableFiles: RobotFile[],
+  assets: Record<string, string>,
+): MJCFImportExternalAssetIssue[] {
+  return inspectMJCFImportExternalAssets(sourceFilePath, content, availableFiles, assets).issues;
 }

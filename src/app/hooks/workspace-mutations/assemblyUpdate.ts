@@ -43,6 +43,12 @@ interface AssemblyUpdateParams {
     objectIndex: number;
     geometry: UrdfLink['collision'];
   }) => void;
+  patchEditableSourceUpdateJointLimit?: (args: {
+    sourceFileName?: string | null;
+    jointName: string;
+    jointType: UrdfJoint['type'];
+    limit: NonNullable<UrdfJoint['limit']>;
+  }) => void;
   patchEditableSourceRenameEntities?: (args: {
     sourceFileName?: string | null;
     operations: { kind: 'link' | 'joint'; currentName: string; nextName: string }[];
@@ -215,12 +221,27 @@ export function applyAssemblyUpdate(params: AssemblyUpdateParams): boolean {
       const historyKey =
         params.options.historyKey ?? `assembly:component:${comp.id}:joint:${resolvedJointId}`;
       const historyLabel = params.options.historyLabel ?? 'Update assembly component';
+      const currentJoint = comp.robot.joints[resolvedJointId];
+      if (!currentJoint) {
+        return false;
+      }
+      const jointPatch = params.data as Partial<UrdfJoint>;
+      const nextJoint: UrdfJoint = {
+        ...currentJoint,
+        ...jointPatch,
+        limit: jointPatch.limit
+          ? {
+              ...currentJoint.limit,
+              ...jointPatch.limit,
+            }
+          : currentJoint.limit,
+      };
 
       params.ensurePendingAssemblyHistory(historyKey, historyLabel);
       params.updateComponentRobot(
         comp.id,
         {
-          joints: { ...comp.robot.joints, [resolvedJointId]: params.data as UrdfJoint },
+          joints: { ...comp.robot.joints, [resolvedJointId]: nextJoint },
         },
         {
           skipHistory: true,
@@ -228,15 +249,22 @@ export function applyAssemblyUpdate(params: AssemblyUpdateParams): boolean {
         },
       );
 
-      const currentJoint = comp.robot.joints[resolvedJointId];
-      if (currentJoint && currentJoint.name !== (params.data as UrdfJoint).name) {
+      if (jointPatch.limit) {
+        params.patchEditableSourceUpdateJointLimit?.({
+          sourceFileName: comp.sourceFile,
+          jointName: currentJoint.name,
+          jointType: jointPatch.type ?? currentJoint.type,
+          limit: nextJoint.limit ?? jointPatch.limit,
+        });
+      }
+      if (typeof jointPatch.name === 'string' && currentJoint.name !== jointPatch.name) {
         params.patchEditableSourceRenameEntities?.({
           sourceFileName: comp.sourceFile,
           operations: [
             {
               kind: 'joint',
               currentName: currentJoint.name,
-              nextName: (params.data as UrdfJoint).name,
+              nextName: nextJoint.name,
             },
           ],
         });

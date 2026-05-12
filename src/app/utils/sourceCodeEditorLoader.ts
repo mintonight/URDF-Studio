@@ -25,9 +25,5 @@ export const loadSourceCodeEditorRuntime = () => {
 export const preloadSourceCodeEditor = () => loadSourceCodeEditorModule();
 
 export const preloadSourceCodeEditorRuntime = async () => {
-  const [, monacoLoaderModule] = await loadSourceCodeEditorRuntime();
-  await Promise.all([
-    monacoLoaderModule.preloadMonacoEditor(),
-    monacoLoaderModule.preloadMonacoEditorWorker(),
-  ]);
+  await loadSourceCodeEditorRuntime();
 };

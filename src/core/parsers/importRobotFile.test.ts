@@ -20,6 +20,10 @@ function pathFromMyosuiteFixture(relativePath: string): string {
   return path.join('test', 'myosuite-main', ...relativePath.split('/'));
 }
 
+function pathFromMujocoFixture(relativePath: string): string {
+  return path.join('test', 'mujoco_menagerie-main', ...relativePath.split('/'));
+}
+
 function createUsdFile(name = 'robots/demo/demo.usd'): RobotFile {
   return {
     name,
@@ -95,6 +99,29 @@ test('resolveRobotFileData returns cached USD robot data when provided', () => {
   assert.equal(result.robotData.name, 'cached_usd_robot');
   assert.equal(result.robotData.rootLinkId, 'base_link');
   assert.deepEqual(result.robotData.links, usdRobotData.links);
+});
+
+test('resolveRobotFileData stamps source format onto ready RobotData', () => {
+  const urdfResult = resolveRobotFileData({
+    name: 'robots/demo.urdf',
+    content: `<?xml version="1.0"?><robot name="demo"><link name="base_link" /></robot>`,
+    format: 'urdf',
+  });
+  const sdfResult = resolveRobotFileData(createSdfFile());
+  const usdResult = resolveRobotFileData(createUsdFile(), {
+    usdRobotData: createResolvedUsdRobotData('cached_usd_robot'),
+  });
+
+  assert.equal(urdfResult.status, 'ready');
+  assert.equal(sdfResult.status, 'ready');
+  assert.equal(usdResult.status, 'ready');
+  if (urdfResult.status !== 'ready' || sdfResult.status !== 'ready' || usdResult.status !== 'ready') {
+    assert.fail('Expected all import results to be ready');
+  }
+
+  assert.equal(urdfResult.robotData.inspectionContext?.sourceFormat, 'urdf');
+  assert.equal(sdfResult.robotData.inspectionContext?.sourceFormat, 'sdf');
+  assert.equal(usdResult.robotData.inspectionContext?.sourceFormat, 'usd');
 });
 
 test('resolveRobotFileData syncs cached USD material colors back onto link visuals', () => {
@@ -204,6 +231,41 @@ test('resolveRobotFileData keeps all Aliengo leg links when importing the genera
       `Expected imported Aliengo robot to include ${linkId}`,
     );
   }
+});
+
+test('resolveRobotFileData preserves nested folder-import paths for package URDF meshes', () => {
+  const sourceFile: RobotFile = {
+    name: 'unitree_ros/robots/a1_description/urdf/a1.urdf',
+    format: 'urdf',
+    content: `<?xml version="1.0"?>
+<robot name="a1">
+  <link name="trunk">
+    <visual>
+      <geometry>
+        <mesh filename="package://a1_description/meshes/trunk.dae" />
+      </geometry>
+    </visual>
+  </link>
+</robot>`,
+  };
+  const meshFile: RobotFile = {
+    name: 'unitree_ros/robots/a1_description/meshes/trunk.dae',
+    format: 'mesh',
+    content: '',
+  };
+
+  const result = resolveRobotFileData(sourceFile, {
+    availableFiles: [sourceFile, meshFile],
+  });
+
+  assert.equal(result.status, 'ready');
+  if (result.status !== 'ready') {
+    assert.fail('Expected nested Unitree URDF import result to be ready');
+  }
+  assert.equal(
+    result.robotData.links.trunk?.visual.meshPath,
+    'unitree_ros/robots/a1_description/meshes/trunk.dae',
+  );
 });
 
 test('resolveRobotFileData restores empty URDF inline content from exact contextual sources', () => {
@@ -399,9 +461,31 @@ test('resolveRobotFileData returns a parse error when XML parser APIs are unavai
     }
     assert.equal(result.reason, 'parse_failed');
     assert.match(result.message ?? '', /robots\/demo\/model\.sdf/);
+    assert.match(result.message ?? '', /phase: parsing SDF/i);
   } finally {
     globalThis.DOMParser = previousDomParser;
   }
+});
+
+test('resolveRobotFileData includes source file and phase on malformed SDF imports', () => {
+  const result = resolveRobotFileData({
+    name: 'robots/demo/broken.sdf',
+    content: [
+      '<?xml version="1.0"?>',
+      '<sdf version="1.7">',
+      '  <model name="broken">',
+      '    <link name="base_link">',
+    ].join('\n'),
+    format: 'sdf',
+  });
+
+  assert.equal(result.status, 'error');
+  if (result.status !== 'error') {
+    assert.fail('Expected malformed SDF import result to be an error');
+  }
+  assert.equal(result.reason, 'parse_failed');
+  assert.match(result.message ?? '', /SDF file "robots\/demo\/broken\.sdf"/);
+  assert.match(result.message ?? '', /phase: parsing SDF/i);
 });
 
 test('resolveRobotFileData keeps file context on malformed URDF imports', () => {
@@ -417,6 +501,7 @@ test('resolveRobotFileData keeps file context on malformed URDF imports', () => 
   }
   assert.equal(result.reason, 'parse_failed');
   assert.match(result.message ?? '', /URDF file "robots\/demo\/broken\.urdf"/);
+  assert.match(result.message ?? '', /phase: parsing URDF/i);
 });
 
 test('resolveRobotFileData does not hide malformed URDF inline content behind contextual truth', () => {
@@ -675,6 +760,103 @@ test('describeRobotImportFailure falls back to standalone-fragment guidance for 
   });
 
   assert.match(detail, /cannot be assembled as a standalone component/i);
+});
+
+test('resolveRobotFileData ignores unrelated workspace assets when auto-validating standalone MJCF imports', () => {
+  const file: RobotFile = {
+    name: 'mujoco_menagerie-main/agilex_piper/piper.xml',
+    content: fs.readFileSync(pathFromMujocoFixture('agilex_piper/piper.xml'), 'utf8'),
+    format: 'mjcf',
+  };
+
+  const result = resolveRobotFileData(file, {
+    availableFiles: [file],
+    assets: {
+      'workspace/unrelated/preview.png': 'blob:preview',
+    },
+  });
+
+  assert.equal(result.status, 'ready');
+  if (result.status !== 'ready') {
+    assert.fail('Expected standalone MJCF import to stay ready');
+  }
+});
+
+test('resolveRobotFileData preserves MJCF inspection context on ready robot data', () => {
+  const file: RobotFile = {
+    name: 'robots/demo/inspection-context.xml',
+    content: `
+      <mujoco model="inspection-context">
+        <default class="main">
+          <site type="sphere" size="0.01" />
+          <tendon width="0.02" />
+        </default>
+        <worldbody>
+          <body name="base_link" childclass="main">
+            <site name="tool_center" pos="0 0 0.1" />
+            <body name="finger_link">
+              <joint name="finger_joint" type="hinge" axis="0 1 0" range="-0.5 0.5" />
+            </body>
+          </body>
+        </worldbody>
+        <tendon>
+          <spatial name="finger_tendon">
+            <site site="tool_center" />
+          </spatial>
+        </tendon>
+        <actuator>
+          <motor name="finger_tendon_motor" tendon="finger_tendon" />
+        </actuator>
+      </mujoco>
+    `,
+    format: 'mjcf',
+  };
+
+  const result = resolveRobotFileData(file, {
+    availableFiles: [file],
+  });
+
+  assert.equal(result.status, 'ready');
+  if (result.status !== 'ready') {
+    assert.fail('Expected MJCF import result to be ready');
+  }
+  assert.equal(result.robotData.inspectionContext?.sourceFormat, 'mjcf');
+  assert.equal(result.robotData.inspectionContext?.mjcf?.siteCount, 1);
+  assert.equal(result.robotData.inspectionContext?.mjcf?.tendonCount, 1);
+  assert.equal(result.robotData.inspectionContext?.mjcf?.tendonActuatorCount, 1);
+});
+
+test('resolveRobotFileData still flags missing MJCF assets in auto mode once related assets are present', () => {
+  const file: RobotFile = {
+    name: 'robots/demo/paddle.xml',
+    content: `<mujoco model="paddle">
+  <compiler meshdir="assets" texturedir="textures" />
+  <asset>
+    <mesh name="paddle_mesh" file="paddle.obj" />
+    <texture name="paddle_tex" type="2d" file="paddle.png" />
+  </asset>
+  <worldbody>
+    <body name="base_link">
+      <geom type="mesh" mesh="paddle_mesh" />
+    </body>
+  </worldbody>
+</mujoco>`,
+    format: 'mjcf',
+  };
+
+  const result = resolveRobotFileData(file, {
+    availableFiles: [file],
+    assets: {
+      'robots/demo/assets/paddle.obj': 'blob:mesh',
+    },
+  });
+
+  assert.equal(result.status, 'error');
+  if (result.status !== 'error') {
+    assert.fail('Expected auto MJCF validation to catch the remaining missing texture');
+  }
+  assert.equal(result.reason, 'parse_failed');
+  assert.match(result.message ?? '', /robots\/demo\/textures\/paddle\.png/);
 });
 
 test('resolveRobotFileData can enforce MJCF external asset validation before parse-ready import', () => {
@@ -1046,14 +1228,26 @@ test('resolveRobotFileData tolerates MuJoCo-style MJCF with missing attribute wh
     format: 'mjcf' as const,
   };
 
-  const result = resolveRobotFileData(file, {
-    availableFiles: [file],
-  });
+  const warnings: unknown[][] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+
+  let result: ReturnType<typeof resolveRobotFileData>;
+  try {
+    result = resolveRobotFileData(file, {
+      availableFiles: [file],
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
 
   assert.equal(result.status, 'ready');
   if (result.status !== 'ready') {
     assert.fail('Expected malformed-but-MuJoCo-compatible MJCF to import successfully');
   }
+  assert.deepEqual(warnings, []);
   assert.equal(result.robotData.name, 'arm26');
   assert.ok(Object.keys(result.robotData.links).length >= 4);
   assert.ok(Object.keys(result.robotData.joints).length >= 1);

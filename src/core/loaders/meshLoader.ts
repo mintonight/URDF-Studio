@@ -886,12 +886,23 @@ export const createLoadingManager = (assets: Record<string, string>, urdfDir: st
 // Shared placeholder geometry (created once)
 const PLACEHOLDER_GEOMETRY = new THREE.BoxGeometry(0.05, 0.05, 0.05);
 
+interface MeshLoadIssue {
+  message: string;
+  path: string;
+}
+
 // Optional placeholder mesh for callers that explicitly opt into degraded rendering.
-export const createPlaceholderMesh = (path: string): THREE.Object3D => {
+export const createPlaceholderMesh = (
+  path: string,
+  meshLoadIssue?: MeshLoadIssue,
+): THREE.Object3D => {
   // Use shared geometry and material to avoid shader recompilation
   const mesh = new THREE.Mesh(PLACEHOLDER_GEOMETRY, PLACEHOLDER_MATERIAL);
   mesh.userData.isPlaceholder = true;
   mesh.userData.missingMeshPath = path;
+  if (meshLoadIssue) {
+    mesh.userData.meshLoadIssue = meshLoadIssue;
+  }
   return mesh;
 };
 
@@ -1048,18 +1059,50 @@ export const createMeshLoader = (
   const allowPlaceholderMeshes = options.allowPlaceholderMeshes === true;
   const yieldIfNeeded =
     options.yieldIfNeeded ?? createMainThreadYieldController(options.yieldBudgetMs);
+  const placeholderMeshFailures: MeshLoadIssue[] = [];
+  let placeholderMeshFailureWarningScheduled = false;
+
+  const schedulePlaceholderMeshFailureWarning = (issue: MeshLoadIssue) => {
+    placeholderMeshFailures.push(issue);
+    if (placeholderMeshFailureWarningScheduled) {
+      return;
+    }
+
+    placeholderMeshFailureWarningScheduled = true;
+    setTimeout(() => {
+      placeholderMeshFailureWarningScheduled = false;
+      const failures = placeholderMeshFailures.splice(0);
+      if (failures.length === 0) {
+        return;
+      }
+
+      console.warn(
+        `[MeshLoader] Missing ${failures.length} mesh asset(s); rendering placeholders instead.`,
+        failures.slice(0, 20).map((failure) => failure.path),
+      );
+    }, 0);
+  };
 
   const resolveMeshFailure = (
     path: string,
     message: string,
     cause?: unknown,
-  ): { error: Error; object: THREE.Object3D | null } => {
+  ): { error?: Error; object: THREE.Object3D | null } => {
     const error = normalizeRuntimeError(cause, message);
+    const issue: MeshLoadIssue = { message, path };
+
+    if (allowPlaceholderMeshes) {
+      schedulePlaceholderMeshFailureWarning(issue);
+      return {
+        object: createPlaceholderMesh(path, issue),
+      };
+    }
+
     logRuntimeFailure('MeshLoader', new Error(`${message} (${path})`, { cause: error }));
 
     return {
       error,
-      object: allowPlaceholderMeshes ? createPlaceholderMesh(path) : null,
+      object: null,
     };
   };
 

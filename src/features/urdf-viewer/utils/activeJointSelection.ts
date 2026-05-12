@@ -1,5 +1,5 @@
 import { resolveViewerJointKey } from '@/shared/utils/jointPanelState';
-import { isSingleDofJoint } from './jointTypes';
+import { isSingleDofJoint } from '@/shared/utils/jointTypes';
 
 type ViewerSelection = {
   type: 'link' | 'joint' | 'tendon' | null;

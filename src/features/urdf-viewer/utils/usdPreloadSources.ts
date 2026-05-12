@@ -1,4 +1,9 @@
 import type { RobotFile } from '@/types';
+import {
+  normalizeLibraryPathKey,
+  normalizeVirtualDirectoryPath,
+  normalizeVirtualUsdPath,
+} from '@/shared/utils/pathKeys';
 import { buildCriticalUsdDependencyPaths } from './usdCriticalDependencyPaths.ts';
 import { USD_INSTANCEABLE_VISUAL_SCOPE_NORMALIZATION_VERSION } from './usdStageOpenTextNormalization.ts';
 import {
@@ -24,6 +29,7 @@ export interface UsdPreloadEntry {
 
 type StageOpenSourceFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl'>;
 type StageOpenAvailableFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl' | 'format'>;
+const USD_BINARY_MAGIC = 'PXR-USDC';
 
 function hashString(value: string): string {
   let hash = 2166136261;
@@ -35,37 +41,28 @@ function hashString(value: string): string {
 }
 
 function normalizeUsdAssetPath(path: string): string {
-  return String(path || '')
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '');
+  return normalizeLibraryPathKey(path);
 }
 
 function normalizeUsdBundleVirtualDirectory(path: string): string {
-  const normalized = String(path || '')
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '')
-    .replace(/\/+/g, '/')
-    .replace(/\/?$/, '/');
-  if (!normalized || normalized === '/') {
-    return '/';
-  }
-  return `/${normalized}`;
+  return normalizeVirtualDirectoryPath(path);
 }
 
 export function toVirtualUsdPath(path: string): string {
-  const normalizedPath = normalizeUsdAssetPath(path);
-  if (!normalizedPath) {
-    return '/';
-  }
-  return `/${normalizedPath}`;
+  return normalizeVirtualUsdPath(path);
 }
 
 function isUsdLayerPath(path: string): boolean {
   return /\.usd(?:a|c|z)?$/i.test(normalizeUsdAssetPath(path));
 }
 
+export function isTextualUsdLayerCandidatePath(path: string): boolean {
+  const normalizedPath = normalizeUsdAssetPath(path).toLowerCase();
+  return normalizedPath.endsWith('.usd') || normalizedPath.endsWith('.usda');
+}
+
 function shouldBuildUsdNormalizationCacheKey(path: string): boolean {
-  return normalizeUsdAssetPath(path).toLowerCase().endsWith('.usda');
+  return isTextualUsdLayerCandidatePath(path);
 }
 
 function hasInlineUsdLayerTextContent(
@@ -80,7 +77,45 @@ function hasInlineUsdLayerTextContent(
     return false;
   }
 
-  return typeof file.content === 'string' && file.content.length > 0;
+  return (
+    typeof file.content === 'string' &&
+    file.content.length > 0 &&
+    !isLikelyBinaryUsdLayerContent(file.name, file.content)
+  );
+}
+
+function isLikelyBinaryUsdLayerContent(path: string, content: string | undefined): boolean {
+  if (typeof content !== 'string' || content.length <= 0) {
+    return false;
+  }
+
+  const normalizedPath = normalizeUsdAssetPath(path).toLowerCase();
+  if (normalizedPath.endsWith('.usda')) {
+    return false;
+  }
+
+  if (normalizedPath.endsWith('.usdc') || normalizedPath.endsWith('.usdz')) {
+    return true;
+  }
+
+  const sample = content.slice(0, Math.min(content.length, 512));
+  if (!sample) {
+    return false;
+  }
+
+  if (sample.startsWith(USD_BINARY_MAGIC) || sample.includes('\u0000')) {
+    return true;
+  }
+
+  let printableCount = 0;
+  for (let index = 0; index < sample.length; index += 1) {
+    const code = sample.charCodeAt(index);
+    if (code === 9 || code === 10 || code === 13 || (code >= 32 && code <= 126)) {
+      printableCount += 1;
+    }
+  }
+
+  return printableCount / sample.length < 0.9;
 }
 
 function pickMoreInformativeUsdLayerFile<T extends Pick<RobotFile, 'name' | 'content' | 'blobUrl'>>(
@@ -332,9 +367,11 @@ export function createUsdPreloadSource(
 ): UsdPreloadSource {
   const normalizedPath = normalizeUsdAssetPath(file.name).toLowerCase();
   const resolvedBlobUrl = resolveUsdBlobUrl(file.name, file.blobUrl, assets);
+  const hasBinaryInlineContent = isLikelyBinaryUsdLayerContent(file.name, file.content);
   const canInlineTextContent =
     typeof file.content === 'string' &&
     file.content.length > 0 &&
+    !hasBinaryInlineContent &&
     !normalizedPath.endsWith('.usdc') &&
     !normalizedPath.endsWith('.usdz');
 
@@ -351,7 +388,9 @@ export function createUsdPreloadSource(
     return {
       kind: 'blob-url',
       loadBlob: () => fetchBlobFromUrl(resolvedBlobUrl),
-      loadText: normalizedPath.endsWith('.usda') ? () => fetchTextFromUrl(resolvedBlobUrl) : null,
+      loadText: isTextualUsdLayerCandidatePath(normalizedPath)
+        ? () => fetchTextFromUrl(resolvedBlobUrl)
+        : null,
       normalizationCacheKey: buildUsdPreloadNormalizationCacheKey(file, resolvedBlobUrl),
     };
   }
@@ -409,7 +448,7 @@ export function buildUsdBundlePreloadEntries(
       addEntry(
         virtualPath,
         () => fetchBlobFromUrl(resolvedBlobUrl),
-        virtualPath.toLowerCase().endsWith('.usda')
+        isTextualUsdLayerCandidatePath(virtualPath)
           ? () => fetchTextFromUrl(resolvedBlobUrl)
           : null,
         buildUsdPreloadNormalizationCacheKey(

@@ -30,6 +30,7 @@ function resetAssetsStore() {
   state.clearAssets();
   state.clearRobotLibrary();
   state.clearUsdSceneSnapshots();
+  state.clearUsdBakedScenes();
   state.clearUsdPreparedExportCaches();
   state.setAvailableFiles([]);
   state.setSelectedFile(null);
@@ -115,6 +116,50 @@ test('removeRobotFile clears matching prepared USD export cache', () => {
   state.removeRobotFile('robots/demo/demo.usd');
 
   assert.equal(useAssetsStore.getState().getUsdPreparedExportCache('robots/demo/demo.usd'), null);
+});
+
+test('USD cache lookups normalize virtual and library path variants', () => {
+  resetAssetsStore();
+
+  const state = useAssetsStore.getState();
+  state.setUsdSceneSnapshot(
+    '/robots//demo/../demo/demo.usd?v=1',
+    createUsdSceneSnapshot('/robots/demo/demo.usd'),
+  );
+  state.setUsdPreparedExportCache(
+    'robots\\demo\\.\\demo.usd?v=1',
+    createPreparedUsdExportCache('/robots/demo/demo.usd'),
+  );
+
+  assert.ok(state.getUsdSceneSnapshot('robots/demo/demo.usd'));
+  assert.ok(state.getUsdSceneSnapshot('/robots/demo/demo.usd?other=1'));
+  assert.ok(state.getUsdPreparedExportCache('robots/demo/demo.usd'));
+  assert.ok(state.getUsdPreparedExportCache('/robots//demo/demo.usd?other=1'));
+});
+
+test('USD baked scene accessors share storage with legacy scene snapshot accessors', () => {
+  resetAssetsStore();
+
+  const state = useAssetsStore.getState();
+  state.setUsdBakedScene(
+    '/robots/demo/demo.usd',
+    createUsdSceneSnapshot('/robots/demo/demo.usd'),
+  );
+
+  assert.ok(state.getUsdBakedScene('robots/demo/demo.usd'));
+  assert.ok(state.getUsdSceneSnapshot('robots/demo/demo.usd'));
+
+  state.setUsdSceneSnapshot(
+    '/robots/alt/alt.usd',
+    createUsdSceneSnapshot('/robots/alt/alt.usd'),
+  );
+
+  assert.ok(useAssetsStore.getState().getUsdBakedScene('robots/alt/alt.usd'));
+
+  useAssetsStore.getState().clearUsdBakedScenes();
+
+  assert.equal(useAssetsStore.getState().getUsdBakedScene('robots/demo/demo.usd'), null);
+  assert.equal(useAssetsStore.getState().getUsdSceneSnapshot('robots/alt/alt.usd'), null);
 });
 
 test('clearRobotLibrary clears all prepared USD export caches', () => {

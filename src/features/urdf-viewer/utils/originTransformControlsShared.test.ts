@@ -37,14 +37,24 @@ function createRobotJointsFixture(): Record<string, UrdfJoint> {
   };
 }
 
-test('resolveOriginTransformJointId maps a link origin helper to its preferred child joint', () => {
+test('resolveOriginTransformJointId maps a child link origin helper to its parent joint', () => {
+  const selection: InteractionSelection = {
+    type: 'link',
+    id: 'hip_link',
+    helperKind: 'origin-axes',
+  };
+
+  assert.equal(resolveOriginTransformJointId(selection, createRobotJointsFixture()), 'hip_joint');
+});
+
+test('resolveOriginTransformJointId leaves the root link origin helper without a joint mapping', () => {
   const selection: InteractionSelection = {
     type: 'link',
     id: 'base_link',
     helperKind: 'origin-axes',
   };
 
-  assert.equal(resolveOriginTransformJointId(selection, createRobotJointsFixture()), 'hip_joint');
+  assert.equal(resolveOriginTransformJointId(selection, createRobotJointsFixture()), null);
 });
 
 test('resolveOriginTransformTarget resolves runtime joints from source joint ids using the authored joint name', () => {
@@ -78,7 +88,7 @@ test('resolveOriginTransformTarget resolves runtime joints from source joint ids
   assert.equal(resolved?.runtimeJoint, runtimeJoint);
 });
 
-test('resolveOriginTransformTarget resolves root link origin helpers through the preferred child joint identity', () => {
+test('resolveOriginTransformTarget does not remap root link origin helpers to child joints', () => {
   const robot = new THREE.Group() as THREE.Group & {
     joints?: Record<string, URDFJoint>;
   };
@@ -104,10 +114,7 @@ test('resolveOriginTransformTarget resolves root link origin helpers through the
     },
   });
 
-  assert.ok(resolved);
-  assert.equal(resolved?.jointId, 'hip_joint_source');
-  assert.equal(resolved?.runtimeJointKey, 'hip_joint_runtime');
-  assert.equal(resolved?.runtimeJoint, runtimeJoint);
+  assert.equal(resolved, null);
 });
 
 test('applyOriginToRuntimeJoint preserves the active joint value while replacing the authored origin', () => {

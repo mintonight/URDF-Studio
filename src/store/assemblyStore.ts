@@ -37,6 +37,7 @@ import {
 } from '@/core/robot/assemblyBridgeAlignment';
 import { wouldBridgeCreateUnsupportedAssemblyCycle } from '@/core/robot/assemblyBridgeTopology';
 import { failFastInDev } from '@/core/utils/runtimeDiagnostics';
+import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 
 interface AssemblyContext {
   availableFiles?: RobotFile[];
@@ -92,7 +93,7 @@ function shouldRecomputeBridgeAlignedChildTransform(
 enablePatches();
 
 function normalizeAssemblySourcePath(path: string): string {
-  return path.trim().replace(/^\/+/, '').replace(/\/+/g, '/').replace(/\/+$/, '');
+  return normalizeLibraryPathKey(path);
 }
 
 function isSameOrNestedAssemblySourcePath(path: string, basePath: string): boolean {

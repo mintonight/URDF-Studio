@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { GeometryType, type RobotFile, type UrdfLink } from '@/types';
+import { encodeTextAssetAsDataUrl } from '@/core/loaders/textMeshAssetContext';
 
 import {
   buildViewerRobotLinksScopeSignature,
@@ -373,5 +374,40 @@ test('createStableViewerResourceScope keeps compiler-scoped MJCF sibling assets 
     'myosuite-main/myosuite/simhive/myo_sim/scene/floor0.png': 'blob:floor',
     'myosuite-main/myosuite/simhive/myo_sim/scene/myosuite_scene_noFloor_noPedestal.msh':
       'blob:scene',
+  });
+});
+
+test('createStableViewerResourceScope merges MJCF OBJ sidecar text assets needed by the viewer runtime', () => {
+  const sourceFile: RobotFile = {
+    name: 'mujoco_menagerie-main/agilex_piper/piper.xml',
+    format: 'mjcf',
+    content: `
+      <mujoco model="piper">
+        <compiler meshdir="assets" />
+        <asset>
+          <mesh name="link3_12" file="link3_12.obj" />
+        </asset>
+      </mujoco>
+    `,
+  };
+
+  const scoped = createStableViewerResourceScope(null, {
+    assets: {
+      'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj': 'blob:obj',
+    },
+    availableFiles: [sourceFile],
+    sourceFile,
+    sourceFilePath: sourceFile.name,
+    robotLinks: {},
+    allFileContents: {
+      'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj': 'mtllib material.mtl',
+      'mujoco_menagerie-main/agilex_piper/assets/material.mtl': 'newmtl demo\nKd 1 0 0',
+    },
+  });
+
+  assert.deepEqual(scoped.assets, {
+    'mujoco_menagerie-main/agilex_piper/assets/link3_12.obj': 'blob:obj',
+    'mujoco_menagerie-main/agilex_piper/assets/material.mtl':
+      encodeTextAssetAsDataUrl('newmtl demo\nKd 1 0 0'),
   });
 });

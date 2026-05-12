@@ -11,8 +11,8 @@ import {
 import {
   setRegressionViewerHandlers,
   type RegressionViewerFlags,
-} from '@/shared/debug/regressionBridge';
-import { getJointType, isSingleDofJoint } from '../utils/jointTypes';
+} from '@/shared/debug/regressionState';
+import { getJointType, isSingleDofJoint } from '@/shared/utils/jointTypes';
 import { resolveActiveViewerJointKeyFromSelection } from '../utils/activeJointSelection';
 import type {
   MeasureAnchorMode,
@@ -28,7 +28,7 @@ import type {
 } from '../types';
 import { resolveInitialJointControlState } from '../utils/jointControlState';
 import { createEmptyMeasureState } from '../utils/measurements';
-import { beginInitialGroundAlignment } from '../utils/robotPositioning';
+import { beginInitialGroundAlignment } from '@/shared/components/3d/robotPositioning';
 import { createScopedToolModeState, resolveScopedToolModeState } from '../utils/scopedToolMode';
 import { usePanelDrag } from './usePanelDrag';
 import { useViewerSettings } from './useViewerSettings';
@@ -39,7 +39,10 @@ import {
   type RobotState,
 } from '@/types';
 import { resolveMimicJointAngleTargets } from '@/core/robot';
-import { createClosedLoopMotionPreviewSession } from '@/shared/utils/robot/closedLoopMotionPreview';
+import {
+  createClosedLoopMotionPreviewSession,
+  createClosedLoopMotionPreviewWorkerSession,
+} from '@/shared/utils/robot/closedLoopMotionPreview';
 import { unwrapContinuousJointAngle } from '@/shared/utils/continuousJointAngle';
 import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
 
@@ -95,6 +98,7 @@ type RuntimePoseJointLike = {
   name?: string;
   angle?: number;
   jointValue?: number;
+  jointQuaternion?: RuntimePoseJointQuaternionLike;
   quaternion?: RuntimePoseJointQuaternionLike;
 };
 
@@ -120,6 +124,23 @@ function toJointQuaternionValue(
   }
 
   return { x, y, z, w };
+}
+
+function getRuntimeJointMotionQuaternion(
+  joint: RuntimePoseJointLike | null | undefined,
+): JointQuaternion | null {
+  return toJointQuaternionValue(joint?.jointQuaternion ?? joint?.quaternion);
+}
+
+function getRuntimeJointCurrentMotionQuaternion(joint: unknown): JointQuaternion | null {
+  const runtimeJoint = joint as
+    | {
+        jointQuaternion?: RuntimePoseJointQuaternionLike;
+        quaternion?: RuntimePoseJointQuaternionLike;
+      }
+    | null
+    | undefined;
+  return toJointQuaternionValue(runtimeJoint?.jointQuaternion ?? runtimeJoint?.quaternion);
 }
 
 function toClosedLoopPreviewJoint(
@@ -196,7 +217,7 @@ function mergeClosedLoopRobotStateWithRuntimeJointPose(
     }
 
     const nextAngle = toFiniteNumber(runtimeJoint?.angle ?? runtimeJoint?.jointValue);
-    const nextQuaternion = toJointQuaternionValue(runtimeJoint?.quaternion);
+    const nextQuaternion = getRuntimeJointMotionQuaternion(runtimeJoint);
     const shouldUpdateAngle = nextAngle !== null && !isSameJointAngle(baseJoint.angle, nextAngle);
     const shouldUpdateQuaternion =
       Boolean(nextQuaternion) && !isSameJointQuaternion(baseJoint.quaternion, nextQuaternion);
@@ -438,11 +459,17 @@ export const useViewerController = ({
     Record<string, ViewerJointMotionStateValue['quaternion']>
   >({});
   const closedLoopMotionPreviewSessionRef = useRef(createClosedLoopMotionPreviewSession());
+  const closedLoopMotionPreviewWorkerSessionRef = useRef(
+    createClosedLoopMotionPreviewWorkerSession(),
+  );
+  const closedLoopPreviewSolveRequestRef = useRef(0);
   const pendingClosedLoopPreviewRef = useRef<{
     selectedJointId: string;
     resolvedAngle: number;
+    diagnosticLabel: string;
   } | null>(null);
   const closedLoopPreviewFrameRef = useRef<number | null>(null);
+  const closedLoopPreviewSolveInFlightRef = useRef(false);
   const jointInteractionPreviewSessionCounterRef = useRef(0);
   const activeJointInteractionPreviewSessionRef = useRef<string | null>(null);
 
@@ -657,7 +684,7 @@ export const useViewerController = ({
           !joint ||
           !quaternion ||
           typeof (joint as any).setJointQuaternion !== 'function' ||
-          isSameJointQuaternion((joint as any).quaternion, quaternion)
+          isSameJointQuaternion(getRuntimeJointCurrentMotionQuaternion(joint), quaternion)
         ) {
           return;
         }
@@ -765,8 +792,11 @@ export const useViewerController = ({
       window.cancelAnimationFrame(closedLoopPreviewFrameRef.current);
       closedLoopPreviewFrameRef.current = null;
     }
+    closedLoopPreviewSolveRequestRef.current += 1;
     closedLoopMotionPreviewSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
     closedLoopMotionPreviewSessionRef.current.reset();
+    closedLoopMotionPreviewWorkerSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
+    closedLoopMotionPreviewWorkerSessionRef.current.reset();
     previewMotionAnglesRef.current = { ...previousAppliedJointAngleStateRef.current };
     previewMotionQuaternionsRef.current = Object.fromEntries(
       Object.entries(previousAppliedJointMotionStateRef.current)
@@ -801,7 +831,7 @@ export const useViewerController = ({
             !joint ||
             !motion?.quaternion ||
             typeof (joint as any).setJointQuaternion !== 'function' ||
-            isSameJointQuaternion((joint as any).quaternion, motion.quaternion)
+            isSameJointQuaternion(getRuntimeJointCurrentMotionQuaternion(joint), motion.quaternion)
           ) {
             return;
           }
@@ -827,6 +857,84 @@ export const useViewerController = ({
     replaceJointPanelAngles,
     requestSceneRefresh,
   ]);
+
+  const scheduleClosedLoopPreviewWorkerSolve = useCallback(
+    (selectedJointId: string, resolvedAngle: number, diagnosticLabel: string) => {
+      closedLoopMotionPreviewSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
+      closedLoopMotionPreviewWorkerSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
+      closedLoopPreviewSolveRequestRef.current += 1;
+      pendingClosedLoopPreviewRef.current = {
+        selectedJointId,
+        resolvedAngle,
+        diagnosticLabel,
+      };
+
+      if (
+        closedLoopPreviewFrameRef.current !== null ||
+        closedLoopPreviewSolveInFlightRef.current
+      ) {
+        return;
+      }
+
+      const scheduleRunPreviewSolve = (runPreviewSolve: () => void) => {
+        if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+          runPreviewSolve();
+          return;
+        }
+
+        closedLoopPreviewFrameRef.current = window.requestAnimationFrame(runPreviewSolve);
+      };
+
+      const runPreviewSolve = () => {
+        closedLoopPreviewFrameRef.current = null;
+        const pendingPreview = pendingClosedLoopPreviewRef.current;
+        pendingClosedLoopPreviewRef.current = null;
+        if (!pendingPreview) {
+          return;
+        }
+
+        const solveRequestId = closedLoopPreviewSolveRequestRef.current;
+        closedLoopPreviewSolveInFlightRef.current = true;
+
+        void closedLoopMotionPreviewWorkerSessionRef.current
+          .solve(pendingPreview.selectedJointId, pendingPreview.resolvedAngle)
+          .then((compensation) => {
+            if (solveRequestId !== closedLoopPreviewSolveRequestRef.current) {
+              return;
+            }
+
+            applyRuntimeJointMotionPreview(
+              compensation.angles,
+              compensation.quaternions,
+              pendingPreview.selectedJointId,
+            );
+          })
+          .catch((error) => {
+            if (solveRequestId !== closedLoopPreviewSolveRequestRef.current) {
+              return;
+            }
+
+            scheduleFailFastInDev(
+              'useViewerController:scheduleClosedLoopPreviewWorkerSolve',
+              new Error(`${pendingPreview.diagnosticLabel} worker solve failed.`, {
+                cause: error,
+              }),
+              'warn',
+            );
+            restoreAppliedJointMotionState();
+          })
+          .finally(() => {
+            closedLoopPreviewSolveInFlightRef.current = false;
+            if (pendingClosedLoopPreviewRef.current) {
+              scheduleRunPreviewSolve(runPreviewSolve);
+            }
+          });
+      };
+
+      scheduleRunPreviewSolve(runPreviewSolve);
+    },
+    [applyRuntimeJointMotionPreview, effectiveClosedLoopRobotState, restoreAppliedJointMotionState],
+  );
 
   const clearIkJointKinematicsPreview = useCallback(() => {
     restoreAppliedJointMotionState();
@@ -1145,7 +1253,18 @@ export const useViewerController = ({
         typeof activeRuntimeAngle === 'number' &&
         hasClosedLoopConstraints
       ) {
+        if (!shouldCommitToApp) {
+          scheduleClosedLoopPreviewWorkerSolve(
+            activeRuntimeJointKey,
+            activeRuntimeAngle,
+            'Closed-loop runtime preview',
+          );
+          return;
+        }
+
+        closedLoopPreviewSolveRequestRef.current += 1;
         closedLoopMotionPreviewSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
+        closedLoopMotionPreviewWorkerSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
 
         try {
           const compensation = closedLoopMotionPreviewSessionRef.current.solve(
@@ -1206,6 +1325,7 @@ export const useViewerController = ({
       publishJointInteractionPreview,
       resolveDrivenMotion,
       restoreAppliedJointMotionState,
+      scheduleClosedLoopPreviewWorkerSolve,
       storeAppliedJointMotionState,
     ],
   );
@@ -1243,6 +1363,9 @@ export const useViewerController = ({
     }
     closedLoopMotionPreviewSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
     closedLoopMotionPreviewSessionRef.current.reset();
+    closedLoopMotionPreviewWorkerSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
+    closedLoopMotionPreviewWorkerSessionRef.current.reset();
+    closedLoopPreviewSolveRequestRef.current += 1;
     clearJointInteractionPreview();
   }, [
     clearJointInteractionPreview,
@@ -1307,7 +1430,7 @@ export const useViewerController = ({
       if (
         motion.quaternion &&
         typeof (joint as any).setJointQuaternion === 'function' &&
-        !isSameJointQuaternion((joint as any).quaternion, motion.quaternion)
+        !isSameJointQuaternion(getRuntimeJointCurrentMotionQuaternion(joint), motion.quaternion)
       ) {
         (joint as any).setJointQuaternion(motion.quaternion);
         shouldRefresh = true;
@@ -1368,61 +1491,11 @@ export const useViewerController = ({
       );
 
       if (selectedClosedLoopJointId && hasClosedLoopConstraints) {
-        closedLoopMotionPreviewSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
-        pendingClosedLoopPreviewRef.current = {
-          selectedJointId: selectedClosedLoopJointId,
-          resolvedAngle: angle,
-        };
-
-        if (closedLoopPreviewFrameRef.current === null) {
-          const runPreviewSolve = () => {
-            closedLoopPreviewFrameRef.current = null;
-            const pendingPreview = pendingClosedLoopPreviewRef.current;
-            pendingClosedLoopPreviewRef.current = null;
-            if (!pendingPreview) {
-              return;
-            }
-
-            try {
-              const compensation = closedLoopMotionPreviewSessionRef.current.solve(
-                pendingPreview.selectedJointId,
-                pendingPreview.resolvedAngle,
-              );
-
-              applyRuntimeJointMotionPreview(
-                compensation.angles,
-                compensation.quaternions,
-                pendingPreview.selectedJointId,
-              );
-            } catch (error) {
-              scheduleFailFastInDev(
-                'useViewerController:handleJointAngleChange',
-                new Error('Closed-loop slider preview solve failed.', { cause: error }),
-                'warn',
-              );
-              restoreAppliedJointMotionState();
-            }
-
-            if (pendingClosedLoopPreviewRef.current) {
-              if (
-                typeof window === 'undefined' ||
-                typeof window.requestAnimationFrame !== 'function'
-              ) {
-                runPreviewSolve();
-                return;
-              }
-
-              closedLoopPreviewFrameRef.current = window.requestAnimationFrame(runPreviewSolve);
-            }
-          };
-
-          if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-            runPreviewSolve();
-          } else {
-            closedLoopPreviewFrameRef.current = window.requestAnimationFrame(runPreviewSolve);
-          }
-        }
-
+        scheduleClosedLoopPreviewWorkerSolve(
+          selectedClosedLoopJointId,
+          angle,
+          'Closed-loop slider preview',
+        );
         return;
       }
 
@@ -1451,7 +1524,7 @@ export const useViewerController = ({
       jointControlRobot,
       requestSceneRefresh,
       resolveDrivenMotion,
-      restoreAppliedJointMotionState,
+      scheduleClosedLoopPreviewWorkerSolve,
     ],
   );
 
@@ -1484,8 +1557,11 @@ export const useViewerController = ({
         window.cancelAnimationFrame(closedLoopPreviewFrameRef.current);
         closedLoopPreviewFrameRef.current = null;
       }
+      closedLoopPreviewSolveRequestRef.current += 1;
       closedLoopMotionPreviewSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
       closedLoopMotionPreviewSessionRef.current.reset();
+      closedLoopMotionPreviewWorkerSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
+      closedLoopMotionPreviewWorkerSessionRef.current.reset();
       previewMotionAnglesRef.current = {};
       previewMotionQuaternionsRef.current = {};
       const jointKey = resolveViewerJointKey(jointControlJoints, jointName);

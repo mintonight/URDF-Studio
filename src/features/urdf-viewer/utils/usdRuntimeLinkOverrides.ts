@@ -52,12 +52,14 @@ export function isUsdRuntimeGeometryVisible({
   objectIndex,
   showVisual,
   showCollision,
+  respectLinkVisibility = true,
 }: {
   link: UrdfLink | null | undefined;
   role: 'visual' | 'collision';
   objectIndex?: number;
   showVisual: boolean;
   showCollision: boolean;
+  respectLinkVisibility?: boolean;
 }): boolean {
   if (role === 'collision' && !Number.isInteger(objectIndex)) {
     return false;
@@ -72,7 +74,11 @@ export function isUsdRuntimeGeometryVisible({
     return showVisual && link?.visible !== false && geometry?.visible !== false;
   }
 
-  return showCollision && link?.visible !== false && geometry?.visible !== false;
+  return (
+    showCollision &&
+    (!respectLinkVisibility || link?.visible !== false) &&
+    geometry?.visible !== false
+  );
 }
 
 export function composeUsdGeometryLocalOverrideMatrix(

@@ -96,3 +96,77 @@ test('OptionsPanel can transition from hidden to visible without changing hook o
     dom.window.close();
   }
 });
+
+test('OptionsPanel uses a slimmer shared header by default', async () => {
+  resetSelectionStore();
+
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const panelRef = createRef<HTMLDivElement>();
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(OptionsPanel, {
+          title: 'Options',
+          show: true,
+          isCollapsed: false,
+          onToggleCollapse: () => {},
+          panelRef,
+          children: React.createElement('div', null, 'content'),
+        }),
+      );
+    });
+
+    const titleNode = Array.from(container.querySelectorAll<HTMLElement>('span,div')).find(
+      (element) => element.textContent?.trim() === 'Options',
+    );
+    const header = titleNode?.closest<HTMLElement>('div.group');
+    assert.ok(header, 'options panel header should render');
+    assert.match(header.className, /\bpx-2\b/);
+    assert.match(header.className, /\bpy-1\.5\b/);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('OptionsPanel uses a slightly smaller shared corner radius by default', async () => {
+  resetSelectionStore();
+
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const panelRef = createRef<HTMLDivElement>();
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(OptionsPanel, {
+          title: 'Options',
+          show: true,
+          isCollapsed: false,
+          onToggleCollapse: () => {},
+          panelRef,
+          children: React.createElement('div', null, 'content'),
+        }),
+      );
+    });
+
+    const panelContainer = container.querySelector<HTMLElement>('.bg-panel-bg');
+    assert.ok(panelContainer, 'options panel container should render');
+    assert.match(panelContainer.className, /\brounded-lg\b/);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});

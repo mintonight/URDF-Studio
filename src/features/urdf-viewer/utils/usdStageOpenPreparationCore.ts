@@ -5,11 +5,15 @@ import type {
 } from './usdStageOpenPreparation.ts';
 import {
   buildUsdBundlePreloadEntries,
+  isTextualUsdLayerCandidatePath,
   toVirtualUsdPath,
   type UsdPreloadEntry,
 } from './usdPreloadSources.ts';
 import { buildCriticalUsdDependencyPaths } from './usdCriticalDependencyPaths.ts';
-import { normalizeUsdInstanceableVisualScopeVisibility } from './usdStageOpenTextNormalization.ts';
+import {
+  blobNeedsUsdInstanceableVisualScopeNormalization,
+  normalizeUsdInstanceableVisualScopeVisibility,
+} from './usdStageOpenTextNormalization.ts';
 
 export { buildCriticalUsdDependencyPaths } from './usdCriticalDependencyPaths.ts';
 
@@ -20,6 +24,9 @@ type PreparedUsdPreloadPayload = {
 };
 
 const normalizedUsdBlobCache = new Map<string, Promise<PreparedUsdPreloadPayload>>();
+const cacheAccessTimestamps = new Map<string, number>();
+
+let globalCacheAccessCounter = 0;
 
 export function resolveUsdStageOpenPreparationConcurrency(preferredConcurrency?: number): number {
   const fallbackConcurrency = Number(globalThis.navigator?.hardwareConcurrency || 4);
@@ -58,6 +65,10 @@ function normalizePreparedUsdError(error: unknown): string {
 }
 
 function shouldNormalizePreparedUsdText(path: string): boolean {
+  return isTextualUsdLayerCandidatePath(path);
+}
+
+function isAlwaysTextualUsdLayerPath(path: string): boolean {
   const normalizedPath = String(path || '')
     .trim()
     .toLowerCase();
@@ -68,18 +79,35 @@ function cacheNormalizedUsdBlob(
   cacheKey: string,
   payloadPromise: Promise<PreparedUsdPreloadPayload>,
 ): Promise<PreparedUsdPreloadPayload> {
+  globalCacheAccessCounter += 1;
+  cacheAccessTimestamps.set(cacheKey, globalCacheAccessCounter);
   normalizedUsdBlobCache.set(cacheKey, payloadPromise);
   if (normalizedUsdBlobCache.size > NORMALIZED_USD_BLOB_CACHE_LIMIT) {
-    const oldestEntry = normalizedUsdBlobCache.keys().next();
-    if (!oldestEntry.done) {
-      normalizedUsdBlobCache.delete(oldestEntry.value);
-    }
+    evictLeastRecentlyUsedEntry();
   }
   return payloadPromise;
 }
 
+function evictLeastRecentlyUsedEntry(): void {
+  let lruKey: string | null = null;
+  let lruTimestamp = Infinity;
+
+  for (const [key, timestamp] of cacheAccessTimestamps) {
+    if (timestamp < lruTimestamp) {
+      lruTimestamp = timestamp;
+      lruKey = key;
+    }
+  }
+
+  if (lruKey !== null) {
+    normalizedUsdBlobCache.delete(lruKey);
+    cacheAccessTimestamps.delete(lruKey);
+  }
+}
+
 export function clearNormalizedUsdBlobCache(): void {
   normalizedUsdBlobCache.clear();
+  cacheAccessTimestamps.clear();
 }
 
 async function loadPreparedUsdBlob(entry: UsdPreloadEntry): Promise<PreparedUsdPreloadPayload> {
@@ -94,12 +122,14 @@ async function loadPreparedUsdBlob(entry: UsdPreloadEntry): Promise<PreparedUsdP
   if (cacheKey) {
     const cachedBlob = normalizedUsdBlobCache.get(cacheKey);
     if (cachedBlob) {
+      globalCacheAccessCounter += 1;
+      cacheAccessTimestamps.set(cacheKey, globalCacheAccessCounter);
       return await cachedBlob;
     }
   }
 
   const normalizedBlobPromise = (async () => {
-    if (typeof entry.loadText === 'function') {
+    if (typeof entry.loadText === 'function' && isAlwaysTextualUsdLayerPath(entry.path)) {
       const sourceText = await entry.loadText();
       const normalizedText = normalizeUsdInstanceableVisualScopeVisibility(sourceText);
       return {
@@ -109,6 +139,22 @@ async function loadPreparedUsdBlob(entry: UsdPreloadEntry): Promise<PreparedUsdP
     }
 
     const blob = await entry.loadBlob();
+    const needsNormalization = await blobNeedsUsdInstanceableVisualScopeNormalization(blob);
+
+    if (!needsNormalization) {
+      if (!isAlwaysTextualUsdLayerPath(entry.path)) {
+        return {
+          blob,
+          bytes: null,
+        };
+      }
+
+      return {
+        blob: null,
+        bytes: new Uint8Array(await blob.arrayBuffer()),
+      };
+    }
+
     const sourceText = await blob.text();
     const normalizedText = normalizeUsdInstanceableVisualScopeVisibility(sourceText);
     return {
@@ -125,6 +171,7 @@ async function loadPreparedUsdBlob(entry: UsdPreloadEntry): Promise<PreparedUsdP
     cacheKey,
     normalizedBlobPromise.catch((error) => {
       normalizedUsdBlobCache.delete(cacheKey);
+      cacheAccessTimestamps.delete(cacheKey);
       throw error;
     }),
   );

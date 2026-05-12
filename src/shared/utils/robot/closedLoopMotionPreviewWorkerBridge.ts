@@ -1,5 +1,14 @@
-import type { ClosedLoopMotionCompensation } from '@/core/robot/closedLoops';
+import type {
+  ClosedLoopDrivenJointMotionResult,
+  ClosedLoopMotionCompensation,
+  ClosedLoopMotionSolveOptions,
+} from '@/core/robot/closedLoops';
 import type { RobotState } from '@/types';
+
+type ClosedLoopMotionPreviewWorkerSolveOptions = Omit<
+  ClosedLoopMotionSolveOptions,
+  'angles' | 'quaternions' | 'lockedJointIds'
+>;
 
 interface ClosedLoopMotionPreviewWorkerRequest {
   type: 'resolve-motion-preview';
@@ -7,12 +16,13 @@ interface ClosedLoopMotionPreviewWorkerRequest {
   robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>;
   jointId: string;
   angle: number;
+  options?: ClosedLoopMotionPreviewWorkerSolveOptions;
 }
 
 interface ClosedLoopMotionPreviewWorkerSuccessResponse {
   type: 'resolve-motion-preview-result';
   requestId: number;
-  compensation: ClosedLoopMotionCompensation;
+  solution: ClosedLoopDrivenJointMotionResult;
 }
 
 interface ClosedLoopMotionPreviewWorkerErrorResponse {
@@ -26,7 +36,7 @@ type ClosedLoopMotionPreviewWorkerResponse =
   | ClosedLoopMotionPreviewWorkerErrorResponse;
 
 interface PendingRequest {
-  resolve: (value: ClosedLoopMotionCompensation) => void;
+  resolve: (value: ClosedLoopDrivenJointMotionResult) => void;
   reject: (error: unknown) => void;
 }
 
@@ -77,7 +87,7 @@ function handleWorkerMessage(event: MessageEvent<ClosedLoopMotionPreviewWorkerRe
     return;
   }
 
-  pendingRequest.resolve(message.compensation);
+  pendingRequest.resolve(message.solution);
 }
 
 function handleWorkerError(event: ErrorEvent): void {
@@ -100,11 +110,12 @@ function ensureSharedWorker(): Worker {
   return sharedWorker;
 }
 
-export async function resolveClosedLoopJointMotionCompensationWithWorker(
+export async function resolveClosedLoopDrivenJointMotionWithWorker(
   robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>,
   jointId: string,
   angle: number,
-): Promise<ClosedLoopMotionCompensation> {
+  options: ClosedLoopMotionPreviewWorkerSolveOptions = {},
+): Promise<ClosedLoopDrivenJointMotionResult> {
   if (workerUnavailable) {
     throw new Error('Closed-loop motion preview worker is unavailable');
   }
@@ -113,7 +124,7 @@ export async function resolveClosedLoopJointMotionCompensationWithWorker(
     throw new Error('Web Worker is not available in this environment');
   }
 
-  return new Promise<ClosedLoopMotionCompensation>((resolve, reject) => {
+  return new Promise<ClosedLoopDrivenJointMotionResult>((resolve, reject) => {
     const requestId = ++requestIdCounter;
     let worker: Worker;
 
@@ -131,6 +142,7 @@ export async function resolveClosedLoopJointMotionCompensationWithWorker(
       robot,
       jointId,
       angle,
+      options,
     };
 
     pendingRequests.set(requestId, { resolve, reject });
@@ -144,6 +156,18 @@ export async function resolveClosedLoopJointMotionCompensationWithWorker(
       reject(error);
     }
   });
+}
+
+export async function resolveClosedLoopJointMotionCompensationWithWorker(
+  robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>,
+  jointId: string,
+  angle: number,
+): Promise<ClosedLoopMotionCompensation> {
+  const solution = await resolveClosedLoopDrivenJointMotionWithWorker(robot, jointId, angle);
+  return {
+    angles: solution.angles,
+    quaternions: solution.quaternions,
+  };
 }
 
 export function disposeClosedLoopMotionPreviewWorker(rejectPendingWith?: unknown): void {

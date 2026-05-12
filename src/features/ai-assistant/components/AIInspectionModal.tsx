@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { Bot, MessageCircle, ScanSearch } from 'lucide-react';
+import { MessageCircle, ScanSearch } from 'lucide-react';
 import type { InspectionReport, RobotState } from '@/types';
 import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
-import { DraggableWindow } from '@/shared/components';
+import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { Button } from '@/shared/components/ui/Button';
 import { Dialog } from '@/shared/components/ui/Dialog';
 import { SegmentedControl } from '@/shared/components/ui/SegmentedControl';
-import { useDraggableWindow } from '@/shared/hooks';
+import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { runRobotInspection } from '../services/aiService';
 import { calculateOverallScore, INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
 import {
@@ -653,8 +653,11 @@ export function AIInspectionModal({
         title={
           isSetupView ? (
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-system-blue-solid text-white shadow-sm">
-                <Bot className="h-4 w-4" />
+              <div
+                data-inspection-setup-header-logo
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-border-black bg-panel-bg text-system-blue shadow-sm dark:bg-element-bg"
+              >
+                <ScanSearch className="h-[18px] w-[18px]" />
               </div>
               <h1 className="text-sm font-semibold text-text-primary">{t.aiInspection}</h1>
             </div>
@@ -989,6 +992,7 @@ export function AIInspectionModal({
         }}
         title={t.inspectionRegenerateConfirmTitle}
         width="w-[460px]"
+        closeLabel={t.close}
         zIndexClassName="z-[130]"
         footer={
           <div className="flex items-center justify-end gap-2">

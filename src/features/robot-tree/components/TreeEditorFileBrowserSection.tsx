@@ -75,7 +75,7 @@ export function TreeEditorFileBrowserSection({
         height={fileBrowserHeight}
         isDragging={isDragging}
         isOpen={isFileBrowserOpen}
-        isProMode={isProMode}
+        showAddAsComponent={isProMode}
         onAddComponent={onAddComponent}
         onCancelFolderRename={onCancelFolderRename}
         onCommitFolderRename={onCommitFolderRename}

@@ -6,7 +6,12 @@ import { JSDOM } from 'jsdom';
 
 import { parseMJCF } from '@/core/parsers/mjcf/mjcfParser.ts';
 
-import { createClosedLoopMotionPreviewSession } from './closedLoopMotionPreview.ts';
+import type { ClosedLoopDrivenJointMotionResult } from '@/core/robot/closedLoops.ts';
+
+import {
+  createClosedLoopMotionPreviewSession,
+  createClosedLoopMotionPreviewWorkerSession,
+} from './closedLoopMotionPreview.ts';
 
 function installDomGlobals(): void {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { contentType: 'text/html' });
@@ -60,3 +65,61 @@ test(
     );
   },
 );
+
+test('createClosedLoopMotionPreviewWorkerSession applies async worker results to preview state', async () => {
+  const robot = {
+    links: {
+      base: { id: 'base', name: 'base' },
+      link: { id: 'link', name: 'link' },
+      follower_link: { id: 'follower_link', name: 'follower_link' },
+    },
+    joints: {
+      hinge: {
+        id: 'hinge',
+        name: 'hinge',
+        type: 'revolute',
+        parentLinkId: 'base',
+        childLinkId: 'link',
+        axis: { x: 0, y: 0, z: 1 },
+        origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+      },
+      follower: {
+        id: 'follower',
+        name: 'follower',
+        type: 'revolute',
+        parentLinkId: 'base',
+        childLinkId: 'follower_link',
+        axis: { x: 0, y: 0, z: 1 },
+        origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+      },
+    },
+    rootLinkId: 'base',
+    closedLoopConstraints: [],
+  } as any;
+  const session = createClosedLoopMotionPreviewWorkerSession(
+    async (_robot, jointId, angle): Promise<ClosedLoopDrivenJointMotionResult> => ({
+      angles: {
+        [jointId]: angle,
+        follower: angle * 2,
+      },
+      quaternions: {},
+      appliedAngle: angle,
+      requestedAngle: angle,
+      constrained: true,
+      constraintErrors: {},
+      residual: 0,
+      iterations: 1,
+      converged: true,
+    }),
+  );
+
+  session.setBaseRobot(robot);
+  const preview = await session.solve('hinge', 0.25);
+
+  assert.equal(preview.appliedAngle, 0.25);
+  assert.equal(preview.constrained, true);
+  assert.deepEqual(preview.angles, {
+    hinge: 0.25,
+    follower: 0.5,
+  });
+});

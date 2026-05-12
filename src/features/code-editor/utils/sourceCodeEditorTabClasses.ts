@@ -1,8 +1,13 @@
 const SOURCE_CODE_EDITOR_TAB_BASE_CLASS =
   'group relative flex h-7 shrink-0 items-center gap-1.5 rounded-[8px] border px-2.5 text-[10px] font-semibold tracking-[0.015em] transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30';
 
+export const SOURCE_CODE_EDITOR_INLINE_TAB_LIMIT = 4;
+
 export const SOURCE_CODE_EDITOR_TABS_CLASS =
   'inline-flex min-w-0 flex-1 items-center gap-1 rounded-[10px] border border-border-black/60 bg-segmented-bg p-1';
+
+export const shouldCollapseSourceCodeEditorTabs = (documentCount: number): boolean =>
+  documentCount > SOURCE_CODE_EDITOR_INLINE_TAB_LIMIT;
 
 export const getSourceCodeEditorTabClassName = (isActive: boolean): string =>
   `${SOURCE_CODE_EDITOR_TAB_BASE_CLASS} ${

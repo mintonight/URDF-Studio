@@ -62,16 +62,39 @@ export function assertAssemblyUrdfExportSupported(
   });
 }
 
+function sanitizeAssemblyExportNameSegment(value: string | null | undefined): string {
+  return String(value || '')
+    .trim()
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[^a-zA-Z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+export function buildAssemblyExportName(assembly: AssemblyState): string {
+  const componentName = Object.values(assembly.components)
+    .map((component) =>
+      sanitizeAssemblyExportNameSegment(component.name || component.sourceFile || component.id),
+    )
+    .filter(Boolean)
+    .join('_');
+
+  return (
+    componentName ||
+    sanitizeAssemblyExportNameSegment(assembly.name) ||
+    assembly.name?.trim() ||
+    'assembly'
+  );
+}
+
 export function resolveDisconnectedWorkspaceUrdfAction(
   target: ExportTarget,
   config: { format: string },
-  sidebarTab: string,
   assemblyState: AssemblyState | null,
 ): ExportActionRequired | null {
   if (
     target.type !== 'current' ||
     config.format !== 'urdf' ||
-    sidebarTab !== 'workspace' ||
     !assemblyState
   ) {
     return null;
@@ -86,6 +109,6 @@ export function resolveDisconnectedWorkspaceUrdfAction(
     type: 'disconnected-workspace-urdf',
     componentCount: analysis.componentCount,
     connectedGroupCount: analysis.connectedGroupCount,
-    exportName: assemblyState.name?.trim() || 'assembly',
+    exportName: buildAssemblyExportName(assemblyState),
   };
 }

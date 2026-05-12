@@ -16,19 +16,20 @@ import {
   STUDIO_ENVIRONMENT_INTENSITY,
   WORKSPACE_CANVAS_BACKGROUND,
   type SnapshotCaptureAction,
+  type WorkspaceOverlayGizmoMargin,
 } from '@/shared/components/3d';
 import {
-  useViewerController,
-  resolveDefaultViewerToolMode,
   type ViewerHelperKind,
   type ToolMode,
   type ViewerDocumentLoadEvent,
   type ViewerJointMotionStateValue,
   type ViewerRobotSourceFormat,
-  type ViewerRobotDataResolution,
-} from '@/features/editor';
+} from '@/features/urdf-viewer/types';
+import { useViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
+import { resolveDefaultViewerToolMode } from '@/features/urdf-viewer/utils/scopedToolMode';
 import { resolveViewerJointScopeKey } from '@/app/utils/viewerJointScopeKey';
 import { resolveUnifiedViewerForcedSessionState } from '@/app/utils/unifiedViewerForcedSessionState';
+import { resolveUnifiedViewerUsageGuideVisibility } from '@/app/utils/unifiedViewerUsageGuide';
 import {
   captureUnifiedViewerOptionsVisibility,
   shouldRestoreUnifiedViewerOptionsPanel,
@@ -41,11 +42,12 @@ import {
   syncGroupRaycastInteractivity,
   type RaycastableObject,
 } from './unified-viewer/raycastInteractivity';
-import { preloadViewerModeModules } from './unified-viewer/modeModuleLoaders';
+import { preloadDeferredViewerModeModules } from './unified-viewer/modeModuleLoaders';
 import {
   buildUnifiedViewerRetainedRobotScopeKey,
   shouldReuseUnifiedViewerRetainedRobot,
 } from '@/app/utils/unifiedViewerRetainedRobot';
+import { schedulePostReadyBackgroundTask } from '@/app/utils/postReadyBackgroundTask';
 import { UnifiedViewerOverlays } from './unified-viewer/UnifiedViewerOverlays';
 import { UnifiedViewerSceneRoots } from './unified-viewer/UnifiedViewerSceneRoots';
 import type { FilePreviewState } from './unified-viewer/types';
@@ -78,14 +80,14 @@ interface UnifiedViewerProps {
   ) => void;
   onUpdate: (type: 'link' | 'joint', id: string, data: any) => void;
   assets: Record<string, string>;
+  allFileContents: Record<string, string>;
   lang: Language;
   theme: Theme;
   showVisual?: boolean;
   setShowVisual?: (show: boolean) => void;
+  showUsageGuide?: boolean;
   snapshotAction?: React.RefObject<SnapshotCaptureAction | null>;
   onCanvasCreated?: (state: RootState) => void;
-  showToolbar?: boolean;
-  setShowToolbar?: (show: boolean) => void;
   showOptionsPanel?: boolean;
   setShowOptionsPanel?: (show: boolean) => void;
   showJointPanel?: boolean;
@@ -95,7 +97,6 @@ interface UnifiedViewerProps {
   viewerSourceFormat?: ViewerRobotSourceFormat;
   sourceFilePath?: string;
   sourceFile?: RobotFile | null;
-  onRobotDataResolved?: (result: ViewerRobotDataResolution) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   onRuntimeRobotLoaded?: (robot: ThreeObject3D) => void;
   onRuntimeSceneReadyForDisplay?: () => void;
@@ -104,6 +105,7 @@ interface UnifiedViewerProps {
   onJointChange?: (jointName: string, angle: number) => void;
   syncJointChangesToApp?: boolean;
   selection?: InteractionSelection;
+  modelInteractionEnabled?: boolean;
   focusTarget?: string | null;
   isMeshPreview?: boolean;
   onTransformPendingChange?: (pending: boolean) => void;
@@ -142,6 +144,7 @@ interface UnifiedViewerProps {
       rpy: { r: number; p: number; y: number };
       quatXyzw?: { x: number; y: number; z: number; w: number };
     },
+    options?: UpdateCommitOptions,
   ) => void;
   filePreview?: FilePreviewState;
   onClosePreview?: () => void;
@@ -150,6 +153,7 @@ interface UnifiedViewerProps {
   onConsumePendingViewerToolMode?: () => void;
   viewerReloadKey?: number;
   documentLoadState: DocumentLoadLifecycleState;
+  gizmoMargin?: WorkspaceOverlayGizmoMargin;
 }
 
 const INACTIVE_SCENE_UNMOUNT_DELAY_MS = 15_000;
@@ -164,14 +168,14 @@ export const UnifiedViewer = React.memo(
     onHover,
     onUpdate,
     assets,
+    allFileContents,
     lang,
     theme,
     showVisual,
     setShowVisual,
+    showUsageGuide,
     snapshotAction,
     onCanvasCreated,
-    showToolbar = true,
-    setShowToolbar,
     showOptionsPanel = true,
     setShowOptionsPanel,
     showJointPanel = true,
@@ -181,7 +185,6 @@ export const UnifiedViewer = React.memo(
     viewerSourceFormat,
     sourceFilePath,
     sourceFile,
-    onRobotDataResolved,
     onDocumentLoadEvent,
     onRuntimeRobotLoaded,
     onRuntimeSceneReadyForDisplay,
@@ -190,6 +193,7 @@ export const UnifiedViewer = React.memo(
     onJointChange,
     syncJointChangesToApp = false,
     selection,
+    modelInteractionEnabled = true,
     focusTarget,
     isMeshPreview = false,
     onTransformPendingChange,
@@ -209,6 +213,7 @@ export const UnifiedViewer = React.memo(
     onConsumePendingViewerToolMode,
     viewerReloadKey = 0,
     documentLoadState,
+    gizmoMargin,
   }: UnifiedViewerProps) => {
     const t = translations[lang];
     const clearHover = useSelectionStore((state) => state.clearHover);
@@ -249,6 +254,7 @@ export const UnifiedViewer = React.memo(
       sourceFilePath,
       sourceFile,
       assets,
+      allFileContents,
       availableFiles,
       assemblyState,
       sourceSceneAssemblyComponentId,
@@ -334,7 +340,10 @@ export const UnifiedViewer = React.memo(
       },
       [clearRetainedViewerRobot],
     );
-    const viewerDefaultToolMode = resolveDefaultViewerToolMode(effectiveSourceFile?.format);
+    const viewerReadOnlyInteraction = isPreviewing || !modelInteractionEnabled;
+    const viewerDefaultToolMode = viewerReadOnlyInteraction
+      ? 'view'
+      : resolveDefaultViewerToolMode(effectiveSourceFile?.format);
     const viewerToolModeScopeKey = effectiveSourceFile
       ? `${effectiveSourceFile.format}:${effectiveSourceFile.name}`
       : effectiveSourceFilePath
@@ -398,6 +407,10 @@ export const UnifiedViewer = React.memo(
     const showWorldOriginAxesPreference = useUIStore((state) => state.viewOptions.showAxes);
     const showUsageGuidePreference = useUIStore((state) => state.viewOptions.showUsageGuide);
     const showWorldOriginAxes = showWorldOriginAxesPreference && !viewerController.showOrigins;
+    const effectiveShowUsageGuide = resolveUnifiedViewerUsageGuideVisibility(
+      showUsageGuidePreference,
+      showUsageGuide,
+    );
 
     const handleWorkspacePointerDownCapture = React.useCallback(
       (event: React.PointerEvent<HTMLDivElement>) => {
@@ -443,13 +456,20 @@ export const UnifiedViewer = React.memo(
     );
 
     const handleViewerPointerMissed = React.useCallback(() => {
-      viewerController.handlePointerMissed();
+      if (!viewerReadOnlyInteraction) {
+        viewerController.handlePointerMissed();
+      }
       restoreOptionsPanelIfNeeded(
         optionsVisibleAtPointerDownRef.current.viewer,
         viewerOptionsVisibleRef,
         setShowOptionsPanel,
       );
-    }, [restoreOptionsPanelIfNeeded, setShowOptionsPanel, viewerController]);
+    }, [
+      restoreOptionsPanelIfNeeded,
+      setShowOptionsPanel,
+      viewerController,
+      viewerReadOnlyInteraction,
+    ]);
 
     useEffect(() => {
       const root = viewerGroupRef.current;
@@ -503,21 +523,22 @@ export const UnifiedViewer = React.memo(
         return;
       }
 
-      setShowToolbar?.(true);
       viewerController.handleToolModeChange(pendingViewerToolMode);
       onConsumePendingViewerToolMode?.();
-    }, [
-      isViewerMode,
-      onConsumePendingViewerToolMode,
-      pendingViewerToolMode,
-      setShowToolbar,
-      viewerController,
-    ]);
+    }, [isViewerMode, onConsumePendingViewerToolMode, pendingViewerToolMode, viewerController]);
 
     useEffect(() => {
-      void preloadViewerModeModules().catch((error) => {
-        console.warn('[UnifiedViewer] Failed to preload active mode modules.', error);
-      });
+      return schedulePostReadyBackgroundTask(
+        () => {
+          void preloadDeferredViewerModeModules().catch((error) => {
+            console.warn('[UnifiedViewer] Failed to preload deferred mode modules.', error);
+          });
+        },
+        {
+          delayMs: 1_500,
+          idleTimeoutMs: 5_000,
+        },
+      );
     }, []);
 
     useEffect(() => {
@@ -563,6 +584,7 @@ export const UnifiedViewer = React.memo(
         environmentIntensity={workspaceEnvironmentIntensity}
         cameraFollowPrimary={useViewerCanvasPresentation}
         controlLayerKey={controlLayerKey}
+        gizmoMargin={gizmoMargin}
         showWorldOriginAxes={showWorldOriginAxes}
         orbitControlsProps={{
           minDistance: 0.05,
@@ -576,7 +598,7 @@ export const UnifiedViewer = React.memo(
           },
         }}
         background={WORKSPACE_CANVAS_BACKGROUND}
-        showUsageGuide={showUsageGuidePreference}
+        showUsageGuide={effectiveShowUsageGuide}
         overlays={
           <UnifiedViewerOverlays
             activePreview={activePreview}
@@ -584,8 +606,6 @@ export const UnifiedViewer = React.memo(
             onClosePreview={onClosePreview}
             viewerController={viewerController}
             onUpdate={onUpdate}
-            showToolbar={showToolbar}
-            setShowToolbar={setShowToolbar}
             showOptionsPanel={showOptionsPanel}
             setShowOptionsPanel={setShowOptionsPanel}
             showJointPanel={showJointPanel}
@@ -599,13 +619,13 @@ export const UnifiedViewer = React.memo(
           viewerVisible={viewerVisible}
           viewerController={viewerController}
           activePreview={activePreview}
+          modelInteractionEnabled={modelInteractionEnabled}
           viewerResourceScope={viewerResourceScope}
           retainedRobot={retainedViewerRobot}
           effectiveSourceFile={effectiveSourceFile}
           effectiveSourceFilePath={effectiveSourceFilePath}
           effectiveUrdfContent={effectiveUrdfContent}
           effectiveSourceFormat={viewerSourceFormat}
-          onRobotDataResolved={onRobotDataResolved}
           onDocumentLoadEvent={handleViewerDocumentLoadEvent}
           onSceneReadyForDisplay={handleViewerSceneReadyForDisplay}
           onRuntimeRobotLoaded={(loadedRobot) => {
@@ -617,6 +637,7 @@ export const UnifiedViewer = React.memo(
           selection={selection}
           onHover={onHover}
           onMeshSelect={onMeshSelect}
+          onUpdate={onUpdate}
           robot={robot}
           focusTarget={focusTarget}
           onCollisionTransformPreview={onCollisionTransformPreview}

@@ -21,6 +21,14 @@ interface ResolveSelectionMissGuardPointerMoveOptions {
   hasResetTimer: boolean;
 }
 
+interface ResolvePointerUpBackgroundMissOptions {
+  hasPendingSelection: boolean;
+  dragging: boolean;
+  interactionHitTarget: boolean;
+  wasGizmoDrag: boolean;
+  pointerMovedBeyondClickThreshold?: boolean;
+}
+
 const DEFAULT_SELECTION_SETTLE_MS = 100;
 
 export function armSelectionMissGuard(justSelectedRef?: SelectionMissGuardRef | null): void {
@@ -68,9 +76,23 @@ export function shouldDisarmSelectionMissGuardOnPointerMove({
   hasPendingSelection,
   hasResetTimer,
 }: ResolveSelectionMissGuardPointerMoveOptions): boolean {
-  return justSelected
-    && pointerButtons === 0
-    && !dragging
-    && !hasPendingSelection
-    && !hasResetTimer;
+  return (
+    justSelected && pointerButtons === 0 && !dragging && !hasPendingSelection && !hasResetTimer
+  );
+}
+
+export function shouldTreatPointerUpAsBackgroundMiss({
+  hasPendingSelection,
+  dragging,
+  interactionHitTarget,
+  wasGizmoDrag,
+  pointerMovedBeyondClickThreshold = false,
+}: ResolvePointerUpBackgroundMissOptions): boolean {
+  return (
+    !hasPendingSelection &&
+    !dragging &&
+    !interactionHitTarget &&
+    !wasGizmoDrag &&
+    !pointerMovedBeyondClickThreshold
+  );
 }

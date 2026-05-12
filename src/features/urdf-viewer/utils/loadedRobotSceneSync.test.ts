@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { JSDOM } from 'jsdom';
 
+import { parseURDF } from '@/core/parsers';
 import { URDFLink, URDFVisual } from '@/core/parsers/urdf/loader/URDFClasses';
+import { prepareAssemblyRobotData } from '@/core/robot/assemblyComponentPreparation';
 import { createMatteMaterial } from '@/core/utils/materialFactory';
 import { DEFAULT_LINK, GeometryType } from '@/types';
 
@@ -13,7 +16,11 @@ import {
   MATERIAL_CONFIG,
   collisionBaseMaterial,
 } from './materials';
-import { parseURDFMaterials } from './urdfMaterials';
+import {
+  collectURDFMaterialsFromLinks,
+  parseURDFMaterials,
+  resolveURDFMaterialsForScene,
+} from './urdfMaterials';
 import { syncLoadedRobotScene } from './loadedRobotSceneSync';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
@@ -24,6 +31,43 @@ function toLinearTuple(r: number, g: number, b: number): number[] {
     .setRGB(r, g, b, THREE.SRGBColorSpace)
     .toArray()
     .map((value) => Number(value.toFixed(4)));
+}
+
+function toViewerTuple(r: number, g: number, b: number, materialName: string): number[] {
+  const material = createMatteMaterial({
+    color: new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace),
+    name: materialName,
+    preserveExactColor: true,
+  });
+  return material.color.toArray().map((value) => Number(value.toFixed(4)));
+}
+
+function readPreparedAssemblyRobotData(filePath: string, componentId: string, rootName: string) {
+  const parsed = parseURDF(readFileSync(filePath, 'utf8'));
+  assert.ok(parsed, `expected ${filePath} to parse`);
+  return prepareAssemblyRobotData(parsed, {
+    componentId,
+    rootName,
+    sourceFilePath: filePath,
+    sourceFormat: 'urdf',
+  });
+}
+
+function createUrdfVisualRoot(
+  runtimeKey: string,
+  materialName: string,
+): { visual: URDFVisual; mesh: THREE.Mesh } {
+  const visual = new URDFVisual();
+  visual.name = runtimeKey;
+  visual.userData.runtimeKey = runtimeKey;
+
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshPhongMaterial({ name: materialName, color: new THREE.Color('#ffffff') }),
+  );
+  visual.add(mesh);
+
+  return { visual, mesh };
 }
 
 function createMjcfVisualRoot(
@@ -123,6 +167,96 @@ test('syncLoadedRobotScene upgrades late URDF visual meshes to shared matte mate
   assert.equal(primaryMaterial.envMapIntensity, MATERIAL_CONFIG.envMapIntensity);
   assert.equal(primaryMaterial.toneMapped, false);
   assert.equal(secondaryMaterial.toneMapped, false);
+});
+
+test('syncLoadedRobotScene keeps conflicting Unitree workspace materials scoped to each component visual', () => {
+  const g1Robot = readPreparedAssemblyRobotData(
+    'test/unitree_ros/robots/g1_description/g1_23dof.urdf',
+    'comp_g1_23dof',
+    'g1_23dof',
+  );
+  const h1Robot = readPreparedAssemblyRobotData(
+    'test/unitree_ros/robots/h1_description/urdf/h1_with_hand.urdf',
+    'comp_h1_with_hand',
+    'h1_with_hand',
+  );
+
+  const g1LinkId = 'comp_g1_23dof_left_hip_roll_link';
+  const h1LinkId = 'comp_h1_with_hand_logo_link';
+  const robotLinks = {
+    [g1LinkId]: g1Robot.links[g1LinkId],
+    [h1LinkId]: h1Robot.links[h1LinkId],
+  };
+  const urdfMaterials = resolveURDFMaterialsForScene('<robot name="workspace" />', robotLinks);
+  const expectedG1White = collectURDFMaterialsFromLinks({
+    [g1LinkId]: robotLinks[g1LinkId],
+  }).get('white');
+  const expectedH1White = collectURDFMaterialsFromLinks({
+    [h1LinkId]: robotLinks[h1LinkId],
+  }).get('white');
+
+  assert.ok(expectedG1White?.rgba, 'expected Unitree G1 fixture to define a white material');
+  assert.ok(expectedH1White?.rgba, 'expected Unitree H1 fixture to define a white material');
+  assert.notDeepEqual(expectedG1White?.rgba, expectedH1White?.rgba);
+
+  const robot = new THREE.Group();
+  const g1Link = new URDFLink();
+  g1Link.name = g1LinkId;
+  const h1Link = new URDFLink();
+  h1Link.name = h1LinkId;
+
+  const g1Visual = createUrdfVisualRoot(`${g1LinkId}::visual::0`, 'white');
+  const h1Visual = createUrdfVisualRoot(`${h1LinkId}::visual::0`, 'white');
+
+  g1Link.add(g1Visual.visual);
+  h1Link.add(h1Visual.visual);
+  robot.add(g1Link, h1Link);
+  (robot as any).links = {
+    [g1LinkId]: g1Link,
+    [h1LinkId]: h1Link,
+  };
+
+  const result = syncLoadedRobotScene({
+    robot,
+    sourceFormat: 'urdf',
+    showCollision: false,
+    showVisual: true,
+    urdfMaterials,
+    robotLinks,
+  });
+
+  assert.equal(result.linkMeshMap.get(`${g1LinkId}:visual`)?.includes(g1Visual.mesh), true);
+  assert.equal(result.linkMeshMap.get(`${h1LinkId}:visual`)?.includes(h1Visual.mesh), true);
+  assert.equal(g1Visual.mesh.material instanceof THREE.MeshStandardMaterial, true);
+  assert.equal(h1Visual.mesh.material instanceof THREE.MeshStandardMaterial, true);
+  if (
+    !(g1Visual.mesh.material instanceof THREE.MeshStandardMaterial) ||
+    !(h1Visual.mesh.material instanceof THREE.MeshStandardMaterial) ||
+    !expectedG1White?.rgba ||
+    !expectedH1White?.rgba
+  ) {
+    assert.fail('expected Unitree workspace materials to upgrade into scoped standard materials');
+  }
+
+  assert.equal(result.changed, true);
+  assert.deepEqual(
+    g1Visual.mesh.material.color.toArray().map((value) => Number(value.toFixed(4))),
+    toViewerTuple(
+      expectedG1White.rgba[0],
+      expectedG1White.rgba[1],
+      expectedG1White.rgba[2],
+      expectedG1White.name ?? 'white',
+    ),
+  );
+  assert.deepEqual(
+    h1Visual.mesh.material.color.toArray().map((value) => Number(value.toFixed(4))),
+    toViewerTuple(
+      expectedH1White.rgba[0],
+      expectedH1White.rgba[1],
+      expectedH1White.rgba[2],
+      expectedH1White.name ?? 'white',
+    ),
+  );
 });
 
 test('syncLoadedRobotScene indexes visual meshes attached directly to a root link object', () => {

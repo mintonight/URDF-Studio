@@ -132,6 +132,7 @@ test('syncRobotVisualColorsFromMaterials does not collapse multi-material visual
           type: GeometryType.MESH,
           meshPath: 'meshes/base_link.dae',
           dimensions: { x: 1, y: 1, z: 1 },
+          color: '#ffffff',
           authoredMaterials: [
             { name: 'body', color: '#d3d7d3' },
             { name: 'accent_dark', color: '#000000' },

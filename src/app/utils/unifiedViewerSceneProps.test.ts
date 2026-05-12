@@ -53,6 +53,7 @@ test('buildUnifiedViewerSceneProps preserves live interaction wiring without pre
   };
   const onHover = () => {};
   const onMeshSelect = () => {};
+  const onUpdate = () => {};
   const onAssemblyTransform = () => {};
   const onComponentTransform = () => {};
   const onBridgeTransform = () => {};
@@ -69,6 +70,7 @@ test('buildUnifiedViewerSceneProps preserves live interaction wiring without pre
     selection,
     onHover,
     onMeshSelect,
+    onUpdate,
     assemblyState: createAssemblyStateStub(),
     assemblySelection: { type: 'component', id: 'comp_alpha' },
     onAssemblyTransform,
@@ -86,6 +88,7 @@ test('buildUnifiedViewerSceneProps preserves live interaction wiring without pre
   assert.equal(sceneProps.hoverSelectionEnabled, true);
   assert.equal(sceneProps.onHover, controller.handleHoverWrapper);
   assert.equal(sceneProps.onMeshSelect, onMeshSelect);
+  assert.equal(sceneProps.onUpdate, onUpdate);
   assert.equal(sceneProps.allowUrdfXmlFallback, false);
   assert.equal(sceneProps.robotLinks?.base_link !== undefined, true);
   assert.equal(sceneProps.robotJoints?.hip_joint !== undefined, true);
@@ -98,10 +101,35 @@ test('buildUnifiedViewerSceneProps preserves live interaction wiring without pre
   assert.equal(sceneProps.onBridgeTransform, onBridgeTransform);
 });
 
+test('buildUnifiedViewerSceneProps does not forward legacy robot data callbacks', () => {
+  const controller = createControllerStub();
+  const onRobotDataResolved = () => {};
+
+  const args = {
+    controller,
+    active: true,
+    hasActivePreview: false,
+    hoveredSelection: undefined,
+    viewerResourceScope: createScopeStub(),
+    effectiveSourceFile: null,
+    effectiveUrdfContent: '<robot name="go2" />',
+    mode: 'editor',
+    robot: createRobotStub(),
+    onRobotDataResolved,
+  } as Parameters<typeof buildUnifiedViewerSceneProps>[0] & {
+    onRobotDataResolved: () => void;
+  };
+
+  const sceneProps = buildUnifiedViewerSceneProps(args);
+
+  assert.equal('onRobotDataResolved' in sceneProps, false);
+});
+
 test('buildUnifiedViewerSceneProps clamps preview sessions to a read-only editor scene', () => {
   const controller = createControllerStub();
   const onHover = () => {};
   const onMeshSelect = () => {};
+  const onUpdate = () => {};
   const onCollisionTransformPreview = () => {};
   const onCollisionTransform = () => {};
   const onAssemblyTransform = () => {};
@@ -118,6 +146,7 @@ test('buildUnifiedViewerSceneProps clamps preview sessions to a read-only editor
     selection: { type: 'joint', id: 'hip_joint' },
     onHover,
     onMeshSelect,
+    onUpdate,
     assemblyState: createAssemblyStateStub(),
     assemblySelection: { type: 'assembly', id: 'workspace' },
     onAssemblyTransform,
@@ -135,6 +164,7 @@ test('buildUnifiedViewerSceneProps clamps preview sessions to a read-only editor
   assert.equal(sceneProps.hoverSelectionEnabled, false);
   assert.equal(sceneProps.onHover, undefined);
   assert.equal(sceneProps.onMeshSelect, undefined);
+  assert.equal(sceneProps.onUpdate, undefined);
   assert.equal(sceneProps.allowUrdfXmlFallback, true);
   assert.equal(sceneProps.robotLinks, undefined);
   assert.equal(sceneProps.robotJoints, undefined);
@@ -179,4 +209,45 @@ test('buildUnifiedViewerSceneProps disables hover interaction for inactive retai
   assert.equal(sceneProps.onMeshSelect, undefined);
   assert.equal(sceneProps.allowUrdfXmlFallback, false);
   assert.equal(sceneProps.robotLinks?.base_link !== undefined, true);
+});
+
+test('buildUnifiedViewerSceneProps disables model interaction for standalone read-only previews', () => {
+  const controller = createControllerStub();
+  const onHover = () => {};
+  const onMeshSelect = () => {};
+  const onUpdate = () => {};
+
+  const sceneProps = buildUnifiedViewerSceneProps({
+    controller,
+    active: true,
+    hasActivePreview: false,
+    modelInteractionEnabled: false,
+    hoveredSelection: { type: 'joint', id: 'hip_joint' },
+    viewerResourceScope: createScopeStub(),
+    effectiveSourceFile: {
+      name: 'meshes/gripper.stl',
+      content: '',
+      format: 'mesh',
+    },
+    effectiveUrdfContent: '<robot name="mesh-preview" />',
+    mode: 'editor',
+    selection: { type: 'link', id: 'base_link' },
+    onHover,
+    onMeshSelect,
+    onUpdate,
+    robot: createRobotStub(),
+    focusTarget: 'base_link',
+    isMeshPreview: true,
+  });
+
+  assert.deepEqual(sceneProps.selection, EMPTY_VIEWER_SELECTION);
+  assert.equal(sceneProps.hoveredSelection, undefined);
+  assert.equal(sceneProps.hoverSelectionEnabled, false);
+  assert.equal(sceneProps.onHover, undefined);
+  assert.equal(sceneProps.onMeshSelect, undefined);
+  assert.equal(sceneProps.onUpdate, undefined);
+  assert.equal(sceneProps.robotLinks, undefined);
+  assert.equal(sceneProps.robotJoints, undefined);
+  assert.equal(sceneProps.focusTarget, undefined);
+  assert.equal(sceneProps.isMeshPreview, true);
 });

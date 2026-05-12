@@ -33,6 +33,27 @@ test('resolves robot-style runtime mesh ids directly', () => {
   assert.equal(linkPath, '/Robot/base_link');
 });
 
+test('resolves robot-style /colliders runtime mesh ids to their owning link', () => {
+  assert.equal(
+    resolveUsdRuntimeLinkPathForMesh({
+      meshId: '/Robot/base_link/colliders.proto_mesh_id0',
+    }),
+    '/Robot/base_link',
+  );
+  assert.equal(
+    resolveUsdRuntimeLinkPathForMesh({
+      meshId: '/Robot/base_link/colliders/mesh_0',
+    }),
+    '/Robot/base_link',
+  );
+  assert.equal(
+    resolveUsdRuntimeLinkPathForMesh({
+      meshId: '/Robot/base_link/collider.proto_mesh_id0',
+    }),
+    '/Robot/base_link',
+  );
+});
+
 test('resolves generic runtime mesh ids through known ancestor link paths', () => {
   const resolution = {
     stageSourcePath: '/generic.usdz',

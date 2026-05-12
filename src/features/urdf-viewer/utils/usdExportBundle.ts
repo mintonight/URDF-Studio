@@ -19,10 +19,7 @@ import {
   type UsdSceneSnapshot,
 } from '../../../types/index.ts';
 import { getVisualGeometryEntries } from '@/core/robot';
-import {
-  adaptUsdViewerSnapshotToRobotData,
-  resolveUsdMeshApproximationGeometry,
-} from './usdViewerRobotAdapter.ts';
+import { adaptUsdViewerSnapshotToRobotData } from './usdViewerRobotAdapter.ts';
 import { resolveUsdPrimitiveGeometryFromDescriptor as resolvePrimitiveGeometryFromDescriptor } from './usdPrimitiveGeometry.ts';
 import { toVirtualUsdPath } from './usdPreloadSources.ts';
 import { hydrateUsdViewerRobotResolutionFromRuntime } from './usdRuntimeRobotHydration.ts';
@@ -65,9 +62,13 @@ type ExportDescriptor = {
 
 type RobotLike = RobotData | RobotState;
 const ORIGIN_EPSILON = 1e-9;
+// Unitree cooked USDs contain very thin triangles whose normals still affect shading.
+const NORMAL_EPSILON = 0;
+const NORMAL_REPAIR_DOT_THRESHOLD = 0.2;
 const EXPORT_COLOR_PLACEHOLDERS = new Set([
   DEFAULT_LINK.visual.color.toLowerCase(),
   DEFAULT_LINK.collision.color.toLowerCase(),
+  '#808080',
   '#3b82f6',
 ]);
 
@@ -603,6 +604,129 @@ function formatObjNumber(value: number): string {
   return Number.isInteger(fixed) ? String(fixed) : String(fixed);
 }
 
+function resolveObjIndex(rawIndex: number, count: number): number {
+  if (!Number.isInteger(rawIndex) || rawIndex === 0) {
+    return -1;
+  }
+  return rawIndex > 0 ? rawIndex - 1 : count + rawIndex;
+}
+
+function parseObjFaceVertexRef(
+  value: string,
+  vertexCount: number,
+  normalCount: number,
+): { vertexIndex: number; normalIndex: number | null } {
+  const parts = value.split('/');
+  const vertexIndex = resolveObjIndex(Number.parseInt(parts[0] || '', 10), vertexCount);
+  const normalIndex =
+    parts.length >= 3 && parts[2]
+      ? resolveObjIndex(Number.parseInt(parts[2], 10), normalCount)
+      : null;
+  return { vertexIndex, normalIndex };
+}
+
+export function repairObjFaceVaryingNormalsForExport(objText: string): string {
+  if (!objText || (!objText.includes('\nf ') && !objText.startsWith('f '))) {
+    return objText;
+  }
+
+  const lines = objText.split('\n');
+  const vertices: Vector3[] = [];
+  const normals: Array<Vector3 | null> = [];
+  const normalLineIndexes: number[] = [];
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex].trim();
+    const parts = line.split(/\s+/);
+    if (parts[0] === 'v' && parts.length >= 4) {
+      const x = Number(parts[1]);
+      const y = Number(parts[2]);
+      const z = Number(parts[3]);
+      vertices.push(
+        new Vector3(
+          Number.isFinite(x) ? x : 0,
+          Number.isFinite(y) ? y : 0,
+          Number.isFinite(z) ? z : 0,
+        ),
+      );
+      continue;
+    }
+    if (parts[0] === 'vn' && parts.length >= 4) {
+      const x = Number(parts[1]);
+      const y = Number(parts[2]);
+      const z = Number(parts[3]);
+      const normal = new Vector3(
+        Number.isFinite(x) ? x : 0,
+        Number.isFinite(y) ? y : 0,
+        Number.isFinite(z) ? z : 0,
+      );
+      normals.push(normal.lengthSq() > NORMAL_EPSILON ? normal.normalize() : null);
+      normalLineIndexes.push(lineIndex);
+    }
+  }
+
+  if (vertices.length < 3 || normals.length === 0) {
+    return objText;
+  }
+
+  const edgeA = new Vector3();
+  const edgeB = new Vector3();
+  const faceNormal = new Vector3();
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('f ')) {
+      continue;
+    }
+
+    const refs = trimmed
+      .split(/\s+/)
+      .slice(1)
+      .map((ref) => parseObjFaceVertexRef(ref, vertices.length, normals.length));
+    if (refs.length < 3) {
+      continue;
+    }
+
+    for (let triangleIndex = 1; triangleIndex + 1 < refs.length; triangleIndex += 1) {
+      const triangle = [refs[0], refs[triangleIndex], refs[triangleIndex + 1]];
+      const positionA = vertices[triangle[0].vertexIndex];
+      const positionB = vertices[triangle[1].vertexIndex];
+      const positionC = vertices[triangle[2].vertexIndex];
+      if (!positionA || !positionB || !positionC) {
+        continue;
+      }
+
+      edgeA.subVectors(positionB, positionA);
+      edgeB.subVectors(positionC, positionA);
+      faceNormal.crossVectors(edgeA, edgeB);
+      if (faceNormal.lengthSq() <= NORMAL_EPSILON) {
+        continue;
+      }
+      faceNormal.normalize();
+
+      for (const ref of triangle) {
+        if (ref.normalIndex === null) {
+          continue;
+        }
+        const normal = normals[ref.normalIndex];
+        const normalLineIndex = normalLineIndexes[ref.normalIndex];
+        if (!normal || normalLineIndex === undefined) {
+          continue;
+        }
+        if (normal.dot(faceNormal) >= NORMAL_REPAIR_DOT_THRESHOLD) {
+          continue;
+        }
+        const repairedNormal = faceNormal.clone();
+        normals[ref.normalIndex] = repairedNormal;
+        lines[normalLineIndex] =
+          `vn ${formatObjNumber(repairedNormal.x)} ${formatObjNumber(repairedNormal.y)} ${formatObjNumber(repairedNormal.z)}`;
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
 function hasNonIdentityOrigin(
   origin: Pick<NonNullable<UrdfVisual['origin']>, 'xyz' | 'rpy'> | null | undefined,
 ): boolean {
@@ -674,6 +798,65 @@ function resolveMergedVisualMaterialMetadata(
   };
 }
 
+function resolveMergedVisualColor(
+  current: UrdfVisual | undefined,
+  fallback?: UrdfVisual,
+): string | undefined {
+  const currentColor = current?.color?.trim() || undefined;
+  const fallbackColor = fallback?.color?.trim() || undefined;
+  if (fallbackColor && shouldAdoptSnapshotColor(currentColor)) {
+    return fallbackColor;
+  }
+  return currentColor;
+}
+
+function resolveMergedVisualMaterialFields(
+  current: UrdfVisual | undefined,
+  fallback?: UrdfVisual,
+): Pick<UrdfVisual, 'authoredMaterials' | 'meshMaterialGroups' | 'materialSource'> &
+  Partial<Pick<UrdfVisual, 'color'>> {
+  const color = resolveMergedVisualColor(current, fallback);
+  return {
+    ...resolveMergedVisualMaterialMetadata(current, fallback),
+    ...(color !== undefined ? { color } : {}),
+  };
+}
+
+function mergeRobotMaterials(
+  current: RobotLike['materials'],
+  fallback: RobotLike['materials'],
+): RobotLike['materials'] {
+  if (!current && !fallback) {
+    return undefined;
+  }
+
+  const merged: NonNullable<RobotLike['materials']> = {};
+  const materialKeys = new Set([...Object.keys(fallback || {}), ...Object.keys(current || {})]);
+
+  materialKeys.forEach((key) => {
+    const currentMaterial = current?.[key];
+    const fallbackMaterial = fallback?.[key];
+    const color =
+      fallbackMaterial?.color && shouldAdoptSnapshotMaterialColor(currentMaterial?.color)
+        ? fallbackMaterial.color
+        : currentMaterial?.color || fallbackMaterial?.color;
+    const texture = currentMaterial?.texture || fallbackMaterial?.texture;
+    const usdMaterial = currentMaterial?.usdMaterial || fallbackMaterial?.usdMaterial;
+    const colorRgba = currentMaterial?.colorRgba || fallbackMaterial?.colorRgba;
+
+    merged[key] = {
+      ...(fallbackMaterial || {}),
+      ...(currentMaterial || {}),
+      ...(color ? { color } : {}),
+      ...(colorRgba ? { colorRgba } : {}),
+      ...(texture ? { texture } : {}),
+      ...(usdMaterial ? { usdMaterial } : {}),
+    };
+  });
+
+  return merged;
+}
+
 function originsApproximatelyEqual(
   left: NonNullable<UrdfVisual['origin']> | null | undefined,
   right: NonNullable<UrdfVisual['origin']> | null | undefined,
@@ -690,33 +873,6 @@ function originsApproximatelyEqual(
     Math.abs((left.rpy?.p || 0) - (right.rpy?.p || 0)) <= ORIGIN_EPSILON &&
     Math.abs((left.rpy?.y || 0) - (right.rpy?.y || 0)) <= ORIGIN_EPSILON
   );
-}
-
-function stripSyntheticMeshApproximationOrigin(
-  geometry: UrdfVisual | null | undefined,
-  descriptor: SnapshotMeshDescriptor,
-  snapshot: UsdExportSnapshot,
-): UrdfVisual | null | undefined {
-  if (!geometry?.origin || geometry.type === GeometryType.NONE) {
-    return geometry;
-  }
-
-  if (resolvePrimitiveGeometryFromDescriptor(descriptor, geometry)) {
-    return geometry;
-  }
-
-  const approximation = resolveUsdMeshApproximationGeometry(snapshot, descriptor);
-  if (!approximation?.origin || !originsApproximatelyEqual(geometry.origin, approximation.origin)) {
-    return geometry;
-  }
-
-  return {
-    ...geometry,
-    origin: {
-      xyz: { x: 0, y: 0, z: 0 },
-      rpy: { r: 0, p: 0, y: 0 },
-    },
-  };
 }
 
 function buildObjBlobFromDescriptor(
@@ -809,6 +965,141 @@ function buildObjBlobFromDescriptor(
   const hasFaceVaryingNormals =
     indexValues.length >= 3 && normalCount === fullTriangleIndices.length;
   const hasPerVertexNormals = hasIndexedNormals && !hasFaceVaryingNormals;
+  const positionA = new Vector3();
+  const positionB = new Vector3();
+  const positionC = new Vector3();
+  const edgeA = new Vector3();
+  const edgeB = new Vector3();
+  const faceNormal = new Vector3();
+  const authoredNormalA = new Vector3();
+  const authoredNormalB = new Vector3();
+  const authoredNormalC = new Vector3();
+  const averagedAuthoredNormal = new Vector3();
+
+  const readPositionVector = (vertexIndex: number, target: Vector3): boolean => {
+    const offset = vertexIndex * 3;
+    if (offset < 0 || offset + 2 >= positionValues.length) {
+      return false;
+    }
+    target.set(positionValues[offset], positionValues[offset + 1], positionValues[offset + 2]);
+    if (transform && shouldBakeTransform) {
+      target.applyMatrix4(transform);
+    }
+    return Number.isFinite(target.x) && Number.isFinite(target.y) && Number.isFinite(target.z);
+  };
+
+  const computeFaceNormal = (
+    vertexIndexA: number,
+    vertexIndexB: number,
+    vertexIndexC: number,
+    target: Vector3,
+  ): boolean => {
+    if (
+      !readPositionVector(vertexIndexA, positionA) ||
+      !readPositionVector(vertexIndexB, positionB) ||
+      !readPositionVector(vertexIndexC, positionC)
+    ) {
+      return false;
+    }
+    edgeA.subVectors(positionB, positionA);
+    edgeB.subVectors(positionC, positionA);
+    target.crossVectors(edgeA, edgeB);
+    if (target.lengthSq() <= NORMAL_EPSILON) {
+      return false;
+    }
+    target.normalize();
+    return true;
+  };
+
+  const readAuthoredNormalVector = (
+    faceVertexIndex: number,
+    vertexIndex: number,
+    target: Vector3,
+  ): boolean => {
+    let offset = -1;
+    if (hasFaceVaryingNormals) {
+      offset = faceVertexIndex * normalStride;
+    } else if (hasPerVertexNormals) {
+      offset = vertexIndex * normalStride;
+    }
+    if (offset < 0 || offset + 2 >= normalValues.length) {
+      return false;
+    }
+    target.set(
+      normalValues[offset] || 0,
+      normalValues[offset + 1] || 0,
+      normalValues[offset + 2] || 0,
+    );
+    if (normalMatrix) {
+      target.applyMatrix3(normalMatrix);
+    }
+    if (
+      !Number.isFinite(target.x) ||
+      !Number.isFinite(target.y) ||
+      !Number.isFinite(target.z) ||
+      target.lengthSq() <= NORMAL_EPSILON
+    ) {
+      return false;
+    }
+    target.normalize();
+    return true;
+  };
+
+  const doesAuthoredNormalOpposeFace = (
+    faceVertexIndex: number,
+    vertexIndexA: number,
+    vertexIndexB: number,
+    vertexIndexC: number,
+  ): boolean => {
+    if (!computeFaceNormal(vertexIndexA, vertexIndexB, vertexIndexC, faceNormal)) {
+      return false;
+    }
+    const hasNormalA = readAuthoredNormalVector(faceVertexIndex, vertexIndexA, authoredNormalA);
+    const hasNormalB = readAuthoredNormalVector(faceVertexIndex + 1, vertexIndexB, authoredNormalB);
+    const hasNormalC = readAuthoredNormalVector(faceVertexIndex + 2, vertexIndexC, authoredNormalC);
+    if (!hasNormalA || !hasNormalB || !hasNormalC) {
+      return true;
+    }
+    if (
+      authoredNormalA.dot(faceNormal) < NORMAL_REPAIR_DOT_THRESHOLD ||
+      authoredNormalB.dot(faceNormal) < NORMAL_REPAIR_DOT_THRESHOLD ||
+      authoredNormalC.dot(faceNormal) < NORMAL_REPAIR_DOT_THRESHOLD
+    ) {
+      return true;
+    }
+    averagedAuthoredNormal
+      .copy(authoredNormalA)
+      .add(authoredNormalB)
+      .add(authoredNormalC);
+    if (averagedAuthoredNormal.lengthSq() <= NORMAL_EPSILON) {
+      return true;
+    }
+    averagedAuthoredNormal.normalize();
+    return averagedAuthoredNormal.dot(faceNormal) < NORMAL_REPAIR_DOT_THRESHOLD;
+  };
+
+  const shouldWriteRepairedFaceVaryingNormals =
+    (hasFaceVaryingNormals || hasPerVertexNormals) &&
+    (() => {
+      for (let index = 0; index + 2 < triangleIndices.length; index += 3) {
+        const a = Number(triangleIndices[index]);
+        const b = Number(triangleIndices[index + 1]);
+        const c = Number(triangleIndices[index + 2]);
+        if (!Number.isInteger(a) || !Number.isInteger(b) || !Number.isInteger(c)) {
+          continue;
+        }
+        if (doesAuthoredNormalOpposeFace(subsetStart + index, a, b, c)) {
+          return true;
+        }
+      }
+      return false;
+    })();
+  const writesFaceVaryingNormals = shouldWriteRepairedFaceVaryingNormals || hasFaceVaryingNormals;
+  const pushObjNormalLine = (normal: Vector3): void => {
+    lines.push(
+      `vn ${formatObjNumber(normal.x)} ${formatObjNumber(normal.y)} ${formatObjNumber(normal.z)}`,
+    );
+  };
 
   if (hasFaceVaryingUvs) {
     for (let uvIndex = subsetStart; uvIndex < subsetEnd; uvIndex += 1) {
@@ -826,7 +1117,57 @@ function buildObjBlobFromDescriptor(
     }
   }
 
-  if (hasFaceVaryingNormals) {
+  if (shouldWriteRepairedFaceVaryingNormals) {
+    for (let index = 0; index + 2 < triangleIndices.length; index += 3) {
+      const a = Number(triangleIndices[index]);
+      const b = Number(triangleIndices[index + 1]);
+      const c = Number(triangleIndices[index + 2]);
+      const globalFaceVertexIndex = subsetStart + index;
+      const hasComputedFaceNormal = computeFaceNormal(a, b, c, faceNormal);
+      const hasNormalA = readAuthoredNormalVector(globalFaceVertexIndex, a, authoredNormalA);
+      const hasNormalB = readAuthoredNormalVector(globalFaceVertexIndex + 1, b, authoredNormalB);
+      const hasNormalC = readAuthoredNormalVector(globalFaceVertexIndex + 2, c, authoredNormalC);
+      let useComputedFaceNormal = false;
+
+      if (hasComputedFaceNormal && hasNormalA && hasNormalB && hasNormalC) {
+        averagedAuthoredNormal
+          .copy(authoredNormalA)
+          .add(authoredNormalB)
+          .add(authoredNormalC);
+        useComputedFaceNormal =
+          averagedAuthoredNormal.lengthSq() <= NORMAL_EPSILON ||
+          averagedAuthoredNormal.normalize().dot(faceNormal) < NORMAL_REPAIR_DOT_THRESHOLD;
+      }
+
+      if (useComputedFaceNormal) {
+        pushObjNormalLine(faceNormal);
+        pushObjNormalLine(faceNormal);
+        pushObjNormalLine(faceNormal);
+        continue;
+      }
+
+      const fallbackNormal = hasComputedFaceNormal ? faceNormal : tempVector.set(0, 0, 1);
+      const normalA =
+        hasNormalA &&
+        (!hasComputedFaceNormal || authoredNormalA.dot(faceNormal) >= NORMAL_REPAIR_DOT_THRESHOLD)
+          ? authoredNormalA
+          : fallbackNormal;
+      const normalB =
+        hasNormalB &&
+        (!hasComputedFaceNormal || authoredNormalB.dot(faceNormal) >= NORMAL_REPAIR_DOT_THRESHOLD)
+          ? authoredNormalB
+          : fallbackNormal;
+      const normalC =
+        hasNormalC &&
+        (!hasComputedFaceNormal || authoredNormalC.dot(faceNormal) >= NORMAL_REPAIR_DOT_THRESHOLD)
+          ? authoredNormalC
+          : fallbackNormal;
+
+      pushObjNormalLine(normalA);
+      pushObjNormalLine(normalB);
+      pushObjNormalLine(normalC);
+    }
+  } else if (hasFaceVaryingNormals) {
     for (let normalIndex = subsetStart; normalIndex < subsetEnd; normalIndex += 1) {
       const offset = normalIndex * normalStride;
       tempVector.set(
@@ -837,9 +1178,7 @@ function buildObjBlobFromDescriptor(
       if (normalMatrix) {
         tempVector.applyMatrix3(normalMatrix).normalize();
       }
-      lines.push(
-        `vn ${formatObjNumber(tempVector.x)} ${formatObjNumber(tempVector.y)} ${formatObjNumber(tempVector.z)}`,
-      );
+      pushObjNormalLine(tempVector);
     }
   } else if (hasPerVertexNormals) {
     for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex += 1) {
@@ -852,9 +1191,7 @@ function buildObjBlobFromDescriptor(
       if (normalMatrix) {
         tempVector.applyMatrix3(normalMatrix).normalize();
       }
-      lines.push(
-        `vn ${formatObjNumber(tempVector.x)} ${formatObjNumber(tempVector.y)} ${formatObjNumber(tempVector.z)}`,
-      );
+      pushObjNormalLine(tempVector);
     }
   }
 
@@ -887,7 +1224,7 @@ function buildObjBlobFromDescriptor(
       : hasPerVertexUvs
         ? [a, b, c]
         : [null, null, null];
-    const normalIndexes = hasFaceVaryingNormals
+    const normalIndexes = writesFaceVaryingNormals
       ? [index + 1, index + 2, index + 3]
       : hasPerVertexNormals
         ? [a, b, c]
@@ -905,7 +1242,10 @@ function buildObjBlobFromDescriptor(
     return null;
   }
 
-  const objText = `${lines.join('\n')}\n`;
+  const rawObjText = `${lines.join('\n')}\n`;
+  const objText = writesFaceVaryingNormals
+    ? repairObjFaceVaryingNormalsForExport(rawObjText)
+    : rawObjText;
   const bytes = new TextEncoder().encode(objText);
 
   return {
@@ -952,7 +1292,7 @@ function canReuseFallbackMeshPath(current: UrdfVisual, fallback?: UrdfVisual): b
 }
 
 function fillMeshPath(current: UrdfVisual, fallback?: UrdfVisual): UrdfVisual {
-  const preservedMaterialMetadata = resolveMergedVisualMaterialMetadata(current, fallback);
+  const preservedMaterialMetadata = resolveMergedVisualMaterialFields(current, fallback);
   if (current.type !== GeometryType.MESH) {
     return {
       ...current,
@@ -1072,7 +1412,7 @@ function mergeGeometryWithPreparedCache(
   return {
     ...fallback,
     ...current,
-    ...resolveMergedVisualMaterialMetadata(current, fallback),
+    ...resolveMergedVisualMaterialFields(current, fallback),
     meshPath: current.meshPath || fallback.meshPath,
   };
 }
@@ -1138,10 +1478,7 @@ function mergeCurrentRobotWithPreparedCacheGeometry(
       ...preparedRobot.joints,
       ...baseRobot.joints,
     },
-    materials: {
-      ...(preparedRobot.materials || {}),
-      ...(baseRobot.materials || {}),
-    },
+    materials: mergeRobotMaterials(baseRobot.materials, preparedRobot.materials),
     closedLoopConstraints: baseRobot.closedLoopConstraints || preparedRobot.closedLoopConstraints,
     selection:
       'selection' in currentRobot
@@ -1180,10 +1517,7 @@ function mergeCurrentRobotWithSnapshotMeshPaths(
       ...snapshotRobot.joints,
       ...baseRobot.joints,
     },
-    materials: {
-      ...(snapshotRobot.materials || {}),
-      ...(baseRobot.materials || {}),
-    },
+    materials: mergeRobotMaterials(baseRobot.materials, snapshotRobot.materials),
     closedLoopConstraints: baseRobot.closedLoopConstraints || snapshotRobot.closedLoopConstraints,
     selection:
       'selection' in currentRobot
@@ -1282,7 +1616,7 @@ export function canPrepareUsdExportCacheFromSnapshot(
   }
 
   const bufferBackedDescriptors = descriptors.filter(
-    (descriptor) => !resolvePrimitiveGeometryFromDescriptor(descriptor, null),
+    (descriptor) => !resolvePrimitiveGeometryFromDescriptor(descriptor, null, snapshot),
   );
   if (bufferBackedDescriptors.length === 0) {
     return true;
@@ -2117,7 +2451,11 @@ function assignVisualDescriptorToLink(
     explicitFallbackColor ||
     preferredFallbackColor;
 
-  const primitiveGeometry = resolvePrimitiveGeometryFromDescriptor(entry.descriptor, link.visual);
+  const primitiveGeometry = resolvePrimitiveGeometryFromDescriptor(
+    entry.descriptor,
+    link.visual,
+    snapshot,
+  );
   if (primitiveGeometry) {
     link.visual = {
       ...DEFAULT_LINK.visual,
@@ -2136,13 +2474,13 @@ function assignVisualDescriptorToLink(
     return;
   }
 
-  const visual =
-    stripSyntheticMeshApproximationOrigin(link.visual, entry.descriptor, snapshot) || link.visual;
+  const visual = link.visual;
   link.visual = {
     ...DEFAULT_LINK.visual,
     ...(visual || {}),
     type: GeometryType.MESH,
     meshPath: entry.exportPath,
+    doubleSided: true,
     dimensions: ensureMeshDimensions(visual?.dimensions),
     origin: visual?.origin || { ...DEFAULT_LINK.visual.origin },
   };
@@ -2186,6 +2524,7 @@ function assignCollisionDescriptorToLink(
   const primitiveGeometry = resolvePrimitiveGeometryFromDescriptor(
     entry.descriptor,
     currentCollision,
+    snapshot,
   );
   if (primitiveGeometry) {
     const nextCollision = {
@@ -2207,9 +2546,7 @@ function assignCollisionDescriptorToLink(
     return;
   }
 
-  const sanitizedCollision =
-    stripSyntheticMeshApproximationOrigin(currentCollision, entry.descriptor, snapshot) ||
-    currentCollision;
+  const sanitizedCollision = currentCollision;
   if (collisionIndex === 0) {
     link.collision = {
       ...DEFAULT_LINK.collision,
@@ -2487,6 +2824,10 @@ export function prepareUsdExportCacheFromResolvedSnapshot(
     const descriptor = descriptorByPath.get(meshPath);
     if (!descriptor) return;
 
+    // Prepared caches are rendered under the hydrated RobotState link hierarchy.
+    // Snapshot descriptor matrices are scene transforms, so baking them into the
+    // OBJ vertices would apply the same link pose a second time in the viewer.
+    descriptor.bakeTransformIntoMesh = false;
     const asset = buildObjBlobFromDescriptor(descriptor, snapshot.buffers || null);
     if (!asset) return;
 

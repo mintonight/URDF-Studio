@@ -6,6 +6,7 @@ import type { RobotFile } from '@/types';
 import {
   buildEditableSourcePatchState,
   resolveEditablePatchTarget,
+  resolveJointLimitEditablePatchTarget,
 } from './editableSourcePatchState.ts';
 
 function createRobotFile(name: string, content: string): RobotFile {
@@ -71,4 +72,39 @@ test('buildEditableSourcePatchState is a no-op when content is unchanged', () =>
   assert.equal(result.nextSelectedFile, selectedFile);
   assert.equal(result.nextAvailableFiles, availableFiles);
   assert.equal(result.nextAllFileContents, allFileContents);
+});
+
+test('resolveJointLimitEditablePatchTarget prefers USD physics source files that contain authored joint limits', () => {
+  const selectedFile: RobotFile = {
+    name: 'robots/go2/go2_description.usda',
+    content: '#usda 1.0\n(\n    defaultPrim = "go2"\n)\n',
+    format: 'usd',
+  };
+  const physicsFile: RobotFile = {
+    name: 'robots/go2/configuration/go2_description_physics.usda',
+    content: `#usda 1.0
+def Xform "go2"
+{
+    over "joints"
+    {
+        def PhysicsRevoluteJoint "FL_hip_joint"
+        {
+            float physics:lowerLimit = -60
+            float physics:upperLimit = 60
+        }
+    }
+}
+`,
+    format: 'usd',
+  };
+  const availableFiles = [selectedFile, physicsFile];
+
+  const result = resolveJointLimitEditablePatchTarget({
+    selectedFile,
+    availableFiles,
+    jointName: 'FL_hip_joint',
+  });
+
+  assert.equal(result.targetFileName, physicsFile.name);
+  assert.equal(result.targetFile, physicsFile);
 });

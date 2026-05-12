@@ -218,6 +218,81 @@ test('generateSDF produces a roundtrippable model package for RobotState data', 
   assert.ok(Math.abs((reparsed?.joints.tip_joint.origin.rpy.y ?? 0) - 0.3) < 1e-6);
 });
 
+test('generateSDF preserves mimic joints across roundtrip export', () => {
+  const robot: RobotState = {
+    name: 'mimic_roundtrip_demo',
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+      },
+      left_finger: {
+        ...DEFAULT_LINK,
+        id: 'left_finger',
+        name: 'left_finger',
+      },
+      right_finger: {
+        ...DEFAULT_LINK,
+        id: 'right_finger',
+        name: 'right_finger',
+      },
+    },
+    joints: {
+      joint_driver: {
+        ...DEFAULT_JOINT,
+        id: 'joint_driver',
+        name: 'finger_master',
+        type: JointType.PRISMATIC,
+        parentLinkId: 'base_link',
+        childLinkId: 'left_finger',
+        axis: { x: 0, y: 0, z: 1 },
+        limit: {
+          lower: 0,
+          upper: 0.04,
+          effort: 5,
+          velocity: 1,
+        },
+      },
+      joint_follower: {
+        ...DEFAULT_JOINT,
+        id: 'joint_follower',
+        name: 'finger_slave',
+        type: JointType.PRISMATIC,
+        parentLinkId: 'base_link',
+        childLinkId: 'right_finger',
+        axis: { x: 0, y: 0, z: -1 },
+        limit: {
+          lower: -0.04,
+          upper: 0,
+          effort: 5,
+          velocity: 1,
+        },
+        mimic: {
+          joint: 'joint_driver',
+          multiplier: -1.5,
+          offset: 0.2,
+        },
+      },
+    },
+    selection: { type: null, id: null },
+  };
+
+  const xml = generateSDF(robot, { packageName: 'mimic_roundtrip_pkg' });
+  const reparsed = parseSDF(xml, { sourcePath: 'mimic_roundtrip_pkg/model.sdf' });
+
+  assert.match(
+    xml,
+    /<mimic joint="finger_master">\s*<multiplier>-1\.5<\/multiplier>\s*<offset>0\.2<\/offset>\s*<reference>0<\/reference>\s*<\/mimic>/,
+  );
+  assert.deepEqual(reparsed?.joints.finger_slave?.mimic, {
+    joint: 'finger_master',
+    multiplier: -1.5,
+    offset: 0.2,
+  });
+});
+
 test('generateSdfModelConfig points Gazebo-style packages at model.sdf', () => {
   const config = generateSdfModelConfig('roundtrip_demo');
 

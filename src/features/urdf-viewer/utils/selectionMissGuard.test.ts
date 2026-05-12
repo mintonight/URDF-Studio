@@ -6,6 +6,7 @@ import {
   disarmSelectionMissGuard,
   clearSelectionMissGuardTimer,
   scheduleSelectionMissGuardReset,
+  shouldTreatPointerUpAsBackgroundMiss,
   shouldDisarmSelectionMissGuardOnPointerMove,
 } from './selectionMissGuard.ts';
 
@@ -112,4 +113,38 @@ test('keeps the guard armed while the normal settle timer is still pending', () 
   });
 
   assert.equal(shouldDisarm, false);
+});
+
+test('treats a pointer-up with no current-hit target as a background miss', () => {
+  const shouldTreatAsBackgroundMiss = shouldTreatPointerUpAsBackgroundMiss({
+    hasPendingSelection: false,
+    dragging: false,
+    interactionHitTarget: false,
+    wasGizmoDrag: false,
+  });
+
+  assert.equal(shouldTreatAsBackgroundMiss, true);
+});
+
+test('does not treat a pointer-up after view dragging as a background miss', () => {
+  const shouldTreatAsBackgroundMiss = shouldTreatPointerUpAsBackgroundMiss({
+    hasPendingSelection: false,
+    dragging: false,
+    interactionHitTarget: false,
+    wasGizmoDrag: false,
+    pointerMovedBeyondClickThreshold: true,
+  });
+
+  assert.equal(shouldTreatAsBackgroundMiss, false);
+});
+
+test('does not treat a direct scene hit as a background miss on pointer-up', () => {
+  const shouldTreatAsBackgroundMiss = shouldTreatPointerUpAsBackgroundMiss({
+    hasPendingSelection: false,
+    dragging: false,
+    interactionHitTarget: true,
+    wasGizmoDrag: false,
+  });
+
+  assert.equal(shouldTreatAsBackgroundMiss, false);
 });

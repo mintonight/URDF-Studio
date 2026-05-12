@@ -30,9 +30,16 @@ export function sameVisibleFlag(a: boolean | undefined, b: boolean | undefined):
 }
 
 function normalizeMaterialField(value: string | undefined): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
+  return (value || '').trim().toLowerCase();
+}
+
+function sameRgba(
+  a: [number, number, number, number] | undefined,
+  b: [number, number, number, number] | undefined,
+): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
 }
 
 function sameAuthoredMaterials(
@@ -49,6 +56,7 @@ function sameAuthoredMaterials(
       return (
         normalizeMaterialField(material?.name) === normalizeMaterialField(target?.name) &&
         normalizeMaterialField(material?.color) === normalizeMaterialField(target?.color) &&
+        sameRgba(material?.colorRgba, target?.colorRgba) &&
         normalizeMaterialField(material?.texture) === normalizeMaterialField(target?.texture)
       );
     })
@@ -67,10 +75,10 @@ function sameMeshMaterialGroups(
     left.every((group, index) => {
       const target = right[index];
       return (
-        String(group?.meshKey || '').trim() === String(target?.meshKey || '').trim() &&
-        Number(group?.start) === Number(target?.start) &&
-        Number(group?.count) === Number(target?.count) &&
-        Number(group?.materialIndex) === Number(target?.materialIndex)
+        (group?.meshKey || '').trim() === (target?.meshKey || '').trim() &&
+        group?.start === target?.start &&
+        group?.count === target?.count &&
+        group?.materialIndex === target?.materialIndex
       );
     })
   );
@@ -115,6 +123,7 @@ export function sameGeometry(a: LinkGeometry | undefined, b: LinkGeometry | unde
     sameOrigin(a.origin, b.origin) &&
     (a.meshPath || '') === (b.meshPath || '') &&
     (a.color || '') === (b.color || '') &&
+    (a.doubleSided === true) === (b.doubleSided === true) &&
     sameAuthoredMaterials(a.authoredMaterials, b.authoredMaterials) &&
     sameMeshMaterialGroups(a.meshMaterialGroups, b.meshMaterialGroups) &&
     sameVisibleFlag(a.visible, b.visible)

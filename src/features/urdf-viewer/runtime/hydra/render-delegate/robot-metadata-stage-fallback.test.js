@@ -253,51 +253,24 @@ function createTruthHierarchyDelegate() {
     return delegate;
 }
 
-test('buildRobotMetadataSnapshotForStage reconstructs robot metadata from exported stage layers when driver metadata is unavailable', () => {
+test('buildRobotMetadataSnapshotForStage exposes missing driver metadata instead of reconstructing from exported stage layers', () => {
     const previousWindow = globalThis.window;
     globalThis.window = { driver: null };
 
     try {
         const delegate = createFallbackMetadataDelegate();
+        delegate.getStageMetadataLayerTexts = () => {
+            throw new Error('stage text metadata fallback should not run');
+        };
         const snapshot = delegate.buildRobotMetadataSnapshotForStage('/robots/two_link_robot.usd', null);
 
         assert.ok(snapshot);
-        assert.equal(snapshot.source, 'usd-stage');
-        assert.deepEqual(snapshot.linkParentPairs, [
-            ['/Robot/base_link/link1', '/Robot/base_link'],
-        ]);
-        assert.equal(snapshot.jointCatalogEntries.length, 1);
-        assert.equal(snapshot.linkDynamicsEntries.length, 2);
-
-        const joint = snapshot.jointCatalogEntries[0];
-        assert.equal(joint.linkPath, '/Robot/base_link/link1');
-        assert.equal(joint.parentLinkPath, '/Robot/base_link');
-        assert.equal(joint.jointName, 'joint_link1');
-        assert.equal(joint.jointType, 'revolute');
-        assert.equal(joint.axisToken, 'Z');
-        assert.deepEqual(joint.axisLocal, [0, 0, -1]);
-        assert.deepEqual(joint.localPivotInLink, [0, 0, 0]);
-        assert.deepEqual(joint.originXyz, [1, 2, 3]);
-        assert.deepEqual(joint.originQuatWxyz.map((value) => Number(value.toFixed(6))), [0.707107, 0, 0, 0.707107]);
-        assert.equal(joint.lowerLimitDeg, -90);
-        assert.equal(joint.upperLimitDeg, 60);
-
-        const baseDynamics = snapshot.linkDynamicsEntries.find((entry) => entry.linkPath === '/Robot/base_link');
-        const childDynamics = snapshot.linkDynamicsEntries.find((entry) => entry.linkPath === '/Robot/base_link/link1');
-        assert.deepEqual(baseDynamics, {
-            linkPath: '/Robot/base_link',
-            mass: 2,
-            centerOfMassLocal: [0.01, 0.02, 0.03],
-            diagonalInertia: [0.1, 0.2, 0.3],
-            principalAxesLocal: [0, 0, 0, 1],
-        });
-        assert.deepEqual(childDynamics, {
-            linkPath: '/Robot/base_link/link1',
-            mass: 1.25,
-            centerOfMassLocal: [0.1, 0.2, 0.3],
-            diagonalInertia: [1, 2, 3],
-            principalAxesLocal: [0, 0, 0, 1],
-        });
+        assert.equal(snapshot.source, 'mesh-only');
+        assert.equal(snapshot.stale, true);
+        assert.ok(snapshot.errorFlags.includes('usd-driver-metadata-missing'));
+        assert.deepEqual(snapshot.linkParentPairs, []);
+        assert.deepEqual(snapshot.jointCatalogEntries, []);
+        assert.deepEqual(snapshot.linkDynamicsEntries, []);
 
         assert.deepEqual(snapshot.meshCountsByLinkPath, {
             '/Robot/base_link': {
@@ -317,20 +290,25 @@ test('buildRobotMetadataSnapshotForStage reconstructs robot metadata from export
     }
 });
 
-test('buildRobotMetadataSnapshotForStage reuses cached stage-only fallback metadata for repeated isaacsim roundtrip imports', () => {
+test('buildRobotMetadataSnapshotForStage reuses cached stale mesh-only metadata for repeated imports without driver metadata', () => {
     const previousWindow = globalThis.window;
     globalThis.window = { driver: null };
 
     try {
         const delegate = createFallbackMetadataDelegate();
+        delegate.getStageMetadataLayerTexts = () => {
+            throw new Error('stage text metadata fallback should not run');
+        };
         const firstSnapshot = delegate.buildRobotMetadataSnapshotForStage('/robots/two_link_robot.usd', null);
         const secondSnapshot = delegate.buildRobotMetadataSnapshotForStage('/robots/two_link_robot.usd', null);
 
         assert.ok(firstSnapshot);
+        assert.equal(firstSnapshot.source, 'mesh-only');
+        assert.equal(firstSnapshot.stale, true);
         assert.strictEqual(
             secondSnapshot,
             firstSnapshot,
-            'expected repeated isaacsim roundtrip imports without driver truth to reuse cached stage metadata',
+            'expected repeated imports without driver metadata to reuse the cached stale snapshot',
         );
     }
     finally {
@@ -372,7 +350,76 @@ test('getStageMetadataLayerTexts stops reopening identical relative-path layer t
     });
 });
 
-test('buildRobotMetadataSnapshotForStage preserves tiny explicit link dynamics from stage layers', () => {
+test('stage text helper parsing skips large base layers before exporting their text', () => {
+    const delegate = Object.create(ThreeRenderDelegateCore.prototype);
+    delegate.stageSourcePath = '/robots/two_link_robot.usd';
+    delegate._guideCollisionRefMapByStageSource = new Map();
+    delegate._stageLayerTextParseCacheByStageSource = new Map();
+    let exportedBaseLayer = false;
+
+    delegate.getStage = () => ({
+        GetRootLayer() {
+            return {
+                identifier: '/robots/two_link_robot.usd',
+                ExportToString() {
+                    return exportedRootLayerText;
+                },
+            };
+        },
+        GetUsedLayers() {
+            return [
+                {
+                    identifier: '/robots/configuration/two_link_robot_description_base.usda',
+                    ExportToString() {
+                        exportedBaseLayer = true;
+                        throw new Error('large base layer should not be exported');
+                    },
+                },
+            ];
+        },
+    });
+
+    const guideMap = delegate.getGuideCollisionReferenceMapForCurrentStage();
+
+    assert.ok(guideMap instanceof Map);
+    assert.equal(exportedBaseLayer, false);
+});
+
+test('stage text helper parsing reuses cached layer text across helper lookups', () => {
+    const delegate = Object.create(ThreeRenderDelegateCore.prototype);
+    delegate.stageSourcePath = '/robots/cached_stage.usd';
+    delegate._guideCollisionRefMapByStageSource = new Map();
+    delegate._visualSemanticChildMapByStageSource = new Map();
+    delegate._xformOpFallbackMapByStageSource = new Map();
+    delegate._stageLayerTextParseCacheByStageSource = new Map();
+    let exportCount = 0;
+
+    delegate.getStage = () => ({
+        GetRootLayer() {
+            return {
+                identifier: '/robots/cached_stage.usd',
+                ExportToString() {
+                    exportCount += 1;
+                    return exportedBaseLayerText;
+                },
+            };
+        },
+        GetUsedLayers() {
+            return [];
+        },
+    });
+
+    const visualMap = delegate.getVisualSemanticChildMapForCurrentStage();
+    const guideMap = delegate.getGuideCollisionReferenceMapForCurrentStage();
+    const xformMap = delegate.getXformOpFallbackMapForCurrentStage();
+
+    assert.ok(visualMap instanceof Map);
+    assert.ok(guideMap instanceof Map);
+    assert.ok(xformMap instanceof Map);
+    assert.equal(exportCount, 1);
+});
+
+test('buildRobotMetadataSnapshotForStage does not preserve tiny link dynamics from stage text without driver metadata', () => {
     const previousWindow = globalThis.window;
     globalThis.window = { driver: null };
 
@@ -381,18 +428,16 @@ test('buildRobotMetadataSnapshotForStage preserves tiny explicit link dynamics f
             exportedTinyDynamicsPhysicsLayerText,
             '/robots/two_link_robot_tiny_dynamics.usd',
         );
+        delegate.getStageMetadataLayerTexts = () => {
+            throw new Error('stage text metadata fallback should not run');
+        };
         const snapshot = delegate.buildRobotMetadataSnapshotForStage('/robots/two_link_robot_tiny_dynamics.usd', null);
 
         assert.ok(snapshot);
-        assert.equal(snapshot.source, 'usd-stage');
-        assert.equal(snapshot.linkDynamicsEntries.length, 2);
-
-        const childDynamics = snapshot.linkDynamicsEntries.find((entry) => entry.linkPath === '/Robot/base_link/link1');
-        assert.ok(childDynamics);
-        assert.equal(childDynamics.mass, 4.19e-15);
-        assert.deepEqual(childDynamics.centerOfMassLocal, [1e-27, -2e-27, -1.307861e-11]);
-        assert.deepEqual(childDynamics.diagonalInertia, [1.094396e-28, 2.287836e-28, 3.417764e-28]);
-        assert.deepEqual(childDynamics.principalAxesLocal, [0, 0, 0, 1]);
+        assert.equal(snapshot.source, 'mesh-only');
+        assert.equal(snapshot.stale, true);
+        assert.ok(snapshot.errorFlags.includes('usd-driver-metadata-missing'));
+        assert.deepEqual(snapshot.linkDynamicsEntries, []);
     }
     finally {
         globalThis.window = previousWindow;
@@ -582,7 +627,7 @@ test('buildRobotMetadataSnapshotForStage resolves truth-backed parent links agai
     assert.ok(snapshot.linkParentPairs.some(([childPath, parentPath]) => childPath === '/Robot/base_link/FL_hip/FL_thigh' && parentPath === '/Robot/base_link/FL_hip'));
 });
 
-test('buildRobotMetadataSnapshotForStage prefers explicit stage joint and dynamics metadata over conflicting URDF truth', () => {
+test('buildRobotMetadataSnapshotForStage prefers URDF truth instead of stage text metadata when driver metadata is missing', () => {
     const previousWindow = globalThis.window;
     globalThis.window = { driver: null };
 
@@ -613,19 +658,22 @@ test('buildRobotMetadataSnapshotForStage prefers explicit stage joint and dynami
 
         const snapshot = delegate.buildRobotMetadataSnapshotForStage('/robots/two_link_robot.usd', truth);
         assert.ok(snapshot);
+        assert.equal(snapshot.source, 'urdf-truth');
+        assert.equal(snapshot.stale, true);
+        assert.ok(snapshot.errorFlags.includes('usd-driver-metadata-missing'));
 
         const joint = snapshot.jointCatalogEntries.find((entry) => entry.linkPath === '/Robot/base_link/link1');
         assert.ok(joint);
-        assert.equal(joint.jointName, 'joint_link1');
-        assert.equal(joint.jointType, 'revolute');
-        assert.deepEqual(joint.axisLocal, [0, 0, -1]);
-        assert.deepEqual(joint.originXyz, [1, 2, 3]);
+        assert.equal(joint.jointName, 'truth_joint_link1');
+        assert.equal(joint.jointType, 'fixed');
+        assert.deepEqual(joint.axisLocal, [1, 0, 0]);
+        assert.deepEqual(joint.originXyz, [9, 9, 9]);
 
         const dynamics = snapshot.linkDynamicsEntries.find((entry) => entry.linkPath === '/Robot/base_link/link1');
         assert.ok(dynamics);
-        assert.equal(dynamics.mass, 1.25);
-        assert.deepEqual(dynamics.centerOfMassLocal, [0.1, 0.2, 0.3]);
-        assert.deepEqual(dynamics.diagonalInertia, [1, 2, 3]);
+        assert.equal(dynamics.mass, 99);
+        assert.deepEqual(dynamics.centerOfMassLocal, [9, 9, 9]);
+        assert.deepEqual(dynamics.diagonalInertia, [9, 9, 9]);
     }
     finally {
         globalThis.window = previousWindow;
@@ -693,7 +741,7 @@ test('buildRobotMetadataSnapshotForStage seeds helper links from driver joint re
     }
 });
 
-test('buildRobotMetadataSnapshotForStage promotes folded collision-only semantic child links when stage collider metadata names them explicitly', () => {
+test('buildRobotMetadataSnapshotForStage does not promote folded collision-only semantic child links from stage text without driver metadata', () => {
     const previousWindow = globalThis.window;
     globalThis.window = { driver: null };
 
@@ -752,20 +800,90 @@ def Scope "colliders"
         const snapshot = delegate.buildRobotMetadataSnapshotForStage('/robots/go2_folded_collision.usd', null);
 
         assert.ok(snapshot);
-        assert.equal(snapshot.source, 'usd-stage');
-        assert.deepEqual(snapshot.linkParentPairs, [
-            ['/Robot/FL_calflower', '/Robot/FL_calf'],
-        ]);
+        assert.equal(snapshot.source, 'mesh-only');
+        assert.equal(snapshot.stale, true);
+        assert.ok(snapshot.errorFlags.includes('usd-driver-metadata-missing'));
+        assert.deepEqual(snapshot.linkParentPairs, []);
         assert.deepEqual(snapshot.meshCountsByLinkPath, {
             '/Robot/FL_calf': {
                 visualMeshCount: 0,
-                collisionMeshCount: 1,
-                collisionPrimitiveCounts: { mesh: 1 },
+                collisionMeshCount: 2,
+                collisionPrimitiveCounts: { mesh: 2 },
             },
-            '/Robot/FL_calflower': {
-                visualMeshCount: 0,
+        });
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});
+
+test('buildRobotMetadataSnapshotForStage keeps visual_0-style roundtrip container scopes on the owning link', () => {
+    const previousWindow = globalThis.window;
+    globalThis.window = { driver: null };
+
+    try {
+        const delegate = Object.create(ThreeRenderDelegateCore.prototype);
+        delegate.meshes = {
+            '/Robot/base_link/visuals.proto_mesh_id0': {},
+            '/Robot/base_link/collisions.proto_box_id0': {},
+        };
+        delegate._protoMeshMetadataByMeshId = new Map();
+        delegate._robotMetadataSnapshotByStageSource = new Map();
+        delegate._robotMetadataBuildPromisesByStageSource = new Map();
+        delegate._nowPerfMs = () => 1234;
+        delegate.getNormalizedStageSourcePath = () => '/robots/base_link_roundtrip.usd';
+        delegate.getResolvedVisualTransformPrimPathForMeshId = () => '/Robot/base_link/visuals/visual_0/mesh';
+        delegate.getResolvedPrimPathForMeshId = () => '/Robot/base_link/collisions/collision_0/cube';
+        delegate.getStage = () => ({
+            GetRootLayer() {
+                return createLayer(`#usda 1.0
+(
+    defaultPrim = "Robot"
+)
+
+def Xform "Robot"
+{
+    def Xform "base_link"
+    {
+        def Xform "visuals"
+        {
+            def Xform "visual_0"
+            {
+                def Mesh "mesh"
+                {
+                }
+            }
+        }
+
+        def Xform "collisions"
+        {
+            def Xform "collision_0"
+            {
+                def Cube "cube"
+                {
+                    uniform token purpose = "guide"
+                }
+            }
+        }
+    }
+}
+`);
+            },
+            GetUsedLayers() {
+                return [];
+            },
+        });
+
+        const snapshot = delegate.buildRobotMetadataSnapshotForStage('/robots/base_link_roundtrip.usd', null);
+
+        assert.ok(snapshot);
+        assert.deepEqual(snapshot.linkParentPairs, []);
+        assert.equal(snapshot.meshCountsByLinkPath['/Robot/visual_0'], undefined);
+        assert.deepEqual(snapshot.meshCountsByLinkPath, {
+            '/Robot/base_link': {
+                visualMeshCount: 1,
                 collisionMeshCount: 1,
-                collisionPrimitiveCounts: { mesh: 1 },
+                collisionPrimitiveCounts: { box: 1 },
             },
         });
     }
@@ -875,7 +993,11 @@ test('buildRobotMetadataSnapshotForStage marks metadata stale when driver physic
         assert.equal(snapshot.stale, true);
         assert.deepEqual(
             snapshot.errorFlags,
-            ['physics-joint-records-unavailable', 'physics-link-dynamics-unavailable'],
+            [
+                'physics-joint-records-unavailable',
+                'physics-link-dynamics-unavailable',
+                'usd-driver-metadata-missing',
+            ],
         );
     }
     finally {
@@ -950,4 +1072,36 @@ test('startRobotMetadataWarmupForStage annotates stale metadata when URDF truth 
     assert.equal(snapshot.stale, true);
     assert.deepEqual(snapshot.errorFlags, ['urdf-truth-load-failed']);
     assert.match(String(snapshot.truthLoadError || ''), /truth-load-failed/);
+});
+
+test('safeOpenUsdStage does not cache failed opens as a permanent null result', () => {
+    const previousWindow = globalThis.window;
+    let openAttempts = 0;
+    const recoveredStage = { stage: true };
+
+    globalThis.window = {
+        USD: {
+            UsdStage: {
+                Open(stagePath) {
+                    openAttempts += 1;
+                    assert.equal(stagePath, '/robots/retryable.usd');
+                    if (openAttempts === 1) {
+                        throw new Error('transient-open-failure');
+                    }
+                    return recoveredStage;
+                },
+            },
+        },
+    };
+
+    try {
+        const delegate = Object.create(ThreeRenderDelegateCore.prototype);
+
+        assert.equal(delegate.safeOpenUsdStage('/robots/retryable.usd'), null);
+        assert.equal(delegate.safeOpenUsdStage('/robots/retryable.usd'), recoveredStage);
+        assert.equal(openAttempts, 2);
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
 });

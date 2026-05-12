@@ -1,7 +1,7 @@
 import React from 'react';
 
 const loadViewerSceneConnectorModule = () => import('./ViewerSceneConnector');
-const loadViewerPanelsModule = () => import('@/features/editor');
+const loadViewerPanelsModule = () => import('@/features/editor/viewerPanelModule');
 const loadViewerJointsPanelModule = () => import('./ViewerJointsPanel');
 
 export const LazyViewerSceneConnector = React.lazy(async () => ({
@@ -16,10 +16,6 @@ export const LazyViewerJointsPanel = React.lazy(async () => ({
   default: (await loadViewerJointsPanelModule()).ViewerJointsPanel,
 }));
 
-export async function preloadViewerModeModules(): Promise<void> {
-  await Promise.all([
-    loadViewerSceneConnectorModule(),
-    loadViewerPanelsModule(),
-    loadViewerJointsPanelModule(),
-  ]);
+export async function preloadDeferredViewerModeModules(): Promise<void> {
+  await loadViewerJointsPanelModule();
 }

@@ -382,10 +382,10 @@ test('visual tab renders geometry controls with an embedded material section', a
     );
     assert.ok(textureLabel, 'visual tab should keep the texture controls visible');
 
-    const typeLabel = Array.from(container.querySelectorAll('label')).find(
-      (node) => node.textContent === translations.en.type,
+    const geometryTypeControl = container.querySelector(
+      `button[role="combobox"][aria-label="${translations.en.type}"], select[aria-label="${translations.en.type}"]`,
     );
-    assert.ok(typeLabel, 'visual tab should still render geometry type controls');
+    assert.ok(geometryTypeControl, 'visual tab should still render geometry type controls');
 
     const materialTabButton = container.querySelector('button[title="Material"]');
     assert.equal(materialTabButton, null, 'material should no longer render as a top-level tab');
@@ -1189,13 +1189,8 @@ test('collision list visibility button toggles the clicked collision body', asyn
       'clicking the list eye button should toggle that collision body visibility',
     );
 
-    const geometryVisibilityButton = container.querySelector(
-      'button[aria-label="Show"]',
-    ) as HTMLButtonElement | null;
-    assert.ok(
-      geometryVisibilityButton,
-      'toggling visibility from the list should retarget the editor to the same collision body',
-    );
+    // The GeometryEditor no longer has its own visibility button;
+    // visibility is managed through the collision list above.
     assert.deepEqual(selectionCalls.at(-1), ['base_link', 'collision', 1, true, true]);
   } finally {
     await destroyComponentRoot(dom, root);

@@ -1,5 +1,13 @@
 import * as THREE from 'three';
 
+import {
+  canonicalizeAxis,
+  computeAxisAlignmentScore,
+  computeCapsuleVolume,
+  computeCylinderVolume,
+  type Point3,
+} from '@/core/geometry/primitiveGeometry';
+
 export interface PrimitiveFit {
   axis: { x: number; y: number; z: number };
   center: { x: number; y: number; z: number };
@@ -24,11 +32,7 @@ export interface PrimitiveFitSet {
   capsuleCandidates?: PrimitiveFit[];
 }
 
-export interface Point3 {
-  x: number;
-  y: number;
-  z: number;
-}
+export type { Point3 } from '@/core/geometry/primitiveGeometry';
 
 interface ProjectedPoint {
   t: number;
@@ -50,31 +54,6 @@ function toPositive(value: number | undefined, fallback: number): number {
   return value;
 }
 
-export function canonicalizeAxis(axis: Point3): Point3 | null {
-  const length = Math.hypot(axis.x, axis.y, axis.z);
-  if (!Number.isFinite(length) || length <= 1e-8) return null;
-
-  let normalized = {
-    x: axis.x / length,
-    y: axis.y / length,
-    z: axis.z / length,
-  };
-
-  if (
-    normalized.x < -1e-8 ||
-    (Math.abs(normalized.x) <= 1e-8 && normalized.y < -1e-8) ||
-    (Math.abs(normalized.x) <= 1e-8 && Math.abs(normalized.y) <= 1e-8 && normalized.z < 0)
-  ) {
-    normalized = {
-      x: -normalized.x,
-      y: -normalized.y,
-      z: -normalized.z,
-    };
-  }
-
-  return normalized;
-}
-
 function addCandidateAxis(axes: Point3[], axis: Point3): void {
   const normalized = canonicalizeAxis(axis);
   if (!normalized) return;
@@ -88,20 +67,6 @@ function addCandidateAxis(axes: Point3[], axis: Point3): void {
   if (!isDuplicate) {
     axes.push(normalized);
   }
-}
-
-export function computeAxisAlignmentScore(axis: Point3, preferredAxis: Point3): number {
-  const normalizedAxis = canonicalizeAxis(axis);
-  const normalizedPreferredAxis = canonicalizeAxis(preferredAxis);
-  if (!normalizedAxis || !normalizedPreferredAxis) {
-    return Number.NEGATIVE_INFINITY;
-  }
-
-  return Math.abs(
-    normalizedAxis.x * normalizedPreferredAxis.x +
-      normalizedAxis.y * normalizedPreferredAxis.y +
-      normalizedAxis.z * normalizedPreferredAxis.z,
-  );
 }
 
 function computePrincipalAxes(points: Point3[]): Point3[] {
@@ -546,15 +511,6 @@ function buildBoxFitCandidates(points: Point3[]): BoxFit[] {
   );
 }
 
-function computeCapsuleVolume(totalLength: number, radius: number): number {
-  if (totalLength <= 0 || radius <= 0) return 0;
-  const clampedRadius = Math.min(radius, totalLength / 2);
-  return (
-    Math.PI * clampedRadius * clampedRadius * totalLength -
-    (2 / 3) * Math.PI * clampedRadius * clampedRadius * clampedRadius
-  );
-}
-
 function evaluateCapsuleRadius(points: ProjectedPoint[], radius: number) {
   let maxStart = -Infinity;
   let minEnd = Infinity;
@@ -698,7 +654,7 @@ function computePrimitiveFitsForAxis(
     center: { x: cylinderCenter.x, y: cylinderCenter.y, z: cylinderCenter.z },
     radius: cylinderRadius,
     length: cylinderLength,
-    volume: Math.PI * cylinderRadius * cylinderRadius * cylinderLength,
+    volume: computeCylinderVolume(cylinderRadius, cylinderLength),
   };
 
   const capsule = computeBestCapsuleFit(projected, axisVector, lineCenter, cylinderRadius);

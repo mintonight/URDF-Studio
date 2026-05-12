@@ -21,17 +21,34 @@ const GENERIC_SEMANTIC_CHILD_PRIM_PATTERNS = [
 ];
 
 function normalizeUsdPath(path: string | null | undefined): string {
-  const normalized = String(path || '').trim().replace(/[<>]/g, '').replace(/\\/g, '/');
+  const normalized = String(path || '')
+    .trim()
+    .replace(/[<>]/g, '')
+    .replace(/\\/g, '/');
   if (!normalized) return '';
   return normalized.startsWith('/') ? normalized : `/${normalized}`;
 }
 
 function normalizeSectionName(sectionName: string | null | undefined): string {
-  const normalized = String(sectionName || '').trim().toLowerCase();
+  const normalized = String(sectionName || '')
+    .trim()
+    .toLowerCase();
   if (normalized === 'visual') return 'visuals';
   if (normalized === 'collider' || normalized === 'colliders') return 'collisions';
   if (normalized === 'collision') return 'collisions';
   return normalized;
+}
+
+function getPathParent(path: string | null | undefined): string {
+  const normalized = normalizeUsdPath(path);
+  if (!normalized) return '';
+
+  const segments = normalized.split('/').filter(Boolean);
+  if (segments.length <= 1) {
+    return '';
+  }
+
+  return `/${segments.slice(0, -1).join('/')}`;
 }
 
 export function buildNormalizedUsdPathSet(paths: Iterable<string | null | undefined>): Set<string> {
@@ -46,14 +63,18 @@ export function buildNormalizedUsdPathSet(paths: Iterable<string | null | undefi
 }
 
 export function inferUsdDescriptorOwningLinkPath(
-  descriptor: Pick<UsdSceneMeshDescriptor, 'meshId' | 'resolvedPrimPath'>,
+  descriptor: Pick<UsdSceneMeshDescriptor, 'meshId' | 'resolvedPrimPath' | 'primType'>,
 ): string {
   const meshId = normalizeUsdPath(descriptor.meshId || '');
   if (meshId) {
     const markerIndex = meshId.indexOf('.proto_');
     if (markerIndex > 0) {
       let linkPath = meshId.slice(0, markerIndex);
-      if (linkPath.endsWith('/visuals') || linkPath.endsWith('/collisions') || linkPath.endsWith('/colliders')) {
+      if (
+        linkPath.endsWith('/visuals') ||
+        linkPath.endsWith('/collisions') ||
+        linkPath.endsWith('/colliders')
+      ) {
         const parentSlash = linkPath.lastIndexOf('/');
         if (parentSlash > 0) {
           linkPath = linkPath.slice(0, parentSlash);
@@ -70,9 +91,39 @@ export function inferUsdDescriptorOwningLinkPath(
     const normalized = normalizeUsdPath(candidate || '');
     if (!normalized) continue;
 
-    const authoredPathMatch = normalized.match(/^(.*?)(?:\/(?:visuals?|coll(?:isions?|iders?)))(?:$|[/.])/i);
+    const authoredPathMatch = normalized.match(
+      /^(.*?)(?:\/(?:visuals?|coll(?:isions?|iders?)))(?:$|[/.])/i,
+    );
     if (authoredPathMatch?.[1]) {
       return normalizeUsdPath(authoredPathMatch[1]);
+    }
+
+    if (candidate === descriptor.resolvedPrimPath) {
+      const normalizedMeshId = normalizeUsdPath(descriptor.meshId || '');
+      if (
+        normalizedMeshId &&
+        normalizedMeshId !== normalized &&
+        normalizedMeshId.startsWith(`${normalized}/`)
+      ) {
+        return normalized;
+      }
+
+      const primType = String(descriptor.primType || '')
+        .trim()
+        .toLowerCase();
+      const resolvedPrimParent = getPathParent(normalized);
+      if (primType === 'mesh' && resolvedPrimParent) {
+        return resolvedPrimParent;
+      }
+
+      return normalized;
+    }
+  }
+
+  if (meshId) {
+    const meshPathSegments = meshId.split('/').filter(Boolean);
+    if (meshPathSegments.length > 1) {
+      return `/${meshPathSegments.slice(0, -1).join('/')}`;
     }
   }
 
@@ -84,9 +135,9 @@ export function getUsdDescriptorSemanticChildLinkName(
 ): string {
   const candidateLinkName = getUsdDescriptorSectionChildToken(descriptor);
   if (
-    !candidateLinkName
-    || GENERIC_SEMANTIC_CHILD_PRIM_NAMES.has(candidateLinkName.toLowerCase())
-    || GENERIC_SEMANTIC_CHILD_PRIM_PATTERNS.some((pattern) => pattern.test(candidateLinkName))
+    !candidateLinkName ||
+    GENERIC_SEMANTIC_CHILD_PRIM_NAMES.has(candidateLinkName.toLowerCase()) ||
+    GENERIC_SEMANTIC_CHILD_PRIM_PATTERNS.some((pattern) => pattern.test(candidateLinkName))
   ) {
     return '';
   }
@@ -100,8 +151,8 @@ export function getUsdDescriptorSectionChildToken(
   const normalizedResolvedPrimPath = normalizeUsdPath(descriptor.resolvedPrimPath || '');
   const normalizedSectionName = normalizeSectionName(descriptor.sectionName);
   if (
-    !normalizedResolvedPrimPath
-    || (normalizedSectionName !== 'visuals' && normalizedSectionName !== 'collisions')
+    !normalizedResolvedPrimPath ||
+    (normalizedSectionName !== 'visuals' && normalizedSectionName !== 'collisions')
   ) {
     return '';
   }
@@ -126,7 +177,10 @@ export function resolveUsdDescriptorTargetLinkPath({
   descriptor,
   knownLinkPaths,
 }: {
-  descriptor: Pick<UsdSceneMeshDescriptor, 'meshId' | 'resolvedPrimPath' | 'sectionName'>;
+  descriptor: Pick<
+    UsdSceneMeshDescriptor,
+    'meshId' | 'resolvedPrimPath' | 'sectionName' | 'primType'
+  >;
   knownLinkPaths?: Iterable<string | null | undefined>;
 }): string {
   const owningLinkPath = inferUsdDescriptorOwningLinkPath(descriptor);
@@ -145,12 +199,11 @@ export function resolveUsdDescriptorTargetLinkPath({
   }
 
   const parentSlashIndex = owningLinkPath.lastIndexOf('/');
-  const owningLinkParentPath = parentSlashIndex > 0 ? owningLinkPath.slice(0, parentSlashIndex) : '';
+  const owningLinkParentPath =
+    parentSlashIndex > 0 ? owningLinkPath.slice(0, parentSlashIndex) : '';
   const semanticLinkPath = owningLinkParentPath
     ? `${owningLinkParentPath}/${semanticChildLinkName}`
     : owningLinkPath;
 
-  return normalizedKnownLinkPaths.has(semanticLinkPath)
-    ? semanticLinkPath
-    : owningLinkPath;
+  return normalizedKnownLinkPaths.has(semanticLinkPath) ? semanticLinkPath : owningLinkPath;
 }

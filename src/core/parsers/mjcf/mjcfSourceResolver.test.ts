@@ -269,6 +269,126 @@ test('resolveMJCFSource expands mujocoinclude fragments through relative parent 
   assert.match(resolved.content, /name="bin_geom"/);
 });
 
+test('resolveMJCFSource strips source annotations without reparsing expanded content', () => {
+  installDomGlobals();
+
+  const NativeDOMParser = globalThis.DOMParser;
+  let parseCount = 0;
+  globalThis.DOMParser = class CountingDOMParser extends NativeDOMParser {
+    parseFromString(...args: Parameters<DOMParser['parseFromString']>): Document {
+      parseCount += 1;
+      return super.parseFromString(...args);
+    }
+  } as typeof DOMParser;
+
+  try {
+    const files: RobotFile[] = [
+      {
+        name: '/tmp/mjcf-strip/wrapper.xml',
+        format: 'mjcf',
+        content: `
+          <mujoco model="wrapper">
+            <include file="body.xml" />
+            <worldbody />
+          </mujoco>
+        `,
+      },
+      {
+        name: '/tmp/mjcf-strip/body.xml',
+        format: 'mjcf',
+        content: `
+          <mujocoinclude>
+            <body name="included_body">
+              <geom name="included_geom" type="box" size="0.1 0.1 0.1" />
+            </body>
+          </mujocoinclude>
+        `,
+      },
+    ];
+
+    const resolved = resolveMJCFSource(files[0]!, files);
+
+    assert.match(resolved.validationContent, /data-urdf-studio-source-file=/);
+    assert.doesNotMatch(resolved.content, /data-urdf-studio-source-file=/);
+    assert.equal(parseCount, 2);
+  } finally {
+    globalThis.DOMParser = NativeDOMParser;
+  }
+});
+
+test('resolveMJCFSource reuses resolved source cache across equivalent file arrays', () => {
+  installDomGlobals();
+
+  const NativeDOMParser = globalThis.DOMParser;
+  let parseCount = 0;
+  globalThis.DOMParser = class CountingDOMParser extends NativeDOMParser {
+    parseFromString(...args: Parameters<DOMParser['parseFromString']>): Document {
+      parseCount += 1;
+      return super.parseFromString(...args);
+    }
+  } as typeof DOMParser;
+
+  try {
+    const firstFiles: RobotFile[] = [
+      {
+        name: '/tmp/mjcf-cache/wrapper.xml',
+        format: 'mjcf',
+        content: `
+          <mujoco model="wrapper">
+            <include file="body.xml" />
+            <worldbody />
+          </mujoco>
+        `,
+      },
+      {
+        name: '/tmp/mjcf-cache/body.xml',
+        format: 'mjcf',
+        content: `
+          <mujocoinclude>
+            <body name="cached_body">
+              <geom name="cached_geom" type="box" size="0.1 0.1 0.1" />
+            </body>
+          </mujocoinclude>
+        `,
+      },
+    ];
+    const secondFiles = firstFiles.map((file) => ({ ...file }));
+
+    const firstResolved = resolveMJCFSource(firstFiles[0]!, firstFiles);
+    const parseCountAfterFirstResolve = parseCount;
+    const secondResolved = resolveMJCFSource(secondFiles[0]!, secondFiles);
+
+    assert.equal(secondResolved.content, firstResolved.content);
+    assert.equal(parseCount, parseCountAfterFirstResolve);
+  } finally {
+    globalThis.DOMParser = NativeDOMParser;
+  }
+});
+
+test('resolveMJCFSource verifies cache signatures before reusing content-hash matches', () => {
+  installDomGlobals();
+
+  const firstFile: RobotFile = {
+    name: '/tmp/mjcf-cache-collision/robot.xml',
+    format: 'mjcf',
+    content:
+      '<mujoco model="OHGlQbe5uZ"><worldbody><body name="OHGlQbe5uZ" /></worldbody></mujoco>',
+  };
+  const secondFile: RobotFile = {
+    name: '/tmp/mjcf-cache-collision/robot.xml',
+    format: 'mjcf',
+    content:
+      '<mujoco model="sVelSjcx2V"><worldbody><body name="sVelSjcx2V" /></worldbody></mujoco>',
+  };
+
+  const firstResolved = resolveMJCFSource(firstFile, [firstFile]);
+  const secondResolved = resolveMJCFSource(secondFile, [secondFile]);
+
+  assert.match(firstResolved.content, /OHGlQbe5uZ/);
+  assert.match(secondResolved.content, /sVelSjcx2V/);
+  assert.doesNotMatch(secondResolved.content, /OHGlQbe5uZ/);
+});
+
 test('resolveMJCFSource preserves absolute base paths for deep myosuite includes', () => {
   installDomGlobals();
 
@@ -360,11 +480,18 @@ test('prefixMJCFSourceIdentifiers rewrites standalone MJCF identifiers without c
       <worldbody>
         <body name="lh_forearm" childclass="hand">
           <geom name="lh_forearm_visual" mesh="forearm_mesh" material="metallic" />
+          <site name="lh_wrap_side" />
           <body name="lh_wrist">
             <joint name="lh_WRJ2" />
           </body>
         </body>
       </worldbody>
+      <tendon>
+        <spatial name="lh_tendon">
+          <site site="lh_wrap_side" />
+          <geom geom="lh_forearm_visual" sidesite="lh_wrap_side" />
+        </spatial>
+      </tendon>
       <contact>
         <exclude body1="lh_wrist" body2="lh_forearm" />
       </contact>
@@ -379,6 +506,9 @@ test('prefixMJCFSourceIdentifiers rewrites standalone MJCF identifiers without c
   assert.match(prefixed, /name="left_hand_lh_forearm"/);
   assert.match(prefixed, /name="left_hand_lh_wrist"/);
   assert.match(prefixed, /name="left_hand_lh_WRJ2"/);
+  assert.match(prefixed, /name="left_hand_lh_wrap_side"/);
+  assert.match(prefixed, /site="left_hand_lh_wrap_side"/);
+  assert.match(prefixed, /sidesite="left_hand_lh_wrap_side"/);
   assert.match(prefixed, /body1="left_hand_lh_wrist"/);
   assert.match(prefixed, /body2="left_hand_lh_forearm"/);
   assert.match(prefixed, /joint="left_hand_lh_WRJ2"/);

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   computeLinkWorldMatrices,
+  getVisualGeometryEntries,
   isSyntheticWorldRoot,
   mergeAssembly,
   prepareAssemblyRobotData,
@@ -16,13 +17,17 @@ import {
   isIdentityAssemblyTransform,
 } from '@/core/robot/assemblyTransforms';
 import { generateURDF } from '@/core/parsers';
+import { canGenerateUrdf } from '@/core/parsers/urdf/urdfExportSupport';
 import { rewriteRobotMeshPathsForSource } from '@/core/parsers/meshPathUtils';
 import {
   createUsdPlaceholderRobotData,
   resolveRobotFileData,
   type RobotImportResult,
 } from '@/core/parsers/importRobotFile';
-import { resolveMJCFSource } from '@/core/parsers/mjcf/mjcfSourceResolver';
+import {
+  prefixMJCFSourceIdentifiers,
+  resolveMJCFSource,
+} from '@/core/parsers/mjcf/mjcfSourceResolver';
 import {
   DEFAULT_LINK,
   GeometryType,
@@ -36,9 +41,11 @@ import {
   type UrdfJoint,
   type UrdfLink,
 } from '@/types';
-import { collectURDFMaterialsFromLinks } from '@/features/editor';
-import { BRIDGE_PREVIEW_ID } from '@/features/assembly';
+import { BRIDGE_PREVIEW_ID } from '@/shared/utils/assembly/bridgePreviewId';
+import { createRobotSemanticSnapshot } from '@/shared/utils/robot/semanticSnapshot';
+import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
 import { parseEditableRobotSourceWithWorker } from './robotImportWorkerBridge';
+import { USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF } from './workspace-source-sync/usdViewerPlaceholder';
 
 type JsonLike = null | boolean | number | string | JsonLike[] | { [key: string]: JsonLike };
 
@@ -102,20 +109,26 @@ export function createRobotSourceSnapshot(robot: RobotState): string {
 export function canUseLightweightWorkspaceViewerReloadContent(
   robotLinks?: Record<string, UrdfLink> | null,
 ): boolean {
-  return collectURDFMaterialsFromLinks(robotLinks).size > 0;
+  if (!robotLinks) {
+    return false;
+  }
+
+  return Object.values(robotLinks).some((link) =>
+    getVisualGeometryEntries(link).some((entry) =>
+      (entry.geometry.authoredMaterials ?? []).some((material) => {
+        const name = material.name?.trim();
+        return Boolean(name && (material.color || material.texture || material.colorRgba));
+      }),
+    ),
+  );
 }
 
 export function shouldUseGeneratedWorkspaceViewerReloadContent({
   robotLinks,
-  hasActiveTransformTarget = false,
 }: {
   robotLinks?: Record<string, UrdfLink> | null;
   hasActiveTransformTarget?: boolean;
 }): boolean {
-  if (hasActiveTransformTarget) {
-    return true;
-  }
-
   return !canUseLightweightWorkspaceViewerReloadContent(robotLinks);
 }
 
@@ -258,10 +271,12 @@ export function createGeneratedWorkspaceUrdfFile({
   const file: RobotFile = {
     name: fileName,
     format: 'urdf',
-    content: generateURDF(robot, {
-      includeHardware: 'auto',
-      preserveMeshPaths: true,
-    }),
+    content: canGenerateUrdf(robot)
+      ? generateURDF(robot, {
+          includeHardware: 'auto',
+          preserveMeshPaths: true,
+        })
+      : '',
   };
 
   return {
@@ -436,12 +451,26 @@ export function getViewerSourceFile({
   selectedFile,
   shouldRenderAssembly,
   workspaceSourceFile = null,
+  renderSelectedUsdFromRobotState = false,
 }: {
   selectedFile: RobotFile | null;
   shouldRenderAssembly: boolean;
   workspaceSourceFile?: RobotFile | null;
+  renderSelectedUsdFromRobotState?: boolean;
 }): RobotFile | null {
-  return shouldRenderAssembly ? workspaceSourceFile : selectedFile;
+  if (shouldRenderAssembly) {
+    return workspaceSourceFile;
+  }
+
+  if (selectedFile?.format === 'usd') {
+    return {
+      ...selectedFile,
+      content: USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF,
+      format: 'urdf',
+    };
+  }
+
+  return selectedFile;
 }
 
 export type WorkspaceAssemblyRenderFailureReason =
@@ -515,6 +544,40 @@ export function getSingleComponentWorkspaceMjcfViewerSource({
 
   const sourceFile = availableFiles.find((file) => file.name === sourceFilePath) ?? null;
   return sourceFile?.format === 'mjcf' ? sourceFile : null;
+}
+
+function hasNormalizedMjcfMultiJointStages(component: AssemblyComponent): boolean {
+  return Object.keys(component.robot.links).some((linkId) => linkId.includes('__joint_stage_'));
+}
+
+export function buildSingleComponentWorkspaceMjcfViewerContent({
+  assemblyState,
+  sourceFile,
+  resolvedMjcfSourceContent,
+}: {
+  assemblyState: AssemblyState | null;
+  sourceFile: RobotFile | null;
+  resolvedMjcfSourceContent: string | null;
+}): string | null {
+  if (!assemblyState || !sourceFile || sourceFile.format !== 'mjcf' || !resolvedMjcfSourceContent) {
+    return null;
+  }
+
+  const visibleComponent = Object.values(assemblyState.components).find(
+    (component) => component.visible !== false && component.sourceFile === sourceFile.name,
+  );
+
+  if (!visibleComponent) {
+    return null;
+  }
+
+  // Component data normalizes MJCF multi-joint bodies into stage links; keep those
+  // components on the same structured viewer path so articulated wings stay aligned.
+  if (hasNormalizedMjcfMultiJointStages(visibleComponent)) {
+    return null;
+  }
+
+  return prefixMJCFSourceIdentifiers(resolvedMjcfSourceContent, `${visibleComponent.name}_`);
 }
 
 export function getWorkspaceAssemblyViewerRobotData({
@@ -898,7 +961,12 @@ function parseRobotSourceSnapshot(sourceSnapshot: string | null): RobotData | nu
 
   try {
     return JSON.parse(sourceSnapshot) as RobotData;
-  } catch {
+  } catch (error) {
+    scheduleFailFastInDev(
+      'workspaceSourceSyncUtils:parseRobotSourceSnapshot',
+      new Error('Failed to parse workspace source snapshot.', { cause: error }),
+      'error',
+    );
     return null;
   }
 }
@@ -936,6 +1004,13 @@ function buildAssemblySeedRobotFromSourceBaseline({
     closedLoopConstraints: preparedRobotData.closedLoopConstraints,
     selection: { type: null, id: null },
   };
+}
+
+function createSingleComponentAssemblyReuseSnapshot(robot: RobotData | RobotState): string {
+  return createRobotSemanticSnapshot({
+    ...robot,
+    selection: { type: null, id: null },
+  });
 }
 
 export function shouldReuseSourceViewerForSingleComponentAssembly({
@@ -992,11 +1067,8 @@ export function shouldReuseSourceViewerForSingleComponentAssembly({
   }
 
   return (
-    createRobotSourceSnapshot(expectedSeedRobot) ===
-    createRobotSourceSnapshot({
-      ...component.robot,
-      selection: { type: null, id: null },
-    })
+    createSingleComponentAssemblyReuseSnapshot(expectedSeedRobot) ===
+    createSingleComponentAssemblyReuseSnapshot(component.robot)
   );
 }
 
@@ -1397,5 +1469,7 @@ export function buildPreviewSceneSourceFromImportResult(
     return importResult.status === 'error' ? '' : null;
   }
 
-  return generateURDF(previewRobot, { preserveMeshPaths: true });
+  return canGenerateUrdf(previewRobot)
+    ? generateURDF(previewRobot, { preserveMeshPaths: true })
+    : null;
 }

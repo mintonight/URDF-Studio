@@ -1,3 +1,5 @@
+import { VIEWER_CORNER_OVERLAY_CLASS_NAME } from '@/shared/components/3d/scene';
+
 export interface DocumentLoadingOverlayLikeState {
   status: 'idle' | 'loading' | 'hydrating' | 'ready' | 'error';
   format?: string | null;
@@ -24,7 +26,7 @@ export function resolveDocumentLoadingOverlayPresentation(
     // Keep the workspace canvas visible while documents stream in so the user
     // still sees the horizon, grid, and existing empty-stage context instead of
     // a near-opaque white curtain.
-    overlayClassName: 'pointer-events-none absolute inset-0 z-20 flex items-end justify-end p-4',
+    overlayClassName: VIEWER_CORNER_OVERLAY_CLASS_NAME,
     hudWrapperClassName: undefined,
   };
 }

@@ -283,6 +283,52 @@ test('resolveInteractionSelectionHit maps selectable joint-axis helpers to the o
   assert.equal(resolved?.id, 'hip_joint');
   assert.equal(resolved?.targetKind, 'helper');
   assert.equal(resolved?.helperKind, 'joint-axis');
+  assert.equal(resolved?.highlightTarget, helperMesh);
+});
+
+test('resolveInteractionSelectionHit preserves projected joint-axis helper roots for overlay-aware resolution', () => {
+  const robot = createRobotWithLinks();
+
+  const parentLink = createUrdfLink('parent_link');
+  const joint = new THREE.Group() as THREE.Group & {
+    isURDFJoint?: boolean;
+    type?: string;
+  };
+  joint.name = 'knee_joint';
+  joint.isURDFJoint = true;
+  joint.type = 'URDFJoint';
+  const childLink = createUrdfLink('child_link');
+
+  robot.links = {
+    parent_link: parentLink,
+    child_link: childLink,
+  };
+
+  robot.add(parentLink);
+  parentLink.add(joint);
+  joint.add(childLink);
+
+  const helperGroup = new THREE.Group();
+  helperGroup.name = '__joint_axis__';
+  helperGroup.userData = { isGizmo: true, isSelectableHelper: true };
+  joint.add(helperGroup);
+
+  const helperMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+  helperMesh.userData = { isGizmo: true, isSelectableHelper: true };
+  helperGroup.add(helperMesh);
+
+  const resolved = resolveInteractionSelectionHit(robot, helperGroup);
+
+  assert.ok(resolved);
+  assert.equal(resolved?.type, 'joint');
+  assert.equal(resolved?.id, 'knee_joint');
+  assert.equal(resolved?.targetKind, 'helper');
+  assert.equal(resolved?.helperKind, 'joint-axis');
+  assert.equal(
+    resolved?.highlightTarget,
+    helperMesh,
+    'projected joint-axis helpers should keep a renderable helper child for overlay resolution',
+  );
 });
 
 test('resolveInteractionSelectionHit preserves collision subtype for tagged meshes without URDFCollider ancestors', () => {

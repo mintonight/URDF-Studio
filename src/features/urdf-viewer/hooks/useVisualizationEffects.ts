@@ -13,6 +13,7 @@ import {
   syncJointHelperInteractionStateForJoints,
   syncJointAxesVisualizationForJoints,
   syncLinkHelperInteractionStateForLinks,
+  syncLinkVisualColors,
   syncMjcfSiteVisualizationForLinks,
   syncMjcfTendonVisualizationForRobot,
   syncOriginAxesVisualizationForLinks,
@@ -73,6 +74,49 @@ interface VisualMaterialState {
   opacity: number;
   transparent: boolean;
   depthWrite: boolean;
+}
+
+type StoredHighlightTarget = {
+  id: string | null;
+  subType: string | null;
+  objectIndex?: number;
+  highlightObjectId?: number;
+};
+
+type ResolvedHighlightTarget = {
+  id: string | null;
+  subType: 'visual' | 'collision' | undefined;
+  objectIndex?: number;
+  highlightObjectId?: number;
+};
+
+export function areHighlightTargetsEquivalent(
+  currentTarget: StoredHighlightTarget,
+  nextTarget: ResolvedHighlightTarget,
+): boolean {
+  if (currentTarget.id !== nextTarget.id) {
+    return false;
+  }
+
+  if ((currentTarget.subType ?? null) !== (nextTarget.subType ?? null)) {
+    return false;
+  }
+
+  if (currentTarget.objectIndex !== nextTarget.objectIndex) {
+    return false;
+  }
+
+  if (
+    (currentTarget.highlightObjectId ?? undefined) === (nextTarget.highlightObjectId ?? undefined)
+  ) {
+    return true;
+  }
+
+  return (
+    currentTarget.highlightObjectId !== undefined &&
+    nextTarget.highlightObjectId === undefined &&
+    currentTarget.objectIndex !== undefined
+  );
 }
 
 export function useVisualizationEffects({
@@ -380,6 +424,17 @@ export function useVisualizationEffects({
     highlightedMeshesRef,
   ]);
 
+  // Sync visual mesh colors when robotLinks change
+  useEffect(() => {
+    if (!robot || !robotLinks) return;
+
+    const didMutate = syncLinkVisualColors({ robot, robotLinks });
+
+    if (didMutate) {
+      invalidate();
+    }
+  }, [robot, robotLinks, invalidate]);
+
   // Update helper visibility for legacy __link_axes_helper__ objects
   useEffect(() => {
     if (!robot) return;
@@ -656,14 +711,16 @@ export function useVisualizationEffects({
         subType: selectionHighlightSubType,
         objectIndex: selectionHighlightObjectIndex,
         highlightObjectId: selectionHighlightObjectId,
-      } = resolveHighlightTarget(activeSelection);
+      } = resolveHighlightTarget(activeSelection, { allowHelperSelection: false });
 
       if (currentHoverRef.current.id) {
         if (
-          currentHoverRef.current.id !== selectionHighlightId ||
-          currentHoverRef.current.subType !== selectionHighlightSubType ||
-          currentHoverRef.current.objectIndex !== selectionHighlightObjectIndex ||
-          currentHoverRef.current.highlightObjectId !== selectionHighlightObjectId
+          !areHighlightTargetsEquivalent(currentHoverRef.current, {
+            id: selectionHighlightId,
+            subType: selectionHighlightSubType,
+            objectIndex: selectionHighlightObjectIndex,
+            highlightObjectId: selectionHighlightObjectId,
+          })
         ) {
           highlightGeometry(
             currentHoverRef.current.id,
@@ -762,7 +819,7 @@ export function useVisualizationEffects({
       subType: targetSubType,
       objectIndex: targetObjectIndex,
       highlightObjectId: targetHighlightObjectId,
-    } = resolveHighlightTarget(effectiveSelection);
+    } = resolveHighlightTarget(effectiveSelection, { allowHelperSelection: false });
 
     if (targetId) {
       highlightGeometry(

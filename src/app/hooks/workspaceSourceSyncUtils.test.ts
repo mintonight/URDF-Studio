@@ -16,9 +16,11 @@ import {
 import { resolveAlignedAssemblyComponentTransformForBridge } from '@/core/robot/assemblyBridgeAlignment';
 import { resolveRobotFileData } from '@/core/parsers/importRobotFile';
 import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
+import { stripTransientJointMotionFromJoints } from '@/shared/utils/robot/semanticSnapshot';
 import { DEFAULT_LINK } from '@/types/constants';
 import {
   GeometryType,
+  DEFAULT_JOINT,
   JointType,
   type AssemblyState,
   type RobotData,
@@ -43,6 +45,7 @@ import {
   getPreferredSdfContent,
   getPreferredUrdfContent,
   getPreferredXacroContent,
+  buildSingleComponentWorkspaceMjcfViewerContent,
   getWorkspaceAssemblyViewerRobotData,
   getSingleComponentWorkspaceMjcfViewerSource,
   getWorkspaceAssemblyRenderFailureReason,
@@ -59,6 +62,7 @@ import {
   WORKSPACE_VIEWER_COMPONENT_ROOT_JOINT_PREFIX,
 } from './workspaceSourceSyncUtils.ts';
 import { buildGeneratedWorkspaceFileState } from './workspaceGeneratedSourceState.ts';
+import { USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF } from './workspace-source-sync/usdViewerPlaceholder.ts';
 
 const { window } = new JSDOM();
 
@@ -398,19 +402,10 @@ test('canUseLightweightWorkspaceViewerReloadContent returns false when authored 
   assert.equal(canUseLightweightWorkspaceViewerReloadContent(createRobotState().links), false);
 });
 
-test('shouldUseGeneratedWorkspaceViewerReloadContent keeps real workspace geometry when a transform target is active', () => {
-  const robot = createRobotState();
-  robot.links.base_link = {
-    ...robot.links.base_link,
-    visual: {
-      ...robot.links.base_link.visual,
-      authoredMaterials: [{ name: 'body_blue', color: '#0088ff' }],
-    },
-  };
-
+test('shouldUseGeneratedWorkspaceViewerReloadContent keeps generated reloads for geometry that still needs source material inference', () => {
   assert.equal(
     shouldUseGeneratedWorkspaceViewerReloadContent({
-      robotLinks: robot.links,
+      robotLinks: createRobotState().links,
       hasActiveTransformTarget: true,
     }),
     true,
@@ -447,7 +442,7 @@ test('isActiveWorkspaceTransformSession stays false for passive component select
   );
 });
 
-test('shouldUseGeneratedWorkspaceViewerReloadContent respects transform pending gating even when authored materials exist', () => {
+test('shouldUseGeneratedWorkspaceViewerReloadContent avoids generated reload churn while transform target is active', () => {
   const robot = createRobotState();
   robot.links.base_link = {
     ...robot.links.base_link,
@@ -469,7 +464,7 @@ test('shouldUseGeneratedWorkspaceViewerReloadContent respects transform pending 
       robotLinks: robot.links,
       hasActiveTransformTarget,
     }),
-    true,
+    false,
   );
 });
 
@@ -671,6 +666,42 @@ test('buildGeneratedWorkspaceFileState appends or updates generated URDF entries
   assert.equal(updateState.nextAllFileContents[updatedFile.name], updatedFile.content);
 });
 
+test('createGeneratedWorkspaceUrdfFile leaves content empty for unsupported ball joints', () => {
+  const generated = createGeneratedWorkspaceUrdfFile({
+    assemblyName: 'ball_workspace',
+    mergedRobotData: {
+      name: 'ball_workspace',
+      rootLinkId: 'base_link',
+      links: {
+        base_link: {
+          ...DEFAULT_LINK,
+          id: 'base_link',
+          name: 'base_link',
+        },
+        child_link: {
+          ...DEFAULT_LINK,
+          id: 'child_link',
+          name: 'child_link',
+        },
+      },
+      joints: {
+        joint_1: {
+          ...DEFAULT_JOINT,
+          id: 'joint_1',
+          name: 'joint_1',
+          type: JointType.BALL,
+          parentLinkId: 'base_link',
+          childLinkId: 'child_link',
+        },
+      },
+      materials: {},
+    },
+    availableFiles: [],
+  });
+
+  assert.equal(generated.file.content, '');
+});
+
 test('createRobotSourceSnapshotFromUrdfContent normalizes mesh paths relative to the source file', async () => {
   const workerMock = installEditableRobotSourceWorkerMock();
 
@@ -804,6 +835,39 @@ test('getViewerSourceFile keeps the selected file outside assembly rendering', (
   );
 });
 
+test('getViewerSourceFile routes selected USD through a RobotState URDF virtual source', () => {
+  const selectedFile = createUsdFile('robots/demo/demo.usd');
+
+  const routedFile = getViewerSourceFile({
+    selectedFile,
+    shouldRenderAssembly: false,
+    renderSelectedUsdFromRobotState: true,
+  });
+
+  assert.notEqual(routedFile, selectedFile);
+  assert.deepEqual(routedFile, {
+    ...selectedFile,
+    content: USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF,
+    format: 'urdf',
+  });
+});
+
+test('getViewerSourceFile never forwards selected USD directly to the visible renderer', () => {
+  const selectedFile = createUsdFile('robots/demo/demo.usd');
+
+  const routedFile = getViewerSourceFile({
+    selectedFile,
+    shouldRenderAssembly: false,
+  });
+
+  assert.notEqual(routedFile, selectedFile);
+  assert.deepEqual(routedFile, {
+    ...selectedFile,
+    content: USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF,
+    format: 'urdf',
+  });
+});
+
 test('getViewerSourceFile keeps an explicit workspace source file while rendering an assembly view', () => {
   const workspaceSourceFile = createMjcfFile('robots/demo/workspace.xml');
 
@@ -880,6 +944,59 @@ test('getSingleComponentWorkspaceMjcfViewerSource returns the lone visible MJCF 
   );
 });
 
+test('buildSingleComponentWorkspaceMjcfViewerContent falls back to structured viewer for flybody multi-joint wings', () => {
+  const fixturePath = path.resolve('test/mujoco_menagerie-main/flybody/fruitfly.xml');
+  const sourceFile: RobotFile = {
+    name: fixturePath.replace(/\\/g, '/'),
+    format: 'mjcf',
+    content: fs.readFileSync(fixturePath, 'utf8'),
+  };
+  const importResult = resolveRobotFileData(sourceFile, {
+    availableFiles: [sourceFile],
+    allFileContents: { [sourceFile.name]: sourceFile.content },
+    assets: {},
+  });
+  assert.equal(importResult.status, 'ready');
+  if (importResult.status !== 'ready') {
+    return;
+  }
+
+  const componentRobot = prepareAssemblyRobotData(importResult.robotData, {
+    componentId: 'comp_fruitfly',
+    rootName: 'fruitfly',
+    sourceFilePath: sourceFile.name,
+    sourceFormat: 'mjcf',
+  });
+
+  assert.ok(
+    componentRobot.links.comp_fruitfly_wing_left__joint_stage_0,
+    'expected flybody wing to keep the normalized multi-joint stage links',
+  );
+
+  const assemblyState: AssemblyState = {
+    name: 'flybody_workspace',
+    components: {
+      comp_fruitfly: {
+        id: 'comp_fruitfly',
+        name: 'fruitfly',
+        sourceFile: sourceFile.name,
+        robot: componentRobot,
+        visible: true,
+      },
+    },
+    bridges: {},
+  };
+
+  assert.equal(
+    buildSingleComponentWorkspaceMjcfViewerContent({
+      assemblyState,
+      sourceFile,
+      resolvedMjcfSourceContent: sourceFile.content,
+    }),
+    null,
+  );
+});
+
 test('getSingleComponentWorkspaceMjcfViewerSource ignores assemblies that need the merged workspace viewer path', () => {
   const sourceFile = createMjcfFile('robots/demo/workspace.xml');
   const secondSourceFile = createMjcfFile('robots/demo/other.xml');
@@ -949,6 +1066,85 @@ test('getSingleComponentWorkspaceMjcfViewerSource ignores assemblies that need t
       availableFiles: [urdfSourceFile],
     }),
     null,
+  );
+});
+
+test('shouldKeepPristineSingleComponentWorkspaceOnSourceViewer reuses pristine Cassie MJCF seeds even when source snapshots strip transient joint motion', () => {
+  const fixtureRoot = path.resolve('test/mujoco_menagerie-main/agility_cassie');
+  const files: RobotFile[] = fs
+    .readdirSync(fixtureRoot, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.(xml|mjcf)$/i.test(entry.name))
+    .map((entry) => {
+      const fullPath = path.join(entry.parentPath, entry.name);
+      return {
+        name: fullPath.replace(/\\/g, '/'),
+        format: 'mjcf' as const,
+        content: fs.readFileSync(fullPath, 'utf8'),
+      };
+    });
+  const sourceFile = files.find((file) => file.name.endsWith('/cassie.xml')) ?? null;
+
+  assert.ok(sourceFile, 'expected Cassie MJCF fixture to exist');
+  if (!sourceFile) {
+    return;
+  }
+
+  const allFileContents = Object.fromEntries(files.map((file) => [file.name, file.content]));
+  const importResult = resolveRobotFileData(sourceFile, {
+    availableFiles: files,
+    allFileContents,
+    assets: {},
+  });
+  assert.equal(importResult.status, 'ready');
+  if (importResult.status !== 'ready') {
+    return;
+  }
+
+  const componentId = 'comp_cassie';
+  const assemblyState: AssemblyState = {
+    name: 'cassie_workspace',
+    components: {
+      [componentId]: {
+        id: componentId,
+        name: 'cassie',
+        sourceFile: sourceFile.name,
+        robot: prepareAssemblyRobotData(importResult.robotData, {
+          componentId,
+          rootName: 'cassie',
+          sourceFilePath: sourceFile.name,
+          sourceFormat: 'mjcf',
+        }),
+        visible: true,
+      },
+    },
+    bridges: {},
+  };
+
+  const sourceSnapshot = createRobotSourceSnapshot({
+    ...importResult.robotData,
+    joints: stripTransientJointMotionFromJoints(importResult.robotData.joints),
+    selection: { type: null, id: null },
+  });
+
+  assert.equal(
+    shouldReuseSourceViewerForSingleComponentAssembly({
+      assemblyState,
+      activeFile: sourceFile,
+      sourceSnapshot,
+    }),
+    true,
+    'expected pristine Cassie MJCF seeds to keep the current file runtime on the source viewer',
+  );
+
+  assert.equal(
+    shouldKeepPristineSingleComponentWorkspaceOnSourceViewer({
+      assemblyState,
+      activeFile: sourceFile,
+      sourceSnapshot,
+      assemblySelectionType: null,
+    }),
+    true,
+    'expected professional mode to keep pristine single-component Cassie seeds on the simple-mode viewer path',
   );
 });
 
@@ -2292,6 +2488,86 @@ test('buildWorkspaceAssemblyViewerDisplayRobotData reuses component link and joi
   );
 });
 
+test('prepareAssemblyRobotData and workspace display preserve MJCF inspection context and closed-loop metadata', () => {
+  const sourceRobot: RobotData = {
+    name: 'cassie',
+    links: {
+      base_link: { ...DEFAULT_LINK, id: 'base_link', name: 'base_link' },
+      foot_link: { ...DEFAULT_LINK, id: 'foot_link', name: 'foot_link' },
+    },
+    joints: {
+      knee_joint: {
+        ...DEFAULT_JOINT,
+        id: 'knee_joint',
+        name: 'knee_joint',
+        type: JointType.REVOLUTE,
+        parentLinkId: 'base_link',
+        childLinkId: 'foot_link',
+      },
+    },
+    rootLinkId: 'base_link',
+    materials: {
+      base_link: { color: '#336699' },
+    },
+    closedLoopConstraints: [
+      {
+        id: 'connect_loop',
+        type: 'connect',
+        linkAId: 'base_link',
+        linkBId: 'foot_link',
+        anchorLocalA: { x: 0, y: 0, z: 0 },
+        anchorLocalB: { x: 0, y: 0, z: 0 },
+        anchorWorld: { x: 0, y: 0, z: 0 },
+      },
+    ],
+    inspectionContext: {
+      sourceFormat: 'mjcf',
+      mjcf: {
+        siteCount: 2,
+        tendonCount: 1,
+        tendonActuatorCount: 1,
+        bodiesWithSites: [],
+        tendons: [],
+      },
+    },
+  };
+
+  const preparedRobot = prepareAssemblyRobotData(sourceRobot, {
+    componentId: 'comp_cassie',
+    rootName: 'cassie',
+    sourceFilePath: 'test/mujoco_menagerie-main/agility_cassie/cassie.xml',
+    sourceFormat: 'mjcf',
+  });
+
+  assert.equal(preparedRobot.inspectionContext?.sourceFormat, 'mjcf');
+  assert.equal(preparedRobot.closedLoopConstraints?.length, 1);
+
+  const assemblyState: AssemblyState = {
+    name: 'cassie_workspace',
+    components: {
+      comp_cassie: {
+        id: 'comp_cassie',
+        name: 'cassie',
+        sourceFile: 'test/mujoco_menagerie-main/agility_cassie/cassie.xml',
+        robot: preparedRobot,
+      },
+    },
+    bridges: {},
+  };
+
+  const mergedRobot = mergeAssembly(assemblyState);
+  const displayRobot = buildWorkspaceAssemblyViewerDisplayRobotData({
+    assemblyState,
+    mergedRobotData: mergedRobot,
+  });
+
+  assert.equal(mergedRobot.inspectionContext?.sourceFormat, 'mjcf');
+  assert.equal(mergedRobot.closedLoopConstraints?.length, 1);
+  assert.equal(displayRobot?.inspectionContext?.sourceFormat, 'mjcf');
+  assert.equal(displayRobot?.closedLoopConstraints?.length, 1);
+  assert.equal(displayRobot?.materials?.comp_cassie_base_link?.color, '#336699');
+});
+
 test('shouldReseedSingleComponentAssemblyFromActiveFile detects a stale single-component assembly seed', () => {
   assert.equal(
     shouldReseedSingleComponentAssemblyFromActiveFile({
@@ -2385,6 +2661,42 @@ test('shouldReuseSourceViewerForSingleComponentAssembly keeps pristine single-co
     }),
     true,
   );
+});
+
+test('shouldReuseSourceViewerForSingleComponentAssembly logs malformed source snapshots without throwing', () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalConsoleError = console.error;
+  const consoleErrors: unknown[][] = [];
+
+  process.env.NODE_ENV = 'production';
+  console.error = (...args: unknown[]) => {
+    consoleErrors.push(args);
+  };
+
+  try {
+    assert.equal(
+      shouldReuseSourceViewerForSingleComponentAssembly({
+        assemblyState: createSeededSingleComponentAssemblyState('robots/demo/demo.urdf'),
+        activeFile: createUrdfFile('robots/demo/demo.urdf'),
+        sourceSnapshot: '{"rootLinkId":',
+      }),
+      false,
+    );
+    assert.equal(
+      consoleErrors.some(([scope]) =>
+        String(scope).includes('[workspaceSourceSyncUtils:parseRobotSourceSnapshot]'),
+      ),
+      true,
+      'expected malformed source snapshot to be logged through runtime diagnostics',
+    );
+  } finally {
+    console.error = originalConsoleError;
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  }
 });
 
 test('shouldReuseSourceViewerForSingleComponentAssembly reuses pristine USD seeds that require assembly preparation normalization', () => {

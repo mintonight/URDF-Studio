@@ -20,6 +20,37 @@ function hashStringFNV1a(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
+function stripPatchableMaterialStateFromGeometry<T extends UrdfLink['visual']>(geometry: T): T {
+  const { color: _color, authoredMaterials, ...restGeometry } = geometry;
+  const nextGeometry = { ...restGeometry } as T;
+
+  if (authoredMaterials) {
+    nextGeometry.authoredMaterials = authoredMaterials.map((material) => {
+      const { color: _materialColor, colorRgba: _colorRgba, ...restMaterial } = material;
+      return restMaterial;
+    });
+  }
+
+  return nextGeometry;
+}
+
+function stripPatchableMaterialStateFromLinks(
+  links: Record<string, UrdfLink>,
+): Record<string, UrdfLink> {
+  return Object.fromEntries(
+    Object.entries(links).map(([linkId, link]) => [
+      linkId,
+      {
+        ...link,
+        visual: stripPatchableMaterialStateFromGeometry(link.visual),
+        visualBodies: link.visualBodies?.map(stripPatchableMaterialStateFromGeometry),
+        collision: stripPatchableMaterialStateFromGeometry(link.collision),
+        collisionBodies: link.collisionBodies?.map(stripPatchableMaterialStateFromGeometry),
+      },
+    ]),
+  );
+}
+
 export function createViewerRobotLoadInputSignature({
   urdfContent,
   hasStructuredRobotState,
@@ -28,7 +59,7 @@ export function createViewerRobotLoadInputSignature({
 }: CreateViewerRobotLoadInputSignatureOptions): string {
   if (hasStructuredRobotState && robotLinks && robotJoints) {
     const structuredSnapshot = createStableJsonSnapshot({
-      links: robotLinks,
+      links: stripPatchableMaterialStateFromLinks(robotLinks),
       joints: stripTransientJointMotionFromJoints(robotJoints),
     });
     return `structured:${hashStringFNV1a(structuredSnapshot)}`;

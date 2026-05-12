@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import React from 'react';
+import { flushSync } from 'react-dom';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 
@@ -28,7 +30,6 @@ function renderViewMenu({
       showUndoRedoInline: false,
       t: translations.en,
       viewConfig: {
-        showToolbar: true,
         showOptionsPanel: true,
         showJointPanel,
       },
@@ -59,6 +60,171 @@ function getJointsPanelMenuButton(markup: string) {
   return match;
 }
 
+function installDomEnvironment() {
+  const originalWindow = globalThis.window;
+  const originalDocument = globalThis.document;
+  const originalHTMLElement = globalThis.HTMLElement;
+  const originalSVGElement = globalThis.SVGElement;
+  const originalNode = globalThis.Node;
+
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+    url: 'http://localhost/',
+  });
+
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    writable: true,
+    value: dom.window,
+  });
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    writable: true,
+    value: dom.window.document,
+  });
+  Object.defineProperty(globalThis, 'HTMLElement', {
+    configurable: true,
+    writable: true,
+    value: dom.window.HTMLElement,
+  });
+  Object.defineProperty(globalThis, 'SVGElement', {
+    configurable: true,
+    writable: true,
+    value: dom.window.SVGElement,
+  });
+  Object.defineProperty(globalThis, 'Node', {
+    configurable: true,
+    writable: true,
+    value: dom.window.Node,
+  });
+
+  return {
+    dom,
+    restore() {
+      dom.window.close();
+
+      if (originalWindow === undefined) {
+        delete globalThis.window;
+      } else {
+        Object.defineProperty(globalThis, 'window', {
+          configurable: true,
+          writable: true,
+          value: originalWindow,
+        });
+      }
+
+      if (originalDocument === undefined) {
+        delete globalThis.document;
+      } else {
+        Object.defineProperty(globalThis, 'document', {
+          configurable: true,
+          writable: true,
+          value: originalDocument,
+        });
+      }
+
+      if (originalHTMLElement === undefined) {
+        delete globalThis.HTMLElement;
+      } else {
+        Object.defineProperty(globalThis, 'HTMLElement', {
+          configurable: true,
+          writable: true,
+          value: originalHTMLElement,
+        });
+      }
+
+      if (originalSVGElement === undefined) {
+        delete globalThis.SVGElement;
+      } else {
+        Object.defineProperty(globalThis, 'SVGElement', {
+          configurable: true,
+          writable: true,
+          value: originalSVGElement,
+        });
+      }
+
+      if (originalNode === undefined) {
+        delete globalThis.Node;
+      } else {
+        Object.defineProperty(globalThis, 'Node', {
+          configurable: true,
+          writable: true,
+          value: originalNode,
+        });
+      }
+    },
+  };
+}
+
+function renderFileMenu({
+  onImportFile = () => {},
+  onImportFolder = () => {},
+  setActiveMenu = () => {},
+}: {
+  onImportFile?: () => void;
+  onImportFolder?: () => void;
+  setActiveMenu?: (menu: import('./types').HeaderMenuKey) => void;
+}) {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  flushSync(() => {
+    root.render(
+      React.createElement(HeaderMenus, {
+        activeMenu: 'file',
+        setActiveMenu,
+        showMenuLabels: true,
+        showSourceInline: false,
+        showSourceText: false,
+        showUndoRedoInline: false,
+        t: translations.en,
+        viewConfig: {
+          showOptionsPanel: true,
+          showJointPanel: true,
+        },
+        viewAvailability: {
+          jointPanel: true,
+        },
+        setViewConfig: () => {},
+        onImportFile,
+        onImportFolder,
+        onOpenExport: () => {},
+        onExportProject: () => {},
+        toolboxItems: noopToolboxItems,
+        onOpenCodeViewer: () => {},
+        onPrefetchCodeViewer: () => {},
+        undo: () => {},
+        redo: () => {},
+        canUndo: false,
+        canRedo: false,
+      }),
+    );
+  });
+
+  return {
+    container,
+    root,
+    cleanup() {
+      flushSync(() => {
+        root.unmount();
+      });
+      container.remove();
+    },
+  };
+}
+
+test('view menu no longer renders a toolbar visibility toggle', () => {
+  const markup = renderViewMenu({
+    showJointPanel: true,
+    jointPanelAvailable: true,
+  });
+  const dom = new JSDOM(`<body>${markup}</body>`);
+  const buttons = Array.from(dom.window.document.querySelectorAll('button'));
+  const toolbarButton = buttons.find((button) => button.textContent?.includes('Toolbar'));
+
+  assert.equal(toolbarButton, undefined);
+});
+
 test('view menu shows the joints panel item as checked when the panel is available and enabled', () => {
   const markup = renderViewMenu({
     showJointPanel: true,
@@ -81,4 +247,34 @@ test('view menu disables the joints panel item and clears its checkmark when no 
   assert.equal(button.getAttribute('role'), 'menuitemcheckbox');
   assert.equal(button.getAttribute('aria-checked'), 'false');
   assert.equal(button.hasAttribute('disabled'), true);
+});
+
+test('file menu opens the folder picker synchronously from the menu item click', async () => {
+  const domEnvironment = installDomEnvironment();
+  let importFolderCallCount = 0;
+  const rendered = renderFileMenu({
+    onImportFolder: () => {
+      importFolderCallCount += 1;
+    },
+  });
+
+  try {
+    const folderButton = Array.from(document.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Import Folder'),
+    );
+    assert.ok(folderButton, 'expected import folder menu item');
+
+    folderButton.dispatchEvent(
+      new domEnvironment.dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    assert.equal(importFolderCallCount, 1);
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    domEnvironment.restore();
+  }
 });

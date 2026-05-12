@@ -6,8 +6,7 @@ import type {
   CollisionOptimizationOperation,
   CollisionOptimizationSource,
   CollisionTargetRef,
-} from '@/features/property-editor';
-import { applyCollisionOptimizationOperationsToLinks } from '@/features/property-editor';
+} from '@/features/property-editor/utils';
 
 interface SelectionPayload {
   type: 'link';
@@ -18,7 +17,6 @@ interface SelectionPayload {
 
 interface UseCollisionOptimizationWorkflowParams {
   assemblyState: AssemblyState | null;
-  sidebarTab: string;
   robotName: string;
   robotLinks: RobotData['links'];
   robotJoints: RobotData['joints'];
@@ -39,7 +37,6 @@ interface UseCollisionOptimizationWorkflowParams {
 
 export function useCollisionOptimizationWorkflow({
   assemblyState,
-  sidebarTab,
   robotName,
   robotLinks,
   robotJoints,
@@ -54,7 +51,7 @@ export function useCollisionOptimizationWorkflow({
   t,
 }: UseCollisionOptimizationWorkflowParams) {
   const collisionOptimizationSource = useMemo<CollisionOptimizationSource>(() => {
-    if (assemblyState && sidebarTab === 'workspace') {
+    if (assemblyState) {
       return {
         kind: 'assembly',
         assembly: assemblyState,
@@ -71,7 +68,7 @@ export function useCollisionOptimizationWorkflow({
         materials: robotMaterials,
       },
     };
-  }, [assemblyState, robotJoints, robotLinks, robotMaterials, robotName, rootLinkId, sidebarTab]);
+  }, [assemblyState, robotJoints, robotLinks, robotMaterials, robotName, rootLinkId]);
 
   const handlePreviewCollisionOptimizationTarget = useCallback(
     (target: CollisionTargetRef) => {
@@ -90,13 +87,17 @@ export function useCollisionOptimizationWorkflow({
   );
 
   const handleApplyCollisionOptimization = useCallback(
-    (operations: CollisionOptimizationOperation[]) => {
+    async (operations: CollisionOptimizationOperation[]) => {
       if (operations.length === 0) {
         showToast(t.noCollisionOptimizationApplied, 'info');
         return;
       }
 
-      if (assemblyState && sidebarTab === 'workspace') {
+      const { applyCollisionOptimizationOperationsToLinks } = await import(
+        '@/features/property-editor/utils/collisionOptimization'
+      );
+
+      if (assemblyState) {
         const operationsByComponent = new Map<string, CollisionOptimizationOperation[]>();
         operations.forEach((operation) => {
           if (!operation.componentId) return;
@@ -146,7 +147,6 @@ export function useCollisionOptimizationWorkflow({
       rootLinkId,
       setRobot,
       showToast,
-      sidebarTab,
       robotLinks,
       updateComponentRobot,
       t,

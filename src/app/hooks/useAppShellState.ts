@@ -9,7 +9,6 @@ export interface AppToastState {
 }
 
 export interface AppViewConfig {
-  showToolbar: boolean;
   showOptionsPanel: boolean;
   showJointPanel: boolean;
 }
@@ -23,7 +22,6 @@ const DEFAULT_TOAST_STATE: AppToastState = {
 };
 
 const DEFAULT_VIEW_CONFIG: AppViewConfig = {
-  showToolbar: true,
   showOptionsPanel: true,
   showJointPanel: true,
 };

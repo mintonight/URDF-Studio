@@ -1,3 +1,5 @@
-export const loadCollisionOptimizationDialogModule = () => import('@/features/property-editor');
+export const loadCollisionOptimizationDialogModule = () =>
+  import('@/features/property-editor/components/CollisionOptimizationDialog');
 
-export const loadBridgeCreateModalModule = () => import('@/features/assembly');
+export const loadBridgeCreateModalModule = () =>
+  import('@/features/assembly/components/BridgeCreateModal');

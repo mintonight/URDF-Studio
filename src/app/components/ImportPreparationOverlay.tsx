@@ -1,4 +1,5 @@
-import { LoadingHud } from '@/shared/components/3d';
+import { LoadingHud } from '@/shared/components/3d/LoadingHud';
+import { VIEWER_CORNER_OVERLAY_CLASS_NAME } from '@/shared/components/3d/scene';
 
 type ImportPreparationOverlayPlacement = 'viewport' | 'viewer-corner';
 
@@ -21,7 +22,7 @@ export function ImportPreparationOverlay({
 }: ImportPreparationOverlayProps) {
   const wrapperClassName =
     placement === 'viewer-corner'
-      ? 'pointer-events-none absolute inset-0 z-20 flex items-end justify-end p-4'
+      ? VIEWER_CORNER_OVERLAY_CLASS_NAME
       : 'pointer-events-none fixed inset-x-0 bottom-4 z-[160] flex justify-end px-4';
 
   return (

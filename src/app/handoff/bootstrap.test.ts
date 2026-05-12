@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   buildUrlWithoutHandoffParam,
   consumeHandoffImportFromUrl,
@@ -146,4 +149,18 @@ test('consumeHandoffImportFromUrl keeps the record when the import fails', async
   assert.deepEqual(result, { status: 'failed', handoffId: 'handoff-123' });
   assert.equal(deleteCalls, 0);
   assert.deepEqual(replacedUrls, ['https://urdf.example/']);
+});
+
+test('index boot placeholder renders only a minimal spinner before React mounts', async () => {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+  const html = await readFile(path.join(repoRoot, 'index.html'), 'utf8');
+
+  assert.match(
+    html,
+    /<div id="root">\s*<div class="boot-loading" aria-label="Loading">\s*<div class="boot-spinner"><\/div>\s*<\/div>\s*<\/div>/,
+  );
+  assert.doesNotMatch(
+    html,
+    /boot-(header|sidebar|inspector|workspace|view|line|tool|mark|title)/,
+  );
 });

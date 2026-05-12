@@ -5,7 +5,11 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
-import { WorkspaceCanvas } from './WorkspaceCanvas';
+import {
+  resolveWorkspaceCanvasResizeOptions,
+  scheduleWorkspaceCanvasResizeEvent,
+  WorkspaceCanvas,
+} from './WorkspaceCanvas';
 
 Object.defineProperty(import.meta, 'env', {
   value: {
@@ -63,14 +67,11 @@ test('WorkspaceCanvas logs unsupported WebGL failures without rendering in-canva
   try {
     await act(async () => {
       root.render(
-        React.createElement(
-          WorkspaceCanvas,
-          {
-            theme: 'light',
-            lang: 'en',
-          },
-          React.createElement('div', null, 'scene'),
-        ),
+        React.createElement(WorkspaceCanvas, {
+          theme: 'light',
+          lang: 'en',
+          children: React.createElement('div', null, 'scene'),
+        }),
       );
     });
 
@@ -92,4 +93,39 @@ test('WorkspaceCanvas logs unsupported WebGL failures without rendering in-canva
     });
     dom.window.close();
   }
+});
+
+test('WorkspaceCanvas keeps canvas resize responsive during sidebar drags', () => {
+  const idleOptions = resolveWorkspaceCanvasResizeOptions(false);
+  const dragOptions = resolveWorkspaceCanvasResizeOptions(true);
+
+  assert.equal(idleOptions.debounce.resize, 120);
+  assert.ok(
+    dragOptions.debounce.resize <= idleOptions.debounce.resize,
+    'active sidebar drag must not defer R3F resize long enough for WebGL to stretch',
+  );
+});
+
+test('scheduleWorkspaceCanvasResizeEvent dispatches resize on the next animation frame', () => {
+  let frameCallback: FrameRequestCallback | null = null;
+  let dispatchedEventType: string | null = null;
+
+  const frameId = scheduleWorkspaceCanvasResizeEvent({
+    requestAnimationFrame: (callback) => {
+      frameCallback = callback;
+      return 12;
+    },
+    dispatchEvent: (event) => {
+      dispatchedEventType = event.type;
+      return true;
+    },
+  });
+
+  assert.equal(frameId, 12);
+  assert.equal(dispatchedEventType, null);
+  assert.ok(frameCallback, 'resize should be scheduled after the current frame');
+
+  frameCallback(100);
+
+  assert.equal(dispatchedEventType, 'resize');
 });

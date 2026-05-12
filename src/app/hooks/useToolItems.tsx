@@ -74,7 +74,7 @@ export function useToolItems(params: UseToolItemsParams): UseToolItemsReturn {
         key: 'step2urdf',
         title: t.step2urdf,
         description: t.step2urdfDesc,
-        icon: <img src="/logos/step2urdf-logo.svg" alt="" className="h-5 w-5 object-contain" />,
+        icon: <img src="/logos/step2urdf-logo.png" alt="" className="h-5 w-5 object-contain" />,
         onClick: () => openExternal('https://step2urdf.top/'),
         external: true,
         tone: 'logo',

@@ -1,5 +1,6 @@
 node_modules/
 .omc/
+.omx/
 .env.local
 .env
 *.log
@@ -11,11 +12,15 @@ scripts/
 !scripts/
 scripts/*
 !scripts/regression/
+!scripts/wasm/
 scripts/regression/*
 !scripts/regression/validate_sdf_cli_truth.ts
 !scripts/regression/run_shadow_hand_hover_regression.mjs
+!scripts/regression/run_default_link_click_hover_regression.mjs
 !scripts/regression/validate_unitree_ros_usd_export_benchmark.mjs
 !scripts/regression/benchmark_import_pre_resolve.ts
+!scripts/regression/validate_gazebo_models_against_gazebo_truth.ts
+!scripts/regression/validate_gazebo_models_against_gazebo_truth.test.ts
 !scripts/mujoco/
 scripts/mujoco/*
 !scripts/mujoco/mjcf_compare.ts
@@ -23,21 +28,16 @@ scripts/mujoco/*
 !scripts/generate_inspection_criteria.mjs
 !scripts/generate_urdf_schema_metadata.mjs
 !scripts/rewrite_dts_aliases.mjs
-!scripts/omx_tmux_grid.sh
-!scripts/omx_tmux_grid.test.mjs
 !scripts/start_dev_server.mjs
 !scripts/versioning/
 scripts/versioning/*
 !scripts/versioning/bump.mjs
 !scripts/versioning/show.mjs
-.github/*
-!.github/workflows/
-.github/workflows/*
-!.github/workflows/quality.yml
-!.github/dependabot.yml
+.github/
 output/
 tmp/
 .playwright-mcp/
+.playwright-cli/
 log/COLCON_IGNORE
 log/latest
 log/latest_*
@@ -50,6 +50,11 @@ public/__codex_anymal_c.zip
 
 .claude/
 .codex/
+.husky/
+.superpowers/
+docs/superpowers/
+plans/
+skills-lock.json
 
 .vscode/
 .tmp/
@@ -63,5 +68,3 @@ __pycache__/
 !scripts/regression/validate_source_editor_mjcf_browser.mjs
 !scripts/regression/validate_source_editor_unitree_browser.mjs
 snapshot-default-page.png
-
-.omx/

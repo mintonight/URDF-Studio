@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
 type UIStoreModule = typeof import('./uiStore.ts');
-const UI_STORE_PERSIST_VERSION = 16;
+const UI_STORE_PERSIST_VERSION = 19;
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -97,6 +97,49 @@ test('MJCF world visibility defaults to visible for fresh sessions', async () =>
   const state = useUIStore.getState();
   assert.equal(state.viewOptions.showMjcfWorldLink, true);
   assert.equal(state.viewOptions.showIkHandles, false);
+  assert.equal(state.panelLayout.treePanelHeightMode, 'balanced');
+
+  dom.window.close();
+});
+
+test('legacy default tree panel heights migrate to balanced sizing', async () => {
+  const { dom, useUIStore } = await loadUIStore(
+    {
+      panelLayout: {
+        propertyEditorWidth: 248,
+        treeFileBrowserHeight: 216,
+        treeJointPanelHeight: 132,
+        treeSidebarWidth: 264,
+      },
+    },
+    17,
+  );
+
+  const state = useUIStore.getState();
+  assert.equal(state.panelLayout.treePanelHeightMode, 'balanced');
+  assert.equal(state.panelLayout.treeFileBrowserHeight, 240);
+  assert.equal(state.panelLayout.treeJointPanelHeight, 240);
+
+  dom.window.close();
+});
+
+test('legacy customized tree panel heights migrate as custom sizing', async () => {
+  const { dom, useUIStore } = await loadUIStore(
+    {
+      panelLayout: {
+        propertyEditorWidth: 248,
+        treeFileBrowserHeight: 280,
+        treeJointPanelHeight: 220,
+        treeSidebarWidth: 264,
+      },
+    },
+    17,
+  );
+
+  const state = useUIStore.getState();
+  assert.equal(state.panelLayout.treePanelHeightMode, 'custom');
+  assert.equal(state.panelLayout.treeFileBrowserHeight, 280);
+  assert.equal(state.panelLayout.treeJointPanelHeight, 220);
 
   dom.window.close();
 });

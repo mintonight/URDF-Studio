@@ -3,6 +3,7 @@ import {
   MJCF_COMPILER_ANGLE_SCOPE_ATTR,
   MJCF_COMPILER_EULERSEQ_SCOPE_ATTR,
 } from './mjcfCompilerScope';
+import { convertMjcfAngle } from './mjcfMath';
 
 export interface MJCFCompilerSettings {
   angleUnit: 'radian' | 'degree';
@@ -401,7 +402,7 @@ function pickOrthogonalUnitVector(input: THREE.Vector3): THREE.Vector3 {
 }
 
 function convertAngle(value: number, angleUnit: 'radian' | 'degree'): number {
-  return angleUnit === 'degree' ? (value * Math.PI) / 180 : value;
+  return convertMjcfAngle(value, angleUnit);
 }
 
 function makeQuaternionFromBasis(

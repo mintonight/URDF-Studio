@@ -23,6 +23,7 @@ function resetUiStore() {
   store.setDetailLinkTab('visual');
   store.setViewOption('showCollision', false);
   store.setPanelSection('property_editor_link_inertial', true);
+  store.setPanelSection('property_editor_link_frame', true);
   store.setPanelSection('kinematics', true);
 }
 
@@ -165,6 +166,111 @@ test('handleViewerSelect does not pin hover for regular selection clicks', () =>
   hook.handleViewerSelect('link', 'arm_link', 'visual');
 
   assert.equal(nextHoveredSelection, null);
+});
+
+test('handleViewerSelect clears hover when blank canvas clears selection', () => {
+  resetSelectionStore();
+  resetUiStore();
+  useSelectionStore.getState().setSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+    highlightObjectId: 101,
+  });
+  useSelectionStore.getState().setHoveredSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+    highlightObjectId: 101,
+  });
+
+  let nextSelection: RobotState['selection'] | null = null;
+  let nextHoveredSelection: InteractionSelection | null = null;
+  const hook = renderHook({
+    setSelection: (selection) => {
+      nextSelection = selection;
+    },
+    pulseSelection: () => {},
+    setHoveredSelection: (selection) => {
+      nextHoveredSelection = selection;
+    },
+    focusOn: () => {},
+    transformPendingRef: { current: false },
+  });
+
+  hook.handleViewerSelect('link', '');
+
+  assert.deepEqual(nextSelection, { type: null, id: null });
+  assert.deepEqual(nextHoveredSelection, { type: null, id: null });
+});
+
+test('handleHover ignores redundant viewer hover updates for the currently selected link', () => {
+  resetSelectionStore();
+  resetUiStore();
+
+  useSelectionStore.getState().setSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+  });
+  useSelectionStore.getState().setHoveredSelection({
+    type: 'link',
+    id: 'base_link',
+  });
+
+  let nextHoveredSelection: InteractionSelection | null = null;
+  const hook = renderHook({
+    setSelection: () => {},
+    pulseSelection: () => {},
+    setHoveredSelection: (selection) => {
+      nextHoveredSelection = selection;
+    },
+    focusOn: () => {},
+    transformPendingRef: { current: false },
+  });
+
+  hook.handleHover('link', 'base_link', 'visual', 0);
+
+  assert.equal(nextHoveredSelection, null);
+});
+
+test('handleHover still updates hover when the viewer moves to a different link', () => {
+  resetSelectionStore();
+  resetUiStore();
+
+  useSelectionStore.getState().setSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+  });
+  useSelectionStore.getState().setHoveredSelection({
+    type: 'link',
+    id: 'base_link',
+  });
+
+  let nextHoveredSelection: InteractionSelection | null = null;
+  const hook = renderHook({
+    setSelection: () => {},
+    pulseSelection: () => {},
+    setHoveredSelection: (selection) => {
+      nextHoveredSelection = selection;
+    },
+    focusOn: () => {},
+    transformPendingRef: { current: false },
+  });
+
+  hook.handleHover('link', 'arm_link', 'visual', 0);
+
+  assert.deepEqual(nextHoveredSelection, {
+    type: 'link',
+    id: 'arm_link',
+    subType: 'visual',
+    objectIndex: 0,
+    helperKind: undefined,
+    highlightObjectId: undefined,
+  });
 });
 
 test('handleSelect does not carry collision objectIndex across different links', () => {
@@ -340,6 +446,40 @@ test('handleViewerMeshSelect does not pin hover while selecting a body', () => {
   assert.equal(nextHoveredSelection, null);
 });
 
+test('handleViewerMeshSelect preserves the active hover highlight target for the clicked mesh', () => {
+  resetSelectionStore();
+  resetUiStore();
+
+  useSelectionStore.getState().setHoveredSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+    highlightObjectId: 101,
+  });
+
+  let nextSelection: RobotState['selection'] | null = null;
+  const hook = renderHook({
+    setSelection: (selection) => {
+      nextSelection = selection;
+    },
+    pulseSelection: () => {},
+    setHoveredSelection: () => {},
+    focusOn: () => {},
+    transformPendingRef: { current: false },
+  });
+
+  hook.handleViewerMeshSelect('base_link', null, 0, 'visual');
+
+  assert.deepEqual(nextSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+    highlightObjectId: 101,
+  });
+});
+
 test('handleViewerMeshSelect enables collision visibility for collision mesh picks', () => {
   resetSelectionStore();
   resetUiStore();
@@ -389,7 +529,25 @@ test('handleViewerSelect routes inertial helpers to the physics tab without pinn
   assert.equal(useUIStore.getState().panelSections.property_editor_link_inertial, false);
 });
 
-test('handleViewerSelect opens joint kinematics for axis helpers', () => {
+test('handleViewerSelect routes origin helpers to the link visual tab and frame section', () => {
+  resetSelectionStore();
+  resetUiStore();
+
+  const hook = renderHook({
+    setSelection: () => {},
+    pulseSelection: () => {},
+    setHoveredSelection: () => {},
+    focusOn: () => {},
+    transformPendingRef: { current: false },
+  });
+
+  hook.handleViewerSelect('link', 'hip_link', undefined, 'origin-axes');
+
+  assert.equal(useUIStore.getState().detailLinkTab, 'visual');
+  assert.equal(useUIStore.getState().panelSections.property_editor_link_frame, false);
+});
+
+test('handleViewerSelect keeps joint-axis helpers on the joint kinematics section', () => {
   resetSelectionStore();
   resetUiStore();
 
@@ -404,6 +562,7 @@ test('handleViewerSelect opens joint kinematics for axis helpers', () => {
   hook.handleViewerSelect('joint', 'hip_joint', undefined, 'joint-axis');
 
   assert.equal(useUIStore.getState().panelSections.kinematics, false);
+  assert.equal(useUIStore.getState().detailLinkTab, 'visual');
 });
 
 test('handleHover preserves helper identity so helper-only hover changes are not collapsed', () => {

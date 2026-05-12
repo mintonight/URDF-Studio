@@ -8,7 +8,7 @@ import type { TreeEditorTranslations } from '../treeEditorTypes';
 interface TreeEditorFileBrowserPanelProps {
   isOpen: boolean;
   isDragging: boolean;
-  isProMode: boolean;
+  showAddAsComponent: boolean;
   height: number;
   shouldFillSpace: boolean;
   availableFiles: RobotFile[];
@@ -35,7 +35,7 @@ interface TreeEditorFileBrowserPanelProps {
 export function TreeEditorFileBrowserPanel({
   isOpen,
   isDragging,
-  isProMode,
+  showAddAsComponent,
   height,
   shouldFillSpace,
   availableFiles,
@@ -67,7 +67,7 @@ export function TreeEditorFileBrowserPanel({
       height={height}
       isDragging={isDragging}
       isOpen={isOpen}
-      isProMode={isProMode}
+      showAddAsComponent={showAddAsComponent}
       editingFolderPath={editingFolderPath}
       folderRenameDraft={folderRenameDraft}
       folderRenameInputRef={folderRenameInputRef}

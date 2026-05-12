@@ -149,6 +149,24 @@ test('findPickIntersections keeps nearest hit first even when pick target order 
   assert.ok((hits[0]?.distance ?? Infinity) <= (hits[1]?.distance ?? Infinity));
 });
 
+test('findPickIntersections falls back to robot traversal when the pick target cache is empty', () => {
+  const robot = new THREE.Group();
+
+  const linkMesh = createBoxMesh();
+  linkMesh.position.set(0, 0, -1);
+  linkMesh.userData.parentLinkName = 'base_link';
+  linkMesh.userData.isVisualMesh = true;
+  robot.add(linkMesh);
+  robot.updateMatrixWorld(true);
+
+  const raycaster = new THREE.Raycaster(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1));
+
+  const hits = findPickIntersections(robot, raycaster, [], 'visual', false);
+
+  assert.equal(hits.length > 0, true);
+  assert.equal(hits[0]?.object, linkMesh);
+});
+
 test('findPickIntersections includes selectable helpers that are not in pickTargets', () => {
   const robot = new THREE.Group();
 

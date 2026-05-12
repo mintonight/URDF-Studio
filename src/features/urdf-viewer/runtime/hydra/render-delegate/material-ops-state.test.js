@@ -10,6 +10,8 @@ import { ThreeRenderDelegateInterface } from './ThreeRenderDelegateInterface.js'
 
 const {
     applySnapshotMaterialsToMeshes,
+    applySnapshotMaterialRecord,
+    resolveSnapshotMaterialEmissionEnabled,
     applySnapshotTextureInput,
     getSnapshotTextureApplyFailureSummary,
     recordSnapshotTextureApplyFailure,
@@ -19,6 +21,7 @@ const {
     getDriverStageResolveSummary,
 } = ThreeRenderDelegateMaterialOps.prototype;
 const {
+    applyStageFallbackMaterialParameters,
     warmupRobotSceneSnapshotFromDriver,
     getLastRobotSceneWarmupSummary,
 } = ThreeRenderDelegateInterface.prototype;
@@ -48,6 +51,32 @@ function createMaterialOpsContext({
         recordSnapshotTextureApplyFailure,
         clearSnapshotTextureApplyFailure,
     };
+}
+
+function createShaderPrim(attributes) {
+    return {
+        GetAttribute(name) {
+            if (!attributes.has(name)) {
+                return null;
+            }
+            return {
+                Get() {
+                    return attributes.get(name);
+                },
+            };
+        },
+    };
+}
+
+function createStageFallbackContext() {
+    const delegate = Object.create(ThreeRenderDelegateInterface.prototype);
+    delegate.registry = {
+        getTexture() {
+            return Promise.reject(new Error('missing-texture'));
+        },
+    };
+    delegate.config = {};
+    return delegate;
 }
 
 test('applySnapshotMaterialsToMeshes records subset and inherit failures instead of swallowing them', () => {
@@ -154,6 +183,47 @@ test('applySnapshotTextureInput clears prior texture failure once assignment suc
     assert.equal(summary.count, 0);
     assert.equal(material.userData.snapshotTextureApplyFailed, undefined);
     assert.equal(material.userData.snapshotTextureApplyFailures, undefined);
+});
+
+test('applyStageFallbackMaterialParameters ignores OmniPBR default white emission unless enabled', () => {
+    const material = new MeshPhysicalMaterial({ color: 0x000000 });
+    const context = createStageFallbackContext();
+    const shaderPrim = createShaderPrim(
+        new Map([
+            ['info:id', 'OmniPBR'],
+            ['inputs:diffuse_color_constant', [0, 0, 0]],
+            ['inputs:emissive_color_constant', [1, 1, 1]],
+        ]),
+    );
+
+    applyStageFallbackMaterialParameters.call(context, material, shaderPrim);
+
+    assert.equal(material.color.getHexString(), '000000');
+    assert.equal(material.emissive.getHexString(), '000000');
+});
+
+test('applySnapshotMaterialRecord ignores OmniPBR default white emission unless enabled', () => {
+    const material = new MeshPhysicalMaterial({ color: 0x000000, emissive: 0x000000 });
+    const context = {
+        ...createMaterialOpsContext(),
+        inferColorHexFromMaterialName() {
+            return null;
+        },
+        shouldTreatNamedHexDiffuseAsSrgb() {
+            return false;
+        },
+        resolveSnapshotMaterialEmissionEnabled,
+        applySnapshotTextureInput,
+    };
+
+    applySnapshotMaterialRecord.call(context, material, {
+        isOmniPbr: true,
+        color: [0, 0, 0],
+        emissive: [1, 1, 1],
+    });
+
+    assert.equal(material.color.getHexString(), '000000');
+    assert.equal(material.emissive.getHexString(), '000000');
 });
 
 test('getStage records async driver stage resolution failures explicitly', async () => {

@@ -10,7 +10,6 @@ import type {
   UrdfJoint,
   UrdfLink,
 } from '@/types';
-import { useRobotStore } from '@/store/robotStore';
 import { UnifiedTransformControls } from './UnifiedTransformControls';
 
 import {
@@ -26,6 +25,20 @@ import {
   shouldScheduleLinkIkPreviewSolve,
 } from './linkIkDragPreview';
 
+type LinkIkKinematicOverrides = {
+  angles: Record<string, number>;
+  quaternions: Record<string, NonNullable<RobotState['joints'][string]['quaternion']>>;
+};
+
+interface RobotHistorySnapshot {
+  name: string;
+  links: Record<string, UrdfLink>;
+  joints: Record<string, UrdfJoint>;
+  rootLinkId: string;
+  materials?: Record<string, RobotMaterialState>;
+  closedLoopConstraints?: RobotClosedLoopConstraint[];
+}
+
 interface LinkIkTransformControlsProps {
   selectedLinkId: string | null;
   selectedHandle: THREE.Object3D | null;
@@ -39,35 +52,17 @@ interface LinkIkTransformControlsProps {
   enabled?: boolean;
   historyLabel?: string;
   setIsDragging?: (dragging: boolean) => void;
-  onPreviewKinematicOverrides?: (overrides: {
-    angles: Record<string, number>;
-    quaternions: Record<string, NonNullable<RobotState['joints'][string]['quaternion']>>;
-  }) => void;
+  createHistorySnapshot?: () => RobotHistorySnapshot | null;
+  onPreviewKinematicOverrides?: (overrides: LinkIkKinematicOverrides) => void;
+  onCommitKinematicOverrides?: (
+    overrides: LinkIkKinematicOverrides,
+    historySnapshot: RobotHistorySnapshot,
+    historyLabel: string,
+  ) => void;
   onClearPreviewKinematicOverrides?: () => void;
 }
 
 const SELECTED_IK_GIZMO_SIZE = 1.05;
-
-interface RobotHistorySnapshot {
-  name: string;
-  links: Record<string, UrdfLink>;
-  joints: Record<string, UrdfJoint>;
-  rootLinkId: string;
-  materials?: Record<string, RobotMaterialState>;
-  closedLoopConstraints?: RobotClosedLoopConstraint[];
-}
-
-function createHistorySnapshot(): RobotHistorySnapshot {
-  const state = useRobotStore.getState();
-  return structuredClone({
-    name: state.name,
-    links: state.links,
-    joints: state.joints,
-    rootLinkId: state.rootLinkId,
-    materials: state.materials,
-    closedLoopConstraints: state.closedLoopConstraints,
-  });
-}
 
 export const LinkIkTransformControls = memo(function LinkIkTransformControls({
   selectedLinkId,
@@ -79,7 +74,9 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
   enabled = true,
   historyLabel = 'IK handle drag',
   setIsDragging,
+  createHistorySnapshot,
   onPreviewKinematicOverrides,
+  onCommitKinematicOverrides,
   onClearPreviewKinematicOverrides,
 }: LinkIkTransformControlsProps) {
   const { invalidate } = useThree();
@@ -432,7 +429,7 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
     }
 
     if (!historySnapshotRef.current) {
-      historySnapshotRef.current = createHistorySnapshot();
+      historySnapshotRef.current = createHistorySnapshot?.() ?? null;
     }
     activeLinkIdRef.current = selectedLinkId;
     didMutateRef.current = false;
@@ -451,6 +448,7 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
     return true;
   }, [
     coordinateRoot,
+    createHistorySnapshot,
     enabled,
     hasSelectedAnchorTarget,
     ikRobotState,
@@ -481,12 +479,12 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
           )
         : createEmptyLinkIkDragKinematicState();
 
-    if (hasLinkIkKinematicStateChanges(nextCommittedOverrides) && historySnapshotRef.current) {
-      const storeState = useRobotStore.getState();
-      storeState.applyJointKinematicOverrides(nextCommittedOverrides, {
-        skipHistory: true,
-      });
-      storeState.pushHistorySnapshot(historySnapshotRef.current, historyLabel);
+    if (
+      hasLinkIkKinematicStateChanges(nextCommittedOverrides) &&
+      historySnapshotRef.current &&
+      onCommitKinematicOverrides
+    ) {
+      onCommitKinematicOverrides(nextCommittedOverrides, historySnapshotRef.current, historyLabel);
     }
 
     historySnapshotRef.current = null;
@@ -500,6 +498,7 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
     historyLabel,
     ikRobotState,
     invalidate,
+    onCommitKinematicOverrides,
     resetSolveQueue,
     setIsDragging,
     syncTranslateProxy,

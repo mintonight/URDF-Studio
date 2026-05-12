@@ -1,5 +1,27 @@
 import { resolveClosedLoopDrivenJointMotion } from '@/core/robot';
+import type {
+  ClosedLoopDrivenJointMotionResult,
+  ClosedLoopMotionSolveOptions,
+} from '@/core/robot/closedLoops';
 import type { JointQuaternion, RobotState } from '@/types';
+import { resolveClosedLoopDrivenJointMotionWithWorker } from './closedLoopMotionPreviewWorkerBridge';
+
+type ClosedLoopMotionPreviewRobot = Pick<
+  RobotState,
+  'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'
+>;
+
+type ClosedLoopMotionPreviewWorkerSolveOptions = Omit<
+  ClosedLoopMotionSolveOptions,
+  'angles' | 'quaternions' | 'lockedJointIds'
+>;
+
+export type ClosedLoopMotionPreviewWorkerSolve = (
+  robot: ClosedLoopMotionPreviewRobot,
+  jointId: string,
+  angle: number,
+  options?: ClosedLoopMotionPreviewWorkerSolveOptions,
+) => Promise<ClosedLoopDrivenJointMotionResult>;
 
 export interface ClosedLoopMotionPreviewState {
   angles: Record<string, number>;
@@ -12,10 +34,14 @@ export interface ClosedLoopMotionPreviewResult extends ClosedLoopMotionPreviewSt
 }
 
 export interface ClosedLoopMotionPreviewSession {
-  setBaseRobot: (
-    robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'> | null,
-  ) => void;
+  setBaseRobot: (robot: ClosedLoopMotionPreviewRobot | null) => void;
   solve: (jointId: string, angle: number) => ClosedLoopMotionPreviewResult;
+  reset: () => void;
+}
+
+export interface AsyncClosedLoopMotionPreviewSession {
+  setBaseRobot: (robot: ClosedLoopMotionPreviewRobot | null) => void;
+  solve: (jointId: string, angle: number) => Promise<ClosedLoopMotionPreviewResult>;
   reset: () => void;
 }
 
@@ -44,9 +70,9 @@ function isSameQuaternion(
 }
 
 export function buildClosedLoopMotionPreviewRobot(
-  robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>,
+  robot: ClosedLoopMotionPreviewRobot,
   previewState: ClosedLoopMotionPreviewState,
-): Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'> {
+): ClosedLoopMotionPreviewRobot {
   const seededRobot = structuredClone(robot);
 
   Object.entries(previewState.angles).forEach(([jointId, angle]) => {
@@ -65,7 +91,7 @@ export function buildClosedLoopMotionPreviewRobot(
 }
 
 export function resolveClosedLoopJointMotionPreview(
-  robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>,
+  robot: ClosedLoopMotionPreviewRobot,
   jointId: string,
   angle: number,
   previewState: ClosedLoopMotionPreviewState,
@@ -109,15 +135,26 @@ function collectClosedLoopMotionPreviewState(
   return { angles, quaternions };
 }
 
+function applyClosedLoopMotionSolution(
+  workingRobot: ClosedLoopMotionPreviewRobot,
+  solution: ClosedLoopDrivenJointMotionResult,
+): void {
+  Object.entries(solution.angles).forEach(([compensatedJointId, compensatedAngle]) => {
+    if (workingRobot.joints[compensatedJointId]) {
+      workingRobot.joints[compensatedJointId].angle = compensatedAngle;
+    }
+  });
+
+  Object.entries(solution.quaternions).forEach(([compensatedJointId, compensatedQuaternion]) => {
+    if (workingRobot.joints[compensatedJointId]) {
+      workingRobot.joints[compensatedJointId].quaternion = compensatedQuaternion;
+    }
+  });
+}
+
 export function createClosedLoopMotionPreviewSession(): ClosedLoopMotionPreviewSession {
-  let baseRobot: Pick<
-    RobotState,
-    'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'
-  > | null = null;
-  let workingRobot: Pick<
-    RobotState,
-    'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'
-  > | null = null;
+  let baseRobot: ClosedLoopMotionPreviewRobot | null = null;
+  let workingRobot: ClosedLoopMotionPreviewRobot | null = null;
 
   const resetWorkingRobot = () => {
     workingRobot = baseRobot ? structuredClone(baseRobot) : null;
@@ -151,19 +188,69 @@ export function createClosedLoopMotionPreviewSession(): ClosedLoopMotionPreviewS
         tolerance: 1e-4,
       });
 
-      Object.entries(solution.angles).forEach(([compensatedJointId, compensatedAngle]) => {
-        if (workingRobot?.joints[compensatedJointId]) {
-          workingRobot.joints[compensatedJointId].angle = compensatedAngle;
-        }
+      applyClosedLoopMotionSolution(workingRobot, solution);
+
+      return {
+        ...collectClosedLoopMotionPreviewState(baseRobot, workingRobot),
+        appliedAngle: solution.appliedAngle,
+        constrained: solution.constrained,
+      };
+    },
+
+    reset() {
+      resetWorkingRobot();
+    },
+  };
+}
+
+export function createClosedLoopMotionPreviewWorkerSession(
+  solveWithWorker: ClosedLoopMotionPreviewWorkerSolve = resolveClosedLoopDrivenJointMotionWithWorker,
+): AsyncClosedLoopMotionPreviewSession {
+  let baseRobot: ClosedLoopMotionPreviewRobot | null = null;
+  let workingRobot: ClosedLoopMotionPreviewRobot | null = null;
+  let solveGeneration = 0;
+
+  const resetWorkingRobot = () => {
+    solveGeneration += 1;
+    workingRobot = baseRobot ? structuredClone(baseRobot) : null;
+  };
+
+  return {
+    setBaseRobot(robot) {
+      if (baseRobot === robot) {
+        return;
+      }
+
+      baseRobot = robot;
+      resetWorkingRobot();
+    },
+
+    async solve(jointId, angle) {
+      if (!baseRobot) {
+        return { angles: {}, quaternions: {}, appliedAngle: null, constrained: false };
+      }
+
+      if (!workingRobot) {
+        resetWorkingRobot();
+      }
+
+      if (!workingRobot || !workingRobot.joints[jointId]) {
+        return { angles: {}, quaternions: {}, appliedAngle: null, constrained: false };
+      }
+
+      const requestGeneration = ++solveGeneration;
+      const solveRobot = structuredClone(workingRobot);
+      const solution = await solveWithWorker(solveRobot, jointId, angle, {
+        maxIterations: 4,
+        tolerance: 1e-4,
       });
 
-      Object.entries(solution.quaternions).forEach(
-        ([compensatedJointId, compensatedQuaternion]) => {
-          if (workingRobot?.joints[compensatedJointId]) {
-            workingRobot.joints[compensatedJointId].quaternion = compensatedQuaternion;
-          }
-        },
-      );
+      if (requestGeneration !== solveGeneration || !baseRobot) {
+        return { angles: {}, quaternions: {}, appliedAngle: null, constrained: false };
+      }
+
+      applyClosedLoopMotionSolution(solveRobot, solution);
+      workingRobot = solveRobot;
 
       return {
         ...collectClosedLoopMotionPreviewState(baseRobot, workingRobot),

@@ -557,7 +557,7 @@ export function extractScopeBodyText(layerText, scopeName) {
 }
 const USD_PRIM_HEADER_REGEX = /^\s*(?:def|over|class)(?:\s+(\w+))?\s+"([^"]+)"/gm;
 const VISUAL_SCOPE_NAMES = new Set(['visuals']);
-const COLLISION_SCOPE_NAMES = new Set(['colliders', 'collisions']);
+const COLLISION_SCOPE_NAMES = new Set(['collider', 'colliders', 'collision', 'collisions']);
 function buildUsdPathFromSegments(segments) {
     if (!Array.isArray(segments) || segments.length === 0) {
         return '';
@@ -801,6 +801,7 @@ export function parseUrdfMaterialMetadataFromLayerText(layerText) {
 }
 export function parseUsdMaterialBindingsFromLayerText(layerText) {
     const materialBindingsByPrimPath = new Map();
+    const referenceTargetsByPrimPath = new Map();
     const mergeBindingEntry = (primPath, rawEntry) => {
         const normalizedPrimPath = normalizeUsdPathToken(primPath);
         if (!normalizedPrimPath || !rawEntry || typeof rawEntry !== 'object') {
@@ -863,6 +864,13 @@ export function parseUsdMaterialBindingsFromLayerText(layerText) {
         const metadataText = `${headerText}\n${immediateProperties}`;
         const normalizedPrimType = String(primType || '').trim().toLowerCase();
         const materialId = extractUsdMaterialBindingTarget(metadataText);
+        const referenceTargets = extractReferencePrimTargets(metadataText)
+            .map((target) => normalizeUsdPathToken(target))
+            .filter(Boolean);
+        const normalizedPath = normalizeUsdPathToken(path);
+        if (normalizedPath && referenceTargets.length > 0) {
+            referenceTargetsByPrimPath.set(normalizedPath, referenceTargets);
+        }
         if (normalizedPrimType === 'geomsubset') {
             if (!materialId || !Array.isArray(pathSegments) || pathSegments.length < 2) {
                 return;
@@ -895,8 +903,36 @@ export function parseUsdMaterialBindingsFromLayerText(layerText) {
             geomSubsetSections: [],
         });
     });
+    Array.from(materialBindingsByPrimPath.entries()).forEach(([primPath, entry]) => {
+        const referenceTargets = referenceTargetsByPrimPath.get(primPath) || [];
+        referenceTargets.forEach((referenceTarget) => {
+            mergeBindingEntry(referenceTarget, entry);
+        });
+    });
     return materialBindingsByPrimPath;
 }
+
+export function parseUsdReferenceTargetsByPrimPathFromLayerText(layerText) {
+    const referenceTargetsByPrimPath = new Map();
+    walkUsdNamedPrimBlocks(layerText, ({ path, text, body }) => {
+        const openingBraceIndex = text.indexOf('{');
+        const headerText = openingBraceIndex >= 0 ? text.slice(0, openingBraceIndex) : text;
+        const immediateProperties = extractImmediatePropertyTextFromPrimBody(body);
+        const metadataText = `${headerText}\n${immediateProperties}`;
+        const normalizedPath = normalizeUsdPathToken(path);
+        if (!normalizedPath) {
+            return;
+        }
+        const referenceTargets = extractReferencePrimTargets(metadataText)
+            .map((target) => normalizeUsdPathToken(target))
+            .filter(Boolean);
+        if (referenceTargets.length > 0) {
+            referenceTargetsByPrimPath.set(normalizedPath, referenceTargets);
+        }
+    });
+    return referenceTargetsByPrimPath;
+}
+
 export function findMatchingClosingBraceIndex(source, openingBraceIndex) {
     return findMatchingClosingBraceIndexFromPackage(source, openingBraceIndex);
 }
@@ -1217,7 +1253,25 @@ const genericSemanticChildPrimNames = new Set([
     'sphere',
     'cylinder',
     'capsule',
+    'scene',
+    'root',
 ]);
+const genericSemanticChildPrimNamePatterns = [
+    /^mesh_\d+$/i,
+    /^visual_\d+$/i,
+    /^collision_\d+$/i,
+    /^group(?:_\d+)?$/i,
+    /^xform(?:_\d+)?$/i,
+];
+function isGenericSemanticChildPrimName(candidateLinkName) {
+    const normalizedCandidateLinkName = String(candidateLinkName || '').trim().toLowerCase();
+    if (!normalizedCandidateLinkName)
+        return true;
+    if (genericSemanticChildPrimNames.has(normalizedCandidateLinkName)) {
+        return true;
+    }
+    return genericSemanticChildPrimNamePatterns.some((pattern) => pattern.test(candidateLinkName));
+}
 function setBoundedProtoCacheEntry(cache, key, value) {
     if (!cache || !key)
         return;
@@ -1306,8 +1360,7 @@ export function resolveSemanticChildLinkTargetFromResolvedPrimPath({ owningLinkP
     const candidateLinkName = String(resolvedSegments[sectionIndex + 1] || '').trim();
     if (!candidateLinkName)
         return null;
-    const normalizedCandidateLinkName = candidateLinkName.toLowerCase();
-    if (genericSemanticChildPrimNames.has(normalizedCandidateLinkName) || /^mesh_\d+$/i.test(candidateLinkName)) {
+    if (isGenericSemanticChildPrimName(candidateLinkName)) {
         return null;
     }
     if (validLinkNames && !hasNamedSemanticLink(validLinkNames, candidateLinkName)) {

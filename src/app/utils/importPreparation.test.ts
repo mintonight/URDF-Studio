@@ -6,7 +6,11 @@ import os from 'node:os';
 import path from 'node:path';
 import JSZip from 'jszip';
 
-import { prepareImportPayload, type ImportPreparationFileDescriptor } from './importPreparation.ts';
+import {
+  prepareImportPayload,
+  type ImportPreparationFileDescriptor,
+  type PrepareImportProgress,
+} from './importPreparation.ts';
 import { ensureWorkerXmlDomApis } from '@/app/workers/ensureWorkerXmlDomApis';
 import { buildPreResolvedImportContentSignature } from './preResolvedImportSignature.ts';
 
@@ -28,6 +32,48 @@ function createLooseFile(
   }
 
   return file;
+}
+
+function createFixtureLooseFiles(
+  fixtureRoot: string,
+  selectedFolderName: string,
+  shouldInclude: (relativePath: string) => boolean,
+): File[] {
+  const files: File[] = [];
+  const pendingDirectories = [fixtureRoot];
+
+  while (pendingDirectories.length > 0) {
+    const currentDirectory = pendingDirectories.pop();
+    if (!currentDirectory) {
+      continue;
+    }
+
+    for (const entry of fs.readdirSync(currentDirectory, { withFileTypes: true })) {
+      if (entry.name.startsWith('.')) {
+        continue;
+      }
+
+      const absolutePath = path.join(currentDirectory, entry.name);
+      if (entry.isDirectory()) {
+        pendingDirectories.push(absolutePath);
+        continue;
+      }
+
+      const relativePath = path.relative(fixtureRoot, absolutePath).split(path.sep).join('/');
+      if (!shouldInclude(relativePath)) {
+        continue;
+      }
+
+      const file = new File([fs.readFileSync(absolutePath)], entry.name);
+      Object.defineProperty(file, 'webkitRelativePath', {
+        value: `${selectedFolderName}/${relativePath}`,
+        configurable: true,
+      });
+      files.push(file);
+    }
+  }
+
+  return files;
 }
 
 async function createTarGzArchiveFile(
@@ -107,6 +153,181 @@ test('prepareImportPayload renames colliding loose imports while preserving file
   assert.deepEqual(
     result.libraryFiles.map((file) => file.path),
     ['robot (1)/motor library/Acme/M1.txt'],
+  );
+});
+
+test('prepareImportPayload excludes non-import candidates from loose folder preparation progress', async () => {
+  const files = [
+    createLooseFile('pack.bin', new Uint8Array(10), 'unitree_ros/.git/objects/pack/pack.bin'),
+    createLooseFile('README.md', '# Unitree ROS', 'unitree_ros/README.md'),
+    createLooseFile('CMakeLists.txt', 'cmake_minimum_required(VERSION 3.16)', 'unitree_ros/CMakeLists.txt'),
+    createLooseFile('package.xml', '<package><name>demo</name></package>', 'unitree_ros/package.xml'),
+    createLooseFile('controller.cpp', 'int main() { return 0; }', 'unitree_ros/src/controller.cpp'),
+    createLooseFile(
+      'demo.urdf',
+      `<?xml version="1.0"?>
+<robot name="demo">
+  <link name="base_link" />
+</robot>`,
+      'unitree_ros/robots/demo_description/urdf/demo.urdf',
+    ),
+    createLooseFile('base.stl', 'solid demo', 'unitree_ros/robots/demo_description/meshes/base.stl'),
+    createLooseFile(
+      'M1.txt',
+      '{"name":"M1","armature":0.01,"velocity":10,"effort":5}',
+      'unitree_ros/motor library/Acme/M1.txt',
+    ),
+  ];
+  const progressEvents: PrepareImportProgress[] = [];
+  const expectedPreparedBytes = files
+    .filter((file) =>
+      [
+        'unitree_ros/robots/demo_description/urdf/demo.urdf',
+        'unitree_ros/robots/demo_description/meshes/base.stl',
+        'unitree_ros/motor library/Acme/M1.txt',
+      ].includes(file.webkitRelativePath),
+    )
+    .reduce((sum, file) => sum + file.size, 0);
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+    onProgress: (progress) => progressEvents.push(progress),
+  });
+
+  assert.deepEqual(
+    result.robotFiles.map((file) => ({ name: file.name, format: file.format })),
+    [
+      { name: 'unitree_ros/robots/demo_description/meshes/base.stl', format: 'mesh' },
+      { name: 'unitree_ros/robots/demo_description/urdf/demo.urdf', format: 'urdf' },
+    ],
+  );
+  assert.deepEqual(
+    result.libraryFiles.map((file) => file.path),
+    ['unitree_ros/motor library/Acme/M1.txt'],
+  );
+  assert.equal(progressEvents.length > 0, true);
+  assert.equal(progressEvents[0].totalEntries, 3);
+  assert.equal(progressEvents[0].totalBytes, expectedPreparedBytes);
+  assert.equal(progressEvents.at(-1)?.processedEntries, 3);
+  assert.equal(progressEvents.at(-1)?.totalEntries, 3);
+});
+
+test('prepareImportPayload imports all loose folder mesh assets like the legacy folder flow', async () => {
+  const files = [
+    createLooseFile(
+      'alpha.urdf',
+      `<?xml version="1.0"?>
+<robot name="alpha">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://alpha_description/meshes/alpha_base.stl" />
+      </geometry>
+    </visual>
+  </link>
+</robot>`,
+      'unitree_ros/robots/alpha_description/urdf/alpha.urdf',
+    ),
+    createLooseFile(
+      'beta_with_hand.urdf',
+      `<?xml version="1.0"?>
+<robot name="beta">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://beta_description/meshes/beta_base.stl" />
+      </geometry>
+    </visual>
+  </link>
+</robot>`,
+      'unitree_ros/robots/beta_description/urdf/beta_with_hand.urdf',
+    ),
+    createLooseFile(
+      'alpha_base.stl',
+      'solid alpha',
+      'unitree_ros/robots/alpha_description/meshes/alpha_base.stl',
+    ),
+    createLooseFile(
+      'beta_base.stl',
+      'solid beta',
+      'unitree_ros/robots/beta_description/meshes/beta_base.stl',
+    ),
+  ];
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.equal(result.preferredFileName, 'unitree_ros/robots/alpha_description/urdf/alpha.urdf');
+  assert.deepEqual(
+    result.assetFiles.map((file) => file.name).sort(),
+    [
+      'unitree_ros/robots/alpha_description/meshes/alpha_base.stl',
+      'unitree_ros/robots/beta_description/meshes/beta_base.stl',
+    ],
+  );
+  assert.deepEqual(
+    result.robotFiles
+      .filter((file) => file.format === 'mesh')
+      .map((file) => file.name)
+      .sort(),
+    [
+      'unitree_ros/robots/alpha_description/meshes/alpha_base.stl',
+      'unitree_ros/robots/beta_description/meshes/beta_base.stl',
+    ],
+  );
+  assert.deepEqual(result.deferredAssetFiles, []);
+});
+
+test('prepareImportPayload keeps all loose USD source blobs like the legacy folder flow', async () => {
+  const files = [
+    createLooseFile(
+      'alpha.usd',
+      `#usda 1.0
+def Xform "alpha" {
+  prepend references = @configuration/alpha_base.usd@
+}`,
+      'unitree_model/Alpha/usd/alpha.usd',
+    ),
+    createLooseFile(
+      'alpha_base.usd',
+      '#usda 1.0\ndef Scope "alpha_base" {}',
+      'unitree_model/Alpha/usd/configuration/alpha_base.usd',
+    ),
+    createLooseFile(
+      'beta.usd',
+      `#usda 1.0
+def Xform "beta" {
+  prepend references = @configuration/beta_base.usd@
+}`,
+      'unitree_model/Beta/usd/beta.usd',
+    ),
+    createLooseFile(
+      'beta_base.usd',
+      '#usda 1.0\ndef Scope "beta_base" {}',
+      'unitree_model/Beta/usd/configuration/beta_base.usd',
+    ),
+  ];
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.equal(result.preferredFileName, 'unitree_model/Alpha/usd/alpha.usd');
+  assert.deepEqual(
+    result.usdSourceFiles.map((file) => file.name).sort(),
+    [
+      'unitree_model/Alpha/usd/alpha.usd',
+      'unitree_model/Alpha/usd/configuration/alpha_base.usd',
+      'unitree_model/Beta/usd/beta.usd',
+      'unitree_model/Beta/usd/configuration/beta_base.usd',
+    ],
   );
 });
 
@@ -196,6 +417,32 @@ test('prepareImportPayload scans supported zip bundles and exposes extracted rob
   );
   assert.ok(result.robotFiles.some((file) => file.name.endsWith('.obj') && file.format === 'mesh'));
   assert.ok(result.preferredFileName);
+});
+
+test('prepareImportPayload fast-open mode keeps MyoSuite archive assets deferred', async () => {
+  const zipFile = new File([fs.readFileSync('test/myosuite-main.zip')], 'myosuite-main.zip', {
+    type: 'application/zip',
+  });
+
+  const result = await prepareImportPayload({
+    files: [zipFile],
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.deepEqual(result.preResolvedImports, []);
+  assert.ok(
+    result.robotFiles.some(
+      (file) =>
+        file.name === 'myosuite-main/myosuite/envs/myo/assets/arm/myoarm_bionic_bimanual.xml',
+    ),
+  );
+  assert.ok(result.deferredAssetFiles.length > result.assetFiles.length);
+  assert.ok(
+    result.deferredAssetFiles.some((file) =>
+      file.name.startsWith('myosuite-main/myosuite/simhive/'),
+    ),
+  );
 });
 
 test('prepareImportPayload expands archive files discovered during loose folder imports', async () => {
@@ -1109,6 +1356,65 @@ test('prepareImportPayload preserves explicit relativePath metadata when files a
   );
 });
 
+test('prepareImportPayload preserves the imported unitree_ros folder as the asset library root', async () => {
+  const files = createFixtureLooseFiles(
+    path.join(process.cwd(), 'test/unitree_ros'),
+    'unitree_ros',
+    (relativePath) =>
+      relativePath.startsWith('robots/go2_description/') ||
+      relativePath.startsWith('robots/h1_description/'),
+  );
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  const visiblePaths = result.robotFiles.map((file) => file.name).sort();
+  const assetPaths = result.assetFiles.map((file) => file.name).sort();
+  const topLevelPaths = new Set(visiblePaths.map((fileName) => fileName.split('/')[0]));
+
+  assert.deepEqual([...topLevelPaths], ['unitree_ros']);
+  assert.ok(visiblePaths.includes('unitree_ros/robots/go2_description/urdf/go2_description.urdf'));
+  assert.ok(visiblePaths.includes('unitree_ros/robots/h1_description/urdf/h1.urdf'));
+  assert.equal(result.preferredFileName, 'unitree_ros/robots/h1_description/mjcf/h1_with_hand.xml');
+  assert.ok(assetPaths.some((fileName) => fileName.includes('/h1_description/')));
+  assert.ok(assetPaths.some((fileName) => fileName.includes('/go2_description/')));
+  assert.equal(visiblePaths.some((fileName) => fileName.startsWith('go2_description/')), false);
+  assert.equal(visiblePaths.some((fileName) => fileName.startsWith('h1_description/')), false);
+});
+
+test('prepareImportPayload preserves the imported unitree_model folder as the asset library root', async () => {
+  const files = createFixtureLooseFiles(
+    path.join(process.cwd(), 'test/unitree_model'),
+    'unitree_model',
+    (relativePath) =>
+      relativePath.startsWith('Go2/usd/') ||
+      relativePath.startsWith('Go2W/usd/') ||
+      relativePath.startsWith('H1-2/h1_2/'),
+  );
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  const visiblePaths = result.robotFiles.map((file) => file.name).sort();
+  const usdSourcePaths = result.usdSourceFiles.map((file) => file.name).sort();
+  const topLevelPaths = new Set(visiblePaths.map((fileName) => fileName.split('/')[0]));
+
+  assert.deepEqual([...topLevelPaths], ['unitree_model']);
+  assert.equal(result.preferredFileName, 'unitree_model/Go2/usd/go2.viewer_roundtrip.usd');
+  assert.ok(visiblePaths.includes('unitree_model/Go2/usd/go2.usd'));
+  assert.ok(usdSourcePaths.includes('unitree_model/Go2/usd/configuration/go2_description_base.usd'));
+  assert.ok(visiblePaths.some((fileName) => fileName.includes('/Go2W/')));
+  assert.ok(visiblePaths.some((fileName) => fileName.includes('/H1-2/')));
+  assert.equal(visiblePaths.some((fileName) => fileName.startsWith('Go2/')), false);
+  assert.equal(visiblePaths.some((fileName) => fileName.startsWith('H1-2/')), false);
+});
+
 test('prepareImportPayload eagerly hydrates MJCF deferred textures required by the preferred model', async () => {
   const zip = new JSZip();
   zip.file(
@@ -1356,6 +1662,87 @@ test('prepareImportPayload does not heuristically mirror SDF OBJ sidecars from m
   assert.deepEqual(result.textFiles, [
     { path: 'ambulance/meshes/ambulance.mtl', content: 'newmtl Ambulance' },
   ]);
+});
+
+test('prepareImportPayload logs XML probe exceptions without throwing from SDF preparation', async () => {
+  const originalDomParser = globalThis.DOMParser;
+  const originalConsoleError = console.error;
+  const originalNodeEnv = process.env.NODE_ENV;
+  const consoleErrors: unknown[][] = [];
+
+  process.env.NODE_ENV = 'production';
+  class ThrowingDomParser {
+    parseFromString(): Document {
+      throw new Error('DOM parser probe failed');
+    }
+  }
+
+  Object.defineProperty(globalThis, 'DOMParser', {
+    configurable: true,
+    writable: true,
+    value: ThrowingDomParser as unknown as typeof DOMParser,
+  });
+  console.error = (...args: unknown[]) => {
+    consoleErrors.push(args);
+  };
+
+  try {
+    const result = await prepareImportPayload({
+      files: [
+        createLooseFile(
+          'model.sdf',
+          `<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="ambulance">
+    <link name="base_link">
+      <visual name="body">
+        <geometry>
+          <mesh>
+            <uri>model://ambulance/meshes/ambulance.obj</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>`,
+          'ambulance/model.sdf',
+        ),
+        createLooseFile(
+          'ambulance.obj',
+          ['mtllib ambulance.mtl', 'usemtl Ambulance', 'o AmbulanceBody'].join('\n'),
+          'ambulance/meshes/ambulance.obj',
+        ),
+        createLooseFile('ambulance.mtl', 'newmtl Ambulance', 'ambulance/meshes/ambulance.mtl'),
+      ],
+      existingPaths: [],
+      preResolvePreferredImport: false,
+    });
+
+    assert.equal(result.preferredFileName, 'ambulance/model.sdf');
+    assert.equal(
+      result.textFiles.some((file) => file.path === 'ambulance/meshes/ambulance.obj'),
+      false,
+    );
+    assert.equal(
+      consoleErrors.some(([scope]) =>
+        String(scope).includes('[importPreparation:canParseXmlDocumentStrict]'),
+      ),
+      true,
+      'expected XML probe failure to be logged through runtime diagnostics',
+    );
+  } finally {
+    console.error = originalConsoleError;
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    if (originalDomParser) {
+      globalThis.DOMParser = originalDomParser;
+    } else {
+      delete globalThis.DOMParser;
+    }
+  }
 });
 
 test('prepareImportPayload keeps referenced SDF OBJ material sidecars blob-backed for loose folder imports', async () => {

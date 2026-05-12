@@ -11,6 +11,7 @@ import {
   roundToMaxDecimals,
 } from '@/core/utils/numberPrecision';
 import { CollapsibleSection as SharedCollapsibleSection } from '@/shared/components/Panel/OptionsPanel';
+import { usePressAndHoldRepeat } from '@/shared/hooks/usePressAndHoldRepeat';
 import {
   PROPERTY_EDITOR_STEPPER_REPEAT_DELAY_MS,
   PROPERTY_EDITOR_STEPPER_REPEAT_INTERVAL_MS,
@@ -87,7 +88,7 @@ export const InlineInputGroup = ({
   labelWidthClassName = 'w-12',
   align = 'center',
 }: {
-  label: string;
+  label?: string;
   children?: React.ReactNode;
   className?: string;
   labelWidthClassName?: string;
@@ -97,12 +98,16 @@ export const InlineInputGroup = ({
     <div
       className={`flex min-w-0 flex-nowrap gap-2 ${align === 'start' ? 'items-start' : 'items-center'}`}
     >
-      <label
-        className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} ${labelWidthClassName}`}
-        style={{ width: 'fit-content' }}
-      >
-        {label}
-      </label>
+      {label ? (
+        <label
+          className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} ${labelWidthClassName}`}
+          style={{ width: 'fit-content' }}
+        >
+          {label}
+        </label>
+      ) : (
+        <div className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} ${labelWidthClassName}`} />
+      )}
       <div className="min-w-0 flex-1">{children}</div>
     </div>
   </div>
@@ -281,74 +286,10 @@ const usePressAndHoldStepper = (
   onStep: (direction: 1 | -1) => void,
   repeatIntervalMs: number = PROPERTY_EDITOR_STEPPER_REPEAT_INTERVAL_MS,
 ) => {
-  const holdTimeoutRef = useRef<number | null>(null);
-  const holdIntervalRef = useRef<number | null>(null);
-  const suppressClickRef = useRef(false);
-
-  const clearTimers = useCallback(() => {
-    if (holdTimeoutRef.current !== null) {
-      window.clearTimeout(holdTimeoutRef.current);
-      holdTimeoutRef.current = null;
-    }
-    if (holdIntervalRef.current !== null) {
-      window.clearInterval(holdIntervalRef.current);
-      holdIntervalRef.current = null;
-    }
-  }, []);
-
-  const stopPressAndHold = useCallback(() => {
-    clearTimers();
-  }, [clearTimers]);
-
-  useEffect(() => clearTimers, [clearTimers]);
-
-  const startPressAndHold = useCallback(
-    (direction: 1 | -1) => {
-      clearTimers();
-      suppressClickRef.current = true;
-      onStep(direction);
-      holdTimeoutRef.current = window.setTimeout(() => {
-        holdIntervalRef.current = window.setInterval(() => {
-          onStep(direction);
-        }, repeatIntervalMs);
-      }, PROPERTY_EDITOR_STEPPER_REPEAT_DELAY_MS);
-    },
-    [clearTimers, onStep, repeatIntervalMs],
-  );
-
-  const stepperButtonProps = useCallback(
-    (direction: 1 | -1, label: string) => ({
-      type: 'button' as const,
-      'aria-label': label,
-      onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
-        e.preventDefault();
-        e.currentTarget.setPointerCapture?.(e.pointerId);
-        startPressAndHold(direction);
-      },
-      onPointerUp: (e: React.PointerEvent<HTMLButtonElement>) => {
-        if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
-          e.currentTarget.releasePointerCapture?.(e.pointerId);
-        }
-        stopPressAndHold();
-      },
-      onPointerCancel: () => {
-        stopPressAndHold();
-        suppressClickRef.current = false;
-      },
-      onLostPointerCapture: () => {
-        stopPressAndHold();
-      },
-      onClick: (e: React.MouseEvent<HTMLButtonElement>) => {
-        if (suppressClickRef.current) {
-          suppressClickRef.current = false;
-          e.preventDefault();
-          return;
-        }
-        onStep(direction);
-      },
-    }),
-    [onStep, startPressAndHold, stopPressAndHold],
-  );
+  const { repeatButtonProps: stepperButtonProps } = usePressAndHoldRepeat(onStep, {
+    repeatDelayMs: PROPERTY_EDITOR_STEPPER_REPEAT_DELAY_MS,
+    repeatIntervalMs,
+  });
 
   return { stepperButtonProps };
 };
@@ -652,6 +593,7 @@ export const NumberInput = ({
   max,
   commitOnBlurOnly = false,
   repeatIntervalMs,
+  showStepper = true,
 }: {
   value: number;
   onChange: (val: number) => void;
@@ -669,6 +611,7 @@ export const NumberInput = ({
   max?: number;
   commitOnBlurOnly?: boolean;
   repeatIntervalMs?: number;
+  showStepper?: boolean;
 }) => {
   const {
     inputRef,
@@ -734,20 +677,22 @@ export const NumberInput = ({
             {suffix}
           </span>
         ) : null}
-        <div className={PROPERTY_EDITOR_STEPPER_RAIL_CLASS}>
-          <button
-            {...stepperButtonProps(1, label ? `Increase ${label}` : 'Increase value')}
-            className={PROPERTY_EDITOR_STEPPER_BUTTON_CLASS}
-          >
-            <Plus className="h-[7px] w-[7px]" />
-          </button>
-          <button
-            {...stepperButtonProps(-1, label ? `Decrease ${label}` : 'Decrease value')}
-            className={`${PROPERTY_EDITOR_STEPPER_BUTTON_CLASS} border-t border-border-black/60`}
-          >
-            <Minus className="h-[7px] w-[7px]" />
-          </button>
-        </div>
+        {showStepper ? (
+          <div className={PROPERTY_EDITOR_STEPPER_RAIL_CLASS}>
+            <button
+              {...stepperButtonProps(1, label ? `Increase ${label}` : 'Increase value')}
+              className={PROPERTY_EDITOR_STEPPER_BUTTON_CLASS}
+            >
+              <Plus className="h-[7px] w-[7px]" />
+            </button>
+            <button
+              {...stepperButtonProps(-1, label ? `Decrease ${label}` : 'Decrease value')}
+              className={`${PROPERTY_EDITOR_STEPPER_BUTTON_CLASS} border-t border-border-black/60`}
+            >
+              <Minus className="h-[7px] w-[7px]" />
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -776,6 +721,7 @@ export const InlineNumberInput = ({
   min,
   max,
   repeatIntervalMs,
+  showStepper = true,
 }: {
   value: number;
   onChange: (val: number) => void;
@@ -791,6 +737,7 @@ export const InlineNumberInput = ({
   min?: number;
   max?: number;
   repeatIntervalMs?: number;
+  showStepper?: boolean;
 }) => {
   const {
     inputRef,
@@ -850,20 +797,22 @@ export const InlineNumberInput = ({
             compact ? 'px-1.5 text-[10px]' : 'px-1.5 text-[10px]'
           }`}
         />
-        <div className={PROPERTY_EDITOR_STEPPER_RAIL_CLASS}>
-          <button
-            {...stepperButtonProps(1, `Increase ${label}`)}
-            className={PROPERTY_EDITOR_STEPPER_BUTTON_CLASS}
-          >
-            <Plus className="h-[7px] w-[7px]" />
-          </button>
-          <button
-            {...stepperButtonProps(-1, `Decrease ${label}`)}
-            className={`${PROPERTY_EDITOR_STEPPER_BUTTON_CLASS} border-t border-border-black/60`}
-          >
-            <Minus className="h-[7px] w-[7px]" />
-          </button>
-        </div>
+        {showStepper ? (
+          <div className={PROPERTY_EDITOR_STEPPER_RAIL_CLASS}>
+            <button
+              {...stepperButtonProps(1, `Increase ${label}`)}
+              className={PROPERTY_EDITOR_STEPPER_BUTTON_CLASS}
+            >
+              <Plus className="h-[7px] w-[7px]" />
+            </button>
+            <button
+              {...stepperButtonProps(-1, `Decrease ${label}`)}
+              className={`${PROPERTY_EDITOR_STEPPER_BUTTON_CLASS} border-t border-border-black/60`}
+            >
+              <Minus className="h-[7px] w-[7px]" />
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

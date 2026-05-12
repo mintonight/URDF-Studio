@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import {
   getCollisionGeometryEntries,
   getVisualGeometryEntries,
+  resolveJointKey,
   resolveVisualMaterialOverride,
 } from '@/core/robot';
 import {
@@ -525,7 +526,13 @@ function createUniqueModelChildName(baseName: string, usedNames: Set<string>): s
   return uniqueName;
 }
 
-function generateJointXml(joint: UrdfJoint, jointNameOverride?: string): string {
+function generateJointXml(
+  joint: UrdfJoint,
+  jointNameOverride?: string,
+  mimicJointNameOverride?: string,
+  parentLinkNameOverride?: string,
+  childLinkNameOverride?: string,
+): string {
   if (joint.type === JointType.FLOATING) {
     throw new Error(
       `[SDF export] Joint "${joint.name || joint.id}" uses unsupported floating type.`,
@@ -534,10 +541,12 @@ function generateJointXml(joint: UrdfJoint, jointNameOverride?: string): string 
 
   const jointName = jointNameOverride || joint.name || joint.id;
   const lines = [`    <joint name="${escapeXml(jointName)}" type="${escapeXml(joint.type)}">`];
-  if (joint.parentLinkId) {
-    lines.push(`      <parent>${escapeXml(joint.parentLinkId)}</parent>`);
+  const parentLinkName = parentLinkNameOverride || joint.parentLinkId;
+  const childLinkName = childLinkNameOverride || joint.childLinkId;
+  if (parentLinkName) {
+    lines.push(`      <parent>${escapeXml(parentLinkName)}</parent>`);
   }
-  lines.push(`      <child>${escapeXml(joint.childLinkId)}</child>`);
+  lines.push(`      <child>${escapeXml(childLinkName)}</child>`);
 
   if (AXIS_EXPORT_TYPES.has(joint.type) && joint.axis) {
     lines.push('      <axis>');
@@ -584,6 +593,23 @@ function generateJointXml(joint: UrdfJoint, jointNameOverride?: string): string 
       lines.push('        </dynamics>');
     }
 
+    if (joint.mimic?.joint) {
+      const mimicJointName = mimicJointNameOverride || joint.mimic.joint;
+      const multiplier = joint.mimic.multiplier === undefined ? 1 : Number(joint.mimic.multiplier);
+      const offset = joint.mimic.offset === undefined ? 0 : Number(joint.mimic.offset);
+      if (!Number.isFinite(multiplier) || !Number.isFinite(offset)) {
+        throw new Error(
+          `[SDF export] Mimic joint "${joint.name || joint.id}" must use finite multiplier and offset values.`,
+        );
+      }
+
+      lines.push(`        <mimic joint="${escapeXml(mimicJointName)}">`);
+      lines.push(`          <multiplier>${formatScalar(multiplier)}</multiplier>`);
+      lines.push(`          <offset>${formatScalar(offset)}</offset>`);
+      lines.push('          <reference>0</reference>');
+      lines.push('        </mimic>');
+    }
+
     lines.push('      </axis>');
   }
 
@@ -594,12 +620,14 @@ function generateJointXml(joint: UrdfJoint, jointNameOverride?: string): string 
 function generateClosedLoopJointXmlWithName(
   constraint: RobotClosedLoopConstraint,
   jointName: string,
+  parentLinkName: string,
+  childLinkName: string,
 ): string | null {
   if (constraint.type !== 'connect') {
     return null;
   }
 
-  const childLinkId = escapeXml(constraint.linkBId);
+  const childLink = escapeXml(childLinkName);
   const anchorLocalB: Pose = {
     xyz: { ...constraint.anchorLocalB },
     rpy: { r: 0, p: 0, y: 0 },
@@ -607,9 +635,9 @@ function generateClosedLoopJointXmlWithName(
 
   return [
     `    <joint name="${escapeXml(jointName)}" type="ball">`,
-    `      <parent>${escapeXml(constraint.linkAId)}</parent>`,
-    `      <child>${childLinkId}</child>`,
-    `      <pose relative_to="${childLinkId}">${formatPose(anchorLocalB)}</pose>`,
+    `      <parent>${escapeXml(parentLinkName)}</parent>`,
+    `      <child>${childLink}</child>`,
+    `      <pose relative_to="${childLink}">${formatPose(anchorLocalB)}</pose>`,
     '    </joint>',
   ].join('\n');
 }
@@ -660,20 +688,47 @@ export function generateSDF(robot: RobotState, options: GenerateSDFOptions = {})
     lines.push('    </link>');
   });
 
+  const jointNameByOriginalId = new Map<string, string>();
   Object.values(robot.joints).forEach((joint) => {
     if (omittedJointIds.has(joint.id)) {
       return;
     }
 
     const jointName = createUniqueModelChildName(joint.name || joint.id, usedModelChildNames);
-    lines.push(generateJointXml(joint, jointName));
+    jointNameByOriginalId.set(joint.id, jointName);
+  });
+
+  Object.values(robot.joints).forEach((joint) => {
+    if (omittedJointIds.has(joint.id)) {
+      return;
+    }
+
+    const jointName = jointNameByOriginalId.get(joint.id) || joint.name || joint.id;
+    const mimicJointId = resolveJointKey(robot.joints, joint.mimic?.joint);
+    const mimicJointResolvedName = mimicJointId
+      ? jointNameByOriginalId.get(mimicJointId) || robot.joints[mimicJointId]?.name
+      : undefined;
+    lines.push(
+      generateJointXml(
+        joint,
+        jointName,
+        mimicJointResolvedName,
+        robot.links[joint.parentLinkId]?.name,
+        robot.links[joint.childLinkId]?.name,
+      ),
+    );
   });
   (robot.closedLoopConstraints || []).forEach((constraint) => {
     const closedLoopName = createUniqueModelChildName(
       constraint.id || `${constraint.linkAId}_${constraint.linkBId}_closed_loop`,
       usedModelChildNames,
     );
-    const closedLoopXml = generateClosedLoopJointXmlWithName(constraint, closedLoopName);
+    const closedLoopXml = generateClosedLoopJointXmlWithName(
+      constraint,
+      closedLoopName,
+      robot.links[constraint.linkAId]?.name || constraint.linkAId,
+      robot.links[constraint.linkBId]?.name || constraint.linkBId,
+    );
     if (closedLoopXml) {
       lines.push(closedLoopXml);
     }

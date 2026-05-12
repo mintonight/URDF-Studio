@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { startTransition, useCallback, useState } from 'react';
 
 import { buildAssemblyComponentIdentity } from '@/core/robot';
 import type { AssemblyComponent, AssemblyState, RobotData, RobotFile } from '@/types';
@@ -43,6 +43,33 @@ interface UseAssemblyComponentPreparationParams {
   focusOn: (id: string) => void;
   selectComponent: (id: string) => void;
   setSelection: (selection: { type: null; id: null }) => void;
+}
+
+interface ActivateAssemblyComponentSelectionParams {
+  focusOn: (id: string) => void;
+  selectComponent: (id: string) => void;
+  setSelection: (selection: { type: null; id: null }) => void;
+  deferFocus?: (callback: () => void) => void;
+}
+
+export function activateAssemblyComponentSelection(
+  component: AssemblyComponent,
+  { deferFocus, focusOn, selectComponent, setSelection }: ActivateAssemblyComponentSelectionParams,
+) {
+  setSelection({ type: null, id: null });
+  selectComponent(component.id);
+
+  if (!component.robot.rootLinkId) {
+    return;
+  }
+
+  const focusInsertedComponent = () => focusOn(component.robot.rootLinkId);
+  if (deferFocus) {
+    deferFocus(focusInsertedComponent);
+    return;
+  }
+
+  focusInsertedComponent();
 }
 
 export function buildAssemblyComponentPreparationOverlayState(
@@ -148,11 +175,14 @@ export function useAssemblyComponentPreparation({
 
   const activateInsertedAssemblyComponent = useCallback(
     (component: AssemblyComponent) => {
-      setSelection({ type: null, id: null });
-      selectComponent(component.id);
-      if (component.robot.rootLinkId) {
-        focusOn(component.robot.rootLinkId);
-      }
+      activateAssemblyComponentSelection(component, {
+        focusOn,
+        selectComponent,
+        setSelection,
+        deferFocus: (callback) => {
+          void waitForNextPaint().then(callback);
+        },
+      });
     },
     [focusOn, selectComponent, setSelection],
   );
@@ -174,12 +204,15 @@ export function useAssemblyComponentPreparation({
       showAssemblyComponentPreparationOverlay(file, 'add');
       await waitForNextPaint();
 
-      const component = addComponent(file, {
-        availableFiles,
-        assets,
-        allFileContents,
-        preResolvedRobotData: options.preResolvedRobotData ?? null,
-        preparedComponent,
+      let component: AssemblyComponent | null = null;
+      startTransition(() => {
+        component = addComponent(file, {
+          availableFiles,
+          assets,
+          allFileContents,
+          preResolvedRobotData: options.preResolvedRobotData ?? null,
+          preparedComponent,
+        });
       });
       if (!component) {
         throw new Error(`Failed to add assembly component: ${file.name}`);

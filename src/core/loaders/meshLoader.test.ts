@@ -38,6 +38,102 @@ globalThis.Image = dom.window.Image as typeof Image;
 globalThis.XMLSerializer = dom.window.XMLSerializer as typeof XMLSerializer;
 globalThis.ProgressEvent = dom.window.ProgressEvent as typeof ProgressEvent;
 
+test('createMeshLoader exposes unresolved visual meshes as errors instead of placeholders', async () => {
+  const manager = new THREE.LoadingManager();
+  const loadMesh = createMeshLoader({}, manager, 'urdf/');
+
+  const result = await new Promise<{ object: THREE.Object3D | null; error?: Error }>((resolve) => {
+    loadMesh('package://aliengo_description/meshes/hip.dae', manager, (object, error) => {
+      resolve({ object, error });
+    });
+  });
+
+  assert.ok(result.error);
+  assert.equal(result.object, null);
+});
+
+test('createMeshLoader returns placeholder meshes without callback errors when explicitly enabled', async () => {
+  const originalConsoleWarn = console.warn;
+  console.warn = () => {};
+  const manager = new THREE.LoadingManager();
+
+  try {
+    const loadMesh = createMeshLoader({}, manager, 'urdf/', {
+      allowPlaceholderMeshes: true,
+    });
+
+    const result = await new Promise<{ object: THREE.Object3D | null; error?: Error }>(
+      (resolve) => {
+        loadMesh('package://aliengo_description/meshes/hip.dae', manager, (object, error) => {
+          resolve({ object, error });
+        });
+      },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(result.error, undefined);
+    assert.ok(result.object);
+    assert.equal(result.object.userData?.isPlaceholder, true);
+    assert.equal(
+      result.object.userData?.missingMeshPath,
+      'package://aliengo_description/meshes/hip.dae',
+    );
+    assert.deepEqual(result.object.userData?.meshLoadIssue, {
+      message: 'Mesh asset could not be resolved.',
+      path: 'package://aliengo_description/meshes/hip.dae',
+    });
+  } finally {
+    console.warn = originalConsoleWarn;
+  }
+});
+
+test('createMeshLoader aggregates missing mesh diagnostics when placeholders are enabled', async () => {
+  const originalConsoleWarn = console.warn;
+  const originalConsoleError = console.error;
+  const loggedWarnings: unknown[][] = [];
+  const loggedErrors: unknown[][] = [];
+  console.warn = (...args) => {
+    loggedWarnings.push(args);
+  };
+  console.error = (...args) => {
+    loggedErrors.push(args);
+  };
+
+  try {
+    const manager = new THREE.LoadingManager();
+    const loadMesh = createMeshLoader({}, manager, 'urdf/', {
+      allowPlaceholderMeshes: true,
+    });
+
+    await Promise.all(
+      ['package://robot/meshes/a.dae', 'package://robot/meshes/b.stl'].map(
+        (path) =>
+          new Promise<void>((resolve) => {
+            loadMesh(path, manager, (object, error) => {
+              assert.ok(object);
+              assert.equal(error, undefined);
+              resolve();
+            });
+          }),
+      ),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  } finally {
+    console.warn = originalConsoleWarn;
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(loggedErrors.length, 0);
+  assert.equal(loggedWarnings.length, 1);
+  assert.match(String(loggedWarnings[0]?.[0] || ''), /Missing 2 mesh asset/);
+  assert.deepEqual(loggedWarnings[0]?.[1], [
+    'package://robot/meshes/a.dae',
+    'package://robot/meshes/b.stl',
+  ]);
+});
+
 function getFirstRenderable(object: THREE.Object3D): THREE.Object3D {
   const first = object.children[0];
   assert.ok(first, 'expected Collada scene to contain a child object');

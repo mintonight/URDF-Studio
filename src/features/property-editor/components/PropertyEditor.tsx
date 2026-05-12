@@ -64,6 +64,7 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
   robot,
   onUpdate,
   onSelect,
+  onHover,
   onSelectGeometry,
   mode,
   assets,
@@ -154,7 +155,7 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
       <div className="h-full w-full flex flex-col overflow-hidden">
         <div
           style={{ width: `${displayWidth}px` }}
-          className="h-full flex flex-col bg-element-bg dark:bg-panel-bg transition-all duration-200 ease-out"
+          className={`h-full flex flex-col bg-element-bg dark:bg-panel-bg${isDragging ? '' : ' transition-[width] duration-200 ease-out'}`}
         >
           {/* Header */}
           <div className="w-full flex items-center justify-between px-2 py-1 border-b border-border-black bg-panel-bg shrink-0 relative z-30">
@@ -188,7 +189,7 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
               <p className="ui-static-copy-guard text-[11px] leading-5">{emptyStateMessage}</p>
             </div>
           ) : (
-            <div className="w-full flex-1 overflow-y-auto custom-scrollbar p-1 space-y-1.5">
+            <div className="w-full min-h-0 flex-1 overflow-y-auto custom-scrollbar p-1 space-y-1.5">
               {isLink ? (
                 <LinkProperties
                   data={linkData as UrdfLink}
@@ -228,9 +229,15 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
       {/* Resize Handle - only show when expanded */}
       {!collapsed && (
         <div
-          className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-system-blue/40 transition-colors z-40"
+          data-testid="property-editor-sidebar-resize-handle"
+          className="group absolute left-0 top-0 bottom-0 z-40 w-2 cursor-col-resize bg-transparent"
           onMouseDown={handleResizeMouseDown}
-        />
+        >
+          <div
+            data-testid="property-editor-sidebar-resize-rail"
+            className="pointer-events-none absolute left-0 top-0 bottom-0 w-px bg-transparent transition-colors group-hover:bg-system-blue/50 group-active:bg-system-blue/60"
+          />
+        </div>
       )}
     </div>
   );

@@ -18,6 +18,7 @@ import {
   Code,
   Copy,
   Download,
+  Files,
   Info,
   Loader2,
   Lock,
@@ -28,9 +29,9 @@ import {
 } from 'lucide-react';
 import type { Theme } from '@/types';
 import { useUIStore, type CodeEditorFontFamily, type Language } from '@/store';
-import { DraggableWindow } from '@/shared/components';
-import { useDraggableWindow } from '@/shared/hooks';
-import { Tooltip } from '@/shared/components/ui';
+import { DraggableWindow } from '@/shared/components/DraggableWindow';
+import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
+import { Select, Tooltip } from '@/shared/components/ui';
 import type { SourceCodeDocumentFlavor } from '../types';
 import type { MonacoInstance } from '../utils/monacoLoader';
 import {
@@ -50,6 +51,7 @@ import {
 import {
   getSourceCodeEditorTabBadgeClassName,
   getSourceCodeEditorTabClassName,
+  shouldCollapseSourceCodeEditorTabs,
   SOURCE_CODE_EDITOR_TABS_CLASS,
 } from '../utils/sourceCodeEditorTabClasses';
 import {
@@ -70,6 +72,7 @@ export interface SourceCodeEditorDocument {
   fileName: string;
   tabLabel?: string;
   filePath?: string;
+  contentUrl?: string;
   documentFlavor?: SourceCodeDocumentFlavor;
   readOnly?: boolean;
   onDownload?: () => void;
@@ -110,6 +113,7 @@ interface ActiveSourceCodeDocument {
   fileName: string;
   tabLabel?: string;
   filePath?: string;
+  contentUrl?: string;
   documentFlavor: SourceCodeDocumentFlavor;
   readOnly: boolean;
   onDownload?: () => void;
@@ -158,6 +162,8 @@ const editorTexts = {
     noErrors: 'No errors',
     problems: 'problems',
     loading: 'Loading...',
+    files: 'files',
+    selectFile: 'Select source file',
     noStructuralValidation: 'No structural validation',
     jumpToProblem: 'Jump to first problem',
     saveShortcut: 'Ctrl+S',
@@ -215,6 +221,8 @@ const editorTexts = {
     noErrors: '无错误',
     problems: '个问题',
     loading: '加载中...',
+    files: '个文件',
+    selectFile: '选择源文件',
     noStructuralValidation: '当前模式不做结构校验',
     jumpToProblem: '跳转到第一个问题',
     saveShortcut: 'Ctrl+S',
@@ -300,6 +308,7 @@ const normalizeDocuments = ({
       fileName: document.fileName,
       tabLabel: document.tabLabel ?? document.fileName,
       filePath: document.filePath,
+      contentUrl: document.contentUrl,
       documentFlavor: document.documentFlavor ?? 'urdf',
       readOnly: document.readOnly ?? false,
       onDownload: document.onDownload,
@@ -476,10 +485,19 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
     }
   }, [activeDocument, normalizedDocuments]);
 
-  const activeDocumentCode = activeDocument.code;
   const activeDocumentFileName = activeDocument.fileName;
   const activeDocumentLabel = activeDocument.tabLabel ?? activeDocument.fileName;
   const activeDocumentPath = activeDocument.filePath ?? activeDocument.fileName;
+  const shouldShowActiveDocumentPath = activeDocumentPath !== activeDocumentLabel;
+  const shouldUseDocumentSelector = shouldCollapseSourceCodeEditorTabs(normalizedDocuments.length);
+  const documentSelectOptions = useMemo(
+    () =>
+      normalizedDocuments.map((document) => ({
+        value: document.id,
+        label: document.tabLabel ?? document.fileName,
+      })),
+    [normalizedDocuments],
+  );
   const activeDocumentFlavor = activeDocument.documentFlavor;
   const activeDocumentValidationEnabled = activeDocument.validationEnabled;
   const isEquivalentMjcfPreview = activeDocumentFlavor === 'equivalent-mjcf';
@@ -495,6 +513,18 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [isApplying, setIsApplying] = useState(false);
   const [autoApplyBlockedCode, setAutoApplyBlockedCode] = useState<string | null>(null);
+  const [loadedDocumentCodes, setLoadedDocumentCodes] = useState<
+    Record<string, { contentUrl: string; code: string }>
+  >({});
+  const [loadingDocumentId, setLoadingDocumentId] = useState<string | null>(null);
+  const loadedActiveDocumentCode =
+    activeDocument.contentUrl && activeDocument.code.length === 0
+      ? loadedDocumentCodes[activeDocument.id]
+      : undefined;
+  const activeDocumentCode =
+    loadedActiveDocumentCode && loadedActiveDocumentCode.contentUrl === activeDocument.contentUrl
+      ? loadedActiveDocumentCode.code
+      : activeDocument.code;
   const [currentCode, setCurrentCode] = useState(activeDocumentCode);
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -509,6 +539,11 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
   const editorRef = useRef<any>(null);
   const editorMountVersionRef = useRef(0);
   const [monacoInstance, setMonacoInstance] = useState<MonacoInstance | null>(null);
+  const shouldLoadActiveDocumentContent = Boolean(
+    activeDocument.contentUrl &&
+    activeDocument.code.length === 0 &&
+    loadedActiveDocumentCode?.contentUrl !== activeDocument.contentUrl,
+  );
 
   const windowState = useDraggableWindow({
     defaultPosition: { x: 100, y: 100 },
@@ -527,6 +562,8 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
   const { isMaximized, size, toggleMaximize } = windowState;
 
   const contentSizeLabel = useMemo(() => formatContentSize(currentCode), [currentCode]);
+  const isActiveDocumentContentLoading =
+    shouldLoadActiveDocumentContent || loadingDocumentId === activeDocument.id;
 
   useEffect(() => {
     return () => {
@@ -539,6 +576,47 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!shouldLoadActiveDocumentContent || !activeDocument.contentUrl) {
+      return undefined;
+    }
+
+    const documentId = activeDocument.id;
+    const contentUrl = activeDocument.contentUrl;
+    const controller = new AbortController();
+    setLoadingDocumentId(documentId);
+
+    void fetch(contentUrl, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to load source document: ${response.status}`);
+        }
+        return response.text();
+      })
+      .then((code) => {
+        setLoadedDocumentCodes((previous) => ({
+          ...previous,
+          [documentId]: { contentUrl, code },
+        }));
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        console.error('Failed to load source document content:', error);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoadingDocumentId((current) => (current === documentId ? null : current));
+        }
+      });
+
+    return () => {
+      controller.abort();
+      setLoadingDocumentId((current) => (current === documentId ? null : current));
+    };
+  }, [activeDocument.contentUrl, activeDocument.id, shouldLoadActiveDocumentContent]);
 
   useEffect(() => {
     const nextSessionBoundary = {
@@ -984,51 +1062,21 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
       window={windowState}
       onClose={onClose}
       title={
-        <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden whitespace-nowrap">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
           <Code className="h-4 w-4 shrink-0 text-system-blue" />
-          {normalizedDocuments.length > 1 ? (
-            <div className="flex min-w-0 flex-1 items-center overflow-hidden">
-              <div
-                className={`${SOURCE_CODE_EDITOR_TABS_CLASS} overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`}
-              >
-                {normalizedDocuments.map((document) => {
-                  const isActiveDocument = document.id === activeDocument.id;
-                  return (
-                    <button
-                      key={document.id}
-                      aria-pressed={isActiveDocument}
-                      className={getSourceCodeEditorTabClassName(isActiveDocument)}
-                      data-window-control
-                      onClick={() => {
-                        void handleDocumentSwitch(document.id);
-                      }}
-                      onDoubleClick={(event) => {
-                        event.stopPropagation();
-                      }}
-                      title={document.filePath ?? document.fileName}
-                      type="button"
-                    >
-                      <span className="max-w-40 truncate">
-                        {document.tabLabel ?? document.fileName}
-                      </span>
-                      {document.documentFlavor === 'equivalent-mjcf' ? (
-                        <span className={getSourceCodeEditorTabBadgeClassName(isActiveDocument)}>
-                          {t.generated}
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
+          <div className="flex min-w-0 flex-1 flex-col justify-center leading-tight">
             <span
-              className="min-w-0 truncate font-mono text-xs font-semibold tracking-tight text-text-primary"
+              className="min-w-0 truncate font-mono text-xs font-semibold text-text-primary"
               title={activeDocumentPath}
             >
               {activeDocumentLabel}
             </span>
-          )}
+            {normalizedDocuments.length > 1 && shouldShowActiveDocumentPath ? (
+              <span className="min-w-0 truncate font-mono text-[10px] text-text-tertiary">
+                {activeDocumentPath}
+              </span>
+            ) : null}
+          </div>
           <div className="flex shrink-0 items-center gap-2">
             <span className="shrink-0 text-[10px] text-text-tertiary">{contentSizeLabel}</span>
             {isReadOnly ? (
@@ -1129,9 +1177,78 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
         close: <X className="h-4 w-4" />,
       }}
     >
+      {normalizedDocuments.length > 1 ? (
+        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border-black bg-panel-bg px-3 select-none">
+          {shouldUseDocumentSelector ? (
+            <>
+              <Files className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+              <Select
+                aria-label={t.selectFile}
+                className="h-7 rounded-md bg-element-bg py-1 pr-7 pl-2 font-mono text-[11px] leading-none"
+                containerClassName="min-w-0 max-w-[420px] flex-1"
+                menuClassName="font-mono"
+                optionButtonClassName="rounded-md px-2 py-1.5"
+                optionClassName="text-[11px]"
+                options={documentSelectOptions}
+                title={activeDocumentPath}
+                value={activeDocument.id}
+                onChange={(event) => {
+                  void handleDocumentSwitch(event.currentTarget.value);
+                }}
+              />
+              <span className="shrink-0 text-[10px] font-medium text-text-tertiary">
+                {normalizedDocuments.length} {t.files}
+              </span>
+            </>
+          ) : (
+            <div className="custom-scrollbar flex min-w-0 flex-1 overflow-x-auto">
+              <div
+                aria-label={t.selectFile}
+                className={`${SOURCE_CODE_EDITOR_TABS_CLASS} min-w-max flex-none`}
+                role="tablist"
+              >
+                {normalizedDocuments.map((document) => {
+                  const isActiveDocument = document.id === activeDocument.id;
+                  return (
+                    <button
+                      key={document.id}
+                      aria-selected={isActiveDocument}
+                      className={getSourceCodeEditorTabClassName(isActiveDocument)}
+                      onClick={() => {
+                        void handleDocumentSwitch(document.id);
+                      }}
+                      role="tab"
+                      title={document.filePath ?? document.fileName}
+                      type="button"
+                    >
+                      <span className="max-w-44 truncate">
+                        {document.tabLabel ?? document.fileName}
+                      </span>
+                      {document.documentFlavor === 'equivalent-mjcf' ? (
+                        <span className={getSourceCodeEditorTabBadgeClassName(isActiveDocument)}>
+                          {t.generated}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
+
       <div className="relative flex-1 overflow-hidden">
         {!isEditorReady ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-panel-bg">
+            <div className="flex items-center gap-2 text-sm text-text-secondary">
+              <Loader2 className="h-5 w-5 animate-spin text-text-tertiary" />
+              <span>{t.loading}</span>
+            </div>
+          </div>
+        ) : null}
+        {isEditorReady && isActiveDocumentContentLoading ? (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-panel-bg/90">
             <div className="flex items-center gap-2 text-sm text-text-secondary">
               <Loader2 className="h-5 w-5 animate-spin text-text-tertiary" />
               <span>{t.loading}</span>

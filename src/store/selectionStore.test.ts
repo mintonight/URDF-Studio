@@ -17,7 +17,7 @@ function resetSelectionStore() {
   state.setFocusTarget(null);
 }
 
-test('setHoverFrozen clears the current hover and immediately restores the last hover intent on release', () => {
+test('setHoverFrozen preserves the visible hover and applies the last hover intent on release', () => {
   resetSelectionStore();
 
   const state = useSelectionStore.getState();
@@ -26,7 +26,18 @@ test('setHoverFrozen clears the current hover and immediately restores the last 
 
   let nextState = useSelectionStore.getState();
   assert.equal(nextState.hoverFrozen, true);
-  assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
+  assert.deepEqual(nextState.hoveredSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+  assert.deepEqual(nextState.deferredHoveredSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
 
   nextState.setHoveredSelection({
     type: 'link',
@@ -37,7 +48,12 @@ test('setHoverFrozen clears the current hover and immediately restores the last 
   nextState.hoverJoint('joint_1');
   nextState = useSelectionStore.getState();
 
-  assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
+  assert.deepEqual(nextState.hoveredSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
   assert.deepEqual(nextState.deferredHoveredSelection, { type: 'joint', id: 'joint_1' });
 
   nextState.setHoverFrozen(false);
@@ -63,14 +79,38 @@ test('clearHover during a frozen drag clears the deferred hover so release does 
   nextState.clearHover();
 
   nextState = useSelectionStore.getState();
-  assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
+  assert.deepEqual(nextState.hoveredSelection, { type: 'link', id: 'base_link' });
   assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
 
   nextState.setHoverFrozen(false);
   assert.deepEqual(useSelectionStore.getState().hoveredSelection, { type: null, id: null });
 });
 
-test('hover blocks suppress incoming hover updates and do not unfreeze when interaction freeze releases first', () => {
+test('setHoverFrozen(false) preserves the current hover when hover is already unfrozen', () => {
+  resetSelectionStore();
+
+  const state = useSelectionStore.getState();
+  state.setHoveredSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+
+  state.setHoverFrozen(false);
+
+  const nextState = useSelectionStore.getState();
+  assert.equal(nextState.hoverFrozen, false);
+  assert.deepEqual(nextState.hoveredSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+  assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
+});
+
+test('hover blocks preserve the existing hover intent and do not let new hover updates replace it before release', () => {
   resetSelectionStore();
 
   const state = useSelectionStore.getState();
@@ -80,20 +120,54 @@ test('hover blocks suppress incoming hover updates and do not unfreeze when inte
   let nextState = useSelectionStore.getState();
   assert.equal(nextState.hoverFrozen, true);
   assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
-  assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
+  assert.deepEqual(nextState.deferredHoveredSelection, { type: 'link', id: 'base_link' });
 
   nextState.setHoveredSelection({ type: 'link', id: 'arm_link' });
-  nextState.setHoverFrozen(true);
-  nextState.setHoverFrozen(false);
 
   nextState = useSelectionStore.getState();
   assert.equal(nextState.hoverFrozen, true);
-  assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
+  assert.deepEqual(nextState.deferredHoveredSelection, { type: 'link', id: 'base_link' });
 
   nextState.endHoverBlock();
   nextState = useSelectionStore.getState();
   assert.equal(nextState.hoverFrozen, false);
+  assert.deepEqual(nextState.hoveredSelection, { type: 'link', id: 'base_link' });
+});
+
+test('beginHoverBlock preserves the current hover as deferred intent so quick blank clicks do not flash the highlight away', () => {
+  resetSelectionStore();
+
+  const state = useSelectionStore.getState();
+  state.setHoveredSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+
+  state.beginHoverBlock();
+
+  let nextState = useSelectionStore.getState();
+  assert.equal(nextState.hoverFrozen, true);
   assert.deepEqual(nextState.hoveredSelection, { type: null, id: null });
+  assert.deepEqual(nextState.deferredHoveredSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+
+  nextState.endHoverBlock();
+  nextState = useSelectionStore.getState();
+
+  assert.equal(nextState.hoverFrozen, false);
+  assert.deepEqual(nextState.hoveredSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+  assert.deepEqual(nextState.deferredHoveredSelection, { type: null, id: null });
 });
 
 test('interaction guard blocks invalid selections without preventing clearing', () => {
@@ -166,6 +240,30 @@ test('hover state updates when the highlighted object changes on the same link',
     subType: 'visual',
     objectIndex: 0,
     highlightObjectId: 202,
+  });
+});
+
+test('selection state preserves an explicit primary geometry objectIndex after a generic geometry select', () => {
+  resetSelectionStore();
+
+  const state = useSelectionStore.getState();
+  state.setSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+  });
+  state.setSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+
+  assert.deepEqual(useSelectionStore.getState().selection, {
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
   });
 });
 

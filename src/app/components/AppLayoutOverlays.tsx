@@ -12,7 +12,7 @@ import type {
   CollisionOptimizationOperation,
   CollisionOptimizationSource,
   CollisionTargetRef,
-} from '@/features/property-editor';
+} from '@/features/property-editor/utils';
 import type { SourceCodeEditorDocument } from '@/features/code-editor';
 
 const SourceCodeEditor = lazy(() =>
@@ -45,7 +45,9 @@ interface AppLayoutOverlaysProps {
   selection: InteractionSelection;
   onCloseCollisionOptimizer: () => void;
   onSelectCollisionTarget: (target: CollisionTargetRef) => void;
-  onApplyCollisionOptimization: (operations: CollisionOptimizationOperation[]) => void;
+  onApplyCollisionOptimization: (
+    operations: CollisionOptimizationOperation[],
+  ) => void | Promise<void>;
   assemblyState: AssemblyState | null;
   shouldRenderBridgeModal: boolean;
   loadingBridgeDialogLabel: string;

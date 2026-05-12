@@ -39,9 +39,13 @@ export function resolveAssemblyRootComponentSelection(
 export function isAssemblyTransformSelectionArmed(
   assemblyState: AssemblyState | null | undefined,
   assemblySelection: MinimalAssemblySelection | null | undefined,
-  selection: Pick<InteractionSelection, 'type' | 'id'> | null | undefined,
+  selection: Pick<InteractionSelection, 'type' | 'id' | 'helperKind'> | null | undefined,
 ): boolean {
   if (!assemblySelection?.type || !assemblySelection.id) {
+    return false;
+  }
+
+  if (selection?.helperKind) {
     return false;
   }
 

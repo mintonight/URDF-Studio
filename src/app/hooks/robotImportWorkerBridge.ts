@@ -5,6 +5,7 @@ import {
 } from '@/core/parsers/importRobotFile';
 import type { RobotFile } from '@/types';
 import type {
+  ApplyEditableSourceChangeWorkerRequest,
   GenerateEditableRobotSourceWorkerRequest,
   GenerateEditableRobotSourceWorkerResponse,
   PrepareAssemblyComponentWorkerOptions,
@@ -19,8 +20,13 @@ import type {
   RobotImportWorkerRequest,
 } from '@/app/utils/robotImportWorker';
 import type { GenerateEditableRobotSourceOptions } from '@/app/utils/generateEditableRobotSource';
+import type {
+  ApplyEditableSourceChangeOptions,
+  ApplyEditableSourceChangeResult,
+} from '@/app/utils/applyEditableSourceChange';
 import type { ParseEditableRobotSourceOptions } from '@/app/utils/parseEditableRobotSource';
 import {
+  buildEditableSourceChangeWorkerDispatch,
   buildEditableRobotSourceWorkerDispatch,
   buildPrepareAssemblyComponentWorkerDispatch,
   buildResolveRobotImportWorkerDispatch,
@@ -51,6 +57,12 @@ interface PendingRobotImportWorkerRequest {
 
 interface PendingEditableParseWorkerRequest {
   resolve: (value: RobotState | null) => void;
+  reject: (error: unknown) => void;
+  workerEntry: WorkerPoolEntry;
+}
+
+interface PendingEditableSourceChangeWorkerRequest {
+  resolve: (value: ApplyEditableSourceChangeResult) => void;
   reject: (error: unknown) => void;
   workerEntry: WorkerPoolEntry;
 }
@@ -94,6 +106,9 @@ export interface RobotImportWorkerClient {
       rootName: string;
     },
   ) => Promise<PreparedAssemblyComponentResult>;
+  applyEditableSourceChange: (
+    options: ApplyEditableSourceChangeOptions,
+  ) => Promise<ApplyEditableSourceChangeResult>;
   parseEditableSource: (options: ParseEditableRobotSourceOptions) => Promise<RobotState | null>;
 }
 
@@ -122,6 +137,10 @@ export function createRobotImportWorkerClient({
 }: CreateRobotImportWorkerClientOptions = {}): RobotImportWorkerClient {
   const pendingRobotImportRequests = new Map<number, PendingRobotImportWorkerRequest>();
   const pendingEditableParseRequests = new Map<number, PendingEditableParseWorkerRequest>();
+  const pendingEditableSourceChangeRequests = new Map<
+    number,
+    PendingEditableSourceChangeWorkerRequest
+  >();
   const pendingEditableSourceGenerationRequests = new Map<
     number,
     PendingEditableSourceGenerationWorkerRequest
@@ -161,6 +180,22 @@ export function createRobotImportWorkerClient({
     }
 
     pendingEditableParseRequests.delete(requestId);
+    pendingRequest.workerEntry.pendingCount = Math.max(
+      0,
+      pendingRequest.workerEntry.pendingCount - 1,
+    );
+    return pendingRequest;
+  };
+
+  const clearPendingEditableSourceChangeRequest = (
+    requestId: number,
+  ): PendingEditableSourceChangeWorkerRequest | null => {
+    const pendingRequest = pendingEditableSourceChangeRequests.get(requestId) ?? null;
+    if (!pendingRequest) {
+      return null;
+    }
+
+    pendingEditableSourceChangeRequests.delete(requestId);
     pendingRequest.workerEntry.pendingCount = Math.max(
       0,
       pendingRequest.workerEntry.pendingCount - 1,
@@ -291,6 +326,29 @@ export function createRobotImportWorkerClient({
       return;
     }
 
+    if (
+      message.type === 'apply-editable-source-change-result' ||
+      message.type === 'apply-editable-source-change-error'
+    ) {
+      const pendingRequest = clearPendingEditableSourceChangeRequest(message.requestId);
+      if (!pendingRequest) {
+        return;
+      }
+
+      if (message.type === 'apply-editable-source-change-error') {
+        pendingRequest.reject(new Error(message.error || 'Editable source apply worker failed'));
+        return;
+      }
+
+      if (!message.result) {
+        pendingRequest.reject(new Error('Editable source apply worker returned no result'));
+        return;
+      }
+
+      pendingRequest.resolve(message.result);
+      return;
+    }
+
     const pendingRequest = clearPendingEditableParseRequest(message.requestId);
     if (!pendingRequest) {
       return;
@@ -332,6 +390,10 @@ export function createRobotImportWorkerClient({
       });
       pendingEditableParseRequests.forEach((request, requestId) => {
         clearPendingEditableParseRequest(requestId);
+        request.reject(rejectPendingWith);
+      });
+      pendingEditableSourceChangeRequests.forEach((request, requestId) => {
+        clearPendingEditableSourceChangeRequest(requestId);
         request.reject(rejectPendingWith);
       });
       pendingEditableSourceGenerationRequests.forEach((request, requestId) => {
@@ -547,6 +609,66 @@ export function createRobotImportWorkerClient({
     });
   };
 
+  const applyEditableSourceChange = async (
+    options: ApplyEditableSourceChangeOptions,
+  ): Promise<ApplyEditableSourceChangeResult> => {
+    if (workerUnavailable) {
+      throw new Error('Robot import worker is unavailable');
+    }
+
+    if (!canUseWorker()) {
+      throw new Error('Web Worker is not available in this environment');
+    }
+
+    return new Promise<ApplyEditableSourceChangeResult>((resolveRequest, rejectRequest) => {
+      const requestId = ++requestIdCounter;
+      let workerEntry: WorkerPoolEntry;
+
+      try {
+        workerEntry = pickWorkerEntry();
+      } catch (error) {
+        workerUnavailable = true;
+        rejectRequest(error);
+        return;
+      }
+
+      const preparedDispatch = buildEditableSourceChangeWorkerDispatch(options);
+      let contextId: string | undefined;
+
+      try {
+        contextId = ensureWorkerContext(workerEntry, preparedDispatch);
+      } catch (error) {
+        workerUnavailable = true;
+        rejectRequest(error);
+        disposeWorkerPool(error);
+        return;
+      }
+
+      const request: ApplyEditableSourceChangeWorkerRequest = {
+        type: 'apply-editable-source-change',
+        requestId,
+        options: preparedDispatch.options,
+        contextId,
+      };
+
+      pendingEditableSourceChangeRequests.set(requestId, {
+        resolve: resolveRequest,
+        reject: rejectRequest,
+        workerEntry,
+      });
+      workerEntry.pendingCount += 1;
+
+      try {
+        workerEntry.worker.postMessage(request);
+      } catch (error) {
+        workerUnavailable = true;
+        clearPendingEditableSourceChangeRequest(requestId);
+        disposeWorkerPool(error);
+        rejectRequest(error);
+      }
+    });
+  };
+
   const generateEditableSource = async (
     options: GenerateEditableRobotSourceOptions,
   ): Promise<string> => {
@@ -662,6 +784,7 @@ export function createRobotImportWorkerClient({
   };
 
   return {
+    applyEditableSourceChange,
     dispose: disposeWorkerPool,
     generateEditableSource,
     prepareAssemblyComponent,
@@ -693,6 +816,12 @@ export function parseEditableRobotSourceWithWorker(
   options: ParseEditableRobotSourceOptions,
 ): Promise<RobotState | null> {
   return sharedRobotImportWorkerClient.parseEditableSource(options);
+}
+
+export function applyEditableSourceChangeWithWorker(
+  options: ApplyEditableSourceChangeOptions,
+): Promise<ApplyEditableSourceChangeResult> {
+  return sharedRobotImportWorkerClient.applyEditableSourceChange(options);
 }
 
 export function generateEditableRobotSourceWithWorker(

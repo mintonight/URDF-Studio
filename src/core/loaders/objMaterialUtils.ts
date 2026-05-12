@@ -406,15 +406,20 @@ async function loadObjMaterialCreator(
     const resolvedMaterialPath = sourcePath
       ? resolveImportedAssetPath(materialLibrary, sourcePath)
       : normalizeLookupPath(materialLibrary);
-    const materialRequestUrl = manager.resolveURL(resolvedMaterialPath || materialLibrary);
-
-    const materialText = await fetchText(materialRequestUrl);
-    const rewrittenMaterialText = rewriteMtlTextureReferencesForManager(
-      materialText,
-      resolvedMaterialPath || materialLibrary,
-      manager,
-    );
-    rewrittenMaterialTexts.push(rewrittenMaterialText);
+    try {
+      const materialRequestUrl = manager.resolveURL(resolvedMaterialPath || materialLibrary);
+      const materialText = await fetchText(materialRequestUrl);
+      const rewrittenMaterialText = rewriteMtlTextureReferencesForManager(
+        materialText,
+        resolvedMaterialPath || materialLibrary,
+        manager,
+      );
+      rewrittenMaterialTexts.push(rewrittenMaterialText);
+    } catch {
+      // Treat referenced material libraries as optional. Missing MTLs (or missing
+      // texture sidecars inside them) should not prevent bare OBJ geometry from loading.
+      continue;
+    }
   }
 
   if (rewrittenMaterialTexts.length === 0) {
@@ -424,6 +429,42 @@ async function loadObjMaterialCreator(
   const materials = new MTLLoader(manager).parse(rewrittenMaterialTexts.join('\n\n'), '');
   materials.preload();
   return materials;
+}
+
+function normalizeObjVertexColorMaterials(root: THREE.Object3D): void {
+  root.traverse((child) => {
+    const renderable = child as THREE.Mesh | THREE.LineSegments | THREE.Points;
+    if (!renderable.geometry || !('material' in renderable)) {
+      return;
+    }
+
+    const hasVertexColorAttribute = Boolean(renderable.geometry.getAttribute('color'));
+    if (!hasVertexColorAttribute) {
+      return;
+    }
+
+    const materials = Array.isArray(renderable.material)
+      ? renderable.material
+      : [renderable.material];
+
+    materials.forEach((material) => {
+      if (!material) {
+        return;
+      }
+
+      (material as { vertexColors?: boolean }).vertexColors = true;
+      const materialColor = (material as { color?: THREE.Color }).color;
+      if (materialColor?.isColor) {
+        materialColor.set(0xffffff);
+      }
+      material.toneMapped = false;
+      material.userData = {
+        ...(material.userData ?? {}),
+        usesVertexColors: true,
+      };
+      material.needsUpdate = true;
+    });
+  });
 }
 
 export async function loadObjScene(
@@ -439,7 +480,9 @@ export async function loadObjScene(
     loader.setMaterials(materials);
   }
 
-  return loader.parse(objText);
+  const object = loader.parse(objText);
+  normalizeObjVertexColorMaterials(object);
+  return object;
 }
 
 function cloneTextureWithOwnedInstance<TValue>(value: TValue): TValue {
@@ -497,5 +540,6 @@ export function cloneObjSceneWithOwnedResources<TObject extends THREE.Object3D>(
     }
   });
 
+  normalizeObjVertexColorMaterials(clonedRoot);
   return clonedRoot;
 }

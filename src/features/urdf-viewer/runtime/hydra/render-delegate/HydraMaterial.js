@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { Color, FrontSide, LinearSRGBColorSpace, MeshPhysicalMaterial, MeshStandardMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, Vector2 } from 'three';
+import { Color, DoubleSide, LinearSRGBColorSpace, MeshPhysicalMaterial, MeshStandardMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, Vector2 } from 'three';
 import * as Shared from './shared.js';
 import { disposeTexturesFromMaterial } from '../../../../../shared/utils/three/dispose.ts';
 import { getDefaultMaterial, setDefaultMaterial } from './default-material-state.js';
@@ -81,7 +81,7 @@ class HydraMaterial {
         this._ownedMaterial = null;
         if (!getDefaultMaterial()) {
             setDefaultMaterial(createUnifiedHydraStandardMaterial({
-                side: FrontSide,
+                side: DoubleSide,
                 color: new Color(0xff2997), // a bright pink color to indicate a missing material
                 name: 'DefaultMaterial',
             }));
@@ -122,11 +122,15 @@ class HydraMaterial {
     static getNodePreviewSurfaceScore(node) {
         if (!node || typeof node !== 'object')
             return -1;
-        const candidateKeys = [
+        const candidateKeys = new Set([
             'diffuseColor',
             'baseColor',
             'base_color',
+            'base_color_constant',
             'albedo',
+            'albedo_constant',
+            'diffuse_color',
+            'diffuse_color_constant',
             'roughness',
             'metallic',
             'metalness',
@@ -135,15 +139,25 @@ class HydraMaterial {
             'specularColor',
             'emissiveColor',
             'emissive_color',
+            'emissive_color_constant',
             'clearcoat',
             'transmission',
-        ];
+            ...Object.keys(HydraMaterial.usdPreviewToMeshPhysicalMap || {}),
+            ...Object.keys(HydraMaterial.usdPreviewToMeshPhysicalTextureMap || {}),
+        ]);
         let score = 0;
         for (const key of candidateKeys) {
             if (node[key] !== undefined)
                 score += 1;
         }
-        if (node.diffuseColor !== undefined || node.baseColor !== undefined || node.base_color !== undefined || node.albedo !== undefined) {
+        if (node.diffuseColor !== undefined
+            || node.baseColor !== undefined
+            || node.base_color !== undefined
+            || node.base_color_constant !== undefined
+            || node.albedo !== undefined
+            || node.albedo_constant !== undefined
+            || node.diffuse_color !== undefined
+            || node.diffuse_color_constant !== undefined) {
             score += 3;
         }
         if (node.outputs?.surface || node.outputs?.out || node.outputs?.mdl?.surface) {
@@ -623,10 +637,14 @@ HydraMaterial.usdPreviewToColorSpaceMap = {
     'diffuseColor': SRGBColorSpace,
     'baseColor': SRGBColorSpace,
     'base_color': SRGBColorSpace,
+    'base_color_constant': SRGBColorSpace,
     'albedo': SRGBColorSpace,
+    'albedo_constant': SRGBColorSpace,
     'diffuse_color': SRGBColorSpace,
+    'diffuse_color_constant': SRGBColorSpace,
     'emissiveColor': SRGBColorSpace,
     'emissive_color': SRGBColorSpace,
+    'emissive_color_constant': SRGBColorSpace,
     'specularColor': SRGBColorSpace,
     'specular_color': SRGBColorSpace,
 };
@@ -650,7 +668,9 @@ HydraMaterial.usdPreviewToMeshPhysicalMap = {
     'diffuseColor': 'color',
     'baseColor': 'color',
     'base_color': 'color',
+    'base_color_constant': 'color',
     'albedo': 'color',
+    'albedo_constant': 'color',
     'diffuse_color': 'color',
     'diffuse_color_constant': 'color',
     'emissiveColor': 'emissive',

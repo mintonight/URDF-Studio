@@ -3,18 +3,21 @@ import React from 'react';
 import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
 import { JointsPanel } from '@/shared/components/Panel/JointsPanel';
-import { type ViewerController, useResponsivePanelLayout } from '@/features/editor';
+import type { ViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
+import { useResponsivePanelLayout } from '@/features/urdf-viewer/hooks/useResponsivePanelLayout';
 
 export function ViewerJointsPanel({
   controller,
   showJointPanel,
   setShowJointPanel,
   lang,
+  onUpdate,
 }: {
   controller: ViewerController;
   showJointPanel: boolean;
   setShowJointPanel?: (show: boolean) => void;
   lang: Language;
+  onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
 }) {
   const t = translations[lang];
   const { jointsDefaultPosition, jointsPanelMaxHeight } = useResponsivePanelLayout({
@@ -23,7 +26,6 @@ export function ViewerJointsPanel({
     jointPanelRef: controller.jointPanelRef,
     showOptionsPanel: false,
     showJointPanel,
-    showToolbar: false,
     preferEdgeDockedJointPanel: true,
   });
 
@@ -49,6 +51,7 @@ export function ViewerJointsPanel({
       handleJointChangeCommit={controller.handleJointChangeCommit}
       onSelect={controller.handleSelectWrapper}
       onHover={controller.handleHoverWrapper}
+      onUpdate={onUpdate}
     />
   );
 }

@@ -1,4 +1,7 @@
-import { createStableViewerResourceScope, type ViewerResourceScope } from '@/features/editor';
+import {
+  createStableViewerResourceScope,
+  type ViewerResourceScope,
+} from '@/features/urdf-viewer/utils/viewerResourceScope';
 import type { RobotFile, RobotMaterialState, UrdfLink } from '@/types';
 
 interface UnifiedViewerFilePreview {
@@ -12,6 +15,7 @@ interface BuildUnifiedViewerResourceScopesArgs {
   sourceFilePath?: string;
   sourceFile?: RobotFile | null;
   assets: Record<string, string>;
+  allFileContents?: Record<string, string>;
   availableFiles: RobotFile[];
   viewerRobotLinks?: Record<string, UrdfLink>;
   viewerRobotMaterials?: Record<string, RobotMaterialState>;
@@ -32,6 +36,7 @@ export function buildUnifiedViewerResourceScopes({
   sourceFilePath,
   sourceFile,
   assets,
+  allFileContents,
   availableFiles,
   viewerRobotLinks,
   viewerRobotMaterials,
@@ -45,6 +50,7 @@ export function buildUnifiedViewerResourceScopes({
 
   const viewerResourceScope = createStableViewerResourceScope(previousViewerResourceScope, {
     assets,
+    allFileContents,
     availableFiles,
     sourceFile: effectiveSourceFile,
     sourceFilePath: effectiveSourceFilePath,

@@ -7,4 +7,4 @@
 export { TreeEditor } from './components';
 
 // Types
-export type { TreeEditorProps } from './components';
+export type { TreeEditorProps, LibraryRobotLoadIntent, LibraryRobotLoadResult } from './components';

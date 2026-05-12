@@ -4,6 +4,8 @@ import test from 'node:test';
 import {
   getSourceCodeEditorTabBadgeClassName,
   getSourceCodeEditorTabClassName,
+  shouldCollapseSourceCodeEditorTabs,
+  SOURCE_CODE_EDITOR_INLINE_TAB_LIMIT,
   SOURCE_CODE_EDITOR_TABS_CLASS,
 } from './sourceCodeEditorTabClasses.ts';
 
@@ -32,4 +34,9 @@ test('inactive source code editor tab exposes a visible hover state', () => {
 test('generated badge follows the tab selection state', () => {
   assert.match(getSourceCodeEditorTabBadgeClassName(true), /\bbg-system-blue\/10\b/);
   assert.match(getSourceCodeEditorTabBadgeClassName(false), /\bgroup-hover:bg-system-blue\/10\b/);
+});
+
+test('source code editor collapses many document tabs into a selector', () => {
+  assert.equal(shouldCollapseSourceCodeEditorTabs(SOURCE_CODE_EDITOR_INLINE_TAB_LIMIT), false);
+  assert.equal(shouldCollapseSourceCodeEditorTabs(SOURCE_CODE_EDITOR_INLINE_TAB_LIMIT + 1), true);
 });

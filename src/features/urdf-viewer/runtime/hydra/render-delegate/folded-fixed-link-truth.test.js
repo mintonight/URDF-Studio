@@ -92,6 +92,36 @@ test('resolves folded visual and collision prims back to semantic child links', 
     assert.equal(assetTarget, null);
 });
 
+test('ignores generic visual and collision container scopes when resolving semantic child links', () => {
+    const genericTargets = [
+        '/Robot/torso_link/visuals/visual_0/mesh',
+        '/Robot/torso_link/collisions/collision_0/cube',
+        '/Robot/torso_link/visuals/group_0/mesh',
+        '/Robot/torso_link/visuals/xform_0/mesh',
+        '/Robot/torso_link/visuals/Scene/mesh',
+        '/Robot/torso_link/visuals/root/mesh',
+    ];
+    const validLinkNames = new Map([
+        ['torso_link', []],
+        ['visual_0', []],
+        ['collision_0', []],
+        ['group_0', []],
+        ['xform_0', []],
+        ['Scene', []],
+        ['root', []],
+    ]);
+
+    for (const resolvedPrimPath of genericTargets) {
+        const sectionName = resolvedPrimPath.includes('/collisions/') ? 'collisions' : 'visuals';
+        assert.equal(resolveSemanticChildLinkTargetFromResolvedPrimPath({
+            owningLinkPath: '/Robot/torso_link',
+            resolvedPrimPath,
+            sectionName,
+            validLinkNames,
+        }), null, `expected "${resolvedPrimPath}" to stay attached to torso_link`);
+    }
+});
+
 test('uses semantic child link transforms for folded visual prims in URDF truth fallback', () => {
     const headVisualEntry = {
         localMatrix: new Matrix4().identity(),

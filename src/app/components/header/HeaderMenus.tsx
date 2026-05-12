@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { ToolboxMenu } from './ToolboxMenu';
 import { HeaderButton } from './HeaderButton';
+import { HeaderMenuItem, HeaderMenuSeparator } from './HeaderMenuItem';
 import { ViewMenuItem } from './ViewMenuItem';
 import { toggleOptionsPanel, toggleViewPanel } from './viewMenuState.js';
 import type {
@@ -119,51 +120,43 @@ export function HeaderMenus({
               role="menu"
               aria-label={t.file}
             >
-              <button
-                type="button"
+              <HeaderMenuItem
+                icon={Folder}
                 onClick={() => {
                   setActiveMenu(null);
-                  setTimeout(onImportFolder, 0);
+                  onImportFolder();
                 }}
-                className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-slate-50 dark:hover:bg-element-bg text-slate-700 dark:text-slate-200 flex items-center gap-2.5"
               >
-                <Folder className="w-4 h-4 text-slate-400" />
                 {t.importFolder}
-              </button>
-              <button
-                type="button"
+              </HeaderMenuItem>
+              <HeaderMenuItem
+                icon={Download}
                 onClick={() => {
                   setActiveMenu(null);
-                  setTimeout(onImportFile, 0);
+                  onImportFile();
                 }}
-                className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-slate-50 dark:hover:bg-element-bg text-slate-700 dark:text-slate-200 flex items-center gap-2.5"
               >
-                <Download className="w-4 h-4 text-slate-400" />
                 {t.importUspZipFile}
-              </button>
-              <div className="h-px bg-element-bg dark:bg-border-black my-1" />
-              <button
-                type="button"
+              </HeaderMenuItem>
+              <HeaderMenuSeparator />
+              <HeaderMenuItem
+                icon={Upload}
                 onClick={() => {
                   setActiveMenu(null);
                   onOpenExport();
                 }}
-                className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-slate-50 dark:hover:bg-element-bg text-slate-700 dark:text-slate-200 flex items-center gap-2.5"
               >
-                <Upload className="w-4 h-4 text-slate-400" />
                 {t.export}
-              </button>
-              <button
-                type="button"
+              </HeaderMenuItem>
+              <HeaderMenuItem
+                icon={Briefcase}
                 onClick={() => {
                   setActiveMenu(null);
                   onExportProject();
                 }}
-                className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-slate-50 dark:hover:bg-element-bg text-slate-700 dark:text-slate-200 flex items-center gap-2.5"
               >
-                <Briefcase className="w-4 h-4 text-slate-400" />
                 {t.exportProject}
-              </button>
+              </HeaderMenuItem>
             </div>
           </>
         )}
@@ -195,36 +188,28 @@ export function HeaderMenus({
               role="menu"
               aria-label={t.edit}
             >
-              <button
-                type="button"
+              <HeaderMenuItem
+                icon={Undo}
                 onClick={() => {
                   undo();
                   setActiveMenu(null);
                 }}
                 disabled={!canUndo}
-                className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-slate-50 dark:hover:bg-element-bg text-slate-700 dark:text-slate-200 flex items-center justify-between gap-6 disabled:opacity-50 disabled:cursor-not-allowed"
+                shortcut="Ctrl+Z"
               >
-                <span className="flex items-center gap-2.5">
-                  <Undo className="w-4 h-4 text-slate-400" />
-                  {t.undo}
-                </span>
-                <span className="text-[10px] text-slate-400 dark:text-slate-500">Ctrl+Z</span>
-              </button>
-              <button
-                type="button"
+                {t.undo}
+              </HeaderMenuItem>
+              <HeaderMenuItem
+                icon={Redo}
                 onClick={() => {
                   redo();
                   setActiveMenu(null);
                 }}
                 disabled={!canRedo}
-                className="w-full text-left px-3 py-2 text-xs whitespace-nowrap hover:bg-slate-50 dark:hover:bg-element-bg text-slate-700 dark:text-slate-200 flex items-center justify-between gap-6 disabled:opacity-50 disabled:cursor-not-allowed"
+                shortcut="Ctrl+Shift+Z"
               >
-                <span className="flex items-center gap-2.5">
-                  <Redo className="w-4 h-4 text-slate-400" />
-                  {t.redo}
-                </span>
-                <span className="text-[10px] text-slate-400 dark:text-slate-500">Ctrl+Shift+Z</span>
-              </button>
+                {t.redo}
+              </HeaderMenuItem>
             </div>
           </>
         )}
@@ -280,11 +265,6 @@ export function HeaderMenus({
               aria-label={t.view}
             >
               <ViewMenuItem
-                checked={viewConfig.showToolbar}
-                label={t.toolbar}
-                onClick={() => handleToggleViewPanel('showToolbar')}
-              />
-              <ViewMenuItem
                 checked={jointPanelVisible}
                 label={t.jointsPanel}
                 disabled={!viewAvailability.jointPanel}
@@ -308,7 +288,7 @@ export function HeaderMenus({
             onMouseEnter={onPrefetchCodeViewer}
             onFocus={onPrefetchCodeViewer}
             onPointerDown={onPrefetchCodeViewer}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md whitespace-nowrap text-xs font-medium transition-colors text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-900 dark:hover:text-white"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md whitespace-nowrap text-xs font-medium transition-colors text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-900 dark:hover:text-white"
             title={t.sourceCode}
             aria-label={t.sourceCode}
           >
@@ -326,7 +306,7 @@ export function HeaderMenus({
             type="button"
             onClick={undo}
             disabled={!canUndo}
-            className={`p-1.5 rounded-md transition-all ${
+            className={`p-1 rounded-md transition-all ${
               !canUndo
                 ? 'text-slate-300 dark:text-element-hover cursor-not-allowed'
                 : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-900 dark:hover:text-white'
@@ -340,7 +320,7 @@ export function HeaderMenus({
             type="button"
             onClick={redo}
             disabled={!canRedo}
-            className={`p-1.5 rounded-md transition-all ${
+            className={`p-1 rounded-md transition-all ${
               !canRedo
                 ? 'text-slate-300 dark:text-element-hover cursor-not-allowed'
                 : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-900 dark:hover:text-white'
