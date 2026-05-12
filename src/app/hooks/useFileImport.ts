@@ -602,6 +602,12 @@ export function useFileImport(options: UseFileImportOptions = {}) {
           importStateMutated = true;
         }
 
+        // Yield to the browser so the library panel renders with the new assets
+        // before the potentially heavy canvas loading begins.
+        if (importStateMutated) {
+          await waitForNextPaint();
+        }
+
         let shouldMarkAssemblyBaselineSaved = false;
 
         if (visibleImportedFiles.length > 0) {

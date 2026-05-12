@@ -2,10 +2,8 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background:
-    radial-gradient(circle at top, rgba(28, 89, 255, 0.18), transparent 42%),
-    linear-gradient(180deg, #0f172a 0%, #09101e 100%);
-  color: #e2e8f0;
+  background: #fff;
+  color: #1e293b;
   font-family:
     Inter,
     ui-sans-serif,
@@ -34,124 +32,39 @@ body {
 }
 
 .handoff-card {
-  width: min(560px, 100%);
-  box-sizing: border-box;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 24px;
-  background: rgba(15, 23, 42, 0.88);
-  box-shadow:
-    0 32px 96px rgba(15, 23, 42, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  padding: 28px;
-  backdrop-filter: blur(18px);
+  text-align: center;
 }
 
-.handoff-eyebrow {
-  margin: 0 0 12px;
-  color: #93c5fd;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+.handoff-spinner {
+  width: 28px;
+  height: 28px;
+  margin: 0 auto 16px;
+  border: 2.5px solid #e2e8f0;
+  border-top-color: #0088FF;
+  border-radius: 50%;
+  animation: handoff-spin 0.7s linear infinite;
+}
+
+@keyframes handoff-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .handoff-title {
   margin: 0;
-  font-size: clamp(28px, 4vw, 38px);
-  line-height: 1.05;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 600;
+  color: #64748b;
+  letter-spacing: -0.01em;
 }
 
 .handoff-status {
-  margin: 14px 0 0;
-  color: #cbd5e1;
-  font-size: 15px;
-  line-height: 1.65;
-}
-
-.handoff-detail-grid {
-  margin: 22px 0 0;
-  display: grid;
-  grid-template-columns: 124px 1fr;
-  gap: 12px 14px;
-}
-
-.handoff-term {
+  margin: 6px 0 0;
+  font-size: 12px;
   color: #94a3b8;
-  font-size: 13px;
-  font-weight: 600;
 }
 
-.handoff-value {
-  color: #f8fafc;
-  font-size: 14px;
-  overflow-wrap: anywhere;
-}
-
-.handoff-note {
-  margin: 22px 0 0;
-  padding: 14px 16px;
-  border-radius: 16px;
-  border: 1px solid rgba(96, 165, 250, 0.2);
-  background: rgba(30, 41, 59, 0.72);
-  color: #bfdbfe;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.handoff-actions {
-  margin: 24px 0 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.handoff-button {
-  appearance: none;
-  border: 0;
-  border-radius: 999px;
-  padding: 12px 18px;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  transition:
-    transform 0.18s ease,
-    opacity 0.18s ease,
-    background-color 0.18s ease;
-}
-
-.handoff-button:hover {
-  transform: translateY(-1px);
-}
-
-.handoff-button:disabled {
-  cursor: default;
-  opacity: 0.6;
-  transform: none;
-}
-
-.handoff-button-primary {
-  background: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%);
-  color: #eff6ff;
-}
-
-.handoff-button-secondary {
-  background: rgba(51, 65, 85, 0.9);
-  color: #e2e8f0;
-}
-
-.handoff-error {
-  color: #fecaca;
-}
-
-@media (width <= 640px) {
-  .handoff-card {
-    padding: 24px;
-    border-radius: 20px;
-  }
-
-  .handoff-detail-grid {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
+.handoff-error .handoff-title {
+  color: #dc2626;
 }

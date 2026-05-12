@@ -145,6 +145,11 @@ const ISOLATED_DOCUMENT_HEADERS = {
   'Cross-Origin-Resource-Policy': 'same-site',
 } as const;
 
+const HANDOFF_DOCUMENT_HEADERS = {
+  'Cross-Origin-Opener-Policy': 'unsafe-none',
+  'Cross-Origin-Embedder-Policy': 'unsafe-none',
+} as const;
+
 // Vite crawls HTML entrypoints to discover dependency optimizer inputs.
 // This repository intentionally keeps many fixture/example HTML files under
 // tmp/, .tmp/, and test/, so constrain discovery to the actual app entry.
@@ -192,13 +197,11 @@ function shouldIgnoreWatchPath(watchPath: string): boolean {
   );
 }
 
-function shouldApplyIsolatedDocumentHeaders(requestUrl: string): boolean {
-  const pathname = new URL(requestUrl, 'http://localhost').pathname;
-  return pathname !== '/handoff.html';
-}
-
-function applyIsolatedDocumentHeaders(response: import('node:http').ServerResponse): void {
-  Object.entries(ISOLATED_DOCUMENT_HEADERS).forEach(([headerName, headerValue]) => {
+function applyDocumentHeaders(
+  response: import('node:http').ServerResponse,
+  headers: Readonly<Record<string, string>>,
+): void {
+  Object.entries(headers).forEach(([headerName, headerValue]) => {
     response.setHeader(headerName, headerValue);
   });
 }
@@ -208,8 +211,11 @@ function createConditionalIsolationHeadersPlugin() {
     use: (handler: (req: any, res: any, next: () => void) => void) => void;
   }): void => {
     middlewareStack.use((request, response, next) => {
-      if (shouldApplyIsolatedDocumentHeaders(String(request.url || '/'))) {
-        applyIsolatedDocumentHeaders(response);
+      const pathname = new URL(String(request.url || '/'), 'http://localhost').pathname;
+      if (pathname === '/handoff.html') {
+        applyDocumentHeaders(response, HANDOFF_DOCUMENT_HEADERS);
+      } else {
+        applyDocumentHeaders(response, ISOLATED_DOCUMENT_HEADERS);
       }
       next();
     });
