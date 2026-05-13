@@ -128,7 +128,30 @@ test('consumeHandoffImportFromUrl avoids re-importing the same handoff id in one
   assert.deepEqual(replacedUrls, ['https://urdf.example/']);
 });
 
-test('consumeHandoffImportFromUrl keeps the record when the import fails', async () => {
+test('consumeHandoffImportFromUrl skips records already consumed by the polling path', async () => {
+  const record = createRecord({ status: 'consumed' });
+  const replacedUrls: string[] = [];
+
+  const result = await consumeHandoffImportFromUrl({
+    currentUrl: 'https://urdf.example/?handoff=handoff-123',
+    sessionStorage: createSessionStorageMock(),
+    loadRecord: async () => record,
+    deleteRecord: async () => {
+      assert.fail('consumed records should not be deleted again');
+    },
+    importArchive: async () => {
+      assert.fail('consumed records should not be imported');
+    },
+    replaceUrl: (nextUrl) => {
+      replacedUrls.push(nextUrl);
+    },
+  });
+
+  assert.deepEqual(result, { status: 'already-attempted', handoffId: 'handoff-123' });
+  assert.deepEqual(replacedUrls, ['https://urdf.example/']);
+});
+
+test('consumeHandoffImportFromUrl deletes the record before importing (even if import fails)', async () => {
   const record = createRecord();
   let deleteCalls = 0;
   const replacedUrls: string[] = [];
@@ -147,7 +170,8 @@ test('consumeHandoffImportFromUrl keeps the record when the import fails', async
   });
 
   assert.deepEqual(result, { status: 'failed', handoffId: 'handoff-123' });
-  assert.equal(deleteCalls, 0);
+  // Record is deleted before import to prevent duplicate import by the polling loop
+  assert.equal(deleteCalls, 1);
   assert.deepEqual(replacedUrls, ['https://urdf.example/']);
 });
 
@@ -159,8 +183,5 @@ test('index boot placeholder renders only a minimal spinner before React mounts'
     html,
     /<div id="root">\s*<div class="boot-loading" aria-label="Loading">\s*<div class="boot-spinner"><\/div>\s*<\/div>\s*<\/div>/,
   );
-  assert.doesNotMatch(
-    html,
-    /boot-(header|sidebar|inspector|workspace|view|line|tool|mark|title)/,
-  );
+  assert.doesNotMatch(html, /boot-(header|sidebar|inspector|workspace|view|line|tool|mark|title)/);
 });

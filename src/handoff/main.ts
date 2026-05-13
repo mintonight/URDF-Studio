@@ -3,8 +3,11 @@ import {
   POPUP_HANDOFF_PAYLOAD,
   POPUP_HANDOFF_PROTOCOL_VERSION,
   POPUP_HANDOFF_READY,
+  POPUP_HANDOFF_RESULT,
+  type PopupHandoffResultKind,
   validatePopupHandoffPayload,
 } from '@/shared/utils/popupHandoffProtocol';
+import { getPopupHandoffArchive } from '@/shared/utils/popupHandoffArchiveStore';
 import { pruneExpiredPendingHandoffImports, savePendingHandoffImport } from '@/app/handoff/storage';
 
 type Locale = 'en' | 'zh';
@@ -12,26 +15,27 @@ type Phase = 'waiting' | 'saving' | 'redirecting' | 'error';
 
 const TRANSLATIONS: Record<Locale, Record<string, string>> = {
   en: {
-    title: 'Importing into URDF Studio\u2026',
-    waitingStatus: 'Receiving files\u2026',
+    title: 'Importing into URDF Studio...',
+    waitingStatus: 'Receiving files...',
     noOpenerError: 'This page must be opened by the sender site.',
-    savingStatus: 'Saving archive\u2026',
-    redirectingStatus: 'Redirecting to editor\u2026',
+    savingStatus: 'Saving archive...',
+    redirectingStatus: 'Redirecting to editor...',
     errorStatus: 'Import failed.',
   },
   zh: {
-    title: '\u6b63\u5728\u5bfc\u5165 URDF Studio\u2026',
-    waitingStatus: '\u6b63\u5728\u63a5\u6536\u6587\u4ef6\u2026',
-    noOpenerError:
-      '\u6b64\u9875\u9762\u5fc5\u987b\u7531\u53d1\u9001\u65b9\u9875\u9762\u6253\u5f00\u3002',
-    savingStatus: '\u6b63\u5728\u4fdd\u5b58\u2026',
-    redirectingStatus: '\u6b63\u5728\u8df3\u8f6c\u5230\u7f16\u8f91\u5668\u2026',
-    errorStatus: '\u5bfc\u5165\u5931\u8d25\u3002',
+    title: '正在导入 URDF Studio...',
+    waitingStatus: '正在接收文件...',
+    noOpenerError: '此页面必须由发送方页面打开。',
+    savingStatus: '正在保存...',
+    redirectingStatus: '正在跳转到编辑器...',
+    errorStatus: '导入失败。',
   },
 };
 
 const locale: Locale =
-  typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+  typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('zh')
+    ? 'zh'
+    : 'en';
 const t = TRANSLATIONS[locale];
 
 const root = document.getElementById('root');
@@ -65,6 +69,22 @@ function sendReadyMessage(): void {
   );
 }
 
+function sendResultMessage(result: PopupHandoffResultKind): void {
+  if (!window.opener) return;
+  try {
+    window.opener.postMessage(
+      {
+        type: POPUP_HANDOFF_RESULT,
+        version: POPUP_HANDOFF_PROTOCOL_VERSION,
+        result,
+      },
+      '*',
+    );
+  } catch {
+    // Opener may have navigated away — ignore
+  }
+}
+
 function render(errorMessage?: string): void {
   const statusText =
     currentPhase === 'waiting'
@@ -88,6 +108,33 @@ function render(errorMessage?: string): void {
   `;
 }
 
+async function trySilentHandoff(handoffId: string): Promise<boolean> {
+  const POLL_INTERVAL_MS = 500;
+  const TIMEOUT_MS = 5000;
+  const startTime = Date.now();
+
+  return new Promise((resolve) => {
+    const pollInterval = setInterval(async () => {
+      if (Date.now() - startTime >= TIMEOUT_MS) {
+        clearInterval(pollInterval);
+        resolve(false);
+        return;
+      }
+
+      try {
+        const record = await getPopupHandoffArchive(handoffId);
+        // Record consumed (status changed) or deleted by main tab — either means success
+        if (!record || record.status === 'consumed') {
+          clearInterval(pollInterval);
+          resolve(true);
+        }
+      } catch {
+        // IndexedDB read error — keep polling
+      }
+    }, POLL_INTERVAL_MS);
+  });
+}
+
 async function handlePayloadMessage(data: {
   fileName: string;
   mimeType: string;
@@ -101,8 +148,10 @@ async function handlePayloadMessage(data: {
   });
 
   if (!validation.ok) {
+    sendResultMessage('failed');
     currentPhase = 'error';
-    render(validation.message ?? t.errorStatus);
+    const message = (validation as { message: string }).message;
+    render(message);
     return;
   }
 
@@ -117,9 +166,25 @@ async function handlePayloadMessage(data: {
       sizeBytes: data.sizeBytes,
       sourceOrigin: window.opener ? '*' : '',
       zipBlob: data.zip,
+      status: 'pending',
     });
-    redirectToEditor(savedRecord.id);
+
+    const isSilentSuccess = await trySilentHandoff(savedRecord.id);
+    if (isSilentSuccess) {
+      // An existing editor tab consumed the archive — notify opener and close
+      sendResultMessage('existing-tab');
+      currentPhase = 'redirecting';
+      render(t.redirectingStatus);
+      setTimeout(() => {
+        window.close();
+      }, 500);
+    } else {
+      // No existing tab picked it up — open a new editor tab
+      sendResultMessage('new-tab');
+      redirectToEditor(savedRecord.id);
+    }
   } catch (error) {
+    sendResultMessage('failed');
     currentPhase = 'error';
     render(error instanceof Error ? error.message : t.errorStatus);
   }

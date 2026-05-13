@@ -90,11 +90,16 @@ import { isLibraryRobotExportableFormat } from '@/shared/utils';
 import type { ExportDialogConfig } from '@/features/file-io/components/ExportDialog/ExportDialog';
 import type { ExportProgressState } from '@/features/file-io/types';
 import type { ImportPreparationOverlayState } from './hooks/useFileImport';
-import { consumeHandoffImportFromUrl } from './handoff/bootstrap';
+import {
+  consumeHandoffImportFromUrl,
+  createFileFromPendingHandoffRecord,
+} from './handoff/bootstrap';
 import {
   deletePendingHandoffImport,
   pruneExpiredPendingHandoffImports,
+  readAllPendingHandoffImports,
   readPendingHandoffImport,
+  updatePendingHandoffStatus,
 } from './handoff/storage';
 import { setRegressionBeforeUnloadPromptSuppressed } from '@/shared/debug/regressionPromptSuppression';
 import { markUnsavedChangesBaselineSaved } from './utils/unsavedChangesBaseline';
@@ -445,6 +450,14 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   const loadRequestIdRef = useRef(0);
   const aiConversationSessionIdRef = useRef(0);
   const handoffBootstrapStartedRef = useRef(false);
+  const handleImportRef = useRef<
+    (
+      files: FileList | readonly File[] | null,
+    ) => Promise<{ status: 'completed' | 'skipped' | 'failed' }>
+  >(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    null as any,
+  );
   const [shouldRenderAIInspectionModal, setShouldRenderAIInspectionModal] = useState(false);
   const [shouldRenderAIConversationModal, setShouldRenderAIConversationModal] = useState(false);
   const [aiConversationLaunchContext, setAIConversationLaunchContext] =
@@ -1014,6 +1027,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       setViewerReloadKey((value) => value + 1);
     },
   });
+  handleImportRef.current = handleImport;
   const {
     handleExportProject: runProjectExport,
     handleExportWithConfig,
@@ -1092,8 +1106,66 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         }
       },
       logger: console,
+    }).then((result) => {
+      if (result.status === 'completed') {
+        showToast(t.addedFilesToAssetLibrary.replace('{count}', '1'), 'success');
+      }
     });
-  }, [handleImport]);
+  }, [handleImport, showToast, t]);
+
+  // IndexedDB polling for cross-origin handoff detection.
+  // The popup (handoff.html) saves incoming archives with status: 'pending'.
+  // This polling discovers them and imports into the existing editor tab,
+  // so no new tab is opened when the editor is already running.
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    let destroyed = false;
+
+    const poll = async () => {
+      try {
+        const pendingRecords = await readAllPendingHandoffImports();
+
+        for (const record of pendingRecords) {
+          if (destroyed) {
+            return;
+          }
+
+          try {
+            // Claim immediately — prevents concurrent poll cycles from double-processing
+            await updatePendingHandoffStatus(record.id, 'consumed');
+            // Delete right after claim so Path A (URL bootstrap) cannot find the record
+            await deletePendingHandoffImport(record.id);
+
+            const file = createFileFromPendingHandoffRecord(record);
+            await handleImportRef.current([file]);
+
+            // Bring this tab to the foreground so the user sees the imported asset
+            try {
+              window.focus();
+            } catch {
+              // focus() may be blocked by browser — ignore
+            }
+          } catch {
+            await deletePendingHandoffImport(record.id).catch(() => {});
+          }
+        }
+      } catch {
+        // IndexedDB read error — retry on next poll
+      }
+    };
+
+    const intervalId = setInterval(() => {
+      void poll();
+    }, 500);
+
+    return () => {
+      destroyed = true;
+      clearInterval(intervalId);
+    };
+  }, []);
 
   const ensureAIEntryAvailable = useCallback(() => {
     const liveAssetsState = useAssetsStore.getState();

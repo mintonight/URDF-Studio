@@ -162,11 +162,18 @@ export function useRendererBackend(
     [baseLoadScopeKey, patchReloadRevision],
   );
 
-  const emitDocumentLoadEvent = useCallback((event: ViewerDocumentLoadEvent) => {
-    if (!isMountedRef.current) return;
-    setLoadingProgress(event);
-    onDocumentLoadEventRef.current?.(event);
-  }, []);
+  const emitDocumentLoadEvent = useCallback(
+    (event: ViewerDocumentLoadEvent) => {
+      if (!isMountedRef.current) return;
+      // Filter out planned abort errors from backends that aren't the current one
+      if (event.status === 'error' && event.error === 'Load aborted') {
+        return;
+      }
+      setLoadingProgress(event);
+      onDocumentLoadEventRef.current?.(event);
+    },
+    [setLoadingProgress],
+  );
 
   const latestScenePropsRef = useRef<RendererSceneProps | null>(null);
   latestScenePropsRef.current = {
@@ -402,7 +409,18 @@ export function useRendererBackend(
         }
         invalidate?.();
       } catch (err) {
-        if (!isMountedRef.current || loadIdRef.current !== loadId) return;
+        if (!isMountedRef.current || loadIdRef.current !== loadId) {
+          return;
+        }
+
+        // Handle planned aborts silently - these happen during rapid file switching
+        // or React StrictMode double-mounting in dev.
+        if (err instanceof Error && err.message === 'Load aborted') {
+          setIsLoading(false);
+          setLoadingProgress(null);
+          return;
+        }
+
         if (inFlightBackendRef.current === backend) {
           inFlightBackendRef.current = null;
         }

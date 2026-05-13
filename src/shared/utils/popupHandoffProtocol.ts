@@ -11,6 +11,9 @@ export const POPUP_HANDOFF_OFFER = 'urdfstudio.handoff.offer';
 export const POPUP_HANDOFF_ACCEPT = 'urdfstudio.handoff.accept';
 export const POPUP_HANDOFF_REJECT = 'urdfstudio.handoff.reject';
 export const POPUP_HANDOFF_PAYLOAD = 'urdfstudio.handoff.payload';
+export const POPUP_HANDOFF_RESULT = 'urdfstudio.handoff.result';
+
+export type PopupHandoffResultKind = 'new-tab' | 'existing-tab' | 'failed';
 
 export type PopupHandoffRejectCode =
   | 'invalid_type'
@@ -55,6 +58,12 @@ export interface PopupHandoffPayloadMessage {
   zip: Blob | File;
 }
 
+export interface PopupHandoffResultMessage {
+  type: typeof POPUP_HANDOFF_RESULT;
+  version: typeof POPUP_HANDOFF_PROTOCOL_VERSION;
+  result: PopupHandoffResultKind;
+}
+
 export interface PopupHandoffArchiveRecord {
   id: string;
   fileName: string;
@@ -63,6 +72,7 @@ export interface PopupHandoffArchiveRecord {
   sourceOrigin: string;
   createdAt: number;
   zipBlob: Blob;
+  status?: 'pending' | 'consumed';
 }
 
 export function isPopupHandoffZipType(fileName: string, mimeType: string): boolean {

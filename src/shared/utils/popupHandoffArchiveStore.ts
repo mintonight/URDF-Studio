@@ -144,6 +144,55 @@ export async function deletePopupHandoffArchive(
   );
 }
 
+export async function updatePopupHandoffArchiveStatus(
+  id: string,
+  status: 'pending' | 'consumed',
+  indexedDbFactory?: PopupHandoffIndexedDbFactory,
+): Promise<void> {
+  await withPopupHandoffStore(
+    'readwrite',
+    async (store) => {
+      const record = (await runPopupHandoffRequest(
+        store.get(id),
+        'reading popup handoff archive for status update',
+      )) as PopupHandoffArchiveRecord | null;
+      if (!record) {
+        return;
+      }
+      const updatedRecord = { ...record, status };
+      await runPopupHandoffRequest(store.put(updatedRecord), 'updating popup handoff status');
+    },
+    indexedDbFactory,
+  );
+}
+
+export async function getPendingHandoffArchives(
+  options: {
+    now?: number;
+    ttlMs?: number;
+    indexedDbFactory?: PopupHandoffIndexedDbFactory;
+  } = {},
+): Promise<PopupHandoffArchiveRecord[]> {
+  const now = options.now ?? Date.now();
+  const ttlMs = options.ttlMs ?? POPUP_HANDOFF_TTL_MS;
+
+  return await withPopupHandoffStore(
+    'readonly',
+    async (store) => {
+      const allRecords =
+        ((await runPopupHandoffRequest(
+          store.getAll(),
+          'listing popup handoff archives',
+        )) as PopupHandoffArchiveRecord[]) ?? [];
+
+      return allRecords.filter(
+        (record) => record.status === 'pending' && now - record.createdAt <= ttlMs,
+      );
+    },
+    options.indexedDbFactory,
+  );
+}
+
 export async function cleanupExpiredPopupHandoffArchives(
   options: {
     now?: number;

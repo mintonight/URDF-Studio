@@ -72,10 +72,19 @@ export async function consumeHandoffImportFromUrl(
       return { status: 'missing', handoffId };
     }
 
-    const importResult = await options.importArchive([createFileFromPendingHandoffRecord(record)]);
-    if (importResult.status !== 'failed') {
-      await options.deleteRecord(handoffId);
+    // Already consumed by the background polling path (Path B) — skip to avoid duplicate import
+    if (record.status === 'consumed') {
+      options.replaceUrl(nextUrl);
+      return { status: 'already-attempted', handoffId };
     }
+
+    // Extract file data into memory, then delete the IndexedDB record BEFORE importing.
+    // This prevents the background polling loop (Path B) in the same tab from discovering
+    // the same pending record and importing it a second time while our import is still running.
+    const file = createFileFromPendingHandoffRecord(record);
+    await options.deleteRecord(handoffId);
+
+    const importResult = await options.importArchive([file]);
 
     options.replaceUrl(nextUrl);
 

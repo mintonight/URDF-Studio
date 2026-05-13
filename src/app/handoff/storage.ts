@@ -1,8 +1,10 @@
 import {
   cleanupExpiredPopupHandoffArchives,
   deletePopupHandoffArchive,
+  getPendingHandoffArchives,
   getPopupHandoffArchive,
   putPopupHandoffArchive,
+  updatePopupHandoffArchiveStatus,
 } from '../../shared/utils/popupHandoffArchiveStore.ts';
 import type { PopupHandoffArchiveRecord } from '../../shared/utils/popupHandoffProtocol.ts';
 
@@ -13,6 +15,7 @@ export interface SavePendingHandoffImportParams {
   sourceOrigin: string;
   zipBlob: Blob;
   createdAt?: number;
+  status?: 'pending' | 'consumed';
 }
 
 export async function savePendingHandoffImport(
@@ -24,6 +27,7 @@ export async function savePendingHandoffImport(
     sizeBytes: params.sizeBytes,
     sourceOrigin: params.sourceOrigin,
     zipBlob: params.zipBlob,
+    status: params.status,
   });
   return {
     id,
@@ -33,6 +37,7 @@ export async function savePendingHandoffImport(
     sourceOrigin: params.sourceOrigin,
     createdAt: params.createdAt ?? Date.now(),
     zipBlob: params.zipBlob,
+    status: params.status,
   };
 }
 
@@ -48,4 +53,15 @@ export async function deletePendingHandoffImport(id: string): Promise<void> {
 
 export async function pruneExpiredPendingHandoffImports(): Promise<number> {
   return await cleanupExpiredPopupHandoffArchives();
+}
+
+export async function updatePendingHandoffStatus(
+  id: string,
+  status: 'pending' | 'consumed',
+): Promise<void> {
+  return await updatePopupHandoffArchiveStatus(id, status);
+}
+
+export async function readAllPendingHandoffImports(): Promise<PopupHandoffArchiveRecord[]> {
+  return await getPendingHandoffArchives();
 }
