@@ -143,3 +143,143 @@ test('TreeNodeLinkRow keeps rename input typography aligned with the rendered la
     await destroyComponentRoot(dom, root);
   }
 });
+
+test('TreeNodeLinkRow lets the link name use the remaining row width before trailing controls', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const renameInputRef = createRef<HTMLInputElement>();
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeNodeLinkRow
+          linkId="link_with_a_long_name"
+          linkName="link_with_a_long_name"
+          depth={4}
+          linkRowIndentPx={4}
+          hasExpandableContent
+          isExpanded
+          isEditingLink={false}
+          editingTarget={null}
+          renameInputRef={renameInputRef}
+          hasGeometry
+          hasVisual
+          hasCollision
+          geometryCount={2}
+          isGeometryExpanded={false}
+          isVisible
+          isSelected={false}
+          isHovered={false}
+          isAttentionHighlighted={false}
+          isConnectorHighlighted={false}
+          t={translations.en}
+          readOnly={false}
+          onSelect={() => {}}
+          onFocus={() => {}}
+          onToggleExpanded={() => {}}
+          onOpenContextMenu={() => {}}
+          onMouseEnter={() => {}}
+          onMouseLeave={() => {}}
+          onUpdateRenameDraft={() => {}}
+          onCommitRenaming={() => {}}
+          onCancelRenaming={() => {}}
+          onNameDoubleClick={() => {}}
+          onToggleGeometryExpanded={() => {}}
+          onToggleVisibility={() => {}}
+          onAddChild={() => {}}
+        />,
+      );
+    });
+
+    const label = container.querySelector(
+      'span[title="link_with_a_long_name"]',
+    ) as HTMLSpanElement | null;
+    assert.ok(label, 'link label should render');
+
+    const labelWrapper = label.parentElement;
+    assert.ok(labelWrapper, 'link label should have a wrapper');
+    assert.match(labelWrapper.className, /\bmin-w-0\b/);
+    assert.match(
+      labelWrapper.className,
+      /\bflex-1\b/,
+      'link label wrapper should flex so trailing controls do not cover or push out the text',
+    );
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('TreeNodeLinkRow hides deep secondary actions until the row is active', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const renameInputRef = createRef<HTMLInputElement>();
+
+  const renderRow = async (isHovered: boolean) => {
+    await act(async () => {
+      root.render(
+        <TreeNodeLinkRow
+          linkId="deep_link"
+          linkName="deep_link"
+          depth={5}
+          linkRowIndentPx={4}
+          hasExpandableContent={false}
+          isExpanded
+          isEditingLink={false}
+          editingTarget={null}
+          renameInputRef={renameInputRef}
+          hasGeometry
+          hasVisual
+          hasCollision
+          geometryCount={2}
+          isGeometryExpanded={false}
+          isVisible
+          isSelected={false}
+          isHovered={isHovered}
+          isAttentionHighlighted={false}
+          isConnectorHighlighted={false}
+          t={translations.en}
+          readOnly={false}
+          onSelect={() => {}}
+          onFocus={() => {}}
+          onToggleExpanded={() => {}}
+          onOpenContextMenu={() => {}}
+          onMouseEnter={() => {}}
+          onMouseLeave={() => {}}
+          onUpdateRenameDraft={() => {}}
+          onCommitRenaming={() => {}}
+          onCancelRenaming={() => {}}
+          onNameDoubleClick={() => {}}
+          onToggleGeometryExpanded={() => {}}
+          onToggleVisibility={() => {}}
+          onAddChild={() => {}}
+        />,
+      );
+    });
+  };
+
+  try {
+    await renderRow(false);
+
+    assert.equal(
+      Boolean(container.querySelector('button[aria-label="Hide"]')),
+      false,
+      'deep inactive rows should not reserve width for visibility controls',
+    );
+    assert.equal(
+      Boolean(container.querySelector(`button[aria-label="${translations.en.addChildJoint}"]`)),
+      false,
+      'deep inactive rows should not reserve width for add controls',
+    );
+
+    await renderRow(true);
+
+    assert.ok(
+      container.querySelector('button[aria-label="Hide"]'),
+      'deep active rows should still expose visibility controls',
+    );
+    assert.ok(
+      container.querySelector(`button[aria-label="${translations.en.addChildJoint}"]`),
+      'deep active rows should still expose add controls',
+    );
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});

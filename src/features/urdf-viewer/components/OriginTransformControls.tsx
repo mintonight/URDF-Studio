@@ -11,9 +11,12 @@ import {
 import {
   applyOriginToRuntimeJoint,
   extractRuntimeJointOrigin,
+  resolveOriginTransformClosedLoopPreview,
+  resolveRuntimeJointForOriginTransform,
   resolveOriginTransformTarget,
 } from '../utils/originTransformControlsShared';
 import type { RobotModelProps } from '../types';
+import type { JointQuaternion, RobotState, UrdfJoint } from '@/types';
 import type { URDFJoint as RuntimeURDFJoint } from '@/core/parsers/urdf/loader';
 
 const ORIGIN_TRANSLATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE;
@@ -29,6 +32,10 @@ interface OriginTransformControlsProps {
   onTransformPending?: (pending: boolean) => void;
   onUpdate?: RobotModelProps['onUpdate'];
   robotJoints?: RobotModelProps['robotJoints'];
+  closedLoopRobotState?: Pick<
+    RobotState,
+    'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'
+  > | null;
 }
 
 export const OriginTransformControls: React.FC<OriginTransformControlsProps> = ({
@@ -40,6 +47,7 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
   onTransformPending,
   onUpdate,
   robotJoints,
+  closedLoopRobotState = null,
 }) => {
   const transformRef = useRef<any>(null);
   const rotateTransformRef = useRef<any>(null);
@@ -47,6 +55,7 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
   const targetJointRef = useRef<RuntimeURDFJoint | null>(null);
   const activeSelectionRef = useRef<{ jointId: string } | null>(null);
   const originalOriginRef = useRef<ReturnType<typeof extractRuntimeJointOrigin> | null>(null);
+  const previewedClosedLoopJointIdsRef = useRef<Set<string>>(new Set());
   const { invalidate } = useThree();
   const [targetJoint, setTargetJoint] = useState<RuntimeURDFJoint | null>(null);
   const [proxy, setProxy] = useState<THREE.Group | null>(null);
@@ -140,6 +149,91 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
     });
   }, []);
 
+  const applyRuntimeJointQuaternion = useCallback(
+    (joint: RuntimeURDFJoint, quaternion: JointQuaternion | undefined): void => {
+      const runtimeJoint = joint as RuntimeURDFJoint & {
+        setJointQuaternion?: (value: JointQuaternion) => boolean;
+      };
+      if (typeof runtimeJoint.setJointQuaternion !== 'function') {
+        return;
+      }
+
+      runtimeJoint.setJointQuaternion(
+        quaternion ?? {
+          x: 0,
+          y: 0,
+          z: 0,
+          w: 1,
+        },
+      );
+    },
+    [],
+  );
+
+  const restoreRuntimeJointFromRobotState = useCallback(
+    (jointId: string) => {
+      const runtimeJoint = resolveRuntimeJointForOriginTransform(robot, jointId, robotJoints);
+      const sourceJoint = robotJoints?.[jointId];
+      if (!runtimeJoint || !sourceJoint) {
+        return;
+      }
+
+      applyOriginToRuntimeJoint(runtimeJoint, sourceJoint.origin);
+      applyRuntimeJointQuaternion(runtimeJoint, sourceJoint.quaternion);
+    },
+    [applyRuntimeJointQuaternion, robot, robotJoints],
+  );
+
+  const clearClosedLoopRuntimePreview = useCallback(() => {
+    previewedClosedLoopJointIdsRef.current.forEach((jointId) => {
+      restoreRuntimeJointFromRobotState(jointId);
+    });
+    previewedClosedLoopJointIdsRef.current.clear();
+  }, [restoreRuntimeJointFromRobotState]);
+
+  const applyClosedLoopRuntimePreview = useCallback(
+    (selectedJointId: string, selectedOrigin: UrdfJoint['origin']) => {
+      const preview = resolveOriginTransformClosedLoopPreview(
+        closedLoopRobotState,
+        selectedJointId,
+        selectedOrigin,
+      );
+      const nextPreviewedJointIds = new Set([
+        ...Object.keys(preview.origins),
+        ...Object.keys(preview.quaternions),
+      ]);
+
+      previewedClosedLoopJointIdsRef.current.forEach((jointId) => {
+        if (!nextPreviewedJointIds.has(jointId)) {
+          restoreRuntimeJointFromRobotState(jointId);
+        }
+      });
+
+      Object.entries(preview.origins).forEach(([jointId, origin]) => {
+        const runtimeJoint = resolveRuntimeJointForOriginTransform(robot, jointId, robotJoints);
+        if (runtimeJoint) {
+          applyOriginToRuntimeJoint(runtimeJoint, origin);
+        }
+      });
+
+      Object.entries(preview.quaternions).forEach(([jointId, quaternion]) => {
+        const runtimeJoint = resolveRuntimeJointForOriginTransform(robot, jointId, robotJoints);
+        if (runtimeJoint) {
+          applyRuntimeJointQuaternion(runtimeJoint, quaternion);
+        }
+      });
+
+      previewedClosedLoopJointIdsRef.current = nextPreviewedJointIds;
+    },
+    [
+      applyRuntimeJointQuaternion,
+      closedLoopRobotState,
+      restoreRuntimeJointFromRobotState,
+      robot,
+      robotJoints,
+    ],
+  );
+
   const handleCancelDrag = useCallback(() => {
     const activeJoint = targetJointRef.current;
     const originalOrigin = originalOriginRef.current;
@@ -148,8 +242,9 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
     }
 
     applyOriginToRuntimeJoint(activeJoint, originalOrigin);
+    clearClosedLoopRuntimePreview();
     syncProxyFromJoint(proxyRef.current, activeJoint);
-  }, [syncProxyFromJoint]);
+  }, [clearClosedLoopRuntimePreview, syncProxyFromJoint]);
 
   const handleFinishDrag = useCallback(() => {
     const activeJoint = targetJointRef.current;
@@ -171,6 +266,7 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
     }
 
     originalOriginRef.current = nextOrigin;
+    previewedClosedLoopJointIdsRef.current.clear();
     syncProxyFromJoint(proxyRef.current, activeJoint);
   }, [robotJoints, syncProxyFromJoint]);
 
@@ -196,7 +292,11 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
     onCancelDrag: handleCancelDrag,
     onObjectChange: ({ isDragging }) => {
       if (isDragging) {
-        applyProxyOriginToJoint();
+        const nextOrigin = applyProxyOriginToJoint();
+        const activeSelection = activeSelectionRef.current;
+        if (nextOrigin && activeSelection?.jointId) {
+          applyClosedLoopRuntimePreview(activeSelection.jointId, nextOrigin);
+        }
       }
     },
   });

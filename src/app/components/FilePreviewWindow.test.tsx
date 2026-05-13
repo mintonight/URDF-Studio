@@ -6,10 +6,12 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
+import { USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF } from '@/app/hooks/workspace-source-sync/mjcfViewerRuntimePolicy';
 import type { DocumentLoadState } from '@/store/assetsStore';
 import type { RobotFile, RobotState } from '@/types';
 
 import { FilePreviewWindow } from './FilePreviewWindow.tsx';
+import { resolveFilePreviewViewerConfig } from './FilePreviewWindow.tsx';
 import { resolveFilePreviewViewerSourceFile } from './FilePreviewWindow.tsx';
 
 function installDom() {
@@ -54,6 +56,14 @@ function createRobotFile(name: string): RobotFile {
     name,
     format: 'urdf',
     content: '<robot name="demo"><link name="base_link" /></robot>',
+  };
+}
+
+function createMjcfFile(name: string): RobotFile {
+  return {
+    name,
+    format: 'mjcf',
+    content: '<mujoco model="demo"><worldbody><body name="base_link" /></worldbody></mujoco>',
   };
 }
 
@@ -103,6 +113,7 @@ function renderWindow(options: {
         documentLoadState={documentLoadState}
         lang="en"
         theme="light"
+        showVisual={true}
         onClose={options.onClose ?? (() => {})}
       />,
     );
@@ -114,8 +125,19 @@ test('resolveFilePreviewViewerSourceFile routes USD previews through RobotState 
 
   assert.deepEqual(resolveFilePreviewViewerSourceFile(usdFile), {
     ...usdFile,
-    content: '',
+    content: USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF,
     format: 'urdf',
+  });
+});
+
+test('resolveFilePreviewViewerConfig reuses standalone MJCF viewer settings', () => {
+  const mjcfFile = createMjcfFile('robots/demo/scene.xml');
+
+  assert.deepEqual(resolveFilePreviewViewerConfig(mjcfFile, { showVisual: false }), {
+    showVisual: false,
+    sourceFile: mjcfFile,
+    sourceFilePath: mjcfFile.name,
+    viewerSourceFormat: 'mjcf',
   });
 });
 
@@ -264,6 +286,7 @@ test('FilePreviewWindow exposes an add action for addable preview files', async 
           }}
           lang="en"
           theme="light"
+          showVisual={true}
           onClose={() => {}}
           onAddComponent={(file) => {
             addedFiles.push(file.name);

@@ -19,14 +19,21 @@ import {
   type UsdMeshCompressionOptions,
 } from './usdSceneNodeFactory.ts';
 import { type UsdAssetRegistry } from './usdAssetRegistry.ts';
+import { isUsdMeshObject } from './usdMaterialNormalization.ts';
 import { applyUsdMaterialMetadata } from './usdSceneSerialization.ts';
 import { sanitizeUsdIdentifier } from './usdTextFormatting.ts';
+import { disposeObject3D } from '@/shared/utils/three/dispose.ts';
+
+export type UsdVisualMeshMergeOptions = {
+  enabled: boolean;
+};
 
 export type BuildUsdLinkSceneRootOptions = {
   robot: RobotState;
   registry: UsdAssetRegistry;
   meshCompression?: UsdMeshCompressionOptions;
   colladaRootNormalizationHints?: ColladaRootNormalizationHints | null;
+  visualMeshMerge?: UsdVisualMeshMergeOptions;
   onLinkVisit?: (link: UrdfLink) => void | Promise<void>;
 };
 
@@ -288,6 +295,249 @@ const buildJointsByChild = (robot: RobotState): Map<string, UrdfJoint> => {
   return jointsByChild;
 };
 
+type MergeableUsdMesh = THREE.Mesh & {
+  userData: {
+    usdAuthoredColor?: [number, number, number];
+    usdDisplayColor?: string | null;
+    usdMaterial?: Record<string, unknown>;
+    usdMaterialPalette?: Array<{
+      materialIndex: number;
+      usdAuthoredColor?: [number, number, number];
+      usdDisplayColor?: string | null;
+      usdMaterial?: Record<string, unknown>;
+      usdOpacity?: number;
+      usdSourceMaterialName?: string;
+    }>;
+    usdOpacity?: number;
+    usdSourceMaterialName?: string;
+  };
+};
+
+const getMeshMaterials = (mesh: THREE.Mesh): THREE.Material[] => {
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  return materials.filter((material): material is THREE.Material => Boolean(material));
+};
+
+const cloneMaterialForMergedMesh = (material: THREE.Material): THREE.Material => {
+  const cloned = material.clone();
+  cloned.userData = {
+    ...(material.userData ?? {}),
+    ...(cloned.userData ?? {}),
+  };
+  return cloned;
+};
+
+const getMaterialPaletteEntryForMerge = (
+  mesh: MergeableUsdMesh,
+  materialIndex: number,
+  nextMaterialIndex: number,
+) => {
+  const paletteEntry = Array.isArray(mesh.userData.usdMaterialPalette)
+    ? mesh.userData.usdMaterialPalette.find((entry) => entry?.materialIndex === materialIndex)
+    : null;
+
+  if (paletteEntry) {
+    return {
+      ...paletteEntry,
+      materialIndex: nextMaterialIndex,
+      ...(paletteEntry.usdAuthoredColor
+        ? { usdAuthoredColor: [...paletteEntry.usdAuthoredColor] as [number, number, number] }
+        : {}),
+      ...(paletteEntry.usdMaterial
+        ? { usdMaterial: structuredClone(paletteEntry.usdMaterial) }
+        : {}),
+    };
+  }
+
+  const material = getMeshMaterials(mesh)[materialIndex] || getMeshMaterials(mesh)[0];
+  return {
+    materialIndex: nextMaterialIndex,
+    ...(mesh.userData.usdAuthoredColor
+      ? { usdAuthoredColor: [...mesh.userData.usdAuthoredColor] as [number, number, number] }
+      : {}),
+    ...(mesh.userData.usdDisplayColor !== undefined
+      ? { usdDisplayColor: mesh.userData.usdDisplayColor }
+      : {}),
+    ...(mesh.userData.usdMaterial ? { usdMaterial: structuredClone(mesh.userData.usdMaterial) } : {}),
+    ...(mesh.userData.usdOpacity !== undefined ? { usdOpacity: mesh.userData.usdOpacity } : {}),
+    ...(mesh.userData.usdSourceMaterialName || material?.name
+      ? { usdSourceMaterialName: mesh.userData.usdSourceMaterialName || material?.name }
+      : {}),
+  };
+};
+
+const collectGeometryIndexValues = (geometry: THREE.BufferGeometry): number[] => {
+  const index = geometry.getIndex();
+  if (index) {
+    return Array.from(index.array, (value) => Number(value));
+  }
+
+  const position = geometry.getAttribute('position');
+  return Array.from({ length: position?.count ?? 0 }, (_, value) => value);
+};
+
+const getGeometryGroupsForMerge = (
+  geometry: THREE.BufferGeometry,
+  indexCount: number,
+): Array<{ start: number; count: number; materialIndex: number }> => {
+  const groups = geometry.groups.filter((group) => {
+    return Number.isFinite(group.start) && Number.isFinite(group.count) && group.count > 0;
+  });
+
+  if (groups.length > 0) {
+    return groups.map((group) => ({
+      start: Math.max(0, Math.floor(group.start)),
+      count: Math.max(0, Math.floor(group.count)),
+      materialIndex: Math.max(0, Math.floor(group.materialIndex ?? 0)),
+    }));
+  }
+
+  return [{ start: 0, count: indexCount, materialIndex: 0 }];
+};
+
+const mergeUsdVisualMeshesInScope = (visualsScope: THREE.Group): void => {
+  if (visualsScope.children.length < 2) {
+    return;
+  }
+
+  visualsScope.updateMatrixWorld(true);
+  const scopeWorldInverse = visualsScope.matrixWorld.clone().invert();
+  const meshEntries: Array<{ mesh: MergeableUsdMesh; matrix: THREE.Matrix4 }> = [];
+
+  visualsScope.children.forEach((visualRoot) => {
+    let meshCount = 0;
+    visualRoot.updateMatrixWorld(true);
+    visualRoot.traverse((child) => {
+      if (!isUsdMeshObject(child) || (child as THREE.SkinnedMesh).isSkinnedMesh) {
+        return;
+      }
+
+      const position = child.geometry.getAttribute('position');
+      if (!position || position.count === 0) {
+        return;
+      }
+
+      meshCount += 1;
+      meshEntries.push({
+        mesh: child as MergeableUsdMesh,
+        matrix: scopeWorldInverse.clone().multiply(child.matrixWorld),
+      });
+    });
+
+    if (meshCount === 0) {
+      meshEntries.length = 0;
+    }
+  });
+
+  if (meshEntries.length < 2) {
+    return;
+  }
+
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const mergedMaterials: THREE.Material[] = [];
+  const mergedPalette: Array<Record<string, unknown> & { materialIndex: number }> = [];
+  const mergedGeometry = new THREE.BufferGeometry();
+  let includeNormals = true;
+  let includeUvs = true;
+
+  meshEntries.forEach(({ mesh, matrix }) => {
+    const geometry = mesh.geometry;
+    const position = geometry.getAttribute('position');
+    const normal = geometry.getAttribute('normal');
+    const uv = geometry.getAttribute('uv');
+    includeNormals = includeNormals && Boolean(normal && normal.count >= position.count);
+    includeUvs = includeUvs && Boolean(uv && uv.count >= position.count);
+  });
+
+  meshEntries.forEach(({ mesh, matrix }) => {
+    const geometry = mesh.geometry;
+    const position = geometry.getAttribute('position');
+    const normal = geometry.getAttribute('normal');
+    const uv = geometry.getAttribute('uv');
+    const sourceIndices = collectGeometryIndexValues(geometry);
+    const sourceGroups = getGeometryGroupsForMerge(geometry, sourceIndices.length);
+    const meshMaterials = getMeshMaterials(mesh);
+    const materialOffset = mergedMaterials.length;
+    meshMaterials.forEach((material) => {
+      mergedMaterials.push(cloneMaterialForMergedMesh(material));
+    });
+
+    const normalMatrix = new THREE.Matrix3().getNormalMatrix(matrix);
+    const point = new THREE.Vector3();
+    const normalVector = new THREE.Vector3();
+    let appendedVertexCount = 0;
+
+    sourceGroups.forEach((group) => {
+      const groupStart = appendedVertexCount;
+      const groupEnd = Math.min(sourceIndices.length, group.start + group.count);
+      const sourceMaterialIndex = Math.min(group.materialIndex, Math.max(0, meshMaterials.length - 1));
+      const targetMaterialIndex = materialOffset + sourceMaterialIndex;
+      for (let index = group.start; index < groupEnd; index += 1) {
+        const vertexIndex = sourceIndices[index] ?? 0;
+        point
+          .set(position.getX(vertexIndex), position.getY(vertexIndex), position.getZ(vertexIndex))
+          .applyMatrix4(matrix);
+        positions.push(point.x, point.y, point.z);
+
+        if (includeNormals && normal) {
+          normalVector
+            .set(normal.getX(vertexIndex), normal.getY(vertexIndex), normal.getZ(vertexIndex))
+            .applyMatrix3(normalMatrix)
+            .normalize();
+          normals.push(normalVector.x, normalVector.y, normalVector.z);
+        }
+
+        if (includeUvs && uv) {
+          uvs.push(uv.getX(vertexIndex), uv.getY(vertexIndex));
+        }
+        appendedVertexCount += 1;
+      }
+
+      const appendedCount = appendedVertexCount - groupStart;
+      if (appendedCount > 0) {
+        mergedGeometry.addGroup(positions.length / 3 - appendedCount, appendedCount, targetMaterialIndex);
+        mergedPalette.push(
+          getMaterialPaletteEntryForMerge(mesh, sourceMaterialIndex, targetMaterialIndex),
+        );
+      }
+    });
+  });
+
+  if (positions.length === 0 || mergedMaterials.length < 2) {
+    mergedGeometry.dispose();
+    mergedMaterials.forEach((material) => material.dispose());
+    return;
+  }
+
+  mergedGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  if (includeNormals && normals.length === positions.length) {
+    mergedGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  } else {
+    mergedGeometry.computeVertexNormals();
+  }
+  if (includeUvs && uvs.length === (positions.length / 3) * 2) {
+    mergedGeometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  }
+  mergedGeometry.computeBoundingBox();
+  mergedGeometry.computeBoundingSphere();
+
+  const mergedMesh = new THREE.Mesh(mergedGeometry, mergedMaterials);
+  mergedMesh.name = 'visual_merged';
+  mergedMesh.userData = {
+    usdMergedVisual: true,
+    usdMergedSourcePrims: visualsScope.children.map((child) => child.name),
+    usdMaterialPalette: mergedPalette,
+  };
+
+  const previousChildren = [...visualsScope.children];
+  visualsScope.clear();
+  visualsScope.add(mergedMesh);
+  const mergedMaterialSet = new Set(mergedMaterials);
+  previousChildren.forEach((child) => disposeObject3D(child, false, mergedMaterialSet));
+};
+
 const buildLinkSceneNode = async (
   robot: RobotState,
   linkId: string,
@@ -297,6 +547,7 @@ const buildLinkSceneNode = async (
   pendingSceneMutations: DeferredSceneMutation[],
   meshCompression?: UsdMeshCompressionOptions,
   colladaRootNormalizationHints?: ColladaRootNormalizationHints | null,
+  visualMeshMerge?: UsdVisualMeshMergeOptions,
   onLinkVisit?: (link: UrdfLink) => void | Promise<void>,
 ): Promise<THREE.Group> => {
   const link = robot.links[linkId];
@@ -384,6 +635,11 @@ const buildLinkSceneNode = async (
 
         if (visualsScope.children.length === 0 && omittedPlaceholderVisualCount === 0) {
           group.remove(visualsScope);
+          return;
+        }
+
+        if (visualMeshMerge?.enabled) {
+          mergeUsdVisualMeshesInScope(visualsScope);
         }
       }),
     );
@@ -446,6 +702,7 @@ const buildLinkSceneNode = async (
           pendingSceneMutations,
           meshCompression,
           colladaRootNormalizationHints,
+          visualMeshMerge,
           onLinkVisit,
         ),
       ),
@@ -493,6 +750,7 @@ export const buildUsdLinkSceneRoot = async ({
   registry,
   meshCompression,
   colladaRootNormalizationHints,
+  visualMeshMerge,
   onLinkVisit,
 }: BuildUsdLinkSceneRootOptions): Promise<THREE.Group> => {
   const resolvedHints =
@@ -507,6 +765,7 @@ export const buildUsdLinkSceneRoot = async ({
     pendingSceneMutations,
     meshCompression,
     resolvedHints,
+    visualMeshMerge,
     onLinkVisit,
   );
 

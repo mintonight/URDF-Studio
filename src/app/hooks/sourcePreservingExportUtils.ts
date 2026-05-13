@@ -74,6 +74,8 @@ const PATCHABLE_URDF_LIKE_TAGS = new Set([
 ]);
 const URDF_MODEL_TAGS = new Set(['link', 'joint', 'material', 'transmission', 'gazebo']);
 const MJCF_MODEL_SECTION_TAGS = new Set([
+  'compiler',
+  'default',
   'asset',
   'worldbody',
   'actuator',
@@ -81,6 +83,7 @@ const MJCF_MODEL_SECTION_TAGS = new Set([
   'equality',
   'sensor',
   'contact',
+  'keyframe',
 ]);
 
 function collectXmlElementBounds(xml: string): XmlElementBounds[] {
@@ -757,6 +760,17 @@ function patchSourceContent(
   }
 }
 
+function shouldFallbackToGeneratedContent(
+  format: SourcePreservingExportFormat,
+  error: unknown,
+): boolean {
+  return (
+    format === 'mjcf' &&
+    error instanceof SourcePreservingExportError &&
+    error.message === 'Cannot preserve MJCF text structure with root-level <include> files.'
+  );
+}
+
 export function resolveSourcePreservingExportContent(
   options: ResolveSourcePreservingExportContentOptions,
 ): SourcePreservingExportResult {
@@ -798,13 +812,24 @@ export function resolveSourcePreservingExportContent(
     };
   }
 
-  const patchedContent = patchSourceContent(
-    format,
-    sourceFile.content ?? sourceContent,
-    generatedContent,
-    sourceRobot,
-    generatedRobot,
-  );
+  let patchedContent: string;
+  try {
+    patchedContent = patchSourceContent(
+      format,
+      sourceFile.content ?? sourceContent,
+      generatedContent,
+      sourceRobot,
+      generatedRobot,
+    );
+  } catch (error) {
+    if (shouldFallbackToGeneratedContent(format, error)) {
+      return {
+        content: generatedContent,
+        strategy: 'generated-from-robot-state',
+      };
+    }
+    throw error;
+  }
   validatePatchedContent(options, patchedContent);
 
   return {

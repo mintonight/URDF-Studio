@@ -15,6 +15,7 @@ import {
 import { parseMJCF } from '@/core/parsers/mjcf/mjcfParser';
 
 import {
+  resolveDirectManipulableLinkIkJointIds,
   resolveDirectManipulableLinkIkDescriptor,
   resolveLinkIkHandleDescriptor,
   resolveLinkIkHandleWorldPosition,
@@ -171,6 +172,45 @@ function createPrismaticIkRobot(): RobotData {
         quaternion: undefined,
         limit: { lower: -1, upper: 2, effort: 100, velocity: 10 },
       },
+    },
+  };
+}
+
+function createMeshOnlyIkRobot(): RobotData {
+  return {
+    name: 'mesh-only-ik-fixture',
+    rootLinkId: 'base',
+    links: {
+      base: createLink('base', 'base', 0.2),
+      tool: {
+        ...DEFAULT_LINK,
+        id: 'tool',
+        name: 'tool',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          meshPath: 'package://demo/tool.stl',
+          dimensions: { x: 0, y: 0, z: 0 },
+          origin: {
+            xyz: { x: 0, y: 0, z: 0 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+        },
+        visualBodies: [],
+        collision: {
+          ...DEFAULT_LINK.collision,
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+          origin: {
+            xyz: { x: 0, y: 0, z: 0 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+        },
+        collisionBodies: [],
+      },
+    },
+    joints: {
+      joint1: createRevoluteJoint('joint1', 'base', 'tool', 0),
     },
   };
 }
@@ -459,6 +499,13 @@ test('resolveDirectManipulableLinkIkDescriptor falls back to MJCF sites for clic
   assert.ok(Math.abs(descriptor.anchorLocal.z - 0.12) < 1e-9);
 });
 
+test('resolveDirectManipulableLinkIkJointIds keeps mesh-only links selectable for runtime-bounds dragging', () => {
+  const robot = createMeshOnlyIkRobot();
+
+  assert.equal(resolveDirectManipulableLinkIkDescriptor(robot, 'tool'), null);
+  assert.deepEqual(resolveDirectManipulableLinkIkJointIds(robot, 'tool'), ['joint1']);
+});
+
 test('resolveDirectManipulableLinkIkDescriptor shifts the anchor off the distal joint axis when the bounds center is singular', () => {
   const robot = createAxialZChainRobot();
 
@@ -636,6 +683,48 @@ test('solveLinkIkPositionTarget keeps preview-budget ARX L5 X-axis drags respons
   );
 });
 
+test('solveLinkIkPositionTarget returns actual angles for joints with reference positions', () => {
+  const robot = createPlanarIkRobot();
+  robot.joints.joint1.referencePosition = 0.4;
+  robot.joints.joint1.angle = 0.4;
+  delete robot.joints.joint2;
+  robot.joints.fixed_tool = {
+    ...DEFAULT_JOINT,
+    id: 'fixed_tool',
+    name: 'fixed_tool',
+    type: JointType.FIXED,
+    parentLinkId: 'link1',
+    childLinkId: 'link2',
+    origin: {
+      xyz: { x: 1, y: 0, z: 0 },
+      rpy: { r: 0, p: 0, y: 0 },
+    },
+    axis: { x: 0, y: 0, z: 1 },
+  };
+
+  const descriptor = resolveLinkIkHandleDescriptor(robot, 'link2');
+  assert.ok(descriptor);
+
+  const start = resolveLinkIkHandleWorldPosition(robot, descriptor);
+  const targetMotionAngle = 0.1;
+  const target = {
+    x: Math.cos(targetMotionAngle) * start.x - Math.sin(targetMotionAngle) * start.y,
+    y: Math.sin(targetMotionAngle) * start.x + Math.cos(targetMotionAngle) * start.y,
+    z: start.z,
+  };
+
+  const result = solveLinkIkPositionTarget(robot, {
+    linkId: 'link2',
+    targetWorldPosition: target,
+    maxIterations: 64,
+    positionTolerance: 1e-4,
+    stallTolerance: 1e-8,
+  });
+
+  assert.equal(result.converged, true);
+  assert.ok(Math.abs((result.angles.joint1 ?? 0) - 0.5) < 1e-3);
+});
+
 test('solveLinkIkPositionTarget converges on a reachable prismatic target', () => {
   const robot = createPrismaticIkRobot();
   const descriptor = resolveLinkIkHandleDescriptor(robot, 'tool');
@@ -694,6 +783,27 @@ test('solveLinkIkPositionTarget can rotate an axial chain once the direct-manipu
     Object.values(result.angles).some((angle) => Math.abs(angle) > 1e-6),
     'expected non-zero joint motion for the off-axis anchor target',
   );
+});
+
+test('solveLinkIkPositionTarget uses an explicit anchor for mesh-only direct link dragging', () => {
+  const robot = createMeshOnlyIkRobot();
+  const targetAngle = Math.PI / 5;
+
+  const result = solveLinkIkPositionTarget(robot, {
+    linkId: 'tool',
+    anchorLocal: { x: 1, y: 0, z: 0 },
+    targetWorldPosition: {
+      x: Math.cos(targetAngle),
+      y: Math.sin(targetAngle),
+      z: 0,
+    },
+    maxIterations: 64,
+    positionTolerance: 1e-4,
+    stallTolerance: 1e-8,
+  });
+
+  assert.equal(result.converged, true);
+  assert.ok(Math.abs((result.angles.joint1 ?? 0) - targetAngle) < 1e-3);
 });
 
 test('solveLinkIkPositionTarget rejects mimic chains as unsupported', () => {

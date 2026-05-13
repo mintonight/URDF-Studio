@@ -11,7 +11,7 @@ export type LibraryRobotLoadAction =
 interface ResolveLibraryRobotLoadActionOptions {
   selectedFileName: string | null | undefined;
   targetFileName: string;
-  shouldRenderAssembly: boolean;
+  shouldPreviewCurrentState: boolean;
   hasSimpleModeSourceEdits: boolean;
   intent: LibraryRobotLoadIntent;
 }
@@ -19,7 +19,7 @@ interface ResolveLibraryRobotLoadActionOptions {
 export function resolveLibraryRobotLoadAction({
   selectedFileName,
   targetFileName,
-  shouldRenderAssembly,
+  shouldPreviewCurrentState,
   hasSimpleModeSourceEdits,
   intent,
 }: ResolveLibraryRobotLoadActionOptions): LibraryRobotLoadAction {
@@ -27,12 +27,12 @@ export function resolveLibraryRobotLoadAction({
     return 'already-loaded';
   }
 
-  if (intent === 'direct' && shouldRenderAssembly) {
+  if (intent === 'direct' && shouldPreviewCurrentState) {
     return 'preview';
   }
 
   const shouldGuardLibrarySwitch =
-    !shouldRenderAssembly && Boolean(selectedFileName) && hasSimpleModeSourceEdits;
+    !shouldPreviewCurrentState && Boolean(selectedFileName) && hasSimpleModeSourceEdits;
 
   if (!shouldGuardLibrarySwitch || intent === 'discard') {
     return 'load';

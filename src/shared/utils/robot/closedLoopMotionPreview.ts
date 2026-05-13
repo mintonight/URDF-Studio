@@ -16,11 +16,17 @@ type ClosedLoopMotionPreviewWorkerSolveOptions = Omit<
   'angles' | 'quaternions' | 'lockedJointIds'
 >;
 
+const CLOSED_LOOP_PREVIEW_SOLVE_OPTIONS: ClosedLoopMotionPreviewWorkerSolveOptions = {
+  maxIterations: 12,
+  tolerance: 1e-5,
+};
+
 export type ClosedLoopMotionPreviewWorkerSolve = (
   robot: ClosedLoopMotionPreviewRobot,
   jointId: string,
   angle: number,
   options?: ClosedLoopMotionPreviewWorkerSolveOptions,
+  previewState?: ClosedLoopMotionPreviewState,
 ) => Promise<ClosedLoopDrivenJointMotionResult>;
 
 export interface ClosedLoopMotionPreviewState {
@@ -97,10 +103,12 @@ export function resolveClosedLoopJointMotionPreview(
   previewState: ClosedLoopMotionPreviewState,
 ): ClosedLoopMotionPreviewResult {
   const seededRobot = buildClosedLoopMotionPreviewRobot(robot, previewState);
-  const solution = resolveClosedLoopDrivenJointMotion(seededRobot, jointId, angle, {
-    maxIterations: 4,
-    tolerance: 1e-4,
-  });
+  const solution = resolveClosedLoopDrivenJointMotion(
+    seededRobot,
+    jointId,
+    angle,
+    CLOSED_LOOP_PREVIEW_SOLVE_OPTIONS,
+  );
 
   return {
     angles: solution.angles,
@@ -152,6 +160,70 @@ function applyClosedLoopMotionSolution(
   });
 }
 
+function cloneClosedLoopMotionPreviewState(
+  state: ClosedLoopMotionPreviewState,
+): ClosedLoopMotionPreviewState {
+  return {
+    angles: { ...state.angles },
+    quaternions: { ...state.quaternions },
+  };
+}
+
+function createEmptyClosedLoopMotionPreviewState(): ClosedLoopMotionPreviewState {
+  return {
+    angles: {},
+    quaternions: {},
+  };
+}
+
+function setPreviewStateAngle(
+  baseRobot: Pick<RobotState, 'joints'>,
+  state: ClosedLoopMotionPreviewState,
+  jointId: string,
+  angle: number,
+): void {
+  const baseJoint = baseRobot.joints[jointId];
+  if (!baseJoint || isSameAngle(baseJoint.angle, angle)) {
+    delete state.angles[jointId];
+    return;
+  }
+
+  state.angles[jointId] = angle;
+}
+
+function setPreviewStateQuaternion(
+  baseRobot: Pick<RobotState, 'joints'>,
+  state: ClosedLoopMotionPreviewState,
+  jointId: string,
+  quaternion: JointQuaternion,
+): void {
+  const baseJoint = baseRobot.joints[jointId];
+  if (!baseJoint || isSameQuaternion(baseJoint.quaternion, quaternion)) {
+    delete state.quaternions[jointId];
+    return;
+  }
+
+  state.quaternions[jointId] = quaternion;
+}
+
+function applyClosedLoopMotionSolutionToPreviewState(
+  baseRobot: Pick<RobotState, 'joints'>,
+  state: ClosedLoopMotionPreviewState,
+  solution: ClosedLoopDrivenJointMotionResult,
+): ClosedLoopMotionPreviewState {
+  const nextState = cloneClosedLoopMotionPreviewState(state);
+
+  Object.entries(solution.angles).forEach(([jointId, angle]) => {
+    setPreviewStateAngle(baseRobot, nextState, jointId, angle);
+  });
+
+  Object.entries(solution.quaternions).forEach(([jointId, quaternion]) => {
+    setPreviewStateQuaternion(baseRobot, nextState, jointId, quaternion);
+  });
+
+  return nextState;
+}
+
 export function createClosedLoopMotionPreviewSession(): ClosedLoopMotionPreviewSession {
   let baseRobot: ClosedLoopMotionPreviewRobot | null = null;
   let workingRobot: ClosedLoopMotionPreviewRobot | null = null;
@@ -183,10 +255,12 @@ export function createClosedLoopMotionPreviewSession(): ClosedLoopMotionPreviewS
         return { angles: {}, quaternions: {}, appliedAngle: null, constrained: false };
       }
 
-      const solution = resolveClosedLoopDrivenJointMotion(workingRobot, jointId, angle, {
-        maxIterations: 4,
-        tolerance: 1e-4,
-      });
+      const solution = resolveClosedLoopDrivenJointMotion(
+        workingRobot,
+        jointId,
+        angle,
+        CLOSED_LOOP_PREVIEW_SOLVE_OPTIONS,
+      );
 
       applyClosedLoopMotionSolution(workingRobot, solution);
 
@@ -207,12 +281,12 @@ export function createClosedLoopMotionPreviewWorkerSession(
   solveWithWorker: ClosedLoopMotionPreviewWorkerSolve = resolveClosedLoopDrivenJointMotionWithWorker,
 ): AsyncClosedLoopMotionPreviewSession {
   let baseRobot: ClosedLoopMotionPreviewRobot | null = null;
-  let workingRobot: ClosedLoopMotionPreviewRobot | null = null;
+  let previewState: ClosedLoopMotionPreviewState = createEmptyClosedLoopMotionPreviewState();
   let solveGeneration = 0;
 
   const resetWorkingRobot = () => {
     solveGeneration += 1;
-    workingRobot = baseRobot ? structuredClone(baseRobot) : null;
+    previewState = createEmptyClosedLoopMotionPreviewState();
   };
 
   return {
@@ -230,30 +304,32 @@ export function createClosedLoopMotionPreviewWorkerSession(
         return { angles: {}, quaternions: {}, appliedAngle: null, constrained: false };
       }
 
-      if (!workingRobot) {
-        resetWorkingRobot();
-      }
-
-      if (!workingRobot || !workingRobot.joints[jointId]) {
+      if (!baseRobot.joints[jointId]) {
         return { angles: {}, quaternions: {}, appliedAngle: null, constrained: false };
       }
 
       const requestGeneration = ++solveGeneration;
-      const solveRobot = structuredClone(workingRobot);
-      const solution = await solveWithWorker(solveRobot, jointId, angle, {
-        maxIterations: 4,
-        tolerance: 1e-4,
-      });
+      const requestPreviewState = cloneClosedLoopMotionPreviewState(previewState);
+      const solution = await solveWithWorker(
+        baseRobot,
+        jointId,
+        angle,
+        CLOSED_LOOP_PREVIEW_SOLVE_OPTIONS,
+        requestPreviewState,
+      );
 
       if (requestGeneration !== solveGeneration || !baseRobot) {
         return { angles: {}, quaternions: {}, appliedAngle: null, constrained: false };
       }
 
-      applyClosedLoopMotionSolution(solveRobot, solution);
-      workingRobot = solveRobot;
+      previewState = applyClosedLoopMotionSolutionToPreviewState(
+        baseRobot,
+        requestPreviewState,
+        solution,
+      );
 
       return {
-        ...collectClosedLoopMotionPreviewState(baseRobot, workingRobot),
+        ...cloneClosedLoopMotionPreviewState(previewState),
         appliedAngle: solution.appliedAngle,
         constrained: solution.constrained,
       };

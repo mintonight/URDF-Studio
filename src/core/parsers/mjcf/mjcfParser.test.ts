@@ -50,6 +50,25 @@ function installDomGlobals(): void {
 
 const MYOSUITE_FIXTURE_ROOT = path.resolve('test/myosuite-main');
 let myosuiteMjcfFilesCache: RobotFile[] | null = null;
+const CASSIE_MUJOCO_HOME_CONNECT_ANCHOR_TOLERANCE = 0.0025;
+const CASSIE_MUJOCO_HOME_CONNECT_ANCHORS = new Map<string, THREE.Vector3>([
+  [
+    'mjcf-connect-left-plantar-rod-left-foot',
+    new THREE.Vector3(-0.05961411, 0.12010489, 0.01804305),
+  ],
+  [
+    'mjcf-connect-left-achilles-rod-left-heel-spring',
+    new THREE.Vector3(-0.31870218, 0.12839077, 0.49499193),
+  ],
+  [
+    'mjcf-connect-right-plantar-rod-right-foot',
+    new THREE.Vector3(-0.05961411, -0.12010489, 0.01804305),
+  ],
+  [
+    'mjcf-connect-right-achilles-rod-right-heel-spring',
+    new THREE.Vector3(-0.31870215, -0.1283908, 0.49499192),
+  ],
+]);
 
 function loadMyosuiteMjcfFiles(): RobotFile[] {
   if (myosuiteMjcfFilesCache) {
@@ -872,6 +891,51 @@ test('parseMJCF keeps base-link collision boxes out of duplicated visuals', () =
   assert.equal(robot.links.base_link_geom_1, undefined);
 });
 
+test('parseMJCF preserves explicit and default-inherited cylinder collision geoms', () => {
+  installDomGlobals();
+
+  const robot = parseMJCF(`
+        <mujoco model="cylinder-collision-preservation">
+          <default>
+            <default class="collision">
+              <geom type="cylinder" group="3" contype="1" conaffinity="1" />
+            </default>
+          </default>
+          <worldbody>
+            <body name="base_link">
+              <geom
+                name="explicit_cylinder"
+                type="cylinder"
+                class="collision"
+                size="0.05 0.3"
+                pos="0.1 0 0"
+                quat="1 1 0 0"
+              />
+              <geom
+                name="default_cylinder"
+                class="collision"
+                size="0.07 0.4"
+                pos="-0.1 0 0"
+              />
+            </body>
+          </worldbody>
+        </mujoco>
+    `);
+
+  assert.ok(robot);
+  assert.equal(robot.links.base_link.collision.type, GeometryType.CYLINDER);
+  assert.equal(robot.links.base_link.collision.name, 'explicit_cylinder');
+  assert.deepEqual(robot.links.base_link.collision.dimensions, { x: 0.05, y: 0.6, z: 0 });
+  assert.equal(robot.links.base_link.collisionBodies?.length, 1);
+  assert.equal(robot.links.base_link.collisionBodies?.[0]?.type, GeometryType.CYLINDER);
+  assert.equal(robot.links.base_link.collisionBodies?.[0]?.name, 'default_cylinder');
+  assert.deepEqual(robot.links.base_link.collisionBodies?.[0]?.dimensions, {
+    x: 0.07,
+    y: 0.8,
+    z: 0,
+  });
+});
+
 test('parseMJCF preserves mesh-backed primitive collision geoms as mesh geometry when primitive parameters are unresolved', () => {
   installDomGlobals();
 
@@ -965,6 +1029,174 @@ test('parseMJCF applies joint ref as the imported initial joint value', () => {
   );
   assert.ok(sliderWorldQuaternion.angleTo(new THREE.Quaternion()) <= 1e-9);
   assert.ok(sliderWorldPosition.distanceTo(new THREE.Vector3(0, 0, 0.1)) <= 1e-9);
+});
+
+test('parseMJCF preserves compiler eulerseq when importing body rotations', () => {
+  installDomGlobals();
+
+  const robot = parseMJCF(`
+        <mujoco model="eulerseq-rotation">
+          <compiler angle="radian" eulerseq="zyx" />
+          <worldbody>
+            <body name="base_link">
+              <body name="wrist_link" euler="0.3 0.7 1.1" />
+            </body>
+          </worldbody>
+        </mujoco>
+    `);
+
+  assert.ok(robot);
+
+  const linkWorldMatrices = computeLinkWorldMatrices(robot);
+  const wristWorldQuaternion = new THREE.Quaternion();
+  linkWorldMatrices.wrist_link?.decompose(
+    new THREE.Vector3(),
+    wristWorldQuaternion,
+    new THREE.Vector3(),
+  );
+
+  const expectedQuaternion = new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(1.1, 0.7, 0.3, 'ZYX'),
+  );
+
+  assert.ok(wristWorldQuaternion.angleTo(expectedQuaternion) < 1e-9);
+});
+
+test('parseMJCF applies the home keyframe qpos as the imported initial pose', () => {
+  installDomGlobals();
+
+  const robot = parseMJCF(`
+        <mujoco model="keyframe-pose">
+          <compiler angle="degree" />
+          <worldbody>
+            <body name="base_link">
+              <freejoint name="root_free" />
+              <body name="ball_link">
+                <joint name="ball_joint" type="ball" />
+                <body name="hinge_link">
+                  <joint name="hinge_joint" type="hinge" ref="10" range="-90 90" />
+                  <body name="slide_link">
+                    <joint name="slide_joint" type="slide" ref="0.1" range="-1 1" />
+                  </body>
+                </body>
+              </body>
+            </body>
+          </worldbody>
+          <keyframe>
+            <key name="stand" qpos="0 0 0 1 0 0 0 1 0 0 0 0 0" />
+            <key name="home" qpos="1 2 3 0.7071067811865476 0 0.7071067811865475 0 0.9238795325112867 0 0 0.3826834323650898 0.7853981633974483 0.25" />
+          </keyframe>
+        </mujoco>
+    `);
+
+  assert.ok(robot);
+  assert.deepEqual(robot.joints.root_free?.origin.xyz, { x: 1, y: 2, z: 3 });
+  assert.ok(Math.abs((robot.joints.hinge_joint?.referencePosition ?? 0) - Math.PI / 18) < 1e-9);
+  assert.ok(Math.abs((robot.joints.hinge_joint?.angle ?? 0) - Math.PI / 4) < 1e-9);
+  assert.equal(robot.joints.slide_joint?.referencePosition, 0.1);
+  assert.equal(robot.joints.slide_joint?.angle, 0.25);
+  assert.ok(Math.abs((robot.joints.ball_joint?.quaternion?.w ?? 0) - 0.9238795325112867) < 1e-9);
+  assert.ok(Math.abs((robot.joints.ball_joint?.quaternion?.z ?? 0) - 0.3826834323650898) < 1e-9);
+
+  const linkWorldMatrices = computeLinkWorldMatrices(robot);
+  const baseWorldQuaternion = new THREE.Quaternion();
+  const baseWorldPosition = new THREE.Vector3();
+  linkWorldMatrices.base_link?.decompose(
+    baseWorldPosition,
+    baseWorldQuaternion,
+    new THREE.Vector3(),
+  );
+  assert.deepEqual(baseWorldPosition.toArray(), [1, 2, 3]);
+  assert.ok(
+    baseWorldQuaternion.angleTo(
+      new THREE.Quaternion(0, 0.7071067811865475, 0, 0.7071067811865476),
+    ) < 1e-9,
+  );
+});
+
+test('parseMJCF applies Cassie home keyframe qpos and solves passive closed-loop leg joints', () => {
+  installDomGlobals();
+
+  const xml = fs.readFileSync('test/mujoco_menagerie-main/agility_cassie/cassie.xml', 'utf8');
+  const robot = parseMJCF(xml);
+
+  assert.ok(robot);
+  assert.ok(Math.abs((robot.joints['left-hip-pitch']?.angle ?? 0) - 0.497301) < 1e-9);
+  assert.ok(Math.abs((robot.joints['left-knee']?.angle ?? 0) + 1.1997) < 1e-9);
+  assert.ok(Math.abs((robot.joints['left-foot']?.angle ?? 0) + 1.59681) < 1e-9);
+  assert.ok(Math.abs((robot.joints['right-foot']?.angle ?? 0) + 1.59681) < 1e-9);
+
+  assert.ok(Math.abs((robot.joints['left-tarsus']?.angle ?? 0) - 1.4250551414265926) < 1e-9);
+  assert.ok(Math.abs((robot.joints['left-foot-crank']?.angle ?? 0) + 1.4888223188309895) < 1e-9);
+  assert.ok(Math.abs((robot.joints['left-plantar-rod']?.angle ?? 0) - 1.470421577023918) < 1e-9);
+  assert.ok(Math.abs((robot.joints['left-heel-spring']?.angle ?? 0) + 0.0015298326074860882) < 1e-9);
+  assert.ok(
+    Math.abs((robot.joints['right-tarsus']?.angle ?? 0) - 1.42505450519475) < 1e-9,
+  );
+  assert.ok(
+    Math.abs((robot.joints['right-foot-crank']?.angle ?? 0) + 1.4888223188241143) < 1e-9,
+  );
+  assert.ok(
+    Math.abs((robot.joints['right-plantar-rod']?.angle ?? 0) - 1.4704215770168598) < 1e-9,
+  );
+  assert.ok(
+    Math.abs((robot.joints['right-heel-spring']?.angle ?? 0) + 0.0015281140578806555) < 1e-9,
+  );
+  assert.ok(
+    Math.abs((robot.joints['right-achilles-rod']?.quaternion?.w ?? 0) - 0.9786415639566073) <
+      1e-9,
+  );
+  assert.ok(
+    Math.abs((robot.joints['right-achilles-rod']?.quaternion?.y ?? 0) + 0.014423187695796426) <
+      1e-9,
+  );
+});
+
+test('parseMJCF solves Cassie home keyframe closed-loop constraints on import', () => {
+  installDomGlobals();
+
+  const xml = fs.readFileSync('test/mujoco_menagerie-main/agility_cassie/cassie.xml', 'utf8');
+  const robot = parseMJCF(xml);
+
+  assert.ok(robot);
+  assert.ok(robot.closedLoopConstraints);
+
+  const linkWorldMatrices = computeLinkWorldMatrices(robot);
+  assert.equal(robot.closedLoopConstraints.length, CASSIE_MUJOCO_HOME_CONNECT_ANCHORS.size);
+  robot.closedLoopConstraints.forEach((constraint) => {
+    const anchorA = new THREE.Vector3(
+      constraint.anchorLocalA.x,
+      constraint.anchorLocalA.y,
+      constraint.anchorLocalA.z,
+    ).applyMatrix4(linkWorldMatrices[constraint.linkAId]);
+    const anchorB = new THREE.Vector3(
+      constraint.anchorLocalB.x,
+      constraint.anchorLocalB.y,
+      constraint.anchorLocalB.z,
+    ).applyMatrix4(linkWorldMatrices[constraint.linkBId]);
+
+    assert.ok(
+      anchorA.distanceTo(
+        new THREE.Vector3(
+          constraint.anchorWorld.x,
+          constraint.anchorWorld.y,
+          constraint.anchorWorld.z,
+        ),
+      ) < 1e-6,
+      `expected ${constraint.id} anchorWorld to match the solved import pose`,
+    );
+    assert.ok(
+      anchorA.distanceTo(anchorB) < 1e-6,
+      `expected ${constraint.id} to be closed after import`,
+    );
+
+    const mujocoHomeAnchor = CASSIE_MUJOCO_HOME_CONNECT_ANCHORS.get(constraint.id);
+    assert.ok(mujocoHomeAnchor, `expected MuJoCo home anchor truth for ${constraint.id}`);
+    assert.ok(
+      anchorA.distanceTo(mujocoHomeAnchor) < CASSIE_MUJOCO_HOME_CONNECT_ANCHOR_TOLERANCE,
+      `expected ${constraint.id} to stay within MuJoCo home display anchor tolerance`,
+    );
+  });
 });
 
 test('parseMJCF folds non-zero joint anchors into the imported joint origin instead of scattering the child link frame', () => {

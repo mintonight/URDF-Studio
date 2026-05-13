@@ -191,9 +191,11 @@ export function limitLinkIkPreviewKinematicStateStep(
   {
     maxAngleStep = LINK_IK_PREVIEW_MAX_ANGLE_STEP,
     maxQuaternionStepRadians = LINK_IK_PREVIEW_MAX_QUATERNION_STEP_RADIANS,
+    limitedJointIds,
   }: {
     maxAngleStep?: number;
     maxQuaternionStepRadians?: number;
+    limitedJointIds?: ReadonlySet<string>;
   } = {},
 ): LinkIkDragKinematicState {
   const limitedState = createEmptyLinkIkDragKinematicState();
@@ -201,6 +203,11 @@ export function limitLinkIkPreviewKinematicStateStep(
   const previousQuaternions = previousState?.quaternions ?? {};
 
   Object.entries(nextState?.angles ?? {}).forEach(([jointId, nextAngle]) => {
+    if (limitedJointIds && !limitedJointIds.has(jointId)) {
+      limitedState.angles[jointId] = nextAngle;
+      return;
+    }
+
     limitedState.angles[jointId] = limitNumberStep(
       previousAngles[jointId],
       nextAngle,
@@ -209,6 +216,11 @@ export function limitLinkIkPreviewKinematicStateStep(
   });
 
   Object.entries(nextState?.quaternions ?? {}).forEach(([jointId, nextQuaternion]) => {
+    if (limitedJointIds && !limitedJointIds.has(jointId)) {
+      limitedState.quaternions[jointId] = nextQuaternion;
+      return;
+    }
+
     limitedState.quaternions[jointId] = limitQuaternionStep(
       previousQuaternions[jointId],
       nextQuaternion,

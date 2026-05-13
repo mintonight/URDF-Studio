@@ -13,6 +13,7 @@ interface UsePointerResizeOptions {
   max: number;
   min: number;
   onChange: (nextValue: number) => void;
+  onCommit?: (nextValue: number) => void;
   value: number;
 }
 
@@ -25,10 +26,12 @@ export function usePointerResize({
   max,
   min,
   onChange,
+  onCommit,
   value,
 }: UsePointerResizeOptions) {
   const [isDragging, setIsDragging] = useState(false);
   const isResizingRef = useRef(false);
+  const lastValueRef = useRef(value);
   const startPointerRef = useRef(0);
   const startValueRef = useRef(value);
   const bodyCursorRef = useRef('');
@@ -37,6 +40,8 @@ export function usePointerResize({
   // Use refs for callbacks to avoid re-registering event listeners on every render
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onCommitRef = useRef(onCommit);
+  onCommitRef.current = onCommit;
   const axisRef = useRef(axis);
   axisRef.current = axis;
   const directionRef = useRef(direction);
@@ -63,6 +68,7 @@ export function usePointerResize({
     setIsDragging(true);
     startPointerRef.current = axisRef.current === 'x' ? event.clientX : event.clientY;
     startValueRef.current = value;
+    lastValueRef.current = value;
     captureBodyInteractionStyles();
     document.body.style.cursor = cursor;
     document.body.style.userSelect = 'none';
@@ -77,7 +83,13 @@ export function usePointerResize({
 
       const currentPointer = axisRef.current === 'x' ? event.clientX : event.clientY;
       const delta = (currentPointer - startPointerRef.current) * directionRef.current;
-      onChangeRef.current(clamp(startValueRef.current + delta, minRef.current, maxRef.current));
+      const nextValue = clamp(startValueRef.current + delta, minRef.current, maxRef.current);
+      if (nextValue === lastValueRef.current) {
+        return;
+      }
+
+      lastValueRef.current = nextValue;
+      onChangeRef.current(nextValue);
     };
 
     const handleMouseUp = () => {
@@ -86,6 +98,7 @@ export function usePointerResize({
       }
 
       isResizingRef.current = false;
+      onCommitRef.current?.(lastValueRef.current);
       setIsDragging(false);
       restoreBodyInteractionStyles();
       dispatchPointerResizeEvent(POINTER_RESIZE_END_EVENT);

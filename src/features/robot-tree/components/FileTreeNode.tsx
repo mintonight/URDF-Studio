@@ -121,7 +121,7 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
   return (
     <div>
       <div
-        className={`group flex cursor-pointer select-none items-center gap-1.5 rounded-sm py-1 pr-2 transition-colors
+        className={`group flex min-w-0 cursor-pointer select-none items-center gap-1.5 rounded-sm py-1 pr-2 transition-colors
           ${
             isSelectedFile
               ? 'bg-element-bg dark:bg-element-hover shadow-sm ring-1 ring-inset ring-border-strong'
@@ -132,7 +132,7 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
         onContextMenu={handleContextMenu}
       >
         {node.isFolder ? (
-          <span className="w-3 h-3 flex items-center justify-center">
+          <span className="flex h-3 w-3 shrink-0 items-center justify-center">
             {isExpanded ? (
               <ChevronDown className="w-3 h-3 text-text-tertiary" />
             ) : (
@@ -140,7 +140,7 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
             )}
           </span>
         ) : (
-          <span className="w-3 h-3" />
+          <span className="h-3 w-3 shrink-0" />
         )}
 
         {getFileIcon(node.name, node.isFolder, isExpanded)}
@@ -179,7 +179,7 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
 
         {node.file && (
           <span
-            className={`text-[9px] px-1 rounded font-medium ${
+            className={`shrink-0 rounded px-1 text-[9px] font-medium ${
               node.file.format === 'urdf'
                 ? 'bg-system-blue/10 dark:bg-system-blue/20 text-system-blue'
                 : node.file.format === 'sdf'
@@ -206,7 +206,7 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
 
         {(showAddButton || showDeleteButton) && !isEditingFolder && (
           <div
-            className={`flex items-center gap-1 transition-opacity ${
+            className={`flex shrink-0 items-center gap-1 transition-opacity ${
               isSelectedFile
                 ? 'opacity-100'
                 : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
@@ -215,7 +215,7 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
             {showAddButton && (
               <button
                 onClick={handleAddAsComponent}
-                className="px-1.5 py-0.5 rounded bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/40 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800/50 flex items-center gap-1 transition-colors group/btn"
+                className="flex shrink-0 items-center gap-1 rounded border border-green-200 bg-green-50 px-1.5 py-0.5 text-green-600 transition-colors hover:bg-green-100 dark:border-green-800/50 dark:bg-green-900/20 dark:text-green-400 dark:hover:bg-green-900/40 group/btn"
                 title={t.addComponent}
               >
                 <Plus
@@ -223,14 +223,16 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
                   strokeWidth={3}
                   className="group-hover/btn:scale-110 transition-transform"
                 />
-                <span className="text-[9px] font-semibold tracking-[0.01em]">{t.add}</span>
+                <span className="hidden text-[9px] font-semibold tracking-[0.01em] @[260px]:inline">
+                  {t.add}
+                </span>
               </button>
             )}
 
             {showDeleteButton && (
               <button
                 onClick={handleDeleteFromLibrary}
-                className="px-1.5 py-0.5 rounded bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/50 flex items-center transition-colors group/btn"
+                className="flex shrink-0 items-center rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-red-600 transition-colors hover:bg-red-100 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40 group/btn"
                 title={t.removeFromLibrary}
               >
                 <Trash2

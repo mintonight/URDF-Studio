@@ -147,6 +147,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
 
   const {
     contentRef,
+    sidebarRef,
     width,
     fileBrowserHeight,
     jointPanelHeight,
@@ -522,7 +523,8 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
 
   return (
     <div
-      className={`bg-element-bg dark:bg-panel-bg border-r border-border-black flex flex-col h-full shrink-0 z-20 relative ${isDragging ? '' : 'transition-[width,min-width,flex] duration-200 ease-out'}`}
+      ref={sidebarRef}
+      className={`@container bg-element-bg dark:bg-panel-bg border-r border-border-black flex flex-col h-full shrink-0 z-20 relative ${isDragging ? '' : 'transition-[width,min-width,flex] duration-200 ease-out'}`}
       style={{
         width: `${actualWidth}px`,
         minWidth: `${actualWidth}px`,

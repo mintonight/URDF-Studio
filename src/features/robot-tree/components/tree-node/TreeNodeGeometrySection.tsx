@@ -137,7 +137,7 @@ export const TreeNodeGeometrySection = memo(function TreeNodeGeometrySection({
       {link.visual?.type && link.visual.type !== GeometryType.NONE && (
         <div
           ref={visualRowRef}
-          className={`relative flex items-center py-0.5 px-2 mx-1 my-0.5 rounded-md transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer'} ${resolveTreeRowStateClass(
+          className={`relative flex min-w-0 items-center py-0.5 px-2 mx-1 my-0.5 rounded-md transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer'} ${resolveTreeRowStateClass(
             'text-text-secondary dark:text-text-tertiary',
             {
               isHovered: isVisualHovered,
@@ -231,7 +231,7 @@ export const TreeNodeGeometrySection = memo(function TreeNodeGeometrySection({
       {link.collision?.type && link.collision.type !== GeometryType.NONE && (
         <div
           ref={primaryCollisionRowRef}
-          className={`relative flex items-center py-0.5 px-2 mx-1 my-0.5 rounded-md transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer'} ${resolveTreeRowStateClass(
+          className={`relative flex min-w-0 items-center py-0.5 px-2 mx-1 my-0.5 rounded-md transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer'} ${resolveTreeRowStateClass(
             'text-text-secondary dark:text-text-tertiary',
             {
               isHovered: isPrimaryCollisionHovered,
@@ -362,7 +362,7 @@ export const TreeNodeGeometrySection = memo(function TreeNodeGeometrySection({
               collisionBodyRowRefs.current[objectIndex] = element;
             }}
             key={`collision-extra-${bodyIndex}`}
-            className={`relative flex items-center py-0.5 px-2 mx-1 my-0.5 rounded-md transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer'} ${resolveTreeRowStateClass(
+            className={`relative flex min-w-0 items-center py-0.5 px-2 mx-1 my-0.5 rounded-md transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer'} ${resolveTreeRowStateClass(
               'text-text-secondary dark:text-text-tertiary',
               {
                 isHovered: isCollisionBodyHovered,

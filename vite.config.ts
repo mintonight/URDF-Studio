@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig, loadEnv, type ServerOptions } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
@@ -184,6 +184,31 @@ const OPTIMIZE_DEPS_INCLUDE = [
   'three/addons/loaders/GLTFLoader.js',
 ];
 
+function resolveDevServerHost(env: Record<string, string | undefined>): string {
+  const configuredHost = env.URDF_STUDIO_DEV_HOST?.trim();
+  return configuredHost || '0.0.0.0';
+}
+
+function resolveDevServerAllowedHosts(
+  env: Record<string, string | undefined>,
+): ServerOptions['allowedHosts'] | undefined {
+  const configuredHosts = env.URDF_STUDIO_DEV_ALLOWED_HOSTS?.trim();
+  if (!configuredHosts) {
+    return undefined;
+  }
+
+  if (configuredHosts === '*' || configuredHosts.toLowerCase() === 'true') {
+    return true;
+  }
+
+  const allowedHosts = configuredHosts
+    .split(',')
+    .map((host) => host.trim())
+    .filter(Boolean);
+
+  return allowedHosts.length > 0 ? allowedHosts : undefined;
+}
+
 function shouldIgnoreWatchPath(watchPath: string): boolean {
   const normalizedPath = watchPath.replace(/\\/g, '/');
 
@@ -195,6 +220,60 @@ function shouldIgnoreWatchPath(watchPath: string): boolean {
   );
 }
 
+interface IsolationHeaderRequestLike {
+  headers?: {
+    host?: string | string[];
+    'x-forwarded-proto'?: string | string[];
+  };
+  socket?: {
+    encrypted?: boolean;
+  };
+  url?: string;
+}
+
+function readFirstHeaderValue(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
+}
+
+function normalizeRequestHostname(hostHeader: string): string {
+  const trimmedHost = hostHeader.trim();
+  if (!trimmedHost) {
+    return '';
+  }
+
+  try {
+    return new URL(`http://${trimmedHost}`).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  } catch {
+    return trimmedHost
+      .replace(/^\[|\]$/g, '')
+      .replace(/:\d+$/, '')
+      .toLowerCase();
+  }
+}
+
+function isTrustedLocalDevHostname(hostname: string): boolean {
+  const normalizedHostname = hostname.replace(/\.$/, '').toLowerCase();
+
+  return (
+    normalizedHostname === 'localhost' ||
+    normalizedHostname.endsWith('.localhost') ||
+    normalizedHostname === '::1' ||
+    /^127(?:\.\d{1,3}){3}$/.test(normalizedHostname)
+  );
+}
+
+function isHttpsDevRequest(request: IsolationHeaderRequestLike): boolean {
+  if (request.socket?.encrypted) {
+    return true;
+  }
+
+  const forwardedProto = readFirstHeaderValue(request.headers?.['x-forwarded-proto'])
+    .split(',')[0]
+    ?.trim()
+    .toLowerCase();
+  return forwardedProto === 'https';
+}
+
 function applyDocumentHeaders(
   response: import('node:http').ServerResponse,
   headers: Readonly<Record<string, string>>,
@@ -204,15 +283,31 @@ function applyDocumentHeaders(
   });
 }
 
+function isHandoffDocumentRequest(request: IsolationHeaderRequestLike): boolean {
+  const pathname = new URL(String(request.url || '/'), 'http://localhost').pathname;
+  return pathname === '/handoff.html';
+}
+
+function shouldApplyIsolatedDocumentHeaders(request: IsolationHeaderRequestLike): boolean {
+  if (isHandoffDocumentRequest(request)) {
+    return false;
+  }
+
+  if (isHttpsDevRequest(request)) {
+    return true;
+  }
+
+  return isTrustedLocalDevHostname(normalizeRequestHostname(readFirstHeaderValue(request.headers?.host)));
+}
+
 function createConditionalIsolationHeadersPlugin() {
   const installHeaderMiddleware = (middlewareStack: {
     use: (handler: (req: any, res: any, next: () => void) => void) => void;
   }): void => {
     middlewareStack.use((request, response, next) => {
-      const pathname = new URL(String(request.url || '/'), 'http://localhost').pathname;
-      if (pathname === '/handoff.html') {
+      if (isHandoffDocumentRequest(request)) {
         applyDocumentHeaders(response, HANDOFF_DOCUMENT_HEADERS);
-      } else {
+      } else if (shouldApplyIsolatedDocumentHeaders(request)) {
         applyDocumentHeaders(response, ISOLATED_DOCUMENT_HEADERS);
       }
       next();
@@ -250,11 +345,14 @@ function createStaticHostingHeadersAssetPlugin() {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  const devServerAllowedHosts = resolveDevServerAllowedHosts(env);
+
   return {
     server: {
       port: 3000,
       strictPort: false,
-      host: '127.0.0.1',
+      host: resolveDevServerHost(env),
+      ...(devServerAllowedHosts ? { allowedHosts: devServerAllowedHosts } : {}),
       // Verification artifacts are intentionally written into tmp/ by repo policy.
       // Ignore generated directories so exports, screenshots, logs, and pid files
       // do not trigger full-page reloads and wipe imported workspace state.

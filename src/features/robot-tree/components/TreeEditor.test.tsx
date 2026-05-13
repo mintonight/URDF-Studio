@@ -9,7 +9,7 @@ import { JSDOM } from 'jsdom';
 import { DEFAULT_LINK } from '@/types/constants';
 import type { AssemblyState, RobotFile, RobotState } from '@/types';
 import { GeometryType, JointType } from '@/types';
-import { useSelectionStore, useUIStore } from '@/store';
+import { useRobotStore, useSelectionStore, useUIStore } from '@/store';
 
 import { TreeEditor } from './TreeEditor.tsx';
 
@@ -167,6 +167,55 @@ function createRobotStateWithJoint(): RobotState {
     },
     rootLinkId: 'base_link',
     selection: { type: 'link', id: 'base_link' },
+  };
+}
+
+function createDeepRobotState(depth: number): RobotState {
+  const links: RobotState['links'] = {
+    base_link: {
+      ...DEFAULT_LINK,
+      id: 'base_link',
+      name: 'base_link',
+    },
+  };
+  const joints: RobotState['joints'] = {};
+
+  let parentLinkId = 'base_link';
+  for (let index = 1; index <= depth; index += 1) {
+    const childLinkId = `piper_link_${index}`;
+    const jointId = `piper_joint_${index}`;
+
+    links[childLinkId] = {
+      ...DEFAULT_LINK,
+      id: childLinkId,
+      name: childLinkId,
+    };
+    joints[jointId] = {
+      id: jointId,
+      name: jointId,
+      type: JointType.FIXED,
+      parentLinkId,
+      childLinkId,
+      origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+      axis: { x: 0, y: 0, z: 1 },
+      limit: { lower: 0, upper: 0, effort: 0, velocity: 0 },
+      dynamics: { damping: 0, friction: 0 },
+      hardware: {
+        armature: 0,
+        motorType: '',
+        motorId: '',
+        motorDirection: 1,
+      },
+    };
+    parentLinkId = childLinkId;
+  }
+
+  return {
+    name: 'piper',
+    links,
+    joints,
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
   };
 }
 
@@ -569,6 +618,69 @@ test('TreeEditor renders workspace components and bridges inside the single stru
   }
 });
 
+test('TreeEditor keeps deep structure rows constrained to the sidebar width', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+  const deepRobot = createDeepRobotState(8);
+  useRobotStore.getState().setRobot(deepRobot, { skipHistory: true, resetHistory: true });
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={deepRobot}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          availableFiles={[]}
+        />,
+      );
+    });
+
+    const deepestLabel = container.querySelector(
+      'span[title="piper_link_8"]',
+    ) as HTMLSpanElement | null;
+    assert.ok(deepestLabel, 'deep imported branches should render expanded by default');
+
+    const structureScrollArea = deepestLabel.closest('.custom-scrollbar') as HTMLElement | null;
+    assert.ok(structureScrollArea, 'deep label should be inside the structure tree scroll area');
+    assert.match(
+      structureScrollArea.className,
+      /\boverflow-x-hidden\b/,
+      'structure rows should truncate inside the sidebar instead of requiring horizontal scrolling',
+    );
+
+    const widthWrapper = structureScrollArea.firstElementChild as HTMLElement | null;
+    assert.ok(widthWrapper, 'structure scroll area should have a width wrapper');
+    assert.match(widthWrapper.className, /\bw-full\b/);
+    assert.match(widthWrapper.className, /\bmin-w-0\b/);
+    assert.ok(
+      !/\bmin-w-max\b/.test(widthWrapper.className),
+      'structure tree should not force max-content width for deep branches',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    useRobotStore.getState().resetRobot(createRobotState());
+    dom.window.close();
+  }
+});
+
 test('TreeEditor keeps non-robot asset row clicks as previews', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
@@ -737,6 +849,76 @@ test('TreeEditor sidebar resize handle spans the full sidebar with a thin visibl
           clientX: 338,
         }),
       );
+      dom.window.document.dispatchEvent(
+        new dom.window.MouseEvent('mouseup', {
+          bubbles: true,
+        }),
+      );
+    });
+
+    assert.equal(useUIStore.getState().panelLayout.treeSidebarWidth, 338);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('TreeEditor previews sidebar width without committing store updates until drag end', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useUIStore.setState({
+    panelLayout: {
+      ...useUIStore.getState().panelLayout,
+      treeSidebarWidth: 288,
+    },
+  });
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+
+  try {
+    await renderTreeEditor({
+      root,
+      availableFiles: [],
+      onRequestLoadRobot: () => 'loaded',
+    });
+
+    const resizeHandle = container.querySelector<HTMLElement>(
+      '[data-testid="tree-editor-sidebar-resize-handle"]',
+    );
+    assert.ok(resizeHandle, 'sidebar resize handle should render');
+    const sidebar = resizeHandle.parentElement as HTMLElement | null;
+    assert.ok(sidebar, 'resize handle should live inside the sidebar element');
+
+    await act(async () => {
+      resizeHandle.dispatchEvent(
+        new dom.window.MouseEvent('mousedown', {
+          bubbles: true,
+          clientX: 288,
+        }),
+      );
+    });
+
+    await act(async () => {
+      dom.window.document.dispatchEvent(
+        new dom.window.MouseEvent('mousemove', {
+          bubbles: true,
+          clientX: 338,
+        }),
+      );
+    });
+
+    assert.equal(sidebar.style.width, '338px');
+    assert.equal(
+      useUIStore.getState().panelLayout.treeSidebarWidth,
+      288,
+      'drag preview should not write every mousemove into the global UI store',
+    );
+
+    await act(async () => {
       dom.window.document.dispatchEvent(
         new dom.window.MouseEvent('mouseup', {
           bubbles: true,

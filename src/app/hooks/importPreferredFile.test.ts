@@ -244,6 +244,47 @@ test('pickPreferredMjcfImportFile prefers direct robot definitions over wrapper 
   assert.equal(preferredFile?.name, 'demo_bundle/robot_model.xml');
 });
 
+test('pickPreferredMjcfImportFile prefers substantial terrain scenes over included robot entrypoints', () => {
+  const robotFile = createRobotFile(
+    'a2/a2.xml',
+    'mjcf',
+    `<?xml version="1.0"?>
+<mujoco model="a2">
+  <worldbody>
+    <body name="base_link">
+      <joint name="root_hinge" type="hinge" />
+      <geom name="base_geom" type="box" size="0.1 0.1 0.1" />
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="root_motor" joint="root_hinge" />
+  </actuator>
+</mujoco>`,
+  );
+  const terrainGeoms = Array.from({ length: 12 }, (_, index) => {
+    const x = index * 0.25;
+    return `<geom name="terrain_${index}" type="box" pos="${x} 0 0.05" size="0.1 0.1 0.05" />`;
+  }).join('\n    ');
+  const terrainSceneFile = createRobotFile(
+    'a2/scene_terrain.xml',
+    'mjcf',
+    `<?xml version="1.0"?>
+<mujoco model="a2 terrain">
+  <include file="a2.xml" />
+  <worldbody>
+    ${terrainGeoms}
+  </worldbody>
+</mujoco>`,
+  );
+
+  const preferredFile = pickPreferredMjcfImportFile(
+    [terrainSceneFile, robotFile],
+    [terrainSceneFile, robotFile],
+  );
+
+  assert.equal(preferredFile?.name, 'a2/scene_terrain.xml');
+});
+
 test('pickPreferredImportFile does not prefer MJCF solely because the bundle path mentions mujoco', () => {
   const urdfFile = createRobotFile(
     'demo_mujoco/urdf/demo.urdf',

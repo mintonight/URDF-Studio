@@ -108,6 +108,50 @@ test('validateMJCFImportExternalAssets tolerates a single duplicated path segmen
   assert.deepEqual(issues, []);
 });
 
+test('validateMJCFImportExternalAssets fuzzily rescues geometry asset path variants only', () => {
+  const content = `
+    <mujoco>
+      <compiler meshdir="assets" />
+      <include file="common.xml" />
+      <asset>
+        <mesh name="case_mesh" file="BASE_LINK.DAE" />
+        <mesh name="file_mesh" file="file:///tmp/import/robot/meshes/arm.obj" />
+        <mesh name="directory_mesh" file="meshes/leg.stl" />
+        <mesh name="extension_mesh" file="legacy/foot.mesh" />
+        <hfield name="height" file="terrain.raw" />
+        <model name="nested_model" file="nested_model.xml" />
+        <texture name="strict_texture" type="2d" file="textures/panel.png" />
+      </asset>
+      <worldbody />
+    </mujoco>
+  `;
+
+  const issues = validateMJCFImportExternalAssets(
+    'robots/demo/scene.xml',
+    content,
+    [
+      createMjcfFile('robots/demo/assets/models/nested_model.xml', '<mujoco><worldbody /></mujoco>'),
+      createMjcfFile('robots/demo/assets/includes/common.xml', '<mujoco><worldbody /></mujoco>'),
+    ],
+    {
+      'robots/demo/assets/meshes/base_link.dae': 'blob:base-link',
+      'robots/demo/shared/arm.obj': 'blob:arm',
+      'robots/demo/leg.stl': 'blob:leg',
+      'robots/demo/assets/foot.dae': 'blob:foot',
+      'robots/demo/assets/heightfields/terrain.raw': 'blob:terrain',
+      'robots/demo/assets/materials/panel.png': 'blob:panel',
+    },
+  );
+
+  assert.deepEqual(
+    issues.map((issue) => [issue.referenceKind, issue.rawPath, issue.resolvedPath]),
+    [
+      ['include', 'common.xml', 'robots/demo/common.xml'],
+      ['texture', 'textures/panel.png', 'robots/demo/textures/panel.png'],
+    ],
+  );
+});
+
 test('validateMJCFImportExternalAssets still reports genuinely missing external assets', () => {
   const content = `
     <mujoco>

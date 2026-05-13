@@ -1,5 +1,6 @@
 import { logRuntimeFailure } from '@/core/utils/runtimeDiagnostics';
 import type { RobotFile } from '@/types';
+import { getUsdRuntimeEnvironmentError } from './usdWasmRuntime.ts';
 import {
   buildUsdStageOpenPreparationWorkerDispatch,
   type PreparedUsdStageOpenWorkerDispatch,
@@ -25,6 +26,7 @@ interface WorkerLike {
 interface CreateUsdOffscreenViewerWorkerClientOptions {
   canUseWorker?: () => boolean;
   createWorker?: () => WorkerLike;
+  getRuntimeEnvironmentError?: () => Error | null;
 }
 
 type WorkerResponseMessageEvent = MessageEvent<UsdOffscreenViewerWorkerResponse | undefined>;
@@ -55,6 +57,7 @@ export function createUsdOffscreenViewerWorkerClient({
     new Worker(new URL('../workers/usdOffscreenViewer.worker.ts', import.meta.url), {
       type: 'module',
     }),
+  getRuntimeEnvironmentError: resolveRuntimeEnvironmentError = getUsdRuntimeEnvironmentError,
 }: CreateUsdOffscreenViewerWorkerClientOptions = {}): UsdOffscreenViewerWorkerClient {
   let sharedWorker: WorkerLike | null = null;
   const syncedContextKeys = new Set<string>();
@@ -99,6 +102,11 @@ export function createUsdOffscreenViewerWorkerClient({
   };
 
   const getWorker = (): WorkerLike => {
+    const runtimeEnvironmentError = resolveRuntimeEnvironmentError();
+    if (runtimeEnvironmentError) {
+      throw runtimeEnvironmentError;
+    }
+
     if (!canUseWorker()) {
       throw new Error('USD offscreen viewer worker is unavailable in this environment');
     }
@@ -173,6 +181,16 @@ export function createUsdOffscreenViewerWorkerClient({
       };
     },
     prewarmRuntime: () => {
+      const runtimeEnvironmentError = resolveRuntimeEnvironmentError();
+      if (runtimeEnvironmentError) {
+        logRuntimeFailure(
+          'prewarmUsdOffscreenViewerRuntime',
+          runtimeEnvironmentError,
+          'warn',
+        );
+        return;
+      }
+
       try {
         postSharedMessage({ type: 'prewarm-runtime' });
       } catch (error) {

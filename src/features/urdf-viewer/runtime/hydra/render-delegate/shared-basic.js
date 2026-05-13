@@ -678,6 +678,51 @@ function extractUsdMaterialBindingTarget(metadataText) {
     const bindingMatch = metadataText.match(/\brel\s+material:binding(?:[:\w-]+)?\s*=\s*<([^>]+)>/i);
     return bindingMatch?.[1] ? normalizeUsdPathToken(bindingMatch[1]) : '';
 }
+function normalizeUsdMaterialBindingStrength(value) {
+    const normalized = String(value || '').trim();
+    if (/^strongerThanDescendants$/i.test(normalized)) {
+        return 'strongerThanDescendants';
+    }
+    if (/^weakerThanDescendants$/i.test(normalized)) {
+        return 'weakerThanDescendants';
+    }
+    return '';
+}
+function extractUsdMaterialBindingStrength(metadataText) {
+    if (!metadataText || typeof metadataText !== 'string') {
+        return '';
+    }
+    const strengthMatch = metadataText.match(/\bbindMaterialAs\s*=\s*(?:"([^"]+)"|([A-Za-z_]\w*))/i);
+    return normalizeUsdMaterialBindingStrength(strengthMatch?.[1] || strengthMatch?.[2] || '');
+}
+function extractUsdDefaultPrimPathFromLayerText(layerText) {
+    if (!layerText || typeof layerText !== 'string') {
+        return '';
+    }
+    const defaultPrimMatch = layerText.match(/\bdefaultPrim\s*=\s*"([^"]+)"/i);
+    const defaultPrimName = String(defaultPrimMatch?.[1] || '').trim();
+    return defaultPrimName ? normalizeUsdPathToken(`/${defaultPrimName}`) : '';
+}
+function getUsdMaterialBindingStrengthFromEntry(entry) {
+    return normalizeUsdMaterialBindingStrength(entry?.bindingStrength || entry?.bindMaterialAs || '');
+}
+function attachUsdMaterialBindingStrength(entry, bindingStrength) {
+    const normalizedStrength = normalizeUsdMaterialBindingStrength(bindingStrength);
+    if (!entry || typeof entry !== 'object' || !normalizedStrength) {
+        return entry;
+    }
+    Object.defineProperty(entry, 'bindingStrength', {
+        value: normalizedStrength,
+        enumerable: false,
+        configurable: true,
+    });
+    Object.defineProperty(entry, 'bindMaterialAs', {
+        value: normalizedStrength,
+        enumerable: false,
+        configurable: true,
+    });
+    return entry;
+}
 function parseUsdIntegerArrayLiteral(arrayLiteral) {
     const raw = String(arrayLiteral || '').trim();
     if (!raw) {
@@ -801,7 +846,11 @@ export function parseUrdfMaterialMetadataFromLayerText(layerText) {
 }
 export function parseUsdMaterialBindingsFromLayerText(layerText) {
     const materialBindingsByPrimPath = new Map();
+    const materialBindingStrengthByPrimPath = new Map();
     const referenceTargetsByPrimPath = new Map();
+    const primTypeByPrimPath = new Map();
+    const directChildMeshPathsByPrimPath = new Map();
+    const defaultPrimPath = extractUsdDefaultPrimPathFromLayerText(layerText);
     const mergeBindingEntry = (primPath, rawEntry) => {
         const normalizedPrimPath = normalizeUsdPathToken(primPath);
         if (!normalizedPrimPath || !rawEntry || typeof rawEntry !== 'object') {
@@ -812,8 +861,19 @@ export function parseUsdMaterialBindingsFromLayerText(layerText) {
             geomSubsetSections: [],
         };
         const nextMaterialId = normalizeUsdPathToken(rawEntry.materialId || '');
-        if (!existingEntry.materialId && nextMaterialId) {
+        const bindingStrength = getUsdMaterialBindingStrengthFromEntry(rawEntry);
+        const isStrongerBinding = bindingStrength === 'strongerThanDescendants';
+        const existingBindingStrength = materialBindingStrengthByPrimPath.get(normalizedPrimPath)
+            || getUsdMaterialBindingStrengthFromEntry(existingEntry);
+        const existingIsStrongerBinding = existingBindingStrength === 'strongerThanDescendants';
+        if (nextMaterialId && (!existingEntry.materialId || (isStrongerBinding && !existingIsStrongerBinding))) {
             existingEntry.materialId = nextMaterialId;
+            if (bindingStrength) {
+                materialBindingStrengthByPrimPath.set(normalizedPrimPath, bindingStrength);
+            }
+            else if (!existingIsStrongerBinding) {
+                materialBindingStrengthByPrimPath.delete(normalizedPrimPath);
+            }
         }
         const rawSections = Array.isArray(rawEntry.geomSubsetSections)
             ? rawEntry.geomSubsetSections
@@ -851,23 +911,39 @@ export function parseUsdMaterialBindingsFromLayerText(layerText) {
             return String(left.materialId || '').localeCompare(String(right.materialId || ''));
         });
         if (existingEntry.materialId || mergedSections.length > 0) {
-            materialBindingsByPrimPath.set(normalizedPrimPath, {
+            const storedEntry = {
                 materialId: existingEntry.materialId || null,
                 geomSubsetSections: mergedSections,
-            });
+            };
+            attachUsdMaterialBindingStrength(storedEntry, materialBindingStrengthByPrimPath.get(normalizedPrimPath) || '');
+            materialBindingsByPrimPath.set(normalizedPrimPath, storedEntry);
         }
     };
     walkUsdNamedPrimBlocks(layerText, ({ primType, path, text, body, pathSegments }) => {
+        const normalizedPath = normalizeUsdPathToken(path);
         const openingBraceIndex = text.indexOf('{');
         const headerText = openingBraceIndex >= 0 ? text.slice(0, openingBraceIndex) : text;
         const immediateProperties = extractImmediatePropertyTextFromPrimBody(body);
         const metadataText = `${headerText}\n${immediateProperties}`;
         const normalizedPrimType = String(primType || '').trim().toLowerCase();
+        if (normalizedPath) {
+            primTypeByPrimPath.set(normalizedPath, normalizedPrimType);
+            if (normalizedPrimType === 'mesh' && Array.isArray(pathSegments) && pathSegments.length >= 2) {
+                const parentPrimPath = buildUsdPathFromSegments(pathSegments.slice(0, -1));
+                if (parentPrimPath) {
+                    const childMeshPaths = directChildMeshPathsByPrimPath.get(parentPrimPath) || [];
+                    if (!childMeshPaths.includes(normalizedPath)) {
+                        childMeshPaths.push(normalizedPath);
+                        directChildMeshPathsByPrimPath.set(parentPrimPath, childMeshPaths);
+                    }
+                }
+            }
+        }
         const materialId = extractUsdMaterialBindingTarget(metadataText);
+        const bindMaterialAs = extractUsdMaterialBindingStrength(metadataText);
         const referenceTargets = extractReferencePrimTargets(metadataText)
             .map((target) => normalizeUsdPathToken(target))
             .filter(Boolean);
-        const normalizedPath = normalizeUsdPathToken(path);
         if (normalizedPath && referenceTargets.length > 0) {
             referenceTargetsByPrimPath.set(normalizedPath, referenceTargets);
         }
@@ -892,6 +968,7 @@ export function parseUsdMaterialBindingsFromLayerText(layerText) {
             mergeBindingEntry(parentPrimPath, {
                 materialId: null,
                 geomSubsetSections,
+                bindMaterialAs,
             });
             return;
         }
@@ -901,12 +978,56 @@ export function parseUsdMaterialBindingsFromLayerText(layerText) {
         mergeBindingEntry(path, {
             materialId,
             geomSubsetSections: [],
+            bindMaterialAs,
         });
     });
     Array.from(materialBindingsByPrimPath.entries()).forEach(([primPath, entry]) => {
         const referenceTargets = referenceTargetsByPrimPath.get(primPath) || [];
+        const aliasEntry = {
+            materialId: entry?.materialId || null,
+            geomSubsetSections: Array.isArray(entry?.geomSubsetSections)
+                ? entry.geomSubsetSections
+                : [],
+            bindMaterialAs: materialBindingStrengthByPrimPath.get(primPath) || '',
+        };
         referenceTargets.forEach((referenceTarget) => {
-            mergeBindingEntry(referenceTarget, entry);
+            const normalizedReferenceTarget = normalizeUsdPathToken(referenceTarget);
+            if (!normalizedReferenceTarget) {
+                return;
+            }
+            mergeBindingEntry(normalizedReferenceTarget, aliasEntry);
+            if (primTypeByPrimPath.get(normalizedReferenceTarget) === 'mesh') {
+                return;
+            }
+            const childMeshPaths = directChildMeshPathsByPrimPath.get(normalizedReferenceTarget) || [];
+            childMeshPaths.forEach((childMeshPath) => {
+                mergeBindingEntry(childMeshPath, aliasEntry);
+            });
+        });
+    });
+    Array.from(materialBindingsByPrimPath.entries()).forEach(([primPath, entry]) => {
+        if (!defaultPrimPath || !primTypeByPrimPath.has(defaultPrimPath)) {
+            return;
+        }
+        if (primPath === defaultPrimPath || primPath.startsWith(`${defaultPrimPath}/`)) {
+            return;
+        }
+        const materialIds = [
+            normalizeUsdPathToken(entry?.materialId || ''),
+            ...(Array.isArray(entry?.geomSubsetSections)
+                ? entry.geomSubsetSections.map((section) => normalizeUsdPathToken(section?.materialId || ''))
+                : []),
+        ].filter(Boolean);
+        if (!materialIds.some((materialId) => materialId === defaultPrimPath || materialId.startsWith(`${defaultPrimPath}/`))) {
+            return;
+        }
+        mergeBindingEntry(`${defaultPrimPath}${primPath}`, {
+            materialId: entry?.materialId || null,
+            geomSubsetSections: Array.isArray(entry?.geomSubsetSections)
+                ? entry.geomSubsetSections
+                : [],
+            bindMaterialAs: materialBindingStrengthByPrimPath.get(primPath)
+                || getUsdMaterialBindingStrengthFromEntry(entry),
         });
     });
     return materialBindingsByPrimPath;

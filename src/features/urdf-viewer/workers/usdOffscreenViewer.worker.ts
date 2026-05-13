@@ -2122,6 +2122,7 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
         preloadFileCount: result.preloadFiles.length,
         criticalDependencyCount: result.criticalDependencyPaths.length,
         stageSourcePath: result.stageSourcePath,
+        ...(result.metrics ?? {}),
       }),
     });
     recordPreparedStageOpenCacheKey(preparedStageOpenCacheKey);
@@ -2167,6 +2168,7 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
         stageSourcePath: preparedStageOpenData.stageSourcePath,
         preloadFileCount: preparedStageOpenData.preloadFiles.length,
         criticalDependencyCount: preparedStageOpenData.criticalDependencyPaths.length,
+        ...(preparedStageOpenData.metrics ?? {}),
       }),
     });
 

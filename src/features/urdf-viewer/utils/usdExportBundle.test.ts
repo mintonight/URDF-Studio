@@ -6,6 +6,7 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { GeometryType, JointType } from '../../../types/index.ts';
 import type { RobotState, UsdPreparedExportCache, UsdSceneSnapshot } from '../../../types/index.ts';
 import {
+  __private__ as usdExportBundlePrivate,
   canPrepareUsdExportCacheFromSnapshot,
   buildUsdExportBundleFromPreparedCache,
   buildUsdExportBundleFromSnapshot,
@@ -233,6 +234,20 @@ test('buildUsdExportBundleFromSnapshot preserves current robot edits and emits e
   assert.match(baseVisualText, /^o base_link_visual_0/m);
   assert.match(baseVisualText, /^v 0 0 0 1 0 0$/m);
   assert.match(baseVisualText, /^f 1 2 3$/m);
+});
+
+test('USD export mesh range reader borrows typed array ranges without copying', () => {
+  const source = new Float32Array([0, 1, 2, 3, 4, 5]);
+
+  const values = usdExportBundlePrivate.readRangeValues(source, {
+    offset: 2,
+    count: 3,
+    stride: 1,
+  });
+
+  assert.equal(ArrayBuffer.isView(values), true);
+  assert.equal((values as Float32Array).buffer, source.buffer);
+  assert.deepEqual(Array.from(values), [2, 3, 4]);
 });
 
 test('buildUsdExportBundleFromSnapshot keeps descriptor transforms in origins instead of baking them twice into OBJ vertices', async () => {

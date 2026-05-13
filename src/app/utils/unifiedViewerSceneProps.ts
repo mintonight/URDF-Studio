@@ -94,6 +94,7 @@ export function buildUnifiedViewerSceneProps({
 }: BuildUnifiedViewerScenePropsArgs): ViewerSceneBaseProps {
   const blocksReadOnlyModelInteraction = hasActivePreview || !modelInteractionEnabled;
   const previewBlocksInteraction = blocksReadOnlyModelInteraction || !active;
+  const shouldRenderFromStructuredRobotState = !hasActivePreview;
 
   return buildViewerSceneProps({
     controller,
@@ -116,8 +117,9 @@ export function buildUnifiedViewerSceneProps({
     onHover: previewBlocksInteraction ? undefined : onHover,
     onMeshSelect: previewBlocksInteraction ? undefined : onMeshSelect,
     onUpdate: blocksReadOnlyModelInteraction ? undefined : onUpdate,
-    robotLinks: blocksReadOnlyModelInteraction ? undefined : robot.links,
-    robotJoints: blocksReadOnlyModelInteraction ? undefined : robot.joints,
+    robotLinks: shouldRenderFromStructuredRobotState ? robot.links : undefined,
+    robotJoints: shouldRenderFromStructuredRobotState ? robot.joints : undefined,
+    robotData: shouldRenderFromStructuredRobotState ? robot : null,
     focusTarget: blocksReadOnlyModelInteraction ? undefined : focusTarget,
     onCollisionTransformPreview: blocksReadOnlyModelInteraction
       ? undefined

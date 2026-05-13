@@ -23,7 +23,11 @@ import {
   type UsdLayerFileFormat,
   type UsdPackageLayoutProfile,
 } from './usdPackageLayers.ts';
-import { buildUsdLinkSceneRoot, flattenUsdLinkSceneHierarchy } from './usdLinkSceneBuilder.ts';
+import {
+  buildUsdLinkSceneRoot,
+  flattenUsdLinkSceneHierarchy,
+  type UsdVisualMeshMergeOptions,
+} from './usdLinkSceneBuilder.ts';
 import { collectUsdExportAssetFiles } from './usdAssetCollection.ts';
 import {
   advanceUsdProgress,
@@ -181,7 +185,7 @@ const appendGeometryBody = (
   parent[key] = [...(parent[key] || []), geometry];
 };
 
-const collapseSyntheticMjcfGeomLinksForIsaacExport = (robot: RobotState): RobotState => {
+const collapseSyntheticMjcfGeomLinksForUsdExport = (robot: RobotState): RobotState => {
   if (robot.inspectionContext?.sourceFormat !== 'mjcf') {
     return robot;
   }
@@ -397,6 +401,7 @@ export interface ExportRobotToUsdOptions {
   assets: Record<string, string>;
   extraMeshFiles?: Map<string, Blob>;
   meshCompression?: UsdMeshCompressionOptions;
+  visualMeshMerge?: UsdVisualMeshMergeOptions;
   fileFormat?: UsdLayerFileFormat;
   layoutProfile?: UsdPackageLayoutProfile;
   onProgress?: (progress: ExportRobotToUsdProgress) => void;
@@ -416,15 +421,14 @@ export async function exportRobotToUsd({
   assets,
   extraMeshFiles,
   meshCompression,
+  visualMeshMerge,
   fileFormat = 'usd',
   layoutProfile = 'legacy',
   onProgress,
 }: ExportRobotToUsdOptions): Promise<ExportRobotToUsdPayload> {
   const exportRobot = createUsdExportRobot(robot);
   const resolvedLayoutProfile = resolveUsdPackageLayoutProfile(layoutProfile);
-  if (resolvedLayoutProfile === 'isaacsim') {
-    collapseSyntheticMjcfGeomLinksForIsaacExport(exportRobot);
-  }
+  collapseSyntheticMjcfGeomLinksForUsdExport(exportRobot);
   const normalizedExportName = sanitizeUsdIdentifier(exportName || exportRobot.name || 'robot');
   const configStem =
     resolvedLayoutProfile === 'isaacsim'
@@ -449,6 +453,9 @@ export async function exportRobotToUsd({
       robot: exportRobot,
       registry,
       meshCompression,
+      visualMeshMerge:
+        visualMeshMerge ??
+        (exportRobot.inspectionContext?.sourceFormat === 'mjcf' ? { enabled: true } : undefined),
       onLinkVisit: async (link) => {
         advanceUsdProgress(
           linkProgressTracker,

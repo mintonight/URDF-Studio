@@ -11,6 +11,7 @@ interface AutoSeedAssemblyOptions {
   availableFiles?: RobotFile[];
   assets?: Record<string, string>;
   allFileContents?: Record<string, string>;
+  splitMjcfSceneIncludes?: boolean;
 }
 
 interface PreparedAssemblyComponentSeed {
@@ -310,9 +311,11 @@ export function autoSeedAssembly(
   sourceFileName: string,
   options: AutoSeedAssemblyOptions = {},
 ): AssemblyState {
-  const sceneAssembly = autoSeedMjcfSceneAssembly(robotData, sourceFileName, options);
-  if (sceneAssembly) {
-    return sceneAssembly;
+  if (options.splitMjcfSceneIncludes) {
+    const sceneAssembly = autoSeedMjcfSceneAssembly(robotData, sourceFileName, options);
+    if (sceneAssembly) {
+      return sceneAssembly;
+    }
   }
 
   const { componentId, displayName } = buildAssemblyComponentIdentity({

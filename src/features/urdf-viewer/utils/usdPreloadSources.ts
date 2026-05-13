@@ -25,6 +25,7 @@ export interface UsdPreloadEntry {
   loadBlob: () => Promise<Blob>;
   loadText?: (() => Promise<string>) | null;
   normalizationCacheKey: string | null;
+  sourceKind: UsdPreloadSourceKind;
 }
 
 type StageOpenSourceFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl'>;
@@ -368,9 +369,11 @@ export function createUsdPreloadSource(
   const normalizedPath = normalizeUsdAssetPath(file.name).toLowerCase();
   const resolvedBlobUrl = resolveUsdBlobUrl(file.name, file.blobUrl, assets);
   const hasBinaryInlineContent = isLikelyBinaryUsdLayerContent(file.name, file.content);
+  const shouldPreferBlobContent = isBlobBackedLargeTextUsd(file) && Boolean(resolvedBlobUrl);
   const canInlineTextContent =
     typeof file.content === 'string' &&
     file.content.length > 0 &&
+    !shouldPreferBlobContent &&
     !hasBinaryInlineContent &&
     !normalizedPath.endsWith('.usdc') &&
     !normalizedPath.endsWith('.usdz');
@@ -418,6 +421,7 @@ export function buildUsdBundlePreloadEntries(
     loadBlob: () => Promise<Blob>,
     loadText: (() => Promise<string>) | null | undefined,
     normalizationCacheKey: string | null,
+    sourceKind: UsdPreloadSourceKind,
   ) => {
     const virtualPath = toVirtualUsdPath(path);
     if (!preloadEntries.has(virtualPath)) {
@@ -426,6 +430,7 @@ export function buildUsdBundlePreloadEntries(
         loadBlob,
         loadText: loadText ?? null,
         normalizationCacheKey,
+        sourceKind,
       });
     }
   };
@@ -439,6 +444,7 @@ export function buildUsdBundlePreloadEntries(
         preloadSource.loadBlob,
         preloadSource.loadText,
         preloadSource.normalizationCacheKey,
+        preloadSource.kind,
       );
       return;
     }
@@ -459,6 +465,7 @@ export function buildUsdBundlePreloadEntries(
           },
           resolvedBlobUrl,
         ),
+        'blob-url',
       );
     }
   });
@@ -469,6 +476,7 @@ export function buildUsdBundlePreloadEntries(
     sourcePreload.loadBlob,
     sourcePreload.loadText,
     sourcePreload.normalizationCacheKey,
+    sourcePreload.kind,
   );
 
   return Array.from(preloadEntries.values()).sort((left, right) => {

@@ -13,12 +13,24 @@ const TREE_BALANCED_PANEL_FALLBACK_HEIGHT = 240;
 const TREE_EDITOR_FILE_BROWSER_SECTION_KEY = 'tree_editor_file_browser';
 const TREE_EDITOR_STRUCTURE_SECTION_KEY = 'tree_editor_structure';
 
+function applyTreeSidebarWidth(node: HTMLDivElement | null, width: number) {
+  if (!node) {
+    return;
+  }
+
+  const widthPx = `${Math.round(width)}px`;
+  node.style.width = widthPx;
+  node.style.minWidth = widthPx;
+  node.style.flex = `0 0 ${widthPx}`;
+}
+
 interface UseTreeEditorLayoutOptions {
   hasJointPanel?: boolean;
 }
 
 interface UseTreeEditorLayoutResult {
   contentRef: RefObject<HTMLDivElement | null>;
+  sidebarRef: RefObject<HTMLDivElement | null>;
   width: number;
   fileBrowserHeight: number;
   jointPanelHeight: number;
@@ -52,6 +64,7 @@ export function useTreeEditorLayout({
   hasJointPanel = true,
 }: UseTreeEditorLayoutOptions = {}): UseTreeEditorLayoutResult {
   const contentRef = useRef<HTMLDivElement>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
   const [contentHeight, setContentHeight] = useState<number | null>(null);
   const width = useUIStore((state) => state.panelLayout.treeSidebarWidth);
   const storedFileBrowserHeight = useUIStore(
@@ -152,7 +165,8 @@ export function useTreeEditorLayout({
     min: TREE_SIDEBAR_MIN_WIDTH,
     max: TREE_SIDEBAR_MAX_WIDTH,
     value: width,
-    onChange: (nextWidth) => setPanelLayout('treeSidebarWidth', nextWidth),
+    onChange: (nextWidth) => applyTreeSidebarWidth(sidebarRef.current, nextWidth),
+    onCommit: (nextWidth) => setPanelLayout('treeSidebarWidth', nextWidth),
   });
 
   const verticalResize = usePointerResize({
@@ -201,6 +215,7 @@ export function useTreeEditorLayout({
 
   return {
     contentRef,
+    sidebarRef,
     width,
     fileBrowserHeight,
     jointPanelHeight,

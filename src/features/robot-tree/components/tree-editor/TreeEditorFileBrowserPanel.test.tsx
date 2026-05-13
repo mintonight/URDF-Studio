@@ -147,6 +147,23 @@ test('TreeEditorFileBrowserPanel opens files from row clicks and reserves the ad
       (element) => element.getAttribute('title') === translations.en.addComponent,
     );
     assert.ok(addButton, 'add button should render for component-capable files');
+    assert.match(
+      addButton.className,
+      /\bshrink-0\b/,
+      'add button must remain visible when file names and format badges shrink',
+    );
+    const addButtonLabel = addButton.querySelector('span');
+    assert.ok(addButtonLabel, 'add button should keep a text label for wider sidebars');
+    assert.match(
+      addButtonLabel.className,
+      /\bhidden\b/,
+      'narrow sidebars should keep the add icon visible by hiding the text label first',
+    );
+    assert.match(
+      addButtonLabel.className,
+      /@\[260px\]:inline/,
+      'add button text should reappear when the sidebar has enough width',
+    );
 
     await act(async () => {
       addButton.dispatchEvent(

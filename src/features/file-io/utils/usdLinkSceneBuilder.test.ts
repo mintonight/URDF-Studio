@@ -6,6 +6,7 @@ import { GeometryType, JointType, type RobotState } from '@/types';
 
 import { createUsdAssetRegistry } from './usdAssetRegistry.ts';
 import { buildUsdLinkSceneRoot, flattenUsdLinkSceneHierarchy } from './usdLinkSceneBuilder.ts';
+import { collectUsdSerializationContext } from './usdSerializationContext.ts';
 
 if (typeof globalThis.ProgressEvent === 'undefined') {
   class ProgressEventPolyfill extends Event {
@@ -184,6 +185,77 @@ test('buildUsdLinkSceneRoot preserves per-face box material metadata without col
     (baseVisual.getObjectByName('box_back') as THREE.Mesh | undefined)?.userData?.usdMaterial
       ?.texture,
     'textures/back.png',
+  );
+});
+
+test('buildUsdLinkSceneRoot can merge same-link visual meshes while preserving material subsets', async () => {
+  const robot = createTwoLinkRobot();
+  robot.joints = {};
+  robot.links = {
+    base_link: {
+      ...robot.links.base_link,
+      visual: {
+        type: GeometryType.MESH,
+        dimensions: { x: 1, y: 1, z: 1 },
+        color: '#ff0000',
+        meshPath: 'meshes/tri_a.obj',
+        origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+      },
+      visualBodies: [
+        {
+          type: GeometryType.MESH,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#00ff00',
+          meshPath: 'meshes/tri_b.obj',
+          origin: { xyz: { x: 2, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+      ],
+      collision: {
+        type: GeometryType.NONE,
+        dimensions: { x: 0, y: 0, z: 0 },
+        color: '#000000',
+        origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+      },
+      collisionBodies: [],
+    },
+  };
+  robot.materials = {};
+
+  const triangleObj = ['v 0 0 0', 'v 1 0 0', 'v 0 1 0', 'f 1 2 3', ''].join('\n');
+  const { registry } = createUsdAssetRegistry({
+    'meshes/tri_a.obj': `data:text/plain,${encodeURIComponent(triangleObj)}`,
+    'meshes/tri_b.obj': `data:text/plain,${encodeURIComponent(triangleObj)}`,
+  });
+
+  const root = await buildUsdLinkSceneRoot({
+    robot,
+    registry,
+    visualMeshMerge: { enabled: true },
+  });
+
+  const visuals = root.getObjectByName('visuals');
+  assert.ok(visuals instanceof THREE.Group);
+  assert.equal(visuals.children.length, 1);
+
+  const merged = visuals.children[0] as THREE.Mesh;
+  assert.equal(merged.isMesh, true);
+  assert.equal(merged.userData.usdMergedVisual, true);
+  assert.equal(merged.geometry.getAttribute('position')?.count, 6);
+  assert.equal(merged.geometry.groups.length, 2);
+
+  const context = await collectUsdSerializationContext(root);
+  const subsets = context.materialSubsetsByObject.get(merged) || [];
+  assert.equal(subsets.length, 2);
+  assert.deepEqual(
+    subsets.map((subset) => subset.appearance.authoredColor),
+    [
+      [1, 0, 0],
+      [0, 1, 0],
+    ],
+  );
+  assert.deepEqual(
+    subsets.map((subset) => subset.faceIndices),
+    [[0], [1]],
   );
 });
 

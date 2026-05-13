@@ -147,6 +147,40 @@ test('USD selection prewarm skips worker stage-open prewarm for blob-backed larg
   assert.equal(stageOpenPrewarmCalls, 0);
 });
 
+test('USD selection prewarm skips runtime and stage-open prewarm when environment is unsupported', () => {
+  let mainThreadRuntimePrewarmCalls = 0;
+  let offscreenRuntimePrewarmCalls = 0;
+  let stageOpenPrewarmCalls = 0;
+
+  const prewarm = createUsdSelectionPrewarmHandler({
+    prewarmMainThreadRuntime: () => {
+      mainThreadRuntimePrewarmCalls += 1;
+    },
+    prewarmOffscreenRuntime: () => {
+      offscreenRuntimePrewarmCalls += 1;
+    },
+    prewarmStageOpen: () => {
+      stageOpenPrewarmCalls += 1;
+    },
+    hasBlobBackedLargeUsdaInStageScope: () => false,
+    getRuntimeEnvironmentError: () => new Error('USD loading requires a secure context.'),
+  });
+
+  prewarm(
+    {
+      name: 'robots/go2/usd/go2.usd',
+      format: 'usd',
+      content: '#usda 1.0',
+    },
+    [],
+    {},
+  );
+
+  assert.equal(mainThreadRuntimePrewarmCalls, 0);
+  assert.equal(offscreenRuntimePrewarmCalls, 0);
+  assert.equal(stageOpenPrewarmCalls, 0);
+});
+
 test('USD selection background prewarm logs loader failures without blocking callers', async () => {
   const file = {
     name: 'robots/demo/robot.usd',

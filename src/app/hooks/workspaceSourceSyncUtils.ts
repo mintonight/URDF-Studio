@@ -1043,22 +1043,32 @@ export function shouldReuseSourceViewerForSingleComponentAssembly({
   const [component] = visibleComponents;
   const expectedSeedName = sanitizeWorkspaceSeedNameFromFile(activeFile.name);
 
-  if (
-    component.sourceFile !== activeFile.name ||
-    component.name !== expectedSeedName ||
-    component.id !== `comp_${expectedSeedName}`
-  ) {
+  if (component.sourceFile !== activeFile.name || component.id !== `comp_${expectedSeedName}`) {
     return false;
   }
 
   if (!sourceSnapshot && !sourceRobotData) {
-    return true;
+    return component.name === expectedSeedName;
+  }
+
+  const baselineRobotData = sourceRobotData ?? parseRobotSourceSnapshot(sourceSnapshot ?? null);
+  if (!baselineRobotData) {
+    return false;
+  }
+
+  const expectedComponentNames = new Set([expectedSeedName]);
+  if (baselineRobotData.name?.trim()) {
+    expectedComponentNames.add(baselineRobotData.name.trim());
+  }
+
+  if (!expectedComponentNames.has(component.name)) {
+    return false;
   }
 
   const expectedSeedRobot = buildAssemblySeedRobotFromSourceBaseline({
-    sourceRobotData,
-    sourceSnapshot,
-    component,
+    sourceRobotData: baselineRobotData,
+    sourceSnapshot: null,
+    component: { id: component.id, name: expectedSeedName },
     sourceFile: activeFile,
   });
 
@@ -1070,6 +1080,29 @@ export function shouldReuseSourceViewerForSingleComponentAssembly({
     createSingleComponentAssemblyReuseSnapshot(expectedSeedRobot) ===
     createSingleComponentAssemblyReuseSnapshot(component.robot)
   );
+}
+
+export function shouldPreviewLibraryRobotLoadFromWorkspace({
+  assemblyState,
+  activeFile,
+  sourceSnapshot,
+  sourceRobotData,
+}: {
+  assemblyState: AssemblyState | null;
+  activeFile: RobotFile | null;
+  sourceSnapshot: string | null;
+  sourceRobotData?: RobotData | null;
+}): boolean {
+  if (!assemblyState || Object.keys(assemblyState.components).length === 0) {
+    return false;
+  }
+
+  return !shouldReuseSourceViewerForSingleComponentAssembly({
+    assemblyState,
+    activeFile,
+    sourceSnapshot,
+    sourceRobotData,
+  });
 }
 
 export function shouldPromptGenerateWorkspaceUrdfOnStructureSwitch({

@@ -38,7 +38,11 @@ import {
   type JointQuaternion,
   type RobotState,
 } from '@/types';
-import { resolveMimicJointAngleTargets } from '@/core/robot';
+import {
+  getJointActualAngleFromMotionAngle,
+  getJointMotionAngleFromActualAngle,
+  resolveMimicJointAngleTargets,
+} from '@/core/robot';
 import {
   createClosedLoopMotionPreviewSession,
   createClosedLoopMotionPreviewWorkerSession,
@@ -98,6 +102,7 @@ type RuntimePoseJointLike = {
   name?: string;
   angle?: number;
   jointValue?: number;
+  referencePosition?: number;
   jointQuaternion?: RuntimePoseJointQuaternionLike;
   quaternion?: RuntimePoseJointQuaternionLike;
 };
@@ -216,7 +221,11 @@ function mergeClosedLoopRobotStateWithRuntimeJointPose(
       return;
     }
 
-    const nextAngle = toFiniteNumber(runtimeJoint?.angle ?? runtimeJoint?.jointValue);
+    const nextMotionAngle = toFiniteNumber(runtimeJoint?.angle ?? runtimeJoint?.jointValue);
+    const nextAngle =
+      nextMotionAngle !== null
+        ? resolveRuntimeReportedJointAngle(baseJoint, runtimeJoint, nextMotionAngle)
+        : null;
     const nextQuaternion = getRuntimeJointMotionQuaternion(runtimeJoint);
     const shouldUpdateAngle = nextAngle !== null && !isSameJointAngle(baseJoint.angle, nextAngle);
     const shouldUpdateQuaternion =
@@ -235,21 +244,27 @@ function mergeClosedLoopRobotStateWithRuntimeJointPose(
   return nextClosedLoopRobotState;
 }
 
-function resolveRuntimeReportedJointAngle(joint: unknown, runtimeAngle: number): number {
-  if (getJointType(joint) !== JointType.CONTINUOUS) {
-    return runtimeAngle;
+function resolveRuntimeReportedJointAngle(
+  stateJoint: RobotState['joints'][string] | undefined,
+  runtimeJoint: unknown,
+  runtimeMotionAngle: number,
+): number {
+  const actualAngle = stateJoint
+    ? getJointActualAngleFromMotionAngle(stateJoint, runtimeMotionAngle)
+    : runtimeMotionAngle;
+  const jointType = stateJoint?.type ?? getJointType(runtimeJoint);
+
+  if (jointType !== JointType.CONTINUOUS) {
+    return actualAngle;
   }
 
-  const referenceAngle = Number(
-    (joint as { angle?: number; jointValue?: number } | null)?.angle ??
-      (joint as { angle?: number; jointValue?: number } | null)?.jointValue,
-  );
+  const referenceAngle = Number(stateJoint?.angle ?? actualAngle);
 
   if (!Number.isFinite(referenceAngle)) {
-    return runtimeAngle;
+    return actualAngle;
   }
 
-  return unwrapContinuousJointAngle(runtimeAngle, referenceAngle);
+  return unwrapContinuousJointAngle(actualAngle, referenceAngle);
 }
 
 interface UseViewerControllerProps {
@@ -498,6 +513,29 @@ export const useViewerController = ({
     },
     [effectiveClosedLoopRobotState],
   );
+  const resolveRuntimeMotionAngle = useCallback(
+    (
+      jointNameOrId: string,
+      actualAngle: number,
+      runtimeJoint?: RuntimePoseJointLike | null,
+    ) => {
+      const stateJointKey =
+        resolveViewerJointKey(
+          effectiveClosedLoopRobotState?.joints,
+          runtimeJoint?.name || jointNameOrId,
+        ) ??
+        (jointNameOrId in (effectiveClosedLoopRobotState?.joints ?? {}) ? jointNameOrId : null);
+      const stateJoint = stateJointKey
+        ? effectiveClosedLoopRobotState?.joints?.[stateJointKey]
+        : undefined;
+      const referenceJoint = stateJoint ?? runtimeJoint;
+
+      return referenceJoint
+        ? getJointMotionAngleFromActualAngle(referenceJoint, actualAngle)
+        : actualAngle;
+    },
+    [effectiveClosedLoopRobotState?.joints],
+  );
 
   const ensureJointInteractionPreviewSessionId = useCallback(() => {
     if (activeJointInteractionPreviewSessionRef.current !== null) {
@@ -670,9 +708,10 @@ export const useViewerController = ({
           return;
         }
 
+        const runtimeMotionAngle = resolveRuntimeMotionAngle(jointNameOrId, angle, joint);
         const currentAngle = Number(joint.angle ?? joint.jointValue);
-        if (!isSameJointAngle(currentAngle, angle)) {
-          joint.setJointValue?.(angle);
+        if (!isSameJointAngle(currentAngle, runtimeMotionAngle)) {
+          joint.setJointValue?.(runtimeMotionAngle);
           shouldRefresh = true;
         }
       });
@@ -715,6 +754,7 @@ export const useViewerController = ({
       patchJointPanelAngles,
       publishJointInteractionPreview,
       requestSceneRefresh,
+      resolveRuntimeMotionAngle,
     ],
   );
 
@@ -815,9 +855,10 @@ export const useViewerController = ({
             return;
           }
 
+          const runtimeMotionAngle = resolveRuntimeMotionAngle(jointNameOrId, angle, joint);
           const currentAngle = Number(joint.angle ?? joint.jointValue);
-          if (!isSameJointAngle(currentAngle, angle)) {
-            joint.setJointValue?.(angle);
+          if (!isSameJointAngle(currentAngle, runtimeMotionAngle)) {
+            joint.setJointValue?.(runtimeMotionAngle);
             shouldRefresh = true;
           }
         },
@@ -856,13 +897,13 @@ export const useViewerController = ({
     jointControlRobot,
     replaceJointPanelAngles,
     requestSceneRefresh,
+    resolveRuntimeMotionAngle,
   ]);
 
   const scheduleClosedLoopPreviewWorkerSolve = useCallback(
     (selectedJointId: string, resolvedAngle: number, diagnosticLabel: string) => {
       closedLoopMotionPreviewSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
       closedLoopMotionPreviewWorkerSessionRef.current.setBaseRobot(effectiveClosedLoopRobotState);
-      closedLoopPreviewSolveRequestRef.current += 1;
       pendingClosedLoopPreviewRef.current = {
         selectedJointId,
         resolvedAngle,
@@ -895,11 +936,14 @@ export const useViewerController = ({
 
         const solveRequestId = closedLoopPreviewSolveRequestRef.current;
         closedLoopPreviewSolveInFlightRef.current = true;
-
         void closedLoopMotionPreviewWorkerSessionRef.current
           .solve(pendingPreview.selectedJointId, pendingPreview.resolvedAngle)
           .then((compensation) => {
             if (solveRequestId !== closedLoopPreviewSolveRequestRef.current) {
+              return;
+            }
+
+            if (pendingClosedLoopPreviewRef.current) {
               return;
             }
 
@@ -1102,9 +1146,10 @@ export const useViewerController = ({
           }
 
           const numericAngle = Number(angle);
-          const joint = robot?.joints?.[jointName];
+          const jointKey = resolveViewerJointKey(robot?.joints, jointName) ?? jointName;
+          const joint = robot?.joints?.[jointKey];
           if (joint && isSingleDofJoint(joint)) {
-            joint.setJointValue?.(numericAngle);
+            joint.setJointValue?.(resolveRuntimeMotionAngle(jointName, numericAngle, joint));
           }
 
           if (jointAnglesRef.current[jointName] !== numericAngle) {
@@ -1141,6 +1186,7 @@ export const useViewerController = ({
     setModelOpacity,
     normalizedToolModeScopeKey,
     setOriginSize,
+    resolveRuntimeMotionAngle,
     setShowCoMOverlay,
     setShowCenterOfMass,
     setShowCollision,
@@ -1225,7 +1271,13 @@ export const useViewerController = ({
         Object.entries(normalizedAngles).forEach(([jointKey, angle]) => {
           const joint = jointControlRobot.joints?.[jointKey];
           if (joint && isSingleDofJoint(joint)) {
-            const resolvedAngle = resolveRuntimeReportedJointAngle(joint, angle);
+            const stateJointKey =
+              resolveViewerJointKey(effectiveClosedLoopRobotState?.joints, joint.name || jointKey) ??
+              (jointKey in (effectiveClosedLoopRobotState?.joints ?? {}) ? jointKey : null);
+            const stateJoint = stateJointKey
+              ? effectiveClosedLoopRobotState?.joints?.[stateJointKey]
+              : undefined;
+            const resolvedAngle = resolveRuntimeReportedJointAngle(stateJoint, joint, angle);
             resolvedAngles[jointKey] = resolvedAngle;
             joint.angle = resolvedAngle;
           }
@@ -1420,9 +1472,10 @@ export const useViewerController = ({
       }
 
       if (typeof motion.angle === 'number' && isSingleDofJoint(joint)) {
+        const runtimeMotionAngle = resolveRuntimeMotionAngle(name, motion.angle, joint);
         const currentAngle = Number(joint.angle ?? joint.jointValue);
-        if (!isSameJointAngle(currentAngle, motion.angle)) {
-          joint.setJointValue?.(motion.angle);
+        if (!isSameJointAngle(currentAngle, runtimeMotionAngle)) {
+          joint.setJointValue?.(runtimeMotionAngle);
           shouldRefresh = true;
         }
       }
@@ -1439,11 +1492,13 @@ export const useViewerController = ({
 
     if (!jointMotionState) {
       Object.entries(changedPanelAngles).forEach(([name, angle]) => {
-        const joint = jointControlRobot.joints?.[name];
+        const jointKey = resolveViewerJointKey(jointControlJoints, name) ?? name;
+        const joint = jointControlRobot.joints?.[jointKey];
         if (isSingleDofJoint(joint)) {
+          const runtimeMotionAngle = resolveRuntimeMotionAngle(name, angle, joint);
           const currentAngle = Number(joint.angle ?? joint.jointValue);
-          if (!isSameJointAngle(currentAngle, angle)) {
-            joint.setJointValue?.(angle);
+          if (!isSameJointAngle(currentAngle, runtimeMotionAngle)) {
+            joint.setJointValue?.(runtimeMotionAngle);
             shouldRefresh = true;
           }
         }
@@ -1471,6 +1526,7 @@ export const useViewerController = ({
     jointMotionState,
     patchJointPanelAngles,
     requestSceneRefresh,
+    resolveRuntimeMotionAngle,
   ]);
 
   const handleJointAngleChange = useCallback(
@@ -1500,14 +1556,13 @@ export const useViewerController = ({
       }
 
       let shouldRefresh = false;
-      if ((joint.angle ?? joint.jointValue) !== angle) {
-        joint.setJointValue?.(angle);
+      const runtimeMotionAngle = resolveRuntimeMotionAngle(jointName, angle, joint);
+      if (!isSameJointAngle(Number(joint.angle ?? joint.jointValue), runtimeMotionAngle)) {
+        joint.setJointValue?.(runtimeMotionAngle);
         shouldRefresh = true;
       }
 
-      const resolvedAngle = Number.isFinite(Number(joint.angle ?? joint.jointValue))
-        ? Number(joint.angle ?? joint.jointValue)
-        : angle;
+      const resolvedAngle = Number.isFinite(Number(angle)) ? Number(angle) : angle;
       const drivenMotion = resolveDrivenMotion(selectedClosedLoopJointId, resolvedAngle);
 
       applyRuntimeJointMotionPreview(drivenMotion.angles, {}, jointKey);
@@ -1524,15 +1579,35 @@ export const useViewerController = ({
       jointControlRobot,
       requestSceneRefresh,
       resolveDrivenMotion,
+      resolveRuntimeMotionAngle,
       scheduleClosedLoopPreviewWorkerSolve,
     ],
   );
 
+  const resolveRuntimeJointActualAngle = useCallback(
+    (jointName: string, runtimeMotionAngle: number) => {
+      const runtimeJointKey = resolveViewerJointKey(jointControlJoints, jointName);
+      const runtimeJoint = runtimeJointKey ? jointControlRobot?.joints?.[runtimeJointKey] : null;
+      const stateJointKey =
+        resolveViewerJointKey(
+          effectiveClosedLoopRobotState?.joints,
+          runtimeJoint?.name || runtimeJointKey || jointName,
+        ) ??
+        (jointName in (effectiveClosedLoopRobotState?.joints ?? {}) ? jointName : null);
+      const stateJoint = stateJointKey
+        ? effectiveClosedLoopRobotState?.joints?.[stateJointKey]
+        : undefined;
+
+      return resolveRuntimeReportedJointAngle(stateJoint, runtimeJoint, runtimeMotionAngle);
+    },
+    [effectiveClosedLoopRobotState?.joints, jointControlJoints, jointControlRobot],
+  );
+
   const handleRuntimeJointAngleChange = useCallback(
     (jointName: string, angle: number) => {
-      handleJointAngleChange(jointName, angle);
+      handleJointAngleChange(jointName, resolveRuntimeJointActualAngle(jointName, angle));
     },
-    [handleJointAngleChange],
+    [handleJointAngleChange, resolveRuntimeJointActualAngle],
   );
 
   const handleActiveJointChange = useCallback(
@@ -1567,14 +1642,19 @@ export const useViewerController = ({
       const jointKey = resolveViewerJointKey(jointControlJoints, jointName);
       const joint = jointKey ? jointControlRobot?.joints?.[jointKey] : undefined;
       let shouldRefresh = false;
-      if (joint && isSingleDofJoint(joint) && (joint.angle ?? joint.jointValue) !== angle) {
-        joint.setJointValue?.(angle);
-        shouldRefresh = true;
+      if (joint && isSingleDofJoint(joint)) {
+        const runtimeMotionAngle = resolveRuntimeMotionAngle(jointName, angle, joint);
+        if (!isSameJointAngle(Number(joint.angle ?? joint.jointValue), runtimeMotionAngle)) {
+          joint.setJointValue?.(runtimeMotionAngle);
+          shouldRefresh = true;
+        }
       }
 
-      const resolvedAngle = Number.isFinite(Number(joint?.angle ?? joint?.jointValue))
-        ? Number(joint?.angle ?? joint?.jointValue)
-        : angle;
+      const resolvedAngle = Number.isFinite(Number(angle))
+        ? Number(angle)
+        : Number.isFinite(Number(joint?.angle ?? joint?.jointValue))
+          ? Number(joint?.angle ?? joint?.jointValue)
+          : angle;
       const selectedClosedLoopJointId =
         resolveViewerJointKey(
           effectiveClosedLoopRobotState?.joints,
@@ -1593,8 +1673,18 @@ export const useViewerController = ({
           return;
         }
 
-        if ((drivenJoint.angle ?? drivenJoint.jointValue) !== drivenAngle) {
-          drivenJoint.setJointValue?.(drivenAngle);
+        const runtimeMotionAngle = resolveRuntimeMotionAngle(
+          jointNameOrId,
+          drivenAngle,
+          drivenJoint,
+        );
+        if (
+          !isSameJointAngle(
+            Number(drivenJoint.angle ?? drivenJoint.jointValue),
+            runtimeMotionAngle,
+          )
+        ) {
+          drivenJoint.setJointValue?.(runtimeMotionAngle);
           shouldRefresh = true;
         }
       });
@@ -1629,8 +1719,16 @@ export const useViewerController = ({
       patchJointPanelAngles,
       requestSceneRefresh,
       resolveDrivenMotion,
+      resolveRuntimeMotionAngle,
       storeAppliedJointMotionState,
     ],
+  );
+
+  const handleRuntimeJointChangeCommit = useCallback(
+    (jointName: string, angle: number) => {
+      handleJointChangeCommit(jointName, resolveRuntimeJointActualAngle(jointName, angle));
+    },
+    [handleJointChangeCommit, resolveRuntimeJointActualAngle],
   );
 
   const handleResetJoints = useCallback(() => {
@@ -1889,6 +1987,7 @@ export const useViewerController = ({
     handleJointPanelRobotLoaded,
     handleRuntimeJointAnglesChange,
     handleRuntimeJointAngleChange,
+    handleRuntimeJointChangeCommit,
     handleTransformPending,
     handleJointAngleChange,
     handleJointChangeCommit,

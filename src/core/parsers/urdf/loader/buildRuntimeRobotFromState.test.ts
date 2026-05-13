@@ -358,6 +358,53 @@ test('buildRuntimeRobotFromState treats RobotState joint angles as actual positi
   assert.ok(Math.abs((joint.jointValue[0] ?? Number.NaN) - 0.2) <= 1e-12);
 });
 
+test('buildRuntimeRobotFromState exposes referenced joint limits in runtime motion space', async () => {
+  const referencePosition = 0.4;
+  const robot = await buildRuntimeRobotFromState({
+    robotName: 'joint_reference_limit_robot',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+      },
+      child_link: {
+        ...DEFAULT_LINK,
+        id: 'child_link',
+        name: 'child_link',
+      },
+    },
+    joints: {
+      hip_joint: {
+        ...DEFAULT_JOINT,
+        id: 'hip_joint',
+        name: 'hip_joint',
+        type: JointType.REVOLUTE,
+        parentLinkId: 'base_link',
+        childLinkId: 'child_link',
+        axis: { x: 0, y: 0, z: 1 },
+        referencePosition,
+        angle: referencePosition,
+        limit: { lower: -0.2, upper: 1.2, effort: 1, velocity: 1 },
+      },
+    },
+    manager: new THREE.LoadingManager(),
+    loadMeshCb: createNoopMeshLoadCb(),
+  });
+
+  const joint = robot.joints.hip_joint as {
+    jointValue?: number[];
+    limit: { lower: number; upper: number };
+    setJointValue: (value: number) => boolean;
+  };
+
+  assert.ok(Math.abs(joint.limit.lower + 0.6) <= 1e-12);
+  assert.ok(Math.abs(joint.limit.upper - 0.8) <= 1e-12);
+
+  joint.setJointValue(0.9);
+  assert.ok(Math.abs((joint.jointValue?.[0] ?? Number.NaN) - 0.8) <= 1e-12);
+});
+
 test('buildRuntimeRobotFromState applies RobotState ball joint quaternion as motion relative to joint origin', async () => {
   const originRpy = { r: 0.2, p: -0.15, y: 0.35 };
   const motionQuaternion = new THREE.Quaternion().setFromAxisAngle(
@@ -445,7 +492,7 @@ test('buildRuntimeRobotFromState applies RobotState ball joint quaternion as mot
   );
 });
 
-test('buildRuntimeRobotFromState matches MuJoCo truth for Cassie referenced closed-loop links', async () => {
+test('buildRuntimeRobotFromState matches Cassie solved home keyframe pose for referenced closed-loop links', async () => {
   const xml = fs.readFileSync('test/mujoco_menagerie-main/agility_cassie/cassie.xml', 'utf8');
   const robotState = parseMJCF(xml);
   assert.ok(robotState, 'expected Cassie MJCF fixture to parse');
@@ -464,20 +511,20 @@ test('buildRuntimeRobotFromState matches MuJoCo truth for Cassie referenced clos
   robot.updateMatrixWorld(true);
 
   const expectedWorldPositions = {
-    'left-shin': [-0.058383307, 0.1305, 0.813568828],
-    'left-tarsus': [-0.351662916, 0.1305, 0.492004948],
-    'left-foot-crank': [-0.371744312, 0.10775, 0.427843141],
-    'left-plantar-rod': [-0.359371983, 0.11566, 0.374252792],
-    'left-foot': [-0.298857531, 0.1305, 0.08546394],
-    'left-achilles-rod': [-0.049, 0.09, 1.01],
-    'left-heel-spring': [-0.384323527, 0.12958, 0.497488439],
-    'right-shin': [-0.058383307, -0.1305, 0.813568828],
-    'right-tarsus': [-0.351662916, -0.1305, 0.492004948],
-    'right-foot-crank': [-0.371744312, -0.10775, 0.427843141],
-    'right-plantar-rod': [-0.359371983, -0.11566, 0.374252792],
-    'right-foot': [-0.298857531, -0.1305, 0.08546394],
-    'right-achilles-rod': [-0.049, -0.09, 1.01],
-    'right-heel-spring': [-0.384323527, -0.12958, 0.497488439],
+    'left-shin': [0.005232061, 0.13172577, 0.733501836],
+    'left-tarsus': [-0.261057309, 0.133274726, 0.389257984],
+    'left-foot-crank': [-0.248328989, 0.110821994, 0.323141214],
+    'left-plantar-rod': [-0.286542704, 0.1189099, 0.283620766],
+    'left-foot': [-0.021871553, 0.134772839, 0.05631365],
+    'left-achilles-rod': [-0.049, 0.090405415, 0.915728532],
+    'left-heel-spring': [-0.29241532, 0.132402664, 0.378602221],
+    'right-shin': [0.005232061, -0.13172577, 0.733501836],
+    'right-tarsus': [-0.2610575, -0.133274726, 0.389258131],
+    'right-foot-crank': [-0.248329258, -0.110821994, 0.323141347],
+    'right-plantar-rod': [-0.28654302, -0.1189099, 0.283620944],
+    'right-foot': [-0.02187214, -0.13477284, 0.056313513],
+    'right-achilles-rod': [-0.049, -0.090405415, 0.915728532],
+    'right-heel-spring': [-0.292415523, -0.132402663, 0.378602406],
   } satisfies Record<string, [number, number, number]>;
 
   Object.entries(expectedWorldPositions).forEach(([linkId, expectedPosition]) => {
@@ -522,7 +569,7 @@ test('buildRuntimeRobotFromState renders mirrored MJCF mesh visuals double-sided
   assert.equal((loadedMesh.material as THREE.Material).side, THREE.DoubleSide);
 });
 
-test('buildRuntimeRobotFromState renders collision boxes as cylinders while keeping box semantics', async () => {
+test('buildRuntimeRobotFromState renders collision boxes as boxes', async () => {
   const robot = await buildRuntimeRobotFromState({
     robotName: 'collision_box_display_robot',
     links: {
@@ -557,12 +604,12 @@ test('buildRuntimeRobotFromState renders collision boxes as cylinders while keep
   assert.equal(collisionGroup.children.length, 1);
 
   const collisionMesh = collisionGroup.children[0] as THREE.Mesh;
-  assert.equal(collisionMesh.geometry.type, 'CylinderGeometry');
+  assert.equal(collisionMesh.geometry.type, 'BoxGeometry');
   assert.deepEqual(
     collisionMesh.scale.toArray().map((value) => Number(value.toFixed(4))),
-    [0.1, 1.2, 0.2],
+    [0.2, 0.4, 1.2],
   );
-  assert.equal(Number(collisionMesh.rotation.x.toFixed(4)), Number((Math.PI / 2).toFixed(4)));
+  assert.equal(Number(collisionMesh.rotation.x.toFixed(4)), 0);
   assert.equal(Number(collisionMesh.rotation.y.toFixed(4)), 0);
   assert.equal(Number(collisionMesh.rotation.z.toFixed(4)), 0);
 });
@@ -897,6 +944,85 @@ test('buildRuntimeRobotFromState applies link-level RobotData materials to state
     assert.equal(mesh.material.map, appliedTexture);
     assert.equal(mesh.material.userData.urdfTextureApplied, true);
     assert.equal(mesh.material.userData.urdfTexturePath, 'textures/base_color.png');
+  } finally {
+    THREE.TextureLoader.prototype.load = originalTextureLoad;
+  }
+});
+
+test('buildRuntimeRobotFromState keeps Cassie MJCF texture-only materials neutral white', async () => {
+  const originalTextureLoad = THREE.TextureLoader.prototype.load;
+  const appliedTexture = new THREE.Texture();
+  const requestedTexturePaths: string[] = [];
+
+  THREE.TextureLoader.prototype.load = function mockTextureLoad(
+    url: string,
+    onLoad?: (texture: THREE.Texture<HTMLImageElement>) => void,
+  ) {
+    requestedTexturePaths.push(url);
+    const texture = appliedTexture as THREE.Texture<HTMLImageElement>;
+    onLoad?.(texture);
+    return texture;
+  };
+
+  try {
+    const xml = fs.readFileSync('test/mujoco_menagerie-main/agility_cassie/cassie.xml', 'utf8');
+    const robotState = parseMJCF(xml);
+    assert.ok(robotState, 'expected Cassie MJCF fixture to parse');
+    const cassiePelvisLink = robotState.links['cassie-pelvis'];
+    assert.ok(cassiePelvisLink, 'expected Cassie pelvis link');
+
+    const manager = new THREE.LoadingManager();
+    let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null;
+    const ready = new Promise<void>((resolve) => {
+      manager.onLoad = () => resolve();
+    });
+    const completionKey = '__build_runtime_robot_from_state_cassie_texture_test__';
+    manager.itemStart(completionKey);
+
+    try {
+      robot = await buildRuntimeRobotFromState({
+        robotName: robotState.name,
+        links: {
+          'cassie-pelvis': cassiePelvisLink,
+        },
+        joints: {},
+        materials: robotState.materials,
+        manager,
+        loadMeshCb: (_path, _manager, done) => {
+          const geometry = new THREE.BoxGeometry(1, 1, 1);
+          const positionAttribute = geometry.getAttribute('position');
+          assert.ok(positionAttribute, 'expected generated test geometry to have positions');
+          geometry.setAttribute(
+            'uv',
+            new THREE.BufferAttribute(new Float32Array(positionAttribute.count * 2), 2),
+          );
+          done(
+            new THREE.Mesh(
+              geometry,
+              new THREE.MeshPhongMaterial({ color: new THREE.Color('#444444') }),
+            ),
+          );
+        },
+        rootLinkId: 'cassie-pelvis',
+      });
+    } finally {
+      manager.itemEnd(completionKey);
+    }
+
+    await ready;
+
+    const visualMesh = robot?.links['cassie-pelvis'].getObjectByProperty(
+      'isMesh',
+      true,
+    ) as THREE.Mesh | undefined;
+    assert.ok(visualMesh, 'expected Cassie pelvis visual mesh');
+    assert.ok(
+      visualMesh.material instanceof THREE.MeshStandardMaterial,
+      'expected material override to produce MeshStandardMaterial',
+    );
+    assert.deepEqual(requestedTexturePaths, ['assets/cassie-texture.png']);
+    assert.equal(visualMesh.material.map, appliedTexture);
+    assert.deepEqual(toFixedColorArray(visualMesh.material.color), [1, 1, 1]);
   } finally {
     THREE.TextureLoader.prototype.load = originalTextureLoad;
   }

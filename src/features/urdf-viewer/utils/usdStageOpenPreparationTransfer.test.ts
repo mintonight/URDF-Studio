@@ -52,14 +52,16 @@ test('usdStageOpenPreparation transfer serialization preserves preload blobs acr
 });
 
 test('usdStageOpenPreparation transfer serialization keeps existing binary payloads transferable', async () => {
+  const sourceBytes = new Uint8Array([80, 88, 82, 45]);
   const payload: PreparedUsdStageOpenData = {
     stageSourcePath: '/robots/go2/usd/go2.usd',
     criticalDependencyPaths: [],
     preloadFiles: [{
       path: '/robots/go2/usd/go2.usd',
       blob: null,
-      bytes: new Uint8Array([80, 88, 82, 45]),
+      bytes: sourceBytes,
       mimeType: 'application/octet-stream',
+      transferBytes: true,
       error: null,
     }],
   };
@@ -67,6 +69,7 @@ test('usdStageOpenPreparation transfer serialization keeps existing binary paylo
   const serialized = await serializePreparedUsdStageOpenDataForWorker(payload);
 
   assert.equal(serialized.payload.preloadFiles[0]?.blob, null);
+  assert.equal(serialized.payload.preloadFiles[0]?.bytes, sourceBytes.buffer);
   assert.equal(serialized.transferables.length, 1);
 
   const hydrated = hydratePreparedUsdStageOpenDataFromWorker(serialized.payload);
@@ -75,4 +78,28 @@ test('usdStageOpenPreparation transfer serialization keeps existing binary paylo
     Array.from(new Uint8Array(hydrated.preloadFiles[0]!.bytes!)),
     [80, 88, 82, 45],
   );
+});
+
+test('usdStageOpenPreparation transfer serialization clones shared binary payloads by default', async () => {
+  const sourceBytes = new Uint8Array([1, 2, 3, 4]);
+  const payload: PreparedUsdStageOpenData = {
+    stageSourcePath: '/robots/go2/usd/go2.usd',
+    criticalDependencyPaths: [],
+    preloadFiles: [{
+      path: '/robots/go2/usd/go2.usd',
+      blob: null,
+      bytes: sourceBytes,
+      mimeType: 'application/octet-stream',
+      error: null,
+    }],
+  };
+
+  const serialized = await serializePreparedUsdStageOpenDataForWorker(payload);
+
+  assert.notEqual(serialized.payload.preloadFiles[0]?.bytes, sourceBytes.buffer);
+  assert.deepEqual(
+    Array.from(new Uint8Array(serialized.payload.preloadFiles[0]!.bytes!)),
+    [1, 2, 3, 4],
+  );
+  assert.equal(serialized.transferables.length, 1);
 });

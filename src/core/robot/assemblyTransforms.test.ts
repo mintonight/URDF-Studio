@@ -134,6 +134,83 @@ test('buildExportableAssemblyRobotData wraps isolated components and the whole a
   );
 });
 
+test('buildExportableAssemblyRobotData unwraps an identity single-component workspace for export', () => {
+  const assembly: AssemblyState = {
+    name: 'a2',
+    components: {
+      comp_a2: {
+        id: 'comp_a2',
+        name: 'a2',
+        sourceFile: 'test/unitree_ros/robots/a2_description/a2.xml',
+        visible: true,
+        robot: {
+          name: 'a2',
+          rootLinkId: 'comp_a2_world',
+          links: {
+            comp_a2_world: {
+              ...DEFAULT_LINK,
+              id: 'comp_a2_world',
+              name: 'a2',
+            },
+            comp_a2_base_link: {
+              ...DEFAULT_LINK,
+              id: 'comp_a2_base_link',
+              name: 'a2_base_link',
+            },
+          },
+          joints: {
+            comp_a2_floating_base_joint: {
+              ...DEFAULT_JOINT,
+              id: 'comp_a2_floating_base_joint',
+              name: 'a2_floating_base_joint',
+              parentLinkId: 'comp_a2_world',
+              childLinkId: 'comp_a2_base_link',
+              type: JointType.FLOATING,
+              mimic: {
+                joint: 'comp_a2_reference_joint',
+                multiplier: 1,
+                offset: 0,
+              },
+            },
+          },
+          materials: {
+            comp_a2_base_link: {
+              color: '#cad1ee',
+            },
+          },
+          inspectionContext: {
+            sourceFormat: 'mjcf',
+          },
+        },
+      },
+    },
+    bridges: {},
+  };
+
+  const exportRobot = buildExportableAssemblyRobotData(assembly);
+
+  assert.equal(exportRobot.name, 'a2');
+  assert.equal(exportRobot.rootLinkId, 'world');
+  assert.deepEqual(Object.keys(exportRobot.links).sort(), ['base_link', 'world']);
+  assert.equal(exportRobot.links.world.name, 'world');
+  assert.equal(exportRobot.links.base_link.name, 'base_link');
+  assert.deepEqual(Object.keys(exportRobot.joints), ['floating_base_joint']);
+  assert.equal(exportRobot.joints.floating_base_joint.parentLinkId, 'world');
+  assert.equal(exportRobot.joints.floating_base_joint.childLinkId, 'base_link');
+  assert.equal(exportRobot.joints.floating_base_joint.name, 'floating_base_joint');
+  assert.equal(exportRobot.joints.floating_base_joint.mimic?.joint, 'reference_joint');
+  assert.deepEqual(exportRobot.materials, {
+    base_link: {
+      color: '#cad1ee',
+    },
+  });
+  assert.equal(exportRobot.inspectionContext?.sourceFormat, 'mjcf');
+  assert.equal(
+    Object.keys(exportRobot.links).some((linkId) => linkId.startsWith('comp_a2_')),
+    false,
+  );
+});
+
 test('buildExportableAssemblyRobotData does not apply component wrappers to bridged components', () => {
   const assembly = createAssemblyState();
   assembly.bridges.bridge_main = {

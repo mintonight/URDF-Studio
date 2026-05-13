@@ -14,6 +14,7 @@ import {
   resolveUsdPreparedCacheRobotStateUpdate,
 } from '../utils/usdPreparedCacheRobotState';
 import { startUsdRobotStateHydration } from '../utils/usdRobotStateHydration';
+import { handleUsdHydrationWorkerEvent } from '../utils/usdHydrationWorkerEvents';
 import { mapViewerDocumentLoadEventToDocumentLoadPercent } from '../utils/documentLoadProgress';
 import {
   resolveRuntimeRobotReadyDocumentLoadState,
@@ -369,6 +370,16 @@ export function useUsdDocumentLifecycle({
       };
 
       if (
+        event.status !== 'error' &&
+        shouldIgnoreViewerLoadRegressionAfterReadySameFile({
+          currentState: currentDocumentLoadState,
+          nextState: nextDocumentLoadState,
+        })
+      ) {
+        return;
+      }
+
+      if (
         currentDocumentLoadState.status !== nextDocumentLoadState.status ||
         currentDocumentLoadState.fileName !== nextDocumentLoadState.fileName ||
         currentDocumentLoadState.format !== nextDocumentLoadState.format ||
@@ -412,9 +423,7 @@ export function useUsdDocumentLifecycle({
           liveAssetsState.setUsdSceneSnapshot(liveSelectedFile.name, snapshot);
         },
         onEvent: (event) => {
-          if (event.type === 'document-load') {
-            commitHydrationLoadEvent(event.event);
-          }
+          handleUsdHydrationWorkerEvent(event, { commitHydrationLoadEvent });
         },
       });
     } catch (error) {

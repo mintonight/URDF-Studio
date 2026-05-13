@@ -136,6 +136,11 @@ export interface MJCFModelJointEqualityConstraint {
   polycoef: [number, number, number, number, number];
 }
 
+export interface MJCFModelKeyframe {
+  name?: string;
+  qpos?: number[];
+}
+
 export interface MJCFModelBody {
   name: string;
   sourceName?: string;
@@ -162,6 +167,7 @@ export interface ParsedMJCFModel {
   tendonMap: Map<string, MJCFModelTendon>;
   connectConstraints: MJCFModelConnectConstraint[];
   jointEqualityConstraints: MJCFModelJointEqualityConstraint[];
+  keyframes: MJCFModelKeyframe[];
   worldBody: MJCFModelBody;
 }
 
@@ -530,6 +536,22 @@ function parseJointEqualityConstraints(mujocoElement: Element): MJCFModelJointEq
   });
 
   return constraints;
+}
+
+function parseKeyframes(mujocoElement: Element): MJCFModelKeyframe[] {
+  return directChildren(mujocoElement, 'keyframe').flatMap((keyframeElement) =>
+    directChildren(keyframeElement, 'key')
+      .map((keyElement): MJCFModelKeyframe => {
+        const qpos = parseNumbers(keyElement.getAttribute('qpos'));
+        const name = keyElement.getAttribute('name')?.trim() || undefined;
+
+        return {
+          ...(name ? { name } : {}),
+          ...(qpos.length > 0 ? { qpos } : {}),
+        };
+      })
+      .filter((keyframe) => Boolean(keyframe.name || keyframe.qpos)),
+  );
 }
 
 function resolveChildDefaultsClassQName(
@@ -1445,6 +1467,7 @@ export function parseMJCFModel(xmlContent: string): ParsedMJCFModel | null {
     const textureMap = parseTextureAssets(doc, compilerSettings, defaults);
     const connectConstraints = parseConnectConstraints(mujocoElement);
     const jointEqualityConstraints = parseJointEqualityConstraints(mujocoElement);
+    const keyframes = parseKeyframes(mujocoElement);
     const worldbodyElements = directChildren(mujocoElement, 'worldbody');
     if (worldbodyElements.length === 0) {
       console.error('[MJCF] No <worldbody> element found');
@@ -1528,6 +1551,7 @@ export function parseMJCFModel(xmlContent: string): ParsedMJCFModel | null {
         tendonMap,
         connectConstraints,
         jointEqualityConstraints,
+        keyframes,
         worldBody,
       },
       null,

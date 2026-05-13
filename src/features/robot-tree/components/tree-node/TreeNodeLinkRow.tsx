@@ -85,10 +85,11 @@ export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
 }: TreeNodeLinkRowProps) {
   const selectedLinkActionClass =
     'text-system-blue hover:bg-system-blue/15 hover:text-system-blue-hover dark:hover:bg-system-blue/25';
+  const showSecondaryActions = depth < 4 || isSelected || isHovered || isAttentionHighlighted;
 
   return (
     <div
-      className={`relative flex items-center py-0.5 px-2 mx-1 my-0.5 rounded-md transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer group'} ${resolveTreeRowStateClass(
+      className={`relative flex min-w-0 items-center py-0.5 px-2 mx-1 my-0.5 rounded-md transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer group'} ${resolveTreeRowStateClass(
         'text-text-primary dark:text-text-secondary',
         {
           isHovered,
@@ -177,7 +178,7 @@ export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
           }`}
         />
       ) : (
-        <div className="flex items-center gap-1 min-w-0">
+        <div className="flex min-w-0 flex-1 items-center gap-1">
           <span
             className={`${TREE_LINK_NAME_TEXT_CLASS} whitespace-nowrap select-none truncate`}
             onDoubleClick={readOnly ? undefined : onNameDoubleClick}
@@ -214,7 +215,7 @@ export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
           </button>
         )}
 
-        {!readOnly && (
+        {!readOnly && showSecondaryActions && (
           <button
             type="button"
             className={`p-1 rounded cursor-pointer transition-colors ${
@@ -230,7 +231,7 @@ export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
           </button>
         )}
 
-        {!readOnly && (
+        {!readOnly && showSecondaryActions && (
           <button
             type="button"
             onClick={onAddChild}

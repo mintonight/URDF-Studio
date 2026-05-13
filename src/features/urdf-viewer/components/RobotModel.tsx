@@ -1,7 +1,7 @@
 import React, { memo, useRef, useState, useMemo, useEffect, useCallback } from 'react';
 import { useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
-import type { Group, Object3D } from 'three';
+import { Box3, Matrix4, Vector3 as ThreeVector3, type Group, type Object3D } from 'three';
 import {
   LinkIkTransformControls,
   SceneCompileWarmup,
@@ -19,6 +19,7 @@ import {
   getVisualGeometryByObjectIndex,
   hasGeometryMeshMaterialGroups,
   resolveDirectManipulableLinkIkDescriptor,
+  resolveDirectManipulableLinkIkJointIds,
   resolveLinkIkHandleDescriptor,
   resolveLinkKey,
   resolveVisualMaterialOverride,
@@ -59,6 +60,82 @@ import { resolveViewerRobotSourceFormat } from '@/shared/components/3d/renderers
 import { shouldEnableViewerSceneCompileWarmup } from '../utils/sceneCompileWarmupPolicy';
 
 const EMPTY_ROBOT_FILES: RobotFile[] = [];
+const RUNTIME_IK_ANCHOR_EPSILON_SQ = 1e-12;
+
+function resolveRuntimeLinkBoundsAnchorLocal(
+  linkObject: Object3D | null,
+): { x: number; y: number; z: number } | null {
+  if (!linkObject) {
+    return null;
+  }
+
+  linkObject.updateMatrixWorld(true);
+  const inverseLinkMatrix = new Matrix4().copy(linkObject.matrixWorld).invert();
+  const localBounds = new Box3();
+  const meshBounds = new Box3();
+  let hasBounds = false;
+
+  linkObject.traverse((object) => {
+    const mesh = object as Object3D & {
+      isMesh?: boolean;
+      geometry?: {
+        boundingBox?: Box3 | null;
+        computeBoundingBox?: () => void;
+      };
+    };
+    if (!mesh.isMesh || !mesh.geometry) {
+      return;
+    }
+
+    if (!mesh.geometry.boundingBox) {
+      mesh.geometry.computeBoundingBox?.();
+    }
+    if (!mesh.geometry.boundingBox) {
+      return;
+    }
+
+    object.updateMatrixWorld(true);
+    meshBounds
+      .copy(mesh.geometry.boundingBox)
+      .applyMatrix4(object.matrixWorld)
+      .applyMatrix4(inverseLinkMatrix);
+
+    if (meshBounds.isEmpty()) {
+      return;
+    }
+
+    if (!hasBounds) {
+      localBounds.copy(meshBounds);
+      hasBounds = true;
+      return;
+    }
+
+    localBounds.union(meshBounds);
+  });
+
+  if (!hasBounds || localBounds.isEmpty()) {
+    return null;
+  }
+
+  const center = localBounds.getCenter(new ThreeVector3());
+  if (center.lengthSq() > RUNTIME_IK_ANCHOR_EPSILON_SQ) {
+    return { x: center.x, y: center.y, z: center.z };
+  }
+
+  const farthestCorner = new ThreeVector3();
+  for (const x of [localBounds.min.x, localBounds.max.x]) {
+    for (const y of [localBounds.min.y, localBounds.max.y]) {
+      for (const z of [localBounds.min.z, localBounds.max.z]) {
+        const candidate = new ThreeVector3(x, y, z);
+        if (candidate.lengthSq() > farthestCorner.lengthSq()) {
+          farthestCorner.copy(candidate);
+        }
+      }
+    }
+  }
+
+  return { x: farthestCorner.x, y: farthestCorner.y, z: farthestCorner.z };
+}
 
 // Wrap with memo and custom comparison to prevent unnecessary re-renders
 export const RobotModel: React.FC<RobotModelProps> = memo(
@@ -116,6 +193,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     ikRobotState: providedIkRobotState = null,
     robotLinks,
     robotJoints,
+    robotData,
     focusTarget,
     transformMode = 'select',
     toolMode = 'select',
@@ -220,28 +298,32 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       storeState.pushHistorySnapshot(historySnapshot, label);
     }, []);
     const backendRobotData = useMemo(() => {
-      if (!robotLinks || !robotJoints) {
+      const backendLinks = robotData?.links ?? robotLinks;
+      const backendJoints = robotData?.joints ?? robotJoints;
+
+      if (!backendLinks || !backendJoints) {
         return null;
       }
 
       const storeState = useRobotStore.getState();
-      const childLinkIds = new Set(Object.values(robotJoints).map((joint) => joint.childLinkId));
+      const childLinkIds = new Set(Object.values(backendJoints).map((joint) => joint.childLinkId));
       const computedRootLinkId =
+        robotData?.rootLinkId ||
         storeState.rootLinkId ||
-        Object.keys(robotLinks).find((linkId) => !childLinkIds.has(linkId)) ||
-        Object.keys(robotLinks)[0] ||
+        Object.keys(backendLinks).find((linkId) => !childLinkIds.has(linkId)) ||
+        Object.keys(backendLinks)[0] ||
         '';
 
       return {
-        name: storeState.name || sourceFileForBackend.name,
-        links: robotLinks,
-        joints: robotJoints,
+        name: robotData?.name || storeState.name || sourceFileForBackend.name,
+        links: backendLinks,
+        joints: backendJoints,
         rootLinkId: computedRootLinkId,
-        materials: storeState.materials,
-        closedLoopConstraints: storeState.closedLoopConstraints,
-        inspectionContext: storeState.inspectionContext,
+        materials: robotData?.materials ?? storeState.materials,
+        closedLoopConstraints: robotData?.closedLoopConstraints ?? storeState.closedLoopConstraints,
+        inspectionContext: robotData?.inspectionContext ?? storeState.inspectionContext,
       };
-    }, [robotJoints, robotLinks, sourceFileForBackend.name]);
+    }, [robotData, robotJoints, robotLinks, sourceFileForBackend.name]);
     // ============================================================
     // HOOK: Robot Loading
     // ============================================================
@@ -366,6 +448,25 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         selectedIkHandleLinkId,
       );
     }, [effectiveRobotJoints, runtimeRobotLinks, runtimeRobotRootLinkId, selectedIkHandleLinkId]);
+    const selectedDirectIkJointIds = useMemo(() => {
+      if (
+        !selectedIkHandleLinkId ||
+        !runtimeRobotRootLinkId ||
+        !runtimeRobotLinks ||
+        !effectiveRobotJoints
+      ) {
+        return null;
+      }
+
+      return resolveDirectManipulableLinkIkJointIds(
+        {
+          links: runtimeRobotLinks,
+          joints: effectiveRobotJoints,
+          rootLinkId: runtimeRobotRootLinkId,
+        },
+        selectedIkHandleLinkId,
+      );
+    }, [effectiveRobotJoints, runtimeRobotLinks, runtimeRobotRootLinkId, selectedIkHandleLinkId]);
     const selectedDirectIkHandleDescriptor = useMemo(() => {
       if (
         !selectedIkHandleLinkId ||
@@ -387,6 +488,13 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     }, [effectiveRobotJoints, runtimeRobotLinks, runtimeRobotRootLinkId, selectedIkHandleLinkId]);
     const selectedIkHandleDescriptor =
       selectedDirectIkHandleDescriptor ?? selectedPassiveIkHandleDescriptor;
+    const selectedRuntimeIkAnchorLocal = useMemo(
+      () => resolveRuntimeLinkBoundsAnchorLocal(selectedIkRuntimeLink),
+      [robotVersion, selectedIkHandleLinkId, selectedIkRuntimeLink],
+    );
+    const selectedIkAnchorLocal =
+      selectedIkHandleDescriptor?.anchorLocal ?? selectedRuntimeIkAnchorLocal;
+    const selectedIkJointIds = selectedIkHandleDescriptor?.jointIds ?? selectedDirectIkJointIds;
     const selectedJointEntry = useMemo(() => {
       if (!robot || selection?.type !== 'joint' || !selection.id) {
         return null;
@@ -610,14 +718,14 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         resolveDirectIkHandleLink:
           ikDragActive && runtimeRobotRootLinkId && runtimeRobotLinks && effectiveRobotJoints
             ? (linkId) =>
-                resolveDirectManipulableLinkIkDescriptor(
+                resolveDirectManipulableLinkIkJointIds(
                   {
                     links: runtimeRobotLinks,
                     joints: effectiveRobotJoints,
                     rootLinkId: runtimeRobotRootLinkId,
                   },
                   linkId,
-                )
+                )?.length
                   ? linkId
                   : null
             : undefined,
@@ -842,10 +950,14 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
             selectedLinkId={selectedIkHandleLinkId}
             selectedHandle={selectedIkHandle}
             selectedLinkObject={selectedIkRuntimeLink}
-            selectedAnchorLocal={selectedIkHandleDescriptor?.anchorLocal ?? null}
+            selectedAnchorLocal={selectedIkAnchorLocal ?? null}
             coordinateRoot={robot}
             ikRobotState={ikRobotState}
-            enabled={active && Boolean(selectedIkHandleDescriptor?.jointIds.length)}
+            enabled={
+              active &&
+              Boolean(selectedIkJointIds?.length) &&
+              Boolean(selectedIkHandle || (selectedIkRuntimeLink && selectedIkAnchorLocal))
+            }
             historyLabel="Move IK handle"
             setIsDragging={setIsDragging}
             createHistorySnapshot={createIkHistorySnapshot}
@@ -869,6 +981,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
             onTransformPending={onTransformPending}
             onUpdate={onUpdate}
             robotJoints={effectiveRobotJoints}
+            closedLoopRobotState={ikRobotState}
           />
         ) : !snapshotRenderActive && active && selectedJointEntry && transformMode !== 'select' ? (
           <JointInteraction
