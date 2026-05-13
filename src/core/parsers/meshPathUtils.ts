@@ -85,10 +85,21 @@ const stripBlobPrefix = (path: string): string => {
   return slashIndex >= 0 ? path.slice(slashIndex + 1) : path;
 };
 
+const stripFilePrefix = (path: string): string => {
+  if (!/^file:\/\//i.test(path)) return path;
+
+  try {
+    const parsed = new URL(path);
+    return decodeURIComponent(parsed.pathname).replace(/^\/([A-Za-z]:\/)/, '$1');
+  } catch {
+    return path.replace(/^file:\/\/*/i, '');
+  }
+};
+
 const stripExternalPrefix = (path: string): string => {
   if (/^https?:\/\//i.test(path)) return path;
   if (path.startsWith('data:')) return path;
-  return stripPackagePrefix(stripBlobPrefix(path));
+  return stripPackagePrefix(stripFilePrefix(stripBlobPrefix(path)));
 };
 
 const normalizePackageAssetPath = (path: string): string | null => {
@@ -647,10 +658,10 @@ export const rewriteRobotMeshPathsForSource = <T extends RobotWithLinks>(
 export const normalizeMeshPathForExport = (meshPath: string): string => {
   const raw = (meshPath || '').trim();
   if (!raw) return '';
+  if (/^(?:https?:\/\/|data:)/i.test(raw)) return raw;
 
   let normalized = raw.replace(/\\/g, '/');
-  normalized = stripBlobPrefix(normalized);
-  normalized = stripPackagePrefix(normalized);
+  normalized = stripExternalPrefix(normalized);
 
   // Drop Windows drive prefix (e.g. C:/)
   normalized = normalized.replace(/^[A-Za-z]:\//, '');
@@ -720,8 +731,7 @@ export const normalizeTexturePathForExport = (texturePath: string): string => {
   }
 
   let normalized = raw.replace(/\\/g, '/');
-  normalized = stripBlobPrefix(normalized);
-  normalized = stripPackagePrefix(normalized);
+  normalized = stripExternalPrefix(normalized);
 
   normalized = normalized.replace(/^[A-Za-z]:\//, '');
   normalized = normalized.replace(/^\/+/, '');
@@ -779,8 +789,7 @@ function normalizeTextureSourceKey(texturePath: string): string {
   }
 
   let normalized = raw.replace(/\\/g, '/');
-  normalized = stripBlobPrefix(normalized);
-  normalized = stripPackagePrefix(normalized);
+  normalized = stripExternalPrefix(normalized);
   normalized = normalized.replace(/^[A-Za-z]:\//, '');
   normalized = normalized.replace(/^\/+/, '');
   normalized = normalized.replace(/^(\.\/)+/, '');
@@ -1015,15 +1024,19 @@ export const buildMeshLookupCandidates = (meshPath: string): string[] => {
   const slashNormalized = raw.replace(/\\/g, '/');
   const strippedPackage = stripPackagePrefix(slashNormalized);
   const strippedBlob = stripBlobPrefix(slashNormalized);
-  const strippedBoth = stripPackagePrefix(strippedBlob);
+  const strippedFile = stripFilePrefix(slashNormalized);
+  const strippedBoth = stripExternalPrefix(strippedBlob);
   const relative = normalizeRelativePath(strippedBoth.replace(/^\/+/, '').replace(/^(\.\/)+/, ''));
   const exportRelative = normalizeMeshPathForExport(meshPath);
   const filename = (exportRelative || relative || slashNormalized).split('/').pop() || '';
+  const extension = filename.includes('.') ? filename.split('.').pop()?.toLowerCase() || '' : '';
+  const directoryVariants = ['assets', 'dae', 'obj', 'stl', 'msh', 'gltf', 'glb'];
 
   pushUnique(candidates, seen, raw);
   pushUnique(candidates, seen, slashNormalized);
   pushUnique(candidates, seen, strippedPackage);
   pushUnique(candidates, seen, strippedBlob);
+  pushUnique(candidates, seen, strippedFile);
   pushUnique(candidates, seen, strippedBoth);
   pushUnique(candidates, seen, relative);
   pushUnique(candidates, seen, exportRelative);
@@ -1038,6 +1051,25 @@ export const buildMeshLookupCandidates = (meshPath: string): string[] => {
   if (filename) {
     pushUnique(candidates, seen, `meshes/${filename}`);
     pushUnique(candidates, seen, `/meshes/${filename}`);
+    directoryVariants.forEach((directory) => {
+      pushUnique(candidates, seen, `${directory}/${filename}`);
+      pushUnique(candidates, seen, `/${directory}/${filename}`);
+    });
+  }
+
+  if (extension && exportRelative) {
+    const siblingExtensions = ['dae', 'obj', 'stl', 'msh', 'gltf', 'glb'];
+    siblingExtensions.forEach((nextExtension) => {
+      if (nextExtension === extension) return;
+      const siblingExportRelative = exportRelative.replace(/\.[^.\/]+$/, `.${nextExtension}`);
+      const siblingFilename = filename.replace(/\.[^.\/]+$/, `.${nextExtension}`);
+      pushUnique(candidates, seen, siblingExportRelative);
+      pushUnique(candidates, seen, siblingFilename);
+      directoryVariants.forEach((directory) => {
+        pushUnique(candidates, seen, `${directory}/${siblingFilename}`);
+        pushUnique(candidates, seen, `/${directory}/${siblingFilename}`);
+      });
+    });
   }
 
   return candidates;

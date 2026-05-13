@@ -29,7 +29,7 @@ function createMjcfFile(name: string, content: string): RobotFile {
   };
 }
 
-test('autoSeedAssembly splits MJCF scene wrappers into scene and robot components with a bridge', () => {
+test('autoSeedAssembly can explicitly split MJCF scene wrappers into scene and robot components with a bridge', () => {
   const sceneFile = createMjcfFile(
     'test/mujoco_menagerie-main/unitree_go2/scene.xml',
     readFixture('test/mujoco_menagerie-main/unitree_go2/scene.xml'),
@@ -58,6 +58,7 @@ test('autoSeedAssembly splits MJCF scene wrappers into scene and robot component
     availableFiles,
     allFileContents,
     assets: {},
+    splitMjcfSceneIncludes: true,
   });
   const components = Object.values(assembly.components);
   const bridges = Object.values(assembly.bridges);

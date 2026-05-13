@@ -262,6 +262,36 @@ function mergeUrdfMaterialMetadataMaps(targetMap, nextMap) {
         }
     }
 }
+function normalizeUsdMaterialBindingStrength(value) {
+    const normalized = String(value || '').trim();
+    if (/^strongerThanDescendants$/i.test(normalized)) {
+        return 'strongerThanDescendants';
+    }
+    if (/^weakerThanDescendants$/i.test(normalized)) {
+        return 'weakerThanDescendants';
+    }
+    return '';
+}
+function getUsdMaterialBindingStrengthFromEntry(entry) {
+    return normalizeUsdMaterialBindingStrength(entry?.bindingStrength || entry?.bindMaterialAs || '');
+}
+function attachUsdMaterialBindingStrength(entry, bindingStrength) {
+    const normalizedStrength = normalizeUsdMaterialBindingStrength(bindingStrength);
+    if (!entry || typeof entry !== 'object' || !normalizedStrength) {
+        return entry;
+    }
+    Object.defineProperty(entry, 'bindingStrength', {
+        value: normalizedStrength,
+        enumerable: false,
+        configurable: true,
+    });
+    Object.defineProperty(entry, 'bindMaterialAs', {
+        value: normalizedStrength,
+        enumerable: false,
+        configurable: true,
+    });
+    return entry;
+}
 function mergeUsdMaterialBindingMaps(targetMap, nextMap) {
     if (!(targetMap instanceof Map) || !(nextMap instanceof Map)) {
         return;
@@ -276,8 +306,13 @@ function mergeUsdMaterialBindingMaps(targetMap, nextMap) {
             geomSubsetSections: [],
         };
         const nextMaterialId = normalizeHydraPath(rawEntry.materialId || '') || null;
-        if (!existingEntry.materialId && nextMaterialId) {
+        const nextBindingStrength = getUsdMaterialBindingStrengthFromEntry(rawEntry);
+        const existingBindingStrength = getUsdMaterialBindingStrengthFromEntry(existingEntry);
+        const shouldOverrideMaterialId = nextBindingStrength === 'strongerThanDescendants'
+            && existingBindingStrength !== 'strongerThanDescendants';
+        if (nextMaterialId && (!existingEntry.materialId || shouldOverrideMaterialId)) {
             existingEntry.materialId = nextMaterialId;
+            attachUsdMaterialBindingStrength(existingEntry, nextBindingStrength);
         }
         const mergedSections = Array.isArray(existingEntry.geomSubsetSections)
             ? existingEntry.geomSubsetSections.slice()
@@ -315,10 +350,12 @@ function mergeUsdMaterialBindingMaps(targetMap, nextMap) {
             return String(left.materialId || '').localeCompare(String(right.materialId || ''));
         });
         if (existingEntry.materialId || mergedSections.length > 0) {
-            targetMap.set(normalizedPrimPath, {
+            const storedEntry = {
                 materialId: existingEntry.materialId || null,
                 geomSubsetSections: mergedSections,
-            });
+            };
+            attachUsdMaterialBindingStrength(storedEntry, getUsdMaterialBindingStrengthFromEntry(existingEntry));
+            targetMap.set(normalizedPrimPath, storedEntry);
         }
     }
 }
@@ -361,6 +398,7 @@ function findUsdMaterialBindingForDescriptor(materialBindingsByPrimPath, descrip
         .map((candidatePath) => materialBindingsByPrimPath.get(candidatePath))
         .find((entry) => entry && typeof entry === 'object');
     let materialId = normalizeHydraPath(exactMatch?.materialId || '') || null;
+    let bindingStrength = getUsdMaterialBindingStrengthFromEntry(exactMatch);
     const geomSubsetSections = Array.isArray(exactMatch?.geomSubsetSections)
         ? exactMatch.geomSubsetSections
             .map((section) => {
@@ -386,6 +424,7 @@ function findUsdMaterialBindingForDescriptor(materialBindingsByPrimPath, descrip
                 const candidateMaterialId = normalizeHydraPath(entry?.materialId || '') || null;
                 if (candidateMaterialId) {
                     materialId = candidateMaterialId;
+                    bindingStrength = getUsdMaterialBindingStrengthFromEntry(entry);
                     break;
                 }
                 const lastSlashIndex = currentPath.lastIndexOf('/');
@@ -405,6 +444,7 @@ function findUsdMaterialBindingForDescriptor(materialBindingsByPrimPath, descrip
     return {
         materialId,
         geomSubsetSections,
+        bindingStrength,
     };
 }
 function getRoundtripMaterialRecoveryCacheKey(stageSourcePath) {
@@ -3615,11 +3655,19 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 const nextGeomSubsetSections = existingGeomSubsetSections.length > 0
                     ? existingGeomSubsetSections
                     : materialBindingMatch.geomSubsetSections;
-                const targetMaterialId = existingMaterialId || materialBindingMatch.materialId || null;
+                const recoveredMaterialId = normalizeHydraPath(materialBindingMatch.materialId || '') || null;
+                const shouldPreferRecoveredMaterial =
+                    recoveredMaterialId &&
+                        materialBindingMatch.bindingStrength === 'strongerThanDescendants';
+                const targetMaterialId = shouldPreferRecoveredMaterial
+                    ? recoveredMaterialId
+                    : (existingMaterialId || recoveredMaterialId || null);
                 const nextGeometry = descriptor?.geometry && typeof descriptor.geometry === 'object'
                     ? {
                         ...descriptor.geometry,
-                        materialId: descriptor.geometry?.materialId || targetMaterialId,
+                        materialId: shouldPreferRecoveredMaterial
+                            ? targetMaterialId
+                            : (descriptor.geometry?.materialId || targetMaterialId),
                         geomSubsetSections: nextGeomSubsetSections,
                     }
                     : {
@@ -3628,7 +3676,9 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                     };
                 return {
                     ...descriptor,
-                    materialId: descriptor?.materialId || targetMaterialId,
+                    materialId: shouldPreferRecoveredMaterial
+                        ? targetMaterialId
+                        : (descriptor?.materialId || targetMaterialId),
                     geometry: nextGeometry,
                 };
             });

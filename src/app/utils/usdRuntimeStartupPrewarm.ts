@@ -1,4 +1,5 @@
 import { logRuntimeFailure } from '@/core/utils/runtimeDiagnostics';
+import { getUsdRuntimeEnvironmentError } from '@/features/urdf-viewer/utils/usdWasmRuntime';
 import { scheduleUsdPostReadyBackgroundTask } from './usdPostReadyBackgroundTask';
 import type { UsdPostReadyBackgroundTaskScheduler } from './usdPostReadyBackgroundTask';
 
@@ -12,6 +13,7 @@ interface UsdRuntimeStartupBackgroundPrewarmDependencies {
   loadOffscreenRuntime: () => Promise<{
     prewarmUsdOffscreenViewerRuntimeInBackground: () => void;
   }>;
+  getRuntimeEnvironmentError?: () => Error | null;
   logFailure?: typeof logRuntimeFailure;
 }
 
@@ -60,12 +62,19 @@ export function createUsdRuntimeStartupPrewarmHandler({
 export function createUsdRuntimeStartupBackgroundPrewarm({
   loadMainThreadRuntime,
   loadOffscreenRuntime,
+  getRuntimeEnvironmentError = getUsdRuntimeEnvironmentError,
   logFailure = logRuntimeFailure,
 }: UsdRuntimeStartupBackgroundPrewarmDependencies): () => void {
   let prewarmPromise: Promise<void> | null = null;
 
   return () => {
     if (!prewarmPromise) {
+      const runtimeEnvironmentError = getRuntimeEnvironmentError();
+      if (runtimeEnvironmentError) {
+        prewarmPromise = Promise.resolve();
+        return;
+      }
+
       prewarmPromise = Promise.all([loadMainThreadRuntime(), loadOffscreenRuntime()])
         .then(([mainThreadRuntime, offscreenRuntime]) => {
           mainThreadRuntime.prewarmUsdWasmRuntimeInBackground();

@@ -217,22 +217,22 @@ export const inverseTransformPoint = (
 };
 
 /**
- * Format a number to a fixed precision (default 4 decimal places)
+ * Format a number to a fixed precision (default 6 decimal places)
  */
-export const formatNumber = (n: number, precision: number = 4): string => {
+export const formatNumber = (n: number, precision: number = 6): string => {
     return n.toFixed(precision);
 };
 
 /**
  * Format a vector as a string "x y z"
  */
-export const formatVector = (v: Vector3, precision: number = 4): string => {
+export const formatVector = (v: Vector3, precision: number = 6): string => {
     return `${formatNumber(v.x, precision)} ${formatNumber(v.y, precision)} ${formatNumber(v.z, precision)}`;
 };
 
 /**
  * Format euler angles as a string "r p y"
  */
-export const formatEuler = (e: Euler, precision: number = 4): string => {
+export const formatEuler = (e: Euler, precision: number = 6): string => {
     return `${formatNumber(e.r, precision)} ${formatNumber(e.p, precision)} ${formatNumber(e.y, precision)}`;
 };

@@ -15,6 +15,7 @@ import {
   type RobotState,
 } from '@/types';
 import { resolveClosedLoopDrivenJointMotion } from '@/core/robot';
+import { buildClosedLoopMotionPreviewRobot } from '@/shared/utils/robot/closedLoopMotionPreview';
 import {
   EMPTY_JOINT_INTERACTION_PREVIEW,
   useJointInteractionPreviewStore,
@@ -27,6 +28,10 @@ import { useViewerController } from './useViewerController.ts';
 class ClosedLoopPreviewMockWorker {
   private readonly messageListeners = new Set<(event: MessageEvent) => void>();
   private readonly errorListeners = new Set<(event: ErrorEvent) => void>();
+  private baseRobot: Pick<
+    RobotState,
+    'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'
+  > | null = null;
 
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
     if (type === 'message') {
@@ -51,16 +56,30 @@ class ClosedLoopPreviewMockWorker {
   }
 
   postMessage(message: {
+    type?: string;
     requestId: number;
-    robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>;
+    robot?: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'> | null;
     jointId: string;
     angle: number;
     options?: Parameters<typeof resolveClosedLoopDrivenJointMotion>[3];
+    previewState?: { angles: Record<string, number>; quaternions: Record<string, JointQuaternion> };
   }): void {
+    if (message.type === 'set-base-robot') {
+      this.baseRobot = message.robot ?? null;
+      return;
+    }
+
     queueMicrotask(() => {
       try {
+        const sourceRobot = message.robot ?? this.baseRobot;
+        if (!sourceRobot) {
+          throw new Error('mock worker base robot not set');
+        }
+        const solveRobot = message.previewState
+          ? buildClosedLoopMotionPreviewRobot(sourceRobot, message.previewState)
+          : sourceRobot;
         const solution = resolveClosedLoopDrivenJointMotion(
-          message.robot,
+          solveRobot,
           message.jointId,
           message.angle,
           message.options ?? {},
@@ -92,6 +111,120 @@ class ClosedLoopPreviewMockWorker {
   }
 }
 
+class ControlledClosedLoopPreviewMockWorker {
+  static requests: Array<{
+    worker: ControlledClosedLoopPreviewMockWorker;
+    message: {
+      type?: string;
+      requestId: number;
+      robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>;
+      jointId: string;
+      angle: number;
+      options?: Parameters<typeof resolveClosedLoopDrivenJointMotion>[3];
+      previewState?: {
+        angles: Record<string, number>;
+        quaternions: Record<string, JointQuaternion>;
+      };
+    };
+  }> = [];
+
+  private readonly messageListeners = new Set<(event: MessageEvent) => void>();
+  private readonly errorListeners = new Set<(event: ErrorEvent) => void>();
+  private baseRobot: Pick<
+    RobotState,
+    'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'
+  > | null = null;
+
+  static reset(): void {
+    ControlledClosedLoopPreviewMockWorker.requests = [];
+  }
+
+  static resolveNext(): void {
+    const request = ControlledClosedLoopPreviewMockWorker.requests.shift();
+    assert.ok(request, 'expected a pending closed-loop worker request');
+
+    const solveRobot = request.message.previewState
+      ? buildClosedLoopMotionPreviewRobot(request.message.robot, request.message.previewState)
+      : request.message.robot;
+    const solution = resolveClosedLoopDrivenJointMotion(
+      solveRobot,
+      request.message.jointId,
+      request.message.angle,
+      request.message.options ?? {},
+    );
+    const event = {
+      data: {
+        type: 'resolve-motion-preview-result',
+        requestId: request.message.requestId,
+        solution,
+      },
+    } as MessageEvent;
+
+    queueMicrotask(() => {
+      request.worker.messageListeners.forEach((listener) => listener(event));
+    });
+  }
+
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    if (type === 'message') {
+      this.messageListeners.add(listener as (event: MessageEvent) => void);
+      return;
+    }
+
+    if (type === 'error') {
+      this.errorListeners.add(listener as (event: ErrorEvent) => void);
+    }
+  }
+
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    if (type === 'message') {
+      this.messageListeners.delete(listener as (event: MessageEvent) => void);
+      return;
+    }
+
+    if (type === 'error') {
+      this.errorListeners.delete(listener as (event: ErrorEvent) => void);
+    }
+  }
+
+  postMessage(message: {
+    type?: string;
+    requestId: number;
+    robot?: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'> | null;
+    jointId: string;
+    angle: number;
+    options?: Parameters<typeof resolveClosedLoopDrivenJointMotion>[3];
+    previewState?: { angles: Record<string, number>; quaternions: Record<string, JointQuaternion> };
+  }): void {
+    if (message.type === 'set-base-robot') {
+      this.baseRobot = message.robot ?? null;
+      return;
+    }
+
+    const sourceRobot = message.robot ?? this.baseRobot;
+    assert.ok(sourceRobot, 'mock worker base robot should be set before solve');
+    ControlledClosedLoopPreviewMockWorker.requests.push({
+      worker: this,
+      message: {
+        ...message,
+        robot: sourceRobot,
+      },
+    });
+  }
+
+  terminate(): void {
+    this.messageListeners.clear();
+    this.errorListeners.clear();
+  }
+}
+
+type ClosedLoopPreviewMockWorkerClass = new () => {
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void;
+  postMessage(message: unknown): void;
+  terminate(): void;
+};
+
 function renderHook() {
   let hookValue: ReturnType<typeof useViewerController> | null = null;
 
@@ -105,7 +238,9 @@ function renderHook() {
   return hookValue;
 }
 
-function installDom() {
+function installDom(
+  workerClass: ClosedLoopPreviewMockWorkerClass = ClosedLoopPreviewMockWorker,
+) {
   disposeClosedLoopMotionPreviewWorker();
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'http://localhost/',
@@ -139,11 +274,11 @@ function installDom() {
     configurable: true,
   });
   Object.defineProperty(globalThis, 'Worker', {
-    value: ClosedLoopPreviewMockWorker,
+    value: workerClass,
     configurable: true,
   });
   Object.defineProperty(dom.window, 'Worker', {
-    value: ClosedLoopPreviewMockWorker,
+    value: workerClass,
     configurable: true,
   });
 
@@ -347,6 +482,13 @@ async function mountController(closedLoopRobotState: RobotState) {
 
 async function mountControllerWithProps(props: Parameters<typeof useViewerController>[0]) {
   const dom = installDom();
+  return mountControllerWithDom(props, dom);
+}
+
+async function mountControllerWithDom(
+  props: Parameters<typeof useViewerController>[0],
+  dom: JSDOM,
+) {
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
 
@@ -694,6 +836,83 @@ test('handleRuntimeJointAnglesChange keeps USD drag previews local until the dra
   }
 });
 
+test('handleRuntimeJointAnglesChange drops stale worker previews while a newer drag is pending', async () => {
+  ControlledClosedLoopPreviewMockWorker.reset();
+  const closedLoopRobotState = createClosedLoopRobotFixture();
+  const runtimeRobot = createRuntimeRobotFixture(closedLoopRobotState);
+  const dom = installDom(ControlledClosedLoopPreviewMockWorker);
+  const { root, getHook } = await mountControllerWithDom(
+    {
+      active: false,
+      closedLoopRobotState,
+    },
+    dom,
+  );
+
+  try {
+    await act(async () => {
+      getHook().handleRobotLoaded(runtimeRobot);
+    });
+
+    await act(async () => {
+      getHook().setIsDragging(true);
+      getHook().handleRuntimeJointAnglesChange({ joint_a: 0.2 });
+      await nextAnimationFrame(dom);
+    });
+
+    assert.equal(ControlledClosedLoopPreviewMockWorker.requests.length, 1);
+
+    await act(async () => {
+      getHook().handleRuntimeJointAnglesChange({ joint_a: 0.42 });
+      await nextAnimationFrame(dom);
+    });
+
+    assert.equal(ControlledClosedLoopPreviewMockWorker.requests.length, 1);
+
+    await act(async () => {
+      ControlledClosedLoopPreviewMockWorker.resolveNext();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    let panelAngles = getHook().jointPanelStore.getSnapshot().jointAngles;
+    assertAlmostEqual(panelAngles.joint_a, 0);
+    assertAlmostEqual(panelAngles.joint_b, 0);
+    assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.42);
+    assertAlmostEqual(runtimeRobot.joints.joint_b?.angle, 0);
+
+    await act(async () => {
+      await nextAnimationFrame(dom);
+    });
+
+    assert.equal(ControlledClosedLoopPreviewMockWorker.requests.length, 1);
+    const secondRequestPreviewState =
+      ControlledClosedLoopPreviewMockWorker.requests[0].message.previewState;
+    assert.ok(secondRequestPreviewState);
+    assertAlmostEqual(secondRequestPreviewState.angles.joint_a, 0.2);
+    assertAlmostEqual(secondRequestPreviewState.angles.joint_b, 0.2);
+    assert.deepEqual(secondRequestPreviewState.quaternions, {});
+
+    await act(async () => {
+      ControlledClosedLoopPreviewMockWorker.resolveNext();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    panelAngles = getHook().jointPanelStore.getSnapshot().jointAngles;
+    assertAlmostEqual(panelAngles.joint_a, 0.42);
+    assertAlmostEqual(panelAngles.joint_b, 0.42);
+    assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.42);
+    assertAlmostEqual(runtimeRobot.joints.joint_b?.angle, 0.42);
+  } finally {
+    ControlledClosedLoopPreviewMockWorker.reset();
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('previewIkJointKinematics keeps the IK drag preview out of the joint panel store', async () => {
   const robotState = createSimpleRobotFixture();
   const runtimeRobot = createRuntimeRobotFixture(robotState);
@@ -794,6 +1013,33 @@ test('closedLoopRobotState keeps the runtime-loaded joint pose when external joi
   }
 });
 
+test('closedLoopRobotState converts runtime motion angles back to referenced actual angles', async () => {
+  const robotState = createSimpleRobotFixture();
+  robotState.joints.joint_a.referencePosition = 0.4;
+  robotState.joints.joint_a.angle = 0.4;
+  const runtimeRobot = createRuntimeRobotFixture(robotState);
+  runtimeRobot.joints.joint_a.setJointValue(0.2);
+
+  const { root, getHook } = await mountControllerWithProps({
+    active: false,
+    closedLoopRobotState: robotState,
+  });
+
+  try {
+    await act(async () => {
+      getHook().handleRobotLoaded(runtimeRobot);
+    });
+
+    const resolvedClosedLoopRobotState = getHook().closedLoopRobotState;
+    assert.ok(resolvedClosedLoopRobotState);
+    assertAlmostEqual(resolvedClosedLoopRobotState.joints.joint_a?.angle, 0.6);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
 test('empty jointMotionState does not clear the runtime baseline used by IK preview reset', async () => {
   const robotState = createSimpleRobotFixture();
   const runtimeRobot = createRuntimeRobotFixture(robotState);
@@ -824,6 +1070,126 @@ test('empty jointMotionState does not clear the runtime baseline used by IK prev
 
     assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.2);
     assertAlmostEqual(getHook().jointPanelStore.getSnapshot().jointAngles.joint_a, 0.2);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test('runtime joint drag handlers convert motion angles before applying referenced joints', async () => {
+  const robotState = createSimpleRobotFixture();
+  robotState.joints.joint_a.referencePosition = 0.4;
+  robotState.joints.joint_a.angle = 0.4;
+  const runtimeRobot = createRuntimeRobotFixture(robotState);
+  const runtimeAngles: number[] = [];
+  runtimeRobot.joints.joint_a.setJointValue = function setJointValue(angle: number) {
+    runtimeAngles.push(angle);
+    this.angle = angle;
+    this.jointValue = angle;
+  };
+
+  const { root, getHook } = await mountControllerWithProps({
+    active: false,
+    closedLoopRobotState: robotState,
+  });
+
+  try {
+    await act(async () => {
+      getHook().handleJointPanelRobotLoaded(runtimeRobot);
+    });
+
+    await act(async () => {
+      getHook().handleRuntimeJointAngleChange('joint_a', 0.2);
+    });
+
+    assertAlmostEqual(runtimeAngles.at(-1), 0.2);
+    assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.2);
+    assertAlmostEqual(getHook().jointPanelStore.getSnapshot().jointAngles.joint_a, 0.6);
+
+    await act(async () => {
+      getHook().handleRuntimeJointChangeCommit('joint_a', 0.2);
+    });
+
+    assertAlmostEqual(runtimeAngles.at(-1), 0.2);
+    assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.2);
+    assertAlmostEqual(getHook().jointPanelStore.getSnapshot().jointAngles.joint_a, 0.6);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test('actual joint change handlers apply referenced joints in runtime motion space', async () => {
+  const robotState = createSimpleRobotFixture();
+  robotState.joints.joint_a.referencePosition = 0.4;
+  robotState.joints.joint_a.angle = 0.4;
+  const runtimeRobot = createRuntimeRobotFixture(robotState);
+  const runtimeAngles: number[] = [];
+  runtimeRobot.joints.joint_a.setJointValue = function setJointValue(angle: number) {
+    runtimeAngles.push(angle);
+    this.angle = angle;
+    this.jointValue = angle;
+  };
+
+  const { root, getHook } = await mountControllerWithProps({
+    active: false,
+    closedLoopRobotState: robotState,
+  });
+
+  try {
+    await act(async () => {
+      getHook().handleJointPanelRobotLoaded(runtimeRobot);
+    });
+
+    await act(async () => {
+      getHook().handleJointAngleChange('joint_a', 0.6);
+    });
+
+    assertAlmostEqual(runtimeAngles.at(-1), 0.2);
+    assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.2);
+    assertAlmostEqual(getHook().jointPanelStore.getSnapshot().jointAngles.joint_a, 0.6);
+
+    await act(async () => {
+      getHook().handleJointChangeCommit('joint_a', 0.6);
+    });
+
+    assertAlmostEqual(runtimeAngles.at(-1), 0.2);
+    assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.2);
+    assertAlmostEqual(getHook().jointPanelStore.getSnapshot().jointAngles.joint_a, 0.6);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+  }
+});
+
+test('external joint motion state is converted from actual angle to runtime motion angle', async () => {
+  const robotState = createSimpleRobotFixture();
+  robotState.joints.joint_a.referencePosition = 0.4;
+  const runtimeRobot = createRuntimeRobotFixture(robotState);
+  const runtimeAngles: number[] = [];
+  runtimeRobot.joints.joint_a.setJointValue = function setJointValue(angle: number) {
+    runtimeAngles.push(angle);
+    this.angle = angle;
+    this.jointValue = angle;
+  };
+
+  const { root, getHook } = await mountControllerWithProps({
+    active: false,
+    closedLoopRobotState: robotState,
+    jointMotionState: { joint_a: { angle: 0.9 } },
+  });
+
+  try {
+    await act(async () => {
+      getHook().handleRobotLoaded(runtimeRobot);
+    });
+
+    assertAlmostEqual(runtimeAngles.at(-1), 0.5);
+    assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.5);
+    assertAlmostEqual(getHook().jointPanelStore.getSnapshot().jointAngles.joint_a, 0.9);
   } finally {
     await act(async () => {
       root.unmount();

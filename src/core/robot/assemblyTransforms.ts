@@ -3,6 +3,7 @@ import type {
   AssemblyComponent,
   AssemblyState,
   AssemblyTransform,
+  RobotClosedLoopConstraint,
   RobotData,
   UrdfJoint,
   UrdfLink,
@@ -163,8 +164,199 @@ function collectTopLevelRootLinkIds(robot: RobotData): string[] {
   return Object.keys(robot.links).filter((linkId) => !childLinkIds.has(linkId));
 }
 
+function stripPrefix(value: string, prefix: string): string {
+  return value.startsWith(prefix) ? value.slice(prefix.length) || value : value;
+}
+
+function stripComponentIdPrefix(value: string, component: AssemblyComponent): string {
+  return stripPrefix(value.trim(), `${component.id}_`);
+}
+
+function buildComponentNamePrefixes(component: AssemblyComponent): string[] {
+  const prefixes = new Set<string>();
+  const addPrefix = (value: string | undefined) => {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      prefixes.add(`${trimmed}_`);
+    }
+  };
+
+  addPrefix(component.name);
+  addPrefix(component.robot.name);
+  addPrefix(component.id.replace(/^comp_/, ''));
+
+  return Array.from(prefixes).sort((a, b) => b.length - a.length);
+}
+
+function stripComponentDisplayPrefix(value: string, namePrefixes: string[]): string {
+  const trimmed = value.trim();
+  for (const prefix of namePrefixes) {
+    const stripped = stripPrefix(trimmed, prefix);
+    if (stripped !== trimmed) {
+      return stripped;
+    }
+  }
+
+  return trimmed;
+}
+
+function stripSingleComponentReference(
+  value: string,
+  component: AssemblyComponent,
+  namePrefixes: string[],
+): string {
+  const withoutIdPrefix = stripComponentIdPrefix(value, component);
+  if (withoutIdPrefix !== value.trim()) {
+    return withoutIdPrefix;
+  }
+
+  return stripComponentDisplayPrefix(value, namePrefixes);
+}
+
+function isComponentRootAlias(value: string, component: AssemblyComponent): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  return [component.id, component.name, component.robot.name, component.id.replace(/^comp_/, '')]
+    .map((alias) => alias.trim())
+    .filter(Boolean)
+    .includes(trimmed);
+}
+
+function denamespaceSingleComponentLabel(
+  value: string | undefined,
+  fallbackId: string,
+  component: AssemblyComponent,
+  namePrefixes: string[],
+  options: { rootLink?: boolean } = {},
+): string {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return fallbackId;
+  }
+
+  if (options.rootLink && isComponentRootAlias(trimmed, component)) {
+    return fallbackId;
+  }
+
+  const stripped = stripSingleComponentReference(trimmed, component, namePrefixes);
+  return stripped || fallbackId;
+}
+
+function buildSingleComponentExportRobotData(visibleAssembly: AssemblyState): RobotData | null {
+  const components = Object.values(visibleAssembly.components);
+  if (
+    components.length !== 1 ||
+    Object.keys(visibleAssembly.bridges).length > 0 ||
+    !isIdentityAssemblyTransform(visibleAssembly.transform)
+  ) {
+    return null;
+  }
+
+  const [component] = components;
+  if (!component || !isIdentityAssemblyTransform(component.transform)) {
+    return null;
+  }
+
+  const robot = component.robot;
+  const namePrefixes = buildComponentNamePrefixes(component);
+  const linkIdMap = new Map<string, string>();
+  const jointIdMap = new Map<string, string>();
+
+  Object.keys(robot.links).forEach((linkId) => {
+    linkIdMap.set(linkId, stripComponentIdPrefix(linkId, component));
+  });
+  Object.keys(robot.joints).forEach((jointId) => {
+    jointIdMap.set(jointId, stripComponentIdPrefix(jointId, component));
+  });
+
+  const resolveLinkReference = (linkId: string) =>
+    linkIdMap.get(linkId) ?? stripSingleComponentReference(linkId, component, namePrefixes);
+  const resolveJointReference = (jointId: string) =>
+    jointIdMap.get(jointId) ?? stripSingleComponentReference(jointId, component, namePrefixes);
+
+  const links: Record<string, UrdfLink> = {};
+  Object.entries(robot.links).forEach(([linkId, link]) => {
+    const nextLinkId = resolveLinkReference(linkId);
+    links[nextLinkId] = {
+      ...link,
+      id: nextLinkId,
+      name: denamespaceSingleComponentLabel(link.name, nextLinkId, component, namePrefixes, {
+        rootLink: linkId === robot.rootLinkId,
+      }),
+    };
+  });
+
+  const joints: Record<string, UrdfJoint> = {};
+  Object.entries(robot.joints).forEach(([jointId, joint]) => {
+    const nextJointId = resolveJointReference(jointId);
+    const mimicJoint = joint.mimic?.joint ? resolveJointReference(joint.mimic.joint) : undefined;
+    joints[nextJointId] = {
+      ...joint,
+      id: nextJointId,
+      name: denamespaceSingleComponentLabel(joint.name, nextJointId, component, namePrefixes),
+      parentLinkId: resolveLinkReference(joint.parentLinkId),
+      childLinkId: resolveLinkReference(joint.childLinkId),
+      mimic: joint.mimic
+        ? {
+            ...joint.mimic,
+            ...(mimicJoint ? { joint: mimicJoint } : {}),
+          }
+        : undefined,
+    };
+  });
+
+  const materials: NonNullable<RobotData['materials']> = {};
+  Object.entries(robot.materials || {}).forEach(([key, material]) => {
+    const nextKey = resolveLinkReference(key);
+    materials[nextKey] = { ...material };
+  });
+
+  const closedLoopConstraints: RobotClosedLoopConstraint[] = (
+    robot.closedLoopConstraints || []
+  ).map((constraint) => ({
+    ...constraint,
+    id: stripSingleComponentReference(constraint.id, component, namePrefixes),
+    linkAId: resolveLinkReference(constraint.linkAId),
+    linkBId: resolveLinkReference(constraint.linkBId),
+    source: constraint.source
+      ? {
+          ...constraint.source,
+          body1Name: stripSingleComponentReference(
+            constraint.source.body1Name,
+            component,
+            namePrefixes,
+          ),
+          body2Name: stripSingleComponentReference(
+            constraint.source.body2Name,
+            component,
+            namePrefixes,
+          ),
+        }
+      : undefined,
+  }));
+
+  return {
+    name: robot.name || visibleAssembly.name || component.name,
+    ...(robot.version ? { version: robot.version } : {}),
+    links,
+    joints,
+    rootLinkId: resolveLinkReference(robot.rootLinkId),
+    materials: Object.keys(materials).length > 0 ? materials : undefined,
+    closedLoopConstraints: closedLoopConstraints.length > 0 ? closedLoopConstraints : undefined,
+    inspectionContext: robot.inspectionContext,
+  };
+}
+
 export function buildExportableAssemblyRobotData(assemblyState: AssemblyState): RobotData {
   const visibleAssembly = cloneVisibleAssemblyState(assemblyState);
+  const singleComponentRobot = buildSingleComponentExportRobotData(visibleAssembly);
+  if (singleComponentRobot) {
+    return singleComponentRobot;
+  }
+
   const linkToComponentId = buildRootLinkComponentMap(visibleAssembly.components);
 
   Object.values(visibleAssembly.components).forEach((component) => {

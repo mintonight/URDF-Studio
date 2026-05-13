@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import {
+  computeLinkWorldMatrices,
   getCollisionGeometryEntries,
   getVisualGeometryEntries,
   resolveJointKey,
@@ -52,8 +53,6 @@ const DYNAMICS_EXPORT_TYPES = new Set<JointType>([
   JointType.PRISMATIC,
 ]);
 
-const IDENTITY_SCALE = new THREE.Vector3(1, 1, 1);
-
 const formatScalar = (value: number) => formatNumberWithMaxDecimals(value, MAX_PROPERTY_DECIMALS);
 const formatShape = (value: number) =>
   formatNumberWithMaxDecimals(value, MAX_GEOMETRY_DIMENSION_DECIMALS);
@@ -69,16 +68,6 @@ function escapeXml(value: string): string {
 
 function isExternalAssetPath(path: string): boolean {
   return /^(?:blob:|https?:\/\/|data:)/i.test(path);
-}
-
-function poseToMatrix(pose: Pose): THREE.Matrix4 {
-  const matrix = new THREE.Matrix4();
-  const position = new THREE.Vector3(pose.xyz.x, pose.xyz.y, pose.xyz.z);
-  const quaternion = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(pose.rpy.r, pose.rpy.p, pose.rpy.y, 'ZYX'),
-  );
-  matrix.compose(position, quaternion, IDENTITY_SCALE);
-  return matrix;
 }
 
 function matrixToPose(matrix: THREE.Matrix4): Pose {
@@ -189,15 +178,78 @@ function buildMeshUri(meshPath: string, packageName: string): string {
   return `model://${packageName}/meshes/${exportPath}`;
 }
 
+function generateBoxGeometryXml(dimensions: Vector3): string {
+  return [
+    '        <geometry>',
+    '          <box>',
+    `            <size>${formatShape(dimensions.x)} ${formatShape(dimensions.y)} ${formatShape(dimensions.z)}</size>`,
+    '          </box>',
+    '        </geometry>',
+  ].join('\n');
+}
+
+function generatePlaneGeometryXml(geometry: UrdfVisual): string {
+  return [
+    '        <geometry>',
+    '          <plane>',
+    '            <normal>0 0 1</normal>',
+    `            <size>${formatShape(geometry.dimensions.x || 1)} ${formatShape(geometry.dimensions.y || 1)}</size>`,
+    '          </plane>',
+    '        </geometry>',
+  ].join('\n');
+}
+
+function generateHeightmapGeometryXml(geometry: UrdfVisual): string | null {
+  const heightmap = geometry.sdfHeightmap;
+  const uri = heightmap?.uri || geometry.meshPath || '';
+  if (!uri) {
+    return null;
+  }
+
+  const size = heightmap?.size || geometry.dimensions;
+  const lines = [
+    '        <geometry>',
+    '          <heightmap>',
+    `            <uri>${escapeXml(uri)}</uri>`,
+    `            <size>${formatShape(size.x || 1)} ${formatShape(size.y || 1)} ${formatShape(size.z || 1)}</size>`,
+  ];
+
+  if (heightmap?.pos) {
+    lines.push(
+      `            <pos>${formatShape(heightmap.pos.x)} ${formatShape(heightmap.pos.y)} ${formatShape(heightmap.pos.z)}</pos>`,
+    );
+  }
+
+  heightmap?.textures.forEach((texture) => {
+    lines.push('            <texture>');
+    if (texture.diffuse) {
+      lines.push(`              <diffuse>${escapeXml(texture.diffuse)}</diffuse>`);
+    }
+    if (texture.normal) {
+      lines.push(`              <normal>${escapeXml(texture.normal)}</normal>`);
+    }
+    if (texture.size != null) {
+      lines.push(`              <size>${formatShape(texture.size)}</size>`);
+    }
+    lines.push('            </texture>');
+  });
+
+  heightmap?.blends.forEach((blend) => {
+    lines.push(
+      '            <blend>',
+      `              <min_height>${formatShape(blend.minHeight)}</min_height>`,
+      `              <fade_dist>${formatShape(blend.fadeDist)}</fade_dist>`,
+      '            </blend>',
+    );
+  });
+
+  lines.push('          </heightmap>', '        </geometry>');
+  return lines.join('\n');
+}
+
 function generateGeometryXml(geometry: UrdfVisual, packageName: string): string {
   if (geometry.type === GeometryType.BOX) {
-    return [
-      '        <geometry>',
-      '          <box>',
-      `            <size>${formatShape(geometry.dimensions.x)} ${formatShape(geometry.dimensions.y)} ${formatShape(geometry.dimensions.z)}</size>`,
-      '          </box>',
-      '        </geometry>',
-    ].join('\n');
+    return generateBoxGeometryXml(geometry.dimensions);
   }
 
   if (geometry.type === GeometryType.CYLINDER) {
@@ -232,7 +284,18 @@ function generateGeometryXml(geometry: UrdfVisual, packageName: string): string 
     ].join('\n');
   }
 
-  if (geometry.type === GeometryType.MESH && geometry.meshPath) {
+  if (geometry.type === GeometryType.PLANE) {
+    return generatePlaneGeometryXml(geometry);
+  }
+
+  if (geometry.type === GeometryType.HFIELD) {
+    return generateHeightmapGeometryXml(geometry) || generateBoxGeometryXml(geometry.dimensions);
+  }
+
+  if (
+    (geometry.type === GeometryType.MESH || geometry.type === GeometryType.SDF) &&
+    geometry.meshPath
+  ) {
     const lines = [
       '        <geometry>',
       '          <mesh>',
@@ -281,6 +344,10 @@ function generateGeometryXml(geometry: UrdfVisual, packageName: string): string 
     ]
       .filter(Boolean)
       .join('\n');
+  }
+
+  if (geometry.type === GeometryType.ELLIPSOID || geometry.type === GeometryType.SDF) {
+    return generateBoxGeometryXml(geometry.dimensions);
   }
 
   return ['        <geometry>', '          <empty/>', '        </geometry>'].join('\n');
@@ -393,63 +460,9 @@ function generateInertialXml(link: UrdfLink): string | null {
 }
 
 function buildLinkWorldMatrices(robot: RobotState): Map<string, THREE.Matrix4> {
-  const identity = new THREE.Matrix4().identity();
   const matrices = new Map<string, THREE.Matrix4>();
-  const jointsByParent = new Map<string, UrdfJoint[]>();
-
-  Object.values(robot.joints).forEach((joint) => {
-    const parentId = joint.parentLinkId || '__root__';
-    const existing = jointsByParent.get(parentId);
-    if (existing) {
-      existing.push(joint);
-      return;
-    }
-    jointsByParent.set(parentId, [joint]);
-  });
-
-  if (robot.rootLinkId && robot.links[robot.rootLinkId]) {
-    matrices.set(robot.rootLinkId, identity.clone());
-  }
-
-  const queue = robot.rootLinkId && robot.links[robot.rootLinkId] ? [robot.rootLinkId] : [];
-
-  while (queue.length > 0) {
-    const parentId = queue.shift();
-    if (!parentId) continue;
-
-    const parentMatrix = matrices.get(parentId) ?? identity;
-    (jointsByParent.get(parentId) || []).forEach((joint) => {
-      if (!robot.links[joint.childLinkId] || matrices.has(joint.childLinkId)) {
-        return;
-      }
-
-      matrices.set(
-        joint.childLinkId,
-        parentMatrix.clone().multiply(poseToMatrix(joint.origin as Pose)),
-      );
-      queue.push(joint.childLinkId);
-    });
-  }
-
-  Object.values(robot.joints).forEach((joint) => {
-    if (robot.links[joint.parentLinkId] && !matrices.has(joint.parentLinkId)) {
-      matrices.set(joint.parentLinkId, identity.clone());
-    }
-    if (!robot.links[joint.childLinkId] || matrices.has(joint.childLinkId)) {
-      return;
-    }
-
-    const parentMatrix = matrices.get(joint.parentLinkId) ?? identity;
-    matrices.set(
-      joint.childLinkId,
-      parentMatrix.clone().multiply(poseToMatrix(joint.origin as Pose)),
-    );
-  });
-
-  Object.keys(robot.links).forEach((linkId) => {
-    if (!matrices.has(linkId)) {
-      matrices.set(linkId, identity.clone());
-    }
+  Object.entries(computeLinkWorldMatrices(robot)).forEach(([linkId, matrix]) => {
+    matrices.set(linkId, matrix.clone());
   });
 
   return matrices;

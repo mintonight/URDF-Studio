@@ -34,3 +34,16 @@ test('prefers viewer roundtrip USD roots over raw Unitree package roots', () => 
   const selected = pickPreferredUsdRootFile(files);
   assert.equal(selected?.name, 'unitree_model/B2/usd/b2.viewer_roundtrip.usd');
 });
+
+test('prefers canonical Unitree USDA roots over mode and hand variants', () => {
+  const files = [
+    { name: 'g1_description/g1_23dof_mode_10.usda' },
+    { name: 'g1_description/g1_23dof.usda' },
+    { name: 'g1_description/g1_29dof_with_hand.usda' },
+    { name: 'g1_description/g1_29dof_lock_waist.usda' },
+    { name: 'g1_description/configuration/g1_23dof_base.usda' },
+  ];
+
+  const selected = pickPreferredUsdRootFile(files);
+  assert.equal(selected?.name, 'g1_description/g1_23dof.usda');
+});

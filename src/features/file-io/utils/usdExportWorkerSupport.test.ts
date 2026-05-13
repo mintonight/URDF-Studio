@@ -71,6 +71,7 @@ function createRobot(meshPaths: string[]): RobotState {
 test('usdExport worker support accepts mesh formats with implemented worker loaders', () => {
   assert.equal(isUsdExportWorkerSupportedMeshPath('meshes/base_link.obj'), true);
   assert.equal(isUsdExportWorkerSupportedMeshPath('meshes/base_link.STL'), true);
+  assert.equal(isUsdExportWorkerSupportedMeshPath('meshes/base_link.msh'), true);
   assert.equal(isUsdExportWorkerSupportedMeshPath('meshes/base_link.dae'), true);
   assert.equal(isUsdExportWorkerSupportedMeshPath('meshes/base_link.glb'), true);
   assert.equal(isUsdExportWorkerSupportedMeshPath('meshes/base_link.gltf'), true);
@@ -96,6 +97,6 @@ test('usdExport worker support throws a fail-fast error for unsupported mesh for
       'package://demo/meshes/base.fbx',
       'package://demo/meshes/arm.obj',
     ])),
-    /USD export worker currently supports OBJ\/STL\/DAE\/GLTF\/GLB mesh assets only/i,
+    /USD export worker currently supports OBJ\/STL\/MSH\/DAE\/GLTF\/GLB mesh assets only/i,
   );
 });

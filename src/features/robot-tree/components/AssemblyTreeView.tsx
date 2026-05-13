@@ -155,6 +155,7 @@ export const AssemblyTreeView = memo(
       [assemblyState.components],
     );
     const bridges = useMemo(() => Object.values(assemblyState.bridges), [assemblyState.bridges]);
+    const shouldShowBridgeControls = components.length > 1 || bridges.length > 0;
     const effectiveSelection =
       (robot && 'selection' in robot ? robot.selection : undefined) ??
       selection ??
@@ -324,7 +325,7 @@ export const AssemblyTreeView = memo(
     const isEditingAssembly = editingTarget?.kind === 'assembly';
 
     return (
-      <div className="space-y-1 select-none">
+      <div className="@container space-y-1 select-none">
         {showAssemblyRoot && (
           <div
             className={`flex items-center py-1 px-2 mx-1 my-0.5 rounded-md text-text-primary cursor-pointer transition-colors ${
@@ -565,6 +566,7 @@ export const AssemblyTreeView = memo(
                         mode={mode}
                         t={t}
                         depth={0}
+                        componentDisplayNamePrefix={component.name}
                       />
                     ))}
                   </div>
@@ -574,120 +576,124 @@ export const AssemblyTreeView = memo(
           })}
         </div>
 
-        <div className="mt-2">
-          <div
-            className={`flex items-center gap-1.5 py-1 px-2 cursor-pointer transition-all duration-200 group rounded-md ${sectionHoverClass}`}
-            onClick={() => setIsBridgesExpanded(!isBridgesExpanded)}
-          >
-            {isBridgesExpanded ? (
-              <ChevronDown size={12} className="text-text-tertiary" />
-            ) : (
-              <ChevronRight size={12} className="text-text-tertiary" />
-            )}
-            <Link2 size={12} className="text-green-500" />
-            <span className="text-[11px] font-semibold text-text-tertiary dark:text-text-tertiary tracking-[0.02em]">
-              {t.bridges}
-            </span>
-            <span className="text-[10px] text-text-tertiary ml-auto mr-1">{bridges.length}</span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onCreateBridge?.();
-              }}
-              className="px-1.5 py-0.5 rounded bg-system-blue/10 dark:bg-system-blue/20 hover:bg-system-blue/15 dark:hover:bg-system-blue/25 text-system-blue border border-system-blue/25 dark:border-system-blue/35 flex items-center gap-1 transition-colors group/btn"
-              title={t.createBridge}
+        {shouldShowBridgeControls && (
+          <div className="mt-2">
+            <div
+              className={`group flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 transition-all duration-200 ${sectionHoverClass}`}
+              onClick={() => setIsBridgesExpanded(!isBridgesExpanded)}
             >
-              <Plus
-                size={10}
-                strokeWidth={3}
-                className="group-hover/btn:scale-110 transition-transform"
-              />
-              <span className="text-[9px] font-semibold tracking-[0.01em]">{t.add}</span>
-            </button>
-          </div>
-
-          {isBridgesExpanded && (
-            <div className="ml-2 border-l border-border-black space-y-0.5 mt-0.5">
-              {bridges.length === 0 ? (
-                <div className="px-4 py-2 text-[10px] italic text-text-tertiary">{t.none}</div>
+              {isBridgesExpanded ? (
+                <ChevronDown size={12} className="shrink-0 text-text-tertiary" />
               ) : (
-                bridges.map((bridge) => (
-                  <div
-                    key={bridge.id}
-                    className={`flex items-center gap-1.5 py-1 px-2 mx-1 rounded-md cursor-pointer group transition-all duration-200 ${
-                      matchesSelection(attentionSelection, { type: 'joint', id: bridge.id })
-                        ? itemAttentionClass
-                        : selection.type === 'joint' && selection.id === bridge.id
-                          ? itemSelectedClass
-                          : matchesSelection(hoveredSelection, { type: 'joint', id: bridge.id })
-                            ? itemSelectedClass
-                            : `text-text-secondary dark:text-text-secondary ${itemHoverClass}`
-                    }`}
-                    onClick={() => {
-                      onSelect('joint', bridge.id);
-                    }}
-                    onContextMenu={(event) =>
-                      openContextMenu(event, { kind: 'bridge', id: bridge.id })
-                    }
-                    onMouseEnter={() => setHoveredSelection({ type: 'joint', id: bridge.id })}
-                    onMouseLeave={clearHover}
-                  >
-                    <ArrowRightLeft size={12} className="text-orange-500 dark:text-orange-300" />
-                    {editingTarget?.kind === 'bridge' && editingTarget.id === bridge.id ? (
-                      <input
-                        ref={renameInputRef}
-                        value={editingTarget?.draft ?? ''}
-                        onChange={(event) => {
-                          setEditingTarget((prev) =>
-                            prev?.kind === 'bridge' && prev.id === bridge.id
-                              ? { ...prev, draft: event.target.value }
-                              : prev,
-                          );
-                        }}
-                        onClick={(event) => event.stopPropagation()}
-                        onBlur={commitRename}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            commitRename();
-                          } else if (event.key === 'Escape') {
-                            cancelRename();
-                          }
-                        }}
-                        className={renameInputClassName}
-                      />
-                    ) : (
-                      <div
-                        className="min-w-0 flex flex-1 items-center"
-                        onDoubleClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          beginBridgeRename(bridge.id, bridge.name);
-                        }}
-                      >
-                        <span
-                          className="text-[11px] font-medium truncate flex-1"
-                          title={bridge.name}
-                        >
-                          {bridge.name}
-                        </span>
-                      </div>
-                    )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRemoveBridge?.(bridge.id);
-                      }}
-                      className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-opacity"
-                      title={t.deleteBranch}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                ))
+                <ChevronRight size={12} className="shrink-0 text-text-tertiary" />
               )}
+              <Link2 size={12} className="shrink-0 text-green-500" />
+              <span className="min-w-0 flex-1 truncate text-[11px] font-semibold tracking-[0.02em] text-text-tertiary dark:text-text-tertiary">
+                {t.bridges}
+              </span>
+              <span className="mr-1 shrink-0 text-[10px] text-text-tertiary">{bridges.length}</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCreateBridge?.();
+                }}
+                className="flex shrink-0 items-center gap-1 rounded border border-system-blue/25 bg-system-blue/10 px-1.5 py-0.5 text-system-blue transition-colors hover:bg-system-blue/15 dark:border-system-blue/35 dark:bg-system-blue/20 dark:hover:bg-system-blue/25 group/btn"
+                title={t.createBridge}
+              >
+                <Plus
+                  size={10}
+                  strokeWidth={3}
+                  className="group-hover/btn:scale-110 transition-transform"
+                />
+                <span className="hidden text-[9px] font-semibold tracking-[0.01em] @[260px]:inline">
+                  {t.add}
+                </span>
+              </button>
             </div>
-          )}
-        </div>
+
+            {isBridgesExpanded && (
+              <div className="ml-2 border-l border-border-black space-y-0.5 mt-0.5">
+                {bridges.length === 0 ? (
+                  <div className="px-4 py-2 text-[10px] italic text-text-tertiary">{t.none}</div>
+                ) : (
+                  bridges.map((bridge) => (
+                    <div
+                      key={bridge.id}
+                      className={`flex items-center gap-1.5 py-1 px-2 mx-1 rounded-md cursor-pointer group transition-all duration-200 ${
+                        matchesSelection(attentionSelection, { type: 'joint', id: bridge.id })
+                          ? itemAttentionClass
+                          : selection.type === 'joint' && selection.id === bridge.id
+                            ? itemSelectedClass
+                            : matchesSelection(hoveredSelection, { type: 'joint', id: bridge.id })
+                              ? itemSelectedClass
+                              : `text-text-secondary dark:text-text-secondary ${itemHoverClass}`
+                      }`}
+                      onClick={() => {
+                        onSelect('joint', bridge.id);
+                      }}
+                      onContextMenu={(event) =>
+                        openContextMenu(event, { kind: 'bridge', id: bridge.id })
+                      }
+                      onMouseEnter={() => setHoveredSelection({ type: 'joint', id: bridge.id })}
+                      onMouseLeave={clearHover}
+                    >
+                      <ArrowRightLeft size={12} className="text-orange-500 dark:text-orange-300" />
+                      {editingTarget?.kind === 'bridge' && editingTarget.id === bridge.id ? (
+                        <input
+                          ref={renameInputRef}
+                          value={editingTarget?.draft ?? ''}
+                          onChange={(event) => {
+                            setEditingTarget((prev) =>
+                              prev?.kind === 'bridge' && prev.id === bridge.id
+                                ? { ...prev, draft: event.target.value }
+                                : prev,
+                            );
+                          }}
+                          onClick={(event) => event.stopPropagation()}
+                          onBlur={commitRename}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              commitRename();
+                            } else if (event.key === 'Escape') {
+                              cancelRename();
+                            }
+                          }}
+                          className={renameInputClassName}
+                        />
+                      ) : (
+                        <div
+                          className="min-w-0 flex flex-1 items-center"
+                          onDoubleClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            beginBridgeRename(bridge.id, bridge.name);
+                          }}
+                        >
+                          <span
+                            className="text-[11px] font-medium truncate flex-1"
+                            title={bridge.name}
+                          >
+                            {bridge.name}
+                          </span>
+                        </div>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRemoveBridge?.(bridge.id);
+                        }}
+                        className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-opacity"
+                        title={t.deleteBranch}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <ContextMenuFrame position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}>
           <ContextMenuItem onClick={handleRenameFromMenu} icon={<Edit3 size={12} />}>

@@ -1,8 +1,8 @@
 /**
  * BridgeCreateModal - Dialog to create a bridge joint between two components
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link2, Move3D, SlidersHorizontal } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo } from 'react';
+import { Link2 } from 'lucide-react';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { PanelSelect, SegmentedControl, type SelectOption } from '@/shared/components/ui';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
@@ -44,20 +44,6 @@ import { useBridgeCreateSelectionSync } from './useBridgeCreateSelectionSync';
 
 export type { BridgeCreateModalProps } from './bridgeCreateModalTypes';
 
-type BridgeCreateTabId = 'relation' | 'transform' | 'joint';
-
-interface BridgeCreateTabConfig {
-  id: BridgeCreateTabId;
-  label: string;
-  icon: React.ReactNode;
-}
-
-interface BridgeCreateTabButtonProps {
-  tab: BridgeCreateTabConfig;
-  isActive: boolean;
-  onClick: (tabId: BridgeCreateTabId) => void;
-}
-
 function resolveBridgeRotationShortcutAxis(key: string): BridgeEulerAxisKey | null {
   switch (key.toLowerCase()) {
     case 'x':
@@ -81,26 +67,6 @@ function isBridgeRotationShortcutEditableTarget(target: EventTarget | null): boo
   );
 }
 
-function BridgeCreateTabButton({ tab, isActive, onClick }: BridgeCreateTabButtonProps) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={isActive}
-      data-bridge-tab={tab.id}
-      onClick={() => onClick(tab.id)}
-      className={`inline-flex h-7 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-[10px] font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
-        isActive
-          ? 'bg-panel-bg text-text-primary shadow-sm ring-1 ring-inset ring-border-black'
-          : 'text-text-tertiary hover:bg-element-hover hover:text-text-primary'
-      }`}
-    >
-      <span className={isActive ? 'text-system-blue' : 'text-text-tertiary'}>{tab.icon}</span>
-      <span className="truncate">{tab.label}</span>
-    </button>
-  );
-}
-
 export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   isOpen,
   onClose,
@@ -110,8 +76,6 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   lang,
 }) => {
   const t = translations[lang];
-  const [activeTab, setActiveTab] = useState<BridgeCreateTabId>('relation');
-  const wasOpenRef = useRef(isOpen);
   const sideCardTitle =
     lang === 'zh' ? { parent: '父侧', child: '子侧' } : { parent: 'Parent', child: 'Child' };
   const relationSectionTitle = lang === 'zh' ? '拼接关系' : 'Joint Relation';
@@ -156,8 +120,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
           : 'grid-cols-[44px_minmax(0,1fr)_44px_minmax(0,1fr)]'
       }`
     : 'space-y-1.5';
-  const originFieldGridClassName =
-    windowState.size.width >= 360 ? 'grid grid-cols-3 gap-1.5' : 'grid grid-cols-3 gap-1';
+  const xyzStackClassName = 'space-y-1';
   const relationGridClassName = usesCadInspectorLayout
     ? BRIDGE_RELATION_GRID_CLASS
     : 'grid grid-cols-1 gap-1.5';
@@ -340,30 +303,6 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const jointSupportsAxisAndLimits = jointType !== JointType.FIXED;
   const jointSupportsPositionLimits =
     jointType === JointType.REVOLUTE || jointType === JointType.PRISMATIC;
-  const bridgeTabs = useMemo<BridgeCreateTabConfig[]>(
-    () => [
-      {
-        id: 'relation',
-        label: lang === 'zh' ? '关系' : 'Relation',
-        icon: <Link2 className="h-3.5 w-3.5" />,
-      },
-      {
-        id: 'transform',
-        label: lang === 'zh' ? '变换' : 'Transform',
-        icon: <Move3D className="h-3.5 w-3.5" />,
-      },
-      ...(jointSupportsAxisAndLimits
-        ? [
-            {
-              id: 'joint' as const,
-              label: lang === 'zh' ? '关节' : 'Joint',
-              icon: <SlidersHorizontal className="h-3.5 w-3.5" />,
-            },
-          ]
-        : []),
-    ],
-    [jointSupportsAxisAndLimits, lang],
-  );
   const isLimitRangeInvalid = jointSupportsPositionLimits && limitLower > limitUpper;
   const limitRangeValidationMessage = isLimitRangeInvalid ? t.bridgeLimitRangeInvalid : null;
   const hasUnsupportedNonFixedCycle = useMemo(
@@ -634,13 +573,6 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const namePlaceholder = suggestedBridgeName || t.bridgeJointNamePlaceholder;
 
   useEffect(() => {
-    if (isOpen && !wasOpenRef.current) {
-      setActiveTab('relation');
-    }
-    wasOpenRef.current = isOpen;
-  }, [isOpen]);
-
-  useEffect(() => {
     if (!isOpen) {
       return;
     }
@@ -670,14 +602,6 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [handleQuickRotate, isOpen]);
-
-  useEffect(() => {
-    if (bridgeTabs.some((tab) => tab.id === activeTab)) {
-      return;
-    }
-
-    setActiveTab('transform');
-  }, [activeTab, bridgeTabs]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -854,22 +778,6 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
             ) : null}
           </div>
 
-          <div
-            role="tablist"
-            aria-label={lang === 'zh' ? '桥接编辑分组' : 'Bridge editor sections'}
-            data-bridge-tabs
-            className="grid grid-cols-[repeat(auto-fit,minmax(0,1fr))] gap-1 rounded-lg border border-border-black bg-segmented-bg p-0.5"
-          >
-            {bridgeTabs.map((tab) => (
-              <BridgeCreateTabButton
-                key={tab.id}
-                tab={tab}
-                isActive={activeTab === tab.id}
-                onClick={setActiveTab}
-              />
-            ))}
-          </div>
-
           {validationMessages.length > 0 ? (
             <div
               data-bridge-validation
@@ -883,229 +791,225 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
             </div>
           ) : null}
 
-          <div className="min-h-0" data-bridge-tab-content>
-            {activeTab === 'relation' ? (
-              <div data-bridge-tab-panel="relation" className="space-y-1.5">
-                <BridgeSection title={relationSectionTitle}>
-                  <div className={relationGridClassName}>
-                    <BridgeSideCard
-                      side="parent"
-                      isActive={pickTarget === 'parent'}
-                      title={sideCardTitle.parent}
-                      pickLabel={t.bridgePickParent}
-                      componentLabel={t.parentComponent}
-                      linkLabel={t.parentLink}
-                      componentValue={parentCompId}
-                      linkValue={parentLinkId}
-                      componentSummary={parentSummary}
-                      linkSummary={parentLinkSummary}
-                      onActivate={() => setPickTarget('parent')}
-                      onComponentChange={(value) => {
-                        setPickTarget('parent');
-                        setParentCompId(value);
-                        setParentLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
-                      }}
-                      onLinkChange={(value) => {
-                        setPickTarget('parent');
-                        setParentLinkId(value);
-                      }}
-                      componentOptions={parentComponentSelectOptions}
-                      linkOptions={parentLinkSelectOptions}
-                    />
-
-                    <BridgeRelationConnector
-                      orientation={usesCadInspectorLayout ? 'vertical' : 'horizontal'}
-                    />
-
-                    <BridgeSideCard
-                      side="child"
-                      isActive={pickTarget === 'child'}
-                      title={sideCardTitle.child}
-                      pickLabel={t.bridgePickChild}
-                      componentLabel={t.childComponent}
-                      linkLabel={t.childLink}
-                      componentValue={childCompId}
-                      linkValue={childLinkId}
-                      componentSummary={childSummary}
-                      linkSummary={childLinkSummary}
-                      onActivate={() => setPickTarget('child')}
-                      onComponentChange={(value) => {
-                        setPickTarget('child');
-                        setChildCompId(value);
-                        setChildLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
-                      }}
-                      onLinkChange={(value) => {
-                        setPickTarget('child');
-                        setChildLinkId(value);
-                      }}
-                      componentOptions={childComponentSelectOptions}
-                      linkOptions={childLinkSelectOptions}
-                    />
-                  </div>
-                </BridgeSection>
-              </div>
-            ) : null}
-
-            {activeTab === 'transform' ? (
-              <div data-bridge-tab-panel="transform" className={transformPanelClassName}>
-                <BridgeSection title={t.originRelativeParent}>
-                  <div data-bridge-row="origin" className={originFieldGridClassName}>
-                    <BridgeAxisSpinnerField
-                      axis="x"
-                      fieldKey="origin-x"
-                      label="X"
-                      value={originX}
-                      step={0.01}
-                      precision={4}
-                      onChange={handleOriginXChange}
-                      className="min-w-0"
-                    />
-                    <BridgeAxisSpinnerField
-                      axis="y"
-                      fieldKey="origin-y"
-                      label="Y"
-                      value={originY}
-                      step={0.01}
-                      precision={4}
-                      onChange={handleOriginYChange}
-                      className="min-w-0"
-                    />
-                    <BridgeAxisSpinnerField
-                      axis="z"
-                      fieldKey="origin-z"
-                      label="Z"
-                      value={originZ}
-                      step={0.01}
-                      precision={4}
-                      onChange={handleOriginZChange}
-                      className="min-w-0"
-                    />
-                  </div>
-                </BridgeSection>
-
-                <BridgeSection title={t.rotation}>
-                  <SegmentedControl
-                    options={[
-                      { value: 'euler_deg', label: t.eulerDegrees },
-                      { value: 'euler_rad', label: t.eulerRadians },
-                      { value: 'quaternion', label: t.quaternion },
-                    ]}
-                    value={rotationDisplayMode}
-                    onChange={(value) => setRotationDisplayMode(value)}
-                    size="xs"
-                    className="w-full [&>button]:min-h-6 [&>button]:flex-1 [&>button]:!gap-0.5 [&>button]:!px-1.5 [&>button]:!py-0 [&>button]:!text-[9px]"
+          <div className="min-h-0 space-y-1.5" data-bridge-section-content>
+            <div data-bridge-section-panel="relation" className="space-y-1.5">
+              <BridgeSection title={relationSectionTitle}>
+                <div className={relationGridClassName}>
+                  <BridgeSideCard
+                    side="parent"
+                    isActive={pickTarget === 'parent'}
+                    title={sideCardTitle.parent}
+                    pickLabel={t.bridgePickParent}
+                    componentLabel={t.parentComponent}
+                    linkLabel={t.parentLink}
+                    componentValue={parentCompId}
+                    linkValue={parentLinkId}
+                    componentSummary={parentSummary}
+                    linkSummary={parentLinkSummary}
+                    onActivate={() => setPickTarget('parent')}
+                    onComponentChange={(value) => {
+                      setPickTarget('parent');
+                      setParentCompId(value);
+                      setParentLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
+                    }}
+                    onLinkChange={(value) => {
+                      setPickTarget('parent');
+                      setParentLinkId(value);
+                    }}
+                    componentOptions={parentComponentSelectOptions}
+                    linkOptions={parentLinkSelectOptions}
                   />
 
-                  {rotationDisplayMode === 'quaternion' ? (
-                    <div className={`mt-1.5 ${quaternionFieldGridClassName}`}>
-                      <BridgeSpinnerField
-                        fieldKey="quat-x"
-                        label="X"
-                        value={quatX}
-                        step={0.001}
-                        precision={4}
-                        onChange={(value) =>
-                          applyQuaternionRotation({ x: value, y: quatY, z: quatZ, w: quatW })
-                        }
-                        className="min-w-0"
-                      />
-                      <BridgeSpinnerField
-                        fieldKey="quat-y"
-                        label="Y"
-                        value={quatY}
-                        step={0.001}
-                        precision={4}
-                        onChange={(value) =>
-                          applyQuaternionRotation({ x: quatX, y: value, z: quatZ, w: quatW })
-                        }
-                        className="min-w-0"
-                      />
-                      <BridgeSpinnerField
-                        fieldKey="quat-z"
-                        label="Z"
-                        value={quatZ}
-                        step={0.001}
-                        precision={4}
-                        onChange={(value) =>
-                          applyQuaternionRotation({ x: quatX, y: quatY, z: value, w: quatW })
-                        }
-                        className="min-w-0"
-                      />
-                      <BridgeSpinnerField
-                        fieldKey="quat-w"
-                        label="W"
-                        value={quatW}
-                        step={0.001}
-                        precision={4}
-                        onChange={(value) =>
-                          applyQuaternionRotation({ x: quatX, y: quatY, z: quatZ, w: value })
-                        }
-                        className="min-w-0"
-                      />
-                    </div>
-                  ) : usesCadInspectorLayout ? (
-                    <div className={`mt-1.5 ${eulerFieldGridClassName}`}>
-                      {rotationAxisFields.map((field) => (
-                        <div key={field.key} className="min-w-0 space-y-1">
-                          <BridgeSpinnerField
-                            fieldKey={`rot-${field.key}`}
-                            label={field.label}
-                            value={field.value}
-                            step={rotationDisplayMode === 'euler_rad' ? 0.1 : 1}
-                            precision={rotationDisplayMode === 'euler_rad' ? 4 : 2}
-                            onChange={field.onChange}
-                            className="min-w-0"
-                          />
-                          <BridgeQuickRotateButtonGroup
-                            label={field.label}
-                            decreaseLabel={quickRotateAriaLabelSuffix.decrease}
-                            increaseLabel={quickRotateAriaLabelSuffix.increase}
-                            decreaseText={quickRotateButtonText.decrease}
-                            increaseText={quickRotateButtonText.increase}
-                            onDecrease={() => handleQuickRotate(field.key, -1)}
-                            onIncrease={() => handleQuickRotate(field.key, 1)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="mt-1.5 space-y-1">
-                      {rotationAxisFields.map((field) => (
-                        <div
-                          key={field.key}
-                          className="grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-1"
-                        >
-                          <BridgeSpinnerField
-                            inline
-                            label={field.label}
-                            value={field.value}
-                            step={rotationDisplayMode === 'euler_rad' ? 0.1 : 1}
-                            precision={rotationDisplayMode === 'euler_rad' ? 4 : 2}
-                            onChange={field.onChange}
-                            className="gap-1.5"
-                            labelClassName="w-[34px]"
-                          />
-                          <BridgeQuickRotateButtonGroup
-                            label={field.label}
-                            decreaseLabel={quickRotateAriaLabelSuffix.decrease}
-                            increaseLabel={quickRotateAriaLabelSuffix.increase}
-                            decreaseText={quickRotateButtonText.decrease}
-                            increaseText={quickRotateButtonText.increase}
-                            onDecrease={() => handleQuickRotate(field.key, -1)}
-                            onIncrease={() => handleQuickRotate(field.key, 1)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </BridgeSection>
-              </div>
-            ) : null}
+                  <BridgeRelationConnector
+                    orientation={usesCadInspectorLayout ? 'vertical' : 'horizontal'}
+                  />
 
-            {jointSupportsAxisAndLimits && activeTab === 'joint' ? (
-              <div data-bridge-tab-panel="joint" className={jointPanelClassName}>
+                  <BridgeSideCard
+                    side="child"
+                    isActive={pickTarget === 'child'}
+                    title={sideCardTitle.child}
+                    pickLabel={t.bridgePickChild}
+                    componentLabel={t.childComponent}
+                    linkLabel={t.childLink}
+                    componentValue={childCompId}
+                    linkValue={childLinkId}
+                    componentSummary={childSummary}
+                    linkSummary={childLinkSummary}
+                    onActivate={() => setPickTarget('child')}
+                    onComponentChange={(value) => {
+                      setPickTarget('child');
+                      setChildCompId(value);
+                      setChildLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
+                    }}
+                    onLinkChange={(value) => {
+                      setPickTarget('child');
+                      setChildLinkId(value);
+                    }}
+                    componentOptions={childComponentSelectOptions}
+                    linkOptions={childLinkSelectOptions}
+                  />
+                </div>
+              </BridgeSection>
+            </div>
+
+            <div data-bridge-section-panel="transform" className={transformPanelClassName}>
+              <BridgeSection title={t.originRelativeParent}>
+                <div data-bridge-row="origin" className={xyzStackClassName}>
+                  <BridgeAxisSpinnerField
+                    axis="x"
+                    fieldKey="origin-x"
+                    label="X"
+                    value={originX}
+                    step={0.01}
+                    precision={4}
+                    onChange={handleOriginXChange}
+                    className="min-w-0"
+                  />
+                  <BridgeAxisSpinnerField
+                    axis="y"
+                    fieldKey="origin-y"
+                    label="Y"
+                    value={originY}
+                    step={0.01}
+                    precision={4}
+                    onChange={handleOriginYChange}
+                    className="min-w-0"
+                  />
+                  <BridgeAxisSpinnerField
+                    axis="z"
+                    fieldKey="origin-z"
+                    label="Z"
+                    value={originZ}
+                    step={0.01}
+                    precision={4}
+                    onChange={handleOriginZChange}
+                    className="min-w-0"
+                  />
+                </div>
+              </BridgeSection>
+
+              <BridgeSection title={t.rotation}>
+                <SegmentedControl
+                  options={[
+                    { value: 'euler_deg', label: t.eulerDegrees },
+                    { value: 'euler_rad', label: t.eulerRadians },
+                    { value: 'quaternion', label: t.quaternion },
+                  ]}
+                  value={rotationDisplayMode}
+                  onChange={(value) => setRotationDisplayMode(value)}
+                  size="xs"
+                  className="w-full [&>button]:min-h-6 [&>button]:flex-1 [&>button]:!gap-0.5 [&>button]:!px-1.5 [&>button]:!py-0 [&>button]:!text-[9px]"
+                />
+
+                {rotationDisplayMode === 'quaternion' ? (
+                  <div className={`mt-1.5 ${quaternionFieldGridClassName}`}>
+                    <BridgeSpinnerField
+                      fieldKey="quat-x"
+                      label="X"
+                      value={quatX}
+                      step={0.001}
+                      precision={4}
+                      onChange={(value) =>
+                        applyQuaternionRotation({ x: value, y: quatY, z: quatZ, w: quatW })
+                      }
+                      className="min-w-0"
+                    />
+                    <BridgeSpinnerField
+                      fieldKey="quat-y"
+                      label="Y"
+                      value={quatY}
+                      step={0.001}
+                      precision={4}
+                      onChange={(value) =>
+                        applyQuaternionRotation({ x: quatX, y: value, z: quatZ, w: quatW })
+                      }
+                      className="min-w-0"
+                    />
+                    <BridgeSpinnerField
+                      fieldKey="quat-z"
+                      label="Z"
+                      value={quatZ}
+                      step={0.001}
+                      precision={4}
+                      onChange={(value) =>
+                        applyQuaternionRotation({ x: quatX, y: quatY, z: value, w: quatW })
+                      }
+                      className="min-w-0"
+                    />
+                    <BridgeSpinnerField
+                      fieldKey="quat-w"
+                      label="W"
+                      value={quatW}
+                      step={0.001}
+                      precision={4}
+                      onChange={(value) =>
+                        applyQuaternionRotation({ x: quatX, y: quatY, z: quatZ, w: value })
+                      }
+                      className="min-w-0"
+                    />
+                  </div>
+                ) : usesCadInspectorLayout ? (
+                  <div className={`mt-1.5 ${eulerFieldGridClassName}`}>
+                    {rotationAxisFields.map((field) => (
+                      <div key={field.key} className="min-w-0 space-y-1">
+                        <BridgeSpinnerField
+                          fieldKey={`rot-${field.key}`}
+                          label={field.label}
+                          value={field.value}
+                          step={rotationDisplayMode === 'euler_rad' ? 0.1 : 1}
+                          precision={rotationDisplayMode === 'euler_rad' ? 4 : 2}
+                          onChange={field.onChange}
+                          className="min-w-0"
+                        />
+                        <BridgeQuickRotateButtonGroup
+                          label={field.label}
+                          decreaseLabel={quickRotateAriaLabelSuffix.decrease}
+                          increaseLabel={quickRotateAriaLabelSuffix.increase}
+                          decreaseText={quickRotateButtonText.decrease}
+                          increaseText={quickRotateButtonText.increase}
+                          onDecrease={() => handleQuickRotate(field.key, -1)}
+                          onIncrease={() => handleQuickRotate(field.key, 1)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-1.5 space-y-1">
+                    {rotationAxisFields.map((field) => (
+                      <div
+                        key={field.key}
+                        className="grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-1"
+                      >
+                        <BridgeSpinnerField
+                          inline
+                          label={field.label}
+                          value={field.value}
+                          step={rotationDisplayMode === 'euler_rad' ? 0.1 : 1}
+                          precision={rotationDisplayMode === 'euler_rad' ? 4 : 2}
+                          onChange={field.onChange}
+                          className="gap-1.5"
+                          labelClassName="w-[34px]"
+                        />
+                        <BridgeQuickRotateButtonGroup
+                          label={field.label}
+                          decreaseLabel={quickRotateAriaLabelSuffix.decrease}
+                          increaseLabel={quickRotateAriaLabelSuffix.increase}
+                          decreaseText={quickRotateButtonText.decrease}
+                          increaseText={quickRotateButtonText.increase}
+                          onDecrease={() => handleQuickRotate(field.key, -1)}
+                          onIncrease={() => handleQuickRotate(field.key, 1)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </BridgeSection>
+            </div>
+
+            {jointSupportsAxisAndLimits ? (
+              <div data-bridge-section-panel="joint" className={jointPanelClassName}>
                 <BridgeSection title={t.axisRotation}>
-                  <div className={originFieldGridClassName}>
+                  <div data-bridge-row="axis" className={xyzStackClassName}>
                     <BridgeSpinnerField
                       inline
                       fieldKey="axis-x"

@@ -59,6 +59,7 @@ import {
   isActiveWorkspaceTransformSession,
   normalizeWorkspaceAssemblyViewerDisplayRobotDataForSource,
   shouldKeepPristineSingleComponentWorkspaceOnSourceViewer,
+  shouldPreviewLibraryRobotLoadFromWorkspace,
   shouldUseGeneratedWorkspaceViewerReloadContent,
 } from './workspaceSourceSyncUtils';
 import { useAnimatedWorkspaceViewerRobotData } from './useAnimatedWorkspaceViewerRobotData';
@@ -203,6 +204,23 @@ export function useWorkspaceSourceSync({
       hasWorkspaceComponents,
       isWorkspaceAssembly,
       selectedFile,
+    ],
+  );
+  const shouldPreviewLibraryRobotLoad = useMemo(
+    () =>
+      isWorkspaceAssembly &&
+      shouldPreviewLibraryRobotLoadFromWorkspace({
+        assemblyState,
+        activeFile: selectedFile,
+        sourceSnapshot: currentRobotSourceSnapshot,
+        sourceRobotData: selectedFileReuseBaselineRobotData,
+      }),
+    [
+      assemblyState,
+      currentRobotSourceSnapshot,
+      isWorkspaceAssembly,
+      selectedFile,
+      selectedFileReuseBaselineRobotData,
     ],
   );
   const sourceSceneAssemblyComponentId = useMemo(() => {
@@ -1120,6 +1138,7 @@ export function useWorkspaceSourceSync({
     sourceCodeContent,
     sourceCodeDocumentFlavor,
     hasSimpleModeSourceEdits: hasSourceStoreEdits,
+    shouldPreviewLibraryRobotLoad,
     draftUrdfContent: viewerGeneratedUrdfContent,
     handlePreviewFile,
     handleClosePreview,

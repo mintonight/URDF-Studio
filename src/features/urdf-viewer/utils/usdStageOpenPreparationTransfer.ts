@@ -1,5 +1,6 @@
 import type {
   PreparedUsdPreloadFile,
+  PreparedUsdStageOpenMetrics,
   PreparedUsdStageOpenData,
 } from './usdStageOpenPreparation.ts';
 
@@ -8,6 +9,7 @@ export interface PreparedUsdPreloadTransferFile {
   mimeType: string;
   blob: Blob | null;
   bytes: ArrayBuffer | null;
+  transferBytes?: boolean;
   error?: string | null;
 }
 
@@ -15,6 +17,7 @@ export interface PreparedUsdStageOpenWorkerPayload {
   stageSourcePath: string;
   criticalDependencyPaths: string[];
   preloadFiles: PreparedUsdPreloadTransferFile[];
+  metrics?: PreparedUsdStageOpenMetrics;
 }
 
 interface SerializedPreparedUsdStageOpenData {
@@ -49,12 +52,14 @@ async function serializePreparedUsdPreloadFile(
 ): Promise<PreparedUsdPreloadTransferFile> {
   const existingBytes = normalizePreparedUsdPreloadBytes(preloadFile.bytes);
   if (existingBytes) {
-    const transferableBytes = existingBytes.slice(0);
+    const transferableBytes =
+      preloadFile.transferBytes === true ? existingBytes : existingBytes.slice(0);
     return {
       path: preloadFile.path,
       mimeType: preloadFile.mimeType ?? preloadFile.blob?.type ?? '',
       blob: null,
       bytes: transferableBytes,
+      transferBytes: preloadFile.transferBytes === true,
       error: preloadFile.error ?? null,
     };
   }
@@ -86,6 +91,7 @@ function hydratePreparedUsdPreloadFile(
     blob: preloadFile.blob,
     bytes: preloadFile.bytes,
     mimeType: preloadFile.mimeType || null,
+    transferBytes: preloadFile.transferBytes === true,
     error: preloadFile.error ?? null,
   };
 }
@@ -102,6 +108,7 @@ export async function serializePreparedUsdStageOpenDataForWorker(
       stageSourcePath: payload.stageSourcePath,
       criticalDependencyPaths: payload.criticalDependencyPaths,
       preloadFiles,
+      metrics: payload.metrics,
     },
     transferables: preloadFiles.flatMap((preloadFile) =>
       preloadFile.bytes ? [preloadFile.bytes] : [],
@@ -118,5 +125,6 @@ export function hydratePreparedUsdStageOpenDataFromWorker(
     preloadFiles: payload.preloadFiles.map((preloadFile) =>
       hydratePreparedUsdPreloadFile(preloadFile),
     ),
+    metrics: payload.metrics,
   };
 }

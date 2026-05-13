@@ -219,6 +219,52 @@ def Xform "go2_description"
     }
 }`;
 
+const unitreeG1ReferencedXformStrongMaterialLayerText = `#usda 1.0
+(
+    defaultPrim = "g1_29dof"
+)
+
+def Xform "g1_29dof"
+{
+    def Scope "Looks"
+    {
+        def Material "material_dark"
+        {
+        }
+        def Material "DefaultMaterial"
+        {
+        }
+    }
+}
+
+def Scope "visuals"
+{
+    def Xform "pelvis"
+    {
+        def Xform "pelvis" (
+            prepend references = </meshes/pelvis>
+        )
+        {
+            rel material:binding = </g1_29dof/Looks/material_dark> (
+                bindMaterialAs = "strongerThanDescendants"
+            )
+        }
+    }
+}
+
+def Scope "meshes"
+{
+    def Xform "pelvis"
+    {
+        def Mesh "mesh" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </g1_29dof/Looks/DefaultMaterial>
+        }
+    }
+}`;
+
 test('parseVisualSemanticChildNamesFromLayerText finds semantic children across nested link-local scopes', () => {
     const result = parseVisualSemanticChildNamesFromLayerText(exportedBaseLayerText);
 
@@ -300,6 +346,90 @@ test('parseUsdMaterialBindingsFromLayerText preserves mesh library direct bindin
             { start: 0, length: 4, materialId: '/go2_description/Looks/Material_6' },
         ],
     });
+});
+
+test('parseUsdMaterialBindingsFromLayerText lets Unitree G1 strong reference bindings override referenced mesh defaults', () => {
+    const result = SharedBasic.parseUsdMaterialBindingsFromLayerText(
+        unitreeG1ReferencedXformStrongMaterialLayerText,
+    );
+
+    const expectedStrongBinding = {
+        materialId: '/g1_29dof/Looks/material_dark',
+        geomSubsetSections: [],
+    };
+    assert.deepEqual(result.get('/visuals/pelvis/pelvis'), expectedStrongBinding);
+    assert.deepEqual(result.get('/meshes/pelvis'), expectedStrongBinding);
+    assert.deepEqual(result.get('/meshes/pelvis/mesh'), expectedStrongBinding);
+    assert.deepEqual(result.get('/g1_29dof/visuals/pelvis/pelvis'), expectedStrongBinding);
+    assert.deepEqual(result.get('/g1_29dof/meshes/pelvis'), expectedStrongBinding);
+    assert.deepEqual(result.get('/g1_29dof/meshes/pelvis/mesh'), expectedStrongBinding);
+});
+
+test('normalizeRobotSceneSnapshot restores Unitree G1 strong reference bindings over mesh defaults', () => {
+    const previousWindow = globalThis.window;
+    globalThis.window = {
+        location: { search: '' },
+    };
+    try {
+        const delegate = new ThreeRenderDelegateInterface({
+            stage: () => ({
+                GetRootLayer: () => ({
+                    ExportToString: () => unitreeG1ReferencedXformStrongMaterialLayerText,
+                }),
+                GetUsedLayers: () => [],
+                GetDefaultPrim: () => ({
+                    GetPath: () => ({ pathString: '/g1_29dof' }),
+                }),
+            }),
+            driver: () => null,
+            allowDriverStageLookup: false,
+        });
+
+        const snapshot = delegate.normalizeRobotSceneSnapshot({
+            generatedAtMs: 1,
+            stage: {
+                stageSourcePath: '/tmp/g1_29dof.usda',
+                defaultPrimPath: '/g1_29dof',
+            },
+            robotTree: {
+                linkParentPairs: [['/g1_29dof/pelvis', null]],
+                jointCatalogEntries: [],
+                rootLinkPaths: ['/g1_29dof/pelvis'],
+            },
+            physics: {
+                linkDynamicsEntries: [],
+            },
+            render: {
+                meshDescriptors: [{
+                    meshId: '/g1_29dof/meshes/pelvis/mesh',
+                    resolvedPrimPath: '/g1_29dof/meshes/pelvis/mesh',
+                    sectionName: 'visuals',
+                    primType: 'mesh',
+                    materialId: '/g1_29dof/Looks/DefaultMaterial',
+                    geometry: {
+                        materialId: '/g1_29dof/Looks/DefaultMaterial',
+                        geomSubsetSections: [],
+                    },
+                }],
+                materials: [{
+                    materialId: '/g1_29dof/Looks/material_dark',
+                    name: 'material_dark',
+                }, {
+                    materialId: '/g1_29dof/Looks/DefaultMaterial',
+                    name: 'DefaultMaterial',
+                }],
+            },
+        }, {
+            stageSourcePath: '/tmp/g1_29dof.usda',
+        });
+
+        assert.ok(snapshot);
+        assert.equal(snapshot.render.meshDescriptors[0].materialId, '/g1_29dof/Looks/material_dark');
+        assert.equal(snapshot.render.meshDescriptors[0].geometry.materialId, '/g1_29dof/Looks/material_dark');
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
 });
 
 test('normalizeRobotSceneSnapshot restores Unitree authored GeomSubset materials for mesh library descriptors', () => {

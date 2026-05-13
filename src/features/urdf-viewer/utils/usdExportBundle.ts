@@ -571,15 +571,59 @@ function getDescriptorRanges(
   return buffers?.rangesByMeshId?.[meshId] || null;
 }
 
+type NumericSubarrayLike = ArrayLike<number> & {
+  subarray: (start: number, end: number) => ArrayLike<number>;
+};
+
+function hasNumericSubarray(value: ArrayLike<number>): value is NumericSubarrayLike {
+  return (
+    ArrayBuffer.isView(value) &&
+    typeof (value as unknown as { subarray?: unknown }).subarray === 'function'
+  );
+}
+
 function readRangeValues(
   source: ArrayLike<number> | null | undefined,
   range: MeshRange | null | undefined,
-): number[] {
+): ArrayLike<number> {
   if (!source || !range) return [];
   const offset = Math.max(0, Number(range.offset || 0));
   const count = Math.max(0, Number(range.count || 0));
   if (count <= 0) return [];
+  const sourceLength = Math.max(0, Number(source.length || 0));
+  const end = offset + count;
+  if (end <= sourceLength && hasNumericSubarray(source)) {
+    return source.subarray(offset, end);
+  }
+  if (end <= sourceLength && Array.isArray(source)) {
+    return source.slice(offset, end);
+  }
   return Array.from({ length: count }, (_, index) => Number(source[offset + index] || 0));
+}
+
+function readRangeNumber(values: ArrayLike<number>, index: number): number {
+  return Number(values[index] || 0);
+}
+
+function sliceRangeValues(
+  values: ArrayLike<number>,
+  start: number,
+  end: number,
+): ArrayLike<number> {
+  const boundedStart = Math.max(0, Math.min(values.length, start));
+  const boundedEnd = Math.max(boundedStart, Math.min(values.length, end));
+  if (boundedStart === 0 && boundedEnd === values.length) {
+    return values;
+  }
+  if (hasNumericSubarray(values)) {
+    return values.subarray(boundedStart, boundedEnd);
+  }
+  if (Array.isArray(values)) {
+    return values.slice(boundedStart, boundedEnd);
+  }
+  return Array.from({ length: boundedEnd - boundedStart }, (_, index) =>
+    readRangeNumber(values, boundedStart + index),
+  );
 }
 
 function hasSnapshotBufferValues(value: ArrayLike<number> | null | undefined): boolean {
@@ -885,15 +929,17 @@ function buildObjBlobFromDescriptor(
     return null;
   }
 
-  const indexValues = readRangeValues(buffers?.indices, ranges?.indices).map((value) =>
-    Number(value),
-  );
+  const indexValues = readRangeValues(buffers?.indices, ranges?.indices);
   const normalValues = readRangeValues(buffers?.normals, ranges?.normals);
   const uvValues = readRangeValues(buffers?.uvs, ranges?.uvs);
   const transformValues = readRangeValues(buffers?.transforms, ranges?.transform);
 
   const transform =
-    transformValues.length >= 16 ? new Matrix4().fromArray(transformValues.slice(0, 16)) : null;
+    transformValues.length >= 16
+      ? new Matrix4().fromArray(
+          Array.from({ length: 16 }, (_, index) => readRangeNumber(transformValues, index)),
+        )
+      : null;
   const shouldBakeTransform = descriptor.bakeTransformIntoMesh !== false;
   const normalMatrix =
     transform && shouldBakeTransform ? new Matrix3().getNormalMatrix(transform) : null;
@@ -919,7 +965,7 @@ function buildObjBlobFromDescriptor(
     : fullTriangleIndices.length;
   const triangleIndices = descriptor.subsetSection
     ? (() => {
-        const sliced = fullTriangleIndices.slice(subsetStart, subsetEnd);
+        const sliced = sliceRangeValues(fullTriangleIndices, subsetStart, subsetEnd);
         return sliced.length >= 3 ? sliced : [];
       })()
     : fullTriangleIndices;
@@ -931,7 +977,7 @@ function buildObjBlobFromDescriptor(
       Math.min(fullTriangleIndices.length, start + Math.floor(section.length)),
     );
     for (let faceVertexIndex = start; faceVertexIndex < end; faceVertexIndex += 1) {
-      const vertexIndex = Number(fullTriangleIndices[faceVertexIndex]);
+      const vertexIndex = readRangeNumber(fullTriangleIndices, faceVertexIndex);
       if (!Number.isInteger(vertexIndex) || vertexIndex < 0) {
         continue;
       }
@@ -943,7 +989,11 @@ function buildObjBlobFromDescriptor(
   const defaultVertexColor = descriptor.displayColor || null;
 
   for (let index = 0; index + 2 < positionValues.length; index += 3) {
-    tempVector.set(positionValues[index], positionValues[index + 1], positionValues[index + 2]);
+    tempVector.set(
+      readRangeNumber(positionValues, index),
+      readRangeNumber(positionValues, index + 1),
+      readRangeNumber(positionValues, index + 2),
+    );
     if (transform && shouldBakeTransform) {
       tempVector.applyMatrix4(transform);
     }
@@ -981,7 +1031,11 @@ function buildObjBlobFromDescriptor(
     if (offset < 0 || offset + 2 >= positionValues.length) {
       return false;
     }
-    target.set(positionValues[offset], positionValues[offset + 1], positionValues[offset + 2]);
+    target.set(
+      readRangeNumber(positionValues, offset),
+      readRangeNumber(positionValues, offset + 1),
+      readRangeNumber(positionValues, offset + 2),
+    );
     if (transform && shouldBakeTransform) {
       target.applyMatrix4(transform);
     }
@@ -1026,9 +1080,9 @@ function buildObjBlobFromDescriptor(
       return false;
     }
     target.set(
-      normalValues[offset] || 0,
-      normalValues[offset + 1] || 0,
-      normalValues[offset + 2] || 0,
+      readRangeNumber(normalValues, offset),
+      readRangeNumber(normalValues, offset + 1),
+      readRangeNumber(normalValues, offset + 2),
     );
     if (normalMatrix) {
       target.applyMatrix3(normalMatrix);
@@ -1082,9 +1136,9 @@ function buildObjBlobFromDescriptor(
     (hasFaceVaryingNormals || hasPerVertexNormals) &&
     (() => {
       for (let index = 0; index + 2 < triangleIndices.length; index += 3) {
-        const a = Number(triangleIndices[index]);
-        const b = Number(triangleIndices[index + 1]);
-        const c = Number(triangleIndices[index + 2]);
+        const a = readRangeNumber(triangleIndices, index);
+        const b = readRangeNumber(triangleIndices, index + 1);
+        const c = readRangeNumber(triangleIndices, index + 2);
         if (!Number.isInteger(a) || !Number.isInteger(b) || !Number.isInteger(c)) {
           continue;
         }
@@ -1105,23 +1159,27 @@ function buildObjBlobFromDescriptor(
     for (let uvIndex = subsetStart; uvIndex < subsetEnd; uvIndex += 1) {
       const offset = uvIndex * uvStride;
       lines.push(
-        `vt ${formatObjNumber(uvValues[offset] || 0)} ${formatObjNumber(uvValues[offset + 1] || 0)}`,
+        `vt ${formatObjNumber(readRangeNumber(uvValues, offset))} ${formatObjNumber(
+          readRangeNumber(uvValues, offset + 1),
+        )}`,
       );
     }
   } else if (hasPerVertexUvs) {
     for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex += 1) {
       const offset = vertexIndex * uvStride;
       lines.push(
-        `vt ${formatObjNumber(uvValues[offset] || 0)} ${formatObjNumber(uvValues[offset + 1] || 0)}`,
+        `vt ${formatObjNumber(readRangeNumber(uvValues, offset))} ${formatObjNumber(
+          readRangeNumber(uvValues, offset + 1),
+        )}`,
       );
     }
   }
 
   if (shouldWriteRepairedFaceVaryingNormals) {
     for (let index = 0; index + 2 < triangleIndices.length; index += 3) {
-      const a = Number(triangleIndices[index]);
-      const b = Number(triangleIndices[index + 1]);
-      const c = Number(triangleIndices[index + 2]);
+      const a = readRangeNumber(triangleIndices, index);
+      const b = readRangeNumber(triangleIndices, index + 1);
+      const c = readRangeNumber(triangleIndices, index + 2);
       const globalFaceVertexIndex = subsetStart + index;
       const hasComputedFaceNormal = computeFaceNormal(a, b, c, faceNormal);
       const hasNormalA = readAuthoredNormalVector(globalFaceVertexIndex, a, authoredNormalA);
@@ -1171,9 +1229,9 @@ function buildObjBlobFromDescriptor(
     for (let normalIndex = subsetStart; normalIndex < subsetEnd; normalIndex += 1) {
       const offset = normalIndex * normalStride;
       tempVector.set(
-        normalValues[offset] || 0,
-        normalValues[offset + 1] || 0,
-        normalValues[offset + 2] || 0,
+        readRangeNumber(normalValues, offset),
+        readRangeNumber(normalValues, offset + 1),
+        readRangeNumber(normalValues, offset + 2),
       );
       if (normalMatrix) {
         tempVector.applyMatrix3(normalMatrix).normalize();
@@ -1184,9 +1242,9 @@ function buildObjBlobFromDescriptor(
     for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex += 1) {
       const offset = vertexIndex * normalStride;
       tempVector.set(
-        normalValues[offset] || 0,
-        normalValues[offset + 1] || 0,
-        normalValues[offset + 2] || 0,
+        readRangeNumber(normalValues, offset),
+        readRangeNumber(normalValues, offset + 1),
+        readRangeNumber(normalValues, offset + 2),
       );
       if (normalMatrix) {
         tempVector.applyMatrix3(normalMatrix).normalize();
@@ -1213,9 +1271,9 @@ function buildObjBlobFromDescriptor(
   };
 
   for (let index = 0; index + 2 < triangleIndices.length; index += 3) {
-    const a = Number(triangleIndices[index]) + 1;
-    const b = Number(triangleIndices[index + 1]) + 1;
-    const c = Number(triangleIndices[index + 2]) + 1;
+    const a = readRangeNumber(triangleIndices, index) + 1;
+    const b = readRangeNumber(triangleIndices, index + 1) + 1;
+    const c = readRangeNumber(triangleIndices, index + 2) + 1;
     if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(c)) {
       continue;
     }
@@ -2952,3 +3010,7 @@ export function buildUsdExportBundleFromSnapshot(
     resolution,
   };
 }
+
+export const __private__ = {
+  readRangeValues,
+};

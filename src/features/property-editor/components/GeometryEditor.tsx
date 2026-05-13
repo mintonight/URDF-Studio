@@ -306,7 +306,7 @@ const DeferredColorPickerInput = ({
   );
 };
 
-const POSITIVE_GEOMETRY_VALUE_MIN = GEOMETRY_DIMENSION_STEP;
+const POSITIVE_GEOMETRY_VALUE_MIN = 10 ** -MAX_GEOMETRY_DIMENSION_DECIMALS;
 const stripAxisSuffix = (label: string) => label.replace(/\s*\([^)]*\)\s*$/, '');
 
 const InlineDimensionInputRow = ({
@@ -349,6 +349,7 @@ const InlineDimensionInputRow = ({
             showStepper={showStepper}
             step={GEOMETRY_DIMENSION_STEP}
             precision={MAX_GEOMETRY_DIMENSION_DECIMALS}
+            commitOnBlurOnly
           />
         </div>
       </div>

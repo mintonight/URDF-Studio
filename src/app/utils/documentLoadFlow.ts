@@ -221,7 +221,11 @@ export function shouldIgnoreViewerLoadRegressionAfterReadySameFile<
     currentState.fileName === nextState.fileName &&
     (currentState.format ?? null) === (nextState.format ?? null);
 
-  return sameFile && currentState.status === 'ready' && nextState.status === 'loading';
+  return (
+    sameFile &&
+    currentState.status === 'ready' &&
+    (nextState.status === 'loading' || nextState.status === 'hydrating')
+  );
 }
 
 export function resolveRuntimeRobotReadyDocumentLoadState<

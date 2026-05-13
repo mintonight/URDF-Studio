@@ -245,7 +245,7 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
               labels={['X', 'Y', 'Z']}
               compact={false}
               step={TRANSFORM_STEP}
-              precision={4}
+              precision={MAX_TRANSFORM_DECIMALS}
               commitPrecision={MAX_TRANSFORM_DECIMALS}
             />
           </InputGroup>

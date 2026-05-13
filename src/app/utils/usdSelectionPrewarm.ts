@@ -1,4 +1,5 @@
 import { logRuntimeFailure } from '@/core/utils/runtimeDiagnostics';
+import { getUsdRuntimeEnvironmentError } from '@/features/urdf-viewer/utils/usdWasmRuntime';
 import type { RobotFile } from '@/types';
 
 type StageOpenSourceFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl' | 'format'>;
@@ -16,10 +17,12 @@ interface UsdSelectionPrewarmDependencies {
     file: StageOpenSourceFile,
     availableFiles: StageOpenAvailableFile[],
   ) => boolean;
+  getRuntimeEnvironmentError?: () => Error | null;
 }
 
 interface UsdSelectionBackgroundPrewarmDependencies {
   loadHandler: () => Promise<ReturnType<typeof createUsdSelectionPrewarmHandler>>;
+  getRuntimeEnvironmentError?: () => Error | null;
   logFailure?: typeof logRuntimeFailure;
 }
 
@@ -28,6 +31,7 @@ export function createUsdSelectionPrewarmHandler({
   prewarmOffscreenRuntime,
   prewarmStageOpen,
   hasBlobBackedLargeUsdaInStageScope,
+  getRuntimeEnvironmentError = getUsdRuntimeEnvironmentError,
 }: UsdSelectionPrewarmDependencies): (
   file: StageOpenSourceFile,
   availableFiles: StageOpenAvailableFile[],
@@ -35,6 +39,10 @@ export function createUsdSelectionPrewarmHandler({
 ) => void {
   return (file, availableFiles, assets) => {
     if (file.format !== 'usd') {
+      return;
+    }
+
+    if (getRuntimeEnvironmentError()) {
       return;
     }
 
@@ -80,6 +88,7 @@ function loadUsdSelectionPrewarmHandler() {
 
 export function createUsdSelectionBackgroundPrewarm({
   loadHandler,
+  getRuntimeEnvironmentError = getUsdRuntimeEnvironmentError,
   logFailure = logRuntimeFailure,
 }: UsdSelectionBackgroundPrewarmDependencies): (
   file: StageOpenSourceFile,
@@ -88,6 +97,10 @@ export function createUsdSelectionBackgroundPrewarm({
 ) => void {
   return (file, availableFiles, assets) => {
     if (file.format !== 'usd') {
+      return;
+    }
+
+    if (getRuntimeEnvironmentError()) {
       return;
     }
 

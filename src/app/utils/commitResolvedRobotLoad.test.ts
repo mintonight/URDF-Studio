@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 
-import { DEFAULT_LINK, JointType, type AssemblyState, type RobotFile } from '@/types';
+import { DEFAULT_LINK, type AssemblyState, type RobotFile } from '@/types';
 import { resolveRobotFileData } from '@/core/parsers/importRobotFile';
 import { commitResolvedRobotLoad } from './commitResolvedRobotLoad.ts';
 
@@ -230,7 +230,7 @@ test('commitResolvedRobotLoad uses resolved URDF content for ready xacro files',
   assert.equal(originalContent, '<robot name="b2"><link name="base_link" /></robot>');
 });
 
-test('commitResolvedRobotLoad seeds MJCF scene wrappers with the included robot display name', () => {
+test('commitResolvedRobotLoad seeds directly clicked MJCF scene wrappers as a single selected-file component', () => {
   const sceneFile = createRobotFile({
     name: 'robots/go2/scene.xml',
     format: 'mjcf',
@@ -292,16 +292,13 @@ test('commitResolvedRobotLoad seeds MJCF scene wrappers with the included robot 
     },
   });
 
-  assert.equal(committedRobotName, 'go2');
-  assert.equal(seededAssembly?.name, 'go2');
+  assert.equal(committedRobotName, 'go2 scene');
+  assert.equal(seededAssembly?.name, 'go2 scene');
   assert.deepEqual(
-    Object.values(seededAssembly?.components ?? {})
-      .map((component) => component.sourceFile)
-      .sort((left, right) => left.localeCompare(right)),
-    [robotFile.name, sceneFile.name].sort((left, right) => left.localeCompare(right)),
+    Object.values(seededAssembly?.components ?? {}).map((component) => component.sourceFile),
+    [sceneFile.name],
   );
-  assert.equal(Object.values(seededAssembly?.bridges ?? {}).length, 1);
-  assert.equal(Object.values(seededAssembly?.bridges ?? {})[0]?.joint.type, JointType.FIXED);
+  assert.equal(Object.values(seededAssembly?.bridges ?? {}).length, 0);
 });
 
 test('commitResolvedRobotLoad preserves existing multi-component assemblies', () => {

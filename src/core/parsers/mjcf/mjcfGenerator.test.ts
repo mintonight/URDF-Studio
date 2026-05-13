@@ -990,7 +990,7 @@ test('generated MJCF preserves collision geom names through export and reparse',
   assert.equal(reparsed.links.base_link.collisionBodies?.[0]?.name, 'motor_guard');
 });
 
-test('unitree_go2 MJCF roundtrip preserves the floating root joint and base pose', () => {
+test('unitree_go2 MJCF roundtrip preserves the floating root joint and home keyframe pose', () => {
   installDomParser();
 
   const source = fs.readFileSync(GO2_MJCF_PATH, 'utf8');
@@ -1000,7 +1000,7 @@ test('unitree_go2 MJCF roundtrip preserves the floating root joint and base pose
   const importedRootJoint = imported?.joints.joint_0;
   assert.ok(importedRootJoint, 'expected unitree_go2 to expose joint_0 as the floating root');
   assert.equal(importedRootJoint?.type, 'floating');
-  assert.deepEqual(importedRootJoint?.origin?.xyz, { x: 0, y: 0, z: 0.445 });
+  assert.deepEqual(importedRootJoint?.origin?.xyz, { x: 0, y: 0, z: 0.27 });
 
   const exported = generateMujocoXML(imported!, {
     includeSceneHelpers: false,
@@ -1010,8 +1010,8 @@ test('unitree_go2 MJCF roundtrip preserves the floating root joint and base pose
 
   assert.ok(reparsed, 'expected exported unitree_go2 MJCF to parse');
   assert.equal(reparsed?.joints.joint_0?.type, 'floating');
-  assert.deepEqual(reparsed?.joints.joint_0?.origin?.xyz, { x: 0, y: 0, z: 0.445 });
-  assert.match(exported, /<body name="base" pos="0 0 0\.445">[\s\S]*?<freejoint name="joint_0"\/>/);
+  assert.deepEqual(reparsed?.joints.joint_0?.origin?.xyz, { x: 0, y: 0, z: 0.27 });
+  assert.match(exported, /<body name="base" pos="0 0 0\.27">[\s\S]*?<freejoint name="joint_0"\/>/);
 });
 
 test('generated MJCF preserves missing URDF inertial without crashing', () => {

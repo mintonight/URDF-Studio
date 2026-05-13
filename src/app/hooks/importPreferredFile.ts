@@ -552,6 +552,68 @@ function isMateriallyRicherRobotCandidate(
   return false;
 }
 
+const SUBSTANTIAL_MJCF_SCENE_DIRECT_BODY_COUNT = 8;
+const SUBSTANTIAL_MJCF_SCENE_HELPER_COUNT = 8;
+const SUBSTANTIAL_MJCF_SCENE_VISUAL_GEOMETRY_DELTA = 8;
+
+type RankedMjcfCandidate = {
+  file: RobotFile;
+  structure: MjcfCandidateStructure;
+};
+
+type ReadyMjcfCandidate = RankedMjcfCandidate & {
+  richness: ResolvedRobotRichness;
+};
+
+function hasSubstantialMjcfSceneStructure(structure: MjcfCandidateStructure): boolean {
+  return (
+    structure.includeCount > 0 &&
+    (structure.directBodyCount >= SUBSTANTIAL_MJCF_SCENE_DIRECT_BODY_COUNT ||
+      structure.sceneHelperCount >= SUBSTANTIAL_MJCF_SCENE_HELPER_COUNT)
+  );
+}
+
+function isMateriallyRicherMjcfSceneCandidate(
+  candidate: ReadyMjcfCandidate,
+  baseline: ReadyMjcfCandidate,
+): boolean {
+  if (!hasSubstantialMjcfSceneStructure(candidate.structure)) {
+    return false;
+  }
+
+  if (
+    candidate.richness.visualGeometryCount >=
+    baseline.richness.visualGeometryCount + SUBSTANTIAL_MJCF_SCENE_VISUAL_GEOMETRY_DELTA
+  ) {
+    return true;
+  }
+
+  return (
+    candidate.richness.renderableLinkCount >=
+      baseline.richness.renderableLinkCount + SUBSTANTIAL_MJCF_SCENE_DIRECT_BODY_COUNT &&
+    candidate.richness.visualGeometryCount > baseline.richness.visualGeometryCount
+  );
+}
+
+function compareReadyMjcfSceneRichness(
+  left: ReadyMjcfCandidate,
+  right: ReadyMjcfCandidate,
+): number {
+  if (left.richness.visualGeometryCount !== right.richness.visualGeometryCount) {
+    return right.richness.visualGeometryCount - left.richness.visualGeometryCount;
+  }
+
+  if (left.richness.renderableLinkCount !== right.richness.renderableLinkCount) {
+    return right.richness.renderableLinkCount - left.richness.renderableLinkCount;
+  }
+
+  if (left.richness.meshGeometryCount !== right.richness.meshGeometryCount) {
+    return right.richness.meshGeometryCount - left.richness.meshGeometryCount;
+  }
+
+  return left.file.name.localeCompare(right.file.name);
+}
+
 export function pickPreferredMjcfImportFile(
   files: RobotFile[],
   filePool: RobotFile[] = files,
@@ -561,7 +623,7 @@ export function pickPreferredMjcfImportFile(
   const mjcfFiles = files.filter((file) => file.format === 'mjcf');
   if (mjcfFiles.length === 0) return null;
 
-  const rankedCandidates = mjcfFiles.map((candidate) => ({
+  const rankedCandidates: RankedMjcfCandidate[] = mjcfFiles.map((candidate) => ({
     file: candidate,
     structure: collectMjcfCandidateStructure(candidate.content),
   }));
@@ -581,12 +643,25 @@ export function pickPreferredMjcfImportFile(
     return leftBase.localeCompare(rightBase);
   });
 
+  let firstReadyCandidate: ReadyMjcfCandidate | null = null;
+  const readyCandidates: ReadyMjcfCandidate[] = [];
+
   for (const candidate of rankedCandidates) {
     try {
-      if (cachedResolveRobotImport(candidate.file).status === 'ready') {
-        return candidate.file;
+      const richness = summarizeResolvedRobotRichness(candidate.file, cachedResolveRobotImport);
+      if (richness) {
+        const readyCandidate = {
+          ...candidate,
+          richness,
+        };
+        firstReadyCandidate ??= readyCandidate;
+        readyCandidates.push(readyCandidate);
       }
     } catch (error) {
+      if (firstReadyCandidate) {
+        continue;
+      }
+
       const resolutionError = createImportCandidateResolutionError(
         candidate.file,
         'Failed to evaluate MJCF import candidate',
@@ -601,7 +676,15 @@ export function pickPreferredMjcfImportFile(
     }
   }
 
-  return null;
+  if (!firstReadyCandidate) {
+    return null;
+  }
+
+  const substantialSceneCandidate = readyCandidates
+    .filter((candidate) => isMateriallyRicherMjcfSceneCandidate(candidate, firstReadyCandidate))
+    .sort(compareReadyMjcfSceneRichness)[0];
+
+  return substantialSceneCandidate?.file ?? firstReadyCandidate.file;
 }
 
 export function pickPreferredImportFile(

@@ -633,6 +633,32 @@ test('isaacsim USDA export collapses synthetic MJCF geom attachment links back i
   assert.doesNotMatch(physicsLayer, /rel physics:body1 = <\/mjcf_go1\/base_geom_1>/);
 });
 
+test('MJCF USD export collapses synthetic geom attachment links before legacy serialization', async () => {
+  const payload = await exportRobotToUsd({
+    robot: createMjcfSyntheticAttachmentRobot(),
+    exportName: 'mjcf_legacy',
+    assets: {},
+    fileFormat: 'usda',
+  });
+
+  const baseLayer = await readArchiveText(
+    payload,
+    'mjcf_legacy/usd/configuration/mjcf_legacy_description_base.usda',
+  );
+  const physicsLayer = await readArchiveText(
+    payload,
+    'mjcf_legacy/usd/configuration/mjcf_legacy_description_physics.usda',
+  );
+
+  assert.match(baseLayer, /def Xform "base"/);
+  assert.doesNotMatch(baseLayer, /def Xform "world"/);
+  assert.doesNotMatch(baseLayer, /def Xform "base_geom_1"/);
+  assert.match(baseLayer, /def Xform "visuals"[\s\S]*def Cylinder "cylinder"/);
+  assert.doesNotMatch(physicsLayer, /def PhysicsFixedJoint "world_to_base"/);
+  assert.doesNotMatch(physicsLayer, /def PhysicsFixedJoint "base_to_base_geom_1"/);
+  assert.doesNotMatch(physicsLayer, /rel physics:body1 = <\/mjcf_legacy_description\/base_geom_1>/);
+});
+
 test('isaacsim USDA export hides mesh library prototypes and collision guide scopes from renderers', async () => {
   const meshPayload = await exportRobotToUsd({
     robot: createSharedMeshRobot('meshes/shared_triangle.obj'),
@@ -663,6 +689,33 @@ test('isaacsim USDA export hides mesh library prototypes and collision guide sco
   assert.match(
     collisionBaseLayer,
     /def Xform "collisions"\n\s+\{\n\s+token visibility = "invisible"/,
+  );
+});
+
+test('USDA export downgrades unsupported collision primitives instead of dropping them', async () => {
+  const robot = createTwoLinkRobot();
+  robot.links.base_link.collision = {
+    ...robot.links.base_link.collision,
+    type: GeometryType.PLANE,
+    dimensions: { x: 6, y: 4, z: 0 },
+  };
+
+  const payload = await exportRobotToUsd({
+    robot,
+    exportName: 'plane_collision',
+    assets: createTwoLinkAssets(),
+    fileFormat: 'usda',
+    layoutProfile: 'isaacsim',
+  });
+
+  const baseLayer = await readArchiveText(
+    payload,
+    'plane_collision/configuration/plane_collision_base.usda',
+  );
+
+  assert.match(
+    baseLayer,
+    /def Xform "collision_0"[\s\S]*double3 xformOp:scale = \(6, 4, 0\.001\)[\s\S]*def Cube "plane_as_box"/,
   );
 });
 
@@ -953,6 +1006,54 @@ test('exports explicit mesh material colors into USD preview materials instead o
   assert.match(baseLayer, /primvars:displayColor = \[\(0\.070593, 0\.670593, 0\.203927\)\]/);
   assert.match(baseLayer, /color3f inputs:diffuseColor = \(0\.070593, 0\.670593, 0\.203927\)/);
   assert.doesNotMatch(baseLayer, /color3f inputs:diffuseColor = \(1, 1, 1\)/);
+});
+
+test('MJCF USD export merges same-link visual meshes while preserving material subsets', async () => {
+  const firstMeshPath = 'meshes/first_triangle.obj';
+  const secondMeshPath = 'meshes/second_triangle.obj';
+  const robot = createMeshRobot(firstMeshPath);
+  robot.links.base_link.visual.color = '#ff0000';
+  robot.links.base_link.visualBodies = [
+    {
+      type: GeometryType.MESH,
+      meshPath: secondMeshPath,
+      dimensions: { x: 1, y: 1, z: 1 },
+      color: '#00ff00',
+      origin: { xyz: { x: 2, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+    },
+  ];
+  robot.inspectionContext = {
+    sourceFormat: 'mjcf',
+    mjcf: {
+      siteCount: 0,
+      tendonCount: 0,
+      tendonActuatorCount: 0,
+      bodiesWithSites: [],
+      tendons: [],
+    },
+  };
+
+  const payload = await exportRobotToUsd({
+    robot,
+    exportName: 'mjcf_merged_visuals',
+    assets: {},
+    extraMeshFiles: new Map([
+      [firstMeshPath, createUvObjBlob()],
+      [secondMeshPath, createUvObjBlob()],
+    ]),
+  });
+
+  const baseLayer = await readArchiveText(
+    payload,
+    'mjcf_merged_visuals/usd/configuration/mjcf_merged_visuals_description_base.usd',
+  );
+
+  assert.match(baseLayer, /def Mesh "visual_merged"/);
+  assert.doesNotMatch(baseLayer, /def Xform "visual_0"/);
+  assert.doesNotMatch(baseLayer, /def Xform "visual_1"/);
+  assert.equal(Array.from(baseLayer.matchAll(/def GeomSubset "subset_/g)).length, 2);
+  assert.match(baseLayer, /color3f inputs:diffuseColor = \(1, 0, 0\)/);
+  assert.match(baseLayer, /color3f inputs:diffuseColor = \(0, 1, 0\)/);
 });
 
 test('deduplicates repeated mesh geometry into a shared USD mesh library', async () => {

@@ -3,12 +3,12 @@ import test from 'node:test';
 
 import { resolveLibraryRobotLoadAction } from './libraryRobotLoadPolicy.ts';
 
-test('resolveLibraryRobotLoadAction keeps direct library model clicks as loads in source view', () => {
+test('resolveLibraryRobotLoadAction keeps direct library model clicks as loads when the current state can be replaced directly', () => {
   assert.equal(
     resolveLibraryRobotLoadAction({
       selectedFileName: 'robots/current.urdf',
       targetFileName: 'robots/other.urdf',
-      shouldRenderAssembly: false,
+      shouldPreviewCurrentState: false,
       hasSimpleModeSourceEdits: false,
       intent: 'direct',
     }),
@@ -16,12 +16,12 @@ test('resolveLibraryRobotLoadAction keeps direct library model clicks as loads i
   );
 });
 
-test('resolveLibraryRobotLoadAction previews direct library model clicks while assembly view is active', () => {
+test('resolveLibraryRobotLoadAction previews direct library model clicks when the current workspace has meaningful edits', () => {
   assert.equal(
     resolveLibraryRobotLoadAction({
       selectedFileName: 'robots/current.urdf',
       targetFileName: 'robots/other.urdf',
-      shouldRenderAssembly: true,
+      shouldPreviewCurrentState: true,
       hasSimpleModeSourceEdits: false,
       intent: 'direct',
     }),
@@ -34,7 +34,7 @@ test('resolveLibraryRobotLoadAction does not preview the already selected model'
     resolveLibraryRobotLoadAction({
       selectedFileName: 'robots/current.urdf',
       targetFileName: 'robots/current.urdf',
-      shouldRenderAssembly: true,
+      shouldPreviewCurrentState: true,
       hasSimpleModeSourceEdits: false,
       intent: 'direct',
     }),
@@ -47,7 +47,7 @@ test('resolveLibraryRobotLoadAction still guards unsaved source edits before rep
     resolveLibraryRobotLoadAction({
       selectedFileName: 'robots/current.urdf',
       targetFileName: 'robots/other.urdf',
-      shouldRenderAssembly: false,
+      shouldPreviewCurrentState: false,
       hasSimpleModeSourceEdits: true,
       intent: 'direct',
     }),

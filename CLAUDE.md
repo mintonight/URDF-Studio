@@ -30,6 +30,17 @@ npm run verify:fast
 npm run verify:full
 ```
 
+格式回归样本：
+
+| 格式 / 场景 | 基准目录 |
+|-------------|----------|
+| MJCF | `test/mujoco_menagerie-main/` |
+| MJCF tendon | `test/myosuite-main/` |
+| SDF | `test/gazebo_models/` |
+| USD | `test/unitree_model/` |
+| USDA | `test/unitree_ros_usda/` |
+| URDF | `test/unitree_ros/` |
+
 说明：
 
 - 旧的 `CLAUDE.md` 长文档内容已经收敛到 `AGENTS.md` 和 `docs/*`

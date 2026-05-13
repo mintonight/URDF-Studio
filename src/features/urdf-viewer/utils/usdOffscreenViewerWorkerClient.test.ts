@@ -264,3 +264,35 @@ test('USD offscreen viewer worker client logs prewarm dispatch failures instead 
     warnings.some((entry) => String(entry[0] || '').includes('[prewarmUsdOffscreenViewerRuntime]')),
   );
 });
+
+test('USD offscreen viewer worker client skips prewarm worker creation outside isolated pages', () => {
+  const fakeWorker = new FakeWorker();
+  let createWorkerCalls = 0;
+  const client = createUsdOffscreenViewerWorkerClient({
+    canUseWorker: () => true,
+    createWorker: () => {
+      createWorkerCalls += 1;
+      return fakeWorker as unknown as Worker;
+    },
+    getRuntimeEnvironmentError: () =>
+      new Error('USD loading requires a cross-origin isolated page.'),
+  });
+  const originalConsoleWarn = console.warn;
+  const warnings: unknown[][] = [];
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+
+  try {
+    client.prewarmRuntime();
+  } finally {
+    client.shutdown();
+    console.warn = originalConsoleWarn;
+  }
+
+  assert.equal(createWorkerCalls, 0);
+  assert.equal(fakeWorker.postedMessages.length, 0);
+  assert.ok(
+    warnings.some((entry) => String(entry[0] || '').includes('[prewarmUsdOffscreenViewerRuntime]')),
+  );
+});

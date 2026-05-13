@@ -226,8 +226,8 @@ export function TreeEditorStructureSection({
 
       {isOpen && (
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <div className="flex-1 overflow-y-auto overflow-x-auto py-2 custom-scrollbar bg-white dark:bg-panel-bg">
-            <div className="min-w-max">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden py-2 custom-scrollbar bg-white dark:bg-panel-bg">
+            <div className="min-w-0 w-full">
               {isAssemblyView && assemblyState ? (
                 <AssemblyTreeView
                   assemblyState={assemblyState}
@@ -287,7 +287,7 @@ export function TreeEditorStructureSection({
                       </span>
                     )}
                   </div>
-                  <div className="ml-2 border-l border-border-black">
+                  <div className="ml-1 border-l border-border-black">
                     {treeRootLinkIds.map((treeRootLinkId) => (
                       <div
                         key={treeRootLinkId}

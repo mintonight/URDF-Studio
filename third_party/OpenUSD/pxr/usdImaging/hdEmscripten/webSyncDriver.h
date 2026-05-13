@@ -4697,20 +4697,14 @@ private:
         }
 
         SdfPathSet loadSet;
-        bool skippedSensorPayload = false;
         for (UsdPrim const& prim : stage->Traverse()) {
             if (!prim || !prim.HasPayload()) {
                 continue;
             }
             if (_IsSkippableSensorPayloadPrim(prim)) {
-                skippedSensorPayload = true;
                 continue;
             }
             loadSet.insert(prim.GetPath());
-        }
-
-        if (!skippedSensorPayload) {
-            return UsdStage::Open(usdFilePath);
         }
 
         try {

@@ -61,6 +61,7 @@
     "test:fixtures:myosuite-imports": "esbuild scripts/regression/validate_myosuite_imports.ts --bundle --platform=node --format=cjs --alias:@=./src --external:jsdom --outfile=tmp/regression/myosuite-import-matrix.cjs && node tmp/regression/myosuite-import-matrix.cjs",
     "test:fixtures:unitree-ros-usd-export-benchmark": "node scripts/regression/validate_unitree_ros_usd_export_benchmark.mjs",
     "test:fixtures:unitree-ros-usd-export-e2e-benchmark": "node scripts/regression/validate_unitree_ros_usd_export_e2e_benchmark.mjs",
+    "test:fixtures:mujoco-usd-export-performance": "npx tsx scripts/regression/validate_mujoco_usd_export_performance.ts",
     "test:fixtures:unitree-ros-isaacsim-truth": "npx tsx scripts/regression/validate_unitree_ros_usd_against_isaacsim.ts",
     "test:fixtures:mujoco-mjcf-isaacsim-truth": "npx tsx scripts/regression/validate_mujoco_mjcf_usd_against_isaacsim.ts",
     "test:fixtures:isaacsim-truth": "npm run test:fixtures:unitree-ros-isaacsim-truth && npm run test:fixtures:mujoco-mjcf-isaacsim-truth",

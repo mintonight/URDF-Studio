@@ -53,6 +53,7 @@ import {
   normalizeWorkspaceAssemblyViewerDisplayRobotDataForSource,
   resolveWorkspaceGeneratedUrdfRobotData,
   shouldKeepPristineSingleComponentWorkspaceOnSourceViewer,
+  shouldPreviewLibraryRobotLoadFromWorkspace,
   shouldPromptGenerateWorkspaceUrdfOnStructureSwitch,
   shouldReseedSingleComponentAssemblyFromActiveFile,
   shouldReuseSourceViewerForSingleComponentAssembly,
@@ -2836,6 +2837,73 @@ test('shouldReuseSourceViewerForSingleComponentAssembly keeps the current file s
   assert.equal(
     shouldReuseSourceViewerForSingleComponentAssembly({
       assemblyState: rotatedComponentAssembly,
+      activeFile: createUrdfFile('robots/demo/demo.urdf'),
+      sourceSnapshot: createRobotSourceSnapshot(createRobotState()),
+    }),
+    true,
+  );
+});
+
+test('shouldPreviewLibraryRobotLoadFromWorkspace skips preview for pristine single-component seeds', () => {
+  assert.equal(
+    shouldPreviewLibraryRobotLoadFromWorkspace({
+      assemblyState: createSeededSingleComponentAssemblyState('robots/demo/demo.urdf'),
+      activeFile: createUrdfFile('robots/demo/demo.urdf'),
+      sourceSnapshot: createRobotSourceSnapshot(createRobotState()),
+    }),
+    false,
+  );
+});
+
+test('shouldPreviewLibraryRobotLoadFromWorkspace skips preview for auto-seeded models whose robot name differs from the file name', () => {
+  const sourceRobot = createRobotState();
+  sourceRobot.name = 'friendly_robot';
+  const activeFile = createUrdfFile('robots/demo/demo.urdf');
+  const assemblyState = createSeededSingleComponentAssemblyState(activeFile.name);
+  assemblyState.name = sourceRobot.name;
+  assemblyState.components.comp_demo.name = sourceRobot.name;
+  assemblyState.components.comp_demo.robot = prepareAssemblyRobotData(sourceRobot, {
+    componentId: 'comp_demo',
+    rootName: 'demo',
+    sourceFilePath: activeFile.name,
+    sourceFormat: activeFile.format,
+  });
+
+  assert.equal(
+    shouldPreviewLibraryRobotLoadFromWorkspace({
+      assemblyState,
+      activeFile,
+      sourceSnapshot: createRobotSourceSnapshot(sourceRobot),
+    }),
+    false,
+  );
+});
+
+test('shouldPreviewLibraryRobotLoadFromWorkspace still skips preview for isolated seeded component transforms', () => {
+  const rotatedComponentAssembly =
+    createSeededSingleComponentAssemblyState('robots/demo/demo.urdf');
+  rotatedComponentAssembly.components.comp_demo.transform = {
+    position: { x: 0.15, y: -0.05, z: 0.25 },
+    rotation: { r: 0, p: 0, y: 0.35 },
+  };
+
+  assert.equal(
+    shouldPreviewLibraryRobotLoadFromWorkspace({
+      assemblyState: rotatedComponentAssembly,
+      activeFile: createUrdfFile('robots/demo/demo.urdf'),
+      sourceSnapshot: createRobotSourceSnapshot(createRobotState()),
+    }),
+    false,
+  );
+});
+
+test('shouldPreviewLibraryRobotLoadFromWorkspace requires preview once the seeded component diverges structurally', () => {
+  const mutatedAssembly = createSeededSingleComponentAssemblyState('robots/demo/demo.urdf');
+  mutatedAssembly.components.comp_demo.robot.joints.comp_demo_joint_a.origin.xyz.x = 0.25;
+
+  assert.equal(
+    shouldPreviewLibraryRobotLoadFromWorkspace({
+      assemblyState: mutatedAssembly,
       activeFile: createUrdfFile('robots/demo/demo.urdf'),
       sourceSnapshot: createRobotSourceSnapshot(createRobotState()),
     }),

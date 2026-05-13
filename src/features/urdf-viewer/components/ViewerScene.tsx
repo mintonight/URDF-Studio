@@ -41,6 +41,7 @@ export const ViewerScene = ({
   onUpdate,
   robotLinks,
   robotJoints,
+  robotData,
   focusTarget,
   onCollisionTransformPreview,
   onCollisionTransform,
@@ -226,7 +227,7 @@ export const ViewerScene = ({
           paintSelectionScope={controller.paintSelectionScope}
           paintOperation={controller.paintOperation}
           onPaintStatusChange={controller.setPaintStatus}
-          onJointChange={controller.handleRuntimeJointAngleChange}
+          onJointChange={controller.handleJointAngleChange}
           onJointChangeCommit={controller.handleJointChangeCommit}
           initialJointAngles={controller.getInitialJointAnglesForNextLoad()}
           registerSceneRefresh={controller.registerSceneRefresh}
@@ -258,6 +259,7 @@ export const ViewerScene = ({
           modelOpacity={controller.modelOpacity}
           robotLinks={robotLinks}
           robotJoints={robotJoints}
+          robotData={robotData}
           focusTarget={focusTarget}
           transformMode={controller.transformMode}
           toolMode={toolMode}

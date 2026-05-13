@@ -19,6 +19,10 @@ import { buildExplicitlyScaledMeshPathHints, hasExplicitMeshScaleHint } from './
 import { mitigateCoplanarMaterialZFighting } from './coplanarMaterialOffset';
 import { type ColladaRootNormalizationHints } from './colladaRootNormalization';
 import { loadColladaScene } from './colladaParseWorkerBridge';
+import {
+  createSceneFromSerializedColladaData,
+  parseColladaSceneData,
+} from './colladaWorkerSceneData';
 import { cleanFilePath } from './pathNormalization';
 import {
   failFastInDev,
@@ -27,6 +31,7 @@ import {
 } from '@/core/utils/runtimeDiagnostics';
 import { MATERIAL_CONFIG } from '@/core/utils/materialFactory';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
+import { ensureWorkerXmlDomApis } from '@/core/utils/ensureWorkerXmlDomApis';
 import { createGeometryFromSerializedMshData, parseMshGeometryData } from './mshGeometryData';
 import { cloneObjSceneWithOwnedResources, loadObjScene } from './objMaterialUtils';
 import { createGeometryFromSerializedStlData } from './stlGeometryData';
@@ -92,6 +97,33 @@ export const postProcessColladaScene = (root: THREE.Object3D): number => {
   _tempBox.getSize(_tempSize);
   return Math.max(_tempSize.x, _tempSize.y, _tempSize.z);
 };
+
+async function loadColladaSceneForMeshLoader(
+  assetUrl: string,
+  manager: THREE.LoadingManager,
+): Promise<THREE.Object3D> {
+  if (typeof Worker !== 'undefined') {
+    try {
+      return await loadColladaScene(assetUrl, manager);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/collada parse worker is (?:unavailable|not available)/i.test(message)) {
+        throw error;
+      }
+      console.warn(`[MeshLoader] ${message}; parsing Collada asset in-process.`);
+    }
+  }
+
+  ensureWorkerXmlDomApis();
+  const response = await fetch(assetUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch Collada asset: ${response.status} ${response.statusText}`);
+  }
+
+  const content = await response.text();
+  const serializedScene = parseColladaSceneData(content, assetUrl);
+  return createSceneFromSerializedColladaData(serializedScene, { manager });
+}
 
 // ============================================================
 // PERFORMANCE: Pre-indexed asset lookup for O(1) complexity
@@ -1151,7 +1183,7 @@ export const createMeshLoader = (
       }
 
       if (ext === 'dae') {
-        const scene = await loadColladaScene(assetUrl, manager);
+        const scene = await loadColladaSceneForMeshLoader(assetUrl, manager);
 
         await yieldIfNeeded();
         const maxDimension = postProcessColladaScene(scene);

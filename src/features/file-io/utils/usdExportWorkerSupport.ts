@@ -5,6 +5,7 @@ import { collectReferencedMeshes } from './assetUtils.ts';
 export const USD_EXPORT_WORKER_SUPPORTED_MESH_EXTENSIONS = [
   '.obj',
   '.stl',
+  '.msh',
   '.dae',
   '.gltf',
   '.glb',

@@ -134,6 +134,62 @@ function createAssemblyState(): AssemblyState {
   };
 }
 
+function createSingleComponentAssemblyState(): AssemblyState {
+  const assemblyState = createAssemblyState();
+  return {
+    ...assemblyState,
+    components: {
+      comp_left: assemblyState.components.comp_left,
+    },
+    bridges: {},
+  };
+}
+
+function createNamespacedMjcfComponentAssemblyState(): AssemblyState {
+  return {
+    name: 't1_workspace',
+    components: {
+      comp_t1: {
+        id: 'comp_t1',
+        name: 'T1',
+        sourceFile: 'test/mujoco_menagerie-main/booster_t1/t1.xml',
+        robot: {
+          name: 'T1',
+          rootLinkId: 'comp_t1_world',
+          links: {
+            comp_t1_world: {
+              ...DEFAULT_LINK,
+              id: 'comp_t1_world',
+              name: 't1',
+            },
+            comp_t1_Trunk: {
+              ...DEFAULT_LINK,
+              id: 'comp_t1_Trunk',
+              name: 't1_Trunk',
+            },
+          },
+          joints: {
+            comp_t1_joint_0: {
+              ...DEFAULT_JOINT,
+              id: 'comp_t1_joint_0',
+              name: 't1_joint_0',
+              type: JointType.FLOATING,
+              parentLinkId: 'comp_t1_world',
+              childLinkId: 'comp_t1_Trunk',
+            },
+          },
+          materials: {},
+          closedLoopConstraints: [],
+          inspectionContext: {
+            sourceFormat: 'mjcf',
+          },
+        },
+      },
+    },
+    bridges: {},
+  };
+}
+
 function findButtonByText(text: string): HTMLButtonElement | null {
   return Array.from(document.querySelectorAll('button')).find((button) =>
     button.textContent?.includes(text),
@@ -379,6 +435,171 @@ test('AssemblyTreeView promotes components to top-level structure rows', async (
     assert.match(container.textContent ?? '', /arm_module/);
     assert.match(container.textContent ?? '', /hand_module/);
     assert.match(container.textContent ?? '', /Bridges/);
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('AssemblyTreeView keeps the create-bridge action visible in narrow sidebars', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  try {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      hoveredSelection: { type: null, id: null },
+      deferredHoveredSelection: { type: null, id: null },
+      hoverFrozen: false,
+      attentionSelection: { type: null, id: null },
+      interactionGuard: null,
+      focusTarget: null,
+    });
+    useAssemblySelectionStore.setState({
+      selection: { type: null, id: null },
+    });
+
+    await act(async () => {
+      root.render(
+        <AssemblyTreeView
+          assemblyState={createAssemblyState()}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onUpdate={() => {}}
+          onRenameAssembly={() => {}}
+          onRemoveBridge={() => {}}
+          onCreateBridge={() => {}}
+          mode="editor"
+          t={translations.en}
+        />,
+      );
+    });
+
+    const createBridgeButton = container.querySelector<HTMLButtonElement>(
+      `button[title="${translations.en.createBridge}"]`,
+    );
+    assert.ok(createBridgeButton, 'create bridge button should render');
+    assert.match(
+      createBridgeButton.className,
+      /\bshrink-0\b/,
+      'create bridge action must not be squeezed out by the bridge label/count',
+    );
+
+    const buttonLabel = createBridgeButton.querySelector('span');
+    assert.ok(buttonLabel, 'create bridge button should keep a text label for wider sidebars');
+    assert.match(
+      buttonLabel.className,
+      /\bhidden\b/,
+      'narrow sidebars should keep the icon visible by hiding the text label first',
+    );
+    assert.match(
+      buttonLabel.className,
+      /@\[260px\]:inline/,
+      'button text should reappear when the sidebar has enough width',
+    );
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('AssemblyTreeView hides bridge controls when the workspace has only one component and no bridges', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  try {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      hoveredSelection: { type: null, id: null },
+      deferredHoveredSelection: { type: null, id: null },
+      hoverFrozen: false,
+      attentionSelection: { type: null, id: null },
+      interactionGuard: null,
+      focusTarget: null,
+    });
+    useAssemblySelectionStore.setState({
+      selection: { type: null, id: null },
+    });
+
+    await act(async () => {
+      root.render(
+        <AssemblyTreeView
+          assemblyState={createSingleComponentAssemblyState()}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onUpdate={() => {}}
+          onRenameAssembly={() => {}}
+          onRemoveBridge={() => {}}
+          onCreateBridge={() => {}}
+          mode="editor"
+          t={translations.en}
+        />,
+      );
+    });
+
+    assert.doesNotMatch(container.textContent ?? '', /Bridges/);
+    assert.equal(container.querySelector(`button[title="${translations.en.createBridge}"]`), null);
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('AssemblyTreeView shows original names inside namespaced MJCF components', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  try {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      hoveredSelection: { type: null, id: null },
+      deferredHoveredSelection: { type: null, id: null },
+      hoverFrozen: false,
+      attentionSelection: { type: null, id: null },
+      interactionGuard: null,
+      focusTarget: null,
+    });
+    useAssemblySelectionStore.setState({
+      selection: { type: null, id: null },
+    });
+
+    await act(async () => {
+      root.render(
+        <AssemblyTreeView
+          assemblyState={createNamespacedMjcfComponentAssemblyState()}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onUpdate={() => {}}
+          onRenameAssembly={() => {}}
+          onRemoveBridge={() => {}}
+          onCreateBridge={() => {}}
+          mode="editor"
+          t={translations.en}
+        />,
+      );
+    });
+
+    const expandComponentButton = container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${translations.en.expand} T1"]`,
+    );
+    assert.ok(expandComponentButton, 'component expand button should render');
+
+    await act(async () => {
+      expandComponentButton.dispatchEvent(
+        new dom.window.MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    assert.ok(
+      container.querySelector('[title="joint_0 · Floating"]'),
+      'component-prefixed MJCF joint names should display as their original source names',
+    );
+    assert.equal(container.querySelector('[title="t1_joint_0 · Floating"]'), null);
+    assert.ok(container.querySelector('[title="Trunk"]'));
+    assert.equal(container.querySelector('[title="t1_Trunk"]'), null);
   } finally {
     await destroyComponentRoot(dom, root);
   }

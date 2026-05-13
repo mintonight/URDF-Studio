@@ -3,6 +3,7 @@ import type { RefObject } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { buildRuntimeRobotFromState, URDFLoader } from '@/core/parsers/urdf/loader';
+import { getJointMotionAngleFromActualAngle } from '@/core/robot';
 import { normalizeLoadingProgress } from '@/shared/components/3d/loadingHudState';
 import { disposeObject3D } from '../utils/dispose';
 import {
@@ -56,6 +57,20 @@ function waitForLoadingHudPaint(invalidate?: () => void): Promise<void> {
       window.requestAnimationFrame(() => resolve());
     });
   });
+}
+
+function resolveRobotJoint(
+  joints: Record<string, UrdfJoint> | null | undefined,
+  jointNameOrId: string,
+): UrdfJoint | undefined {
+  if (!joints) {
+    return undefined;
+  }
+
+  return (
+    joints[jointNameOrId] ??
+    Object.values(joints).find((joint) => joint.name === jointNameOrId)
+  );
 }
 
 function createAssetScopeKey(assets: Record<string, string>): string {
@@ -684,7 +699,10 @@ export function useRobotLoader({
                 return;
               }
 
-              joint.setJointValue?.(angle);
+              const sourceJoint = resolveRobotJoint(robotJoints, jointName);
+              joint.setJointValue?.(
+                sourceJoint ? getJointMotionAngleFromActualAngle(sourceJoint, angle) : angle,
+              );
             });
             loadedRobot.updateMatrixWorld(true);
           }

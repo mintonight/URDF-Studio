@@ -136,6 +136,37 @@ test('USD runtime startup background prewarm logs import failures and can retry'
   assert.deepEqual(failures, [error, error]);
 });
 
+test('USD runtime startup background prewarm silently skips runtime imports when environment is unsupported', async () => {
+  const error = new Error('USD loading requires a secure context.');
+  const failures: unknown[] = [];
+  let mainRuntimeLoadAttempts = 0;
+  let offscreenRuntimeLoadAttempts = 0;
+
+  const prewarm = createUsdRuntimeStartupBackgroundPrewarm({
+    loadMainThreadRuntime: async () => {
+      mainRuntimeLoadAttempts += 1;
+      throw new Error('should not import main runtime');
+    },
+    loadOffscreenRuntime: async () => {
+      offscreenRuntimeLoadAttempts += 1;
+      throw new Error('should not import offscreen runtime');
+    },
+    getRuntimeEnvironmentError: () => error,
+    logFailure: (_scope, failure) => {
+      failures.push(failure);
+      return failure instanceof Error ? failure : new Error(String(failure));
+    },
+  });
+
+  prewarm();
+  prewarm();
+  await flushAsyncCatchHandlers();
+
+  assert.equal(mainRuntimeLoadAttempts, 0);
+  assert.equal(offscreenRuntimeLoadAttempts, 0);
+  assert.deepEqual(failures, []);
+});
+
 test('scheduleUsdRuntimeStartupIdlePrewarm waits for delay and idle before prewarming', () => {
   const harness = createScheduler();
   let prewarmCalls = 0;

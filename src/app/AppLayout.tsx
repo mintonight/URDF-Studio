@@ -425,6 +425,7 @@ export function AppLayout({
     workspaceViewerMjcfSourceFile,
     sourceCodeDocuments,
     hasSimpleModeSourceEdits,
+    shouldPreviewLibraryRobotLoad,
     draftUrdfContent,
     filePreview,
     previewRobot,
@@ -1125,7 +1126,7 @@ export function AppLayout({
       const loadAction = resolveLibraryRobotLoadAction({
         selectedFileName: selectedFile?.name,
         targetFileName: file.name,
-        shouldRenderAssembly,
+        shouldPreviewCurrentState: shouldPreviewLibraryRobotLoad,
         hasSimpleModeSourceEdits,
         intent,
       });
@@ -1200,7 +1201,7 @@ export function AppLayout({
       selectedFileDraftSourceContent,
       setAllFileContents,
       setAvailableFiles,
-      shouldRenderAssembly,
+      shouldPreviewLibraryRobotLoad,
       showToast,
       t.simpleModeDraftSaveFailed,
       t.simpleModeDraftSaved,
@@ -1336,6 +1337,8 @@ export function AppLayout({
             targetFileName={resolveDocumentLoadingOverlayTargetFileName({
               previewFileName: null,
               selectedFileName: selectedFile?.name ?? null,
+              suppressDocumentLoadingOverlay:
+                shouldRenderAssembly || Boolean(assemblyComponentPreparationOverlay),
               documentLoadState,
             })}
           />
@@ -1403,6 +1406,7 @@ export function AppLayout({
           documentLoadState={documentLoadState}
           lang={lang}
           theme={theme}
+          showVisual={showVisual}
           onClose={handleClosePreview}
           onAddComponent={handleAddComponent}
         />

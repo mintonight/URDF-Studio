@@ -12,6 +12,7 @@ interface PhaseRange {
 interface OverlayTargetFileNameInput {
   previewFileName: string | null;
   selectedFileName: string | null;
+  suppressDocumentLoadingOverlay?: boolean;
   documentLoadState: Pick<DocumentLoadState, 'fileName' | 'status'>;
 }
 
@@ -126,8 +127,13 @@ export function mapViewerDocumentLoadEventToDocumentLoadPercent(
 export function resolveDocumentLoadingOverlayTargetFileName({
   previewFileName,
   selectedFileName,
+  suppressDocumentLoadingOverlay = false,
   documentLoadState,
 }: OverlayTargetFileNameInput): string | null {
+  if (suppressDocumentLoadingOverlay) {
+    return null;
+  }
+
   if (documentLoadState.status !== 'idle' && documentLoadState.fileName) {
     return documentLoadState.fileName;
   }

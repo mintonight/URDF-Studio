@@ -138,6 +138,7 @@ export {
 
 export {
   resolveDirectManipulableLinkIkDescriptor,
+  resolveDirectManipulableLinkIkJointIds,
   resolveLinkIkHandleDescriptor,
   resolveLinkIkHandleDescriptors,
   resolveSelectableIkHandleLinkId,

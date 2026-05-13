@@ -13,7 +13,6 @@ import {
   getVisualGeometryEntries,
 } from '@/core/robot';
 import { createBoxFaceMaterialArray } from '@/core/utils/boxFaceMaterialArray';
-import { getCollisionBoxDisplayCylinderTransform } from '@/core/utils/collisionBoxDisplay';
 import { applyVisualMeshMaterialGroupsToObject } from '@/core/utils/meshMaterialGroups';
 import { forceObjectMaterialSide } from '@/core/utils/three/materialSide';
 import {
@@ -509,6 +508,9 @@ function patchCollisionEntriesInPlace({
     }
 
     if (sameGeometry(previousEntry.geometry, nextEntry.geometry)) {
+      if (patchPrimitiveDimensionsInPlace(group, nextEntry.geometry)) {
+        applied = true;
+      }
       continue;
     }
 
@@ -681,7 +683,6 @@ function findFirstMeshInObject(object: THREE.Object3D): THREE.Mesh | null {
 function patchPrimitiveDimensionsInPlace(
   targetGroup: THREE.Object3D,
   geometry: LinkGeometry,
-  isCollision: boolean,
 ): boolean {
   const mesh = findFirstMeshInObject(targetGroup);
   if (!mesh) return false;
@@ -690,22 +691,6 @@ function patchPrimitiveDimensionsInPlace(
 
   switch (geometry.type) {
     case GeometryType.BOX:
-      if (isCollision) {
-        if (
-          !(mesh.geometry instanceof THREE.CylinderGeometry) &&
-          mesh.geometry.type !== 'CylinderGeometry'
-        ) {
-          const previousMeshGeometry = mesh.geometry;
-          mesh.geometry = new THREE.CylinderGeometry(1, 1, 1, 30);
-          previousMeshGeometry?.dispose?.();
-        }
-
-        const { scale, rotation } = getCollisionBoxDisplayCylinderTransform(dims);
-        mesh.scale.set(...scale);
-        mesh.rotation.set(...rotation);
-        return true;
-      }
-
       if (!(mesh.geometry instanceof THREE.BoxGeometry) && mesh.geometry.type !== 'BoxGeometry') {
         const previousMeshGeometry = mesh.geometry;
         mesh.geometry = new THREE.BoxGeometry(1, 1, 1);
@@ -731,6 +716,14 @@ function patchPrimitiveDimensionsInPlace(
       return true;
     }
     case GeometryType.CYLINDER:
+      if (
+        !(mesh.geometry instanceof THREE.CylinderGeometry) &&
+        mesh.geometry.type !== 'CylinderGeometry'
+      ) {
+        const previousMeshGeometry = mesh.geometry;
+        mesh.geometry = new THREE.CylinderGeometry(1, 1, 1, 30);
+        previousMeshGeometry?.dispose?.();
+      }
       mesh.scale.set(dims.x || 0.05, dims.y || 0.5, dims.z || dims.x || 0.05);
       mesh.rotation.set(Math.PI / 2, 0, 0);
       return true;
@@ -813,7 +806,7 @@ function patchGeometryGroupInPlace({
     });
   }
 
-  if (dimensionsChanged && !patchPrimitiveDimensionsInPlace(targetGroup, geometry, isCollision)) {
+  if (dimensionsChanged && !patchPrimitiveDimensionsInPlace(targetGroup, geometry)) {
     return false;
   }
 

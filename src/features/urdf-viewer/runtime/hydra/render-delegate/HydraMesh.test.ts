@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BackSide, BoxGeometry, Color, DoubleSide, Float32BufferAttribute, FrontSide, Group, MeshPhysicalMaterial } from 'three';
+import { BackSide, BoxGeometry, Color, CylinderGeometry, DoubleSide, Float32BufferAttribute, FrontSide, Group, MeshPhysicalMaterial } from 'three';
 
 import { isCoplanarOffsetMaterial } from '../../../../../core/loaders/coplanarMaterialOffset.ts';
 import { HydraMesh } from './HydraMesh.js';
@@ -591,6 +591,37 @@ test('HydraMesh completes collision proto sync from baked scene data even while 
     assert.equal(hydraMesh._hasCompletedProtoSync, true);
     assert.equal(hydraMesh._appliedCollisionOverride, true);
     assert.ok(hydraMesh._geometry.getAttribute('position')?.count > 0);
+});
+
+test('HydraMesh applies USD primitive descriptor types to matching Three.js geometry classes', () => {
+    const cubeMesh = new HydraMesh(
+        'Mesh',
+        '/Robot/base_link/collisions.proto_box_id0',
+        createHydraInterfaceStub(),
+    );
+    const cylinderMesh = new HydraMesh(
+        'Mesh',
+        '/Robot/base_link/collisions.proto_cylinder_id0',
+        createHydraInterfaceStub(),
+    );
+
+    assert.equal(
+        cubeMesh.applyPrimitiveGeometryFromDescriptor('cube', {
+            extentSize: [0.2, 0.4, 1.2],
+        }),
+        true,
+    );
+    assert.equal(
+        cylinderMesh.applyPrimitiveGeometryFromDescriptor('cylinder', {
+            radius: 0.08,
+            height: 0.7,
+            axis: 'Z',
+        }),
+        true,
+    );
+
+    assert.equal(cubeMesh._geometry instanceof BoxGeometry, true);
+    assert.equal(cylinderMesh._geometry instanceof CylinderGeometry, true);
 });
 
 test('HydraMesh does not generate JS primitive fallback geometry for strict USD proto meshes', () => {
