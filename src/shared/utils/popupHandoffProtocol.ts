@@ -1,17 +1,17 @@
 export const POPUP_HANDOFF_PROTOCOL_VERSION = 1;
 export const POPUP_HANDOFF_QUERY_PARAM = 'handoff';
-export const POPUP_HANDOFF_STORE_DB_NAME = 'urdf-studio-popup-handoff';
+export const POPUP_HANDOFF_STORE_DB_NAME = 'bot-world-popup-handoff';
 export const POPUP_HANDOFF_STORE_NAME = 'archives';
 export const POPUP_HANDOFF_STORE_VERSION = 1;
 export const POPUP_HANDOFF_MAX_BYTES = 1024 * 1024 * 1024;
 export const POPUP_HANDOFF_TTL_MS = 15 * 60 * 1000;
 
-export const POPUP_HANDOFF_READY = 'urdfstudio.handoff.ready';
-export const POPUP_HANDOFF_OFFER = 'urdfstudio.handoff.offer';
-export const POPUP_HANDOFF_ACCEPT = 'urdfstudio.handoff.accept';
-export const POPUP_HANDOFF_REJECT = 'urdfstudio.handoff.reject';
-export const POPUP_HANDOFF_PAYLOAD = 'urdfstudio.handoff.payload';
-export const POPUP_HANDOFF_RESULT = 'urdfstudio.handoff.result';
+export const POPUP_HANDOFF_READY = 'botworld.handoff.ready';
+export const POPUP_HANDOFF_OFFER = 'botworld.handoff.offer';
+export const POPUP_HANDOFF_ACCEPT = 'botworld.handoff.accept';
+export const POPUP_HANDOFF_REJECT = 'botworld.handoff.reject';
+export const POPUP_HANDOFF_PAYLOAD = 'botworld.handoff.payload';
+export const POPUP_HANDOFF_RESULT = 'botworld.handoff.result';
 
 export type PopupHandoffResultKind = 'new-tab' | 'existing-tab' | 'failed';
 
@@ -71,8 +71,10 @@ export interface PopupHandoffArchiveRecord {
   sizeBytes: number;
   sourceOrigin: string;
   createdAt: number;
-  zipBlob: Blob;
+  zipBlob?: Blob;
   status?: 'pending' | 'consumed';
+  /** When present, this record activates a plugin tool instead of importing a ZIP */
+  pluginKey?: string;
 }
 
 export function isPopupHandoffZipType(fileName: string, mimeType: string): boolean {

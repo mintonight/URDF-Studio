@@ -11,7 +11,7 @@ import { getPopupHandoffArchive } from '@/shared/utils/popupHandoffArchiveStore'
 import { pruneExpiredPendingHandoffImports, savePendingHandoffImport } from '@/app/handoff/storage';
 
 type Locale = 'en' | 'zh';
-type Phase = 'waiting' | 'saving' | 'redirecting' | 'error';
+type Phase = 'waiting' | 'saving' | 'activating' | 'redirecting' | 'error';
 
 const TRANSLATIONS: Record<Locale, Record<string, string>> = {
   en: {
@@ -21,6 +21,9 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
     savingStatus: 'Saving archive...',
     redirectingStatus: 'Redirecting to editor...',
     errorStatus: 'Import failed.',
+    pluginTitle: 'Activating Plugin...',
+    pluginStatus: 'Activating plugin...',
+    pluginRedirecting: 'Redirecting to editor...',
   },
   zh: {
     title: '正在导入 URDF Studio...',
@@ -29,6 +32,9 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
     savingStatus: '正在保存...',
     redirectingStatus: '正在跳转到编辑器...',
     errorStatus: '导入失败。',
+    pluginTitle: '正在激活插件...',
+    pluginStatus: '正在激活插件...',
+    pluginRedirecting: '正在跳转到编辑器...',
   },
 };
 
@@ -44,6 +50,15 @@ if (!root) {
 }
 
 let currentPhase: Phase = 'waiting';
+let isPluginFlow = false;
+
+function redirectTopluginEditor(pluginKey: string): void {
+  currentPhase = 'redirecting';
+  render();
+  const nextUrl = new URL('./', window.location.href);
+  nextUrl.searchParams.set('plugin', pluginKey);
+  window.location.assign(nextUrl.toString());
+}
 
 function redirectToEditor(handoffId: string): void {
   currentPhase = 'redirecting';
@@ -86,22 +101,29 @@ function sendResultMessage(result: PopupHandoffResultKind): void {
 }
 
 function render(errorMessage?: string): void {
+  const isPlugin =
+    currentPhase === 'activating' || (currentPhase === 'redirecting' && isPluginFlow);
   const statusText =
     currentPhase === 'waiting'
       ? t.waitingStatus
       : currentPhase === 'saving'
         ? t.savingStatus
-        : currentPhase === 'redirecting'
-          ? t.redirectingStatus
-          : (errorMessage ?? t.errorStatus);
+        : currentPhase === 'activating'
+          ? t.pluginStatus
+          : currentPhase === 'redirecting'
+            ? isPlugin
+              ? t.pluginRedirecting
+              : t.redirectingStatus
+            : (errorMessage ?? t.errorStatus);
 
   const showSpinner = currentPhase !== 'error';
+  const title = currentPhase === 'error' ? t.errorStatus : isPlugin ? t.pluginTitle : t.title;
 
   root.innerHTML = `
     <main class="handoff-shell">
       <section class="handoff-card${currentPhase === 'error' ? ' handoff-error' : ''}">
         ${showSpinner ? '<div class="handoff-spinner"></div>' : ''}
-        <h1 class="handoff-title">${currentPhase === 'error' ? t.errorStatus : t.title}</h1>
+        <h1 class="handoff-title">${title}</h1>
         <p class="handoff-status">${statusText}</p>
       </section>
     </main>
@@ -205,8 +227,57 @@ window.addEventListener('message', (event) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+//  Plugin activation path: ?plugin=<key>
+//  When present, the popup writes a lightweight record to IndexedDB and waits
+//  for the main editor tab to consume it.  No postMessage ZIP exchange needed.
+// ---------------------------------------------------------------------------
+async function handlePluginActivation(pluginKey: string): Promise<void> {
+  isPluginFlow = true;
+  currentPhase = 'activating';
+  render();
+
+  try {
+    await pruneExpiredPendingHandoffImports();
+    const savedRecord = await savePendingHandoffImport({
+      fileName: '__plugin-activate__',
+      mimeType: '',
+      sizeBytes: 0,
+      sourceOrigin: window.opener ? '*' : '',
+      status: 'pending',
+      pluginKey,
+    });
+
+    const isSilentSuccess = await trySilentHandoff(savedRecord.id);
+    if (isSilentSuccess) {
+      sendResultMessage('existing-tab');
+      currentPhase = 'redirecting';
+      render();
+      setTimeout(() => {
+        window.close();
+      }, 500);
+    } else {
+      sendResultMessage('new-tab');
+      redirectTopluginEditor(pluginKey);
+    }
+  } catch (error) {
+    sendResultMessage('failed');
+    currentPhase = 'error';
+    render(error instanceof Error ? error.message : t.errorStatus);
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  Bootstrap
+// ---------------------------------------------------------------------------
 render();
 void pruneExpiredPendingHandoffImports().catch((error) => {
   console.error('Failed to prune expired handoff imports:', error);
 });
-sendReadyMessage();
+
+const pluginKeyParam = new URLSearchParams(window.location.search).get('plugin');
+if (pluginKeyParam) {
+  void handlePluginActivation(pluginKeyParam);
+} else {
+  sendReadyMessage();
+}

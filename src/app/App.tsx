@@ -12,6 +12,7 @@ import { useFileImport } from './hooks/useFileImport';
 import { useFileExport } from './hooks/useFileExport';
 import { useImportInputBinding } from './hooks/useImportInputBinding';
 import { useUnsavedChangesPrompt } from './hooks/useUnsavedChangesPrompt';
+import { usePluginLaunch } from './hooks/usePluginLaunch';
 import { resolveRobotFileDataWithWorker } from './hooks/robotImportWorkerBridge';
 import { resolveCurrentUsdExportMode } from './utils/currentUsdExportMode';
 import {
@@ -1115,7 +1116,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
 
   // IndexedDB polling for cross-origin handoff detection.
   // The popup (handoff.html) saves incoming archives with status: 'pending'.
-  // This polling discovers them and imports into the existing editor tab,
+  // This polling discovers them and either imports the ZIP or activates a plugin,
   // so no new tab is opened when the editor is already running.
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1139,10 +1140,16 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
             // Delete right after claim so Path A (URL bootstrap) cannot find the record
             await deletePendingHandoffImport(record.id);
 
-            const file = createFileFromPendingHandoffRecord(record);
-            await handleImportRef.current([file]);
+            if (record.pluginKey) {
+              // Plugin activation record — activate the tool directly
+              layoutActionsRef.current.openTool(record.pluginKey);
+            } else {
+              // ZIP import record — import the archive
+              const file = createFileFromPendingHandoffRecord(record);
+              await handleImportRef.current([file]);
+            }
 
-            // Bring this tab to the foreground so the user sees the imported asset
+            // Bring this tab to the foreground so the user sees the result
             try {
               window.focus();
             } catch {
@@ -1317,6 +1324,8 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
     openTool: (key: string) => void;
   }>({ openIkTool: () => {}, openCollisionOptimizer: () => {}, openTool: () => {} });
 
+  const [layoutReady, setLayoutReady] = useState(false);
+
   const handleExportProjectBlob = useCallback(async (): Promise<Blob> => {
     const result = await runProjectExport({ skipDownload: true });
     return result.blob;
@@ -1349,6 +1358,9 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   useEffect(() => {
     onExposeActions?.(exposedActionsRef.current!);
   }, [onExposeActions]);
+
+  // Plugin launch protocol: read ?plugin=<key> from URL and activate the tool
+  usePluginLaunch(layoutReady ? layoutActionsRef.current.openTool : undefined);
 
   const handleConfirmDisconnectedWorkspaceUrdfExport = useCallback(async () => {
     if (!disconnectedWorkspaceUrdfDialog) {
@@ -1420,6 +1432,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         headerSecondaryAction={extensions?.config?.headerSecondaryAction}
         onExposeLayoutActions={(actions) => {
           layoutActionsRef.current = actions;
+          setLayoutReady(true);
         }}
       />
 

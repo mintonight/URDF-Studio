@@ -13,11 +13,7 @@
 - `core/` 保持纯逻辑，不引入 React / UI / Feature 依赖
 - 优先复用现有 hooks、utils、components，不新增重复抽象
 - 新增 `ResizeObserver`、timer、worker listener、THREE 资源时必须对称 cleanup
-- **跨域 Handoff 接收端**：`src/app/handoff/`、`src/handoff/` 是 BOT World Gallery → URDF Studio 资产传递的接收端，不可删除
-  - **路径 A（弹窗接收）**：`handoff.html` → `src/handoff/main.ts` 接收 postMessage ZIP → IndexedDB 存储 → 重定向 `?handoff=<id>` → `App.tsx` 检测并消费
-  - **路径 B（服务端令牌接收）**：`src/app/utils/externalImportHandoff*.ts` 检测 `?handoff_api=<url>` → fetch 下载 ZIP → IndexedDB 存储 → 导入
-  - 存储：`urdf-studio-popup-handoff`（路径 A）、`urdf-studio-external-import-handoff`（路径 B），TTL 15 min
-  - 两侧的 `popupHandoffProtocol.ts` 必须与 BOT World 保持协议版本一致
+- **跨域 Handoff 接收端**：`src/app/handoff/`、`src/handoff/` 不可删除；三条路径（弹窗 ZIP / 服务端令牌 / 插件激活）详见 [docs/file-io.md](docs/file-io.md) §6
 
 常用命令：
 

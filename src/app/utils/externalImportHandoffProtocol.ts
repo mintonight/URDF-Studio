@@ -9,14 +9,14 @@ const ZIP_MIME_TYPES = new Set([
 ]);
 
 export type ExternalImportHandoffReadyMessage = {
-  type: 'urdfstudio.handoff.ready';
+  type: 'botworld.handoff.ready';
   version: 1;
   maxBytes: number;
   accepts: ['application/zip', '.zip'];
 };
 
 export type ExternalImportHandoffOfferMessage = {
-  type: 'urdfstudio.handoff.offer';
+  type: 'botworld.handoff.offer';
   version: 1;
   fileName: string;
   mimeType: string;
@@ -24,7 +24,7 @@ export type ExternalImportHandoffOfferMessage = {
 };
 
 export type ExternalImportHandoffAcceptMessage = {
-  type: 'urdfstudio.handoff.accept';
+  type: 'botworld.handoff.accept';
   version: 1;
 };
 
@@ -37,14 +37,14 @@ export type ExternalImportHandoffRejectCode =
   | 'storage_unavailable';
 
 export type ExternalImportHandoffRejectMessage = {
-  type: 'urdfstudio.handoff.reject';
+  type: 'botworld.handoff.reject';
   version: 1;
   code: ExternalImportHandoffRejectCode;
   message: string;
 };
 
 export type ExternalImportHandoffPayloadMessage = {
-  type: 'urdfstudio.handoff.payload';
+  type: 'botworld.handoff.payload';
   version: 1;
   fileName: string;
   mimeType: string;
@@ -54,7 +54,7 @@ export type ExternalImportHandoffPayloadMessage = {
 
 export function createExternalImportHandoffReadyMessage(): ExternalImportHandoffReadyMessage {
   return {
-    type: 'urdfstudio.handoff.ready',
+    type: 'botworld.handoff.ready',
     version: EXTERNAL_IMPORT_HANDOFF_PROTOCOL_VERSION,
     maxBytes: EXTERNAL_IMPORT_HANDOFF_MAX_BYTES,
     accepts: ['application/zip', '.zip'],
@@ -63,7 +63,7 @@ export function createExternalImportHandoffReadyMessage(): ExternalImportHandoff
 
 export function createExternalImportHandoffAcceptMessage(): ExternalImportHandoffAcceptMessage {
   return {
-    type: 'urdfstudio.handoff.accept',
+    type: 'botworld.handoff.accept',
     version: EXTERNAL_IMPORT_HANDOFF_PROTOCOL_VERSION,
   };
 }
@@ -73,7 +73,7 @@ export function createExternalImportHandoffRejectMessage(
   message: string,
 ): ExternalImportHandoffRejectMessage {
   return {
-    type: 'urdfstudio.handoff.reject',
+    type: 'botworld.handoff.reject',
     version: EXTERNAL_IMPORT_HANDOFF_PROTOCOL_VERSION,
     code,
     message,
@@ -118,14 +118,14 @@ export function parseExternalImportHandoffOfferMessage(
   value: unknown,
 ): ExternalImportHandoffOfferMessage | null {
   if (!isRecordLike(value)) return null;
-  if (value.type !== 'urdfstudio.handoff.offer' || !isValidVersion(value.version)) return null;
+  if (value.type !== 'botworld.handoff.offer' || !isValidVersion(value.version)) return null;
 
   const fileName = normalizeFileName(value.fileName);
   const sizeBytes = normalizeSizeBytes(value.sizeBytes);
   if (!fileName || sizeBytes == null) return null;
 
   return {
-    type: 'urdfstudio.handoff.offer',
+    type: 'botworld.handoff.offer',
     version: 1,
     fileName,
     mimeType: normalizeMimeType(value.mimeType),
@@ -137,7 +137,7 @@ export function parseExternalImportHandoffPayloadMessage(
   value: unknown,
 ): ExternalImportHandoffPayloadMessage | null {
   if (!isRecordLike(value)) return null;
-  if (value.type !== 'urdfstudio.handoff.payload' || !isValidVersion(value.version)) return null;
+  if (value.type !== 'botworld.handoff.payload' || !isValidVersion(value.version)) return null;
 
   const fileName = normalizeFileName(value.fileName);
   const sizeBytes = normalizeSizeBytes(value.sizeBytes);
@@ -145,7 +145,7 @@ export function parseExternalImportHandoffPayloadMessage(
   if (!(value.zip instanceof Blob)) return null;
 
   return {
-    type: 'urdfstudio.handoff.payload',
+    type: 'botworld.handoff.payload',
     version: 1,
     fileName,
     mimeType: normalizeMimeType(value.mimeType),

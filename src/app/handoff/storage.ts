@@ -13,9 +13,10 @@ export interface SavePendingHandoffImportParams {
   mimeType: string;
   sizeBytes: number;
   sourceOrigin: string;
-  zipBlob: Blob;
+  zipBlob?: Blob;
   createdAt?: number;
   status?: 'pending' | 'consumed';
+  pluginKey?: string;
 }
 
 export async function savePendingHandoffImport(
@@ -28,6 +29,7 @@ export async function savePendingHandoffImport(
     sourceOrigin: params.sourceOrigin,
     zipBlob: params.zipBlob,
     status: params.status,
+    pluginKey: params.pluginKey,
   });
   return {
     id,
@@ -38,6 +40,7 @@ export async function savePendingHandoffImport(
     createdAt: params.createdAt ?? Date.now(),
     zipBlob: params.zipBlob,
     status: params.status,
+    pluginKey: params.pluginKey,
   };
 }
 

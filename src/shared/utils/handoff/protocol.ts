@@ -3,11 +3,11 @@ export const HANDOFF_MAX_BYTES = 1024 * 1024 * 1024;
 export const HANDOFF_DEFAULT_TTL_MS = 15 * 60 * 1000;
 export const HANDOFF_QUERY_PARAM = 'handoff';
 
-export const HANDOFF_READY_MESSAGE_TYPE = 'urdfstudio.handoff.ready';
-export const HANDOFF_OFFER_MESSAGE_TYPE = 'urdfstudio.handoff.offer';
-export const HANDOFF_ACCEPT_MESSAGE_TYPE = 'urdfstudio.handoff.accept';
-export const HANDOFF_REJECT_MESSAGE_TYPE = 'urdfstudio.handoff.reject';
-export const HANDOFF_PAYLOAD_MESSAGE_TYPE = 'urdfstudio.handoff.payload';
+export const HANDOFF_READY_MESSAGE_TYPE = 'botworld.handoff.ready';
+export const HANDOFF_OFFER_MESSAGE_TYPE = 'botworld.handoff.offer';
+export const HANDOFF_ACCEPT_MESSAGE_TYPE = 'botworld.handoff.accept';
+export const HANDOFF_REJECT_MESSAGE_TYPE = 'botworld.handoff.reject';
+export const HANDOFF_PAYLOAD_MESSAGE_TYPE = 'botworld.handoff.payload';
 
 export type HandoffRejectCode = 'invalid_type' | 'too_large' | 'user_rejected' | 'protocol_error';
 
