@@ -7,11 +7,17 @@ export const POPUP_HANDOFF_MAX_BYTES = 1024 * 1024 * 1024;
 export const POPUP_HANDOFF_TTL_MS = 15 * 60 * 1000;
 
 export const POPUP_HANDOFF_READY = 'botworld.handoff.ready';
-export const POPUP_HANDOFF_OFFER = 'botworld.handoff.offer';
-export const POPUP_HANDOFF_ACCEPT = 'botworld.handoff.accept';
-export const POPUP_HANDOFF_REJECT = 'botworld.handoff.reject';
 export const POPUP_HANDOFF_PAYLOAD = 'botworld.handoff.payload';
 export const POPUP_HANDOFF_RESULT = 'botworld.handoff.result';
+// Unused handshake constants removed (OFFER/ACCEPT/REJECT).
+// Protocol intentionally uses READY → PAYLOAD → RESULT.
+
+/** Origins allowed to send handoff messages to this receiver. */
+export const ALLOWED_HANDOFF_ORIGINS: ReadonlySet<string> = new Set([
+  'https://botworld.d-robotics.cc',
+  'http://localhost:5000',
+  'http://127.0.0.1:5000',
+]);
 
 export type PopupHandoffResultKind = 'new-tab' | 'existing-tab' | 'failed';
 
@@ -27,26 +33,6 @@ export interface PopupHandoffReadyMessage {
   version: typeof POPUP_HANDOFF_PROTOCOL_VERSION;
   maxBytes: number;
   accepts: ['application/zip', '.zip'];
-}
-
-export interface PopupHandoffOfferMessage {
-  type: typeof POPUP_HANDOFF_OFFER;
-  version: typeof POPUP_HANDOFF_PROTOCOL_VERSION;
-  fileName: string;
-  mimeType: string;
-  sizeBytes: number;
-}
-
-export interface PopupHandoffAcceptMessage {
-  type: typeof POPUP_HANDOFF_ACCEPT;
-  version: typeof POPUP_HANDOFF_PROTOCOL_VERSION;
-}
-
-export interface PopupHandoffRejectMessage {
-  type: typeof POPUP_HANDOFF_REJECT;
-  version: typeof POPUP_HANDOFF_PROTOCOL_VERSION;
-  code: PopupHandoffRejectCode;
-  message: string;
 }
 
 export interface PopupHandoffPayloadMessage {
@@ -123,4 +109,24 @@ export function validatePopupHandoffPayload(input: {
   }
 
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+//  Unified URL helpers — single source of truth for reading/stripping the
+//  handoff query parameter. All consumers should import from here.
+// ---------------------------------------------------------------------------
+
+/** Read the handoff ID from a full URL string. Returns null if absent. */
+export function readHandoffIdFromUrl(url: string): string | null {
+  const resolvedUrl = new URL(url, 'http://localhost');
+  const handoffId = resolvedUrl.searchParams.get(POPUP_HANDOFF_QUERY_PARAM)?.trim() ?? '';
+  return handoffId.length > 0 ? handoffId : null;
+}
+
+/** Remove the handoff query parameter from a URL string, returning the cleaned URL. */
+export function stripHandoffParamFromUrl(url: string): string {
+  // If the URL is already absolute (contains scheme), parse it directly
+  const resolvedUrl = new URL(url);
+  resolvedUrl.searchParams.delete(POPUP_HANDOFF_QUERY_PARAM);
+  return resolvedUrl.toString();
 }

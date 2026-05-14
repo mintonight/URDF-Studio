@@ -1,5 +1,8 @@
 import type { PopupHandoffArchiveRecord } from '../../shared/utils/popupHandoffProtocol.ts';
-import { POPUP_HANDOFF_QUERY_PARAM } from '../../shared/utils/popupHandoffProtocol.ts';
+import {
+  readHandoffIdFromUrl,
+  stripHandoffParamFromUrl,
+} from '../../shared/utils/popupHandoffProtocol.ts';
 
 export type ImportArchiveResult = {
   status: 'completed' | 'skipped' | 'failed';
@@ -17,7 +20,7 @@ export interface ConsumeHandoffImportOptions {
   currentUrl: string;
   sessionStorage?: Pick<Storage, 'getItem' | 'setItem'> | null;
   logger?: Pick<Console, 'error' | 'warn'>;
-  loadRecord: (handoffId: string) => Promise<PopupHandoffArchiveRecord | null>;
+  claimRecord: (handoffId: string) => Promise<PopupHandoffArchiveRecord | null>;
   deleteRecord: (handoffId: string) => Promise<void>;
   importArchive: (files: readonly File[]) => Promise<ImportArchiveResult>;
   replaceUrl: (nextUrl: string) => void;
@@ -27,17 +30,7 @@ function buildAttemptedSessionKey(handoffId: string): string {
   return `urdf-studio-handoff-attempted:${handoffId}`;
 }
 
-export function readHandoffIdFromUrl(currentUrl: string): string | null {
-  const url = new URL(currentUrl);
-  const handoffId = url.searchParams.get(POPUP_HANDOFF_QUERY_PARAM)?.trim() ?? '';
-  return handoffId ? handoffId : null;
-}
-
-export function buildUrlWithoutHandoffParam(currentUrl: string): string {
-  const url = new URL(currentUrl);
-  url.searchParams.delete(POPUP_HANDOFF_QUERY_PARAM);
-  return url.toString();
-}
+export { readHandoffIdFromUrl, stripHandoffParamFromUrl };
 
 export function createFileFromPendingHandoffRecord(record: PopupHandoffArchiveRecord): File {
   return new File([record.zipBlob], record.fileName, {
@@ -54,7 +47,7 @@ export async function consumeHandoffImportFromUrl(
     return { status: 'idle' };
   }
 
-  const nextUrl = buildUrlWithoutHandoffParam(options.currentUrl);
+  const nextUrl = stripHandoffParamFromUrl(options.currentUrl);
   const attemptedKey = buildAttemptedSessionKey(handoffId);
   const attemptedAlready = options.sessionStorage?.getItem(attemptedKey) === '1';
 
@@ -66,21 +59,14 @@ export async function consumeHandoffImportFromUrl(
   options.sessionStorage?.setItem(attemptedKey, '1');
 
   try {
-    const record = await options.loadRecord(handoffId);
+    // Atomically claim the record: read + mark consumed in a single transaction.
+    // Returns null if already consumed or missing — eliminates race with polling path.
+    const record = await options.claimRecord(handoffId);
     if (!record) {
-      options.replaceUrl(nextUrl);
-      return { status: 'missing', handoffId };
-    }
-
-    // Already consumed by the background polling path (Path B) — skip to avoid duplicate import
-    if (record.status === 'consumed') {
       options.replaceUrl(nextUrl);
       return { status: 'already-attempted', handoffId };
     }
 
-    // Extract file data into memory, then delete the IndexedDB record BEFORE importing.
-    // This prevents the background polling loop (Path B) in the same tab from discovering
-    // the same pending record and importing it a second time while our import is still running.
     const file = createFileFromPendingHandoffRecord(record);
     await options.deleteRecord(handoffId);
 

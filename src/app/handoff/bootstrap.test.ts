@@ -4,9 +4,9 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  buildUrlWithoutHandoffParam,
   consumeHandoffImportFromUrl,
   readHandoffIdFromUrl,
+  stripHandoffParamFromUrl,
 } from './bootstrap.ts';
 import type { PopupHandoffArchiveRecord as PendingHandoffImportRecord } from '../../shared/utils/popupHandoffProtocol.ts';
 
@@ -42,9 +42,9 @@ test('readHandoffIdFromUrl returns the handoff query param when present', () => 
   assert.equal(readHandoffIdFromUrl('https://urdf.example/?foo=1'), null);
 });
 
-test('buildUrlWithoutHandoffParam removes only the handoff query param', () => {
+test('stripHandoffParamFromUrl removes only the handoff query param', () => {
   assert.equal(
-    buildUrlWithoutHandoffParam('https://urdf.example/?handoff=abc123&foo=1'),
+    stripHandoffParamFromUrl('https://urdf.example/?handoff=abc123&foo=1'),
     'https://urdf.example/?foo=1',
   );
 });
@@ -59,7 +59,7 @@ test('consumeHandoffImportFromUrl imports the pending archive and deletes it on 
   const result = await consumeHandoffImportFromUrl({
     currentUrl: 'https://urdf.example/?handoff=handoff-123',
     sessionStorage,
-    loadRecord: async (handoffId) => (handoffId === record.id ? record : null),
+    claimRecord: async (handoffId) => (handoffId === record.id ? record : null),
     deleteRecord: async (handoffId) => {
       deletedIds.push(handoffId);
     },
@@ -86,7 +86,7 @@ test('consumeHandoffImportFromUrl strips the query param when the handoff record
   const result = await consumeHandoffImportFromUrl({
     currentUrl: 'https://urdf.example/?handoff=missing&foo=1',
     sessionStorage: createSessionStorageMock(),
-    loadRecord: async () => null,
+    claimRecord: async () => null,
     deleteRecord: async () => {
       assert.fail('missing handoff records should not be deleted');
     },
@@ -98,7 +98,7 @@ test('consumeHandoffImportFromUrl strips the query param when the handoff record
     },
   });
 
-  assert.deepEqual(result, { status: 'missing', handoffId: 'missing' });
+  assert.deepEqual(result, { status: 'already-attempted', handoffId: 'missing' });
   assert.deepEqual(replacedUrls, ['https://urdf.example/?foo=1']);
 });
 
@@ -110,7 +110,7 @@ test('consumeHandoffImportFromUrl avoids re-importing the same handoff id in one
   const result = await consumeHandoffImportFromUrl({
     currentUrl: 'https://urdf.example/?handoff=handoff-123',
     sessionStorage,
-    loadRecord: async () => {
+    claimRecord: async () => {
       assert.fail('already-attempted handoff ids should not reload storage');
     },
     deleteRecord: async () => {
@@ -128,19 +128,18 @@ test('consumeHandoffImportFromUrl avoids re-importing the same handoff id in one
   assert.deepEqual(replacedUrls, ['https://urdf.example/']);
 });
 
-test('consumeHandoffImportFromUrl skips records already consumed by the polling path', async () => {
-  const record = createRecord({ status: 'consumed' });
+test('consumeHandoffImportFromUrl skips records already claimed by the polling path', async () => {
   const replacedUrls: string[] = [];
 
   const result = await consumeHandoffImportFromUrl({
     currentUrl: 'https://urdf.example/?handoff=handoff-123',
     sessionStorage: createSessionStorageMock(),
-    loadRecord: async () => record,
+    claimRecord: async () => null,
     deleteRecord: async () => {
-      assert.fail('consumed records should not be deleted again');
+      assert.fail('already-claimed records should not be deleted again');
     },
     importArchive: async () => {
-      assert.fail('consumed records should not be imported');
+      assert.fail('already-claimed records should not be imported');
     },
     replaceUrl: (nextUrl) => {
       replacedUrls.push(nextUrl);
@@ -159,7 +158,7 @@ test('consumeHandoffImportFromUrl deletes the record before importing (even if i
   const result = await consumeHandoffImportFromUrl({
     currentUrl: 'https://urdf.example/?handoff=handoff-123',
     sessionStorage: createSessionStorageMock(),
-    loadRecord: async () => record,
+    claimRecord: async () => record,
     deleteRecord: async () => {
       deleteCalls += 1;
     },

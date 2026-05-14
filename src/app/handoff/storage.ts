@@ -1,4 +1,5 @@
 import {
+  claimPendingPopupHandoffArchive,
   cleanupExpiredPopupHandoffArchives,
   deletePopupHandoffArchive,
   getPendingHandoffArchives,
@@ -67,4 +68,10 @@ export async function updatePendingHandoffStatus(
 
 export async function readAllPendingHandoffImports(): Promise<PopupHandoffArchiveRecord[]> {
   return await getPendingHandoffArchives();
+}
+
+export async function claimPendingHandoffImport(
+  id: string,
+): Promise<PopupHandoffArchiveRecord | null> {
+  return await claimPendingPopupHandoffArchive(id);
 }

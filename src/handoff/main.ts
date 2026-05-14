@@ -1,5 +1,6 @@
 import './index.css';
 import {
+  ALLOWED_HANDOFF_ORIGINS,
   POPUP_HANDOFF_PAYLOAD,
   POPUP_HANDOFF_PROTOCOL_VERSION,
   POPUP_HANDOFF_READY,
@@ -7,7 +8,11 @@ import {
   type PopupHandoffResultKind,
   validatePopupHandoffPayload,
 } from '@/shared/utils/popupHandoffProtocol';
-import { getPopupHandoffArchive } from '@/shared/utils/popupHandoffArchiveStore';
+import {
+  notifyHandoffArchiveReady,
+  subscribeToHandoffBroadcast,
+  type HandoffBroadcastMessage,
+} from '@/shared/utils/popupHandoffArchiveStore';
 import { pruneExpiredPendingHandoffImports, savePendingHandoffImport } from '@/app/handoff/storage';
 
 type Locale = 'en' | 'zh';
@@ -51,6 +56,8 @@ if (!root) {
 
 let currentPhase: Phase = 'waiting';
 let isPluginFlow = false;
+/** Cached origin of the sender (from first incoming message). */
+let senderOrigin = '*';
 
 function redirectTopluginEditor(pluginKey: string): void {
   currentPhase = 'redirecting';
@@ -80,7 +87,7 @@ function sendReadyMessage(): void {
       type: POPUP_HANDOFF_READY,
       version: POPUP_HANDOFF_PROTOCOL_VERSION,
     },
-    '*',
+    senderOrigin,
   );
 }
 
@@ -93,7 +100,7 @@ function sendResultMessage(result: PopupHandoffResultKind): void {
         version: POPUP_HANDOFF_PROTOCOL_VERSION,
         result,
       },
-      '*',
+      senderOrigin,
     );
   } catch {
     // Opener may have navigated away — ignore
@@ -123,37 +130,42 @@ function render(errorMessage?: string): void {
     <main class="handoff-shell">
       <section class="handoff-card${currentPhase === 'error' ? ' handoff-error' : ''}">
         ${showSpinner ? '<div class="handoff-spinner"></div>' : ''}
-        <h1 class="handoff-title">${title}</h1>
-        <p class="handoff-status">${statusText}</p>
+        <h1 class="handoff-title"></h1>
+        <p class="handoff-status"></p>
       </section>
     </main>
   `;
+
+  // Use textContent to prevent XSS from injected error messages
+  const titleEl = root.querySelector('.handoff-title');
+  const statusEl = root.querySelector('.handoff-status');
+  if (titleEl) titleEl.textContent = title;
+  if (statusEl) statusEl.textContent = statusText;
 }
 
 async function trySilentHandoff(handoffId: string): Promise<boolean> {
-  const POLL_INTERVAL_MS = 500;
-  const TIMEOUT_MS = 5000;
-  const startTime = Date.now();
+  const TIMEOUT_MS = 1000;
 
   return new Promise((resolve) => {
-    const pollInterval = setInterval(async () => {
-      if (Date.now() - startTime >= TIMEOUT_MS) {
-        clearInterval(pollInterval);
-        resolve(false);
-        return;
-      }
+    let settled = false;
 
-      try {
-        const record = await getPopupHandoffArchive(handoffId);
-        // Record consumed (status changed) or deleted by main tab — either means success
-        if (!record || record.status === 'consumed') {
-          clearInterval(pollInterval);
-          resolve(true);
-        }
-      } catch {
-        // IndexedDB read error — keep polling
+    const finish = (result: boolean) => {
+      if (settled) return;
+      settled = true;
+      unsubscribe();
+      clearTimeout(timeoutId);
+      resolve(result);
+    };
+
+    const unsubscribe = subscribeToHandoffBroadcast((message: HandoffBroadcastMessage) => {
+      if (message.type === 'archive-consumed' && message.id === handoffId) {
+        finish(true);
       }
-    }, POLL_INTERVAL_MS);
+    });
+
+    const timeoutId = setTimeout(() => {
+      finish(false);
+    }, TIMEOUT_MS);
   });
 }
 
@@ -186,10 +198,12 @@ async function handlePayloadMessage(data: {
       fileName: data.fileName,
       mimeType: data.mimeType,
       sizeBytes: data.sizeBytes,
-      sourceOrigin: window.opener ? '*' : '',
+      sourceOrigin: senderOrigin === '*' ? '' : senderOrigin,
       zipBlob: data.zip,
       status: 'pending',
     });
+
+    notifyHandoffArchiveReady(savedRecord.id);
 
     const isSilentSuccess = await trySilentHandoff(savedRecord.id);
     if (isSilentSuccess) {
@@ -215,6 +229,16 @@ async function handlePayloadMessage(data: {
 window.addEventListener('message', (event) => {
   if (!window.opener || event.source !== window.opener) {
     return;
+  }
+
+  // Phase 0.1: whitelist check
+  if (!ALLOWED_HANDOFF_ORIGINS.has(event.origin)) {
+    return;
+  }
+
+  // Cache the real sender origin for postMessage replies and sourceOrigin storage
+  if (senderOrigin === '*') {
+    senderOrigin = event.origin;
   }
 
   const data = event.data;
@@ -243,10 +267,12 @@ async function handlePluginActivation(pluginKey: string): Promise<void> {
       fileName: '__plugin-activate__',
       mimeType: '',
       sizeBytes: 0,
-      sourceOrigin: window.opener ? '*' : '',
+      sourceOrigin: senderOrigin === '*' ? '' : senderOrigin,
       status: 'pending',
       pluginKey,
     });
+
+    notifyHandoffArchiveReady(savedRecord.id);
 
     const isSilentSuccess = await trySilentHandoff(savedRecord.id);
     if (isSilentSuccess) {

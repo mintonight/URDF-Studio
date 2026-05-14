@@ -96,12 +96,14 @@ import {
   createFileFromPendingHandoffRecord,
 } from './handoff/bootstrap';
 import {
+  claimPendingHandoffImport,
   deletePendingHandoffImport,
   pruneExpiredPendingHandoffImports,
-  readAllPendingHandoffImports,
-  readPendingHandoffImport,
-  updatePendingHandoffStatus,
 } from './handoff/storage';
+import {
+  notifyHandoffArchiveConsumed,
+  subscribeToHandoffBroadcast,
+} from '@/shared/utils/popupHandoffArchiveStore';
 import { setRegressionBeforeUnloadPromptSuppressed } from '@/shared/debug/regressionPromptSuppression';
 import { markUnsavedChangesBaselineSaved } from './utils/unsavedChangesBaseline';
 import type {
@@ -1097,7 +1099,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
     void consumeHandoffImportFromUrl({
       currentUrl: window.location.href,
       sessionStorage: window.sessionStorage,
-      loadRecord: readPendingHandoffImport,
+      claimRecord: claimPendingHandoffImport,
       deleteRecord: deletePendingHandoffImport,
       importArchive: (files) => handleImport(files),
       replaceUrl: (nextUrl) => {
@@ -1114,10 +1116,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
     });
   }, [handleImport, showToast, t]);
 
-  // IndexedDB polling for cross-origin handoff detection.
-  // The popup (handoff.html) saves incoming archives with status: 'pending'.
-  // This polling discovers them and either imports the ZIP or activates a plugin,
-  // so no new tab is opened when the editor is already running.
+  // BroadcastChannel listener for handoff detection.
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
@@ -1125,52 +1124,42 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
 
     let destroyed = false;
 
-    const poll = async () => {
+    const processRecord = async (recordId: string) => {
+      if (destroyed) return;
+
       try {
-        const pendingRecords = await readAllPendingHandoffImports();
+        const claimed = await claimPendingHandoffImport(recordId);
+        if (!claimed) return;
 
-        for (const record of pendingRecords) {
-          if (destroyed) {
-            return;
-          }
+        await deletePendingHandoffImport(recordId);
+        notifyHandoffArchiveConsumed(recordId);
 
-          try {
-            // Claim immediately — prevents concurrent poll cycles from double-processing
-            await updatePendingHandoffStatus(record.id, 'consumed');
-            // Delete right after claim so Path A (URL bootstrap) cannot find the record
-            await deletePendingHandoffImport(record.id);
+        if (claimed.pluginKey) {
+          layoutActionsRef.current.openTool(claimed.pluginKey);
+        } else {
+          const file = createFileFromPendingHandoffRecord(claimed);
+          await handleImportRef.current([file]);
+        }
 
-            if (record.pluginKey) {
-              // Plugin activation record — activate the tool directly
-              layoutActionsRef.current.openTool(record.pluginKey);
-            } else {
-              // ZIP import record — import the archive
-              const file = createFileFromPendingHandoffRecord(record);
-              await handleImportRef.current([file]);
-            }
-
-            // Bring this tab to the foreground so the user sees the result
-            try {
-              window.focus();
-            } catch {
-              // focus() may be blocked by browser — ignore
-            }
-          } catch {
-            await deletePendingHandoffImport(record.id).catch(() => {});
-          }
+        try {
+          window.focus();
+        } catch {
+          // focus() may be blocked by browser — ignore
         }
       } catch {
-        // IndexedDB read error — retry on next poll
+        await deletePendingHandoffImport(recordId).catch(() => {});
       }
     };
 
-    const intervalId = setInterval(() => {
-      void poll();
-    }, 500);
+    const unsubscribe = subscribeToHandoffBroadcast((message) => {
+      if (message.type === 'archive-ready') {
+        void processRecord(message.id);
+      }
+    });
 
     return () => {
       destroyed = true;
-      clearInterval(intervalId);
+      unsubscribe();
     };
   }, []);
 

@@ -1,6 +1,11 @@
 import { useAssetsStore } from '@/store';
 import type { PopupHandoffArchiveRecord } from '@/shared/utils/popupHandoffProtocol';
-import { POPUP_HANDOFF_QUERY_PARAM } from '@/shared/utils/popupHandoffProtocol';
+import {
+  readHandoffIdFromUrl,
+  stripHandoffParamFromUrl,
+} from '@/shared/utils/popupHandoffProtocol';
+
+export { readHandoffIdFromUrl, stripHandoffParamFromUrl };
 
 export interface HandoffImportSnapshot {
   availableFileCount: number;
@@ -8,19 +13,6 @@ export interface HandoffImportSnapshot {
   allFileContentCount: number;
   selectedFileName: string | null;
   originalUrdfContentLength: number;
-}
-
-export function readHandoffIdFromUrl(url: string): string | null {
-  const resolvedUrl = new URL(url, 'http://localhost');
-  const handoffId = resolvedUrl.searchParams.get(POPUP_HANDOFF_QUERY_PARAM)?.trim() ?? '';
-  return handoffId.length > 0 ? handoffId : null;
-}
-
-export function removeHandoffIdFromUrl(url: string): string {
-  const resolvedUrl = new URL(url, 'http://localhost');
-  resolvedUrl.searchParams.delete(POPUP_HANDOFF_QUERY_PARAM);
-  const query = resolvedUrl.searchParams.toString();
-  return `${resolvedUrl.pathname}${query ? `?${query}` : ''}${resolvedUrl.hash}`;
 }
 
 export function captureHandoffImportSnapshot(): HandoffImportSnapshot {
