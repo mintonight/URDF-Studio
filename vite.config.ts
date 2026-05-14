@@ -186,7 +186,7 @@ const OPTIMIZE_DEPS_INCLUDE = [
 
 function resolveDevServerHost(env: Record<string, string | undefined>): string {
   const configuredHost = env.URDF_STUDIO_DEV_HOST?.trim();
-  return configuredHost || '0.0.0.0';
+  return configuredHost || 'localhost';
 }
 
 function resolveDevServerAllowedHosts(
@@ -297,7 +297,9 @@ function shouldApplyIsolatedDocumentHeaders(request: IsolationHeaderRequestLike)
     return true;
   }
 
-  return isTrustedLocalDevHostname(normalizeRequestHostname(readFirstHeaderValue(request.headers?.host)));
+  return isTrustedLocalDevHostname(
+    normalizeRequestHostname(readFirstHeaderValue(request.headers?.host)),
+  );
 }
 
 function createConditionalIsolationHeadersPlugin() {
