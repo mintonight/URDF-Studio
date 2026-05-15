@@ -12,12 +12,26 @@ export const POPUP_HANDOFF_RESULT = 'botworld.handoff.result';
 // Unused handshake constants removed (OFFER/ACCEPT/REJECT).
 // Protocol intentionally uses READY → PAYLOAD → RESULT.
 
-/** Origins allowed to send handoff messages to this receiver. */
-export const ALLOWED_HANDOFF_ORIGINS: ReadonlySet<string> = new Set([
-  'https://botworld.d-robotics.cc',
-  'http://localhost:5000',
-  'http://127.0.0.1:5000',
-]);
+/**
+ * Origin patterns allowed to send handoff messages to this receiver.
+ * Supports `*` as a wildcard matching any sequence of characters.
+ */
+export const ALLOWED_HANDOFF_ORIGINS: ReadonlyArray<string> = [
+  'https://*.d-robotics.cc',
+  'https://*.enkeebot.com',
+  'http://localhost:*',
+  'http://127.0.0.1:*',
+];
+
+/** Check whether an origin matches any allowed pattern (with `*` wildcard support). */
+export function isAllowedHandoffOrigin(origin: string): boolean {
+  return ALLOWED_HANDOFF_ORIGINS.some((pattern) => {
+    if (!pattern.includes('*')) return pattern === origin;
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp('^' + escaped.replace(/\*/g, '.*') + '$');
+    return regex.test(origin);
+  });
+}
 
 export type PopupHandoffResultKind = 'new-tab' | 'existing-tab' | 'failed';
 

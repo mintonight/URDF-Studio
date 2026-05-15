@@ -1,6 +1,6 @@
 import './index.css';
 import {
-  ALLOWED_HANDOFF_ORIGINS,
+  isAllowedHandoffOrigin,
   POPUP_HANDOFF_PAYLOAD,
   POPUP_HANDOFF_PROTOCOL_VERSION,
   POPUP_HANDOFF_READY,
@@ -232,7 +232,7 @@ window.addEventListener('message', (event) => {
   }
 
   // Phase 0.1: whitelist check
-  if (!ALLOWED_HANDOFF_ORIGINS.has(event.origin)) {
+  if (!isAllowedHandoffOrigin(event.origin)) {
     return;
   }
 
