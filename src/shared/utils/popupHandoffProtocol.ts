@@ -61,6 +61,7 @@ export function stripImportParamsFromUrl(url: string): string {
   const resolvedUrl = new URL(url);
   resolvedUrl.searchParams.delete(IMPORT_QUERY_PARAM);
   resolvedUrl.searchParams.delete(FROM_QUERY_PARAM);
+  resolvedUrl.searchParams.delete('jwt');
   return resolvedUrl.toString();
 }
 
