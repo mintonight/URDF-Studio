@@ -1,19 +1,20 @@
-export const POPUP_HANDOFF_PROTOCOL_VERSION = 1;
-export const POPUP_HANDOFF_QUERY_PARAM = 'handoff';
-export const POPUP_HANDOFF_STORE_DB_NAME = 'bot-world-popup-handoff';
-export const POPUP_HANDOFF_STORE_NAME = 'archives';
-export const POPUP_HANDOFF_STORE_VERSION = 1;
-export const POPUP_HANDOFF_MAX_BYTES = 1024 * 1024 * 1024;
-export const POPUP_HANDOFF_TTL_MS = 15 * 60 * 1000;
+/**
+ * Handoff Protocol — shared between BOT World (sender) and receivers (URDF Studio, Motion Studio).
+ * Must stay in sync across all three projects:
+ *   BOT-World/src/shared/utils/popupHandoffProtocol.ts
+ *   URDF-Studio/src/shared/utils/popupHandoffProtocol.ts
+ *   MotionStudioUI-BluePrint/src/shared/utils/popupHandoffProtocol.ts
+ *
+ * Protocol v2: assetId-based direct download (no ZIP, no popup, no IndexedDB).
+ * BOT-World passes assetId + origin via URL params; Studio downloads files directly from BOT-World API.
+ */
 
-export const POPUP_HANDOFF_READY = 'botworld.handoff.ready';
-export const POPUP_HANDOFF_PAYLOAD = 'botworld.handoff.payload';
-export const POPUP_HANDOFF_RESULT = 'botworld.handoff.result';
-// Unused handshake constants removed (OFFER/ACCEPT/REJECT).
-// Protocol intentionally uses READY → PAYLOAD → RESULT.
+// ---------------------------------------------------------------------------
+//  Origin whitelist — shared across all apps
+// ---------------------------------------------------------------------------
 
 /**
- * Origin patterns allowed to send handoff messages to this receiver.
+ * Origin patterns allowed for handoff communication.
  * Supports `*` as a wildcard matching any sequence of characters.
  */
 export const ALLOWED_HANDOFF_ORIGINS: ReadonlyArray<string> = [
@@ -33,114 +34,65 @@ export function isAllowedHandoffOrigin(origin: string): boolean {
   });
 }
 
-export type PopupHandoffResultKind = 'new-tab' | 'existing-tab' | 'failed';
-
-export type PopupHandoffRejectCode =
-  | 'invalid_type'
-  | 'too_large'
-  | 'user_rejected'
-  | 'protocol_error'
-  | 'save_failed';
-
-export interface PopupHandoffReadyMessage {
-  type: typeof POPUP_HANDOFF_READY;
-  version: typeof POPUP_HANDOFF_PROTOCOL_VERSION;
-  maxBytes: number;
-  accepts: ['application/zip', '.zip'];
-}
-
-export interface PopupHandoffPayloadMessage {
-  type: typeof POPUP_HANDOFF_PAYLOAD;
-  version: typeof POPUP_HANDOFF_PROTOCOL_VERSION;
-  fileName: string;
-  mimeType: string;
-  sizeBytes: number;
-  zip: Blob | File;
-}
-
-export interface PopupHandoffResultMessage {
-  type: typeof POPUP_HANDOFF_RESULT;
-  version: typeof POPUP_HANDOFF_PROTOCOL_VERSION;
-  result: PopupHandoffResultKind;
-}
-
-export interface PopupHandoffArchiveRecord {
-  id: string;
-  fileName: string;
-  mimeType: string;
-  sizeBytes: number;
-  sourceOrigin: string;
-  createdAt: number;
-  zipBlob?: Blob;
-  status?: 'pending' | 'consumed';
-  /** When present, this record activates a plugin tool instead of importing a ZIP */
-  pluginKey?: string;
-}
-
-export function isPopupHandoffZipType(fileName: string, mimeType: string): boolean {
-  const normalizedName = fileName.trim().toLowerCase();
-  const normalizedMimeType = mimeType.trim().toLowerCase();
-
-  if (normalizedName.endsWith('.zip')) {
-    return true;
-  }
-
-  return (
-    normalizedMimeType === 'application/zip' ||
-    normalizedMimeType === 'application/x-zip-compressed'
-  );
-}
-
-export function validatePopupHandoffPayload(input: {
-  fileName: string;
-  mimeType: string;
-  sizeBytes: number;
-}): { ok: true } | { ok: false; code: PopupHandoffRejectCode; message: string } {
-  if (!isPopupHandoffZipType(input.fileName, input.mimeType)) {
-    return {
-      ok: false,
-      code: 'invalid_type',
-      message: 'Only ZIP archives are supported for popup handoff.',
-    };
-  }
-
-  if (!Number.isFinite(input.sizeBytes) || input.sizeBytes <= 0) {
-    return {
-      ok: false,
-      code: 'invalid_type',
-      message: 'The ZIP archive is empty or has an invalid size.',
-    };
-  }
-
-  if (input.sizeBytes > POPUP_HANDOFF_MAX_BYTES) {
-    return {
-      ok: false,
-      code: 'too_large',
-      message: `The ZIP archive exceeds the ${Math.round(
-        POPUP_HANDOFF_MAX_BYTES / (1024 * 1024 * 1024),
-      )} GB popup handoff limit.`,
-    };
-  }
-
-  return { ok: true };
-}
-
 // ---------------------------------------------------------------------------
-//  Unified URL helpers — single source of truth for reading/stripping the
-//  handoff query parameter. All consumers should import from here.
+//  Asset import via URL params
 // ---------------------------------------------------------------------------
 
-/** Read the handoff ID from a full URL string. Returns null if absent. */
-export function readHandoffIdFromUrl(url: string): string | null {
+export const IMPORT_QUERY_PARAM = 'import';
+export const FROM_QUERY_PARAM = 'from';
+export const IMPORT_PROTOCOL_VERSION = 2;
+
+export interface AssetImportParams {
+  assetId: string;
+  fromOrigin: string;
+}
+
+/** Read asset import parameters from a full URL string. Returns null if absent. */
+export function readImportParamsFromUrl(url: string): AssetImportParams | null {
   const resolvedUrl = new URL(url, 'http://localhost');
-  const handoffId = resolvedUrl.searchParams.get(POPUP_HANDOFF_QUERY_PARAM)?.trim() ?? '';
-  return handoffId.length > 0 ? handoffId : null;
+  const assetId = resolvedUrl.searchParams.get(IMPORT_QUERY_PARAM)?.trim() ?? '';
+  const fromOrigin = resolvedUrl.searchParams.get(FROM_QUERY_PARAM)?.trim() ?? '';
+  if (!assetId || !fromOrigin) return null;
+  return { assetId, fromOrigin };
 }
 
-/** Remove the handoff query parameter from a URL string, returning the cleaned URL. */
-export function stripHandoffParamFromUrl(url: string): string {
-  // If the URL is already absolute (contains scheme), parse it directly
+/** Remove asset import query parameters from a URL string, returning the cleaned URL. */
+export function stripImportParamsFromUrl(url: string): string {
   const resolvedUrl = new URL(url);
-  resolvedUrl.searchParams.delete(POPUP_HANDOFF_QUERY_PARAM);
+  resolvedUrl.searchParams.delete(IMPORT_QUERY_PARAM);
+  resolvedUrl.searchParams.delete(FROM_QUERY_PARAM);
+  return resolvedUrl.toString();
+}
+
+// ---------------------------------------------------------------------------
+//  BroadcastChannel — existing-tab detection for import delegation
+// ---------------------------------------------------------------------------
+
+export const HANDOFF_BROADCAST_CHANNEL = 'botworld-handoff';
+
+export type HandoffBroadcastMessage =
+  | { type: 'import-request'; assetId: string; fromOrigin: string }
+  | { type: 'import-accepted'; assetId: string };
+
+/** How long a new tab waits for an existing tab to claim the import (ms). */
+export const HANDOFF_BROADCAST_TIMEOUT_MS = 1000;
+
+// ---------------------------------------------------------------------------
+//  Plugin activation via URL params (unchanged from v1)
+// ---------------------------------------------------------------------------
+
+export const PLUGIN_QUERY_PARAM = 'plugin';
+
+/** Read the plugin key from a full URL string. Returns null if absent. */
+export function readPluginKeyFromUrl(url: string): string | null {
+  const resolvedUrl = new URL(url, 'http://localhost');
+  const pluginKey = resolvedUrl.searchParams.get(PLUGIN_QUERY_PARAM)?.trim() ?? '';
+  return pluginKey.length > 0 ? pluginKey : null;
+}
+
+/** Remove the plugin query parameter from a URL string, returning the cleaned URL. */
+export function stripPluginParamFromUrl(url: string): string {
+  const resolvedUrl = new URL(url);
+  resolvedUrl.searchParams.delete(PLUGIN_QUERY_PARAM);
   return resolvedUrl.toString();
 }

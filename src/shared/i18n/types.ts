@@ -538,6 +538,10 @@ export interface TranslationKeys {
   noSupportedImportFilesFound: string;
   importFailedCheckFiles: string;
   importBackgroundAssetsStillLoadingFailed: string;
+  botWorldImportFetching: string;
+  botWorldImportDownloading: string;
+  botWorldImportImporting: string;
+  botWorldImportWaiting: string;
   jointName: string;
   motorType: string;
   addedComponent: string;

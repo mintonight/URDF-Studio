@@ -143,15 +143,10 @@ const ISOLATED_DOCUMENT_HEADERS = {
   'Cross-Origin-Resource-Policy': 'same-site',
 } as const;
 
-const HANDOFF_DOCUMENT_HEADERS = {
-  'Cross-Origin-Opener-Policy': 'unsafe-none',
-  'Cross-Origin-Embedder-Policy': 'unsafe-none',
-} as const;
-
 // Vite crawls HTML entrypoints to discover dependency optimizer inputs.
 // This repository intentionally keeps many fixture/example HTML files under
 // tmp/, .tmp/, and test/, so constrain discovery to the actual app entry.
-const OPTIMIZE_DEPS_ENTRY_FILES = ['index.html', 'handoff.html'];
+const OPTIMIZE_DEPS_ENTRY_FILES = ['index.html'];
 
 const OPTIMIZE_DEPS_INCLUDE = [
   'three',
@@ -283,16 +278,7 @@ function applyDocumentHeaders(
   });
 }
 
-function isHandoffDocumentRequest(request: IsolationHeaderRequestLike): boolean {
-  const pathname = new URL(String(request.url || '/'), 'http://localhost').pathname;
-  return pathname === '/handoff.html';
-}
-
 function shouldApplyIsolatedDocumentHeaders(request: IsolationHeaderRequestLike): boolean {
-  if (isHandoffDocumentRequest(request)) {
-    return false;
-  }
-
   if (isHttpsDevRequest(request)) {
     return true;
   }
@@ -307,9 +293,7 @@ function createConditionalIsolationHeadersPlugin() {
     use: (handler: (req: any, res: any, next: () => void) => void) => void;
   }): void => {
     middlewareStack.use((request, response, next) => {
-      if (isHandoffDocumentRequest(request)) {
-        applyDocumentHeaders(response, HANDOFF_DOCUMENT_HEADERS);
-      } else if (shouldApplyIsolatedDocumentHeaders(request)) {
+      if (shouldApplyIsolatedDocumentHeaders(request)) {
         applyDocumentHeaders(response, ISOLATED_DOCUMENT_HEADERS);
       }
       next();
@@ -376,7 +360,7 @@ export default defineConfig(({ mode }) => {
         },
       },
       rollupOptions: {
-        input: [path.resolve(__dirname, 'index.html'), path.resolve(__dirname, 'handoff.html')],
+        input: [path.resolve(__dirname, 'index.html')],
         output: {
           manualChunks(id) {
             const normalizedId = id.replace(/\\/g, '/');

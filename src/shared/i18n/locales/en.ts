@@ -593,6 +593,10 @@ export const en: TranslationKeys = {
   importFailedCheckFiles: 'Failed to import. Please check if the file(s) are valid.',
   importBackgroundAssetsStillLoadingFailed:
     'The robot opened, but some imported support assets failed to finish loading in the background. Re-import the archive if placeholders remain.',
+  botWorldImportFetching: 'Fetching asset info…',
+  botWorldImportDownloading: 'Downloading files',
+  botWorldImportImporting: 'Importing files…',
+  botWorldImportWaiting: 'Waiting for editor response…',
   jointName: 'Joint Name',
   motorType: 'Motor Type',
   addedComponent: 'Added component: {name}',

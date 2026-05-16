@@ -91,19 +91,8 @@ import { isLibraryRobotExportableFormat } from '@/shared/utils';
 import type { ExportDialogConfig } from '@/features/file-io/components/ExportDialog/ExportDialog';
 import type { ExportProgressState } from '@/features/file-io/types';
 import type { ImportPreparationOverlayState } from './hooks/useFileImport';
-import {
-  consumeHandoffImportFromUrl,
-  createFileFromPendingHandoffRecord,
-} from './handoff/bootstrap';
-import {
-  claimPendingHandoffImport,
-  deletePendingHandoffImport,
-  pruneExpiredPendingHandoffImports,
-} from './handoff/storage';
-import {
-  notifyHandoffArchiveConsumed,
-  subscribeToHandoffBroadcast,
-} from '@/shared/utils/popupHandoffArchiveStore';
+import { useAssetImportFromUrl } from './hooks/useAssetImportFromUrl';
+import { BotWorldImportOverlay } from './components/BotWorldImportOverlay';
 import { setRegressionBeforeUnloadPromptSuppressed } from '@/shared/debug/regressionPromptSuppression';
 import { markUnsavedChangesBaselineSaved } from './utils/unsavedChangesBaseline';
 import type {
@@ -452,15 +441,6 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   >(null);
   const loadRequestIdRef = useRef(0);
   const aiConversationSessionIdRef = useRef(0);
-  const handoffBootstrapStartedRef = useRef(false);
-  const handleImportRef = useRef<
-    (
-      files: FileList | readonly File[] | null,
-    ) => Promise<{ status: 'completed' | 'skipped' | 'failed' }>
-  >(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    null as any,
-  );
   const [shouldRenderAIInspectionModal, setShouldRenderAIInspectionModal] = useState(false);
   const [shouldRenderAIConversationModal, setShouldRenderAIConversationModal] = useState(false);
   const [aiConversationLaunchContext, setAIConversationLaunchContext] =
@@ -1030,7 +1010,14 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       setViewerReloadKey((value) => value + 1);
     },
   });
-  handleImportRef.current = handleImport;
+  const { importAssetFromBotWorld, ...botWorldImportState } = useAssetImportFromUrl({
+    handleImport,
+    onImportComplete: (success) => {
+      if (success) {
+        showToast(t.addedFilesToAssetLibrary.replace('{count}', '1'), 'success');
+      }
+    },
+  });
   const {
     handleExportProject: runProjectExport,
     handleExportWithConfig,
@@ -1080,88 +1067,6 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
     importFolderInputRef,
     onImport: handleImport,
   });
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    void pruneExpiredPendingHandoffImports().catch((error) => {
-      console.error('Failed to prune expired handoff imports:', error);
-    });
-
-    if (handoffBootstrapStartedRef.current) {
-      return;
-    }
-
-    handoffBootstrapStartedRef.current = true;
-
-    void consumeHandoffImportFromUrl({
-      currentUrl: window.location.href,
-      sessionStorage: window.sessionStorage,
-      claimRecord: claimPendingHandoffImport,
-      deleteRecord: deletePendingHandoffImport,
-      importArchive: (files) => handleImport(files),
-      replaceUrl: (nextUrl) => {
-        const currentUrl = window.location.href;
-        if (nextUrl !== currentUrl) {
-          window.history.replaceState(window.history.state, '', nextUrl);
-        }
-      },
-      logger: console,
-    }).then((result) => {
-      if (result.status === 'completed') {
-        showToast(t.addedFilesToAssetLibrary.replace('{count}', '1'), 'success');
-      }
-    });
-  }, [handleImport, showToast, t]);
-
-  // BroadcastChannel listener for handoff detection.
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    let destroyed = false;
-
-    const processRecord = async (recordId: string) => {
-      if (destroyed) return;
-
-      try {
-        const claimed = await claimPendingHandoffImport(recordId);
-        if (!claimed) return;
-
-        await deletePendingHandoffImport(recordId);
-        notifyHandoffArchiveConsumed(recordId);
-
-        if (claimed.pluginKey) {
-          layoutActionsRef.current.openTool(claimed.pluginKey);
-        } else {
-          const file = createFileFromPendingHandoffRecord(claimed);
-          await handleImportRef.current([file]);
-        }
-
-        try {
-          window.focus();
-        } catch {
-          // focus() may be blocked by browser — ignore
-        }
-      } catch {
-        await deletePendingHandoffImport(recordId).catch(() => {});
-      }
-    };
-
-    const unsubscribe = subscribeToHandoffBroadcast((message) => {
-      if (message.type === 'archive-ready') {
-        void processRecord(message.id);
-      }
-    });
-
-    return () => {
-      destroyed = true;
-      unsubscribe();
-    };
-  }, []);
 
   const ensureAIEntryAvailable = useCallback(() => {
     const liveAssetsState = useAssetsStore.getState();
@@ -1574,6 +1479,15 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
 
       {/* Extension slot: top overlay layer (highest z-index) */}
       {extensions?.slots?.renderTopOverlays?.()}
+
+      {/* BOT-World import download progress overlay */}
+      {botWorldImportState.isImporting && (
+        <BotWorldImportOverlay
+          phase={botWorldImportState.phase}
+          progress={botWorldImportState.progress}
+          lang={lang}
+        />
+      )}
     </>
   );
 }

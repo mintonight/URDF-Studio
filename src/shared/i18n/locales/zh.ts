@@ -569,6 +569,10 @@ export const zh: TranslationKeys = {
   importFailedCheckFiles: '导入失败。请检查文件是否有效。',
   importBackgroundAssetsStillLoadingFailed:
     '机器人已经打开，但部分导入资源在后台补齐时失败了。如果仍有占位显示，请重新导入该压缩包。',
+  botWorldImportFetching: '正在获取资产信息…',
+  botWorldImportDownloading: '正在下载文件',
+  botWorldImportImporting: '正在导入文件…',
+  botWorldImportWaiting: '等待编辑器响应…',
   jointName: '关节名称',
   motorType: '电机型号',
   addedComponent: '已添加组件: {name}',
