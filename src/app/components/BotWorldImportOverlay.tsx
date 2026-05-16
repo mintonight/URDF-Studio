@@ -22,23 +22,18 @@ export function BotWorldImportOverlay({ phase, progress, lang }: BotWorldImportO
   const t = translations[lang];
   const title = t[PHASE_TITLE_KEYS[phase]];
 
-  const progressRatio = progress && progress.total > 0
-    ? progress.current / progress.total
-    : null;
+  const progressRatio = progress && progress.total > 0 ? progress.current / progress.total : null;
 
-  const detail = progress && phase === 'downloading'
-    ? progress.currentFileName
-      ? `${progress.currentFileName} (${progress.current}/${progress.total})`
-      : `${progress.current}/${progress.total}`
-    : '';
+  const detail =
+    progress && phase === 'downloading'
+      ? progress.currentFileName
+        ? `${progress.currentFileName} (${progress.current}/${progress.total})`
+        : `${progress.current}/${progress.total}`
+      : '';
 
-  const statusLabel = progressRatio !== null
-    ? `${Math.round(progressRatio * 100)}%`
-    : null;
+  const statusLabel = progressRatio !== null ? `${Math.round(progressRatio * 100)}%` : null;
 
-  const progressWidth = progressRatio !== null
-    ? `${Math.round(progressRatio * 100)}%`
-    : undefined;
+  const progressWidth = progressRatio !== null ? `${Math.round(progressRatio * 100)}%` : undefined;
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/45 backdrop-blur-[4px]">
@@ -52,21 +47,19 @@ export function BotWorldImportOverlay({ phase, progress, lang }: BotWorldImportO
             <div className="flex items-center gap-2">
               <span
                 aria-hidden="true"
-                className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-slider-accent motion-safe:animate-pulse"
+                className="h-2 w-2 shrink-0 rounded-full bg-slider-accent motion-safe:animate-pulse"
               />
-              <span className="truncate text-[11px] font-semibold text-text-primary">{title}</span>
+              <span className="truncate text-xs font-medium text-text-primary">{title}</span>
             </div>
           </div>
           {statusLabel ? (
-            <div className="shrink-0 text-[11px] font-semibold tabular-nums text-text-secondary">
+            <div className="shrink-0 text-[11px] font-medium tabular-nums text-text-secondary">
               {statusLabel}
             </div>
           ) : null}
         </div>
         {detail ? (
-          <div className="mt-2 truncate text-[11px] font-medium text-text-secondary">
-            {detail}
-          </div>
+          <div className="mt-2 truncate text-[11px] font-medium text-text-secondary">{detail}</div>
         ) : null}
         <div className="mt-3 h-1 overflow-hidden rounded-full bg-border-black/50">
           {progressRatio !== null ? (

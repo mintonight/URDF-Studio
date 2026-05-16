@@ -90,50 +90,53 @@
 
 ## 6. 跨域 Handoff 接收端
 
-`src/app/handoff/`、`src/handoff/` 是 BOT World Gallery → URDF Studio 的资产传递与插件激活接收端，不可删除。
+BOT World Gallery → URDF Studio 的资产传递接收端，不可删除。
 
-### 路径 A — 弹窗 ZIP 接收
+### 路径 A — assetId 直传（主路径）
 
 ```text
-handoff.html → src/handoff/main.ts
-  → 接收 postMessage ZIP → IndexedDB 存储
-  → BroadcastChannel 通知主 tab → 主 tab 即时 claim 并导入
-  → 无已有 tab 时重定向 ?handoff=<id> → 新 tab URL bootstrap 消费
+BOT-World 构造 URL ?import=<assetId>&from=<botworld_origin> → window.open 新标签页
+  → useAssetImportFromUrl 检测 URL 参数
+  → BroadcastChannel 广播 import-request（等待 1s）
+    → 已有 Studio tab 回复 import-accepted → 新 tab 关闭 → 已有 tab 执行导入
+    → 无已有 tab 回复 → 当前 tab 执行导入
+  → Studio 调用 BOT-World POST /api/download-asset → 获取文件列表 → 下载 → handleImport
 ```
 
-- 发送方通过 `window.open('handoff.html')` 打开弹窗，经 postMessage 握手后传输 ZIP
-- 弹窗验证 origin 白名单后将数据写入 IndexedDB，通过 BroadcastChannel 通知主 tab
-- **已有 tab**：主 tab 监听 `archive-ready` 广播，立即原子 claim 并导入
-- **无已有 tab**：弹窗等待 1s BroadcastChannel 回复后超时，redirect 到 `?handoff=<id>`，新 tab 通过 URL 参数 claim 并导入
-- 安全：origin 白名单校验、真实 `senderOrigin` 记录、`textContent` 防止 XSS
+- BOT-World 通过 `resolveHandoffEditorForCategory(asset.category)` 确定目标 Studio
+- Studio 验证 `from` origin 白名单后调用 BOT-World API 获取文件列表（含预签名下载 URL）
+- 逐个下载文件，设置 `webkitRelativePath` 保持文件夹结构
+- 调用 `handleImport(files)` 导入到编辑器
+- 进度展示通过 `BotWorldImportOverlay` 独立组件（居中遮罩，不依赖 LoadingHud）
 
-### 路径 B — 服务端令牌接收（已删除）
+**关键文件：**
 
-路径 B（`externalImportHandoffProtocol.ts` + `externalImportHandoffStorage.ts`）已完全移除。所有资产类型统一使用路径 A。
+| 文件 | 用途 |
+|------|------|
+| `src/app/hooks/useAssetImportFromUrl.ts` | 核心 hook：URL 参数解析、BroadcastChannel 已有 tab 检测、assetId 下载导入 |
+| `src/app/components/BotWorldImportOverlay.tsx` | 导入进度遮罩 UI（waiting / fetching / downloading / importing） |
+| `src/shared/utils/popupHandoffProtocol.ts` | 协议常量、origin 白名单、URL 参数 helper |
 
 ### 路径 C — 插件激活
 
 ```text
-handoff.html?plugin=<key> → src/handoff/main.ts
-  → 写入轻量记录（无 ZIP，仅 pluginKey）→ IndexedDB
-  → BroadcastChannel 通知 → 已打开编辑器 tab 即时消费 → openTool(key)
-  → 若无已有 tab → 重定向 ?plugin=<key> → usePluginLaunch hook 激活
+BOT-World 构造 URL ?plugin=<key> → window.open 新标签页
+  → usePluginLaunch hook 读取 ?plugin=<key> → openTool(key)
+  → 参数消费后从 URL 移除
 ```
 
 - `usePluginLaunch`（`src/app/hooks/usePluginLaunch.ts`）：读取 `?plugin=<key>` URL 参数，通过 `requestAnimationFrame` 双帧等待后调用 `openTool(key)`，参数消费后从 URL 移除
 
-### 协议与存储
+### 协议与安全
 
 | 项目 | 值 |
 |------|-----|
-| 消息类型 | `READY` / `PAYLOAD` / `RESULT`（三步，无 offer/accept） |
-| 路径 A/C 数据库 | `bot-world-popup-handoff`，store `archives` |
-| 通知机制 | BroadcastChannel（`urdf-studio-handoff`） |
-| TTL | 15 min |
-| 协议版本 | `POPUP_HANDOFF_PROTOCOL_VERSION = 1` |
-| 安全 | Origin 白名单 + 真实 senderOrigin + 原子 claim + DB 连接池化 |
+| BroadcastChannel 名称 | `botworld-handoff`（三端共享） |
+| 超时时间 | `HANDOFF_BROADCAST_TIMEOUT_MS = 1000` |
+| Origin 校验 | `ALLOWED_HANDOFF_ORIGINS` 白名单 |
+| 认证 | Studio 使用 `VITE_API_TOKEN` 调用 BOT-World API |
 
-约束：三端（BOT World、URDF Studio、Motion Studio）的 `popupHandoffProtocol.ts` 必须保持协议版本一致。
+约束：三端（BOT World、URDF Studio、Motion Studio）的 `popupHandoffProtocol.ts` 必须保持 origin 白名单和 BroadcastChannel 常量一致。
 
 ## 7. 明确热点文件（新增逻辑优先抽离）
 

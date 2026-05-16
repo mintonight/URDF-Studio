@@ -13,23 +13,27 @@ import {
 // ---------------------------------------------------------------------------
 
 let blinkTimer: ReturnType<typeof setInterval> | null = null;
+let blinkTimeout: ReturnType<typeof setTimeout> | null = null;
+let savedOriginalTitle: string | null = null;
 
 /** Flag to prevent self-delegation: when this tab is broadcasting an import-request,
  *  its own listener must not claim it. */
 let isDelegating = false;
 
 function startTitleBlink(alertTitle: string) {
-  if (blinkTimer) return;
-  const originalTitle = document.title;
+  // Clean up any existing blink first
+  stopTitleBlink();
+
+  savedOriginalTitle = document.title;
   let show = true;
 
   blinkTimer = setInterval(() => {
-    document.title = show ? alertTitle : originalTitle;
+    document.title = show ? alertTitle : savedOriginalTitle;
     show = !show;
   }, 800);
 
   // Auto-restore after 5 seconds
-  setTimeout(() => stopTitleBlink(), 5000);
+  blinkTimeout = setTimeout(() => stopTitleBlink(), 5000);
 
   // Restore immediately when user focuses this tab
   const onVis = () => {
@@ -42,9 +46,18 @@ function startTitleBlink(alertTitle: string) {
 }
 
 function stopTitleBlink() {
-  if (!blinkTimer) return;
-  clearInterval(blinkTimer);
-  blinkTimer = null;
+  if (blinkTimer) {
+    clearInterval(blinkTimer);
+    blinkTimer = null;
+  }
+  if (blinkTimeout) {
+    clearTimeout(blinkTimeout);
+    blinkTimeout = null;
+  }
+  if (savedOriginalTitle !== null) {
+    document.title = savedOriginalTitle;
+    savedOriginalTitle = null;
+  }
 }
 
 interface FileDownloadInfo {

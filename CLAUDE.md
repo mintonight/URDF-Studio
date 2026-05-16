@@ -13,7 +13,7 @@
 - `core/` 保持纯逻辑，不引入 React / UI / Feature 依赖
 - 优先复用现有 hooks、utils、components，不新增重复抽象
 - 新增 `ResizeObserver`、timer、worker listener、THREE 资源时必须对称 cleanup
-- **跨域 Handoff 接收端**：`src/app/handoff/`、`src/handoff/` 不可删除；三条路径（弹窗 ZIP / 服务端令牌 / 插件激活）详见 [docs/file-io.md](docs/file-io.md) §6
+- **跨域 Handoff 接收端**：`src/app/hooks/useAssetImportFromUrl.ts`、`src/app/components/BotWorldImportOverlay.tsx` 为 BOT-World 资产导入核心文件；插件激活详见 [docs/file-io.md](docs/file-io.md) §6
 
 常用命令：
 
