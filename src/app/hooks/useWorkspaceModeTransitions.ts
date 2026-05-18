@@ -13,7 +13,7 @@ import {
   shouldReseedSingleComponentAssemblyFromActiveFile,
 } from './workspaceSourceSyncUtils';
 import { buildGeneratedWorkspaceFileState } from './workspaceGeneratedSourceState';
-import { useAssemblyStore, useAssetsStore, useUIStore } from '@/store';
+import { useAssemblyStore, useAssetsStore } from '@/store';
 import type { RobotData, RobotFile, UrdfJoint, UrdfLink, UsdPreparedExportCache } from '@/types';
 
 export interface ProModeRoundtripSession {
@@ -198,7 +198,6 @@ export function useWorkspaceModeTransitions({
 
   const switchTreeEditorToStructure = useCallback(() => {
     handleClosePreview();
-    useUIStore.getState().setSidebarTab('structure');
     proModeRoundtripSessionRef.current = null;
     return 'switched' as const;
   }, [handleClosePreview, proModeRoundtripSessionRef]);
@@ -276,7 +275,6 @@ export function useWorkspaceModeTransitions({
       handleClosePreview();
 
       if (switchToStructure) {
-        useUIStore.getState().setSidebarTab('structure');
         proModeRoundtripSessionRef.current = null;
       } else {
         proModeRoundtripSessionRef.current = {
@@ -312,10 +310,6 @@ export function useWorkspaceModeTransitions({
 
   const handleRequestSwitchTreeEditorToStructure = useCallback(
     (intent: 'direct' | 'generate' | 'skip-generate') => {
-      if (useUIStore.getState().sidebarTab !== 'workspace') {
-        return switchTreeEditorToStructure();
-      }
-
       if (intent === 'generate') {
         return generateWorkspaceUrdfFromProMode({ switchToStructure: true })
           ? 'switched'

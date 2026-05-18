@@ -15,9 +15,17 @@ import {
 } from '@/core/loaders/colladaRootNormalization.ts';
 import { loadColladaScene } from '@/core/loaders/colladaParseWorkerBridge.ts';
 import {
+  createSceneFromSerializedColladaData,
+  parseColladaSceneData,
+} from '@/core/loaders/colladaWorkerSceneData.ts';
+import {
   createObjectFromSerializedObjData,
   loadSerializedObjModelData,
 } from '@/core/loaders/objParseWorkerBridge.ts';
+import {
+  createGeometryFromSerializedMshData,
+  parseMshGeometryData,
+} from '@/core/loaders/mshGeometryData.ts';
 import { createGeometryFromSerializedStlData } from '@/core/loaders/stlGeometryData.ts';
 import { loadSerializedStlGeometryData } from '@/core/loaders/stlParseWorkerBridge.ts';
 import { applyVisualMeshMaterialGroupsToObject } from '@/core/utils/meshMaterialGroups';
@@ -39,9 +47,14 @@ import { applyUsdMeshCompression } from './usdMeshCompression.ts';
 
 export const USD_GEOMETRY_TYPES = {
   BOX: 'box',
+  PLANE: 'plane',
   CYLINDER: 'cylinder',
   SPHERE: 'sphere',
+  ELLIPSOID: 'ellipsoid',
   CAPSULE: 'capsule',
+  HFIELD: 'hfield',
+  POLYLINE: 'polyline',
+  SDF: 'sdf',
   MESH: 'mesh',
   NONE: 'none',
 } as const;
@@ -91,6 +104,7 @@ const USD_ISAAC_NEUTRAL_FALLBACK_COLOR = '#999999';
 const USD_BRIGHT_NEUTRAL_PLACEHOLDER_MIN = 0.96;
 const USD_BRIGHT_NEUTRAL_PLACEHOLDER_DELTA = 0.02;
 const USD_ISAAC_COLLADA_BAKED_ROTATION_EPSILON = 1e-5;
+const USD_FALLBACK_BOX_THICKNESS = 0.001;
 const USD_ISAAC_COLLADA_CYCLIC_MESH_QUATERNION = new THREE.Quaternion(0.5, 0.5, 0.5, 0.5);
 const USD_ISAAC_COLLADA_VISUAL_QUATERNION = new THREE.Quaternion().setFromEuler(
   new THREE.Euler(Math.PI / 2, 0, 0, 'XYZ'),
@@ -252,6 +266,36 @@ const getUsdVisualScale = (visual: UrdfVisual): THREE.Vector3 => {
   );
 };
 
+const getUsdFallbackBoxScale = (visual: UrdfVisual): THREE.Vector3 => {
+  const type = getUsdGeometryType(visual.type);
+  if (type === USD_GEOMETRY_TYPES.PLANE) {
+    return new THREE.Vector3(
+      Math.max(Math.abs(visual.dimensions.x || 0), USD_FALLBACK_BOX_THICKNESS),
+      Math.max(Math.abs(visual.dimensions.y || 0), USD_FALLBACK_BOX_THICKNESS),
+      USD_FALLBACK_BOX_THICKNESS,
+    );
+  }
+
+  if (
+    type === USD_GEOMETRY_TYPES.POLYLINE &&
+    visual.polylinePoints &&
+    visual.polylinePoints.length > 0
+  ) {
+    const xs = visual.polylinePoints.map((point) => point.x);
+    const ys = visual.polylinePoints.map((point) => point.y);
+    const width = Math.max(Math.max(...xs) - Math.min(...xs), USD_FALLBACK_BOX_THICKNESS);
+    const depth = Math.max(Math.max(...ys) - Math.min(...ys), USD_FALLBACK_BOX_THICKNESS);
+    const height = Math.max(Math.abs(visual.polylineHeight || 0), USD_FALLBACK_BOX_THICKNESS);
+    return new THREE.Vector3(width, depth, height);
+  }
+
+  return new THREE.Vector3(
+    Math.max(Math.abs(visual.dimensions.x || 0), USD_FALLBACK_BOX_THICKNESS),
+    Math.max(Math.abs(visual.dimensions.y || 0), USD_FALLBACK_BOX_THICKNESS),
+    Math.max(Math.abs(visual.dimensions.z || 0), USD_FALLBACK_BOX_THICKNESS),
+  );
+};
+
 const applyUsdVisualOrigin = (object: THREE.Object3D, visual: UrdfVisual): void => {
   object.position.set(
     visual.origin?.xyz?.x ?? 0,
@@ -316,7 +360,7 @@ const createUsdPrimitiveSceneNode = (
   }
 
   const type = getUsdGeometryType(visual.type);
-  const primitiveType: SerializedPrimitiveType | null =
+  let primitiveType: SerializedPrimitiveType | null =
     type === USD_GEOMETRY_TYPES.BOX
       ? 'Cube'
       : type === USD_GEOMETRY_TYPES.SPHERE
@@ -326,14 +370,16 @@ const createUsdPrimitiveSceneNode = (
           : type === USD_GEOMETRY_TYPES.CAPSULE
             ? 'Capsule'
             : null;
+  const fallbackSourceType = primitiveType ? null : type;
+  const fallbackScale = primitiveType ? null : getUsdFallbackBoxScale(visual);
 
   if (!primitiveType) {
-    return null;
+    primitiveType = 'Cube';
   }
 
   const anchor = new THREE.Group();
   applyUsdVisualOrigin(anchor, visual);
-  anchor.scale.copy(getUsdVisualScale(visual));
+  anchor.scale.copy(fallbackScale || getUsdVisualScale(visual));
   anchor.name = role;
   if (role === 'collision') {
     anchor.userData.usdPurpose = 'guide';
@@ -341,8 +387,13 @@ const createUsdPrimitiveSceneNode = (
   }
 
   const primitive = new THREE.Object3D();
-  primitive.name = type || primitiveType.toLowerCase();
+  primitive.name = fallbackSourceType
+    ? `${fallbackSourceType}_as_box`
+    : type || primitiveType.toLowerCase();
   primitive.userData.usdGeomType = primitiveType;
+  if (fallbackSourceType) {
+    primitive.userData.usdFallbackSourceType = fallbackSourceType;
+  }
   if (primitiveType === 'Sphere') {
     primitive.userData.usdRadius = visual.dimensions.x || 0.5;
   } else if (primitiveType === 'Cylinder' || primitiveType === 'Capsule') {
@@ -678,6 +729,44 @@ const normalizeIsaacCompatibleColladaMeshTransform = (object: THREE.Object3D): v
   object.updateMatrix();
 };
 
+const loadUsdColladaSceneInProcess = async (
+  assetUrl: string,
+  registry: UsdAssetRegistry,
+): Promise<THREE.Object3D> => {
+  ensureWorkerXmlDomApis();
+  const response = await fetch(assetUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch Collada asset: ${response.status} ${response.statusText}`);
+  }
+
+  const colladaText = await response.text();
+  const serializedScene = parseColladaSceneData(colladaText, assetUrl);
+  return createSceneFromSerializedColladaData(serializedScene, {
+    manager: getUsdTextureLoadingManager(registry),
+  });
+};
+
+const loadUsdColladaScene = async (
+  assetUrl: string,
+  registry: UsdAssetRegistry,
+): Promise<THREE.Object3D> => {
+  if (typeof Worker === 'undefined') {
+    return loadUsdColladaSceneInProcess(assetUrl, registry);
+  }
+
+  try {
+    return await loadColladaScene(assetUrl, getUsdTextureLoadingManager(registry));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/collada parse worker is (?:unavailable|not available)/i.test(message)) {
+      throw error;
+    }
+
+    console.warn(`[USD export] ${message}; parsing Collada asset in-process.`);
+    return loadUsdColladaSceneInProcess(assetUrl, registry);
+  }
+};
+
 const loadUsdMeshObject = async (
   visual: UrdfVisual,
   registry: UsdAssetRegistry,
@@ -712,6 +801,17 @@ const loadUsdMeshObject = async (
     return new THREE.Mesh(geometry, createUsdBaseMaterial(colorOverride || visual.color));
   }
 
+  if (lowerPath.endsWith('.msh')) {
+    const response = await fetch(resolvedUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch MSH asset: ${response.status} ${response.statusText}`);
+    }
+    const geometry = createGeometryFromSerializedMshData(
+      parseMshGeometryData(await response.arrayBuffer()),
+    );
+    return new THREE.Mesh(geometry, createUsdBaseMaterial(colorOverride || visual.color));
+  }
+
   if (lowerPath.endsWith('.obj')) {
     const serializedObject = await loadSerializedObjModelData(resolvedUrl);
     const object = createObjectFromSerializedObjData(serializedObject);
@@ -727,7 +827,7 @@ const loadUsdMeshObject = async (
   }
 
   if (lowerPath.endsWith('.dae')) {
-    let object = await loadColladaScene(resolvedUrl, getUsdTextureLoadingManager(registry));
+    let object = await loadUsdColladaScene(resolvedUrl, registry);
     if (shouldNormalizeColladaRoot(meshPath, colladaRootNormalizationHints)) {
       object.rotation.set(0, 0, 0);
       object.updateMatrix();

@@ -4,7 +4,7 @@ import {
   buildUsdExportBundleFromSnapshot,
   resolveUsdExportSceneSnapshot,
   type UsdExportBundle,
-} from '@/features/editor';
+} from '@/features/urdf-viewer/utils/usdExportBundle';
 
 export interface ResolveCurrentUsdExportBundleOptions {
   stageSourcePath: string;

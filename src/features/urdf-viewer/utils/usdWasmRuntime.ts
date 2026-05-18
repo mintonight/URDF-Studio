@@ -3,6 +3,7 @@ import {
   buildUsdBindingsScriptUrl,
   ensureClassicScriptLoaded,
 } from './usdBindingsScriptLoader.ts';
+import { logRuntimeFailure } from '@/core/utils/runtimeDiagnostics';
 import type {
   LoadUsdStageFn,
   UsdFsHelperInstance,
@@ -64,29 +65,49 @@ export function resolvePreferredUsdThreadCount(preferredConcurrency?: number): n
   return Math.max(1, Math.min(4, Math.floor(resolvedConcurrency) || 1));
 }
 
-function assertUsdRuntimeEnvironment(): void {
-  if (typeof window === 'undefined') {
-    return;
+export function getUsdRuntimeEnvironmentError(
+  globalScope: typeof globalThis = globalThis,
+): Error | null {
+  const scope = globalScope as typeof globalThis & {
+    document?: Document;
+    isSecureContext?: boolean;
+    window?: unknown;
+  };
+  const hasRuntimeEnvironmentSignals =
+    typeof scope.window !== 'undefined' ||
+    typeof scope.document !== 'undefined' ||
+    typeof scope.isSecureContext === 'boolean' ||
+    typeof scope.crossOriginIsolated === 'boolean';
+
+  if (!hasRuntimeEnvironmentSignals) {
+    return null;
   }
 
-  if (!globalThis.isSecureContext) {
-    throw new Error(
+  if (scope.isSecureContext !== true) {
+    return new Error(
       'USD loading requires a secure context. Open the app from `http://localhost:<port>` or `http://127.0.0.1:<port>`, ' +
         'or serve it over HTTPS. Accessing the Vite dev server from a LAN IP address or another non-HTTPS URL is not enough, ' +
         'even when `npm run dev` is sending COOP/COEP headers.',
     );
   }
 
-  if (globalThis.crossOriginIsolated) {
-    return;
+  if (scope.crossOriginIsolated === true) {
+    return null;
   }
 
-  throw new Error(
+  return new Error(
     'USD loading requires a cross-origin isolated page because the bundled USD WASM runtime uses SharedArrayBuffer. ' +
       'Start the app with `npm run dev` or `npm run preview`, open it from `localhost`/`127.0.0.1` (or HTTPS), ' +
       'and make sure the server sends `Cross-Origin-Opener-Policy: same-origin` and ' +
       '`Cross-Origin-Embedder-Policy: require-corp`.',
   );
+}
+
+function assertUsdRuntimeEnvironment(): void {
+  const environmentError = getUsdRuntimeEnvironmentError();
+  if (environmentError) {
+    throw environmentError;
+  }
 }
 
 let getUsdModuleFnPromise: Promise<(config: Record<string, any>) => Promise<UsdModule>> | null =
@@ -180,8 +201,12 @@ export async function ensureUsdWasmRuntime(): Promise<UsdWasmRuntime> {
   return usdRuntimePromise;
 }
 
-export function prewarmUsdWasmRuntimeInBackground(): void {
-  void ensureUsdWasmRuntime().catch(() => {});
+export function prewarmUsdWasmRuntimeInBackground(
+  loadRuntime: () => Promise<UsdWasmRuntime> = ensureUsdWasmRuntime,
+): void {
+  void loadRuntime().catch((error) => {
+    logRuntimeFailure('prewarmUsdWasmRuntimeInBackground', error, 'warn');
+  });
 }
 
 export function disposeUsdDriver(runtime: Pick<UsdWasmRuntime, 'USD'>, driver: any): void {

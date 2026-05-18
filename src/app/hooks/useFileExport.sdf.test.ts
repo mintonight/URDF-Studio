@@ -152,7 +152,6 @@ function resetStoresToBaseline() {
   useUIStore.setState({
     lang: 'en',
     appMode: 'editor',
-    sidebarTab: 'structure',
   });
 
   useAssemblyStore.setState({

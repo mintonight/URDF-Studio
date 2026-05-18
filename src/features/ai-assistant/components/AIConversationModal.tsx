@@ -12,8 +12,8 @@ import {
 } from 'lucide-react';
 import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
-import { DraggableWindow } from '@/shared/components';
-import { useDraggableWindow } from '@/shared/hooks';
+import { DraggableWindow } from '@/shared/components/DraggableWindow';
+import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { Button } from '@/shared/components/ui/Button';
 import { Dialog } from '@/shared/components/ui/Dialog';
 import {

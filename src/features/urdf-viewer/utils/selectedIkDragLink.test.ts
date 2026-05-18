@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createAttachedChildLink } from '@/core/robot';
-import type { InteractionSelection, UrdfJoint, UrdfLink } from '@/types';
+import { DEFAULT_LINK, GeometryType, type InteractionSelection, type UrdfJoint, type UrdfLink } from '@/types';
 import { resolveSelectedIkDragLinkId } from './selectedIkDragLink';
 
 const links: Record<string, UrdfLink> = {
@@ -37,6 +37,33 @@ const joints: Record<string, UrdfJoint> = {
   } as UrdfJoint,
 };
 
+const meshOnlyLinks: Record<string, UrdfLink> = {
+  base_link: links.base_link,
+  mesh_link: {
+    ...DEFAULT_LINK,
+    id: 'mesh_link',
+    name: 'mesh_link',
+    visual: {
+      ...DEFAULT_LINK.visual,
+      type: GeometryType.MESH,
+      meshPath: 'package://demo/mesh_link.stl',
+      dimensions: { x: 0, y: 0, z: 0 },
+    },
+    collision: {
+      ...DEFAULT_LINK.collision,
+      type: GeometryType.NONE,
+      dimensions: { x: 0, y: 0, z: 0 },
+    },
+  },
+};
+
+const meshOnlyJoints: Record<string, UrdfJoint> = {
+  joint_1: {
+    ...joints.joint_1,
+    childLinkId: 'mesh_link',
+  },
+};
+
 test('resolveSelectedIkDragLinkId keeps explicit ik-handle selections', () => {
   const selection = {
     type: 'link',
@@ -68,6 +95,24 @@ test('resolveSelectedIkDragLinkId promotes a directly manipulable link while IK 
       rootLinkId: 'base_link',
     }),
     'link_2',
+  );
+});
+
+test('resolveSelectedIkDragLinkId promotes mesh-only links while IK drag is active', () => {
+  const selection = {
+    type: 'link',
+    id: 'mesh_link',
+  } as InteractionSelection;
+
+  assert.equal(
+    resolveSelectedIkDragLinkId({
+      selection,
+      ikDragActive: true,
+      robotLinks: meshOnlyLinks,
+      robotJoints: meshOnlyJoints,
+      rootLinkId: 'base_link',
+    }),
+    'mesh_link',
   );
 });
 

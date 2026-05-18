@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   computeLinkWorldMatrices,
+  getVisualGeometryEntries,
   isSyntheticWorldRoot,
   mergeAssembly,
   prepareAssemblyRobotData,
@@ -40,9 +41,9 @@ import {
   type UrdfJoint,
   type UrdfLink,
 } from '@/types';
-import { collectURDFMaterialsFromLinks } from '@/features/editor';
-import { BRIDGE_PREVIEW_ID } from '@/features/assembly';
+import { BRIDGE_PREVIEW_ID } from '@/shared/utils/assembly/bridgePreviewId';
 import { createRobotSemanticSnapshot } from '@/shared/utils/robot/semanticSnapshot';
+import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
 import { parseEditableRobotSourceWithWorker } from './robotImportWorkerBridge';
 import { USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF } from './workspace-source-sync/usdViewerPlaceholder';
 
@@ -108,20 +109,26 @@ export function createRobotSourceSnapshot(robot: RobotState): string {
 export function canUseLightweightWorkspaceViewerReloadContent(
   robotLinks?: Record<string, UrdfLink> | null,
 ): boolean {
-  return collectURDFMaterialsFromLinks(robotLinks).size > 0;
+  if (!robotLinks) {
+    return false;
+  }
+
+  return Object.values(robotLinks).some((link) =>
+    getVisualGeometryEntries(link).some((entry) =>
+      (entry.geometry.authoredMaterials ?? []).some((material) => {
+        const name = material.name?.trim();
+        return Boolean(name && (material.color || material.texture || material.colorRgba));
+      }),
+    ),
+  );
 }
 
 export function shouldUseGeneratedWorkspaceViewerReloadContent({
   robotLinks,
-  hasActiveTransformTarget = false,
 }: {
   robotLinks?: Record<string, UrdfLink> | null;
   hasActiveTransformTarget?: boolean;
 }): boolean {
-  if (hasActiveTransformTarget) {
-    return true;
-  }
-
   return !canUseLightweightWorkspaceViewerReloadContent(robotLinks);
 }
 
@@ -954,7 +961,12 @@ function parseRobotSourceSnapshot(sourceSnapshot: string | null): RobotData | nu
 
   try {
     return JSON.parse(sourceSnapshot) as RobotData;
-  } catch {
+  } catch (error) {
+    scheduleFailFastInDev(
+      'workspaceSourceSyncUtils:parseRobotSourceSnapshot',
+      new Error('Failed to parse workspace source snapshot.', { cause: error }),
+      'error',
+    );
     return null;
   }
 }
@@ -1031,22 +1043,32 @@ export function shouldReuseSourceViewerForSingleComponentAssembly({
   const [component] = visibleComponents;
   const expectedSeedName = sanitizeWorkspaceSeedNameFromFile(activeFile.name);
 
-  if (
-    component.sourceFile !== activeFile.name ||
-    component.name !== expectedSeedName ||
-    component.id !== `comp_${expectedSeedName}`
-  ) {
+  if (component.sourceFile !== activeFile.name || component.id !== `comp_${expectedSeedName}`) {
     return false;
   }
 
   if (!sourceSnapshot && !sourceRobotData) {
-    return true;
+    return component.name === expectedSeedName;
+  }
+
+  const baselineRobotData = sourceRobotData ?? parseRobotSourceSnapshot(sourceSnapshot ?? null);
+  if (!baselineRobotData) {
+    return false;
+  }
+
+  const expectedComponentNames = new Set([expectedSeedName]);
+  if (baselineRobotData.name?.trim()) {
+    expectedComponentNames.add(baselineRobotData.name.trim());
+  }
+
+  if (!expectedComponentNames.has(component.name)) {
+    return false;
   }
 
   const expectedSeedRobot = buildAssemblySeedRobotFromSourceBaseline({
-    sourceRobotData,
-    sourceSnapshot,
-    component,
+    sourceRobotData: baselineRobotData,
+    sourceSnapshot: null,
+    component: { id: component.id, name: expectedSeedName },
     sourceFile: activeFile,
   });
 
@@ -1058,6 +1080,29 @@ export function shouldReuseSourceViewerForSingleComponentAssembly({
     createSingleComponentAssemblyReuseSnapshot(expectedSeedRobot) ===
     createSingleComponentAssemblyReuseSnapshot(component.robot)
   );
+}
+
+export function shouldPreviewLibraryRobotLoadFromWorkspace({
+  assemblyState,
+  activeFile,
+  sourceSnapshot,
+  sourceRobotData,
+}: {
+  assemblyState: AssemblyState | null;
+  activeFile: RobotFile | null;
+  sourceSnapshot: string | null;
+  sourceRobotData?: RobotData | null;
+}): boolean {
+  if (!assemblyState || Object.keys(assemblyState.components).length === 0) {
+    return false;
+  }
+
+  return !shouldReuseSourceViewerForSingleComponentAssembly({
+    assemblyState,
+    activeFile,
+    sourceSnapshot,
+    sourceRobotData,
+  });
 }
 
 export function shouldPromptGenerateWorkspaceUrdfOnStructureSwitch({

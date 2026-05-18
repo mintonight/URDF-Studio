@@ -1,6 +1,6 @@
 # URDF Studio Agent Guide
 
-> 最后更新：2026-04-28 | 技术栈：React 19.2 + TypeScript 5.8 + Three.js/R3F + Vite 6.2 + Tailwind CSS 4.1 + Zustand 5
+> 最后更新：2026-05-13 | 技术栈：React 19.2 + TypeScript 5.8 + Three.js/R3F + Vite 6.2 + Tailwind CSS 4.1 + Zustand 5
 > 完整文档索引：[docs/CATALOG.md](docs/CATALOG.md)
 
 URDF Studio 是机器人设计、装配、可视化与导出工作台。核心能力：单模式 Editor 编辑、多 URDF 组装与桥接关节、多格式导入导出（URDF / MJCF / SDF / USD / Xacro / ZIP / .usp）、AI 生成与审阅、PDF/CSV 报告、可复用 react-robot-canvas 画布封装。
@@ -91,6 +91,19 @@ npm run build          # 构建
 npm run verify:fast    # 快速验证
 npm run verify:full    # 完整验证
 ```
+
+## 格式回归样本
+
+涉及格式解析、导入、导出、资源解析或 viewer hydration 时，优先使用以下 `test/` 大型语料做对应格式验证：
+
+| 格式 / 场景 | 基准目录 |
+|-------------|----------|
+| MJCF | `test/mujoco_menagerie-main/` |
+| MJCF tendon | `test/myosuite-main/` |
+| SDF | `test/gazebo_models/` |
+| USD | `test/unitree_model/` |
+| USDA | `test/unitree_ros_usda/` |
+| URDF | `test/unitree_ros/` |
 
 ## 文档导航
 

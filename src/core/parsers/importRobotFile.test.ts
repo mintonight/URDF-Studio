@@ -101,6 +101,29 @@ test('resolveRobotFileData returns cached USD robot data when provided', () => {
   assert.deepEqual(result.robotData.links, usdRobotData.links);
 });
 
+test('resolveRobotFileData stamps source format onto ready RobotData', () => {
+  const urdfResult = resolveRobotFileData({
+    name: 'robots/demo.urdf',
+    content: `<?xml version="1.0"?><robot name="demo"><link name="base_link" /></robot>`,
+    format: 'urdf',
+  });
+  const sdfResult = resolveRobotFileData(createSdfFile());
+  const usdResult = resolveRobotFileData(createUsdFile(), {
+    usdRobotData: createResolvedUsdRobotData('cached_usd_robot'),
+  });
+
+  assert.equal(urdfResult.status, 'ready');
+  assert.equal(sdfResult.status, 'ready');
+  assert.equal(usdResult.status, 'ready');
+  if (urdfResult.status !== 'ready' || sdfResult.status !== 'ready' || usdResult.status !== 'ready') {
+    assert.fail('Expected all import results to be ready');
+  }
+
+  assert.equal(urdfResult.robotData.inspectionContext?.sourceFormat, 'urdf');
+  assert.equal(sdfResult.robotData.inspectionContext?.sourceFormat, 'sdf');
+  assert.equal(usdResult.robotData.inspectionContext?.sourceFormat, 'usd');
+});
+
 test('resolveRobotFileData syncs cached USD material colors back onto link visuals', () => {
   const baseRobotData = createResolvedUsdRobotData('cached_usd_robot');
   const usdRobotData: RobotData = {
@@ -438,9 +461,31 @@ test('resolveRobotFileData returns a parse error when XML parser APIs are unavai
     }
     assert.equal(result.reason, 'parse_failed');
     assert.match(result.message ?? '', /robots\/demo\/model\.sdf/);
+    assert.match(result.message ?? '', /phase: parsing SDF/i);
   } finally {
     globalThis.DOMParser = previousDomParser;
   }
+});
+
+test('resolveRobotFileData includes source file and phase on malformed SDF imports', () => {
+  const result = resolveRobotFileData({
+    name: 'robots/demo/broken.sdf',
+    content: [
+      '<?xml version="1.0"?>',
+      '<sdf version="1.7">',
+      '  <model name="broken">',
+      '    <link name="base_link">',
+    ].join('\n'),
+    format: 'sdf',
+  });
+
+  assert.equal(result.status, 'error');
+  if (result.status !== 'error') {
+    assert.fail('Expected malformed SDF import result to be an error');
+  }
+  assert.equal(result.reason, 'parse_failed');
+  assert.match(result.message ?? '', /SDF file "robots\/demo\/broken\.sdf"/);
+  assert.match(result.message ?? '', /phase: parsing SDF/i);
 });
 
 test('resolveRobotFileData keeps file context on malformed URDF imports', () => {
@@ -456,6 +501,7 @@ test('resolveRobotFileData keeps file context on malformed URDF imports', () => 
   }
   assert.equal(result.reason, 'parse_failed');
   assert.match(result.message ?? '', /URDF file "robots\/demo\/broken\.urdf"/);
+  assert.match(result.message ?? '', /phase: parsing URDF/i);
 });
 
 test('resolveRobotFileData does not hide malformed URDF inline content behind contextual truth', () => {
@@ -1182,14 +1228,26 @@ test('resolveRobotFileData tolerates MuJoCo-style MJCF with missing attribute wh
     format: 'mjcf' as const,
   };
 
-  const result = resolveRobotFileData(file, {
-    availableFiles: [file],
-  });
+  const warnings: unknown[][] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+
+  let result: ReturnType<typeof resolveRobotFileData>;
+  try {
+    result = resolveRobotFileData(file, {
+      availableFiles: [file],
+    });
+  } finally {
+    console.warn = originalWarn;
+  }
 
   assert.equal(result.status, 'ready');
   if (result.status !== 'ready') {
     assert.fail('Expected malformed-but-MuJoCo-compatible MJCF to import successfully');
   }
+  assert.deepEqual(warnings, []);
   assert.equal(result.robotData.name, 'arm26');
   assert.ok(Object.keys(result.robotData.links).length >= 4);
   assert.ok(Object.keys(result.robotData.joints).length >= 1);

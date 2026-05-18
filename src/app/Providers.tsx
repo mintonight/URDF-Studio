@@ -2,10 +2,13 @@
  * App Providers - Initialization and side effects wrapper
  * Handles theme, language, and other global initializations
  */
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useUIStore } from '@/store';
+import { useSelectionStore } from '@/store/selectionStore';
 import { useShallow } from 'zustand/react/shallow';
 import { translations } from '@/shared/i18n';
+import { EffectiveThemeProvider, useResolvedTheme } from '@/shared/hooks/useEffectiveTheme';
+import { OverlayHoverBlockProvider } from '@/shared/hooks/useOverlayHoverBlock';
 
 interface ProvidersProps {
   children: React.ReactNode;
@@ -23,7 +26,23 @@ export function Providers({ children }: ProvidersProps) {
       lang: state.lang,
     })),
   );
+  const { beginHoverBlock, endHoverBlock, clearHover } = useSelectionStore(
+    useShallow((state) => ({
+      beginHoverBlock: state.beginHoverBlock,
+      endHoverBlock: state.endHoverBlock,
+      clearHover: state.clearHover,
+    })),
+  );
   const t = translations[lang];
+  const effectiveTheme = useResolvedTheme(theme);
+  const overlayHoverBlockActions = useMemo(
+    () => ({
+      beginHoverBlock,
+      endHoverBlock,
+      clearHover,
+    }),
+    [beginHoverBlock, clearHover, endHoverBlock],
+  );
 
   // Apply theme class to document
   useEffect(() => {
@@ -59,7 +78,13 @@ export function Providers({ children }: ProvidersProps) {
     document.documentElement.setAttribute('data-lang', lang);
   }, [lang, t]);
 
-  return <>{children}</>;
+  return (
+    <EffectiveThemeProvider value={effectiveTheme}>
+      <OverlayHoverBlockProvider value={overlayHoverBlockActions}>
+        {children}
+      </OverlayHoverBlockProvider>
+    </EffectiveThemeProvider>
+  );
 }
 
 export default Providers;

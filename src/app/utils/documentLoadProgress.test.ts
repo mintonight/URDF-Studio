@@ -58,3 +58,18 @@ test('resolveDocumentLoadingOverlayTargetFileName prefers the actively loading f
     'robots/loading.urdf',
   );
 });
+
+test('resolveDocumentLoadingOverlayTargetFileName suppresses stale document loading while workspace overlay owns progress', () => {
+  assert.equal(
+    resolveDocumentLoadingOverlayTargetFileName({
+      previewFileName: null,
+      selectedFileName: 'robots/selected.urdf',
+      suppressDocumentLoadingOverlay: true,
+      documentLoadState: {
+        status: 'loading',
+        fileName: 'robots/selected.urdf',
+      },
+    }),
+    null,
+  );
+});

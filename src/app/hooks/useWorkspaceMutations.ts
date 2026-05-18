@@ -2,6 +2,8 @@ import { useCallback } from 'react';
 import {
   addChildToRobot,
   appendCollisionBody,
+  applyDeletionPlan,
+  buildDeletionPlan,
   createJoint,
   createLink,
   generateJointId,
@@ -37,7 +39,6 @@ import { renameComponentRobotRoot } from './workspace-mutations/renameComponentR
 import type { MJCFRenameOperation } from '../utils/mjcfEditableSourcePatch';
 
 interface UseWorkspaceMutationsParams {
-  sidebarTab: string;
   assemblyState: AssemblyState | null;
   robotLinks: Record<string, UrdfLink>;
   rootLinkId: string;
@@ -126,7 +127,6 @@ interface UseWorkspaceMutationsParams {
 }
 
 export function useWorkspaceMutations({
-  sidebarTab,
   assemblyState,
   robotLinks,
   rootLinkId,
@@ -171,6 +171,7 @@ export function useWorkspaceMutations({
   const createAssemblySnapshot = useCallback(() => {
     return structuredClone(useAssemblyStore.getState().assemblyState);
   }, []);
+  const historyScopeKey = assemblyState ? 'assembly' : 'robot';
 
   const {
     commitPendingRobotHistory,
@@ -180,20 +181,20 @@ export function useWorkspaceMutations({
     schedulePendingRobotHistoryCommit,
     schedulePendingAssemblyHistoryCommit,
   } = usePendingHistoryCoordinator({
-    sidebarTab,
+    scopeKey: historyScopeKey,
     createRobotSnapshot,
     createAssemblySnapshot,
   });
 
   const handleNameChange = useCallback(
     (name: string) => {
-      if (assemblyState && sidebarTab === 'workspace') {
+      if (assemblyState) {
         useAssemblyStore.getState().setAssembly({ ...assemblyState, name });
       } else {
         setName(name);
       }
     },
-    [assemblyState, setName, sidebarTab],
+    [assemblyState, setName],
   );
 
   const renameComponentRootWithDefaults = useCallback(
@@ -234,8 +235,7 @@ export function useWorkspaceMutations({
       options: UpdateCommitOptions = {},
     ) => {
       const commitMode = options.commitMode ?? 'debounced';
-      const latestAssemblyState =
-        sidebarTab === 'workspace' ? useAssemblyStore.getState().assemblyState : null;
+      const latestAssemblyState = useAssemblyStore.getState().assemblyState;
 
       if (latestAssemblyState) {
         const handled = applyAssemblyUpdate({
@@ -447,7 +447,6 @@ export function useWorkspaceMutations({
       renameComponentRootWithDefaults,
       schedulePendingAssemblyHistoryCommit,
       schedulePendingRobotHistoryCommit,
-      sidebarTab,
       findRemovedCollisionGeometryObjectIndex,
       findUpdatedCollisionGeometryPatch,
       patchEditableSourceAddCollisionBody,
@@ -476,8 +475,7 @@ export function useWorkspaceMutations({
       commitMode: UpdateCommitMode,
       objectIndex?: number,
     ) => {
-      const latestAssemblyState =
-        sidebarTab === 'workspace' ? useAssemblyStore.getState().assemblyState : null;
+      const latestAssemblyState = useAssemblyStore.getState().assemblyState;
 
       if (latestAssemblyState) {
         for (const comp of Object.values(latestAssemblyState.components)) {
@@ -525,7 +523,7 @@ export function useWorkspaceMutations({
         commitMode,
       });
     },
-    [applyUpdate, sidebarTab],
+    [applyUpdate],
   );
 
   const handleCollisionTransformPreview = useCallback(
@@ -571,7 +569,7 @@ export function useWorkspaceMutations({
 
   const handleAssemblyTransform = useCallback(
     (transform: AssemblyTransform, options: UpdateCommitOptions = {}) => {
-      if (!(assemblyState && sidebarTab === 'workspace')) {
+      if (!(assemblyState)) {
         return;
       }
 
@@ -603,14 +601,13 @@ export function useWorkspaceMutations({
       commitPendingAssemblyHistory,
       ensurePendingAssemblyHistory,
       schedulePendingAssemblyHistoryCommit,
-      sidebarTab,
       updateAssemblyTransform,
     ],
   );
 
   const handleComponentTransform = useCallback(
     (componentId: string, transform: AssemblyTransform, options: UpdateCommitOptions = {}) => {
-      if (!(assemblyState && sidebarTab === 'workspace')) {
+      if (!(assemblyState)) {
         return;
       }
 
@@ -655,14 +652,13 @@ export function useWorkspaceMutations({
       commitPendingAssemblyHistory,
       ensurePendingAssemblyHistory,
       schedulePendingAssemblyHistoryCommit,
-      sidebarTab,
       updateComponentTransform,
     ],
   );
 
   const handleBridgeTransform = useCallback(
     (bridgeId: string, origin: UrdfOrigin, options: UpdateCommitOptions = {}) => {
-      if (!(assemblyState && sidebarTab === 'workspace')) {
+      if (!(assemblyState)) {
         return;
       }
 
@@ -718,13 +714,12 @@ export function useWorkspaceMutations({
       commitPendingAssemblyHistory,
       ensurePendingAssemblyHistory,
       schedulePendingAssemblyHistoryCommit,
-      sidebarTab,
     ],
   );
 
   const handleAddChild = useCallback(
     (parentId: string) => {
-      if (assemblyState && sidebarTab === 'workspace') {
+      if (assemblyState) {
         commitPendingAssemblyHistory();
 
         for (const component of Object.values(assemblyState.components)) {
@@ -803,14 +798,13 @@ export function useWorkspaceMutations({
       focusOn,
       patchEditableSourceAddChild,
       setSelection,
-      sidebarTab,
       updateComponentRobot,
     ],
   );
 
   const handleAddCollisionBody = useCallback(
     (parentId: string) => {
-      if (assemblyState && sidebarTab === 'workspace') {
+      if (assemblyState) {
         commitPendingAssemblyHistory();
 
         for (const component of Object.values(assemblyState.components)) {
@@ -885,7 +879,6 @@ export function useWorkspaceMutations({
       patchEditableSourceAddCollisionBody,
       robotLinks,
       setSelection,
-      sidebarTab,
       updateComponentRobot,
       updateLink,
     ],
@@ -893,48 +886,28 @@ export function useWorkspaceMutations({
 
   const handleDelete = useCallback(
     (linkId: string) => {
-      if (assemblyState && sidebarTab === 'workspace') {
+      if (assemblyState) {
         for (const component of Object.values(assemblyState.components)) {
           if (!component.robot.links[linkId]) continue;
           const targetLinkName = component.robot.links[linkId]?.name;
 
-          if (linkId === component.robot.rootLinkId) {
+          const plan = buildDeletionPlan(
+            linkId,
+            component.robot.links,
+            component.robot.joints,
+            component.robot.rootLinkId,
+          );
+          if (!plan) {
             removeComponent(component.id);
             setSelection({ type: null, id: null });
             return;
           }
 
-          const toDeleteLinks = new Set<string>();
-          const toDeleteJoints = new Set<string>();
-          const collect = (currentLinkId: string) => {
-            if (toDeleteLinks.has(currentLinkId)) return;
-            toDeleteLinks.add(currentLinkId);
-
-            Object.values(component.robot.joints).forEach((joint) => {
-              if (joint.parentLinkId === currentLinkId) {
-                toDeleteJoints.add(joint.id);
-                collect(joint.childLinkId);
-              }
-              if (joint.childLinkId === currentLinkId) {
-                toDeleteJoints.add(joint.id);
-              }
-            });
-          };
-          collect(linkId);
-
-          const nextLinks: Record<string, UrdfLink> = {};
-          Object.entries(component.robot.links).forEach(([id, currentLink]) => {
-            if (!toDeleteLinks.has(id)) {
-              nextLinks[id] = currentLink;
-            }
-          });
-
-          const nextJoints: Record<string, UrdfJoint> = {};
-          Object.entries(component.robot.joints).forEach(([id, joint]) => {
-            if (!toDeleteJoints.has(id)) {
-              nextJoints[id] = joint;
-            }
-          });
+          const { links: nextLinks, joints: nextJoints } = applyDeletionPlan(
+            component.robot.links,
+            component.robot.joints,
+            plan,
+          );
 
           updateComponentRobot(component.id, {
             links: nextLinks,
@@ -950,9 +923,9 @@ export function useWorkspaceMutations({
 
           Object.values(assemblyState.bridges).forEach((bridge) => {
             const isAffectedParent =
-              bridge.parentComponentId === component.id && toDeleteLinks.has(bridge.parentLinkId);
+              bridge.parentComponentId === component.id && plan.toDeleteLinks.has(bridge.parentLinkId);
             const isAffectedChild =
-              bridge.childComponentId === component.id && toDeleteLinks.has(bridge.childLinkId);
+              bridge.childComponentId === component.id && plan.toDeleteLinks.has(bridge.childLinkId);
             if (isAffectedParent || isAffectedChild) {
               removeBridge(bridge.id);
             }
@@ -980,17 +953,16 @@ export function useWorkspaceMutations({
       removeComponent,
       rootLinkId,
       setSelection,
-      sidebarTab,
       updateComponentRobot,
     ],
   );
 
   const handleRenameComponent = useCallback(
     (componentId: string, name: string) => {
-      if (!(assemblyState && sidebarTab === 'workspace')) return;
+      if (!(assemblyState)) return;
       renameComponentRootWithDefaults(componentId, name);
     },
-    [assemblyState, renameComponentRootWithDefaults, sidebarTab],
+    [assemblyState, renameComponentRootWithDefaults],
   );
 
   const handleSetShowVisual = useCallback(

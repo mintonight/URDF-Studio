@@ -104,6 +104,14 @@ test("usd-loader blocks ready state when robot metadata warmup fails or resolves
         source,
         /maybePromise\.catch\(\(\) => null\)/m,
     );
+    assert.match(
+        source,
+        /const getRobotSceneStageSnapshot = \(\) => \{[\s\S]*?catch \(error\) \{\s*console\.error\(`\[usd-loader\] Failed to read cached robot scene stage snapshot for \$\{stageSourcePath \|\| "active-stage"\}\.`, error\);\s*return null;/m,
+    );
+    assert.match(
+        source,
+        /const getRobotMetadataSnapshotStats = \(\) => \{[\s\S]*?catch \(error\) \{\s*console\.error\(`\[usd-loader\] Failed to read cached robot metadata snapshot stats for \$\{stageSourcePath \|\| "active-stage"\}\.`, error\);[\s\S]*?hasSnapshot: false,/m,
+    );
 });
 
 test("usd-loader logs runtime bridge warmup failures instead of silently discarding them", async () => {

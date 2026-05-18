@@ -471,8 +471,8 @@ export const en: TranslationKeys = {
   dropFilesToImport: 'Drop files to import',
   dropFilesToImportHint:
     'Supports URDF, MJCF, USD, Xacro, ZIP/RAR/7Z/TAR archives, folders, 3D meshes, and images',
-  simpleMode: 'Simple',
-  proMode: 'Advanced',
+  simpleMode: 'Current Model',
+  proMode: 'Assembly',
   structureTree: 'Structure Tree',
   assemblyTree: 'Assembly View',
   projectName: 'Project Name',
@@ -497,9 +497,9 @@ export const en: TranslationKeys = {
   webglRuntimeErrorMessage:
     'The 3D viewport stopped rendering because an unexpected runtime error occurred. Refresh the page and check the browser console if the problem persists.',
   emptyAssemblyHint:
-    'Click robot or mesh files in the asset library above to open a preview first. Use the Add button on the right to insert them into the workspace; right-click for more actions',
+    'Click robot files in the asset library to open them as the current model. Use the Add button on the right to insert them into the workspace; right-click for more actions',
   clickToAddComponent:
-    'Click robot and mesh files to open a preview first. Use the Add button on the right to insert them into the workspace; right-click for more actions',
+    'Click robot files to open them as the current model. Use the Add button on the right to insert them into the workspace; right-click for more actions',
   removeFromLibrary: 'Remove from Library',
   deleteAllLibraryFiles: 'Delete All',
   deleteAllLibraryFilesConfirmTitle: 'Delete all library files',
@@ -515,15 +515,15 @@ export const en: TranslationKeys = {
   simpleModeDraftSaved: 'Saved draft: {name}',
   simpleModeDraftSaveFailed: 'Failed to save the current draft. The active model was not changed.',
   generateWorkspaceUrdf: 'Generate URDF',
-  generateWorkspaceUrdfConfirmTitle: 'Generate a URDF before leaving Advanced mode?',
+  generateWorkspaceUrdfConfirmTitle: 'Generate a URDF from the workspace?',
   generateWorkspaceUrdfConfirmMessage:
-    'The workspace changed in Advanced mode. Generate a URDF into the asset library before switching back to Simple mode?',
+    'The assembly workspace changed. Generate a URDF into the asset library before returning to the current model view?',
   generateWorkspaceUrdfSuccess: 'Generated {name}',
   generateWorkspaceUrdfUnavailable: 'There is no workspace content to generate right now.',
   generateWorkspaceUrdfDisconnected:
-    'This workspace contains unconnected components. Stay in Advanced mode and connect them before generating a single URDF.',
-  generateAndSwitchToSimpleMode: 'Generate and switch',
-  switchToSimpleWithoutGenerate: 'Switch without generating',
+    'This workspace contains unconnected components. Connect them before generating a single URDF.',
+  generateAndSwitchToSimpleMode: 'Generate and open',
+  switchToSimpleWithoutGenerate: 'Show current model',
 
   // App Shell
   edit: 'Edit',
@@ -593,6 +593,10 @@ export const en: TranslationKeys = {
   importFailedCheckFiles: 'Failed to import. Please check if the file(s) are valid.',
   importBackgroundAssetsStillLoadingFailed:
     'The robot opened, but some imported support assets failed to finish loading in the background. Re-import the archive if placeholders remain.',
+  botWorldImportFetching: 'Fetching asset info…',
+  botWorldImportDownloading: 'Downloading files',
+  botWorldImportImporting: 'Importing files…',
+  botWorldImportWaiting: 'Waiting for editor response…',
   jointName: 'Joint Name',
   motorType: 'Motor Type',
   addedComponent: 'Added component: {name}',
@@ -821,10 +825,10 @@ export const en: TranslationKeys = {
   exportDoExportProject: 'Export .usp',
   exportProjectWorkspaceSummary: 'Export the current workspace project',
   exportProjectWorkspaceSummaryDesc:
-    'Packages the current workspace components, bridge joints, source files, asset blobs, history state, and the metadata needed to restore the full Advanced mode editing session.',
+    'Packages the current workspace components, bridge joints, source files, asset blobs, history state, and the metadata needed to restore the full workspace editing session.',
   disconnectedWorkspaceUrdfExportTitle: 'Export Multiple URDFs?',
   disconnectedWorkspaceUrdfExportMessage:
-    'This Advanced mode workspace contains {componentCount} components across {connectedGroupCount} unconnected groups. A single URDF export would be ambiguous. Export each component as its own URDF package instead, or continue editing.',
+    'This workspace contains {componentCount} components across {connectedGroupCount} unconnected groups. A single URDF export would be ambiguous. Export each component as its own URDF package instead, or continue editing.',
   exportMultipleUrdfs: 'Export Multiple URDFs',
   continueEditing: 'Continue Editing',
   exportFooterProjectArchive: '.usp project archive',

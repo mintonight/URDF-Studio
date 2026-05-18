@@ -29,8 +29,8 @@ import {
 } from 'lucide-react';
 import type { Theme } from '@/types';
 import { useUIStore, type CodeEditorFontFamily, type Language } from '@/store';
-import { DraggableWindow } from '@/shared/components';
-import { useDraggableWindow } from '@/shared/hooks';
+import { DraggableWindow } from '@/shared/components/DraggableWindow';
+import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { Select, Tooltip } from '@/shared/components/ui';
 import type { SourceCodeDocumentFlavor } from '../types';
 import type { MonacoInstance } from '../utils/monacoLoader';

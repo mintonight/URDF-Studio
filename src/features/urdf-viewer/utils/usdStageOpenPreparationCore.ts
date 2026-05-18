@@ -1,6 +1,7 @@
 import type { RobotFile } from '@/types';
 import type {
   PreparedUsdPreloadFile,
+  PreparedUsdStageOpenMetrics,
   PreparedUsdStageOpenData,
 } from './usdStageOpenPreparation.ts';
 import {
@@ -21,6 +22,9 @@ const NORMALIZED_USD_BLOB_CACHE_LIMIT = 64;
 type PreparedUsdPreloadPayload = {
   blob: Blob | null;
   bytes: Uint8Array | null;
+  transferBytes?: boolean;
+  normalizedText?: boolean;
+  blobBackedTextProbe?: boolean;
 };
 
 const normalizedUsdBlobCache = new Map<string, Promise<PreparedUsdPreloadPayload>>();
@@ -62,6 +66,65 @@ function normalizePreparedUsdError(error: unknown): string {
     return error.message;
   }
   return 'Failed to prepare USD preload file';
+}
+
+function getPreparedUsdBytesByteLength(bytes: Uint8Array | ArrayBuffer | null | undefined): number {
+  if (!bytes) {
+    return 0;
+  }
+
+  return bytes.byteLength;
+}
+
+function createEmptyPreparedUsdStageOpenMetrics(
+  preloadFileCount: number,
+): PreparedUsdStageOpenMetrics {
+  return {
+    preloadFileCount,
+    successfulPreloadFileCount: 0,
+    failedPreloadFileCount: 0,
+    totalByteCount: 0,
+    blobByteCount: 0,
+    bytesByteCount: 0,
+    normalizedTextFileCount: 0,
+    normalizedTextByteCount: 0,
+    blobBackedTextProbeCount: 0,
+    transferableByteCount: 0,
+  };
+}
+
+function recordPreparedUsdPreloadMetrics(
+  metrics: PreparedUsdStageOpenMetrics,
+  payload: PreparedUsdPreloadPayload,
+): void {
+  const blobByteLength = payload.blob?.size ?? 0;
+  const bytesByteLength = getPreparedUsdBytesByteLength(payload.bytes);
+  const totalByteLength = blobByteLength + bytesByteLength;
+
+  metrics.successfulPreloadFileCount += 1;
+  metrics.totalByteCount += totalByteLength;
+  metrics.blobByteCount += blobByteLength;
+  metrics.bytesByteCount += bytesByteLength;
+
+  if (payload.normalizedText) {
+    metrics.normalizedTextFileCount += 1;
+    metrics.normalizedTextByteCount += bytesByteLength;
+  }
+  if (payload.blobBackedTextProbe) {
+    metrics.blobBackedTextProbeCount += 1;
+  }
+  if (payload.transferBytes) {
+    metrics.transferableByteCount += bytesByteLength;
+  }
+}
+
+function createSharedPreparedUsdPreloadPayload(
+  payload: PreparedUsdPreloadPayload,
+): PreparedUsdPreloadPayload {
+  return {
+    ...payload,
+    transferBytes: false,
+  };
 }
 
 function shouldNormalizePreparedUsdText(path: string): boolean {
@@ -129,12 +192,22 @@ async function loadPreparedUsdBlob(entry: UsdPreloadEntry): Promise<PreparedUsdP
   }
 
   const normalizedBlobPromise = (async () => {
-    if (typeof entry.loadText === 'function' && isAlwaysTextualUsdLayerPath(entry.path)) {
+    const isAlwaysTextualLayer = isAlwaysTextualUsdLayerPath(entry.path);
+    const shouldPreferBlobProbe =
+      isAlwaysTextualLayer && entry.sourceKind === 'blob-url';
+
+    if (
+      typeof entry.loadText === 'function' &&
+      isAlwaysTextualLayer &&
+      !shouldPreferBlobProbe
+    ) {
       const sourceText = await entry.loadText();
       const normalizedText = normalizeUsdInstanceableVisualScopeVisibility(sourceText);
       return {
         blob: null,
         bytes: new TextEncoder().encode(normalizedText),
+        transferBytes: true,
+        normalizedText: normalizedText !== sourceText,
       };
     }
 
@@ -142,7 +215,7 @@ async function loadPreparedUsdBlob(entry: UsdPreloadEntry): Promise<PreparedUsdP
     const needsNormalization = await blobNeedsUsdInstanceableVisualScopeNormalization(blob);
 
     if (!needsNormalization) {
-      if (!isAlwaysTextualUsdLayerPath(entry.path)) {
+      if (!isAlwaysTextualLayer) {
         return {
           blob,
           bytes: null,
@@ -152,6 +225,8 @@ async function loadPreparedUsdBlob(entry: UsdPreloadEntry): Promise<PreparedUsdP
       return {
         blob: null,
         bytes: new Uint8Array(await blob.arrayBuffer()),
+        transferBytes: true,
+        blobBackedTextProbe: shouldPreferBlobProbe,
       };
     }
 
@@ -160,6 +235,9 @@ async function loadPreparedUsdBlob(entry: UsdPreloadEntry): Promise<PreparedUsdP
     return {
       blob: null,
       bytes: new TextEncoder().encode(normalizedText),
+      transferBytes: true,
+      normalizedText: normalizedText !== sourceText,
+      blobBackedTextProbe: shouldPreferBlobProbe,
     };
   })();
 
@@ -169,11 +247,13 @@ async function loadPreparedUsdBlob(entry: UsdPreloadEntry): Promise<PreparedUsdP
 
   return await cacheNormalizedUsdBlob(
     cacheKey,
-    normalizedBlobPromise.catch((error) => {
-      normalizedUsdBlobCache.delete(cacheKey);
-      cacheAccessTimestamps.delete(cacheKey);
-      throw error;
-    }),
+    normalizedBlobPromise
+      .then(createSharedPreparedUsdPreloadPayload)
+      .catch((error) => {
+        normalizedUsdBlobCache.delete(cacheKey);
+        cacheAccessTimestamps.delete(cacheKey);
+        throw error;
+      }),
   );
 }
 
@@ -185,6 +265,7 @@ export async function prepareUsdStageOpenDataCore(
   const stageSourcePath = toVirtualUsdPath(sourceFile.name);
   const preloadEntries = buildUsdBundlePreloadEntries(sourceFile, availableFiles, assets);
   const preloadFiles = new Array<PreparedUsdPreloadFile>(preloadEntries.length);
+  const metrics = createEmptyPreparedUsdStageOpenMetrics(preloadEntries.length);
 
   await runWithConcurrency(
     preloadEntries,
@@ -196,14 +277,17 @@ export async function prepareUsdStageOpenDataCore(
           path: entry.path,
           blob: preparedPayload.blob,
           bytes: preparedPayload.bytes,
+          transferBytes: preparedPayload.transferBytes === true,
           error: null,
         };
+        recordPreparedUsdPreloadMetrics(metrics, preparedPayload);
       } catch (error) {
         preloadFiles[index] = {
           path: entry.path,
           blob: null,
           error: normalizePreparedUsdError(error),
         };
+        metrics.failedPreloadFileCount += 1;
       }
     },
   );
@@ -212,5 +296,6 @@ export async function prepareUsdStageOpenDataCore(
     stageSourcePath,
     criticalDependencyPaths: buildCriticalUsdDependencyPaths(stageSourcePath),
     preloadFiles,
+    metrics,
   };
 }

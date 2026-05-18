@@ -1,14 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { JSDOM } from 'jsdom';
 import * as THREE from 'three';
 import { URDFJoint } from '@/core/parsers/urdf/loader';
+import { parseMJCF } from '@/core/parsers/mjcf/mjcfParser.ts';
 import { JointType, type InteractionSelection, type UrdfJoint } from '@/types';
 import {
   applyOriginToRuntimeJoint,
   extractRuntimeJointOrigin,
+  resolveOriginTransformClosedLoopPreview,
   resolveOriginTransformJointId,
   resolveOriginTransformTarget,
 } from './originTransformControlsShared.ts';
+
+function installDomGlobals(): void {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { contentType: 'text/html' });
+  globalThis.window = dom.window as any;
+  globalThis.document = dom.window.document as any;
+  globalThis.DOMParser = dom.window.DOMParser as any;
+  globalThis.XMLSerializer = dom.window.XMLSerializer as any;
+  globalThis.Node = dom.window.Node as any;
+  globalThis.Element = dom.window.Element as any;
+  globalThis.Document = dom.window.Document as any;
+}
 
 function createRobotJointsFixture(): Record<string, UrdfJoint> {
   return {
@@ -147,3 +162,31 @@ test('applyOriginToRuntimeJoint preserves the active joint value while replacing
 
   assert.ok(joint.quaternion.angleTo(expectedQuaternion) < 1e-6);
 });
+
+test(
+  'resolveOriginTransformClosedLoopPreview keeps Cassie achilles connect closed during origin drag',
+  { concurrency: false },
+  () => {
+    installDomGlobals();
+
+    const robot = parseMJCF(
+      fs.readFileSync('test/mujoco_menagerie-main/agility_cassie/cassie.xml', 'utf8'),
+    );
+    assert.ok(robot);
+
+    const selectedJoint = robot.joints['right-heel-spring'];
+    assert.ok(selectedJoint);
+
+    const preview = resolveOriginTransformClosedLoopPreview(robot, 'right-heel-spring', {
+      ...selectedJoint.origin,
+      xyz: {
+        ...selectedJoint.origin.xyz,
+        x: (selectedJoint.origin.xyz.x ?? 0) + 0.02,
+      },
+    });
+
+    assert.ok(preview.origins['right-heel-spring']);
+    assert.ok(preview.origins['right-achilles-rod']);
+    assert.ok(preview.quaternions['right-achilles-rod']);
+  },
+);

@@ -9,9 +9,9 @@ import {
   Sparkles,
   Wand2,
 } from 'lucide-react';
-import { DraggableWindow } from '@/shared/components';
+import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { CompactSwitch } from '@/shared/components/ui';
-import { useDraggableWindow } from '@/shared/hooks';
+import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { translations } from '@/shared/i18n';
 import { GeometryType } from '@/types';
 import { convertGeometryType } from '../utils';

@@ -374,6 +374,37 @@ test('buildUsdVisualSceneNode creates primitive anchors with serialized USD geom
   assert.equal(primitive.userData.usdDisplayColor, '#12ab34');
 });
 
+test('buildUsdVisualSceneNode downgrades unsupported collision primitives to USD cube fallbacks', async () => {
+  const planeCollision: UrdfVisual = {
+    type: GeometryType.PLANE,
+    dimensions: { x: 6, y: 4, z: 0 },
+    color: '#ef4444',
+    origin: {
+      xyz: { x: 0, y: 0, z: 0 },
+      rpy: { r: 0, p: 0, y: 0 },
+    },
+  };
+
+  const node = await buildUsdVisualSceneNode({
+    visual: planeCollision,
+    role: 'collision',
+    registry: createUsdAssetRegistry({}).registry,
+  });
+
+  assert.ok(node instanceof THREE.Group);
+  assert.deepEqual(node.scale.toArray(), [6, 4, 0.001]);
+  assert.equal(node.userData.usdPurpose, 'guide');
+  assert.equal(node.userData.usdCollision, true);
+  assert.equal(node.children.length, 1);
+
+  const primitive = node.children[0];
+  assert.equal(primitive.name, 'plane_as_box');
+  assert.equal(primitive.userData.usdGeomType, 'Cube');
+  assert.equal(primitive.userData.usdFallbackSourceType, GeometryType.PLANE);
+  assert.equal(primitive.userData.usdPurpose, 'guide');
+  assert.equal(primitive.userData.usdCollision, true);
+});
+
 test('buildUsdVisualSceneNode splits six-face box palettes into per-face meshes for USD export', async () => {
   const visual: UrdfVisual = {
     type: GeometryType.BOX,

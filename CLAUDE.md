@@ -13,6 +13,7 @@
 - `core/` 保持纯逻辑，不引入 React / UI / Feature 依赖
 - 优先复用现有 hooks、utils、components，不新增重复抽象
 - 新增 `ResizeObserver`、timer、worker listener、THREE 资源时必须对称 cleanup
+- **跨域 Handoff 接收端**：`src/app/hooks/useAssetImportFromUrl.ts`、`src/app/components/BotWorldImportOverlay.tsx` 为 BOT-World 资产导入核心文件；插件激活详见 [docs/file-io.md](docs/file-io.md) §6
 
 常用命令：
 
@@ -24,6 +25,17 @@ npm run test
 npm run verify:fast
 npm run verify:full
 ```
+
+格式回归样本：
+
+| 格式 / 场景 | 基准目录 |
+|-------------|----------|
+| MJCF | `test/mujoco_menagerie-main/` |
+| MJCF tendon | `test/myosuite-main/` |
+| SDF | `test/gazebo_models/` |
+| USD | `test/unitree_model/` |
+| USDA | `test/unitree_ros_usda/` |
+| URDF | `test/unitree_ros/` |
 
 说明：
 

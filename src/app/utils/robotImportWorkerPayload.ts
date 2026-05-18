@@ -1,5 +1,6 @@
 import type { ResolveRobotFileDataOptions } from '@/core/parsers/importRobotFile';
 import type { RobotFile } from '@/types';
+import type { ApplyEditableSourceChangeOptions } from './applyEditableSourceChange';
 import type { ParseEditableRobotSourceOptions } from './parseEditableRobotSource';
 import type {
   PrepareAssemblyComponentWorkerOptions,
@@ -377,6 +378,14 @@ export function buildEditableRobotSourceWorkerDispatch(
         contextSnapshot: null,
       };
   }
+}
+
+export function buildEditableSourceChangeWorkerDispatch(
+  options: ApplyEditableSourceChangeOptions,
+): PreparedRobotImportWorkerDispatch<ApplyEditableSourceChangeOptions> {
+  return buildEditableRobotSourceWorkerDispatch(
+    options,
+  ) as PreparedRobotImportWorkerDispatch<ApplyEditableSourceChangeOptions>;
 }
 
 export function buildEditableRobotSourceWorkerOptions(

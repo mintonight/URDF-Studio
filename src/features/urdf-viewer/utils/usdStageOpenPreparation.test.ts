@@ -363,6 +363,155 @@ def Scope "visuals"
   }
 });
 
+test('prepareUsdStageOpenDataCore avoids response.text for blob-backed USDA without normalization triggers', async () => {
+  const originalFetch = globalThis.fetch;
+  let arrayBufferReadCount = 0;
+  let textReadCount = 0;
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url !== 'blob:large-usda-base') {
+      return new Response('missing', { status: 404 });
+    }
+
+    const bytes = new TextEncoder().encode(`#usda 1.0
+def Xform "demo"
+{
+    def Xform "base_link"
+    {
+    }
+}
+`);
+
+    return {
+      ok: true,
+      headers: {
+        get: () => 'text/plain;charset=utf-8',
+      },
+      arrayBuffer: async () => {
+        arrayBufferReadCount += 1;
+        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      },
+      text: async () => {
+        textReadCount += 1;
+        return new TextDecoder().decode(bytes);
+      },
+    } as unknown as Response;
+  }) as typeof fetch;
+
+  try {
+    const result = await prepareUsdStageOpenDataCore(
+      {
+        name: 'robots/demo/root.usda',
+        content: '#usda 1.0\n(\n  subLayers = [@./configuration/demo_base.usda@]\n)\n',
+        blobUrl: undefined,
+      },
+      [
+        {
+          name: 'robots/demo/root.usda',
+          content: '#usda 1.0\n(\n  subLayers = [@./configuration/demo_base.usda@]\n)\n',
+          blobUrl: undefined,
+          format: 'usd',
+        },
+        {
+          name: 'robots/demo/configuration/demo_base.usda',
+          content: '',
+          blobUrl: 'blob:large-usda-base',
+          format: 'usd',
+        },
+      ],
+      {},
+    );
+
+    const baseLayerEntry = result.preloadFiles.find(
+      (entry) => entry.path === '/robots/demo/configuration/demo_base.usda',
+    );
+
+    assert.ok(baseLayerEntry?.bytes instanceof Uint8Array);
+    assert.equal(textReadCount, 0);
+    assert.equal(arrayBufferReadCount, 1);
+    assert.equal(result.metrics?.normalizedTextFileCount, 0);
+    assert.equal(result.metrics?.preloadFileCount, result.preloadFiles.length);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('prepareUsdStageOpenDataCore prefers full blob payload over large USDA text samples', async () => {
+  const originalFetch = globalThis.fetch;
+  const sampledContent = `#usda 1.0\n${'sample-only\n'.repeat(96 * 1024)}`;
+  const fullLayerSource = `#usda 1.0
+def Xform "full_blob_payload"
+{
+    def Xform "base_link"
+    {
+    }
+}
+`;
+  let fetchCount = 0;
+  let textReadCount = 0;
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url !== 'blob:sampled-large-usda') {
+      return new Response('missing', { status: 404 });
+    }
+
+    const bytes = new TextEncoder().encode(fullLayerSource);
+    return {
+      ok: true,
+      headers: {
+        get: () => 'text/plain;charset=utf-8',
+      },
+      arrayBuffer: async () => {
+        fetchCount += 1;
+        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      },
+      text: async () => {
+        textReadCount += 1;
+        return fullLayerSource;
+      },
+    } as unknown as Response;
+  }) as typeof fetch;
+
+  try {
+    const result = await prepareUsdStageOpenDataCore(
+      {
+        name: 'robots/demo/root.usda',
+        content: '#usda 1.0\n(\n  subLayers = [@./configuration/demo_base.usda@]\n)\n',
+        blobUrl: undefined,
+      },
+      [
+        {
+          name: 'robots/demo/root.usda',
+          content: '#usda 1.0\n(\n  subLayers = [@./configuration/demo_base.usda@]\n)\n',
+          blobUrl: undefined,
+          format: 'usd',
+        },
+        {
+          name: 'robots/demo/configuration/demo_base.usda',
+          content: sampledContent,
+          blobUrl: 'blob:sampled-large-usda',
+          format: 'usd',
+        },
+      ],
+      {},
+    );
+
+    const baseLayerEntry = result.preloadFiles.find(
+      (entry) => entry.path === '/robots/demo/configuration/demo_base.usda',
+    );
+    assert.ok(baseLayerEntry?.bytes instanceof Uint8Array);
+    assert.match(new TextDecoder().decode(baseLayerEntry!.bytes!), /full_blob_payload/);
+    assert.doesNotMatch(new TextDecoder().decode(baseLayerEntry!.bytes!), /sample-only/);
+    assert.equal(fetchCount, 1);
+    assert.equal(textReadCount, 0);
+    assert.equal(result.metrics?.blobBackedTextProbeCount, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('prepareUsdStageOpenDataCore reuses normalized USDA sidecars across different root stages', async () => {
   const originalFetch = globalThis.fetch;
   let baseFetchCount = 0;

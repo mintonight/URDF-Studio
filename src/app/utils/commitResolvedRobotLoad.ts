@@ -2,7 +2,8 @@ import { unstable_batchedUpdates } from 'react-dom';
 import type { RobotImportResult } from '@/core/parsers/importRobotFile';
 import { isAssetLibraryOnlyFormat } from '@/shared/utils/robotFileSupport';
 import { resolveAppModeAfterRobotContentChange } from './contentChangeAppMode';
-import type { AppMode, RobotData, RobotFile } from '@/types';
+import { autoSeedAssembly } from './autoSeedAssembly';
+import type { AppMode, AssemblyState, RobotData, RobotFile } from '@/types';
 
 type CommitResolvedRobotLoadResult = Extract<
   RobotImportResult,
@@ -10,6 +11,10 @@ type CommitResolvedRobotLoadResult = Extract<
 >;
 
 interface CommitResolvedRobotLoadArgs {
+  assets?: Record<string, string>;
+  allFileContents?: Record<string, string>;
+  availableFiles?: RobotFile[];
+  currentAssemblyState?: AssemblyState | null;
   currentAppMode: AppMode;
   file: RobotFile;
   importResult: CommitResolvedRobotLoadResult;
@@ -17,6 +22,7 @@ interface CommitResolvedRobotLoadArgs {
   onViewerReload?: () => void;
   reloadViewer?: boolean;
   setAppMode: (mode: AppMode) => void;
+  setAssembly?: (state: AssemblyState | null) => void;
   setOriginalFileFormat: (
     format: Extract<RobotFile['format'], 'urdf' | 'mjcf' | 'usd' | 'xacro' | 'sdf'> | null,
   ) => void;
@@ -24,7 +30,6 @@ interface CommitResolvedRobotLoadArgs {
   setRobot: (robot: RobotData, options?: { resetHistory?: boolean; label?: string }) => void;
   setSelectedFile: (file: RobotFile) => void;
   setSelection: (selection: { type: null; id: null }) => void;
-  setSidebarTab?: (tab: 'structure' | 'workspace') => void;
 }
 
 function resolveCommittedOriginalFileFormat(
@@ -58,7 +63,22 @@ function resolveCommittedOriginalSourceContent(
   return file.content;
 }
 
+function shouldPreserveExistingAssembly(assemblyState: AssemblyState | null | undefined): boolean {
+  if (!assemblyState) {
+    return false;
+  }
+
+  return (
+    Object.keys(assemblyState.components).length > 1 ||
+    Object.keys(assemblyState.bridges).length > 0
+  );
+}
+
 export function commitResolvedRobotLoad({
+  assets,
+  allFileContents,
+  availableFiles,
+  currentAssemblyState,
   currentAppMode,
   file,
   importResult,
@@ -66,30 +86,50 @@ export function commitResolvedRobotLoad({
   onViewerReload,
   reloadViewer = true,
   setAppMode,
+  setAssembly,
   setOriginalFileFormat,
   setOriginalUrdfContent,
   setRobot,
   setSelectedFile,
   setSelection,
-  setSidebarTab,
 }: CommitResolvedRobotLoadArgs): void {
   const nextAppMode = resolveAppModeAfterRobotContentChange(currentAppMode);
   const nextOriginalFileFormat = resolveCommittedOriginalFileFormat(file);
   const nextOriginalSourceContent = resolveCommittedOriginalSourceContent(file, importResult);
+  const canSeedAssembly =
+    importResult.status === 'ready' &&
+    Boolean(setAssembly) &&
+    !shouldPreserveExistingAssembly(currentAssemblyState);
+  const seededAssembly = canSeedAssembly
+    ? autoSeedAssembly(importResult.robotData, file.name, {
+        sourceFile: file,
+        availableFiles,
+        assets,
+        allFileContents,
+      })
+    : null;
 
   unstable_batchedUpdates(() => {
     if (importResult.status === 'ready') {
-      setRobot(importResult.robotData, {
+      const committedRobotData =
+        seededAssembly && seededAssembly.name !== importResult.robotData.name
+          ? { ...importResult.robotData, name: seededAssembly.name }
+          : importResult.robotData;
+
+      setRobot(committedRobotData, {
         resetHistory: true,
         label: file.format === 'usd' ? 'Load USD stage' : 'Load imported robot',
       });
       markRobotBaselineSaved();
+
+      if (seededAssembly) {
+        setAssembly?.(seededAssembly);
+      }
     }
 
     setSelectedFile(file);
     setOriginalUrdfContent(nextOriginalSourceContent);
     setOriginalFileFormat(nextOriginalFileFormat);
-    setSidebarTab?.('structure');
     setSelection({ type: null, id: null });
 
     if (reloadViewer) {

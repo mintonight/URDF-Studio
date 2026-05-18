@@ -1,7 +1,7 @@
 import React from 'react';
 import { Maximize2, Minimize2, Minus, X } from 'lucide-react';
-import type { DraggableWindowReturn, ResizeDirection } from '@/shared/hooks';
-import { useOverlayHoverBlock } from '@/shared/hooks';
+import type { DraggableWindowReturn, ResizeDirection } from '@/shared/hooks/useDraggableWindow';
+import { useOverlayHoverBlock } from '@/shared/hooks/useOverlayHoverBlock';
 
 type DraggableWindowState = Pick<
   DraggableWindowReturn,

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import {
   normalizeMeshPathForExport,
   normalizeTexturePathForExport,
+  resolveMeshAssetUrl,
   resolveImportedAssetPath,
   rewriteRobotMeshPathsForSource,
   rewriteUrdfAssetPathsForExport,
@@ -79,6 +80,26 @@ test('normalizeTexturePathForExport strips absolute imported asset prefixes down
     ),
     'assets/albedo/base_color.png',
   );
+});
+
+test('resolveMeshAssetUrl fuzzily rescues common import and export mesh path variants', () => {
+  const assets = {
+    'shared/dae/base_link.dae': 'blob:base-dae',
+    'robots/demo/assets/arm.obj': 'blob:arm-obj',
+    'robots/demo/meshes/leg.stl': 'blob:leg-stl',
+    'robots/demo/assets/foot.dae': 'blob:foot-dae',
+  };
+
+  assert.equal(
+    resolveMeshAssetUrl('file:///tmp/import/shared/dae/base_link.dae', assets),
+    'blob:base-dae',
+  );
+  assert.equal(
+    resolveMeshAssetUrl('package://demo_description/meshes/ARM.OBJ', assets),
+    'blob:arm-obj',
+  );
+  assert.equal(resolveMeshAssetUrl('robots\\demo\\mesh\\leg.stl', assets), 'blob:leg-stl');
+  assert.equal(resolveMeshAssetUrl('legacy/foot.mesh', assets), 'blob:foot-dae');
 });
 
 test('rewriteRobotMeshPathsForSource stabilizes relative texture paths alongside meshes', () => {

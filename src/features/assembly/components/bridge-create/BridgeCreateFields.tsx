@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link2, Minus, Plus } from 'lucide-react';
 import { PanelSelect, type SelectOption } from '@/shared/components/ui';
-import { usePressAndHoldRepeat } from '@/shared/hooks';
+import { usePressAndHoldRepeat } from '@/shared/hooks/usePressAndHoldRepeat';
 import { roundToMaxDecimals } from '@/core/utils/numberPrecision';
 import type { BridgePickTarget } from '../../utils/bridgeSelection';
 import {
@@ -502,18 +502,33 @@ interface BridgeSideCardProps {
   linkOptions: SelectOption[];
 }
 
-export function BridgeRelationConnector() {
+interface BridgeRelationConnectorProps {
+  orientation?: 'vertical' | 'horizontal';
+}
+
+export function BridgeRelationConnector({
+  orientation = 'vertical',
+}: BridgeRelationConnectorProps) {
+  const isHorizontal = orientation === 'horizontal';
+  const lineClassName = isHorizontal
+    ? 'h-px flex-1 bg-gradient-to-r from-border-black/0 via-border-black to-border-black/0'
+    : BRIDGE_RELATION_CONNECTOR_LINE_CLASS;
+
   return (
     <div
       data-bridge-connector="joint-link"
       aria-hidden="true"
-      className="flex min-h-[152px] flex-col items-center justify-center gap-1.5"
+      className={
+        isHorizontal
+          ? 'flex h-9 items-center justify-center gap-1.5'
+          : 'flex min-h-[152px] flex-col items-center justify-center gap-1.5'
+      }
     >
-      <div className={BRIDGE_RELATION_CONNECTOR_LINE_CLASS} />
+      <div className={lineClassName} />
       <div className="flex h-8 w-8 items-center justify-center rounded-full border border-system-blue/25 bg-element-bg text-system-blue shadow-[0_8px_18px_rgba(0,0,0,0.12),inset_0_0_0_1px_color-mix(in_srgb,var(--color-system-blue)_12%,transparent)]">
         <Link2 className="h-3.5 w-3.5" />
       </div>
-      <div className={BRIDGE_RELATION_CONNECTOR_LINE_CLASS} />
+      <div className={lineClassName} />
     </div>
   );
 }

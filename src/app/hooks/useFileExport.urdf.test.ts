@@ -152,7 +152,6 @@ function resetStoresToBaseline() {
   useUIStore.setState({
     lang: 'en',
     appMode: 'editor',
-    sidebarTab: 'structure',
   });
 
   useAssemblyStore.setState({
@@ -510,7 +509,6 @@ function installDisconnectedWorkspaceAssembly() {
   useUIStore.setState({
     lang: 'en',
     appMode: 'editor',
-    sidebarTab: 'workspace',
   });
 
   useAssetsStore.getState().setAvailableFiles([leftFile, rightFile]);

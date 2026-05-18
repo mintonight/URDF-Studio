@@ -10,6 +10,10 @@ import { generateSDF, generateURDF, parseSDF, parseURDF } from '@/core/parsers';
 import { generateMujocoXML } from '@/core/parsers/mjcf/mjcfGenerator.ts';
 import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
 import { resolveJointKey } from '@/core/robot/identity';
+import {
+  createMemoizedRendererBackendLoadScopeKey,
+  type RendererBackendLoadScopeKeyMemo,
+} from '@/features/urdf-viewer/utils/rendererBackendLoadScope.ts';
 import type { RobotFile } from '@/types';
 import { JointType } from '@/types';
 import { useAssemblyStore } from './assemblyStore.ts';
@@ -247,6 +251,50 @@ test('MJCF assembly export keeps PiPER mimic joints valid after bridge creation'
     generated,
     /<joint name="piper_joint8_mimic" joint1="piper_joint8" joint2="piper_joint7" polycoef="0 -1 0 0 0" \/>/,
   );
+});
+
+test('T1 plus PiPER assembly viewer load key stays stable during joint motion', () => {
+  buildT1PiperAssemblyExportRobot();
+  const merged = useAssemblyStore.getState().getMergedRobotData();
+  assert.ok(merged, 'expected merged robot data after adding the bridge');
+
+  const piperJoint2Key = resolveJointKey(merged.joints, 'piper_joint2');
+  assert.ok(piperJoint2Key, 'expected merged PiPER joint2');
+
+  const sourceFile: RobotFile = {
+    name: 't1-piper-assembly.mjcf',
+    format: 'mjcf',
+    content: '<mujoco model="t1-piper-assembly" />',
+  };
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const baselineKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile,
+      assets: {},
+      robotData: merged,
+    },
+    memo,
+  );
+  const movedMerged = {
+    ...merged,
+    joints: {
+      ...merged.joints,
+      [piperJoint2Key]: {
+        ...merged.joints[piperJoint2Key],
+        angle: 0.75,
+      },
+    },
+  };
+  const movedKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile,
+      assets: {},
+      robotData: movedMerged,
+    },
+    memo,
+  );
+
+  assert.equal(movedKey, baselineKey);
 });
 
 test('URDF assembly export keeps PiPER mimic joints resolvable after bridge creation', () => {

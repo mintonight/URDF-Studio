@@ -41,3 +41,20 @@ test('pickFastPreparedPreferredFile avoids heavyweight mixed-format selectors fo
   assert.ok(preferred);
   assert.notEqual(preferred?.format, 'mesh');
 });
+
+test('pickFastPreparedPreferredFile keeps broad Unitree USDA imports on canonical roots', () => {
+  const files: RobotFile[] = [
+    createRobotFile('g1_description/g1_23dof_mode_10.usda', 'usd'),
+    createRobotFile('g1_description/g1_23dof.usda', 'usd'),
+    createRobotFile('g1_description/g1_29dof_with_hand.usda', 'usd'),
+    createRobotFile('g1_description/g1_29dof_lock_waist.usda', 'usd'),
+    createRobotFile('g1_description/configuration/g1_23dof_base.usda', 'usd'),
+    ...Array.from({ length: 640 }, (_, index) =>
+      createRobotFile(`g1_description/meshes/part_${index}.obj`, 'mesh'),
+    ),
+  ];
+
+  const preferred = pickFastPreparedPreferredFile(files, files);
+
+  assert.equal(preferred?.name, 'g1_description/g1_23dof.usda');
+});

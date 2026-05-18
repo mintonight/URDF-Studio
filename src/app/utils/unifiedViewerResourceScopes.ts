@@ -1,4 +1,7 @@
-import { createStableViewerResourceScope, type ViewerResourceScope } from '@/features/editor';
+import {
+  createStableViewerResourceScope,
+  type ViewerResourceScope,
+} from '@/features/urdf-viewer/utils/viewerResourceScope';
 import type { RobotFile, RobotMaterialState, UrdfLink } from '@/types';
 
 interface UnifiedViewerFilePreview {

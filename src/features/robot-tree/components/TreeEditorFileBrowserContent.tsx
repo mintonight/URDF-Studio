@@ -16,7 +16,7 @@ interface TreeEditorFileBrowserContentProps {
   height: number;
   isDragging: boolean;
   isOpen: boolean;
-  isProMode: boolean;
+  showAddAsComponent: boolean;
   onAddComponent?: (file: RobotFile) => void;
   onCancelFolderRename: () => void;
   onCommitFolderRename: () => void;
@@ -43,7 +43,7 @@ export function TreeEditorFileBrowserContent({
   height,
   isDragging,
   isOpen,
-  isProMode,
+  showAddAsComponent,
   onAddComponent,
   onCancelFolderRename,
   onCommitFolderRename,
@@ -60,7 +60,7 @@ export function TreeEditorFileBrowserContent({
 }: TreeEditorFileBrowserContentProps) {
   return (
     <div
-      className={`flex flex-col bg-white dark:bg-panel-bg border-b border-border-black dark:border-border-black ${shouldFillSpace ? 'flex-1 min-h-0' : 'shrink-0'} ${isDragging ? '' : 'transition-all duration-200'}`}
+      className={`@container flex flex-col bg-white dark:bg-panel-bg border-b border-border-black dark:border-border-black ${shouldFillSpace ? 'flex-1 min-h-0' : 'shrink-0'} ${isDragging ? '' : 'transition-all duration-200'}`}
       style={shouldFillSpace ? undefined : { height: isOpen ? `${height}px` : 'auto' }}
     >
       <div
@@ -122,7 +122,7 @@ export function TreeEditorFileBrowserContent({
                   folderRenameDraft={folderRenameDraft}
                   folderRenameInputRef={folderRenameInputRef}
                   onLoadRobot={onLoadRobot}
-                  onAddAsComponent={isProMode ? onAddComponent : undefined}
+                  onAddAsComponent={showAddAsComponent ? onAddComponent : undefined}
                   onCancelFolderRename={onCancelFolderRename}
                   onCommitFolderRename={onCommitFolderRename}
                   onDeleteFromLibrary={onDeleteFromLibrary}
@@ -131,7 +131,7 @@ export function TreeEditorFileBrowserContent({
                   onFolderContextMenu={onFolderContextMenu}
                   expandedFolders={expandedFolders}
                   toggleFolder={toggleFolder}
-                  showAddAsComponent={isProMode}
+                  showAddAsComponent={showAddAsComponent}
                   t={t}
                 />
               </div>

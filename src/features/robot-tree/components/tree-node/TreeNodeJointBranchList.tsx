@@ -5,6 +5,7 @@ import { getMjcfJointDisplayName } from '@/shared/utils/robot/mjcfDisplayNames';
 import { matchesSelection, type Selection } from '@/store/selectionStore';
 import { JointType, type RobotState } from '@/types';
 import type { TreeNodeContextMenuTarget, TreeNodeEditingTarget } from './types';
+import { stripTreeDisplayNamePrefix } from './treeDisplayNames';
 import {
   getJointTypeIcon,
   getJointTypeLabel,
@@ -29,6 +30,7 @@ interface TreeNodeJointBranchListProps {
   sourceFormat?: NonNullable<RobotState['inspectionContext']>['sourceFormat'];
   parentLinkDisplayName: string;
   childLinkDisplayNames: Record<string, string>;
+  componentDisplayNamePrefix?: string;
   t: TranslationKeys;
   readOnly: boolean;
   onSelect: (type: 'link' | 'joint', id: string, subType?: 'visual' | 'collision') => void;
@@ -61,6 +63,7 @@ export const TreeNodeJointBranchList = memo(function TreeNodeJointBranchList({
   sourceFormat,
   parentLinkDisplayName,
   childLinkDisplayNames,
+  componentDisplayNamePrefix,
   t,
   readOnly,
   onSelect,
@@ -74,6 +77,8 @@ export const TreeNodeJointBranchList = memo(function TreeNodeJointBranchList({
   onNameDoubleClick,
   renderChildNode,
 }: TreeNodeJointBranchListProps) {
+  const childBranchIndentPx = Math.max(1, Math.round(jointRowIndentPx / 4));
+
   return (
     <>
       {childJoints.map((joint) => {
@@ -93,10 +98,14 @@ export const TreeNodeJointBranchList = memo(function TreeNodeJointBranchList({
         const JointTypeIcon = getJointTypeIcon(joint.type);
         const jointIconSize = joint.type === JointType.FIXED ? 7 : 8;
         const childLinkDisplayName = childLinkDisplayNames[joint.childLinkId] || joint.childLinkId;
-        const jointDisplayName =
+        const rawJointDisplayName =
           sourceFormat === 'mjcf'
             ? getMjcfJointDisplayName(joint, parentLinkDisplayName, childLinkDisplayName)
             : joint.name || joint.id;
+        const jointDisplayName = stripTreeDisplayNamePrefix(
+          rawJointDisplayName,
+          componentDisplayNamePrefix,
+        );
         const isJointSubtreeHighlighted =
           isJointSelected ||
           isJointHovered ||
@@ -109,7 +118,7 @@ export const TreeNodeJointBranchList = memo(function TreeNodeJointBranchList({
               ref={(element) => {
                 jointRowRefs.current[joint.id] = element;
               }}
-              className={`relative flex items-center py-0.5 px-2 mx-1 my-0.5 rounded-md transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer group'} ${resolveTreeRowStateClass(
+              className={`relative flex min-w-0 items-center py-0.5 px-2 mx-1 my-0.5 rounded-md transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer group'} ${resolveTreeRowStateClass(
                 'text-text-secondary dark:text-text-tertiary',
                 {
                   isHovered: isJointHovered,
@@ -220,7 +229,7 @@ export const TreeNodeJointBranchList = memo(function TreeNodeJointBranchList({
               )}
             </div>
 
-            <div className="relative" style={{ marginLeft: `${jointRowIndentPx}px` }}>
+            <div className="relative" style={{ marginLeft: `${childBranchIndentPx}px` }}>
               <div
                 className={`absolute left-0 top-0.5 bottom-1.5 w-px rounded-full ${getTreeConnectorRailClass(isJointSubtreeHighlighted)}`}
               />

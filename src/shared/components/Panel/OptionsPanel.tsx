@@ -5,7 +5,7 @@
 
 import React, { useRef, useState, useCallback, useEffect, ReactNode } from 'react';
 import { Checkbox, IconButton, Slider as UiSlider } from '@/shared/components/ui';
-import { useOverlayHoverBlock } from '@/shared/hooks';
+import { useOverlayHoverBlock } from '@/shared/hooks/useOverlayHoverBlock';
 
 // Drag grip icon SVG path
 const DRAG_GRIP_PATH =

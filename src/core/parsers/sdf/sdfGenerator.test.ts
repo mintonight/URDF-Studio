@@ -218,6 +218,89 @@ test('generateSDF produces a roundtrippable model package for RobotState data', 
   assert.ok(Math.abs((reparsed?.joints.tip_joint.origin.rpy.y ?? 0) - 0.3) < 1e-6);
 });
 
+test('generateSDF preserves SDF-native plane and heightmap collision geometry', () => {
+  const robot: RobotState = {
+    name: 'terrain_collision_demo',
+    rootLinkId: 'terrain_link',
+    links: {
+      terrain_link: {
+        ...DEFAULT_LINK,
+        id: 'terrain_link',
+        name: 'terrain_link',
+        collision: {
+          ...DEFAULT_LINK.collision,
+          name: 'ground_plane',
+          type: GeometryType.PLANE,
+          dimensions: { x: 6, y: 4, z: 0 },
+        },
+        collisionBodies: [
+          {
+            ...DEFAULT_LINK.collision,
+            name: 'terrain_heightmap',
+            type: GeometryType.HFIELD,
+            dimensions: { x: 10, y: 8, z: 2 },
+            meshPath: 'heightmaps/terrain.png',
+            sdfHeightmap: {
+              uri: 'heightmaps/terrain.png',
+              size: { x: 10, y: 8, z: 2 },
+              pos: { x: 0, y: 0, z: -0.2 },
+              textures: [
+                {
+                  diffuse: 'textures/terrain_diffuse.png',
+                  normal: 'textures/terrain_normal.png',
+                  size: 5,
+                },
+              ],
+              blends: [{ minHeight: 0.1, fadeDist: 0.2 }],
+            },
+          },
+        ],
+      },
+    },
+    joints: {},
+    selection: { type: null, id: null },
+  };
+
+  const xml = generateSDF(robot, { packageName: 'terrain_pkg' });
+  const reparsed = parseSDF(xml, { sourcePath: 'terrain_pkg/model.sdf' });
+
+  assert.match(xml, /<plane>/);
+  assert.match(xml, /<heightmap>/);
+  assert.doesNotMatch(xml, /<empty\/>/);
+  assert.equal(reparsed?.links.terrain_link.collision.type, GeometryType.PLANE);
+  assert.equal(reparsed?.links.terrain_link.collisionBodies?.[0]?.type, GeometryType.HFIELD);
+  assert.equal(reparsed?.links.terrain_link.collisionBodies?.[0]?.meshPath, 'heightmaps/terrain.png');
+});
+
+test('generateSDF downgrades unsupported ellipsoid collisions to boxes instead of empty geometry', () => {
+  const robot: RobotState = {
+    name: 'ellipsoid_collision_demo',
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        collision: {
+          ...DEFAULT_LINK.collision,
+          type: GeometryType.ELLIPSOID,
+          dimensions: { x: 0.5, y: 0.3, z: 0.2 },
+        },
+      },
+    },
+    joints: {},
+    selection: { type: null, id: null },
+  };
+
+  const xml = generateSDF(robot, { packageName: 'ellipsoid_pkg' });
+  const reparsed = parseSDF(xml, { sourcePath: 'ellipsoid_pkg/model.sdf' });
+
+  assert.match(xml, /<box>/);
+  assert.match(xml, /<size>0\.5 0\.3 0\.2<\/size>/);
+  assert.doesNotMatch(xml, /<empty\/>/);
+  assert.equal(reparsed?.links.base_link.collision.type, GeometryType.BOX);
+});
+
 test('generateSDF preserves mimic joints across roundtrip export', () => {
   const robot: RobotState = {
     name: 'mimic_roundtrip_demo',

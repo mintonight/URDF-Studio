@@ -347,7 +347,7 @@ test('URDFLoader skips placeholder meshes for missing collision geometry', () =>
   assert.equal(meshCount, 0);
 });
 
-test('URDFLoader renders collision boxes as cylinders without changing the parsed collision node', () => {
+test('URDFLoader renders collision boxes as boxes', () => {
   const loader = new URDFLoader();
   loader.parseCollision = true;
 
@@ -375,10 +375,10 @@ test('URDFLoader renders collision boxes as cylinders without changing the parse
   assert.equal(collisionGroup.children.length, 1);
 
   const collisionMesh = collisionGroup.children[0] as THREE.Mesh;
-  assert.equal(collisionMesh.geometry.type, 'CylinderGeometry');
+  assert.equal(collisionMesh.geometry.type, 'BoxGeometry');
   assert.deepEqual(
     collisionMesh.scale.toArray().map((value) => Number(value.toFixed(4))),
-    [0.5, 4, 1],
+    [1, 4, 2],
   );
   assert.equal(Number(collisionMesh.rotation.x.toFixed(4)), 0);
   assert.equal(Number(collisionMesh.rotation.y.toFixed(4)), 0);

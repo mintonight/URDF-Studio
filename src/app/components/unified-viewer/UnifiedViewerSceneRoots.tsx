@@ -6,9 +6,10 @@ import type { AssemblySelection } from '@/store/assemblySelectionStore';
 import type {
   ViewerDocumentLoadEvent,
   ViewerHelperKind,
-  ViewerResourceScope,
   ViewerRobotSourceFormat,
-} from '@/features/editor';
+} from '@/features/urdf-viewer/types';
+import type { useViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
+import type { ViewerResourceScope } from '@/features/urdf-viewer/utils/viewerResourceScope';
 
 import { LazyViewerSceneConnector } from './modeModuleLoaders';
 import type { FilePreviewState } from './types';
@@ -17,7 +18,7 @@ interface UnifiedViewerSceneRootsProps {
   shouldRenderViewerScene: boolean;
   viewerGroupRef: React.RefObject<ThreeGroup | null>;
   viewerVisible: boolean;
-  viewerController: ReturnType<typeof import('@/features/editor').useViewerController>;
+  viewerController: ReturnType<typeof useViewerController>;
   activePreview?: FilePreviewState;
   modelInteractionEnabled?: boolean;
   viewerResourceScope: ViewerResourceScope;
@@ -76,7 +77,11 @@ interface UnifiedViewerSceneRootsProps {
     },
     options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
-  onBridgeTransform?: (bridgeId: string, origin: UrdfOrigin) => void;
+  onBridgeTransform?: (
+    bridgeId: string,
+    origin: UrdfOrigin,
+    options?: import('@/types/viewer').UpdateCommitOptions,
+  ) => void;
   sourceSceneAssemblyComponent: import('@/types').AssemblyComponent | null;
   sourceSceneAssemblyComponentTransform: {
     position: { x: number; y: number; z: number };

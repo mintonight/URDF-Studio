@@ -7,9 +7,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { DEFAULT_LINK } from '@/types/constants';
-import type { RobotFile, RobotState } from '@/types';
+import type { AssemblyState, RobotFile, RobotState } from '@/types';
 import { GeometryType, JointType } from '@/types';
-import { useSelectionStore, useUIStore } from '@/store';
+import { useRobotStore, useSelectionStore, useUIStore } from '@/store';
 
 import { TreeEditor } from './TreeEditor.tsx';
 
@@ -170,11 +170,84 @@ function createRobotStateWithJoint(): RobotState {
   };
 }
 
+function createDeepRobotState(depth: number): RobotState {
+  const links: RobotState['links'] = {
+    base_link: {
+      ...DEFAULT_LINK,
+      id: 'base_link',
+      name: 'base_link',
+    },
+  };
+  const joints: RobotState['joints'] = {};
+
+  let parentLinkId = 'base_link';
+  for (let index = 1; index <= depth; index += 1) {
+    const childLinkId = `piper_link_${index}`;
+    const jointId = `piper_joint_${index}`;
+
+    links[childLinkId] = {
+      ...DEFAULT_LINK,
+      id: childLinkId,
+      name: childLinkId,
+    };
+    joints[jointId] = {
+      id: jointId,
+      name: jointId,
+      type: JointType.FIXED,
+      parentLinkId,
+      childLinkId,
+      origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+      axis: { x: 0, y: 0, z: 1 },
+      limit: { lower: 0, upper: 0, effort: 0, velocity: 0 },
+      dynamics: { damping: 0, friction: 0 },
+      hardware: {
+        armature: 0,
+        motorType: '',
+        motorId: '',
+        motorDirection: 1,
+      },
+    };
+    parentLinkId = childLinkId;
+  }
+
+  return {
+    name: 'piper',
+    links,
+    joints,
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+  };
+}
+
 function createRobotFile(name: string): RobotFile {
   return {
     name,
     format: 'urdf',
     content: '<robot name="demo"><link name="base_link" /></robot>',
+  };
+}
+
+function createMeshFile(name: string): RobotFile {
+  return {
+    name,
+    format: 'mesh',
+    content: '',
+  };
+}
+
+function createAssemblyState(): AssemblyState {
+  return {
+    name: 'demo_assembly',
+    components: {
+      comp_arm: {
+        id: 'comp_arm',
+        name: 'arm_component',
+        sourceFile: 'robots/arm_component.urdf',
+        robot: createRobotState(),
+        visible: true,
+      },
+    },
+    bridges: {},
   };
 }
 
@@ -290,7 +363,6 @@ test('TreeEditor asks whether to save a draft before opening another library mod
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
 
-  useUIStore.setState({ sidebarTab: 'structure' });
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   const targetFile = createRobotFile('robots/arm_b.urdf');
@@ -329,13 +401,81 @@ test('TreeEditor asks whether to save a draft before opening another library mod
   }
 });
 
+test('TreeEditor shows and edits the robot name from the structure tree root', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+  const nameChanges: string[] = [];
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={createRobotState()}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={(name) => nameChanges.push(name)}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          availableFiles={[]}
+        />,
+      );
+    });
+
+    assert.equal(container.textContent?.includes('Robot Name'), false);
+    const robotName = Array.from(container.querySelectorAll('span')).find(
+      (element) => element.textContent?.trim() === 'demo',
+    );
+    assert.ok(robotName, 'expected robot name in structure tree');
+
+    await act(async () => {
+      robotName.dispatchEvent(
+        new dom.window.MouseEvent('dblclick', {
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>('input');
+    assert.ok(input, 'expected robot name edit input');
+    assert.equal(input.value, 'demo');
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        dom.window.HTMLInputElement.prototype,
+        'value',
+      )?.set;
+      valueSetter?.call(input, 'renamed_demo');
+      input.dispatchEvent(
+        new dom.window.FocusEvent('focusout', { bubbles: true, cancelable: true }),
+      );
+    });
+
+    assert.deepEqual(nameChanges, ['renamed_demo']);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('TreeEditor forwards the save-draft decision for pending library switches', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
 
-  useUIStore.setState({ sidebarTab: 'structure' });
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   const targetFile = createRobotFile('robots/arm_c.urdf');
@@ -366,13 +506,12 @@ test('TreeEditor forwards the save-draft decision for pending library switches',
   }
 });
 
-test('TreeEditor keeps file-row clicks in workspace mode as preview and reserves add button for insertion', async () => {
+test('TreeEditor opens robot files as the current model and reserves add for assembly insertion', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
 
-  useUIStore.setState({ sidebarTab: 'workspace' });
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   const targetFile = createRobotFile('robots/arm_preview.urdf');
@@ -415,13 +554,180 @@ test('TreeEditor keeps file-row clicks in workspace mode as preview and reserves
 
     await clickByText(dom, container, 'arm_preview.urdf');
 
-    assert.deepEqual(previewRequests, ['robots/arm_preview.urdf']);
-    assert.deepEqual(loadRequests, []);
+    assert.deepEqual(previewRequests, []);
+    assert.deepEqual(loadRequests, [{ fileName: 'robots/arm_preview.urdf', intent: 'direct' }]);
     assert.deepEqual(addRequests, []);
 
     await clickButtonByTitle(dom, 'Load to Workspace');
 
     assert.deepEqual(addRequests, ['robots/arm_preview.urdf']);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('TreeEditor renders workspace components and bridges inside the single structure tree', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={createRobotState()}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          availableFiles={[]}
+          assemblyState={createAssemblyState()}
+          onAddComponent={() => {}}
+        />,
+      );
+    });
+
+    const structureTreeLabels = Array.from(container.querySelectorAll('span')).filter(
+      (element) => element.textContent?.trim() === 'Structure Tree',
+    );
+    assert.equal(structureTreeLabels.length, 1);
+    assert.doesNotMatch(container.textContent ?? '', /Assembly View/);
+    assert.doesNotMatch(container.textContent ?? '', /Components/);
+    assert.match(container.textContent ?? '', /arm_component/);
+    assert.match(container.textContent ?? '', /Bridges/);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('TreeEditor keeps deep structure rows constrained to the sidebar width', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+  const deepRobot = createDeepRobotState(8);
+  useRobotStore.getState().setRobot(deepRobot, { skipHistory: true, resetHistory: true });
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={deepRobot}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          availableFiles={[]}
+        />,
+      );
+    });
+
+    const deepestLabel = container.querySelector(
+      'span[title="piper_link_8"]',
+    ) as HTMLSpanElement | null;
+    assert.ok(deepestLabel, 'deep imported branches should render expanded by default');
+
+    const structureScrollArea = deepestLabel.closest('.custom-scrollbar') as HTMLElement | null;
+    assert.ok(structureScrollArea, 'deep label should be inside the structure tree scroll area');
+    assert.match(
+      structureScrollArea.className,
+      /\boverflow-x-hidden\b/,
+      'structure rows should truncate inside the sidebar instead of requiring horizontal scrolling',
+    );
+
+    const widthWrapper = structureScrollArea.firstElementChild as HTMLElement | null;
+    assert.ok(widthWrapper, 'structure scroll area should have a width wrapper');
+    assert.match(widthWrapper.className, /\bw-full\b/);
+    assert.match(widthWrapper.className, /\bmin-w-0\b/);
+    assert.ok(
+      !/\bmin-w-max\b/.test(widthWrapper.className),
+      'structure tree should not force max-content width for deep branches',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    useRobotStore.getState().resetRobot(createRobotState());
+    dom.window.close();
+  }
+});
+
+test('TreeEditor keeps non-robot asset row clicks as previews', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+
+  const targetFile = createMeshFile('assets/poster.png');
+  const previewRequests: string[] = [];
+  const loadRequests: Array<{ fileName: string; intent: 'direct' | 'save-draft' | 'discard' }> = [];
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={createRobotState()}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          availableFiles={[targetFile]}
+          onLoadRobot={(file) => {
+            previewRequests.push(file.name);
+          }}
+          onRequestLoadRobot={async (file, intent) => {
+            loadRequests.push({ fileName: file.name, intent });
+            return 'loaded' as const;
+          }}
+          onAddComponent={() => {}}
+        />,
+      );
+    });
+
+    await clickByText(dom, container, 'poster.png');
+
+    assert.deepEqual(previewRequests, ['assets/poster.png']);
+    assert.deepEqual(loadRequests, []);
   } finally {
     await act(async () => {
       root.unmount();
@@ -437,7 +743,6 @@ test('TreeEditor uses an invisible edge hit area for the file browser resize han
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelLayout: {
       ...useUIStore.getState().panelLayout,
       treeFileBrowserHeight: 216,
@@ -496,7 +801,6 @@ test('TreeEditor sidebar resize handle spans the full sidebar with a thin visibl
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelLayout: {
       ...useUIStore.getState().panelLayout,
       treeSidebarWidth: 288,
@@ -561,6 +865,76 @@ test('TreeEditor sidebar resize handle spans the full sidebar with a thin visibl
   }
 });
 
+test('TreeEditor previews sidebar width without committing store updates until drag end', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useUIStore.setState({
+    panelLayout: {
+      ...useUIStore.getState().panelLayout,
+      treeSidebarWidth: 288,
+    },
+  });
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+
+  try {
+    await renderTreeEditor({
+      root,
+      availableFiles: [],
+      onRequestLoadRobot: () => 'loaded',
+    });
+
+    const resizeHandle = container.querySelector<HTMLElement>(
+      '[data-testid="tree-editor-sidebar-resize-handle"]',
+    );
+    assert.ok(resizeHandle, 'sidebar resize handle should render');
+    const sidebar = resizeHandle.parentElement as HTMLElement | null;
+    assert.ok(sidebar, 'resize handle should live inside the sidebar element');
+
+    await act(async () => {
+      resizeHandle.dispatchEvent(
+        new dom.window.MouseEvent('mousedown', {
+          bubbles: true,
+          clientX: 288,
+        }),
+      );
+    });
+
+    await act(async () => {
+      dom.window.document.dispatchEvent(
+        new dom.window.MouseEvent('mousemove', {
+          bubbles: true,
+          clientX: 338,
+        }),
+      );
+    });
+
+    assert.equal(sidebar.style.width, '338px');
+    assert.equal(
+      useUIStore.getState().panelLayout.treeSidebarWidth,
+      288,
+      'drag preview should not write every mousemove into the global UI store',
+    );
+
+    await act(async () => {
+      dom.window.document.dispatchEvent(
+        new dom.window.MouseEvent('mouseup', {
+          bubbles: true,
+        }),
+      );
+    });
+
+    assert.equal(useUIStore.getState().panelLayout.treeSidebarWidth, 338);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('TreeEditor lets the joint section grow by dragging the boundary downward', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
@@ -568,7 +942,6 @@ test('TreeEditor lets the joint section grow by dragging the boundary downward',
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,
@@ -645,7 +1018,6 @@ test('TreeEditor balances the initial asset, joint, and structure sections', asy
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,
@@ -706,7 +1078,6 @@ test('TreeEditor switches balanced sections to persisted custom heights after dr
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,
@@ -786,7 +1157,6 @@ test('TreeEditor restores file browser and structure disclosure state after remo
   let remountedRoot: Root | null = null;
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,
@@ -843,7 +1213,6 @@ test('TreeEditor keeps the file browser at its fixed height when the structure t
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,
@@ -894,7 +1263,6 @@ test('TreeEditor structure section avoids animating its full flex layout when to
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
 
-  useUIStore.setState({ sidebarTab: 'structure' });
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   try {
@@ -924,7 +1292,6 @@ test('TreeEditor keeps the structure header height and chevron size stable when 
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
 
-  useUIStore.setState({ sidebarTab: 'structure' });
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   try {
@@ -998,7 +1365,6 @@ test('TreeEditor joint section can grow past the old compact cap when dragged do
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,
@@ -1073,7 +1439,6 @@ test('TreeEditor still renders the joint section when the robot has no joints', 
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,
@@ -1131,7 +1496,6 @@ test('TreeEditor renders the joint section before the structure section so colla
   const root = createRoot(container);
 
   useUIStore.setState({
-    sidebarTab: 'structure',
     panelSections: {},
     panelLayout: {
       ...useUIStore.getState().panelLayout,

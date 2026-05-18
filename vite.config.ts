@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig, loadEnv, type ServerOptions } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
@@ -111,13 +111,11 @@ function isMonacoCoreChunkModule(normalizedId: string): boolean {
   );
 }
 
-function isCodeEditorRuntimeChunkModule(normalizedId: string): boolean {
-  return normalizedId.includes('/src/features/code-editor/utils/monacoLoader.ts');
-}
-
 const INITIAL_HTML_MODULE_PRELOAD_BLOCKLIST = [
   'feature-file-io-',
   'export-vendor-',
+  'feature-property-editor-',
+  'feature-robot-tree-',
   'feature-editor-runtime-',
   'feature-urdf-viewer-runtime-',
   'ViewerSceneConnector-',
@@ -148,7 +146,7 @@ const ISOLATED_DOCUMENT_HEADERS = {
 // Vite crawls HTML entrypoints to discover dependency optimizer inputs.
 // This repository intentionally keeps many fixture/example HTML files under
 // tmp/, .tmp/, and test/, so constrain discovery to the actual app entry.
-const OPTIMIZE_DEPS_ENTRY_FILES = ['index.html', 'handoff.html'];
+const OPTIMIZE_DEPS_ENTRY_FILES = ['index.html'];
 
 const OPTIMIZE_DEPS_INCLUDE = [
   'three',
@@ -181,6 +179,31 @@ const OPTIMIZE_DEPS_INCLUDE = [
   'three/addons/loaders/GLTFLoader.js',
 ];
 
+function resolveDevServerHost(env: Record<string, string | undefined>): string {
+  const configuredHost = env.URDF_STUDIO_DEV_HOST?.trim();
+  return configuredHost || 'localhost';
+}
+
+function resolveDevServerAllowedHosts(
+  env: Record<string, string | undefined>,
+): ServerOptions['allowedHosts'] | undefined {
+  const configuredHosts = env.URDF_STUDIO_DEV_ALLOWED_HOSTS?.trim();
+  if (!configuredHosts) {
+    return undefined;
+  }
+
+  if (configuredHosts === '*' || configuredHosts.toLowerCase() === 'true') {
+    return true;
+  }
+
+  const allowedHosts = configuredHosts
+    .split(',')
+    .map((host) => host.trim())
+    .filter(Boolean);
+
+  return allowedHosts.length > 0 ? allowedHosts : undefined;
+}
+
 function shouldIgnoreWatchPath(watchPath: string): boolean {
   const normalizedPath = watchPath.replace(/\\/g, '/');
 
@@ -192,15 +215,77 @@ function shouldIgnoreWatchPath(watchPath: string): boolean {
   );
 }
 
-function shouldApplyIsolatedDocumentHeaders(requestUrl: string): boolean {
-  const pathname = new URL(requestUrl, 'http://localhost').pathname;
-  return pathname !== '/handoff.html';
+interface IsolationHeaderRequestLike {
+  headers?: {
+    host?: string | string[];
+    'x-forwarded-proto'?: string | string[];
+  };
+  socket?: {
+    encrypted?: boolean;
+  };
+  url?: string;
 }
 
-function applyIsolatedDocumentHeaders(response: import('node:http').ServerResponse): void {
-  Object.entries(ISOLATED_DOCUMENT_HEADERS).forEach(([headerName, headerValue]) => {
+function readFirstHeaderValue(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
+}
+
+function normalizeRequestHostname(hostHeader: string): string {
+  const trimmedHost = hostHeader.trim();
+  if (!trimmedHost) {
+    return '';
+  }
+
+  try {
+    return new URL(`http://${trimmedHost}`).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  } catch {
+    return trimmedHost
+      .replace(/^\[|\]$/g, '')
+      .replace(/:\d+$/, '')
+      .toLowerCase();
+  }
+}
+
+function isTrustedLocalDevHostname(hostname: string): boolean {
+  const normalizedHostname = hostname.replace(/\.$/, '').toLowerCase();
+
+  return (
+    normalizedHostname === 'localhost' ||
+    normalizedHostname.endsWith('.localhost') ||
+    normalizedHostname === '::1' ||
+    /^127(?:\.\d{1,3}){3}$/.test(normalizedHostname)
+  );
+}
+
+function isHttpsDevRequest(request: IsolationHeaderRequestLike): boolean {
+  if (request.socket?.encrypted) {
+    return true;
+  }
+
+  const forwardedProto = readFirstHeaderValue(request.headers?.['x-forwarded-proto'])
+    .split(',')[0]
+    ?.trim()
+    .toLowerCase();
+  return forwardedProto === 'https';
+}
+
+function applyDocumentHeaders(
+  response: import('node:http').ServerResponse,
+  headers: Readonly<Record<string, string>>,
+): void {
+  Object.entries(headers).forEach(([headerName, headerValue]) => {
     response.setHeader(headerName, headerValue);
   });
+}
+
+function shouldApplyIsolatedDocumentHeaders(request: IsolationHeaderRequestLike): boolean {
+  if (isHttpsDevRequest(request)) {
+    return true;
+  }
+
+  return isTrustedLocalDevHostname(
+    normalizeRequestHostname(readFirstHeaderValue(request.headers?.host)),
+  );
 }
 
 function createConditionalIsolationHeadersPlugin() {
@@ -208,8 +293,8 @@ function createConditionalIsolationHeadersPlugin() {
     use: (handler: (req: any, res: any, next: () => void) => void) => void;
   }): void => {
     middlewareStack.use((request, response, next) => {
-      if (shouldApplyIsolatedDocumentHeaders(String(request.url || '/'))) {
-        applyIsolatedDocumentHeaders(response);
+      if (shouldApplyIsolatedDocumentHeaders(request)) {
+        applyDocumentHeaders(response, ISOLATED_DOCUMENT_HEADERS);
       }
       next();
     });
@@ -226,13 +311,34 @@ function createConditionalIsolationHeadersPlugin() {
   };
 }
 
+function createStaticHostingHeadersAssetPlugin() {
+  return {
+    name: 'static-hosting-headers-asset',
+    generateBundle(this: import('rollup').PluginContext) {
+      const headersPath = path.resolve(__dirname, 'public/_headers');
+      if (!fs.existsSync(headersPath)) {
+        return;
+      }
+
+      this.emitFile({
+        type: 'asset',
+        fileName: '_headers',
+        source: fs.readFileSync(headersPath),
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  const devServerAllowedHosts = resolveDevServerAllowedHosts(env);
+
   return {
     server: {
       port: 3000,
       strictPort: false,
-      host: '127.0.0.1',
+      host: resolveDevServerHost(env),
+      ...(devServerAllowedHosts ? { allowedHosts: devServerAllowedHosts } : {}),
       // Verification artifacts are intentionally written into tmp/ by repo policy.
       // Ignore generated directories so exports, screenshots, logs, and pid files
       // do not trigger full-page reloads and wipe imported workspace state.
@@ -254,38 +360,10 @@ export default defineConfig(({ mode }) => {
         },
       },
       rollupOptions: {
-        input: [path.resolve(__dirname, 'index.html'), path.resolve(__dirname, 'handoff.html')],
+        input: [path.resolve(__dirname, 'index.html')],
         output: {
           manualChunks(id) {
             const normalizedId = id.replace(/\\/g, '/');
-
-            if (normalizedId.includes('/src/features/property-editor/')) {
-              return 'feature-property-editor';
-            }
-
-            if (isCodeEditorRuntimeChunkModule(normalizedId)) {
-              return 'feature-code-editor-runtime';
-            }
-
-            if (normalizedId.includes('/src/features/code-editor/')) {
-              return 'feature-code-editor';
-            }
-
-            if (normalizedId.includes('/src/features/ai-assistant/')) {
-              return 'feature-ai-assistant';
-            }
-
-            if (normalizedId.includes('/src/features/file-io/')) {
-              return 'feature-file-io';
-            }
-
-            if (normalizedId.includes('/src/features/assembly/')) {
-              return 'feature-assembly';
-            }
-
-            if (normalizedId.includes('/src/features/robot-tree/')) {
-              return 'feature-robot-tree';
-            }
 
             if (normalizedId.includes('/src/core/parsers/')) {
               return 'core-parsers';
@@ -363,6 +441,7 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       createUsdConfigurationProxyPlugin(),
       createConditionalIsolationHeadersPlugin(),
+      createStaticHostingHeadersAssetPlugin(),
     ],
     define: {
       __APP_VERSION__: JSON.stringify(appPackageVersion),

@@ -1,4 +1,4 @@
-import { LoadingHud } from '@/shared/components/3d';
+import { LoadingHud } from '@/shared/components/3d/LoadingHud';
 import { VIEWER_CORNER_OVERLAY_CLASS_NAME } from '@/shared/components/3d/scene';
 
 type ImportPreparationOverlayPlacement = 'viewport' | 'viewer-corner';

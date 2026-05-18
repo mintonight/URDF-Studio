@@ -1,12 +1,21 @@
 import { useCallback, type RefObject } from 'react';
 import { useSelectionStore, useUIStore } from '@/store';
-import type { InteractionSelection, RobotState } from '@/types';
-import type { ViewerHelperKind } from '@/features/editor';
-import { normalizeMergedAppMode } from '@/shared/utils/appMode';
-import {
-  resolveDetailLinkTabAfterGeometrySelection,
-  resolveDetailLinkTabAfterViewerMeshSelect,
-} from '@/features/property-editor/utils';
+import type { DetailLinkTab, InteractionSelection, RobotState } from '@/types';
+import type { ViewerHelperKind } from '@/features/urdf-viewer/types';
+
+const EMPTY_SELECTION: InteractionSelection = { type: null, id: null };
+
+function resolveDetailLinkTabAfterViewerMeshSelect(
+  objectType: 'visual' | 'collision',
+): DetailLinkTab {
+  return objectType;
+}
+
+function resolveDetailLinkTabAfterGeometrySelection(
+  subType: 'visual' | 'collision',
+): DetailLinkTab {
+  return subType;
+}
 
 interface UseViewerOrchestrationOptions {
   setSelection: (selection: RobotState['selection']) => void;
@@ -158,7 +167,7 @@ export function useViewerOrchestration({
         pulseSelection(nextSelection);
       }
       const uiState = useUIStore.getState();
-      const nextTab = resolveDetailLinkTabAfterGeometrySelection(subType, uiState.detailLinkTab);
+      const nextTab = resolveDetailLinkTabAfterGeometrySelection(subType);
       if (uiState.detailLinkTab !== nextTab) {
         uiState.setDetailLinkTab(nextTab);
       }
@@ -180,6 +189,13 @@ export function useViewerOrchestration({
       helperKind?: ViewerHelperKind,
     ) => {
       if (transformPendingRef.current) return;
+      if (!id) {
+        setSelection(EMPTY_SELECTION);
+        setHoveredSelection(EMPTY_SELECTION);
+        pulseSelection(EMPTY_SELECTION);
+        return;
+      }
+
       const baseSelection = helperKind
         ? ({ type, id, subType, helperKind } as const)
         : ({ type, id, subType } as const);
@@ -233,11 +249,7 @@ export function useViewerOrchestration({
       }
       setSelection(nextSelection);
       const uiState = useUIStore.getState();
-      const nextTab = resolveDetailLinkTabAfterViewerMeshSelect(
-        normalizeMergedAppMode(uiState.appMode),
-        uiState.detailLinkTab,
-        objectType,
-      );
+      const nextTab = resolveDetailLinkTabAfterViewerMeshSelect(objectType);
       if (uiState.detailLinkTab !== nextTab) {
         uiState.setDetailLinkTab(nextTab);
       }

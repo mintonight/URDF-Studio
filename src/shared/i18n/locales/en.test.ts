@@ -3,13 +3,13 @@ import test from 'node:test';
 
 import { en } from './en.ts';
 
-test('advanced mode product copy stays consistent in English', () => {
-  assert.equal(en.proMode, 'Advanced');
-  assert.match(en.generateWorkspaceUrdfConfirmTitle, /\bAdvanced mode\b/);
-  assert.match(en.generateWorkspaceUrdfConfirmMessage, /\bAdvanced mode\b/);
-  assert.match(en.generateWorkspaceUrdfDisconnected, /\bAdvanced mode\b/);
-  assert.match(en.exportProjectWorkspaceSummaryDesc, /\bAdvanced mode\b/);
-  assert.match(en.disconnectedWorkspaceUrdfExportMessage, /\bAdvanced mode\b/);
+test('workspace product copy avoids mode split language in English', () => {
+  assert.doesNotMatch(en.generateWorkspaceUrdfConfirmTitle, /\bAdvanced mode\b/);
+  assert.doesNotMatch(en.generateWorkspaceUrdfConfirmMessage, /\bAdvanced mode\b/);
+  assert.doesNotMatch(en.generateWorkspaceUrdfDisconnected, /\bAdvanced mode\b/);
+  assert.doesNotMatch(en.exportProjectWorkspaceSummaryDesc, /\bAdvanced mode\b/);
+  assert.doesNotMatch(en.disconnectedWorkspaceUrdfExportMessage, /\bAdvanced mode\b/);
+  assert.match(en.exportProjectWorkspaceSummaryDesc, /\bworkspace\b/);
   assert.doesNotMatch(en.exportProjectWorkspaceSummaryDesc, /\b[Pp]ro mode\b/);
   assert.doesNotMatch(en.exportProjectWorkspaceSummaryDesc, /\bpro-mode\b/);
 });

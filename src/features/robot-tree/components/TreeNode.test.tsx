@@ -134,6 +134,31 @@ function createRobotWithChildLink(): RobotState {
   };
 }
 
+function createRobotWithNamedChildLink(jointId: string, childLinkId: string): RobotState {
+  const robot = createRobotWithChildLink();
+  const joint = robot.joints.elbow_joint;
+
+  return {
+    ...robot,
+    joints: {
+      [jointId]: {
+        ...joint,
+        id: jointId,
+        name: jointId,
+        childLinkId,
+      },
+    },
+    links: {
+      base_link: robot.links.base_link,
+      [childLinkId]: {
+        ...robot.links.forearm_link,
+        id: childLinkId,
+        name: childLinkId,
+      },
+    },
+  };
+}
+
 function findButtonByText(text: string): HTMLButtonElement | null {
   return Array.from(document.querySelectorAll('button')).find((button) =>
     button.textContent?.includes(text),
@@ -264,6 +289,78 @@ test('TreeNode link context menu is portaled and exposes collision add/delete ac
   }
 });
 
+test('TreeNode re-expands a branch when the imported child structure changes under the same link', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  const renderTreeNode = async (robot: RobotState) => {
+    await act(async () => {
+      root.render(
+        <TreeNode
+          linkId="base_link"
+          robot={robot}
+          childJointsByParent={{ base_link: Object.values(robot.joints) }}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onUpdate={() => {}}
+          mode="editor"
+          t={translations.en}
+        />,
+      );
+    });
+  };
+
+  try {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      hoveredSelection: { type: null, id: null },
+      deferredHoveredSelection: { type: null, id: null },
+      hoverFrozen: false,
+      attentionSelection: { type: null, id: null },
+      focusTarget: null,
+    });
+
+    const firstRobot = createRobotWithNamedChildLink('first_joint', 'first_child_link');
+    await renderTreeNode(firstRobot);
+
+    assert.ok(
+      container.querySelector('span[title="first_child_link"]'),
+      'initial child branch should render expanded',
+    );
+
+    const collapseButton = container.querySelector(
+      'button[aria-label="Hide base_link"]',
+    ) as HTMLButtonElement | null;
+    assert.ok(collapseButton, 'root link should render an expansion toggle');
+
+    await act(async () => {
+      collapseButton.dispatchEvent(
+        new dom.window.MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    assert.equal(
+      container.querySelector('span[title="first_child_link"]'),
+      null,
+      'test setup should collapse the first child branch',
+    );
+
+    const importedRobot = createRobotWithNamedChildLink('imported_joint', 'imported_child_link');
+    await renderTreeNode(importedRobot);
+
+    assert.ok(
+      container.querySelector('span[title="imported_child_link"]'),
+      'a new imported branch under the same root link should be expanded',
+    );
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
 test('TreeNode keeps a child link visually close to the joint that owns it', async () => {
   const { dom, container, root } = createComponentRoot();
 
@@ -309,7 +406,7 @@ test('TreeNode keeps a child link visually close to the joint that owns it', asy
 
     assert.equal(
       childLinkRow.style.marginLeft,
-      '4px',
+      '3px',
       'joint-owned child links should avoid the older wide nested link indent',
     );
   } finally {

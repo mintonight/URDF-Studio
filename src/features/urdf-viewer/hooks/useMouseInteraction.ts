@@ -1,10 +1,15 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { clampJointInteractionValue, resolveLinkKey, resolveJointKey } from '@/core/robot';
+import {
+  clampJointInteractionValue,
+  getJointActualAngleFromMotionAngle,
+  resolveLinkKey,
+  resolveJointKey,
+} from '@/core/robot';
 import { throttle } from '@/shared/utils';
 import type { JointPanelActiveJointOptions } from '@/shared/utils/jointPanelStore';
-import type { InteractionSelection, UrdfJoint, UrdfLink } from '@/types';
+import { JointType, type InteractionSelection, type UrdfJoint, type UrdfLink } from '@/types';
 import { THROTTLE_INTERVAL } from '../constants';
 import type {
   ToolMode,
@@ -65,6 +70,7 @@ import {
   shouldDisarmSelectionMissGuardOnPointerMove,
   shouldTreatPointerUpAsBackgroundMiss,
 } from '../utils/selectionMissGuard';
+import { unwrapContinuousJointAngle } from '@/shared/utils/continuousJointAngle';
 
 const JOINT_DRAG_EPSILON = 1e-5;
 const MAX_REVOLUTE_DELTA_PER_EVENT = Math.PI / 8;
@@ -174,6 +180,28 @@ export function useMouseInteraction({
 }: UseMouseInteractionOptions): UseMouseInteractionResult {
   const { camera, gl, scene, invalidate } = useThree();
   const orbitControls = useThree((state) => state.controls as { enabled?: boolean } | undefined);
+
+  const resolveDraggedRuntimeJointActualAngle = useCallback(
+    (jointName: string, runtimeMotionAngle: number) => {
+      const sourceJoints = robotJoints ?? {};
+      const jointKey = resolveJointKey(sourceJoints, jointName) ?? jointName;
+      const sourceJoint = sourceJoints[jointKey];
+      if (!sourceJoint) {
+        return runtimeMotionAngle;
+      }
+
+      const actualAngle = getJointActualAngleFromMotionAngle(sourceJoint, runtimeMotionAngle);
+      if (sourceJoint.type !== JointType.CONTINUOUS) {
+        return actualAngle;
+      }
+
+      const referenceAngle = Number(sourceJoint.angle ?? actualAngle);
+      return Number.isFinite(referenceAngle)
+        ? unwrapContinuousJointAngle(actualAngle, referenceAngle)
+        : actualAngle;
+    },
+    [robotJoints],
+  );
 
   const mouseRef = useRef(new THREE.Vector2(-1000, -1000));
   const raycasterRef = useRef(new THREE.Raycaster());
@@ -794,7 +822,10 @@ export function useMouseInteraction({
           dragJoint.current.setJointValue
         ) {
           dragJoint.current.setJointValue(newAngle);
-          jointDragStoreSync.emit(dragJoint.current.name, newAngle);
+          jointDragStoreSync.emit(
+            dragJoint.current.name,
+            resolveDraggedRuntimeJointActualAngle(dragJoint.current.name, newAngle),
+          );
         }
       }
 
@@ -1226,14 +1257,23 @@ export function useMouseInteraction({
       if (isDraggingJoint.current) {
         jointDragFrameSync.flush();
 
-        if (dragJoint.current) {
-          const currentAngle = dragJoint.current.angle ?? dragJoint.current.jointValue ?? 0;
-          jointDragStoreSync.commit(dragJoint.current.name, currentAngle);
-        }
+        const commitPayload = dragJoint.current
+          ? {
+              name: dragJoint.current.name,
+              angle: resolveDraggedRuntimeJointActualAngle(
+                dragJoint.current.name,
+                dragJoint.current.angle ?? dragJoint.current.jointValue ?? 0,
+              ),
+            }
+          : null;
 
         isDraggingJoint.current = false;
         dragJoint.current = null;
         setIsDraggingRef.current?.(false);
+
+        if (commitPayload) {
+          jointDragStoreSync.commit(commitPayload.name, commitPayload.angle);
+        }
       }
 
       if (wasEmptyClick) {

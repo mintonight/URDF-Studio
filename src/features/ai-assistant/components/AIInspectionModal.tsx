@@ -4,11 +4,11 @@ import { MessageCircle, ScanSearch } from 'lucide-react';
 import type { InspectionReport, RobotState } from '@/types';
 import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
-import { DraggableWindow } from '@/shared/components';
+import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { Button } from '@/shared/components/ui/Button';
 import { Dialog } from '@/shared/components/ui/Dialog';
 import { SegmentedControl } from '@/shared/components/ui/SegmentedControl';
-import { useDraggableWindow } from '@/shared/hooks';
+import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { runRobotInspection } from '../services/aiService';
 import { calculateOverallScore, INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
 import {

@@ -29,3 +29,4 @@ export { useLibraryFileActions } from './useLibraryFileActions';
 export { useWorkspaceAssemblyRenderFailureNotice } from './useWorkspaceAssemblyRenderFailureNotice';
 export { useWorkspaceViewerSelectionBridge } from './useWorkspaceViewerSelectionBridge';
 export { useToolItems } from './useToolItems.tsx';
+export { usePluginLaunch } from './usePluginLaunch';

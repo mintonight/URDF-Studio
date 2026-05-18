@@ -13,6 +13,7 @@ import {
   syncJointHelperInteractionStateForJoints,
   syncJointAxesVisualizationForJoints,
   syncLinkHelperInteractionStateForLinks,
+  syncLinkVisualColors,
   syncMjcfSiteVisualizationForLinks,
   syncMjcfTendonVisualizationForRobot,
   syncOriginAxesVisualizationForLinks,
@@ -422,6 +423,17 @@ export function useVisualizationEffects({
     invalidate,
     highlightedMeshesRef,
   ]);
+
+  // Sync visual mesh colors when robotLinks change
+  useEffect(() => {
+    if (!robot || !robotLinks) return;
+
+    const didMutate = syncLinkVisualColors({ robot, robotLinks });
+
+    if (didMutate) {
+      invalidate();
+    }
+  }, [robot, robotLinks, invalidate]);
 
   // Update helper visibility for legacy __link_axes_helper__ objects
   useEffect(() => {

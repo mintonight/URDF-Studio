@@ -1,5 +1,6 @@
 import type { GazeboMaterialPass, UrdfVisualMaterial } from '@/types';
 import { resolveImportedAssetPath } from '@/core/parsers/meshPathUtils';
+import { normalizeRelativePath } from '@/core/utils/pathNormalization';
 
 export interface GazeboScriptMaterialDefinition extends UrdfVisualMaterial {}
 
@@ -13,31 +14,11 @@ interface ResolveGazeboScriptMaterialOptions {
 const TEXTURE_DIRECTORY_PATTERN = /(?:^|\/)(?:textures?|materials\/textures)(?:\/|$)/i;
 const materialScriptCache = new Map<string, Record<string, GazeboScriptMaterialDefinition>>();
 
-function normalizePath(path: string): string {
-  const segments = path.replace(/\\/g, '/').split('/');
-  const stack: string[] = [];
-
-  for (const segment of segments) {
-    if (!segment || segment === '.') {
-      continue;
-    }
-
-    if (segment === '..') {
-      if (stack.length > 0) {
-        stack.pop();
-      }
-      continue;
-    }
-
-    stack.push(segment);
-  }
-
-  return stack.join('/');
-}
-
 function uniquePaths(paths: Array<string | null | undefined>): string[] {
   return Array.from(
-    new Set(paths.map((path) => normalizePath(String(path || '').trim())).filter(Boolean)),
+    new Set(
+      paths.map((path) => normalizeRelativePath(String(path || '').trim())).filter(Boolean),
+    ),
   );
 }
 
@@ -52,10 +33,10 @@ function resolveScriptUriPath(uri: string, sourcePath?: string): string | null {
   }
 
   if (trimmed.startsWith('file://')) {
-    return normalizePath(trimmed.slice('file://'.length));
+    return normalizeRelativePath(trimmed.slice('file://'.length));
   }
 
-  return normalizePath(resolveImportedAssetPath(trimmed, sourcePath));
+  return normalizeRelativePath(resolveImportedAssetPath(trimmed, sourcePath));
 }
 
 function toHexColor(value: string): string | undefined {
@@ -209,7 +190,7 @@ function collectMaterialScriptFiles(
   searchRoots: string[],
 ): Array<{ path: string; content: string }> {
   const entries = Object.entries(allFileContents)
-    .map(([path, content]) => ({ path: normalizePath(path), content }))
+    .map(([path, content]) => ({ path: normalizeRelativePath(path), content }))
     .filter(({ path }) => path.toLowerCase().endsWith('.material'));
 
   if (searchRoots.length === 0) {
@@ -242,11 +223,11 @@ function resolveTexturePath(
   }
 
   if (trimmed.startsWith('file://')) {
-    return normalizePath(trimmed.slice('file://'.length));
+    return normalizeRelativePath(trimmed.slice('file://'.length));
   }
 
   if (trimmed.startsWith('model://')) {
-    return normalizePath(resolveImportedAssetPath(trimmed, sourcePath));
+    return normalizeRelativePath(resolveImportedAssetPath(trimmed, sourcePath));
   }
 
   // Expand search roots with derived texture directories.
@@ -257,7 +238,7 @@ function resolveTexturePath(
   const expandedRoots = [...searchRoots];
 
   for (const root of searchRoots) {
-    const normalizedRoot = normalizePath(root);
+    const normalizedRoot = normalizeRelativePath(root);
     if (!normalizedRoot) {
       continue;
     }
@@ -284,11 +265,11 @@ function resolveTexturePath(
   });
 
   for (const root of sortedRoots) {
-    const normalizedRoot = normalizePath(root);
+    const normalizedRoot = normalizeRelativePath(root);
     const baseDirectory = normalizedRoot.toLowerCase().endsWith('.material')
       ? normalizedRoot.slice(0, Math.max(0, normalizedRoot.lastIndexOf('/')))
       : normalizedRoot;
-    const resolved = normalizePath(
+    const resolved = normalizeRelativePath(
       `${baseDirectory.replace(/\/+$/, '')}/${trimmed.replace(/^\/+/, '')}`,
     );
     if (resolved && resolved !== trimmed) {
@@ -296,7 +277,7 @@ function resolveTexturePath(
     }
   }
 
-  return normalizePath(resolveImportedAssetPath(trimmed, sourcePath));
+  return normalizeRelativePath(resolveImportedAssetPath(trimmed, sourcePath));
 }
 
 export function resolveGazeboScriptMaterial({

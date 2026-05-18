@@ -59,8 +59,6 @@ const PACKAGE_ROOT_BOUNDARY_SEGMENTS = new Set([
   'textures',
   'texture',
   'urdf',
-  'robot',
-  'robots',
   'xacro',
   'sdf',
   'mjcf',

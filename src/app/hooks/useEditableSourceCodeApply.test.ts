@@ -10,7 +10,10 @@ import {
   type RobotState,
 } from '@/types';
 
-import { commitEditableSourceApply } from './useEditableSourceCodeApply';
+import {
+  commitEditableSourceApply,
+  shouldAttemptEditableSourceIncrementalPatch,
+} from './useEditableSourceCodeApply';
 
 function createSourceFile(format: RobotFile['format']): Pick<RobotFile, 'format' | 'name'> {
   return {
@@ -171,4 +174,33 @@ test('commitEditableSourceApply skips xacro URDF baseline refresh for unsupporte
 
   assert.deepEqual(events, ['sync', 'original', 'robot']);
   assert.equal(resolvedUrdfContent, null);
+});
+
+test('shouldAttemptEditableSourceIncrementalPatch only attempts selected source edits and skips closed-loop MJCF robots', () => {
+  assert.equal(
+    shouldAttemptEditableSourceIncrementalPatch({
+      sourceFile: { name: 'robot.urdf', format: 'urdf' },
+      targetFileName: 'robot.urdf',
+      closedLoopConstraints: [],
+    }),
+    true,
+  );
+
+  assert.equal(
+    shouldAttemptEditableSourceIncrementalPatch({
+      sourceFile: { name: 'robot.urdf', format: 'urdf' },
+      targetFileName: 'meshes/base.stl',
+      closedLoopConstraints: [],
+    }),
+    false,
+  );
+
+  assert.equal(
+    shouldAttemptEditableSourceIncrementalPatch({
+      sourceFile: { name: 'robot.xml', format: 'mjcf' },
+      targetFileName: 'robot.xml',
+      closedLoopConstraints: createRobotState().closedLoopConstraints,
+    }),
+    false,
+  );
 });

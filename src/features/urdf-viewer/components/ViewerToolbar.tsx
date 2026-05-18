@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Move, MousePointer2, View as ViewIcon, Scan, Ruler, Palette } from 'lucide-react';
 import { translations } from '@/shared/i18n';
 import { IconButton } from '@/shared/components/ui';
-import { useOverlayHoverBlock } from '@/shared/hooks';
+import { useOverlayHoverBlock } from '@/shared/hooks/useOverlayHoverBlock';
 import type { ViewerToolbarProps, ToolMode } from '../types';
 
 const HEADER_DOCK_SLOT_ID = 'viewer-toolbar-dock-slot';

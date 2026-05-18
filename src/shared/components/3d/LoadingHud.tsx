@@ -62,9 +62,9 @@ export function LoadingHud({
           <div className="flex items-center gap-2">
             <span
               aria-hidden="true"
-              className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-slider-accent motion-safe:animate-pulse"
+              className="h-2 w-2 shrink-0 rounded-full bg-slider-accent motion-safe:animate-pulse"
             />
-            <span className="truncate text-[11px] font-semibold text-text-primary">{title}</span>
+            <span className="truncate text-xs font-medium text-text-primary">{title}</span>
           </div>
           {stageLabel ? (
             <div className="mt-2 inline-flex max-w-full items-center rounded-full border border-border-black/70 bg-element-bg px-2 py-0.5 text-[10px] font-medium text-text-secondary">
@@ -73,7 +73,7 @@ export function LoadingHud({
           ) : null}
         </div>
         {statusLabel ? (
-          <div className="shrink-0 text-[11px] font-semibold tabular-nums text-text-secondary">
+          <div className="shrink-0 text-[11px] font-medium tabular-nums text-text-secondary">
             {statusLabel}
           </div>
         ) : null}

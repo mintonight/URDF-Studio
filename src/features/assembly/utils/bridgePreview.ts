@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { degToRad, radToDeg } from '@/core/robot/transforms';
+import { BRIDGE_PREVIEW_ID } from '@/shared/utils/assembly/bridgePreviewId';
 import {
   DEFAULT_JOINT,
   JointType,
@@ -11,7 +12,7 @@ import {
   type Vector3,
 } from '@/types';
 
-export const BRIDGE_PREVIEW_ID = '__bridge_preview__';
+export { BRIDGE_PREVIEW_ID };
 
 export type BridgeRotationMode = 'euler_deg' | 'quaternion';
 

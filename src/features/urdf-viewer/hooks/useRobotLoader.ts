@@ -3,6 +3,7 @@ import type { RefObject } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { buildRuntimeRobotFromState, URDFLoader } from '@/core/parsers/urdf/loader';
+import { getJointMotionAngleFromActualAngle } from '@/core/robot';
 import { normalizeLoadingProgress } from '@/shared/components/3d/loadingHudState';
 import { disposeObject3D } from '../utils/dispose';
 import {
@@ -20,10 +21,9 @@ import {
   createMeshLoader,
 } from '@/core/loaders';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
-import { loadMJCFToThreeJS } from '@/core/parsers/mjcf';
 import { getSourceFileDirectory } from '@/core/parsers/meshPathUtils';
-import type { UrdfJoint, UrdfLink } from '@/types';
-import { setRegressionRuntimeRobot } from '@/shared/debug/regressionBridge';
+import type { RobotData, UrdfJoint, UrdfLink } from '@/types';
+import { setRegressionRuntimeRobot } from '@/shared/debug/regressionState';
 import { isSingleDofJoint } from '@/shared/utils/jointTypes';
 import { detectJointPatches, detectSingleGeometryPatch } from '../utils/robotLoaderDiff';
 import { applyGeometryPatchInPlace } from '../utils/robotLoaderGeometryPatch';
@@ -57,6 +57,20 @@ function waitForLoadingHudPaint(invalidate?: () => void): Promise<void> {
       window.requestAnimationFrame(() => resolve());
     });
   });
+}
+
+function resolveRobotJoint(
+  joints: Record<string, UrdfJoint> | null | undefined,
+  jointNameOrId: string,
+): UrdfJoint | undefined {
+  if (!joints) {
+    return undefined;
+  }
+
+  return (
+    joints[jointNameOrId] ??
+    Object.values(joints).find((joint) => joint.name === jointNameOrId)
+  );
 }
 
 function createAssetScopeKey(assets: Record<string, string>): string {
@@ -97,6 +111,7 @@ export interface UseRobotLoaderOptions {
   isMeshPreview?: boolean;
   robotLinks?: Record<string, UrdfLink>;
   robotJoints?: Record<string, UrdfJoint>;
+  robotInspectionContext?: RobotData['inspectionContext'];
   initialJointAngles?: Record<string, number>;
   sourceFilePath?: string;
   onRobotLoaded?: (robot: THREE.Object3D) => void;
@@ -150,6 +165,7 @@ export function useRobotLoader({
   isMeshPreview = false,
   robotLinks,
   robotJoints,
+  robotInspectionContext,
   initialJointAngles,
   sourceFilePath,
   onRobotLoaded,
@@ -212,7 +228,6 @@ export function useRobotLoader({
   // deferred URDF collision stream split and keeps the visibility chain single-path.
   const shouldParseCollisionMeshes = true;
   const hasStructuredRobotState =
-    resolvedSourceFormat === 'urdf' &&
     Boolean(robotLinks && robotJoints) &&
     (Object.keys(robotLinks ?? {}).length > 0 || Object.keys(robotJoints ?? {}).length > 0);
   const shouldWaitForStructuredRobotState = shouldWaitForStructuredUrdfRobotState({
@@ -684,7 +699,10 @@ export function useRobotLoader({
                 return;
               }
 
-              joint.setJointValue?.(angle);
+              const sourceJoint = resolveRobotJoint(robotJoints, jointName);
+              joint.setJointValue?.(
+                sourceJoint ? getJointMotionAngleFromActualAngle(sourceJoint, angle) : angle,
+              );
             });
             loadedRobot.updateMatrixWorld(true);
           }
@@ -757,58 +775,7 @@ export function useRobotLoader({
           onRobotLoadedRef.current?.(loadedRobot);
         };
 
-        // Check if content is MJCF (MuJoCo XML)
-        if (isMJCFAsset) {
-          robotModel = await loadMJCFToThreeJS(
-            urdfContent,
-            assets,
-            sourceFileDir,
-            (nextProgress) => {
-              if (abortController.aborted || !isMountedRef.current) {
-                return;
-              }
-
-              const normalizedProgress =
-                nextProgress.phase === 'ready'
-                  ? null
-                  : normalizeLoadingProgress<RobotLoadingProgress>({
-                      phase: nextProgress.phase,
-                      loadedCount: nextProgress.loadedCount ?? null,
-                      totalCount: nextProgress.totalCount ?? null,
-                      progressPercent: nextProgress.progressPercent ?? null,
-                    });
-              if (nextProgress.phase !== 'ready') {
-                publishLoadingDispatch(
-                  normalizedProgress,
-                  normalizeLoadingProgress<ViewerDocumentLoadEvent>({
-                    status: 'loading',
-                    phase: nextProgress.phase,
-                    progressPercent: nextProgress.progressPercent ?? null,
-                    loadedCount: nextProgress.loadedCount ?? null,
-                    totalCount: nextProgress.totalCount ?? null,
-                    message: null,
-                  }),
-                  { defer: true },
-                );
-              }
-            },
-            {
-              abortSignal: abortController,
-              onAsyncSceneMutation: () => invalidate(),
-            },
-          );
-
-          if (abortController.aborted) {
-            if (robotModel) {
-              disposeObject3D(robotModel, true, SHARED_MATERIALS);
-            }
-            return;
-          }
-
-          if (!robotModel) {
-            throw new Error('Failed to build MJCF runtime scene.');
-          }
-        } else {
+        {
           // Standard URDF loading
           const urdfDir = sourceFileDir;
           const {
@@ -881,6 +848,7 @@ export function useRobotLoader({
           loader.parseCollision = shouldParseCollisionMeshes;
           loader.parseVisual = true;
           loader.loadMeshCb = createMeshLoader(assets, manager, urdfDir, {
+            allowPlaceholderMeshes: true,
             colladaRootNormalizationHints,
             explicitScaleMeshPaths: explicitlyScaledMeshPaths,
             yieldIfNeeded,
@@ -900,6 +868,7 @@ export function useRobotLoader({
               robotModel = await buildRuntimeRobotFromState({
                 links: robotLinks!,
                 joints: robotJoints!,
+                inspectionContext: robotInspectionContext,
                 manager,
                 loadMeshCb: loader.loadMeshCb,
                 parseVisual: true,
@@ -907,6 +876,9 @@ export function useRobotLoader({
                 yieldIfNeeded,
               });
             } else {
+              if (resolvedSourceFormat === 'mjcf') {
+                throw new Error('MJCF sources must be resolved to RobotState before rendering.');
+              }
               if (shouldWaitForStructuredRobotState) {
                 return;
               }
@@ -1029,6 +1001,7 @@ export function useRobotLoader({
     scheduleGroundAlignment,
     shouldParseCollisionMeshes,
     sourceFileDir,
+    robotInspectionContext,
     urdfContent,
   ]);
 

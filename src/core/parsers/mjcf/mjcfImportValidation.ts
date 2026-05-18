@@ -2,7 +2,7 @@ import { buildAssetIndex } from '@/core/loaders/meshLoader';
 import type { RobotFile } from '@/types';
 import { parseCompilerSettings, parseMJCFXmlDocument } from './mjcfUtils';
 
-export type MJCFImportExternalAssetKind = 'mesh' | 'texture' | 'hfield' | 'model';
+export type MJCFImportExternalAssetKind = 'mesh' | 'texture' | 'hfield' | 'model' | 'include';
 
 export interface MJCFImportExternalAssetIssue {
   kind: 'missing_external_asset';
@@ -31,8 +31,22 @@ const TEXTURE_FILE_ATTRIBUTES = [
   'fileup',
 ] as const;
 
+function stripFileScheme(filePath: string): string {
+  const trimmed = String(filePath || '').trim();
+  if (!/^file:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    return decodeURIComponent(parsed.pathname).replace(/^\/([A-Za-z]:\/)/, '$1');
+  } catch {
+    return trimmed.replace(/^file:\/\/*/i, '');
+  }
+}
+
 function normalizeLookupPath(filePath: string): string {
-  const normalized = filePath.replace(/\\/g, '/').replace(/\/+/g, '/').trim();
+  const normalized = stripFileScheme(filePath).replace(/\\/g, '/').replace(/\/+/g, '/').trim();
   if (!normalized) {
     return '';
   }
@@ -182,6 +196,49 @@ function buildAdjacentDuplicateCollapsedVariants(assetPath: string): string[] {
   return variants;
 }
 
+function buildDirectoryCollapsedVariants(assetPath: string): string[] {
+  const normalizedPath = normalizeLookupPath(assetPath);
+  if (!normalizedPath) {
+    return [];
+  }
+
+  const hasLeadingSlash = normalizedPath.startsWith('/');
+  const segments = normalizedPath.split('/').filter(Boolean);
+  const variants: string[] = [];
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index]?.toLowerCase();
+    if (segment !== 'mesh' && segment !== 'meshes' && segment !== 'asset' && segment !== 'assets') {
+      continue;
+    }
+
+    const suffix = segments.slice(index + 1);
+    if (suffix.length === 0) {
+      continue;
+    }
+
+    const variant = `${hasLeadingSlash ? '/' : ''}${suffix.join('/')}`;
+    if (variant && variant !== normalizedPath && !variants.includes(variant)) {
+      variants.push(variant);
+    }
+  }
+
+  return variants;
+}
+
+function buildMeshExtensionVariants(assetPath: string): string[] {
+  const normalizedPath = normalizeLookupPath(assetPath);
+  const extensionMatch = normalizedPath.match(/\.[^.\/]+$/);
+  if (!extensionMatch) {
+    return [];
+  }
+
+  const extension = extensionMatch[0].toLowerCase();
+  return ['.dae', '.obj', '.stl', '.msh', '.gltf', '.glb']
+    .filter((candidateExtension) => candidateExtension !== extension)
+    .map((candidateExtension) => normalizedPath.replace(/\.[^.\/]+$/, candidateExtension));
+}
+
 function hasExactAssetPathMatch(
   assetIndex: ReturnType<typeof buildAssetIndex>,
   assetPath: string,
@@ -192,23 +249,43 @@ function hasExactAssetPathMatch(
 function hasValidatedAssetMatch(
   assetIndex: ReturnType<typeof buildAssetIndex>,
   assetPath: string,
+  referenceKind: MJCFImportExternalAssetKind,
 ): boolean {
   const normalizedPath = normalizeLookupPath(assetPath);
   if (!normalizedPath) {
     return false;
   }
 
+  const allowFuzzyAssetMatch =
+    referenceKind === 'mesh' || referenceKind === 'hfield' || referenceKind === 'model';
   const candidatePaths = [
     normalizedPath,
     normalizedPath.replace(/^\/+/, ''),
     ...buildAdjacentDuplicateCollapsedVariants(normalizedPath),
+    ...(allowFuzzyAssetMatch ? buildDirectoryCollapsedVariants(normalizedPath) : []),
+    ...(allowFuzzyAssetMatch ? buildMeshExtensionVariants(normalizedPath) : []),
   ].filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
 
   return candidatePaths.some(
-    (candidatePath) =>
-      hasExactAssetPathMatch(assetIndex, candidatePath) ||
-      (candidatePath.startsWith('/') &&
-        hasExactAssetPathMatch(assetIndex, candidatePath.replace(/^\/+/, ''))),
+    (candidatePath) => {
+      const filename = candidatePath.split('/').pop() || '';
+      const filenameLower = filename.toLowerCase();
+      return (
+        hasExactAssetPathMatch(assetIndex, candidatePath) ||
+        (candidatePath.startsWith('/') &&
+          hasExactAssetPathMatch(assetIndex, candidatePath.replace(/^\/+/, ''))) ||
+        (allowFuzzyAssetMatch &&
+          (Boolean(filenameLower && assetIndex.filenameLower.has(filenameLower)) ||
+            assetIndex.cleanedPaths.some((knownPath) => {
+              const knownLower = knownPath.toLowerCase();
+              const candidateLower = candidatePath.toLowerCase().replace(/^\/+/, '');
+              return (
+                knownLower.endsWith(`/${candidateLower}`) ||
+                candidateLower.endsWith(`/${knownLower}`)
+              );
+            })))
+      );
+    },
   );
 }
 
@@ -244,7 +321,7 @@ function collectMissingAssetIssue(
     return null;
   }
 
-  if (hasValidatedAssetMatch(assetIndex, resolvedPath)) {
+  if (hasValidatedAssetMatch(assetIndex, resolvedPath, options.referenceKind)) {
     return 'matched';
   }
 
@@ -322,6 +399,17 @@ export function inspectMJCFImportExternalAssets(
     resolvedAssetCount: 0,
   };
   const assetSections = collectDirectChildElements(mujocoEl, 'asset');
+
+  collectDirectChildElements(mujocoEl, 'include').forEach((includeEl) => {
+    appendAssetValidationOutcome(summary, assetIndex, {
+      sourceFilePath,
+      referenceKind: 'include',
+      attributeName: 'file',
+      rawPath: includeEl.getAttribute('file'),
+      compilerDirectory: '',
+      elementName: null,
+    });
+  });
 
   assetSections.forEach((assetEl) => {
     collectDirectChildElements(assetEl, 'mesh').forEach((meshEl) => {

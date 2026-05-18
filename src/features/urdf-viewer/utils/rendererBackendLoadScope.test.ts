@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { DEFAULT_JOINT, DEFAULT_LINK, JointType, type RobotData, type RobotFile } from '@/types';
-import { createRendererBackendLoadScopeKey } from './rendererBackendLoadScope.ts';
+import {
+  createMemoizedRendererBackendLoadScopeKey,
+  createRendererBackendLoadScopeKey,
+  type RendererBackendLoadScopeKeyMemo,
+} from './rendererBackendLoadScope.ts';
 
 function createRobotData(angle: number): RobotData {
   return {
@@ -56,6 +60,79 @@ test('createRendererBackendLoadScopeKey ignores transient joint motion changes',
   });
 
   assert.equal(secondKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey reuses the key for transient joint motion only', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const robotData = createRobotData(0);
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile,
+      assets: {},
+      reloadToken: 0,
+      robotData,
+    },
+    memo,
+  );
+  const movedRobotData = {
+    ...robotData,
+    joints: {
+      ...robotData.joints,
+      shoulder: {
+        ...robotData.joints.shoulder,
+        angle: 1,
+      },
+    },
+  };
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile,
+      assets: {},
+      reloadToken: 0,
+      robotData: movedRobotData,
+    },
+    memo,
+  );
+
+  assert.equal(secondKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey recomputes for structural joint edits', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const robotData = createRobotData(0);
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile,
+      assets: {},
+      reloadToken: 0,
+      robotData,
+    },
+    memo,
+  );
+  const editedRobotData = {
+    ...robotData,
+    joints: {
+      ...robotData.joints,
+      shoulder: {
+        ...robotData.joints.shoulder,
+        limit: {
+          ...robotData.joints.shoulder.limit,
+          upper: 2,
+        },
+      },
+    },
+  };
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile,
+      assets: {},
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.notEqual(secondKey, firstKey);
 });
 
 test('createRendererBackendLoadScopeKey changes for structural robot edits', () => {

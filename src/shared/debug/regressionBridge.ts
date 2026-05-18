@@ -11,6 +11,13 @@ import type {
   UsdSceneSnapshot,
 } from '@/types';
 import { getLatestUsdStageLoadDebugEntry } from './usdStageLoadDebug';
+import { regressionDebugState } from './regressionState';
+import { setRegressionBeforeUnloadPromptSuppressed } from './regressionPromptSuppression';
+export {
+  isRegressionBeforeUnloadPromptSuppressed,
+  setRegressionBeforeUnloadPromptSuppressed,
+  subscribeRegressionBeforeUnloadPromptSuppression,
+} from './regressionPromptSuppression';
 
 type HighlightMode = 'link' | 'collision';
 
@@ -349,40 +356,6 @@ const DEFAULT_FLAGS: Required<RegressionViewerFlags> = {
   highlightMode: 'link',
   modelOpacity: 1,
 };
-
-let appHandlers: AppRegressionHandlers | null = null;
-let viewerHandlers: ViewerRegressionHandlers | null = null;
-let viewerResourceScopeState: RegressionViewerResourceScopeState | null = null;
-let runtimeRobot: any | null = null;
-let runtimeRevision = 0;
-let projectedInteractionTargetsProvider: (() => RegressionProjectedInteractionTarget[]) | null =
-  null;
-let regressionBeforeUnloadPromptSuppressed = false;
-const regressionBeforeUnloadPromptListeners = new Set<(suppressed: boolean) => void>();
-
-export function isRegressionBeforeUnloadPromptSuppressed(): boolean {
-  return regressionBeforeUnloadPromptSuppressed;
-}
-
-export function subscribeRegressionBeforeUnloadPromptSuppression(
-  listener: (suppressed: boolean) => void,
-): () => void {
-  regressionBeforeUnloadPromptListeners.add(listener);
-  return () => {
-    regressionBeforeUnloadPromptListeners.delete(listener);
-  };
-}
-
-export function setRegressionBeforeUnloadPromptSuppressed(suppressed: boolean): void {
-  if (regressionBeforeUnloadPromptSuppressed === suppressed) {
-    return;
-  }
-
-  regressionBeforeUnloadPromptSuppressed = suppressed;
-  regressionBeforeUnloadPromptListeners.forEach((listener) => {
-    listener(suppressed);
-  });
-}
 
 function toFixedArray(
   value: { x?: number; y?: number; z?: number } | [number, number, number] | undefined | null,
@@ -918,19 +891,19 @@ function buildRuntimeTransformSummary(
 }
 
 function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
-  const selectedFile = appHandlers?.getSelectedFile() ?? null;
+  const selectedFile = regressionDebugState.appHandlers?.getSelectedFile() ?? null;
   if (!selectedFile || selectedFile.format !== 'usd') {
     return null;
   }
 
-  const snapshot = appHandlers?.getUsdSceneSnapshot(selectedFile.name) ?? null;
+  const snapshot = regressionDebugState.appHandlers?.getUsdSceneSnapshot(selectedFile.name) ?? null;
   if (!snapshot) {
     return {
       available: false,
       fileName: selectedFile.name,
       stageSourcePath: null,
       defaultPrimPath: null,
-      rootLinkId: appHandlers?.getRobotState()?.rootLinkId ?? null,
+      rootLinkId: regressionDebugState.appHandlers?.getRobotState()?.rootLinkId ?? null,
       meshDescriptorCount: 0,
       materialCount: 0,
       bindingSummary: summarizeUsdDescriptorBindings([]),
@@ -954,7 +927,7 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
     };
   }
 
-  const rootLinkId = appHandlers?.getRobotState()?.rootLinkId ?? null;
+  const rootLinkId = regressionDebugState.appHandlers?.getRobotState()?.rootLinkId ?? null;
   const descriptors = Array.from(snapshot.render?.meshDescriptors || []);
   const bufferSummary = {
     positionCount: getUsdBufferLength(snapshot.buffers?.positions),
@@ -1042,7 +1015,7 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
       ...(normalDiagnostics ? { normalDiagnostics } : {}),
     } satisfies RegressionUsdBaseLinkDescriptorSummary;
   });
-  const runtimeSceneTransforms = summarizeRuntimeSceneTransforms(runtimeRobot);
+  const runtimeSceneTransforms = summarizeRuntimeSceneTransforms(regressionDebugState.runtimeRobot);
   const runtimeLinkTransform = runtimeSceneTransforms?.links.find(
     (entry) => rootLinkId && entry.name === rootLinkId,
   );
@@ -1125,12 +1098,12 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
 }
 
 function summarizeSelectedUsdVisualMaterials(): RegressionSelectedUsdVisualMaterialSummary | null {
-  const selectedFile = appHandlers?.getSelectedFile() ?? null;
+  const selectedFile = regressionDebugState.appHandlers?.getSelectedFile() ?? null;
   if (!selectedFile || selectedFile.format !== 'usd') {
     return null;
   }
 
-  const snapshot = appHandlers?.getUsdSceneSnapshot(selectedFile.name) ?? null;
+  const snapshot = regressionDebugState.appHandlers?.getUsdSceneSnapshot(selectedFile.name) ?? null;
   if (!snapshot) {
     return null;
   }
@@ -1187,12 +1160,12 @@ function summarizeSelectedUsdVisualMaterials(): RegressionSelectedUsdVisualMater
 }
 
 function summarizeSelectedUsdNormalDiagnostics(): RegressionSelectedUsdNormalDiagnosticsSummary | null {
-  const selectedFile = appHandlers?.getSelectedFile() ?? null;
+  const selectedFile = regressionDebugState.appHandlers?.getSelectedFile() ?? null;
   if (!selectedFile || selectedFile.format !== 'usd') {
     return null;
   }
 
-  const snapshot = appHandlers?.getUsdSceneSnapshot(selectedFile.name) ?? null;
+  const snapshot = regressionDebugState.appHandlers?.getUsdSceneSnapshot(selectedFile.name) ?? null;
   if (!snapshot) {
     return null;
   }
@@ -1315,7 +1288,7 @@ function summarizeJoint(joint: UrdfJoint) {
   };
 }
 
-function summarizeRobotState(robotState: RobotState) {
+function summarizeRobotState(robotState: Pick<RobotState, 'name' | 'links' | 'joints' | 'rootLinkId'>) {
   const links = Object.values(robotState.links || {});
   const joints = Object.values(robotState.joints || {});
   return {
@@ -1772,48 +1745,48 @@ function summarizeRuntimeSceneTransforms(robot: any) {
 }
 
 function getAvailableFilesSummary() {
-  if (!appHandlers) {
+  if (!regressionDebugState.appHandlers) {
     return [];
   }
 
-  return appHandlers.getAvailableFiles().map((file) => ({
+  return regressionDebugState.appHandlers.getAvailableFiles().map((file) => ({
     name: file.name,
     format: file.format,
   }));
 }
 
 export function setRegressionAppHandlers(handlers: AppRegressionHandlers | null): void {
-  appHandlers = handlers;
+  regressionDebugState.appHandlers = handlers;
 }
 
 export function setRegressionViewerHandlers(handlers: ViewerRegressionHandlers | null): void {
-  viewerHandlers = handlers;
+  regressionDebugState.viewerHandlers = handlers;
 }
 
 export function setRegressionViewerResourceScope(
   scope: RegressionViewerResourceScopeState | null,
 ): void {
-  viewerResourceScopeState = scope;
+  regressionDebugState.viewerResourceScopeState = scope;
 }
 
 export function setRegressionRuntimeRobot(robot: any | null): void {
-  runtimeRobot = robot;
-  runtimeRevision += 1;
+  regressionDebugState.runtimeRobot = robot;
+  regressionDebugState.runtimeRevision += 1;
 }
 
 export function setRegressionProjectedInteractionTargetsProvider(
   provider: (() => RegressionProjectedInteractionTarget[]) | null,
 ): void {
-  projectedInteractionTargetsProvider = provider;
+  regressionDebugState.projectedInteractionTargetsProvider = provider;
 }
 
 export function getRegressionSnapshot(): RegressionSnapshot {
-  const selectedFile = appHandlers?.getSelectedFile() ?? null;
-  const robotState = appHandlers?.getRobotState();
-  const interactionState = appHandlers?.getInteractionState() ?? null;
+  const selectedFile = regressionDebugState.appHandlers?.getSelectedFile() ?? null;
+  const robotState = regressionDebugState.appHandlers?.getRobotState();
+  const interactionState = regressionDebugState.appHandlers?.getInteractionState() ?? null;
   return {
     timestamp: Date.now(),
-    runtimeRevision,
+    runtimeRevision: regressionDebugState.runtimeRevision,
     availableFiles: getAvailableFilesSummary(),
     selectedFile: selectedFile ? { name: selectedFile.name, format: selectedFile.format } : null,
     store: robotState ? summarizeRobotState(robotState) : null,
@@ -1823,14 +1796,14 @@ export function getRegressionSnapshot(): RegressionSnapshot {
           hoveredSelection: summarizeInteractionSelection(interactionState.hoveredSelection),
         }
       : null,
-    viewer: viewerHandlers?.getSnapshot() ?? null,
-    runtime: summarizeRuntimeRobot(runtimeRobot),
+    viewer: regressionDebugState.viewerHandlers?.getSnapshot() ?? null,
+    runtime: summarizeRuntimeRobot(regressionDebugState.runtimeRobot),
   };
 }
 
 export function installRegressionDebugApi(targetWindow: Window): void {
   const resolveAvailableFile = (fileName: string): RobotFile | null =>
-    appHandlers?.getAvailableFiles().find((entry) => entry.name === fileName) ?? null;
+    regressionDebugState.appHandlers?.getAvailableFiles().find((entry) => entry.name === fileName) ?? null;
 
   const hasCommittedUsdSnapshot = (fileName: string, snapshot: RegressionSnapshot): boolean => {
     const committedEntry = getLatestUsdStageLoadDebugEntry(
@@ -1868,7 +1841,7 @@ export function installRegressionDebugApi(targetWindow: Window): void {
 
     while (Date.now() - startedAt < timeoutMs) {
       const snapshot = getRegressionSnapshot();
-      const documentLoadState = appHandlers?.getDocumentLoadState() ?? null;
+      const documentLoadState = regressionDebugState.appHandlers?.getDocumentLoadState() ?? null;
       const isMatchingDocumentState = documentLoadState?.fileName === fileName;
       const runtimeResolveEntry = getLatestUsdStageLoadDebugEntry(
         targetWindow,
@@ -1922,7 +1895,7 @@ export function installRegressionDebugApi(targetWindow: Window): void {
     getAvailableFiles: () => getAvailableFilesSummary(),
     getRegressionSnapshot: () => getRegressionSnapshot(),
     getDocumentLoadState: () => {
-      const documentLoadState = appHandlers?.getDocumentLoadState() ?? null;
+      const documentLoadState = regressionDebugState.appHandlers?.getDocumentLoadState() ?? null;
       return documentLoadState
         ? {
             status: documentLoadState.status,
@@ -1932,9 +1905,9 @@ export function installRegressionDebugApi(targetWindow: Window): void {
           }
         : null;
     },
-    getProjectedInteractionTargets: () => projectedInteractionTargetsProvider?.() ?? [],
+    getProjectedInteractionTargets: () => regressionDebugState.projectedInteractionTargetsProvider?.() ?? [],
     getAssetDebugState: () => {
-      const appAssetDebugState = appHandlers?.getAssetDebugState() ?? {
+      const appAssetDebugState = regressionDebugState.appHandlers?.getAssetDebugState() ?? {
         appAssetKeys: [],
         preparedUsdCacheKeysByFile: {},
       };
@@ -1942,31 +1915,31 @@ export function installRegressionDebugApi(targetWindow: Window): void {
       return {
         appAssetKeys: appAssetDebugState.appAssetKeys,
         preparedUsdCacheKeysByFile: appAssetDebugState.preparedUsdCacheKeysByFile,
-        viewerScopedAssetKeys: viewerResourceScopeState?.assetKeys ?? [],
-        viewerScopedAvailableFileNames: viewerResourceScopeState?.availableFileNames ?? [],
-        viewerScopedSourceFileName: viewerResourceScopeState?.sourceFileName ?? null,
-        viewerScopedSourceFilePath: viewerResourceScopeState?.sourceFilePath ?? null,
-        viewerScopedSignature: viewerResourceScopeState?.signature ?? null,
+        viewerScopedAssetKeys: regressionDebugState.viewerResourceScopeState?.assetKeys ?? [],
+        viewerScopedAvailableFileNames: regressionDebugState.viewerResourceScopeState?.availableFileNames ?? [],
+        viewerScopedSourceFileName: regressionDebugState.viewerResourceScopeState?.sourceFileName ?? null,
+        viewerScopedSourceFilePath: regressionDebugState.viewerResourceScopeState?.sourceFilePath ?? null,
+        viewerScopedSignature: regressionDebugState.viewerResourceScopeState?.signature ?? null,
       };
     },
     getSelectedUsdSceneSummary: () => summarizeSelectedUsdScene(),
     getSelectedUsdVisualMaterialSummary: () => summarizeSelectedUsdVisualMaterials(),
     getSelectedUsdNormalDiagnostics: () => summarizeSelectedUsdNormalDiagnostics(),
-    getRuntimeSceneTransforms: () => summarizeRuntimeSceneTransforms(runtimeRobot),
+    getRuntimeSceneTransforms: () => summarizeRuntimeSceneTransforms(regressionDebugState.runtimeRobot),
     setBeforeUnloadPromptEnabled: (enabled: boolean) => {
       setRegressionBeforeUnloadPromptSuppressed(!enabled);
       return { ok: true, enabled };
     },
     resetFixtureFiles: () => {
-      if (!appHandlers?.resetFixtureFiles) {
+      if (!regressionDebugState.appHandlers?.resetFixtureFiles) {
         return { ok: false, availableFileCount: getAvailableFilesSummary().length };
       }
 
-      appHandlers.resetFixtureFiles();
+      regressionDebugState.appHandlers.resetFixtureFiles();
       return { ok: true, availableFileCount: getAvailableFilesSummary().length };
     },
     seedFixtureFile: (file) => {
-      if (!appHandlers?.seedFixtureFile) {
+      if (!regressionDebugState.appHandlers?.seedFixtureFile) {
         return { ok: false, availableFileCount: getAvailableFilesSummary().length };
       }
 
@@ -1976,7 +1949,7 @@ export function installRegressionDebugApi(targetWindow: Window): void {
           ? rawFormat
           : 'asset'
       ) as RobotFile['format'];
-      const result = appHandlers.seedFixtureFile({
+      const result = regressionDebugState.appHandlers.seedFixtureFile({
         name: String(file?.name || ''),
         content: String(file?.content || ''),
         format,
@@ -1986,12 +1959,12 @@ export function installRegressionDebugApi(targetWindow: Window): void {
       return { ok: true, availableFileCount: result.availableFileCount };
     },
     loadRobotByName: async (fileName: string) => {
-      if (!appHandlers) {
+      if (!regressionDebugState.appHandlers) {
         throw new Error('Regression app handlers are not registered.');
       }
 
       setRegressionRuntimeRobot(null);
-      const result = await appHandlers.loadRobotByName(fileName);
+      const result = await regressionDebugState.appHandlers.loadRobotByName(fileName);
       const snapshot = result.loaded
         ? await waitForStableSnapshot(fileName)
         : getRegressionSnapshot();
@@ -2001,19 +1974,19 @@ export function installRegressionDebugApi(targetWindow: Window): void {
       };
     },
     setViewerFlags: (flags: RegressionViewerFlags) => {
-      if (!viewerHandlers) {
+      if (!regressionDebugState.viewerHandlers) {
         return { ok: false };
       }
 
-      viewerHandlers.setFlags(flags);
+      regressionDebugState.viewerHandlers.setFlags(flags);
       return { ok: true };
     },
     setViewerToolMode: (toolMode: string) => {
-      if (!viewerHandlers) {
+      if (!regressionDebugState.viewerHandlers) {
         return { ok: false, changed: false, activeMode: null };
       }
 
-      const result = viewerHandlers.setToolMode(toolMode);
+      const result = regressionDebugState.viewerHandlers.setToolMode(toolMode);
       return {
         ok: true,
         changed: result.changed,
@@ -2021,13 +1994,13 @@ export function installRegressionDebugApi(targetWindow: Window): void {
       };
     },
     setViewerJointAngles: (jointAngles: Record<string, number>) => {
-      if (!viewerHandlers) {
+      if (!regressionDebugState.viewerHandlers) {
         return { ok: false, changed: false };
       }
 
-      const result = viewerHandlers.setJointAngles(jointAngles);
-      runtimeRobot?.updateMatrixWorld?.(true);
-      runtimeRevision += 1;
+      const result = regressionDebugState.viewerHandlers.setJointAngles(jointAngles);
+      regressionDebugState.runtimeRobot?.updateMatrixWorld?.(true);
+      regressionDebugState.runtimeRevision += 1;
       return { ok: true, changed: result.changed };
     },
   };

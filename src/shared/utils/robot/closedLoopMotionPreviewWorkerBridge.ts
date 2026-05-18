@@ -1,18 +1,35 @@
-import type { ClosedLoopMotionCompensation } from '@/core/robot/closedLoops';
+import type {
+  ClosedLoopDrivenJointMotionResult,
+  ClosedLoopMotionCompensation,
+  ClosedLoopMotionSolveOptions,
+} from '@/core/robot/closedLoops';
 import type { RobotState } from '@/types';
+import type { ClosedLoopMotionPreviewState } from './closedLoopMotionPreview';
+
+type ClosedLoopMotionPreviewWorkerSolveOptions = Omit<
+  ClosedLoopMotionSolveOptions,
+  'angles' | 'quaternions' | 'lockedJointIds'
+>;
 
 interface ClosedLoopMotionPreviewWorkerRequest {
   type: 'resolve-motion-preview';
   requestId: number;
-  robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>;
+  robot?: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>;
   jointId: string;
   angle: number;
+  options?: ClosedLoopMotionPreviewWorkerSolveOptions;
+  previewState?: ClosedLoopMotionPreviewState;
+}
+
+interface ClosedLoopMotionPreviewWorkerSetBaseRobotRequest {
+  type: 'set-base-robot';
+  robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'> | null;
 }
 
 interface ClosedLoopMotionPreviewWorkerSuccessResponse {
   type: 'resolve-motion-preview-result';
   requestId: number;
-  compensation: ClosedLoopMotionCompensation;
+  solution: ClosedLoopDrivenJointMotionResult;
 }
 
 interface ClosedLoopMotionPreviewWorkerErrorResponse {
@@ -26,13 +43,16 @@ type ClosedLoopMotionPreviewWorkerResponse =
   | ClosedLoopMotionPreviewWorkerErrorResponse;
 
 interface PendingRequest {
-  resolve: (value: ClosedLoopMotionCompensation) => void;
+  resolve: (value: ClosedLoopDrivenJointMotionResult) => void;
   reject: (error: unknown) => void;
 }
 
 const pendingRequests = new Map<number, PendingRequest>();
 let requestIdCounter = 0;
 let sharedWorker: Worker | null = null;
+let sharedWorkerBaseRobot:
+  | Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>
+  | null = null;
 let workerUnavailable = false;
 
 function clearPendingRequest(requestId: number): PendingRequest | null {
@@ -52,6 +72,7 @@ function disposeSharedWorker(rejectPendingWith?: unknown): void {
     sharedWorker.terminate();
     sharedWorker = null;
   }
+  sharedWorkerBaseRobot = null;
 
   if (rejectPendingWith !== undefined) {
     pendingRequests.forEach((request, requestId) => {
@@ -77,7 +98,7 @@ function handleWorkerMessage(event: MessageEvent<ClosedLoopMotionPreviewWorkerRe
     return;
   }
 
-  pendingRequest.resolve(message.compensation);
+  pendingRequest.resolve(message.solution);
 }
 
 function handleWorkerError(event: ErrorEvent): void {
@@ -100,11 +121,13 @@ function ensureSharedWorker(): Worker {
   return sharedWorker;
 }
 
-export async function resolveClosedLoopJointMotionCompensationWithWorker(
+export async function resolveClosedLoopDrivenJointMotionWithWorker(
   robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>,
   jointId: string,
   angle: number,
-): Promise<ClosedLoopMotionCompensation> {
+  options: ClosedLoopMotionPreviewWorkerSolveOptions = {},
+  previewState?: ClosedLoopMotionPreviewState,
+): Promise<ClosedLoopDrivenJointMotionResult> {
   if (workerUnavailable) {
     throw new Error('Closed-loop motion preview worker is unavailable');
   }
@@ -113,7 +136,7 @@ export async function resolveClosedLoopJointMotionCompensationWithWorker(
     throw new Error('Web Worker is not available in this environment');
   }
 
-  return new Promise<ClosedLoopMotionCompensation>((resolve, reject) => {
+  return new Promise<ClosedLoopDrivenJointMotionResult>((resolve, reject) => {
     const requestId = ++requestIdCounter;
     let worker: Worker;
 
@@ -125,12 +148,29 @@ export async function resolveClosedLoopJointMotionCompensationWithWorker(
       return;
     }
 
+    try {
+      if (sharedWorkerBaseRobot !== robot) {
+        const setBaseRequest: ClosedLoopMotionPreviewWorkerSetBaseRobotRequest = {
+          type: 'set-base-robot',
+          robot,
+        };
+        worker.postMessage(setBaseRequest);
+        sharedWorkerBaseRobot = robot;
+      }
+    } catch (error) {
+      workerUnavailable = true;
+      disposeSharedWorker(error);
+      reject(error);
+      return;
+    }
+
     const request: ClosedLoopMotionPreviewWorkerRequest = {
       type: 'resolve-motion-preview',
       requestId,
-      robot,
       jointId,
       angle,
+      options,
+      previewState,
     };
 
     pendingRequests.set(requestId, { resolve, reject });
@@ -144,6 +184,18 @@ export async function resolveClosedLoopJointMotionCompensationWithWorker(
       reject(error);
     }
   });
+}
+
+export async function resolveClosedLoopJointMotionCompensationWithWorker(
+  robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>,
+  jointId: string,
+  angle: number,
+): Promise<ClosedLoopMotionCompensation> {
+  const solution = await resolveClosedLoopDrivenJointMotionWithWorker(robot, jointId, angle);
+  return {
+    angles: solution.angles,
+    quaternions: solution.quaternions,
+  };
 }
 
 export function disposeClosedLoopMotionPreviewWorker(rejectPendingWith?: unknown): void {

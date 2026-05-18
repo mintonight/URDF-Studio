@@ -7,6 +7,7 @@ import { solveClosedLoopMotionCompensation } from './closedLoops';
 import {
   computeLinkWorldMatrices,
   createOriginMatrix,
+  getJointActualAngleFromMotionAngle,
   getJointEffectiveAngle,
   getNormalizedJointAxis,
   getParentJointByChildLink,
@@ -60,6 +61,7 @@ export type LinkIkSolveFailureReason =
 
 export interface LinkIkPositionSolveRequest {
   linkId: string;
+  anchorLocal?: Vector3;
   targetWorldPosition: Vector3;
   seedAngles?: JointAngleOverrideMap;
   seedQuaternions?: JointQuaternionOverrideMap;
@@ -523,6 +525,18 @@ export function resolveDirectManipulableLinkIkDescriptor(
   return buildLinkIkHandleDescriptor(robot, link, linkId, chainResult.chain.jointIds);
 }
 
+export function resolveDirectManipulableLinkIkJointIds(
+  robot: Pick<RobotData, 'links' | 'joints' | 'rootLinkId'>,
+  linkId: string,
+): string[] | null {
+  if (!robot.links[linkId] || linkId === robot.rootLinkId) {
+    return null;
+  }
+
+  const chainResult = collectLinkIkChain(robot, linkId);
+  return chainResult.chain ? [...chainResult.chain.jointIds] : null;
+}
+
 export function resolveLinkIkHandleDescriptors(
   robot: Pick<RobotData, 'links' | 'joints' | 'rootLinkId'>,
 ): LinkIkHandleDescriptor[] {
@@ -763,7 +777,8 @@ function buildPositionJacobian(
       return [tempJointAxis.x, tempJointAxis.y, tempJointAxis.z];
     }
 
-    tempJacobianColumn.copy(effectorWorldPosition).sub(tempJointPosition).cross(tempJointAxis);
+    tempEffectorPosition.subVectors(effectorWorldPosition, tempJointPosition);
+    tempJacobianColumn.copy(tempJointAxis).cross(tempEffectorPosition);
     return [tempJacobianColumn.x, tempJacobianColumn.y, tempJacobianColumn.z];
   });
 }
@@ -833,8 +848,9 @@ function applyIkStep(
             -IK_SOLVER_STEP_ANGLE_LIMIT,
             IK_SOLVER_STEP_ANGLE_LIMIT,
           );
-    const currentAngle = getJointEffectiveAngle(joint, baseOverrides.angles ?? {});
-    const requestedActualAngle = currentAngle + boundedDelta;
+    const currentMotionAngle = getJointEffectiveAngle(joint, baseOverrides.angles ?? {});
+    const requestedMotionAngle = currentMotionAngle + boundedDelta;
+    const requestedActualAngle = getJointActualAngleFromMotionAngle(joint, requestedMotionAngle);
 
     nextAngles[variable.jointId] = clampJointActualAngle(
       robot,
@@ -949,16 +965,19 @@ export function solveLinkIkPositionTarget(
   request: LinkIkPositionSolveRequest,
 ): LinkIkPositionSolveResult {
   const descriptor =
-    resolveDirectManipulableLinkIkDescriptor(robot, request.linkId) ??
-    resolveLinkIkHandleDescriptor(robot, request.linkId);
+    request.anchorLocal === undefined
+      ? (resolveDirectManipulableLinkIkDescriptor(robot, request.linkId) ??
+        resolveLinkIkHandleDescriptor(robot, request.linkId))
+      : null;
   const chainResult = collectLinkIkChain(robot, request.linkId);
   const maxIterations = request.maxIterations ?? 20;
   const positionTolerance = request.positionTolerance ?? 1e-3;
   const stallTolerance = request.stallTolerance ?? 1e-5;
   const damping = request.damping ?? 1e-3;
   const coordinatePairMaxDistance = request.coordinatePairMaxDistance ?? Number.POSITIVE_INFINITY;
+  const anchorLocal = request.anchorLocal ?? descriptor?.anchorLocal;
 
-  if (!descriptor || !chainResult.chain) {
+  if (!anchorLocal || !chainResult.chain) {
     return {
       angles: {},
       quaternions: {},
@@ -975,7 +994,7 @@ export function solveLinkIkPositionTarget(
   let acceptedEvaluation = buildLinkIkEvaluation(
     robot,
     request.linkId,
-    descriptor.anchorLocal,
+    anchorLocal,
     tempTargetWorldPosition,
     buildSeedOverrides(robot, chainResult.chain, request),
     lockedJointIds,
@@ -1043,7 +1062,7 @@ export function solveLinkIkPositionTarget(
       const candidateEvaluation = buildLinkIkEvaluation(
         robot,
         request.linkId,
-        descriptor.anchorLocal,
+        anchorLocal,
         tempTargetWorldPosition,
         scaledOverrides,
         lockedJointIds,
@@ -1071,7 +1090,7 @@ export function solveLinkIkPositionTarget(
         chainResult.chain,
         acceptedEvaluation,
         request.linkId,
-        descriptor.anchorLocal,
+        anchorLocal,
         tempTargetWorldPosition,
         lockedJointIds,
         {

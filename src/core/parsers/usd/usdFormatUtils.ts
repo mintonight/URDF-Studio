@@ -39,8 +39,72 @@ function getUsdRootCandidateScore(path: string): number {
   return 4;
 }
 
+const USD_ROOT_VARIANT_TOKEN_PENALTY = new Map<string, number>([
+  ['with', 3],
+  ['hand', 8],
+  ['gripper', 8],
+  ['inspire', 8],
+  ['brainco', 8],
+  ['ftp', 10],
+  ['dfq', 10],
+  ['mode', 7],
+  ['lock', 6],
+  ['waist', 4],
+  ['dual', 8],
+  ['arm', 4],
+  ['comp', 5],
+]);
+
 function isSupportedUsdPath(path: string): boolean {
   return SUPPORTED_USD_EXTENSIONS.has(getUsdExtension(path));
+}
+
+function getUsdBaseName(path: string): string {
+  const normalizedPath = String(path || '').trim();
+  const parts = normalizedPath.split('/');
+  return parts[parts.length - 1] || normalizedPath;
+}
+
+function getUsdStem(path: string): string {
+  const baseName = getUsdBaseName(path);
+  const lastDotIndex = baseName.lastIndexOf('.');
+  return (lastDotIndex >= 0 ? baseName.slice(0, lastDotIndex) : baseName).toLowerCase();
+}
+
+function tokenizeUsdRootIdentity(path: string): string[] {
+  return getUsdStem(path)
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+function getUsdRootVariantPenalty(path: string): number {
+  const tokens = tokenizeUsdRootIdentity(path);
+  const tokenSet = new Set(tokens);
+  let penalty = 0;
+
+  tokens.forEach((token) => {
+    penalty += USD_ROOT_VARIANT_TOKEN_PENALTY.get(token) ?? 0;
+  });
+
+  if (tokenSet.has('with') && (tokenSet.has('hand') || tokenSet.has('gripper'))) {
+    penalty += 6;
+  }
+
+  if (tokenSet.has('lock') && tokenSet.has('waist')) {
+    penalty += 4;
+  }
+
+  if (tokenSet.has('dual') && tokenSet.has('arm')) {
+    penalty += 6;
+  }
+
+  return penalty;
+}
+
+function compareUsdPathStable(left: string, right: string): number {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
 }
 
 export function isViewerRoundtripUsdRootPath(path: string): boolean {
@@ -130,11 +194,15 @@ export function pickPreferredUsdRootFile<T extends { name: string }>(files: T[])
     const rightConfigPenalty = isLikelyNonRenderableUsdConfigPath(right.name) ? 1 : 0;
     if (leftConfigPenalty !== rightConfigPenalty) return leftConfigPenalty - rightConfigPenalty;
 
+    const variantPenaltyDiff =
+      getUsdRootVariantPenalty(left.name) - getUsdRootVariantPenalty(right.name);
+    if (variantPenaltyDiff !== 0) return variantPenaltyDiff;
+
     const extensionScoreDiff =
       getUsdRootCandidateScore(left.name) - getUsdRootCandidateScore(right.name);
     if (extensionScoreDiff !== 0) return extensionScoreDiff;
 
-    return left.name.localeCompare(right.name);
+    return compareUsdPathStable(left.name, right.name);
   });
 
   return candidatePool[0] ?? null;

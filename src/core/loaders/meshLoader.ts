@@ -19,6 +19,10 @@ import { buildExplicitlyScaledMeshPathHints, hasExplicitMeshScaleHint } from './
 import { mitigateCoplanarMaterialZFighting } from './coplanarMaterialOffset';
 import { type ColladaRootNormalizationHints } from './colladaRootNormalization';
 import { loadColladaScene } from './colladaParseWorkerBridge';
+import {
+  createSceneFromSerializedColladaData,
+  parseColladaSceneData,
+} from './colladaWorkerSceneData';
 import { cleanFilePath } from './pathNormalization';
 import {
   failFastInDev,
@@ -27,6 +31,7 @@ import {
 } from '@/core/utils/runtimeDiagnostics';
 import { MATERIAL_CONFIG } from '@/core/utils/materialFactory';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
+import { ensureWorkerXmlDomApis } from '@/core/utils/ensureWorkerXmlDomApis';
 import { createGeometryFromSerializedMshData, parseMshGeometryData } from './mshGeometryData';
 import { cloneObjSceneWithOwnedResources, loadObjScene } from './objMaterialUtils';
 import { createGeometryFromSerializedStlData } from './stlGeometryData';
@@ -92,6 +97,33 @@ export const postProcessColladaScene = (root: THREE.Object3D): number => {
   _tempBox.getSize(_tempSize);
   return Math.max(_tempSize.x, _tempSize.y, _tempSize.z);
 };
+
+async function loadColladaSceneForMeshLoader(
+  assetUrl: string,
+  manager: THREE.LoadingManager,
+): Promise<THREE.Object3D> {
+  if (typeof Worker !== 'undefined') {
+    try {
+      return await loadColladaScene(assetUrl, manager);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/collada parse worker is (?:unavailable|not available)/i.test(message)) {
+        throw error;
+      }
+      console.warn(`[MeshLoader] ${message}; parsing Collada asset in-process.`);
+    }
+  }
+
+  ensureWorkerXmlDomApis();
+  const response = await fetch(assetUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch Collada asset: ${response.status} ${response.statusText}`);
+  }
+
+  const content = await response.text();
+  const serializedScene = parseColladaSceneData(content, assetUrl);
+  return createSceneFromSerializedColladaData(serializedScene, { manager });
+}
 
 // ============================================================
 // PERFORMANCE: Pre-indexed asset lookup for O(1) complexity
@@ -886,12 +918,23 @@ export const createLoadingManager = (assets: Record<string, string>, urdfDir: st
 // Shared placeholder geometry (created once)
 const PLACEHOLDER_GEOMETRY = new THREE.BoxGeometry(0.05, 0.05, 0.05);
 
+interface MeshLoadIssue {
+  message: string;
+  path: string;
+}
+
 // Optional placeholder mesh for callers that explicitly opt into degraded rendering.
-export const createPlaceholderMesh = (path: string): THREE.Object3D => {
+export const createPlaceholderMesh = (
+  path: string,
+  meshLoadIssue?: MeshLoadIssue,
+): THREE.Object3D => {
   // Use shared geometry and material to avoid shader recompilation
   const mesh = new THREE.Mesh(PLACEHOLDER_GEOMETRY, PLACEHOLDER_MATERIAL);
   mesh.userData.isPlaceholder = true;
   mesh.userData.missingMeshPath = path;
+  if (meshLoadIssue) {
+    mesh.userData.meshLoadIssue = meshLoadIssue;
+  }
   return mesh;
 };
 
@@ -1048,18 +1091,50 @@ export const createMeshLoader = (
   const allowPlaceholderMeshes = options.allowPlaceholderMeshes === true;
   const yieldIfNeeded =
     options.yieldIfNeeded ?? createMainThreadYieldController(options.yieldBudgetMs);
+  const placeholderMeshFailures: MeshLoadIssue[] = [];
+  let placeholderMeshFailureWarningScheduled = false;
+
+  const schedulePlaceholderMeshFailureWarning = (issue: MeshLoadIssue) => {
+    placeholderMeshFailures.push(issue);
+    if (placeholderMeshFailureWarningScheduled) {
+      return;
+    }
+
+    placeholderMeshFailureWarningScheduled = true;
+    setTimeout(() => {
+      placeholderMeshFailureWarningScheduled = false;
+      const failures = placeholderMeshFailures.splice(0);
+      if (failures.length === 0) {
+        return;
+      }
+
+      console.warn(
+        `[MeshLoader] Missing ${failures.length} mesh asset(s); rendering placeholders instead.`,
+        failures.slice(0, 20).map((failure) => failure.path),
+      );
+    }, 0);
+  };
 
   const resolveMeshFailure = (
     path: string,
     message: string,
     cause?: unknown,
-  ): { error: Error; object: THREE.Object3D | null } => {
+  ): { error?: Error; object: THREE.Object3D | null } => {
     const error = normalizeRuntimeError(cause, message);
+    const issue: MeshLoadIssue = { message, path };
+
+    if (allowPlaceholderMeshes) {
+      schedulePlaceholderMeshFailureWarning(issue);
+      return {
+        object: createPlaceholderMesh(path, issue),
+      };
+    }
+
     logRuntimeFailure('MeshLoader', new Error(`${message} (${path})`, { cause: error }));
 
     return {
       error,
-      object: allowPlaceholderMeshes ? createPlaceholderMesh(path) : null,
+      object: null,
     };
   };
 
@@ -1108,7 +1183,7 @@ export const createMeshLoader = (
       }
 
       if (ext === 'dae') {
-        const scene = await loadColladaScene(assetUrl, manager);
+        const scene = await loadColladaSceneForMeshLoader(assetUrl, manager);
 
         await yieldIfNeeded();
         const maxDimension = postProcessColladaScene(scene);

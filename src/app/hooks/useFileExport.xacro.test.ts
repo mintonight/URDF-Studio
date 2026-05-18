@@ -159,7 +159,6 @@ function resetStoresToBaseline() {
   useUIStore.setState({
     lang: 'en',
     appMode: 'editor',
-    sidebarTab: 'structure',
   });
 
   useAssemblyStore.setState({
@@ -383,7 +382,6 @@ test('useFileExport packages selected xacro sources as an exportable xacro zip',
   useUIStore.setState({
     lang: 'en',
     appMode: 'editor',
-    sidebarTab: 'structure',
   });
 
   useAssetsStore.getState().setAvailableFiles([selectedFile]);
@@ -604,7 +602,6 @@ test('useFileExport packages ROS1 xacro exports with gazebo_ros_control metadata
   useUIStore.setState({
     lang: 'en',
     appMode: 'editor',
-    sidebarTab: 'structure',
   });
 
   useAssetsStore.getState().setAvailableFiles([selectedFile]);

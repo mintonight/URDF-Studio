@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import { parseColladaSceneData } from '../colladaWorkerSceneData';
+import { ensureWorkerXmlDomApis } from '../../utils/ensureWorkerXmlDomApis';
 import type {
   ColladaParseWorkerResponse,
   ParseColladaWorkerRequest,
@@ -24,6 +25,7 @@ self.addEventListener('message', async (event: MessageEvent<ParseColladaWorkerRe
   }
 
   try {
+    ensureWorkerXmlDomApis();
     const colladaText = await loadColladaText(message.assetUrl);
     const result = parseColladaSceneData(colladaText, message.assetUrl);
     const response: ColladaParseWorkerResponse = {

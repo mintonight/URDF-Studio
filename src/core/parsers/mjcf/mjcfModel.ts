@@ -136,6 +136,11 @@ export interface MJCFModelJointEqualityConstraint {
   polycoef: [number, number, number, number, number];
 }
 
+export interface MJCFModelKeyframe {
+  name?: string;
+  qpos?: number[];
+}
+
 export interface MJCFModelBody {
   name: string;
   sourceName?: string;
@@ -162,6 +167,7 @@ export interface ParsedMJCFModel {
   tendonMap: Map<string, MJCFModelTendon>;
   connectConstraints: MJCFModelConnectConstraint[];
   jointEqualityConstraints: MJCFModelJointEqualityConstraint[];
+  keyframes: MJCFModelKeyframe[];
   worldBody: MJCFModelBody;
 }
 
@@ -397,8 +403,8 @@ function parseActuatorData(
 } {
   const actuatorMap = new Map<string, MJCFModelActuator[]>();
   const tendonActuators: MJCFModelActuator[] = [];
-  const actuatorElement = directChild(mujocoElement, 'actuator');
-  if (!actuatorElement) {
+  const actuatorElements = directChildren(mujocoElement, 'actuator');
+  if (actuatorElements.length === 0) {
     return { actuatorMap, tendonActuators };
   }
 
@@ -413,54 +419,61 @@ function parseActuatorData(
     'adhesion',
   ] as const;
   const actuatorTagSet = new Set<string>(actuatorTags);
-  Array.from(actuatorElement.children).forEach((child) => {
-    const actuatorType = child.tagName.toLowerCase();
-    if (!actuatorTagSet.has(actuatorType)) {
-      return;
-    }
+  actuatorElements.forEach((actuatorElement) => {
+    Array.from(actuatorElement.children).forEach((child) => {
+      const actuatorType = child.tagName.toLowerCase();
+      if (!actuatorTagSet.has(actuatorType)) {
+        return;
+      }
 
-    const actuatorAttrs = resolveElementAttributes(
-      defaults,
-      actuatorType as (typeof actuatorTags)[number],
-      child,
-    );
-    const actuatorClassQName = resolveDefaultClassQName(defaults, child.getAttribute('class'));
-    const jointName = child.getAttribute('joint') || actuatorAttrs.joint || undefined;
-    const tendonName = child.getAttribute('tendon') || actuatorAttrs.tendon || undefined;
-    if (!jointName && !tendonName) {
-      return;
-    }
+      const actuatorAttrs = resolveElementAttributes(
+        defaults,
+        actuatorType as (typeof actuatorTags)[number],
+        child,
+      );
+      const actuatorClassQName = resolveDefaultClassQName(defaults, child.getAttribute('class'));
+      const jointName = child.getAttribute('joint') || actuatorAttrs.joint || undefined;
+      const tendonName = child.getAttribute('tendon') || actuatorAttrs.tendon || undefined;
+      if (!jointName && !tendonName) {
+        return;
+      }
 
-    const ctrlrange = toOptionalRangeTuple(parseNumbers(actuatorAttrs.ctrlrange || null));
-    const forcerange = toOptionalRangeTuple(parseNumbers(actuatorAttrs.forcerange || null));
-    const gear = parseNumbers(actuatorAttrs.gear || null);
-    const actuator: MJCFModelActuator = {
-      name:
-        child.getAttribute('name') || actuatorAttrs.name || jointName || tendonName || actuatorType,
-      type: actuatorType,
-      className: actuatorClassQName?.split('/').pop() || child.getAttribute('class') || undefined,
-      classQName: actuatorClassQName,
-      joint: jointName,
-      tendon: tendonName,
-      ctrlrange,
-      forcerange,
-      gear: gear.length > 0 ? gear : undefined,
-      ctrllimited:
-        parseBooleanAttribute(actuatorAttrs.ctrllimited) ??
-        (compilerSettings.autolimits && ctrlrange ? true : undefined),
-      forcelimited:
-        parseBooleanAttribute(actuatorAttrs.forcelimited) ??
-        (compilerSettings.autolimits && forcerange ? true : undefined),
-    };
+      const ctrlrange = toOptionalRangeTuple(parseNumbers(actuatorAttrs.ctrlrange || null));
+      const forcerange = toOptionalRangeTuple(parseNumbers(actuatorAttrs.forcerange || null));
+      const gear = parseNumbers(actuatorAttrs.gear || null);
+      const actuator: MJCFModelActuator = {
+        name:
+          child.getAttribute('name') ||
+          actuatorAttrs.name ||
+          jointName ||
+          tendonName ||
+          actuatorType,
+        type: actuatorType,
+        className:
+          actuatorClassQName?.split('/').pop() || child.getAttribute('class') || undefined,
+        classQName: actuatorClassQName,
+        joint: jointName,
+        tendon: tendonName,
+        ctrlrange,
+        forcerange,
+        gear: gear.length > 0 ? gear : undefined,
+        ctrllimited:
+          parseBooleanAttribute(actuatorAttrs.ctrllimited) ??
+          (compilerSettings.autolimits && ctrlrange ? true : undefined),
+        forcelimited:
+          parseBooleanAttribute(actuatorAttrs.forcelimited) ??
+          (compilerSettings.autolimits && forcerange ? true : undefined),
+      };
 
-    if (!jointName) {
-      tendonActuators.push(actuator);
-      return;
-    }
+      if (!jointName) {
+        tendonActuators.push(actuator);
+        return;
+      }
 
-    const existing = actuatorMap.get(jointName) || [];
-    existing.push(actuator);
-    actuatorMap.set(jointName, existing);
+      const existing = actuatorMap.get(jointName) || [];
+      existing.push(actuator);
+      actuatorMap.set(jointName, existing);
+    });
   });
 
   return { actuatorMap, tendonActuators };
@@ -523,6 +536,22 @@ function parseJointEqualityConstraints(mujocoElement: Element): MJCFModelJointEq
   });
 
   return constraints;
+}
+
+function parseKeyframes(mujocoElement: Element): MJCFModelKeyframe[] {
+  return directChildren(mujocoElement, 'keyframe').flatMap((keyframeElement) =>
+    directChildren(keyframeElement, 'key')
+      .map((keyElement): MJCFModelKeyframe => {
+        const qpos = parseNumbers(keyElement.getAttribute('qpos'));
+        const name = keyElement.getAttribute('name')?.trim() || undefined;
+
+        return {
+          ...(name ? { name } : {}),
+          ...(qpos.length > 0 ? { qpos } : {}),
+        };
+      })
+      .filter((keyframe) => Boolean(keyframe.name || keyframe.qpos)),
+  );
 }
 
 function resolveChildDefaultsClassQName(
@@ -720,104 +749,107 @@ function parseTendonMap(
   compilerSettings: MJCFCompilerSettings,
 ): Map<string, MJCFModelTendon> {
   const tendonMap = new Map<string, MJCFModelTendon>();
-  const tendonElement = directChild(mujocoElement, 'tendon');
-  if (!tendonElement) {
+  const tendonElements = directChildren(mujocoElement, 'tendon');
+  if (tendonElements.length === 0) {
     return tendonMap;
   }
 
   let tendonIndex = 0;
-  Array.from(tendonElement.children).forEach((child) => {
-    const tendonType = child.tagName.toLowerCase();
-    if (tendonType !== 'fixed' && tendonType !== 'spatial') {
-      return;
-    }
-
-    const tendonClassQName = resolveDefaultClassQName(defaults, child.getAttribute('class'));
-    const tendonAttrs = resolveElementAttributes(defaults, 'tendon', child, tendonClassQName);
-    const parsedRange = toOptionalRangeTuple(parseNumbers(tendonAttrs.range || null));
-    const attachments: MJCFModelTendonAttachment[] = [];
-
-    Array.from(child.children).forEach((attachmentElement) => {
-      const attachmentType = attachmentElement.tagName.toLowerCase();
-      if (attachmentType === 'site') {
-        attachments.push({
-          type: 'site',
-          ref: attachmentElement.getAttribute('site') || undefined,
-        });
+  tendonElements.forEach((tendonElement) => {
+    Array.from(tendonElement.children).forEach((child) => {
+      const tendonType = child.tagName.toLowerCase();
+      if (tendonType !== 'fixed' && tendonType !== 'spatial') {
         return;
       }
 
-      if (attachmentType === 'geom') {
-        attachments.push({
-          type: 'geom',
-          ref: attachmentElement.getAttribute('geom') || undefined,
-          sidesite: attachmentElement.getAttribute('sidesite') || undefined,
-        });
-        return;
+      const tendonClassQName = resolveDefaultClassQName(defaults, child.getAttribute('class'));
+      const tendonAttrs = resolveElementAttributes(defaults, 'tendon', child, tendonClassQName);
+      const parsedRange = toOptionalRangeTuple(parseNumbers(tendonAttrs.range || null));
+      const attachments: MJCFModelTendonAttachment[] = [];
+
+      Array.from(child.children).forEach((attachmentElement) => {
+        const attachmentType = attachmentElement.tagName.toLowerCase();
+        if (attachmentType === 'site') {
+          attachments.push({
+            type: 'site',
+            ref: attachmentElement.getAttribute('site') || undefined,
+          });
+          return;
+        }
+
+        if (attachmentType === 'geom') {
+          attachments.push({
+            type: 'geom',
+            ref: attachmentElement.getAttribute('geom') || undefined,
+            sidesite: attachmentElement.getAttribute('sidesite') || undefined,
+          });
+          return;
+        }
+
+        if (attachmentType === 'joint') {
+          const coefAttr = attachmentElement.getAttribute('coef');
+          attachments.push({
+            type: 'joint',
+            ref: attachmentElement.getAttribute('joint') || undefined,
+            coef: coefAttr != null && coefAttr !== '' ? parseFloat(coefAttr) : undefined,
+          });
+          return;
+        }
+
+        if (attachmentType === 'pulley') {
+          const divisorAttr = attachmentElement.getAttribute('divisor');
+          attachments.push({
+            type: 'pulley',
+            divisor:
+              divisorAttr != null && divisorAttr !== '' ? parseFloat(divisorAttr) : undefined,
+          });
+        }
+      });
+
+      const tendonName = tendonAttrs.name || `tendon_${tendonIndex}`;
+      const tendon: MJCFModelTendon = {
+        name: tendonName,
+        sourceName: child.getAttribute('name') || tendonAttrs.name || undefined,
+        className: tendonClassQName?.split('/').pop() || child.getAttribute('class') || undefined,
+        classQName: tendonClassQName,
+        type: tendonType,
+        limited:
+          parseBooleanAttribute(tendonAttrs.limited) ??
+          (compilerSettings.autolimits && parsedRange ? true : undefined),
+        range: parsedRange,
+        rgba: toRgbaTuple(tendonAttrs.rgba),
+        attachments,
+      };
+
+      if (tendonAttrs.group != null && tendonAttrs.group !== '') {
+        const parsedGroup = parseFloat(tendonAttrs.group);
+        if (Number.isFinite(parsedGroup)) {
+          tendon.group = parsedGroup;
+        }
       }
 
-      if (attachmentType === 'joint') {
-        const coefAttr = attachmentElement.getAttribute('coef');
-        attachments.push({
-          type: 'joint',
-          ref: attachmentElement.getAttribute('joint') || undefined,
-          coef: coefAttr != null && coefAttr !== '' ? parseFloat(coefAttr) : undefined,
-        });
-        return;
+      if (tendonAttrs.width != null && tendonAttrs.width !== '') {
+        const parsedWidth = parseFloat(tendonAttrs.width);
+        if (Number.isFinite(parsedWidth)) {
+          tendon.width = parsedWidth;
+        }
+      }
+      if (tendonAttrs.stiffness != null && tendonAttrs.stiffness !== '') {
+        const parsedStiffness = parseFloat(tendonAttrs.stiffness);
+        if (Number.isFinite(parsedStiffness)) {
+          tendon.stiffness = parsedStiffness;
+        }
+      }
+      if (tendonAttrs.springlength != null && tendonAttrs.springlength !== '') {
+        const parsedSpringLength = parseFloat(tendonAttrs.springlength);
+        if (Number.isFinite(parsedSpringLength)) {
+          tendon.springlength = parsedSpringLength;
+        }
       }
 
-      if (attachmentType === 'pulley') {
-        const divisorAttr = attachmentElement.getAttribute('divisor');
-        attachments.push({
-          type: 'pulley',
-          divisor: divisorAttr != null && divisorAttr !== '' ? parseFloat(divisorAttr) : undefined,
-        });
-      }
+      tendonMap.set(tendonName, tendon);
+      tendonIndex += 1;
     });
-
-    const tendonName = tendonAttrs.name || `tendon_${tendonIndex}`;
-    const tendon: MJCFModelTendon = {
-      name: tendonName,
-      sourceName: child.getAttribute('name') || tendonAttrs.name || undefined,
-      className: tendonClassQName?.split('/').pop() || child.getAttribute('class') || undefined,
-      classQName: tendonClassQName,
-      type: tendonType,
-      limited:
-        parseBooleanAttribute(tendonAttrs.limited) ??
-        (compilerSettings.autolimits && parsedRange ? true : undefined),
-      range: parsedRange,
-      rgba: toRgbaTuple(tendonAttrs.rgba),
-      attachments,
-    };
-
-    if (tendonAttrs.group != null && tendonAttrs.group !== '') {
-      const parsedGroup = parseFloat(tendonAttrs.group);
-      if (Number.isFinite(parsedGroup)) {
-        tendon.group = parsedGroup;
-      }
-    }
-
-    if (tendonAttrs.width != null && tendonAttrs.width !== '') {
-      const parsedWidth = parseFloat(tendonAttrs.width);
-      if (Number.isFinite(parsedWidth)) {
-        tendon.width = parsedWidth;
-      }
-    }
-    if (tendonAttrs.stiffness != null && tendonAttrs.stiffness !== '') {
-      const parsedStiffness = parseFloat(tendonAttrs.stiffness);
-      if (Number.isFinite(parsedStiffness)) {
-        tendon.stiffness = parsedStiffness;
-      }
-    }
-    if (tendonAttrs.springlength != null && tendonAttrs.springlength !== '') {
-      const parsedSpringLength = parseFloat(tendonAttrs.springlength);
-      if (Number.isFinite(parsedSpringLength)) {
-        tendon.springlength = parsedSpringLength;
-      }
-    }
-
-    tendonMap.set(tendonName, tendon);
-    tendonIndex += 1;
   });
 
   return tendonMap;
@@ -1411,7 +1443,7 @@ export function parseMJCFModel(xmlContent: string): ParsedMJCFModel | null {
   }
 
   try {
-    const { doc, parseErrorText, recovered } = parseMJCFXmlDocument(xmlContent);
+    const { doc, parseErrorText } = parseMJCFXmlDocument(xmlContent);
     if (!doc) {
       console.error('[MJCF] XML parsing error:', parseErrorText ?? 'unknown parse error');
       return rememberParsedModel(
@@ -1419,9 +1451,6 @@ export function parseMJCFModel(xmlContent: string): ParsedMJCFModel | null {
         null,
         parseErrorText ? `XML parsing error: ${parseErrorText}` : 'XML parsing error.',
       );
-    }
-    if (recovered) {
-      console.warn('[MJCF] Recovered malformed XML by repairing missing attribute whitespace.');
     }
 
     const mujocoElement = doc.querySelector('mujoco');
@@ -1438,6 +1467,7 @@ export function parseMJCFModel(xmlContent: string): ParsedMJCFModel | null {
     const textureMap = parseTextureAssets(doc, compilerSettings, defaults);
     const connectConstraints = parseConnectConstraints(mujocoElement);
     const jointEqualityConstraints = parseJointEqualityConstraints(mujocoElement);
+    const keyframes = parseKeyframes(mujocoElement);
     const worldbodyElements = directChildren(mujocoElement, 'worldbody');
     if (worldbodyElements.length === 0) {
       console.error('[MJCF] No <worldbody> element found');
@@ -1521,6 +1551,7 @@ export function parseMJCFModel(xmlContent: string): ParsedMJCFModel | null {
         tendonMap,
         connectConstraints,
         jointEqualityConstraints,
+        keyframes,
         worldBody,
       },
       null,

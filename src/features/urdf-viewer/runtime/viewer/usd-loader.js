@@ -925,15 +925,17 @@ export async function loadUsdStage(args) {
         if (!activeRenderInterface || typeof activeRenderInterface.getCachedRobotSceneSnapshot !== "function") {
             return null;
         }
+        let stageSourcePath = null;
         try {
-            const stageSourcePath = String(activeRenderInterface.getStageSourcePath?.() || "").trim() || null;
+            stageSourcePath = String(activeRenderInterface.getStageSourcePath?.() || "").trim() || null;
             const snapshot = activeRenderInterface.getCachedRobotSceneSnapshot(stageSourcePath);
             if (!snapshot || typeof snapshot !== "object")
                 return null;
             const stageSnapshot = snapshot.stage;
             return stageSnapshot && typeof stageSnapshot === "object" ? stageSnapshot : null;
         }
-        catch {
+        catch (error) {
+            console.error(`[usd-loader] Failed to read cached robot scene stage snapshot for ${stageSourcePath || "active-stage"}.`, error);
             return null;
         }
     };
@@ -967,8 +969,9 @@ export async function loadUsdStage(args) {
                 truthLoadError: null,
             };
         }
+        let stageSourcePath = null;
         try {
-            const stageSourcePath = String(activeRenderInterface.getStageSourcePath?.() || "").trim() || null;
+            stageSourcePath = String(activeRenderInterface.getStageSourcePath?.() || "").trim() || null;
             const snapshot = activeRenderInterface.getCachedRobotMetadataSnapshot(stageSourcePath);
             if (!snapshot || typeof snapshot !== "object") {
                 return {
@@ -1006,7 +1009,8 @@ export async function loadUsdStage(args) {
                 truthLoadError,
             };
         }
-        catch {
+        catch (error) {
+            console.error(`[usd-loader] Failed to read cached robot metadata snapshot stats for ${stageSourcePath || "active-stage"}.`, error);
             return {
                 hasSnapshot: false,
                 jointCount: 0,

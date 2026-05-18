@@ -75,7 +75,7 @@ interface ExecuteUsdExportParams {
   t: ExportTranslations;
   resolveLibraryRobotForExport: (file: RobotFile) => Promise<RobotState>;
   getFileBaseName: (path: string) => string;
-  resolveExportContext: (target?: ExportTarget) => ExportContext | null;
+  resolveExportContext: (target?: ExportTarget) => Promise<ExportContext | null>;
   createProgressReporter: (
     onProgress: HandleExportWithConfigOptions['onProgress'],
     totalSteps: number,
@@ -121,7 +121,7 @@ export async function executeUsdExport({
           robot: await resolveLibraryRobotForExport(target.file),
           exportName: getFileBaseName(target.file.name),
         }
-      : resolveExportContext(target);
+      : await resolveExportContext(target);
 
   if (!exportContext) {
     if (requiresResolvedUsdContext) {

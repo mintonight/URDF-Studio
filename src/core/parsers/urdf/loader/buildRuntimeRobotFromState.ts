@@ -14,11 +14,11 @@ import {
   resolveVisualMaterialOverride as resolveRobotVisualMaterialOverride,
 } from '@/core/robot';
 import { createBoxFaceMaterialArray } from '@/core/utils/boxFaceMaterialArray';
-import { getCollisionBoxDisplayCylinderTransform } from '@/core/utils/collisionBoxDisplay';
 import { createMatteMaterial } from '@/core/utils/materialFactory';
 import { applyVisualMeshMaterialGroupsToObject } from '@/core/utils/meshMaterialGroups';
 import { forceObjectMaterialSide } from '@/core/utils/three/materialSide';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
+import { getJointMotionAngleFromActualAngle } from '@/core/robot/kinematics';
 import {
   createTerrainBlendMaterial,
   loadTexturesForBlending,
@@ -75,6 +75,69 @@ function applyOrigin(
   object.position.set(xyz.x, xyz.y, xyz.z);
   object.rotation.set(0, 0, 0);
   applyRotation(object, [rpy.r, rpy.p, rpy.y]);
+}
+
+type RuntimeBallJoint = URDFJoint & {
+  jointQuaternion: THREE.Quaternion;
+  setJointQuaternion: (value: RobotJoint['quaternion']) => boolean;
+};
+
+function createFiniteQuaternion(value: RobotJoint['quaternion']): THREE.Quaternion | null {
+  if (!value) {
+    return null;
+  }
+
+  const quaternion = new THREE.Quaternion(value.x, value.y, value.z, value.w);
+  if (
+    !Number.isFinite(quaternion.x) ||
+    !Number.isFinite(quaternion.y) ||
+    !Number.isFinite(quaternion.z) ||
+    !Number.isFinite(quaternion.w) ||
+    quaternion.lengthSq() <= 0
+  ) {
+    return null;
+  }
+
+  return quaternion.normalize();
+}
+
+function attachBallJointQuaternionState(joint: URDFJoint, jointData: RobotJoint): void {
+  if (jointData.type !== JointType.BALL) {
+    return;
+  }
+
+  const ballJoint = joint as RuntimeBallJoint;
+  const originQuaternion = joint.quaternion.clone();
+  joint.origQuaternion = originQuaternion.clone();
+  joint.userData.initialQuaternion = originQuaternion.clone();
+  ballJoint.jointQuaternion = new THREE.Quaternion();
+  ballJoint.setJointQuaternion = function setJointQuaternion(value: RobotJoint['quaternion']) {
+    const motionQuaternion = createFiniteQuaternion(value);
+    if (!motionQuaternion) {
+      return false;
+    }
+
+    const initialQuaternion =
+      this.origQuaternion ??
+      (this.userData.initialQuaternion as THREE.Quaternion | undefined) ??
+      this.quaternion.clone();
+    this.origQuaternion = initialQuaternion.clone();
+    this.userData.initialQuaternion = initialQuaternion.clone();
+    this.jointQuaternion.copy(motionQuaternion);
+    this.jointValue = [
+      motionQuaternion.x,
+      motionQuaternion.y,
+      motionQuaternion.z,
+      motionQuaternion.w,
+    ];
+    this.quaternion.copy(initialQuaternion).multiply(motionQuaternion);
+    this.updateMatrixWorld(true);
+    return true;
+  };
+
+  if (jointData.quaternion) {
+    ballJoint.setJointQuaternion(jointData.quaternion);
+  }
 }
 
 function loadedObjectShouldPreserveEmbeddedMaterials(object: THREE.Object3D): boolean {
@@ -347,12 +410,24 @@ function applyMeshScale(group: THREE.Object3D, geometry: RobotLink['visual']): v
   );
 }
 
+function hasMirroredMeshScale(geometry: RobotLink['visual']): boolean {
+  if (geometry.type !== GeometryType.MESH) {
+    return false;
+  }
+
+  const scale = geometry.dimensions;
+  const x = Number.isFinite(scale?.x) ? scale.x : 1;
+  const y = Number.isFinite(scale?.y) ? scale.y : 1;
+  const z = Number.isFinite(scale?.z) ? scale.z : 1;
+  return x * y * z < 0;
+}
+
 function applyVisualMaterialSidePolicy(
   object: THREE.Object3D,
   geometry: RobotLink['visual'],
   isCollision: boolean,
 ): void {
-  if (isCollision || geometry.doubleSided !== true) {
+  if (isCollision || (geometry.doubleSided !== true && !hasMirroredMeshScale(geometry))) {
     return;
   }
 
@@ -568,14 +643,6 @@ function createPrimitiveMesh(
   const boxFacePalette = !isCollision ? getBoxFaceMaterialPalette(geometry) : [];
 
   if (geometry.type === GeometryType.BOX) {
-    if (isCollision) {
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 30), material);
-      const { scale, rotation } = getCollisionBoxDisplayCylinderTransform(dimensions);
-      mesh.scale.set(...scale);
-      mesh.rotation.set(...rotation);
-      return mesh;
-    }
-
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(1, 1, 1),
       boxFacePalette.length > 0
@@ -652,6 +719,7 @@ export interface BuildRuntimeRobotFromStateOptions {
   links: Record<string, RobotLink>;
   joints: Record<string, RobotJoint>;
   materials?: RobotData['materials'];
+  inspectionContext?: RobotData['inspectionContext'];
   manager: THREE.LoadingManager;
   loadMeshCb: MeshLoadFunc;
   parseVisual?: boolean;
@@ -665,6 +733,7 @@ export async function buildRuntimeRobotFromState({
   links,
   joints,
   materials,
+  inspectionContext,
   manager,
   loadMeshCb,
   parseVisual = true,
@@ -682,6 +751,17 @@ export async function buildRuntimeRobotFromState({
   robot.name = robotName || '';
   robot.urdfName = robot.name;
   robot.userData.displayName = robotName || '';
+  if (inspectionContext?.sourceFormat === 'mjcf' && inspectionContext.mjcf?.tendons.length) {
+    robot.userData.__mjcfTendonsData = inspectionContext.mjcf.tendons
+      .filter((tendon) => tendon.type === 'spatial')
+      .map((tendon) => ({
+        name: tendon.name,
+        rgba: tendon.rgba ? ([...tendon.rgba] as [number, number, number, number]) : undefined,
+        attachmentRefs: [...tendon.attachmentRefs],
+        attachments: tendon.attachments.map((attachment) => ({ ...attachment })),
+        width: tendon.width,
+      }));
+  }
 
   const addGeometryGroup = (
     linkKey: string,
@@ -715,6 +795,12 @@ export async function buildRuntimeRobotFromState({
     group.userData.runtimeKey = runtimeKey;
     group.userData.parentLinkId = linkKey;
     group.userData.displayName = runtimeKey;
+    group.userData.geometryRole = isCollision ? 'collision' : 'visual';
+    group.userData.geometryType = geometry.type;
+    group.userData.geometryDimensions = { ...geometry.dimensions };
+    if (geometry.name) {
+      group.userData.geometryName = geometry.name;
+    }
 
     applyOrigin(group, geometry.origin);
     applyMeshScale(group, geometry);
@@ -866,6 +952,24 @@ export async function buildRuntimeRobotFromState({
     linkTarget.urdfName = linkKey;
     linkTarget.userData.displayName = linkData.name || linkKey;
     linkTarget.userData.linkId = linkKey;
+    if (linkData.mjcfSites?.length) {
+      linkTarget.userData.__mjcfSitesData = linkData.mjcfSites.map((site) => {
+        const clonedSite = { ...site };
+        if (site.size) {
+          clonedSite.size = [...site.size];
+        }
+        if (site.rgba) {
+          clonedSite.rgba = [...site.rgba] as [number, number, number, number];
+        }
+        if (site.pos) {
+          clonedSite.pos = [...site.pos] as [number, number, number];
+        }
+        if (site.quat) {
+          clonedSite.quat = [...site.quat] as [number, number, number, number];
+        }
+        return clonedSite;
+      });
+    }
     linkMap[linkKey] = linkTarget;
 
     if (parseVisual) {
@@ -922,8 +1026,8 @@ export async function buildRuntimeRobotFromState({
     }
 
     if (jointData.limit) {
-      joint.limit.lower = jointData.limit.lower;
-      joint.limit.upper = jointData.limit.upper;
+      joint.limit.lower = getJointMotionAngleFromActualAngle(jointData, jointData.limit.lower);
+      joint.limit.upper = getJointMotionAngleFromActualAngle(jointData, jointData.limit.upper);
       joint.limit.effort = jointData.limit.effort;
       joint.limit.velocity = jointData.limit.velocity;
     }
@@ -935,10 +1039,15 @@ export async function buildRuntimeRobotFromState({
     }
 
     applyOrigin(joint, jointData.origin);
-    if (typeof jointData.angle === 'number' && Number.isFinite(jointData.angle)) {
+    attachBallJointQuaternionState(joint, jointData);
+    if (
+      jointData.type !== JointType.BALL &&
+      typeof jointData.angle === 'number' &&
+      Number.isFinite(jointData.angle)
+    ) {
       const originalIgnoreLimits = joint.ignoreLimits;
       joint.ignoreLimits = true;
-      joint.setJointValue(jointData.angle);
+      joint.setJointValue(getJointMotionAngleFromActualAngle(jointData, jointData.angle));
       joint.ignoreLimits = originalIgnoreLimits;
     }
     jointMap[jointKey] = joint;

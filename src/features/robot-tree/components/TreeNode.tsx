@@ -16,6 +16,7 @@ import { TreeNodeGeometrySection } from './tree-node/TreeNodeGeometrySection';
 import { TreeNodeJointBranchList } from './tree-node/TreeNodeJointBranchList';
 import { TreeNodeLinkRow } from './tree-node/TreeNodeLinkRow';
 import { getTreeConnectorRailClass, scrollElementIntoView } from './tree-node/presentation';
+import { stripTreeDisplayNamePrefix } from './tree-node/treeDisplayNames';
 import { shouldAutoExpandTreeGeometryDetails } from './tree-node/treeGeometryDisclosure';
 import type {
   TreeNodeContextMenuState,
@@ -48,10 +49,12 @@ export interface TreeNodeProps {
   depth?: number;
   readOnly?: boolean;
   storeDriven?: boolean;
+  componentDisplayNamePrefix?: string;
 }
 
 const EMPTY_TREE_SELECTION: Selection = { type: null, id: null };
 const EMPTY_CHILD_JOINTS: RobotState['joints'][string][] = [];
+const EMPTY_LINKS: RobotState['links'] = {};
 
 export const TreeNode = memo(
   ({
@@ -72,6 +75,7 @@ export const TreeNode = memo(
     depth = 0,
     readOnly = false,
     storeDriven = false,
+    componentDisplayNamePrefix,
   }: TreeNodeProps) => {
     const [isExpanded, setIsExpanded] = useState(true);
     const [isGeometryExpanded, setIsGeometryExpanded] = useState(showGeometryDetailsByDefault);
@@ -85,14 +89,35 @@ export const TreeNode = memo(
     const collisionBodyRowRefs = useRef<Record<number, HTMLDivElement | null>>({});
     const jointRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const storeLink = useRobotStore((state) => (storeDriven ? state.links[linkId] : undefined));
-    const storeLinks = useRobotStore((state) => (storeDriven ? state.links : undefined));
-    const storeJoints = useRobotStore((state) => (storeDriven ? state.joints : undefined));
+    const storeInspectionContext = useRobotStore((state) =>
+      storeDriven ? state.inspectionContext : undefined,
+    );
     const storeChildJoints = useRobotStore(
       useShallow((state) =>
         storeDriven
           ? Object.values(state.joints).filter((joint) => joint.parentLinkId === linkId)
           : EMPTY_CHILD_JOINTS,
       ),
+    );
+    const storeChildLinks = useRobotStore(
+      useShallow((state) => {
+        if (!storeDriven) {
+          return EMPTY_LINKS;
+        }
+
+        const links: RobotState['links'] = {};
+        Object.values(state.joints).forEach((joint) => {
+          if (joint.parentLinkId !== linkId) {
+            return;
+          }
+
+          const childLink = state.links[joint.childLinkId];
+          if (childLink) {
+            links[joint.childLinkId] = childLink;
+          }
+        });
+        return links;
+      }),
     );
     const storeSelection = useSelectionStore((state) => state.selection);
     const link = storeDriven ? storeLink : robot?.links[linkId];
@@ -111,24 +136,33 @@ export const TreeNode = memo(
       () => new Set(childJoints.map((joint) => joint.id)),
       [childJoints],
     );
-    const selectionRobotContext = useMemo(
-      () =>
-        storeDriven
-          ? {
-              links: storeLinks ?? {},
-              joints: storeJoints ?? {},
-            }
-          : {
-              links: robot?.links ?? {},
-              joints: robot?.joints ?? {},
-            },
-      [robot?.joints, robot?.links, storeDriven, storeJoints, storeLinks],
+    const childBranchKey = useMemo(
+      () => childJoints.map((joint) => `${joint.id}:${joint.childLinkId}`).join('\u0000'),
+      [childJoints],
     );
-    const effectiveSelection = useMemo(() => {
-      const fallbackSelection = robot?.selection ?? EMPTY_TREE_SELECTION;
-      const rawSelection = storeSelection.type ? storeSelection : fallbackSelection;
-      return resolveTreeSelectionIdentity(rawSelection, selectionRobotContext);
-    }, [robot?.selection, selectionRobotContext, storeSelection]);
+    const selectionRobotContext = useMemo(
+      () => {
+        if (!storeDriven) {
+          return {
+            links: robot?.links ?? {},
+            joints: robot?.joints ?? {},
+          };
+        }
+
+        return {
+          links: {
+            ...(link ? { [linkId]: link } : {}),
+            ...storeChildLinks,
+          },
+          joints: childJointsById,
+        };
+      },
+      [childJointsById, link, linkId, robot?.joints, robot?.links, storeChildLinks, storeDriven],
+    );
+    const effectiveSelection = useMemo(
+      () => resolveTreeSelectionIdentity(storeSelection, selectionRobotContext),
+      [selectionRobotContext, storeSelection],
+    );
     const setHoveredSelection = useSelectionStore((state) => state.setHoveredSelection);
     const clearHover = useSelectionStore((state) => state.clearHover);
     const setSelection = useSelectionStore((state) => state.setSelection);
@@ -225,25 +259,34 @@ export const TreeNode = memo(
       return null;
     }
 
-    const sourceFormat = robot?.inspectionContext?.sourceFormat;
-    const linkDisplayName = sourceFormat === 'mjcf' ? getMjcfLinkDisplayName(link) : link.name;
-    const linkLookup = storeDriven ? storeLinks : robot?.links;
+    const sourceFormat = (storeDriven ? storeInspectionContext : robot?.inspectionContext)
+      ?.sourceFormat;
+    const rawLinkDisplayName = sourceFormat === 'mjcf' ? getMjcfLinkDisplayName(link) : link.name;
+    const linkDisplayName = stripTreeDisplayNamePrefix(
+      rawLinkDisplayName,
+      componentDisplayNamePrefix,
+    );
+    const linkLookup = storeDriven ? storeChildLinks : robot?.links;
     const childLinkDisplayNames = childJoints.reduce<Record<string, string>>((acc, joint) => {
       const childLink = linkLookup?.[joint.childLinkId];
       if (!childLink) {
         return acc;
       }
 
-      acc[joint.childLinkId] =
+      const rawChildLinkDisplayName =
         sourceFormat === 'mjcf' ? getMjcfLinkDisplayName(childLink) : childLink.name;
+      acc[joint.childLinkId] = stripTreeDisplayNamePrefix(
+        rawChildLinkDisplayName,
+        componentDisplayNamePrefix,
+      );
       return acc;
     }, {});
 
     const robotSelection = effectiveSelection;
 
-    const linkRowIndentPx = 4;
-    const jointRowIndentPx = 10;
-    const geometryRowIndentPx = 24;
+    const linkRowIndentPx = 3;
+    const jointRowIndentPx = 5;
+    const geometryRowIndentPx = 12;
     const hasChildren = childJoints.length > 0;
     const hasExpandableContent = hasChildren;
     const isTransparentLink = storeDriven
@@ -317,6 +360,10 @@ export const TreeNode = memo(
         : null;
     const isLinkConnectorHighlighted =
       isLinkSelected || isLinkHovered || isLinkAttentionHighlighted || selectionInBranch;
+
+    useEffect(() => {
+      setIsExpanded(true);
+    }, [childBranchKey, linkId]);
 
     useEffect(() => {
       if (selectionInBranch && hasExpandableContent) {
@@ -453,6 +500,7 @@ export const TreeNode = memo(
           sourceFormat={sourceFormat}
           parentLinkDisplayName={linkDisplayName}
           childLinkDisplayNames={childLinkDisplayNames}
+          componentDisplayNamePrefix={componentDisplayNamePrefix}
           t={t}
           readOnly={readOnly}
           onSelect={onSelect}
@@ -483,6 +531,7 @@ export const TreeNode = memo(
               depth={depth}
               readOnly={readOnly}
               storeDriven={storeDriven}
+              componentDisplayNamePrefix={componentDisplayNamePrefix}
             />
           )}
         />
@@ -540,7 +589,7 @@ export const TreeNode = memo(
         </div>
 
         {(isExpanded || isGeometryExpanded) && (
-          <div className="relative ml-3">
+          <div className="relative ml-1">
             <div
               className={`absolute left-0 top-0 bottom-2 w-[1.5px] rounded-full ${getTreeConnectorRailClass(isLinkConnectorHighlighted)}`}
             />
@@ -593,6 +642,7 @@ export const TreeNode = memo(
                 sourceFormat={sourceFormat}
                 parentLinkDisplayName={linkDisplayName}
                 childLinkDisplayNames={childLinkDisplayNames}
+                componentDisplayNamePrefix={componentDisplayNamePrefix}
                 t={t}
                 onSelect={onSelect}
                 onDelete={onDelete}
@@ -623,6 +673,7 @@ export const TreeNode = memo(
                     depth={depth + 1}
                     readOnly={readOnly}
                     storeDriven={storeDriven}
+                    componentDisplayNamePrefix={componentDisplayNamePrefix}
                   />
                 )}
               />

@@ -1,6 +1,6 @@
 # 导入导出与 Workspace 链路
 
-> 最后更新：2026-04-15 | 覆盖源码：`src/app/hooks/`、`src/app/utils/`、`src/app/workers/`、`src/features/file-io/`、`src/features/robot-tree/`、`src/features/assembly/`、`src/features/property-editor/`
+> 最后更新：2026-05-13 | 覆盖源码：`src/app/hooks/`、`src/app/utils/`、`src/app/workers/`、`src/features/file-io/`、`src/features/robot-tree/`、`src/features/assembly/`、`src/features/property-editor/`
 > 交叉引用：[viewer.md](viewer.md)、[architecture.md](architecture.md)
 
 ## 1. 职责拆分
@@ -51,6 +51,7 @@
 - `useCollisionOptimizationWorkflow`：碰撞优化 UI 流程
 - `usePendingHistoryCoordinator`：pending history 生命周期协调
 - `useToolItems`：工具箱注册表（新增工具唯一需要改的文件）
+- `usePluginLaunch`：读取 `?plugin=<key>` URL 参数并调用 `openTool(key)` 激活插件工具，参数消费后从 URL 移除
 
 ### app/utils/ 重点
 
@@ -82,12 +83,62 @@
 
 ## 5. Workspace 交互
 
-- `structure`：简单文件树
-- `workspace`：素材库 + 组装树
+- `structure`：当前模型视图
+- `workspace`：装配工作区视图
 - 文件加入组装入口：右键菜单"添加"、文件行右侧绿色按钮
-- 单击文件直接加入组装
+- 单击机器人文件打开为当前模型；显式"添加"才加入组装
 
-## 6. 明确热点文件（新增逻辑优先抽离）
+## 6. 跨域 Handoff 接收端
+
+BOT World Gallery → URDF Studio 的资产传递接收端，不可删除。
+
+### 路径 A — assetId 直传（主路径）
+
+```text
+BOT-World 构造 URL ?import=<assetId>&from=<botworld_origin> → window.open 新标签页
+  → useAssetImportFromUrl 检测 URL 参数
+  → BroadcastChannel 广播 import-request（等待 1s）
+    → 已有 Studio tab 回复 import-accepted → 新 tab 关闭 → 已有 tab 执行导入
+    → 无已有 tab 回复 → 当前 tab 执行导入
+  → Studio 调用 BOT-World POST /api/download-asset → 获取文件列表 → 下载 → handleImport
+```
+
+- BOT-World 通过 `resolveHandoffEditorForCategory(asset.category)` 确定目标 Studio
+- Studio 验证 `from` origin 白名单后调用 BOT-World API 获取文件列表（含预签名下载 URL）
+- 逐个下载文件，设置 `webkitRelativePath` 保持文件夹结构
+- 调用 `handleImport(files)` 导入到编辑器
+- 进度展示通过 `BotWorldImportOverlay` 独立组件（居中遮罩，不依赖 LoadingHud）
+
+**关键文件：**
+
+| 文件 | 用途 |
+|------|------|
+| `src/app/hooks/useAssetImportFromUrl.ts` | 核心 hook：URL 参数解析、BroadcastChannel 已有 tab 检测、assetId 下载导入 |
+| `src/app/components/BotWorldImportOverlay.tsx` | 导入进度遮罩 UI（waiting / fetching / downloading / importing） |
+| `src/shared/utils/popupHandoffProtocol.ts` | 协议常量、origin 白名单、URL 参数 helper |
+
+### 路径 C — 插件激活
+
+```text
+BOT-World 构造 URL ?plugin=<key> → window.open 新标签页
+  → usePluginLaunch hook 读取 ?plugin=<key> → openTool(key)
+  → 参数消费后从 URL 移除
+```
+
+- `usePluginLaunch`（`src/app/hooks/usePluginLaunch.ts`）：读取 `?plugin=<key>` URL 参数，通过 `requestAnimationFrame` 双帧等待后调用 `openTool(key)`，参数消费后从 URL 移除
+
+### 协议与安全
+
+| 项目 | 值 |
+|------|-----|
+| BroadcastChannel 名称 | `botworld-handoff`（三端共享） |
+| 超时时间 | `HANDOFF_BROADCAST_TIMEOUT_MS = 1000` |
+| Origin 校验 | `ALLOWED_HANDOFF_ORIGINS` 白名单 |
+| 认证 | Studio 使用 `VITE_API_TOKEN` 调用 BOT-World API |
+
+约束：三端（BOT World、URDF Studio、Motion Studio）的 `popupHandoffProtocol.ts` 必须保持 origin 白名单和 BroadcastChannel 常量一致。
+
+## 7. 明确热点文件（新增逻辑优先抽离）
 
 - `src/features/property-editor/utils/geometryConversion.ts`
 - `src/features/file-io/utils/usdExport.ts`

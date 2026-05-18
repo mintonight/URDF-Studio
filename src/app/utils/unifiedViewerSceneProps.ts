@@ -1,12 +1,11 @@
 import type { Object3D as ThreeObject3D } from 'three';
+import type { ViewerDocumentLoadEvent, ViewerProps } from '@/features/urdf-viewer/types';
+import type { ViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
 import {
   buildViewerSceneProps,
-  type ViewerController,
-  type ViewerProps,
   type ViewerSceneBaseProps,
-  type ViewerDocumentLoadEvent,
-  type ViewerResourceScope,
-} from '@/features/editor';
+} from '@/features/urdf-viewer/utils/viewerSceneProps';
+import type { ViewerResourceScope } from '@/features/urdf-viewer/utils/viewerResourceScope';
 import type { AssemblyState, AssemblyTransform, RobotFile, RobotState } from '@/types';
 import type { AssemblySelection } from '@/store/assemblySelectionStore';
 
@@ -95,6 +94,7 @@ export function buildUnifiedViewerSceneProps({
 }: BuildUnifiedViewerScenePropsArgs): ViewerSceneBaseProps {
   const blocksReadOnlyModelInteraction = hasActivePreview || !modelInteractionEnabled;
   const previewBlocksInteraction = blocksReadOnlyModelInteraction || !active;
+  const shouldRenderFromStructuredRobotState = !hasActivePreview;
 
   return buildViewerSceneProps({
     controller,
@@ -117,8 +117,9 @@ export function buildUnifiedViewerSceneProps({
     onHover: previewBlocksInteraction ? undefined : onHover,
     onMeshSelect: previewBlocksInteraction ? undefined : onMeshSelect,
     onUpdate: blocksReadOnlyModelInteraction ? undefined : onUpdate,
-    robotLinks: blocksReadOnlyModelInteraction ? undefined : robot.links,
-    robotJoints: blocksReadOnlyModelInteraction ? undefined : robot.joints,
+    robotLinks: shouldRenderFromStructuredRobotState ? robot.links : undefined,
+    robotJoints: shouldRenderFromStructuredRobotState ? robot.joints : undefined,
+    robotData: shouldRenderFromStructuredRobotState ? robot : null,
     focusTarget: blocksReadOnlyModelInteraction ? undefined : focusTarget,
     onCollisionTransformPreview: blocksReadOnlyModelInteraction
       ? undefined

@@ -8,6 +8,7 @@ import type {
   AssemblyTransform,
   InteractionSelection,
   JointQuaternion,
+  RobotData,
   RobotFile,
   RobotState,
   Theme,
@@ -130,6 +131,7 @@ export interface ViewerProps {
   hoveredSelection?: InteractionSelection;
   robotLinks?: Record<string, UrdfLink>;
   robotJoints?: Record<string, UrdfJoint>;
+  robotData?: RobotData | null;
   ikRobotState?: Pick<
     RobotState,
     'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'
@@ -169,7 +171,11 @@ export interface ViewerProps {
     transform: AssemblyTransform,
     options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
-  onBridgeTransform?: (bridgeId: string, origin: UrdfOrigin) => void;
+  onBridgeTransform?: (
+    bridgeId: string,
+    origin: UrdfOrigin,
+    options?: import('@/types/viewer').UpdateCommitOptions,
+  ) => void;
 }
 
 export interface RobotModelProps {
@@ -248,6 +254,7 @@ export interface RobotModelProps {
   > | null;
   robotLinks?: Record<string, UrdfLink>;
   robotJoints?: Record<string, UrdfJoint>;
+  robotData?: RobotData | null;
   focusTarget?: string | null;
   transformMode?: 'select' | 'translate' | 'rotate' | 'universal';
   toolMode?: ToolMode;
@@ -282,13 +289,18 @@ export interface RobotModelProps {
     transform: AssemblyTransform,
     options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
-  onBridgeTransform?: (bridgeId: string, origin: UrdfOrigin) => void;
+  onBridgeTransform?: (
+    bridgeId: string,
+    origin: UrdfOrigin,
+    options?: import('@/types/viewer').UpdateCommitOptions,
+  ) => void;
   sourceSceneAssemblyComponentId?: string | null;
   sourceSceneAssemblyComponentTransform?: AssemblyTransform | null;
   showSourceSceneAssemblyComponentControls?: boolean;
   onSourceSceneAssemblyComponentTransform?: (
     componentId: string,
     transform: AssemblyTransform,
+    options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
 }
 

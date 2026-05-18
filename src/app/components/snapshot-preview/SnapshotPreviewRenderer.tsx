@@ -9,7 +9,8 @@ import {
   useWorkspaceCanvasTheme,
 } from '@/shared/components/3d';
 import { translations, type Language } from '@/shared/i18n';
-import { useViewerController, resolveDefaultViewerToolMode } from '@/features/editor';
+import { useViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
+import { resolveDefaultViewerToolMode } from '@/features/urdf-viewer/utils/scopedToolMode';
 import { buildUnifiedViewerResourceScopes } from '@/app/utils/unifiedViewerResourceScopes';
 import { resolveSnapshotPreviewSurfaceSize } from '@/shared/components/3d';
 import { ViewerSceneConnector } from '../unified-viewer/ViewerSceneConnector';

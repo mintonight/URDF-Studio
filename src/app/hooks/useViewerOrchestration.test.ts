@@ -168,6 +168,44 @@ test('handleViewerSelect does not pin hover for regular selection clicks', () =>
   assert.equal(nextHoveredSelection, null);
 });
 
+test('handleViewerSelect clears hover when blank canvas clears selection', () => {
+  resetSelectionStore();
+  resetUiStore();
+  useSelectionStore.getState().setSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+    highlightObjectId: 101,
+  });
+  useSelectionStore.getState().setHoveredSelection({
+    type: 'link',
+    id: 'base_link',
+    subType: 'visual',
+    objectIndex: 0,
+    highlightObjectId: 101,
+  });
+
+  let nextSelection: RobotState['selection'] | null = null;
+  let nextHoveredSelection: InteractionSelection | null = null;
+  const hook = renderHook({
+    setSelection: (selection) => {
+      nextSelection = selection;
+    },
+    pulseSelection: () => {},
+    setHoveredSelection: (selection) => {
+      nextHoveredSelection = selection;
+    },
+    focusOn: () => {},
+    transformPendingRef: { current: false },
+  });
+
+  hook.handleViewerSelect('link', '');
+
+  assert.deepEqual(nextSelection, { type: null, id: null });
+  assert.deepEqual(nextHoveredSelection, { type: null, id: null });
+});
+
 test('handleHover ignores redundant viewer hover updates for the currently selected link', () => {
   resetSelectionStore();
   resetUiStore();

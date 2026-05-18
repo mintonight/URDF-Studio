@@ -146,10 +146,10 @@ export function createMatteMaterial(options: CreateMaterialOptions): THREE.MeshS
   const envMapIntensity = isNearWhite
     ? preset.envMapIntensity * MATERIAL_CONFIG.whiteEnvMapIntensityMultiplier
     : preset.envMapIntensity;
-  const shouldPreserveExactNearWhiteAppearance = preserveExactColor && !isNearWhite;
+  const shouldPreserveExactColorAppearance = preserveExactColor;
 
   if (
-    !shouldPreserveExactNearWhiteAppearance &&
+    !shouldPreserveExactColorAppearance &&
     finalColor.r > 0.95 &&
     finalColor.g > 0.95 &&
     finalColor.b > 0.95
@@ -175,7 +175,7 @@ export function createMatteMaterial(options: CreateMaterialOptions): THREE.MeshS
 
   // Preserve authored URDF/USD palette values without ACES shifting saturated
   // robot colors (for example Unitree's orange) toward yellow in the viewer.
-  if (shouldPreserveExactNearWhiteAppearance) {
+  if (shouldPreserveExactColorAppearance) {
     material.toneMapped = false;
   }
 

@@ -30,6 +30,7 @@ interface BuildViewerScenePropsArgs {
   onUpdate?: ViewerProps['onUpdate'];
   robotLinks?: ViewerProps['robotLinks'];
   robotJoints?: ViewerProps['robotJoints'];
+  robotData?: ViewerProps['robotData'];
   focusTarget?: ViewerProps['focusTarget'];
   onCollisionTransformPreview?: ViewerProps['onCollisionTransformPreview'];
   onCollisionTransform?: ViewerProps['onCollisionTransform'];
@@ -47,6 +48,7 @@ interface BuildViewerScenePropsArgs {
   onSourceSceneAssemblyComponentTransform?: (
     componentId: string,
     transform: AssemblyTransform,
+    options?: import('@/types/viewer').UpdateCommitOptions,
   ) => void;
 }
 
@@ -78,6 +80,7 @@ export function buildViewerSceneProps({
   onUpdate,
   robotLinks,
   robotJoints,
+  robotData,
   focusTarget,
   onCollisionTransformPreview,
   onCollisionTransform,
@@ -119,6 +122,7 @@ export function buildViewerSceneProps({
     onUpdate,
     robotLinks,
     robotJoints,
+    robotData,
     focusTarget,
     onCollisionTransformPreview,
     onCollisionTransform,

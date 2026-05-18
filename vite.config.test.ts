@@ -1,9 +1,55 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
 
 import { createServer, loadConfigFromFile, type UserConfig } from 'vite';
+
+const DEV_SERVER_ENV_KEYS = ['URDF_STUDIO_DEV_HOST', 'URDF_STUDIO_DEV_ALLOWED_HOSTS'] as const;
+
+async function loadViteConfigWithDevServerEnv(
+  env: Partial<Record<(typeof DEV_SERVER_ENV_KEYS)[number], string | undefined>>,
+): Promise<UserConfig> {
+  const previousEnv = new Map<string, string | undefined>();
+
+  DEV_SERVER_ENV_KEYS.forEach((key) => {
+    previousEnv.set(key, process.env[key]);
+
+    if (Object.prototype.hasOwnProperty.call(env, key)) {
+      const value = env[key];
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  });
+
+  try {
+    const loaded = await loadConfigFromFile(
+      {
+        command: 'serve',
+        mode: 'development',
+        isSsrBuild: false,
+        isPreview: false,
+      },
+      path.resolve('vite.config.ts'),
+    );
+
+    assert.ok(loaded?.config);
+    return loaded.config as UserConfig;
+  } finally {
+    DEV_SERVER_ENV_KEYS.forEach((key) => {
+      const previousValue = previousEnv.get(key);
+      if (previousValue === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = previousValue;
+      }
+    });
+  }
+}
 
 function listen(server: net.Server, port: number): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -33,6 +79,32 @@ function close(server: net.Server): Promise<void> {
   });
 }
 
+function requestDevServerHeaders(
+  port: number,
+  hostHeader: string,
+  pathName = '/',
+): Promise<http.IncomingHttpHeaders> {
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path: pathName,
+        headers: {
+          Host: hostHeader,
+        },
+      },
+      (response) => {
+        response.resume();
+        response.once('end', () => resolve(response.headers));
+      },
+    );
+
+    request.once('error', reject);
+    request.end();
+  });
+}
+
 async function reserveFreePort(): Promise<number> {
   const probe = net.createServer();
   await listen(probe, 0);
@@ -43,6 +115,78 @@ async function reserveFreePort(): Promise<number> {
   await close(probe);
   return address.port;
 }
+
+test('dev server listens on external interfaces by default and supports a host override', async () => {
+  const defaultConfig = await loadViteConfigWithDevServerEnv({
+    URDF_STUDIO_DEV_HOST: undefined,
+    URDF_STUDIO_DEV_ALLOWED_HOSTS: undefined,
+  });
+
+  assert.equal(defaultConfig.server?.host, '0.0.0.0');
+
+  const overriddenConfig = await loadViteConfigWithDevServerEnv({
+    URDF_STUDIO_DEV_HOST: '127.0.0.1',
+    URDF_STUDIO_DEV_ALLOWED_HOSTS: undefined,
+  });
+
+  assert.equal(overriddenConfig.server?.host, '127.0.0.1');
+});
+
+test('dev server accepts a comma-separated preview host allow-list', async () => {
+  const config = await loadViteConfigWithDevServerEnv({
+    URDF_STUDIO_DEV_HOST: undefined,
+    URDF_STUDIO_DEV_ALLOWED_HOSTS: 'preview.example.test, .tunnel.example.test',
+  });
+
+  assert.deepEqual(config.server?.allowedHosts, ['preview.example.test', '.tunnel.example.test']);
+});
+
+test('dev server only sends isolation headers to trustworthy local origins', async () => {
+  const loaded = await loadConfigFromFile(
+    {
+      command: 'serve',
+      mode: 'development',
+      isSsrBuild: false,
+      isPreview: false,
+    },
+    path.resolve('vite.config.ts'),
+  );
+  let viteServer: Awaited<ReturnType<typeof createServer>> | null = null;
+
+  assert.ok(loaded?.config);
+
+  try {
+    viteServer = await createServer({
+      ...(loaded.config as UserConfig),
+      clearScreen: false,
+      configFile: false,
+      logLevel: 'silent',
+      server: {
+        ...loaded.config.server,
+        allowedHosts: true,
+        host: '127.0.0.1',
+        port: await reserveFreePort(),
+      },
+    });
+
+    await viteServer.listen();
+
+    const address = viteServer.httpServer?.address();
+    assert.ok(address && typeof address !== 'string');
+
+    const localhostHeaders = await requestDevServerHeaders(address.port, 'localhost:3000');
+    assert.equal(localhostHeaders['cross-origin-opener-policy'], 'same-origin');
+    assert.equal(localhostHeaders['cross-origin-embedder-policy'], 'require-corp');
+
+    const lanHeaders = await requestDevServerHeaders(address.port, '10.19.125.173:3000');
+    assert.equal(lanHeaders['cross-origin-opener-policy'], undefined);
+    assert.equal(lanHeaders['cross-origin-embedder-policy'], undefined);
+  } finally {
+    if (viteServer) {
+      await viteServer.close();
+    }
+  }
+});
 
 test('dev server falls back to another port when the requested port is occupied', async () => {
   const occupiedPort = await reserveFreePort();

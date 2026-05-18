@@ -6,6 +6,10 @@ import type {
 import type { RobotFile } from '@/types';
 import type { GenerateEditableRobotSourceOptions } from './generateEditableRobotSource';
 import type { ParseEditableRobotSourceOptions } from './parseEditableRobotSource';
+import type {
+  ApplyEditableSourceChangeOptions,
+  ApplyEditableSourceChangeResult,
+} from './applyEditableSourceChange';
 import type { AssemblyTransform, RenderableBounds, RobotData, RobotState } from '@/types';
 
 export interface RobotImportWorkerContextSnapshot {
@@ -32,6 +36,13 @@ export interface ParseEditableRobotSourceWorkerRequest {
   type: 'parse-editable-robot-source';
   requestId: number;
   options: ParseEditableRobotSourceOptions;
+  contextId?: string;
+}
+
+export interface ApplyEditableSourceChangeWorkerRequest {
+  type: 'apply-editable-source-change';
+  requestId: number;
+  options: ApplyEditableSourceChangeOptions;
   contextId?: string;
 }
 
@@ -91,6 +102,13 @@ export interface ParseEditableRobotSourceWorkerResponse {
   error?: string;
 }
 
+export interface ApplyEditableSourceChangeWorkerResponse {
+  type: 'apply-editable-source-change-result' | 'apply-editable-source-change-error';
+  requestId: number;
+  result?: ApplyEditableSourceChangeResult;
+  error?: string;
+}
+
 export interface GenerateEditableRobotSourceWorkerResponse {
   type: 'generate-editable-robot-source-result' | 'generate-editable-robot-source-error';
   requestId: number;
@@ -109,6 +127,7 @@ export type RobotImportWorkerRequest =
   | SyncRobotImportWorkerContextRequest
   | ResolveRobotImportWorkerRequest
   | ParseEditableRobotSourceWorkerRequest
+  | ApplyEditableSourceChangeWorkerRequest
   | GenerateEditableRobotSourceWorkerRequest
   | PrepareAssemblyComponentWorkerRequest;
 
@@ -116,5 +135,6 @@ export type RobotImportWorkerResponse =
   | ResolveRobotImportWorkerResponse
   | ResolveRobotImportProgressWorkerResponse
   | ParseEditableRobotSourceWorkerResponse
+  | ApplyEditableSourceChangeWorkerResponse
   | GenerateEditableRobotSourceWorkerResponse
   | PrepareAssemblyComponentWorkerResponse;

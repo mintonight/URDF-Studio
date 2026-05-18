@@ -1,8 +1,8 @@
 import {
-  LoadingHud,
   buildLoadingHudState,
   shouldUseIndeterminateStreamingMeshProgress,
-} from '@/shared/components/3d';
+} from '@/shared/components/3d/loadingHudState';
+import { LoadingHud } from '@/shared/components/3d/LoadingHud';
 import { translations, type Language } from '@/shared/i18n';
 import type { DocumentLoadState } from '@/store/assetsStore';
 import { resolveDocumentLoadingOverlayPresentation } from './documentLoadingOverlayPresentation';

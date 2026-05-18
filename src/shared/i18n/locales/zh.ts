@@ -449,8 +449,8 @@ export const zh: TranslationKeys = {
   dropFilesToImport: '松开鼠标即可导入文件',
   dropFilesToImportHint:
     '支持 URDF、MJCF、USD、Xacro、ZIP/RAR/7Z/TAR 压缩包、文件夹、3D 模型和图片',
-  simpleMode: '简单模式',
-  proMode: '高级模式',
+  simpleMode: '当前模型',
+  proMode: '装配',
   structureTree: '结构树',
   assemblyTree: '组装视图',
   projectName: '项目名称',
@@ -475,9 +475,9 @@ export const zh: TranslationKeys = {
   webglRuntimeErrorMessage:
     '3D 视口在运行过程中遇到了未预期错误。请刷新页面；如果问题持续出现，请打开浏览器控制台检查详细报错。',
   emptyAssemblyHint:
-    '点击上方素材库里的机器人或网格文件会先打开预览；点右侧“添加”才会加入工作空间；右键可删除或执行更多操作',
+    '点击素材库里的机器人文件会打开为当前模型；点右侧“添加”才会加入工作空间；右键可删除或执行更多操作',
   clickToAddComponent:
-    '点击机器人或网格文件会先打开预览；点右侧“添加”才会加入工作空间；右键可删除或执行更多操作',
+    '点击机器人文件会打开为当前模型；点右侧“添加”才会加入工作空间；右键可删除或执行更多操作',
   removeFromLibrary: '从素材库删除',
   deleteAllLibraryFiles: '全部删除',
   deleteAllLibraryFilesConfirmTitle: '确认删除全部素材',
@@ -492,15 +492,15 @@ export const zh: TranslationKeys = {
   simpleModeDraftSaved: '已保存草稿：{name}',
   simpleModeDraftSaveFailed: '保存当前草稿失败，未切换模型。',
   generateWorkspaceUrdf: '生成 URDF',
-  generateWorkspaceUrdfConfirmTitle: '切回简单模式前生成 URDF？',
+  generateWorkspaceUrdfConfirmTitle: '从工作空间生成 URDF？',
   generateWorkspaceUrdfConfirmMessage:
-    '高级模式的工作空间有改动。是否先生成一个 URDF 到素材库，再切回简单模式？',
+    '装配工作空间有改动。是否先生成一个 URDF 到素材库，再回到当前模型视图？',
   generateWorkspaceUrdfSuccess: '已生成 {name}',
   generateWorkspaceUrdfUnavailable: '当前工作空间没有可生成的内容。',
   generateWorkspaceUrdfDisconnected:
-    '当前工作空间包含未拼接的组件。请继续留在高级模式完成连接后，再生成单个 URDF。',
-  generateAndSwitchToSimpleMode: '生成并切回',
-  switchToSimpleWithoutGenerate: '不生成直接切回',
+    '当前工作空间包含未拼接的组件。请完成连接后，再生成单个 URDF。',
+  generateAndSwitchToSimpleMode: '生成并打开',
+  switchToSimpleWithoutGenerate: '显示当前模型',
 
   // App Shell
   edit: '编辑',
@@ -569,6 +569,10 @@ export const zh: TranslationKeys = {
   importFailedCheckFiles: '导入失败。请检查文件是否有效。',
   importBackgroundAssetsStillLoadingFailed:
     '机器人已经打开，但部分导入资源在后台补齐时失败了。如果仍有占位显示，请重新导入该压缩包。',
+  botWorldImportFetching: '正在获取资产信息…',
+  botWorldImportDownloading: '正在下载文件',
+  botWorldImportImporting: '正在导入文件…',
+  botWorldImportWaiting: '等待编辑器响应…',
   jointName: '关节名称',
   motorType: '电机型号',
   addedComponent: '已添加组件: {name}',
@@ -788,10 +792,10 @@ export const zh: TranslationKeys = {
   exportDoExportProject: '导出 .usp',
   exportProjectWorkspaceSummary: '导出当前工作区工程',
   exportProjectWorkspaceSummaryDesc:
-    '会打包当前 workspace 的组件、桥接关系、源文件、资源文件、历史状态以及恢复工程所需的元数据，方便完整回到高级模式继续编辑。',
+    '会打包当前 workspace 的组件、桥接关系、源文件、资源文件、历史状态以及恢复工程所需的元数据，方便完整恢复工作空间继续编辑。',
   disconnectedWorkspaceUrdfExportTitle: '导出多个 URDF？',
   disconnectedWorkspaceUrdfExportMessage:
-    '当前高级模式工作空间包含 {componentCount} 个组件，分布在 {connectedGroupCount} 个未连接的组里。直接导出单个 URDF 语义不明确。你可以改为把每个组件分别打包成独立 URDF，或者继续编辑。',
+    '当前工作空间包含 {componentCount} 个组件，分布在 {connectedGroupCount} 个未连接的组里。直接导出单个 URDF 语义不明确。你可以改为把每个组件分别打包成独立 URDF，或者继续编辑。',
   exportMultipleUrdfs: '导出多个 URDF',
   continueEditing: '继续编辑',
   exportFooterProjectArchive: '.usp 工程包',

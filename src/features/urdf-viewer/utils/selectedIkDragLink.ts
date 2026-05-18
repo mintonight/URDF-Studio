@@ -1,4 +1,4 @@
-import { resolveDirectManipulableLinkIkDescriptor } from '@/core/robot';
+import { resolveDirectManipulableLinkIkJointIds } from '@/core/robot';
 import type { InteractionSelection, UrdfJoint, UrdfLink } from '@/types';
 
 interface ResolveSelectedIkDragLinkIdOptions {
@@ -28,14 +28,14 @@ export function resolveSelectedIkDragLinkId({
     return null;
   }
 
-  return resolveDirectManipulableLinkIkDescriptor(
+  const jointIds = resolveDirectManipulableLinkIkJointIds(
     {
       links: robotLinks,
       joints: robotJoints,
       rootLinkId,
     },
     selection.id,
-  )
-    ? selection.id
-    : null;
+  );
+
+  return jointIds && jointIds.length > 0 ? selection.id : null;
 }

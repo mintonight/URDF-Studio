@@ -272,7 +272,7 @@ export function parseURDFMaterials(urdfContent: string): Map<string, URDFMateria
 }
 
 export function resolveURDFMaterialsForScene(
-  urdfContent: string,
+  urdfContent: string | null | undefined,
   robotLinks?: Record<string, UrdfLink> | null,
 ): Map<string, URDFMaterialInfo> {
   const materialsFromLinks = collectURDFMaterialsFromLinks(robotLinks);
@@ -280,7 +280,12 @@ export function resolveURDFMaterialsForScene(
     return materialsFromLinks;
   }
 
-  return parseURDFMaterials(urdfContent);
+  const sourceContent = urdfContent ?? '';
+  if (!sourceContent.trim()) {
+    return new Map();
+  }
+
+  return parseURDFMaterials(sourceContent);
 }
 
 /**

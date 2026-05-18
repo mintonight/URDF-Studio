@@ -8,7 +8,7 @@ import {
   ToggleSliderOption,
 } from '@/shared/components/Panel/OptionsPanel';
 import { WORKSPACE_OVERLAY_RIGHT_EDGE_GAP } from '@/shared/components/3d/scene';
-import { useOverlayHoverBlock } from '@/shared/hooks';
+import { useOverlayHoverBlock } from '@/shared/hooks/useOverlayHoverBlock';
 
 interface ViewerOptionsPanelProps {
   showOptionsPanel: boolean;

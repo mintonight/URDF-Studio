@@ -3,7 +3,7 @@ import { useThree, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useSelectionStore } from '@/store';
 import type { InteractionSelection, UrdfJoint, UrdfLink } from '@/types';
-import { setRegressionProjectedInteractionTargetsProvider } from '@/shared/debug/regressionBridge';
+import { setRegressionProjectedInteractionTargetsProvider } from '@/shared/debug/regressionState';
 import { highlightFaceMaterial } from '../utils/materials';
 import {
   collectGizmoRaycastTargets,

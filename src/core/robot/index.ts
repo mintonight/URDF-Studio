@@ -138,6 +138,7 @@ export {
 
 export {
   resolveDirectManipulableLinkIkDescriptor,
+  resolveDirectManipulableLinkIkJointIds,
   resolveLinkIkHandleDescriptor,
   resolveLinkIkHandleDescriptors,
   resolveSelectableIkHandleLinkId,
@@ -179,3 +180,5 @@ export {
   formatVector,
   formatEuler,
 } from './transforms';
+
+export { buildDeletionPlan, applyDeletionPlan, type DeletionPlan } from './treeOperations';

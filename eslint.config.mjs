@@ -8,6 +8,7 @@ const globalIgnores = [
   '**/tmp/**',
   '**/.tmp/**',
   '**/output/**',
+  'third_party/**',
   '**/.playwright-mcp/**',
   '**/.worktrees/**',
   'log/**',

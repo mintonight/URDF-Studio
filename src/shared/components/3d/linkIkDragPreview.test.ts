@@ -179,6 +179,67 @@ test('limitLinkIkPreviewKinematicStateStep caps abrupt preview jumps', () => {
   );
 });
 
+test('limitLinkIkPreviewKinematicStateStep lets passive closed-loop compensation snap closed', () => {
+  const activeQuaternion = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(0, 0, 1),
+    0.4,
+  );
+  const passiveQuaternion = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(0, 1, 0),
+    0.4,
+  );
+
+  const limitedState = limitLinkIkPreviewKinematicStateStep(
+    {
+      angles: { active_joint: 0, passive_joint: 0 },
+      quaternions: {
+        active_ball: { x: 0, y: 0, z: 0, w: 1 },
+        passive_ball: { x: 0, y: 0, z: 0, w: 1 },
+      },
+    },
+    {
+      angles: { active_joint: 0.4, passive_joint: -0.4 },
+      quaternions: {
+        active_ball: {
+          x: activeQuaternion.x,
+          y: activeQuaternion.y,
+          z: activeQuaternion.z,
+          w: activeQuaternion.w,
+        },
+        passive_ball: {
+          x: passiveQuaternion.x,
+          y: passiveQuaternion.y,
+          z: passiveQuaternion.z,
+          w: passiveQuaternion.w,
+        },
+      },
+    },
+    {
+      limitedJointIds: new Set(['active_joint', 'active_ball']),
+    },
+  );
+
+  assert.ok(Math.abs(limitedState.angles.active_joint - LINK_IK_PREVIEW_MAX_ANGLE_STEP) < 1e-9);
+  assert.equal(limitedState.angles.passive_joint, -0.4);
+
+  const activeLimitedQuaternion = new THREE.Quaternion(
+    limitedState.quaternions.active_ball.x,
+    limitedState.quaternions.active_ball.y,
+    limitedState.quaternions.active_ball.z,
+    limitedState.quaternions.active_ball.w,
+  );
+  const activeLimitedAngle = 2 * Math.acos(Math.min(1, Math.abs(activeLimitedQuaternion.w)));
+  assert.ok(
+    Math.abs(activeLimitedAngle - LINK_IK_PREVIEW_MAX_QUATERNION_STEP_RADIANS) < 1e-6,
+  );
+  assert.deepEqual(limitedState.quaternions.passive_ball, {
+    x: passiveQuaternion.x,
+    y: passiveQuaternion.y,
+    z: passiveQuaternion.z,
+    w: passiveQuaternion.w,
+  });
+});
+
 test('limitLinkIkPreviewKinematicStateStep treats opposite-sign quaternions as the same orientation', () => {
   const limitedState = limitLinkIkPreviewKinematicStateStep(
     {

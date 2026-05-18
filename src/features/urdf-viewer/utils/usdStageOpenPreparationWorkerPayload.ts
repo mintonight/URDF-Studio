@@ -1,5 +1,6 @@
 import type { RobotFile } from '@/types';
 import { compactBlobBackedLargeTextUsdForWorker } from './usdStageOpenLargeText.ts';
+import { collectUsdStageOpenRelevantVirtualPaths, toVirtualUsdPath } from './usdPreloadSources.ts';
 
 type StageOpenSourceFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl'>;
 type StageOpenAvailableFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl' | 'format'>;
@@ -61,6 +62,10 @@ function filterStageOpenAvailableFiles(
   sourceFile: StageOpenSourceFile,
   availableFiles: StageOpenAvailableFile[],
 ): StageOpenAvailableFile[] {
+  const relevantPathSet = new Set(
+    collectUsdStageOpenRelevantVirtualPaths(sourceFile, availableFiles),
+  );
+
   return availableFiles.filter((file) => {
     if (file.format === 'mesh') {
       return false;
@@ -68,15 +73,23 @@ function filterStageOpenAvailableFiles(
     if (file.name === sourceFile.name) {
       return false;
     }
-    return isUsdStageOpenLayerPath(file.name);
+    return isUsdStageOpenLayerPath(file.name) && relevantPathSet.has(toVirtualUsdPath(file.name));
   }).map((file) => compactBlobBackedLargeTextUsdForWorker(file));
 }
 
 function filterStageOpenAssets(
+  sourceFile: StageOpenSourceFile,
+  availableFiles: StageOpenAvailableFile[],
   assets: Record<string, string>,
 ): Record<string, string> {
+  const relevantPathSet = new Set(
+    collectUsdStageOpenRelevantVirtualPaths(sourceFile, availableFiles),
+  );
+
   return Object.fromEntries(
-    Object.entries(assets).filter(([path]) => isUsdStageOpenLayerPath(path)),
+    Object.entries(assets).filter(
+      ([path]) => isUsdStageOpenLayerPath(path) && relevantPathSet.has(toVirtualUsdPath(path)),
+    ),
   );
 }
 
@@ -87,7 +100,7 @@ export function buildUsdStageOpenPreparationWorkerDispatch(
 ): PreparedUsdStageOpenWorkerDispatch {
   const compactSourceFile = compactBlobBackedLargeTextUsdForWorker(sourceFile);
   const filteredAvailableFiles = filterStageOpenAvailableFiles(sourceFile, availableFiles);
-  const filteredAssets = filterStageOpenAssets(assets);
+  const filteredAssets = filterStageOpenAssets(sourceFile, availableFiles, assets);
   const contextSnapshot: UsdStageOpenPreparationWorkerContextSnapshot = {
     availableFiles: filteredAvailableFiles,
     assets: filteredAssets,

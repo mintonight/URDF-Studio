@@ -1,14 +1,71 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { JSDOM } from 'jsdom';
 
+import { DEFAULT_LINK, type AssemblyState, type RobotFile } from '@/types';
+import { resolveRobotFileData } from '@/core/parsers/importRobotFile';
 import { commitResolvedRobotLoad } from './commitResolvedRobotLoad.ts';
-import type { RobotFile } from '@/types';
+
+const { window } = new JSDOM();
+
+if (!globalThis.DOMParser) {
+  globalThis.DOMParser = window.DOMParser;
+}
+
+if (!globalThis.XMLSerializer) {
+  globalThis.XMLSerializer = window.XMLSerializer as typeof XMLSerializer;
+}
 
 function createRobotFile(
   overrides: Partial<RobotFile> & Pick<RobotFile, 'name' | 'format' | 'content'>,
 ): RobotFile {
   return {
     ...overrides,
+  };
+}
+
+function createExistingAssembly(): AssemblyState {
+  return {
+    name: 'existing_workspace',
+    components: {
+      comp_base: {
+        id: 'comp_base',
+        name: 'base',
+        sourceFile: 'robots/base.urdf',
+        robot: {
+          name: 'base',
+          rootLinkId: 'comp_base_base_link',
+          links: {
+            comp_base_base_link: {
+              ...DEFAULT_LINK,
+              id: 'comp_base_base_link',
+              name: 'base_link',
+            },
+          },
+          joints: {},
+        },
+        visible: true,
+      },
+      comp_tool: {
+        id: 'comp_tool',
+        name: 'tool',
+        sourceFile: 'robots/tool.urdf',
+        robot: {
+          name: 'tool',
+          rootLinkId: 'comp_tool_tool_link',
+          links: {
+            comp_tool_tool_link: {
+              ...DEFAULT_LINK,
+              id: 'comp_tool_tool_link',
+              name: 'tool_link',
+            },
+          },
+          joints: {},
+        },
+        visible: true,
+      },
+    },
+    bridges: {},
   };
 }
 
@@ -93,15 +150,13 @@ test('commitResolvedRobotLoad writes ready robot data before selecting the viewe
   assert.equal(recorded.reloaded, true);
 });
 
-test('commitResolvedRobotLoad switches back to structure mode when a concrete file is loaded', () => {
-  const events: string[] = [];
+test('commitResolvedRobotLoad keeps app mode unchanged when the current mode is already normalized', () => {
+  let setAppModeCount = 0;
   const file = createRobotFile({
     name: 'robots/unitree/laikago.urdf',
     format: 'urdf',
     content: '<robot name="laikago" />',
   });
-
-  let sidebarTab: 'structure' | 'workspace' | null = null;
 
   commitResolvedRobotLoad({
     file,
@@ -119,28 +174,18 @@ test('commitResolvedRobotLoad switches back to structure mode when a concrete fi
     },
     currentAppMode: 'editor',
     markRobotBaselineSaved: () => {
-      events.push('baseline');
     },
-    setAppMode: () => {},
+    setAppMode: () => {
+      setAppModeCount += 1;
+    },
     setOriginalFileFormat: () => {},
     setOriginalUrdfContent: () => {},
-    setRobot: () => {
-      events.push('robot');
-    },
-    setSelectedFile: () => {
-      events.push('selectedFile');
-    },
-    setSelection: () => {
-      events.push('selection');
-    },
-    setSidebarTab: (nextTab) => {
-      events.push(`sidebar:${nextTab}`);
-      sidebarTab = nextTab;
-    },
+    setRobot: () => {},
+    setSelectedFile: () => {},
+    setSelection: () => {},
   });
 
-  assert.equal(sidebarTab, 'structure');
-  assert.deepEqual(events, ['robot', 'baseline', 'selectedFile', 'sidebar:structure', 'selection']);
+  assert.equal(setAppModeCount, 0);
 });
 
 test('commitResolvedRobotLoad uses resolved URDF content for ready xacro files', () => {
@@ -183,6 +228,117 @@ test('commitResolvedRobotLoad uses resolved URDF content for ready xacro files',
 
   assert.equal(writeCount, 1);
   assert.equal(originalContent, '<robot name="b2"><link name="base_link" /></robot>');
+});
+
+test('commitResolvedRobotLoad seeds directly clicked MJCF scene wrappers as a single selected-file component', () => {
+  const sceneFile = createRobotFile({
+    name: 'robots/go2/scene.xml',
+    format: 'mjcf',
+    content: `<mujoco model="go2 scene">
+  <include file="go2.xml" />
+  <worldbody>
+    <geom name="floor" type="plane" size="0 0 0.05" />
+  </worldbody>
+</mujoco>`,
+  });
+  const robotFile = createRobotFile({
+    name: 'robots/go2/go2.xml',
+    format: 'mjcf',
+    content: `<mujoco model="go2">
+  <worldbody>
+    <body name="base">
+      <freejoint />
+    </body>
+  </worldbody>
+</mujoco>`,
+  });
+  const availableFiles = [sceneFile, robotFile];
+  const allFileContents = Object.fromEntries(
+    availableFiles.map((file) => [file.name, file.content]),
+  );
+  const importResult = resolveRobotFileData(sceneFile, {
+    availableFiles,
+    allFileContents,
+    assets: {},
+  });
+
+  assert.equal(importResult.status, 'ready');
+  if (importResult.status !== 'ready') {
+    assert.fail('expected scene test fixture to resolve');
+  }
+
+  let committedRobotName: string | null = null;
+  let seededAssembly: AssemblyState | null = null;
+
+  commitResolvedRobotLoad({
+    file: sceneFile,
+    importResult,
+    currentAppMode: 'editor',
+    currentAssemblyState: null,
+    availableFiles,
+    allFileContents,
+    assets: {},
+    markRobotBaselineSaved: () => {},
+    setAppMode: () => {},
+    setOriginalFileFormat: () => {},
+    setOriginalUrdfContent: () => {},
+    setRobot: (robotData) => {
+      committedRobotName = robotData.name;
+    },
+    setSelectedFile: () => {},
+    setSelection: () => {},
+    setAssembly: (assembly) => {
+      seededAssembly = assembly;
+    },
+  });
+
+  assert.equal(committedRobotName, 'go2 scene');
+  assert.equal(seededAssembly?.name, 'go2 scene');
+  assert.deepEqual(
+    Object.values(seededAssembly?.components ?? {}).map((component) => component.sourceFile),
+    [sceneFile.name],
+  );
+  assert.equal(Object.values(seededAssembly?.bridges ?? {}).length, 0);
+});
+
+test('commitResolvedRobotLoad preserves existing multi-component assemblies', () => {
+  const file = createRobotFile({
+    name: 'robots/standalone.urdf',
+    format: 'urdf',
+    content: '<robot name="standalone"><link name="base_link" /></robot>',
+  });
+  const existingAssembly = createExistingAssembly();
+  let setAssemblyCallCount = 0;
+
+  commitResolvedRobotLoad({
+    file,
+    importResult: {
+      status: 'ready',
+      format: 'urdf',
+      robotData: {
+        name: 'standalone',
+        links: {},
+        joints: {},
+        rootLinkId: 'base_link',
+      },
+      resolvedUrdfContent: null,
+      resolvedUrdfSourceFilePath: null,
+    },
+    currentAppMode: 'editor',
+    currentAssemblyState: existingAssembly,
+    markRobotBaselineSaved: () => {},
+    setAppMode: () => {},
+    setOriginalFileFormat: () => {},
+    setOriginalUrdfContent: () => {},
+    setRobot: () => {},
+    setSelectedFile: () => {},
+    setSelection: () => {},
+    setAssembly: () => {
+      setAssemblyCallCount += 1;
+    },
+  });
+
+  assert.equal(setAssemblyCallCount, 0);
 });
 
 test('commitResolvedRobotLoad keeps USD hydration loads out of robot state writes', () => {

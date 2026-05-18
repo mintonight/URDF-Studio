@@ -273,6 +273,32 @@ test('shouldIgnoreViewerLoadRegressionAfterReadySameFile ignores hidden same-fil
         totalCount: null,
       },
       nextState: {
+        status: 'hydrating',
+        fileName: 'robots/unitree/g1.usda',
+        format: 'usd',
+        phase: 'initializing-renderer',
+        message: 'Initializing USD driver...',
+        progressPercent: 28,
+        loadedCount: null,
+        totalCount: null,
+      },
+    }),
+    true,
+  );
+
+  assert.equal(
+    shouldIgnoreViewerLoadRegressionAfterReadySameFile({
+      currentState: {
+        status: 'ready',
+        fileName: 'robots/unitree/g1.usda',
+        format: 'usd',
+        phase: 'ready',
+        message: null,
+        progressPercent: 100,
+        loadedCount: null,
+        totalCount: null,
+      },
+      nextState: {
         status: 'loading',
         fileName: 'robots/unitree/h1.usda',
         format: 'usd',

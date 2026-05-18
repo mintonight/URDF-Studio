@@ -17,7 +17,10 @@ import { buildColladaRootNormalizationHints } from '@/core/loaders';
 import { getSourceFileDirectory } from '@/core/parsers/meshPathUtils';
 import type { UrdfJoint, UrdfLink } from '@/types';
 import type { ViewerDocumentLoadEvent, ViewerRuntimeStageBridge } from '../types';
-import { createRendererBackendLoadScopeKey } from '../utils/rendererBackendLoadScope';
+import {
+  createMemoizedRendererBackendLoadScopeKey,
+  type RendererBackendLoadScopeKeyMemo,
+} from '../utils/rendererBackendLoadScope';
 import { detectSingleGeometryPatch } from '../utils/robotLoaderDiff';
 import { applyGeometryPatchInPlace } from '../utils/robotLoaderGeometryPatch';
 
@@ -114,6 +117,7 @@ export function useRendererBackend(
   const onRuntimeRobotLoadedRef = useRef(onRuntimeRobotLoaded);
   const runtimeBridgeRef = useRef(runtimeBridge);
   const activeLoadScopeKeyRef = useRef<string | null>(null);
+  const loadScopeKeyMemoRef = useRef<RendererBackendLoadScopeKeyMemo>({});
   const previousPatchRobotLinksRef = useRef<Record<string, UrdfLink> | null>(
     robotData?.links ?? providedRobotLinks ?? null,
   );
@@ -129,16 +133,19 @@ export function useRendererBackend(
 
   const baseLoadScopeKey = useMemo(
     () =>
-      createRendererBackendLoadScopeKey({
-        sourceFile,
-        availableFiles,
-        assets,
-        reloadToken,
-        allowUrdfXmlFallback,
-        robotLinks: providedRobotLinks,
-        robotJoints: providedRobotJoints,
-        robotData,
-      }),
+      createMemoizedRendererBackendLoadScopeKey(
+        {
+          sourceFile,
+          availableFiles,
+          assets,
+          reloadToken,
+          allowUrdfXmlFallback,
+          robotLinks: providedRobotLinks,
+          robotJoints: providedRobotJoints,
+          robotData,
+        },
+        loadScopeKeyMemoRef.current,
+      ),
     [
       assets,
       allowUrdfXmlFallback,
@@ -155,11 +162,18 @@ export function useRendererBackend(
     [baseLoadScopeKey, patchReloadRevision],
   );
 
-  const emitDocumentLoadEvent = useCallback((event: ViewerDocumentLoadEvent) => {
-    if (!isMountedRef.current) return;
-    setLoadingProgress(event);
-    onDocumentLoadEventRef.current?.(event);
-  }, []);
+  const emitDocumentLoadEvent = useCallback(
+    (event: ViewerDocumentLoadEvent) => {
+      if (!isMountedRef.current) return;
+      // Filter out planned abort errors from backends that aren't the current one
+      if (event.status === 'error' && event.error === 'Load aborted') {
+        return;
+      }
+      setLoadingProgress(event);
+      onDocumentLoadEventRef.current?.(event);
+    },
+    [setLoadingProgress],
+  );
 
   const latestScenePropsRef = useRef<RendererSceneProps | null>(null);
   latestScenePropsRef.current = {
@@ -395,7 +409,18 @@ export function useRendererBackend(
         }
         invalidate?.();
       } catch (err) {
-        if (!isMountedRef.current || loadIdRef.current !== loadId) return;
+        if (!isMountedRef.current || loadIdRef.current !== loadId) {
+          return;
+        }
+
+        // Handle planned aborts silently - these happen during rapid file switching
+        // or React StrictMode double-mounting in dev.
+        if (err instanceof Error && err.message === 'Load aborted') {
+          setIsLoading(false);
+          setLoadingProgress(null);
+          return;
+        }
+
         if (inFlightBackendRef.current === backend) {
           inFlightBackendRef.current = null;
         }

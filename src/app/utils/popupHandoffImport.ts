@@ -1,5 +1,9 @@
 import type { PopupHandoffArchiveRecord } from '../../shared/utils/popupHandoffProtocol.ts';
-import { POPUP_HANDOFF_QUERY_PARAM } from '../../shared/utils/popupHandoffProtocol.ts';
+import {
+  POPUP_HANDOFF_QUERY_PARAM,
+  readHandoffIdFromUrl,
+  stripHandoffParamFromUrl,
+} from '../../shared/utils/popupHandoffProtocol.ts';
 
 export interface PopupHandoffImportStateSnapshot {
   availableFileCount: number;
@@ -24,9 +28,11 @@ export type PopupHandoffImportResolution =
     };
 
 export function readPopupHandoffId(search: string): string | null {
-  const params = new URLSearchParams(search);
-  const handoffId = params.get(POPUP_HANDOFF_QUERY_PARAM)?.trim() ?? '';
-  return handoffId || null;
+  // Delegate to the unified URL helper; reconstruct a full URL from the search string
+  const fakeUrl = search.startsWith('?')
+    ? `http://localhost${search}`
+    : `http://localhost?${search}`;
+  return readHandoffIdFromUrl(fakeUrl);
 }
 
 export function buildPopupHandoffImportStateSnapshot(input: {
@@ -53,9 +59,8 @@ export function didPopupHandoffImportChangeState(
 }
 
 export function stripPopupHandoffQueryParam(urlLike: string): string {
-  const url = new URL(urlLike, 'http://localhost');
-  url.searchParams.delete(POPUP_HANDOFF_QUERY_PARAM);
-  return `${url.pathname}${url.search}${url.hash}`;
+  const fullUrl = urlLike.startsWith('http') ? urlLike : `http://localhost${urlLike}`;
+  return stripHandoffParamFromUrl(fullUrl);
 }
 
 export async function resolvePopupHandoffImport(

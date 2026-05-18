@@ -1,7 +1,11 @@
 import * as THREE from 'three';
-import { getParentJointByChildLink, resolveJointKey } from '@/core/robot';
+import {
+  getParentJointByChildLink,
+  resolveClosedLoopJointOriginCompensationDetailed,
+  resolveJointKey,
+} from '@/core/robot';
 import { URDFJoint as RuntimeURDFJoint } from '@/core/parsers/urdf/loader';
-import type { InteractionSelection, UrdfJoint } from '@/types';
+import type { InteractionSelection, JointQuaternion, RobotState, UrdfJoint } from '@/types';
 import { applyOriginToJoint } from './robotLoaderPatchUtils';
 
 type JointSelectionLike =
@@ -18,6 +22,11 @@ export interface OriginTransformTarget {
   jointId: string;
   runtimeJointKey: string;
   runtimeJoint: RuntimeURDFJoint;
+}
+
+export interface OriginTransformClosedLoopPreview {
+  origins: Record<string, UrdfJoint['origin']>;
+  quaternions: Record<string, JointQuaternion>;
 }
 
 const DEFAULT_ORIGIN = {
@@ -62,6 +71,52 @@ function resolveRuntimeJointKey(
 
   const resolvedEntry = Object.entries(joints).find(([, joint]) => joint?.name === jointNameOrId);
   return resolvedEntry?.[0] ?? null;
+}
+
+export function resolveRuntimeJointForOriginTransform(
+  robot: THREE.Object3D | null,
+  jointId: string,
+  robotJoints?: Record<string, UrdfJoint>,
+): RuntimeURDFJoint | null {
+  if (!robot || !jointId) {
+    return null;
+  }
+
+  const runtimeJoints = (robot as THREE.Object3D & { joints?: Record<string, RuntimeURDFJoint> })
+    .joints;
+  const sourceJoint = robotJoints?.[jointId];
+  const runtimeJointKey =
+    resolveRuntimeJointKey(runtimeJoints, sourceJoint?.name ?? jointId) ??
+    resolveRuntimeJointKey(runtimeJoints, jointId);
+
+  return runtimeJointKey ? (runtimeJoints?.[runtimeJointKey] ?? null) : null;
+}
+
+export function resolveOriginTransformClosedLoopPreview(
+  robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'> | null,
+  selectedJointId: string,
+  selectedOrigin: UrdfJoint['origin'],
+): OriginTransformClosedLoopPreview {
+  if (!robot?.joints?.[selectedJointId] || !robot.closedLoopConstraints?.length) {
+    return {
+      origins: { [selectedJointId]: selectedOrigin },
+      quaternions: {},
+    };
+  }
+
+  const compensation = resolveClosedLoopJointOriginCompensationDetailed(
+    robot,
+    selectedJointId,
+    selectedOrigin,
+  );
+
+  return {
+    origins: {
+      [selectedJointId]: selectedOrigin,
+      ...compensation.origins,
+    },
+    quaternions: compensation.quaternions,
+  };
 }
 
 export function resolveOriginTransformJointIdentity(
@@ -122,12 +177,11 @@ export function resolveOriginTransformTarget(
 
   const runtimeJoints = (robot as THREE.Object3D & { joints?: Record<string, RuntimeURDFJoint> })
     .joints;
+  const sourceJoint = robotJoints?.[jointIdentity.jointId];
   const runtimeJointKey =
-    resolveRuntimeJointKey(runtimeJoints, jointIdentity.jointName ?? jointIdentity.jointId) ??
-    resolveRuntimeJointKey(runtimeJoints, jointIdentity.jointId) ??
-    jointIdentity.jointName ??
-    jointIdentity.jointId;
-  const runtimeJoint = runtimeJoints?.[runtimeJointKey] ?? null;
+    resolveRuntimeJointKey(runtimeJoints, sourceJoint?.name ?? jointIdentity.jointId) ??
+    resolveRuntimeJointKey(runtimeJoints, jointIdentity.jointId);
+  const runtimeJoint = runtimeJointKey ? (runtimeJoints?.[runtimeJointKey] ?? null) : null;
   if (!runtimeJoint) {
     return null;
   }

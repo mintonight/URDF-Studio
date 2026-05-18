@@ -1,4 +1,4 @@
-import type { ViewerRobotDataResolution } from '@/features/editor';
+import type { ViewerRobotDataResolution } from '@/features/urdf-viewer/utils/viewerRobotData';
 import type { RobotData, UsdBakedScene, UsdPreparedExportCache, UsdSceneSnapshot } from '@/types';
 
 interface UsdHydrationResolutionLike {

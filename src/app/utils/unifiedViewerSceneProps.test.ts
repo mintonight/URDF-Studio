@@ -211,7 +211,7 @@ test('buildUnifiedViewerSceneProps disables hover interaction for inactive retai
   assert.equal(sceneProps.robotLinks?.base_link !== undefined, true);
 });
 
-test('buildUnifiedViewerSceneProps disables model interaction for standalone read-only previews', () => {
+test('buildUnifiedViewerSceneProps disables model interaction for standalone read-only previews without dropping render data', () => {
   const controller = createControllerStub();
   const onHover = () => {};
   const onMeshSelect = () => {};
@@ -246,8 +246,8 @@ test('buildUnifiedViewerSceneProps disables model interaction for standalone rea
   assert.equal(sceneProps.onHover, undefined);
   assert.equal(sceneProps.onMeshSelect, undefined);
   assert.equal(sceneProps.onUpdate, undefined);
-  assert.equal(sceneProps.robotLinks, undefined);
-  assert.equal(sceneProps.robotJoints, undefined);
+  assert.equal(sceneProps.robotLinks?.base_link !== undefined, true);
+  assert.equal(sceneProps.robotJoints?.hip_joint !== undefined, true);
   assert.equal(sceneProps.focusTarget, undefined);
   assert.equal(sceneProps.isMeshPreview, true);
 });

@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { UnifiedTransformControls, VISUALIZER_UNIFIED_GIZMO_SIZE } from '@/shared/components/3d';
 import { cloneAssemblyTransform } from '@/core/robot/assemblyTransforms';
 import type { AssemblyState, AssemblyTransform, RobotState, UrdfOrigin } from '@/types';
+import type { UpdateCommitOptions } from '@/types/viewer';
 import type { AssemblySelection } from '@/store/assemblySelectionStore';
 import { useSelectionStore } from '@/store/selectionStore';
 import {
@@ -25,13 +26,17 @@ interface AssemblyTransformControlsProps {
   onComponentTransform?: (
     componentId: string,
     transform: AssemblyTransform,
-    options?: import('@/types/viewer').UpdateCommitOptions,
+    options?: UpdateCommitOptions,
   ) => void;
-  onBridgeTransform?: (bridgeId: string, origin: UrdfOrigin) => void;
+  onBridgeTransform?: (
+    bridgeId: string,
+    origin: UrdfOrigin,
+    options?: UpdateCommitOptions,
+  ) => void;
   onSourceSceneComponentTransform?: (
     componentId: string,
     transform: AssemblyTransform,
-    options?: import('@/types/viewer').UpdateCommitOptions,
+    options?: UpdateCommitOptions,
   ) => void;
   onTransformPendingChange?: (pending: boolean) => void;
 }
@@ -42,6 +47,7 @@ interface DragBaseline {
   baseMatrix?: THREE.Matrix4;
   bridgeId?: string;
   sourceSceneComponent?: boolean;
+  object?: THREE.Object3D;
 }
 
 const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
@@ -136,7 +142,9 @@ export const AssemblyTransformControls = memo(function AssemblyTransformControls
 
   const prepareDragBaseline = useCallback(() => {
     if (assemblySelection?.type === 'assembly') {
-      dragBaselineRef.current = { type: 'assembly' };
+      dragBaselineRef.current = assemblyRoot
+        ? { type: 'assembly', object: assemblyRoot }
+        : { type: 'assembly' };
       return;
     }
 
@@ -150,6 +158,7 @@ export const AssemblyTransformControls = memo(function AssemblyTransformControls
         type: 'component',
         componentId: assemblySelection.id,
         sourceSceneComponent: true,
+        object: sourceSceneComponentRoot ?? undefined,
       };
       return;
     }
@@ -164,6 +173,7 @@ export const AssemblyTransformControls = memo(function AssemblyTransformControls
         type: 'component',
         componentId: assemblySelection.id,
         bridgeId: componentTransformTarget.bridgeId,
+        object: componentTransformTarget.object ?? undefined,
       };
       return;
     }
@@ -179,8 +189,16 @@ export const AssemblyTransformControls = memo(function AssemblyTransformControls
       type: 'component',
       componentId: assemblySelection.id,
       baseMatrix,
+      object: componentTransformTarget.object ?? undefined,
     };
-  }, [assemblySelection, assemblyState, componentTransformTarget, hasSourceSceneComponentFallback]);
+  }, [
+    assemblyRoot,
+    assemblySelection,
+    assemblyState,
+    componentTransformTarget,
+    hasSourceSceneComponentFallback,
+    sourceSceneComponentRoot,
+  ]);
 
   const commitTransform = useCallback(() => {
     const dragBaseline = dragBaselineRef.current;
@@ -189,28 +207,25 @@ export const AssemblyTransformControls = memo(function AssemblyTransformControls
     }
 
     if (dragBaseline.type === 'assembly') {
-      if (!assemblyRoot || !onAssemblyTransform) {
+      if (!dragBaseline.object || !onAssemblyTransform) {
         return;
       }
 
-      assemblyRoot.updateMatrix();
-      onAssemblyTransform(decomposeTransformMatrix(assemblyRoot.matrix));
+      dragBaseline.object.updateMatrix();
+      onAssemblyTransform(decomposeTransformMatrix(dragBaseline.object.matrix));
       return;
     }
 
     if (dragBaseline.bridgeId) {
-      if (
-        !componentTransformTarget?.object ||
-        componentTransformTarget.kind !== 'bridge' ||
-        !onBridgeTransform
-      ) {
+      if (!dragBaseline.object || !onBridgeTransform) {
         return;
       }
 
-      componentTransformTarget.object.updateMatrix();
+      dragBaseline.object.updateMatrix();
       onBridgeTransform(
         dragBaseline.bridgeId,
-        decomposeJointPivotMatrixToOrigin(componentTransformTarget.object.matrix),
+        decomposeJointPivotMatrixToOrigin(dragBaseline.object.matrix),
+        { commitMode: 'immediate' },
       );
       return;
     }
@@ -218,16 +233,17 @@ export const AssemblyTransformControls = memo(function AssemblyTransformControls
     if (dragBaseline.sourceSceneComponent) {
       if (
         !dragBaseline.componentId ||
-        !sourceSceneComponentRoot ||
+        !dragBaseline.object ||
         !onSourceSceneComponentTransform
       ) {
         return;
       }
 
-      sourceSceneComponentRoot.updateMatrix();
+      dragBaseline.object.updateMatrix();
       onSourceSceneComponentTransform(
         dragBaseline.componentId,
-        decomposeTransformMatrix(sourceSceneComponentRoot.matrix),
+        decomposeTransformMatrix(dragBaseline.object.matrix),
+        { commitMode: 'immediate' },
       );
       return;
     }
@@ -235,29 +251,31 @@ export const AssemblyTransformControls = memo(function AssemblyTransformControls
     if (
       !dragBaseline.componentId ||
       !dragBaseline.baseMatrix ||
-      !componentTransformTarget?.object ||
-      componentTransformTarget.kind !== 'component' ||
+      !dragBaseline.object ||
       !onComponentTransform
     ) {
       return;
     }
 
-    componentTransformTarget.object.updateMatrix();
-    const currentLocalMatrix = componentTransformTarget.object.matrix.clone();
+    dragBaseline.object.updateMatrix();
+    const currentLocalMatrix = dragBaseline.object.matrix.clone();
     const nextTransformMatrix = dragBaseline.baseMatrix
       .clone()
       .invert()
       .multiply(currentLocalMatrix);
 
-    onComponentTransform(dragBaseline.componentId, decomposeTransformMatrix(nextTransformMatrix));
+    onComponentTransform(
+      dragBaseline.componentId,
+      decomposeTransformMatrix(nextTransformMatrix),
+      {
+        commitMode: 'immediate',
+      },
+    );
   }, [
-    assemblyRoot,
-    componentTransformTarget,
     onAssemblyTransform,
     onBridgeTransform,
     onComponentTransform,
     onSourceSceneComponentTransform,
-    sourceSceneComponentRoot,
   ]);
 
   const handleDraggingChanged = useCallback(

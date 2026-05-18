@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo } from 'react';
 import { AlertCircle, FileCode, LoaderCircle, Plus } from 'lucide-react';
 
-import { DraggableWindow } from '@/shared/components';
-import { useDraggableWindow } from '@/shared/hooks';
+import { DraggableWindow } from '@/shared/components/DraggableWindow';
+import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { translations } from '@/shared/i18n';
 import {
   classifyLibraryFileKind,
   isLibraryComponentAddableFile,
 } from '@/shared/utils/robotFileSupport';
+import { getViewerSourceFile } from '@/app/hooks/workspaceSourceSyncUtils';
+import { resolveStandaloneViewerSourceFormat } from '@/app/hooks/workspace-source-sync/mjcfViewerRuntimePolicy';
 import type { Language } from '@/store';
 import type { DocumentLoadLifecycleState, DocumentLoadState } from '@/store/assetsStore';
 import type { RobotFile, RobotState, Theme } from '@/types';
@@ -26,6 +28,7 @@ interface FilePreviewWindowProps {
   documentLoadState: DocumentLoadState;
   lang: Language;
   theme: Theme;
+  showVisual: boolean;
   onClose: () => void;
   onAddComponent?: (file: RobotFile) => void;
 }
@@ -48,14 +51,33 @@ function resolvePreviewDocumentLoadLifecycleState(file: RobotFile): DocumentLoad
 }
 
 export function resolveFilePreviewViewerSourceFile(file: RobotFile): RobotFile {
-  if (file.format !== 'usd') {
-    return file;
-  }
+  return getViewerSourceFile({
+    selectedFile: file,
+    shouldRenderAssembly: false,
+    renderSelectedUsdFromRobotState: file.format === 'usd',
+  }) ?? file;
+}
+
+export function resolveFilePreviewViewerConfig(
+  file: RobotFile,
+  options: {
+    showVisual: boolean;
+  },
+): {
+  showVisual: boolean;
+  sourceFile: RobotFile;
+  sourceFilePath: string;
+  viewerSourceFormat: ReturnType<typeof resolveStandaloneViewerSourceFormat>;
+} {
+  const sourceFile = resolveFilePreviewViewerSourceFile(file);
 
   return {
-    ...file,
-    content: '',
-    format: 'urdf',
+    showVisual: options.showVisual,
+    sourceFile,
+    sourceFilePath: sourceFile.name,
+    viewerSourceFormat: resolveStandaloneViewerSourceFormat(file.format, {
+      renderSelectedUsdFromRobotState: file.format === 'usd',
+    }),
   };
 }
 
@@ -69,6 +91,7 @@ export function FilePreviewWindow({
   documentLoadState,
   lang,
   theme,
+  showVisual,
   onClose,
   onAddComponent,
 }: FilePreviewWindowProps) {
@@ -134,11 +157,10 @@ export function FilePreviewWindow({
     () => (file ? resolvePreviewDocumentLoadLifecycleState(file) : null),
     [file],
   );
-  const previewViewerSourceFile = useMemo(
-    () => (file ? resolveFilePreviewViewerSourceFile(file) : null),
-    [file],
+  const previewViewerConfig = useMemo(
+    () => (file ? resolveFilePreviewViewerConfig(file, { showVisual }) : null),
+    [file, showVisual],
   );
-  const previewViewerSourceFormat = file?.format === 'usd' ? 'urdf' : undefined;
 
   if (!file) {
     return null;
@@ -211,14 +233,14 @@ export function FilePreviewWindow({
               allFileContents={allFileContents}
               lang={lang}
               theme={theme}
-              showVisual={true}
+              showVisual={previewViewerConfig?.showVisual ?? showVisual}
               showOptionsPanel={false}
               showJointPanel={false}
               availableFiles={availableFiles}
               urdfContent={previewState.urdfContent}
-              viewerSourceFormat={previewViewerSourceFormat}
-              sourceFilePath={file.name}
-              sourceFile={previewViewerSourceFile}
+              viewerSourceFormat={previewViewerConfig?.viewerSourceFormat}
+              sourceFilePath={previewViewerConfig?.sourceFilePath ?? file.name}
+              sourceFile={previewViewerConfig?.sourceFile ?? file}
               selection={previewRobot.selection}
               modelInteractionEnabled={false}
               isMeshPreview={file.format === 'mesh'}

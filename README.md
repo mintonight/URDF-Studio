@@ -186,8 +186,11 @@ npm run dev
 Open:
 
 - `http://127.0.0.1:3000`
+- your editor or remote-dev port-forward URL
 
-The Vite dev server is intentionally bound to `127.0.0.1` and serves the cross-origin isolation headers required by the USD WASM runtime.
+The Vite dev server listens on `0.0.0.0` by default so remote-dev port forwarding can reach it, and serves the cross-origin isolation headers required by the USD WASM runtime.
+To restrict it to local loopback only, run `URDF_STUDIO_DEV_HOST=127.0.0.1 npm run dev`.
+If a preview/tunnel hostname is rejected by Vite's host check, set a comma-separated allow-list with `URDF_STUDIO_DEV_ALLOWED_HOSTS=preview.example.test,.tunnel.example.test npm run dev`.
 
 ## USD Runtime Requirements
 
@@ -196,6 +199,7 @@ USD loading depends on `SharedArrayBuffer`, so the page must be cross-origin iso
 - Use `npm run dev` for development
 - Use `npm run preview` to validate the production build locally
 - Prefer `127.0.0.1` / `localhost` or HTTPS
+- Direct `http://<LAN-IP>:3000` access can load the app shell, but USD import / stage open requires HTTPS or a trusted localhost-style forwarded origin
 - Do not serve `dist/` with a plain static server that omits these headers:
 
 ```http

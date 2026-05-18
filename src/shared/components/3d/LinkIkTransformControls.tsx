@@ -2,7 +2,11 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 
-import { solveLinkIkPositionTarget } from '@/core/robot';
+import {
+  resolveDirectManipulableLinkIkJointIds,
+  resolveLinkIkHandleDescriptor,
+  solveLinkIkPositionTarget,
+} from '@/core/robot';
 import type {
   RobotClosedLoopConstraint,
   RobotMaterialState,
@@ -85,6 +89,7 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
   const activeLinkIdRef = useRef<string | null>(null);
   const isDraggingRef = useRef(false);
   const didMutateRef = useRef(false);
+  const skipNextPreviewRestoreRef = useRef(false);
   const historySnapshotRef = useRef<RobotHistorySnapshot | null>(null);
   const worldPositionRef = useRef(new THREE.Vector3());
   const localPositionRef = useRef(new THREE.Vector3());
@@ -233,6 +238,21 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
     [],
   );
 
+  const resolvePreviewLimitedJointIds = useCallback(
+    (
+      baseRobot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId'>,
+      activeLinkId: string,
+    ): ReadonlySet<string> | undefined => {
+      const jointIds =
+        resolveDirectManipulableLinkIkJointIds(baseRobot, activeLinkId) ??
+        resolveLinkIkHandleDescriptor(baseRobot, activeLinkId)?.jointIds ??
+        [];
+
+      return jointIds.length > 0 ? new Set(jointIds) : undefined;
+    },
+    [],
+  );
+
   const applyIkToTarget = useCallback(
     (targetWorldPosition: THREE.Vector3, preview: boolean) => {
       const activeLinkId = activeLinkIdRef.current ?? selectedLinkId;
@@ -253,6 +273,7 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
       const solveSeedState = previewSolveStateRef.current;
       const result = solveLinkIkPositionTarget(baseRobot, {
         linkId: activeLinkId,
+        anchorLocal: selectedAnchorLocal ?? undefined,
         targetWorldPosition: {
           x: localPositionRef.current.x,
           y: localPositionRef.current.y,
@@ -302,6 +323,9 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
               },
             },
             nextSolveState,
+            {
+              limitedJointIds: resolvePreviewLimitedJointIds(baseRobot, activeLinkId),
+            },
           )
         : nextSolveState;
       const changedOverrides = diffLinkIkDragKinematicState(
@@ -319,7 +343,15 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
       committedPreviewStateRef.current = nextAppliedState;
       invalidate();
     },
-    [coordinateRoot, ikRobotState, invalidate, onPreviewKinematicOverrides, selectedLinkId],
+    [
+      coordinateRoot,
+      ikRobotState,
+      invalidate,
+      onPreviewKinematicOverrides,
+      resolvePreviewLimitedJointIds,
+      selectedAnchorLocal,
+      selectedLinkId,
+    ],
   );
 
   const schedulePreviewSolve = useCallback(() => {
@@ -433,6 +465,7 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
     }
     activeLinkIdRef.current = selectedLinkId;
     didMutateRef.current = false;
+    skipNextPreviewRestoreRef.current = false;
     isDraggingRef.current = true;
     resetSolveQueue();
     const dragStartWorldPosition = readProxyWorldPosition();
@@ -484,6 +517,7 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
       historySnapshotRef.current &&
       onCommitKinematicOverrides
     ) {
+      skipNextPreviewRestoreRef.current = true;
       onCommitKinematicOverrides(nextCommittedOverrides, historySnapshotRef.current, historyLabel);
     }
 
@@ -531,7 +565,11 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
   useEffect(() => {
     if (!isDraggingRef.current) {
       syncTranslateProxy(translateProxyRef.current);
-      clearPreviewOverrides();
+      if (skipNextPreviewRestoreRef.current) {
+        skipNextPreviewRestoreRef.current = false;
+      } else {
+        clearPreviewOverrides();
+      }
       resetSolveQueue();
     }
   }, [clearPreviewOverrides, resetSolveQueue, selectedHandle, selectedLinkId, syncTranslateProxy]);

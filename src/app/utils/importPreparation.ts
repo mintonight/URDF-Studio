@@ -9,14 +9,18 @@ import {
   resolveMJCFSource,
 } from '@/core/parsers/mjcf/mjcfSourceResolver';
 import { parseMJCFXmlDocument } from '@/core/parsers/mjcf/mjcfUtils';
-import { isAssetFile } from '@/features/file-io/utils/formatDetection';
 import {
   createImportPathCollisionMap,
   remapImportedPath,
 } from '@/features/file-io/utils/libraryImportPathCollisions';
 import { isMotorLibraryDataFilePath } from '@/shared/data/motorLibrary';
 import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
-import { isAssetLibraryOnlyFormat, isVisibleLibraryEntry } from '@/shared/utils/robotFileSupport';
+import {
+  isAssetLibraryOnlyFormat,
+  isRobotImportAssetPath,
+  isRobotImportCandidatePath,
+  isVisibleLibraryEntry,
+} from '@/shared/utils/robotFileSupport';
 import { pickPreferredImportFile } from '@/app/hooks/importPreferredFile';
 import { buildPreResolvedImportContentSignature } from './preResolvedImportSignature.ts';
 import {
@@ -407,7 +411,14 @@ function canParseXmlDocumentStrict(content: string): boolean {
   try {
     const doc = new DOMParser().parseFromString(content, 'text/xml');
     return doc.querySelector('parsererror') === null;
-  } catch {
+  } catch (error) {
+    scheduleFailFastInDev(
+      'importPreparation:canParseXmlDocumentStrict',
+      new Error('Failed to probe XML document while preparing import dependencies.', {
+        cause: error,
+      }),
+      'error',
+    );
     return false;
   }
 }
@@ -721,7 +732,7 @@ async function collectImportPayloadFromArchiveSession(
       libraryEntries.push(entry);
     } else if (isAuxiliaryTextImportPath(lowerPath)) {
       auxiliaryTextEntries.push(entry);
-    } else if (isAssetFile(path)) {
+    } else if (isRobotImportAssetPath(path)) {
       payload.deferredAssetFiles.push({
         name: path,
         sourcePath: path,
@@ -953,8 +964,14 @@ async function collectImportPayloadFromLooseFiles(
   const emitProgress = createImportProgressEmitter(onProgress);
   const auxiliaryTextFiles: Array<{ path: string; file: File }> = [];
   const mirroredTextMeshFiles: Array<{ path: string; file: File }> = [];
-  const totalEntries = files.length;
-  const totalBytes = files.reduce((sum, input) => sum + resolveImportInputFile(input).size, 0);
+  const candidateFiles = files.filter((input) =>
+    isRobotImportCandidatePath(resolveImportInputPath(input)),
+  );
+  const totalEntries = candidateFiles.length;
+  const totalBytes = candidateFiles.reduce(
+    (sum, input) => sum + resolveImportInputFile(input).size,
+    0,
+  );
   let processedEntries = 0;
   let processedBytes = 0;
   const reportExtractionProgress = () => {
@@ -970,58 +987,62 @@ async function collectImportPayloadFromLooseFiles(
 
   reportExtractionProgress();
 
-  await processWithConcurrency(files, resolveImportPreparationConcurrency(), async (input) => {
-    const file = resolveImportInputFile(input);
-    const path = resolveImportInputPath(input);
-    const lowerPath = path.toLowerCase();
+  await processWithConcurrency(
+    candidateFiles,
+    resolveImportPreparationConcurrency(),
+    async (input) => {
+      const file = resolveImportInputFile(input);
+      const path = resolveImportInputPath(input);
+      const lowerPath = path.toLowerCase();
 
-    if (shouldSkipImportPath(path)) {
+      if (shouldSkipImportPath(path)) {
+        processedEntries += 1;
+        processedBytes += file.size;
+        reportExtractionProgress();
+        return;
+      }
+
+      if (isSupportedArchiveImportFile(path)) {
+        const archivePayload = await withArchiveImportSession(file, (archiveSession) =>
+          collectImportPayloadFromArchiveSession(archiveSession, {
+            preResolvePreferredImport: options.preResolvePreferredImport,
+            sourceArchiveImportPath: normalizeImportPath(path),
+          }),
+        );
+        appendCollectedImportPayload(payload, archivePayload);
+      } else if (isUsdFamilyPath(path)) {
+        payload.robotFiles.push(await createImportedUsdFileFromLooseFile(path, file));
+        payload.usdSourceFiles.push({ name: path, blob: file });
+      } else if (isImportableDefinitionPath(lowerPath)) {
+        const content = await file.text();
+        const format = detectImportFormat(content, file.name);
+        if (format) {
+          payload.robotFiles.push({ name: path, content, format });
+        }
+      } else if (isMotorLibraryDataFilePath(path)) {
+        const content = await file.text();
+        payload.libraryFiles.push({ path, content });
+      } else if (isAuxiliaryTextImportPath(lowerPath)) {
+        auxiliaryTextFiles.push({ path, file });
+      } else if (isRobotImportAssetPath(path)) {
+        if (
+          shouldMirrorTextMeshAssetContent(lowerPath) &&
+          file.size <= MAX_EAGER_TEXT_MESH_ASSET_BYTES
+        ) {
+          mirroredTextMeshFiles.push({ path, file });
+        }
+        payload.assetFiles.push({ name: path, blob: file });
+        const visibleAssetFile = createVisibleImportedAssetFile(path);
+        if (visibleAssetFile) {
+          payload.robotFiles.push(visibleAssetFile);
+        }
+      }
+
       processedEntries += 1;
       processedBytes += file.size;
       reportExtractionProgress();
-      return;
-    }
-
-    if (isSupportedArchiveImportFile(path)) {
-      const archivePayload = await withArchiveImportSession(file, (archiveSession) =>
-        collectImportPayloadFromArchiveSession(archiveSession, {
-          preResolvePreferredImport: options.preResolvePreferredImport,
-          sourceArchiveImportPath: normalizeImportPath(path),
-        }),
-      );
-      appendCollectedImportPayload(payload, archivePayload);
-    } else if (isUsdFamilyPath(path)) {
-      payload.robotFiles.push(await createImportedUsdFileFromLooseFile(path, file));
-      payload.usdSourceFiles.push({ name: path, blob: file });
-    } else if (isImportableDefinitionPath(lowerPath)) {
-      const content = await file.text();
-      const format = detectImportFormat(content, file.name);
-      if (format) {
-        payload.robotFiles.push({ name: path, content, format });
-      }
-    } else if (isMotorLibraryDataFilePath(path)) {
-      const content = await file.text();
-      payload.libraryFiles.push({ path, content });
-    } else if (isAuxiliaryTextImportPath(lowerPath)) {
-      auxiliaryTextFiles.push({ path, file });
-    } else if (isAssetFile(path)) {
-      if (
-        shouldMirrorTextMeshAssetContent(lowerPath) &&
-        file.size <= MAX_EAGER_TEXT_MESH_ASSET_BYTES
-      ) {
-        mirroredTextMeshFiles.push({ path, file });
-      }
-      payload.assetFiles.push({ name: path, blob: file });
-      const visibleAssetFile = createVisibleImportedAssetFile(path);
-      if (visibleAssetFile) {
-        payload.robotFiles.push(visibleAssetFile);
-      }
-    }
-
-    processedEntries += 1;
-    processedBytes += file.size;
-    reportExtractionProgress();
-  });
+    },
+  );
 
   const auxiliaryTextFilesToLoad = auxiliaryTextFiles.filter(({ path }) => {
     const lowerPath = path.toLowerCase();
@@ -1236,11 +1257,13 @@ export async function prepareImportPayload({
     return createEmptyPreparedImportPayload();
   }
 
-  return renameCollectedImportPayload(
+  const preparedPayload = renameCollectedImportPayload(
     normalizeLooseImportBundleRoot(sortedCollectedPayload),
     existingPaths,
     {
       preResolvePreferredImport,
     },
   );
+
+  return preparedPayload;
 }

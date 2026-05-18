@@ -8,7 +8,7 @@ import { JSDOM } from 'jsdom';
 import { translations } from '@/shared/i18n';
 import { useRobotStore } from '@/store';
 import { useSelectionStore } from '@/store/selectionStore';
-import { DEFAULT_LINK, GeometryType, type RobotData } from '@/types';
+import { DEFAULT_JOINT, DEFAULT_LINK, GeometryType, JointType, type RobotData } from '@/types';
 import { TreeNode } from './TreeNode.tsx';
 
 function installDom() {
@@ -90,6 +90,84 @@ function createRobot(): RobotData {
     closedLoopConstraints: [],
   };
 }
+
+function createMjcfRobotWithGeneratedJointNames(): RobotData {
+  return {
+    name: 'mjcf-store-driven-robot',
+    rootLinkId: 'world',
+    joints: {
+      world_to_body_0: {
+        ...DEFAULT_JOINT,
+        id: 'world_to_body_0',
+        name: 'world_to_body_0',
+        type: JointType.FIXED,
+        parentLinkId: 'world',
+        childLinkId: 'body_0',
+      },
+    },
+    links: {
+      world: {
+        ...DEFAULT_LINK,
+        id: 'world',
+        name: 'world',
+      },
+      body_0: {
+        ...DEFAULT_LINK,
+        id: 'body_0',
+        name: 'body_0',
+      },
+    },
+    materials: {},
+    closedLoopConstraints: [],
+    inspectionContext: {
+      sourceFormat: 'mjcf',
+    },
+  };
+}
+
+test('store-driven TreeNode uses the store inspection context for MJCF display names', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  try {
+    useRobotStore.getState().resetRobot(createMjcfRobotWithGeneratedJointNames());
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      hoveredSelection: { type: null, id: null },
+      deferredHoveredSelection: { type: null, id: null },
+      hoverFrozen: false,
+      attentionSelection: { type: null, id: null },
+      focusTarget: null,
+    });
+
+    await act(async () => {
+      root.render(
+        <TreeNode
+          linkId="world"
+          storeDriven
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onUpdate={() => {}}
+          mode="editor"
+          t={translations.en}
+        />,
+      );
+    });
+
+    assert.ok(
+      container.querySelector('[title="World to Body 1 · Fixed"]'),
+      'store-driven MJCF trees should render friendly generated joint names',
+    );
+    assert.equal(
+      container.querySelector('[title="world_to_body_0 · Fixed"]'),
+      null,
+      'generated MJCF joint ids should not leak into the structure tree label',
+    );
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
 
 test('store-driven TreeNode keeps unrelated siblings from re-rendering on a local link update', async () => {
   const { dom, root } = createComponentRoot();

@@ -53,6 +53,7 @@ import {
   normalizeWorkspaceAssemblyViewerDisplayRobotDataForSource,
   resolveWorkspaceGeneratedUrdfRobotData,
   shouldKeepPristineSingleComponentWorkspaceOnSourceViewer,
+  shouldPreviewLibraryRobotLoadFromWorkspace,
   shouldPromptGenerateWorkspaceUrdfOnStructureSwitch,
   shouldReseedSingleComponentAssemblyFromActiveFile,
   shouldReuseSourceViewerForSingleComponentAssembly,
@@ -402,19 +403,10 @@ test('canUseLightweightWorkspaceViewerReloadContent returns false when authored 
   assert.equal(canUseLightweightWorkspaceViewerReloadContent(createRobotState().links), false);
 });
 
-test('shouldUseGeneratedWorkspaceViewerReloadContent keeps real workspace geometry when a transform target is active', () => {
-  const robot = createRobotState();
-  robot.links.base_link = {
-    ...robot.links.base_link,
-    visual: {
-      ...robot.links.base_link.visual,
-      authoredMaterials: [{ name: 'body_blue', color: '#0088ff' }],
-    },
-  };
-
+test('shouldUseGeneratedWorkspaceViewerReloadContent keeps generated reloads for geometry that still needs source material inference', () => {
   assert.equal(
     shouldUseGeneratedWorkspaceViewerReloadContent({
-      robotLinks: robot.links,
+      robotLinks: createRobotState().links,
       hasActiveTransformTarget: true,
     }),
     true,
@@ -451,7 +443,7 @@ test('isActiveWorkspaceTransformSession stays false for passive component select
   );
 });
 
-test('shouldUseGeneratedWorkspaceViewerReloadContent respects transform pending gating even when authored materials exist', () => {
+test('shouldUseGeneratedWorkspaceViewerReloadContent avoids generated reload churn while transform target is active', () => {
   const robot = createRobotState();
   robot.links.base_link = {
     ...robot.links.base_link,
@@ -473,7 +465,7 @@ test('shouldUseGeneratedWorkspaceViewerReloadContent respects transform pending 
       robotLinks: robot.links,
       hasActiveTransformTarget,
     }),
-    true,
+    false,
   );
 });
 
@@ -2672,6 +2664,42 @@ test('shouldReuseSourceViewerForSingleComponentAssembly keeps pristine single-co
   );
 });
 
+test('shouldReuseSourceViewerForSingleComponentAssembly logs malformed source snapshots without throwing', () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalConsoleError = console.error;
+  const consoleErrors: unknown[][] = [];
+
+  process.env.NODE_ENV = 'production';
+  console.error = (...args: unknown[]) => {
+    consoleErrors.push(args);
+  };
+
+  try {
+    assert.equal(
+      shouldReuseSourceViewerForSingleComponentAssembly({
+        assemblyState: createSeededSingleComponentAssemblyState('robots/demo/demo.urdf'),
+        activeFile: createUrdfFile('robots/demo/demo.urdf'),
+        sourceSnapshot: '{"rootLinkId":',
+      }),
+      false,
+    );
+    assert.equal(
+      consoleErrors.some(([scope]) =>
+        String(scope).includes('[workspaceSourceSyncUtils:parseRobotSourceSnapshot]'),
+      ),
+      true,
+      'expected malformed source snapshot to be logged through runtime diagnostics',
+    );
+  } finally {
+    console.error = originalConsoleError;
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  }
+});
+
 test('shouldReuseSourceViewerForSingleComponentAssembly reuses pristine USD seeds that require assembly preparation normalization', () => {
   const sourceRobot = createRobotState();
   sourceRobot.links.base_link = {
@@ -2809,6 +2837,73 @@ test('shouldReuseSourceViewerForSingleComponentAssembly keeps the current file s
   assert.equal(
     shouldReuseSourceViewerForSingleComponentAssembly({
       assemblyState: rotatedComponentAssembly,
+      activeFile: createUrdfFile('robots/demo/demo.urdf'),
+      sourceSnapshot: createRobotSourceSnapshot(createRobotState()),
+    }),
+    true,
+  );
+});
+
+test('shouldPreviewLibraryRobotLoadFromWorkspace skips preview for pristine single-component seeds', () => {
+  assert.equal(
+    shouldPreviewLibraryRobotLoadFromWorkspace({
+      assemblyState: createSeededSingleComponentAssemblyState('robots/demo/demo.urdf'),
+      activeFile: createUrdfFile('robots/demo/demo.urdf'),
+      sourceSnapshot: createRobotSourceSnapshot(createRobotState()),
+    }),
+    false,
+  );
+});
+
+test('shouldPreviewLibraryRobotLoadFromWorkspace skips preview for auto-seeded models whose robot name differs from the file name', () => {
+  const sourceRobot = createRobotState();
+  sourceRobot.name = 'friendly_robot';
+  const activeFile = createUrdfFile('robots/demo/demo.urdf');
+  const assemblyState = createSeededSingleComponentAssemblyState(activeFile.name);
+  assemblyState.name = sourceRobot.name;
+  assemblyState.components.comp_demo.name = sourceRobot.name;
+  assemblyState.components.comp_demo.robot = prepareAssemblyRobotData(sourceRobot, {
+    componentId: 'comp_demo',
+    rootName: 'demo',
+    sourceFilePath: activeFile.name,
+    sourceFormat: activeFile.format,
+  });
+
+  assert.equal(
+    shouldPreviewLibraryRobotLoadFromWorkspace({
+      assemblyState,
+      activeFile,
+      sourceSnapshot: createRobotSourceSnapshot(sourceRobot),
+    }),
+    false,
+  );
+});
+
+test('shouldPreviewLibraryRobotLoadFromWorkspace still skips preview for isolated seeded component transforms', () => {
+  const rotatedComponentAssembly =
+    createSeededSingleComponentAssemblyState('robots/demo/demo.urdf');
+  rotatedComponentAssembly.components.comp_demo.transform = {
+    position: { x: 0.15, y: -0.05, z: 0.25 },
+    rotation: { r: 0, p: 0, y: 0.35 },
+  };
+
+  assert.equal(
+    shouldPreviewLibraryRobotLoadFromWorkspace({
+      assemblyState: rotatedComponentAssembly,
+      activeFile: createUrdfFile('robots/demo/demo.urdf'),
+      sourceSnapshot: createRobotSourceSnapshot(createRobotState()),
+    }),
+    false,
+  );
+});
+
+test('shouldPreviewLibraryRobotLoadFromWorkspace requires preview once the seeded component diverges structurally', () => {
+  const mutatedAssembly = createSeededSingleComponentAssemblyState('robots/demo/demo.urdf');
+  mutatedAssembly.components.comp_demo.robot.joints.comp_demo_joint_a.origin.xyz.x = 0.25;
+
+  assert.equal(
+    shouldPreviewLibraryRobotLoadFromWorkspace({
+      assemblyState: mutatedAssembly,
       activeFile: createUrdfFile('robots/demo/demo.urdf'),
       sourceSnapshot: createRobotSourceSnapshot(createRobotState()),
     }),

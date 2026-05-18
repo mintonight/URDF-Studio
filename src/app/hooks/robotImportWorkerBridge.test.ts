@@ -7,6 +7,7 @@ import { GeometryType, type RobotFile } from '@/types';
 import type { RobotState } from '@/types';
 import type { RobotImportWorkerResponse } from '@/app/utils/robotImportWorker';
 import {
+  applyEditableSourceChangeWithWorker,
   createRobotImportWorkerClient,
   generateEditableRobotSourceWithWorker,
   resolveRobotFileDataWithWorker,
@@ -230,6 +231,69 @@ test('robot import worker client resolves editable source parse responses', asyn
   const result = await resultPromise;
 
   assert.deepEqual(result, parsedRobot);
+});
+
+test('robot import worker client resolves editable source change patch responses', async () => {
+  const fakeWorker = new FakeWorker();
+  const client = createRobotImportWorkerClient({
+    canUseWorker: () => true,
+    createWorker: () => fakeWorker as unknown as Worker,
+    getWorkerCount: () => 1,
+  });
+
+  const nextContent = demoUrdfFile.content.replace('base_link', 'base_link');
+  const resultPromise = client.applyEditableSourceChange({
+    file: {
+      name: demoUrdfFile.name,
+      format: demoUrdfFile.format,
+    },
+    content: nextContent,
+    previousContent: demoUrdfFile.content,
+    dirtyRanges: [{ startOffset: 27, endOffset: 36 }],
+    attemptIncrementalPatch: true,
+    availableFiles: [demoUrdfFile],
+  });
+
+  assert.equal(fakeWorker.postedMessages.length, 1);
+  const postedRequest = fakeWorker.postedMessages[0] as {
+    type: string;
+    requestId: number;
+    options: {
+      previousContent?: string;
+      dirtyRanges?: unknown[];
+      attemptIncrementalPatch?: boolean;
+    };
+  };
+  assert.equal(postedRequest.type, 'apply-editable-source-change');
+  assert.equal(postedRequest.options.previousContent, demoUrdfFile.content);
+  assert.deepEqual(postedRequest.options.dirtyRanges, [{ startOffset: 27, endOffset: 36 }]);
+  assert.equal(postedRequest.options.attemptIncrementalPatch, true);
+
+  const resolvedRobot = resolveRobotFileData(demoUrdfFile);
+  assert.equal(resolvedRobot.status, 'ready');
+  if (resolvedRobot.status !== 'ready') {
+    assert.fail('Expected resolved robot to be ready');
+  }
+  const nextLink = resolvedRobot.robotData.links.base_link;
+  assert.ok(nextLink);
+
+  fakeWorker.emitMessage({
+    type: 'apply-editable-source-change-result',
+    requestId: postedRequest.requestId,
+    result: {
+      mode: 'incremental-patch',
+      patch: {
+        kind: 'urdf-link-fragment-update',
+        previousLinkId: 'base_link',
+        previousLinkName: 'base_link',
+        nextLink,
+      },
+    },
+  });
+
+  const result = await resultPromise;
+
+  assert.equal(result.mode, 'incremental-patch');
 });
 
 test('robot import worker client resolves editable source generation responses', async () => {
@@ -550,6 +614,40 @@ test('robot import worker client rejects editable source parsing immediately whe
     });
   }
 });
+
+test('applyEditableSourceChangeWithWorker rejects immediately when Worker is unavailable', async () => {
+  const originalWorker = globalThis.Worker;
+
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: undefined,
+  });
+
+  try {
+    await assert.rejects(
+      applyEditableSourceChangeWithWorker({
+        file: {
+          name: demoUrdfFile.name,
+          format: demoUrdfFile.format,
+        },
+        content: demoUrdfFile.content,
+        previousContent: demoUrdfFile.content,
+        dirtyRanges: [],
+        attemptIncrementalPatch: false,
+        availableFiles: [demoUrdfFile],
+      }),
+      /Web Worker is not available in this environment/i,
+    );
+  } finally {
+    Object.defineProperty(globalThis, 'Worker', {
+      configurable: true,
+      writable: true,
+      value: originalWorker,
+    });
+  }
+});
+
 
 test('generateEditableRobotSourceWithWorker rejects immediately when Worker is unavailable', async () => {
   const originalWorker = globalThis.Worker;

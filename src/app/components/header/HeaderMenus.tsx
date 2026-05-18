@@ -124,7 +124,7 @@ export function HeaderMenus({
                 icon={Folder}
                 onClick={() => {
                   setActiveMenu(null);
-                  setTimeout(onImportFolder, 0);
+                  onImportFolder();
                 }}
               >
                 {t.importFolder}
@@ -133,7 +133,7 @@ export function HeaderMenus({
                 icon={Download}
                 onClick={() => {
                   setActiveMenu(null);
-                  setTimeout(onImportFile, 0);
+                  onImportFile();
                 }}
               >
                 {t.importUspZipFile}

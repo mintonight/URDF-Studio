@@ -61,6 +61,7 @@
     "test:fixtures:myosuite-imports": "esbuild scripts/regression/validate_myosuite_imports.ts --bundle --platform=node --format=cjs --alias:@=./src --external:jsdom --outfile=tmp/regression/myosuite-import-matrix.cjs && node tmp/regression/myosuite-import-matrix.cjs",
     "test:fixtures:unitree-ros-usd-export-benchmark": "node scripts/regression/validate_unitree_ros_usd_export_benchmark.mjs",
     "test:fixtures:unitree-ros-usd-export-e2e-benchmark": "node scripts/regression/validate_unitree_ros_usd_export_e2e_benchmark.mjs",
+    "test:fixtures:mujoco-usd-export-performance": "npx tsx scripts/regression/validate_mujoco_usd_export_performance.ts",
     "test:fixtures:unitree-ros-isaacsim-truth": "npx tsx scripts/regression/validate_unitree_ros_usd_against_isaacsim.ts",
     "test:fixtures:mujoco-mjcf-isaacsim-truth": "npx tsx scripts/regression/validate_mujoco_mjcf_usd_against_isaacsim.ts",
     "test:fixtures:isaacsim-truth": "npm run test:fixtures:unitree-ros-isaacsim-truth && npm run test:fixtures:mujoco-mjcf-isaacsim-truth",
@@ -73,7 +74,7 @@
     "test:fixtures:unitree-ros-usda": "node scripts/regression/validate_unitree_ros_usda_selected_browser.mjs",
     "test:fixtures": "npm run test:fixtures:imports && npm run test:fixtures:unitree-ros-urdfs && npm run test:fixtures:unitree-usd && npm run test:fixtures:unitree-ros-usda && npm run test:fixtures:unitree-ros-usd-export-benchmark",
     "dev:with-generate": "node scripts/start_dev_server.mjs --generate",
-    "test:unit:app-hooks": "node --import tsx --test src/app/hooks/sourcePreservingExportUtils.test.ts src/app/hooks/useEditableSourcePatches.test.ts src/app/hooks/workspaceGeneratedSourceState.test.ts src/app/utils/assemblyRootComponentSelection.test.ts src/app/utils/importPreparation.workerSafe.test.ts src/app/components/UnifiedViewer.typecheck.test.ts src/app/handoff/bootstrap.test.ts src/app/utils/popupHandoffImport.test.ts"
+    "test:unit:app-hooks": "node --import tsx --test src/app/hooks/sourcePreservingExportUtils.test.ts src/app/hooks/useEditableSourcePatches.test.ts src/app/hooks/workspaceGeneratedSourceState.test.ts src/app/utils/assemblyRootComponentSelection.test.ts src/app/utils/importPreparation.workerSafe.test.ts src/app/utils/viewerDocumentLifecycleCallbacks.test.ts src/app/components/UnifiedViewer.typecheck.test.ts src/app/handoff/bootstrap.test.ts src/app/utils/popupHandoffImport.test.ts"
   },
   "license": "Apache-2.0",
   "dependencies": {

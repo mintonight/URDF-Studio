@@ -12,6 +12,7 @@ import {
   parseURDF,
   parseXacro,
 } from '@/core/parsers';
+import { processMJCFIncludes } from '@/core/parsers/mjcf/mjcfSourceResolver';
 import { GeometryType } from '@/types';
 import { resolveSourcePreservingExportContent } from './sourcePreservingExportUtils.ts';
 
@@ -89,6 +90,147 @@ test('resolveSourcePreservingExportContent patches MJCF model-owned sections and
   assert.match(result.content, /<option timestep="0\.002" \/>/);
   assert.match(result.content, /keep mjcf option area/);
   assert.equal(parseMJCF(result.content)?.name, 'demo_updated');
+});
+
+test('resolveSourcePreservingExportContent drops stale MJCF keyframes that override generated root pose', () => {
+  const source = `<?xml version="1.0"?>
+<mujoco model="floating_demo">
+  <option timestep="0.002" />
+  <worldbody>
+    <body name="base" pos="0 0 0.1">
+      <freejoint name="root_free" />
+      <geom type="box" size="0.1 0.1 0.1" />
+    </body>
+  </worldbody>
+  <keyframe>
+    <key name="home" qpos="0 0 0.2 1 0 0 0" />
+  </keyframe>
+</mujoco>`;
+  const robot = parseMJCF(source);
+  assert.ok(robot);
+  robot.joints.root_free.origin = {
+    ...robot.joints.root_free.origin,
+    xyz: { x: 0, y: 0, z: 0.5 },
+  };
+
+  const result = resolveSourcePreservingExportContent({
+    format: 'mjcf',
+    currentRobot: robot,
+    sourceFile: {
+      name: 'robots/floating.xml',
+      format: 'mjcf',
+      content: source,
+    },
+    generatedContent: generateMujocoXML(robot, { includeSceneHelpers: false }),
+  });
+
+  assert.equal(result.strategy, 'source-preserved');
+  assert.match(result.content, /<option timestep="0\.002" \/>/);
+  assert.doesNotMatch(result.content, /<keyframe>/);
+  assert.deepEqual(parseMJCF(result.content)?.joints.root_free.origin.xyz, { x: 0, y: 0, z: 0.5 });
+});
+
+test('resolveSourcePreservingExportContent patches MJCF compiler settings with generated mesh paths', () => {
+  const source = `<?xml version="1.0"?>
+<mujoco model="meshdir_demo">
+  <compiler angle="radian" meshdir="assets" />
+  <worldbody>
+    <body name="base">
+      <geom type="mesh" mesh="base_mesh" />
+    </body>
+  </worldbody>
+  <asset>
+    <mesh name="base_mesh" file="base.stl" />
+  </asset>
+</mujoco>`;
+  const robot = parseMJCF(source);
+  assert.ok(robot);
+
+  const result = resolveSourcePreservingExportContent({
+    format: 'mjcf',
+    currentRobot: robot,
+    sourceFile: {
+      name: 'robots/meshdir.xml',
+      format: 'mjcf',
+      content: source,
+    },
+    generatedContent: generateMujocoXML(robot, { meshdir: 'meshes/' }),
+  });
+
+  assert.equal(result.strategy, 'source-preserved');
+  assert.match(result.content, /<compiler angle="radian" meshdir="meshes\/" \/>/);
+  assert.equal(parseMJCF(result.content)?.links.base.visual.meshPath, 'meshes/assets/base.stl');
+});
+
+test('resolveSourcePreservingExportContent drops stale MJCF defaults that alter generated freejoints', () => {
+  const source = `<?xml version="1.0"?>
+<mujoco model="default_freejoint_demo">
+  <compiler angle="radian" />
+  <default>
+    <joint damping="0.0239" frictionloss="0.1334" armature="0.01090125" />
+  </default>
+  <worldbody>
+    <body name="base">
+      <freejoint name="root_free" />
+      <geom type="box" size="0.1 0.1 0.1" />
+    </body>
+  </worldbody>
+</mujoco>`;
+  const robot = parseMJCF(source);
+  assert.ok(robot);
+
+  const result = resolveSourcePreservingExportContent({
+    format: 'mjcf',
+    currentRobot: robot,
+    sourceFile: {
+      name: 'robots/default-freejoint.xml',
+      format: 'mjcf',
+      content: source,
+    },
+    generatedContent: generateMujocoXML(robot, { meshdir: 'meshes/' }),
+  });
+
+  assert.equal(result.strategy, 'source-preserved');
+  assert.doesNotMatch(result.content, /<default>/);
+  assert.equal(parseMJCF(result.content)?.joints.root_free.dynamics?.damping, 0);
+});
+
+test('resolveSourcePreservingExportContent falls back to generated MJCF for root includes', () => {
+  const source = `<?xml version="1.0"?>
+<mujoco model="scene">
+  <include file="included.xml" />
+</mujoco>`;
+  const included = `<?xml version="1.0"?>
+<mujoco model="included">
+  <worldbody>
+    <body name="base">
+      <geom type="box" size="0.1 0.1 0.1" />
+    </body>
+  </worldbody>
+</mujoco>`;
+  const availableFiles = [
+    { name: 'robots/scene.xml', format: 'mjcf' as const, content: source },
+    { name: 'robots/included.xml', format: 'mjcf' as const, content: included },
+  ];
+  const robot = parseMJCF(processMJCFIncludes(source, availableFiles, 'robots'));
+  assert.ok(robot);
+  const generatedContent = generateMujocoXML(robot, { meshdir: 'meshes/' });
+
+  const result = resolveSourcePreservingExportContent({
+    format: 'mjcf',
+    currentRobot: robot,
+    sourceFile: {
+      name: 'robots/scene.xml',
+      format: 'mjcf',
+      content: source,
+    },
+    availableFiles,
+    allFileContents: Object.fromEntries(availableFiles.map((file) => [file.name, file.content])),
+    generatedContent,
+  });
+
+  assert.equal(result.strategy, 'generated-from-robot-state');
+  assert.equal(result.content, generatedContent);
 });
 
 test('resolveSourcePreservingExportContent patches SDF model inside an authored world and keeps world plugins', () => {
