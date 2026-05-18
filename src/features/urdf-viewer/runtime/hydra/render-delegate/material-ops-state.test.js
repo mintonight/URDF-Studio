@@ -328,3 +328,69 @@ test('warmupRobotSceneSnapshotFromDriver exposes driver stage diagnostics in the
     assert.equal(summary.snapshotTextureFailureCount, 3);
     assert.deepEqual(getLastRobotSceneWarmupSummary.call(context), summary);
 });
+
+test('warmupRobotSceneSnapshotFromDriver prefers packed blob snapshot transport', () => {
+    let usedBlobNormalizer = false;
+    const context = {
+        config: {},
+        _runtimeBridgeCacheStageKey: null,
+        _robotSceneSnapshotByStageSource: new Map(),
+        _lastRobotSceneWarmupSummary: null,
+        getStageSourcePath() {
+            return '/robots/blob.usd';
+        },
+        getRobotSceneSnapshotFromDriver: ThreeRenderDelegateInterface.prototype.getRobotSceneSnapshotFromDriver,
+        normalizeRobotSceneSnapshotBlob(rawSnapshot) {
+            usedBlobNormalizer = rawSnapshot?.format === 'robot-scene-snapshot-blob-v1';
+            return {
+                stageSourcePath: '/robots/blob.usd',
+                render: {},
+                robotMetadataSnapshot: {
+                    jointCatalogEntries: [{ jointName: 'j0' }],
+                    linkDynamicsEntries: [],
+                },
+            };
+        },
+        hydratePendingProtoMeshes() {
+            return {
+                attemptedCount: 0,
+                completedCount: 0,
+                pendingCount: 0,
+            };
+        },
+        applySnapshotMaterialsToMeshes() {
+            return {
+                boundCount: 0,
+                inheritedCount: 0,
+                subsetFailureCount: 0,
+                inheritFailureCount: 0,
+                textureFailureCount: 0,
+            };
+        },
+        emitRobotSceneSnapshotReady() { },
+        getDriverStageResolveSummary() {
+            return {
+                status: 'idle',
+                source: 'none',
+                error: null,
+                pending: false,
+            };
+        },
+    };
+
+    const summary = warmupRobotSceneSnapshotFromDriver.call(context, {
+        GetRobotSceneSnapshotBlob() {
+            return {
+                format: 'robot-scene-snapshot-blob-v1',
+                snapshot: {},
+            };
+        },
+        GetRobotSceneSnapshot() {
+            throw new Error('legacy snapshot should not be used');
+        },
+    });
+
+    assert.equal(summary.driverSnapshotSource, 'robot-scene-snapshot-blob');
+    assert.equal(summary.robotMetadataJointCount, 1);
+    assert.equal(usedBlobNormalizer, true);
+});

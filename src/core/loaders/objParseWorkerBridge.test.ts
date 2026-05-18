@@ -95,11 +95,13 @@ test('OBJ parse worker bridge parses inline when Worker is unavailable', async (
   });
   globalThis.fetch = (async () => {
     fetchCount += 1;
+    const objText = 'v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n';
     return {
       ok: true,
       status: 200,
       statusText: 'OK',
-      text: async () => 'v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n',
+      arrayBuffer: async () => new TextEncoder().encode(objText).buffer,
+      text: async () => objText,
     } as Response;
   }) as typeof fetch;
 

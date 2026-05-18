@@ -50,11 +50,13 @@ test('asset and mesh classification includes legacy msh files and gltf bundles u
   assert.equal(isAssetFile('robot/meshes/base.msh'), true);
   assert.equal(isAssetFile('robot/meshes/base.gltf'), true);
   assert.equal(isAssetFile('robot/meshes/base.glb'), true);
+  assert.equal(isAssetFile('robot/meshes/base.ply'), true);
   assert.equal(isAssetFile('robot/meshes/base.vtk'), true);
   assert.equal(isAssetFile('robot/meshes/base.bin'), true);
   assert.equal(isMeshFile('robot/meshes/base.msh'), true);
   assert.equal(isMeshFile('robot/meshes/base.gltf'), true);
   assert.equal(isMeshFile('robot/meshes/base.glb'), true);
+  assert.equal(isMeshFile('robot/meshes/base.ply'), true);
   assert.equal(isMeshFile('robot/meshes/base.vtk'), true);
   assert.equal(isMeshFile('robot/meshes/base.bin'), false);
 });

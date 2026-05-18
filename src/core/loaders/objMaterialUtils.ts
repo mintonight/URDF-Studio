@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 
+import { createObjectFromSerializedObjData } from './objModelData';
+import { parseObjModelDataFromBytes } from './objWasmParser';
 import { getSourceFileDirectory, resolveImportedAssetPath } from '@/core/parsers/meshPathUtils';
 import type { UrdfVisualMaterial } from '@/types';
 
@@ -395,14 +396,23 @@ async function fetchText(url: string): Promise<string> {
   return await response.text();
 }
 
+async function fetchArrayBuffer(url: string): Promise<ArrayBuffer> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch binary asset: ${response.status} ${response.statusText}`);
+  }
+
+  return await response.arrayBuffer();
+}
+
 async function loadObjMaterialCreator(
-  objText: string,
+  materialLibraries: readonly string[],
   manager: THREE.LoadingManager,
   sourcePath?: string | null,
 ): Promise<ReturnType<MTLLoader['parse']> | null> {
   const rewrittenMaterialTexts: string[] = [];
 
-  for (const materialLibrary of parseObjMaterialLibraries(objText)) {
+  for (const materialLibrary of materialLibraries) {
     const resolvedMaterialPath = sourcePath
       ? resolveImportedAssetPath(materialLibrary, sourcePath)
       : normalizeLookupPath(materialLibrary);
@@ -467,21 +477,134 @@ function normalizeObjVertexColorMaterials(root: THREE.Object3D): void {
   });
 }
 
+function cloneMtlMaterialForRenderable(
+  sourceMaterial: THREE.Material,
+  renderable: THREE.Mesh | THREE.LineSegments | THREE.Points,
+): THREE.Material {
+  const sourceColor = (sourceMaterial as THREE.Material & { color?: THREE.Color }).color;
+  const color = sourceColor instanceof THREE.Color ? sourceColor : new THREE.Color(0xffffff);
+
+  if ((renderable as THREE.LineSegments).isLineSegments) {
+    const material = new THREE.LineBasicMaterial({ color });
+    material.name = sourceMaterial.name;
+    material.userData = { ...(sourceMaterial.userData ?? {}) };
+    return material;
+  }
+
+  if ((renderable as THREE.Points).isPoints) {
+    const material = new THREE.PointsMaterial({
+      color,
+      size: 10,
+      sizeAttenuation: false,
+    });
+    material.name = sourceMaterial.name;
+    material.userData = { ...(sourceMaterial.userData ?? {}) };
+    const sourceMap = (sourceMaterial as THREE.MeshPhongMaterial).map;
+    if (sourceMap) {
+      material.map = sourceMap;
+    }
+    return material;
+  }
+
+  return sourceMaterial.clone();
+}
+
+function createMtlMaterialForGeneratedMaterial(
+  materialCreator: ReturnType<MTLLoader['parse']>,
+  generatedMaterial: THREE.Material,
+  renderable: THREE.Mesh | THREE.LineSegments | THREE.Points,
+): THREE.Material | null {
+  const materialName = generatedMaterial.name?.trim();
+  if (!materialName || !Object.prototype.hasOwnProperty.call(materialCreator.materialsInfo, materialName)) {
+    return null;
+  }
+
+  const sourceMaterial = materialCreator.create(materialName);
+  if (!sourceMaterial) {
+    return null;
+  }
+
+  return cloneMtlMaterialForRenderable(sourceMaterial, renderable);
+}
+
+function applyMtlMaterialsToRenderable(
+  renderable: THREE.Mesh | THREE.LineSegments | THREE.Points,
+  materialCreator: ReturnType<MTLLoader['parse']>,
+): void {
+  const originalMaterials = Array.isArray(renderable.material)
+    ? renderable.material
+    : [renderable.material];
+  let didReplace = false;
+
+  const nextMaterials = originalMaterials.map((material) => {
+    const nextMaterial = createMtlMaterialForGeneratedMaterial(
+      materialCreator,
+      material,
+      renderable,
+    );
+    if (!nextMaterial) {
+      return material;
+    }
+
+    didReplace = true;
+    return nextMaterial;
+  });
+
+  if (!didReplace) {
+    return;
+  }
+
+  renderable.material = Array.isArray(renderable.material) ? nextMaterials : nextMaterials[0];
+}
+
+export async function applyObjMaterialLibrariesToObject(
+  root: THREE.Object3D,
+  materialLibraries: readonly string[],
+  manager: THREE.LoadingManager,
+  sourcePath?: string | null,
+  options: { yieldIfNeeded?: () => Promise<void> } = {},
+): Promise<void> {
+  if (materialLibraries.length === 0) {
+    await options.yieldIfNeeded?.();
+    normalizeObjVertexColorMaterials(root);
+    return;
+  }
+
+  const materialCreator = await loadObjMaterialCreator(materialLibraries, manager, sourcePath);
+  if (!materialCreator) {
+    await options.yieldIfNeeded?.();
+    normalizeObjVertexColorMaterials(root);
+    return;
+  }
+
+  await options.yieldIfNeeded?.();
+  root.traverse((child) => {
+    const renderable = child as THREE.Mesh | THREE.LineSegments | THREE.Points;
+    if (!renderable.geometry || !('material' in renderable)) {
+      return;
+    }
+
+    applyMtlMaterialsToRenderable(renderable, materialCreator);
+  });
+
+  normalizeObjVertexColorMaterials(root);
+  await options.yieldIfNeeded?.();
+}
+
 export async function loadObjScene(
   assetUrl: string,
   manager: THREE.LoadingManager,
   sourcePath?: string | null,
 ): Promise<THREE.Group> {
   const requestUrl = manager.resolveURL(assetUrl);
-  const objText = await fetchText(requestUrl);
-  const loader = new OBJLoader(manager);
-  const materials = await loadObjMaterialCreator(objText, manager, sourcePath);
-  if (materials) {
-    loader.setMaterials(materials);
-  }
-
-  const object = loader.parse(objText);
-  normalizeObjVertexColorMaterials(object);
+  const serializedObject = await parseObjModelDataFromBytes(await fetchArrayBuffer(requestUrl));
+  const object = createObjectFromSerializedObjData(serializedObject);
+  await applyObjMaterialLibrariesToObject(
+    object,
+    serializedObject.materialLibraries,
+    manager,
+    sourcePath,
+  );
   return object;
 }
 
@@ -515,6 +638,40 @@ function cloneMaterialWithOwnedTextures<TMaterial extends THREE.Material>(
   return clonedMaterial;
 }
 
+function cloneGeometryWithSharedAttributeStorage(
+  geometry: THREE.BufferGeometry,
+): THREE.BufferGeometry {
+  const clonedGeometry = new THREE.BufferGeometry();
+  const index = geometry.getIndex();
+
+  clonedGeometry.name = geometry.name;
+  clonedGeometry.userData = { ...(geometry.userData ?? {}) };
+  clonedGeometry.drawRange = { ...geometry.drawRange };
+  clonedGeometry.morphTargetsRelative = geometry.morphTargetsRelative;
+  clonedGeometry.morphAttributes = { ...geometry.morphAttributes };
+
+  if (index) {
+    clonedGeometry.setIndex(index);
+  }
+
+  Object.entries(geometry.attributes).forEach(([name, attribute]) => {
+    clonedGeometry.setAttribute(name, attribute);
+  });
+
+  geometry.groups.forEach((group) => {
+    clonedGeometry.addGroup(group.start, group.count, group.materialIndex ?? 0);
+  });
+
+  if (geometry.boundingBox) {
+    clonedGeometry.boundingBox = geometry.boundingBox.clone();
+  }
+  if (geometry.boundingSphere) {
+    clonedGeometry.boundingSphere = geometry.boundingSphere.clone();
+  }
+
+  return clonedGeometry;
+}
+
 export function cloneObjSceneWithOwnedResources<TObject extends THREE.Object3D>(
   source: TObject,
 ): TObject {
@@ -526,7 +683,7 @@ export function cloneObjSceneWithOwnedResources<TObject extends THREE.Object3D>(
       return;
     }
 
-    renderable.geometry = renderable.geometry.clone();
+    renderable.geometry = cloneGeometryWithSharedAttributeStorage(renderable.geometry);
 
     if (Array.isArray(renderable.material)) {
       renderable.material = renderable.material.map((material) =>

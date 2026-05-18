@@ -171,6 +171,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     registerSceneRefresh,
     setIsDragging,
     onIkPreviewKinematicOverrides,
+    onIkCommitKinematicOverrides,
     onClearIkPreviewKinematicOverrides,
     setActiveJoint,
     justSelectedRef,
@@ -289,14 +290,18 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         closedLoopConstraints: state.closedLoopConstraints,
       });
     }, []);
-    const commitIkKinematicOverrides = useCallback((...args: LinkIkCommitArgs) => {
-      const [overrides, historySnapshot, label] = args;
-      const storeState = useRobotStore.getState();
-      storeState.applyJointKinematicOverrides(overrides, {
-        skipHistory: true,
-      });
-      storeState.pushHistorySnapshot(historySnapshot, label);
-    }, []);
+    const commitIkKinematicOverrides = useCallback(
+      (...args: LinkIkCommitArgs) => {
+        const [overrides, historySnapshot, label] = args;
+        const storeState = useRobotStore.getState();
+        storeState.applyJointKinematicOverrides(overrides, {
+          skipHistory: true,
+        });
+        onIkCommitKinematicOverrides?.(overrides.angles, overrides.quaternions);
+        storeState.pushHistorySnapshot(historySnapshot, label);
+      },
+      [onIkCommitKinematicOverrides],
+    );
     const backendRobotData = useMemo(() => {
       const backendLinks = robotData?.links ?? robotLinks;
       const backendJoints = robotData?.joints ?? robotJoints;
@@ -706,6 +711,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         onJointChange,
         onJointChangeCommit,
         throttleJointChangeDuringDrag: true,
+        deferDirectJointRuntimeUpdate: Boolean(ikRobotState?.closedLoopConstraints?.length),
         setIsDragging,
         setHoverFrozen,
         setActiveJoint,
@@ -930,7 +936,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         >
           {robot ? <primitive object={robot} /> : null}
         </group>
-        {isLoading && !onDocumentLoadEvent ? (
+        {isLoading ? (
           <Html fullscreen>
             <div className={VIEWER_CORNER_OVERLAY_CLASS_NAME}>
               <ViewerLoadingHud

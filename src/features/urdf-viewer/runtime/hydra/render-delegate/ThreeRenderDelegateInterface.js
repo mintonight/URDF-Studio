@@ -2493,7 +2493,30 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             source: forceRefresh ? "batch-refresh" : "batch",
         };
     }
+    normalizeRobotSceneSnapshotBlob(rawPayload, options = {}) {
+        if (!rawPayload || typeof rawPayload !== 'object')
+            return null;
+        const format = String(rawPayload.format || '').trim();
+        if (format !== 'robot-scene-snapshot-blob-v1')
+            return this.normalizeRobotSceneSnapshot(rawPayload, options);
+        const rawSnapshot = rawPayload.snapshot && typeof rawPayload.snapshot === 'object'
+            ? rawPayload.snapshot
+            : null;
+        if (!rawSnapshot)
+            return null;
+        const normalized = this.normalizeRobotSceneSnapshot(rawSnapshot, {
+            ...options,
+            transportFormat: format,
+        });
+        if (normalized && rawPayload.nativeProfile && typeof rawPayload.nativeProfile === 'object') {
+            normalized.nativeProfile = rawPayload.nativeProfile;
+        }
+        return normalized;
+    }
     normalizeRobotSceneSnapshot(rawSnapshot, options = {}) {
+        if (rawSnapshot?.format === 'robot-scene-snapshot-blob-v1') {
+            return this.normalizeRobotSceneSnapshotBlob(rawSnapshot, options);
+        }
         if (!rawSnapshot || typeof rawSnapshot !== 'object')
             return null;
         const toPlainArray = (value) => (Array.isArray(value)
@@ -2931,10 +2954,15 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         let transformPool = new Float32Array(0);
         let bufferRangesByMeshId = {};
         let normalizedMeshDescriptors = [];
-        const stageLayerTexts = (() => {
+        let stageLayerTexts = null;
+        const getStageLayerTexts = () => {
+            if (stageLayerTexts) {
+                return stageLayerTexts;
+            }
             const stage = this.getStage?.();
-            return this.getStageMetadataLayerTexts(stage || null, resolvedStageSourcePath);
-        })();
+            stageLayerTexts = this.getStageMetadataLayerTexts(stage || null, resolvedStageSourcePath);
+            return stageLayerTexts;
+        };
         const cloneMeshRanges = (ranges) => normalizeMeshRanges(ranges) || null;
         const descriptorHasMeshPayload = (descriptor) => {
             const ranges = normalizeMeshRanges(descriptor?.ranges) || null;
@@ -2993,7 +3021,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         };
         const buildReferencedMeshLibraryPayloadAliases = () => {
             const aliases = new Map();
-            for (const layerText of stageLayerTexts) {
+            for (const layerText of getStageLayerTexts()) {
                 const referencesByPrimPath = parseUsdReferenceTargetsByPrimPathFromLayerText?.(layerText);
                 if (!(referencesByPrimPath instanceof Map)) {
                     continue;
@@ -3104,6 +3132,15 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         };
         const attachReferencedMeshLibraryPayloads = () => {
             if (!Array.isArray(normalizedMeshDescriptors) || normalizedMeshDescriptors.length === 0) {
+                return;
+            }
+            const needsReferencedPayloads = normalizedMeshDescriptors.some((descriptor) => {
+                if (descriptorHasMeshPayload(descriptor)) {
+                    return false;
+                }
+                return normalizeDescriptorSectionName(descriptor?.sectionName) === 'visuals';
+            });
+            if (!needsReferencedPayloads) {
                 return;
             }
             const referenceAliasByPrimPath = buildReferencedMeshLibraryPayloadAliases();
@@ -3625,9 +3662,14 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 : [];
             return !existingMaterialId || existingGeomSubsetSections.length === 0;
         });
-        const parsedRoundtripMaterialRecovery = getParsedRoundtripMaterialRecovery(this, resolvedStageSourcePath, stageLayerTexts, {
-            includeUsdMaterialBindings: requiresStandardMaterialBindingRecovery,
-        });
+        const parsedRoundtripMaterialRecovery = requiresStandardMaterialBindingRecovery
+            ? getParsedRoundtripMaterialRecovery(this, resolvedStageSourcePath, getStageLayerTexts(), {
+                includeUsdMaterialBindings: true,
+            })
+            : {
+                urdfMaterialMetadataByPrimPath: new Map(),
+                usdMaterialBindingsByPrimPath: new Map(),
+            };
         const urdfMaterialMetadataByPrimPath = parsedRoundtripMaterialRecovery.urdfMaterialMetadataByPrimPath instanceof Map
             ? parsedRoundtripMaterialRecovery.urdfMaterialMetadataByPrimPath
             : new Map();
@@ -3735,9 +3777,29 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 snapshotMaterialRecords = snapshotMaterialRecords.concat(fallbackMaterialRecords);
             }
         }
+        const snapshotMaterialRecordHasRenderableData = (record) => {
+            if (!record || typeof record !== 'object') {
+                return false;
+            }
+            return [
+                'color',
+                'emissive',
+                'specularColor',
+                'mapPath',
+                'emissiveMapPath',
+                'roughnessMapPath',
+                'metalnessMapPath',
+                'normalMapPath',
+                'aoMapPath',
+                'alphaMapPath',
+            ].some((key) => hasMaterialRecordValue(record[key]));
+        };
         snapshotMaterialRecords = snapshotMaterialRecords.map((record) => {
             const materialId = normalizeHydraPath(record?.materialId || record?.id || '');
             if (!materialId) {
+                return record;
+            }
+            if (snapshotMaterialRecordHasRenderableData(record)) {
                 return record;
             }
             const fallbackStageMaterial = this.createFallbackMaterialFromStage(materialId);
@@ -3800,7 +3862,11 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             this.getCachedRobotMetadataSnapshot(resolvedStageSourcePath),
         );
         let stageRobotMetadataSnapshot = null;
-        if (typeof this.buildRobotMetadataSnapshotForStage === 'function') {
+        const rawMetadataHasCompleteDriverData = rawRobotMetadataSnapshot
+            && rawRobotMetadataSnapshot.stale !== true
+            && (Number(rawRobotMetadataSnapshot.jointCatalogEntries?.length || 0) > 0
+                || Number(rawRobotMetadataSnapshot.linkDynamicsEntries?.length || 0) > 0);
+        if (!rawMetadataHasCompleteDriverData && typeof this.buildRobotMetadataSnapshotForStage === 'function') {
             try {
                 stageRobotMetadataSnapshot = normalizeRobotMetadataSnapshotCandidate(
                     this.buildRobotMetadataSnapshotForStage(resolvedStageSourcePath, null),
@@ -3945,6 +4011,13 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         return {
             generatedAtMs: Number(rawSnapshot.generatedAtMs || Date.now()),
             source: 'robot-scene-snapshot',
+            nativeSnapshotSource: String(rawSnapshot.snapshotSource || '').trim() || null,
+            nativeProfile: rawSnapshot.nativeProfile && typeof rawSnapshot.nativeProfile === 'object'
+                ? rawSnapshot.nativeProfile
+                : null,
+            driverInitProfile: rawSnapshot.driverInitProfile && typeof rawSnapshot.driverInitProfile === 'object'
+                ? rawSnapshot.driverInitProfile
+                : null,
             stageSourcePath: resolvedStageSourcePath || null,
             stage: normalizedStage,
             robotTree: {
@@ -4038,7 +4111,11 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             summary.source = String(summary.driverSnapshotSource || 'empty');
             return finalizeSummary();
         }
-        const normalizedSnapshot = this.normalizeRobotSceneSnapshot(rawSnapshot, {
+        const normalizeSnapshot = summary.driverSnapshotSource === 'robot-scene-snapshot-blob'
+            && typeof this.normalizeRobotSceneSnapshotBlob === 'function'
+            ? this.normalizeRobotSceneSnapshotBlob
+            : this.normalizeRobotSceneSnapshot;
+        const normalizedSnapshot = normalizeSnapshot.call(this, rawSnapshot, {
             force: forceRefresh,
             stageSourcePath,
             emitRobotMetadataEvent: options?.emitRobotMetadataEvent === true,
@@ -4067,6 +4144,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         summary.robotMetadataJointCount = Number(normalizedSnapshot.robotMetadataSnapshot?.jointCatalogEntries?.length || 0);
         summary.robotMetadataDynamicsCount = Number(normalizedSnapshot.robotMetadataSnapshot?.linkDynamicsEntries?.length || 0);
         summary.meshDescriptorCount = Number(normalizedSnapshot.render?.meshDescriptors?.length || 0);
+        summary.nativeSnapshotSource = String(normalizedSnapshot.nativeSnapshotSource || 'none');
         summary.hydratedProtoMeshAttemptedCount = Number(hydrateSummary?.attemptedCount || 0);
         summary.hydratedProtoMeshCount = Number(hydrateSummary?.completedCount || 0);
         summary.hydratedProtoMeshPendingCount = Number(hydrateSummary?.pendingCount || 0);
@@ -4088,6 +4166,21 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         const runtimeLinkPaths = Array.isArray(options?.runtimeLinkPaths)
             ? options.runtimeLinkPaths
             : [];
+        const supportsRobotSceneSnapshotBlob = typeof resolvedDriver?.GetRobotSceneSnapshotBlob === 'function';
+        if (supportsRobotSceneSnapshotBlob) {
+            try {
+                const rawSnapshot = resolvedDriver.GetRobotSceneSnapshotBlob(runtimeLinkPaths, stageSourcePath);
+                if (rawSnapshot && typeof rawSnapshot === 'object') {
+                    return {
+                        source: 'robot-scene-snapshot-blob',
+                        rawSnapshot,
+                        stageSourcePath,
+                        runtimeLinkPaths,
+                    };
+                }
+            }
+            catch { }
+        }
         const supportsRobotSceneSnapshot = typeof resolvedDriver?.GetRobotSceneSnapshot === 'function';
         if (supportsRobotSceneSnapshot) {
             try {
@@ -4104,7 +4197,9 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             catch { }
         }
         return {
-            source: supportsRobotSceneSnapshot ? 'empty-robot-scene-snapshot' : 'unsupported',
+            source: supportsRobotSceneSnapshotBlob || supportsRobotSceneSnapshot
+                ? 'empty-robot-scene-snapshot'
+                : 'unsupported',
             rawSnapshot: null,
             stageSourcePath,
             runtimeLinkPaths,

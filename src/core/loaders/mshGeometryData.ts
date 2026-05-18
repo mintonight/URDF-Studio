@@ -1,4 +1,4 @@
-import { BufferGeometry, Float32BufferAttribute, Vector3 } from 'three';
+import { BufferAttribute, BufferGeometry, Float32BufferAttribute, Vector3 } from 'three';
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 
 export interface SerializedMshGeometryData {
@@ -159,7 +159,7 @@ export function createGeometryFromSerializedMshData(
     geometry.setAttribute('uv', new Float32BufferAttribute(new Float32Array(data.uvs), 2));
   }
 
-  geometry.setIndex(Array.from(new Int32Array(data.indices)));
+  geometry.setIndex(new BufferAttribute(new Uint32Array(new Int32Array(data.indices)), 1));
   if (!data.normals) {
     geometry.computeVertexNormals();
   }

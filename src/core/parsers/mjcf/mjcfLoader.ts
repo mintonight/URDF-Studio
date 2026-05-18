@@ -62,6 +62,7 @@ interface MJCFJoint {
   axis?: [number, number, number];
   range?: [number, number];
   pos?: [number, number, number];
+  stiffness?: number;
 }
 
 interface MJCFSite {
@@ -198,6 +199,7 @@ export async function loadMJCFToThreeJS(
       compilerSettings,
       materialMap,
       textureMap,
+      actuatorMap: parsedModel.actuatorMap,
       sourceFileDir,
       onAsyncSceneMutation,
       onProgress: ({ processedGeoms, totalGeoms }) => {

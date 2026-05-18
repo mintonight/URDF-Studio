@@ -81,6 +81,7 @@ export function isAssetFile(filename: string): boolean {
     'dae',
     'gltf',
     'glb',
+    'ply',
     'vtk',
     'bin',
     'png',
@@ -103,11 +104,11 @@ export function isMotorLibraryFile(path: string): boolean {
 }
 
 /**
- * Check if file is a 3D mesh file (.stl, .msh, .obj, .dae)
+ * Check if file is a 3D mesh file
  */
 export function isMeshFile(filename: string): boolean {
   const ext = filename.split('.').pop()?.toLowerCase();
-  return ['stl', 'msh', 'obj', 'dae', 'gltf', 'glb', 'vtk'].includes(ext || '');
+  return ['stl', 'msh', 'obj', 'dae', 'gltf', 'glb', 'ply', 'vtk'].includes(ext || '');
 }
 
 /**

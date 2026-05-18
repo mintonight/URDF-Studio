@@ -102,7 +102,6 @@ test('TreeNodeLinkRow keeps rename input typography aligned with the rendered la
           onNameDoubleClick={() => {}}
           onToggleGeometryExpanded={() => {}}
           onToggleVisibility={() => {}}
-          onAddChild={() => {}}
         />,
       );
     });
@@ -185,7 +184,6 @@ test('TreeNodeLinkRow lets the link name use the remaining row width before trai
           onNameDoubleClick={() => {}}
           onToggleGeometryExpanded={() => {}}
           onToggleVisibility={() => {}}
-          onAddChild={() => {}}
         />,
       );
     });
@@ -208,7 +206,7 @@ test('TreeNodeLinkRow lets the link name use the remaining row width before trai
   }
 });
 
-test('TreeNodeLinkRow hides deep secondary actions until the row is active', async () => {
+test('TreeNodeLinkRow omits per-link add controls and keeps visibility as an always-on trailing column', async () => {
   const { dom, container, root } = createComponentRoot();
   const renameInputRef = createRef<HTMLInputElement>();
 
@@ -249,7 +247,6 @@ test('TreeNodeLinkRow hides deep secondary actions until the row is active', asy
           onNameDoubleClick={() => {}}
           onToggleGeometryExpanded={() => {}}
           onToggleVisibility={() => {}}
-          onAddChild={() => {}}
         />,
       );
     });
@@ -258,10 +255,9 @@ test('TreeNodeLinkRow hides deep secondary actions until the row is active', asy
   try {
     await renderRow(false);
 
-    assert.equal(
-      Boolean(container.querySelector('button[aria-label="Hide"]')),
-      false,
-      'deep inactive rows should not reserve width for visibility controls',
+    assert.ok(
+      container.querySelector('button[aria-label="Hide"]'),
+      'deep inactive rows should keep visibility controls available',
     );
     assert.equal(
       Boolean(container.querySelector(`button[aria-label="${translations.en.addChildJoint}"]`)),
@@ -275,9 +271,16 @@ test('TreeNodeLinkRow hides deep secondary actions until the row is active', asy
       container.querySelector('button[aria-label="Hide"]'),
       'deep active rows should still expose visibility controls',
     );
-    assert.ok(
-      container.querySelector(`button[aria-label="${translations.en.addChildJoint}"]`),
-      'deep active rows should still expose add controls',
+    assert.equal(
+      Boolean(container.querySelector(`button[aria-label="${translations.en.addChildJoint}"]`)),
+      false,
+      'deep active rows should not expose per-link add controls',
+    );
+    const buttons = Array.from(container.querySelectorAll('button'));
+    assert.equal(
+      buttons.at(-1)?.getAttribute('aria-label'),
+      'Hide',
+      'visibility should remain the final aligned action column',
     );
   } finally {
     await destroyComponentRoot(dom, root);

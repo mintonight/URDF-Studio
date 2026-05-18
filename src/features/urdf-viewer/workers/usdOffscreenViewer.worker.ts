@@ -10,6 +10,10 @@ import {
   WORKSPACE_DEFAULT_CAMERA_POSITION,
   WORKSPACE_DEFAULT_CAMERA_UP,
 } from '@/shared/components/3d/scene/constants.ts';
+import {
+  resolveWorkspaceOrbitPanSpeed,
+  resolveWorkspaceOrbitZoomSpeed,
+} from '@/shared/components/3d/scene/workspaceOrbitPan.ts';
 import { LinkAxesController } from '../runtime/viewer/link-axes.js';
 import { LinkRotationController } from '../runtime/viewer/link-rotation.js';
 import type { PreparedUsdPreloadFile } from '../utils/usdStageOpenPreparation.ts';
@@ -186,6 +190,7 @@ let camera: THREE.PerspectiveCamera | null = null;
 let usdRoot: THREE.Group | null = null;
 let controls: WorkerControls | null = null;
 let currentOrbit: UsdWorkerOrbitState | null = null;
+let navigationSceneBounds: THREE.Box3 | null | undefined = undefined;
 let offscreenLightRig: UsdOffscreenLightRig | null = null;
 let offscreenStudioEnvironment: UsdOffscreenStudioEnvironmentHandle | null = null;
 let offscreenGroundShadowPlane: THREE.Mesh | null = null;
@@ -1290,6 +1295,7 @@ function disposeStageResources(): void {
   clearScheduledAutoFrame();
   clearScheduledGroundAlignmentPasses();
   clearScheduledDeferredSceneSnapshot();
+  invalidateWorkerNavigationBounds();
   shouldSettleGroundAlignmentAfterLoad = true;
   useCollisionVisualProxyMode = false;
   resolvedRobotData = null;
@@ -1411,8 +1417,22 @@ function syncOrbitFromCamera(): void {
   currentOrbit = createUsdWorkerOrbitState(camera.position, controls.target, camera.up);
 }
 
+function invalidateWorkerNavigationBounds(): void {
+  navigationSceneBounds = undefined;
+}
+
+function getWorkerNavigationBounds(): THREE.Box3 | null {
+  if (navigationSceneBounds !== undefined) {
+    return navigationSceneBounds;
+  }
+
+  navigationSceneBounds = usdRoot ? computeVisibleBounds(usdRoot) : null;
+  return navigationSceneBounds;
+}
+
 function sampleWorkerAutoFrameBounds() {
   const bounds = usdRoot ? computeVisibleBounds(usdRoot) : null;
+  navigationSceneBounds = bounds;
   return {
     stabilityKey: createCameraFrameStabilityKey(bounds),
     state: bounds,
@@ -1534,6 +1554,7 @@ function applyGroundAlignment(): void {
     return;
   }
 
+  invalidateWorkerNavigationBounds();
   syncUsdOffscreenGroundShadowPlane(offscreenGroundShadowPlane, groundPlaneOffset);
 }
 
@@ -1561,6 +1582,7 @@ function applyRuntimeVisibility(): void {
     return;
   }
 
+  invalidateWorkerNavigationBounds();
   runtime.applyMeshVisibilityFilters(
     runtimeWindow.renderInterface,
     showVisual,
@@ -1991,44 +2013,62 @@ async function publishResolvedRobotData(): Promise<PublishedWorkerRobotData> {
   refreshRuntimeHelperTargets();
   syncInteractionHighlights();
 
-  let serializedPreparedCache: Awaited<
-    ReturnType<typeof serializePreparedUsdExportCacheForWorker>
-  > | null = null;
-  try {
-    serializedPreparedCache = await trackWorkerLoadDebugStep({
-      sourceFileName: currentSourceFileName,
-      step: 'prepare-worker-export-cache',
-      pendingDetail: {
-        rendererMode: 'offscreen-worker',
-        source: 'worker-scene-snapshot',
-      },
-      run: async () => {
-        const preparedCache = prepareUsdExportCacheFromResolvedSnapshot(
-          snapshot,
-          resolutionWithSnapshot,
-          { includeTransferBytes: true },
-        );
-        return await serializePreparedUsdExportCacheForWorker(preparedCache);
-      },
-      resolveDetail: (result) => ({
-        rendererMode: 'offscreen-worker',
-        source: 'worker-scene-snapshot',
-        meshFileCount: result.payload.meshFiles.length,
-        transferableBufferCount: result.transferables.length,
-      }),
-    });
-  } catch {
-    serializedPreparedCache = null;
-  }
-
   postWorkerMessage(
     {
       type: 'robot-data',
       resolution: resolutionWithSnapshot,
-      preparedCache: serializedPreparedCache?.payload ?? null,
+      robotData: resolvedViewerRobotData.robotData,
+      preparedCache: null,
+      preparedCachePending: Boolean(snapshot),
+      deferredSceneSnapshotPending: hasUsdSceneSnapshotHeavyBuffers(snapshot),
     },
-    serializedPreparedCache?.transferables,
   );
+
+  if (snapshot) {
+    void (async () => {
+      try {
+        const serializedPreparedCache = await trackWorkerLoadDebugStep({
+          sourceFileName: currentSourceFileName,
+          step: 'prepare-worker-export-cache',
+          pendingDetail: {
+            rendererMode: 'offscreen-worker',
+            source: 'worker-scene-snapshot',
+          },
+          run: async () => {
+            const preparedCache = prepareUsdExportCacheFromResolvedSnapshot(
+              snapshot,
+              resolutionWithSnapshot,
+              { includeTransferBytes: true },
+            );
+            return await serializePreparedUsdExportCacheForWorker(preparedCache);
+          },
+          resolveDetail: (result) => ({
+            rendererMode: 'offscreen-worker',
+            source: 'worker-scene-snapshot',
+            meshFileCount: result.payload.meshFiles.length,
+            transferableBufferCount: result.transferables.length,
+          }),
+        });
+
+        postWorkerMessage(
+          {
+            type: 'prepared-cache',
+            stageSourcePath:
+              snapshot.stageSourcePath || resolutionWithSnapshot.stageSourcePath || null,
+            preparedCache: serializedPreparedCache.payload,
+          },
+          serializedPreparedCache.transferables,
+        );
+      } catch (error) {
+        postWorkerMessage({
+          type: 'prepared-cache',
+          stageSourcePath: snapshot.stageSourcePath || resolutionWithSnapshot.stageSourcePath || null,
+          preparedCache: null,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
+  }
   emitCurrentJointAngles();
 
   return {
@@ -2180,6 +2220,10 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
     const params = createEmbeddedUsdViewerLoadParams(runtime.threadCount, {
       preferWorkerResolvedRobotData: true,
       dependenciesPreloadedToVirtualFs: true,
+      // Vendor USDs can be fully renderable while lacking complete robot
+      // joint/dynamics metadata. Keep the one-shot render drain strict, but do
+      // not fail the worker after the scene is visually complete.
+      allowIncompleteWorkerRobotMetadata: true,
     });
 
     const loadState = await trackWorkerLoadDebugStep({
@@ -2222,11 +2266,36 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
             emitLoadingProgress(progress);
           },
         }),
-      resolveDetail: (result) => ({
-        rendererMode: 'offscreen-worker',
-        stageSourcePath: preparedStageOpenData.stageSourcePath,
-        drawFailed: Boolean(result?.drawFailed),
-      }),
+      resolveDetail: (result) => {
+        const runtimeWarmupSummary = (
+          result as { runtimeBridgeWarmupSummary?: { nativeSnapshotSource?: unknown } } | null | undefined
+        )?.runtimeBridgeWarmupSummary;
+        const usdLoadProfile = (
+          result as {
+            usdLoadProfile?: {
+              runtimeBridgeWarmupSummary?: { nativeSnapshotSource?: unknown };
+              robotSceneSnapshotProfile?: unknown;
+            };
+          } | null | undefined
+        )?.usdLoadProfile;
+
+        return {
+          rendererMode: 'offscreen-worker',
+          stageSourcePath: preparedStageOpenData.stageSourcePath,
+          drawFailed: Boolean(result?.drawFailed),
+          robotSceneSnapshotOnly: Boolean(
+            (result as { robotSceneSnapshotOnly?: boolean } | null | undefined)?.robotSceneSnapshotOnly ||
+              (result as { drawSkippedForRobotSceneSnapshot?: boolean } | null | undefined)
+                ?.drawSkippedForRobotSceneSnapshot,
+          ),
+          runtimeWarmupNativeSnapshotSource: String(
+            runtimeWarmupSummary?.nativeSnapshotSource ??
+              usdLoadProfile?.runtimeBridgeWarmupSummary?.nativeSnapshotSource ??
+              '',
+          ) || null,
+          robotSceneSnapshotProfile: usdLoadProfile?.robotSceneSnapshotProfile ?? null,
+        };
+      },
     });
 
     currentDriver = loadState?.driver ?? null;
@@ -2254,30 +2323,38 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
       );
     }
 
-    const nextLinkRotationController = ensureLinkRotationController();
-    nextLinkRotationController.setRenderInterface(runtimeWindow.renderInterface);
-    nextLinkRotationController.setStageSourcePath(
-      currentSourceFileName || preparedStageOpenData.stageSourcePath || message.sourceFile.name,
+    const robotSceneSnapshotOnlyLoad = Boolean(
+      (loadState as { robotSceneSnapshotOnly?: boolean } | null | undefined)?.robotSceneSnapshotOnly ||
+        (loadState as { drawSkippedForRobotSceneSnapshot?: boolean } | null | undefined)
+          ?.drawSkippedForRobotSceneSnapshot,
     );
-    nextLinkRotationController.setEnabled(true);
 
-    applyRuntimeVisibility();
-    shouldSettleGroundAlignmentAfterLoad = shouldSettleUsdGroundAlignmentAfterInitialLoad({
-      name:
-        currentSourceFileName || preparedStageOpenData.stageSourcePath || message.sourceFile.name,
-      content: message.sourceFile.content,
-    });
-    if (shouldSettleGroundAlignmentAfterLoad) {
-      scheduleGroundAlignmentSettlePasses(
-        loadGeneration,
+    if (!robotSceneSnapshotOnlyLoad) {
+      const nextLinkRotationController = ensureLinkRotationController();
+      nextLinkRotationController.setRenderInterface(runtimeWindow.renderInterface);
+      nextLinkRotationController.setStageSourcePath(
         currentSourceFileName || preparedStageOpenData.stageSourcePath || message.sourceFile.name,
       );
-    } else {
-      applyGroundAlignment();
+      nextLinkRotationController.setEnabled(true);
+
+      applyRuntimeVisibility();
+      shouldSettleGroundAlignmentAfterLoad = shouldSettleUsdGroundAlignmentAfterInitialLoad({
+        name:
+          currentSourceFileName || preparedStageOpenData.stageSourcePath || message.sourceFile.name,
+        content: message.sourceFile.content,
+      });
+      if (shouldSettleGroundAlignmentAfterLoad) {
+        scheduleGroundAlignmentSettlePasses(
+          loadGeneration,
+          currentSourceFileName || preparedStageOpenData.stageSourcePath || message.sourceFile.name,
+        );
+      } else {
+        applyGroundAlignment();
+      }
+      scheduleWorkerAutoFrameSettlePasses(loadGeneration);
+      syncOrbitFromCamera();
+      renderScene();
     }
-    scheduleWorkerAutoFrameSettlePasses(loadGeneration);
-    syncOrbitFromCamera();
-    renderScene();
     const workerResolvedRobotData = await trackWorkerLoadDebugStep({
       sourceFileName: message.sourceFile.name,
       step: 'resolve-worker-robot-data',
@@ -2298,20 +2375,23 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
         stageOpenContextCacheHit: stageOpenContext.cacheHit,
         preparedStageOpenCacheHit,
         collisionVisualProxyMode: useCollisionVisualProxyMode,
+        robotSceneSnapshotOnly: robotSceneSnapshotOnlyLoad,
         ...(getRuntimeWarmupDebugDetail(runtimeWindow.renderInterface) ?? {}),
       }),
     });
-    if (useCollisionVisualProxyMode) {
+    if (!robotSceneSnapshotOnlyLoad && useCollisionVisualProxyMode) {
       applyRuntimeVisibility();
       applyGroundAlignment();
       scheduleWorkerAutoFrameSettlePasses(loadGeneration);
       syncOrbitFromCamera();
       renderScene();
     }
-    if (!(await waitForWorkerSceneSettle(loadGeneration))) {
-      return;
+    if (!robotSceneSnapshotOnlyLoad) {
+      if (!(await waitForWorkerSceneSettle(loadGeneration))) {
+        return;
+      }
+      validateWorkerRenderedScene(currentSourceFileName || message.sourceFile.name);
     }
-    validateWorkerRenderedScene(currentSourceFileName || message.sourceFile.name);
 
     emitLoadDebugEntry({
       sourceFileName: message.sourceFile.name,
@@ -2333,6 +2413,7 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
         stageOpenContextCacheHit: stageOpenContext.cacheHit,
         preparedStageOpenCacheHit,
         collisionVisualProxyMode: useCollisionVisualProxyMode,
+        robotSceneSnapshotOnly: robotSceneSnapshotOnlyLoad,
         ...(getRuntimeWarmupDebugDetail(runtimeWindow.renderInterface) ?? {}),
       },
     });
@@ -2472,9 +2553,16 @@ function handlePointerMove(
     if (message.buttons !== 0) {
       clearRuntimeHover();
       if (activePointer.button === 2 || (message.buttons & 2) === 2) {
+        const sceneBounds = getWorkerNavigationBounds();
         applyUsdWorkerOrbitPanDelta(currentOrbit, camera, deltaX, deltaY, {
           viewportHeight: runtimeWindow.innerHeight,
-          panSpeed: 0.9,
+          panSpeed: resolveWorkspaceOrbitPanSpeed({
+            basePanSpeed: 0.9,
+            camera,
+            target: currentOrbit.target,
+            sceneBounds,
+            minDistance: 0.2,
+          }),
         });
       } else {
         applyUsdWorkerOrbitPointerDelta(currentOrbit, deltaX, deltaY, {
@@ -2525,7 +2613,16 @@ function handleWheel(message: Extract<UsdOffscreenViewerWorkerRequest, { type: '
     return;
   }
 
-  applyUsdWorkerOrbitZoomDelta(currentOrbit, message.deltaY);
+  const sceneBounds = getWorkerNavigationBounds();
+  applyUsdWorkerOrbitZoomDelta(currentOrbit, message.deltaY, {
+    zoomSpeed: resolveWorkspaceOrbitZoomSpeed({
+      baseZoomSpeed: 0.0015,
+      camera,
+      target: currentOrbit.target,
+      sceneBounds,
+      minDistance: 0.2,
+    }),
+  });
   applyUsdWorkerOrbitToCamera(currentOrbit, camera, controls);
   renderScene();
   emitWorkerCameraState();

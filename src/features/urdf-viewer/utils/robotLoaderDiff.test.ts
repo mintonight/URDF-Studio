@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { GeometryType, JointType, type UrdfJoint, type UrdfLink } from '@/types';
 
 import {
+  areRobotLinkChangesVisibilityOnly,
   detectJointPatches,
   detectSingleGeometryPatch,
   detectSingleJointPatch,
@@ -199,6 +200,53 @@ test('detectSingleGeometryPatch treats link display-name edits as compatible met
   assert.equal(patch?.visualBodiesChanged, false);
   assert.equal(patch?.collisionChanged, false);
   assert.equal(patch?.collisionBodiesChanged, false);
+});
+
+test('areRobotLinkChangesVisibilityOnly accepts batched link and geometry visibility edits', () => {
+  const previousLinks = {
+    base_link: makeLink(),
+    arm_link: makeLink({
+      id: 'arm_link',
+      name: 'arm_link',
+    }),
+  };
+  const nextLinks = {
+    base_link: makeLink({
+      visible: false,
+      visual: {
+        ...makeLink().visual,
+        visible: false,
+      },
+    }),
+    arm_link: makeLink({
+      id: 'arm_link',
+      name: 'arm_link',
+      collision: {
+        ...makeLink().collision,
+        visible: false,
+      },
+    }),
+  };
+
+  assert.equal(detectSingleGeometryPatch(previousLinks, nextLinks), null);
+  assert.equal(areRobotLinkChangesVisibilityOnly(previousLinks, nextLinks), true);
+});
+
+test('areRobotLinkChangesVisibilityOnly rejects mixed geometry edits', () => {
+  const previousLinks = {
+    base_link: makeLink(),
+  };
+  const nextLinks = {
+    base_link: makeLink({
+      visible: false,
+      visual: {
+        ...makeLink().visual,
+        dimensions: { x: 0.4, y: 0.2, z: 0.2 },
+      },
+    }),
+  };
+
+  assert.equal(areRobotLinkChangesVisibilityOnly(previousLinks, nextLinks), false);
 });
 
 test('detectSingleGeometryPatch treats collision body name edits as geometry updates', () => {

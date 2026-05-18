@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { useRobotStore } from './robotStore.ts';
-import { DEFAULT_VISUAL_COLOR, GeometryType } from '@/types';
+import { DEFAULT_VISUAL_COLOR, GeometryType, JointType } from '@/types';
 import { updateCollisionGeometryByObjectIndex } from '@/core/robot';
 
 function resetRobotStore() {
@@ -112,6 +112,59 @@ test('setRobot can reset undo history for a fresh USD file load', () => {
   assert.equal(nextState._activity.at(-1)?.label, 'Load USD stage');
 });
 
+test('setJointAngle skips store notifications when solved joint motion is unchanged', () => {
+  resetRobotStore();
+
+  const baseLink = useRobotStore.getState().links.base_link;
+  assert.ok(baseLink);
+  useRobotStore.getState().setRobot(
+    {
+      name: 'joint_angle_robot',
+      links: {
+        base_link: baseLink,
+        child_link: {
+          ...baseLink,
+          id: 'child_link',
+          name: 'child_link',
+        },
+      },
+      joints: {
+        hinge: {
+          id: 'hinge',
+          name: 'hinge',
+          type: JointType.REVOLUTE,
+          parentLinkId: 'base_link',
+          childLinkId: 'child_link',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          axis: { x: 0, y: 0, z: 1 },
+          limit: { lower: -1, upper: 1, effort: 1, velocity: 1 },
+          dynamics: { damping: 0, friction: 0 },
+          hardware: {
+            armature: 0,
+            motorType: '',
+            motorId: '',
+            motorDirection: 1,
+          },
+          angle: 0.25,
+        },
+      },
+      rootLinkId: 'base_link',
+    },
+    { skipHistory: true },
+  );
+
+  let notifications = 0;
+  const unsubscribe = useRobotStore.subscribe(() => {
+    notifications += 1;
+  });
+
+  useRobotStore.getState().setJointAngle('hinge', 0.25);
+  unsubscribe();
+
+  assert.equal(notifications, 0);
+  assert.equal(useRobotStore.getState().joints.hinge?.angle, 0.25);
+});
+
 test('setRobot syncs link visual colors from tracked materials during load', () => {
   resetRobotStore();
 
@@ -196,6 +249,60 @@ test('setRobot preserves inspection context for AI inspection and follow-up chat
   assert.equal(nextState.inspectionContext?.sourceFormat, 'mjcf');
   assert.equal(nextState.inspectionContext?.mjcf?.siteCount, 3);
   assert.equal(nextState.inspectionContext?.mjcf?.tendons[0]?.name, 'hip_tendon');
+});
+
+test('updateMjcfTendon updates editable tendon visualization fields', () => {
+  resetRobotStore();
+
+  useRobotStore.getState().setRobot(
+    {
+      name: 'tendon_robot',
+      links: {
+        base_link: {
+          ...useRobotStore.getState().links.base_link,
+        },
+      },
+      joints: {},
+      rootLinkId: 'base_link',
+      inspectionContext: {
+        sourceFormat: 'mjcf',
+        mjcf: {
+          siteCount: 2,
+          tendonCount: 1,
+          tendonActuatorCount: 0,
+          bodiesWithSites: [],
+          tendons: [
+            {
+              name: 'finger_tendon',
+              type: 'spatial',
+              width: 0.003,
+              rgba: [1, 0, 0, 1],
+              attachmentRefs: ['site_a', 'site_b'],
+              attachments: [
+                { type: 'site', ref: 'site_a' },
+                { type: 'site', ref: 'site_b' },
+              ],
+              actuatorNames: [],
+            },
+          ],
+        },
+      },
+    },
+    { skipHistory: true },
+  );
+
+  useRobotStore.getState().updateMjcfTendon(
+    'finger_tendon',
+    {
+      width: 0.012,
+      rgba: [0.1, 0.2, 0.3, 0.4],
+    },
+    { skipHistory: true },
+  );
+
+  const tendon = useRobotStore.getState().inspectionContext?.mjcf?.tendons[0];
+  assert.equal(tendon?.width, 0.012);
+  assert.deepEqual(tendon?.rgba, [0.1, 0.2, 0.3, 0.4]);
 });
 
 test('updateLink keeps robot materials in sync with visual color edits', () => {

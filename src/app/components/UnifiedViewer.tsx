@@ -22,6 +22,7 @@ import {
   type ViewerHelperKind,
   type ToolMode,
   type ViewerDocumentLoadEvent,
+  type ViewerJointChangeContext,
   type ViewerJointMotionStateValue,
   type ViewerRobotSourceFormat,
 } from '@/features/urdf-viewer/types';
@@ -102,7 +103,11 @@ interface UnifiedViewerProps {
   onRuntimeSceneReadyForDisplay?: () => void;
   jointAngleState?: Record<string, number>;
   jointMotionState?: Record<string, ViewerJointMotionStateValue>;
-  onJointChange?: (jointName: string, angle: number) => void;
+  onJointChange?: (
+    jointName: string,
+    angle: number,
+    context?: ViewerJointChangeContext,
+  ) => void;
   syncJointChangesToApp?: boolean;
   selection?: InteractionSelection;
   modelInteractionEnabled?: boolean;

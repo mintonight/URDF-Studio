@@ -25,7 +25,11 @@ import { getSourceFileDirectory } from '@/core/parsers/meshPathUtils';
 import type { RobotData, UrdfJoint, UrdfLink } from '@/types';
 import { setRegressionRuntimeRobot } from '@/shared/debug/regressionState';
 import { isSingleDofJoint } from '@/shared/utils/jointTypes';
-import { detectJointPatches, detectSingleGeometryPatch } from '../utils/robotLoaderDiff';
+import {
+  areRobotLinkChangesVisibilityOnly,
+  detectJointPatches,
+  detectSingleGeometryPatch,
+} from '../utils/robotLoaderDiff';
 import { applyGeometryPatchInPlace } from '../utils/robotLoaderGeometryPatch';
 import { patchJointsInPlace } from '../utils/robotLoaderJointPatch';
 import { resolveURDFMaterialsForScene } from '@/shared/components/3d/urdfMaterials';
@@ -481,7 +485,13 @@ export function useRobotLoader({
     }
 
     const patch = detectSingleGeometryPatch(previousLinks, robotLinks);
-    if (!patch) return;
+    if (!patch) {
+      if (areRobotLinkChangesVisibilityOnly(previousLinks, robotLinks)) {
+        setRobotVersion((v) => v + 1);
+        setError(null);
+      }
+      return;
+    }
 
     const colladaRootNormalizationHints = buildColladaRootNormalizationHints(robotLinks);
 

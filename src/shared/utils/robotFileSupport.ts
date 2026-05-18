@@ -45,7 +45,16 @@ export const ROBOT_DEFINITION_IMPORT_EXTENSIONS = [
   '.usp',
 ] as const;
 
-export const LIBRARY_MESH_IMPORT_EXTENSIONS = ['.stl', '.obj', '.dae', '.gltf', '.glb'] as const;
+export const LIBRARY_MESH_IMPORT_EXTENSIONS = [
+  '.stl',
+  '.msh',
+  '.obj',
+  '.dae',
+  '.gltf',
+  '.glb',
+  '.ply',
+  '.vtk',
+] as const;
 
 export const LIBRARY_IMAGE_IMPORT_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'] as const;
 
@@ -56,6 +65,7 @@ export const ROBOT_IMPORT_ASSET_EXTENSIONS = [
   '.dae',
   '.gltf',
   '.glb',
+  '.ply',
   '.vtk',
   '.bin',
   '.png',

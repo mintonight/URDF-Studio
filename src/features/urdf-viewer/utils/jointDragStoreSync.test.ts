@@ -69,3 +69,64 @@ test('throttles drag change propagation and cancels pending trailing updates on 
   ]);
   assert.deepEqual(commits, [['knee', 0.5]]);
 });
+
+test('animation frame sync coalesces drag changes to the latest preview', () => {
+  const globalWithAnimationFrame = globalThis as typeof globalThis & {
+    requestAnimationFrame?: (callback: (time: number) => void) => number;
+    cancelAnimationFrame?: (handle: number) => void;
+  };
+  const previousRequestAnimationFrame = globalWithAnimationFrame.requestAnimationFrame;
+  const previousCancelAnimationFrame = globalWithAnimationFrame.cancelAnimationFrame;
+  const frameCallbacks = new Map<number, (time: number) => void>();
+  let nextFrameHandle = 1;
+
+  globalWithAnimationFrame.requestAnimationFrame = (callback) => {
+    const handle = nextFrameHandle++;
+    frameCallbacks.set(handle, callback);
+    return handle;
+  };
+  globalWithAnimationFrame.cancelAnimationFrame = (handle) => {
+    frameCallbacks.delete(handle);
+  };
+
+  try {
+    const changes: Array<[string, number]> = [];
+    const commits: Array<[string, number]> = [];
+    const sync = createJointDragStoreSync({
+      onDragChange: (jointName, angle) => {
+        changes.push([jointName, angle]);
+      },
+      onDragCommit: (jointName, angle) => {
+        commits.push([jointName, angle]);
+      },
+      syncMode: 'animationFrame',
+    });
+
+    sync.emit('ankle', 0.1);
+    sync.emit('ankle', 0.2);
+
+    assert.deepEqual(changes, []);
+    assert.equal(frameCallbacks.size, 1);
+
+    const frameEntry = frameCallbacks.entries().next().value;
+    assert.ok(frameEntry);
+    const [frameHandle, frame] = frameEntry;
+    frameCallbacks.delete(frameHandle);
+    frame?.(16);
+
+    assert.deepEqual(changes, [['ankle', 0.2]]);
+
+    sync.emit('ankle', 0.3);
+    sync.emit('ankle', 0.4);
+    sync.commit('ankle', 0.5);
+
+    assert.equal(frameCallbacks.size, 0);
+    assert.deepEqual(changes, [['ankle', 0.2]]);
+    assert.deepEqual(commits, [['ankle', 0.5]]);
+
+    sync.dispose();
+  } finally {
+    globalWithAnimationFrame.requestAnimationFrame = previousRequestAnimationFrame;
+    globalWithAnimationFrame.cancelAnimationFrame = previousCancelAnimationFrame;
+  }
+});

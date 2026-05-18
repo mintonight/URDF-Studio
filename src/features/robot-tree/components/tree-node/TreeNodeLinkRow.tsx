@@ -1,5 +1,5 @@
 import { memo, type MouseEvent, type RefObject } from 'react';
-import { Box, ChevronDown, ChevronRight, Eye, EyeOff, Plus, Shapes, Shield } from 'lucide-react';
+import { Box, ChevronDown, ChevronRight, Eye, EyeOff, Shapes, Shield } from 'lucide-react';
 import type { TranslationKeys } from '@/shared/i18n';
 import type { TreeNodeEditingTarget } from './types';
 import {
@@ -44,7 +44,6 @@ interface TreeNodeLinkRowProps {
   onNameDoubleClick: (event: MouseEvent) => void;
   onToggleGeometryExpanded: () => void;
   onToggleVisibility: (event: MouseEvent) => void;
-  onAddChild: (event: MouseEvent) => void;
 }
 
 export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
@@ -81,11 +80,9 @@ export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
   onNameDoubleClick,
   onToggleGeometryExpanded,
   onToggleVisibility,
-  onAddChild,
 }: TreeNodeLinkRowProps) {
   const selectedLinkActionClass =
     'text-system-blue hover:bg-system-blue/15 hover:text-system-blue-hover dark:hover:bg-system-blue/25';
-  const showSecondaryActions = depth < 4 || isSelected || isHovered || isAttentionHighlighted;
 
   return (
     <div
@@ -215,10 +212,10 @@ export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
           </button>
         )}
 
-        {!readOnly && showSecondaryActions && (
+        {!readOnly && (
           <button
             type="button"
-            className={`p-1 rounded cursor-pointer transition-colors ${
+            className={`h-5 w-5 p-1 rounded cursor-pointer transition-colors ${
               isSelected
                 ? selectedLinkActionClass
                 : 'text-text-tertiary hover:bg-system-blue/10 hover:text-text-primary dark:hover:bg-system-blue/20'
@@ -228,22 +225,6 @@ export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
             aria-label={isVisible ? t.hide : t.show}
           >
             {isVisible ? <Eye size={12} /> : <EyeOff size={12} />}
-          </button>
-        )}
-
-        {!readOnly && showSecondaryActions && (
-          <button
-            type="button"
-            onClick={onAddChild}
-            className={`p-1 rounded transition-all ${
-              isSelected
-                ? 'opacity-100 hover:bg-system-blue/15 dark:hover:bg-system-blue/25'
-                : 'opacity-0 group-hover:opacity-100 hover:bg-system-blue/10 dark:hover:bg-system-blue/20'
-            }`}
-            title={t.addChildJoint}
-            aria-label={t.addChildJoint}
-          >
-            <Plus size={12} />
           </button>
         )}
       </div>

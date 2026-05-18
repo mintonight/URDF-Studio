@@ -91,6 +91,11 @@ export interface ViewerJointMotionStateValue {
   quaternion?: JointQuaternion;
 }
 
+export interface ViewerJointChangeContext {
+  jointAngles?: Record<string, number>;
+  jointQuaternions?: Record<string, JointQuaternion>;
+}
+
 export interface ViewerProps {
   urdfContent: string;
   assets: Record<string, string>;
@@ -99,7 +104,11 @@ export interface ViewerProps {
   availableFiles?: RobotFile[];
   sourceFilePath?: string;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
-  onJointChange?: (jointName: string, angle: number) => void;
+  onJointChange?: (
+    jointName: string,
+    angle: number,
+    context?: ViewerJointChangeContext,
+  ) => void;
   syncJointChangesToApp?: boolean;
   jointAngleState?: Record<string, number>;
   jointMotionState?: Record<string, ViewerJointMotionStateValue>;
@@ -221,12 +230,16 @@ export interface RobotModelProps {
   paintSelectionScope?: ViewerPaintSelectionScope;
   paintOperation?: ViewerPaintOperation;
   onPaintStatusChange?: (status: ViewerPaintStatus | null) => void;
-  onJointChange?: (name: string, angle: number) => void;
+  onJointChange?: (name: string, angle: number, context?: ViewerJointChangeContext) => void;
   onJointChangeCommit?: (name: string, angle: number) => void;
   initialJointAngles?: Record<string, number>;
   registerSceneRefresh?: (refreshScene: (() => void) | null) => void;
   setIsDragging?: (dragging: boolean) => void;
   onIkPreviewKinematicOverrides?: (
+    jointAngles: Record<string, number>,
+    jointQuaternions: Record<string, ViewerJointMotionStateValue['quaternion']>,
+  ) => void;
+  onIkCommitKinematicOverrides?: (
     jointAngles: Record<string, number>,
     jointQuaternions: Record<string, ViewerJointMotionStateValue['quaternion']>,
   ) => void;

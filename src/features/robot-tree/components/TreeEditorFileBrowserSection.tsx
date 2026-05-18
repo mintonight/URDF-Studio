@@ -1,13 +1,11 @@
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import type { RobotFile } from '@/types';
 import type { FileTreeNode } from '../utils';
-import type { LibraryDeleteTarget } from './FileTreeNode';
 import { TreeEditorFileBrowserContent } from './TreeEditorFileBrowserContent';
 import type { TreeEditorTranslations } from './treeEditorTypes';
 
 interface TreeEditorFileBrowserSectionProps {
   availableFiles: RobotFile[];
-  canDeleteAllLibraryFiles: boolean;
   editingFolderPath?: string | null;
   expandedFolders: Set<string>;
   fileBrowserHeight: number;
@@ -21,12 +19,10 @@ interface TreeEditorFileBrowserSectionProps {
   onAddComponent?: (file: RobotFile) => void;
   onCancelFolderRename?: () => void;
   onCommitFolderRename?: () => void;
-  onDeleteFromLibrary?: (target: LibraryDeleteTarget) => void;
   onFileContextMenu: (event: ReactMouseEvent, file: RobotFile) => void;
   onFileLoad?: (file: RobotFile) => void;
   onFolderRenameDraftChange?: (value: string) => void;
   onFolderContextMenu: (event: ReactMouseEvent, folderPath: string) => void;
-  onOpenDeleteAllDialog: () => void;
   onResizeMouseDown: (event: ReactMouseEvent) => void;
   onToggleOpen: () => void;
   shouldFillSpace: boolean;
@@ -36,7 +32,6 @@ interface TreeEditorFileBrowserSectionProps {
 
 export function TreeEditorFileBrowserSection({
   availableFiles,
-  canDeleteAllLibraryFiles,
   editingFolderPath,
   expandedFolders,
   fileBrowserHeight,
@@ -50,12 +45,10 @@ export function TreeEditorFileBrowserSection({
   onAddComponent,
   onCancelFolderRename = () => {},
   onCommitFolderRename = () => {},
-  onDeleteFromLibrary,
   onFileContextMenu,
   onFileLoad,
   onFolderRenameDraftChange = () => {},
   onFolderContextMenu,
-  onOpenDeleteAllDialog,
   onResizeMouseDown,
   onToggleOpen,
   shouldFillSpace,
@@ -66,7 +59,6 @@ export function TreeEditorFileBrowserSection({
     <>
       <TreeEditorFileBrowserContent
         availableFiles={availableFiles}
-        canDeleteAllLibraryFiles={canDeleteAllLibraryFiles}
         editingFolderPath={editingFolderPath}
         expandedFolders={expandedFolders}
         fileTree={fileTree}
@@ -79,8 +71,6 @@ export function TreeEditorFileBrowserSection({
         onAddComponent={onAddComponent}
         onCancelFolderRename={onCancelFolderRename}
         onCommitFolderRename={onCommitFolderRename}
-        onDeleteAll={onOpenDeleteAllDialog}
-        onDeleteFromLibrary={onDeleteFromLibrary}
         onLoadRobot={onFileLoad}
         onFileContextMenu={onFileContextMenu}
         onFolderRenameDraftChange={onFolderRenameDraftChange}

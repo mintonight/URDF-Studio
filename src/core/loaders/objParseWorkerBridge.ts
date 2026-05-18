@@ -1,9 +1,10 @@
 import {
   createObjectFromSerializedObjData,
-  parseObjModelData,
+  createObjectFromSerializedObjDataAsync,
   type SerializedObjModelData,
 } from './objModelData';
 import type { ObjParseWorkerResponse, ParseObjWorkerRequest } from './objParseWorkerProtocol';
+import { parseObjModelDataFromBytes } from './objWasmParser';
 import {
   createWorkerPoolClient,
   resolveDefaultWorkerCount,
@@ -31,7 +32,7 @@ async function loadSerializedObjModelDataInline(assetUrl: string): Promise<Seria
     throw new Error(`Failed to fetch OBJ asset: ${response.status} ${response.statusText}`);
   }
 
-  return parseObjModelData(await response.text());
+  return await parseObjModelDataFromBytes(await response.arrayBuffer());
 }
 
 export function createObjParseWorkerPoolClient({
@@ -106,4 +107,4 @@ export function disposeObjParseWorkerPoolClient(rejectPendingWith?: unknown): vo
   sharedObjParseWorkerPoolClient.dispose(rejectPendingWith);
 }
 
-export { createObjectFromSerializedObjData };
+export { createObjectFromSerializedObjData, createObjectFromSerializedObjDataAsync };

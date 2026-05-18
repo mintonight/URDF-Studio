@@ -29,6 +29,19 @@ test('resolveLibraryRobotLoadAction previews direct library model clicks when th
   );
 });
 
+test('resolveLibraryRobotLoadAction previews from the unsaved-edit confirmation without switching files', () => {
+  assert.equal(
+    resolveLibraryRobotLoadAction({
+      selectedFileName: 'robots/current.urdf',
+      targetFileName: 'robots/other.urdf',
+      shouldPreviewCurrentState: false,
+      hasSimpleModeSourceEdits: true,
+      intent: 'preview',
+    }),
+    'preview',
+  );
+});
+
 test('resolveLibraryRobotLoadAction does not preview the already selected model', () => {
   assert.equal(
     resolveLibraryRobotLoadAction({
@@ -42,7 +55,7 @@ test('resolveLibraryRobotLoadAction does not preview the already selected model'
   );
 });
 
-test('resolveLibraryRobotLoadAction still guards unsaved source edits before replacing the source model', () => {
+test('resolveLibraryRobotLoadAction asks for preview or discard before replacing unsaved source edits', () => {
   assert.equal(
     resolveLibraryRobotLoadAction({
       selectedFileName: 'robots/current.urdf',
@@ -51,6 +64,19 @@ test('resolveLibraryRobotLoadAction still guards unsaved source edits before rep
       hasSimpleModeSourceEdits: true,
       intent: 'direct',
     }),
-    'needs-draft-confirm',
+    'needs-preview-or-discard-confirm',
+  );
+});
+
+test('resolveLibraryRobotLoadAction discards unsaved source edits when requested', () => {
+  assert.equal(
+    resolveLibraryRobotLoadAction({
+      selectedFileName: 'robots/current.urdf',
+      targetFileName: 'robots/other.urdf',
+      shouldPreviewCurrentState: false,
+      hasSimpleModeSourceEdits: true,
+      intent: 'discard',
+    }),
+    'load',
   );
 });

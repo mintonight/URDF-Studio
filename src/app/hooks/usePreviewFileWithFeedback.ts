@@ -79,6 +79,7 @@ export function usePreviewFileWithFeedback({
             importedAssetPaths,
             {
               allFileContents,
+              availableFiles,
               sourcePath: file.name,
             },
           );

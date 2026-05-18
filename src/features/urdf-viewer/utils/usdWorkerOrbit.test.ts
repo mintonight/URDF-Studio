@@ -194,6 +194,32 @@ test('applyUsdWorkerOrbitToCamera syncs the controls target after panning', () =
   assertVectorApprox(controls.target, orbit.target);
 });
 
+test('applyUsdWorkerOrbitPanDelta supports damped pan speed for large-scene navigation', () => {
+  const camera = new THREE.PerspectiveCamera(68, 1, 0.1, 1000);
+  camera.position.set(25, 0, 5);
+  camera.up.set(0, 0, 1);
+  camera.lookAt(0, 0, 0);
+  camera.updateMatrixWorld(true);
+  const target = new THREE.Vector3(0, 0, 0);
+
+  const baseOrbit = createUsdWorkerOrbitState(camera.position, target);
+  applyUsdWorkerOrbitPanDelta(baseOrbit, camera, 120, 80, {
+    viewportHeight: 556,
+    panSpeed: 0.9,
+  });
+
+  const dampedOrbit = createUsdWorkerOrbitState(camera.position, target);
+  applyUsdWorkerOrbitPanDelta(dampedOrbit, camera, 120, 80, {
+    viewportHeight: 556,
+    panSpeed: 0.9 * 0.35,
+  });
+
+  assert.ok(
+    dampedOrbit.target.distanceTo(target) < baseOrbit.target.distanceTo(target),
+    'expected a scale-aware pan speed to reduce USD worker pan travel',
+  );
+});
+
 test('applyUsdWorkerOrbitPointerDelta clamps the polar angle away from the singularities', () => {
   const orbit = createUsdWorkerOrbitState(
     new THREE.Vector3(0, -2, 2),
@@ -224,4 +250,32 @@ test('applyUsdWorkerOrbitZoomDelta keeps the radius inside the provided clamp wi
     maxRadius: 6,
   });
   assertApprox(orbit.radius, 6, 1e-3);
+});
+
+test('applyUsdWorkerOrbitZoomDelta supports damped zoom speed for large-scene navigation', () => {
+  const baseOrbit = createUsdWorkerOrbitState(
+    new THREE.Vector3(0, -25, 5),
+    new THREE.Vector3(0, 0, 0),
+  );
+  const dampedOrbit = createUsdWorkerOrbitState(
+    new THREE.Vector3(0, -25, 5),
+    new THREE.Vector3(0, 0, 0),
+  );
+  const originalRadius = baseOrbit.radius;
+
+  applyUsdWorkerOrbitZoomDelta(baseOrbit, -200, {
+    zoomSpeed: 0.0015,
+    minRadius: 1,
+    maxRadius: 100,
+  });
+  applyUsdWorkerOrbitZoomDelta(dampedOrbit, -200, {
+    zoomSpeed: 0.0015 * 0.35,
+    minRadius: 1,
+    maxRadius: 100,
+  });
+
+  assert.ok(
+    Math.abs(dampedOrbit.radius - originalRadius) < Math.abs(baseOrbit.radius - originalRadius),
+    'expected damped USD worker zoom to change radius less per wheel step',
+  );
 });

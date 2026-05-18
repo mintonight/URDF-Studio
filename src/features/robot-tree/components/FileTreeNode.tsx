@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import type { TranslationKeys } from '@/shared/i18n';
 import {
   classifyLibraryFileKind,
@@ -23,7 +23,6 @@ export interface FileTreeNodeComponentProps {
   onAddAsComponent?: (file: RobotFile) => void;
   onCancelFolderRename: () => void;
   onCommitFolderRename: () => void;
-  onDeleteFromLibrary?: (target: LibraryDeleteTarget) => void;
   onFileContextMenu?: (event: React.MouseEvent, file: RobotFile) => void;
   onFolderRenameDraftChange: (value: string) => void;
   onFolderContextMenu?: (event: React.MouseEvent, folderPath: string) => void;
@@ -44,7 +43,6 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
   onAddAsComponent,
   onCancelFolderRename,
   onCommitFolderRename,
-  onDeleteFromLibrary,
   onFileContextMenu,
   onFolderRenameDraftChange,
   onFolderContextMenu,
@@ -59,14 +57,17 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
   const isSelectedFile = Boolean(node.file && selectedFileName === node.file.name);
   const isEditingFolder = Boolean(node.isFolder && editingFolderPath === node.path);
   const paddingLeft = depth * 12 + 8;
-  const canDeleteFolder = Boolean(onDeleteFromLibrary && node.isFolder);
-  const canDeleteFile = Boolean(onDeleteFromLibrary && node.file);
   const canAddFileAsComponent = Boolean(
     node.file && showAddAsComponent && onAddAsComponent && isLibraryComponentAddableFile(node.file),
   );
   const canPreviewFile = Boolean(node.file && onLoadRobot && isLibraryPreviewableFile(node.file));
   const showAddButton = canAddFileAsComponent;
-  const showDeleteButton = canDeleteFolder || canDeleteFile;
+  const fileTypeLabel = node.file
+    ? fileKind === 'robot'
+      ? node.file.format.toUpperCase()
+      : (node.file.name.split('.').pop()?.toUpperCase() ??
+        (fileKind === 'image' ? 'IMAGE' : 'ASSET'))
+    : null;
 
   const handleClick = () => {
     if (isEditingFolder) return;
@@ -106,22 +107,10 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
     }
   };
 
-  const handleDeleteFromLibrary = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!onDeleteFromLibrary) return;
-    if (node.file) {
-      onDeleteFromLibrary({ type: 'file', file: node.file });
-      return;
-    }
-    if (canDeleteFolder) {
-      onDeleteFromLibrary({ type: 'folder', path: node.path });
-    }
-  };
-
   return (
     <div>
       <div
-        className={`group flex min-w-0 cursor-pointer select-none items-center gap-1.5 rounded-sm py-1 pr-2 transition-colors
+        className={`group flex w-max min-w-full cursor-pointer select-none items-center gap-1.5 rounded-sm py-1 pr-2 transition-colors
           ${
             isSelectedFile
               ? 'bg-element-bg dark:bg-element-hover shadow-sm ring-1 ring-inset ring-border-strong'
@@ -145,7 +134,7 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
 
         {getFileIcon(node.name, node.isFolder, isExpanded)}
 
-        <div className="min-w-0 flex-1">
+        <div className={isEditingFolder ? 'min-w-32 flex-1' : 'w-max shrink-0'}>
           {isEditingFolder ? (
             <input
               ref={folderRenameInputRef}
@@ -166,7 +155,8 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
             />
           ) : (
             <span
-              className={`block truncate text-xs ${
+              title={node.name}
+              className={`block whitespace-nowrap text-xs ${
                 node.isFolder
                   ? 'font-medium text-text-primary'
                   : 'text-text-secondary dark:text-text-secondary'
@@ -177,36 +167,9 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
           )}
         </div>
 
-        {node.file && (
-          <span
-            className={`shrink-0 rounded px-1 text-[9px] font-medium ${
-              node.file.format === 'urdf'
-                ? 'bg-system-blue/10 dark:bg-system-blue/20 text-system-blue'
-                : node.file.format === 'sdf'
-                  ? 'bg-teal-100 dark:bg-teal-900/25 text-teal-700 dark:text-teal-300'
-                  : node.file.format === 'xacro'
-                    ? 'bg-element-bg dark:bg-element-hover text-text-secondary'
-                    : node.file.format === 'mjcf'
-                      ? 'bg-orange-100 dark:bg-orange-900/25 text-orange-600 dark:text-orange-300'
-                      : node.file.format === 'usd'
-                        ? 'bg-violet-100 dark:bg-violet-900/25 text-violet-700 dark:text-violet-300'
-                        : fileKind === 'image'
-                          ? 'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300'
-                          : fileKind === 'mesh'
-                            ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-            }`}
-          >
-            {fileKind === 'robot'
-              ? node.file.format.toUpperCase()
-              : (node.file.name.split('.').pop()?.toUpperCase() ??
-                (fileKind === 'image' ? 'IMAGE' : 'ASSET'))}
-          </span>
-        )}
-
-        {(showAddButton || showDeleteButton) && !isEditingFolder && (
+        {showAddButton && !isEditingFolder && (
           <div
-            className={`flex shrink-0 items-center gap-1 transition-opacity ${
+            className={`ml-auto flex shrink-0 items-center gap-1 transition-opacity ${
               isSelectedFile
                 ? 'opacity-100'
                 : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
@@ -228,21 +191,33 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
                 </span>
               </button>
             )}
-
-            {showDeleteButton && (
-              <button
-                onClick={handleDeleteFromLibrary}
-                className="flex shrink-0 items-center rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-red-600 transition-colors hover:bg-red-100 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40 group/btn"
-                title={t.removeFromLibrary}
-              >
-                <Trash2
-                  size={10}
-                  strokeWidth={2.5}
-                  className="group-hover/btn:scale-110 transition-transform"
-                />
-              </button>
-            )}
           </div>
+        )}
+
+        {node.file && fileTypeLabel && (
+          <span
+            className={`inline-flex h-4 w-9 shrink-0 items-center justify-center overflow-hidden rounded px-1 text-center text-[8px] font-medium leading-none ${
+              showAddButton ? '' : 'ml-auto'
+            } ${
+              node.file.format === 'urdf'
+                ? 'bg-system-blue/10 dark:bg-system-blue/20 text-system-blue'
+                : node.file.format === 'sdf'
+                  ? 'bg-teal-100 dark:bg-teal-900/25 text-teal-700 dark:text-teal-300'
+                  : node.file.format === 'xacro'
+                    ? 'bg-element-bg dark:bg-element-hover text-text-secondary'
+                    : node.file.format === 'mjcf'
+                      ? 'bg-orange-100 dark:bg-orange-900/25 text-orange-600 dark:text-orange-300'
+                      : node.file.format === 'usd'
+                        ? 'bg-violet-100 dark:bg-violet-900/25 text-violet-700 dark:text-violet-300'
+                        : fileKind === 'image'
+                          ? 'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300'
+                          : fileKind === 'mesh'
+                            ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+            }`}
+          >
+            <span className="min-w-0 truncate">{fileTypeLabel}</span>
+          </span>
         )}
       </div>
 
@@ -260,7 +235,6 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
               onAddAsComponent={onAddAsComponent}
               onCancelFolderRename={onCancelFolderRename}
               onCommitFolderRename={onCommitFolderRename}
-              onDeleteFromLibrary={onDeleteFromLibrary}
               onFileContextMenu={onFileContextMenu}
               onFolderRenameDraftChange={onFolderRenameDraftChange}
               onFolderContextMenu={onFolderContextMenu}

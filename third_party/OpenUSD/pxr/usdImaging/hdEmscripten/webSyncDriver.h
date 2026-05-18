@@ -204,6 +204,14 @@ public:
         return _renderDelegate.GetPreferProtoBlobOverHydraPayload();
     }
 
+    void SetPreferDirectStageRobotSceneSnapshot(bool prefer) {
+        _preferDirectStageRobotSceneSnapshot = prefer;
+    }
+
+    bool GetPreferDirectStageRobotSceneSnapshot() const {
+        return _preferDirectStageRobotSceneSnapshot;
+    }
+
     double GetTime() {
         return _delegate->GetTime().GetValue();
     }
@@ -761,6 +769,11 @@ public:
                     meshPayload.uv,
                     numUVs > 0 ? static_cast<size_t>(numUVs * uvDimension) : 0);
                 materialIdIndex = appendPackedStringIndex(meshPayload.materialId);
+                if (numUVs > 0) {
+                    snapshotProfile.meshUvPayloadCount += 1;
+                } else if (meshPayload.uvSource == "skippedColorOnly") {
+                    snapshotProfile.skippedUvPayloadMeshCount += 1;
+                }
                 if (!meshPayload.geomSubsetSections.empty()) {
                     meshDescriptorGeomSubsetSections.set(
                         meshId,
@@ -769,6 +782,9 @@ public:
                 meshDescriptorDiagnostics.set(
                     meshId,
                     _NormalDiagnosticsToJsVal(meshPayload));
+            }
+            if (materialIdIndex < 0) {
+                materialIdIndex = appendPackedStringIndex(rawEntry.materialId);
             }
 
             const auto transformRange = appendMatrixComponents(transformPool, rawEntry.worldTransform);
@@ -802,73 +818,215 @@ public:
             meshDescriptorScalars.push_back(extentSizeValue[2]);
         };
 
-        const double liveRprimScanStartedAtMs = _NowSteadyMs();
-        try {
-            const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
-            UsdGeomXformCache xformCache(timeCode);
-            const std::vector<std::string> acceptableTypes = {"mesh", "cube", "sphere", "cylinder", "capsule"};
-            _EnsureProtoCandidateMapsPrimed(acceptableTypes);
+        double liveRprimScanMs = 0.0;
+        int liveRprimPathCount = 0;
+        int liveMeshDescriptorCount = 0;
+        auto appendLiveRprimSnapshotDescriptors = [&]() {
+            const double liveRprimScanStartedAtMs = _NowSteadyMs();
+            const int descriptorCountBefore = static_cast<int>(
+                meshDescriptorHeaders.size() / kMeshDescriptorHeaderStride);
+            try {
+                const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
+                UsdGeomXformCache xformCache(timeCode);
+                const std::vector<std::string> acceptableTypes = {"mesh", "cube", "sphere", "cylinder", "capsule"};
+                _EnsureProtoCandidateMapsPrimed(acceptableTypes);
 
-            _renderDelegate.ReadAllLiveRprimPaths(
-                [&](std::string const& rprimPath) {
-                    if (rprimPath.find(".proto_") == std::string::npos) return;
-                    const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(rprimPath);
-                    if (!proto.valid) return;
-                    if (proto.sectionName != "collisions" && proto.sectionName != "visuals") return;
-                    if (!proto.linkPath.empty() && snapshotRuntimeLinkPathSet.insert(proto.linkPath).second) {
-                        snapshotRuntimeLinkPaths.push_back(proto.linkPath);
-                        appendSnapshotTransformPath(proto.linkPath);
-                    }
+                _renderDelegate.ReadAllLiveRprimPaths(
+                    [&](std::string const& rprimPath) {
+                        ++liveRprimPathCount;
+                        if (rprimPath.find(".proto_") == std::string::npos) return;
+                        const ProtoMeshIdentifier proto = _GetCachedProtoMeshIdentifier(rprimPath);
+                        if (!proto.valid) return;
+                        if (proto.sectionName != "collisions" && proto.sectionName != "visuals") return;
+                        if (!proto.linkPath.empty() && snapshotRuntimeLinkPathSet.insert(proto.linkPath).second) {
+                            snapshotRuntimeLinkPaths.push_back(proto.linkPath);
+                            appendSnapshotTransformPath(proto.linkPath);
+                        }
 
-                    WebRenderDelegate::ProtoDataBlobRecord reusableMeshPayload;
-                    const bool hasReusableMeshPayload = _renderDelegate.ReadProtoDataBlob(
-                        rprimPath,
-                        [&](WebRenderDelegate::ProtoDataBlobRecord const& record) {
-                            reusableMeshPayload = record;
-                        });
-                    WebRenderDelegate::ProtoDataBlobRecord const* reusableMeshPayloadPtr =
-                        hasReusableMeshPayload ? &reusableMeshPayload : nullptr;
-
-                    SnapshotPrimOverrideData overrideData;
-                    bool valid = false;
-                    bool applyGeometry = false;
-                    uint32_t sectionDirtyMask = 0;
-                    if (proto.sectionName == "collisions") {
-                        valid = _BuildCollisionSnapshotOverride(
+                        WebRenderDelegate::ProtoDataBlobRecord reusableMeshPayload;
+                        const bool hasReusableMeshPayload = _renderDelegate.ReadProtoDataBlob(
                             rprimPath,
-                            timeCode,
-                            &xformCache,
-                            &overrideData,
-                            &_collisionCandidateMapCache,
-                            reusableMeshPayloadPtr);
-                        applyGeometry = true;
-                        sectionDirtyMask = (
-                            kFinalStageDirtySectionCollision
-                            | kFinalStageDirtyApplyGeometry);
-                    } else {
-                        valid = _BuildVisualSnapshotOverride(
+                            [&](WebRenderDelegate::ProtoDataBlobRecord const& record) {
+                                reusableMeshPayload = record;
+                            });
+                        WebRenderDelegate::ProtoDataBlobRecord const* reusableMeshPayloadPtr =
+                            hasReusableMeshPayload ? &reusableMeshPayload : nullptr;
+
+                        SnapshotPrimOverrideData overrideData;
+                        bool valid = false;
+                        bool applyGeometry = false;
+                        uint32_t sectionDirtyMask = 0;
+                        if (proto.sectionName == "collisions") {
+                            valid = _BuildCollisionSnapshotOverride(
+                                rprimPath,
+                                timeCode,
+                                &xformCache,
+                                &overrideData,
+                                &_collisionCandidateMapCache,
+                                reusableMeshPayloadPtr);
+                            applyGeometry = true;
+                            sectionDirtyMask = (
+                                kFinalStageDirtySectionCollision
+                                | kFinalStageDirtyApplyGeometry);
+                        } else {
+                            valid = _BuildVisualSnapshotOverride(
+                                rprimPath,
+                                timeCode,
+                                &xformCache,
+                                &overrideData,
+                                &_visualCandidateMapCache,
+                                reusableMeshPayloadPtr);
+                            applyGeometry = false;
+                            sectionDirtyMask = kFinalStageDirtySectionVisual;
+                        }
+
+                        if (!valid || !overrideData.valid) return;
+
+                        appendPackedDescriptorFromSnapshotOverride(
                             rprimPath,
-                            timeCode,
-                            &xformCache,
-                            &overrideData,
-                            &_visualCandidateMapCache,
-                            reusableMeshPayloadPtr);
-                        applyGeometry = false;
-                        sectionDirtyMask = kFinalStageDirtySectionVisual;
-                    }
+                            proto.sectionName,
+                            applyGeometry,
+                            sectionDirtyMask,
+                            overrideData);
+                    });
+            } catch (...) {
+            }
+            const int descriptorCountAfter = static_cast<int>(
+                meshDescriptorHeaders.size() / kMeshDescriptorHeaderStride);
+            liveMeshDescriptorCount += std::max(0, descriptorCountAfter - descriptorCountBefore);
+            liveRprimScanMs += _NowSteadyMs() - liveRprimScanStartedAtMs;
+        };
 
-                    if (!valid || !overrideData.valid) return;
-
-                    appendPackedDescriptorFromSnapshotOverride(
-                        rprimPath,
-                        proto.sectionName,
-                        applyGeometry,
-                        sectionDirtyMask,
-                        overrideData);
-                });
-        } catch (...) {
+        if (!_preferDirectStageRobotSceneSnapshot) {
+            appendLiveRprimSnapshotDescriptors();
         }
-        snapshotProfile.liveRprimScanMs = _NowSteadyMs() - liveRprimScanStartedAtMs;
+
+        const double directStagePrimScanStartedAtMs = _NowSteadyMs();
+        if (meshDescriptorHeaders.empty()) {
+            try {
+                const UsdTimeCode timeCode = _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
+                UsdGeomXformCache xformCache(timeCode);
+                const std::vector<std::string> acceptableTypes = {"mesh", "cube", "sphere", "cylinder", "capsule"};
+                _EnsureProtoCandidateMapsPrimed(acceptableTypes);
+
+                auto makeProtoTypeForPrimType = [](std::string const& primType) {
+                    const std::string normalized = _ToLowerAscii(primType);
+                    if (normalized == "cube") return std::string("box");
+                    if (normalized == "sphere"
+                        || normalized == "cylinder"
+                        || normalized == "capsule"
+                        || normalized == "mesh") {
+                        return normalized;
+                    }
+                    return std::string("mesh");
+                };
+                auto appendDirectSnapshotCandidates =
+                    [&](ProtoCandidateMap const& candidateMap,
+                        std::string const& sectionName,
+                        bool applyGeometry,
+                        uint32_t sectionDirtyMask) {
+                    std::vector<std::string> containerPaths;
+                    containerPaths.reserve(candidateMap.size());
+                    for (auto const& item : candidateMap) {
+                        if (!item.first.empty()) {
+                            containerPaths.push_back(item.first);
+                        }
+                    }
+                    std::sort(containerPaths.begin(), containerPaths.end());
+
+                    for (std::string const& containerPath : containerPaths) {
+                        const auto found = candidateMap.find(containerPath);
+                        if (found == candidateMap.end()) continue;
+                        const std::string linkPath = _GetParentPath(containerPath);
+                        if (!linkPath.empty()) {
+                            if (snapshotRuntimeLinkPathSet.insert(linkPath).second) {
+                                snapshotRuntimeLinkPaths.push_back(linkPath);
+                            }
+                            appendSnapshotTransformPath(linkPath);
+                        }
+                        appendSnapshotTransformPath(containerPath);
+
+                        std::unordered_map<std::string, int> nextFallbackIndexByProtoType;
+                        std::unordered_set<std::string> emittedMeshIds;
+                        for (PrimCandidate const& candidate : found->second) {
+                            const UsdPrim prim = candidate.second;
+                            std::string primPath = candidate.first;
+                            if (!prim) continue;
+                            if (primPath.empty()) {
+                                primPath = prim.GetPath().GetString();
+                            }
+                            if (primPath.empty()) continue;
+
+                            const std::string primType = _GetSupportedPrimTypeName(prim);
+                            if (primType.empty()) continue;
+                            const std::string protoType = makeProtoTypeForPrimType(primType);
+                            int fallbackIndex = nextFallbackIndexByProtoType[protoType];
+                            const int inferredIndex = _InferProtoIndexFromCandidatePrimPath(
+                                containerPath,
+                                primPath,
+                                protoType,
+                                fallbackIndex);
+                            int protoIndex = inferredIndex >= 0 ? inferredIndex : fallbackIndex;
+                            if (protoIndex < 0) protoIndex = 0;
+
+                            std::string meshId;
+                            for (;;) {
+                                meshId = containerPath
+                                    + std::string(".proto_")
+                                    + protoType
+                                    + std::string("_id")
+                                    + std::to_string(protoIndex);
+                                if (emittedMeshIds.insert(meshId).second) break;
+                                ++protoIndex;
+                            }
+                            nextFallbackIndexByProtoType[protoType] =
+                                std::max(nextFallbackIndexByProtoType[protoType], protoIndex + 1);
+
+                            SnapshotPrimOverrideData overrideData;
+                            if (!_BuildSnapshotPrimOverrideDataFromPrim(
+                                    prim,
+                                    primPath,
+                                    timeCode,
+                                    &xformCache,
+                                    &overrideData)) {
+                                continue;
+                            }
+
+                            appendPackedDescriptorFromSnapshotOverride(
+                                meshId,
+                                sectionName,
+                                applyGeometry,
+                                sectionDirtyMask,
+                                overrideData);
+                            snapshotProfile.directStagePrimPathCount += 1;
+                        }
+                    }
+                };
+
+                appendDirectSnapshotCandidates(
+                    _visualCandidateMapCache,
+                    "visuals",
+                    false,
+                    kFinalStageDirtySectionVisual);
+                appendDirectSnapshotCandidates(
+                    _collisionCandidateMapCache,
+                    "collisions",
+                    true,
+                    kFinalStageDirtySectionCollision | kFinalStageDirtyApplyGeometry);
+            } catch (...) {
+            }
+        }
+        snapshotProfile.directStagePrimScanMs = _NowSteadyMs() - directStagePrimScanStartedAtMs;
+        if (meshDescriptorHeaders.empty() && _preferDirectStageRobotSceneSnapshot) {
+            appendLiveRprimSnapshotDescriptors();
+        }
+        snapshotProfile.liveRprimScanMs = liveRprimScanMs;
+        snapshotProfile.liveRprimPathCount = liveRprimPathCount;
+        snapshotProfile.liveMeshDescriptorCount = liveMeshDescriptorCount;
+        snapshotProfile.directMeshDescriptorCount = std::max(
+            0,
+            static_cast<int>(meshDescriptorHeaders.size() / kMeshDescriptorHeaderStride)
+                - snapshotProfile.liveMeshDescriptorCount);
 
         std::sort(snapshotRuntimeLinkPaths.begin(), snapshotRuntimeLinkPaths.end());
         std::vector<std::string> metadataLinkPaths = snapshotRuntimeLinkPaths.empty()
@@ -878,6 +1036,13 @@ public:
             static_cast<int>(metadataLinkPaths.size());
         snapshotProfile.meshDescriptorCount = static_cast<int>(
             meshDescriptorHeaders.size() / kMeshDescriptorHeaderStride);
+        snapshot.set(
+            "snapshotSource",
+            snapshotProfile.meshDescriptorCount <= 0
+                ? std::string("empty")
+                : (snapshotProfile.liveMeshDescriptorCount > 0
+                    ? std::string("hydra-live-rprim")
+                    : std::string("usd-stage-direct")));
         const double metadataStartedAtMs = _NowSteadyMs();
         std::vector<std::pair<std::string, std::string>> metadataLinkParentPairs;
         emscripten::val robotMetadataSnapshot =
@@ -952,6 +1117,20 @@ public:
             _RobotSceneSnapshotProfileToJsVal(snapshotProfile));
 
         return snapshot;
+    }
+
+    emscripten::val GetRobotSceneSnapshotBlob(
+        emscripten::val runtimeLinkPaths,
+        std::string const& stageSourcePath = std::string()) {
+        emscripten::val payload = emscripten::val::object();
+        payload.set("format", std::string("robot-scene-snapshot-blob-v1"));
+        payload.set("transport", std::string("packed-object-v1"));
+        payload.set("snapshot", GetRobotSceneSnapshot(runtimeLinkPaths, stageSourcePath));
+        payload.set("driverInitProfile", _DriverInitProfileToJsVal(_lastInitProfile));
+        payload.set(
+            "nativeProfile",
+            _RobotSceneSnapshotProfileToJsVal(_lastRobotSceneSnapshotProfile));
+        return payload;
     }
 
     emscripten::val ExportLoadedStageSnapshot(emscripten::val options = emscripten::val::object()) {
@@ -1367,6 +1546,7 @@ private:
         bool valid = false;
         std::string resolvedPrimPath;
         std::string primType;
+        std::string materialId;
         GfMatrix4d worldTransform = GfMatrix4d(1.0);
         uint32_t dirtyMask = 0;
         bool hasExtentSize = false;
@@ -1393,6 +1573,8 @@ private:
     mutable std::unordered_map<std::string, ProtoMeshIdentifier> _protoMeshIdentifierCache;
     mutable std::mutex _primOverrideMeshPayloadMutex;
     mutable std::unordered_map<std::string, WebRenderDelegate::ProtoDataBlobRecord> _primOverrideMeshPayloadCache;
+    mutable std::unordered_map<std::string, bool> _materialTextureUsageCache;
+    bool _preferDirectStageRobotSceneSnapshot = false;
 
     struct DriverInitProfile {
         double totalMs = 0.0;
@@ -1416,6 +1598,7 @@ private:
         double inputDecodeMs = 0.0;
         double stageInfoMs = 0.0;
         double liveRprimScanMs = 0.0;
+        double directStagePrimScanMs = 0.0;
         double metadataMs = 0.0;
         double primTransformsMs = 0.0;
         double materialRecordsMs = 0.0;
@@ -1424,7 +1607,13 @@ private:
         int resolvedRuntimeLinkPathCount = 0;
         int resolvedTransformPathCount = 0;
         int meshDescriptorCount = 0;
+        int liveRprimPathCount = 0;
+        int liveMeshDescriptorCount = 0;
+        int directStagePrimPathCount = 0;
+        int directMeshDescriptorCount = 0;
         int materialCount = 0;
+        int meshUvPayloadCount = 0;
+        int skippedUvPayloadMeshCount = 0;
     };
 
     DriverInitProfile _lastInitProfile;
@@ -1531,6 +1720,7 @@ private:
         result.set("inputDecodeMs", profile.inputDecodeMs);
         result.set("stageInfoMs", profile.stageInfoMs);
         result.set("liveRprimScanMs", profile.liveRprimScanMs);
+        result.set("directStagePrimScanMs", profile.directStagePrimScanMs);
         result.set("metadataMs", profile.metadataMs);
         result.set("primTransformsMs", profile.primTransformsMs);
         result.set("materialRecordsMs", profile.materialRecordsMs);
@@ -1548,8 +1738,26 @@ private:
             "meshDescriptorCount",
             static_cast<double>(profile.meshDescriptorCount));
         result.set(
+            "liveRprimPathCount",
+            static_cast<double>(profile.liveRprimPathCount));
+        result.set(
+            "liveMeshDescriptorCount",
+            static_cast<double>(profile.liveMeshDescriptorCount));
+        result.set(
+            "directStagePrimPathCount",
+            static_cast<double>(profile.directStagePrimPathCount));
+        result.set(
+            "directMeshDescriptorCount",
+            static_cast<double>(profile.directMeshDescriptorCount));
+        result.set(
             "materialCount",
             static_cast<double>(profile.materialCount));
+        result.set(
+            "meshUvPayloadCount",
+            static_cast<double>(profile.meshUvPayloadCount));
+        result.set(
+            "skippedUvPayloadMeshCount",
+            static_cast<double>(profile.skippedUvPayloadMeshCount));
         return result;
     }
 
@@ -2168,6 +2376,13 @@ private:
         if (lastSlash == std::string::npos) return path;
         if (lastSlash + 1 >= path.size()) return std::string();
         return path.substr(lastSlash + 1);
+    }
+
+    static std::string _GetParentPath(std::string const& path) {
+        if (path.empty()) return std::string();
+        const size_t lastSlash = path.find_last_of('/');
+        if (lastSlash == std::string::npos || lastSlash == 0) return std::string();
+        return path.substr(0, lastSlash);
     }
 
     static std::string _NormalizeRuntimePathToken(std::string value) {
@@ -2894,6 +3109,154 @@ private:
         return records;
     }
 
+    static bool _IsSyntheticDisplayColorMaterialId(std::string const& materialId) {
+        return TfStringStartsWith(
+            materialId,
+            std::string("/__viewer_snapshot_materials__/displayColor_"));
+    }
+
+    static bool _TryReadTexturePathAny(
+        UsdPrim const& shaderPrim,
+        UsdTimeCode const& timeCode,
+        std::initializer_list<char const*> attributeNames) {
+        if (!shaderPrim) return false;
+        std::string texturePath;
+        for (char const* attributeName : attributeNames) {
+            if (_TryReadTexturePathAttr(shaderPrim.GetAttribute(TfToken(attributeName)), timeCode, &texturePath)
+                && !texturePath.empty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool _PrimHasAuthoredTexturePath(
+        UsdPrim const& shaderPrim,
+        UsdTimeCode const& timeCode) {
+        if (!shaderPrim) return false;
+
+        if (_TryReadTexturePathAny(shaderPrim, timeCode, {
+                "inputs:file",
+                "inputs:diffuseColor_texture",
+                "inputs:diffuse_color_texture",
+                "inputs:baseColor_texture",
+                "inputs:base_color_texture",
+                "inputs:albedo_texture",
+                "inputs:emissiveColor_texture",
+                "inputs:emissive_color_texture",
+                "inputs:emissive_texture",
+                "inputs:roughness_texture",
+                "inputs:reflection_roughness_texture",
+                "inputs:specular_roughness_texture",
+                "inputs:metallic_texture",
+                "inputs:metalness_texture",
+                "inputs:normal_texture",
+                "inputs:normalmap_texture",
+                "inputs:normal_map_texture",
+                "inputs:occlusion_texture",
+                "inputs:occlusion_map",
+                "inputs:ao_texture",
+                "inputs:opacity_texture",
+                "inputs:opacity_mask_texture",
+                "inputs:opacityMask_texture"})) {
+            return true;
+        }
+
+        const TfTokenVector propertyNames = shaderPrim.GetPropertyNames();
+        for (TfToken const& propertyName : propertyNames) {
+            const std::string property = propertyName.GetString();
+            const std::string lowered = _ToLowerAscii(property);
+            if (!TfStringStartsWith(lowered, "inputs:")) {
+                continue;
+            }
+            if (lowered != "inputs:file"
+                && lowered.find("texture") == std::string::npos
+                && lowered.find("map") == std::string::npos) {
+                continue;
+            }
+            std::string texturePath;
+            if (_TryReadTexturePathAttr(shaderPrim.GetAttribute(propertyName), timeCode, &texturePath)
+                && !texturePath.empty()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool _MaterialPrimUsesTextureCoordinates(
+        UsdPrim const& materialPrim,
+        UsdTimeCode const& timeCode) const {
+        if (!materialPrim) return false;
+
+        const UsdPrim preferredShader = _FindMaterialShaderPrim(materialPrim);
+        if (_PrimHasAuthoredTexturePath(preferredShader, timeCode)) {
+            return true;
+        }
+
+        for (UsdPrim const& child : UsdPrimRange(materialPrim)) {
+            if (!child || child == materialPrim) continue;
+            if (_PrimHasAuthoredTexturePath(child, timeCode)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool _MaterialIdUsesTextureCoordinates(
+        std::string const& materialId,
+        UsdTimeCode const& timeCode) const {
+        const std::string normalizedMaterialId = TfStringTrim(materialId);
+        if (normalizedMaterialId.empty()
+            || _IsSyntheticDisplayColorMaterialId(normalizedMaterialId)
+            || !_stage) {
+            return false;
+        }
+
+        const auto cached = _materialTextureUsageCache.find(normalizedMaterialId);
+        if (cached != _materialTextureUsageCache.end()) {
+            return cached->second;
+        }
+
+        bool usesTextureCoordinates = false;
+        try {
+            const UsdPrim materialPrim = _stage->GetPrimAtPath(SdfPath(normalizedMaterialId));
+            usesTextureCoordinates = _MaterialPrimUsesTextureCoordinates(materialPrim, timeCode);
+        } catch (...) {
+            usesTextureCoordinates = true;
+        }
+        _materialTextureUsageCache[normalizedMaterialId] = usesTextureCoordinates;
+        return usesTextureCoordinates;
+    }
+
+    bool _PrimMaterialBindingsUseTextureCoordinates(
+        UsdPrim const& prim,
+        UsdTimeCode const& timeCode,
+        std::string const& fallbackMaterialId) const {
+        if (!prim) return false;
+        if (_MaterialIdUsesTextureCoordinates(fallbackMaterialId, timeCode)) {
+            return true;
+        }
+
+        const std::vector<UsdGeomSubset> materialSubsets =
+            UsdShadeMaterialBindingAPI(prim).GetMaterialBindSubsets();
+        for (UsdGeomSubset const& subset : materialSubsets) {
+            if (!subset) continue;
+            std::string materialId = _ReadFirstRelationshipTargetPath(
+                UsdShadeMaterialBindingAPI(subset.GetPrim()).GetDirectBindingRel(
+                    UsdShadeTokens->allPurpose));
+            if (materialId.empty()) {
+                materialId = _ResolveBoundMaterialId(subset.GetPrim());
+            }
+            if (_MaterialIdUsesTextureCoordinates(materialId, timeCode)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     static bool _ContainsString(std::vector<std::string> const& values, std::string const& needle) {
         return std::find(values.begin(), values.end(), needle) != values.end();
     }
@@ -3000,6 +3363,73 @@ private:
     static std::vector<std::string> _GetExpectedVisualPrimTypes(ProtoMeshIdentifier const& proto) {
         if (!proto.valid || proto.sectionName != "visuals") return {};
         return _GetExpectedPrimTypesForProtoType(proto.protoType);
+    }
+
+    static int _ParseNonNegativeIntegerPrefix(
+        std::string const& value,
+        size_t offset) {
+        if (offset >= value.size()) return -1;
+        int result = 0;
+        bool sawDigit = false;
+        for (size_t index = offset; index < value.size(); ++index) {
+            const char ch = value[index];
+            if (ch < '0' || ch > '9') break;
+            sawDigit = true;
+            result = (result * 10) + static_cast<int>(ch - '0');
+        }
+        return sawDigit ? result : -1;
+    }
+
+    static int _InferProtoIndexFromCandidatePrimPath(
+        std::string const& containerPath,
+        std::string const& primPath,
+        std::string const& protoType,
+        int fallbackIndex) {
+        if (containerPath.empty() || primPath.empty()) {
+            return fallbackIndex;
+        }
+        if (primPath.size() <= containerPath.size()
+            || primPath.compare(0, containerPath.size(), containerPath) != 0) {
+            return fallbackIndex;
+        }
+
+        std::string remainder = primPath.substr(containerPath.size());
+        while (!remainder.empty() && remainder.front() == '/') {
+            remainder.erase(remainder.begin());
+        }
+        if (remainder.empty()) {
+            return fallbackIndex;
+        }
+        const size_t slash = remainder.find('/');
+        const std::string firstSegment = slash == std::string::npos
+            ? remainder
+            : remainder.substr(0, slash);
+        const std::string loweredSegment = _ToLowerAscii(firstSegment);
+
+        if (TfStringStartsWith(loweredSegment, "mesh_")) {
+            const int parsed = _ParseNonNegativeIntegerPrefix(loweredSegment, 5);
+            if (parsed >= 0) return parsed;
+        }
+
+        std::vector<std::string> prefixes;
+        const std::string normalizedProtoType = _ToLowerAscii(protoType);
+        if (!normalizedProtoType.empty()) {
+            prefixes.push_back(normalizedProtoType + std::string("_"));
+        }
+        if (normalizedProtoType == "box") {
+            prefixes.push_back("cube_");
+        } else if (normalizedProtoType == "cube") {
+            prefixes.push_back("box_");
+        }
+        for (std::string const& prefix : prefixes) {
+            if (!TfStringStartsWith(loweredSegment, prefix)) continue;
+            const int parsed = _ParseNonNegativeIntegerPrefix(
+                loweredSegment,
+                prefix.size());
+            if (parsed >= 0) return parsed;
+        }
+
+        return fallbackIndex;
     }
 
     static std::vector<std::string> _BuildProtoPrimPathCandidates(
@@ -3799,6 +4229,7 @@ private:
         UsdPrim const& prim,
         UsdTimeCode const& timeCode,
         GfMatrix4d const& worldMatrix,
+        bool includeTextureCoordinates,
         WebRenderDelegate::ProtoDataBlobRecord* outRecord) {
         if (!outRecord) return false;
 
@@ -3845,56 +4276,60 @@ private:
             }
         }
 
-        VtVec2fArray uvValues;
         std::string uvSource = "none";
-        if (_TryReadSplitFaceVaryingUvPrimvars(prim, timeCode, expectedFaceVaryingCount, &uvValues)) {
-            uvSource = "faceVarying";
+        if (!includeTextureCoordinates) {
+            uvSource = "skippedColorOnly";
         } else {
-            const UsdAttribute uvAttr = prim.GetAttribute(TfToken("primvars:st"));
-            if (uvAttr) {
-                const UsdGeomPrimvar uvPrimvar(uvAttr);
-                const TfToken uvInterpolation = uvPrimvar
-                    ? uvPrimvar.GetInterpolation()
-                    : TfToken();
-                VtVec2fArray uvF;
-                if (uvAttr.Get(&uvF, timeCode) && !uvF.empty()) {
-                    uvValues = std::move(uvF);
-                } else {
-                    VtVec2dArray uvD;
-                    if (uvAttr.Get(&uvD, timeCode) && !uvD.empty()) {
-                        uvValues.reserve(uvD.size());
-                        for (GfVec2d const& uv : uvD) {
-                            uvValues.push_back(GfVec2f(
-                                static_cast<float>(uv[0]),
-                                static_cast<float>(uv[1])));
+            VtVec2fArray uvValues;
+            if (_TryReadSplitFaceVaryingUvPrimvars(prim, timeCode, expectedFaceVaryingCount, &uvValues)) {
+                uvSource = "faceVarying";
+            } else {
+                const UsdAttribute uvAttr = prim.GetAttribute(TfToken("primvars:st"));
+                if (uvAttr) {
+                    const UsdGeomPrimvar uvPrimvar(uvAttr);
+                    const TfToken uvInterpolation = uvPrimvar
+                        ? uvPrimvar.GetInterpolation()
+                        : TfToken();
+                    VtVec2fArray uvF;
+                    if (uvAttr.Get(&uvF, timeCode) && !uvF.empty()) {
+                        uvValues = std::move(uvF);
+                    } else {
+                        VtVec2dArray uvD;
+                        if (uvAttr.Get(&uvD, timeCode) && !uvD.empty()) {
+                            uvValues.reserve(uvD.size());
+                            for (GfVec2d const& uv : uvD) {
+                                uvValues.push_back(GfVec2f(
+                                    static_cast<float>(uv[0]),
+                                    static_cast<float>(uv[1])));
+                            }
+                        }
+                    }
+                    if (!uvValues.empty()) {
+                        if (uvInterpolation == UsdGeomTokens->faceVarying) {
+                            uvSource = "faceVarying";
+                        } else if (uvInterpolation == UsdGeomTokens->vertex
+                            || uvInterpolation == UsdGeomTokens->varying) {
+                            uvSource = "vertex";
+                        } else {
+                            uvSource = "authored";
                         }
                     }
                 }
-                if (!uvValues.empty()) {
-                    if (uvInterpolation == UsdGeomTokens->faceVarying) {
-                        uvSource = "faceVarying";
-                    } else if (uvInterpolation == UsdGeomTokens->vertex
-                        || uvInterpolation == UsdGeomTokens->varying) {
-                        uvSource = "vertex";
-                    } else {
-                        uvSource = "authored";
-                    }
+            }
+
+            if (!uvValues.empty()) {
+                VtVec2fArray triangulatedUvValues;
+                VtVec2fArray const* finalUvValues = &uvValues;
+                if (uvSource == "faceVarying"
+                    && _TryTriangulateFaceVaryingVec2f(faceVertexCounts, uvValues, &triangulatedUvValues)) {
+                    finalUvValues = &triangulatedUvValues;
                 }
-            }
-        }
 
-        if (!uvValues.empty()) {
-            VtVec2fArray triangulatedUvValues;
-            VtVec2fArray const* finalUvValues = &uvValues;
-            if (uvSource == "faceVarying"
-                && _TryTriangulateFaceVaryingVec2f(faceVertexCounts, uvValues, &triangulatedUvValues)) {
-                finalUvValues = &triangulatedUvValues;
-            }
-
-            outRecord->uv.reserve(finalUvValues->size() * 2);
-            for (GfVec2f const& uv : *finalUvValues) {
-                outRecord->uv.push_back(uv[0]);
-                outRecord->uv.push_back(uv[1]);
+                outRecord->uv.reserve(finalUvValues->size() * 2);
+                for (GfVec2f const& uv : *finalUvValues) {
+                    outRecord->uv.push_back(uv[0]);
+                    outRecord->uv.push_back(uv[1]);
+                }
             }
         }
         outRecord->uvSource = uvSource;
@@ -4183,6 +4618,10 @@ private:
         out->valid = true;
         out->resolvedPrimPath = primPath;
         out->primType = primType;
+        out->materialId = _ResolveBoundMaterialId(prim);
+        if (out->materialId.empty()) {
+            out->materialId = _ResolveDisplayColorMaterialId(prim, timeCode);
+        }
         out->worldTransform = worldMatrix;
 
         if (primType == "mesh") {
@@ -4193,18 +4632,17 @@ private:
                 out->meshPayload = *reusableMeshPayload;
                 _Matrix4dToFloat16(worldMatrix, &out->meshPayload.transform);
                 if (out->meshPayload.materialId.empty()) {
-                    out->meshPayload.materialId = _ResolveBoundMaterialId(prim);
-                    if (out->meshPayload.materialId.empty()) {
-                        out->meshPayload.materialId =
-                            _ResolveDisplayColorMaterialId(prim, timeCode);
-                    }
+                    out->meshPayload.materialId = out->materialId;
                 }
             } else {
                 WebRenderDelegate::ProtoDataBlobRecord meshPayloadRecord;
+                const bool includeTextureCoordinates =
+                    _PrimMaterialBindingsUseTextureCoordinates(prim, timeCode, out->materialId);
                 if (_BuildMeshPayloadRecordFromPrim(
                         prim,
                         timeCode,
                         worldMatrix,
+                        includeTextureCoordinates,
                         &meshPayloadRecord)) {
                     out->hasMeshPayload = true;
                     out->meshPayload = std::move(meshPayloadRecord);
@@ -4568,6 +5006,7 @@ private:
             std::lock_guard<std::mutex> lock(_primOverrideMeshPayloadMutex);
             _primOverrideMeshPayloadCache.clear();
         }
+        _materialTextureUsageCache.clear();
         initProfile.clearProtoCacheMs =
             _NowSteadyMs() - clearProtoCacheStartedAtMs;
 

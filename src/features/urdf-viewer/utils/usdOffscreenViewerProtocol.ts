@@ -1,4 +1,4 @@
-import type { InteractionSelection, RobotFile, UsdSceneSnapshot } from '@/types';
+import type { InteractionSelection, RobotData, RobotFile, UsdSceneSnapshot } from '@/types';
 import type {
   ToolMode,
   ViewerDocumentLoadEvent,
@@ -180,7 +180,17 @@ export interface UsdOffscreenViewerDocumentLoadResponse {
 export interface UsdOffscreenViewerRobotDataResponse {
   type: 'robot-data';
   resolution: ViewerRobotDataResolution;
+  robotData?: RobotData | null;
   preparedCache?: PreparedUsdExportCacheWorkerPayload | null;
+  preparedCachePending?: boolean;
+  deferredSceneSnapshotPending?: boolean;
+}
+
+export interface UsdOffscreenViewerPreparedCacheResponse {
+  type: 'prepared-cache';
+  stageSourcePath: string | null;
+  preparedCache: PreparedUsdExportCacheWorkerPayload | null;
+  error?: string | null;
 }
 
 export interface UsdOffscreenViewerSceneSnapshotResponse {
@@ -240,6 +250,7 @@ export type UsdOffscreenViewerWorkerResponse =
   | UsdOffscreenViewerProgressResponse
   | UsdOffscreenViewerDocumentLoadResponse
   | UsdOffscreenViewerRobotDataResponse
+  | UsdOffscreenViewerPreparedCacheResponse
   | UsdOffscreenViewerSceneSnapshotResponse
   | UsdOffscreenViewerSelectionChangeResponse
   | UsdOffscreenViewerHoverChangeResponse

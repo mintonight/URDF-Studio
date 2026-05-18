@@ -8,6 +8,7 @@ import type {
   JointQuaternion,
   RobotClosedLoopConstraint,
   RobotInspectionContext,
+  RobotMjcfTendonVisualizationUpdate,
   RobotMaterialState,
   UrdfLink,
   UrdfJoint,
@@ -102,6 +103,13 @@ interface RobotActions {
     options?: ApplyJointKinematicOverridesOptions,
   ) => void;
 
+  // MJCF inspection/visualization operations
+  updateMjcfTendon: (
+    tendonName: string,
+    updates: RobotMjcfTendonVisualizationUpdate,
+    options?: UpdateOptions,
+  ) => void;
+
   // Tree operations
   addChild: (parentLinkId: string) => { linkId: string; jointId: string };
   deleteSubtree: (linkId: string) => void;
@@ -136,6 +144,7 @@ const INITIAL_ROBOT_DATA: RobotData = {
 // Maximum history entries
 const MAX_HISTORY = 50;
 const MAX_ACTIVITY_LOG = 200;
+const JOINT_MOTION_EPSILON = 1e-9;
 
 const cloneRobotData = (data: RobotData): RobotData => structuredClone(data);
 const createChangeLogEntry = (label: string): ChangeLogEntry => ({
@@ -143,6 +152,57 @@ const createChangeLogEntry = (label: string): ChangeLogEntry => ({
   timestamp: new Date().toISOString(),
   label,
 });
+
+function jointQuaternionValuesEqual(
+  left: JointQuaternion | undefined,
+  right: JointQuaternion,
+): boolean {
+  if (!left) {
+    return false;
+  }
+
+  return (
+    Math.abs(left.x - right.x) <= JOINT_MOTION_EPSILON &&
+    Math.abs(left.y - right.y) <= JOINT_MOTION_EPSILON &&
+    Math.abs(left.z - right.z) <= JOINT_MOTION_EPSILON &&
+    Math.abs(left.w - right.w) <= JOINT_MOTION_EPSILON
+  );
+}
+
+function jointMotionSolutionChangesState(
+  robot: Pick<RobotData, 'joints'>,
+  solution: {
+    angles: Record<string, number>;
+    quaternions: Record<string, JointQuaternion>;
+  },
+): boolean {
+  for (const [jointId, angle] of Object.entries(solution.angles)) {
+    const joint = robot.joints[jointId];
+    if (!joint) {
+      continue;
+    }
+
+    if (
+      joint.angle === undefined ||
+      Math.abs(joint.angle - angle) > JOINT_MOTION_EPSILON
+    ) {
+      return true;
+    }
+  }
+
+  for (const [jointId, quaternion] of Object.entries(solution.quaternions)) {
+    const joint = robot.joints[jointId];
+    if (!joint) {
+      continue;
+    }
+
+    if (!jointQuaternionValuesEqual(joint.quaternion, quaternion)) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 export const useRobotStore = create<
   RobotData &
@@ -334,6 +394,10 @@ export const useRobotStore = create<
         if (!jointId) return;
 
         const solution = resolveClosedLoopDrivenJointMotion(state, jointId, angle);
+        if (!jointMotionSolutionChangesState(state, solution)) {
+          return;
+        }
+
         // Don't save to history for joint angle changes (too frequent)
         set((state) => {
           Object.entries(solution.angles).forEach(([compensatedJointId, compensatedAngle]) => {
@@ -374,6 +438,36 @@ export const useRobotStore = create<
               state.joints[jointId].quaternion = quaternion;
             }
           });
+        });
+      },
+
+      updateMjcfTendon: (tendonName, updates, options) => {
+        const currentTendon = get().inspectionContext?.mjcf?.tendons.find(
+          (tendon) => tendon.name === tendonName,
+        );
+        if (!currentTendon) {
+          return;
+        }
+
+        if (!options?.skipHistory) {
+          saveToHistory(options?.label ?? 'Update tendon');
+        }
+
+        set((state) => {
+          const tendon = state.inspectionContext?.mjcf?.tendons.find(
+            (entry) => entry.name === tendonName,
+          );
+          if (!tendon) {
+            return;
+          }
+
+          if (typeof updates.width === 'number' && Number.isFinite(updates.width)) {
+            tendon.width = updates.width;
+          }
+
+          if (updates.rgba) {
+            tendon.rgba = [...updates.rgba] as [number, number, number, number];
+          }
         });
       },
 

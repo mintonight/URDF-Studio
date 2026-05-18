@@ -206,6 +206,12 @@ export const TreeNode = memo(
       () => resolveTreeSelectionIdentity(attentionSelection, selectionRobotContext),
       [attentionSelection, selectionRobotContext],
     );
+    const hasJointAttentionSelection = useSelectionStore(
+      (state) =>
+        !readOnly &&
+        state.attentionSelection.type === 'joint' &&
+        Boolean(state.attentionSelection.id),
+    );
     const storeSelectionInBranch = useRobotStore((state) =>
       storeDriven
         ? isLinkInSelectionBranch(
@@ -329,12 +335,14 @@ export const TreeNode = memo(
     const hasSelectedExtraCollision = visibleCollisionBodies.some(
       ({ objectIndex }) => objectIndex === selectedObjectIndex,
     );
-    const shouldAutoExpandGeometryDetails = shouldAutoExpandTreeGeometryDetails({
-      showGeometryDetailsByDefault,
-      selectionSubType: isLinkSelected ? robotSelection.subType : undefined,
-      hasSelectedExtraCollision:
-        isLinkSelected && robotSelection.subType === 'collision' && hasSelectedExtraCollision,
-    });
+    const shouldAutoExpandGeometryDetails =
+      !hasJointAttentionSelection &&
+      shouldAutoExpandTreeGeometryDetails({
+        showGeometryDetailsByDefault,
+        selectionSubType: isLinkSelected ? robotSelection.subType : undefined,
+        hasSelectedExtraCollision:
+          isLinkSelected && robotSelection.subType === 'collision' && hasSelectedExtraCollision,
+      });
     const selectionInBranch = storeDriven
       ? storeSelectionInBranch
       : (selectionBranchLinkIds?.has(linkId) ?? false);
@@ -382,25 +390,26 @@ export const TreeNode = memo(
     }, [shouldAutoExpandGeometryDetails]);
 
     useEffect(() => {
-      if (isLinkSelected && !robotSelection.subType) {
+      if (isLinkSelected && !robotSelection.subType && !hasJointAttentionSelection) {
         scrollElementIntoView(linkRowRef.current);
       }
-    }, [isLinkSelected, robotSelection.subType]);
+    }, [hasJointAttentionSelection, isLinkSelected, robotSelection.subType]);
 
     useEffect(() => {
-      if (isGeometryExpanded && isVisualSelected) {
+      if (isGeometryExpanded && isVisualSelected && !hasJointAttentionSelection) {
         scrollElementIntoView(visualRowRef.current);
       }
-    }, [isGeometryExpanded, isVisualSelected]);
+    }, [hasJointAttentionSelection, isGeometryExpanded, isVisualSelected]);
 
     useEffect(() => {
-      if (isGeometryExpanded && isPrimaryCollisionSelected) {
+      if (isGeometryExpanded && isPrimaryCollisionSelected && !hasJointAttentionSelection) {
         scrollElementIntoView(primaryCollisionRowRef.current);
       }
-    }, [isGeometryExpanded, isPrimaryCollisionSelected]);
+    }, [hasJointAttentionSelection, isGeometryExpanded, isPrimaryCollisionSelected]);
 
     useEffect(() => {
       if (
+        hasJointAttentionSelection ||
         !(
           isGeometryExpanded &&
           isLinkSelected &&
@@ -412,6 +421,7 @@ export const TreeNode = memo(
       }
       scrollElementIntoView(collisionBodyRowRefs.current[selectedObjectIndex]);
     }, [
+      hasJointAttentionSelection,
       isGeometryExpanded,
       isLinkSelected,
       robotSelection.subType,
@@ -441,6 +451,18 @@ export const TreeNode = memo(
       if (!isExpanded || robotSelection.type !== 'joint' || !robotSelection.id) return;
       scrollElementIntoView(jointRowRefs.current[robotSelection.id] || null);
     }, [isExpanded, robotSelection.id, robotSelection.type]);
+
+    useEffect(() => {
+      if (
+        !isExpanded ||
+        effectiveAttentionSelection.type !== 'joint' ||
+        !effectiveAttentionSelection.id
+      ) {
+        return;
+      }
+
+      scrollElementIntoView(jointRowRefs.current[effectiveAttentionSelection.id] || null);
+    }, [effectiveAttentionSelection.id, effectiveAttentionSelection.type, isExpanded]);
     const {
       handleSelectVisual,
       handleSelectPrimaryCollision,
@@ -579,11 +601,6 @@ export const TreeNode = memo(
             onToggleVisibility={(event) => {
               event.stopPropagation();
               onUpdate('link', linkId, { ...link, visible: !isVisible });
-            }}
-            onAddChild={(event) => {
-              event.stopPropagation();
-              onAddChild(linkId);
-              setIsExpanded(true);
             }}
           />
         </div>

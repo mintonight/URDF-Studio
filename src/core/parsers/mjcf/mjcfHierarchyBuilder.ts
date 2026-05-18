@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BOX_FACE_MATERIAL_ORDER } from '@/core/robot';
+import { BOX_FACE_MATERIAL_ORDER, resolveMjcfPassiveSpringJointMetadata } from '@/core/robot';
 import { stackCoincidentVisualRoots } from '@/core/loaders/visualMeshStacking';
 import { findAssetByPath } from '@/core/loaders';
 import { createMatteMaterial } from '@/core/utils/materialFactory';
@@ -49,6 +49,7 @@ export interface MJCFHierarchyJoint {
   range?: [number, number];
   ref?: number;
   pos?: [number, number, number];
+  stiffness?: number;
 }
 
 export interface MJCFHierarchySite {
@@ -82,6 +83,7 @@ interface BuildMJCFHierarchyOptions {
   compilerSettings: MJCFCompilerSettings;
   materialMap: Map<string, MJCFMaterial>;
   textureMap: Map<string, MJCFTexture>;
+  actuatorMap?: Map<string, unknown[]>;
   sourceFileDir?: string;
   onProgress?: (progress: { processedGeoms: number; totalGeoms: number }) => void;
   yieldIfNeeded?: () => Promise<void>;
@@ -583,7 +585,11 @@ function collectFirstMeshGeomByMeshName(
   const firstMeshGeomByName = new Map<string, MJCFHierarchyGeom>();
 
   walkMJCFBodies(bodies, (body) => {
-    body.geoms.forEach((geom) => {
+    assignMJCFBodyGeomRoles(body.geoms).forEach(({ geom, renderVisual, renderCollision }) => {
+      if (!renderVisual && !renderCollision) {
+        return;
+      }
+
       if (!geom.mesh || firstMeshGeomByName.has(geom.mesh)) {
         return;
       }
@@ -1085,6 +1091,10 @@ export async function buildMJCFHierarchy(
       throwIfAborted();
       let mesh: THREE.Object3D | null = null;
       try {
+        if (!isVisualGeom && !isCollisionGeom) {
+          continue;
+        }
+
         mesh = await consumePrewarmedMesh(geom);
         if (mesh === undefined) {
           mesh = await createGeometryMesh(
@@ -1194,16 +1204,6 @@ export async function buildMJCFHierarchy(
           targetGroup.add(collisionGroup);
         }
 
-        if (!isVisualGeom && !isCollisionGeom) {
-          const visualGroup = new URDFVisual();
-          visualGroup.name = geom.name || `visual_${geom.type || 'geom'}`;
-          visualGroup.urdfName = visualGroup.name;
-          visualGroup.userData.isVisualGroup = true;
-          visualGroup.userData.visualOrder = geomIndex;
-          applyGeomTransformToContainer(visualGroup);
-          visualGroup.add(mesh);
-          targetGroup.add(visualGroup);
-        }
       } catch (error) {
         if (mesh && !mesh.parent) {
           disposeTransientObject3D(mesh);
@@ -1316,6 +1316,17 @@ export async function buildMJCFHierarchy(
     (jointNode as any).referencePosition = Number.isFinite(joint.ref) ? joint.ref : 0;
     jointNode.position.set(jointPos[0], jointPos[1], jointPos[2]);
     (jointNode as any).bodyOffsetGroup = bodyOffsetGroup;
+    const hasActuator = (options.actuatorMap?.get(joint.name)?.length ?? 0) > 0;
+    if (typeof joint.stiffness === 'number' && Number.isFinite(joint.stiffness)) {
+      jointNode.userData.mjcfJointStiffness = joint.stiffness;
+      Object.assign(
+        jointNode.userData,
+        resolveMjcfPassiveSpringJointMetadata({
+          stiffness: joint.stiffness,
+          hasActuator,
+        }),
+      );
+    }
 
     const axisVec = joint.axis
       ? new THREE.Vector3(joint.axis[0], joint.axis[1], joint.axis[2]).normalize()

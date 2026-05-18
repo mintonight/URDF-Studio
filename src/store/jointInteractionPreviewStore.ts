@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 import type { JointQuaternion, UrdfJoint } from '@/types';
 
-export type JointInteractionPreviewSource = 'viewer';
+export type JointInteractionPreviewSource = 'viewer' | 'tree-panel';
 
 export interface JointInteractionPreviewSnapshot {
   source: JointInteractionPreviewSource | null;

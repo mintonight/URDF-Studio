@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import {
   DEFAULT_WORKSPACE_ORBIT_PAN_TUNING,
   resolveWorkspaceOrbitPanSpeed,
+  resolveWorkspaceOrbitZoomSpeed,
 } from './workspaceOrbitPan.ts';
 
 test('resolveWorkspaceOrbitPanSpeed keeps the base speed when zoom level is comfortable', () => {
@@ -33,9 +34,9 @@ test('resolveWorkspaceOrbitPanSpeed boosts close-range panning for perspective i
     new THREE.Vector3(-0.5, -0.5, -0.5),
     new THREE.Vector3(0.5, 0.5, 0.5),
   );
+  const sceneDiagonal = sceneBounds.getSize(new THREE.Vector3()).length();
   const distanceFloor =
-    sceneBounds.getSize(new THREE.Vector3()).length() *
-    DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.closeRangeDistanceFactor;
+    Math.sqrt(sceneDiagonal) * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.closeRangeDistanceFactor;
 
   const panSpeed = resolveWorkspaceOrbitPanSpeed({
     basePanSpeed: 0.9,
@@ -67,19 +68,13 @@ test('resolveWorkspaceOrbitPanSpeed caps the boost so ultra-close zooms do not o
   assert.equal(panSpeed, 0.9 * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.maxBoost);
 });
 
-test('resolveWorkspaceOrbitPanSpeed allows stronger boosts for elongated joint chains', () => {
+test('resolveWorkspaceOrbitPanSpeed keeps elongated scenes inside the close-range boost cap', () => {
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
   camera.position.set(0.1, 0, 0);
 
   const sceneBounds = new THREE.Box3(
     new THREE.Vector3(-0.05, -0.05, -0.05),
     new THREE.Vector3(0.05, 0.05, 50),
-  );
-  const sceneDiagonal = sceneBounds.getSize(new THREE.Vector3()).length();
-  const expectedMaxBoost = THREE.MathUtils.clamp(
-    sceneDiagonal * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.largeSceneBoostFactor,
-    DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.maxBoost,
-    DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.maxLargeSceneBoost,
   );
 
   const panSpeed = resolveWorkspaceOrbitPanSpeed({
@@ -90,11 +85,47 @@ test('resolveWorkspaceOrbitPanSpeed allows stronger boosts for elongated joint c
     minDistance: 0.02,
   });
 
+  assert.equal(panSpeed, 0.9 * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.maxBoost);
+});
+
+test('resolveWorkspaceOrbitPanSpeed damps far-target panning inside a large scene', () => {
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+  camera.position.set(25, 0, 0);
+
+  const panSpeed = resolveWorkspaceOrbitPanSpeed({
+    basePanSpeed: 0.9,
+    camera,
+    target: new THREE.Vector3(0, 0, 0),
+    sceneBounds: new THREE.Box3(
+      new THREE.Vector3(-50, -0.5, -0.5),
+      new THREE.Vector3(50, 0.5, 0.5),
+    ),
+    minDistance: 0.02,
+  });
+
+  assert.ok(panSpeed < 0.9, 'expected distant pivots in large scenes to pan slower');
   assert.ok(
-    panSpeed > 0.9 * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.maxBoost,
-    'expected elongated scenes to lift the default max boost cap',
+    panSpeed >= 0.9 * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.minFarPanScale,
+    'expected far-distance damping to stay usable',
   );
-  assert.equal(panSpeed, 0.9 * expectedMaxBoost);
+});
+
+test('resolveWorkspaceOrbitPanSpeed keeps far-distance damping above the minimum scale', () => {
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+  camera.position.set(10_000, 0, 0);
+
+  const panSpeed = resolveWorkspaceOrbitPanSpeed({
+    basePanSpeed: 0.9,
+    camera,
+    target: new THREE.Vector3(0, 0, 0),
+    sceneBounds: new THREE.Box3(
+      new THREE.Vector3(-50, -0.5, -0.5),
+      new THREE.Vector3(50, 0.5, 0.5),
+    ),
+    minDistance: 0.02,
+  });
+
+  assert.ok(panSpeed >= 0.9 * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.minFarPanScale);
 });
 
 test('resolveWorkspaceOrbitPanSpeed falls back to minDistance when scene bounds are unavailable', () => {
@@ -123,4 +154,42 @@ test('resolveWorkspaceOrbitPanSpeed leaves orthographic cameras unchanged', () =
   });
 
   assert.equal(panSpeed, 0.9);
+});
+
+test('resolveWorkspaceOrbitZoomSpeed damps large-scene zoom without boosting close views', () => {
+  const target = new THREE.Vector3(0, 0, 0);
+  const sceneBounds = new THREE.Box3(
+    new THREE.Vector3(-50, -0.5, -0.5),
+    new THREE.Vector3(50, 0.5, 0.5),
+  );
+
+  const farCamera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+  farCamera.position.set(25, 0, 0);
+
+  const farZoomSpeed = resolveWorkspaceOrbitZoomSpeed({
+    baseZoomSpeed: 1.15,
+    camera: farCamera,
+    target,
+    sceneBounds,
+    minDistance: 0.02,
+  });
+
+  assert.ok(farZoomSpeed < 1.15);
+  assert.ok(farZoomSpeed >= 1.15 * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.minZoomScale);
+
+  const closeCamera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+  closeCamera.position.set(0.1, 0, 0);
+
+  const closeZoomSpeed = resolveWorkspaceOrbitZoomSpeed({
+    baseZoomSpeed: 1.15,
+    camera: closeCamera,
+    target,
+    sceneBounds: new THREE.Box3(
+      new THREE.Vector3(-0.5, -0.5, -0.5),
+      new THREE.Vector3(0.5, 0.5, 0.5),
+    ),
+    minDistance: 0.02,
+  });
+
+  assert.equal(closeZoomSpeed, 1.15);
 });

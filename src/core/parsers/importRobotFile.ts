@@ -611,7 +611,7 @@ export function resolveRobotFileData(
         if (mjcfExternalAssetValidation !== 'never') {
           const assetValidation = inspectMJCFImportExternalAssets(
             resolved.sourceFile.name,
-            resolved.content,
+            resolved.validationContent,
             availableFiles,
             assets,
           );

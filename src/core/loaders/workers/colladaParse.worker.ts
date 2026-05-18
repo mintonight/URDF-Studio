@@ -1,6 +1,10 @@
 /// <reference lib="webworker" />
 
-import { parseColladaSceneData } from '../colladaWorkerSceneData';
+import {
+  collectSerializedColladaTransferables,
+  parseColladaSceneData,
+} from '../colladaWorkerSceneData';
+import { parseColladaMeshDataWithWasm } from '../colladaWasmParser';
 import { ensureWorkerXmlDomApis } from '../../utils/ensureWorkerXmlDomApis';
 import type {
   ColladaParseWorkerResponse,
@@ -9,13 +13,22 @@ import type {
 
 declare const self: DedicatedWorkerGlobalScope;
 
-async function loadColladaText(assetUrl: string): Promise<string> {
+const textDecoder = new TextDecoder();
+
+async function loadColladaBytes(assetUrl: string): Promise<ArrayBuffer> {
   const response = await fetch(assetUrl);
   if (!response.ok) {
     throw new Error(`Failed to fetch Collada asset: ${response.status} ${response.statusText}`);
   }
 
-  return await response.text();
+  return await response.arrayBuffer();
+}
+
+function extractUrlBase(assetUrl: string): string {
+  const queryIndex = assetUrl.search(/[?#]/);
+  const cleanUrl = queryIndex >= 0 ? assetUrl.slice(0, queryIndex) : assetUrl;
+  const slashIndex = cleanUrl.lastIndexOf('/');
+  return slashIndex >= 0 ? assetUrl.slice(0, slashIndex + 1) : '';
 }
 
 self.addEventListener('message', async (event: MessageEvent<ParseColladaWorkerRequest>) => {
@@ -26,14 +39,20 @@ self.addEventListener('message', async (event: MessageEvent<ParseColladaWorkerRe
 
   try {
     ensureWorkerXmlDomApis();
-    const colladaText = await loadColladaText(message.assetUrl);
-    const result = parseColladaSceneData(colladaText, message.assetUrl);
+    const colladaBytes = await loadColladaBytes(message.assetUrl);
+    let result;
+    try {
+      result = await parseColladaMeshDataWithWasm(colladaBytes, extractUrlBase(message.assetUrl));
+    } catch {
+      const colladaText = textDecoder.decode(colladaBytes);
+      result = parseColladaSceneData(colladaText, message.assetUrl);
+    }
     const response: ColladaParseWorkerResponse = {
       type: 'parse-collada-result',
       requestId: message.requestId,
       result,
     };
-    self.postMessage(response);
+    self.postMessage(response, collectSerializedColladaTransferables(result));
   } catch (error) {
     const response: ColladaParseWorkerResponse = {
       type: 'parse-collada-error',

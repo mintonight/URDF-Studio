@@ -178,7 +178,7 @@ function VisualizationEffectsProbe({
 }: {
   robot: THREE.Object3D;
   selection?: {
-    type: 'link' | 'joint' | null;
+    type: 'link' | 'joint' | 'tendon' | null;
     id: string | null;
     subType?: 'visual' | 'collision';
     objectIndex?: number;
@@ -186,7 +186,7 @@ function VisualizationEffectsProbe({
     highlightObjectId?: number;
   };
   hoveredSelection?: {
-    type: 'link' | 'joint' | null;
+    type: 'link' | 'joint' | 'tendon' | null;
     id: string | null;
     subType?: 'visual' | 'collision';
     objectIndex?: number;
@@ -496,6 +496,90 @@ test('geometry hover keeps per-object tendon highlights when the hovered target 
   assert.ok(applyCalls.length >= 2);
   assert.equal(applyCalls.at(-2)?.meshToHighlight, firstTendonSegment);
   assert.equal(applyCalls.at(-1)?.meshToHighlight, secondTendonSegment);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('tendon hover highlights the whole tendon visualization object', async () => {
+  const { dom, root } = createComponentRoot();
+  const robot = new THREE.Group();
+  const tendonGroup = new THREE.Group();
+  tendonGroup.name = '__mjcf_tendon__:finger_tendon';
+  tendonGroup.userData.isMjcfTendon = true;
+  tendonGroup.userData.mjcfTendonName = 'finger_tendon';
+  const tendonSegment = new THREE.Mesh(
+    new THREE.CylinderGeometry(1, 1, 1),
+    new THREE.MeshBasicMaterial(),
+  );
+  tendonSegment.userData.isMjcfTendon = true;
+  tendonSegment.userData.mjcfTendonName = 'finger_tendon';
+  tendonGroup.add(tendonSegment);
+  robot.add(tendonGroup);
+
+  const highlightCalls: Array<{
+    linkName: string | null;
+    revert: boolean;
+    subType?: 'visual' | 'collision';
+    meshToHighlight?: THREE.Object3D | null | number;
+  }> = [];
+
+  await renderHarness(root, robot, {
+    hoveredSelection: {
+      type: 'tendon',
+      id: 'finger_tendon',
+      highlightObjectId: tendonSegment.id,
+    },
+    onHighlightGeometry: (linkName, revert, subType, meshToHighlight) => {
+      highlightCalls.push({ linkName, revert, subType, meshToHighlight });
+    },
+  });
+
+  const applyCall = highlightCalls.find((call) => call.revert === false);
+  assert.ok(applyCall);
+  assert.equal(applyCall.linkName, 'finger_tendon');
+  assert.equal(applyCall.subType, 'visual');
+  assert.equal(applyCall.meshToHighlight, tendonGroup);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('tendon selection resolves its visualization object even without a hover object id', async () => {
+  const { dom, root } = createComponentRoot();
+  const robot = new THREE.Group();
+  const tendonGroup = new THREE.Group();
+  tendonGroup.name = '__mjcf_tendon__:finger_tendon';
+  tendonGroup.userData.isMjcfTendon = true;
+  tendonGroup.userData.mjcfTendonName = 'finger_tendon';
+  robot.add(tendonGroup);
+
+  const highlightCalls: Array<{
+    linkName: string | null;
+    revert: boolean;
+    subType?: 'visual' | 'collision';
+    meshToHighlight?: THREE.Object3D | null | number;
+  }> = [];
+
+  await renderHarness(root, robot, {
+    selection: {
+      type: 'tendon',
+      id: 'finger_tendon',
+    },
+    onHighlightGeometry: (linkName, revert, subType, meshToHighlight) => {
+      highlightCalls.push({ linkName, revert, subType, meshToHighlight });
+    },
+  });
+
+  const applyCall = highlightCalls.find((call) => call.revert === false);
+  assert.ok(applyCall);
+  assert.equal(applyCall.linkName, 'finger_tendon');
+  assert.equal(applyCall.subType, 'visual');
+  assert.equal(applyCall.meshToHighlight, tendonGroup);
 
   await act(async () => {
     root.unmount();

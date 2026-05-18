@@ -3,6 +3,7 @@ import type {
   ClosedLoopMotionCompensation,
   ClosedLoopMotionSolveOptions,
 } from '@/core/robot/closedLoops';
+import { resolveDefaultWorkerCount } from '@/core/workers/workerPoolClient';
 import type { RobotState } from '@/types';
 import type { ClosedLoopMotionPreviewState } from './closedLoopMotionPreview';
 
@@ -45,14 +46,20 @@ type ClosedLoopMotionPreviewWorkerResponse =
 interface PendingRequest {
   resolve: (value: ClosedLoopDrivenJointMotionResult) => void;
   reject: (error: unknown) => void;
+  workerEntry: ClosedLoopMotionPreviewWorkerPoolEntry;
+}
+
+interface ClosedLoopMotionPreviewWorkerPoolEntry {
+  worker: Worker;
+  pendingCount: number;
+  baseRobot:
+    | Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>
+    | null;
 }
 
 const pendingRequests = new Map<number, PendingRequest>();
 let requestIdCounter = 0;
-let sharedWorker: Worker | null = null;
-let sharedWorkerBaseRobot:
-  | Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>
-  | null = null;
+const workerPool: ClosedLoopMotionPreviewWorkerPoolEntry[] = [];
 let workerUnavailable = false;
 
 function clearPendingRequest(requestId: number): PendingRequest | null {
@@ -62,17 +69,17 @@ function clearPendingRequest(requestId: number): PendingRequest | null {
   }
 
   pendingRequests.delete(requestId);
+  pendingRequest.workerEntry.pendingCount = Math.max(0, pendingRequest.workerEntry.pendingCount - 1);
   return pendingRequest;
 }
 
-function disposeSharedWorker(rejectPendingWith?: unknown): void {
-  if (sharedWorker) {
-    sharedWorker.removeEventListener('message', handleWorkerMessage);
-    sharedWorker.removeEventListener('error', handleWorkerError);
-    sharedWorker.terminate();
-    sharedWorker = null;
-  }
-  sharedWorkerBaseRobot = null;
+function disposeWorkerPool(rejectPendingWith?: unknown): void {
+  workerPool.forEach((entry) => {
+    entry.worker.removeEventListener('message', handleWorkerMessage);
+    entry.worker.removeEventListener('error', handleWorkerError);
+    entry.worker.terminate();
+  });
+  workerPool.length = 0;
 
   if (rejectPendingWith !== undefined) {
     pendingRequests.forEach((request, requestId) => {
@@ -105,20 +112,43 @@ function handleWorkerError(event: ErrorEvent): void {
   workerUnavailable = true;
   const error =
     event.error ?? new Error(event.message || 'Closed-loop motion preview worker failed');
-  disposeSharedWorker(error);
+  disposeWorkerPool(error);
 }
 
-function ensureSharedWorker(): Worker {
-  if (!sharedWorker) {
-    sharedWorker = new Worker(
-      new URL('../../workers/closedLoopMotionPreview.worker.ts', import.meta.url),
-      { type: 'module' },
-    );
-    sharedWorker.addEventListener('message', handleWorkerMessage);
-    sharedWorker.addEventListener('error', handleWorkerError);
+function createPreviewWorker(): Worker {
+  const worker = new Worker(
+    new URL('../../workers/closedLoopMotionPreview.worker.ts', import.meta.url),
+    { type: 'module' },
+  );
+  worker.addEventListener('message', handleWorkerMessage);
+  worker.addEventListener('error', handleWorkerError);
+  return worker;
+}
+
+function resolveClosedLoopPreviewWorkerCount(): number {
+  return Math.max(1, Math.min(4, resolveDefaultWorkerCount()));
+}
+
+function ensureWorkerPool(): ClosedLoopMotionPreviewWorkerPoolEntry {
+  if (workerPool.length === 0) {
+    const workerCount = resolveClosedLoopPreviewWorkerCount();
+    for (let index = 0; index < workerCount; index += 1) {
+      workerPool.push({
+        worker: createPreviewWorker(),
+        pendingCount: 0,
+        baseRobot: null,
+      });
+    }
   }
 
-  return sharedWorker;
+  let bestEntry = workerPool[0];
+  for (let index = 1; index < workerPool.length; index += 1) {
+    if (workerPool[index].pendingCount < bestEntry.pendingCount) {
+      bestEntry = workerPool[index];
+    }
+  }
+
+  return bestEntry;
 }
 
 export async function resolveClosedLoopDrivenJointMotionWithWorker(
@@ -138,10 +168,10 @@ export async function resolveClosedLoopDrivenJointMotionWithWorker(
 
   return new Promise<ClosedLoopDrivenJointMotionResult>((resolve, reject) => {
     const requestId = ++requestIdCounter;
-    let worker: Worker;
+    let workerEntry: ClosedLoopMotionPreviewWorkerPoolEntry;
 
     try {
-      worker = ensureSharedWorker();
+      workerEntry = ensureWorkerPool();
     } catch (error) {
       workerUnavailable = true;
       reject(error);
@@ -149,17 +179,17 @@ export async function resolveClosedLoopDrivenJointMotionWithWorker(
     }
 
     try {
-      if (sharedWorkerBaseRobot !== robot) {
+      if (workerEntry.baseRobot !== robot) {
         const setBaseRequest: ClosedLoopMotionPreviewWorkerSetBaseRobotRequest = {
           type: 'set-base-robot',
           robot,
         };
-        worker.postMessage(setBaseRequest);
-        sharedWorkerBaseRobot = robot;
+        workerEntry.worker.postMessage(setBaseRequest);
+        workerEntry.baseRobot = robot;
       }
     } catch (error) {
       workerUnavailable = true;
-      disposeSharedWorker(error);
+      disposeWorkerPool(error);
       reject(error);
       return;
     }
@@ -173,14 +203,15 @@ export async function resolveClosedLoopDrivenJointMotionWithWorker(
       previewState,
     };
 
-    pendingRequests.set(requestId, { resolve, reject });
+    pendingRequests.set(requestId, { resolve, reject, workerEntry });
+    workerEntry.pendingCount += 1;
 
     try {
-      worker.postMessage(request);
+      workerEntry.worker.postMessage(request);
     } catch (error) {
       workerUnavailable = true;
       clearPendingRequest(requestId);
-      disposeSharedWorker(error);
+      disposeWorkerPool(error);
       reject(error);
     }
   });
@@ -199,5 +230,6 @@ export async function resolveClosedLoopJointMotionCompensationWithWorker(
 }
 
 export function disposeClosedLoopMotionPreviewWorker(rejectPendingWith?: unknown): void {
-  disposeSharedWorker(rejectPendingWith);
+  disposeWorkerPool(rejectPendingWith);
+  workerUnavailable = false;
 }

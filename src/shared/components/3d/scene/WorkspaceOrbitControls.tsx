@@ -8,7 +8,10 @@ import {
   DEFAULT_WORKSPACE_ORBIT_CLIPPING,
   syncWorkspacePerspectiveClipPlanes,
 } from './workspaceOrbitClipping';
-import { resolveWorkspaceOrbitPanSpeed } from './workspaceOrbitPan';
+import {
+  resolveWorkspaceOrbitPanSpeed,
+  resolveWorkspaceOrbitZoomSpeed,
+} from './workspaceOrbitPan';
 import {
   applyWorkspaceCameraSnapshot,
   type WorkspaceCameraSnapshot,
@@ -104,6 +107,17 @@ export function WorkspaceOrbitControls({
     });
     if (Math.abs(controlsRef.current.panSpeed - resolvedPanSpeed) > 1e-4) {
       controlsRef.current.panSpeed = resolvedPanSpeed;
+    }
+
+    const resolvedZoomSpeed = resolveWorkspaceOrbitZoomSpeed({
+      baseZoomSpeed: zoomSpeed,
+      camera,
+      target: controlsRef.current.target,
+      sceneBounds: panSceneBoundsRef.current,
+      minDistance,
+    });
+    if (Math.abs(controlsRef.current.zoomSpeed - resolvedZoomSpeed) > 1e-4) {
+      controlsRef.current.zoomSpeed = resolvedZoomSpeed;
     }
   });
 

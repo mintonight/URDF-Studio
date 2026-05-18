@@ -11,6 +11,8 @@ import {
   getCollisionGeometryEntries,
   hasGeometryMeshMaterialGroups,
   getVisualGeometryEntries,
+  isUnactuatedJoint,
+  resolveMjcfPassiveSpringJointMetadata,
   resolveVisualMaterialOverride as resolveRobotVisualMaterialOverride,
 } from '@/core/robot';
 import { createBoxFaceMaterialArray } from '@/core/utils/boxFaceMaterialArray';
@@ -1016,6 +1018,16 @@ export async function buildRuntimeRobotFromState({
     joint.userData.displayName = jointDisplayName;
     joint.userData.jointId = jointKey;
     joint.userData.originalJointType = jointData.type;
+    if (typeof jointData.dynamics?.stiffness === 'number') {
+      joint.userData.mjcfJointStiffness = jointData.dynamics.stiffness;
+      Object.assign(
+        joint.userData,
+        resolveMjcfPassiveSpringJointMetadata({
+          stiffness: jointData.dynamics.stiffness,
+          hasActuator: !isUnactuatedJoint(jointData),
+        }),
+      );
+    }
     joint.jointType = resolveRuntimeJointType(jointData.type);
 
     if (jointData.axis) {

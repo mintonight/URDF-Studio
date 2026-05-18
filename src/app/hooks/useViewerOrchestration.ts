@@ -1,9 +1,11 @@
 import { useCallback, type RefObject } from 'react';
+import { resolveLinkKey } from '@/core/robot';
 import { useSelectionStore, useUIStore } from '@/store';
 import type { DetailLinkTab, InteractionSelection, RobotState } from '@/types';
 import type { ViewerHelperKind } from '@/features/urdf-viewer/types';
 
 const EMPTY_SELECTION: InteractionSelection = { type: null, id: null };
+type ViewerSelectionRobotContext = Pick<RobotState, 'links' | 'joints'>;
 
 function resolveDetailLinkTabAfterViewerMeshSelect(
   objectType: 'visual' | 'collision',
@@ -23,6 +25,34 @@ interface UseViewerOrchestrationOptions {
   setHoveredSelection: (selection: InteractionSelection) => void;
   focusOn: (id: string) => void;
   transformPendingRef: RefObject<boolean>;
+  selectionRobot?: ViewerSelectionRobotContext;
+}
+
+export function resolveParentJointAttentionSelection(
+  robot: ViewerSelectionRobotContext | undefined,
+  linkIdentity: string | null | undefined,
+): InteractionSelection | null {
+  if (!robot || !linkIdentity) {
+    return null;
+  }
+
+  const resolvedLinkId = resolveLinkKey(robot.links, linkIdentity);
+  const linkCandidates = new Set<string>([linkIdentity]);
+  if (resolvedLinkId) {
+    linkCandidates.add(resolvedLinkId);
+    const resolvedLinkName = robot.links[resolvedLinkId]?.name;
+    if (resolvedLinkName) {
+      linkCandidates.add(resolvedLinkName);
+    }
+  }
+
+  for (const [jointKey, joint] of Object.entries(robot.joints)) {
+    if (linkCandidates.has(joint.childLinkId)) {
+      return { type: 'joint', id: joint.id || jointKey };
+    }
+  }
+
+  return null;
 }
 
 export function useViewerOrchestration({
@@ -31,6 +61,7 @@ export function useViewerOrchestration({
   setHoveredSelection,
   focusOn,
   transformPendingRef,
+  selectionRobot,
 }: UseViewerOrchestrationOptions) {
   const isInteractionAllowed = useCallback(
     (selection: RobotState['selection']) =>
@@ -118,6 +149,17 @@ export function useViewerOrchestration({
       highlightObjectId: hoveredSelection.highlightObjectId,
     };
   }, []);
+
+  const resolveViewerAttentionSelection = useCallback(
+    (selection: RobotState['selection']) => {
+      if (selection.type !== 'link' || !selection.id || selection.helperKind) {
+        return selection;
+      }
+
+      return resolveParentJointAttentionSelection(selectionRobot, selection.id) ?? selection;
+    },
+    [selectionRobot],
+  );
 
   const handleSelect = useCallback(
     (
@@ -212,13 +254,14 @@ export function useViewerOrchestration({
         setHoveredSelection({ type: null, id: null });
         applyHelperSelectionUiState(helperKind);
       }
-      pulseSelection(nextSelection);
+      pulseSelection(resolveViewerAttentionSelection(nextSelection));
     },
     [
       applyHelperSelectionUiState,
       ensureCollisionVisible,
       preserveCollisionObjectIndex,
       pulseSelection,
+      resolveViewerAttentionSelection,
       isInteractionAllowed,
       setHoveredSelection,
       setSelection,
@@ -253,13 +296,14 @@ export function useViewerOrchestration({
       if (uiState.detailLinkTab !== nextTab) {
         uiState.setDetailLinkTab(nextTab);
       }
-      pulseSelection(nextSelection);
+      pulseSelection(resolveViewerAttentionSelection(nextSelection));
     },
     [
       ensureCollisionVisible,
       isInteractionAllowed,
       pulseSelection,
       preserveHoveredHighlightObject,
+      resolveViewerAttentionSelection,
       setSelection,
       transformPendingRef,
     ],

@@ -28,7 +28,7 @@ import { TendonProperties } from './TendonProperties';
 
 export interface PropertyEditorProps {
   robot: RobotState;
-  onUpdate: (type: 'link' | 'joint', id: string, data: unknown) => void;
+  onUpdate: (type: 'link' | 'joint' | 'tendon', id: string, data: unknown) => void;
   onSelect?: (
     type: Exclude<InteractionSelection['type'], null>,
     id: string,
@@ -219,7 +219,11 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
                   jointTypeLocked={jointTypeLocked}
                 />
               ) : tendonData ? (
-                <TendonProperties data={tendonData} lang={lang} />
+                <TendonProperties
+                  data={tendonData}
+                  lang={lang}
+                  onUpdate={(nextData) => onUpdate('tendon', tendonData.name, nextData)}
+                />
               ) : null}
             </div>
           )}

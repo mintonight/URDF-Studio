@@ -201,6 +201,24 @@ function renderHook(options?: Parameters<typeof useFileImport>[0]) {
   };
 }
 
+async function waitForCondition(
+  condition: () => boolean,
+  options: { timeoutMs?: number; intervalMs?: number } = {},
+) {
+  const timeoutMs = options.timeoutMs ?? 1000;
+  const intervalMs = options.intervalMs ?? 10;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (condition()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  assert.fail('Timed out waiting for condition');
+}
+
 type WorkerEventHandler = (event: { data?: unknown; error?: unknown; message?: string }) => void;
 
 function installRobotImportWorkerMock(
@@ -526,6 +544,48 @@ test('useFileImport avoids preparation worker Blob round-trips for broad loose f
     assert.equal(loadCalls[0]?.name, 'unitree_ros/robots/demo_description/urdf/demo.urdf');
     assert.equal(useAssetsStore.getState().availableFiles.length, 81);
     assert.equal(Object.keys(useAssetsStore.getState().assets).length, 80);
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
+test('useFileImport opens a single loose folder robot without auto-adding it to the workspace', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock();
+
+  const importedFile = new File(
+    ['<robot name="demo"><link name="base_link" /></robot>'],
+    'demo.urdf',
+    { type: 'text/xml' },
+  );
+  Object.defineProperty(importedFile, 'webkitRelativePath', {
+    configurable: true,
+    value: 'demo_bundle/urdf/demo.urdf',
+  });
+
+  const loadCalls: RobotFile[] = [];
+  const rendered = renderHook({
+    onLoadRobot: (file) => {
+      loadCalls.push(file);
+    },
+  });
+
+  try {
+    const result = await rendered.hook.handleImport([importedFile] as unknown as FileList);
+
+    assert.equal(result.status, 'completed');
+    assert.equal(loadCalls.length, 1);
+    assert.equal(loadCalls[0]?.name, 'demo_bundle/urdf/demo.urdf');
+    assert.equal(
+      useAssemblyStore.getState().assemblyState,
+      null,
+      'single folder robot imports should wait for the explicit Add action before entering workspace assembly',
+    );
   } finally {
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -881,7 +941,7 @@ test('useFileImport opens a single archive before background hydration finishes 
         return result;
       });
 
-    await new Promise((resolve) => setTimeout(resolve, 180));
+    await waitForCondition(() => settled);
 
     assert.equal(settled, true);
     assert.equal(loadCalls.length, 1);
@@ -891,7 +951,9 @@ test('useFileImport opens a single archive before background hydration finishes 
     assert.equal(useAssetsStore.getState().assets['demo/assets/unused.png'], undefined);
 
     workerMock.releaseHydrate();
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await waitForCondition(() =>
+      Boolean(useAssetsStore.getState().assets['demo/assets/unused.png']),
+    );
 
     assert.ok(useAssetsStore.getState().assets['demo/assets/unused.png']);
     const result = await importPromise;
@@ -905,7 +967,7 @@ test('useFileImport opens a single archive before background hydration finishes 
   }
 });
 
-test('useFileImport auto-seeds multi-MJCF archives while non-preferred deferred meshes are still hydrating', async () => {
+test('useFileImport opens the preferred multi-MJCF archive file without auto-seeding assembly', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const workerMock = installRobotImportWorkerMock({ deferHydrate: true });
@@ -947,20 +1009,40 @@ test('useFileImport auto-seeds multi-MJCF archives while non-preferred deferred 
     type: 'application/zip',
   });
 
-  const rendered = renderHook();
+  const loadCalls: RobotFile[] = [];
+  const rendered = renderHook({
+    onLoadRobot: (file) => {
+      loadCalls.push(file);
+    },
+  });
 
   try {
     const result = await rendered.hook.handleImport([importedFile] as unknown as FileList);
 
     assert.equal(result.status, 'completed');
-    const assemblyState = useAssemblyStore.getState().assemblyState;
-    assert.ok(assemblyState, 'expected imported archive to seed an assembly');
-    assert.equal(Object.keys(assemblyState.components).length, 2);
+    assert.deepEqual(
+      loadCalls.map((file) => file.name),
+      ['demo/first.xml'],
+    );
+    assert.equal(
+      useAssemblyStore.getState().assemblyState,
+      null,
+      'multi-MJCF archives should behave like folder imports and wait for explicit assembly adds',
+    );
+    assert.ok(
+      useAssetsStore.getState().availableFiles.some((file) => file.name === 'demo/first.xml'),
+    );
+    assert.ok(
+      useAssetsStore.getState().availableFiles.some((file) => file.name === 'demo/second.xml'),
+    );
     assert.ok(useAssetsStore.getState().assets['demo/assets/first.msh']);
     assert.equal(useAssetsStore.getState().assets['demo/assets/second.msh'], undefined);
 
     workerMock.releaseHydrate();
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await waitForCondition(() =>
+      Boolean(useAssetsStore.getState().assets['demo/assets/second.msh']),
+    );
+    assert.ok(useAssetsStore.getState().assets['demo/assets/second.msh']);
   } finally {
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -970,7 +1052,7 @@ test('useFileImport auto-seeds multi-MJCF archives while non-preferred deferred 
   }
 });
 
-test('useFileImport skips unresolved MJCF templates when auto-seeding archive assemblies', async () => {
+test('useFileImport skips unresolved MJCF templates without auto-seeding a single remaining archive model', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const workerMock = installRobotImportWorkerMock();
@@ -982,6 +1064,16 @@ test('useFileImport skips unresolved MJCF templates when auto-seeding archive as
       <worldbody>
         <body name="ready_body">
           <geom type="box" size="0.1 0.1 0.1" />
+        </body>
+      </worldbody>
+    </mujoco>`,
+  );
+  zip.file(
+    'myosuite/second_ready.xml',
+    `<mujoco model="second_ready_component">
+      <worldbody>
+        <body name="second_ready_body">
+          <geom type="sphere" size="0.1" />
         </body>
       </worldbody>
     </mujoco>`,
@@ -1004,22 +1096,37 @@ test('useFileImport skips unresolved MJCF templates when auto-seeding archive as
     { type: 'application/zip' },
   );
 
-  const rendered = renderHook();
+  const loadCalls: RobotFile[] = [];
+  const rendered = renderHook({
+    onLoadRobot: (file) => {
+      loadCalls.push(file);
+    },
+  });
 
   try {
     const result = await rendered.hook.handleImport([importedFile] as unknown as FileList);
-    const assemblyState = useAssemblyStore.getState().assemblyState;
-    const sourceFiles = Object.values(assemblyState?.components ?? {}).map(
-      (component) => component.sourceFile,
-    );
 
     assert.equal(result.status, 'completed');
-    assert.deepEqual(sourceFiles, ['myosuite/ready.xml']);
+    assert.deepEqual(
+      loadCalls.map((file) => file.name),
+      ['myosuite/ready.xml'],
+    );
+    assert.equal(
+      useAssemblyStore.getState().assemblyState,
+      null,
+      'a single valid archive model should open like a normal file instead of entering workspace assembly',
+    );
     assert.ok(
       useAssetsStore
         .getState()
         .availableFiles.some((file) => file.name === 'myosuite/myohand_object.xml'),
       'expected unresolved template source to remain available in the library',
+    );
+    assert.ok(
+      useAssetsStore
+        .getState()
+        .availableFiles.some((file) => file.name === 'myosuite/second_ready.xml'),
+      'expected additional valid MJCF sources to remain available in the library',
     );
   } finally {
     rendered.cleanup();
@@ -1356,7 +1463,7 @@ test('useFileImport supports mixed loose folders and archive files in one folder
   }
 });
 
-test('useFileImport seeds a multi-component workspace from the first imported archive', async () => {
+test('useFileImport imports multi-component archives into the file library without auto-seeding assembly', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const workerMock = installRobotImportWorkerMock();
@@ -1371,19 +1478,33 @@ test('useFileImport seeds a multi-component workspace from the first imported ar
     { type: 'application/zip' },
   );
 
-  const rendered = renderHook();
+  const loadCalls: RobotFile[] = [];
+  const rendered = renderHook({
+    onLoadRobot: (file) => {
+      loadCalls.push(file);
+    },
+  });
 
   try {
     const result = await rendered.hook.handleImport([importedFile] as unknown as FileList);
-    const assemblyState = useAssemblyStore.getState().assemblyState;
-    const assemblySourceFiles = Object.values(assemblyState?.components ?? {}).map(
-      (component) => component.sourceFile,
-    );
+    const availableFileNames = useAssetsStore
+      .getState()
+      .availableFiles.map((file) => file.name)
+      .sort((left, right) => left.localeCompare(right));
 
     assert.equal(result.status, 'completed');
     assert.deepEqual(
-      assemblySourceFiles.sort((left, right) => left.localeCompare(right)),
+      availableFileNames,
       ['demo_bundle/base/base.urdf', 'demo_bundle/tool/tool.urdf'],
+    );
+    assert.deepEqual(
+      loadCalls.map((file) => file.name),
+      ['demo_bundle/base/base.urdf'],
+    );
+    assert.equal(
+      useAssemblyStore.getState().assemblyState,
+      null,
+      'multi-component archives should wait for explicit Add actions before entering assembly',
     );
   } finally {
     rendered.cleanup();

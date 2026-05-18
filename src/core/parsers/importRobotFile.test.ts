@@ -826,6 +826,54 @@ test('resolveRobotFileData preserves MJCF inspection context on ready robot data
   assert.equal(result.robotData.inspectionContext?.mjcf?.tendonActuatorCount, 1);
 });
 
+test('resolveRobotFileData validates MJCF scene wrapper assets through included compiler settings', () => {
+  const sceneFile: RobotFile = {
+    name: 'robots/stretch_scene/scene.xml',
+    content: `
+      <mujoco model="stretch scene">
+        <include file="../stretch/stretch.xml" />
+        <asset>
+          <texture type="2d" name="wood" file="wood.png" />
+          <material name="wood" texture="wood" />
+        </asset>
+        <worldbody>
+          <geom type="box" size=".6 .5 .24" material="wood" />
+        </worldbody>
+      </mujoco>`,
+    format: 'mjcf',
+  };
+  const includedFile: RobotFile = {
+    name: 'robots/stretch/stretch.xml',
+    content: `
+      <mujocoinclude>
+        <compiler assetdir="assets" />
+        <asset>
+          <texture type="2d" name="hand_crush" file="hand_crush.png" />
+          <material name="hand_crush" texture="hand_crush" />
+        </asset>
+        <worldbody>
+          <body name="base_link">
+            <geom type="box" size=".1 .1 .1" material="hand_crush" />
+          </body>
+        </worldbody>
+      </mujocoinclude>`,
+    format: 'mjcf',
+  };
+
+  const result = resolveRobotFileData(sceneFile, {
+    availableFiles: [sceneFile, includedFile],
+    assets: {
+      'robots/stretch/assets/hand_crush.png': 'data:image/png;base64,hand',
+      'robots/stretch_scene/assets/wood.png': 'data:image/png;base64,wood',
+    },
+  });
+
+  assert.equal(result.status, 'ready');
+  if (result.status !== 'ready') {
+    assert.fail('Expected MJCF scene wrapper import to be ready');
+  }
+});
+
 test('resolveRobotFileData still flags missing MJCF assets in auto mode once related assets are present', () => {
   const file: RobotFile = {
     name: 'robots/demo/paddle.xml',

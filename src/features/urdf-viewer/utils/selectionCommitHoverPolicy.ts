@@ -41,6 +41,20 @@ export function resolveSelectionCommitHoverAction(
   }
 
   if (
+    resolvedHit.targetKind === 'geometry' &&
+    resolvedHit.type === 'tendon'
+  ) {
+    return {
+      mode: 'preserve',
+      hoveredSelection: {
+        type: 'tendon',
+        id: resolvedHit.id,
+        highlightObjectId: resolvedHit.highlightTarget?.id,
+      },
+    };
+  }
+
+  if (
     resolvedHit.targetKind !== 'geometry' ||
     resolvedHit.type !== 'link' ||
     resolvedHit.subType === undefined

@@ -7,6 +7,7 @@ import {
   namespaceAssemblyRobotData,
   prepareAssemblyRobotData,
 } from './assemblyComponentPreparation.ts';
+import { isSyntheticWorldRoot } from './treeRoots.ts';
 
 test('buildAssemblyComponentIdentity creates a stable unique component id and display name', () => {
   const identity = buildAssemblyComponentIdentity({
@@ -69,6 +70,71 @@ test('namespaceAssemblyRobotData prefixes links, joints, and materials for assem
   assert.equal(namespaced.joints.comp_demo_wrist_joint.parentLinkId, 'comp_demo_base_link');
   assert.equal(namespaced.joints.comp_demo_wrist_joint.childLinkId, 'comp_demo_tool_link');
   assert.equal(namespaced.materials?.comp_demo_base_link?.color, '#ff6600');
+});
+
+test('namespaceAssemblyRobotData keeps MJCF synthetic world roots transparent after namespacing', () => {
+  const robotData: RobotData = {
+    name: 'T1',
+    rootLinkId: 'world',
+    links: {
+      world: {
+        ...DEFAULT_LINK,
+        id: 'world',
+        name: 'world',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.NONE,
+        },
+        collision: {
+          ...DEFAULT_LINK.collision,
+          type: GeometryType.NONE,
+        },
+        inertial: {
+          ...DEFAULT_LINK.inertial,
+          mass: 0,
+        },
+      },
+      Trunk: {
+        ...DEFAULT_LINK,
+        id: 'Trunk',
+        name: 'Trunk',
+      },
+    },
+    joints: {
+      joint_0: {
+        id: 'joint_0',
+        name: 'joint_0',
+        type: JointType.FLOATING,
+        parentLinkId: 'world',
+        childLinkId: 'Trunk',
+        origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        axis: { x: 0, y: 0, z: 1 },
+        limit: { lower: 0, upper: 0, effort: 0, velocity: 0 },
+        dynamics: { damping: 0, friction: 0 },
+        hardware: { armature: 0, motorType: 'None', motorId: '', motorDirection: 1 },
+      },
+    },
+    inspectionContext: {
+      sourceFormat: 'mjcf',
+    },
+  };
+
+  const namespaced = namespaceAssemblyRobotData(robotData, {
+    componentId: 'comp_t1',
+    rootName: 't1',
+  });
+
+  assert.equal(namespaced.links.comp_t1_world.name, 'world');
+  assert.equal(
+    isSyntheticWorldRoot(
+      {
+        ...namespaced,
+        selection: { type: null, id: null },
+      },
+      namespaced.rootLinkId,
+    ),
+    true,
+  );
 });
 
 test('namespaceAssemblyRobotData rewrites mimic joint targets for assembly components', () => {

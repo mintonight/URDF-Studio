@@ -417,3 +417,135 @@ test('startUsdRobotStateHydration cleanup shuts down a resolved hydration that i
   assert.equal(client.shutdownCalls, 1);
   assert.equal(worker.listenerCount('message'), 0);
 });
+
+test('startUsdRobotStateHydration can resolve RobotData before the prepared export cache finishes', async () => {
+  const worker = new FakeHydrationWorker();
+  const client = createFakeHydrationClient(worker);
+  const serializedPreparedCache = await serializePreparedUsdExportCacheForWorker(preparedCache);
+  const preparedCacheCallbacks: PreparedUsdExportCacheResult[] = [];
+  const postResolveEvents: UsdOffscreenViewerWorkerResponse[] = [];
+  let fallbackPrepareCallCount = 0;
+
+  const hydration = startUsdRobotStateHydration({
+    sourceFile,
+    availableFiles,
+    assets: {},
+    createCanvas: fakeCanvas,
+    workerClient: client,
+    resolveBeforePreparedCache: true,
+    prepareExportCache: async () => {
+      fallbackPrepareCallCount += 1;
+      return preparedCache;
+    },
+    onPreparedCache: (cache) => {
+      preparedCacheCallbacks.push(cache);
+    },
+    onEvent: (event) => {
+      postResolveEvents.push(event);
+    },
+  });
+
+  worker.emitMessage({
+    type: 'robot-data',
+    resolution: {
+      ...workerResolution,
+      usdSceneSnapshot: sceneSnapshot,
+    },
+    robotData: preparedRobotData,
+    preparedCachePending: true,
+    deferredSceneSnapshotPending: false,
+  } as UsdOffscreenViewerWorkerResponse);
+
+  const result = await Promise.race([
+    hydration.promise,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 0)),
+  ]);
+
+  assert.ok(result, 'expected hydration to resolve from robot-data immediately');
+  assert.equal(result.preparedCache, null);
+  assert.equal(result.preparedCachePending, true);
+  assert.equal(result.robotData.name, 'prepared_demo');
+  assert.equal(result.robotData.links.base_link.visual.meshPath, 'base_link_visual_0.obj');
+  assert.equal(fallbackPrepareCallCount, 0);
+  assert.equal(client.shutdownCalls, 0);
+
+  const eventCountAtResolve = postResolveEvents.length;
+  worker.emitMessage({
+    type: 'load-debug',
+    entry: {
+      sourceFileName: 'robots/demo/demo.usda',
+      step: 'prepare-worker-export-cache',
+      status: 'pending',
+      timestamp: 1,
+      durationMs: null,
+      detail: null,
+    },
+  } as UsdOffscreenViewerWorkerResponse);
+  assert.equal(postResolveEvents.length, eventCountAtResolve + 1);
+  assert.equal(postResolveEvents.at(-1)?.type, 'load-debug');
+
+  worker.emitMessage({
+    type: 'prepared-cache',
+    stageSourcePath: '/robots/demo/demo.usda',
+    preparedCache: serializedPreparedCache.payload,
+  } as UsdOffscreenViewerWorkerResponse);
+
+  assert.equal(preparedCacheCallbacks.length, 1);
+  assert.equal(preparedCacheCallbacks[0].stageSourcePath, preparedCache.stageSourcePath);
+  assert.equal(client.shutdownCalls, 1);
+});
+
+test('startUsdRobotStateHydration waits for worker prepared cache when early resolve is disabled', async () => {
+  const worker = new FakeHydrationWorker();
+  const client = createFakeHydrationClient(worker);
+  const serializedPreparedCache = await serializePreparedUsdExportCacheForWorker(preparedCache);
+  let fallbackPrepareCallCount = 0;
+
+  const hydration = startUsdRobotStateHydration({
+    sourceFile,
+    availableFiles,
+    assets: {},
+    createCanvas: fakeCanvas,
+    workerClient: client,
+    resolveBeforePreparedCache: false,
+    prepareExportCache: async () => {
+      fallbackPrepareCallCount += 1;
+      return {
+        ...preparedCache,
+        meshFiles: {},
+      };
+    },
+  });
+
+  worker.emitMessage({
+    type: 'robot-data',
+    resolution: {
+      ...workerResolution,
+      usdSceneSnapshot: sceneSnapshot,
+    },
+    robotData: preparedRobotData,
+    preparedCachePending: true,
+    deferredSceneSnapshotPending: false,
+  } as UsdOffscreenViewerWorkerResponse);
+
+  const pendingResult = await Promise.race([
+    hydration.promise,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 0)),
+  ]);
+
+  assert.equal(pendingResult, null);
+  assert.equal(fallbackPrepareCallCount, 0);
+  assert.equal(client.shutdownCalls, 0);
+
+  worker.emitMessage({
+    type: 'prepared-cache',
+    stageSourcePath: '/robots/demo/demo.usda',
+    preparedCache: serializedPreparedCache.payload,
+  } as UsdOffscreenViewerWorkerResponse);
+
+  const result = await hydration.promise;
+  assert.equal(result.preparedCache?.stageSourcePath, preparedCache.stageSourcePath);
+  assert.deepEqual(Object.keys(result.preparedCache?.meshFiles || {}), ['base_link_visual_0.obj']);
+  assert.equal(fallbackPrepareCallCount, 0);
+  assert.equal(client.shutdownCalls, 1);
+});

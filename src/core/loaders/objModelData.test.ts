@@ -4,6 +4,7 @@ import * as THREE from 'three';
 
 import {
   createObjectFromSerializedObjData,
+  createObjectFromSerializedObjDataAsync,
   type SerializedObjModelData,
 } from './objModelData.ts';
 
@@ -109,4 +110,49 @@ test('createObjectFromSerializedObjData uses a neutral base for vertex-colored O
   assert.equal(material.color.getHexString(), 'ffffff');
   assert.equal(material.toneMapped, false);
   assert.equal(material.userData.usesVertexColors, true);
+});
+
+test('createObjectFromSerializedObjDataAsync yields while assembling multi-node OBJ scenes', async () => {
+  const makeChild = (name: string): SerializedObjModelData['children'][number] => ({
+    kind: 'mesh',
+    name,
+    materials: [
+      {
+        kind: 'mesh-phong',
+        name: 'default',
+        color: 0xffffff,
+        vertexColors: false,
+      },
+    ],
+    geometry: {
+      position: {
+        array: floatBuffer([
+          0, 0, 0,
+          1, 0, 0,
+          0, 1, 0,
+        ]),
+        itemSize: 3,
+      },
+      groups: [],
+    },
+  });
+  const serialized: SerializedObjModelData = {
+    materialLibraries: ['robot.mtl'],
+    children: [makeChild('a'), makeChild('b'), makeChild('c')],
+  };
+  let yieldCount = 0;
+
+  const object = await createObjectFromSerializedObjDataAsync(serialized, {
+    nodeYieldInterval: 1,
+    yieldIfNeeded: async () => {
+      yieldCount += 1;
+    },
+  });
+
+  assert.equal(object.children.length, 3);
+  assert.deepEqual(
+    (object as THREE.Group & { materialLibraries?: string[] }).materialLibraries,
+    ['robot.mtl'],
+  );
+  assert.equal(yieldCount, 4);
 });

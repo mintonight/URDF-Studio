@@ -21,7 +21,10 @@ import {
   createMemoizedRendererBackendLoadScopeKey,
   type RendererBackendLoadScopeKeyMemo,
 } from '../utils/rendererBackendLoadScope';
-import { detectSingleGeometryPatch } from '../utils/robotLoaderDiff';
+import {
+  areRobotLinkChangesVisibilityOnly,
+  detectSingleGeometryPatch,
+} from '../utils/robotLoaderDiff';
 import { applyGeometryPatchInPlace } from '../utils/robotLoaderGeometryPatch';
 
 export interface UseRendererBackendOptions extends RendererSceneProps {
@@ -233,6 +236,14 @@ export function useRendererBackend(
 
     const patch = detectSingleGeometryPatch(previousLinks, nextLinks);
     if (!patch) {
+      if (areRobotLinkChangesVisibilityOnly(previousLinks, nextLinks)) {
+        setResolvedRobotLinks(nextLinks);
+        if (robotData?.rootLinkId) {
+          setResolvedRootLinkId(robotData.rootLinkId);
+        }
+        setRobotVersion((version) => version + 1);
+        setError(null);
+      }
       return;
     }
 

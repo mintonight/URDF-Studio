@@ -34,6 +34,12 @@ type Pose = {
   rpy: { r: number; p: number; y: number };
 };
 
+type SdfMaterialState = {
+  color?: string;
+  colorRgba?: [number, number, number, number];
+  texture?: string;
+};
+
 const AXIS_EXPORT_TYPES = new Set<JointType>([
   JointType.REVOLUTE,
   JointType.CONTINUOUS,
@@ -124,47 +130,56 @@ function hexToRgba(hex?: string): string | null {
   return `${r} ${g} ${b} ${a}`;
 }
 
+function colorRgbaToSdfText(colorRgba?: [number, number, number, number]): string | null {
+  if (
+    !Array.isArray(colorRgba) ||
+    colorRgba.length !== 4 ||
+    !colorRgba.every((value) => Number.isFinite(value))
+  ) {
+    return null;
+  }
+
+  return colorRgba
+    .map((value) => Math.min(1, Math.max(0, Number(value))).toFixed(8))
+    .join(' ');
+}
+
 function resolveVisualMaterialState(
   robot: RobotState,
   link: UrdfLink,
   visual: UrdfVisual,
   isPrimaryVisual: boolean,
-): { color?: string; texture?: string } {
+): SdfMaterialState {
   const resolvedMaterial = resolveVisualMaterialOverride(robot, link, visual, {
     isPrimaryVisual,
   });
 
-  if (resolvedMaterial.source === 'authored') {
+  if (resolvedMaterial.source === 'authored' || resolvedMaterial.source === 'legacy-link') {
+    const colorRgba = resolvedMaterial.colorRgba;
+    const texture = resolvedMaterial.texture;
     return {
       color:
         resolvedMaterial.color ||
-        (resolvedMaterial.texture ? '#ffffff' : undefined) ||
-        visual.color ||
+        (colorRgba ? undefined : texture ? '#ffffff' : undefined) ||
+        (colorRgba ? undefined : visual.color) ||
         undefined,
-      texture: resolvedMaterial.texture,
-    };
-  }
-
-  if (resolvedMaterial.source === 'legacy-link') {
-    return {
-      color:
-        resolvedMaterial.color ||
-        (resolvedMaterial.texture ? '#ffffff' : undefined) ||
-        visual.color ||
-        undefined,
-      texture: resolvedMaterial.texture,
+      colorRgba,
+      texture,
     };
   }
 
   const inlineAuthoredMaterial = visual.authoredMaterials?.find(
-    (material) => material.color || material.texture,
+    (material) => material.color || material.colorRgba || material.texture,
   );
+  const inlineColorRgba = inlineAuthoredMaterial?.colorRgba;
   return {
     color:
-      visual.color ||
       inlineAuthoredMaterial?.color ||
-      (inlineAuthoredMaterial?.texture ? '#ffffff' : undefined) ||
+      (inlineColorRgba
+        ? undefined
+        : visual.color || (inlineAuthoredMaterial?.texture ? '#ffffff' : undefined)) ||
       undefined,
+    colorRgba: inlineColorRgba,
     texture: inlineAuthoredMaterial?.texture,
   };
 }
@@ -362,12 +377,9 @@ function buildTextureUri(texturePath: string, packageName: string): string {
   return `model://${packageName}/textures/${exportPath}`;
 }
 
-function generateMaterialXml(
-  materialState: { color?: string; texture?: string },
-  packageName: string,
-): string {
+function generateMaterialXml(materialState: SdfMaterialState, packageName: string): string {
   const resolvedColor = materialState.color || (materialState.texture ? '#ffffff' : undefined);
-  const rgba = hexToRgba(resolvedColor);
+  const rgba = hexToRgba(resolvedColor) ?? colorRgbaToSdfText(materialState.colorRgba);
   if (!rgba && !materialState.texture) {
     return '';
   }

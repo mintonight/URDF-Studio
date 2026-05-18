@@ -105,6 +105,14 @@ export {
   clampJointInteractionValue,
   normalizeJointInteractionLimits,
 } from './jointInteractionLimits.js';
+export {
+  HARD_PASSIVE_SPRING_STIFFNESS_THRESHOLD,
+  PASSIVE_SPRING_EFFORT_EPSILON,
+  isHardPassiveSpringJoint,
+  isPassiveSpringJoint,
+  isUnactuatedJoint,
+  resolveMjcfPassiveSpringJointMetadata,
+} from './passiveSpringJoints';
 
 export {
   createRobotClosedLoopConstraint,

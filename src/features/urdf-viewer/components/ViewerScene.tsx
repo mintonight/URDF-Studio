@@ -234,6 +234,7 @@ export const ViewerScene = ({
           setIsDragging={controller.setIsDragging}
           ikRobotState={controller.closedLoopRobotState}
           onIkPreviewKinematicOverrides={controller.previewIkJointKinematics}
+          onIkCommitKinematicOverrides={controller.commitIkJointKinematics}
           onClearIkPreviewKinematicOverrides={controller.clearIkJointKinematicsPreview}
           setActiveJoint={controller.handleActiveJointChange}
           justSelectedRef={controller.justSelectedRef}

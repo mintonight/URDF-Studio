@@ -1,13 +1,12 @@
-import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { MouseEvent as ReactMouseEvent, RefObject } from 'react';
 import type { RobotFile } from '@/types';
 import type { FileTreeNode } from '../utils';
-import { FileTreeNodeComponent, type LibraryDeleteTarget } from './FileTreeNode';
+import { FileTreeNodeComponent } from './FileTreeNode';
 import type { TreeEditorTranslations } from './treeEditorTypes';
 
 interface TreeEditorFileBrowserContentProps {
   availableFiles: RobotFile[];
-  canDeleteAllLibraryFiles: boolean;
   editingFolderPath?: string | null;
   expandedFolders: Set<string>;
   fileTree: FileTreeNode[];
@@ -20,8 +19,6 @@ interface TreeEditorFileBrowserContentProps {
   onAddComponent?: (file: RobotFile) => void;
   onCancelFolderRename: () => void;
   onCommitFolderRename: () => void;
-  onDeleteAll: () => void;
-  onDeleteFromLibrary?: (target: LibraryDeleteTarget) => void;
   onLoadRobot?: (file: RobotFile) => void;
   onFileContextMenu: (event: ReactMouseEvent, file: RobotFile) => void;
   onFolderRenameDraftChange: (value: string) => void;
@@ -34,7 +31,6 @@ interface TreeEditorFileBrowserContentProps {
 
 export function TreeEditorFileBrowserContent({
   availableFiles,
-  canDeleteAllLibraryFiles,
   editingFolderPath,
   expandedFolders,
   fileTree,
@@ -47,8 +43,6 @@ export function TreeEditorFileBrowserContent({
   onAddComponent,
   onCancelFolderRename,
   onCommitFolderRename,
-  onDeleteAll,
-  onDeleteFromLibrary,
   onLoadRobot,
   onFileContextMenu,
   onFolderRenameDraftChange,
@@ -81,26 +75,12 @@ export function TreeEditorFileBrowserContent({
           <span className="text-[9px] leading-none text-text-tertiary">
             {availableFiles.length}
           </span>
-          {canDeleteAllLibraryFiles && (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onDeleteAll();
-              }}
-              className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[9px] leading-none font-semibold text-red-600 transition-colors hover:bg-red-100 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
-              title={t.deleteAllLibraryFiles}
-            >
-              <Trash2 size={10} strokeWidth={2.25} />
-              <span>{t.deleteAllLibraryFiles}</span>
-            </button>
-          )}
         </div>
       </div>
 
       {isOpen && (
         <div
-          className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar py-1"
+          className="flex-1 overflow-y-auto overflow-x-auto custom-scrollbar py-1"
           onContextMenu={(event) => {
             event.preventDefault();
           }}
@@ -125,7 +105,6 @@ export function TreeEditorFileBrowserContent({
                   onAddAsComponent={showAddAsComponent ? onAddComponent : undefined}
                   onCancelFolderRename={onCancelFolderRename}
                   onCommitFolderRename={onCommitFolderRename}
-                  onDeleteFromLibrary={onDeleteFromLibrary}
                   onFileContextMenu={onFileContextMenu}
                   onFolderRenameDraftChange={onFolderRenameDraftChange}
                   onFolderContextMenu={onFolderContextMenu}

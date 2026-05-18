@@ -29,6 +29,50 @@ function createMjcfFile(name: string, content: string): RobotFile {
   };
 }
 
+test('autoSeedAssembly keeps single selected-file link and joint names unmodified', () => {
+  const file = createMjcfFile(
+    'test/mujoco_menagerie-main/booster_t1/t1.xml',
+    `<mujoco model="T1">
+      <worldbody>
+        <body name="Trunk" pos="0 0 0.7">
+          <freejoint/>
+          <body name="H1" pos="0 0 0.2">
+            <joint name="AAHead_yaw" axis="0 0 1" range="-1 1"/>
+            <geom type="sphere" size="0.05"/>
+          </body>
+        </body>
+      </worldbody>
+    </mujoco>`,
+  );
+  const importResult = resolveRobotFileData(file, {
+    availableFiles: [file],
+    allFileContents: { [file.name]: file.content },
+    assets: {},
+  });
+
+  assert.equal(importResult.status, 'ready');
+  if (importResult.status !== 'ready') {
+    assert.fail('expected MJCF fixture to resolve');
+  }
+
+  const assembly = autoSeedAssembly(importResult.robotData, file.name, {
+    sourceFile: file,
+    availableFiles: [file],
+    allFileContents: { [file.name]: file.content },
+    assets: {},
+  });
+  const [component] = Object.values(assembly.components);
+
+  assert.ok(component);
+  assert.equal(component.robot.rootLinkId, 'world');
+  assert.equal(component.robot.links.Trunk?.name, 'Trunk');
+  assert.equal(component.robot.links.H1?.name, 'H1');
+  assert.equal(component.robot.joints.joint_0?.name, 'joint_0');
+  assert.equal(component.robot.joints.AAHead_yaw?.name, 'AAHead_yaw');
+  assert.equal(component.robot.links.t1_Trunk, undefined);
+  assert.equal(component.robot.joints.t1_AAHead_yaw, undefined);
+});
+
 test('autoSeedAssembly can explicitly split MJCF scene wrappers into scene and robot components with a bridge', () => {
   const sceneFile = createMjcfFile(
     'test/mujoco_menagerie-main/unitree_go2/scene.xml',

@@ -170,6 +170,8 @@ test('tendon selection renders tendon inspection data without joint property con
   assert.match(markup, /finger_tendon/);
   assert.match(markup, /finger_tendon_motor/);
   assert.match(markup, /hip_joint/);
+  assert.match(markup, /type="color"/);
+  assert.match(markup, /value="#00ff00"/i);
   assert.doesNotMatch(markup, new RegExp(translations.en.selectedJoint));
 });
 

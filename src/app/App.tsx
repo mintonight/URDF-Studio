@@ -617,6 +617,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         importedAssetPaths,
         {
           allFileContents: liveAssetsState.allFileContents,
+          availableFiles: liveAssetsState.availableFiles,
           sourcePath: file.name,
         },
       );
@@ -894,7 +895,6 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
     void import('@/shared/debug/regressionBridge').then(
       ({ installRegressionDebugApi, setRegressionAppHandlers }) => {
         if (disposed) {
-          setRegressionAppHandlers(null);
           return;
         }
 

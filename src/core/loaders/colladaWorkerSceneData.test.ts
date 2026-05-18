@@ -152,6 +152,9 @@ test('parseColladaSceneData tolerates Gazebo Collada images without init_from no
   const colladaText = fs.readFileSync(daePath, 'utf8');
   const serializedScene = parseColladaSceneData(colladaText, daePath);
   const restoredScene = createSceneFromSerializedColladaData(serializedScene);
+  if (serializedScene.kind === 'fast-mesh-v1') {
+    throw new Error('expected legacy Collada JSON scene data');
+  }
   const sceneJson = serializedScene.sceneJson as {
     images?: Array<{ url?: string | string[] }>;
   };

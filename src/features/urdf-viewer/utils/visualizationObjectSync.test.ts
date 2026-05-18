@@ -21,6 +21,7 @@ import {
   syncMjcfTendonVisualizationForRobot,
   syncOriginAxesVisualizationForLinks,
 } from './visualizationObjectSync.ts';
+import { MJCF_TENDON_RENDER_ORDER } from './visualizationFactories.ts';
 import { GIZMO_BASE_RENDER_ORDER } from '@/shared/components/3d/unified-transform-controls/gizmoCore.ts';
 
 function assertTupleClose(
@@ -446,10 +447,11 @@ test('syncMjcfTendonVisualizationForRobot creates hover-pickable tendon meshes w
   const shaft = segment.getObjectByName('__mjcf_tendon_shaft__') as THREE.Mesh | undefined;
   assert.ok(shaft);
   assert.equal(shaft.material instanceof THREE.MeshStandardMaterial, true);
-  assert.equal((shaft.material as THREE.MeshStandardMaterial).depthTest, true);
-  assert.equal((shaft.material as THREE.MeshStandardMaterial).depthWrite, true);
+  assert.equal((shaft.material as THREE.MeshStandardMaterial).depthTest, false);
+  assert.equal((shaft.material as THREE.MeshStandardMaterial).depthWrite, false);
+  assert.equal(shaft.renderOrder, MJCF_TENDON_RENDER_ORDER);
   assert.equal(typeof shaft.raycast, 'function');
-  assert.deepEqual(shaft.scale.toArray(), [0.0025, Math.sqrt(27), 0.0025]);
+  assert.deepEqual(shaft.scale.toArray(), [0.003, Math.sqrt(27), 0.003]);
   assert.equal(shaft.userData.parentLinkName, 'link_a');
   assert.equal(shaft.userData.isVisual, true);
   assert.equal(shaft.userData.isVisualMesh, true);

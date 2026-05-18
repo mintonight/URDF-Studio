@@ -26,6 +26,7 @@ interface ColladaParseWorkerPoolClient {
   clearCache: () => void;
   dispose: (rejectPendingWith?: unknown) => void;
   load: (assetUrl: string, manager: THREE.LoadingManager) => Promise<THREE.Object3D>;
+  loadSerialized: (assetUrl: string) => Promise<SerializedColladaSceneData>;
 }
 
 const DEFAULT_CACHE_LIMIT = 24;
@@ -51,15 +52,15 @@ export function createColladaParseWorkerPoolClient({
 
   const pendingLoads = new Map<string, Promise<SerializedColladaSceneData>>();
 
-  const load = async (assetUrl: string, manager: THREE.LoadingManager): Promise<THREE.Object3D> => {
+  const loadSerialized = async (assetUrl: string): Promise<SerializedColladaSceneData> => {
     const cachedResult = client.getCached(assetUrl);
     if (cachedResult) {
-      return createSceneFromSerializedColladaData(cachedResult, { manager });
+      return cachedResult;
     }
 
     const pendingLoad = pendingLoads.get(assetUrl);
     if (pendingLoad) {
-      return createSceneFromSerializedColladaData(await pendingLoad, { manager });
+      return await pendingLoad;
     }
 
     const nextLoad = client
@@ -73,13 +74,19 @@ export function createColladaParseWorkerPoolClient({
       });
 
     pendingLoads.set(assetUrl, nextLoad);
-    return createSceneFromSerializedColladaData(await nextLoad, { manager });
+    return await nextLoad;
+  };
+
+  const load = async (assetUrl: string, manager: THREE.LoadingManager): Promise<THREE.Object3D> => {
+    const serializedScene = await loadSerialized(assetUrl);
+    return createSceneFromSerializedColladaData(serializedScene, { manager });
   };
 
   return {
     clearCache: () => client.clearCache(),
     dispose: (rejectPendingWith) => client.dispose(rejectPendingWith),
     load,
+    loadSerialized,
   };
 }
 
@@ -90,6 +97,12 @@ export async function loadColladaScene(
   manager: THREE.LoadingManager,
 ): Promise<THREE.Object3D> {
   return await sharedColladaParseWorkerPoolClient.load(assetUrl, manager);
+}
+
+export async function loadSerializedColladaSceneData(
+  assetUrl: string,
+): Promise<SerializedColladaSceneData> {
+  return await sharedColladaParseWorkerPoolClient.loadSerialized(assetUrl);
 }
 
 export function clearColladaParseWorkerPoolClientCache(): void {

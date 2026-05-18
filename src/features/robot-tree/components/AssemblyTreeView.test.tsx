@@ -11,6 +11,7 @@ import { useSelectionStore } from '@/store/selectionStore';
 import {
   DEFAULT_JOINT,
   DEFAULT_LINK,
+  GeometryType,
   JointType,
   type AssemblyState,
   type RobotData,
@@ -160,7 +161,19 @@ function createNamespacedMjcfComponentAssemblyState(): AssemblyState {
             comp_t1_world: {
               ...DEFAULT_LINK,
               id: 'comp_t1_world',
-              name: 't1',
+              name: 'world',
+              visual: {
+                ...DEFAULT_LINK.visual,
+                type: GeometryType.NONE,
+              },
+              collision: {
+                ...DEFAULT_LINK.collision,
+                type: GeometryType.NONE,
+              },
+              inertial: {
+                ...DEFAULT_LINK.inertial,
+                mass: 0,
+              },
             },
             comp_t1_Trunk: {
               ...DEFAULT_LINK,
@@ -598,6 +611,13 @@ test('AssemblyTreeView shows original names inside namespaced MJCF components', 
       'component-prefixed MJCF joint names should display as their original source names',
     );
     assert.equal(container.querySelector('[title="t1_joint_0 · Floating"]'), null);
+    assert.equal(container.querySelector('[title="world"]'), null);
+    assert.equal(
+      Array.from(container.querySelectorAll('[title]')).some(
+        (element) => element.getAttribute('title') === 't1',
+      ),
+      false,
+    );
     assert.ok(container.querySelector('[title="Trunk"]'));
     assert.equal(container.querySelector('[title="t1_Trunk"]'), null);
   } finally {

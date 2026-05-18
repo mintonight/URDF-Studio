@@ -1,7 +1,7 @@
 import { validateMJCFImportExternalAssets } from '@/core/parsers/mjcf/mjcfImportValidation';
+import { resolveMJCFSource } from '@/core/parsers/mjcf/mjcfSourceResolver';
 import { resolveGazeboScriptMaterial } from '@/core/parsers/sdf/gazeboMaterialScripts';
 import type { RobotFile } from '@/types';
-import { isAssetLibraryOnlyFormat } from '@/shared/utils/robotFileSupport';
 
 export interface PackageAssetReferenceSource {
   name?: string;
@@ -25,6 +25,7 @@ export interface StandalonePrimitiveGeometryHint {
 
 export interface StandaloneImportAssetReferenceOptions {
   allFileContents?: Record<string, string>;
+  availableFiles?: readonly Pick<RobotFile, 'name' | 'format' | 'content'>[];
   sourcePath?: string;
 }
 
@@ -43,9 +44,10 @@ export function collectStandaloneImportSupportAssetPaths(
 ): string[] {
   return uniqueSorted([
     ...Object.keys(assetUrls),
-    ...availableFiles
-      .filter((file) => file.format === 'mesh' || isAssetLibraryOnlyFormat(file.format))
-      .map((file) => file.name),
+    // MJCF scene wrappers reference sibling XML files via <include file="...">.
+    // Treat every imported file path as support context so a complete folder/archive
+    // does not get blocked by the standalone missing-asset warning.
+    ...availableFiles.map((file) => file.name),
   ]);
 }
 
@@ -87,7 +89,7 @@ const MJCF_COMPILER_MESHDIR_PATTERN = /<compiler\b[^>]*\bmeshdir\s*=\s*["']([^"'
 const MJCF_MESH_FILE_PATTERN = /<mesh\b[^>]*\bfile\s*=\s*["']([^"']+)["'][^>]*>/gi;
 const PRIMITIVE_GEOMETRY_PATTERN = /<(?:box|cylinder|sphere|capsule)\b/i;
 const PRIMITIVE_APPROXIMATION_COMMENT_PATTERN = /<!--\s*(?:Shapes for|Part)\s+[^>]+-->/i;
-const MESH_ASSET_PATH_PATTERN = /\.(?:dae|obj|stl|gltf|glb)$/i;
+const MESH_ASSET_PATH_PATTERN = /\.(?:dae|obj|stl|msh|gltf|glb|ply|vtk)$/i;
 
 function sanitizeRootSegment(segment: string): string {
   return segment
@@ -194,6 +196,114 @@ function normalizeAssetReferencePath(path: string, meshDirectory = ''): string |
   }
 
   return normalizedSegments.join('/');
+}
+
+function normalizeWarningReferencePath(path: string): string | null {
+  const trimmedPath = path.trim();
+  if (!trimmedPath) {
+    return null;
+  }
+
+  if (/^(?:blob:|data:|https?:\/\/)/i.test(trimmedPath)) {
+    return null;
+  }
+
+  const slashNormalizedPath = stripExternalAssetScheme(trimmedPath)
+    .replace(/\\/g, '/')
+    .replace(/^[A-Za-z]:\//, '')
+    .replace(/^\/+/, '');
+  const resolvedSegments: string[] = [];
+
+  slashNormalizedPath.split('/').forEach((rawSegment) => {
+    const segment = rawSegment.trim();
+    if (!segment || segment === '.') {
+      return;
+    }
+
+    if (segment === '..') {
+      if (resolvedSegments.length > 0) {
+        resolvedSegments.pop();
+      }
+      return;
+    }
+
+    resolvedSegments.push(segment);
+  });
+
+  return resolvedSegments.length > 0 ? resolvedSegments.join('/') : null;
+}
+
+function isMjcfSourcePath(path: string): boolean {
+  return /\.(?:xml|mjcf)$/i.test(path);
+}
+
+function looksLikeMjcfSourceContent(content: string): boolean {
+  return /<(?:mujoco|mujocoinclude)\b/i.test(content.slice(0, 4096));
+}
+
+function buildMjcfWarningSourceContext(
+  source: PackageAssetReferenceSource,
+  options: StandaloneImportAssetReferenceOptions,
+): { sourceFile: RobotFile; availableFiles: RobotFile[] } {
+  const sourceName = options.sourcePath ?? source.name ?? 'standalone-import.mjcf';
+  const filesByName = new Map<string, RobotFile>();
+
+  const addMjcfFile = (name: string | undefined, content: string | undefined): void => {
+    const normalizedName = name?.trim();
+    if (!normalizedName || !content?.trim()) {
+      return;
+    }
+
+    filesByName.set(normalizedName, {
+      name: normalizedName,
+      format: 'mjcf',
+      content,
+    } as RobotFile);
+  };
+
+  options.availableFiles?.forEach((file) => {
+    if (file.format === 'mjcf') {
+      addMjcfFile(file.name, file.content);
+    }
+  });
+
+  Object.entries(options.allFileContents ?? {}).forEach(([path, content]) => {
+    if (isMjcfSourcePath(path) && looksLikeMjcfSourceContent(content)) {
+      addMjcfFile(path, content);
+    }
+  });
+
+  const sourceFile = {
+    name: sourceName,
+    format: 'mjcf',
+    content: source.content,
+  } as RobotFile;
+  filesByName.set(sourceName, sourceFile);
+
+  return {
+    sourceFile,
+    availableFiles: Array.from(filesByName.values()),
+  };
+}
+
+function resolveRelativeWarningPath(sourceFilePath: string, rawPath: string): string {
+  const trimmedPath = rawPath.trim();
+  if (!trimmedPath) {
+    return '';
+  }
+
+  const slashNormalizedPath = trimmedPath.replace(/\\/g, '/');
+  if (/^(?:[a-z]+:)?\/\//i.test(trimmedPath) || slashNormalizedPath.startsWith('/')) {
+    return normalizeAssetReferencePath(trimmedPath) ?? trimmedPath;
+  }
+
+  const normalizedSourcePath = normalizeAssetReferencePath(sourceFilePath);
+  const sourceDirectory = normalizedSourcePath?.split('/').slice(0, -1).join('/') ?? '';
+  return (
+    normalizeWarningReferencePath(
+      sourceDirectory ? joinNormalizedAssetPath(sourceDirectory, slashNormalizedPath) : trimmedPath,
+    ) ?? slashNormalizedPath
+  );
 }
 
 function assetPathMatchesBundleRoot(assetPath: string, bundleRoot: string): boolean {
@@ -470,16 +580,26 @@ function extractMeshReferencePathsFromMjcfContent(content: string): string[] {
 function extractExternalAssetWarningPathsFromMjcfContent(
   source: PackageAssetReferenceSource,
   assetPaths: readonly string[],
+  options: StandaloneImportAssetReferenceOptions = {},
 ): string[] {
+  const { sourceFile, availableFiles } = buildMjcfWarningSourceContext(source, options);
+  const resolvedSource = resolveMJCFSource(sourceFile, availableFiles);
   const issues = validateMJCFImportExternalAssets(
-    source.name ?? 'standalone-import.mjcf',
-    source.content,
-    [],
+    resolvedSource.sourceFile.name,
+    resolvedSource.validationContent,
+    availableFiles,
     Object.fromEntries(assetPaths.map((assetPath) => [assetPath, assetPath])),
   );
 
   return uniqueSorted(
-    issues.filter((issue) => issue.referenceKind !== 'model').map((issue) => issue.resolvedPath),
+    [
+      ...resolvedSource.issues.map((issue) =>
+        resolveRelativeWarningPath(issue.sourceFilePath, issue.reference),
+      ),
+      ...issues
+        .filter((issue) => issue.referenceKind !== 'model')
+        .map((issue) => issue.resolvedPath),
+    ].filter(Boolean),
   );
 }
 
@@ -515,7 +635,7 @@ export function buildStandaloneImportAssetWarning(
 ): StandaloneImportAssetWarning | null {
   const referencePaths =
     source?.format === 'mjcf'
-      ? extractExternalAssetWarningPathsFromMjcfContent(source, assetPaths)
+      ? extractExternalAssetWarningPathsFromMjcfContent(source, assetPaths, options)
       : extractStandaloneImportAssetReferences(source, options);
   if (referencePaths.length === 0) {
     return null;

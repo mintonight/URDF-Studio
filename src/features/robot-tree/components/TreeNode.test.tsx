@@ -944,3 +944,62 @@ test('TreeNode relocates geometry attention to the parent link row', async () =>
     await destroyComponentRoot(dom, root);
   }
 });
+
+test('TreeNode scrolls joint attention rows into view', async () => {
+  const { dom, root } = createComponentRoot();
+  const scrollTargets: string[] = [];
+  const originalScrollIntoView = dom.window.HTMLElement.prototype.scrollIntoView;
+  const originalRequestAnimationFrame = dom.window.requestAnimationFrame;
+
+  dom.window.HTMLElement.prototype.scrollIntoView = function scrollIntoViewSpy() {
+    scrollTargets.push(this.getAttribute('title') ?? this.textContent?.trim() ?? '');
+  };
+  dom.window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    callback(0);
+    return 0;
+  }) as typeof dom.window.requestAnimationFrame;
+  (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame =
+    dom.window.requestAnimationFrame.bind(dom.window);
+
+  try {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      hoveredSelection: { type: null, id: null },
+      deferredHoveredSelection: { type: null, id: null },
+      hoverFrozen: false,
+      attentionSelection: { type: 'joint', id: 'elbow_joint' },
+      focusTarget: null,
+    });
+
+    const robot = createRobotWithChildLink();
+
+    await act(async () => {
+      root.render(
+        <div style={{ containIntrinsicSize: '320px', contentVisibility: 'auto' }}>
+          <TreeNode
+            linkId="base_link"
+            robot={robot}
+            childJointsByParent={{
+              base_link: [robot.joints.elbow_joint],
+            }}
+            onSelect={() => {}}
+            onAddChild={() => {}}
+            onAddCollisionBody={() => {}}
+            onDelete={() => {}}
+            onUpdate={() => {}}
+            mode="editor"
+            t={translations.en}
+          />
+        </div>,
+      );
+    });
+
+    assert.equal(scrollTargets.at(-1), 'elbow_joint · Revolute');
+  } finally {
+    dom.window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    dom.window.requestAnimationFrame = originalRequestAnimationFrame;
+    (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame =
+      dom.window.requestAnimationFrame.bind(dom.window);
+    await destroyComponentRoot(dom, root);
+  }
+});

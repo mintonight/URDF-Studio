@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
 import React from 'react';
 import { flushSync } from 'react-dom';
@@ -18,7 +19,7 @@ import {
   type RobotFile,
 } from '@/types';
 import type { ExportDialogConfig } from '@/features/file-io';
-import { resolveRobotFileData } from '@/core/parsers';
+import { parseMJCF, resolveRobotFileData } from '@/core/parsers';
 
 function restoreGlobalProperty<T extends keyof typeof globalThis>(
   key: T,
@@ -392,6 +393,10 @@ function loadArchiveModelSdf(archive: JSZip): Promise<string> {
   return modelFile.async('string');
 }
 
+function countMatches(value: string, pattern: RegExp): number {
+  return value.match(pattern)?.length ?? 0;
+}
+
 test('useFileExport packages the current robot as a Gazebo-style SDF zip', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
@@ -488,6 +493,61 @@ test('useFileExport packages the current robot as a Gazebo-style SDF zip', async
     }
     assert.equal(importResult.robotData.name, 'demo_sdf_export');
     assert.ok(importResult.robotData.joints.tip_joint);
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    downloadMocks.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
+test('useFileExport preserves imported MJCF visual colors when exporting the current robot as SDF', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const sourceXml = fs.readFileSync('test/mujoco_menagerie-main/booster_t1/t1.xml', 'utf8');
+  const robot = parseMJCF(sourceXml);
+  assert.ok(robot, 'expected booster_t1 MJCF fixture to parse');
+  assert.equal(robot.links.Trunk.visual.color, '#c2c2c2');
+  assert.equal(robot.links.H1.visual.color, '#666666');
+
+  useRobotStore.getState().setRobot(robot, {
+    skipHistory: true,
+    resetHistory: true,
+    label: 'Load booster_t1 MJCF export test robot',
+  });
+
+  const downloadMocks = installDownloadMocks();
+  const rendered = renderHook();
+
+  try {
+    await rendered.hook.handleExportWithConfig(createExportConfig());
+
+    assert.equal(downloadMocks.clicked, true, 'expected the SDF archive to be downloaded');
+    assert.ok(downloadMocks.capturedBlob, 'expected a zip blob to be generated');
+
+    const archive = await JSZip.loadAsync(await downloadMocks.capturedBlob.arrayBuffer());
+    const modelSdf = await loadArchiveModelSdf(archive);
+
+    assert.equal(countMatches(modelSdf, /<material>/g), 24);
+    assert.equal(countMatches(modelSdf, /<ambient>/g), 24);
+    assert.equal(countMatches(modelSdf, /<diffuse>/g), 24);
+    assert.match(modelSdf, /<ambient>0\.76078824 0\.76078824 0\.76078824 1\.00000000<\/ambient>/);
+    assert.match(modelSdf, /<diffuse>0\.40000392 0\.40000392 0\.40000392 1\.00000000<\/diffuse>/);
+
+    const importResult = resolveRobotFileData({
+      name: 'T1/model.sdf',
+      format: 'sdf',
+      content: modelSdf,
+    });
+
+    assert.equal(importResult.status, 'ready');
+    if (importResult.status !== 'ready') {
+      assert.fail('expected exported T1 SDF to import successfully');
+    }
+    assert.equal(importResult.robotData.links.Trunk.visual.color, '#c2c2c2');
+    assert.equal(importResult.robotData.links.H1.visual.color, '#666666');
+    assert.equal(importResult.robotData.materials?.Trunk?.color, '#c2c2c2');
   } finally {
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 0));

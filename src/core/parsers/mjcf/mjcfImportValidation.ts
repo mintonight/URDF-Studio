@@ -1,5 +1,6 @@
 import { buildAssetIndex } from '@/core/loaders/meshLoader';
 import type { RobotFile } from '@/types';
+import { MJCF_SOURCE_FILE_SCOPE_ATTR } from './mjcfSourceResolver';
 import { parseCompilerSettings, parseMJCFXmlDocument } from './mjcfUtils';
 
 export type MJCFImportExternalAssetKind = 'mesh' | 'texture' | 'hfield' | 'model' | 'include';
@@ -30,6 +31,12 @@ const TEXTURE_FILE_ATTRIBUTES = [
   'fileright',
   'fileup',
 ] as const;
+
+interface MJCFCompilerDirectorySettings {
+  assetdir: string;
+  meshdir: string;
+  texturedir: string;
+}
 
 function stripFileScheme(filePath: string): string {
   const trimmed = String(filePath || '').trim();
@@ -120,10 +127,15 @@ function applyAssetDirectory(filePath: string, directory: string): string {
   }
 
   const normalizedTrimmed = normalizeLookupPath(trimmed);
-  if (
-    normalizedTrimmed === normalizedDirectory ||
-    normalizedTrimmed.startsWith(`${normalizedDirectory}/`)
-  ) {
+  const shouldTreatReferenceAsAlreadyScoped =
+    !normalizedDirectory
+      .split('/')
+      .filter(Boolean)
+      .every((segment) => segment === '..') &&
+    (normalizedTrimmed === normalizedDirectory ||
+      normalizedTrimmed.startsWith(`${normalizedDirectory}/`));
+
+  if (shouldTreatReferenceAsAlreadyScoped) {
     return normalizedTrimmed;
   }
 
@@ -234,7 +246,7 @@ function buildMeshExtensionVariants(assetPath: string): string[] {
   }
 
   const extension = extensionMatch[0].toLowerCase();
-  return ['.dae', '.obj', '.stl', '.msh', '.gltf', '.glb']
+  return ['.dae', '.obj', '.stl', '.msh', '.gltf', '.glb', '.ply', '.vtk']
     .filter((candidateExtension) => candidateExtension !== extension)
     .map((candidateExtension) => normalizedPath.replace(/\.[^.\/]+$/, candidateExtension));
 }
@@ -294,6 +306,116 @@ function collectDirectChildElements(parent: Element, tagName: string): Element[]
   return Array.from(parent.children).filter(
     (child) => child.tagName.toLowerCase() === normalizedTagName,
   );
+}
+
+function buildCompilerSettingsBySource(
+  availableFiles: RobotFile[],
+): Map<string, MJCFCompilerDirectorySettings> {
+  const settingsBySource = new Map<string, MJCFCompilerDirectorySettings>();
+
+  availableFiles.forEach((file) => {
+    if (file.format !== 'mjcf' || typeof file.content !== 'string' || !file.content.trim()) {
+      return;
+    }
+
+    const { doc } = parseMJCFXmlDocument(file.content);
+    if (!doc) {
+      return;
+    }
+
+    const hasAssetDirectoryCompiler = Array.from(doc.querySelectorAll('compiler')).some(
+      (compilerEl) =>
+        compilerEl.hasAttribute('assetdir') ||
+        compilerEl.hasAttribute('meshdir') ||
+        compilerEl.hasAttribute('texturedir'),
+    );
+    if (!hasAssetDirectoryCompiler) {
+      return;
+    }
+
+    const settings = parseCompilerSettings(doc);
+    const sourcePath = file.name.trim();
+    const normalizedSourcePath = normalizeLookupPath(sourcePath);
+    if (sourcePath) {
+      settingsBySource.set(sourcePath, settings);
+    }
+    if (normalizedSourcePath) {
+      settingsBySource.set(normalizedSourcePath, settings);
+    }
+  });
+
+  return settingsBySource;
+}
+
+function resolveScopedSourceFilePath(element: Element, fallbackSourceFilePath: string): string {
+  let current: Element | null = element;
+  while (current) {
+    const scopedSourcePath = current.getAttribute(MJCF_SOURCE_FILE_SCOPE_ATTR)?.trim();
+    if (scopedSourcePath) {
+      return scopedSourcePath;
+    }
+
+    current = current.parentElement;
+  }
+
+  return fallbackSourceFilePath;
+}
+
+function getCompilerSettingsForSource(
+  sourceFilePath: string,
+  settingsBySource: Map<string, MJCFCompilerDirectorySettings>,
+  fallbackSettings: MJCFCompilerDirectorySettings,
+): MJCFCompilerDirectorySettings {
+  const normalizedSourceFilePath = normalizeLookupPath(sourceFilePath);
+  return (
+    settingsBySource.get(sourceFilePath) ??
+    (normalizedSourceFilePath ? settingsBySource.get(normalizedSourceFilePath) : undefined) ??
+    fallbackSettings
+  );
+}
+
+function getCompilerDirectoryForReferenceKind(
+  settings: MJCFCompilerDirectorySettings,
+  referenceKind: MJCFImportExternalAssetKind,
+): string {
+  if (referenceKind === 'mesh') {
+    return settings.meshdir;
+  }
+
+  if (referenceKind === 'texture') {
+    return settings.texturedir;
+  }
+
+  if (referenceKind === 'hfield' || referenceKind === 'model') {
+    return settings.assetdir;
+  }
+
+  return '';
+}
+
+function resolveElementReferenceContext(
+  element: Element,
+  referenceKind: MJCFImportExternalAssetKind,
+  options: {
+    fallbackSourceFilePath: string;
+    fallbackSettings: MJCFCompilerDirectorySettings;
+    settingsBySource: Map<string, MJCFCompilerDirectorySettings>;
+  },
+): {
+  sourceFilePath: string;
+  compilerDirectory: string;
+} {
+  const sourceFilePath = resolveScopedSourceFilePath(element, options.fallbackSourceFilePath);
+  const settings = getCompilerSettingsForSource(
+    sourceFilePath,
+    options.settingsBySource,
+    options.fallbackSettings,
+  );
+
+  return {
+    sourceFilePath,
+    compilerDirectory: getCompilerDirectoryForReferenceKind(settings, referenceKind),
+  };
 }
 
 function collectMissingAssetIssue(
@@ -391,6 +513,7 @@ export function inspectMJCFImportExternalAssets(
   }
 
   const settings = parseCompilerSettings(doc);
+  const settingsBySource = buildCompilerSettingsBySource(availableFiles);
   const knownAssetLookup = buildKnownAssetLookup(availableFiles, assets);
   const assetIndex = buildAssetIndex(knownAssetLookup);
   const summary: MJCFImportExternalAssetValidationSummary = {
@@ -401,59 +524,84 @@ export function inspectMJCFImportExternalAssets(
   const assetSections = collectDirectChildElements(mujocoEl, 'asset');
 
   collectDirectChildElements(mujocoEl, 'include').forEach((includeEl) => {
+    const context = resolveElementReferenceContext(includeEl, 'include', {
+      fallbackSourceFilePath: sourceFilePath,
+      fallbackSettings: settings,
+      settingsBySource,
+    });
     appendAssetValidationOutcome(summary, assetIndex, {
-      sourceFilePath,
+      sourceFilePath: context.sourceFilePath,
       referenceKind: 'include',
       attributeName: 'file',
       rawPath: includeEl.getAttribute('file'),
-      compilerDirectory: '',
+      compilerDirectory: context.compilerDirectory,
       elementName: null,
     });
   });
 
   assetSections.forEach((assetEl) => {
     collectDirectChildElements(assetEl, 'mesh').forEach((meshEl) => {
+      const context = resolveElementReferenceContext(meshEl, 'mesh', {
+        fallbackSourceFilePath: sourceFilePath,
+        fallbackSettings: settings,
+        settingsBySource,
+      });
       appendAssetValidationOutcome(summary, assetIndex, {
-        sourceFilePath,
+        sourceFilePath: context.sourceFilePath,
         referenceKind: 'mesh',
         attributeName: 'file',
         rawPath: meshEl.getAttribute('file'),
-        compilerDirectory: settings.meshdir,
+        compilerDirectory: context.compilerDirectory,
         elementName: meshEl.getAttribute('name'),
       });
     });
 
     collectDirectChildElements(assetEl, 'texture').forEach((textureEl) => {
+      const context = resolveElementReferenceContext(textureEl, 'texture', {
+        fallbackSourceFilePath: sourceFilePath,
+        fallbackSettings: settings,
+        settingsBySource,
+      });
       TEXTURE_FILE_ATTRIBUTES.forEach((attributeName) => {
         appendAssetValidationOutcome(summary, assetIndex, {
-          sourceFilePath,
+          sourceFilePath: context.sourceFilePath,
           referenceKind: 'texture',
           attributeName,
           rawPath: textureEl.getAttribute(attributeName),
-          compilerDirectory: settings.texturedir,
+          compilerDirectory: context.compilerDirectory,
           elementName: textureEl.getAttribute('name'),
         });
       });
     });
 
     collectDirectChildElements(assetEl, 'hfield').forEach((hfieldEl) => {
+      const context = resolveElementReferenceContext(hfieldEl, 'hfield', {
+        fallbackSourceFilePath: sourceFilePath,
+        fallbackSettings: settings,
+        settingsBySource,
+      });
       appendAssetValidationOutcome(summary, assetIndex, {
-        sourceFilePath,
+        sourceFilePath: context.sourceFilePath,
         referenceKind: 'hfield',
         attributeName: 'file',
         rawPath: hfieldEl.getAttribute('file'),
-        compilerDirectory: settings.assetdir,
+        compilerDirectory: context.compilerDirectory,
         elementName: hfieldEl.getAttribute('name'),
       });
     });
 
     collectDirectChildElements(assetEl, 'model').forEach((modelEl) => {
+      const context = resolveElementReferenceContext(modelEl, 'model', {
+        fallbackSourceFilePath: sourceFilePath,
+        fallbackSettings: settings,
+        settingsBySource,
+      });
       appendAssetValidationOutcome(summary, assetIndex, {
-        sourceFilePath,
+        sourceFilePath: context.sourceFilePath,
         referenceKind: 'model',
         attributeName: 'file',
         rawPath: modelEl.getAttribute('file'),
-        compilerDirectory: settings.assetdir,
+        compilerDirectory: context.compilerDirectory,
         elementName: modelEl.getAttribute('name'),
       });
     });

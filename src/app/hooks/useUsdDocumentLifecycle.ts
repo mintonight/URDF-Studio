@@ -13,6 +13,7 @@ import {
 import {
   resolveUsdPreparedCacheRobotStateUpdate,
 } from '../utils/usdPreparedCacheRobotState';
+import { buildUsdExportBundleFromPreparedCache } from '@/features/urdf-viewer/utils/usdExportBundle';
 import { startUsdRobotStateHydration } from '../utils/usdRobotStateHydration';
 import { handleUsdHydrationWorkerEvent } from '../utils/usdHydrationWorkerEvents';
 import { mapViewerDocumentLoadEventToDocumentLoadPercent } from '../utils/documentLoadProgress';
@@ -42,6 +43,50 @@ function normalizeUsdPersistenceFileName(path: string | null | undefined): strin
     .trim()
     .replace(/^\/+/, '')
     .split('?')[0];
+}
+
+function getCurrentRobotDataFromStore(): RobotData {
+  const liveRobotState = useRobotStore.getState();
+  return {
+    name: liveRobotState.name,
+    links: liveRobotState.links,
+    joints: liveRobotState.joints,
+    rootLinkId: liveRobotState.rootLinkId,
+    materials: liveRobotState.materials,
+    closedLoopConstraints: liveRobotState.closedLoopConstraints,
+  };
+}
+
+function mergePreparedCacheGeometryIntoCurrentRobotData(
+  preparedCache: Parameters<typeof buildUsdExportBundleFromPreparedCache>[0],
+  currentRobotData: RobotData,
+): RobotData {
+  const mergedRobot = buildUsdExportBundleFromPreparedCache(preparedCache, {
+    currentRobot: currentRobotData,
+  })?.robot;
+  if (!mergedRobot) {
+    return currentRobotData;
+  }
+
+  const links = Object.fromEntries(
+    Object.keys(currentRobotData.links || {}).map((linkId) => [
+      linkId,
+      mergedRobot.links[linkId] ?? currentRobotData.links[linkId],
+    ]),
+  );
+  const joints = Object.fromEntries(
+    Object.keys(currentRobotData.joints || {}).map((jointId) => [
+      jointId,
+      mergedRobot.joints[jointId] ?? currentRobotData.joints[jointId],
+    ]),
+  );
+
+  return {
+    ...currentRobotData,
+    links,
+    joints,
+    materials: mergedRobot.materials || currentRobotData.materials,
+  };
 }
 
 interface UseUsdDocumentLifecycleLabels {
@@ -113,15 +158,7 @@ export function useUsdDocumentLifecycle({
       return;
     }
 
-    const liveRobotState = useRobotStore.getState();
-    const currentRobotData: RobotData = {
-      name: liveRobotState.name,
-      links: liveRobotState.links,
-      joints: liveRobotState.joints,
-      rootLinkId: liveRobotState.rootLinkId,
-      materials: liveRobotState.materials,
-      closedLoopConstraints: liveRobotState.closedLoopConstraints,
-    };
+    const currentRobotData = getCurrentRobotDataFromStore();
     const currentRobotSnapshot = createRobotSemanticSnapshot(currentRobotData);
     const hasSemanticEdits = currentRobotSnapshot !== baseline.robotSnapshot;
 
@@ -329,6 +366,7 @@ export function useUsdDocumentLifecycle({
     const hydrationFile = selectedFile;
     const controller = new AbortController();
     let cancelled = false;
+    let hydrationResolvedForSelectedFile = false;
     pendingUsdHydrationFileRef.current = hydrationFile.name;
 
     const commitHydrationLoadEvent = (event: ViewerDocumentLoadEvent) => {
@@ -395,6 +433,38 @@ export function useUsdDocumentLifecycle({
       }
     };
 
+    const finalizePendingUsdAssembly = (liveSelectedFile: RobotFile, robotData: RobotData) => {
+      const pendingUsdAssemblyFile = pendingUsdAssemblyFileRef.current;
+      if (pendingUsdAssemblyFile?.name !== liveSelectedFile.name) {
+        return;
+      }
+
+      pendingUsdAssemblyFileRef.current = null;
+      void insertAssemblyComponentIntoWorkspace(pendingUsdAssemblyFile, {
+        preResolvedRobotData: robotData,
+      })
+        .then((component) => {
+          showToast(labels.addedComponent.replace('{name}', component.name), 'success');
+          updateProModeRoundtripBaseline(
+            isGeneratedWorkspaceUrdfFileName(pendingUsdAssemblyFile.name)
+              ? pendingUsdAssemblyFile.name
+              : null,
+          );
+        })
+        .catch((error) => {
+          scheduleFailFastInDev(
+            'useUsdDocumentLifecycle:startUsdRobotStateHydration:prepareAssemblyComponent',
+            error instanceof Error
+              ? error
+              : new Error(`Failed to prepare assembly component "${pendingUsdAssemblyFile.name}".`),
+          );
+          showToast(`Failed to add assembly component: ${pendingUsdAssemblyFile.name}`, 'info');
+        })
+        .finally(() => {
+          clearAssemblyComponentPreparationOverlay();
+        });
+    };
+
     let hydration: ReturnType<typeof startUsdRobotStateHydration>;
     try {
       hydration = startUsdRobotStateHydration({
@@ -402,6 +472,7 @@ export function useUsdDocumentLifecycle({
         availableFiles: useAssetsStore.getState().availableFiles,
         assets: useAssetsStore.getState().assets,
         signal: controller.signal,
+        resolveBeforePreparedCache: false,
         onDeferredSceneSnapshot: (snapshot, stageSourcePath) => {
           if (cancelled) {
             return;
@@ -421,6 +492,116 @@ export function useUsdDocumentLifecycle({
             return;
           }
           liveAssetsState.setUsdSceneSnapshot(liveSelectedFile.name, snapshot);
+        },
+        onPreparedCache: (preparedCache, _resolution, stageSourcePath) => {
+          if (cancelled) {
+            return;
+          }
+          const liveAssetsState = useAssetsStore.getState();
+          const liveSelectedFile = liveAssetsState.selectedFile;
+          if (liveSelectedFile?.format !== 'usd' || liveSelectedFile.name !== hydrationFile.name) {
+            return;
+          }
+          if (
+            !shouldApplyUsdStageHydration({
+              pendingFileName: liveSelectedFile.name,
+              selectedFileName: liveSelectedFile.name,
+              stageSourcePath,
+            })
+          ) {
+            return;
+          }
+
+          const currentRobotData = getCurrentRobotDataFromStore();
+          const normalizedSelectedFileName = normalizeUsdPersistenceFileName(liveSelectedFile.name);
+          const currentRobotSnapshot = createRobotSemanticSnapshot(currentRobotData);
+          const baseline = usdPersistenceBaselineRef.current;
+          const hasSemanticEditsSinceFastHydration =
+            baseline.fileName === normalizedSelectedFileName &&
+            Boolean(baseline.robotSnapshot) &&
+            baseline.robotSnapshot !== currentRobotSnapshot;
+          const mergedRobotData = hasSemanticEditsSinceFastHydration
+            ? mergePreparedCacheGeometryIntoCurrentRobotData(preparedCache, currentRobotData)
+            : preparedCache.robotData;
+          const preparedCacheToStore = hasSemanticEditsSinceFastHydration
+            ? resolveUsdPreparedCacheRobotStateUpdate({
+                existingPreparedExportCache: preparedCache,
+                robotData: mergedRobotData,
+              }).preparedExportCache
+            : preparedCache;
+
+          liveAssetsState.setUsdPreparedExportCache(
+            liveSelectedFile.name,
+            preparedCacheToStore,
+          );
+          setRobot(mergedRobotData, {
+            skipHistory: true,
+            label: 'Hydrate USD geometry',
+          });
+          setSelection(
+            resolveUsdStageHydrationSelection({
+              currentSelection: useSelectionStore.getState().selection,
+              robotData: mergedRobotData,
+            }),
+          );
+          if (!hasSemanticEditsSinceFastHydration) {
+            markUnsavedChangesBaselineSaved('robot');
+          }
+          const mergedRobotSnapshot = createRobotSemanticSnapshot(mergedRobotData);
+          usdPersistenceBaselineRef.current = {
+            fileName: normalizedSelectedFileName,
+            robotSnapshot: mergedRobotSnapshot,
+            hadPreparedExportCache: true,
+          };
+          setDocumentLoadState({
+            status: 'ready',
+            fileName: liveSelectedFile.name,
+            format: liveSelectedFile.format,
+            error: null,
+            phase: 'ready',
+            message: null,
+            progressMode: 'percent',
+            progressPercent: 100,
+            loadedCount: null,
+            totalCount: null,
+          });
+          finalizePendingUsdAssembly(liveSelectedFile, mergedRobotData);
+        },
+        onPreparedCacheError: (error, stageSourcePath) => {
+          if (cancelled) {
+            return;
+          }
+          const liveAssetsState = useAssetsStore.getState();
+          const liveSelectedFile = liveAssetsState.selectedFile;
+          if (liveSelectedFile?.format !== 'usd' || liveSelectedFile.name !== hydrationFile.name) {
+            return;
+          }
+          if (
+            !shouldApplyUsdStageHydration({
+              pendingFileName: liveSelectedFile.name,
+              selectedFileName: liveSelectedFile.name,
+              stageSourcePath,
+            })
+          ) {
+            return;
+          }
+          scheduleFailFastInDev(
+            'useUsdDocumentLifecycle:startUsdRobotStateHydration:preparedCache',
+            error,
+            'warn',
+          );
+          setDocumentLoadState({
+            status: 'error',
+            fileName: liveSelectedFile.name,
+            format: liveSelectedFile.format,
+            error: error.message,
+            phase: null,
+            message: null,
+            progressMode: 'percent',
+            progressPercent: 0,
+            loadedCount: null,
+            totalCount: null,
+          });
         },
         onEvent: (event) => {
           handleUsdHydrationWorkerEvent(event, { commitHydrationLoadEvent });
@@ -484,13 +665,18 @@ export function useUsdDocumentLifecycle({
         const robotSnapshot = createRobotSemanticSnapshot(result.robotData);
 
         liveAssetsState.setUsdBakedScene(liveSelectedFile.name, result.bakedScene);
-        liveAssetsState.setUsdPreparedExportCache(liveSelectedFile.name, result.preparedCache);
+        liveAssetsState.setUsdPreparedExportCache(
+          liveSelectedFile.name,
+          result.preparedCache,
+        );
         usdPersistenceBaselineRef.current = {
           fileName: normalizedSelectedFileName,
           robotSnapshot,
-          hadPreparedExportCache: true,
+          hadPreparedExportCache: Boolean(result.preparedCache),
         };
 
+        pendingUsdHydrationFileRef.current = null;
+        hydrationResolvedForSelectedFile = true;
         setRobot(result.robotData, {
           resetHistory: true,
           label: 'Hydrate USD stage',
@@ -502,7 +688,6 @@ export function useUsdDocumentLifecycle({
           }),
         );
         markUnsavedChangesBaselineSaved('robot');
-        pendingUsdHydrationFileRef.current = null;
         recordUsdStageLoadDebug({
           sourceFileName: normalizedSelectedFileName,
           step: 'commit-worker-robot-data',
@@ -522,50 +707,25 @@ export function useUsdDocumentLifecycle({
             rendererMode: 'offscreen-worker-robotstate',
           },
         });
+        const awaitingPreparedCache = !result.preparedCache && result.preparedCachePending;
         setDocumentLoadState({
-          status: 'ready',
+          status: awaitingPreparedCache ? 'hydrating' : 'ready',
           fileName: liveSelectedFile.name,
           format: liveSelectedFile.format,
           error: null,
-          phase: 'ready',
+          phase: awaitingPreparedCache ? 'preparing-mesh-cache' : 'ready',
           message: null,
           progressMode: 'percent',
-          progressPercent: 100,
+          progressPercent: awaitingPreparedCache ? 95 : 100,
           loadedCount: null,
           totalCount: null,
         });
 
-        const pendingUsdAssemblyFile = pendingUsdAssemblyFileRef.current;
-        if (pendingUsdAssemblyFile?.name !== liveSelectedFile.name) {
+        if (awaitingPreparedCache) {
           return;
         }
 
-        pendingUsdAssemblyFileRef.current = null;
-        void insertAssemblyComponentIntoWorkspace(pendingUsdAssemblyFile, {
-          preResolvedRobotData: result.robotData,
-        })
-          .then((component) => {
-            showToast(labels.addedComponent.replace('{name}', component.name), 'success');
-            updateProModeRoundtripBaseline(
-              isGeneratedWorkspaceUrdfFileName(pendingUsdAssemblyFile.name)
-                ? pendingUsdAssemblyFile.name
-                : null,
-            );
-          })
-          .catch((error) => {
-            scheduleFailFastInDev(
-              'useUsdDocumentLifecycle:startUsdRobotStateHydration:prepareAssemblyComponent',
-              error instanceof Error
-                ? error
-                : new Error(
-                    `Failed to prepare assembly component "${pendingUsdAssemblyFile.name}".`,
-                  ),
-            );
-            showToast(`Failed to add assembly component: ${pendingUsdAssemblyFile.name}`, 'info');
-          })
-          .finally(() => {
-            clearAssemblyComponentPreparationOverlay();
-          });
+        finalizePendingUsdAssembly(liveSelectedFile, result.robotData);
       })
       .catch((error) => {
         if (cancelled || controller.signal.aborted) {
@@ -600,8 +760,19 @@ export function useUsdDocumentLifecycle({
       });
 
     return () => {
+      const liveSelectedFile = useAssetsStore.getState().selectedFile;
+      const shouldAllowBackgroundCacheCompletion =
+        hydrationResolvedForSelectedFile &&
+        liveSelectedFile?.format === 'usd' &&
+        liveSelectedFile.name === hydrationFile.name;
+      if (shouldAllowBackgroundCacheCompletion) {
+        return;
+      }
+
       cancelled = true;
-      controller.abort(new Error(`USD RobotState hydration for "${hydrationFile.name}" was cancelled.`));
+      controller.abort(
+        new Error(`USD RobotState hydration for "${hydrationFile.name}" was cancelled.`),
+      );
       hydration.cleanup();
     };
   }, [

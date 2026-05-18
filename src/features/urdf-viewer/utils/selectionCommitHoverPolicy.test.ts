@@ -81,7 +81,9 @@ test('preserves hover for committed inertia helper clicks', () => {
   );
 });
 
-test('clears hover after committed tendon selections', () => {
+test('preserves hover after committed tendon selections', () => {
+  const tendonGroup = new THREE.Group();
+
   assert.deepEqual(
     resolveSelectionCommitHoverAction({
       type: 'tendon',
@@ -89,8 +91,15 @@ test('clears hover after committed tendon selections', () => {
       subType: undefined,
       targetKind: 'geometry',
       objectIndex: undefined,
-      highlightTarget: undefined,
+      highlightTarget: tendonGroup,
     }),
-    { mode: 'clear' },
+    {
+      mode: 'preserve',
+      hoveredSelection: {
+        type: 'tendon',
+        id: 'finger_tendon',
+        highlightObjectId: tendonGroup.id,
+      },
+    },
   );
 });

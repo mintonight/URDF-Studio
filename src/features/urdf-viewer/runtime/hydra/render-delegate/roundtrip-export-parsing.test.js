@@ -1758,3 +1758,92 @@ test('normalizeRobotSceneSnapshot prefers richer stage-built metadata over incom
         globalThis.window = previousWindow;
     }
 });
+
+test('normalizeRobotSceneSnapshot skips stage text recovery when packed snapshot is complete', () => {
+    const previousWindow = globalThis.window;
+    globalThis.window = {
+        location: { search: '' },
+    };
+    try {
+        const delegate = new ThreeRenderDelegateInterface({
+            stage: () => null,
+            driver: () => null,
+            allowDriverStageLookup: false,
+        });
+        delegate.getStageMetadataLayerTexts = () => {
+            throw new Error('stage text recovery should stay lazy for complete packed snapshots');
+        };
+        delegate.buildRobotMetadataSnapshotForStage = () => {
+            throw new Error('stage metadata fallback should not run when driver metadata is complete');
+        };
+        delegate.createFallbackMaterialFromStage = () => {
+            throw new Error('stage material fallback should not run for complete material records');
+        };
+
+        const snapshot = delegate.normalizeRobotSceneSnapshot({
+            generatedAtMs: 1,
+            stage: {
+                stageSourcePath: '/tmp/complete-packed.usd',
+                defaultPrimPath: '/Robot',
+            },
+            robotMetadataSnapshot: {
+                stageSourcePath: '/tmp/complete-packed.usd',
+                generatedAtMs: 1,
+                source: 'robot-scene-snapshot',
+                linkParentPairs: [['/Robot/base_link', null]],
+                jointCatalogEntries: [{ jointName: 'joint0', linkPath: '/Robot/base_link' }],
+                linkDynamicsEntries: [],
+                meshCountsByLinkPath: {},
+            },
+            render: {
+                meshDescriptorFormat: 'packed-v2',
+                meshDescriptorStrings: [
+                    '/Robot/base_link/visuals.proto_mesh_id0',
+                    'visuals',
+                    '/Robot/base_link/visuals/mesh',
+                    'mesh',
+                    'Z',
+                    '/Robot/Looks/body',
+                ],
+                meshDescriptorHeaderStride: 30,
+                meshDescriptorScalarStride: 6,
+                meshDescriptorHeaders: new Int32Array([
+                    0, 1, 2, 3, 4, 5,
+                    1, 0, 0,
+                    0, 9, 3,
+                    0, 3, 1,
+                    -1, 0, 0,
+                    -1, 0, 0,
+                    0, 16, 16,
+                    3, 3, 0, 0, 0, 3,
+                ]),
+                meshDescriptorScalars: new Float32Array([NaN, NaN, NaN, NaN, NaN, NaN]),
+                meshDescriptorGeomSubsetSections: {
+                    '/Robot/base_link/visuals.proto_mesh_id0': [
+                        { start: 0, length: 1, materialId: '/Robot/Looks/body' },
+                    ],
+                },
+                materials: [{
+                    materialId: '/Robot/Looks/body',
+                    color: [0.1, 0.2, 0.3],
+                }],
+            },
+            buffers: {
+                positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+                indices: new Uint32Array([0, 1, 2]),
+                normals: new Float32Array(0),
+                uvs: new Float32Array(0),
+                transforms: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+            },
+        }, {
+            stageSourcePath: '/tmp/complete-packed.usd',
+        });
+
+        assert.ok(snapshot);
+        assert.equal(snapshot.render.meshDescriptors.length, 1);
+        assert.equal(snapshot.robotMetadataSnapshot.jointCatalogEntries.length, 1);
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});

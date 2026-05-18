@@ -8,6 +8,8 @@ import {
   type RendererBackendLoadScopeKeyMemo,
 } from './rendererBackendLoadScope.ts';
 
+type DraggableFormat = RobotFile['format'] | 'usda';
+
 function createRobotData(angle: number): RobotData {
   return {
     name: 'demo',
@@ -45,6 +47,15 @@ const sourceFile: RobotFile = {
   content: '<robot name="demo" />',
 };
 
+function createSourceFile(format: DraggableFormat): RobotFile {
+  const isUsdLike = format === 'usd' || format === 'usda';
+  return {
+    name: `demo.${format}`,
+    format: format as RobotFile['format'],
+    content: isUsdLike ? '#usda 1.0' : '<robot name="demo" />',
+  };
+}
+
 test('createRendererBackendLoadScopeKey ignores transient joint motion changes', () => {
   const firstKey = createRendererBackendLoadScopeKey({
     sourceFile,
@@ -60,6 +71,28 @@ test('createRendererBackendLoadScopeKey ignores transient joint motion changes',
   });
 
   assert.equal(secondKey, firstKey);
+});
+
+test('createRendererBackendLoadScopeKey ignores transient joint motion changes for draggable formats', () => {
+  const formats: DraggableFormat[] = ['urdf', 'sdf', 'mjcf', 'usd', 'usda'];
+
+  formats.forEach((format) => {
+    const formatSourceFile = createSourceFile(format);
+    const firstKey = createRendererBackendLoadScopeKey({
+      sourceFile: formatSourceFile,
+      assets: {},
+      reloadToken: 0,
+      robotData: createRobotData(0),
+    });
+    const secondKey = createRendererBackendLoadScopeKey({
+      sourceFile: { ...formatSourceFile },
+      assets: {},
+      reloadToken: 0,
+      robotData: createRobotData(1),
+    });
+
+    assert.equal(secondKey, firstKey, `${format} motion changes should not trigger a reload`);
+  });
 });
 
 test('createMemoizedRendererBackendLoadScopeKey reuses the key for transient joint motion only', () => {
@@ -95,6 +128,46 @@ test('createMemoizedRendererBackendLoadScopeKey reuses the key for transient joi
   );
 
   assert.equal(secondKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey reuses keys for transient motion across draggable formats', () => {
+  const formats: DraggableFormat[] = ['urdf', 'sdf', 'mjcf', 'usd', 'usda'];
+
+  formats.forEach((format) => {
+    const memo: RendererBackendLoadScopeKeyMemo = {};
+    const robotData = createRobotData(0);
+    const formatSourceFile = createSourceFile(format);
+    const firstKey = createMemoizedRendererBackendLoadScopeKey(
+      {
+        sourceFile: formatSourceFile,
+        assets: {},
+        reloadToken: 0,
+        robotData,
+      },
+      memo,
+    );
+    const movedRobotData = {
+      ...robotData,
+      joints: {
+        ...robotData.joints,
+        shoulder: {
+          ...robotData.joints.shoulder,
+          angle: 1,
+        },
+      },
+    };
+    const secondKey = createMemoizedRendererBackendLoadScopeKey(
+      {
+        sourceFile: { ...formatSourceFile },
+        assets: {},
+        reloadToken: 0,
+        robotData: movedRobotData,
+      },
+      memo,
+    );
+
+    assert.equal(secondKey, firstKey, `${format} motion changes should reuse the load scope`);
+  });
 });
 
 test('createMemoizedRendererBackendLoadScopeKey recomputes for structural joint edits', () => {
@@ -189,6 +262,49 @@ test('createRendererBackendLoadScopeKey stays stable for authored material color
     { name: 'body', color: '#12ab34' },
     { name: 'trim', color: '#101010' },
   ];
+
+  const firstKey = createRendererBackendLoadScopeKey({
+    sourceFile,
+    assets: {},
+    reloadToken: 0,
+    robotData: baselineRobotData,
+  });
+  const secondKey = createRendererBackendLoadScopeKey({
+    sourceFile,
+    assets: {},
+    reloadToken: 0,
+    robotData: editedRobotData,
+  });
+
+  assert.equal(secondKey, firstKey);
+});
+
+test('createRendererBackendLoadScopeKey stays stable for link visibility edits', () => {
+  const baselineRobotData = createRobotData(0);
+  const editedRobotData = createRobotData(0);
+  editedRobotData.links.arm.visible = false;
+
+  const firstKey = createRendererBackendLoadScopeKey({
+    sourceFile,
+    assets: {},
+    reloadToken: 0,
+    robotData: baselineRobotData,
+  });
+  const secondKey = createRendererBackendLoadScopeKey({
+    sourceFile,
+    assets: {},
+    reloadToken: 0,
+    robotData: editedRobotData,
+  });
+
+  assert.equal(secondKey, firstKey);
+});
+
+test('createRendererBackendLoadScopeKey stays stable for geometry visibility edits', () => {
+  const baselineRobotData = createRobotData(0);
+  const editedRobotData = createRobotData(0);
+  editedRobotData.links.arm.visual.visible = false;
+  editedRobotData.links.arm.collision.visible = false;
 
   const firstKey = createRendererBackendLoadScopeKey({
     sourceFile,

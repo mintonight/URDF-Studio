@@ -42,6 +42,7 @@ import {
   type MJCFModelTendonAttachment,
   type ParsedMJCFModel,
 } from './mjcfModel';
+import { parseGeneratedMjcfObjectName } from './mjcfGeneratedNames';
 
 interface MJCFBody {
   name: string;
@@ -71,6 +72,7 @@ function resolveBodyLinkFrameOffsetLocal(
 
 interface MJCFGeom {
   name?: string;
+  sourceName?: string;
   className?: string;
   classQName?: string;
   type: string;
@@ -89,6 +91,11 @@ interface MJCFGeom {
   group?: number;
 }
 
+interface MJCFLinkPair {
+  visual: MJCFGeom | null;
+  collision: MJCFGeom | null;
+}
+
 interface MJCFJointDef {
   name: string;
   type: string;
@@ -100,6 +107,7 @@ interface MJCFJointDef {
   damping?: number;
   frictionloss?: number;
   armature?: number;
+  stiffness?: number;
   actuatorForceRange?: [number, number];
   actuatorForceLimited?: boolean;
 }
@@ -641,6 +649,7 @@ function toParserBody(sharedBody: any, settings: MJCFCompilerSettings): MJCFBody
     quat: toQuatObject(sharedBody.quat),
     geoms: (sharedBody.geoms || []).map((geom: any) => ({
       name: geom.sourceName || geom.name,
+      sourceName: geom.sourceName,
       className: geom.className,
       classQName: geom.classQName,
       type: geom.type,
@@ -681,6 +690,7 @@ function toParserBody(sharedBody: any, settings: MJCFCompilerSettings): MJCFBody
       damping: typeof joint.damping === 'number' ? joint.damping : undefined,
       frictionloss: typeof joint.frictionloss === 'number' ? joint.frictionloss : undefined,
       armature: typeof joint.armature === 'number' ? joint.armature : undefined,
+      stiffness: typeof joint.stiffness === 'number' ? joint.stiffness : undefined,
       actuatorForceRange: joint.actuatorForceRange,
       actuatorForceLimited:
         typeof joint.actuatorForceLimited === 'boolean' ? joint.actuatorForceLimited : undefined,
@@ -1366,6 +1376,18 @@ function mjcfToRobotState(
         ...(geom.material ? { name: geom.material } : {}),
         ...(sharedColor ? { color: sharedColor } : {}),
         ...(texturePath ? { texture: texturePath } : {}),
+        ...(Number.isFinite(materialDef?.shininess)
+          ? { roughness: Math.max(0, Math.min(1, 1 - Number(materialDef!.shininess))) }
+          : {}),
+        ...(Number.isFinite(materialDef?.reflectance)
+          ? { metalness: Math.max(0, Math.min(1, Number(materialDef!.reflectance))) }
+          : {}),
+        ...(Number.isFinite(materialDef?.emission) && sharedColor
+          ? {
+              emissive: sharedColor,
+              emissiveIntensity: Math.max(0, Number(materialDef!.emission)),
+            }
+          : {}),
       },
     ];
   }
@@ -1400,6 +1422,9 @@ function mjcfToRobotState(
     linkFrameOffsetLocal: { x: number; y: number; z: number } | null = null,
   ): UrdfVisual {
     const result: UrdfVisual = { ...DEFAULT_LINK.visual };
+    if (geom.name?.trim()) {
+      result.name = geom.name.trim();
+    }
     const convertedType = convertGeomType(geom.type);
     const hasExplicitPrimitiveParams = Boolean(
       (geom.size && geom.size.length > 0) || (geom.fromto && geom.fromto.length >= 6),
@@ -1568,6 +1593,33 @@ function mjcfToRobotState(
     return result;
   }
 
+  function getGeneratedVisualGeomLinkId(geom: MJCFGeom | null | undefined): string | null {
+    const name = geom?.name?.trim();
+    if (!name || geom?.sourceName) {
+      return null;
+    }
+
+    const parsed = parseGeneratedMjcfObjectName(name);
+    return parsed?.objectKind === 'geom' ? name : null;
+  }
+
+  function buildSyntheticGeomLinkId(
+    mainLinkId: string,
+    pair: MJCFLinkPair,
+    fallbackIndex: number,
+  ): string {
+    const preferredId =
+      getGeneratedVisualGeomLinkId(pair.visual) ?? `${mainLinkId}_geom_${fallbackIndex}`;
+    let candidate = preferredId;
+    let suffix = 2;
+
+    while (links[candidate]) {
+      candidate = `${preferredId}_${suffix++}`;
+    }
+
+    return candidate;
+  }
+
   function processBody(body: MJCFBody, parentLinkId: string | null): string {
     const mainLinkId = body.name || `link_${linkCounter++}`;
     const bodyRotation = toRPYObjectFromQuat(body.quat) || body.euler || { r: 0, p: 0, y: 0 };
@@ -1599,11 +1651,7 @@ function mjcfToRobotState(
     });
 
     // 2. Pair Visuals and Collisions
-    interface LinkPair {
-      visual: MJCFGeom | null;
-      collision: MJCFGeom | null;
-    }
-    const pairs: LinkPair[] = [];
+    const pairs: MJCFLinkPair[] = [];
     const usedCollisions = new Set<MJCFGeom>();
 
     // Pass 1: Match visuals to collisions (by mesh name match)
@@ -1820,6 +1868,7 @@ function mjcfToRobotState(
           ...DEFAULT_JOINT.dynamics,
           damping: mjcfJoint?.damping ?? DEFAULT_JOINT.dynamics.damping,
           friction: mjcfJoint?.frictionloss ?? DEFAULT_JOINT.dynamics.friction,
+          ...(typeof mjcfJoint?.stiffness === 'number' ? { stiffness: mjcfJoint.stiffness } : {}),
         },
         ...(jointInitialAngle != null ? { referencePosition: jointInitialAngle } : {}),
         ...(jointInitialAngle != null ? { angle: jointInitialAngle } : {}),
@@ -1864,7 +1913,7 @@ function mjcfToRobotState(
         continue;
       }
 
-      const subLinkId = `${mainLinkId}_geom_${virtualLinkIndex++}`;
+      const subLinkId = buildSyntheticGeomLinkId(mainLinkId, pair, virtualLinkIndex++);
       const subJointId = buildImplicitFixedJointId(mainLinkId, subLinkId);
 
       // Virtual Link Visual

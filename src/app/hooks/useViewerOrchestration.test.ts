@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { useViewerOrchestration } from './useViewerOrchestration.ts';
 import { useSelectionStore, useUIStore } from '@/store';
-import type { InteractionSelection, RobotState } from '@/types';
+import { DEFAULT_JOINT, DEFAULT_LINK, type InteractionSelection, type RobotState } from '@/types';
 
 function resetSelectionStore() {
   const store = useSelectionStore.getState();
@@ -33,6 +33,7 @@ function renderHook(options: {
   setHoveredSelection: (selection: InteractionSelection) => void;
   focusOn: (id: string) => void;
   transformPendingRef: { current: boolean };
+  selectionRobot?: Pick<RobotState, 'links' | 'joints'>;
 }) {
   let hookValue: ReturnType<typeof useViewerOrchestration> | null = null;
 
@@ -44,6 +45,32 @@ function renderHook(options: {
   renderToStaticMarkup(React.createElement(Probe));
   assert.ok(hookValue, 'hook should render');
   return hookValue;
+}
+
+function createSelectionRobot(): Pick<RobotState, 'links' | 'joints'> {
+  return {
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+      },
+      forearm_link_id: {
+        ...DEFAULT_LINK,
+        id: 'forearm_link_id',
+        name: 'forearm_link',
+      },
+    },
+    joints: {
+      elbow_joint_key: {
+        ...DEFAULT_JOINT,
+        id: 'elbow_joint_id',
+        name: 'elbow_joint',
+        parentLinkId: 'base_link',
+        childLinkId: 'forearm_link_id',
+      },
+    },
+  };
 }
 
 test('handleSelect preserves the selected collision body index for the same link', () => {
@@ -148,6 +175,60 @@ test('handleViewerSelect enables collision visibility when selecting collision g
   assert.equal(useUIStore.getState().viewOptions.showCollision, true);
 });
 
+test('handleViewerSelect pulses the parent joint for clicked child links', () => {
+  resetSelectionStore();
+  resetUiStore();
+
+  let nextSelection: RobotState['selection'] | null = null;
+  let pulsedSelection: RobotState['selection'] | null = null;
+  const hook = renderHook({
+    setSelection: (selection) => {
+      nextSelection = selection;
+    },
+    pulseSelection: (selection) => {
+      pulsedSelection = selection;
+    },
+    setHoveredSelection: () => {},
+    focusOn: () => {},
+    transformPendingRef: { current: false },
+    selectionRobot: createSelectionRobot(),
+  });
+
+  hook.handleViewerSelect('link', 'forearm_link', 'visual');
+
+  assert.deepEqual(nextSelection, {
+    type: 'link',
+    id: 'forearm_link',
+    subType: 'visual',
+  });
+  assert.deepEqual(pulsedSelection, { type: 'joint', id: 'elbow_joint_id' });
+});
+
+test('handleViewerSelect falls back to link attention when no parent joint exists', () => {
+  resetSelectionStore();
+  resetUiStore();
+
+  let pulsedSelection: RobotState['selection'] | null = null;
+  const hook = renderHook({
+    setSelection: () => {},
+    pulseSelection: (selection) => {
+      pulsedSelection = selection;
+    },
+    setHoveredSelection: () => {},
+    focusOn: () => {},
+    transformPendingRef: { current: false },
+    selectionRobot: createSelectionRobot(),
+  });
+
+  hook.handleViewerSelect('link', 'base_link');
+
+  assert.deepEqual(pulsedSelection, {
+    type: 'link',
+    id: 'base_link',
+    subType: undefined,
+  });
+});
+
 test('handleViewerSelect does not pin hover for regular selection clicks', () => {
   resetSelectionStore();
   resetUiStore();
@@ -188,11 +269,14 @@ test('handleViewerSelect clears hover when blank canvas clears selection', () =>
 
   let nextSelection: RobotState['selection'] | null = null;
   let nextHoveredSelection: InteractionSelection | null = null;
+  let pulsedSelection: RobotState['selection'] | null = null;
   const hook = renderHook({
     setSelection: (selection) => {
       nextSelection = selection;
     },
-    pulseSelection: () => {},
+    pulseSelection: (selection) => {
+      pulsedSelection = selection;
+    },
     setHoveredSelection: (selection) => {
       nextHoveredSelection = selection;
     },
@@ -204,6 +288,7 @@ test('handleViewerSelect clears hover when blank canvas clears selection', () =>
 
   assert.deepEqual(nextSelection, { type: null, id: null });
   assert.deepEqual(nextHoveredSelection, { type: null, id: null });
+  assert.deepEqual(pulsedSelection, { type: null, id: null });
 });
 
 test('handleHover ignores redundant viewer hover updates for the currently selected link', () => {
@@ -321,6 +406,36 @@ test('handleViewerMeshSelect seeds the detail tab from visual mesh clicks while 
 
   assert.equal(useUIStore.getState().detailLinkTab, 'visual');
   assert.equal(useUIStore.getState().viewOptions.showCollision, false);
+});
+
+test('handleViewerMeshSelect pulses the parent joint while preserving geometry selection', () => {
+  resetSelectionStore();
+  resetUiStore();
+
+  let nextSelection: RobotState['selection'] | null = null;
+  let pulsedSelection: RobotState['selection'] | null = null;
+  const hook = renderHook({
+    setSelection: (selection) => {
+      nextSelection = selection;
+    },
+    pulseSelection: (selection) => {
+      pulsedSelection = selection;
+    },
+    setHoveredSelection: () => {},
+    focusOn: () => {},
+    transformPendingRef: { current: false },
+    selectionRobot: createSelectionRobot(),
+  });
+
+  hook.handleViewerMeshSelect('forearm_link_id', 'elbow_joint', 0, 'visual');
+
+  assert.deepEqual(nextSelection, {
+    type: 'link',
+    id: 'forearm_link_id',
+    subType: 'visual',
+    objectIndex: 0,
+  });
+  assert.deepEqual(pulsedSelection, { type: 'joint', id: 'elbow_joint_id' });
 });
 
 test('handleSelectGeometry pulses the selected link geometry so the tree can relocate it', () => {

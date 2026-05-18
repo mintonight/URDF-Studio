@@ -24,9 +24,11 @@ test('shared utils expose robot file support helpers for library export and impo
 
   assert.match(robotFileSupport.ROBOT_IMPORT_ACCEPT_ATTRIBUTE ?? '', /(^|,)\.mjcf(,|$)/);
   assert.match(robotFileSupport.ROBOT_IMPORT_ACCEPT_ATTRIBUTE ?? '', /(^|,)\.glb(,|$)/);
+  assert.match(robotFileSupport.ROBOT_IMPORT_ACCEPT_ATTRIBUTE ?? '', /(^|,)\.ply(,|$)/);
   assert.match(robotFileSupport.ROBOT_IMPORT_ACCEPT_ATTRIBUTE ?? '', /(^|,)\.png(,|$)/);
   assert.doesNotMatch(robotFileSupport.ROBOT_IMPORT_ACCEPT_ATTRIBUTE ?? '', /(^|,)\.bmp(,|$)/);
   assert.match(robotFileSupport.LIBRARY_MESH_IMPORT_ACCEPT_ATTRIBUTE ?? '', /(^|,)\.gltf(,|$)/i);
+  assert.match(robotFileSupport.LIBRARY_MESH_IMPORT_ACCEPT_ATTRIBUTE ?? '', /(^|,)\.ply(,|$)/i);
   assert.match(robotFileSupport.LIBRARY_IMAGE_IMPORT_ACCEPT_ATTRIBUTE ?? '', /(^|,)\.webp(,|$)/i);
 
   assert.equal(

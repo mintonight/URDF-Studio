@@ -23,6 +23,7 @@ interface TreeEditorJointSectionProps {
   lang: Language;
   onSelect: (type: 'link' | 'joint', id: string, subType?: 'visual' | 'collision') => void;
   onUpdate: (type: 'link' | 'joint', id: string, data: unknown) => void;
+  onJointAnglePreview?: (jointName: string, angle: number) => void;
   onJointAngleChange?: (jointName: string, angle: number) => void;
   show: boolean;
   sourceFilePath?: string;
@@ -53,6 +54,7 @@ export function TreeEditorJointSection({
   lang,
   onSelect,
   onUpdate,
+  onJointAnglePreview,
   onJointAngleChange,
   show,
   sourceFilePath,
@@ -172,7 +174,9 @@ export function TreeEditorJointSection({
               angleUnit={angleUnit}
               jointPanelStore={jointPanelStoreRef.current}
               setActiveJoint={jointPanelStoreRef.current.setActiveJoint}
-              handleJointAngleChange={(jointName, angle) => onJointAngleChange?.(jointName, angle)}
+              handleJointAngleChange={(jointName, angle) =>
+                onJointAnglePreview?.(jointName, angle)
+              }
               handleJointChangeCommit={(jointName, angle) => onJointAngleChange?.(jointName, angle)}
               onSelect={onSelect}
               isAdvanced={isAdvanced}

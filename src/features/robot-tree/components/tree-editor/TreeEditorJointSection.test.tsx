@@ -205,6 +205,8 @@ function installDom() {
   (globalThis as { Node?: typeof Node }).Node = dom.window.Node;
   (globalThis as { Event?: typeof Event }).Event = dom.window.Event;
   (globalThis as { MouseEvent?: typeof MouseEvent }).MouseEvent = dom.window.MouseEvent;
+  (globalThis as { PointerEvent?: typeof PointerEvent }).PointerEvent =
+    dom.window.PointerEvent ?? dom.window.MouseEvent;
   (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame =
     dom.window.requestAnimationFrame.bind(dom.window);
   (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame =
@@ -412,6 +414,75 @@ test('TreeEditor joint reset restores imported joints without authored angles to
   });
 
   assert.deepEqual(jointAngleChanges.at(-1), { jointName: 'joint_1', angle: 0 });
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('TreeEditor joint slider sends live preview during drag and commits on release', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const previewAngles: Array<{ jointName: string; angle: number }> = [];
+  const committedAngles: Array<{ jointName: string; angle: number }> = [];
+
+  useUIStore.setState({
+    panelSections: {},
+    panelLayout: {
+      ...useUIStore.getState().panelLayout,
+      treeJointPanelHeight: 132,
+      treePanelHeightMode: 'custom',
+    },
+  });
+
+  await act(async () => {
+    root.render(
+      <TreeEditor
+        robot={createRobotState()}
+        onSelect={() => {}}
+        onAddChild={() => {}}
+        onAddCollisionBody={() => {}}
+        onDelete={() => {}}
+        onNameChange={() => {}}
+        onUpdate={() => {}}
+        showVisual
+        setShowVisual={() => {}}
+        mode="editor"
+        lang="en"
+        theme="light"
+        collapsed={false}
+        onToggle={() => {}}
+        showJointPanel
+        onJointAnglePreview={(jointName, angle) => {
+          previewAngles.push({ jointName, angle });
+        }}
+        onJointAngleChange={(jointName, angle) => {
+          committedAngles.push({ jointName, angle });
+        }}
+      />,
+    );
+  });
+
+  const rangeInput = container.querySelector<HTMLInputElement>('input[type="range"]');
+  assert.ok(rangeInput, 'joint slider input should render');
+
+  await act(async () => {
+    rangeInput.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    rangeInput.value = '0.5';
+    rangeInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise<void>((resolve) => {
+      dom.window.requestAnimationFrame(() => resolve());
+    });
+  });
+
+  assert.deepEqual(previewAngles, [{ jointName: 'joint_1', angle: 0.5 }]);
+  assert.deepEqual(committedAngles, []);
+
+  await act(async () => {
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+  });
+
+  assert.deepEqual(committedAngles, [{ jointName: 'joint_1', angle: 0.5 }]);
 
   await act(async () => {
     root.unmount();

@@ -18,6 +18,7 @@ import {
   createJointAxisViz,
   createMjcfSiteVisualization,
   createMjcfTendonVisualization,
+  MJCF_TENDON_RENDER_ORDER,
   createOriginAxes,
   type MjcfSiteVisualizationData,
   type MjcfTendonVisualizationData,
@@ -108,6 +109,7 @@ const scratchMjcfTendonBasisV = new THREE.Vector3();
 const scratchMjcfTendonBasisCandidate = new THREE.Vector3();
 const scratchMjcfTendonWorldScale = new THREE.Vector3();
 const mjcfTendonYAxis = new THREE.Vector3(0, 1, 0);
+const MJCF_TENDON_MIN_VISIBLE_RADIUS = 0.003;
 const MJCF_INVERSE_CYLINDER_SIDE_INSIDE_RATIO = 0.75;
 const IK_HANDLE_STYLE_VERSION = 3;
 const IK_HANDLE_IDLE_COLOR = 0x16a34a;
@@ -1215,7 +1217,7 @@ function resolveMjcfTendonRadius(
   siteAnchorsByName: Map<string, MjcfSiteAnchorData>,
 ): number {
   if (typeof tendon.width === 'number' && Number.isFinite(tendon.width) && tendon.width > 0) {
-    return Math.max(tendon.width * 0.5, 0.001);
+    return Math.max(tendon.width * 0.5, MJCF_TENDON_MIN_VISIBLE_RADIUS);
   }
 
   const siteRadii = tendon.attachmentRefs
@@ -1225,10 +1227,10 @@ function resolveMjcfTendonRadius(
         typeof radius === 'number' && Number.isFinite(radius) && radius > 0,
     );
   if (siteRadii.length > 0) {
-    return Math.max(Math.min(...siteRadii) * 0.5, 0.001);
+    return Math.max(Math.min(...siteRadii) * 0.5, MJCF_TENDON_MIN_VISIBLE_RADIUS);
   }
 
-  return 0.0025;
+  return MJCF_TENDON_MIN_VISIBLE_RADIUS;
 }
 
 function cloneMjcfTendonAnchor(anchor: MjcfSiteAnchorData): MjcfSiteAnchorData {
@@ -1929,10 +1931,12 @@ function updateMjcfTendonMeshGeometry(
 
     const segmentLinkName = startAnchor.linkName ?? endAnchor.linkName ?? fallbackLinkName;
     changed = updateVisualMeshMetadata(segment, segmentLinkName) || changed;
+    changed = updateRenderOrder(segment, MJCF_TENDON_RENDER_ORDER) || changed;
 
     const shaft = segment.getObjectByName('__mjcf_tendon_shaft__');
     if (shaft) {
       changed = updateVisualMeshMetadata(shaft, segmentLinkName) || changed;
+      changed = updateRenderOrder(shaft, MJCF_TENDON_RENDER_ORDER) || changed;
     }
 
     changed =
@@ -1962,6 +1966,7 @@ function updateMjcfTendonMeshGeometry(
     }
 
     changed = updateVisualMeshMetadata(anchor, anchorData.linkName ?? fallbackLinkName) || changed;
+    changed = updateRenderOrder(anchor, MJCF_TENDON_RENDER_ORDER) || changed;
     changed =
       updateMjcfTendonAnchorTransform(anchor, robot, anchorData.worldPosition, radius) || changed;
   }

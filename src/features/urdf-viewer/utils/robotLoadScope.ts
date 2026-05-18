@@ -20,8 +20,8 @@ function hashStringFNV1a(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
-function stripPatchableMaterialStateFromGeometry<T extends UrdfLink['visual']>(geometry: T): T {
-  const { color: _color, authoredMaterials, ...restGeometry } = geometry;
+function stripPatchableRuntimeStateFromGeometry<T extends UrdfLink['visual']>(geometry: T): T {
+  const { color: _color, visible: _visible, authoredMaterials, ...restGeometry } = geometry;
   const nextGeometry = { ...restGeometry } as T;
 
   if (authoredMaterials) {
@@ -34,20 +34,31 @@ function stripPatchableMaterialStateFromGeometry<T extends UrdfLink['visual']>(g
   return nextGeometry;
 }
 
-function stripPatchableMaterialStateFromLinks(
+function stripPatchableRuntimeStateFromLinks(
   links: Record<string, UrdfLink>,
 ): Record<string, UrdfLink> {
   return Object.fromEntries(
-    Object.entries(links).map(([linkId, link]) => [
-      linkId,
-      {
-        ...link,
-        visual: stripPatchableMaterialStateFromGeometry(link.visual),
-        visualBodies: link.visualBodies?.map(stripPatchableMaterialStateFromGeometry),
-        collision: stripPatchableMaterialStateFromGeometry(link.collision),
-        collisionBodies: link.collisionBodies?.map(stripPatchableMaterialStateFromGeometry),
-      },
-    ]),
+    Object.entries(links).map(([linkId, link]) => {
+      const {
+        visible: _visible,
+        visual,
+        visualBodies,
+        collision,
+        collisionBodies,
+        ...restLink
+      } = link;
+
+      return [
+        linkId,
+        {
+          ...restLink,
+          visual: stripPatchableRuntimeStateFromGeometry(visual),
+          visualBodies: visualBodies?.map(stripPatchableRuntimeStateFromGeometry),
+          collision: stripPatchableRuntimeStateFromGeometry(collision),
+          collisionBodies: collisionBodies?.map(stripPatchableRuntimeStateFromGeometry),
+        },
+      ];
+    }),
   );
 }
 
@@ -59,7 +70,7 @@ export function createViewerRobotLoadInputSignature({
 }: CreateViewerRobotLoadInputSignatureOptions): string {
   if (hasStructuredRobotState && robotLinks && robotJoints) {
     const structuredSnapshot = createStableJsonSnapshot({
-      links: stripPatchableMaterialStateFromLinks(robotLinks),
+      links: stripPatchableRuntimeStateFromLinks(robotLinks),
       joints: stripTransientJointMotionFromJoints(robotJoints),
     });
     return `structured:${hashStringFNV1a(structuredSnapshot)}`;

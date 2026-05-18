@@ -217,6 +217,63 @@ export function useVisualizationEffects({
     [robot],
   );
 
+  const resolveTendonHighlightObject = useCallback(
+    (tendonName: string, highlightObjectId?: number): THREE.Object3D | null => {
+      if (!robot) {
+        return null;
+      }
+
+      const normalizedTendonName = tendonName.trim();
+      if (!normalizedTendonName) {
+        return null;
+      }
+
+      const resolveHighestTendonAncestor = (object: THREE.Object3D | null) => {
+        let current: THREE.Object3D | null = object;
+        let tendonObject: THREE.Object3D | null = null;
+
+        while (current) {
+          if (
+            current.userData?.isMjcfTendon === true &&
+            current.userData?.mjcfTendonName === normalizedTendonName
+          ) {
+            tendonObject = current;
+          }
+          current = current.parent;
+        }
+
+        return tendonObject;
+      };
+
+      const highlightedObject = Number.isInteger(highlightObjectId)
+        ? (robot.getObjectById(highlightObjectId as number) ?? null)
+        : null;
+      const highlightedTendonObject = resolveHighestTendonAncestor(highlightedObject);
+      if (highlightedTendonObject) {
+        return highlightedTendonObject;
+      }
+
+      let namedTendonObject: THREE.Object3D | null = null;
+      let fallbackTendonObject: THREE.Object3D | null = null;
+      robot.traverse((child) => {
+        if (
+          child.userData?.isMjcfTendon !== true ||
+          child.userData?.mjcfTendonName !== normalizedTendonName
+        ) {
+          return;
+        }
+
+        fallbackTendonObject ??= child;
+        if (child.name === `__mjcf_tendon__:${normalizedTendonName}`) {
+          namedTendonObject = child;
+        }
+      });
+
+      return namedTendonObject ?? fallbackTendonObject;
+    },
+    [robot],
+  );
+
   const getVisualMaterialState = (material: THREE.Material): VisualMaterialState => {
     const cachedState = visualMaterialStateRef.current.get(material);
     if (cachedState) return cachedState;
@@ -262,6 +319,18 @@ export function useVisualizationEffects({
         };
       }
 
+      if (candidate.type === 'tendon') {
+        const tendonObject = resolveTendonHighlightObject(
+          candidate.id,
+          candidate.highlightObjectId,
+        );
+        return {
+          id: candidate.id,
+          subType: 'visual',
+          highlightObjectId: tendonObject?.id ?? candidate.highlightObjectId,
+        };
+      }
+
       const jointObj = robot.getObjectByName(candidate.id);
       if (!jointObj) {
         return {
@@ -289,7 +358,7 @@ export function useVisualizationEffects({
         highlightObjectId: candidate.highlightObjectId,
       };
     },
-    [robot],
+    [resolveTendonHighlightObject, robot],
   );
 
   const syncHelperInteractionHighlight = useCallback(

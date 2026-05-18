@@ -64,6 +64,12 @@ function createComponentRoot() {
   return { dom, container, root };
 }
 
+function waitForAnimationFrame() {
+  return new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
 function buildRobotWithJointCount(jointCount: number) {
   return {
     joints: Object.fromEntries(
@@ -253,6 +259,64 @@ test('joints panel gives the list area a constrained scroll viewport', async () 
   assert.ok(panelContent, 'joint panel content wrapper should render');
   assert.match(panelContent.className, /\bflex-1\b/);
   assert.match(panelContent.className, /\bmin-h-0\b/);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('joints panel forwards frame-aligned slider drag preview without waiting for release', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const previewAngles: number[] = [];
+  const committedAngles: number[] = [];
+
+  await renderJointsPanel(root, undefined, {
+    handleJointAngleChange: (_jointName, angle) => {
+      previewAngles.push(angle);
+    },
+    handleJointChangeCommit: (_jointName, angle) => {
+      committedAngles.push(angle);
+    },
+  });
+
+  const rangeInput = container.querySelector('input[type="range"]') as HTMLInputElement | null;
+  assert.ok(rangeInput, 'joint slider input should render');
+  const sliderFill = container.querySelector(
+    '[data-testid="joint-slider-fill"]',
+  ) as HTMLDivElement | null;
+  const sliderTrack = sliderFill?.parentElement as HTMLDivElement | null;
+  const sliderThumb = container.querySelector(
+    '[data-testid="joint-slider-thumb"]',
+  ) as HTMLDivElement | null;
+  assert.ok(sliderTrack, 'joint slider track should render');
+  assert.ok(sliderThumb, 'joint slider thumb should render');
+  assert.match(sliderTrack.className, /\bh-1\b/);
+  assert.match(sliderThumb.className, /\bh-4\b/);
+  assert.match(sliderThumb.className, /\bw-4\b/);
+
+  await act(async () => {
+    rangeInput.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    for (const nextValue of ['0.2', '0.4', '0.6']) {
+      rangeInput.value = nextValue;
+      rangeInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  });
+
+  assert.deepEqual(committedAngles, []);
+
+  await act(async () => {
+    await waitForAnimationFrame();
+  });
+
+  assert.deepEqual(previewAngles, [0.6]);
+  assert.deepEqual(committedAngles, []);
+
+  await act(async () => {
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+  });
+
+  assert.deepEqual(committedAngles, [0.6]);
 
   await act(async () => {
     root.unmount();

@@ -413,6 +413,37 @@ test('generateSDF emits a single albedo_map for textured visuals', () => {
   assert.match(xml, /<albedo_map>model:\/\/textured_box_pkg\/textures\/front\.png<\/albedo_map>/);
 });
 
+test('generateSDF emits visual material colors from authored colorRgba values', () => {
+  const robot: RobotState = {
+    name: 'rgba_material_box',
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.BOX,
+          dimensions: { x: 0.5, y: 0.4, z: 0.3 },
+          authoredMaterials: [{ colorRgba: [0.1, 0.2, 0.3, 0.4] }],
+        },
+        collision: {
+          ...DEFAULT_LINK.collision,
+          type: GeometryType.NONE,
+        },
+      },
+    },
+    joints: {},
+  };
+
+  const xml = generateSDF(robot, { packageName: 'rgba_material_box_pkg' });
+
+  assert.match(xml, /<ambient>0\.10000000 0\.20000000 0\.30000000 0\.40000000<\/ambient>/);
+  assert.match(xml, /<diffuse>0\.10000000 0\.20000000 0\.30000000 0\.40000000<\/diffuse>/);
+});
+
 for (const fixture of CLOSED_LOOP_ROUNDTRIP_FIXTURES) {
   test(`generateSDF handles closed-loop fixture ${fixture.name} according to SDF joint support`, () => {
     const xml = fs.readFileSync(fixture.path, 'utf8');

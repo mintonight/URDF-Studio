@@ -5,6 +5,7 @@ import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 
 import { createLoadingManager } from './meshLoader.ts';
 import {
+  cloneObjSceneWithOwnedResources,
   createTextAssetContentLookup,
   deriveObjAuthoredMaterialsFromLookup,
   loadObjScene,
@@ -209,4 +210,37 @@ test('loadObjScene keeps vertex-colored OBJ meshes on a neutral material base', 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('cloneObjSceneWithOwnedResources avoids copying OBJ attribute buffers', () => {
+  const geometry = new THREE.BufferGeometry();
+  const position = new THREE.Float32BufferAttribute(
+    [
+      0, 0, 0,
+      1, 0, 0,
+      0, 1, 0,
+    ],
+    3,
+  );
+  geometry.name = 'triangle-geometry';
+  geometry.setAttribute('position', position);
+  geometry.addGroup(0, 3, 0);
+  geometry.computeBoundingBox();
+
+  const texture = new THREE.Texture();
+  const material = new THREE.MeshPhongMaterial({ map: texture });
+  const root = new THREE.Group();
+  const mesh = new THREE.Mesh(geometry, material);
+  root.add(mesh);
+
+  const clonedRoot = cloneObjSceneWithOwnedResources(root);
+  const clonedMesh = clonedRoot.children[0] as THREE.Mesh;
+  const clonedMaterial = clonedMesh.material as THREE.MeshPhongMaterial;
+
+  assert.notEqual(clonedMesh, mesh);
+  assert.notEqual(clonedMesh.geometry, geometry);
+  assert.equal(clonedMesh.geometry.getAttribute('position'), position);
+  assert.deepEqual(clonedMesh.geometry.groups, [{ start: 0, count: 3, materialIndex: 0 }]);
+  assert.notEqual(clonedMaterial, material);
+  assert.notEqual(clonedMaterial.map, texture);
 });
