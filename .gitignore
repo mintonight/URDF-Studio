@@ -1,4 +1,5 @@
 node_modules/
+.worktrees/
 .omc/
 .omx/
 .env.local
