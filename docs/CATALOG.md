@@ -1,20 +1,10 @@
 # 文档索引
 
-> 最后更新：2026-05-01
+> 最后更新：2026-05-19
 
 ## 按任务类型导航
 
-| 你要做什么 | 先读 | 再读（按需） |
-|-----------|------|-------------|
-| 改 Editor / 3D 场景 / Viewer / USD runtime | [AGENTS.md](../AGENTS.md) | [viewer.md](viewer.md) |
-| 改导入 / 导出 / Workspace / 组装 | [AGENTS.md](../AGENTS.md) | [file-io.md](file-io.md) |
-| 编译 OpenUSD WASM / 重新构建 bindings | [AGENTS.md](../AGENTS.md) | [wasm-build.md](wasm-build.md) |
-| 改 UI 样式 / 颜色 / 主题 / 可访问性 | [AGENTS.md](../AGENTS.md) | [style-guide.md](style-guide.md) |
-| 改 AI 助手 / 审阅 / skill 路由 | [AGENTS.md](../AGENTS.md) | [ai-features.md](ai-features.md) |
-| 改架构边界 / 新增依赖 / 例外管理 | [AGENTS.md](../AGENTS.md) | [architecture.md](architecture.md) |
-| 改 react-robot-canvas 对外库 | [AGENTS.md](../AGENTS.md) | [robot-canvas-lib.md](robot-canvas-lib.md) |
-| 变更后验收 / 找测试样本 / 跑回归 | [AGENTS.md](../AGENTS.md) | [update-rules.md](update-rules.md) |
-| USD runtime fallback 审计 | [AGENTS.md](../AGENTS.md) | [runtime-fallback-audit.md](runtime-fallback-audit.md) |
+见 [AGENTS.md](../AGENTS.md) §文档导航。
 
 ## 文档清单
 
@@ -29,7 +19,6 @@
 | [architecture.md](architecture.md) | 架构边界：依赖方向、例外清单、debuggability first、Linux 哲学、内存约束、检查命令 | ~140 |
 | [update-rules.md](update-rules.md) | 变更工作流：验收清单、常用命令、测试样本索引、浏览器验证规则、文档更新映射 | ~130 |
 | [robot-canvas-lib.md](robot-canvas-lib.md) | 对外库说明：RobotCanvas API、发布流程、后续拆分建议 | 保留不动 |
-| [runtime-fallback-audit.md](runtime-fallback-audit.md) | USD runtime fallback 审计报告（P0-P2） | 保留不动 |
 
 ## 已退役文档
 

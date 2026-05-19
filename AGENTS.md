@@ -121,5 +121,4 @@ npm run verify:full    # 完整验证
 | 架构边界 / 依赖方向 / 例外 / 设计哲学 | [docs/architecture.md](docs/architecture.md) |
 | 验收清单 / 测试样本 / 回归命令 | [docs/update-rules.md](docs/update-rules.md) |
 | react-robot-canvas 对外库 | [docs/robot-canvas-lib.md](docs/robot-canvas-lib.md) |
-| USD runtime fallback 审计 | [docs/runtime-fallback-audit.md](docs/runtime-fallback-audit.md) |
 | 完整文档索引 | [docs/CATALOG.md](docs/CATALOG.md) |

@@ -251,11 +251,10 @@ Git hooks 和托管 CI 配置不是运行项目的必要条件；共享改动前
 
 - [更新日志](./CHANGELOG.md)
 - [发布流程](./RELEASING.md)
-- [架构边界](./docs/architecture-boundaries.md)
+- [架构边界](./docs/architecture.md)
 - [Robot Canvas 库说明](./docs/robot-canvas-lib.md)
-- [Runtime Fallback Audit](./docs/runtime-fallback-audit.md)
-- [贡献者 Prompt 主文档](./docs/prompts/CLAUDE.md)
 - [Agent 规范](./AGENTS.md)
+- [完整文档索引](./docs/CATALOG.md)
 
 ## 包工作区
 

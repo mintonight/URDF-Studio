@@ -42,16 +42,9 @@
 
 ## 4. 常用命令
 
-```bash
-# 基础
-npm run dev
-npm run lint
-npm run typecheck
-npm run test          # 仓库内快速测试；不依赖 test/ 大型 fixture 语料
-npm run build
-npm run verify:fast
-npm run verify:full
+基础命令（dev / lint / typecheck / test / build / verify:fast / verify:full）见 [AGENTS.md](../AGENTS.md) §常用命令。
 
+```bash
 # 结构查看
 find src -maxdepth 3 -type d | sort
 
