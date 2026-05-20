@@ -512,6 +512,9 @@ export function useRobotLoader({
     skipReloadCountRef.current += 1;
     setRobotVersion((v) => v + 1);
     setError(null);
+    // See the joint-patch effect below: the scope guard reads
+    // currentSourceScopeKey / reloadToken, so they must be deps to retry the
+    // in-place patch after the mounted-robot refs converge.
   }, [
     robotLinks,
     resolvedSourceFormat,
@@ -520,6 +523,8 @@ export function useRobotLoader({
     invalidate,
     isMeshPreview,
     sourceFileDir,
+    currentSourceScopeKey,
+    reloadToken,
   ]);
 
   // Incremental path: update changed joint metadata/origins in-place and skip
@@ -549,7 +554,19 @@ export function useRobotLoader({
     skipReloadCountRef.current += 1;
     setRobotVersion((v) => v + 1);
     setError(null);
-  }, [robotJoints, resolvedSourceFormat, urdfContent, invalidate, isMeshPreview]);
+    // currentSourceScopeKey / reloadToken are read by the scope guard above; they
+    // must be deps so the effect re-runs (and retries the in-place patch) once the
+    // mounted-robot refs converge, instead of permanently missing the patch and
+    // falling back to a full async rebuild (the multi-model snap-back).
+  }, [
+    robotJoints,
+    resolvedSourceFormat,
+    urdfContent,
+    invalidate,
+    isMeshPreview,
+    currentSourceScopeKey,
+    reloadToken,
+  ]);
 
   // Track component mount state for preventing state updates after unmount
   useEffect(() => {

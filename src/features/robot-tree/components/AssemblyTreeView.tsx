@@ -334,6 +334,24 @@ export const AssemblyTreeView = memo(
                 : `bg-element-bg ${itemHoverClass}`
             }`}
             onClick={() => {
+              // With a single imported model the assembly root *is* "the
+              // whole robot" the user expects to move. Arm its lone component
+              // (root joint drives the entire chain) instead of the
+              // assembly-level target, which has no attachable Object3D for a
+              // plain import. With multiple components keep assembly-level
+              // selection.
+              if (components.length === 1) {
+                const only = components[0]!;
+                const onlyRootLinkId = resolveComponentHoverLinkId(only, componentRootLinkIds);
+                selectComponent(only.id);
+                if (onlyRootLinkId) {
+                  onSelect('link', onlyRootLinkId);
+                } else {
+                  setSelection({ type: null, id: null });
+                }
+                return;
+              }
+
               setSelection({ type: null, id: null });
               selectAssembly();
             }}
@@ -433,8 +451,17 @@ export const AssemblyTreeView = memo(
                       return;
                     }
 
-                    setSelection({ type: null, id: null });
+                    // Selecting the robot/component name should arm the move
+                    // gizmo for the whole component (its root joint drives the
+                    // entire chain), so the user does not have to drill into
+                    // the "base" link first. Mirror the link-selection path
+                    // that already makes "base" transformable.
                     selectComponent(component.id);
+                    if (componentHoverLinkId) {
+                      onSelect('link', componentHoverLinkId);
+                    } else {
+                      setSelection({ type: null, id: null });
+                    }
                   }}
                   onContextMenu={(event) =>
                     openContextMenu(event, { kind: 'component', id: component.id })

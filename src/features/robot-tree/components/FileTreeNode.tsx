@@ -110,7 +110,7 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
   return (
     <div>
       <div
-        className={`group flex w-max min-w-full cursor-pointer select-none items-center gap-1.5 rounded-sm py-1 pr-2 transition-colors
+        className={`group flex w-full cursor-pointer select-none items-center gap-1.5 rounded-sm py-1 pr-2 transition-colors
           ${
             isSelectedFile
               ? 'bg-element-bg dark:bg-element-hover shadow-sm ring-1 ring-inset ring-border-strong'

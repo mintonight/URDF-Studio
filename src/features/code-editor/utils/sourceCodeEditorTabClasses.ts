@@ -1,10 +1,12 @@
 const SOURCE_CODE_EDITOR_TAB_BASE_CLASS =
-  'group relative flex h-7 shrink-0 items-center gap-1.5 rounded-[8px] border px-2.5 text-[10px] font-semibold tracking-[0.015em] transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30';
+  'group relative flex h-full shrink-0 items-center gap-1.5 border-r border-border-black px-3 text-[11px] font-medium tracking-[0.01em] transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-system-blue/40';
 
 export const SOURCE_CODE_EDITOR_INLINE_TAB_LIMIT = 4;
 
-export const SOURCE_CODE_EDITOR_TABS_CLASS =
-  'inline-flex min-w-0 flex-1 items-center gap-1 rounded-[10px] border border-border-black/60 bg-segmented-bg p-1';
+// VS Code-style flat tab strip: tabs sit flush against the editor, no outer
+// "segmented" capsule. The host only lays the tabs out edge to edge; the bar
+// border + background live on the wrapper in SourceCodeEditor.
+export const SOURCE_CODE_EDITOR_TABS_CLASS = 'flex h-full min-w-max items-stretch';
 
 export const shouldCollapseSourceCodeEditorTabs = (documentCount: number): boolean =>
   documentCount > SOURCE_CODE_EDITOR_INLINE_TAB_LIMIT;
@@ -12,8 +14,15 @@ export const shouldCollapseSourceCodeEditorTabs = (documentCount: number): boole
 export const getSourceCodeEditorTabClassName = (isActive: boolean): string =>
   `${SOURCE_CODE_EDITOR_TAB_BASE_CLASS} ${
     isActive
-      ? 'border-system-blue/25 bg-segmented-active text-system-blue shadow-sm ring-1 ring-inset ring-system-blue/15'
-      : 'border-transparent text-text-secondary hover:border-border-black/60 hover:bg-segmented-active/80 hover:text-text-primary'
+      ? 'bg-panel-bg text-text-primary'
+      : 'bg-element-bg text-text-secondary hover:bg-element-hover hover:text-text-primary'
+  }`;
+
+// Top accent line that connects the active tab to the editor below, the way
+// VS Code highlights the focused editor tab.
+export const getSourceCodeEditorTabAccentClassName = (isActive: boolean): string =>
+  `pointer-events-none absolute inset-x-0 top-0 h-0.5 transition-colors ${
+    isActive ? 'bg-system-blue' : 'bg-transparent group-hover:bg-border-black'
   }`;
 
 export const getSourceCodeEditorTabBadgeClassName = (isActive: boolean): string =>

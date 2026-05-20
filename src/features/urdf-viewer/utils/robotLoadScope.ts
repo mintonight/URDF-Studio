@@ -1,6 +1,6 @@
 import {
   createStableJsonSnapshot,
-  stripTransientJointMotionFromJoints,
+  stripTransientJointMotionFromJoint,
 } from '@/shared/utils/robot/semanticSnapshot';
 import type { UrdfJoint, UrdfLink } from '@/types';
 
@@ -32,6 +32,26 @@ function stripPatchableRuntimeStateFromGeometry<T extends UrdfLink['visual']>(ge
   }
 
   return nextGeometry;
+}
+
+function stripPatchableRuntimeStateFromJoints(
+  joints: Record<string, UrdfJoint>,
+): Record<string, Omit<UrdfJoint, 'origin'>> {
+  // A joint `origin` change is applied incrementally by the in-place joint
+  // patch path (detectJointPatches -> patchJointsInPlace), so — exactly like
+  // patchable link geometry below — it must NOT contribute to the load-scope
+  // signature. Otherwise an origin-only edit (e.g. dragging a link/component
+  // origin, or the assembly viewer's synthetic root joints when a component is
+  // first placed) churns the scope key and forces a full async robot rebuild,
+  // flashing the pre-drag pose before snapping to the committed one. Structural
+  // fields (id/type/parent/child/axis/limit/...) stay in the signature so real
+  // topology changes still trigger a rebuild.
+  return Object.fromEntries(
+    Object.entries(joints).map(([jointId, joint]) => {
+      const { origin: _origin, ...rest } = stripTransientJointMotionFromJoint(joint);
+      return [jointId, rest];
+    }),
+  );
 }
 
 function stripPatchableRuntimeStateFromLinks(
@@ -71,7 +91,7 @@ export function createViewerRobotLoadInputSignature({
   if (hasStructuredRobotState && robotLinks && robotJoints) {
     const structuredSnapshot = createStableJsonSnapshot({
       links: stripPatchableRuntimeStateFromLinks(robotLinks),
-      joints: stripTransientJointMotionFromJoints(robotJoints),
+      joints: stripPatchableRuntimeStateFromJoints(robotJoints),
     });
     return `structured:${hashStringFNV1a(structuredSnapshot)}`;
   }

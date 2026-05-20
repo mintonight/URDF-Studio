@@ -90,31 +90,33 @@ export function TreeEditorFileBrowserContent({
               {t.dropOrImport}
             </div>
           ) : (
-            fileTree.map((node) => (
-              <div
-                key={node.path}
-                style={{ containIntrinsicSize: '40px', contentVisibility: 'auto' }}
-              >
-                <FileTreeNodeComponent
-                  node={node}
-                  depth={0}
-                  editingFolderPath={editingFolderPath}
-                  folderRenameDraft={folderRenameDraft}
-                  folderRenameInputRef={folderRenameInputRef}
-                  onLoadRobot={onLoadRobot}
-                  onAddAsComponent={showAddAsComponent ? onAddComponent : undefined}
-                  onCancelFolderRename={onCancelFolderRename}
-                  onCommitFolderRename={onCommitFolderRename}
-                  onFileContextMenu={onFileContextMenu}
-                  onFolderRenameDraftChange={onFolderRenameDraftChange}
-                  onFolderContextMenu={onFolderContextMenu}
-                  expandedFolders={expandedFolders}
-                  toggleFolder={toggleFolder}
-                  showAddAsComponent={showAddAsComponent}
-                  t={t}
-                />
-              </div>
-            ))
+            <div className="min-w-max">
+              {fileTree.map((node) => (
+                <div
+                  key={node.path}
+                  style={{ containIntrinsicSize: 'auto 40px', contentVisibility: 'auto' }}
+                >
+                  <FileTreeNodeComponent
+                    node={node}
+                    depth={0}
+                    editingFolderPath={editingFolderPath}
+                    folderRenameDraft={folderRenameDraft}
+                    folderRenameInputRef={folderRenameInputRef}
+                    onLoadRobot={onLoadRobot}
+                    onAddAsComponent={showAddAsComponent ? onAddComponent : undefined}
+                    onCancelFolderRename={onCancelFolderRename}
+                    onCommitFolderRename={onCommitFolderRename}
+                    onFileContextMenu={onFileContextMenu}
+                    onFolderRenameDraftChange={onFolderRenameDraftChange}
+                    onFolderContextMenu={onFolderContextMenu}
+                    expandedFolders={expandedFolders}
+                    toggleFolder={toggleFolder}
+                    showAddAsComponent={showAddAsComponent}
+                    t={t}
+                  />
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}

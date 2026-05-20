@@ -211,7 +211,9 @@ test('createMemoizedRendererBackendLoadScopeKey recomputes for structural joint 
 test('createRendererBackendLoadScopeKey changes for structural robot edits', () => {
   const baselineRobotData = createRobotData(0);
   const editedRobotData = createRobotData(0);
-  editedRobotData.joints.shoulder.origin.xyz.x = 0.25;
+  // A joint *type* change is structural: detectJointPatches cannot patch it
+  // in place, so it must invalidate the load scope and force a full rebuild.
+  editedRobotData.joints.shoulder.type = JointType.PRISMATIC;
 
   const firstKey = createRendererBackendLoadScopeKey({
     sourceFile,
@@ -227,6 +229,32 @@ test('createRendererBackendLoadScopeKey changes for structural robot edits', () 
   });
 
   assert.notEqual(secondKey, firstKey);
+});
+
+test('createRendererBackendLoadScopeKey stays stable for joint origin edits', () => {
+  // A joint origin change is patchable runtime state (the joint analog of the
+  // visual-color edit below): it is applied in place by the joint-patch path,
+  // so it must NOT churn the load scope key and trigger a full rebuild — that
+  // was the multi-model link/component drag snap-back.
+  const baselineRobotData = createRobotData(0);
+  const editedRobotData = createRobotData(0);
+  editedRobotData.joints.shoulder.origin.xyz.x = 0.25;
+  editedRobotData.joints.shoulder.origin.rpy.y = 0.4;
+
+  const firstKey = createRendererBackendLoadScopeKey({
+    sourceFile,
+    assets: {},
+    reloadToken: 0,
+    robotData: baselineRobotData,
+  });
+  const secondKey = createRendererBackendLoadScopeKey({
+    sourceFile,
+    assets: {},
+    reloadToken: 0,
+    robotData: editedRobotData,
+  });
+
+  assert.equal(secondKey, firstKey);
 });
 
 test('createRendererBackendLoadScopeKey stays stable for primary visual color edits', () => {

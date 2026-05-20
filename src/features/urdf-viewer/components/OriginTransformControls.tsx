@@ -21,6 +21,24 @@ import type { URDFJoint as RuntimeURDFJoint } from '@/core/parsers/urdf/loader';
 
 const ORIGIN_TRANSLATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE;
 const ORIGIN_ROTATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE * 0.84;
+const ORIGIN_CONVERGENCE_EPSILON = 1e-6;
+
+function originsRoughlyEqual(
+  a: UrdfJoint['origin'] | null | undefined,
+  b: UrdfJoint['origin'] | null | undefined,
+): boolean {
+  if (!a || !b) {
+    return false;
+  }
+  return (
+    Math.abs(a.xyz.x - b.xyz.x) <= ORIGIN_CONVERGENCE_EPSILON &&
+    Math.abs(a.xyz.y - b.xyz.y) <= ORIGIN_CONVERGENCE_EPSILON &&
+    Math.abs(a.xyz.z - b.xyz.z) <= ORIGIN_CONVERGENCE_EPSILON &&
+    Math.abs(a.rpy.r - b.rpy.r) <= ORIGIN_CONVERGENCE_EPSILON &&
+    Math.abs(a.rpy.p - b.rpy.p) <= ORIGIN_CONVERGENCE_EPSILON &&
+    Math.abs(a.rpy.y - b.rpy.y) <= ORIGIN_CONVERGENCE_EPSILON
+  );
+}
 const ORIGIN_GIZMO_THICKNESS_SCALE = 1.9;
 
 interface OriginTransformControlsProps {
@@ -55,6 +73,14 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
   const targetJointRef = useRef<RuntimeURDFJoint | null>(null);
   const activeSelectionRef = useRef<{ jointId: string } | null>(null);
   const originalOriginRef = useRef<ReturnType<typeof extractRuntimeJointOrigin> | null>(null);
+  // The origin the user just committed via the gizmo. While the store update
+  // round-trips back through useRobotLoader (which may rebuild the runtime robot
+  // for multi-model scenes), the runtime joint can briefly still hold the
+  // pre-drag pose. Pinning the committed origin here lets the proxy/runtime stay
+  // at the dragged pose until the store value lands, eliminating the snap-back.
+  const lastCommittedOriginRef = useRef<{ jointId: string; origin: UrdfJoint['origin'] } | null>(
+    null,
+  );
   const previewedClosedLoopJointIdsRef = useRef<Set<string>>(new Set());
   const { invalidate } = useThree();
   const [targetJoint, setTargetJoint] = useState<RuntimeURDFJoint | null>(null);
@@ -84,6 +110,40 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
       proxyObject.updateMatrixWorld(true);
     },
     [],
+  );
+
+  // Sync the gizmo proxy from the runtime joint, but while a just-committed
+  // origin is still propagating through the store/loader, keep the runtime
+  // joint and proxy pinned to the committed pose so the link does not flash
+  // back to its pre-drag pose during a multi-model rebuild.
+  const reconcileProxyWithJoint = useCallback(
+    (
+      proxyObject: THREE.Group | null,
+      joint: RuntimeURDFJoint | null | undefined,
+      jointId: string | null | undefined,
+    ) => {
+      if (!proxyObject || !joint) {
+        return;
+      }
+
+      const committed = lastCommittedOriginRef.current;
+      if (committed && jointId && committed.jointId === jointId) {
+        if (originsRoughlyEqual(extractRuntimeJointOrigin(joint), committed.origin)) {
+          // Store value has landed in the runtime joint; release the pin.
+          lastCommittedOriginRef.current = null;
+        } else {
+          applyOriginToRuntimeJoint(joint, committed.origin);
+          syncProxyFromJoint(proxyObject, joint);
+          return;
+        }
+      } else if (committed && jointId && committed.jointId !== jointId) {
+        // Selection moved to a different joint; drop the stale pin.
+        lastCommittedOriginRef.current = null;
+      }
+
+      syncProxyFromJoint(proxyObject, joint);
+    },
+    [syncProxyFromJoint],
   );
 
   useEffect(() => {
@@ -128,6 +188,8 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
         resolvedTarget?.jointId ?? activeSelectionRef.current?.jointId ?? selection?.id ?? '',
     };
     originalOriginRef.current = extractRuntimeJointOrigin(activeJoint);
+    // A fresh drag supersedes any previously pinned commit.
+    lastCommittedOriginRef.current = null;
     return Boolean(activeSelectionRef.current.jointId);
   }, [robot, robotJoints, selection]);
 
@@ -243,6 +305,8 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
 
     applyOriginToRuntimeJoint(activeJoint, originalOrigin);
     clearClosedLoopRuntimePreview();
+    // Cancel discards the drag; nothing was committed to pin.
+    lastCommittedOriginRef.current = null;
     syncProxyFromJoint(proxyRef.current, activeJoint);
   }, [clearClosedLoopRuntimePreview, syncProxyFromJoint]);
 
@@ -263,6 +327,12 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
         ...currentJoint,
         origin: nextOrigin,
       });
+      // Pin the committed pose until the store value round-trips back into the
+      // runtime joint, so a multi-model rebuild cannot flash the pre-drag pose.
+      lastCommittedOriginRef.current = {
+        jointId: activeSelection.jointId,
+        origin: nextOrigin,
+      };
     }
 
     originalOriginRef.current = nextOrigin;
@@ -324,13 +394,18 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
     );
 
     if (!isDraggingRef.current) {
+      reconcileProxyWithJoint(
+        proxyRef.current,
+        resolvedTarget.runtimeJoint,
+        resolvedTarget.jointId,
+      );
       originalOriginRef.current = extractRuntimeJointOrigin(resolvedTarget.runtimeJoint);
-      syncProxyFromJoint(proxyRef.current, resolvedTarget.runtimeJoint);
     }
   }, [
     cancelActiveDrag,
     isDraggingRef,
     onUpdate,
+    reconcileProxyWithJoint,
     robot,
     robotJoints,
     robotVersion,
@@ -341,9 +416,9 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
 
   useEffect(() => {
     if (!isDraggingRef.current) {
-      syncProxyFromJoint(proxyRef.current, targetJoint);
+      reconcileProxyWithJoint(proxyRef.current, targetJoint, activeSelectionRef.current?.jointId);
     }
-  }, [syncProxyFromJoint, targetJoint]);
+  }, [reconcileProxyWithJoint, targetJoint]);
 
   useFrame(() => {
     const draggingControls = resolveCurrentCollisionDraggingControls(
@@ -363,7 +438,11 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
     }
 
     if (proxyRef.current && targetJointRef.current) {
-      syncProxyFromJoint(proxyRef.current, targetJointRef.current);
+      reconcileProxyWithJoint(
+        proxyRef.current,
+        targetJointRef.current,
+        activeSelectionRef.current?.jointId,
+      );
     }
   }, 1000);
 

@@ -1734,7 +1734,14 @@ export const useViewerController = ({
     previousAppliedJointMotionStateRef.current = {};
     previewMotionAnglesRef.current = {};
     previewMotionQuaternionsRef.current = {};
-    pendingLocalCommittedJointAnglesRef.current = {};
+    // NOTE: do NOT clear pendingLocalCommittedJointAnglesRef here. This effect
+    // also re-runs when jointControlRobot / effectiveClosedLoopRobotState change
+    // identity, which in multi-model/assembly mode happens on every joint-angle
+    // commit (the merged robot is recomputed). Wiping the just-recorded
+    // committed angle here is exactly what made a directly-dragged link's joint
+    // snap back to its pre-drag value for ~0.5s before jumping forward. The
+    // pending map self-clears in the re-sync effect once the store-derived
+    // state catches up; a genuine model/scope switch is handled below.
     pendingClosedLoopPreviewRef.current = null;
     lastClosedLoopPreviewCommitRef.current = null;
     if (closedLoopPreviewFrameRef.current !== null && typeof window !== 'undefined') {
@@ -1751,6 +1758,13 @@ export const useViewerController = ({
     jointControlRobot,
     jointStateScopeKey,
   ]);
+
+  // Drop any locally-committed-but-not-yet-propagated joint angles ONLY when the
+  // joint-state scope genuinely changes (a different model/scope is loaded), not
+  // when the merged robot object identity churns from this scope's own commits.
+  useEffect(() => {
+    pendingLocalCommittedJointAnglesRef.current = {};
+  }, [jointStateScopeKey]);
 
   useEffect(() => {
     if (!jointControlRobot || (!jointAngleState && !jointMotionState)) return;

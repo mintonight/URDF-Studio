@@ -660,6 +660,11 @@ export function buildWorkspaceAssemblySourceCodeDocuments({
 
     const content = allFileContents[sourceFile.name] ?? sourceFile.content;
     const documentFlavor = getSourceCodeDocumentFlavor(sourceFile);
+    // Each tab here is a real, standalone component source file (the assembly
+    // is not yet merged into one generated document), so it stays editable the
+    // same way a single opened source file would be. The merged/bridged branch
+    // above is a generated artifact and remains read-only.
+    const readOnly = isSourceCodeDocumentReadOnly(documentFlavor);
     return [
       {
         id: `source:${sourceFile.name}`,
@@ -668,7 +673,15 @@ export function buildWorkspaceAssemblySourceCodeDocuments({
         filePath: sourceFile.name,
         content,
         documentFlavor,
-        readOnly: true,
+        readOnly,
+        validationEnabled: shouldEnableValidationForDocument(documentFlavor, content, false),
+        changeTarget: readOnly
+          ? undefined
+          : {
+              name: sourceFile.name,
+              format: sourceFile.format,
+              content,
+            },
       },
     ];
   });
