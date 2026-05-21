@@ -320,6 +320,20 @@ export const enhanceMaterials = (robotObject: THREE.Object3D, envMap?: THREE.Tex
   let enhancedCount = 0;
   let totalMeshes = 0;
   const disposedMaterials = new Set<THREE.Material>();
+  // Within one traverse, many meshes often point at the same source material
+  // (e.g. all "metallic_grey" meshes from a URDF/MJCF/MTL). Without memo we
+  // would create a fresh MeshStandardMaterial per mesh, multiplying GPU
+  // program compiles and VRAM. Memo collapses that to one enhanced material
+  // per unique source. The map is local to this call — different robot loads
+  // still get fresh enhanced instances, preserving lifecycle semantics.
+  const enhancedBySource = new Map<THREE.Material, THREE.Material>();
+  const enhanceMaterialMemo = (mat: THREE.Material): THREE.Material => {
+    const cached = enhancedBySource.get(mat);
+    if (cached) return cached;
+    const enhanced = enhanceSingleMaterial(mat, envMap);
+    enhancedBySource.set(mat, enhanced);
+    return enhanced;
+  };
 
   robotObject.traverse((child: any) => {
     if (child.isMesh && child.material) {
@@ -331,13 +345,13 @@ export const enhanceMaterials = (robotObject: THREE.Object3D, envMap?: THREE.Tex
       if (Array.isArray(child.material)) {
         child.material = child.material.map((mat: THREE.Material) => {
           if (shouldSkipEnhance(mat)) return mat;
-          const enhanced = enhanceSingleMaterial(mat, envMap);
+          const enhanced = enhanceMaterialMemo(mat);
           if (enhanced !== mat) enhancedCount++;
           return enhanced;
         });
       } else {
         if (!shouldSkipEnhance(child.material)) {
-          const enhanced = enhanceSingleMaterial(child.material, envMap);
+          const enhanced = enhanceMaterialMemo(child.material);
           if (enhanced !== child.material) enhancedCount++;
           child.material = enhanced;
         }
