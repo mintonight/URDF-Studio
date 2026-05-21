@@ -1,6 +1,7 @@
 import {
   DEFAULT_LINK,
   GeometryType,
+  type LoadingProgressMode,
   type RobotData,
   type RobotFile,
   type RobotState,
@@ -27,9 +28,17 @@ export interface ResolveRobotFileDataOptions {
 }
 
 export interface RobotImportProgress {
-  progressPercent: number;
+  progressPercent: number | null;
   message?: string | null;
+  progressMode?: LoadingProgressMode | null;
+  phase?: RobotImportProgressPhase | null;
 }
+
+export type RobotImportProgressPhase =
+  | 'resolving-source'
+  | 'checking-assets'
+  | 'parsing-source'
+  | 'finalizing-import';
 
 export type RobotImportErrorReason = 'parse_failed' | 'unsupported_format' | 'source_only_fragment';
 
@@ -59,16 +68,28 @@ const ROBOT_IMPORT_FAILURE_MESSAGE_PREFIX = /^Failed to import [A-Z0-9_+-]+ file
 
 function emitRobotImportProgress(
   reportProgress: RobotImportProgressReporter | undefined,
-  progressPercent: number,
+  progressPercent: number | null,
   message?: string | null,
+  options: {
+    progressMode?: LoadingProgressMode | null;
+    phase?: RobotImportProgressPhase | null;
+  } = {},
 ): void {
   if (!reportProgress) {
     return;
   }
 
+  const normalizedProgressPercent = Number.isFinite(progressPercent ?? NaN)
+    ? Math.max(0, Math.min(100, Math.round(progressPercent ?? 0)))
+    : null;
+  const progressMode =
+    options.progressMode ?? (normalizedProgressPercent === null ? 'indeterminate' : 'percent');
+
   reportProgress({
-    progressPercent: Math.max(0, Math.min(100, Math.round(progressPercent))),
+    progressPercent: normalizedProgressPercent,
     message: message ?? null,
+    progressMode,
+    phase: options.phase ?? null,
   });
 }
 
@@ -556,13 +577,18 @@ export function resolveRobotFileData(
     switch (file.format) {
       case 'urdf': {
         parsePhase = 'resolving URDF source';
-        emitRobotImportProgress(reportProgress, 15, 'Resolving URDF source');
+        emitRobotImportProgress(reportProgress, 15, 'Resolving URDF source', {
+          phase: 'resolving-source',
+        });
         const resolvedUrdfSource = resolveUrdfSourceContent(file, {
           availableFiles,
           allFileContents,
         });
         parsePhase = 'parsing URDF';
-        emitRobotImportProgress(reportProgress, 70, 'Parsing URDF');
+        emitRobotImportProgress(reportProgress, null, 'Parsing URDF', {
+          progressMode: 'indeterminate',
+          phase: 'parsing-source',
+        });
         const parsed = parseURDF(resolvedUrdfSource.content);
         const resolvedUrdfOptions = resolvedUrdfSource.fromContext
           ? {
@@ -584,12 +610,16 @@ export function resolveRobotFileData(
         }
 
         parsePhase = 'finalizing URDF import';
-        emitRobotImportProgress(reportProgress, 100, 'Finalizing robot document');
+        emitRobotImportProgress(reportProgress, 100, 'Finalizing robot document', {
+          phase: 'finalizing-import',
+        });
         return createReady(file, toRobotData(parsed), resolvedUrdfOptions);
       }
       case 'mjcf': {
         parsePhase = 'resolving MJCF source';
-        emitRobotImportProgress(reportProgress, 10, 'Resolving MJCF source');
+        emitRobotImportProgress(reportProgress, 10, 'Resolving MJCF source', {
+          phase: 'resolving-source',
+        });
         const resolved = resolveMJCFSource(file, availableFiles);
         if (resolved.issues.length > 0) {
           return createErrorImportResult(
@@ -607,7 +637,9 @@ export function resolveRobotFileData(
         }
 
         parsePhase = 'checking MJCF external assets';
-        emitRobotImportProgress(reportProgress, 45, 'Checking MJCF external assets');
+        emitRobotImportProgress(reportProgress, 45, 'Checking MJCF external assets', {
+          phase: 'checking-assets',
+        });
         if (mjcfExternalAssetValidation !== 'never') {
           const assetValidation = inspectMJCFImportExternalAssets(
             resolved.sourceFile.name,
@@ -634,7 +666,10 @@ export function resolveRobotFileData(
         }
 
         parsePhase = 'parsing MJCF';
-        emitRobotImportProgress(reportProgress, 80, 'Parsing MJCF');
+        emitRobotImportProgress(reportProgress, null, 'Parsing MJCF', {
+          progressMode: 'indeterminate',
+          phase: 'parsing-source',
+        });
         const parsed = parseMJCF(resolved.content);
         if (!parsed) {
           return createErrorImportResult(
@@ -645,7 +680,9 @@ export function resolveRobotFileData(
         }
 
         parsePhase = 'finalizing MJCF import';
-        emitRobotImportProgress(reportProgress, 100, 'Finalizing robot document');
+        emitRobotImportProgress(reportProgress, 100, 'Finalizing robot document', {
+          phase: 'finalizing-import',
+        });
         return createReady(file, toRobotData(parsed), {
           sourceFilePath: resolved.sourceFile.name,
           allFileContents,
@@ -654,9 +691,14 @@ export function resolveRobotFileData(
       }
       case 'sdf': {
         parsePhase = 'resolving SDF context';
-        emitRobotImportProgress(reportProgress, 15, 'Resolving SDF context');
+        emitRobotImportProgress(reportProgress, 15, 'Resolving SDF context', {
+          phase: 'resolving-source',
+        });
         parsePhase = 'parsing SDF';
-        emitRobotImportProgress(reportProgress, 80, 'Parsing SDF');
+        emitRobotImportProgress(reportProgress, null, 'Parsing SDF', {
+          progressMode: 'indeterminate',
+          phase: 'parsing-source',
+        });
         const parsed = parseSDF(file.content, {
           allFileContents,
           availableFiles,
@@ -671,7 +713,9 @@ export function resolveRobotFileData(
         }
 
         parsePhase = 'finalizing SDF import';
-        emitRobotImportProgress(reportProgress, 100, 'Finalizing robot document');
+        emitRobotImportProgress(reportProgress, 100, 'Finalizing robot document', {
+          phase: 'finalizing-import',
+        });
         return createReady(file, toRobotData(parsed), {
           allFileContents,
           ...(meshTextMaterialAssetPaths ? { assetPaths: meshTextMaterialAssetPaths } : {}),

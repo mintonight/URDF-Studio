@@ -692,6 +692,63 @@ test('createMeshLoader preserves MTL-authored OBJ materials', async () => {
   }
 });
 
+test('createMeshLoader treats missing OBJ mtllib sidecars as optional under managed assets', async () => {
+  const objContent = [
+    'mtllib pingpong_table.mtl',
+    'o table',
+    'v 0 0 0',
+    'v 1 0 0',
+    'v 0 1 0',
+    'vn 0 0 1',
+    'f 1//1 2//1 3//1',
+  ].join('\n');
+  const objDataUrl = `data:text/plain;base64,${Buffer.from(objContent).toString('base64')}`;
+  const manager = new THREE.LoadingManager();
+  const originalWorker = (globalThis as { Worker?: typeof Worker }).Worker;
+  const originalConsoleError = console.error;
+  const loggedErrors: unknown[][] = [];
+  const loadMesh = createMeshLoader(
+    {
+      'myosuite-main/myosuite/envs/myo/assets/tabletennis_table.obj': objDataUrl,
+    },
+    manager,
+    'myosuite-main/myosuite/envs/myo/assets/',
+  );
+
+  disposeObjParseWorkerPoolClient();
+  delete (globalThis as { Worker?: typeof Worker }).Worker;
+  console.error = (...args) => {
+    loggedErrors.push(args);
+  };
+
+  try {
+    const loadedObject = await new Promise<THREE.Object3D>((resolve, reject) => {
+      loadMesh(
+        'myosuite-main/myosuite/envs/myo/assets/tabletennis_table.obj',
+        manager,
+        (result, err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          resolve(result);
+        },
+      );
+    });
+
+    assert.ok(loadedObject instanceof THREE.Group);
+  } finally {
+    console.error = originalConsoleError;
+    disposeObjParseWorkerPoolClient();
+    if (originalWorker) {
+      (globalThis as { Worker?: typeof Worker }).Worker = originalWorker;
+    }
+  }
+
+  assert.deepEqual(loggedErrors, []);
+});
+
 test('parseColladaSceneData round-trips textureless Collada scenes through ObjectLoader JSON serialization', () => {
   const meshPath = 'test/unitree_ros/robots/b2w_description/meshes/base_link.dae';
   const colladaText = fs.readFileSync(meshPath, 'utf8');

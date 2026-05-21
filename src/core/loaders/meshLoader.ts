@@ -641,6 +641,7 @@ function buildAssetIndexUncached(assets: Record<string, string>, urdfDir: string
     suffixCandidates: new Map(),
     cleanedPaths: [],
   };
+  const cleanedPathSet = new Set<string>();
 
   for (const [key, value] of Object.entries(assets)) {
     // Direct mapping
@@ -649,7 +650,8 @@ function buildAssetIndexUncached(assets: Record<string, string>, urdfDir: string
     // Cleaned path
     const cleaned = cleanFilePath(key);
     index.direct.set(cleaned, value);
-    if (!index.cleanedPaths.includes(cleaned)) {
+    if (!cleanedPathSet.has(cleaned)) {
+      cleanedPathSet.add(cleaned);
       index.cleanedPaths.push(cleaned);
     }
 
@@ -887,14 +889,11 @@ export const findAssetByPath = (
   return null;
 };
 
-// Loading manager that resolves asset URLs from our blob storage
-export const resolveManagedAssetUrl = (
+const tryResolveManagedAssetUrl = (
   url: string,
   assetIndex: AssetIndex,
   urdfDir: string = '',
-): string => {
-  const isTextureUrl = /\.(jpg|jpeg|png|gif|bmp|tga|tiff|webp)$/i.test(url);
-
+): string | null => {
   // Blob/data URLs are normally already resolved. Collada can sometimes build
   // malformed blob-relative paths like "blob:http://host/texture.png", so try
   // to recover the filename and remap it back through the imported asset index.
@@ -920,6 +919,20 @@ export const resolveManagedAssetUrl = (
   // Allow HTTP/HTTPS URLs to pass through (e.g. cloud storage or CDN links)
   if (url.startsWith('http://') || url.startsWith('https://')) {
     return url;
+  }
+
+  return null;
+};
+
+// Loading manager that resolves asset URLs from our blob storage
+export const resolveManagedAssetUrl = (
+  url: string,
+  assetIndex: AssetIndex,
+  urdfDir: string = '',
+): string => {
+  const resolvedUrl = tryResolveManagedAssetUrl(url, assetIndex, urdfDir);
+  if (resolvedUrl) {
+    return resolvedUrl;
   }
 
   console.error('[MeshLoader] Asset not found:', url);
@@ -1274,9 +1287,15 @@ export const createMeshLoader = (
         }
 
         const objManager = new THREE.LoadingManager();
-        objManager.setURLModifier((url: string) =>
-          resolveManagedAssetUrl(url, assetIndex, getSourceFileDirectory(sourcePath)),
-        );
+        const objAssetBaseDir = getSourceFileDirectory(sourcePath);
+        objManager.setURLModifier((url: string) => {
+          const resolvedUrl = tryResolveManagedAssetUrl(url, assetIndex, objAssetBaseDir);
+          if (resolvedUrl) {
+            return resolvedUrl;
+          }
+
+          throw new Error(`Optional OBJ material asset not found: ${url}`);
+        });
         await applyObjMaterialLibrariesToObject(
           object,
           serializedObject.materialLibraries,

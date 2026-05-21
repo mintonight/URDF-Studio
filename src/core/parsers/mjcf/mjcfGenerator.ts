@@ -1416,7 +1416,10 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
       bodyRotation = parentJoint.origin.rpy;
     }
 
-    let bodyXml = `${indent}<body name="${link.name}" pos="${pos}"${quatAttr(bodyRotation)}>\n`;
+    const bodyName = (link.name || link.id).trim().toLowerCase() === 'world'
+      ? 'world_link'
+      : link.name;
+    let bodyXml = `${indent}<body name="${escapeXmlAttribute(bodyName)}" pos="${pos}"${quatAttr(bodyRotation)}>\n`;
 
     // 1. Joint Definition (inside the body it belongs to)
     if (parentJoint && parentJoint.type !== JointType.FIXED) {

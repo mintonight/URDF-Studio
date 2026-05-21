@@ -1,5 +1,6 @@
 import { isStandaloneXacroEntry } from '@/core/parsers/importRobotFile';
 import { pickPreferredUsdRootFile } from '@/core/parsers/usd/usdFormatUtils';
+import { isSourceOnlyMJCFDocument } from '@/core/parsers/mjcf/mjcfXml';
 import { isAssetLibraryOnlyFormat, isVisibleLibraryEntry } from '@/shared/utils/robotFileSupport';
 import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 import {
@@ -150,6 +151,13 @@ function pickHeuristicFastUrdfFile(urdfFiles: readonly RobotFile[]): RobotFile |
 function pickHeuristicFastMjcfFile(mjcfFiles: readonly RobotFile[]): RobotFile | null {
   return (
     [...mjcfFiles].sort((left, right) => {
+      const sourceOnlyDiff =
+        Number(isSourceOnlyMJCFDocument(left.content)) -
+        Number(isSourceOnlyMJCFDocument(right.content));
+      if (sourceOnlyDiff !== 0) {
+        return sourceOnlyDiff;
+      }
+
       const helperPenaltyDiff =
         scoreFastImportHelperPenalty(left.name) - scoreFastImportHelperPenalty(right.name);
       if (helperPenaltyDiff !== 0) {
@@ -257,6 +265,13 @@ export function pickFastPreparedPreferredFile(
 
     return (
       [...mjcfFiles].sort((left, right) => {
+        const sourceOnlyDiff =
+          Number(isSourceOnlyMJCFDocument(left.content)) -
+          Number(isSourceOnlyMJCFDocument(right.content));
+        if (sourceOnlyDiff !== 0) {
+          return sourceOnlyDiff;
+        }
+
         const helperPenaltyDiff =
           scoreFastImportHelperPenalty(left.name) - scoreFastImportHelperPenalty(right.name);
         if (helperPenaltyDiff !== 0) {

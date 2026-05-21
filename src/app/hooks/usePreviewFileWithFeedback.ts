@@ -153,16 +153,25 @@ export function usePreviewFileWithFeedback({
             }
 
             const currentDocumentLoadState = useAssetsStore.getState().documentLoadState;
-            const mappedProgressPercent = mapRobotImportProgressToDocumentLoadPercent(
-              file.format,
-              progress,
-            );
-            const nextProgressPercent =
+            const isIndeterminateProgress = progress.progressMode === 'indeterminate';
+            const isCurrentFileLoading =
               currentDocumentLoadState.fileName === file.name &&
               (currentDocumentLoadState.status === 'loading' ||
-                currentDocumentLoadState.status === 'hydrating')
+                currentDocumentLoadState.status === 'hydrating');
+            let nextProgressPercent: number | null;
+            if (isIndeterminateProgress) {
+              nextProgressPercent = isCurrentFileLoading
+                ? (currentDocumentLoadState.progressPercent ?? null)
+                : null;
+            } else {
+              const mappedProgressPercent = mapRobotImportProgressToDocumentLoadPercent(
+                file.format,
+                progress,
+              );
+              nextProgressPercent = isCurrentFileLoading
                 ? Math.max(currentDocumentLoadState.progressPercent ?? 0, mappedProgressPercent)
                 : mappedProgressPercent;
+            }
 
             setDocumentLoadState({
               status: 'loading',
@@ -171,7 +180,7 @@ export function usePreviewFileWithFeedback({
               error: null,
               phase: resolveBootstrapDocumentLoadPhase(file.format),
               message: progress.message ?? null,
-              progressMode: 'percent',
+              progressMode: isIndeterminateProgress ? 'indeterminate' : 'percent',
               progressPercent: nextProgressPercent,
               loadedCount: null,
               totalCount: null,

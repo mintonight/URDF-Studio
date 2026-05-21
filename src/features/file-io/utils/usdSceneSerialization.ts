@@ -510,13 +510,12 @@ const serializeUsdMeshGeometryLibrary = async (
   const indent = makeUsdIndent(depth);
   const childIndent = makeUsdIndent(depth + 1);
 
-  lines.push(`${indent}def Scope "__MeshLibrary"`);
+  lines.push(`${indent}class Scope "__MeshLibrary"`);
   lines.push(`${indent}{`);
-  lines.push(`${childIndent}token visibility = "invisible"`);
 
   for (let index = 0; index < context.geometryRecords.length; index += 1) {
     const record = context.geometryRecords[index];
-    lines.push(`${childIndent}def Mesh "${record.name}"`);
+    lines.push(`${childIndent}class Mesh "${record.name}"`);
     lines.push(`${childIndent}{`);
     await serializeMeshGeometryData(record.data, lines, depth + 2);
     lines.push(`${childIndent}}`);

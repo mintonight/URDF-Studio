@@ -6,6 +6,10 @@ interface ImportPreparationProgressLike {
   totalBytes: number;
 }
 
+const LARGE_IMPORT_PROGRESS_ENTRY_THRESHOLD = 1000;
+const LARGE_IMPORT_PROGRESS_ENTRY_BUCKET_SIZE = 100;
+const LARGE_IMPORT_PROGRESS_BYTE_BUCKET_SIZE = 1024 * 1024;
+
 function clampImportProgressPercent(value: number | null): number | null {
   if (!Number.isFinite(value ?? NaN)) {
     return null;
@@ -32,7 +36,25 @@ export function createImportProgressEmitter<T extends ImportPreparationProgressL
       processedBytes: Math.max(0, Math.round(progress.processedBytes)),
       totalBytes: Math.max(0, Math.round(progress.totalBytes)),
     } as T;
-    const signature = JSON.stringify(nextProgress);
+    const isInitial = nextProgress.processedEntries === 0;
+    const isComplete =
+      nextProgress.totalEntries > 0 &&
+      nextProgress.processedEntries >= nextProgress.totalEntries;
+    const shouldBucketEntryProgress =
+      nextProgress.totalEntries >= LARGE_IMPORT_PROGRESS_ENTRY_THRESHOLD &&
+      !isInitial &&
+      !isComplete;
+    const signature = JSON.stringify({
+      ...nextProgress,
+      processedEntries: shouldBucketEntryProgress
+        ? Math.floor(
+            nextProgress.processedEntries / LARGE_IMPORT_PROGRESS_ENTRY_BUCKET_SIZE,
+          )
+        : nextProgress.processedEntries,
+      processedBytes: shouldBucketEntryProgress
+        ? Math.floor(nextProgress.processedBytes / LARGE_IMPORT_PROGRESS_BYTE_BUCKET_SIZE)
+        : nextProgress.processedBytes,
+    });
     if (signature === lastSignature) {
       return;
     }

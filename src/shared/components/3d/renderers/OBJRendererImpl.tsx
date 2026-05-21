@@ -2,7 +2,12 @@ import { use, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 
 import { GENERATED_OBJ_MATERIAL_USER_DATA_KEY } from '@/core/loaders/objModelData';
-import { loadObjScene } from '@/core/loaders/objMaterialUtils';
+import { applyObjMaterialLibrariesToObject } from '@/core/loaders/objMaterialUtils';
+import {
+  createObjectFromSerializedObjDataAsync,
+  loadSerializedObjModelData,
+} from '@/core/loaders/objParseWorkerBridge';
+import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
 import { applyVisualMeshShadowPolicyToObject } from '@/core/utils/visualMeshShadowPolicy';
 import { disposeMaterial, disposeObject3D } from '@/shared/utils/three/dispose';
 
@@ -143,6 +148,29 @@ function disposeGeneratedObjMaterials(
   });
 }
 
+export async function loadObjPreviewScene(
+  assetUrl: string,
+  manager: THREE.LoadingManager,
+  sourcePath?: string | null,
+): Promise<THREE.Group> {
+  const requestUrl = manager.resolveURL(assetUrl);
+  const serializedObject = await loadSerializedObjModelData(requestUrl);
+  const yieldIfNeeded = createMainThreadYieldController();
+  const object = await createObjectFromSerializedObjDataAsync(serializedObject, {
+    yieldIfNeeded,
+  });
+
+  await applyObjMaterialLibrariesToObject(
+    object,
+    serializedObject.materialLibraries,
+    manager,
+    sourcePath,
+    { yieldIfNeeded },
+  );
+
+  return object;
+}
+
 export function replaceObjPreviewMeshMaterials(
   meshes: THREE.Mesh[],
   sharedMaterial: THREE.Material,
@@ -179,7 +207,10 @@ export function OBJRendererImpl({
   const sharedMaterialRef = useRef(material);
   const manager = useLoadingManager(assets, assetBaseDir);
   const loadedObject = use(
-    useMemo(() => loadObjScene(url, manager, logicalAssetPath), [logicalAssetPath, manager, url]),
+    useMemo(
+      () => loadObjPreviewScene(url, manager, logicalAssetPath),
+      [logicalAssetPath, manager, url],
+    ),
   );
   const { clone, overrideMeshes } = useMemo(() => {
     const nextClone = cloneObjPreviewObject(loadedObject);

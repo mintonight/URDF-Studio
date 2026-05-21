@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelectionStore } from '@/store/selectionStore';
-import { useJointInteractionPreviewStore } from '@/store';
+import { hasJointInteractionPreview, useJointInteractionPreviewStore } from '@/store';
 import { alignObjectLowestPointToZ } from '@/shared/utils';
 import { createJointPanelStore } from '@/shared/utils/jointPanelStore';
 import type { JointPanelActiveJointOptions } from '@/shared/utils/jointPanelStore';
@@ -49,10 +49,20 @@ import { unwrapContinuousJointAngle } from '@/shared/utils/continuousJointAngle'
 import { logRuntimeFailure, scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
 
 type Selection = ViewerProps['selection'];
+type ViewerJointInteractionSource = 'r3f' | 'runtime';
+type ViewerJointInteractionAngleSpace = 'actual' | 'runtime';
+
+interface ViewerJointInteractionEvent {
+  source: ViewerJointInteractionSource;
+  jointName: string;
+  angle: number;
+  angleSpace: ViewerJointInteractionAngleSpace;
+}
+
 const JOINT_SYNC_EPSILON = 1e-6;
-// App-wide preview consumers were removed from the layout path. Keep runtime
-// previews local to the active viewer to avoid cross-app state churn while dragging.
-const APP_WIDE_JOINT_INTERACTION_PREVIEW_ENABLED = false;
+// Publish viewer previews through a small external store so local consumers like
+// the tree joint panel can follow drag state without rerendering the app shell.
+const APP_WIDE_JOINT_INTERACTION_PREVIEW_ENABLED = true;
 const CLOSED_LOOP_PREVIEW_MAX_IN_FLIGHT = 2;
 
 function isSameJointAngle(left: number | undefined, right: number | undefined) {
@@ -749,6 +759,7 @@ export const useViewerController = ({
         syncJointPanel?: boolean;
         preserveActiveJointRuntime?: boolean;
         preserveActiveJointPanel?: boolean;
+        publishInteractionPreview?: boolean;
       },
     ) => {
       if (!jointControlRobot?.joints) {
@@ -837,11 +848,13 @@ export const useViewerController = ({
 
       previewMotionAnglesRef.current = previewJointAngles;
       previewMotionQuaternionsRef.current = nextJointQuaternions;
-      publishJointInteractionPreview({
-        activeJointId,
-        jointAngles: previewJointAngles,
-        jointQuaternions: nextJointQuaternions,
-      });
+      if (options?.publishInteractionPreview !== false) {
+        publishJointInteractionPreview({
+          activeJointId,
+          jointAngles: previewJointAngles,
+          jointQuaternions: nextJointQuaternions,
+        });
+      }
 
       if (shouldRefresh) {
         requestSceneRefresh();
@@ -1100,7 +1113,7 @@ export const useViewerController = ({
         preview.jointAngles,
         preview.jointQuaternions,
         preview.activeJointId,
-        { syncJointPanel: false },
+        { syncJointPanel: false, publishInteractionPreview: false },
       );
     };
 
@@ -1551,7 +1564,7 @@ export const useViewerController = ({
     [clearJointInteractionPreview, initializeJointControlState],
   );
 
-  const handleRuntimeJointAnglesChange = useCallback(
+  const handleRuntimeJointAnglesSnapshotChange = useCallback(
     (nextAngles: Record<string, number>) => {
       if (!nextAngles || typeof nextAngles !== 'object') return;
       const shouldCommitToApp = !isDraggingRef.current;
@@ -1806,6 +1819,47 @@ export const useViewerController = ({
         }
       }
     }
+
+    const treePanelPreview = useJointInteractionPreviewStore.getState().preview;
+    if (treePanelPreview.source === 'tree-panel' && hasJointInteractionPreview(treePanelPreview)) {
+      const previewAngles = normalizeViewerJointAngleState(
+        jointControlJoints,
+        treePanelPreview.jointAngles,
+      );
+      const previewQuaternionEntries = Object.entries(treePanelPreview.jointQuaternions)
+        .map(([jointNameOrId, quaternion]) => {
+          const jointKey = resolveViewerJointKey(jointControlJoints, jointNameOrId);
+          return jointKey && quaternion ? ([jointKey, quaternion] as const) : null;
+        })
+        .filter((entry): entry is readonly [string, JointQuaternion] => entry !== null);
+
+      if (Object.keys(previewAngles).length > 0) {
+        normalizedAngleState = {
+          ...normalizedAngleState,
+          ...previewAngles,
+        };
+      }
+
+      if (
+        jointMotionState &&
+        (Object.keys(previewAngles).length > 0 || previewQuaternionEntries.length > 0)
+      ) {
+        effectiveJointMotionState = { ...effectiveJointMotionState };
+        Object.entries(previewAngles).forEach(([jointKey, angle]) => {
+          effectiveJointMotionState[jointKey] = {
+            ...(effectiveJointMotionState[jointKey] ?? {}),
+            angle,
+          };
+        });
+        previewQuaternionEntries.forEach(([jointKey, quaternion]) => {
+          effectiveJointMotionState[jointKey] = {
+            ...(effectiveJointMotionState[jointKey] ?? {}),
+            quaternion,
+          };
+        });
+      }
+    }
+
     const meaningfulJointMotionEntries = Object.entries(effectiveJointMotionState).filter(
       ([, motion]) =>
         Boolean(motion) && (typeof motion?.angle === 'number' || Boolean(motion?.quaternion)),
@@ -1898,8 +1952,35 @@ export const useViewerController = ({
     resolveRuntimeMotionAngle,
   ]);
 
-  const handleJointAngleChange = useCallback(
-    (jointName: string, angle: number) => {
+  const resolveRuntimeJointActualAngle = useCallback(
+    (jointName: string, runtimeMotionAngle: number) => {
+      const runtimeJointKey = resolveViewerJointKey(jointControlJoints, jointName);
+      const runtimeJoint = runtimeJointKey ? jointControlRobot?.joints?.[runtimeJointKey] : null;
+      const stateJointKey =
+        resolveViewerJointKey(
+          effectiveClosedLoopRobotState?.joints,
+          runtimeJoint?.name || runtimeJointKey || jointName,
+        ) ??
+        (jointName in (effectiveClosedLoopRobotState?.joints ?? {}) ? jointName : null);
+      const stateJoint = stateJointKey
+        ? effectiveClosedLoopRobotState?.joints?.[stateJointKey]
+        : undefined;
+
+      return resolveRuntimeReportedJointAngle(stateJoint, runtimeJoint, runtimeMotionAngle);
+    },
+    [effectiveClosedLoopRobotState?.joints, jointControlJoints, jointControlRobot],
+  );
+
+  const resolveJointInteractionActualAngle = useCallback(
+    ({ jointName, angle, angleSpace }: ViewerJointInteractionEvent) =>
+      angleSpace === 'runtime' ? resolveRuntimeJointActualAngle(jointName, angle) : angle,
+    [resolveRuntimeJointActualAngle],
+  );
+
+  const previewJointInteraction = useCallback(
+    (interaction: ViewerJointInteractionEvent) => {
+      const jointName = interaction.jointName;
+      const angle = resolveJointInteractionActualAngle(interaction);
       const jointKey = resolveViewerJointKey(jointControlJoints, jointName);
       if (!jointKey || !jointControlRobot?.joints?.[jointKey]) return;
 
@@ -1935,7 +2016,7 @@ export const useViewerController = ({
         scheduleClosedLoopPreviewWorkerSolve(
           selectedClosedLoopJointId,
           angle,
-          'Closed-loop slider preview',
+          'Closed-loop joint interaction preview',
           {
             preserveActiveJointRuntime: true,
           },
@@ -1960,36 +2041,35 @@ export const useViewerController = ({
       jointControlRobot,
       requestSceneRefresh,
       resolveDrivenMotion,
+      resolveJointInteractionActualAngle,
       resolveRuntimeMotionAngle,
       scheduleClosedLoopPreviewWorkerSolve,
       scheduleClosedLoopDragPreview,
     ],
   );
 
-  const resolveRuntimeJointActualAngle = useCallback(
-    (jointName: string, runtimeMotionAngle: number) => {
-      const runtimeJointKey = resolveViewerJointKey(jointControlJoints, jointName);
-      const runtimeJoint = runtimeJointKey ? jointControlRobot?.joints?.[runtimeJointKey] : null;
-      const stateJointKey =
-        resolveViewerJointKey(
-          effectiveClosedLoopRobotState?.joints,
-          runtimeJoint?.name || runtimeJointKey || jointName,
-        ) ??
-        (jointName in (effectiveClosedLoopRobotState?.joints ?? {}) ? jointName : null);
-      const stateJoint = stateJointKey
-        ? effectiveClosedLoopRobotState?.joints?.[stateJointKey]
-        : undefined;
-
-      return resolveRuntimeReportedJointAngle(stateJoint, runtimeJoint, runtimeMotionAngle);
+  const handleJointAngleChange = useCallback(
+    (jointName: string, angle: number) => {
+      previewJointInteraction({
+        source: 'r3f',
+        jointName,
+        angle,
+        angleSpace: 'actual',
+      });
     },
-    [effectiveClosedLoopRobotState?.joints, jointControlJoints, jointControlRobot],
+    [previewJointInteraction],
   );
 
   const handleRuntimeJointAngleChange = useCallback(
     (jointName: string, angle: number) => {
-      handleJointAngleChange(jointName, resolveRuntimeJointActualAngle(jointName, angle));
+      previewJointInteraction({
+        source: 'runtime',
+        jointName,
+        angle,
+        angleSpace: 'runtime',
+      });
     },
-    [handleJointAngleChange, resolveRuntimeJointActualAngle],
+    [previewJointInteraction],
   );
 
   const handleActiveJointChange = useCallback(
@@ -2006,8 +2086,10 @@ export const useViewerController = ({
     [jointControlJoints, jointControlRobot, setPanelActiveJoint],
   );
 
-  const handleJointChangeCommit = useCallback(
-    async (jointName: string, angle: number) => {
+  const commitJointInteraction = useCallback(
+    async (interaction: ViewerJointInteractionEvent) => {
+      const jointName = interaction.jointName;
+      const angle = resolveJointInteractionActualAngle(interaction);
       clearJointInteractionPreview();
       pendingClosedLoopPreviewRef.current = null;
       if (closedLoopPreviewFrameRef.current !== null && typeof window !== 'undefined') {
@@ -2108,6 +2190,7 @@ export const useViewerController = ({
             jointAngles: committedAngles,
             jointQuaternions: committedQuaternions,
           });
+          clearJointInteractionPreview();
           return;
         } catch (error) {
           scheduleFailFastInDev(
@@ -2180,6 +2263,7 @@ export const useViewerController = ({
       patchJointPanelAngles,
       requestSceneRefresh,
       recordPendingLocalCommittedJointAngles,
+      resolveJointInteractionActualAngle,
       resetClosedLoopPreviewState,
       resolveDrivenMotion,
       resolveRuntimeMotionAngle,
@@ -2187,11 +2271,57 @@ export const useViewerController = ({
     ],
   );
 
+  const handleJointChangeCommit = useCallback(
+    async (jointName: string, angle: number) => {
+      await commitJointInteraction({
+        source: 'r3f',
+        jointName,
+        angle,
+        angleSpace: 'actual',
+      });
+    },
+    [commitJointInteraction],
+  );
+
   const handleRuntimeJointChangeCommit = useCallback(
     async (jointName: string, angle: number) => {
-      await handleJointChangeCommit(jointName, resolveRuntimeJointActualAngle(jointName, angle));
+      await commitJointInteraction({
+        source: 'runtime',
+        jointName,
+        angle,
+        angleSpace: 'runtime',
+      });
     },
-    [handleJointChangeCommit, resolveRuntimeJointActualAngle],
+    [commitJointInteraction],
+  );
+
+  const handleRuntimeJointAnglesChange = useCallback(
+    (nextAngles: Record<string, number>) => {
+      if (!nextAngles || typeof nextAngles !== 'object') {
+        return;
+      }
+
+      const normalizedAngles = normalizeViewerJointAngleState(jointControlJoints, nextAngles);
+      const angleEntries = Object.entries(normalizedAngles);
+      if (angleEntries.length === 1) {
+        const [jointName, angle] = angleEntries[0]!;
+        if (isDraggingRef.current) {
+          handleRuntimeJointAngleChange(jointName, angle);
+          return;
+        }
+
+        void handleRuntimeJointChangeCommit(jointName, angle);
+        return;
+      }
+
+      handleRuntimeJointAnglesSnapshotChange(nextAngles);
+    },
+    [
+      handleRuntimeJointAngleChange,
+      handleRuntimeJointAnglesSnapshotChange,
+      handleRuntimeJointChangeCommit,
+      jointControlJoints,
+    ],
   );
 
   const handleResetJoints = useCallback(() => {

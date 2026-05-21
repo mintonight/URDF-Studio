@@ -702,7 +702,7 @@ test('isaacsim USDA export hides mesh library prototypes and collision guide sco
 
   assert.match(
     meshBaseLayer,
-    /def Scope "__MeshLibrary"\n\s+\{\n\s+token visibility = "invisible"/,
+    /class Scope "__MeshLibrary"\n\s+\{\n\s+class Mesh "Geometry_0"/,
   );
   assert.match(
     collisionBaseLayer,
@@ -1140,7 +1140,7 @@ test('deduplicates repeated mesh geometry into a shared USD mesh library', async
     'shared_mesh_robot/usd/configuration/shared_mesh_robot_description_base.usd',
   );
 
-  assert.match(baseLayer, /def Scope "__MeshLibrary"/);
+  assert.match(baseLayer, /class Scope "__MeshLibrary"/);
   assert.equal(
     Array.from(baseLayer.matchAll(/point3f\[] points = \[/g)).length,
     1,
@@ -1424,7 +1424,7 @@ test('exports six-face box textures into separate USDA mesh prims and packaged a
   );
 
   assert.equal(payload.downloadFileName, 'box_face_robot.usda');
-  assert.equal((baseLayer.match(/def Mesh "Geometry_/g) ?? []).length, 6);
+  assert.equal((baseLayer.match(/class Mesh "Geometry_/g) ?? []).length, 6);
   assert.match(baseLayer, /custom string urdf:materialTexture = "textures\/right\.png"/);
   assert.match(baseLayer, /custom string urdf:materialTexture = "textures\/left\.png"/);
   assert.match(baseLayer, /custom string urdf:materialTexture = "textures\/up\.png"/);

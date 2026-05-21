@@ -33,6 +33,25 @@ test('detectImportFormat falls back to XML content heuristics', () => {
   assert.equal(detectImportFormat('<robot name="demo"></robot>', 'demo.xml'), 'urdf');
 });
 
+test('detectImportFormat classifies custom-root MJCF include fragments', () => {
+  assert.equal(
+    detectImportFormat(
+      `<panda>
+        <asset>
+          <mesh name="body" file="body.stl" />
+        </asset>
+        <worldbody>
+          <body name="base">
+            <geom type="mesh" mesh="body" />
+          </body>
+        </worldbody>
+      </panda>`,
+      'panda.xml',
+    ),
+    'mjcf',
+  );
+});
+
 test('detectImportFormat falls back to content when the filename is unhelpful', () => {
   assert.equal(detectImportFormat('#usda 1.0\ndef Xform "demo" {}', 'payload.txt'), 'usd');
   assert.equal(detectImportFormat('plain text only', 'payload.txt'), null);

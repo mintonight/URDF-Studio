@@ -910,6 +910,60 @@ test('generated MJCF preserves fixed synthetic world root transforms through par
   assertMatricesClose(robot, roundtrip!, ['world', 'base', 'FR_thigh']);
 });
 
+test('generated MJCF avoids reserved world body names for payload-bearing scene roots', () => {
+  installDomParser();
+
+  const robot: RobotState = {
+    name: 'world-scene-root',
+    rootLinkId: 'world',
+    selection: { type: null, id: null },
+    links: {
+      world: {
+        ...DEFAULT_LINK,
+        id: 'world',
+        name: 'world',
+        collision: {
+          ...DEFAULT_LINK.collision,
+          name: 'floor',
+          type: GeometryType.PLANE,
+          dimensions: { x: 5, y: 5, z: 0 },
+        },
+      },
+      base: {
+        ...DEFAULT_LINK,
+        id: 'base',
+        name: 'base',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.BOX,
+          dimensions: { x: 0.2, y: 0.2, z: 0.2 },
+        },
+      },
+    },
+    joints: {
+      world_to_base: {
+        ...DEFAULT_JOINT,
+        id: 'world_to_base',
+        name: 'world_to_base',
+        type: JointType.FIXED,
+        parentLinkId: 'world',
+        childLinkId: 'base',
+      },
+    },
+    materials: {},
+  };
+
+  const generated = generateMujocoXML(robot, {
+    includeSceneHelpers: false,
+    meshdir: 'meshes/',
+  });
+  const parsed = parseMJCFModel(generated);
+
+  assert.doesNotMatch(generated, /<body name="world"/);
+  assert.match(generated, /<body name="world_link"/);
+  assert.ok(findBodyByName(parsed.worldBody as any, 'world_link'));
+});
+
 test('generated MJCF does not inject a duplicate freejoint when the root is already floating', () => {
   installDomParser();
 

@@ -471,9 +471,32 @@ function generateInertialXml(link: UrdfLink): string | null {
   return lines.join('\n');
 }
 
-function buildLinkWorldMatrices(robot: RobotState): Map<string, THREE.Matrix4> {
+function buildLinkWorldMatrices(robot: RobotState, useCurrentJointPose = false): Map<string, THREE.Matrix4> {
   const matrices = new Map<string, THREE.Matrix4>();
-  Object.entries(computeLinkWorldMatrices(robot)).forEach(([linkId, matrix]) => {
+  if (useCurrentJointPose) {
+    Object.entries(computeLinkWorldMatrices(robot)).forEach(([linkId, matrix]) => {
+      matrices.set(linkId, matrix.clone());
+    });
+    return matrices;
+  }
+
+  const restAngles = Object.fromEntries(
+    Object.values(robot.joints).map((joint) => [
+      joint.id,
+      Number.isFinite(joint.referencePosition) ? joint.referencePosition! : 0,
+    ]),
+  );
+  const restQuaternions = Object.fromEntries(
+    Object.values(robot.joints)
+      .filter((joint) => joint.type === JointType.BALL)
+      .map((joint) => [joint.id, { x: 0, y: 0, z: 0, w: 1 }]),
+  );
+  Object.entries(
+    computeLinkWorldMatrices(robot, {
+      angles: restAngles,
+      quaternions: restQuaternions,
+    }),
+  ).forEach(([linkId, matrix]) => {
     matrices.set(linkId, matrix.clone());
   });
 
@@ -549,6 +572,12 @@ function createUniqueModelChildName(baseName: string, usedNames: Set<string>): s
   const uniqueName = `${preferredName}_${suffix}`;
   usedNames.add(uniqueName);
   return uniqueName;
+}
+
+function createSafeSdfLinkName(baseName: string, usedNames: Set<string>): string {
+  const normalizedBase = baseName.trim() || 'link';
+  const safeBase = normalizedBase === 'world' ? 'world_link' : normalizedBase;
+  return createUniqueModelChildName(safeBase, usedNames);
 }
 
 function generateJointXml(
@@ -671,9 +700,10 @@ export function generateSDF(robot: RobotState, options: GenerateSDFOptions = {})
   const packageName = (options.packageName || robot.name || 'robot').trim() || 'robot';
   const modelName = (robot.name || packageName).trim() || 'robot';
   const version = options.version || '1.7';
-  const linkMatrices = buildLinkWorldMatrices(robot);
+  const linkMatrices = buildLinkWorldMatrices(robot, (robot.closedLoopConstraints?.length ?? 0) > 0);
   const { omittedJointIds, omittedLinkIds } = resolveSyntheticRootOmissions(robot);
   const usedModelChildNames = new Set<string>();
+  const linkNameById = new Map<string, string>();
 
   const lines = [
     '<?xml version="1.0"?>',
@@ -686,11 +716,12 @@ export function generateSDF(robot: RobotState, options: GenerateSDFOptions = {})
       return;
     }
 
-    usedModelChildNames.add(link.name || link.id);
+    const linkName = createSafeSdfLinkName(link.name || link.id, usedModelChildNames);
+    linkNameById.set(link.id, linkName);
     const linkPose = matrixToPose(
       linkMatrices.get(link.id || link.name) ?? new THREE.Matrix4().identity(),
     );
-    lines.push(`    <link name="${escapeXml(link.name || link.id)}">`);
+    lines.push(`    <link name="${escapeXml(linkName)}">`);
     if (!isIdentityPose(linkPose)) {
       lines.push(`      <pose>${formatPose(linkPose)}</pose>`);
     }
@@ -738,8 +769,8 @@ export function generateSDF(robot: RobotState, options: GenerateSDFOptions = {})
         joint,
         jointName,
         mimicJointResolvedName,
-        robot.links[joint.parentLinkId]?.name,
-        robot.links[joint.childLinkId]?.name,
+        linkNameById.get(joint.parentLinkId) || robot.links[joint.parentLinkId]?.name,
+        linkNameById.get(joint.childLinkId) || robot.links[joint.childLinkId]?.name,
       ),
     );
   });
@@ -751,8 +782,12 @@ export function generateSDF(robot: RobotState, options: GenerateSDFOptions = {})
     const closedLoopXml = generateClosedLoopJointXmlWithName(
       constraint,
       closedLoopName,
-      robot.links[constraint.linkAId]?.name || constraint.linkAId,
-      robot.links[constraint.linkBId]?.name || constraint.linkBId,
+      linkNameById.get(constraint.linkAId) ||
+        robot.links[constraint.linkAId]?.name ||
+        constraint.linkAId,
+      linkNameById.get(constraint.linkBId) ||
+        robot.links[constraint.linkBId]?.name ||
+        constraint.linkBId,
     );
     if (closedLoopXml) {
       lines.push(closedLoopXml);

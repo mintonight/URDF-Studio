@@ -7,7 +7,7 @@ import { JSDOM } from 'jsdom';
 
 import type { RobotState } from '@/types';
 import { GeometryType, JointType } from '@/types';
-import { useUIStore } from '@/store';
+import { useJointInteractionPreviewStore, useUIStore } from '@/store';
 import { TreeEditor } from '../TreeEditor.tsx';
 
 function createRobotState(): RobotState {
@@ -84,6 +84,23 @@ function createRobotState(): RobotState {
     },
     rootLinkId: 'base_link',
     selection: { type: 'link', id: 'base_link' },
+  };
+}
+
+function createRobotStateWithJointAngle(angle: number): RobotState {
+  const robot = createRobotState();
+  const joint = robot.joints.joint_1;
+  assert.ok(joint, 'joint fixture should include joint_1');
+
+  return {
+    ...robot,
+    joints: {
+      ...robot.joints,
+      joint_1: {
+        ...joint,
+        angle,
+      },
+    },
   };
 }
 
@@ -306,6 +323,178 @@ async function renderTreeEditorWithRobot(root: Root, robot: RobotState) {
     );
   });
 }
+
+test('TreeEditor joint section keeps committed slider angle until parent state catches up', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const commits: Array<[string, number]> = [];
+  const previews: Array<[string, number]> = [];
+
+  useUIStore.setState({
+    panelSections: {},
+    panelLayout: {
+      ...useUIStore.getState().panelLayout,
+      treeJointPanelHeight: 132,
+      treePanelHeightMode: 'custom',
+    },
+  });
+
+  const render = async (robot: RobotState) => {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={robot}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          showJointPanel
+          onJointAnglePreview={(jointName, angle) => previews.push([jointName, angle])}
+          onJointAngleChange={(jointName, angle) => commits.push([jointName, angle])}
+        />,
+      );
+    });
+  };
+
+  try {
+    await render(createRobotStateWithJointAngle(0));
+
+    const range = container.querySelector('input[type="range"]') as HTMLInputElement | null;
+    assert.ok(range, 'joint slider range input should render');
+
+    await act(async () => {
+      range.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      range.value = '0.5';
+      range.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise<void>((resolve) => {
+        dom.window.requestAnimationFrame(() => resolve());
+      });
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+    });
+
+    assert.deepEqual(previews[previews.length - 1], ['joint_1', 0.5]);
+    assert.deepEqual(commits, [['joint_1', 0.5]]);
+    assert.equal(Number(range.value), 0.5);
+
+    await render(createRobotStateWithJointAngle(0));
+    const staleRange = container.querySelector('input[type="range"]') as HTMLInputElement | null;
+    assert.ok(staleRange, 'joint slider range input should still render');
+    assert.equal(Number(staleRange.value), 0.5);
+
+    await render(createRobotStateWithJointAngle(0.5));
+    const caughtUpRange = container.querySelector('input[type="range"]') as HTMLInputElement | null;
+    assert.ok(caughtUpRange, 'joint slider range input should still render after catch-up');
+    assert.equal(Number(caughtUpRange.value), 0.5);
+
+    await render(createRobotStateWithJointAngle(0));
+    const resetRange = container.querySelector('input[type="range"]') as HTMLInputElement | null;
+    assert.ok(resetRange, 'joint slider range input should still render after pending clears');
+    assert.equal(Number(resetRange.value), 0);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('TreeEditor joint section follows viewer joint drag previews without waiting for commit', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  useUIStore.setState({
+    panelSections: {},
+    panelLayout: {
+      ...useUIStore.getState().panelLayout,
+      treeJointPanelHeight: 132,
+      treePanelHeightMode: 'custom',
+    },
+  });
+  useJointInteractionPreviewStore.getState().clearPreview();
+
+  const render = async (robot: RobotState) => {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={robot}
+          onSelect={() => {}}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          showJointPanel
+          onJointAnglePreview={() => {}}
+          onJointAngleChange={() => {}}
+        />,
+      );
+    });
+  };
+
+  try {
+    await render(createRobotStateWithJointAngle(0));
+
+    await act(async () => {
+      useJointInteractionPreviewStore.getState().publishPreview({
+        source: 'viewer',
+        dragSessionId: 'viewer-drag',
+        activeJointId: 'joint_1',
+        jointAngles: { joint_1: 0.5 },
+        jointQuaternions: {},
+        jointOrigins: {},
+      });
+    });
+
+    const previewRange = container.querySelector('input[type="range"]') as HTMLInputElement | null;
+    assert.ok(previewRange, 'joint slider range input should render');
+    assert.equal(Number(previewRange.value), 0.5);
+
+    await act(async () => {
+      useJointInteractionPreviewStore.getState().clearPreview({
+        source: 'viewer',
+        dragSessionId: 'viewer-drag',
+      });
+    });
+
+    await render(createRobotStateWithJointAngle(0));
+    const staleRange = container.querySelector('input[type="range"]') as HTMLInputElement | null;
+    assert.ok(staleRange, 'joint slider range input should still render');
+    assert.equal(Number(staleRange.value), 0.5);
+
+    await render(createRobotStateWithJointAngle(0.5));
+    const caughtUpRange = container.querySelector('input[type="range"]') as HTMLInputElement | null;
+    assert.ok(caughtUpRange, 'joint slider range input should still render after catch-up');
+    assert.equal(Number(caughtUpRange.value), 0.5);
+
+    await render(createRobotStateWithJointAngle(0));
+    const resetRange = container.querySelector('input[type="range"]') as HTMLInputElement | null;
+    assert.ok(resetRange, 'joint slider range input should still render after pending clears');
+    assert.equal(Number(resetRange.value), 0);
+  } finally {
+    useJointInteractionPreviewStore.getState().clearPreview();
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
 
 test('TreeEditor joint section persists its collapsed disclosure state', async () => {
   const { dom, container, root } = createComponentRoot();

@@ -31,6 +31,7 @@ import { resolveRobotFileDataWithWorker } from './robotImportWorkerBridge';
 import {
   detectImportFormat,
   prepareImportPayload,
+  type PreparedImportPayload,
   type PrepareImportProgress,
 } from '@/app/utils/importPreparation';
 import {
@@ -66,6 +67,8 @@ type BlobBackedAssetFile = {
   blob: Blob;
 };
 
+const ASSET_URL_CREATION_YIELD_INTERVAL = 256;
+
 interface UseFileImportOptions {
   onLoadRobot?: (file: RobotFile) => void;
   onShowToast?: (message: string, type?: 'info' | 'success') => void;
@@ -82,13 +85,40 @@ function revokeBlobUrls(urls: readonly string[]): void {
   });
 }
 
-function createAssetUrls(assetFiles: BlobBackedAssetFile[]): Record<string, string> {
+async function createAssetUrls(
+  assetFiles: BlobBackedAssetFile[],
+  options: {
+    onProgress?: (progress: { processedEntries: number; totalEntries: number }) => void;
+    yieldToBrowser?: boolean;
+  } = {},
+): Promise<Record<string, string>> {
   const assets: Record<string, string> = {};
 
-  assetFiles.forEach((file) => {
+  options.onProgress?.({ processedEntries: 0, totalEntries: assetFiles.length });
+
+  for (let index = 0; index < assetFiles.length; index += 1) {
+    const file = assetFiles[index];
     const normalizedPath = file.name.replace(/\\/g, '/').replace(/^\/+/, '');
     assets[normalizedPath] = URL.createObjectURL(file.blob);
-  });
+
+    if (
+      options.yieldToBrowser &&
+      (index + 1) % ASSET_URL_CREATION_YIELD_INTERVAL === 0
+    ) {
+      await waitForNextPaint();
+    }
+
+    if (
+      options.onProgress &&
+      ((index + 1) % ASSET_URL_CREATION_YIELD_INTERVAL === 0 ||
+        index + 1 === assetFiles.length)
+    ) {
+      options.onProgress({
+        processedEntries: index + 1,
+        totalEntries: assetFiles.length,
+      });
+    }
+  }
 
   return assets;
 }
@@ -138,8 +168,6 @@ function pickPreparedPreferredFile(
   );
 }
 
-const LARGE_LOOSE_IMPORT_FILE_COUNT_THRESHOLD = 64;
-
 function waitForNextPaint(): Promise<void> {
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
     return Promise.resolve();
@@ -171,7 +199,7 @@ function hydrateDeferredArchiveAssetsInBackground(
         return;
       }
 
-      useAssetsStore.getState().addAssets(createAssetUrls(hydratedAssetFiles));
+      useAssetsStore.getState().addAssets(await createAssetUrls(hydratedAssetFiles));
     } catch (error) {
       console.error('Deferred archive asset hydration failed after import completed:', error);
       const message =
@@ -252,21 +280,6 @@ function createImportPreparationOverlayStateFromProgress(
     statusLabel,
     stageLabel,
   };
-}
-
-function shouldPrepareLooseImportLocally(
-  inputFiles: readonly File[],
-  options: {
-    isArchiveImport: boolean;
-  },
-): boolean {
-  if (options.isArchiveImport || inputFiles.length <= LARGE_LOOSE_IMPORT_FILE_COUNT_THRESHOLD) {
-    return false;
-  }
-
-  return !inputFiles.some((file) =>
-    isSupportedArchiveImportFile(resolveImportSourceFilePath(file)),
-  );
 }
 
 export function useFileImport(options: UseFileImportOptions = {}) {
@@ -462,21 +475,26 @@ export function useFileImport(options: UseFileImportOptions = {}) {
               );
             }
           : undefined;
-        const preparedImportPayload = shouldPrepareLooseImportLocally(inputFiles, {
-          isArchiveImport,
-        })
-          ? await prepareImportPayload({
-              files: inputFiles,
-              existingPaths: existingImportPaths,
-              preResolvePreferredImport: false,
-              onProgress: onPreparationProgress,
-            })
-          : await prepareImportPayloadWithWorker({
-              files: inputFiles,
-              existingPaths: existingImportPaths,
-              preResolvePreferredImport: false,
-              onProgress: onPreparationProgress,
-            });
+        let preparedImportPayload: PreparedImportPayload;
+        try {
+          preparedImportPayload = await prepareImportPayloadWithWorker({
+            files: inputFiles,
+            existingPaths: existingImportPaths,
+            preResolvePreferredImport: false,
+            onProgress: onPreparationProgress,
+          });
+        } catch (error) {
+          if (typeof Worker !== 'undefined') {
+            throw error;
+          }
+
+          preparedImportPayload = await prepareImportPayload({
+            files: inputFiles,
+            existingPaths: existingImportPaths,
+            preResolvePreferredImport: false,
+            onProgress: onPreparationProgress,
+          });
+        }
 
         const {
           robotFiles: renamedRobotFiles,
@@ -518,7 +536,22 @@ export function useFileImport(options: UseFileImportOptions = {}) {
           nextMotorLibrary = mergeResult.library;
         }
 
-        const newAssets = createAssetUrls(renamedAssetFiles);
+        const newAssets = await createAssetUrls(renamedAssetFiles, {
+          onProgress:
+            shouldShowPreparationOverlay && renamedAssetFiles.length > 512
+              ? ({ processedEntries, totalEntries }) => {
+                  setImportPreparationOverlay({
+                    label: t.importPreparationLoadingTitle,
+                    detail: `${processedEntries} / ${totalEntries}`,
+                    progress: totalEntries > 0 ? processedEntries / totalEntries : null,
+                    statusLabel:
+                      totalEntries > 0 ? `${processedEntries} / ${totalEntries}` : null,
+                    stageLabel: t.importPreparationFinalizingImport,
+                  });
+                }
+              : undefined,
+          yieldToBrowser: shouldShowPreparationOverlay && renamedAssetFiles.length > 512,
+        });
         createdBlobUrls.push(...Object.values(newAssets));
 
         let hydratedDeferredAssets: Record<string, string> = {};
@@ -582,7 +615,22 @@ export function useFileImport(options: UseFileImportOptions = {}) {
             });
             hydratedDeferredAssets = {
               ...hydratedDeferredAssets,
-              ...createAssetUrls(hydratedAssetFiles),
+              ...(await createAssetUrls(hydratedAssetFiles, {
+                onProgress:
+                  shouldShowPreparationOverlay && hydratedAssetFiles.length > 512
+                    ? ({ processedEntries, totalEntries }) => {
+                        setImportPreparationOverlay({
+                          label: t.importPreparationLoadingTitle,
+                          detail: `${processedEntries} / ${totalEntries}`,
+                          progress: totalEntries > 0 ? processedEntries / totalEntries : null,
+                          statusLabel:
+                            totalEntries > 0 ? `${processedEntries} / ${totalEntries}` : null,
+                          stageLabel: t.importPreparationFinalizingImport,
+                        });
+                      }
+                    : undefined,
+                yieldToBrowser: shouldShowPreparationOverlay && hydratedAssetFiles.length > 512,
+              })),
             };
           }
           createdBlobUrls.push(...Object.values(hydratedDeferredAssets));

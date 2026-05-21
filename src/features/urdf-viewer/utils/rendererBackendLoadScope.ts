@@ -70,16 +70,21 @@ function createJointStructureSignature(joints: Record<string, UrdfJoint> | undef
     return '';
   }
 
-  return hashStableValue(stripTransientJointMotionFromJointsForSignature(joints));
+  return hashStableValue(stripPatchableJointRuntimeStateFromJointsForSignature(joints));
 }
 
-function stripTransientJointMotionFromJointsForSignature(
+function stripPatchableJointRuntimeStateFromJoint(joint: UrdfJoint): UrdfJoint {
+  const { origin: _origin, ...sourceJoint } = stripTransientJointMotionFromJoint(joint);
+  return sourceJoint as UrdfJoint;
+}
+
+function stripPatchableJointRuntimeStateFromJointsForSignature(
   joints: Record<string, UrdfJoint>,
 ): Record<string, UrdfJoint> {
   return Object.fromEntries(
     Object.entries(joints).map(([jointId, joint]) => [
       jointId,
-      stripTransientJointMotionFromJoint(joint),
+      stripPatchableJointRuntimeStateFromJoint(joint),
     ]),
   );
 }

@@ -130,6 +130,48 @@ test('createMemoizedRendererBackendLoadScopeKey reuses the key for transient joi
   assert.equal(secondKey, firstKey);
 });
 
+test('createMemoizedRendererBackendLoadScopeKey reuses the key for patchable joint origin edits', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const robotData = createRobotData(0);
+  const assets: Record<string, string> = {};
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile,
+      assets,
+      reloadToken: 0,
+      robotData,
+    },
+    memo,
+  );
+  const editedRobotData = {
+    ...robotData,
+    joints: {
+      ...robotData.joints,
+      shoulder: {
+        ...robotData.joints.shoulder,
+        origin: {
+          ...robotData.joints.shoulder.origin,
+          xyz: {
+            ...robotData.joints.shoulder.origin.xyz,
+            z: 0.4,
+          },
+        },
+      },
+    },
+  };
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile,
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.equal(secondKey, firstKey);
+});
+
 test('createMemoizedRendererBackendLoadScopeKey reuses keys for transient motion across draggable formats', () => {
   const formats: DraggableFormat[] = ['urdf', 'sdf', 'mjcf', 'usd', 'usda'];
 
@@ -208,12 +250,33 @@ test('createMemoizedRendererBackendLoadScopeKey recomputes for structural joint 
   assert.notEqual(secondKey, firstKey);
 });
 
-test('createRendererBackendLoadScopeKey changes for structural robot edits', () => {
+test('createRendererBackendLoadScopeKey stays stable for patchable joint origin edits', () => {
   const baselineRobotData = createRobotData(0);
   const editedRobotData = createRobotData(0);
   // A joint *type* change is structural: detectJointPatches cannot patch it
   // in place, so it must invalidate the load scope and force a full rebuild.
   editedRobotData.joints.shoulder.type = JointType.PRISMATIC;
+
+  const firstKey = createRendererBackendLoadScopeKey({
+    sourceFile,
+    assets: {},
+    reloadToken: 0,
+    robotData: baselineRobotData,
+  });
+  const secondKey = createRendererBackendLoadScopeKey({
+    sourceFile,
+    assets: {},
+    reloadToken: 0,
+    robotData: editedRobotData,
+  });
+
+  assert.equal(secondKey, firstKey);
+});
+
+test('createRendererBackendLoadScopeKey changes for structural robot edits', () => {
+  const baselineRobotData = createRobotData(0);
+  const editedRobotData = createRobotData(0);
+  editedRobotData.joints.shoulder.childLinkId = 'missing_child_link';
 
   const firstKey = createRendererBackendLoadScopeKey({
     sourceFile,

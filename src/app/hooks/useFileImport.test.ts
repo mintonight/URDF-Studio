@@ -503,7 +503,7 @@ test('useFileImport reports folder preparation state before handing off the firs
   }
 });
 
-test('useFileImport avoids preparation worker Blob round-trips for broad loose folder imports', async () => {
+test('useFileImport prepares broad loose folder imports through the worker', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const workerMock = installRobotImportWorkerMock();
@@ -538,7 +538,7 @@ test('useFileImport avoids preparation worker Blob round-trips for broad loose f
     const result = await rendered.hook.handleImport(importedFiles);
 
     assert.equal(result.status, 'completed');
-    assert.equal(workerMock.prepareRequestCount, 0);
+    assert.equal(workerMock.prepareRequestCount, 1);
     assert.equal(workerMock.resolveRequestCount, 0);
     assert.equal(loadCalls.length, 1);
     assert.equal(loadCalls[0]?.name, 'unitree_ros/robots/demo_description/urdf/demo.urdf');

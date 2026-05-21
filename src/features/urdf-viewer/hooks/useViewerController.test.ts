@@ -693,10 +693,11 @@ test('handleRuntimeJointAngleChange publishes live closed-loop preview compensat
     assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.42);
     assertAlmostEqual(runtimeRobot.joints.joint_b?.angle, 0.42);
 
-    assert.deepEqual(
-      useJointInteractionPreviewStore.getState().preview,
-      EMPTY_JOINT_INTERACTION_PREVIEW,
-    );
+    const preview = useJointInteractionPreviewStore.getState().preview;
+    assert.equal(preview.source, 'viewer');
+    assert.equal(preview.activeJointId, 'joint_a');
+    assertAlmostEqual(preview.jointAngles.joint_a, 0.42);
+    assertAlmostEqual(preview.jointAngles.joint_b, 0.42);
 
     await act(async () => {
       await getHook().handleJointChangeCommit('joint_a', 0.42);
@@ -955,6 +956,48 @@ test('tree-panel joint preview updates the runtime immediately and does not snap
 
     assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.62);
     assert.equal(refreshCount, 1);
+  } finally {
+    useJointInteractionPreviewStore.getState().clearPreview();
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('tree-panel joint preview shields runtime from stale external joint motion props', async () => {
+  const robotState = createSimpleRobotFixture();
+  const runtimeRobot = createRuntimeRobotFixture(robotState);
+  const { dom, root, getHook, rerender } = await mountControllerWithProps({
+    active: false,
+  });
+
+  try {
+    await act(async () => {
+      getHook().handleJointPanelRobotLoaded(runtimeRobot);
+    });
+
+    await act(async () => {
+      useJointInteractionPreviewStore.getState().publishPreview({
+        source: 'tree-panel',
+        dragSessionId: 'tree-test',
+        activeJointId: 'joint_a',
+        jointAngles: { joint_a: 0.62 },
+        jointQuaternions: {},
+        jointOrigins: {},
+      });
+      await nextAnimationFrame(dom);
+    });
+
+    assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.62);
+
+    await rerender({
+      active: false,
+      jointMotionState: { joint_a: { angle: 0 } },
+    });
+
+    assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.62);
+    assertAlmostEqual(getHook().jointPanelStore.getSnapshot().jointAngles.joint_a, 0.62);
   } finally {
     useJointInteractionPreviewStore.getState().clearPreview();
     await act(async () => {
@@ -1862,10 +1905,11 @@ test('handleJointAngleChange expands mimic-coupled joints before commit', async 
     assertAlmostEqual(runtimeRobot.joints.leader_joint?.angle, -0.1);
     assertAlmostEqual(runtimeRobot.joints.follower_joint?.angle, 0.3);
 
-    assert.deepEqual(
-      useJointInteractionPreviewStore.getState().preview,
-      EMPTY_JOINT_INTERACTION_PREVIEW,
-    );
+    const preview = useJointInteractionPreviewStore.getState().preview;
+    assert.equal(preview.source, 'viewer');
+    assert.equal(preview.activeJointId, 'follower_joint');
+    assertAlmostEqual(preview.jointAngles.leader_joint, -0.1);
+    assertAlmostEqual(preview.jointAngles.follower_joint, 0.3);
 
     await act(async () => {
       await getHook().handleJointChangeCommit('follower_joint', 0.3);

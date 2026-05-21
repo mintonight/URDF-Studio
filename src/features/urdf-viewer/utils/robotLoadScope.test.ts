@@ -83,6 +83,28 @@ test('createViewerRobotLoadInputSignature ignores transient joint motion for str
   assert.equal(baseline, moved);
 });
 
+test('createViewerRobotLoadInputSignature ignores patchable joint origin edits', () => {
+  const links = createLinks();
+  const baselineJoints = createJoints();
+  const editedJoints = createJoints();
+  editedJoints.shoulder_joint.origin.xyz.z = 0.4;
+
+  const baseline = createViewerRobotLoadInputSignature({
+    urdfContent: '<robot name="demo" />',
+    robotLinks: links,
+    robotJoints: baselineJoints,
+    hasStructuredRobotState: true,
+  });
+  const edited = createViewerRobotLoadInputSignature({
+    urdfContent: '<robot name="demo" />',
+    robotLinks: links,
+    robotJoints: editedJoints,
+    hasStructuredRobotState: true,
+  });
+
+  assert.equal(baseline, edited);
+});
+
 test('createViewerRobotLoadInputSignature detects structured geometry edits', () => {
   const joints = createJoints();
   const baselineLinks = createLinks();

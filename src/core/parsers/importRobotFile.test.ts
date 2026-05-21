@@ -10,6 +10,7 @@ import {
   createUsdPlaceholderRobotData,
   describeRobotImportFailure,
   resolveRobotFileData,
+  type RobotImportProgress,
 } from './importRobotFile';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
@@ -122,6 +123,103 @@ test('resolveRobotFileData stamps source format onto ready RobotData', () => {
   assert.equal(urdfResult.robotData.inspectionContext?.sourceFormat, 'urdf');
   assert.equal(sdfResult.robotData.inspectionContext?.sourceFormat, 'sdf');
   assert.equal(usdResult.robotData.inspectionContext?.sourceFormat, 'usd');
+});
+
+test('resolveRobotFileData reports indeterminate URDF parsing progress', () => {
+  const progressEvents: RobotImportProgress[] = [];
+  const result = resolveRobotFileData(
+    {
+      name: 'robots/demo.urdf',
+      content: `<?xml version="1.0"?><robot name="demo"><link name="base_link" /></robot>`,
+      format: 'urdf',
+    },
+    {},
+    (progress) => progressEvents.push(progress),
+  );
+
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(
+    progressEvents.map((progress) => ({
+      progressPercent: progress.progressPercent,
+      progressMode: progress.progressMode,
+      phase: progress.phase,
+      message: progress.message,
+    })),
+    [
+      {
+        progressPercent: 15,
+        progressMode: 'percent',
+        phase: 'resolving-source',
+        message: 'Resolving URDF source',
+      },
+      {
+        progressPercent: null,
+        progressMode: 'indeterminate',
+        phase: 'parsing-source',
+        message: 'Parsing URDF',
+      },
+      {
+        progressPercent: 100,
+        progressMode: 'percent',
+        phase: 'finalizing-import',
+        message: 'Finalizing robot document',
+      },
+    ],
+  );
+});
+
+test('resolveRobotFileData reports indeterminate MJCF parsing progress', () => {
+  const progressEvents: RobotImportProgress[] = [];
+  const file: RobotFile = {
+    name: 'robots/demo.xml',
+    content: `<mujoco model="demo_mjcf">
+  <worldbody>
+    <body name="base_link">
+      <geom type="box" size="0.1 0.1 0.1" />
+    </body>
+  </worldbody>
+</mujoco>`,
+    format: 'mjcf',
+  };
+  const result = resolveRobotFileData(file, { availableFiles: [file] }, (progress) =>
+    progressEvents.push(progress),
+  );
+
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(
+    progressEvents.map((progress) => ({
+      progressPercent: progress.progressPercent,
+      progressMode: progress.progressMode,
+      phase: progress.phase,
+      message: progress.message,
+    })),
+    [
+      {
+        progressPercent: 10,
+        progressMode: 'percent',
+        phase: 'resolving-source',
+        message: 'Resolving MJCF source',
+      },
+      {
+        progressPercent: 45,
+        progressMode: 'percent',
+        phase: 'checking-assets',
+        message: 'Checking MJCF external assets',
+      },
+      {
+        progressPercent: null,
+        progressMode: 'indeterminate',
+        phase: 'parsing-source',
+        message: 'Parsing MJCF',
+      },
+      {
+        progressPercent: 100,
+        progressMode: 'percent',
+        phase: 'finalizing-import',
+        message: 'Finalizing robot document',
+      },
+    ],
+  );
 });
 
 test('resolveRobotFileData syncs cached USD material colors back onto link visuals', () => {

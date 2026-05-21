@@ -28,6 +28,25 @@ const SOURCE_ONLY_MJCF_FRAGMENT_ROOTS = new Set([
   'worldbody',
 ]);
 
+const MJCF_FRAGMENT_CONTAINER_CHILDREN = new Set([
+  'actuator',
+  'compiler',
+  'contact',
+  'custom',
+  'default',
+  'deformable',
+  'equality',
+  'extension',
+  'keyframe',
+  'option',
+  'sensor',
+  'size',
+  'statistic',
+  'tendon',
+  'visual',
+  'worldbody',
+]);
+
 export function normalizeMJCFXmlForDomParsing(content: string): string {
   let normalized = content;
 
@@ -86,7 +105,9 @@ export function isSourceOnlyMJCFDocument(content: string): boolean {
   }
 
   if (rootTagName !== 'mujoco') {
-    return false;
+    return Array.from(doc.documentElement?.children ?? []).some((child) =>
+      MJCF_FRAGMENT_CONTAINER_CHILDREN.has(child.tagName.toLowerCase()),
+    );
   }
 
   return !doc.querySelector('worldbody');
@@ -100,4 +121,8 @@ export function isStandaloneMJCFDocument(content: string): boolean {
 
   const rootTagName = doc.documentElement?.tagName?.toLowerCase() ?? '';
   return rootTagName === 'mujoco' && Boolean(doc.querySelector('worldbody'));
+}
+
+export function looksLikeMJCFSourceDocument(content: string): boolean {
+  return isStandaloneMJCFDocument(content) || isSourceOnlyMJCFDocument(content);
 }

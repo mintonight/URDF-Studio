@@ -23,6 +23,8 @@ scripts/regression/*
 !scripts/regression/benchmark_import_pre_resolve.ts
 !scripts/regression/validate_gazebo_models_against_gazebo_truth.ts
 !scripts/regression/validate_gazebo_models_against_gazebo_truth.test.ts
+!scripts/regression/inspect_isaacsim_usd_stage.py
+!scripts/regression/validate_mujoco_all_exports.ts
 !scripts/mujoco/
 scripts/mujoco/*
 !scripts/mujoco/mjcf_compare.ts

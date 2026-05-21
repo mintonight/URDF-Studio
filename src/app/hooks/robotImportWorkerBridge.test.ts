@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
-import { resolveRobotFileData } from '@/core/parsers/importRobotFile';
+import { resolveRobotFileData, type RobotImportProgress } from '@/core/parsers/importRobotFile';
 import { GeometryType, type RobotFile } from '@/types';
 import type { RobotState } from '@/types';
 import type { RobotImportWorkerResponse } from '@/app/utils/robotImportWorker';
@@ -13,6 +13,11 @@ import {
   resolveRobotFileDataWithWorker,
 } from './robotImportWorkerBridge.ts';
 import { generateEditableRobotSource } from '@/app/utils/generateEditableRobotSource';
+import { buildPreResolvedImportContentSignature } from '@/app/utils/preResolvedImportSignature.ts';
+import {
+  clearPreResolvedRobotImportCache,
+  primePreResolvedRobotImports,
+} from '@/app/utils/preResolvedRobotImportCache.ts';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
@@ -99,7 +104,7 @@ test('robot import worker client forwards resolve progress events before complet
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
   });
-  const progressEvents: Array<{ progressPercent: number; message?: string | null }> = [];
+  const progressEvents: RobotImportProgress[] = [];
 
   const resultPromise = client.resolve(
     demoUrdfFile,
@@ -120,6 +125,8 @@ test('robot import worker client forwards resolve progress events before complet
     progress: {
       progressPercent: 35,
       message: 'Resolving URDF source',
+      progressMode: 'percent',
+      phase: 'resolving-source',
     },
   });
 
@@ -136,8 +143,48 @@ test('robot import worker client forwards resolve progress events before complet
     {
       progressPercent: 35,
       message: 'Resolving URDF source',
+      progressMode: 'percent',
+      phase: 'resolving-source',
     },
   ]);
+});
+
+test('resolveRobotFileDataWithWorker reports pre-resolved imports as finalizing percent progress', async () => {
+  clearPreResolvedRobotImportCache();
+  const cachedResult = resolveRobotFileData(demoUrdfFile);
+  primePreResolvedRobotImports([
+    {
+      fileName: demoUrdfFile.name,
+      format: demoUrdfFile.format,
+      contentSignature: buildPreResolvedImportContentSignature(demoUrdfFile.content),
+      result: cachedResult,
+    },
+  ]);
+  const progressEvents: RobotImportProgress[] = [];
+
+  try {
+    const result = await resolveRobotFileDataWithWorker(
+      demoUrdfFile,
+      {},
+      {
+        onProgress: (progress) => {
+          progressEvents.push(progress);
+        },
+      },
+    );
+
+    assert.equal(result.status, 'ready');
+    assert.deepEqual(progressEvents, [
+      {
+        progressPercent: 100,
+        message: 'Using cached robot document',
+        progressMode: 'percent',
+        phase: 'finalizing-import',
+      },
+    ]);
+  } finally {
+    clearPreResolvedRobotImportCache();
+  }
 });
 
 test('robot import worker client rejects after worker errors and marks worker unavailable', async () => {

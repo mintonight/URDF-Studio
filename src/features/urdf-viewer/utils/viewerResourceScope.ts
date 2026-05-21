@@ -26,6 +26,9 @@ const KNOWN_BUNDLE_SEGMENTS = new Set([
 ]);
 
 const DUPLICATE_FOLDER_SUFFIX_PATTERN = /^(.*?)(?: \((\d+)\))?$/;
+const GLOBAL_ASSET_INDEX_SCOPE_THRESHOLD = 2048;
+
+type AssetEntries = ReadonlyArray<readonly [string, string]>;
 
 function normalizeBundleSegment(segment: string): string {
   const normalized = String(segment || '')
@@ -147,10 +150,10 @@ function isTopLevelKnownBundleSource(path: string): boolean {
   return segments.length > 1 && isKnownBundleSegment(segments[0] || '');
 }
 
-function collectTopLevelKnownAssetDirectories(assets: Record<string, string>): Set<string> {
+function collectTopLevelKnownAssetDirectories(assetEntries: AssetEntries): Set<string> {
   const directories = new Set<string>();
 
-  Object.keys(assets).forEach((assetPath) => {
+  assetEntries.forEach(([assetPath]) => {
     const [topLevelSegment] = normalizePath(assetPath).split('/');
     if (!topLevelSegment || !isKnownBundleSegment(topLevelSegment)) {
       return;
@@ -335,17 +338,19 @@ function applyMjcfAssetDirectory(
 
 function collectMjcfReferencedScope(options: {
   assets: Record<string, string>;
+  assetEntries: AssetEntries;
   availableFiles: RobotFile[];
+  allowGlobalAssetIndex: boolean;
   sourceFile: Pick<RobotFile, 'name' | 'format' | 'content'>;
 }): {
   directAssetKeys: Set<string>;
   relevantDirectories: Set<string>;
 } {
-  const { assets, availableFiles, sourceFile } = options;
+  const { assets, assetEntries, availableFiles, allowGlobalAssetIndex, sourceFile } = options;
   const directAssetKeys = new Set<string>();
   const relevantDirectories = new Set<string>();
   const fileIndex = new Map<string, RobotFile>();
-  const assetKeysByUrl = buildAssetKeysByUrl(assets);
+  const assetKeysByUrl = buildAssetKeysByUrl(assetEntries);
   const pendingFiles: RobotFile[] = [];
   const visitedFiles = new Set<string>();
 
@@ -386,7 +391,15 @@ function collectMjcfReferencedScope(options: {
     }
 
     const compilerDirs = extractMjcfCompilerAssetDirectories(currentContent);
-    const currentAssetIndex = buildAssetIndex(assets, currentFileDirectory);
+    let currentAssetIndex: ReturnType<typeof buildAssetIndex> | null = null;
+    const getCurrentAssetIndex = () => {
+      if (!allowGlobalAssetIndex) {
+        return null;
+      }
+
+      currentAssetIndex ??= buildAssetIndex(assets, currentFileDirectory);
+      return currentAssetIndex;
+    };
 
     extractMjcfAssetFileRefs(currentContent).forEach((ref) => {
       const compilerScopedPath = applyMjcfAssetDirectory(ref, compilerDirs);
@@ -398,7 +411,12 @@ function collectMjcfReferencedScope(options: {
         return;
       }
 
-      collectMatchingAssetKeys(resolvedAssetPath, assets, currentFilePath).forEach((assetKey) => {
+      const matchedAssetKeys = collectMatchingAssetKeys(
+        resolvedAssetPath,
+        assetEntries,
+        currentFilePath,
+      );
+      matchedAssetKeys.forEach((assetKey) => {
         directAssetKeys.add(assetKey);
         const assetDirectory = getParentDirectory(assetKey);
         if (assetDirectory) {
@@ -406,11 +424,15 @@ function collectMjcfReferencedScope(options: {
         }
       });
 
-      const resolvedAssetUrl = findAssetByIndex(
-        resolvedAssetPath,
-        currentAssetIndex,
-        currentFileDirectory,
-      );
+      const resolvedAssetUrl =
+        matchedAssetKeys.size === 0
+          ? (() => {
+              const assetIndex = getCurrentAssetIndex();
+              return assetIndex
+                ? findAssetByIndex(resolvedAssetPath, assetIndex, currentFileDirectory)
+                : null;
+            })()
+          : null;
       if (resolvedAssetUrl) {
         (assetKeysByUrl.get(resolvedAssetUrl) || []).forEach((assetKey) => {
           directAssetKeys.add(assetKey);
@@ -454,7 +476,7 @@ export function buildViewerRobotLinksScopeSignature(
 
 function collectMatchingAssetKeys(
   meshPath: string,
-  assets: Record<string, string>,
+  assetEntries: AssetEntries,
   sourceFilePath?: string | null,
 ): Set<string> {
   const matches = new Set<string>();
@@ -473,7 +495,7 @@ function collectMatchingAssetKeys(
     .map((candidate) => normalizePath(candidate).toLowerCase())
     .filter(Boolean);
 
-  Object.keys(assets).forEach((assetPath) => {
+  assetEntries.forEach(([assetPath]) => {
     const normalizedAssetPath = normalizePath(assetPath);
     if (!normalizedAssetPath) {
       return;
@@ -490,10 +512,10 @@ function collectMatchingAssetKeys(
   return matches;
 }
 
-function buildAssetKeysByUrl(assets: Record<string, string>): Map<string, string[]> {
+function buildAssetKeysByUrl(assetEntries: AssetEntries): Map<string, string[]> {
   const keysByUrl = new Map<string, string[]>();
 
-  Object.entries(assets).forEach(([assetPath, assetUrl]) => {
+  assetEntries.forEach(([assetPath, assetUrl]) => {
     const normalizedAssetPath = normalizePath(assetPath);
     if (!normalizedAssetPath) {
       return;
@@ -529,6 +551,8 @@ function buildScopedAssets(options: {
     robotLinks,
     robotMaterials,
   } = options;
+  const assetEntries = Object.entries(assets);
+  const allowGlobalAssetIndex = assetEntries.length <= GLOBAL_ASSET_INDEX_SCOPE_THRESHOLD;
   const normalizedSourcePath = normalizePath(sourceFilePath || sourceFile?.name);
   const isUsdSource = sourceFile?.format === 'usd';
   const bundleDirectory = isUsdSource
@@ -542,7 +566,7 @@ function buildScopedAssets(options: {
     relevantDirectories.add(bundleDirectory);
   }
   if (shouldIncludeTopLevelKnownAssetDirectories) {
-    collectTopLevelKnownAssetDirectories(assets).forEach((directory) => {
+    collectTopLevelKnownAssetDirectories(assetEntries).forEach((directory) => {
       relevantDirectories.add(directory);
     });
   }
@@ -551,8 +575,16 @@ function buildScopedAssets(options: {
   const referencedMeshPaths = collectReferencedMeshPaths(robotLinks);
   const referencedTexturePaths = collectReferencedTexturePaths(robotLinks, robotMaterials);
   const sourceDirectory = getParentDirectory(normalizedSourcePath);
-  const assetIndex = buildAssetIndex(assets, sourceDirectory);
-  const assetKeysByUrl = buildAssetKeysByUrl(assets);
+  const assetKeysByUrl = buildAssetKeysByUrl(assetEntries);
+  let assetIndex: ReturnType<typeof buildAssetIndex> | null = null;
+  const getAssetIndex = () => {
+    if (!allowGlobalAssetIndex) {
+      return null;
+    }
+
+    assetIndex ??= buildAssetIndex(assets, sourceDirectory);
+    return assetIndex;
+  };
 
   if (sourceFile?.format === 'mesh' && normalizedSourcePath) {
     referencedMeshPaths.add(normalizedSourcePath);
@@ -561,7 +593,9 @@ function buildScopedAssets(options: {
   if (sourceFile?.format === 'mjcf') {
     const mjcfScope = collectMjcfReferencedScope({
       assets,
+      assetEntries,
       availableFiles,
+      allowGlobalAssetIndex,
       sourceFile,
     });
 
@@ -575,7 +609,8 @@ function buildScopedAssets(options: {
   }
 
   referencedMeshPaths.forEach((meshPath) => {
-    collectMatchingAssetKeys(meshPath, assets, normalizedSourcePath).forEach((assetKey) => {
+    const matchedAssetKeys = collectMatchingAssetKeys(meshPath, assetEntries, normalizedSourcePath);
+    matchedAssetKeys.forEach((assetKey) => {
       directAssetKeys.add(assetKey);
       const assetDirectory = getParentDirectory(assetKey);
       if (assetDirectory) {
@@ -583,7 +618,15 @@ function buildScopedAssets(options: {
       }
     });
 
-    const resolvedAssetUrl = findAssetByIndex(meshPath, assetIndex, sourceDirectory);
+    const resolvedAssetUrl =
+      matchedAssetKeys.size === 0
+        ? (() => {
+            const scopedAssetIndex = getAssetIndex();
+            return scopedAssetIndex
+              ? findAssetByIndex(meshPath, scopedAssetIndex, sourceDirectory)
+              : null;
+          })()
+        : null;
     if (resolvedAssetUrl) {
       (assetKeysByUrl.get(resolvedAssetUrl) || []).forEach((assetKey) => {
         directAssetKeys.add(assetKey);
@@ -602,7 +645,12 @@ function buildScopedAssets(options: {
   });
 
   referencedTexturePaths.forEach((texturePath) => {
-    collectMatchingAssetKeys(texturePath, assets, normalizedSourcePath).forEach((assetKey) => {
+    const matchedAssetKeys = collectMatchingAssetKeys(
+      texturePath,
+      assetEntries,
+      normalizedSourcePath,
+    );
+    matchedAssetKeys.forEach((assetKey) => {
       directAssetKeys.add(assetKey);
       const assetDirectory = getParentDirectory(assetKey);
       if (assetDirectory) {
@@ -610,7 +658,15 @@ function buildScopedAssets(options: {
       }
     });
 
-    const resolvedAssetUrl = findAssetByIndex(texturePath, assetIndex, sourceDirectory);
+    const resolvedAssetUrl =
+      matchedAssetKeys.size === 0
+        ? (() => {
+            const scopedAssetIndex = getAssetIndex();
+            return scopedAssetIndex
+              ? findAssetByIndex(texturePath, scopedAssetIndex, sourceDirectory)
+              : null;
+          })()
+        : null;
     if (resolvedAssetUrl) {
       (assetKeysByUrl.get(resolvedAssetUrl) || []).forEach((assetKey) => {
         directAssetKeys.add(assetKey);
@@ -622,7 +678,7 @@ function buildScopedAssets(options: {
     }
   });
 
-  const scopedEntries = Object.entries(assets).filter(([assetPath]) => {
+  const scopedEntries = assetEntries.filter(([assetPath]) => {
     const normalizedAssetPath = normalizePath(assetPath);
     if (!normalizedAssetPath) {
       return false;

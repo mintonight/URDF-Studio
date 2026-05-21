@@ -36,6 +36,24 @@ test('isStandaloneMJCFDocument rejects mujocoinclude fragments', () => {
   dom.window.close();
 });
 
+test('isSourceOnlyMJCFDocument accepts custom-root include fragments', () => {
+  const dom = installDomParser();
+  const fragment = `<panda>
+  <asset>
+    <mesh name="body" file="body.stl" />
+  </asset>
+  <worldbody>
+    <body name="base">
+      <geom type="mesh" mesh="body" />
+    </body>
+  </worldbody>
+</panda>`;
+
+  assert.equal(isSourceOnlyMJCFDocument(fragment), true);
+  assert.equal(isStandaloneMJCFDocument(fragment), false);
+  dom.window.close();
+});
+
 test('isStandaloneMJCFDocument rejects worldbody-free mujoco documents', () => {
   const dom = installDomParser();
   const fragment = `<mujoco model="demo">
