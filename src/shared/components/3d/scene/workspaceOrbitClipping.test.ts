@@ -36,7 +36,7 @@ test('syncWorkspacePerspectiveClipPlanes tightens perspective clip planes for cl
 
   assert.equal(camera.near, expectedNear);
   assert.equal(camera.far, expectedFar);
-  assert.ok(camera.near < 0.01, 'expected near plane to stay conservative for close zooms');
+  assert.ok(camera.near <= 0.01, 'expected near plane to stay conservative for close zooms');
 });
 
 test('syncWorkspacePerspectiveClipPlanes keeps shallow zoom depth ranges tight', () => {

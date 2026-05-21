@@ -24,7 +24,8 @@ interface ObjParseWorkerPoolClient {
   load: (assetUrl: string) => Promise<SerializedObjModelData>;
 }
 
-const DEFAULT_CACHE_LIMIT = 24;
+const DEFAULT_CACHE_LIMIT = 300;
+const FAILURE_CACHE_LIMIT = 200;
 
 async function loadSerializedObjModelDataInline(assetUrl: string): Promise<SerializedObjModelData> {
   const response = await fetch(assetUrl);
@@ -55,11 +56,24 @@ export function createObjParseWorkerPoolClient({
   });
 
   const pendingLoads = new Map<string, Promise<SerializedObjModelData>>();
+  const failureCache = new Map<string, unknown>();
+
+  const rememberFailure = (assetUrl: string, error: unknown): void => {
+    if (failureCache.size >= FAILURE_CACHE_LIMIT) {
+      const oldestKey = failureCache.keys().next().value;
+      if (oldestKey !== undefined) failureCache.delete(oldestKey);
+    }
+    failureCache.set(assetUrl, error);
+  };
 
   const load = async (assetUrl: string): Promise<SerializedObjModelData> => {
     const cachedResult = client.getCached(assetUrl);
     if (cachedResult) {
       return cachedResult;
+    }
+
+    if (failureCache.has(assetUrl)) {
+      throw failureCache.get(assetUrl);
     }
 
     const pendingLoad = pendingLoads.get(assetUrl);
@@ -76,6 +90,10 @@ export function createObjParseWorkerPoolClient({
         client.setCached(assetUrl, result);
         return result;
       })
+      .catch((error) => {
+        rememberFailure(assetUrl, error);
+        throw error;
+      })
       .finally(() => {
         pendingLoads.delete(assetUrl);
       });
@@ -85,7 +103,10 @@ export function createObjParseWorkerPoolClient({
   };
 
   return {
-    clearCache: () => client.clearCache(),
+    clearCache: () => {
+      client.clearCache();
+      failureCache.clear();
+    },
     dispose: (rejectPendingWith) => client.dispose(rejectPendingWith),
     load,
   };

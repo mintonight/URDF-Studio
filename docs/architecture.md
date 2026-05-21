@@ -3,19 +3,14 @@
 > 最后更新：2026-04-15 | 覆盖源码：`src/` 全局
 > 交叉引用：[viewer.md](viewer.md)、[file-io.md](file-io.md)、[robot-canvas-lib.md](robot-canvas-lib.md)
 
-## 1. 依赖方向
+## 1. 依赖方向（补充）
 
-```text
-app -> features -> store -> shared -> core -> types
-```
+依赖图与基本约束见 [CLAUDE.md](../CLAUDE.md) §架构红线与执行准则。此处补充逐层细化：
 
-按层约束：
 - `app`：编排 features/store/shared/core/types，不把业务细节反向塞回下层
 - `features`：依赖 store/shared/core/types，禁止依赖 app
 - `store` / `shared`：不应新增对 features 的运行时依赖
-- `core`：纯函数，不引入 React / UI / Feature 依赖
 - `types`：只提供类型与常量，不回指上层
-- 使用 `@/` 路径别名指向 `src/`
 
 ## 2. lib / packages 约束
 
@@ -121,8 +116,3 @@ rg -n "#[0-9A-Fa-f]{3,8}" src
 rg -n "#0088FF|#0088ff" src | rg -v "Slider.tsx|styles/index.css"
 ```
 
-## 11. 推荐后续 cleanup
-
-1. 把 inspection-report criteria/config 移到中性 shared 位置
-2. 移除 `ai-assistant <-> file-io` 双向依赖
-3. 继续把 App.tsx / AppLayout.tsx 中的编排逻辑推入 app hooks

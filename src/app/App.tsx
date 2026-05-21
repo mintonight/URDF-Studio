@@ -557,7 +557,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
           loadedCount: null,
           totalCount: null,
         });
-        showToast(t.xacroSourceOnlyPreviewHint, 'info');
+        console.info(`[urdf-studio] ${t.xacroSourceOnlyPreviewHint}`);
         return;
       }
 
@@ -629,7 +629,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         const message = t.importPackageAssetBundleHint
           .replace('{packages}', assetLabel)
           .replace('{assets}', assetLabel);
-        showToast(message, 'info');
+        console.warn(`[urdf-studio] ${message}`);
         if (!canProceedWithStandaloneImportAssetWarning(file)) {
           setDocumentLoadState({
             status: 'error',
@@ -892,10 +892,9 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       return;
     }
 
-    const regressionDebugEnabled =
-      import.meta.env.DEV ||
-      new URLSearchParams(window.location.search).get('regressionDebug') === '1';
-    if (!regressionDebugEnabled) {
+    // Guard with compile-time-replaceable env flags so Vite can dead-code-eliminate
+    // the regressionBridge import (and the __URDF_STUDIO_DEBUG__ global) from prod builds.
+    if (!import.meta.env.DEV && !import.meta.env.VITE_E2E) {
       return;
     }
 

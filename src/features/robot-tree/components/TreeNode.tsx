@@ -5,11 +5,7 @@ import { getCollisionGeometryByObjectIndex, isTransparentDisplayLink } from '@/c
 import { useRobotStore } from '@/store';
 import { type Selection, useSelectionStore } from '@/store/selectionStore';
 import { GeometryType, type AppMode, type RobotState } from '@/types';
-import {
-  buildParentLinkByChild,
-  isLinkInSelectionBranch,
-  resolveTreeSelectionIdentity,
-} from '@/features/robot-tree/utils/treeSelectionScope';
+import { resolveTreeSelectionIdentity } from '@/features/robot-tree/utils/treeSelectionScope';
 import { getMjcfLinkDisplayName } from '@/shared/utils/robot/mjcfDisplayNames';
 import { TreeNodeContextMenu } from './tree-node/TreeNodeContextMenu';
 import { TreeNodeGeometrySection } from './tree-node/TreeNodeGeometrySection';
@@ -119,7 +115,27 @@ export const TreeNode = memo(
         return links;
       }),
     );
-    const storeSelection = useSelectionStore((state) => state.selection);
+    // Merge selection-store subscriptions into a single useShallow read so each
+    // TreeNode only re-renders when the underlying selection primitives change.
+    // Filtering ("is this node hovered/attended?") happens downstream in useMemo
+    // to keep the selector itself referentially stable.
+    const {
+      storeSelection,
+      rawHoveredSelection,
+      rawAttentionSelection,
+      setHoveredSelection,
+      clearHover,
+      setSelection,
+    } = useSelectionStore(
+      useShallow((state) => ({
+        storeSelection: state.selection,
+        rawHoveredSelection: state.hoveredSelection,
+        rawAttentionSelection: state.attentionSelection,
+        setHoveredSelection: state.setHoveredSelection,
+        clearHover: state.clearHover,
+        setSelection: state.setSelection,
+      })),
+    );
     const link = storeDriven ? storeLink : robot?.links[linkId];
     const childJoints = storeDriven
       ? storeChildJoints
@@ -163,41 +179,41 @@ export const TreeNode = memo(
       () => resolveTreeSelectionIdentity(storeSelection, selectionRobotContext),
       [selectionRobotContext, storeSelection],
     );
-    const setHoveredSelection = useSelectionStore((state) => state.setHoveredSelection);
-    const clearHover = useSelectionStore((state) => state.clearHover);
-    const setSelection = useSelectionStore((state) => state.setSelection);
-    const hoveredSelection = useSelectionStore((state) => {
+    // Filter the raw hovered/attention selections down to this node. Reuses the
+    // shared `EMPTY_TREE_SELECTION` singleton so non-matching nodes return a
+    // stable reference and skip downstream re-renders.
+    const hoveredSelection = useMemo<Selection>(() => {
       if (readOnly) {
         return EMPTY_TREE_SELECTION;
       }
-
-      const hovered = state.hoveredSelection;
-      if (hovered.type === 'link' && hovered.id === linkId) {
-        return hovered;
+      if (rawHoveredSelection.type === 'link' && rawHoveredSelection.id === linkId) {
+        return rawHoveredSelection;
       }
-
-      if (hovered.type === 'joint' && hovered.id && childJointIds.has(hovered.id)) {
-        return hovered;
+      if (
+        rawHoveredSelection.type === 'joint' &&
+        rawHoveredSelection.id &&
+        childJointIds.has(rawHoveredSelection.id)
+      ) {
+        return rawHoveredSelection;
       }
-
       return EMPTY_TREE_SELECTION;
-    });
-    const attentionSelection = useSelectionStore((state) => {
+    }, [childJointIds, linkId, rawHoveredSelection, readOnly]);
+    const attentionSelection = useMemo<Selection>(() => {
       if (readOnly) {
         return EMPTY_TREE_SELECTION;
       }
-
-      const attention = state.attentionSelection;
-      if (attention.type === 'link' && attention.id === linkId) {
-        return attention;
+      if (rawAttentionSelection.type === 'link' && rawAttentionSelection.id === linkId) {
+        return rawAttentionSelection;
       }
-
-      if (attention.type === 'joint' && attention.id && childJointIds.has(attention.id)) {
-        return attention;
+      if (
+        rawAttentionSelection.type === 'joint' &&
+        rawAttentionSelection.id &&
+        childJointIds.has(rawAttentionSelection.id)
+      ) {
+        return rawAttentionSelection;
       }
-
       return EMPTY_TREE_SELECTION;
-    });
+    }, [childJointIds, linkId, rawAttentionSelection, readOnly]);
     const effectiveHoveredSelection = useMemo(
       () => resolveTreeSelectionIdentity(hoveredSelection, selectionRobotContext),
       [hoveredSelection, selectionRobotContext],
@@ -206,25 +222,12 @@ export const TreeNode = memo(
       () => resolveTreeSelectionIdentity(attentionSelection, selectionRobotContext),
       [attentionSelection, selectionRobotContext],
     );
-    const hasJointAttentionSelection = useSelectionStore(
-      (state) =>
-        !readOnly &&
-        state.attentionSelection.type === 'joint' &&
-        Boolean(state.attentionSelection.id),
-    );
-    const storeSelectionInBranch = useRobotStore((state) =>
-      storeDriven
-        ? isLinkInSelectionBranch(
-            linkId,
-            resolveTreeSelectionIdentity(effectiveSelection, {
-              links: state.links as RobotState['links'],
-              joints: state.joints as RobotState['joints'],
-            }),
-            state.joints as RobotState['joints'],
-            buildParentLinkByChild(state.joints as RobotState['joints']),
-          )
-        : false,
-    );
+    // Derive joint-attention flag from the already-subscribed raw attention
+    // selection instead of re-subscribing to the store.
+    const hasJointAttentionSelection =
+      !readOnly &&
+      rawAttentionSelection.type === 'joint' &&
+      Boolean(rawAttentionSelection.id);
     const storeIsTransparentLink = useRobotStore((state) =>
       storeDriven ? isTransparentDisplayLink(state as unknown as RobotState, linkId) : false,
     );
@@ -343,9 +346,11 @@ export const TreeNode = memo(
         hasSelectedExtraCollision:
           isLinkSelected && robotSelection.subType === 'collision' && hasSelectedExtraCollision,
       });
-    const selectionInBranch = storeDriven
-      ? storeSelectionInBranch
-      : (selectionBranchLinkIds?.has(linkId) ?? false);
+    // Selection-branch membership is computed once at the TreeEditor level and
+    // threaded down via prop. This used to be a per-node store subscription
+    // that rebuilt the full parent map per render (O(N) per node, O(N^2)
+    // overall) — the prop-driven path keeps the cost linear.
+    const selectionInBranch = selectionBranchLinkIds?.has(linkId) ?? false;
     const contextMenuLink =
       contextMenu?.target.type === 'link' && contextMenu.target.id === linkId ? link : null;
     const contextMenuHasVisual = Boolean(
@@ -540,7 +545,7 @@ export const TreeNode = memo(
               robot={storeDriven ? undefined : robot}
               showGeometryDetailsByDefault={showGeometryDetailsByDefault}
               childJointsByParent={storeDriven ? undefined : childJointsByParent}
-              selectionBranchLinkIds={storeDriven ? undefined : selectionBranchLinkIds}
+              selectionBranchLinkIds={selectionBranchLinkIds}
               onSelect={onSelect}
               onSelectGeometry={onSelectGeometry}
               onFocus={onFocus}
@@ -677,7 +682,7 @@ export const TreeNode = memo(
                     robot={storeDriven ? undefined : robot}
                     showGeometryDetailsByDefault={showGeometryDetailsByDefault}
                     childJointsByParent={storeDriven ? undefined : childJointsByParent}
-                    selectionBranchLinkIds={storeDriven ? undefined : selectionBranchLinkIds}
+                    selectionBranchLinkIds={selectionBranchLinkIds}
                     onSelect={onSelect}
                     onSelectGeometry={onSelectGeometry}
                     onFocus={onFocus}

@@ -744,11 +744,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
                 .replace('{packages}', assetLabel)
                 .replace('{assets}', assetLabel);
 
-              if (onShowToast) {
-                onShowToast(warningMessage, 'info');
-              } else {
-                alert(warningMessage);
-              }
+              console.warn(`[urdf-studio] ${warningMessage}`);
             }
 
             if (!standaloneImportAssetWarning && primitiveGeometryHint) {
@@ -759,11 +755,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
                   : primitiveGeometryHint.siblingMeshAssetPaths.join(', ');
               const warningMessage = t.importPrimitiveGeometryHint.replace('{assets}', assetLabel);
 
-              if (onShowToast) {
-                onShowToast(warningMessage, 'info');
-              } else {
-                alert(warningMessage);
-              }
+              console.warn(`[urdf-studio] ${warningMessage}`);
             }
 
             if (!standaloneImportAssetWarning || canProceedDespiteStandaloneAssetWarning) {

@@ -4,8 +4,11 @@ export const DEFAULT_WORKSPACE_ORBIT_CLIPPING = {
   minDistance: 0.002,
   // Keep the perspective depth range tighter so dense shells do not start
   // z-fighting and leaking bright internals at medium/far zoom levels.
+  // Paired with renderer-level logarithmicDepthBuffer, a 0.01 minimum near
+  // caps the near/far ratio at ~2000 so closely-stacked MJCF inner geoms
+  // (e.g. apptronik_apollo battery_mount inside torso_link shell) stay stable.
   nearFactor: 0.01,
-  minNear: 0.001,
+  minNear: 0.01,
   maxNear: 0.25,
   farFactor: 140,
   minFar: 20,

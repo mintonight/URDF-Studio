@@ -30,12 +30,12 @@ export interface StandaloneImportAssetReferenceOptions {
 }
 
 export function canProceedWithStandaloneImportAssetWarning(
-  source: Pick<PackageAssetReferenceSource, 'format'> | null,
+  _source: Pick<PackageAssetReferenceSource, 'format'> | null,
 ): boolean {
-  // URDF imports can still render a usable scene with placeholder visual
-  // meshes when package-backed assets are missing, so keep loading after the
-  // warning instead of treating it as a hard stop.
-  return source?.format === 'urdf';
+  // Render whatever the source describes: missing meshes fall back to
+  // placeholders and missing textures fall back to default materials, so a
+  // partial asset bundle should never hard-stop the import.
+  return true;
 }
 
 export function collectStandaloneImportSupportAssetPaths(

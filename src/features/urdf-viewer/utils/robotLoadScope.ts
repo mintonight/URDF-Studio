@@ -82,22 +82,6 @@ function stripPatchableRuntimeStateFromLinks(
   );
 }
 
-function stripPatchableRuntimeStateFromJoint(joint: UrdfJoint): UrdfJoint {
-  const { origin: _origin, ...restJoint } = stripTransientJointMotionFromJoint(joint);
-  return restJoint as UrdfJoint;
-}
-
-function stripPatchableRuntimeStateFromJoints(
-  joints: Record<string, UrdfJoint>,
-): Record<string, UrdfJoint> {
-  return Object.fromEntries(
-    Object.entries(joints).map(([jointId, joint]) => [
-      jointId,
-      stripPatchableRuntimeStateFromJoint(joint),
-    ]),
-  );
-}
-
 export function createViewerRobotLoadInputSignature({
   urdfContent,
   hasStructuredRobotState,

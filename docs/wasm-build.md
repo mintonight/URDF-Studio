@@ -21,51 +21,11 @@ urdf-studio/
 
 ## 前置条件
 
-### 1. Emscripten SDK
+需要：Emscripten SDK、Python 3、**CMake ≥ 3.24**、Binaryen（`wasm-opt`）。
 
-```bash
-# 克隆并安装 EMSDK
-git clone https://github.com/emscripten-core/emsdk.git ~/.localdeps/emsdk
-cd ~/.localdeps/emsdk
-./emsdk install latest
-./emsdk activate latest
-source ./emsdk_env.sh
-```
+安装步骤见 [scripts/wasm/README.md](../scripts/wasm/README.md)。
 
-### 2. 其他依赖
-
-```bash
-# Python 3
-python3 --version
-
-# CMake 3.24+ (重要：需要 3.24+ 才能编译 OpenUSD)
-cmake --version  # 检查版本
-
-# Binaryen (wasm-opt)
-# Ubuntu/Debian
-sudo apt install binaryen
-# macOS
-brew install binaryen
-```
-
-### 3. CMake 版本升级（如果 < 3.24）
-
-如果系统的 CMake 版本低于 3.24，需要手动安装：
-
-```bash
-# Ubuntu/Debian
-wget https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-linux-x86_64.sh
-sudo sh cmake-3.28.3-linux-x86_64.sh --prefix=/usr/local --skip-license
-
-# 或者添加 Kitware APT 源（推荐）
-sudo apt install -y wget gpg
-wget -qO- https://apt.kitware.com/keys/kitware-archive-latest.asc | sudo gpg --dearmor -o /usr/share/keyrings/kitware-archive-keyring.gpg
-echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ jammy main' | sudo tee /etc/apt/sources.list.d/kitware.list >/dev/null
-sudo apt update
-sudo apt install cmake
-```
-
-**注意**：OpenUSD 声明需要 CMake 3.14+，但实际上需要 3.24+ 才能正确编译（使用了 `LINK_LIBRARY` generator expression）。
+**CMake 版本陷阱**：OpenUSD 声明 3.14+ 即可，但实际需要 3.24+（用了 `LINK_LIBRARY` generator expression）；低于 3.24 会在配置阶段失败，见下文「故障排查」。
 
 ## 快速开始
 
@@ -142,34 +102,14 @@ Error evaluating generator expression:
   Expression did not evaluate to a known generator expression
 ```
 
-**原因**：CMake 版本太老，OpenUSD 需要 3.24+
+**原因**：CMake 版本太老，OpenUSD 需要 3.24+。升级 CMake（步骤见 `scripts/wasm/README.md`）。
 
-**解决**：升级 CMake 到 3.24+，见上方"依赖"章节。
+### 前置条件未生效（emcc / wasm-opt 缺失、找不到 OpenUSD 脚本）
 
-### 缺少 emcc 命令
-
-```bash
-# 确认 emscripten 环境已激活
-source ~/.localdeps/emsdk/emsdk_env.sh
-emcc --version
-```
-
-### 构建失败：找不到 OpenUSD 脚本
-
-```bash
-# 检查源码路径
-ls -la third_party/OpenUSD/build_scripts/build_usd.py
-```
-
-### wasm-opt 缺失
-
-```bash
-# Ubuntu/Debian
-sudo apt install binaryen
-
-# macOS
-brew install binaryen
-```
+按顺序检查：
+1. `source ~/.localdeps/emsdk/emsdk_env.sh` 是否已执行 → `emcc --version`
+2. `wasm-opt --version` → 缺失时 `apt install binaryen` / `brew install binaryen`
+3. `ls third_party/OpenUSD/build_scripts/build_usd.py` 确认源码路径
 
 ### 编译时间过长
 

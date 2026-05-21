@@ -1,4 +1,4 @@
-import { useCallback, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { resolveLinkKey } from '@/core/robot';
 import { useSelectionStore, useUIStore } from '@/store';
 import type { DetailLinkTab, InteractionSelection, RobotState } from '@/types';
@@ -316,15 +316,39 @@ export function useViewerOrchestration({
     [transformPendingRef],
   );
 
-  const handleHover = useCallback(
-    (
-      type: InteractionSelection['type'],
-      id: string | null,
-      subType?: 'visual' | 'collision',
-      objectIndex?: number,
-      helperKind?: ViewerHelperKind,
-      highlightObjectId?: number,
-    ) => {
+  // rAF-coalesced hover dispatch: the leading call goes through synchronously,
+  // subsequent calls within one frame are queued and the latest one fires on
+  // the next animation frame. Pointer move events come in at ~60Hz but only
+  // the final hover target per frame meaningfully changes downstream subscribers
+  // (TreeNode highlight, viewer outline, PropertyEditor focus); collapsing
+  // mid-sweep boundary crossings into one update per frame drops the redundant
+  // store-wide notifications.
+  type HoverArgs = [
+    InteractionSelection['type'],
+    string | null,
+    ('visual' | 'collision')?,
+    number?,
+    ViewerHelperKind?,
+    number?,
+  ];
+
+  const lastHoverDispatchTimeRef = useRef(0);
+  const pendingHoverArgsRef = useRef<HoverArgs | null>(null);
+  const hoverRafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (hoverRafRef.current !== null && typeof window !== 'undefined') {
+        window.cancelAnimationFrame(hoverRafRef.current);
+        hoverRafRef.current = null;
+      }
+      pendingHoverArgsRef.current = null;
+    };
+  }, []);
+
+  const dispatchHoverNow = useCallback(
+    (args: HoverArgs) => {
+      const [type, id, subType, objectIndex, helperKind, highlightObjectId] = args;
       const current = useSelectionStore.getState().hoveredSelection;
       const selected = useSelectionStore.getState().selection;
 
@@ -359,6 +383,43 @@ export function useViewerOrchestration({
       setHoveredSelection(nextSelection);
     },
     [isInteractionAllowed, setHoveredSelection],
+  );
+
+  const handleHover = useCallback(
+    (
+      type: InteractionSelection['type'],
+      id: string | null,
+      subType?: 'visual' | 'collision',
+      objectIndex?: number,
+      helperKind?: ViewerHelperKind,
+      highlightObjectId?: number,
+    ) => {
+      const args: HoverArgs = [type, id, subType, objectIndex, helperKind, highlightObjectId];
+
+      if (typeof window === 'undefined') {
+        dispatchHoverNow(args);
+        return;
+      }
+
+      const now = performance.now();
+      if (hoverRafRef.current === null && now - lastHoverDispatchTimeRef.current >= 16) {
+        lastHoverDispatchTimeRef.current = now;
+        dispatchHoverNow(args);
+        return;
+      }
+
+      pendingHoverArgsRef.current = args;
+      if (hoverRafRef.current !== null) return;
+      hoverRafRef.current = window.requestAnimationFrame(() => {
+        hoverRafRef.current = null;
+        const queued = pendingHoverArgsRef.current;
+        pendingHoverArgsRef.current = null;
+        if (!queued) return;
+        lastHoverDispatchTimeRef.current = performance.now();
+        dispatchHoverNow(queued);
+      });
+    },
+    [dispatchHoverNow],
   );
 
   const handleFocus = useCallback(

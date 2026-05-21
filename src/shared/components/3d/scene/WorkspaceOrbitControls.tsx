@@ -1,9 +1,7 @@
-import { useFrame, useThree } from '@react-three/fiber';
+import { useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
-import { useCallback, useEffect, useRef } from 'react';
-import * as THREE from 'three';
+import { useEffect, useRef } from 'react';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
-import { computeVisibleMeshBounds } from '@/shared/utils/threeBounds';
 import {
   DEFAULT_WORKSPACE_ORBIT_CLIPPING,
   syncWorkspacePerspectiveClipPlanes,
@@ -12,6 +10,7 @@ import {
   resolveWorkspaceOrbitPanSpeed,
   resolveWorkspaceOrbitZoomSpeed,
 } from './workspaceOrbitPan';
+import { useSceneBoundsCache } from './useSceneBoundsCache';
 import {
   applyWorkspaceCameraSnapshot,
   type WorkspaceCameraSnapshot,
@@ -57,21 +56,8 @@ export function WorkspaceOrbitControls({
   initialCameraSnapshot = null,
 }: WorkspaceOrbitControlsProps) {
   const camera = useThree((state) => state.camera);
-  const scene = useThree((state) => state.scene);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
-  const clipSceneBoundsRef = useRef<THREE.Box3 | null | undefined>(undefined);
-  const panSceneBoundsRef = useRef<THREE.Box3 | null | undefined>(undefined);
-
-  const refreshSceneBounds = useCallback(() => {
-    clipSceneBoundsRef.current = computeVisibleMeshBounds(scene, {
-      includeGroundPlaneHelpers: true,
-    });
-    panSceneBoundsRef.current = computeVisibleMeshBounds(scene);
-  }, [scene]);
-
-  useEffect(() => {
-    refreshSceneBounds();
-  }, [refreshSceneBounds]);
+  const { getClipBounds, getPanBounds, invalidate: invalidateSceneBounds } = useSceneBoundsCache();
 
   useEffect(() => {
     if (!controlsRef.current) {
@@ -81,45 +67,63 @@ export function WorkspaceOrbitControls({
     applyWorkspaceCameraSnapshot(camera, controlsRef.current, initialCameraSnapshot);
   }, [camera, initialCameraSnapshot]);
 
-  useFrame(() => {
-    if (!controlsRef.current) {
+  // Sync clip planes + pan/zoom speed on every controls 'change' event
+  // (rotate / pan / zoom / damping ticks / programmatic controls.update())
+  // instead of every demanded frame. The clip planes also need a one-shot
+  // sync at mount so the very first rendered frame uses correct near/far
+  // (otherwise dense robot geometry can clip away until the user moves the
+  // camera).
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) {
       return;
     }
 
-    if (clipSceneBoundsRef.current === undefined || panSceneBoundsRef.current === undefined) {
-      refreshSceneBounds();
-    }
+    const syncControls = () => {
+      const clipBounds = getClipBounds();
+      const panBounds = getPanBounds();
 
-    // `zoomToCursor` can place the camera very close to one surface while the
-    // orbit target remains deeper in the model. Keep the near plane
-    // conservative so dense robot geometry does not clip away while zooming.
-    syncWorkspacePerspectiveClipPlanes(camera, controlsRef.current, {
-      minDistance,
-      sceneBounds: clipSceneBoundsRef.current,
-    });
+      // `zoomToCursor` can place the camera very close to one surface while
+      // the orbit target remains deeper in the model. Keep the near plane
+      // conservative so dense robot geometry does not clip away while
+      // zooming.
+      syncWorkspacePerspectiveClipPlanes(camera, controls, {
+        minDistance,
+        sceneBounds: clipBounds,
+      });
 
-    const resolvedPanSpeed = resolveWorkspaceOrbitPanSpeed({
-      basePanSpeed: panSpeed,
-      camera,
-      target: controlsRef.current.target,
-      sceneBounds: panSceneBoundsRef.current,
-      minDistance,
-    });
-    if (Math.abs(controlsRef.current.panSpeed - resolvedPanSpeed) > 1e-4) {
-      controlsRef.current.panSpeed = resolvedPanSpeed;
-    }
+      const resolvedPanSpeed = resolveWorkspaceOrbitPanSpeed({
+        basePanSpeed: panSpeed,
+        camera,
+        target: controls.target,
+        sceneBounds: panBounds,
+        minDistance,
+      });
+      if (Math.abs(controls.panSpeed - resolvedPanSpeed) > 1e-4) {
+        controls.panSpeed = resolvedPanSpeed;
+      }
 
-    const resolvedZoomSpeed = resolveWorkspaceOrbitZoomSpeed({
-      baseZoomSpeed: zoomSpeed,
-      camera,
-      target: controlsRef.current.target,
-      sceneBounds: panSceneBoundsRef.current,
-      minDistance,
-    });
-    if (Math.abs(controlsRef.current.zoomSpeed - resolvedZoomSpeed) > 1e-4) {
-      controlsRef.current.zoomSpeed = resolvedZoomSpeed;
-    }
-  });
+      const resolvedZoomSpeed = resolveWorkspaceOrbitZoomSpeed({
+        baseZoomSpeed: zoomSpeed,
+        camera,
+        target: controls.target,
+        sceneBounds: panBounds,
+        minDistance,
+      });
+      if (Math.abs(controls.zoomSpeed - resolvedZoomSpeed) > 1e-4) {
+        controls.zoomSpeed = resolvedZoomSpeed;
+      }
+    };
+
+    // One-shot sync at mount + whenever any of the tuning inputs change so
+    // the very first frame already has correct near/far + speed scaling.
+    syncControls();
+
+    controls.addEventListener('change', syncControls);
+    return () => {
+      controls.removeEventListener('change', syncControls);
+    };
+  }, [camera, getClipBounds, getPanBounds, minDistance, panSpeed, zoomSpeed]);
 
   return (
     <OrbitControls
@@ -135,7 +139,10 @@ export function WorkspaceOrbitControls({
       minDistance={minDistance}
       maxDistance={maxDistance}
       onStart={() => {
-        refreshSceneBounds();
+        // Refresh bounds before a user interaction so any drift since the
+        // last compute (e.g. programmatic joint motion that did not mutate
+        // the scene tree) is rebuilt before pan/zoom tuning is evaluated.
+        invalidateSceneBounds();
         onStart?.();
       }}
       onEnd={onEnd}

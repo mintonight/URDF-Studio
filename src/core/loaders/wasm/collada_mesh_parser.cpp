@@ -329,24 +329,76 @@ std::string makeString(const char* start, const char* end) {
   return start < end ? std::string(start, end) : std::string();
 }
 
+// Skip over an XML comment block (<!-- ... -->) or CDATA section
+// (<![CDATA[ ... ]]>) starting at `cursor`. Returns the position right
+// after the comment/CDATA end marker, or `cursor` unchanged if the input
+// at `cursor` is not the start of one of these blocks.
+const char* skipXmlCommentOrCdata(const char* cursor, const char* end) {
+  if (cursor + 4 <= end && cursor[0] == '<' && cursor[1] == '!' &&
+      cursor[2] == '-' && cursor[3] == '-') {
+    const char* probe = cursor + 4;
+    while (probe + 3 <= end) {
+      if (probe[0] == '-' && probe[1] == '-' && probe[2] == '>') {
+        return probe + 3;
+      }
+      ++probe;
+    }
+    return end;
+  }
+
+  if (cursor + 9 <= end && cursor[0] == '<' && cursor[1] == '!' &&
+      cursor[2] == '[' && cursor[3] == 'C' && cursor[4] == 'D' &&
+      cursor[5] == 'A' && cursor[6] == 'T' && cursor[7] == 'A' &&
+      cursor[8] == '[') {
+    const char* probe = cursor + 9;
+    while (probe + 3 <= end) {
+      if (probe[0] == ']' && probe[1] == ']' && probe[2] == '>') {
+        return probe + 3;
+      }
+      ++probe;
+    }
+    return end;
+  }
+
+  return cursor;
+}
+
 const char* findText(const char* start, const char* end, const char* text) {
   const size_t length = std::strlen(text);
   if (length == 0 || start >= end) {
     return nullptr;
   }
-  for (const char* cursor = start; cursor + length <= end; ++cursor) {
+  const char* cursor = start;
+  while (cursor + length <= end) {
+    if (*cursor == '<') {
+      const char* afterSkip = skipXmlCommentOrCdata(cursor, end);
+      if (afterSkip != cursor) {
+        cursor = afterSkip;
+        continue;
+      }
+    }
     if (std::memcmp(cursor, text, length) == 0) {
       return cursor;
     }
+    ++cursor;
   }
   return nullptr;
 }
 
 const char* findChar(const char* start, const char* end, char value) {
-  for (const char* cursor = start; cursor < end; ++cursor) {
+  const char* cursor = start;
+  while (cursor < end) {
+    if (*cursor == '<') {
+      const char* afterSkip = skipXmlCommentOrCdata(cursor, end);
+      if (afterSkip != cursor) {
+        cursor = afterSkip;
+        continue;
+      }
+    }
     if (*cursor == value) {
       return cursor;
     }
+    ++cursor;
   }
   return nullptr;
 }

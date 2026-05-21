@@ -12,6 +12,7 @@ import {
 import {
   mapRobotImportProgressToDocumentLoadPercent,
   resolveBootstrapDocumentLoadPhase,
+  resolveRobotImportCompletedDocumentLoadPercent,
 } from '../utils/documentLoadProgress';
 import { resolveRobotFileDataWithWorker } from './robotImportWorkerBridge';
 
@@ -194,15 +195,20 @@ export function usePreviewFileWithFeedback({
           }
 
           if (previewResult.status === 'ready') {
+            // Keep the overlay in 'loading' here; the viewer's mesh-streaming +
+            // onLoad events are authoritative for declaring the document ready.
+            // Marking 'ready' eagerly hides the overlay during WASM mesh parsing
+            // and shouldIgnoreViewerLoadRegressionAfterReadySameFile then blocks
+            // the viewer's streaming-meshes events from re-opening it.
             setDocumentLoadState({
-              status: 'ready',
+              status: 'loading',
               fileName: file.name,
               format: file.format,
               error: null,
-              phase: null,
+              phase: resolveBootstrapDocumentLoadPhase(file.format),
               message: null,
               progressMode: 'percent',
-              progressPercent: 100,
+              progressPercent: resolveRobotImportCompletedDocumentLoadPercent(file.format),
               loadedCount: null,
               totalCount: null,
             });

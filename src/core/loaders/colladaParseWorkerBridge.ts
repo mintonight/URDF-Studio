@@ -29,7 +29,8 @@ interface ColladaParseWorkerPoolClient {
   loadSerialized: (assetUrl: string) => Promise<SerializedColladaSceneData>;
 }
 
-const DEFAULT_CACHE_LIMIT = 24;
+const DEFAULT_CACHE_LIMIT = 300;
+const FAILURE_CACHE_LIMIT = 200;
 
 export function createColladaParseWorkerPoolClient({
   cacheLimit = DEFAULT_CACHE_LIMIT,
@@ -51,11 +52,24 @@ export function createColladaParseWorkerPoolClient({
   });
 
   const pendingLoads = new Map<string, Promise<SerializedColladaSceneData>>();
+  const failureCache = new Map<string, unknown>();
+
+  const rememberFailure = (assetUrl: string, error: unknown): void => {
+    if (failureCache.size >= FAILURE_CACHE_LIMIT) {
+      const oldestKey = failureCache.keys().next().value;
+      if (oldestKey !== undefined) failureCache.delete(oldestKey);
+    }
+    failureCache.set(assetUrl, error);
+  };
 
   const loadSerialized = async (assetUrl: string): Promise<SerializedColladaSceneData> => {
     const cachedResult = client.getCached(assetUrl);
     if (cachedResult) {
       return cachedResult;
+    }
+
+    if (failureCache.has(assetUrl)) {
+      throw failureCache.get(assetUrl);
     }
 
     const pendingLoad = pendingLoads.get(assetUrl);
@@ -68,6 +82,10 @@ export function createColladaParseWorkerPoolClient({
       .then((workerResult) => {
         client.setCached(assetUrl, workerResult);
         return workerResult;
+      })
+      .catch((error) => {
+        rememberFailure(assetUrl, error);
+        throw error;
       })
       .finally(() => {
         pendingLoads.delete(assetUrl);
@@ -83,7 +101,10 @@ export function createColladaParseWorkerPoolClient({
   };
 
   return {
-    clearCache: () => client.clearCache(),
+    clearCache: () => {
+      client.clearCache();
+      failureCache.clear();
+    },
     dispose: (rejectPendingWith) => client.dispose(rejectPendingWith),
     load,
     loadSerialized,

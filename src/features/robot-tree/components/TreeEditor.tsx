@@ -492,6 +492,35 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     [handleRequestLibraryRobotLoad, onLoadRobot, onRequestLoadRobot],
   );
 
+  const handleToggleFileBrowserOpen = useCallback(
+    () => setIsFileBrowserOpen(!isFileBrowserOpen),
+    [isFileBrowserOpen, setIsFileBrowserOpen],
+  );
+  const handleToggleStructureOpen = useCallback(
+    () => setIsStructureOpen(!isStructureOpen),
+    [isStructureOpen, setIsStructureOpen],
+  );
+  const handleToggleGeometryDetails = useCallback(
+    () => setStructureTreeShowGeometryDetails(!structureTreeShowGeometryDetails),
+    [setStructureTreeShowGeometryDetails, structureTreeShowGeometryDetails],
+  );
+  const handleToggleVisuals = useCallback(
+    () => setShowVisual(!showVisual),
+    [setShowVisual, showVisual],
+  );
+  const handleAddChildFromSelection = useCallback(() => {
+    let targetId = getPrimaryTreeRenderRootLinkId(robot) ?? robot.rootLinkId;
+    if (resolvedRobotSelection.type === 'link' && resolvedRobotSelection.id) {
+      targetId = resolvedRobotSelection.id;
+    } else if (resolvedRobotSelection.type === 'joint' && resolvedRobotSelection.id) {
+      const selectedJoint = robot.joints[resolvedRobotSelection.id];
+      if (selectedJoint) {
+        targetId = selectedJoint.childLinkId;
+      }
+    }
+    onAddChild(targetId);
+  }, [onAddChild, resolvedRobotSelection.id, resolvedRobotSelection.type, robot]);
+
   const actualWidth = collapsed ? 0 : width;
   const shouldFileBrowserFillSpace = false;
 
@@ -528,7 +557,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
             folderRenameDraft={folderRenameDraft}
             folderRenameInputRef={folderRenameInputRef}
             t={t}
-            onToggleOpen={() => setIsFileBrowserOpen(!isFileBrowserOpen)}
+            onToggleOpen={handleToggleFileBrowserOpen}
             onFolderRenameDraftChange={setFolderRenameDraft}
             onCommitFolderRename={handleCommitFolderRename}
             onCancelFolderRename={handleCancelFolderRename}
@@ -581,23 +610,10 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
               childJointsByParent={showAssemblyTools ? {} : childJointsByParent}
               selectionBranchLinkIds={showAssemblyTools ? new Set<string>() : selectionBranchLinkIds}
               t={t}
-              onToggleOpen={() => setIsStructureOpen(!isStructureOpen)}
-              onToggleGeometryDetails={() =>
-                setStructureTreeShowGeometryDetails(!structureTreeShowGeometryDetails)
-              }
-              onAddChildFromSelection={() => {
-                let targetId = getPrimaryTreeRenderRootLinkId(robot) ?? robot.rootLinkId;
-                if (resolvedRobotSelection.type === 'link' && resolvedRobotSelection.id) {
-                  targetId = resolvedRobotSelection.id;
-                } else if (resolvedRobotSelection.type === 'joint' && resolvedRobotSelection.id) {
-                  const selectedJoint = robot.joints[resolvedRobotSelection.id];
-                  if (selectedJoint) {
-                    targetId = selectedJoint.childLinkId;
-                  }
-                }
-                onAddChild(targetId);
-              }}
-              onToggleVisuals={() => setShowVisual(!showVisual)}
+              onToggleOpen={handleToggleStructureOpen}
+              onToggleGeometryDetails={handleToggleGeometryDetails}
+              onAddChildFromSelection={handleAddChildFromSelection}
+              onToggleVisuals={handleToggleVisuals}
               onSelect={onSelect}
               onSelectGeometry={onSelectGeometry}
               onFocus={onFocus}

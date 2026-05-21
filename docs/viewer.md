@@ -5,7 +5,7 @@
 
 ## 1. 单模式 Editor
 
-Editor 子域划分与快速映射见 [AGENTS.md](../AGENTS.md) §Editor 单模式。
+Editor 子域划分与快速映射见 [CLAUDE.md](../CLAUDE.md) §Editor 单模式。
 
 新增功能前，先判断属于哪类子能力，避免跨子系统逻辑缠绕。
 
@@ -63,14 +63,7 @@ features/urdf-viewer/
 - `runtime/*` 是 vendored usd-viewer runtime，不要在 `core/parsers/usd/*` 重复实现 viewer runtime 职责
 - URDF Studio 应把 runtime 输出适配到 `ViewerRobotDataResolution` / `RobotData`
 - `public/usd/bindings/*` 必须保留在静态资源目录，供浏览器运行时 fetch
-- **WASM 构建系统**位于 `third_party/OpenUSD` 和 `scripts/wasm/`，详见 [wasm-build.md](wasm-build.md)
-- 如需重新编译 WASM bindings：
-  ```bash
-  bash scripts/wasm/rebuild-usd-wasm.sh \
-    --robot-trim \
-    --usd-repo ./third_party/OpenUSD \
-    --build-dir ~/.localdeps/openusd-wasm-speed
-  ```
+- **WASM 构建系统**位于 `third_party/OpenUSD` 和 `scripts/wasm/`；重编命令与故障排查见 [wasm-build.md](wasm-build.md)
 
 ## 6. USD worker / metadata 链路约束
 

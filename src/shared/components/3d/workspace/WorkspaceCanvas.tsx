@@ -229,6 +229,7 @@ export const WorkspaceCanvas = ({
     () => ({
       antialias: true,
       alpha: true,
+      logarithmicDepthBuffer: true,
       toneMapping,
       toneMappingExposure: toneMappingExposure ?? (environment === 'hdr' ? 1.0 : 1.1),
       powerPreference: 'high-performance' as const,

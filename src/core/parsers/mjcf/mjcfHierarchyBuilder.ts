@@ -1165,10 +1165,19 @@ export async function buildMJCFHierarchy(
 
           mesh.userData.isVisual = true;
           mesh.userData.isVisualMesh = true;
+          // Force deterministic draw order = XML order. MJCF convention is
+          // that later-declared geoms render on top of earlier ones, and many
+          // menagerie models intentionally model attachments (battery covers,
+          // mount plates, etc.) coplanar with the outer shell. With Three.js
+          // depthFunc=LessEqual, the last-drawn coplanar surface wins, so
+          // ascending renderOrder matches MJCF semantics and prevents the
+          // tie-breaker from flipping per frame (the source of flicker).
+          mesh.renderOrder = geomIndex;
           mesh.traverse((child: any) => {
             if (child.isMesh) {
               child.userData.isVisual = true;
               child.userData.isVisualMesh = true;
+              child.renderOrder = geomIndex;
             }
           });
           visualGroup.add(mesh);

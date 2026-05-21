@@ -431,3 +431,87 @@ test('compiled Collada mesh WASM parser rejects inconsistent polylist data', asy
     resetColladaWasmParserForTests();
   }
 });
+
+test('compiled Collada mesh WASM parser ignores XML comments inside material parameters', async () => {
+  setupCompiledColladaParser();
+
+  try {
+    const text = [
+      '<COLLADA version="1.4.1">',
+      '<!-- top-level comment with fake <library_materials> noise -->',
+      '<library_effects><effect id="mat-effect"><profile_COMMON><technique sid="common">',
+      '<phong>',
+      // Commented-out diffuse should be ignored — the real one is 0.25 0.5 0.75.
+      '<diffuse><!-- <color>0 0 0 1</color> --><color>0.25 0.5 0.75 1</color></diffuse>',
+      '<!-- <transparent opaque="A_ONE"><color>1 1 1 0</color></transparent> -->',
+      '</phong>',
+      '</technique></profile_COMMON></effect></library_effects>',
+      '<library_materials><material id="mat" name="commented"><instance_effect url="#mat-effect"/></material></library_materials>',
+      '<library_geometries><geometry id="geom"><mesh>',
+      '<source id="pos"><float_array id="pos-array" count="9">0 0 0 1 0 0 0 1 0</float_array>',
+      '<technique_common><accessor source="#pos-array" count="3" stride="3"/></technique_common></source>',
+      '<vertices id="verts"><input semantic="POSITION" source="#pos"/></vertices>',
+      '<triangles count="1" material="mat-symbol">',
+      '<input semantic="VERTEX" source="#verts" offset="0"/>',
+      '<p>0 1 2</p></triangles>',
+      '</mesh></geometry></library_geometries>',
+      '<library_visual_scenes><visual_scene id="Scene"><node id="node"><instance_geometry url="#geom">',
+      '<bind_material><technique_common><instance_material symbol="mat-symbol" target="#mat"/></technique_common></bind_material>',
+      '</instance_geometry></node></visual_scene></library_visual_scenes>',
+      '<scene><instance_visual_scene url="#Scene"/></scene></COLLADA>',
+    ].join('');
+    const fastData = await parseColladaMeshDataWithWasm(new TextEncoder().encode(text), '');
+    const material = fastData.children[0]!.materials[0]!;
+    assert.equal(material.name, 'commented');
+    // 0.25 / 0.5 / 0.75 → 0x4080bf (uses linear→hex packing in WASM).
+    const r = (material.color >> 16) & 0xff;
+    const g = (material.color >> 8) & 0xff;
+    const b = material.color & 0xff;
+    assert.equal(r, Math.round(0.25 * 255));
+    assert.equal(g, Math.round(0.5 * 255));
+    assert.equal(b, Math.round(0.75 * 255));
+    assert.equal(material.transparent, false);
+    assert.equal(material.opacity, 1);
+  } finally {
+    resetColladaWasmParserForTests();
+  }
+});
+
+test('compiled Collada mesh WASM parser ignores CDATA inside material parameters', async () => {
+  setupCompiledColladaParser();
+
+  try {
+    const text = [
+      '<COLLADA version="1.4.1">',
+      '<library_effects><effect id="mat-effect"><profile_COMMON><technique sid="common">',
+      '<phong>',
+      '<diffuse><![CDATA[ <color>0 0 0 1</color> ]]><color>1 0 0 1</color></diffuse>',
+      '</phong>',
+      '</technique></profile_COMMON></effect></library_effects>',
+      '<library_materials><material id="mat" name="cdata"><instance_effect url="#mat-effect"/></material></library_materials>',
+      '<library_geometries><geometry id="geom"><mesh>',
+      '<source id="pos"><float_array id="pos-array" count="9">0 0 0 1 0 0 0 1 0</float_array>',
+      '<technique_common><accessor source="#pos-array" count="3" stride="3"/></technique_common></source>',
+      '<vertices id="verts"><input semantic="POSITION" source="#pos"/></vertices>',
+      '<triangles count="1" material="mat-symbol">',
+      '<input semantic="VERTEX" source="#verts" offset="0"/>',
+      '<p>0 1 2</p></triangles>',
+      '</mesh></geometry></library_geometries>',
+      '<library_visual_scenes><visual_scene id="Scene"><node id="node"><instance_geometry url="#geom">',
+      '<bind_material><technique_common><instance_material symbol="mat-symbol" target="#mat"/></technique_common></bind_material>',
+      '</instance_geometry></node></visual_scene></library_visual_scenes>',
+      '<scene><instance_visual_scene url="#Scene"/></scene></COLLADA>',
+    ].join('');
+    const fastData = await parseColladaMeshDataWithWasm(new TextEncoder().encode(text), '');
+    const material = fastData.children[0]!.materials[0]!;
+    assert.equal(material.name, 'cdata');
+    const r = (material.color >> 16) & 0xff;
+    const g = (material.color >> 8) & 0xff;
+    const b = material.color & 0xff;
+    assert.equal(r, 0xff);
+    assert.equal(g, 0);
+    assert.equal(b, 0);
+  } finally {
+    resetColladaWasmParserForTests();
+  }
+});

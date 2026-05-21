@@ -72,7 +72,10 @@ test('OBJ parse worker failures reject instead of silently reparsing on the main
     fakeWorker.emitError(new Error('obj worker exploded'));
 
     await assert.rejects(resultPromise, /obj worker exploded/i);
-    await assert.rejects(client.load('/demo.obj'), /OBJ parse worker is unavailable/);
+    // Subsequent loads for the same failed asset hit the bridge-level
+    // failureCache and re-throw the original error without re-dispatching to
+    // the (now-disabled) worker or falling back to inline fetch.
+    await assert.rejects(client.load('/demo.obj'), /obj worker exploded/i);
     assert.equal(fetchCount, 0);
     assert.equal(consoleErrors.length, 1);
     assert.match(String(consoleErrors[0]?.[0] || ''), /OBJ parse worker crashed/i);

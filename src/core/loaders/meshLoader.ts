@@ -19,10 +19,8 @@ import { buildExplicitlyScaledMeshPathHints, hasExplicitMeshScaleHint } from './
 import { mitigateCoplanarMaterialZFighting } from './coplanarMaterialOffset';
 import { type ColladaRootNormalizationHints } from './colladaRootNormalization';
 import { loadSerializedColladaSceneData } from './colladaParseWorkerBridge';
-import {
-  createSceneFromSerializedColladaData,
-  parseColladaSceneData,
-} from './colladaWorkerSceneData';
+import { createSceneFromSerializedColladaData } from './colladaWorkerSceneData';
+import { parseColladaMeshDataWithWasm } from './colladaWasmParser';
 import { cleanFilePath } from './pathNormalization';
 import {
   failFastInDev,
@@ -105,6 +103,13 @@ export const postProcessColladaScene = (root: THREE.Object3D): number => {
   return Math.max(_tempSize.x, _tempSize.y, _tempSize.z);
 };
 
+function extractColladaUrlBase(assetUrl: string): string {
+  const queryIndex = assetUrl.search(/[?#]/);
+  const cleanUrl = queryIndex >= 0 ? assetUrl.slice(0, queryIndex) : assetUrl;
+  const slashIndex = cleanUrl.lastIndexOf('/');
+  return slashIndex >= 0 ? assetUrl.slice(0, slashIndex + 1) : '';
+}
+
 async function loadColladaSceneForMeshLoader(
   assetUrl: string,
   manager: THREE.LoadingManager,
@@ -119,6 +124,7 @@ async function loadColladaSceneForMeshLoader(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!/collada parse worker is (?:unavailable|not available)/i.test(message)) {
+        console.error(`[MeshLoader] Collada parse failed for "${assetUrl}":`, error);
         throw error;
       }
       console.warn(`[MeshLoader] ${message}; parsing Collada asset in-process.`);
@@ -131,8 +137,10 @@ async function loadColladaSceneForMeshLoader(
     throw new Error(`Failed to fetch Collada asset: ${response.status} ${response.statusText}`);
   }
 
-  const content = await response.text();
-  const serializedScene = parseColladaSceneData(content, assetUrl);
+  const serializedScene = await parseColladaMeshDataWithWasm(
+    await response.arrayBuffer(),
+    extractColladaUrlBase(assetUrl),
+  );
   return await runMainThreadTask(() =>
     createSceneFromSerializedColladaData(serializedScene, { manager }),
   );

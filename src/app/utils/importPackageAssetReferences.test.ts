@@ -133,11 +133,11 @@ test('buildStandalonePackageAssetImportWarning ignores unrelated assets from oth
   });
 });
 
-test('canProceedWithStandaloneImportAssetWarning only relaxes missing-asset warnings for URDF', () => {
+test('canProceedWithStandaloneImportAssetWarning never hard-stops loading on missing assets', () => {
   assert.equal(canProceedWithStandaloneImportAssetWarning({ format: 'urdf' }), true);
-  assert.equal(canProceedWithStandaloneImportAssetWarning({ format: 'mjcf' }), false);
-  assert.equal(canProceedWithStandaloneImportAssetWarning({ format: 'sdf' }), false);
-  assert.equal(canProceedWithStandaloneImportAssetWarning(null), false);
+  assert.equal(canProceedWithStandaloneImportAssetWarning({ format: 'mjcf' }), true);
+  assert.equal(canProceedWithStandaloneImportAssetWarning({ format: 'sdf' }), true);
+  assert.equal(canProceedWithStandaloneImportAssetWarning(null), true);
 });
 
 test('buildStandaloneImportAssetWarning reports missing mesh assets for standalone MJCF imports', () => {
