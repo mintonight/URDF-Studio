@@ -6,6 +6,8 @@ import { createRoot } from 'react-dom/client'
 import { JSDOM } from 'jsdom'
 
 import { translations } from '@/shared/i18n'
+import { GeometryType, type RobotState } from '@/types'
+import { buildNormalInspectionPlan } from '../utils/inspectionNormalPlan.ts'
 import { InspectionSetupNormalView } from './InspectionSetupNormalView.tsx'
 
 function installDom() {
@@ -23,12 +25,40 @@ function installDom() {
   return dom
 }
 
+const createRobot = (): RobotState =>
+  ({
+    name: 'normal-plan-robot',
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          type: GeometryType.BOX,
+          dimensions: { x: 0.1, y: 0.1, z: 0.1 },
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          color: '#999999',
+        },
+        collision: {
+          type: GeometryType.BOX,
+          dimensions: { x: 0.1, y: 0.1, z: 0.1 },
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          color: '#999999',
+        },
+      },
+    },
+    joints: {},
+    inspectionContext: { sourceFormat: 'urdf' },
+    selection: null,
+  }) as unknown as RobotState
+
 test('normal setup view shows the profile recommendation card', async () => {
   const dom = installDom()
   const container = dom.window.document.getElementById('root')
   assert.ok(container, 'root container should exist')
 
   const root = createRoot(container)
+  const plan = buildNormalInspectionPlan({ robot: createRobot() })
 
   try {
     await act(async () => {
@@ -36,17 +66,9 @@ test('normal setup view shows the profile recommendation card', async () => {
         <InspectionSetupNormalView
           lang="en"
           t={translations.en}
-          selectedProfiles={{}}
-          setSelectedProfiles={() => {}}
-          onFocusProfile={() => {}}
-          recommendation={{
-            sourceFormat: 'urdf',
-            robotType: 'generic',
-            robotTypes: ['generic'],
-            targetPlatform: 'generic',
-            profileIds: ['base.robot_model', 'format.urdf'],
-            confidence: 'medium',
-          }}
+          plan={plan}
+          override={{}}
+          onOverrideChange={() => {}}
         />,
       )
     })
@@ -57,7 +79,8 @@ test('normal setup view shows the profile recommendation card', async () => {
     assert.ok(card, 'expected the recommendation card to render')
     assert.match(card.textContent ?? '', /Recommended Plan/)
     assert.match(card.textContent ?? '', /URDF/)
-    assert.match(card.textContent ?? '', /Robot Model Baseline/)
+    assert.match(card.textContent ?? '', /Inspection Purpose/)
+    assert.match(container.textContent ?? '', /Included Scope/)
   } finally {
     await act(async () => {
       root.unmount()

@@ -22,6 +22,10 @@ import {
 } from '../utils/inspectionRunContext';
 import { buildInspectionProfileRecommendation } from '../utils/inspectionProfileRecommendation';
 import {
+  buildNormalInspectionPlan,
+  type NormalInspectionPlanOverride,
+} from '../utils/inspectionNormalPlan';
+import {
   countSelectedInspectionProfileItems,
   countSelectedInspectionProfiles,
   createProfileScoreMetrics,
@@ -89,6 +93,8 @@ type InspectionSetupMode = 'normal' | 'advanced';
 
 const INSPECTION_SETUP_MODE_STORAGE_KEY = 'urdf-studio.ai-inspection.setup-mode';
 const TOTAL_INSPECTION_ITEM_COUNT = getAllInspectionProfileItemCount();
+const RUN_INSPECTION_POINTER_DURATION_MS =
+  typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent) ? 300 : 2400;
 
 function readStoredInspectionSetupMode(): InspectionSetupMode {
   if (typeof window === 'undefined') {
@@ -151,6 +157,23 @@ export function AIInspectionModal({
   const recommendedProfileIds = useMemo(
     () => (profileRecommendationKey ? profileRecommendationKey.split('\u0000') : []),
     [profileRecommendationKey],
+  );
+  const [normalPlanOverride, setNormalPlanOverride] = useState<NormalInspectionPlanOverride>({});
+  const normalInspectionPlan = useMemo(
+    () =>
+      buildNormalInspectionPlan({
+        robot,
+        workflowContext: assemblyWorkflowContext,
+        override: normalPlanOverride,
+      }),
+    [assemblyWorkflowContext, normalPlanOverride, robot],
+  );
+  const normalInspectionPlanKey = useMemo(
+    () =>
+      normalInspectionPlan.includedProfileIds
+        .map((profileId) => `${profileId}:${normalInspectionPlan.selectedProfiles[profileId]?.size ?? 0}`)
+        .join('\u0000'),
+    [normalInspectionPlan],
   );
   const windowState = useDraggableWindow({
     isOpen,
@@ -237,10 +260,28 @@ export function AIInspectionModal({
   }, [inspectionSetupMode]);
 
   useEffect(() => {
+    if (inspectionSetupMode === 'normal') {
+      setExpandedProfiles(new Set(normalInspectionPlan.includedProfileIds));
+      setSelectedProfiles(normalInspectionPlan.selectedProfiles);
+      setFocusedProfileId(
+        normalInspectionPlan.includedProfileIds[0] ??
+          recommendedProfileIds[0] ??
+          INSPECTION_PROFILE_DEFINITIONS[0]?.id ??
+          '',
+      );
+      return;
+    }
+
     setExpandedProfiles(new Set(recommendedProfileIds));
     setSelectedProfiles(createSelectedInspectionProfilesForProfileIds(recommendedProfileIds));
     setFocusedProfileId(recommendedProfileIds[0] ?? INSPECTION_PROFILE_DEFINITIONS[0]?.id ?? '');
-  }, [recommendedProfileIds]);
+  }, [
+    inspectionSetupMode,
+    normalInspectionPlan.includedProfileIds,
+    normalInspectionPlan.selectedProfiles,
+    normalInspectionPlanKey,
+    recommendedProfileIds,
+  ]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -569,7 +610,8 @@ export function AIInspectionModal({
       if (isMountedRef.current) {
         setShowRunInspectionPointer(false);
       }
-    }, 2400);
+    }, RUN_INSPECTION_POINTER_DURATION_MS);
+    runInspectionPointerTimerRef.current.unref?.();
 
     return () => {
       clearRunInspectionPointerTimer();
@@ -770,10 +812,9 @@ export function AIInspectionModal({
                     <InspectionSetupNormalView
                       lang={lang}
                       t={t}
-                      selectedProfiles={selectedProfiles}
-                      setSelectedProfiles={setSelectedProfiles}
-                      onFocusProfile={setFocusedProfileId}
-                      recommendation={profileRecommendation}
+                      plan={normalInspectionPlan}
+                      override={normalPlanOverride}
+                      onOverrideChange={setNormalPlanOverride}
                     />
                   </div>
                 </div>

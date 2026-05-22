@@ -366,9 +366,27 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   inspectionRobotTypeMobileBase: string;
   inspectionRobotTypeGripper: string;
   inspectionTargetGeneric: string;
+  inspectionTargetExportPortability: string;
   inspectionConfidenceHigh: string;
   inspectionConfidenceMedium: string;
   inspectionConfidenceLow: string;
+  inspectionPlanPurpose: string;
+  inspectionPlanAuto: string;
+  inspectionPlanResetAuto: string;
+  inspectionPlanIncludedScope: string;
+  inspectionPlanIncludedScopeDescription: string;
+  inspectionPlanViewScope: string;
+  inspectionPlanHideScope: string;
+  inspectionPurposeBasicHealth: string;
+  inspectionPurposeSimulationReadiness: string;
+  inspectionPurposeExportPreflight: string;
+  inspectionPurposeAssemblyConsistency: string;
+  inspectionPurposeHardwareConfig: string;
+  inspectionReasonAssembly: string;
+  inspectionReasonHardwareConfig: string;
+  inspectionReasonExportPreflight: string;
+  inspectionReasonCollisionAuthoring: string;
+  inspectionReasonInertiaAuthoring: string;
 
   // Additional UI
   collapseSidebar: string;
