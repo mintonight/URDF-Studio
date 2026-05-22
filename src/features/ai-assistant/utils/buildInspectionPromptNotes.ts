@@ -2,15 +2,14 @@ import {
   getMjcfLinkDisplayName,
   getMjcfRawDisplayName,
 } from '@/shared/utils/robot/mjcfDisplayNames';
-import type { RobotSourceDiagnostic, RobotState } from '@/types';
+import type { RobotState } from '@/types';
+import { buildInspectionEvidence, formatInspectionEvidenceForPrompt } from './inspectionEvidence';
+import type { SelectedInspectionProfileMap } from './inspectionProfileSelection';
 
 const MAX_SUMMARY_ITEMS = 3;
+const SOURCE_FORMATS_WITH_PARTIAL_EVIDENCE = new Set(['xacro', 'sdf', 'usd']);
 
-type RobotInspectionContext = NonNullable<RobotState['inspectionContext']>;
-type MjcfInspectionContext = NonNullable<RobotInspectionContext['mjcf']>;
-type UrdfInspectionContext = NonNullable<RobotInspectionContext['urdf']>;
-
-const buildSelectedItemSet = (selectedItems?: Record<string, string[]>) => {
+const buildSelectedItemSet = (selectedItems?: SelectedInspectionProfileMap) => {
   return new Set(Object.values(selectedItems ?? {}).flat());
 };
 
@@ -34,6 +33,49 @@ const isGeneratedSiteNameForBody = (siteName: string, bodyId: string) => {
     'i',
   );
   return generatedSitePattern.test(normalizedSiteName);
+};
+
+const buildSourceFormatEvidenceNotes = (robot: RobotState, lang: 'en' | 'zh') => {
+  const sourceFormat = robot.inspectionContext?.sourceFormat;
+  if (!sourceFormat || !SOURCE_FORMATS_WITH_PARTIAL_EVIDENCE.has(sourceFormat)) {
+    return '';
+  }
+
+  if (lang === 'zh') {
+    if (sourceFormat === 'xacro') {
+      return [
+        '**源格式附加说明:**',
+        '- 该机器人来自 Xacro。当前上下文主要是展开/归一化后的模型；macro、arg、include 与展开前文件结构属于 insufficient_evidence，不能默认通过或默认失败。',
+      ].join('\n');
+    }
+    if (sourceFormat === 'sdf') {
+      return [
+        '**源格式附加说明:**',
+        '- 该机器人来自 SDF。当前上下文缺少完整 `<sdf>`、model/world、frame、plugin 与源 joint 证据；这些源格式项属于 insufficient_evidence，不要套用 URDF-only 结论。',
+      ].join('\n');
+    }
+    return [
+      '**源格式附加说明:**',
+      '- 该机器人来自 USD。当前上下文缺少完整 stage、prim、USD Physics、articulation、asset/material binding 证据；这些源格式项属于 insufficient_evidence，不要套用 URDF-only 结论。',
+    ].join('\n');
+  }
+
+  if (sourceFormat === 'xacro') {
+    return [
+      '**Source-Format Notes:**',
+      '- This robot comes from Xacro. The current context is mainly the expanded/normalized model; macro, arg, include, and pre-expansion file structure evidence are insufficient_evidence and must not be marked pass or fail by default.',
+    ].join('\n');
+  }
+  if (sourceFormat === 'sdf') {
+    return [
+      '**Source-Format Notes:**',
+      '- This robot comes from SDF. The current context lacks full `<sdf>`, model/world, frame, plugin, and source joint evidence; these source-format checks are insufficient_evidence and must not use URDF-only conclusions.',
+    ].join('\n');
+  }
+  return [
+    '**Source-Format Notes:**',
+    '- This robot comes from USD. The current context lacks full stage, prim, USD Physics, articulation, asset, and material binding evidence; these source-format checks are insufficient_evidence and must not use URDF-only conclusions.',
+  ].join('\n');
 };
 
 const formatBodiesWithSites = (
@@ -139,10 +181,31 @@ const formatUrdfInspectionPromptNotes = (
 
 const formatMjcfInspectionPromptNotes = (
   robot: RobotState,
-  mjcfContext: MjcfInspectionContext,
-  selectedItems: Record<string, string[]> | undefined,
+  selectedItems: SelectedInspectionProfileMap | undefined,
   lang: 'en' | 'zh',
 ) => {
+  const mjcfContext =
+    robot.inspectionContext?.sourceFormat === 'mjcf' ? robot.inspectionContext.mjcf : undefined;
+  const localEvidenceNotes = formatInspectionEvidenceForPrompt(
+    buildInspectionEvidence(robot),
+    selectedItems,
+    lang,
+  );
+  const sourceFormatNotes = buildSourceFormatEvidenceNotes(robot, lang);
+  const noteSections: string[] = [];
+
+  if (sourceFormatNotes) {
+    noteSections.push(sourceFormatNotes);
+  }
+
+  if (localEvidenceNotes) {
+    noteSections.push(localEvidenceNotes);
+  }
+
+  if (!mjcfContext) {
+    return noteSections.join('\n\n');
+  }
+
   const selectedItemIds = buildSelectedItemSet(selectedItems);
   const bodySiteSummary = formatBodiesWithSites(robot, mjcfContext.bodiesWithSites);
   const tendonSummary = formatTendons(mjcfContext.tendons);
@@ -154,19 +217,24 @@ const formatMjcfInspectionPromptNotes = (
       `- MJCF 摘要：${mjcfContext.siteCount} 个 site，${mjcfContext.tendonCount} 条 tendon，${mjcfContext.tendonActuatorCount} 个 tendon actuator。`,
     ];
 
-    if (selectedItemIds.has('frame_alignment')) {
+    if (selectedItemIds.has('mjcf_site_frame_usage')) {
       lines.push(
-        `- 在检查 frame_alignment 时，必须结合 joint 的 origin/axis 与 body-site 摘要判断坐标系是否对齐：${bodySiteSummary || '当前没有额外 site 摘要。'}`,
+        `- 在检查 mjcf_site_frame_usage 时，必须结合 joint 的 origin/axis 与 body-site 摘要判断坐标系和 site 用法：${bodySiteSummary || '当前没有额外 site 摘要。'}`,
       );
     }
 
-    if (selectedItemIds.has('motor_limits') || selectedItemIds.has('armature_config')) {
+    if (
+      selectedItemIds.has('mjcf_tendon_actuator') ||
+      selectedItemIds.has('effort_velocity_limits') ||
+      selectedItemIds.has('armature_equivalent_inertia')
+    ) {
       lines.push(
-        `- 在检查 motor_limits 或 armature_config 时，必须结合 tendon 摘要、actuator 关联和限幅信息判断：${tendonSummary || '当前没有额外 tendon 摘要。'}`,
+        `- 在检查 mjcf_tendon_actuator、effort_velocity_limits 或 armature_equivalent_inertia 时，必须结合 tendon 摘要、actuator 关联和限幅信息判断：${tendonSummary || '当前没有额外 tendon 摘要。'}`,
       );
     }
 
-    return lines.join('\n');
+    noteSections.unshift(lines.join('\n'));
+    return noteSections.join('\n\n');
   }
 
   const lines = [
@@ -175,19 +243,24 @@ const formatMjcfInspectionPromptNotes = (
     `- MJCF summary: ${mjcfContext.siteCount} sites, ${mjcfContext.tendonCount} tendons, ${mjcfContext.tendonActuatorCount} tendon actuators.`,
   ];
 
-  if (selectedItemIds.has('frame_alignment')) {
+  if (selectedItemIds.has('mjcf_site_frame_usage')) {
     lines.push(
-      `- When evaluating frame_alignment, you MUST combine joint origin/axis data with body-site evidence: ${bodySiteSummary || 'no additional site summary is available.'}`,
+      `- When evaluating mjcf_site_frame_usage, you MUST combine joint origin/axis data with body-site evidence: ${bodySiteSummary || 'no additional site summary is available.'}`,
     );
   }
 
-  if (selectedItemIds.has('motor_limits') || selectedItemIds.has('armature_config')) {
+  if (
+    selectedItemIds.has('mjcf_tendon_actuator') ||
+    selectedItemIds.has('effort_velocity_limits') ||
+    selectedItemIds.has('armature_equivalent_inertia')
+  ) {
     lines.push(
-      `- When evaluating motor_limits or armature_config, you MUST use tendon summaries, actuator associations, and limit data together: ${tendonSummary || 'no additional tendon summary is available.'}`,
+      `- When evaluating mjcf_tendon_actuator, effort_velocity_limits, or armature_equivalent_inertia, you MUST use tendon summaries, actuator associations, and limit data together: ${tendonSummary || 'no additional tendon summary is available.'}`,
     );
   }
 
-  return lines.join('\n');
+  noteSections.unshift(lines.join('\n'));
+  return noteSections.join('\n\n');
 };
 
 export const buildInspectionPromptNotes = (

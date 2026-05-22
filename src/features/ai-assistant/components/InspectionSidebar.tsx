@@ -1,113 +1,106 @@
-import { Check, ChevronDown, ChevronRight, Minus } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, FileText, Layers, Minus, Package, Sparkles, Target } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { Language, TranslationKeys } from '@/shared/i18n';
-import { INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
-
-export type SelectedInspectionItems = Record<string, Set<string>>;
+import {
+  INSPECTION_PROFILE_DEFINITIONS,
+  getInspectionProfileLayerName,
+} from '../config/inspectionProfiles';
+import type { SelectedInspectionProfiles } from '../utils/inspectionProfileSelection';
 
 interface InspectionSidebarProps {
   lang: Language;
   t: TranslationKeys;
   isGeneratingAI: boolean;
   readOnly?: boolean;
-  focusedCategoryId: string;
-  expandedCategories: Set<string>;
-  selectedItems: SelectedInspectionItems;
-  setExpandedCategories: Dispatch<SetStateAction<Set<string>>>;
-  setSelectedItems: Dispatch<SetStateAction<SelectedInspectionItems>>;
-  onFocusCategory: (categoryId: string) => void;
-  onNavigateToCategory?: (categoryId: string) => void;
-  onNavigateToItem?: (categoryId: string, itemId: string) => void;
+  focusedProfileId: string;
+  expandedProfiles: Set<string>;
+  selectedProfiles: SelectedInspectionProfiles;
+  setExpandedProfiles: Dispatch<SetStateAction<Set<string>>>;
+  setSelectedProfiles: Dispatch<SetStateAction<SelectedInspectionProfiles>>;
+  onFocusProfile: (profileId: string) => void;
+  onNavigateToProfile?: (profileId: string) => void;
+  onNavigateToItem?: (profileId: string, itemId: string) => void;
 }
+
+const getProfileIcon = (layer: string) => {
+  if (layer === 'base') return Layers;
+  if (layer === 'format') return FileText;
+  if (layer === 'target') return Target;
+  if (layer === 'workflow') return Package;
+  return Sparkles;
+};
 
 export function InspectionSidebar({
   lang,
   t,
   isGeneratingAI,
   readOnly = false,
-  focusedCategoryId,
-  expandedCategories,
-  selectedItems,
-  setExpandedCategories,
-  setSelectedItems,
-  onFocusCategory,
-  onNavigateToCategory,
+  focusedProfileId,
+  expandedProfiles,
+  selectedProfiles,
+  setExpandedProfiles,
+  setSelectedProfiles,
+  onFocusProfile,
+  onNavigateToProfile,
   onNavigateToItem,
 }: InspectionSidebarProps) {
   const isInteractionLocked = isGeneratingAI;
   const isRunningInspection = isGeneratingAI && readOnly;
-  const totalItemCount = INSPECTION_CRITERIA.reduce(
-    (sum, category) => sum + category.items.length,
+  const totalItemCount = INSPECTION_PROFILE_DEFINITIONS.reduce(
+    (sum, profile) => sum + profile.items.length,
     0,
   );
   let totalSelectedCount = 0;
-  let selectedCategoryCount = 0;
+  let selectedProfileCount = 0;
 
-  INSPECTION_CRITERIA.forEach((category) => {
-    const count = selectedItems[category.id]?.size ?? 0;
+  INSPECTION_PROFILE_DEFINITIONS.forEach((profile) => {
+    const count = selectedProfiles[profile.id]?.size ?? 0;
     totalSelectedCount += count;
     if (count > 0) {
-      selectedCategoryCount += 1;
+      selectedProfileCount += 1;
     }
   });
 
-  const visibleCategories = readOnly
-    ? INSPECTION_CRITERIA.filter((category) => (selectedItems[category.id]?.size ?? 0) > 0)
-    : INSPECTION_CRITERIA;
+  const visibleProfiles = readOnly
+    ? INSPECTION_PROFILE_DEFINITIONS.filter((profile) => (selectedProfiles[profile.id]?.size ?? 0) > 0)
+    : INSPECTION_PROFILE_DEFINITIONS;
 
-  const toggleCategorySelection = (categoryId: string) => {
-    setSelectedItems((prev) => {
-      const newItems = { ...prev };
-      const category = INSPECTION_CRITERIA.find((c) => c.id === categoryId);
-      if (!category) return prev;
+  const toggleProfileSelection = (profileId: string) => {
+    setSelectedProfiles((prev) => {
+      const next = { ...prev };
+      const profile = INSPECTION_PROFILE_DEFINITIONS.find((entry) => entry.id === profileId);
+      if (!profile) return prev;
 
-      const allSelected = category.items.every((item) => newItems[categoryId]?.has(item.id));
-      if (allSelected) {
-        newItems[categoryId] = new Set();
-      } else {
-        newItems[categoryId] = new Set(category.items.map((item) => item.id));
-      }
-      return newItems;
+      const allSelected = profile.items.every((item) => next[profileId]?.has(item.id));
+      next[profileId] = allSelected ? new Set() : new Set(profile.items.map((item) => item.id));
+      return next;
     });
   };
 
-  const toggleItemSelection = (categoryId: string, itemId: string) => {
-    setSelectedItems((prev) => {
-      const newItems = { ...prev };
-      if (!newItems[categoryId]) {
-        newItems[categoryId] = new Set();
-      }
-      const itemSet = new Set(newItems[categoryId]);
+  const toggleItemSelection = (profileId: string, itemId: string) => {
+    setSelectedProfiles((prev) => {
+      const next = { ...prev };
+      const itemSet = new Set(next[profileId] ?? []);
       if (itemSet.has(itemId)) {
         itemSet.delete(itemId);
       } else {
         itemSet.add(itemId);
       }
-      newItems[categoryId] = itemSet;
-      return newItems;
-    });
-  };
-
-  const toggleCategoryExpand = (categoryId: string) => {
-    setExpandedCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(categoryId)) {
-        next.delete(categoryId);
-      } else {
-        next.add(categoryId);
-      }
+      next[profileId] = itemSet;
       return next;
     });
   };
 
-  const resolveCategoryImpactLabel = (weight: number) => {
-    if (weight >= 0.2) {
-      return t.inspectionCategoryImpactHigh;
-    }
-    if (weight >= 0.15) {
-      return t.inspectionCategoryImpactMedium;
-    }
-    return t.inspectionCategoryImpactBaseline;
+  const toggleProfileExpand = (profileId: string) => {
+    setExpandedProfiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(profileId)) {
+        next.delete(profileId);
+      } else {
+        next.add(profileId);
+      }
+      return next;
+    });
   };
 
   return (
@@ -132,7 +125,7 @@ export function InspectionSidebar({
           <div className="flex items-center justify-between text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
             <span>{t.runInspection}</span>
             <span>
-              {selectedCategoryCount}/{INSPECTION_CRITERIA.length}
+              {selectedProfileCount}/{INSPECTION_PROFILE_DEFINITIONS.length}
             </span>
           </div>
           <div className="mt-1 text-xs font-semibold text-text-primary">
@@ -148,23 +141,25 @@ export function InspectionSidebar({
           isInteractionLocked ? 'opacity-70' : ''
         }`}
       >
-        {visibleCategories.map((category) => {
-          const categoryName = lang === 'zh' ? category.nameZh : category.name;
-          const selectedItemIds = selectedItems[category.id] || new Set();
+        {visibleProfiles.map((profile) => {
+          const profileName = lang === 'zh' ? profile.nameZh : profile.name;
+          const layerName = getInspectionProfileLayerName(profile.layer, lang);
+          const selectedItemIds = selectedProfiles[profile.id] || new Set();
           const selectedCount = selectedItemIds.size;
-          const allSelected = category.items.every((item) => selectedItemIds.has(item.id));
-          const someSelected = category.items.some((item) => selectedItemIds.has(item.id));
-          const isExpanded = expandedCategories.has(category.id);
-          const isFocused = focusedCategoryId === category.id;
+          const allSelected = profile.items.every((item) => selectedItemIds.has(item.id));
+          const someSelected = profile.items.some((item) => selectedItemIds.has(item.id));
+          const isExpanded = expandedProfiles.has(profile.id);
+          const isFocused = focusedProfileId === profile.id;
           const visibleItems = readOnly
-            ? category.items.filter((item) => selectedItemIds.has(item.id))
-            : category.items;
-          const canNavigateCategory =
-            readOnly && selectedCount > 0 && Boolean(onNavigateToCategory);
+            ? profile.items.filter((item) => selectedItemIds.has(item.id))
+            : profile.items;
+          const canNavigateProfile =
+            readOnly && selectedCount > 0 && Boolean(onNavigateToProfile);
+          const ProfileIcon = getProfileIcon(profile.layer);
 
           return (
             <div
-              key={category.id}
+              key={profile.id}
               className={`rounded-xl transition-colors ${
                 !readOnly && isFocused
                   ? 'border border-system-blue/35 bg-system-blue/10 shadow-sm'
@@ -184,7 +179,8 @@ export function InspectionSidebar({
                 ) : (
                   <button
                     type="button"
-                    aria-label={categoryName}
+                    aria-label={profileName}
+                    disabled={isInteractionLocked}
                     className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
                       isGeneratingAI
                         ? 'border-border-strong bg-element-bg'
@@ -195,8 +191,8 @@ export function InspectionSidebar({
                             : 'border-border-strong bg-panel-bg hover:border-system-blue'
                     }`}
                     onClick={() => {
-                      toggleCategorySelection(category.id);
-                      onFocusCategory(category.id);
+                      toggleProfileSelection(profile.id);
+                      onFocusProfile(profile.id);
                     }}
                   >
                     {allSelected ? (
@@ -208,71 +204,49 @@ export function InspectionSidebar({
                 )}
 
                 <div className="min-w-0 flex-1">
-                  {readOnly ? (
-                    canNavigateCategory ? (
-                      <button
-                        type="button"
-                        className="w-full rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
-                        onClick={() => {
-                          onFocusCategory(category.id);
-                          onNavigateToCategory?.(category.id);
-                        }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-xs font-semibold text-text-primary">
-                            {categoryName}
-                          </span>
-                          <span className="shrink-0 rounded-md border border-border-black bg-element-bg px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
-                            {Math.round(category.weight * 100)}%
-                          </span>
-                        </div>
-                        <div className="mt-1 flex items-center gap-1.5 text-[10px] font-medium text-text-tertiary">
-                          <span>
-                            {selectedCount}/{category.items.length}
-                          </span>
-                          <span aria-hidden="true">•</span>
-                          <span>{resolveCategoryImpactLabel(category.weight)}</span>
-                        </div>
-                      </button>
-                    ) : (
-                      <div className="w-full">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-xs font-semibold text-text-primary">
-                            {categoryName}
-                          </span>
-                          <span className="shrink-0 rounded-md border border-border-black bg-element-bg px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
-                            {Math.round(category.weight * 100)}%
-                          </span>
-                        </div>
-                        <div className="mt-1 flex items-center gap-1.5 text-[10px] font-medium text-text-tertiary">
-                          <span>
-                            {selectedCount}/{category.items.length}
-                          </span>
-                          <span aria-hidden="true">•</span>
-                          <span>{resolveCategoryImpactLabel(category.weight)}</span>
-                        </div>
-                      </div>
-                    )
-                  ) : (
+                  {readOnly && canNavigateProfile ? (
                     <button
                       type="button"
-                      className="w-full text-left"
-                      onClick={() => onFocusCategory(category.id)}
+                      disabled={isInteractionLocked}
+                      className="w-full rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+                      onClick={() => {
+                        onFocusProfile(profile.id);
+                        onNavigateToProfile?.(profile.id);
+                      }}
                     >
                       <div className="flex items-center gap-2">
+                        <ProfileIcon className="h-3.5 w-3.5 shrink-0 text-system-blue" />
                         <span className="truncate text-xs font-semibold text-text-primary">
-                          {categoryName}
-                        </span>
-                        <span className="shrink-0 rounded-md border border-border-black bg-element-bg px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
-                          {Math.round(category.weight * 100)}%
+                          {profileName}
                         </span>
                       </div>
                       <div className="mt-1 flex items-center gap-1.5 text-[10px] font-medium text-text-tertiary">
                         <span>
-                          {selectedCount}/{category.items.length}
+                          {selectedCount}/{profile.items.length}
                         </span>
                         <span aria-hidden="true">•</span>
-                        <span>{resolveCategoryImpactLabel(category.weight)}</span>
+                        <span>{layerName}</span>
+                      </div>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={isInteractionLocked}
+                      className="w-full text-left"
+                      onClick={() => onFocusProfile(profile.id)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <ProfileIcon className="h-3.5 w-3.5 shrink-0 text-system-blue" />
+                        <span className="truncate text-xs font-semibold text-text-primary">
+                          {profileName}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex items-center gap-1.5 text-[10px] font-medium text-text-tertiary">
+                        <span>
+                          {selectedCount}/{profile.items.length}
+                        </span>
+                        <span aria-hidden="true">•</span>
+                        <span>{layerName}</span>
                       </div>
                     </button>
                   )}
@@ -283,8 +257,8 @@ export function InspectionSidebar({
                   disabled={isInteractionLocked}
                   className="rounded-md p-1 transition-colors hover:bg-element-hover disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
                   onClick={() => {
-                    onFocusCategory(category.id);
-                    toggleCategoryExpand(category.id);
+                    onFocusProfile(profile.id);
+                    toggleProfileExpand(profile.id);
                   }}
                 >
                   {isExpanded ? (
@@ -310,10 +284,11 @@ export function InspectionSidebar({
                             <button
                               key={item.id}
                               type="button"
+                              disabled={isInteractionLocked}
                               className="flex w-full items-center gap-2 rounded-lg bg-element-bg px-1.5 py-1.5 text-left transition-colors hover:bg-element-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
                               onClick={() => {
-                                onFocusCategory(category.id);
-                                onNavigateToItem?.(category.id, item.id);
+                                onFocusProfile(profile.id);
+                                onNavigateToItem?.(profile.id, item.id);
                               }}
                             >
                               <div
@@ -355,12 +330,13 @@ export function InspectionSidebar({
                         <button
                           key={item.id}
                           type="button"
+                          disabled={isInteractionLocked}
                           className={`flex w-full items-center gap-2 rounded-lg p-1.5 text-left transition-colors ${
                             isSelected ? 'bg-element-bg' : 'hover:bg-element-hover'
                           }`}
                           onClick={() => {
-                            toggleItemSelection(category.id, item.id);
-                            onFocusCategory(category.id);
+                            toggleItemSelection(profile.id, item.id);
+                            onFocusProfile(profile.id);
                           }}
                         >
                           <div

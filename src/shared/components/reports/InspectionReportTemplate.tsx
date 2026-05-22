@@ -5,7 +5,6 @@
 
 import type { InspectionReport, RobotInspectionContext } from '@/types';
 import { translations } from '@/shared/i18n';
-import { INSPECTION_CRITERIA } from '@/shared/data/inspectionCriteria';
 import { buildInspectionEvidenceSummary } from '@/shared/utils/inspectionEvidenceSummary';
 
 interface ReportTemplateProps {
@@ -13,6 +12,7 @@ interface ReportTemplateProps {
   robotName: string;
   lang: 'zh' | 'en';
   inspectionContext?: RobotInspectionContext;
+  profileLabels?: Record<string, string>;
 }
 
 export function InspectionReportTemplate({
@@ -20,6 +20,7 @@ export function InspectionReportTemplate({
   robotName,
   lang,
   inspectionContext,
+  profileLabels = {},
 }: ReportTemplateProps) {
   const t = translations[lang];
   const overallScore = inspectionReport.overallScore ?? 0;
@@ -37,16 +38,11 @@ export function InspectionReportTemplate({
 
   const scoreColor = getScoreColor(overallScore, maxScore);
 
-  // Group issues by category
-  const issuesByCategory: Record<string, typeof inspectionReport.issues> = {};
-  const defaultCategoryId = INSPECTION_CRITERIA[0]?.id || 'spec';
-  INSPECTION_CRITERIA.forEach((category) => {
-    issuesByCategory[category.id] = [];
-  });
+  const issuesByProfile: Record<string, typeof inspectionReport.issues> = {};
   inspectionReport.issues.forEach((issue) => {
-    const categoryId = issue.category || defaultCategoryId;
-    if (!issuesByCategory[categoryId]) issuesByCategory[categoryId] = [];
-    issuesByCategory[categoryId].push(issue);
+    const profileId = issue.profileId || 'unmapped';
+    if (!issuesByProfile[profileId]) issuesByProfile[profileId] = [];
+    issuesByProfile[profileId].push(issue);
   });
 
   // Date string
@@ -118,41 +114,41 @@ export function InspectionReportTemplate({
         ) : null}
       </div>
 
-      {/* Categories */}
-      {INSPECTION_CRITERIA.map((category) => {
-        const categoryIssues = issuesByCategory[category.id] || [];
-        const categoryScore = inspectionReport.categoryScores?.[category.id] ?? 10;
-        const categoryName = lang === 'zh' ? category.nameZh : category.name;
+      {/* Profiles */}
+      {Object.entries(issuesByProfile).map(([profileId, profileIssues]) => {
+        const profileScore = inspectionReport.profileScores?.[profileId] ?? 10;
+        const profileName = profileLabels[profileId] || profileId;
 
         return (
-          <div key={category.id} style={styles.section}>
+          <div key={profileId} style={styles.section}>
             <h2 style={styles.sectionTitle}>
-              {categoryName} ({categoryScore.toFixed(1)}/10)
+              {profileName} ({profileScore.toFixed(1)}/10)
             </h2>
 
-            {categoryIssues.length === 0 ? (
-              <div style={styles.passedMessage}>{t.allChecksPassedForCategory}</div>
-            ) : (
-              <div style={styles.issuesContainer}>
-                {categoryIssues.map((issue, idx) => {
-                  const issueScore = issue.score ?? 10;
-                  const icon = issue.type === 'error' ? '✗' : issue.type === 'warning' ? '⚠' : 'ℹ';
+            <div style={styles.profileMeta}>{profileId}</div>
 
-                  return (
-                    <div key={idx} style={styles.issueCard}>
-                      <div style={styles.issueHeader}>
-                        <span style={{ ...styles.issueIcon, color: getScoreColor(issueScore, 10) }}>
-                          {icon}
-                        </span>
-                        <span style={styles.issueTitle}>{issue.title}</span>
-                        <span style={styles.issueScore}>{issueScore.toFixed(1)}/10</span>
-                      </div>
-                      <p style={styles.issueDescription}>{issue.description}</p>
+            <div style={styles.issuesContainer}>
+              {profileIssues.map((issue, idx) => {
+                const issueScore = issue.score ?? 10;
+                const icon = issue.type === 'error' ? '✗' : issue.type === 'warning' ? '⚠' : 'ℹ';
+
+                return (
+                  <div key={idx} style={styles.issueCard}>
+                    <div style={styles.issueHeader}>
+                      <span style={{ ...styles.issueIcon, color: getScoreColor(issueScore, 10) }}>
+                        {icon}
+                      </span>
+                      <span style={styles.issueTitle}>{issue.title}</span>
+                      <span style={styles.issueScore}>{issueScore.toFixed(1)}/10</span>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                    <div style={styles.issueProfile}>
+                      {issue.profileId}.{issue.itemId}
+                    </div>
+                    <p style={styles.issueDescription}>{issue.description}</p>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
       })}
@@ -353,6 +349,14 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#111827', // gray-900
   },
 
+  profileMeta: {
+    marginTop: '4px',
+    marginBottom: '12px',
+    fontSize: '11px',
+    color: PDF_COLORS.textMuted,
+    overflowWrap: 'anywhere' as const,
+  },
+
   passedMessage: {
     color: PDF_COLORS.success,
     fontSize: '13px',
@@ -408,6 +412,18 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '13px',
     whiteSpace: 'pre-wrap' as const,
     overflowWrap: 'anywhere' as const,
+  },
+
+  issueProfile: {
+    display: 'inline-block',
+    margin: '0 0 8px 0',
+    padding: '2px 6px',
+    borderRadius: '5px',
+    border: `1px solid ${PDF_COLORS.borderMedium}`,
+    backgroundColor: PDF_COLORS.bgMuted,
+    fontSize: '11px',
+    fontWeight: '600',
+    color: PDF_COLORS.textSecondary,
   },
 
   footer: {

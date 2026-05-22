@@ -14,6 +14,7 @@ interface ExportInspectionReportPdfParams {
   robotName: string;
   lang: Language;
   inspectionContext?: RobotInspectionContext;
+  profileLabels?: Record<string, string>;
 }
 
 function buildInspectionReportPdfFileName(robotName: string, lang: Language): string {
@@ -53,6 +54,7 @@ export async function exportInspectionReportPdf({
   robotName,
   lang,
   inspectionContext,
+  profileLabels,
 }: ExportInspectionReportPdfParams): Promise<void> {
   if (!inspectionReport) {
     return;
@@ -70,6 +72,7 @@ export async function exportInspectionReportPdf({
           robotName,
           lang: lang as 'zh' | 'en',
           inspectionContext,
+          profileLabels,
         }),
       );
     });

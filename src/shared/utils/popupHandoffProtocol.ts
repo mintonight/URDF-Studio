@@ -148,8 +148,6 @@ export interface PopupHandoffArchiveRecord {
   sourceOrigin: string;
   createdAt: number;
   zipBlob: Blob;
-  status?: 'pending' | 'consumed';
-  pluginKey?: string;
 }
 
 /** Read asset import parameters from a full URL string. Returns null if absent. */
@@ -161,6 +159,13 @@ export function readImportParamsFromUrl(url: string): AssetImportParams | null {
   return { assetId, fromOrigin };
 }
 
+/** Read the legacy popup handoff id from a full URL string. Returns null if absent. */
+export function readHandoffIdFromUrl(url: string): string | null {
+  const resolvedUrl = new URL(url, 'http://localhost');
+  const handoffId = resolvedUrl.searchParams.get(POPUP_HANDOFF_QUERY_PARAM)?.trim() ?? '';
+  return handoffId.length > 0 ? handoffId : null;
+}
+
 /** Remove asset import query parameters from a URL string, returning the cleaned URL. */
 export function stripImportParamsFromUrl(url: string): string {
   const resolvedUrl = new URL(url);
@@ -170,17 +175,15 @@ export function stripImportParamsFromUrl(url: string): string {
   return resolvedUrl.toString();
 }
 
-/** Read the legacy popup handoff ID from a URL string. Returns null if absent. */
-export function readHandoffIdFromUrl(url: string): string | null {
-  const resolvedUrl = new URL(url, 'http://localhost');
-  const handoffId = resolvedUrl.searchParams.get(POPUP_HANDOFF_QUERY_PARAM)?.trim() ?? '';
-  return handoffId.length > 0 ? handoffId : null;
-}
-
 /** Remove the legacy popup handoff query parameter from a URL string. */
 export function stripHandoffParamFromUrl(url: string): string {
   const resolvedUrl = new URL(url, 'http://localhost');
   resolvedUrl.searchParams.delete(POPUP_HANDOFF_QUERY_PARAM);
+
+  if (resolvedUrl.origin === 'http://localhost') {
+    return `${resolvedUrl.pathname}${resolvedUrl.search}${resolvedUrl.hash}`;
+  }
+
   return resolvedUrl.toString();
 }
 

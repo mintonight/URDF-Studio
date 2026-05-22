@@ -7,13 +7,20 @@ import type { RobotState, MotorSpec, InspectionReport } from '@/types'
 import { translations, type Language } from '@/shared/i18n'
 import type { AIResponse } from '../types'
 import { getEasterEggResponse } from '../config/easterEggs'
+import {
+  INSPECTION_PROFILE_DEFINITIONS,
+  getInspectionProfileLayerName,
+} from '../config/inspectionProfiles'
 import { getGenerationSystemPrompt, getInspectionSystemPrompt } from '../config/prompts'
 import { buildInspectionPromptNotes } from '../utils/buildInspectionPromptNotes'
 import { buildInspectionRobotContext } from '../utils/buildInspectionRobotContext'
+import {
+  buildInspectionEvidence,
+  mergeInspectionEvidenceIntoReport,
+} from '../utils/inspectionEvidence'
 import { normalizeAIRobotResponse } from '../utils/normalizeRobotData'
 import { processInspectionResults } from '../utils/processInspectionResults'
-import { INSPECTION_CRITERIA } from '../utils/inspectionCriteria'
-import { logRegressionError } from '@/shared/debug/consoleDiagnostics'
+import type { SelectedInspectionProfileMap } from '../utils/inspectionProfileSelection'
 
 export type RobotInspectionStage =
   | 'preparing-context'
@@ -148,32 +155,45 @@ const extractRobotData = (parsedResult: Record<string, unknown>): Record<string,
     (parsedResult.links || parsedResult.joints ? parsedResult : null)) as Record<string, unknown> | null
 }
 
-const buildInspectionCriteriaDescription = (
-  selectedItems: Record<string, string[]> | undefined,
+export const buildInspectionCriteriaDescription = (
+  selectedItems: SelectedInspectionProfileMap | undefined,
   lang: 'en' | 'zh'
 ): string => {
-  return INSPECTION_CRITERIA.map(category => {
-    const selectedItemIds = selectedItems?.[category.id] || []
+  return INSPECTION_PROFILE_DEFINITIONS.map(profile => {
+    const selectedItemIds = selectedItems?.[profile.id] || []
     if (selectedItemIds.length === 0) return null
 
-    const categoryName = lang === 'zh' ? category.nameZh : category.name
-    const itemsDesc = category.items
+    const profileName = lang === 'zh' ? profile.nameZh : profile.name
+    const profileDesc = lang === 'zh' ? profile.descriptionZh : profile.description
+    const layerName = getInspectionProfileLayerName(profile.layer, lang)
+    const itemsDesc = profile.items
       .filter(item => selectedItemIds.includes(item.id))
       .map(item => {
         const itemName = lang === 'zh' ? item.nameZh : item.name
         const itemDesc = lang === 'zh' ? item.descriptionZh : item.description
-        const itemScoreRef =
-          lang === 'zh' ? item.scoringReferenceZh : item.scoringReference
-        const itemDetails = itemScoreRef
-          ? `${itemDesc} ${lang === 'zh' ? `得分参考：${itemScoreRef}` : `Scoring reference: ${itemScoreRef}`}`
-          : itemDesc
-        return `    - ${itemName} (${item.id}): ${itemDetails}`
+        const severityLabel =
+          lang === 'zh'
+            ? item.severityOnFailure === 'error'
+              ? '错误'
+              : item.severityOnFailure === 'warning'
+                ? '警告'
+                : '建议'
+            : item.severityOnFailure
+        const evidenceLabel = item.evidenceLevelRequired
+          ? lang === 'zh'
+            ? `，证据等级：${item.evidenceLevelRequired}`
+            : `, evidence: ${item.evidenceLevelRequired}`
+          : ''
+        return lang === 'zh'
+          ? `    - ${itemName} (${item.id})：${itemDesc} 失败等级：${severityLabel}${evidenceLabel}`
+          : `    - ${itemName} (${item.id}): ${itemDesc} Failure severity: ${severityLabel}${evidenceLabel}`
       })
       .join('\n')
 
     if (itemsDesc) {
-      const weightLabel = lang === 'zh' ? '权重' : 'weight'
-      return `  ${category.id} (${categoryName}, ${weightLabel}: ${category.weight * 100}%):\n${itemsDesc}`
+      return lang === 'zh'
+        ? `  ${profile.id}（${profileName}，层级：${profile.layer} / ${layerName}）：${profileDesc}\n${itemsDesc}`
+        : `  ${profile.id} (${profileName}, layer: ${profile.layer} / ${layerName}): ${profileDesc}\n${itemsDesc}`
     }
     return null
   })
@@ -346,7 +366,7 @@ export const generateRobotFromPrompt = async (
  */
 export const runRobotInspection = async (
   robot: RobotState,
-  selectedItems?: Record<string, string[]>,
+  selectedItems?: SelectedInspectionProfileMap,
   lang: Language = 'en',
   options: RunRobotInspectionOptions = {},
 ): Promise<InspectionReport | null> => {
@@ -359,7 +379,10 @@ export const runRobotInspection = async (
         {
           type: 'error',
           title: text.configurationError,
-          description: text.apiKeyMissing
+          description: text.apiKeyMissing,
+          profileId: 'unmapped',
+          itemId: 'unmapped',
+          score: 0,
         }
       ]
     }
@@ -369,6 +392,7 @@ export const runRobotInspection = async (
   const modelName = getModelName()
   options.onStageChange?.('preparing-context')
   const contextRobot = buildInspectionRobotContext(robot)
+  const localEvidence = buildInspectionEvidence(robot)
 
   const criteriaDescription = buildInspectionCriteriaDescription(selectedItems, lang)
   const inspectionNotes = buildInspectionPromptNotes(robot, selectedItems, lang)
@@ -396,7 +420,10 @@ export const runRobotInspection = async (
           {
             type: 'error',
             title: text.inspectionError,
-            description: text.inspectionEmptyContent
+            description: text.inspectionEmptyContent,
+            profileId: 'unmapped',
+            itemId: 'unmapped',
+            score: 0,
           }
         ]
       }
@@ -411,14 +438,21 @@ export const runRobotInspection = async (
           {
             type: 'error',
             title: text.parseError,
-            description: `${error}\n\n${text.rawResponse}: ${content.substring(0, 500)}`
+            description: `${error}\n\n${text.rawResponse}: ${content.substring(0, 500)}`,
+            profileId: 'unmapped',
+            itemId: 'unmapped',
+            score: 0,
           }
         ]
       }
     }
 
     options.onStageChange?.('finalizing-report')
-    return processInspectionResults(result, selectedItems, lang)
+    return mergeInspectionEvidenceIntoReport(
+      processInspectionResults(result, selectedItems, lang),
+      localEvidence,
+      lang,
+    )
   } catch (e: unknown) {
     const error = e as { message?: string }
     logRegressionError('Inspection failed', e)
@@ -428,7 +462,10 @@ export const runRobotInspection = async (
         {
           type: 'error',
           title: text.inspectionError,
-          description: text.aiServiceRequestFailed(error?.message)
+          description: text.aiServiceRequestFailed(error?.message),
+          profileId: 'unmapped',
+          itemId: 'unmapped',
+          score: 0,
         }
       ]
     }

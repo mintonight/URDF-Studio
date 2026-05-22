@@ -7,7 +7,7 @@ import { act } from 'react';
 import { JSDOM } from 'jsdom';
 
 import { translations } from '@/shared/i18n';
-import { INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
+import { INSPECTION_PROFILE_DEFINITIONS } from '../config/inspectionProfiles';
 import { InspectionSidebar } from './InspectionSidebar';
 
 function installDom() {
@@ -41,9 +41,9 @@ function installDom() {
 
 function createSelectedItems() {
   return Object.fromEntries(
-    INSPECTION_CRITERIA.map((category) => [
-      category.id,
-      new Set(category.items.map((item) => item.id)),
+    INSPECTION_PROFILE_DEFINITIONS.map((profile) => [
+      profile.id,
+      new Set(profile.items.map((item) => item.id)),
     ]),
   );
 }
@@ -63,12 +63,12 @@ test('running inspection sidebar keeps scroll container interactive without rend
           t={translations.zh}
           isGeneratingAI
           readOnly
-          focusedCategoryId={INSPECTION_CRITERIA[0]?.id ?? ''}
-          expandedCategories={new Set(INSPECTION_CRITERIA.map((category) => category.id))}
-          selectedItems={createSelectedItems()}
-          setExpandedCategories={() => {}}
-          setSelectedItems={() => {}}
-          onFocusCategory={() => {}}
+          focusedProfileId={INSPECTION_PROFILE_DEFINITIONS[0]?.id ?? ''}
+          expandedProfiles={new Set(INSPECTION_PROFILE_DEFINITIONS.map((profile) => profile.id))}
+          selectedProfiles={createSelectedItems()}
+          setExpandedProfiles={() => {}}
+          setSelectedProfiles={() => {}}
+          onFocusProfile={() => {}}
         />,
       );
     });
@@ -82,7 +82,7 @@ test('running inspection sidebar keeps scroll container interactive without rend
     );
 
     const toggleButtons = Array.from(container.querySelectorAll('button'));
-    assert.ok(toggleButtons.length > 0, 'expected category expand buttons to render');
+    assert.ok(toggleButtons.length > 0, 'expected profile expand buttons to render');
     assert.equal(
       toggleButtons.every((button) => (button as HTMLButtonElement).disabled),
       true,

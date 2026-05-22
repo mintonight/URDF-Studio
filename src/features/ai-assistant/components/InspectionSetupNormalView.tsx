@@ -1,16 +1,26 @@
-import { Check, ChevronDown, ChevronRight, Minus } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, FileText, Layers, Minus, Package, SlidersHorizontal, Sparkles, Target } from 'lucide-react';
 import { useState, type Dispatch, type SetStateAction } from 'react';
 import type { Language, TranslationKeys } from '@/shared/i18n';
-import { INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
-import type { SelectedInspectionItems } from './InspectionSidebar';
-import { getInspectionCategoryIcon } from './inspectionCategoryIcon';
+import {
+  INSPECTION_PROFILE_DEFINITIONS,
+  getAllInspectionProfileItemCount,
+  getInspectionProfileLayerName,
+  getInspectionProfileName,
+} from '../config/inspectionProfiles';
+import type {
+  InspectionProfileRecommendation,
+  InspectionRobotType,
+  InspectionTargetPlatform,
+} from '../utils/inspectionProfileRecommendation';
+import type { SelectedInspectionProfiles } from '../utils/inspectionProfileSelection';
 
 interface InspectionSetupNormalViewProps {
   lang: Language;
   t: TranslationKeys;
-  selectedItems: SelectedInspectionItems;
-  setSelectedItems: Dispatch<SetStateAction<SelectedInspectionItems>>;
-  onFocusCategory: (categoryId: string) => void;
+  selectedProfiles: SelectedInspectionProfiles;
+  setSelectedProfiles: Dispatch<SetStateAction<SelectedInspectionProfiles>>;
+  onFocusProfile: (profileId: string) => void;
+  recommendation?: InspectionProfileRecommendation;
 }
 
 interface SelectionMarkProps {
@@ -21,7 +31,15 @@ interface SelectionMarkProps {
 
 const defaultSelectionMarkActiveClassName =
   'border-system-blue-solid bg-system-blue-solid text-white';
-const categorySelectionMarkActiveClassName = 'border-system-blue bg-system-blue/80 text-white';
+const profileSelectionMarkActiveClassName = 'border-system-blue bg-system-blue/80 text-white';
+
+const getProfileIcon = (layer: string) => {
+  if (layer === 'base') return Layers;
+  if (layer === 'format') return FileText;
+  if (layer === 'target') return Target;
+  if (layer === 'workflow') return Package;
+  return Sparkles;
+};
 
 function SelectionMark({
   checked,
@@ -47,20 +65,52 @@ function SelectionMark({
   );
 }
 
+function formatRobotTypeLabel(robotType: InspectionRobotType, t: TranslationKeys) {
+  const labels: Record<InspectionRobotType, string> = {
+    generic: t.inspectionRobotTypeGeneric,
+    humanoid: t.inspectionRobotTypeHumanoid,
+    quadruped: t.inspectionRobotTypeQuadruped,
+    manipulator: t.inspectionRobotTypeManipulator,
+    mobile_base: t.inspectionRobotTypeMobileBase,
+    gripper: t.inspectionRobotTypeGripper,
+  };
+
+  return labels[robotType];
+}
+
+function formatTargetPlatformLabel(targetPlatform: InspectionTargetPlatform, t: TranslationKeys) {
+  if (targetPlatform === 'generic') {
+    return t.inspectionTargetGeneric;
+  }
+
+  return targetPlatform;
+}
+
+function formatConfidenceLabel(
+  confidence: InspectionProfileRecommendation['confidence'],
+  t: TranslationKeys,
+) {
+  if (confidence === 'high') {
+    return t.inspectionConfidenceHigh;
+  }
+  if (confidence === 'medium') {
+    return t.inspectionConfidenceMedium;
+  }
+  return t.inspectionConfidenceLow;
+}
+
 export function InspectionSetupNormalView({
   lang,
   t,
-  selectedItems,
-  setSelectedItems,
-  onFocusCategory,
+  selectedProfiles,
+  setSelectedProfiles,
+  onFocusProfile,
+  recommendation,
 }: InspectionSetupNormalViewProps) {
-  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(() => new Set());
-  const totalItemCount = INSPECTION_CRITERIA.reduce(
-    (sum, category) => sum + category.items.length,
-    0,
-  );
-  const totalSelectedCount = INSPECTION_CRITERIA.reduce(
-    (sum, category) => sum + (selectedItems[category.id]?.size ?? 0),
+  const [expandedProfileIds, setExpandedProfileIds] = useState<Set<string>>(() => new Set());
+  const totalItemCount = getAllInspectionProfileItemCount();
+  const totalSelectedCount = INSPECTION_PROFILE_DEFINITIONS.reduce(
+    (sum, profile) => sum + (selectedProfiles[profile.id]?.size ?? 0),
     0,
   );
   const allItemsSelected = totalSelectedCount === totalItemCount;
@@ -70,65 +120,159 @@ export function InspectionSetupNormalView({
     .replace('{total}', String(totalItemCount));
 
   const selectAllItems = () => {
-    setSelectedItems(() =>
-      INSPECTION_CRITERIA.reduce<SelectedInspectionItems>((next, category) => {
-        next[category.id] = new Set(category.items.map((item) => item.id));
+    setSelectedProfiles(() =>
+      INSPECTION_PROFILE_DEFINITIONS.reduce<SelectedInspectionProfiles>((next, profile) => {
+        next[profile.id] = new Set(profile.items.map((item) => item.id));
         return next;
       }, {}),
     );
   };
 
   const clearAllItems = () => {
-    setSelectedItems(() =>
-      INSPECTION_CRITERIA.reduce<SelectedInspectionItems>((next, category) => {
-        next[category.id] = new Set();
+    setSelectedProfiles(() =>
+      INSPECTION_PROFILE_DEFINITIONS.reduce<SelectedInspectionProfiles>((next, profile) => {
+        next[profile.id] = new Set();
         return next;
       }, {}),
     );
   };
 
-  const toggleCategorySelection = (categoryId: string) => {
-    setSelectedItems((prev) => {
+  const expandRecommendedProfiles = () => {
+    setExpandedProfileIds(
+      new Set(
+        recommendation?.profileIds.length
+          ? recommendation.profileIds
+          : INSPECTION_PROFILE_DEFINITIONS.map((profile) => profile.id),
+      ),
+    );
+  };
+
+  const toggleProfileSelection = (profileId: string) => {
+    setSelectedProfiles((prev) => {
       const next = { ...prev };
-      const category = INSPECTION_CRITERIA.find((entry) => entry.id === categoryId);
-      if (!category) {
+      const profile = INSPECTION_PROFILE_DEFINITIONS.find((entry) => entry.id === profileId);
+      if (!profile) {
         return prev;
       }
 
-      const allSelected = category.items.every((item) => next[categoryId]?.has(item.id));
-      next[categoryId] = allSelected ? new Set() : new Set(category.items.map((item) => item.id));
+      const allSelected = profile.items.every((item) => next[profileId]?.has(item.id));
+      next[profileId] = allSelected ? new Set() : new Set(profile.items.map((item) => item.id));
       return next;
     });
   };
 
-  const toggleCategoryExpansion = (categoryId: string) => {
-    setExpandedCategoryIds((prev) => {
+  const toggleProfileExpansion = (profileId: string) => {
+    setExpandedProfileIds((prev) => {
       const next = new Set(prev);
-      if (next.has(categoryId)) {
-        next.delete(categoryId);
+      if (next.has(profileId)) {
+        next.delete(profileId);
       } else {
-        next.add(categoryId);
+        next.add(profileId);
       }
       return next;
     });
   };
 
-  const toggleItemSelection = (categoryId: string, itemId: string) => {
-    setSelectedItems((prev) => {
+  const toggleItemSelection = (profileId: string, itemId: string) => {
+    setSelectedProfiles((prev) => {
       const next = { ...prev };
-      const itemSet = new Set(next[categoryId] ?? []);
+      const itemSet = new Set(next[profileId] ?? []);
       if (itemSet.has(itemId)) {
         itemSet.delete(itemId);
       } else {
         itemSet.add(itemId);
       }
-      next[categoryId] = itemSet;
+      next[profileId] = itemSet;
       return next;
     });
   };
 
   return (
     <div className="space-y-5">
+      {recommendation && (
+        <section
+          data-inspection-profile-recommendation-card
+          className="rounded-xl border border-border-black bg-panel-bg p-4 shadow-sm"
+        >
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-system-blue/20 bg-system-blue/10 text-system-blue">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-semibold text-text-primary">
+                    {t.inspectionRecommendedPlan}
+                  </h2>
+                  <p className="mt-1 text-[12px] leading-5 text-text-secondary">
+                    {t.inspectionRecommendedPlanDescription}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              data-inspection-profile-adjust-scope
+              onClick={expandRecommendedProfiles}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border-black bg-element-bg px-3 text-[11px] font-medium text-text-secondary transition-colors hover:bg-element-hover hover:text-system-blue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              {t.inspectionRecommendationAdjustScope}
+            </button>
+          </div>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                label: t.inspectionRecommendationRobotType,
+                value: formatRobotTypeLabel(recommendation.robotType, t),
+              },
+              {
+                label: t.inspectionRecommendationSourceFormat,
+                value: recommendation.sourceFormat.toUpperCase(),
+              },
+              {
+                label: t.inspectionRecommendationTarget,
+                value: formatTargetPlatformLabel(recommendation.targetPlatform, t),
+              },
+              {
+                label: t.inspectionRecommendationConfidence,
+                value: formatConfidenceLabel(recommendation.confidence, t),
+              },
+            ].map((metric) => (
+              <div
+                key={metric.label}
+                className="rounded-lg border border-border-black bg-element-bg px-3 py-2"
+              >
+                <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
+                  {metric.label}
+                </div>
+                <div className="mt-1 text-[12px] font-semibold text-text-primary">
+                  {metric.value}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-3">
+            <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
+              {t.inspectionRecommendationProfiles}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {recommendation.profileIds.map((profileId) => (
+                <span
+                  key={profileId}
+                  className="rounded-md border border-system-blue/20 bg-system-blue/10 px-2 py-1 text-[10px] font-medium text-system-blue"
+                >
+                  {getInspectionProfileName(profileId, lang)}
+                </span>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 flex-1">
           <h2
@@ -177,23 +321,23 @@ export function InspectionSetupNormalView({
         data-inspection-normal-scan-list
         className="overflow-hidden rounded-xl border border-border-black bg-panel-bg shadow-sm divide-y divide-border-black"
       >
-        {INSPECTION_CRITERIA.map((category) => {
-          const Icon = getInspectionCategoryIcon(category.id);
-          const categoryName = lang === 'zh' ? category.nameZh : category.name;
-          const selectedCount = selectedItems[category.id]?.size ?? 0;
-          const allSelected = selectedCount === category.items.length;
+        {INSPECTION_PROFILE_DEFINITIONS.map((profile) => {
+          const Icon = getProfileIcon(profile.layer);
+          const profileName = lang === 'zh' ? profile.nameZh : profile.name;
+          const selectedCount = selectedProfiles[profile.id]?.size ?? 0;
+          const allSelected = selectedCount === profile.items.length;
           const someSelected = selectedCount > 0 && !allSelected;
           const hasSelection = allSelected || someSelected;
           const selectedPercentage =
-            category.items.length > 0
-              ? Math.round((selectedCount / category.items.length) * 100)
+            profile.items.length > 0
+              ? Math.round((selectedCount / profile.items.length) * 100)
               : 0;
-          const isExpanded = expandedCategoryIds.has(category.id);
+          const isExpanded = expandedProfileIds.has(profile.id);
 
           return (
             <section
-              key={category.id}
-              data-inspection-normal-category
+              key={profile.id}
+              data-inspection-normal-profile
               className={`rounded-xl border-0 transition-colors ${
                 allSelected ? 'bg-system-blue/5' : 'bg-panel-bg'
               }`}
@@ -207,33 +351,33 @@ export function InspectionSetupNormalView({
               >
                 <button
                   type="button"
-                  data-inspection-normal-category-selection
+                  data-inspection-normal-profile-selection
                   aria-pressed={allSelected}
                   className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
                   onClick={() => {
-                    onFocusCategory(category.id);
-                    toggleCategorySelection(category.id);
+                    onFocusProfile(profile.id);
+                    toggleProfileSelection(profile.id);
                   }}
                 >
                   <SelectionMark
                     checked={allSelected}
                     indeterminate={someSelected}
-                    activeClassName={categorySelectionMarkActiveClassName}
+                    activeClassName={profileSelectionMarkActiveClassName}
                   />
                 </button>
 
                 <button
                   type="button"
                   aria-expanded={isExpanded}
-                  data-inspection-normal-category-row
+                  data-inspection-normal-profile-row
                   className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
                   onClick={() => {
-                    onFocusCategory(category.id);
-                    toggleCategoryExpansion(category.id);
+                    onFocusProfile(profile.id);
+                    toggleProfileExpansion(profile.id);
                   }}
                 >
                   <div
-                    data-inspection-normal-category-icon
+                    data-inspection-normal-profile-icon
                     className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-system-blue ${
                       hasSelection
                         ? 'border-system-blue/20 bg-system-blue/10'
@@ -246,7 +390,7 @@ export function InspectionSetupNormalView({
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-2">
                       <div className="truncate text-[13px] font-semibold text-text-primary">
-                        {categoryName}
+                        {profileName}
                       </div>
                       <span
                         className={`h-1.5 w-1.5 shrink-0 rounded-full ${
@@ -260,7 +404,7 @@ export function InspectionSetupNormalView({
                     </div>
                     <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-element-bg">
                       <div
-                        data-inspection-normal-category-progress
+                        data-inspection-normal-profile-progress
                         className={`h-full rounded-full transition-[width,background-color] ${
                           hasSelection ? 'bg-slider-accent' : 'bg-border-strong'
                         }`}
@@ -271,14 +415,14 @@ export function InspectionSetupNormalView({
 
                   <div className="flex shrink-0 items-center gap-2">
                     <div
-                      data-inspection-normal-category-count
+                      data-inspection-normal-profile-count
                       className={`rounded-md border px-2 py-1 text-[10px] font-semibold tabular-nums ${
                         hasSelection
                           ? 'border-system-blue/20 bg-panel-bg text-system-blue shadow-sm'
                           : 'border-border-black bg-element-bg text-text-tertiary'
                       }`}
                     >
-                      {selectedCount}/{category.items.length}
+                      {selectedCount}/{profile.items.length}
                     </div>
                     <span
                       aria-hidden="true"
@@ -299,9 +443,9 @@ export function InspectionSetupNormalView({
                   data-inspection-normal-item-list
                   className="grid gap-1.5 border-t border-border-black/70 bg-panel-bg px-3.5 py-2.5 sm:grid-cols-2 lg:grid-cols-3"
                 >
-                  {category.items.map((item) => {
+                  {profile.items.map((item) => {
                     const itemName = lang === 'zh' ? item.nameZh : item.name;
-                    const isSelected = selectedItems[category.id]?.has(item.id) ?? false;
+                    const isSelected = selectedProfiles[profile.id]?.has(item.id) ?? false;
 
                     return (
                       <button
@@ -315,8 +459,8 @@ export function InspectionSetupNormalView({
                             : 'border-border-black bg-panel-bg hover:border-system-blue/30 hover:bg-element-hover'
                         }`}
                         onClick={() => {
-                          onFocusCategory(category.id);
-                          toggleItemSelection(category.id, item.id);
+                          onFocusProfile(profile.id);
+                          toggleItemSelection(profile.id, item.id);
                         }}
                       >
                         <SelectionMark checked={isSelected} />

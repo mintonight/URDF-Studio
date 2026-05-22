@@ -69,6 +69,8 @@ function createIssueFixture(): InspectionReport['issues'][number] {
     type: 'warning',
     title: 'Joint alignment issue',
     description: 'The shoulder joint and arm link are not aligned with the base frame.',
+    profileId: 'morph.manipulator',
+    itemId: 'joint_axis_consistency',
     relatedIds: ['shoulder_joint', 'arm_link', 'shoulder_joint', 'unknown_id', ''],
   };
 }

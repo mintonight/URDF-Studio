@@ -1,14 +1,25 @@
 import type { InspectionReport } from '@/types';
-import { calculateOverallScore, INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
-import type { SelectedInspectionItems } from './InspectionSidebar';
+import {
+  INSPECTION_PROFILE_DEFINITIONS,
+  getAllInspectionProfileItemCount,
+} from '../config/inspectionProfiles';
+import {
+  createProfileScoreMetrics,
+  type SelectedInspectionProfiles,
+} from '../utils/inspectionProfileSelection';
 
 export interface RetestingItemState {
-  categoryId: string;
+  profileId: string;
   itemId: string;
 }
 
 export interface ReportScrollTarget {
   anchorId: string;
+}
+
+export interface SetupItemScrollTarget {
+  profileId: string;
+  itemId: string;
 }
 
 export interface InspectionRunPointerLayout {
@@ -22,21 +33,21 @@ export type InspectionSetupMode = 'normal' | 'advanced';
 
 const INSPECTION_SETUP_MODE_STORAGE_KEY = 'urdf-studio.ai-inspection.setup-mode';
 
-export const TOTAL_INSPECTION_ITEM_COUNT = INSPECTION_CRITERIA.reduce(
-  (sum, category) => sum + category.items.length,
-  0,
-);
+export const TOTAL_INSPECTION_ITEM_COUNT = getAllInspectionProfileItemCount();
+
+export const RUN_INSPECTION_POINTER_DURATION_MS =
+  typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent) ? 300 : 2400;
 
 export function readStoredInspectionSetupMode(): InspectionSetupMode {
   if (typeof window === 'undefined') {
-    return 'advanced';
+    return 'normal';
   }
 
   try {
     const storedMode = window.localStorage.getItem(INSPECTION_SETUP_MODE_STORAGE_KEY);
-    return storedMode === 'normal' || storedMode === 'advanced' ? storedMode : 'advanced';
+    return storedMode === 'normal' || storedMode === 'advanced' ? storedMode : 'normal';
   } catch {
-    return 'advanced';
+    return 'normal';
   }
 }
 
@@ -52,10 +63,10 @@ export function writeStoredInspectionSetupMode(mode: InspectionSetupMode): void 
   }
 }
 
-export function createInitialSelectedItems(): SelectedInspectionItems {
-  const initial: SelectedInspectionItems = {};
-  INSPECTION_CRITERIA.forEach((category) => {
-    initial[category.id] = new Set(category.items.map((item) => item.id));
+export function createInitialSelectedProfiles(): SelectedInspectionProfiles {
+  const initial: SelectedInspectionProfiles = {};
+  INSPECTION_PROFILE_DEFINITIONS.forEach((profile) => {
+    initial[profile.id] = new Set(profile.items.map((item) => item.id));
   });
   return initial;
 }
@@ -63,37 +74,12 @@ export function createInitialSelectedItems(): SelectedInspectionItems {
 export function recalculateReportMetrics(
   issues: InspectionReport['issues'],
   fallbackMaxScore: number | undefined,
-): Pick<InspectionReport, 'overallScore' | 'categoryScores' | 'maxScore'> {
-  const categoryScoreBuckets: Record<string, number[]> = {};
-  INSPECTION_CRITERIA.forEach((category) => {
-    categoryScoreBuckets[category.id] = [];
-  });
-
-  issues.forEach((issue) => {
-    if (!issue.category || issue.score === undefined) {
-      return;
-    }
-    if (!categoryScoreBuckets[issue.category]) {
-      categoryScoreBuckets[issue.category] = [];
-    }
-    categoryScoreBuckets[issue.category].push(issue.score);
-  });
-
-  const categoryScores: Record<string, number> = {};
-  Object.entries(categoryScoreBuckets).forEach(([categoryId, scores]) => {
-    categoryScores[categoryId] =
-      scores.length > 0 ? scores.reduce((sum, score) => sum + score, 0) / scores.length : 10;
-  });
-
-  const allItemScores = issues
-    .map((issue) => issue.score)
-    .filter((score): score is number => score !== undefined);
-
-  const overallScore = calculateOverallScore(categoryScores, allItemScores);
-
+): Pick<InspectionReport, 'overallScore' | 'profileScores' | 'maxScore'> {
+  const metrics = createProfileScoreMetrics(issues);
   return {
-    overallScore: Math.round(overallScore * 10) / 10,
-    categoryScores,
-    maxScore: allItemScores.length > 0 ? allItemScores.length * 10 : (fallbackMaxScore ?? 100),
+    ...metrics,
+    maxScore: issues.some((issue) => issue.score !== undefined)
+      ? metrics.maxScore
+      : (fallbackMaxScore ?? metrics.maxScore),
   };
 }

@@ -7,9 +7,10 @@ import { JSDOM } from 'jsdom';
 
 import { translations } from '@/shared/i18n';
 import { GeometryType, JointType, type InspectionReport, type RobotState } from '@/types';
-import { INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
+import { INSPECTION_PROFILE_DEFINITIONS } from '../config/inspectionProfiles';
+import type { SelectedInspectionProfiles } from '../utils/inspectionProfileSelection';
 import { buildInspectionItemAnchorId, InspectionReportView } from './InspectionReport';
-import { InspectionSidebar, type SelectedInspectionItems } from './InspectionSidebar';
+import { InspectionSidebar } from './InspectionSidebar';
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -104,19 +105,19 @@ test('read-only inspection sidebar scrolls to the matching report item anchor', 
     configurable: true,
   });
 
-  const [firstCategory, secondCategory, thirdCategory] = INSPECTION_CRITERIA;
-  assert.ok(firstCategory, 'expected at least one inspection category');
-  assert.ok(secondCategory, 'expected at least two inspection categories');
-  assert.ok(thirdCategory, 'expected at least three inspection categories');
+  const [firstProfile, secondProfile, thirdProfile] = INSPECTION_PROFILE_DEFINITIONS;
+  assert.ok(firstProfile, 'expected at least one inspection profile');
+  assert.ok(secondProfile, 'expected at least two inspection profiles');
+  assert.ok(thirdProfile, 'expected at least three inspection profiles');
 
-  const firstItem = firstCategory.items[0];
-  const secondItem = secondCategory.items[0];
-  assert.ok(firstItem, 'expected the first category to contain an inspection item');
-  assert.ok(secondItem, 'expected the second category to contain an inspection item');
+  const firstItem = firstProfile.items[0];
+  const secondItem = secondProfile.items[0];
+  assert.ok(firstItem, 'expected the first profile to contain an inspection item');
+  assert.ok(secondItem, 'expected the second profile to contain an inspection item');
 
-  const selectedItems: SelectedInspectionItems = {
-    [firstCategory.id]: new Set([firstItem.id]),
-    [secondCategory.id]: new Set([secondItem.id]),
+  const selectedProfiles: SelectedInspectionProfiles = {
+    [firstProfile.id]: new Set([firstItem.id]),
+    [secondProfile.id]: new Set([secondItem.id]),
   };
 
   const report: InspectionReport = {
@@ -126,7 +127,7 @@ test('read-only inspection sidebar scrolls to the matching report item anchor', 
         type: 'warning',
         title: `${firstItem.name} needs attention`,
         description: 'The first selected check reported a warning.',
-        category: firstCategory.id,
+        profileId: firstProfile.id,
         itemId: firstItem.id,
         score: 5,
       },
@@ -134,35 +135,35 @@ test('read-only inspection sidebar scrolls to the matching report item anchor', 
         type: 'pass',
         title: `${secondItem.name} passed`,
         description: 'The second selected check passed cleanly.',
-        category: secondCategory.id,
+        profileId: secondProfile.id,
         itemId: secondItem.id,
         score: 10,
       },
     ],
     overallScore: 15,
-    categoryScores: {
-      [firstCategory.id]: 5,
-      [secondCategory.id]: 10,
+    profileScores: {
+      [firstProfile.id]: 5,
+      [secondProfile.id]: 10,
     },
     maxScore: 20,
   };
 
   function NavigationHarness() {
-    const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-      new Set(INSPECTION_CRITERIA.map((category) => category.id)),
+    const [expandedProfiles, setExpandedProfiles] = useState<Set<string>>(
+      new Set(INSPECTION_PROFILE_DEFINITIONS.map((profile) => profile.id)),
     );
-    const [focusedCategoryId, setFocusedCategoryId] = useState(firstCategory.id);
+    const [focusedProfileId, setFocusedProfileId] = useState(firstProfile.id);
     const scrollViewportRef = useRef<HTMLDivElement | null>(null);
     const t = translations.en;
 
-    const ensureCategoryExpanded = (categoryId: string) => {
-      setExpandedCategories((prev) => {
-        if (prev.has(categoryId)) {
+    const ensureProfileExpanded = (profileId: string) => {
+      setExpandedProfiles((prev) => {
+        if (prev.has(profileId)) {
           return prev;
         }
 
         const next = new Set(prev);
-        next.add(categoryId);
+        next.add(profileId);
         return next;
       });
     };
@@ -181,22 +182,22 @@ test('read-only inspection sidebar scrolls to the matching report item anchor', 
           t={t}
           isGeneratingAI={false}
           readOnly
-          focusedCategoryId={focusedCategoryId}
-          expandedCategories={expandedCategories}
-          selectedItems={selectedItems}
-          setExpandedCategories={setExpandedCategories}
-          setSelectedItems={(value) => {
+          focusedProfileId={focusedProfileId}
+          expandedProfiles={expandedProfiles}
+          selectedProfiles={selectedProfiles}
+          setExpandedProfiles={setExpandedProfiles}
+          setSelectedProfiles={(value) => {
             void value;
           }}
-          onFocusCategory={setFocusedCategoryId}
-          onNavigateToCategory={(categoryId) => {
-            setFocusedCategoryId(categoryId);
-            ensureCategoryExpanded(categoryId);
+          onFocusProfile={setFocusedProfileId}
+          onNavigateToProfile={(profileId) => {
+            setFocusedProfileId(profileId);
+            ensureProfileExpanded(profileId);
           }}
-          onNavigateToItem={(categoryId, itemId) => {
-            setFocusedCategoryId(categoryId);
-            ensureCategoryExpanded(categoryId);
-            scrollToAnchor(buildInspectionItemAnchorId(categoryId, itemId));
+          onNavigateToItem={(profileId, itemId) => {
+            setFocusedProfileId(profileId);
+            ensureProfileExpanded(profileId);
+            scrollToAnchor(buildInspectionItemAnchorId(profileId, itemId));
           }}
         />
 
@@ -206,16 +207,16 @@ test('read-only inspection sidebar scrolls to the matching report item anchor', 
             robot={createRobotFixture()}
             lang="en"
             t={t}
-            expandedCategories={expandedCategories}
+            expandedProfiles={expandedProfiles}
             retestingItem={null}
             isGeneratingAI={false}
-            onToggleCategory={(categoryId) => {
-              setExpandedCategories((prev) => {
+            onToggleProfile={(profileId) => {
+              setExpandedProfiles((prev) => {
                 const next = new Set(prev);
-                if (next.has(categoryId)) {
-                  next.delete(categoryId);
+                if (next.has(profileId)) {
+                  next.delete(profileId);
                 } else {
-                  next.add(categoryId);
+                  next.add(profileId);
                 }
                 return next;
               });
@@ -237,14 +238,14 @@ test('read-only inspection sidebar scrolls to the matching report item anchor', 
       root.render(<NavigationHarness />);
     });
 
-    const thirdCategoryName = thirdCategory.name;
+    const thirdProfileName = thirdProfile.name;
     assert.equal(
-      container.textContent?.includes(thirdCategoryName),
+      container.textContent?.includes(thirdProfileName),
       false,
-      'unselected categories should be hidden in the report navigation layout',
+      'unselected profiles should be hidden in the report navigation layout',
     );
 
-    const targetAnchorId = buildInspectionItemAnchorId(firstCategory.id, firstItem.id);
+    const targetAnchorId = buildInspectionItemAnchorId(firstProfile.id, firstItem.id);
     assert.ok(
       container.querySelector(`[data-inspection-anchor-id="${targetAnchorId}"]`),
       'expected the report item anchor to be rendered',

@@ -26,17 +26,6 @@ export interface InspectionItem {
 }
 
 /**
- * Inspection category definition
- */
-export interface InspectionCategory {
-  id: string;
-  name: string;
-  nameZh: string;
-  weight: number;
-  items: InspectionItem[];
-}
-
-/**
  * Issue types for inspection
  */
 export type IssueType = 'error' | 'warning' | 'suggestion' | 'pass';
@@ -48,8 +37,10 @@ export interface InspectionIssue {
   type: IssueType;
   title: string;
   description: string;
-  category?: string;
-  itemId?: string;
+  profileId: string;
+  itemId: string;
+  evidenceLevel?: 'L1' | 'L2' | 'L3' | 'L4';
+  evidenceSource?: string;
   score?: number;
   relatedIds?: string[];
 }
@@ -78,8 +69,10 @@ export interface AIConversationFocusedIssue {
   type: IssueType;
   title: string;
   description: string;
-  category?: string;
   itemId?: string;
+  profileId?: string;
+  evidenceLevel?: 'L1' | 'L2' | 'L3' | 'L4';
+  evidenceSource?: string;
   score?: number;
   relatedIds?: string[];
 }

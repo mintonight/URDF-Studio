@@ -71,15 +71,15 @@ test('buildInspectionPromptNotes emits MJCF-specific frame and tendon guidance w
   const notes = buildInspectionPromptNotes(
     robot,
     {
-      frames: ['frame_alignment'],
-      hardware: ['motor_limits', 'armature_config'],
+      'format.mjcf': ['mjcf_site_frame_usage', 'mjcf_tendon_actuator'],
+      'workflow.hardware_config': ['effort_velocity_limits', 'armature_equivalent_inertia'],
     },
     'en',
   );
 
   assert.match(notes, /Source-Format Notes/);
   assert.match(notes, /MJCF/);
-  assert.match(notes, /frame_alignment/);
+  assert.match(notes, /mjcf_site_frame_usage/);
   assert.match(notes, /base_link/);
   assert.match(notes, /tip_site/);
   assert.match(notes, /finger_tendon/);
@@ -130,7 +130,11 @@ test('buildInspectionPromptNotes rewrites generated MJCF body and site names int
     selection: { type: 'link', id: 'world_body_0' },
   };
 
-  const notes = buildInspectionPromptNotes(robot, { frames: ['frame_alignment'] }, 'en');
+  const notes = buildInspectionPromptNotes(
+    robot,
+    { 'format.mjcf': ['mjcf_site_frame_usage'] },
+    'en',
+  );
 
   assert.match(notes, /Bin/);
   assert.match(notes, /Bin Site 1/);
@@ -138,9 +142,50 @@ test('buildInspectionPromptNotes rewrites generated MJCF body and site names int
   assert.doesNotMatch(notes, /site_0/);
 });
 
-test('buildInspectionPromptNotes emits URDF diagnostic evidence for AI review', () => {
+test('buildInspectionPromptNotes includes deterministic local evidence for selected items', () => {
   const robot: RobotState = {
-    name: 'urdf-diagnostics-fixture',
+    name: 'evidence-fixture',
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#ffffff',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collision: {
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#000000',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        inertial: {
+          mass: -1,
+          inertia: { ixx: 1, ixy: 0, ixz: 0, iyy: 1, iyz: 0, izz: 1 },
+        },
+      },
+    },
+    joints: {},
+    selection: { type: 'link', id: 'base_link' },
+  };
+
+  const notes = buildInspectionPromptNotes(
+    robot,
+    { 'base.physical_plausibility': ['mass_positive'] },
+    'en',
+  );
+
+  assert.match(notes, /Local Deterministic Evidence/);
+  assert.match(notes, /mass_positive/);
+  assert.match(notes, /base_link/);
+});
+
+test('buildInspectionPromptNotes explains insufficient source evidence for USD source profiles', () => {
+  const robot: RobotState = {
+    name: 'usd-fixture',
     rootLinkId: 'base_link',
     links: {
       base_link: {
@@ -161,47 +206,14 @@ test('buildInspectionPromptNotes emits URDF diagnostic evidence for AI review', 
       },
     },
     joints: {},
-    inspectionContext: {
-      sourceFormat: 'urdf',
-      urdf: {
-        diagnosticCounts: { error: 1, warning: 2, info: 0 },
-        facts: {
-          linkCount: 1,
-          jointCount: 0,
-          visualCount: 1,
-          collisionCount: 1,
-          inertialCount: 0,
-          materialCount: 0,
-          meshCount: 0,
-          syntheticParentLinkCount: 0,
-          disconnectedRootCount: 1,
-        },
-        diagnostics: [
-          {
-            code: 'movable_joint_missing_limit',
-            severity: 'error',
-            category: 'joint',
-            message: 'Joint "elbow_joint" has no <limit> element.',
-            relatedIds: ['elbow_joint'],
-          },
-          {
-            code: 'inertial_mass_nonpositive',
-            severity: 'warning',
-            category: 'physical',
-            message: 'Link "base_link" has missing or non-positive inertial mass.',
-            relatedIds: ['base_link'],
-          },
-        ],
-      },
-    },
+    inspectionContext: { sourceFormat: 'usd' },
     selection: { type: 'link', id: 'base_link' },
   };
 
-  const notes = buildInspectionPromptNotes(robot, undefined, 'zh');
+  const notes = buildInspectionPromptNotes(robot, { 'format.usd': ['usd_stage_root'] }, 'en');
 
-  assert.match(notes, /URDF 摘要/);
-  assert.match(notes, /诊断计数：1 个 error，2 个 warning，0 个 info/);
-  assert.match(notes, /movable_joint_missing_limit/);
-  assert.match(notes, /elbow_joint/);
-  assert.match(notes, /inertial_mass_nonpositive/);
+  assert.match(notes, /Source-Format Notes/);
+  assert.match(notes, /USD/);
+  assert.match(notes, /insufficient_evidence/);
+  assert.match(notes, /stage/);
 });

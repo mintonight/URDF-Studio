@@ -68,16 +68,17 @@ const reportFixture: InspectionReport = {
   summary: 'Found one warning on joint limit configuration.',
   overallScore: 82,
   maxScore: 100,
-  categoryScores: {
-    simulation: 7.5,
+  profileScores: {
+    'workflow.hardware_config': 7.5,
   },
   issues: [
     {
       type: 'warning',
       title: 'Joint range may be too narrow',
       description: 'The hip joint range can limit reachable workspace.',
-      category: 'simulation',
-      itemId: 'motor_limits',
+      profileId: 'workflow.hardware_config',
+      itemId: 'effort_velocity_limits',
+      evidenceLevel: 'L1',
       score: 6,
       relatedIds: ['hip_joint', 'base_link'],
     },
@@ -109,8 +110,9 @@ test('buildConversationContext includes compact report snapshot for inspection-f
       type: 'warning',
       title: 'Joint range may be too narrow',
       description: 'The hip joint range can limit reachable workspace.',
-      category: 'simulation',
-      itemId: 'motor_limits',
+      profileId: 'workflow.hardware_config',
+      itemId: 'effort_velocity_limits',
+      evidenceLevel: 'L1',
       score: 6,
       relatedIds: ['hip_joint', 'base_link'],
     },
@@ -119,21 +121,38 @@ test('buildConversationContext includes compact report snapshot for inspection-f
   const payload = JSON.parse(contextString) as {
     mode: string;
     robot: { name: string; jointCount: number };
-    inspectionReport: { summary: string; issues: Array<{ relatedIds?: string[] }> };
+    inspectionReport: {
+      summary: string;
+      profileScores?: Record<string, number>;
+      issues: Array<{
+        profileId?: string;
+        itemId?: string;
+        evidenceLevel?: string;
+        relatedIds?: string[];
+      }>;
+    };
     selectedEntity: { type: string; id: string; name: string };
-    focusedIssue: { title: string; relatedIds?: string[] };
+    focusedIssue: { title: string; profileId?: string; evidenceLevel?: string; relatedIds?: string[] };
   };
 
   assert.equal(payload.mode, 'inspection-followup');
   assert.equal(payload.robot.name, 'chat-fixture');
   assert.equal(payload.robot.jointCount, 1);
   assert.equal(payload.inspectionReport.summary, reportFixture.summary);
+  assert.deepEqual(payload.inspectionReport.profileScores, {
+    'workflow.hardware_config': 7.5,
+  });
   assert.deepEqual(payload.inspectionReport.issues[0]?.relatedIds, ['base_link', 'hip_joint']);
+  assert.equal(payload.inspectionReport.issues[0]?.profileId, 'workflow.hardware_config');
+  assert.equal(payload.inspectionReport.issues[0]?.itemId, 'effort_velocity_limits');
+  assert.equal(payload.inspectionReport.issues[0]?.evidenceLevel, 'L1');
   assert.deepEqual(payload.selectedEntity, {
     type: 'joint',
     id: 'hip_joint',
     name: 'hip_joint',
   });
   assert.equal(payload.focusedIssue.title, 'Joint range may be too narrow');
+  assert.equal(payload.focusedIssue.profileId, 'workflow.hardware_config');
+  assert.equal(payload.focusedIssue.evidenceLevel, 'L1');
   assert.deepEqual(payload.focusedIssue.relatedIds, ['base_link', 'hip_joint']);
 });

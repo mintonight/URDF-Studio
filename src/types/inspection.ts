@@ -7,15 +7,17 @@ export interface InspectionIssue {
   title: string;
   description: string;
   relatedIds?: string[]; // IDs of links/joints involved
-  category?: string; // Category ID
-  itemId?: string; // Check item ID
+  profileId: string; // Profile ID
+  itemId: string; // Profile item ID
+  evidenceLevel?: 'L1' | 'L2' | 'L3' | 'L4'; // Evidence confidence level
+  evidenceSource?: string; // Evidence source label
   score?: number; // Score (0-10)
 }
 
 export interface InspectionReport {
   summary: string;
   issues: InspectionIssue[];
-  overallScore?: number; // Total score (0-100)
-  categoryScores?: Record<string, number>; // Category scores
-  maxScore?: number; // Max score (default 100)
+  overallScore?: number; // Total awarded score across scored inspection items
+  profileScores?: Record<string, number>; // Per-profile average scores (0-10)
+  maxScore?: number; // Max score across scored inspection items
 }

@@ -2,201 +2,166 @@ import type { InspectionReport } from '@/types'
 import { translations } from '@/shared/i18n'
 import type { IssueType } from '../types'
 import {
-  INSPECTION_CRITERIA,
-  calculateCategoryScore,
-  calculateItemScore,
-  calculateOverallScore,
-  getInspectionItem
-} from './inspectionCriteria'
+  getInspectionProfileDefinition,
+  getInspectionProfileItem,
+} from '../config/inspectionProfiles'
+import {
+  createProfileScoreMetrics,
+  type SelectedInspectionProfileMap,
+} from './inspectionProfileSelection'
 
 interface ParsedInspectionResult {
   summary?: string
   issues?: unknown[]
 }
 
-const issueIncludesAny = (text: string, patterns: string[]) => patterns.some(pattern => text.includes(pattern))
-
-const inferIssueCategory = (text: string) => {
-  if (issueIncludesAny(text, ['root', '<robot>', 'mimic', 'calibration', 'gazebo', 'sensor', 'transmission', 'extension', '根节点', '语义', '扩展', '传感器'])) {
-    return 'spec'
-  }
-
-  if (issueIncludesAny(text, ['mass', 'inertia', '质量', '惯性', 'symmetry', 'mirror', '对称', '镜像'])) {
-    return 'physical'
-  }
-
-  if (issueIncludesAny(text, ['frame', 'origin', 'axis', 'waist', 'coordinate', '坐标', '原点', '轴', '腰部'])) {
-    return 'frames'
-  }
-
-  if (issueIncludesAny(text, ['placement', 'attribution', 'transmission component', 'linkage', 'drive linkage', '归属', '传动件', '连杆'])) {
-    return 'assembly'
-  }
-
-  if (issueIncludesAny(text, ['topology', 'closed loop', 'collision', 'limit', 'orphan', '仿真', '拓扑', '闭环', '碰撞', '限位', '孤立'])) {
-    return 'simulation'
-  }
-
-  if (issueIncludesAny(text, ['name', '命名', '名称'])) {
-    return 'naming'
-  }
-
-  if (issueIncludesAny(text, ['motor', 'hardware', 'armature', 'torque', 'velocity', '电机', '硬件', '电枢', '力矩', '速度'])) {
-    return 'hardware'
-  }
-
-  return undefined
+interface RawInspectionIssue extends Record<string, unknown> {
+  type?: IssueType
+  title?: string
+  description?: string
+  profileId?: string
+  itemId?: string
+  evidenceLevel?: 'L1' | 'L2' | 'L3' | 'L4'
+  evidenceSource?: string
+  score?: number
+  relatedIds?: string[]
 }
 
-const inferIssueItemId = (
-  text: string,
-  categoryId: string | undefined,
-  selectedItems?: Record<string, string[]>
-) => {
-  if (!categoryId || !selectedItems?.[categoryId]?.length) {
+const VALID_ISSUE_TYPES = new Set<IssueType>(['error', 'warning', 'suggestion', 'pass'])
+
+const scoreForIssueType = (type: IssueType, hasExplicitIssue: boolean) => {
+  if (!hasExplicitIssue || type === 'pass') {
+    return 10
+  }
+  if (type === 'error') {
+    return 2
+  }
+  if (type === 'warning') {
+    return 5
+  }
+  return 8
+}
+
+const normalizeIssueType = (type: unknown): IssueType => {
+  return typeof type === 'string' && VALID_ISSUE_TYPES.has(type as IssueType)
+    ? (type as IssueType)
+    : 'suggestion'
+}
+
+const toRelatedIds = (relatedIds: unknown) => {
+  if (!Array.isArray(relatedIds)) {
     return undefined
   }
 
-  const selectedItemIds = new Set(selectedItems[categoryId])
+  const ids = relatedIds
+    .map((id) => (typeof id === 'string' ? id.trim() : ''))
+    .filter(Boolean)
 
-  if (
-    categoryId === 'frames' &&
-    selectedItemIds.has('frame_alignment') &&
-    issueIncludesAny(text, ['frame', 'origin', 'coordinate', 'collinear', '坐标', '原点', '共线'])
-  ) {
-    return 'frame_alignment'
+  return ids.length > 0 ? ids : undefined
+}
+
+const createUnmappedIssue = (
+  rawIssue: RawInspectionIssue,
+  lang: 'en' | 'zh',
+): InspectionReport['issues'][number] => {
+  const rawTitle = typeof rawIssue.title === 'string' ? rawIssue.title : ''
+  const rawDescription = typeof rawIssue.description === 'string' ? rawIssue.description : ''
+
+  return {
+    type: 'error',
+    title: lang === 'zh' ? '未映射的审阅结果' : 'Unmapped inspection result',
+    description:
+      lang === 'zh'
+        ? `AI 返回的问题缺少有效 profileId/itemId，无法归属到当前 profile 标准。原始标题：${rawTitle || '无'}。原始描述：${rawDescription || '无'}。`
+        : `The AI returned an issue without a valid profileId/itemId, so it cannot be attributed to the active profile standard. Original title: ${rawTitle || 'none'}. Original description: ${rawDescription || 'none'}.`,
+    profileId: 'unmapped',
+    itemId: 'unmapped',
+    evidenceLevel: 'L3',
+    evidenceSource: 'ai_inference',
+    relatedIds: toRelatedIds(rawIssue.relatedIds),
+    score: 0,
+  }
+}
+
+const normalizeIssue = (
+  rawIssue: RawInspectionIssue,
+  lang: 'en' | 'zh',
+): InspectionReport['issues'][number] => {
+  const profileId = typeof rawIssue.profileId === 'string' ? rawIssue.profileId : ''
+  const itemId = typeof rawIssue.itemId === 'string' ? rawIssue.itemId : ''
+
+  if (!profileId || !itemId || !getInspectionProfileItem(profileId, itemId)) {
+    return createUnmappedIssue(rawIssue, lang)
   }
 
-  if (
-    categoryId === 'simulation' &&
-    selectedItemIds.has('tree_connectivity') &&
-    issueIncludesAny(text, ['topology', 'closed loop', 'root', 'orphan', '拓扑', '闭环', '根节点', '孤立'])
-  ) {
-    return 'tree_connectivity'
-  }
+  const type = normalizeIssueType(rawIssue.type)
+  const profile = getInspectionProfileDefinition(profileId)
+  const item = getInspectionProfileItem(profileId, itemId)
+  const score =
+    typeof rawIssue.score === 'number' ? rawIssue.score : scoreForIssueType(type, type !== 'pass')
 
-  if (
-    categoryId === 'hardware' &&
-    selectedItemIds.has('armature_config') &&
-    issueIncludesAny(text, ['armature', 'rotor inertia', 'equivalent inertia', '电枢', '转子', '惯量'])
-  ) {
-    return 'armature_config'
+  return {
+    type,
+    title:
+      typeof rawIssue.title === 'string' && rawIssue.title.trim()
+        ? rawIssue.title
+        : `${profile?.name ?? profileId}: ${item?.name ?? itemId}`,
+    description:
+      typeof rawIssue.description === 'string' && rawIssue.description.trim()
+        ? rawIssue.description
+        : (item?.description ?? itemId),
+    profileId,
+    itemId,
+    evidenceLevel: rawIssue.evidenceLevel,
+    evidenceSource:
+      typeof rawIssue.evidenceSource === 'string' ? rawIssue.evidenceSource : 'ai_inference',
+    relatedIds: toRelatedIds(rawIssue.relatedIds),
+    score,
   }
-
-  if (
-    categoryId === 'hardware' &&
-    selectedItemIds.has('motor_limits') &&
-    issueIncludesAny(text, ['effort', 'velocity', 'torque', 'peak', 'rated', '限位', '力矩', '速度', '额定', '峰值'])
-  ) {
-    return 'motor_limits'
-  }
-
-  return undefined
 }
 
 export function processInspectionResults(
   rawResults: unknown,
-  selectedItems?: Record<string, string[]>,
-  lang: 'en' | 'zh' = 'en'
+  selectedProfiles?: SelectedInspectionProfileMap,
+  lang: 'en' | 'zh' = 'en',
 ): InspectionReport {
   const t = translations[lang]
   const parsedResult = (rawResults || {}) as ParsedInspectionResult
-  const defaultCategoryId = INSPECTION_CRITERIA[0]?.id || 'spec'
+  const issues = ((parsedResult.issues || []) as RawInspectionIssue[]).map((rawIssue) =>
+    normalizeIssue({ ...rawIssue }, lang),
+  )
+  const allIssues: InspectionReport['issues'] = [...issues]
+  const reportedItems = new Set(issues.map((issue) => `${issue.profileId}:${issue.itemId}`))
 
-  const issues = ((parsedResult.issues || []) as Record<string, unknown>[]).map(issue => {
-    const issueText = `${String(issue.title || '').toLowerCase()} ${String(issue.description || '').toLowerCase()}`
+  Object.entries(selectedProfiles ?? {}).forEach(([profileId, itemIds]) => {
+    itemIds.forEach((itemId) => {
+      const key = `${profileId}:${itemId}`
+      if (reportedItems.has(key)) {
+        return
+      }
 
-    if (issue.score === undefined) {
-      issue.score = calculateItemScore(issue.type as IssueType, true)
-    }
+      const item = getInspectionProfileItem(profileId, itemId)
+      if (!item) {
+        return
+      }
 
-    if (!issue.category) {
-      issue.category = inferIssueCategory(issueText)
-    }
-
-    if (!issue.category) {
-      issue.category = defaultCategoryId
-    }
-
-    if (!issue.itemId) {
-      issue.itemId = inferIssueItemId(issueText, issue.category as string | undefined, selectedItems)
-    }
-
-    return issue
-  })
-
-  const allIssues: typeof issues = [...issues]
-  const reportedItems = new Set<string>()
-
-  issues.forEach(issue => {
-    if (issue.category && issue.itemId) {
-      reportedItems.add(`${issue.category}:${issue.itemId}`)
-    }
-  })
-
-  if (selectedItems) {
-    Object.keys(selectedItems).forEach(categoryId => {
-      const selectedItemIds = selectedItems[categoryId] || []
-      selectedItemIds.forEach(itemId => {
-        const key = `${categoryId}:${itemId}`
-        if (!reportedItems.has(key)) {
-          const item = getInspectionItem(categoryId, itemId)
-          if (item) {
-            const itemName = lang === 'zh' ? item.nameZh : item.name
-            const itemDesc = lang === 'zh' ? item.descriptionZh : item.description
-            allIssues.push({
-              type: 'pass',
-              title: t.inspectionPassTitle.replace('{itemName}', itemName),
-              description: t.inspectionPassDescription.replace('{itemDesc}', itemDesc),
-              category: categoryId,
-              itemId,
-              score: 10
-            })
-          }
-        }
+      const itemName = lang === 'zh' ? item.nameZh : item.name
+      const itemDesc = lang === 'zh' ? item.descriptionZh : item.description
+      allIssues.push({
+        type: 'pass',
+        title: t.inspectionPassTitle.replace('{itemName}', itemName),
+        description: t.inspectionPassDescription.replace('{itemDesc}', itemDesc),
+        profileId,
+        itemId,
+        evidenceSource: 'ai_inference',
+        score: 10,
       })
     })
-  }
-
-  const categoryScores: Record<string, number[]> = {}
-  INSPECTION_CRITERIA.forEach(category => {
-    categoryScores[category.id] = []
   })
-
-  allIssues.forEach(issue => {
-    if (issue.category && issue.score !== undefined) {
-      if (!categoryScores[issue.category as string]) {
-        categoryScores[issue.category as string] = []
-      }
-      categoryScores[issue.category as string].push(issue.score as number)
-    }
-  })
-
-  const categoryScoreMap: Record<string, number> = {}
-  Object.keys(categoryScores).forEach(categoryId => {
-    const scores = categoryScores[categoryId]
-    if (scores.length > 0) {
-      categoryScoreMap[categoryId] = calculateCategoryScore(scores)
-    } else {
-      categoryScoreMap[categoryId] = 10
-    }
-  })
-
-  const allItemScores: number[] = []
-  allIssues.forEach(issue => {
-    if (issue.score !== undefined) {
-      allItemScores.push(issue.score as number)
-    }
-  })
-
-  const overallScore = calculateOverallScore(categoryScoreMap, allItemScores)
-  const maxScore = allItemScores.length > 0 ? allItemScores.length * 10 : 100
 
   return {
     summary: parsedResult.summary || t.inspectionCompleted,
-    issues: allIssues as unknown as InspectionReport['issues'],
-    overallScore: Math.round(overallScore * 10) / 10,
-    categoryScores: categoryScoreMap,
-    maxScore
+    issues: allIssues,
+    ...createProfileScoreMetrics(allIssues),
   }
 }

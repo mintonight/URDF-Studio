@@ -15,19 +15,16 @@ export { sendConversationTurn } from './services/conversationService'
 
 // Utilities
 export {
-  INSPECTION_CRITERIA,
-  calculateItemScore,
-  calculateCategoryScore,
-  calculateOverallScore,
-  getInspectionItem,
-  getInspectionCategory
-} from './utils/inspectionCriteria'
+  INSPECTION_PROFILE_DEFINITIONS,
+  getInspectionProfileDefinition,
+  getInspectionProfileItem,
+  getInspectionProfileName,
+} from './config/inspectionProfiles'
 
 // Types
 export type {
   AIResponse,
   InspectionItem,
-  InspectionCategory,
   IssueType,
   InspectionIssue,
   AIConversationMode,

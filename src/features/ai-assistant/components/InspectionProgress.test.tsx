@@ -60,12 +60,12 @@ test('running inspection progress view places the transient status tray above th
             linkCount: 12,
             jointCount: 10,
             selectedCount: 6,
-            selectedCategoryCount: 2,
+            selectedProfileCount: 2,
             estimatedDuration: {
               label: '10-20s',
               maxSeconds: 20,
             },
-            categorySummary: [
+            profileSummary: [
               {
                 id: 'kinematics',
                 name: 'Kinematics',
@@ -221,12 +221,12 @@ test('delayed inspection status renders the delay hint inside the elapsed bubble
             linkCount: 12,
             jointCount: 10,
             selectedCount: 6,
-            selectedCategoryCount: 2,
+            selectedProfileCount: 2,
             estimatedDuration: {
               label: '10-20s',
               maxSeconds: 20,
             },
-            categorySummary: [
+            profileSummary: [
               {
                 id: 'kinematics',
                 name: 'Kinematics',

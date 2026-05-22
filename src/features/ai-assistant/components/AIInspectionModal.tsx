@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { MessageCircle, ScanSearch } from 'lucide-react';
 import type { InspectionReport, RobotState } from '@/types';
 import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
+import { useAssemblyStore } from '@/store';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { Button } from '@/shared/components/ui/Button';
 import { Dialog } from '@/shared/components/ui/Dialog';
@@ -11,21 +12,33 @@ import { SegmentedControl } from '@/shared/components/ui/SegmentedControl';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { useManagedWindowLayer } from '@/store';
 import { runRobotInspection } from '../services/aiService';
-import { INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
+import {
+  INSPECTION_PROFILE_DEFINITIONS,
+  getAllInspectionProfileItemCount,
+} from '../config/inspectionProfiles';
 import {
   buildInspectionRunContext,
   type InspectionRunContext,
 } from '../utils/inspectionRunContext';
+import { buildInspectionProfileRecommendation } from '../utils/inspectionProfileRecommendation';
+import {
+  countSelectedInspectionProfileItems,
+  countSelectedInspectionProfiles,
+  createProfileScoreMetrics,
+  createSelectedInspectionProfilesForProfileIds,
+  toSelectedInspectionProfileMap,
+  type SelectedInspectionProfiles,
+} from '../utils/inspectionProfileSelection';
 import { resolveInspectionIssueSelectionTarget } from '../utils/inspectionSelectionTargets';
 import { exportInspectionReportPdf } from '../utils/pdfExport';
 import { getScoreBgColor } from '../utils/scoreHelpers';
 import { InspectionProgress, type InspectionProgressState } from './InspectionProgress';
 import {
-  buildInspectionCategoryAnchorId,
+  buildInspectionProfileAnchorId,
   buildInspectionItemAnchorId,
   InspectionReportView,
 } from './InspectionReport';
-import { InspectionSidebar, type SelectedInspectionItems } from './InspectionSidebar';
+import { InspectionSidebar } from './InspectionSidebar';
 import { InspectionSetupNormalView } from './InspectionSetupNormalView';
 import { InspectionSetupView } from './InspectionSetupView';
 import {
@@ -56,6 +69,53 @@ interface AIInspectionModalProps {
   ) => void;
 }
 
+interface RetestingItemState {
+  profileId: string;
+  itemId: string;
+}
+
+interface ReportScrollTarget {
+  anchorId: string;
+}
+
+interface InspectionRunPointerLayout {
+  deltaX: number;
+  deltaY: number;
+  targetX: number;
+  targetY: number;
+}
+
+type InspectionSetupMode = 'normal' | 'advanced';
+
+const INSPECTION_SETUP_MODE_STORAGE_KEY = 'urdf-studio.ai-inspection.setup-mode';
+const TOTAL_INSPECTION_ITEM_COUNT = getAllInspectionProfileItemCount();
+
+function readStoredInspectionSetupMode(): InspectionSetupMode {
+  if (typeof window === 'undefined') {
+    return 'normal';
+  }
+
+  try {
+    const storedMode = window.localStorage.getItem(INSPECTION_SETUP_MODE_STORAGE_KEY);
+    return storedMode === 'normal' || storedMode === 'advanced' ? storedMode : 'normal';
+  } catch {
+    return 'normal';
+  }
+}
+
+function recalculateReportMetrics(
+  issues: InspectionReport['issues'],
+  fallbackMaxScore: number | undefined,
+): Pick<InspectionReport, 'overallScore' | 'profileScores' | 'maxScore'> {
+  const metrics = createProfileScoreMetrics(issues);
+  return {
+    ...metrics,
+    maxScore: issues.some((issue) => issue.score !== undefined)
+      ? metrics.maxScore
+      : (fallbackMaxScore ?? metrics.maxScore),
+  };
+}
+
 export function AIInspectionModal({
   isOpen,
   onClose,
@@ -65,7 +125,33 @@ export function AIInspectionModal({
   onOpenConversationWithReport,
 }: AIInspectionModalProps) {
   const t = translations[lang];
-  const inspectionWindowLayer = useManagedWindowLayer('aiInspection');
+  const assemblyState = useAssemblyStore((state) => state.assemblyState);
+  const assemblyWorkflowContext = useMemo(() => {
+    if (!assemblyState) {
+      return undefined;
+    }
+
+    return {
+      assemblyActive: true,
+      componentCount: Object.keys(assemblyState.components).length,
+      bridgeCount: Object.keys(assemblyState.bridges).length,
+      componentTransformAuthored:
+        Boolean(assemblyState.transform) ||
+        Object.values(assemblyState.components).some((component) => Boolean(component.transform)),
+    };
+  }, [assemblyState]);
+  const profileRecommendation = useMemo(
+    () =>
+      buildInspectionProfileRecommendation(robot, {
+        workflowContext: assemblyWorkflowContext,
+      }),
+    [assemblyWorkflowContext, robot],
+  );
+  const profileRecommendationKey = profileRecommendation.profileIds.join('\u0000');
+  const recommendedProfileIds = useMemo(
+    () => (profileRecommendationKey ? profileRecommendationKey.split('\u0000') : []),
+    [profileRecommendationKey],
+  );
   const windowState = useDraggableWindow({
     isOpen,
     defaultSize: { width: 1080, height: 720 },
@@ -87,11 +173,11 @@ export function AIInspectionModal({
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
   const [isSavingReportBeforeRegenerate, setIsSavingReportBeforeRegenerate] = useState(false);
   const [retestingItem, setRetestingItem] = useState<RetestingItemState | null>(null);
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(INSPECTION_CRITERIA.map((category) => category.id)),
+  const [expandedProfiles, setExpandedProfiles] = useState<Set<string>>(
+    new Set(profileRecommendation.profileIds),
   );
-  const [selectedItems, setSelectedItems] = useState<SelectedInspectionItems>(() =>
-    createInitialSelectedItems(),
+  const [selectedProfiles, setSelectedProfiles] = useState<SelectedInspectionProfiles>(() =>
+    createSelectedInspectionProfilesForProfileIds(profileRecommendation.profileIds),
   );
   const [inspectionSetupMode, setInspectionSetupMode] = useState<InspectionSetupMode>(() =>
     readStoredInspectionSetupMode(),
@@ -105,8 +191,8 @@ export function AIInspectionModal({
       targetX: 0,
       targetY: 0,
     });
-  const [focusedCategoryId, setFocusedCategoryId] = useState<string>(
-    INSPECTION_CRITERIA[0]?.id ?? '',
+  const [focusedProfileId, setFocusedProfileId] = useState<string>(
+    profileRecommendation.profileIds[0] ?? INSPECTION_PROFILE_DEFINITIONS[0]?.id ?? '',
   );
   const [pendingReportScrollTarget, setPendingReportScrollTarget] =
     useState<ReportScrollTarget | null>(null);
@@ -121,20 +207,11 @@ export function AIInspectionModal({
   const lastRunInspectionPointerKeyRef = useRef<string | null>(null);
   const runInspectionButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  let totalSelectedCount = 0;
-  let selectedCategoryCount = 0;
-  let selectedWeight = 0;
-
-  INSPECTION_CRITERIA.forEach((category) => {
-    const count = selectedItems[category.id]?.size ?? 0;
-    totalSelectedCount += count;
-    if (count > 0) {
-      selectedCategoryCount += 1;
-      selectedWeight += category.weight;
-    }
-  });
-
-  const selectedWeightPercentage = Math.round(selectedWeight * 100);
+  const totalSelectedCount = countSelectedInspectionProfileItems(selectedProfiles);
+  const selectedProfileCount = countSelectedInspectionProfiles(selectedProfiles);
+  const selectedCoveragePercentage = Math.round(
+    (selectedProfileCount / Math.max(INSPECTION_PROFILE_DEFINITIONS.length, 1)) * 100,
+  );
   const maxPossibleScore = totalSelectedCount * 10;
 
   const clearInspectionTimer = useCallback(() => {
@@ -158,6 +235,12 @@ export function AIInspectionModal({
 
     writeStoredInspectionSetupMode(inspectionSetupMode);
   }, [inspectionSetupMode]);
+
+  useEffect(() => {
+    setExpandedProfiles(new Set(recommendedProfileIds));
+    setSelectedProfiles(createSelectedInspectionProfilesForProfileIds(recommendedProfileIds));
+    setFocusedProfileId(recommendedProfileIds[0] ?? INSPECTION_PROFILE_DEFINITIONS[0]?.id ?? '');
+  }, [recommendedProfileIds]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -196,18 +279,8 @@ export function AIInspectionModal({
     setRetestingItem(null);
     setInspectionElapsedSeconds(0);
 
-    let totalItems = 0;
-    Object.keys(selectedItems).forEach((categoryId) => {
-      totalItems += selectedItems[categoryId]?.size || 0;
-    });
-
-    const selectedItemsMap: Record<string, string[]> = {};
-    Object.keys(selectedItems).forEach((categoryId) => {
-      const itemIds = Array.from(selectedItems[categoryId]);
-      if (itemIds.length > 0) {
-        selectedItemsMap[categoryId] = itemIds;
-      }
-    });
+    const totalItems = countSelectedInspectionProfileItems(selectedProfiles);
+    const selectedItemsMap = toSelectedInspectionProfileMap(selectedProfiles);
 
     if (totalItems === 0) {
       setInspectionProgress(null);
@@ -217,7 +290,7 @@ export function AIInspectionModal({
     }
 
     setInspectionRunContext(
-      buildInspectionRunContext(robot, selectedItems, lang, t.inspectionNormalizedModel),
+      buildInspectionRunContext(robot, selectedProfiles, lang, t.inspectionNormalizedModel),
     );
     setInspectionProgress({
       stage: 'preparing-context',
@@ -263,16 +336,16 @@ export function AIInspectionModal({
     }
   };
 
-  const handleRetestItem = async (categoryId: string, itemId: string) => {
+  const handleRetestItem = async (profileId: string, itemId: string) => {
     const requestId = retestRequestIdRef.current + 1;
     retestRequestIdRef.current = requestId;
     const isRequestActive = () => isMountedRef.current && retestRequestIdRef.current === requestId;
 
-    setRetestingItem({ categoryId, itemId });
+    setRetestingItem({ profileId, itemId });
 
     try {
       const selectedItemsMap: Record<string, string[]> = {
-        [categoryId]: [itemId],
+        [profileId]: [itemId],
       };
       const report = await runRobotInspection(robot, selectedItemsMap, lang);
       if (!isRequestActive() || !report || !inspectionReport) {
@@ -280,10 +353,10 @@ export function AIInspectionModal({
       }
 
       const updatedIssues = inspectionReport.issues.filter(
-        (issue) => !(issue.category === categoryId && issue.itemId === itemId),
+        (issue) => !(issue.profileId === profileId && issue.itemId === itemId),
       );
       const nextIssues = report.issues.filter(
-        (issue) => issue.category === categoryId && issue.itemId === itemId,
+        (issue) => issue.profileId === profileId && issue.itemId === itemId,
       );
       const mergedIssues = [...updatedIssues, ...nextIssues] as InspectionReport['issues'];
       const nextMetrics = recalculateReportMetrics(mergedIssues, inspectionReport.maxScore);
@@ -305,26 +378,26 @@ export function AIInspectionModal({
     }
   };
 
-  const handleToggleReportCategory = (categoryId: string) => {
-    setExpandedCategories((prev) => {
+  const handleToggleReportProfile = (profileId: string) => {
+    setExpandedProfiles((prev) => {
       const next = new Set(prev);
-      if (next.has(categoryId)) {
-        next.delete(categoryId);
+      if (next.has(profileId)) {
+        next.delete(profileId);
       } else {
-        next.add(categoryId);
+        next.add(profileId);
       }
       return next;
     });
   };
 
-  const ensureReportCategoryExpanded = useCallback((categoryId: string) => {
-    setExpandedCategories((prev) => {
-      if (prev.has(categoryId)) {
+  const ensureReportProfileExpanded = useCallback((profileId: string) => {
+    setExpandedProfiles((prev) => {
+      if (prev.has(profileId)) {
         return prev;
       }
 
       const next = new Set(prev);
-      next.add(categoryId);
+      next.add(profileId);
       return next;
     });
   }, []);
@@ -350,26 +423,26 @@ export function AIInspectionModal({
     return true;
   }, []);
 
-  const handleNavigateToReportCategory = useCallback(
-    (categoryId: string) => {
-      setFocusedCategoryId(categoryId);
-      ensureReportCategoryExpanded(categoryId);
+  const handleNavigateToReportProfile = useCallback(
+    (profileId: string) => {
+      setFocusedProfileId(profileId);
+      ensureReportProfileExpanded(profileId);
       setPendingReportScrollTarget({
-        anchorId: buildInspectionCategoryAnchorId(categoryId),
+        anchorId: buildInspectionProfileAnchorId(profileId),
       });
     },
-    [ensureReportCategoryExpanded],
+    [ensureReportProfileExpanded],
   );
 
   const handleNavigateToReportItem = useCallback(
-    (categoryId: string, itemId: string) => {
-      setFocusedCategoryId(categoryId);
-      ensureReportCategoryExpanded(categoryId);
+    (profileId: string, itemId: string) => {
+      setFocusedProfileId(profileId);
+      ensureReportProfileExpanded(profileId);
       setPendingReportScrollTarget({
-        anchorId: buildInspectionItemAnchorId(categoryId, itemId),
+        anchorId: buildInspectionItemAnchorId(profileId, itemId),
       });
     },
-    [ensureReportCategoryExpanded],
+    [ensureReportProfileExpanded],
   );
 
   useEffect(() => {
@@ -386,7 +459,7 @@ export function AIInspectionModal({
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [expandedCategories, inspectionReport, pendingReportScrollTarget, scrollToReportAnchor]);
+  }, [expandedProfiles, inspectionReport, pendingReportScrollTarget, scrollToReportAnchor]);
 
   const handleDownloadPDF = () => {
     return exportInspectionReportPdf({
@@ -428,10 +501,10 @@ export function AIInspectionModal({
     setIsInspecting(false);
   }, [clearInspectionTimer]);
 
-  const handleToggleSelectedItem = useCallback((categoryId: string, itemId: string) => {
-    setSelectedItems((prev) => {
+  const handleToggleSelectedItem = useCallback((profileId: string, itemId: string) => {
+    setSelectedProfiles((prev) => {
       const next = { ...prev };
-      const currentItems = new Set(next[categoryId] ?? []);
+      const currentItems = new Set(next[profileId] ?? []);
 
       if (currentItems.has(itemId)) {
         currentItems.delete(itemId);
@@ -439,7 +512,7 @@ export function AIInspectionModal({
         currentItems.add(itemId);
       }
 
-      next[categoryId] = currentItems;
+      next[profileId] = currentItems;
       return next;
     });
   }, []);
@@ -465,8 +538,8 @@ export function AIInspectionModal({
   const inspectionSetupSummary =
     `${t.inspectionRunSummary}${lang === 'zh' ? '：' : ': '}` +
     `${t.inspectionSelectedChecks.replace('{count}', String(totalSelectedCount))} | ` +
-    `${t.inspectionSelectedCategories}: ${selectedCategoryCount} | ` +
-    `${t.inspectionWeightedCoverage}: ${selectedWeightPercentage}% | ` +
+    `${t.inspectionSelectedCategories}: ${selectedProfileCount} | ` +
+    `${t.inspectionWeightedCoverage}: ${selectedCoveragePercentage}% | ` +
     `${t.inspectionMaxPossibleScore}: ${maxPossibleScore}`;
 
   useEffect(() => {
@@ -605,7 +678,8 @@ export function AIInspectionModal({
                     )}`}
                   />
                   <span className="text-[10px] font-medium tracking-wide text-text-secondary">
-                    {t.overallScore}: {inspectionReport.overallScore?.toFixed(1)}
+                    {t.overallScore}: {inspectionReport.overallScore?.toFixed(1)}/
+                    {inspectionReport.maxScore ?? 100}
                   </span>
                 </div>
               )}
@@ -663,12 +737,12 @@ export function AIInspectionModal({
                     t={t}
                     isGeneratingAI={isInspecting}
                     readOnly={false}
-                    focusedCategoryId={focusedCategoryId}
-                    expandedCategories={expandedCategories}
-                    selectedItems={selectedItems}
-                    setExpandedCategories={setExpandedCategories}
-                    setSelectedItems={setSelectedItems}
-                    onFocusCategory={setFocusedCategoryId}
+                    focusedProfileId={focusedProfileId}
+                    expandedProfiles={expandedProfiles}
+                    selectedProfiles={selectedProfiles}
+                    setExpandedProfiles={setExpandedProfiles}
+                    setSelectedProfiles={setSelectedProfiles}
+                    onFocusProfile={setFocusedProfileId}
                   />
 
                   <div
@@ -680,8 +754,8 @@ export function AIInspectionModal({
                         robot={robot}
                         lang={lang}
                         t={t}
-                        selectedItems={selectedItems}
-                        focusedCategoryId={focusedCategoryId}
+                        selectedProfiles={selectedProfiles}
+                        focusedProfileId={focusedProfileId}
                         onToggleItem={handleToggleSelectedItem}
                       />
                     </div>
@@ -696,9 +770,10 @@ export function AIInspectionModal({
                     <InspectionSetupNormalView
                       lang={lang}
                       t={t}
-                      selectedItems={selectedItems}
-                      setSelectedItems={setSelectedItems}
-                      onFocusCategory={setFocusedCategoryId}
+                      selectedProfiles={selectedProfiles}
+                      setSelectedProfiles={setSelectedProfiles}
+                      onFocusProfile={setFocusedProfileId}
+                      recommendation={profileRecommendation}
                     />
                   </div>
                 </div>
@@ -710,14 +785,14 @@ export function AIInspectionModal({
                   t={t}
                   isGeneratingAI={isInspecting}
                   readOnly={inspectionSidebarReadOnly}
-                  focusedCategoryId={focusedCategoryId}
-                  expandedCategories={expandedCategories}
-                  selectedItems={selectedItems}
-                  setExpandedCategories={setExpandedCategories}
-                  setSelectedItems={setSelectedItems}
-                  onFocusCategory={setFocusedCategoryId}
-                  onNavigateToCategory={
-                    inspectionReport ? handleNavigateToReportCategory : undefined
+                  focusedProfileId={focusedProfileId}
+                  expandedProfiles={expandedProfiles}
+                  selectedProfiles={selectedProfiles}
+                  setExpandedProfiles={setExpandedProfiles}
+                  setSelectedProfiles={setSelectedProfiles}
+                  onFocusProfile={setFocusedProfileId}
+                  onNavigateToProfile={
+                    inspectionReport ? handleNavigateToReportProfile : undefined
                   }
                   onNavigateToItem={inspectionReport ? handleNavigateToReportItem : undefined}
                 />
@@ -742,10 +817,10 @@ export function AIInspectionModal({
                             robot={robot}
                             lang={lang}
                             t={t}
-                            expandedCategories={expandedCategories}
+                            expandedProfiles={expandedProfiles}
                             retestingItem={retestingItem}
                             isGeneratingAI={isInspecting}
-                            onToggleCategory={handleToggleReportCategory}
+                            onToggleProfile={handleToggleReportProfile}
                             onRetestItem={handleRetestItem}
                             onDownloadPDF={handleDownloadPDF}
                             onSelectItem={onSelectItem}

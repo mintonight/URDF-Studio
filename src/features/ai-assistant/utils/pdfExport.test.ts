@@ -200,17 +200,21 @@ test('exportInspectionReportPdf renders the report into a hidden container and e
           {
             type: 'warning',
             title: 'armature 配置偏低',
-            description: 'FL_hip_rotor 的等效转动惯量接近 0。'
+            description: 'FL_hip_rotor 的等效转动惯量接近 0。',
+            profileId: 'workflow.hardware_config',
+            itemId: 'armature_equivalent_inertia',
           },
           {
             type: 'error',
             title: 'effort/velocity 缺失',
-            description: 'Head_upper_joint 缺少 effort 和 velocity 限值。'
+            description: 'Head_upper_joint 缺少 effort 和 velocity 限值。',
+            profileId: 'workflow.hardware_config',
+            itemId: 'effort_velocity_limits',
           }
         ],
         overallScore: 63,
-        categoryScores: {
-          hardware: 6.5
+        profileScores: {
+          'workflow.hardware_config': 6.5
         },
         maxScore: 100
       },
@@ -219,6 +223,7 @@ test('exportInspectionReportPdf renders the report into a hidden container and e
     })
 
     assert.match(capturedText, /检测到 2 个问题/)
+    assert.match(capturedText, /硬件配置检查/)
     assert.match(capturedText, /armature 配置偏低/)
     assert.match(capturedText, /effort\/velocity 缺失/)
     assert.equal(printCallCount, 0)

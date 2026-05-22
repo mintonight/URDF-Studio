@@ -125,38 +125,43 @@ test('inspection prompt templates live in a standalone config module', () => {
   );
 });
 
-test('inspection prompt examples stay aligned with the editable inspection markdown categories', () => {
-  assert.match(INSPECTION_SYSTEM_PROMPT_TEMPLATES.en, /'frames'/);
-  assert.match(INSPECTION_SYSTEM_PROMPT_TEMPLATES.en, /'assembly'/);
-  assert.match(INSPECTION_SYSTEM_PROMPT_TEMPLATES.en, /'simulation'/);
-  assert.doesNotMatch(INSPECTION_SYSTEM_PROMPT_TEMPLATES.en, /'kinematics'/);
-  assert.doesNotMatch(INSPECTION_SYSTEM_PROMPT_TEMPLATES.en, /'symmetry'/);
+test('inspection prompt contract is profile-only and rejects legacy category fields', () => {
+  assert.match(INSPECTION_SYSTEM_PROMPT_TEMPLATES.en, /"profileId"/);
+  assert.match(INSPECTION_SYSTEM_PROMPT_TEMPLATES.en, /"itemId"/);
+  assert.match(INSPECTION_SYSTEM_PROMPT_TEMPLATES.zh, /"profileId"/);
+  assert.match(INSPECTION_SYSTEM_PROMPT_TEMPLATES.zh, /"itemId"/);
+  assert.doesNotMatch(INSPECTION_SYSTEM_PROMPT_TEMPLATES.en, /"category"/);
+  assert.doesNotMatch(INSPECTION_SYSTEM_PROMPT_TEMPLATES.zh, /"category"/);
+  assert.doesNotMatch(INSPECTION_SYSTEM_PROMPT_TEMPLATES.en, /legacy/i);
+  assert.doesNotMatch(INSPECTION_SYSTEM_PROMPT_TEMPLATES.zh, /旧字段/);
 });
 
-test('getInspectionSystemPrompt injects english criteria without changing the JSON contract', () => {
-  const criteriaDescription = 'spec.robot_root_contract';
+test('getInspectionSystemPrompt injects english profile criteria without changing the profile JSON contract', () => {
+  const criteriaDescription = 'base.robot_model.reference_integrity';
   const inspectionNotes = '**Source-Format Notes:**\n- MJCF summary: 2 sites';
   const prompt = getInspectionSystemPrompt('en', { criteriaDescription, inspectionNotes });
 
-  assert.match(prompt, /spec\.robot_root_contract/);
+  assert.match(prompt, /base\.robot_model\.reference_integrity/);
   assert.match(prompt, /Source-Format Notes/);
   assert.doesNotMatch(prompt, new RegExp(INSPECTION_PROMPT_PLACEHOLDERS.criteriaDescription));
   assert.doesNotMatch(prompt, new RegExp(INSPECTION_PROMPT_PLACEHOLDERS.inspectionNotes));
   assert.match(prompt, /Return a pure JSON object/);
-  assert.match(prompt, /Each issue MUST include 'category' and 'itemId'/);
+  assert.match(prompt, /Each issue MUST include 'profileId' and 'itemId'/);
+  assert.doesNotMatch(prompt, /category/);
 });
 
-test('getInspectionSystemPrompt injects chinese criteria without changing the JSON contract', () => {
-  const criteriaDescription = 'spec.robot_root_contract';
+test('getInspectionSystemPrompt injects chinese profile criteria without changing the profile JSON contract', () => {
+  const criteriaDescription = 'base.robot_model.reference_integrity';
   const inspectionNotes = '**源格式附加说明:**\n- MJCF 摘要：2 个 site';
   const prompt = getInspectionSystemPrompt('zh', { criteriaDescription, inspectionNotes });
 
-  assert.match(prompt, /spec\.robot_root_contract/);
+  assert.match(prompt, /base\.robot_model\.reference_integrity/);
   assert.match(prompt, /源格式附加说明/);
   assert.doesNotMatch(prompt, new RegExp(INSPECTION_PROMPT_PLACEHOLDERS.criteriaDescription));
   assert.doesNotMatch(prompt, new RegExp(INSPECTION_PROMPT_PLACEHOLDERS.inspectionNotes));
   assert.match(prompt, /返回一个纯JSON对象/);
-  assert.match(prompt, /每个问题必须包含与上述标准匹配的 'category' 和 'itemId' 字段/);
+  assert.match(prompt, /每个问题必须包含 'profileId' 和 'itemId'/);
+  assert.doesNotMatch(prompt, /category/);
 });
 
 test('conversation prompt templates live in a standalone config module', () => {

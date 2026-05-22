@@ -1,32 +1,38 @@
 import {
   AlertCircle,
   AlertTriangle,
-  Box,
   Check,
   ChevronDown,
   ChevronRight,
   Crosshair,
   FileText,
   Info,
-  LayoutGrid,
+  Layers,
   Loader2,
   MessageCircle,
+  Package,
   RefreshCw,
   Sparkles,
+  Target,
 } from 'lucide-react';
 import type { InspectionReport, RobotState } from '@/types';
 import { translations, type Language, type TranslationKeys } from '@/shared/i18n';
 import { buildInspectionEvidenceSummary } from '@/shared/utils/inspectionEvidenceSummary';
-import { getInspectionItem, INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
+import {
+  INSPECTION_PROFILE_DEFINITIONS,
+  getInspectionProfileDefinition,
+  getInspectionProfileItem,
+  getInspectionProfileLayerName,
+  getInspectionProfileName,
+} from '../config/inspectionProfiles';
 import {
   resolveInspectionIssueRelatedEntities,
   resolveInspectionIssueSelectionTarget,
 } from '../utils/inspectionSelectionTargets';
 import { getScoreBgColor, getScoreColor } from '../utils/scoreHelpers';
-import { getInspectionCategoryIcon } from './inspectionCategoryIcon';
 
 interface RetestingItemState {
-  categoryId: string;
+  profileId: string;
   itemId: string;
 }
 
@@ -35,11 +41,11 @@ interface InspectionReportProps {
   robot: RobotState;
   lang: Language;
   t: TranslationKeys;
-  expandedCategories: Set<string>;
+  expandedProfiles: Set<string>;
   retestingItem: RetestingItemState | null;
   isGeneratingAI: boolean;
-  onToggleCategory: (categoryId: string) => void;
-  onRetestItem: (categoryId: string, itemId: string) => void;
+  onToggleProfile: (profileId: string) => void;
+  onRetestItem: (profileId: string, itemId: string) => void;
   onDownloadPDF: () => void;
   onSelectItem: (type: 'link' | 'joint', id: string) => void;
   onAskAboutIssue: (issue: InspectionReport['issues'][number]) => void;
@@ -64,13 +70,44 @@ interface InspectionItemGroup {
   primaryIssueType: string;
 }
 
-export function buildInspectionCategoryAnchorId(categoryId: string) {
-  return `inspection-category-${categoryId}`;
+export interface InspectionProfileSection {
+  profileId: string;
+  profileName: string;
+  layerName: string;
+  issues: InspectionReport['issues'];
+  itemGroups: InspectionItemGroup[];
+  profileScore: number;
+  hasProblems: boolean;
+  attentionItemCount: number;
+  anchorId: string;
 }
 
-export function buildInspectionItemAnchorId(categoryId: string, itemId: string) {
-  return `inspection-item-${categoryId}-${itemId}`;
+export function buildInspectionProfileAnchorId(profileId: string) {
+  return `inspection-profile-${profileId}`;
 }
+
+export function buildInspectionItemAnchorId(profileId: string, itemId: string) {
+  return `inspection-item-${profileId}-${itemId}`;
+}
+
+export function buildInspectionIssueProfileLabel(
+  issue: InspectionReport['issues'][number],
+  lang: Language = 'en',
+) {
+  if (!issue.profileId || issue.profileId === 'unmapped') {
+    return null;
+  }
+
+  return getInspectionProfileName(issue.profileId, lang);
+}
+
+const getProfileIcon = (profileId: string) => {
+  const layer = getInspectionProfileDefinition(profileId)?.layer;
+  if (layer === 'base') return Layers;
+  if (layer === 'target') return Target;
+  if (layer === 'workflow') return Package;
+  return Sparkles;
+};
 
 function compareIssuesByPriority(
   a: InspectionReport['issues'][number],
@@ -149,15 +186,15 @@ function getIssueMeta(issueType: string, lang: Language) {
 }
 
 function buildInspectionItemGroups(
-  categoryId: string,
-  categoryIssues: InspectionReport['issues'],
+  profileId: string,
+  profileIssues: InspectionReport['issues'],
   lang: Language,
 ): InspectionItemGroup[] {
   const groupedIssues = new Map<string, InspectionReport['issues']>();
   const unmappedGroups: InspectionItemGroup[] = [];
 
-  categoryIssues.forEach((issue, index) => {
-    if (!issue.itemId) {
+  profileIssues.forEach((issue, index) => {
+    if (!issue.itemId || issue.itemId === 'unmapped') {
       unmappedGroups.push({
         key: `unmapped-${index}`,
         itemId: null,
@@ -178,9 +215,9 @@ function buildInspectionItemGroups(
   });
 
   const itemGroups: InspectionItemGroup[] = [];
-  const category = INSPECTION_CRITERIA.find((entry) => entry.id === categoryId);
+  const profile = getInspectionProfileDefinition(profileId);
 
-  category?.items.forEach((item) => {
+  profile?.items.forEach((item) => {
     const groupedItemIssues = groupedIssues.get(item.id);
     if (!groupedItemIssues?.length) {
       return;
@@ -197,7 +234,7 @@ function buildInspectionItemGroups(
       issues: orderedIssues,
       hasProblems: nonPassCount > 0,
       nonPassCount,
-      anchorId: buildInspectionItemAnchorId(categoryId, item.id),
+      anchorId: buildInspectionItemAnchorId(profileId, item.id),
       primaryIssueType: orderedIssues[0]?.type ?? 'pass',
     });
 
@@ -209,20 +246,20 @@ function buildInspectionItemGroups(
     .forEach(([itemId, groupedItemIssues]) => {
       const orderedIssues = [...groupedItemIssues].sort(compareIssuesByPriority);
       const nonPassCount = orderedIssues.filter((issue) => issue.type !== 'pass').length;
-      const criteriaItem = getInspectionItem(categoryId, itemId);
+      const profileItem = getInspectionProfileItem(profileId, itemId);
 
       itemGroups.push({
         key: itemId,
         itemId,
-        title: criteriaItem && lang === 'zh' ? criteriaItem.nameZh : (criteriaItem?.name ?? itemId),
+        title: profileItem && lang === 'zh' ? profileItem.nameZh : (profileItem?.name ?? itemId),
         description:
-          criteriaItem && lang === 'zh'
-            ? criteriaItem.descriptionZh
-            : (criteriaItem?.description ?? null),
+          profileItem && lang === 'zh'
+            ? profileItem.descriptionZh
+            : (profileItem?.description ?? null),
         issues: orderedIssues,
         hasProblems: nonPassCount > 0,
         nonPassCount,
-        anchorId: buildInspectionItemAnchorId(categoryId, itemId),
+        anchorId: buildInspectionItemAnchorId(profileId, itemId),
         primaryIssueType: orderedIssues[0]?.type ?? 'pass',
       });
     });
@@ -230,15 +267,65 @@ function buildInspectionItemGroups(
   return [...itemGroups, ...unmappedGroups];
 }
 
+export function buildInspectionProfileSections(
+  issues: InspectionReport['issues'],
+  lang: Language = 'en',
+  profileScores: Record<string, number> = {},
+): InspectionProfileSection[] {
+  const groupedIssues = new Map<string, InspectionReport['issues']>();
+
+  issues.forEach((issue) => {
+    const profileId = issue.profileId || 'unmapped';
+    const existingIssues = groupedIssues.get(profileId) ?? [];
+    existingIssues.push(issue);
+    groupedIssues.set(profileId, existingIssues);
+  });
+
+  const knownProfileOrder = new Map(
+    INSPECTION_PROFILE_DEFINITIONS.map((profile, index) => [profile.id, index]),
+  );
+
+  return Array.from(groupedIssues.entries())
+    .map(([profileId, profileIssues]) => {
+      const profile = getInspectionProfileDefinition(profileId);
+      const itemGroups = buildInspectionItemGroups(profileId, profileIssues, lang);
+      const hasProblems = itemGroups.some((itemGroup) => itemGroup.hasProblems);
+      const attentionItemCount = itemGroups.filter((itemGroup) => itemGroup.hasProblems).length;
+
+      return {
+        profileId,
+        profileName:
+          profileId === 'unmapped'
+            ? lang === 'zh'
+              ? '未映射结果'
+              : 'Unmapped Results'
+            : getInspectionProfileName(profileId, lang),
+        layerName: profile ? getInspectionProfileLayerName(profile.layer, lang) : '',
+        issues: profileIssues,
+        itemGroups,
+        profileScore: profileScores[profileId] ?? 10,
+        hasProblems,
+        attentionItemCount,
+        anchorId: buildInspectionProfileAnchorId(profileId),
+      };
+    })
+    .filter((section) => section.itemGroups.length > 0)
+    .sort(
+      (left, right) =>
+        (knownProfileOrder.get(left.profileId) ?? 999) -
+        (knownProfileOrder.get(right.profileId) ?? 999),
+    );
+}
+
 export function InspectionReportView({
   report,
   robot,
   lang,
   t,
-  expandedCategories,
+  expandedProfiles,
   retestingItem,
   isGeneratingAI,
-  onToggleCategory,
+  onToggleProfile,
   onRetestItem,
   onDownloadPDF,
   onSelectItem,
@@ -247,21 +334,6 @@ export function InspectionReportView({
   const overallScore = report.overallScore ?? 0;
   const maxScore = report.maxScore ?? 100;
   const scorePercentage = maxScore > 0 ? (overallScore / maxScore) * 100 : 0;
-
-  const issuesByCategory: Record<string, typeof report.issues> = {};
-  const defaultCategoryId = INSPECTION_CRITERIA[0]?.id || 'spec';
-  INSPECTION_CRITERIA.forEach((category) => {
-    issuesByCategory[category.id] = [];
-  });
-
-  report.issues.forEach((issue) => {
-    const categoryId = issue.category || defaultCategoryId;
-    if (!issuesByCategory[categoryId]) {
-      issuesByCategory[categoryId] = [];
-    }
-    issuesByCategory[categoryId].push(issue);
-  });
-
   const issueStats = report.issues.reduce(
     (acc, issue) => {
       if (issue.type === 'error') acc.error += 1;
@@ -272,25 +344,12 @@ export function InspectionReportView({
     },
     { error: 0, warning: 0, suggestion: 0, pass: 0 },
   );
-  const categorySections = INSPECTION_CRITERIA.map((category) => {
-    const itemGroups = buildInspectionItemGroups(
-      category.id,
-      issuesByCategory[category.id] || [],
-      lang,
-    );
-    const hasProblems = itemGroups.some((itemGroup) => itemGroup.hasProblems);
-    const attentionItemCount = itemGroups.filter((itemGroup) => itemGroup.hasProblems).length;
-
-    return {
-      category,
-      categoryName: lang === 'zh' ? category.nameZh : category.name,
-      categoryScore: report.categoryScores?.[category.id] ?? 10,
-      itemGroups,
-      hasProblems,
-      attentionItemCount,
-      anchorId: buildInspectionCategoryAnchorId(category.id),
-    };
-  }).filter((section) => section.itemGroups.length > 0);
+  const profileSections = buildInspectionProfileSections(report.issues, lang, report.profileScores);
+  const evidenceSummary = buildInspectionEvidenceSummary(robot.inspectionContext, lang);
+  const topBlockers = report.issues
+    .filter((issue) => issue.type !== 'pass')
+    .sort(compareIssuesByPriority)
+    .slice(0, 3);
 
   const scoreBand =
     scorePercentage >= 90
@@ -338,11 +397,6 @@ export function InspectionReportView({
         'text-emerald-600 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-900/60',
     },
   ];
-  const evidenceSummary = buildInspectionEvidenceSummary(robot.inspectionContext, lang);
-  const topBlockers = report.issues
-    .filter((issue) => issue.type !== 'pass')
-    .sort(compareIssuesByPriority)
-    .slice(0, 3);
 
   return (
     <div className="space-y-6">
@@ -455,10 +509,11 @@ export function InspectionReportView({
               const selectionTarget = resolveInspectionIssueSelectionTarget(robot, issue);
               const hasSingleLocatableTarget =
                 relatedEntities.length === 1 && Boolean(relatedEntities[0]?.target);
+              const profileLabel = buildInspectionIssueProfileLabel(issue, lang);
 
               return (
                 <div
-                  key={`top-blocker-${issue.category || 'unknown'}-${issue.itemId || index}-${index}`}
+                  key={`top-blocker-${issue.profileId}-${issue.itemId}-${index}`}
                   className={`rounded-xl border bg-white dark:bg-panel-bg ${meta.rowClass}`}
                 >
                   <div className={`h-0.5 ${meta.stripeClass}`} />
@@ -478,6 +533,16 @@ export function InspectionReportView({
                           {issue.score !== undefined && (
                             <span className="rounded border border-border-black bg-element-bg px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
                               {issue.score.toFixed(1)}
+                            </span>
+                          )}
+                          {profileLabel && (
+                            <span className="rounded border border-system-blue/20 bg-system-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-system-blue">
+                              {profileLabel}
+                            </span>
+                          )}
+                          {issue.evidenceLevel && (
+                            <span className="rounded border border-emerald-200/80 bg-emerald-50/80 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/50 dark:text-emerald-300">
+                              {issue.evidenceLevel}
                             </span>
                           )}
                         </div>
@@ -542,269 +607,274 @@ export function InspectionReportView({
       )}
 
       <div className="grid grid-cols-1 gap-4">
-        {categorySections.map(
-          ({
-            category,
-            categoryName,
-            categoryScore,
-            itemGroups,
-            hasProblems,
-            attentionItemCount,
-            anchorId,
-          }) => {
-            const isExpanded = expandedCategories.has(category.id);
-            const CategoryIcon = getInspectionCategoryIcon(category.id);
+        {profileSections.map((section) => {
+          const isExpanded = expandedProfiles.has(section.profileId);
+          const ProfileIcon = getProfileIcon(section.profileId);
 
-            return (
-              <div
-                key={category.id}
-                id={anchorId}
-                data-inspection-anchor-id={anchorId}
-                className={`group scroll-mt-4 overflow-hidden rounded-xl border transition-colors duration-200 ${
-                  isExpanded
-                    ? 'border-border-black bg-panel-bg shadow-sm'
-                    : 'border-transparent bg-element-bg hover:border-border-black'
-                }`}
+          return (
+            <div
+              key={section.profileId}
+              id={section.anchorId}
+              data-inspection-anchor-id={section.anchorId}
+              className={`group scroll-mt-4 overflow-hidden rounded-xl border transition-colors duration-200 ${
+                isExpanded
+                  ? 'border-border-black bg-panel-bg shadow-sm'
+                  : 'border-transparent bg-element-bg hover:border-border-black'
+              }`}
+            >
+              <button
+                onClick={() => onToggleProfile(section.profileId)}
+                className="flex w-full items-center justify-between p-3.5 text-left"
               >
-                <button
-                  onClick={() => onToggleCategory(category.id)}
-                  className="flex w-full items-center justify-between p-3.5 text-left"
-                >
-                  <div className="flex min-w-0 items-center gap-3.5">
-                    <div
-                      className={`flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${
-                        hasProblems
-                          ? 'border-amber-200/80 bg-amber-50 text-amber-600 dark:border-amber-900/60 dark:bg-amber-950/60 dark:text-amber-300'
-                          : 'border-emerald-200/80 bg-emerald-50 text-emerald-600 dark:border-emerald-900/60 dark:bg-emerald-950/60 dark:text-emerald-300'
-                      }`}
-                    >
-                      <CategoryIcon className="h-[18px] w-[18px]" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-semibold text-text-primary">
-                          {categoryName}
-                        </span>
-                        <span className="text-[10px] font-medium tracking-wide text-text-tertiary">
-                          {t.weight} {category.weight * 100}%
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-[10px] font-medium text-text-tertiary">
-                        {t.checksCount.replace('{count}', String(itemGroups.length))}
-                        {hasProblems ? (
-                          <span className="rounded border border-amber-200/80 px-1.5 py-0.5 text-amber-700 dark:border-amber-900/60 dark:text-amber-300">
-                            {t.itemsNeedAttention.replace('{count}', String(attentionItemCount))}
-                          </span>
-                        ) : (
-                          <span className="rounded border border-emerald-200/80 px-1.5 py-0.5 text-emerald-700 dark:border-emerald-900/60 dark:text-emerald-300">
-                            {t.allPassedShort}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                <div className="flex min-w-0 items-center gap-3.5">
+                  <div
+                    className={`flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${
+                      section.hasProblems
+                        ? 'border-amber-200/80 bg-amber-50 text-amber-600 dark:border-amber-900/60 dark:bg-amber-950/60 dark:text-amber-300'
+                        : 'border-emerald-200/80 bg-emerald-50 text-emerald-600 dark:border-emerald-900/60 dark:bg-emerald-950/60 dark:text-emerald-300'
+                    }`}
+                  >
+                    <ProfileIcon className="h-[18px] w-[18px]" />
                   </div>
-
-                  <div className="flex shrink-0 items-center gap-4 pl-3">
-                    <div className="hidden min-w-[84px] flex-col items-end gap-1 sm:flex">
-                      <div className={`text-sm font-medium ${getScoreColor(categoryScore)}`}>
-                        {categoryScore.toFixed(1)}/10
-                      </div>
-                      <div className="h-1 w-20 overflow-hidden rounded-full bg-element-bg">
-                        <div
-                          className={`h-full ${getScoreBgColor(categoryScore)}`}
-                          style={{ width: `${(categoryScore / 10) * 100}%` }}
-                        />
-                      </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-semibold text-text-primary">
+                        {section.profileName}
+                      </span>
+                      {section.layerName && (
+                        <span className="text-[10px] font-medium tracking-wide text-text-tertiary">
+                          {section.layerName}
+                        </span>
+                      )}
                     </div>
-                    <div
-                      className={`rounded-md p-1.5 transition-colors ${
-                        isExpanded
-                          ? 'bg-element-hover text-text-secondary'
-                          : 'text-text-tertiary group-hover:text-text-secondary'
-                      }`}
-                    >
-                      {isExpanded ? (
-                        <ChevronDown className="h-4 w-4" />
+                    <div className="flex items-center gap-2 text-[10px] font-medium text-text-tertiary">
+                      {t.checksCount.replace('{count}', String(section.itemGroups.length))}
+                      {section.hasProblems ? (
+                        <span className="rounded border border-amber-200/80 px-1.5 py-0.5 text-amber-700 dark:border-amber-900/60 dark:text-amber-300">
+                          {t.itemsNeedAttention.replace('{count}', String(section.attentionItemCount))}
+                        </span>
                       ) : (
-                        <ChevronRight className="h-4 w-4" />
+                        <span className="rounded border border-emerald-200/80 px-1.5 py-0.5 text-emerald-700 dark:border-emerald-900/60 dark:text-emerald-300">
+                          {t.allPassedShort}
+                        </span>
                       )}
                     </div>
                   </div>
-                </button>
+                </div>
 
-                {isExpanded && (
-                  <div className="animate-in fade-in slide-in-from-top-2 space-y-3 p-4 pt-0 duration-300">
-                    {itemGroups.map((itemGroup) => {
-                      const itemMeta = getIssueMeta(itemGroup.primaryIssueType, lang);
-                      const isRetesting =
-                        itemGroup.itemId !== null &&
-                        retestingItem?.categoryId === category.id &&
-                        retestingItem?.itemId === itemGroup.itemId;
-                      const showRetestButton =
-                        itemGroup.itemId !== null &&
-                        itemGroup.issues.some((issue) => issue.type !== 'pass');
+                <div className="flex shrink-0 items-center gap-4 pl-3">
+                  <div className="hidden min-w-[84px] flex-col items-end gap-1 sm:flex">
+                    <div className={`text-sm font-medium ${getScoreColor(section.profileScore)}`}>
+                      {section.profileScore.toFixed(1)}/10
+                    </div>
+                    <div className="h-1 w-20 overflow-hidden rounded-full bg-element-bg">
+                      <div
+                        className={`h-full ${getScoreBgColor(section.profileScore)}`}
+                        style={{ width: `${(section.profileScore / 10) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div
+                    className={`rounded-md p-1.5 transition-colors ${
+                      isExpanded
+                        ? 'bg-element-hover text-text-secondary'
+                        : 'text-text-tertiary group-hover:text-text-secondary'
+                    }`}
+                  >
+                    {isExpanded ? (
+                      <ChevronDown className="h-4 w-4" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4" />
+                    )}
+                  </div>
+                </div>
+              </button>
 
-                      return (
-                        <div
-                          key={`${category.id}-${itemGroup.key}`}
-                          id={itemGroup.anchorId ?? undefined}
-                          data-inspection-anchor-id={itemGroup.anchorId ?? undefined}
-                          className="scroll-mt-4 overflow-hidden rounded-xl border border-border-black bg-element-bg"
-                        >
-                          <div className="border-b border-border-black/80 px-4 py-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
+              {isExpanded && (
+                <div className="animate-in fade-in slide-in-from-top-2 space-y-3 p-4 pt-0 duration-300">
+                  {section.itemGroups.map((itemGroup) => {
+                    const itemMeta = getIssueMeta(itemGroup.primaryIssueType, lang);
+                    const isRetesting =
+                      itemGroup.itemId !== null &&
+                      retestingItem?.profileId === section.profileId &&
+                      retestingItem?.itemId === itemGroup.itemId;
+                    const showRetestButton =
+                      itemGroup.itemId !== null &&
+                      itemGroup.issues.some((issue) => issue.type !== 'pass');
+
+                    return (
+                      <div
+                        key={`${section.profileId}-${itemGroup.key}`}
+                        id={itemGroup.anchorId ?? undefined}
+                        data-inspection-anchor-id={itemGroup.anchorId ?? undefined}
+                        className="scroll-mt-4 overflow-hidden rounded-xl border border-border-black bg-element-bg"
+                      >
+                        <div className="border-b border-border-black/80 px-4 py-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  aria-hidden="true"
+                                  className={`h-2 w-2 shrink-0 rounded-full ${itemMeta.stripeClass}`}
+                                />
+                                <h4 className="truncate text-sm font-semibold text-text-primary">
+                                  {itemGroup.title}
+                                </h4>
+                                {itemGroup.hasProblems ? (
                                   <span
-                                    aria-hidden="true"
-                                    className={`h-2 w-2 shrink-0 rounded-full ${itemMeta.stripeClass}`}
-                                  />
-                                  <h4 className="truncate text-sm font-semibold text-text-primary">
-                                    {itemGroup.title}
-                                  </h4>
-                                  {itemGroup.hasProblems ? (
-                                    <span
-                                      className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${itemMeta.badgeClass}`}
-                                    >
-                                      {itemMeta.label}
-                                    </span>
-                                  ) : (
-                                    <span className="rounded border border-emerald-200/80 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-900/60 dark:text-emerald-300">
-                                      {t.allPassedShort}
-                                    </span>
-                                  )}
-                                  {itemGroup.hasProblems && itemGroup.nonPassCount > 1 && (
-                                    <span className="rounded border border-border-black bg-panel-bg px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
-                                      {itemGroup.nonPassCount}
-                                    </span>
-                                  )}
-                                </div>
-                                {itemGroup.description && (
-                                  <p className="mt-1 text-[11px] leading-5 text-text-secondary">
-                                    {itemGroup.description}
-                                  </p>
+                                    className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${itemMeta.badgeClass}`}
+                                  >
+                                    {itemMeta.label}
+                                  </span>
+                                ) : (
+                                  <span className="rounded border border-emerald-200/80 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-900/60 dark:text-emerald-300">
+                                    {t.allPassedShort}
+                                  </span>
+                                )}
+                                {itemGroup.hasProblems && itemGroup.nonPassCount > 1 && (
+                                  <span className="rounded border border-border-black bg-panel-bg px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">
+                                    {itemGroup.nonPassCount}
+                                  </span>
                                 )}
                               </div>
-
-                              {showRetestButton && itemGroup.itemId && (
-                                <button
-                                  type="button"
-                                  onClick={() => onRetestItem(category.id, itemGroup.itemId!)}
-                                  disabled={isRetesting || isGeneratingAI}
-                                  className="rounded-lg border border-border-black bg-panel-bg p-1.5 text-text-secondary transition-colors hover:bg-element-hover hover:text-system-blue disabled:opacity-30"
-                                  title={t.retestThisItem}
-                                >
-                                  {isRetesting ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  ) : (
-                                    <RefreshCw className="h-3.5 w-3.5" />
-                                  )}
-                                </button>
+                              {itemGroup.description && (
+                                <p className="mt-1 text-[11px] leading-5 text-text-secondary">
+                                  {itemGroup.description}
+                                </p>
                               )}
                             </div>
+
+                            {showRetestButton && itemGroup.itemId && (
+                              <button
+                                type="button"
+                                onClick={() => onRetestItem(section.profileId, itemGroup.itemId!)}
+                                disabled={isRetesting || isGeneratingAI}
+                                className="rounded-lg border border-border-black bg-panel-bg p-1.5 text-text-secondary transition-colors hover:bg-element-hover hover:text-system-blue disabled:opacity-30"
+                                title={t.retestThisItem}
+                              >
+                                {isRetesting ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            )}
                           </div>
+                        </div>
 
-                          <div className="space-y-3 p-3">
-                            {itemGroup.issues.map((issue, idx) => {
-                              const issueScore = issue.score ?? 10;
-                              const relatedEntities = resolveInspectionIssueRelatedEntities(
-                                robot,
-                                issue,
-                              );
-                              const meta = getIssueMeta(issue.type, lang);
-                              const Icon = meta.Icon;
+                        <div className="space-y-3 p-3">
+                          {itemGroup.issues.map((issue, idx) => {
+                            const issueScore = issue.score ?? 10;
+                            const relatedEntities = resolveInspectionIssueRelatedEntities(
+                              robot,
+                              issue,
+                            );
+                            const meta = getIssueMeta(issue.type, lang);
+                            const Icon = meta.Icon;
+                            const profileLabel = buildInspectionIssueProfileLabel(issue, lang);
 
-                              return (
-                                <div
-                                  key={`${issue.category || 'unknown'}-${itemGroup.key}-${idx}`}
-                                  className={`rounded-lg border bg-white transition-colors dark:bg-panel-bg ${meta.rowClass}`}
-                                >
-                                  <div className={`h-0.5 ${meta.stripeClass}`} />
-                                  <div className="p-4">
-                                    <div className="flex gap-3">
-                                      <div
-                                        className={`shrink-0 rounded-lg border p-2 ${meta.iconClass}`}
-                                      >
-                                        <Icon className="h-4 w-4" />
-                                      </div>
-                                      <div className="min-w-0 flex-1">
-                                        <div className="mb-1 flex items-start justify-between gap-4">
-                                          <div className="min-w-0">
-                                            <div className="flex min-w-0 items-center gap-2">
-                                              <h5 className="truncate text-sm font-semibold text-text-primary">
-                                                {issue.title}
-                                              </h5>
-                                              <span
-                                                className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${meta.badgeClass}`}
-                                              >
-                                                {meta.label}
-                                              </span>
-                                            </div>
-                                          </div>
-                                          <div className="flex shrink-0 items-center gap-2">
-                                            <div
-                                              className={`text-xs font-semibold ${getScoreColor(issueScore)}`}
+                            return (
+                              <div
+                                key={`${issue.profileId}-${issue.itemId}-${idx}`}
+                                className={`rounded-lg border bg-white transition-colors dark:bg-panel-bg ${meta.rowClass}`}
+                              >
+                                <div className={`h-0.5 ${meta.stripeClass}`} />
+                                <div className="p-4">
+                                  <div className="flex gap-3">
+                                    <div
+                                      className={`shrink-0 rounded-lg border p-2 ${meta.iconClass}`}
+                                    >
+                                      <Icon className="h-4 w-4" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="mb-1 flex items-start justify-between gap-4">
+                                        <div className="min-w-0">
+                                          <div className="flex min-w-0 items-center gap-2">
+                                            <h5 className="truncate text-sm font-semibold text-text-primary">
+                                              {issue.title}
+                                            </h5>
+                                            <span
+                                              className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${meta.badgeClass}`}
                                             >
-                                              {issueScore.toFixed(1)}
-                                            </div>
-                                            {issue.type !== 'pass' && (
-                                              <button
-                                                type="button"
-                                                onClick={() => onAskAboutIssue(issue)}
-                                                className="rounded-lg border border-border-black bg-element-bg p-1.5 transition-colors hover:bg-element-hover hover:text-system-blue"
-                                                title={t.askAboutThisIssue}
-                                              >
-                                                <MessageCircle className="h-3.5 w-3.5" />
-                                              </button>
+                                              {meta.label}
+                                            </span>
+                                            {profileLabel && (
+                                              <span className="shrink-0 rounded border border-system-blue/20 bg-system-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-system-blue">
+                                                {profileLabel}
+                                              </span>
+                                            )}
+                                            {issue.evidenceLevel && (
+                                              <span className="shrink-0 rounded border border-emerald-200/80 bg-emerald-50/80 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/50 dark:text-emerald-300">
+                                                {issue.evidenceLevel}
+                                              </span>
                                             )}
                                           </div>
                                         </div>
-                                        <p className="mb-3 text-xs font-medium leading-relaxed text-text-secondary">
-                                          {issue.description}
-                                        </p>
-
-                                        {relatedEntities.length > 0 && (
-                                          <div className="flex flex-wrap gap-1.5">
-                                            {relatedEntities.map((entity) => {
-                                              const target = entity.target;
-                                              return target ? (
-                                                <button
-                                                  key={`${target.type}:${entity.id}`}
-                                                  type="button"
-                                                  onClick={() => {
-                                                    onSelectItem(target.type, target.id);
-                                                  }}
-                                                  className="rounded-md border border-border-black bg-element-bg px-2 py-1 text-[10px] font-medium text-text-secondary transition-colors hover:bg-element-hover hover:text-system-blue"
-                                                >
-                                                  {entity.name}
-                                                </button>
-                                              ) : (
-                                                <span
-                                                  key={entity.id}
-                                                  className="rounded-md border border-border-black bg-element-bg px-2 py-1 text-[10px] font-medium text-text-secondary"
-                                                >
-                                                  {entity.name}
-                                                </span>
-                                              );
-                                            })}
+                                        <div className="flex shrink-0 items-center gap-2">
+                                          <div
+                                            className={`text-xs font-semibold ${getScoreColor(issueScore)}`}
+                                          >
+                                            {issueScore.toFixed(1)}
                                           </div>
-                                        )}
+                                          {issue.type !== 'pass' && (
+                                            <button
+                                              type="button"
+                                              onClick={() => onAskAboutIssue(issue)}
+                                              className="rounded-lg border border-border-black bg-element-bg p-1.5 transition-colors hover:bg-element-hover hover:text-system-blue"
+                                              title={t.askAboutThisIssue}
+                                            >
+                                              <MessageCircle className="h-3.5 w-3.5" />
+                                            </button>
+                                          )}
+                                        </div>
                                       </div>
+                                      <p className="mb-3 text-xs font-medium leading-relaxed text-text-secondary">
+                                        {issue.description}
+                                      </p>
+
+                                      {relatedEntities.length > 0 && (
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {relatedEntities.map((entity) =>
+                                            entity.target ? (
+                                              <button
+                                                key={`${entity.target.type}:${entity.id}`}
+                                                type="button"
+                                                onClick={() => {
+                                                  onSelectItem(
+                                                    entity.target.type,
+                                                    entity.target.id,
+                                                  );
+                                                }}
+                                                className="rounded-md border border-border-black bg-element-bg px-2 py-1 text-[10px] font-medium text-text-secondary transition-colors hover:bg-element-hover hover:text-system-blue"
+                                              >
+                                                {entity.name}
+                                              </button>
+                                            ) : (
+                                              <span
+                                                key={entity.id}
+                                                className="rounded-md border border-border-black bg-element-bg px-2 py-1 text-[10px] font-medium text-text-secondary"
+                                              >
+                                                {entity.name}
+                                              </span>
+                                            ),
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
-                              );
-                            })}
-                          </div>
+                              </div>
+                            );
+                          })}
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          },
-        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

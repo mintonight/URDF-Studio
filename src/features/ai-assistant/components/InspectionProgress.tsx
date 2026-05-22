@@ -316,18 +316,18 @@ export function InspectionProgress({
               {t.inspectionSelectedChecks.replace('{count}', String(runContext.selectedCount))}
             </div>
             <div className="mt-1 text-[12px] leading-5 text-text-secondary">
-              {t.inspectionSelectedCategories}: {runContext.selectedCategoryCount}
+              {t.inspectionSelectedCategories}: {runContext.selectedProfileCount}
             </div>
           </div>
 
-          {runContext.categorySummary.length > 0 && (
+          {runContext.profileSummary.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {runContext.categorySummary.map((category) => (
+              {runContext.profileSummary.map((profile) => (
                 <span
-                  key={category.id}
+                  key={profile.id}
                   className="rounded-lg border border-border-black bg-element-bg px-2 py-1 text-[11px] font-medium text-text-secondary"
                 >
-                  {category.name} {category.selectedCount}/{category.totalCount}
+                  {profile.name} {profile.selectedCount}/{profile.totalCount}
                 </span>
               ))}
             </div>

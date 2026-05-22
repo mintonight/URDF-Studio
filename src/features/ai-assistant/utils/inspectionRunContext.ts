@@ -4,14 +4,15 @@ import {
   buildInspectionEvidenceSummary,
   type InspectionEvidenceSummary,
 } from '@/shared/utils/inspectionEvidenceSummary'
-import { INSPECTION_CRITERIA } from './inspectionCriteria'
+import { INSPECTION_PROFILE_DEFINITIONS } from '../config/inspectionProfiles'
+import type { SelectedInspectionProfiles } from './inspectionProfileSelection'
 
 export interface InspectionEstimatedDuration {
   label: string
   maxSeconds: number
 }
 
-export interface InspectionRunCategorySummary {
+export interface InspectionRunProfileSummary {
   id: string
   name: string
   selectedCount: number
@@ -24,9 +25,9 @@ export interface InspectionRunContext {
   linkCount: number
   jointCount: number
   selectedCount: number
-  selectedCategoryCount: number
+  selectedProfileCount: number
   estimatedDuration: InspectionEstimatedDuration
-  categorySummary: InspectionRunCategorySummary[]
+  profileSummary: InspectionRunProfileSummary[]
   evidenceSummary: InspectionEvidenceSummary | null
 }
 
@@ -51,15 +52,15 @@ export function estimateInspectionDuration(
 
 export function buildInspectionRunContext(
   robot: RobotState,
-  selectedItems: Record<string, Set<string>>,
+  selectedItems: SelectedInspectionProfiles,
   lang: Language,
   normalizedModelLabel: string,
 ): InspectionRunContext {
-  const categorySummary: InspectionRunCategorySummary[] = []
+  const profileSummary: InspectionRunProfileSummary[] = []
   let selectedCount = 0
 
-  INSPECTION_CRITERIA.forEach((category) => {
-    const itemIds = selectedItems[category.id] ?? new Set<string>()
+  INSPECTION_PROFILE_DEFINITIONS.forEach((profile) => {
+    const itemIds = selectedItems[profile.id] ?? new Set<string>()
     const count = itemIds.size
 
     if (count === 0) {
@@ -67,11 +68,11 @@ export function buildInspectionRunContext(
     }
 
     selectedCount += count
-    categorySummary.push({
-      id: category.id,
-      name: lang === 'zh' ? category.nameZh : category.name,
+    profileSummary.push({
+      id: profile.id,
+      name: lang === 'zh' ? profile.nameZh : profile.name,
       selectedCount: count,
-      totalCount: category.items.length,
+      totalCount: profile.items.length,
     })
   })
 
@@ -81,9 +82,9 @@ export function buildInspectionRunContext(
     linkCount: Object.keys(robot.links).length,
     jointCount: Object.keys(robot.joints).length,
     selectedCount,
-    selectedCategoryCount: categorySummary.length,
+    selectedProfileCount: profileSummary.length,
     estimatedDuration: estimateInspectionDuration(robot, selectedCount),
-    categorySummary,
+    profileSummary,
     evidenceSummary: buildInspectionEvidenceSummary(robot.inspectionContext, lang),
   }
 }

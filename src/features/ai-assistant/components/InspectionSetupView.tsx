@@ -1,33 +1,26 @@
 import { Sparkles } from 'lucide-react';
 import type { RobotState } from '@/types';
 import type { Language, TranslationKeys } from '@/shared/i18n';
-import { INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
+import {
+  INSPECTION_PROFILE_DEFINITIONS,
+  getInspectionProfileLayerName,
+} from '../config/inspectionProfiles';
 import { estimateInspectionDuration } from '../utils/inspectionRunContext';
-import type { SelectedInspectionItems } from './InspectionSidebar';
+import type { SelectedInspectionProfiles } from '../utils/inspectionProfileSelection';
 
 interface InspectionSetupViewProps {
   robot: RobotState;
   lang: Language;
   t: TranslationKeys;
-  selectedItems: SelectedInspectionItems;
-  focusedCategoryId: string;
-  onToggleItem: (categoryId: string, itemId: string) => void;
+  selectedProfiles: SelectedInspectionProfiles;
+  focusedProfileId: string;
+  onToggleItem: (profileId: string, itemId: string) => void;
 }
 
 interface MetricCardProps {
   label: string;
   value: string;
   hint?: string;
-}
-
-function resolveCategoryImpactLabel(weight: number, t: TranslationKeys): string {
-  if (weight >= 0.2) {
-    return t.inspectionCategoryImpactHigh;
-  }
-  if (weight >= 0.15) {
-    return t.inspectionCategoryImpactMedium;
-  }
-  return t.inspectionCategoryImpactBaseline;
 }
 
 function MetricCard({ label, value, hint }: MetricCardProps) {
@@ -46,43 +39,41 @@ export function InspectionSetupView({
   robot,
   lang,
   t,
-  selectedItems,
-  focusedCategoryId,
+  selectedProfiles,
+  focusedProfileId,
   onToggleItem,
 }: InspectionSetupViewProps) {
-  const defaultCategory = INSPECTION_CRITERIA[0];
-  if (!defaultCategory) {
+  const defaultProfile = INSPECTION_PROFILE_DEFINITIONS[0];
+  if (!defaultProfile) {
     return null;
   }
 
-  const totalItemCount = INSPECTION_CRITERIA.reduce(
-    (sum, category) => sum + category.items.length,
+  const totalItemCount = INSPECTION_PROFILE_DEFINITIONS.reduce(
+    (sum, profile) => sum + profile.items.length,
     0,
   );
 
   let totalSelectedCount = 0;
-  let selectedWeight = 0;
-  const selectedCategoryIds: string[] = [];
+  const selectedProfileIds: string[] = [];
 
-  INSPECTION_CRITERIA.forEach((category) => {
-    const itemIds = selectedItems[category.id] ?? new Set<string>();
+  INSPECTION_PROFILE_DEFINITIONS.forEach((profile) => {
+    const itemIds = selectedProfiles[profile.id] ?? new Set<string>();
     const selectedCount = itemIds.size;
     totalSelectedCount += selectedCount;
 
     if (selectedCount > 0) {
-      selectedCategoryIds.push(category.id);
-      selectedWeight += category.weight;
+      selectedProfileIds.push(profile.id);
     }
   });
 
-  const selectedWeightPercentage = Math.round(selectedWeight * 100);
-  const focusedCategory =
-    INSPECTION_CRITERIA.find((category) => category.id === focusedCategoryId) ?? defaultCategory;
-  const focusedSelectedItems = selectedItems[focusedCategory.id] ?? new Set<string>();
-  const focusedCategoryName = lang === 'zh' ? focusedCategory.nameZh : focusedCategory.name;
-  const selectedCategoryNames = INSPECTION_CRITERIA.filter((category) =>
-    selectedCategoryIds.includes(category.id),
-  ).map((category) => (lang === 'zh' ? category.nameZh : category.name));
+  const focusedProfile =
+    INSPECTION_PROFILE_DEFINITIONS.find((profile) => profile.id === focusedProfileId) ?? defaultProfile;
+  const focusedSelectedItems = selectedProfiles[focusedProfile.id] ?? new Set<string>();
+  const focusedProfileName = lang === 'zh' ? focusedProfile.nameZh : focusedProfile.name;
+  const focusedLayerName = getInspectionProfileLayerName(focusedProfile.layer, lang);
+  const selectedProfileNames = INSPECTION_PROFILE_DEFINITIONS.filter((profile) =>
+    selectedProfileIds.includes(profile.id),
+  ).map((profile) => (lang === 'zh' ? profile.nameZh : profile.name));
   const estimatedDuration = estimateInspectionDuration(robot, totalSelectedCount);
 
   return (
@@ -103,13 +94,16 @@ export function InspectionSetupView({
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <MetricCard
             label={t.inspectionSelectedCategories}
-            value={`${selectedCategoryIds.length}/${INSPECTION_CRITERIA.length}`}
+            value={`${selectedProfileIds.length}/${INSPECTION_PROFILE_DEFINITIONS.length}`}
+          />
+          <MetricCard
+            label={t.inspectionSelectedChecksLabel}
+            value={`${totalSelectedCount}/${totalItemCount}`}
           />
           <MetricCard
             label={t.inspectionMaxPossibleScore}
             value={String(totalSelectedCount * 10)}
           />
-          <MetricCard label={t.inspectionWeightedCoverage} value={`${selectedWeightPercentage}%`} />
           <MetricCard label={t.inspectionEstimatedDuration} value={estimatedDuration.label} />
         </div>
 
@@ -117,9 +111,9 @@ export function InspectionSetupView({
           <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
             {t.inspectionItems}
           </div>
-          {selectedCategoryNames.length > 0 ? (
+          {selectedProfileNames.length > 0 ? (
             <div className="mt-2 flex flex-wrap gap-2">
-              {selectedCategoryNames.map((name) => (
+              {selectedProfileNames.map((name) => (
                 <span
                   key={name}
                   className="rounded-lg border border-border-black bg-element-bg px-2 py-1 text-[11px] font-medium text-text-secondary"
@@ -143,16 +137,13 @@ export function InspectionSetupView({
               {t.inspectionCurrentCategory}
             </h2>
             <span className="rounded-lg border border-border-black bg-element-bg px-2 py-1 text-[11px] font-medium text-text-secondary">
-              {focusedCategoryName}
+              {focusedProfileName}
             </span>
             <span className="rounded-lg border border-border-black bg-element-bg px-2 py-1 text-[11px] font-medium text-text-secondary">
-              {t.weight}: {Math.round(focusedCategory.weight * 100)}%
+              {focusedLayerName}
             </span>
             <span className="rounded-lg border border-border-black bg-element-bg px-2 py-1 text-[11px] font-medium text-text-secondary">
-              {focusedSelectedItems.size}/{focusedCategory.items.length}
-            </span>
-            <span className="rounded-lg border border-border-black bg-element-bg px-2 py-1 text-[11px] font-medium text-text-secondary">
-              {resolveCategoryImpactLabel(focusedCategory.weight, t)}
+              {focusedSelectedItems.size}/{focusedProfile.items.length}
             </span>
           </div>
           <p className="mt-2 text-[12px] leading-5 text-text-secondary">
@@ -166,12 +157,18 @@ export function InspectionSetupView({
         </div>
 
         <div className="grid gap-3 p-4 lg:grid-cols-2">
-          {focusedCategory.items.map((item) => {
+          {focusedProfile.items.map((item) => {
             const isSelected = focusedSelectedItems.has(item.id);
             const itemName = lang === 'zh' ? item.nameZh : item.name;
             const itemDescription = lang === 'zh' ? item.descriptionZh : item.description;
-            const itemScoringReference =
-              lang === 'zh' ? item.scoringReferenceZh : item.scoringReference;
+            const severityLabel =
+              lang === 'zh'
+                ? item.severityOnFailure === 'error'
+                  ? '错误'
+                  : item.severityOnFailure === 'warning'
+                    ? '警告'
+                    : '建议'
+                : item.severityOnFailure;
 
             return (
               <div
@@ -188,12 +185,25 @@ export function InspectionSetupView({
                       {item.id}
                     </div>
                     <h3 className="mt-1 text-sm font-semibold text-text-primary">{itemName}</h3>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <span className="rounded-md border border-system-blue/20 bg-system-blue/10 px-2 py-0.5 text-[10px] font-medium text-system-blue">
+                        {focusedProfile.id}
+                      </span>
+                      <span className="rounded-md border border-border-black bg-element-bg px-2 py-0.5 text-[10px] font-medium text-text-secondary">
+                        {severityLabel}
+                      </span>
+                      {item.evidenceLevelRequired && (
+                        <span className="rounded-md border border-border-black bg-element-bg px-2 py-0.5 text-[10px] font-medium text-text-secondary">
+                          {item.evidenceLevelRequired}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <button
                     type="button"
-                    data-inspection-setup-item-badge={`${focusedCategory.id}:${item.id}`}
+                    data-inspection-setup-item-badge={`${focusedProfile.id}:${item.id}`}
                     aria-pressed={isSelected}
-                    onClick={() => onToggleItem(focusedCategory.id, item.id)}
+                    onClick={() => onToggleItem(focusedProfile.id, item.id)}
                     className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
                       isSelected
                         ? 'border-system-blue/30 bg-system-blue/10 text-system-blue hover:bg-system-blue/15'
@@ -205,17 +215,6 @@ export function InspectionSetupView({
                 </div>
 
                 <p className="mt-2 text-[12px] leading-5 text-text-secondary">{itemDescription}</p>
-
-                {itemScoringReference && (
-                  <div className="mt-3 rounded-xl border border-border-black bg-element-bg px-3 py-2">
-                    <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
-                      {t.inspectionScoringReference}
-                    </div>
-                    <div className="mt-1 text-[11px] leading-5 text-text-secondary">
-                      {itemScoringReference}
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })}
