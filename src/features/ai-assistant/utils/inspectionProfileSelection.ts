@@ -51,6 +51,52 @@ export function countSelectedInspectionProfiles(selectedProfiles: SelectedInspec
   return Object.values(selectedProfiles).filter((itemIds) => itemIds.size > 0).length
 }
 
+export function cloneSelectedInspectionProfiles(
+  selectedProfiles: SelectedInspectionProfiles,
+): SelectedInspectionProfiles {
+  return Object.fromEntries(
+    Object.entries(selectedProfiles).map(([profileId, itemIds]) => [
+      profileId,
+      new Set(itemIds),
+    ]),
+  )
+}
+
+export function areSelectedInspectionProfilesEqual(
+  a: SelectedInspectionProfiles,
+  b: SelectedInspectionProfiles,
+): boolean {
+  const profileIds = new Set([...Object.keys(a), ...Object.keys(b)])
+
+  for (const profileId of profileIds) {
+    const aItems = a[profileId] ?? new Set<string>()
+    const bItems = b[profileId] ?? new Set<string>()
+
+    if (aItems.size !== bItems.size) {
+      return false
+    }
+
+    for (const itemId of aItems) {
+      if (!bItems.has(itemId)) {
+        return false
+      }
+    }
+  }
+
+  return true
+}
+
+export function restoreInspectionProfileSelection(
+  current: SelectedInspectionProfiles,
+  recommended: SelectedInspectionProfiles,
+  profileId: string,
+): SelectedInspectionProfiles {
+  return {
+    ...cloneSelectedInspectionProfiles(current),
+    [profileId]: new Set(recommended[profileId] ?? []),
+  }
+}
+
 export function hasSelectedInspectionProfileItem(
   selectedProfiles: SelectedInspectionProfileMap | undefined,
   profileId: string,

@@ -5,6 +5,10 @@ import {
   INSPECTION_PROFILE_DEFINITIONS,
   getInspectionProfileLayerName,
 } from '../config/inspectionProfiles';
+import {
+  buildInspectionLayerSummaries,
+  buildInspectionProfileScopeSummaries,
+} from '../utils/inspectionAdvancedScopeViewModel';
 import type { SelectedInspectionProfiles } from '../utils/inspectionProfileSelection';
 
 interface InspectionSidebarProps {
@@ -15,6 +19,7 @@ interface InspectionSidebarProps {
   focusedProfileId: string;
   expandedProfiles: Set<string>;
   selectedProfiles: SelectedInspectionProfiles;
+  recommendedProfiles?: SelectedInspectionProfiles;
   setExpandedProfiles: Dispatch<SetStateAction<Set<string>>>;
   setSelectedProfiles: Dispatch<SetStateAction<SelectedInspectionProfiles>>;
   onFocusProfile: (profileId: string) => void;
@@ -38,6 +43,7 @@ export function InspectionSidebar({
   focusedProfileId,
   expandedProfiles,
   selectedProfiles,
+  recommendedProfiles = selectedProfiles,
   setExpandedProfiles,
   setSelectedProfiles,
   onFocusProfile,
@@ -64,6 +70,19 @@ export function InspectionSidebar({
   const visibleProfiles = readOnly
     ? INSPECTION_PROFILE_DEFINITIONS.filter((profile) => (selectedProfiles[profile.id]?.size ?? 0) > 0)
     : INSPECTION_PROFILE_DEFINITIONS;
+  const visibleProfileIds = new Set(visibleProfiles.map((profile) => profile.id));
+  const layerSummaries = buildInspectionLayerSummaries(selectedProfiles, recommendedProfiles)
+    .map((summary) => ({
+      ...summary,
+      profileIds: summary.profileIds.filter((profileId) => visibleProfileIds.has(profileId)),
+    }))
+    .filter((summary) => summary.profileIds.length > 0);
+  const profileSummaries = new Map(
+    buildInspectionProfileScopeSummaries(selectedProfiles, recommendedProfiles).map((summary) => [
+      summary.profileId,
+      summary,
+    ]),
+  );
 
   const toggleProfileSelection = (profileId: string) => {
     setSelectedProfiles((prev) => {
@@ -141,223 +160,261 @@ export function InspectionSidebar({
           isInteractionLocked ? 'opacity-70' : ''
         }`}
       >
-        {visibleProfiles.map((profile) => {
-          const profileName = lang === 'zh' ? profile.nameZh : profile.name;
-          const layerName = getInspectionProfileLayerName(profile.layer, lang);
-          const selectedItemIds = selectedProfiles[profile.id] || new Set();
-          const selectedCount = selectedItemIds.size;
-          const allSelected = profile.items.every((item) => selectedItemIds.has(item.id));
-          const someSelected = profile.items.some((item) => selectedItemIds.has(item.id));
-          const isExpanded = expandedProfiles.has(profile.id);
-          const isFocused = focusedProfileId === profile.id;
-          const visibleItems = readOnly
-            ? profile.items.filter((item) => selectedItemIds.has(item.id))
-            : profile.items;
-          const canNavigateProfile =
-            readOnly && selectedCount > 0 && Boolean(onNavigateToProfile);
-          const ProfileIcon = getProfileIcon(profile.layer);
+        {layerSummaries.map((layerSummary) => {
+          const layerName = getInspectionProfileLayerName(layerSummary.layer, lang);
 
           return (
-            <div
-              key={profile.id}
-              className={`rounded-xl transition-colors ${
-                !readOnly && isFocused
-                  ? 'border border-system-blue/35 bg-system-blue/10 shadow-sm'
-                  : someSelected || isExpanded
-                    ? 'border border-border-black bg-panel-bg shadow-sm'
-                    : 'border border-transparent hover:border-border-black hover:bg-element-hover'
-              }`}
+            <section
+              key={layerSummary.layer}
+              data-inspection-sidebar-layer
+              className="rounded-xl border border-border-black bg-panel-bg shadow-sm"
             >
-              <div className="flex items-start gap-2 p-2.5">
-                {readOnly ? (
-                  <div
-                    aria-hidden="true"
-                    className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                      someSelected ? 'bg-system-blue' : 'bg-border-strong'
-                    }`}
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    aria-label={profileName}
-                    disabled={isInteractionLocked}
-                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-                      isGeneratingAI
-                        ? 'border-border-strong bg-element-bg'
-                        : allSelected
-                          ? 'border-system-blue-solid bg-system-blue-solid'
-                          : someSelected
-                            ? 'border-system-blue bg-system-blue/80'
-                            : 'border-border-strong bg-panel-bg hover:border-system-blue'
-                    }`}
-                    onClick={() => {
-                      toggleProfileSelection(profile.id);
-                      onFocusProfile(profile.id);
-                    }}
-                  >
-                    {allSelected ? (
-                      <Check className="h-3 w-3 text-white" />
-                    ) : someSelected ? (
-                      <Minus className="h-2.5 w-2.5 text-white" />
-                    ) : null}
-                  </button>
-                )}
-
-                <div className="min-w-0 flex-1">
-                  {readOnly && canNavigateProfile ? (
-                    <button
-                      type="button"
-                      disabled={isInteractionLocked}
-                      className="w-full rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
-                      onClick={() => {
-                        onFocusProfile(profile.id);
-                        onNavigateToProfile?.(profile.id);
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <ProfileIcon className="h-3.5 w-3.5 shrink-0 text-system-blue" />
-                        <span className="truncate text-xs font-semibold text-text-primary">
-                          {profileName}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex items-center gap-1.5 text-[10px] font-medium text-text-tertiary">
-                        <span>
-                          {selectedCount}/{profile.items.length}
-                        </span>
-                        <span aria-hidden="true">•</span>
-                        <span>{layerName}</span>
-                      </div>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={isInteractionLocked}
-                      className="w-full text-left"
-                      onClick={() => onFocusProfile(profile.id)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <ProfileIcon className="h-3.5 w-3.5 shrink-0 text-system-blue" />
-                        <span className="truncate text-xs font-semibold text-text-primary">
-                          {profileName}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex items-center gap-1.5 text-[10px] font-medium text-text-tertiary">
-                        <span>
-                          {selectedCount}/{profile.items.length}
-                        </span>
-                        <span aria-hidden="true">•</span>
-                        <span>{layerName}</span>
-                      </div>
-                    </button>
-                  )}
+              <div className="border-b border-border-black/70 px-2.5 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[11px] font-semibold text-text-primary">
+                    {layerName}
+                  </span>
+                  <span className="shrink-0 rounded-md border border-border-black bg-element-bg px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-text-secondary">
+                    {layerSummary.selectedItemCount}/{layerSummary.totalItemCount}
+                  </span>
                 </div>
-
-                <button
-                  type="button"
-                  disabled={isInteractionLocked}
-                  className="rounded-md p-1 transition-colors hover:bg-element-hover disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
-                  onClick={() => {
-                    onFocusProfile(profile.id);
-                    toggleProfileExpand(profile.id);
-                  }}
-                >
-                  {isExpanded ? (
-                    <ChevronDown className="h-3.5 w-3.5 text-text-tertiary" />
-                  ) : (
-                    <ChevronRight className="h-3.5 w-3.5 text-text-tertiary" />
-                  )}
-                </button>
               </div>
 
-              {isExpanded && (
-                <div className="animate-in fade-in slide-in-from-top-1 border-t border-border-black/80 px-2 pb-2 pt-2 duration-200">
-                  <div className="space-y-1">
-                    {visibleItems.map((item) => {
-                      const isSelected = selectedItemIds.has(item.id);
-                      const itemName = lang === 'zh' ? item.nameZh : item.name;
+              <div className="space-y-1 p-1.5">
+                {layerSummary.profileIds.map((profileId) => {
+                  const profile = INSPECTION_PROFILE_DEFINITIONS.find(
+                    (entry) => entry.id === profileId,
+                  );
+                  if (!profile) return null;
 
-                      if (readOnly) {
-                        const canNavigateItem = isSelected && Boolean(onNavigateToItem);
+                  const profileName = lang === 'zh' ? profile.nameZh : profile.name;
+                  const selectedItemIds = selectedProfiles[profile.id] || new Set();
+                  const selectedCount = selectedItemIds.size;
+                  const allSelected = profile.items.every((item) => selectedItemIds.has(item.id));
+                  const someSelected = profile.items.some((item) => selectedItemIds.has(item.id));
+                  const isExpanded = expandedProfiles.has(profile.id);
+                  const isFocused = focusedProfileId === profile.id;
+                  const visibleItems = readOnly
+                    ? profile.items.filter((item) => selectedItemIds.has(item.id))
+                    : profile.items;
+                  const canNavigateProfile =
+                    readOnly && selectedCount > 0 && Boolean(onNavigateToProfile);
+                  const ProfileIcon = getProfileIcon(profile.layer);
+                  const profileSummary = profileSummaries.get(profile.id);
 
-                        if (canNavigateItem) {
-                          return (
+                  return (
+                    <div
+                      key={profile.id}
+                      className={`rounded-lg transition-colors ${
+                        !readOnly && isFocused
+                          ? 'border border-system-blue/35 bg-system-blue/10 shadow-sm'
+                          : someSelected || isExpanded
+                            ? 'border border-border-black bg-panel-bg'
+                            : 'border border-transparent hover:border-border-black hover:bg-element-hover'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2 p-2">
+                        {readOnly ? (
+                          <div
+                            aria-hidden="true"
+                            className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                              someSelected ? 'bg-system-blue' : 'bg-border-strong'
+                            }`}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            aria-label={profileName}
+                            disabled={isInteractionLocked}
+                            className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                              isGeneratingAI
+                                ? 'border-border-strong bg-element-bg'
+                                : allSelected
+                                  ? 'border-system-blue-solid bg-system-blue-solid'
+                                  : someSelected
+                                    ? 'border-system-blue bg-system-blue/80'
+                                    : 'border-border-strong bg-panel-bg hover:border-system-blue'
+                            }`}
+                            onClick={() => {
+                              toggleProfileSelection(profile.id);
+                              onFocusProfile(profile.id);
+                            }}
+                          >
+                            {allSelected ? (
+                              <Check className="h-3 w-3 text-white" />
+                            ) : someSelected ? (
+                              <Minus className="h-2.5 w-2.5 text-white" />
+                            ) : null}
+                          </button>
+                        )}
+
+                        <div className="min-w-0 flex-1">
+                          {readOnly && canNavigateProfile ? (
                             <button
-                              key={item.id}
                               type="button"
                               disabled={isInteractionLocked}
-                              className="flex w-full items-center gap-2 rounded-lg bg-element-bg px-1.5 py-1.5 text-left transition-colors hover:bg-element-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+                              className="w-full rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
                               onClick={() => {
                                 onFocusProfile(profile.id);
-                                onNavigateToItem?.(profile.id, item.id);
+                                onNavigateToProfile?.(profile.id);
                               }}
                             >
-                              <div
-                                aria-hidden="true"
-                                className="h-2 w-2 shrink-0 rounded-full bg-system-blue"
-                              />
-                              <span className="truncate text-[11px] font-medium text-text-secondary">
-                                {itemName}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <ProfileIcon className="h-3.5 w-3.5 shrink-0 text-system-blue" />
+                                <span className="truncate text-xs font-semibold text-text-primary">
+                                  {profileName}
+                                </span>
+                              </div>
+                              <div className="mt-1 flex items-center gap-1.5 text-[10px] font-medium text-text-tertiary">
+                                <span>
+                                  {selectedCount}/{profile.items.length}
+                                </span>
+                                {profileSummary && profileSummary.recommendedItemCount > 0 && (
+                                  <>
+                                    <span aria-hidden="true">•</span>
+                                    <span>{t.inspectionRecommendedPlan}</span>
+                                  </>
+                                )}
+                              </div>
                             </button>
-                          );
-                        }
-
-                        return (
-                          <div
-                            key={item.id}
-                            className={`flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 ${
-                              isSelected ? 'bg-element-bg' : 'bg-transparent'
-                            }`}
-                          >
-                            <div
-                              aria-hidden="true"
-                              className={`h-2 w-2 shrink-0 rounded-full ${
-                                isSelected ? 'bg-system-blue' : 'bg-border-strong'
-                              }`}
-                            />
-                            <span
-                              className={`truncate text-[11px] font-medium ${
-                                isSelected ? 'text-text-secondary' : 'text-text-tertiary'
-                              }`}
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isInteractionLocked}
+                              className="w-full text-left"
+                              onClick={() => onFocusProfile(profile.id)}
                             >
-                              {itemName}
-                            </span>
-                          </div>
-                        );
-                      }
+                              <div className="flex items-center gap-2">
+                                <ProfileIcon className="h-3.5 w-3.5 shrink-0 text-system-blue" />
+                                <span className="truncate text-xs font-semibold text-text-primary">
+                                  {profileName}
+                                </span>
+                              </div>
+                              <div className="mt-1 flex items-center gap-1.5 text-[10px] font-medium text-text-tertiary">
+                                <span>
+                                  {selectedCount}/{profile.items.length}
+                                </span>
+                                {profileSummary && profileSummary.recommendedItemCount > 0 && (
+                                  <>
+                                    <span aria-hidden="true">•</span>
+                                    <span>{t.inspectionRecommendedPlan}</span>
+                                  </>
+                                )}
+                              </div>
+                            </button>
+                          )}
+                        </div>
 
-                      return (
                         <button
-                          key={item.id}
                           type="button"
                           disabled={isInteractionLocked}
-                          className={`flex w-full items-center gap-2 rounded-lg p-1.5 text-left transition-colors ${
-                            isSelected ? 'bg-element-bg' : 'hover:bg-element-hover'
-                          }`}
+                          className="rounded-md p-1 transition-colors hover:bg-element-hover disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
                           onClick={() => {
-                            toggleItemSelection(profile.id, item.id);
                             onFocusProfile(profile.id);
+                            toggleProfileExpand(profile.id);
                           }}
                         >
-                          <div
-                            className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
-                              isSelected
-                                ? 'border-system-blue-solid bg-system-blue-solid'
-                                : 'border-border-strong bg-panel-bg'
-                            }`}
-                          >
-                            {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
-                          </div>
-                          <span className="truncate text-[11px] font-medium text-text-secondary">
-                            {itemName}
-                          </span>
+                          {isExpanded ? (
+                            <ChevronDown className="h-3.5 w-3.5 text-text-tertiary" />
+                          ) : (
+                            <ChevronRight className="h-3.5 w-3.5 text-text-tertiary" />
+                          )}
                         </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="animate-in fade-in slide-in-from-top-1 border-t border-border-black/80 px-2 pb-2 pt-2 duration-200">
+                          <div className="space-y-1">
+                            {visibleItems.map((item) => {
+                              const isSelected = selectedItemIds.has(item.id);
+                              const itemName = lang === 'zh' ? item.nameZh : item.name;
+
+                              if (readOnly) {
+                                const canNavigateItem = isSelected && Boolean(onNavigateToItem);
+
+                                if (canNavigateItem) {
+                                  return (
+                                    <button
+                                      key={item.id}
+                                      type="button"
+                                      disabled={isInteractionLocked}
+                                      className="flex w-full items-center gap-2 rounded-lg bg-element-bg px-1.5 py-1.5 text-left transition-colors hover:bg-element-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+                                      onClick={() => {
+                                        onFocusProfile(profile.id);
+                                        onNavigateToItem?.(profile.id, item.id);
+                                      }}
+                                    >
+                                      <div
+                                        aria-hidden="true"
+                                        className="h-2 w-2 shrink-0 rounded-full bg-system-blue"
+                                      />
+                                      <span className="truncate text-[11px] font-medium text-text-secondary">
+                                        {itemName}
+                                      </span>
+                                    </button>
+                                  );
+                                }
+
+                                return (
+                                  <div
+                                    key={item.id}
+                                    className={`flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 ${
+                                      isSelected ? 'bg-element-bg' : 'bg-transparent'
+                                    }`}
+                                  >
+                                    <div
+                                      aria-hidden="true"
+                                      className={`h-2 w-2 shrink-0 rounded-full ${
+                                        isSelected ? 'bg-system-blue' : 'bg-border-strong'
+                                      }`}
+                                    />
+                                    <span
+                                      className={`truncate text-[11px] font-medium ${
+                                        isSelected ? 'text-text-secondary' : 'text-text-tertiary'
+                                      }`}
+                                    >
+                                      {itemName}
+                                    </span>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  disabled={isInteractionLocked}
+                                  className={`flex w-full items-center gap-2 rounded-lg p-1.5 text-left transition-colors ${
+                                    isSelected ? 'bg-element-bg' : 'hover:bg-element-hover'
+                                  }`}
+                                  onClick={() => {
+                                    toggleItemSelection(profile.id, item.id);
+                                    onFocusProfile(profile.id);
+                                  }}
+                                >
+                                  <div
+                                    className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
+                                      isSelected
+                                        ? 'border-system-blue-solid bg-system-blue-solid'
+                                        : 'border-border-strong bg-panel-bg'
+                                    }`}
+                                  >
+                                    {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
+                                  </div>
+                                  <span className="truncate text-[11px] font-medium text-text-secondary">
+                                    {itemName}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
           );
         })}
       </div>

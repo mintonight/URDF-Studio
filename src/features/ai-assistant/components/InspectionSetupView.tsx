@@ -5,6 +5,11 @@ import {
   INSPECTION_PROFILE_DEFINITIONS,
   getInspectionProfileLayerName,
 } from '../config/inspectionProfiles';
+import { isInspectionItemApplicable } from '../utils/inspectionApplicability';
+import {
+  buildInspectionItemScopeSummaries,
+  type InspectionItemScopeRelation,
+} from '../utils/inspectionAdvancedScopeViewModel';
 import { estimateInspectionDuration } from '../utils/inspectionRunContext';
 import type { SelectedInspectionProfiles } from '../utils/inspectionProfileSelection';
 
@@ -13,8 +18,10 @@ interface InspectionSetupViewProps {
   lang: Language;
   t: TranslationKeys;
   selectedProfiles: SelectedInspectionProfiles;
+  recommendedProfiles: SelectedInspectionProfiles;
   focusedProfileId: string;
   onToggleItem: (profileId: string, itemId: string) => void;
+  onRestoreProfileRecommendation: (profileId: string) => void;
 }
 
 interface MetricCardProps {
@@ -35,13 +42,23 @@ function MetricCard({ label, value, hint }: MetricCardProps) {
   );
 }
 
+function getRelationLabel(relation: InspectionItemScopeRelation, t: TranslationKeys) {
+  if (relation === 'recommended_included') return t.inspectionRecommendedIncluded;
+  if (relation === 'user_added') return t.inspectionUserAddedToRecommendation;
+  if (relation === 'user_removed') return t.inspectionUserRemovedFromRecommendation;
+  if (relation === 'unavailable') return t.inspectionUnavailableForModel;
+  return t.inspectionNotRecommended;
+}
+
 export function InspectionSetupView({
   robot,
   lang,
   t,
   selectedProfiles,
+  recommendedProfiles,
   focusedProfileId,
   onToggleItem,
+  onRestoreProfileRecommendation,
 }: InspectionSetupViewProps) {
   const defaultProfile = INSPECTION_PROFILE_DEFINITIONS[0];
   if (!defaultProfile) {
@@ -71,6 +88,15 @@ export function InspectionSetupView({
   const focusedSelectedItems = selectedProfiles[focusedProfile.id] ?? new Set<string>();
   const focusedProfileName = lang === 'zh' ? focusedProfile.nameZh : focusedProfile.name;
   const focusedLayerName = getInspectionProfileLayerName(focusedProfile.layer, lang);
+  const focusedItemSummaries = buildInspectionItemScopeSummaries(
+    focusedProfile.id,
+    selectedProfiles,
+    recommendedProfiles,
+    (profileId, itemId) => isInspectionItemApplicable(robot, profileId, itemId),
+  );
+  const focusedItemSummaryById = new Map(
+    focusedItemSummaries.map((summary) => [summary.itemId, summary]),
+  );
   const selectedProfileNames = INSPECTION_PROFILE_DEFINITIONS.filter((profile) =>
     selectedProfileIds.includes(profile.id),
   ).map((profile) => (lang === 'zh' ? profile.nameZh : profile.name));
@@ -145,6 +171,13 @@ export function InspectionSetupView({
             <span className="rounded-lg border border-border-black bg-element-bg px-2 py-1 text-[11px] font-medium text-text-secondary">
               {focusedSelectedItems.size}/{focusedProfile.items.length}
             </span>
+            <button
+              type="button"
+              onClick={() => onRestoreProfileRecommendation(focusedProfile.id)}
+              className="h-7 rounded-lg border border-system-blue/25 bg-element-bg px-2 text-[11px] font-semibold text-system-blue transition-colors hover:bg-system-blue/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+            >
+              {t.inspectionRestoreProfileRecommendation}
+            </button>
           </div>
           <p className="mt-2 text-[12px] leading-5 text-text-secondary">
             {t.inspectionCurrentCategoryDescription}
@@ -159,6 +192,9 @@ export function InspectionSetupView({
         <div className="grid gap-3 p-4 lg:grid-cols-2">
           {focusedProfile.items.map((item) => {
             const isSelected = focusedSelectedItems.has(item.id);
+            const itemSummary = focusedItemSummaryById.get(item.id);
+            const relation = itemSummary?.relation ?? 'not_recommended';
+            const relationLabel = getRelationLabel(relation, t);
             const itemName = lang === 'zh' ? item.nameZh : item.name;
             const itemDescription = lang === 'zh' ? item.descriptionZh : item.description;
             const severityLabel =
@@ -197,6 +233,17 @@ export function InspectionSetupView({
                           {item.evidenceLevelRequired}
                         </span>
                       )}
+                      <span
+                        className={`rounded-md border px-2 py-0.5 text-[10px] font-medium ${
+                          relation === 'user_removed'
+                            ? 'border-warning-border bg-warning-soft text-warning'
+                            : relation === 'recommended_included'
+                              ? 'border-system-blue/20 bg-system-blue/10 text-system-blue'
+                              : 'border-border-black bg-element-bg text-text-secondary'
+                        }`}
+                      >
+                        {relationLabel}
+                      </span>
                     </div>
                   </div>
                   <button

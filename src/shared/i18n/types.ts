@@ -359,6 +359,16 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   inspectionRecommendationProfiles: string;
   inspectionRecommendationConfidence: string;
   inspectionRecommendationAdjustScope: string;
+  inspectionRecommendationReasons: string;
+  inspectionHideRecommendationReasons: string;
+  inspectionRestoreRecommendation: string;
+  inspectionRestoreProfileRecommendation: string;
+  inspectionRecommendationDeviationSummary: string;
+  inspectionRecommendedIncluded: string;
+  inspectionUserAddedToRecommendation: string;
+  inspectionUserRemovedFromRecommendation: string;
+  inspectionNotRecommended: string;
+  inspectionUnavailableForModel: string;
   inspectionRobotTypeGeneric: string;
   inspectionRobotTypeHumanoid: string;
   inspectionRobotTypeQuadruped: string;

@@ -26,10 +26,12 @@ import {
   type NormalInspectionPlanOverride,
 } from '../utils/inspectionNormalPlan';
 import {
+  cloneSelectedInspectionProfiles,
   countSelectedInspectionProfileItems,
   countSelectedInspectionProfiles,
   createProfileScoreMetrics,
   createSelectedInspectionProfilesForProfileIds,
+  restoreInspectionProfileSelection,
   toSelectedInspectionProfileMap,
   type SelectedInspectionProfiles,
 } from '../utils/inspectionProfileSelection';
@@ -42,6 +44,7 @@ import {
   buildInspectionItemAnchorId,
   InspectionReportView,
 } from './InspectionReport';
+import { InspectionRecommendationBanner } from './InspectionRecommendationBanner';
 import { InspectionSidebar } from './InspectionSidebar';
 import { InspectionSetupNormalView } from './InspectionSetupNormalView';
 import { InspectionSetupView } from './InspectionSetupView';
@@ -168,6 +171,7 @@ export function AIInspectionModal({
       }),
     [assemblyWorkflowContext, normalPlanOverride, robot],
   );
+  const recommendedProfiles = normalInspectionPlan.selectedProfiles;
   const normalInspectionPlanKey = useMemo(
     () =>
       normalInspectionPlan.includedProfileIds
@@ -262,7 +266,7 @@ export function AIInspectionModal({
   useEffect(() => {
     if (inspectionSetupMode === 'normal') {
       setExpandedProfiles(new Set(normalInspectionPlan.includedProfileIds));
-      setSelectedProfiles(normalInspectionPlan.selectedProfiles);
+      setSelectedProfiles(cloneSelectedInspectionProfiles(normalInspectionPlan.selectedProfiles));
       setFocusedProfileId(
         normalInspectionPlan.includedProfileIds[0] ??
           recommendedProfileIds[0] ??
@@ -272,9 +276,14 @@ export function AIInspectionModal({
       return;
     }
 
-    setExpandedProfiles(new Set(recommendedProfileIds));
-    setSelectedProfiles(createSelectedInspectionProfilesForProfileIds(recommendedProfileIds));
-    setFocusedProfileId(recommendedProfileIds[0] ?? INSPECTION_PROFILE_DEFINITIONS[0]?.id ?? '');
+    setExpandedProfiles(new Set(normalInspectionPlan.includedProfileIds));
+    setSelectedProfiles(cloneSelectedInspectionProfiles(normalInspectionPlan.selectedProfiles));
+    setFocusedProfileId(
+      normalInspectionPlan.includedProfileIds[0] ??
+        recommendedProfileIds[0] ??
+        INSPECTION_PROFILE_DEFINITIONS[0]?.id ??
+        '',
+    );
   }, [
     inspectionSetupMode,
     normalInspectionPlan.includedProfileIds,
@@ -558,6 +567,26 @@ export function AIInspectionModal({
     });
   }, []);
 
+  const handleRestoreRecommendation = useCallback(() => {
+    setExpandedProfiles(new Set(normalInspectionPlan.includedProfileIds));
+    setSelectedProfiles(cloneSelectedInspectionProfiles(recommendedProfiles));
+    setFocusedProfileId(
+      normalInspectionPlan.includedProfileIds[0] ??
+        recommendedProfileIds[0] ??
+        INSPECTION_PROFILE_DEFINITIONS[0]?.id ??
+        '',
+    );
+  }, [normalInspectionPlan.includedProfileIds, recommendedProfileIds, recommendedProfiles]);
+
+  const handleRestoreProfileRecommendation = useCallback(
+    (profileId: string) => {
+      setSelectedProfiles((prev) =>
+        restoreInspectionProfileSelection(prev, recommendedProfiles, profileId),
+      );
+    },
+    [recommendedProfiles],
+  );
+
   const handleAskAboutIssue = useCallback(
     (issue: InspectionReport['issues'][number]) => {
       if (!inspectionReport) {
@@ -782,6 +811,7 @@ export function AIInspectionModal({
                     focusedProfileId={focusedProfileId}
                     expandedProfiles={expandedProfiles}
                     selectedProfiles={selectedProfiles}
+                    recommendedProfiles={recommendedProfiles}
                     setExpandedProfiles={setExpandedProfiles}
                     setSelectedProfiles={setSelectedProfiles}
                     onFocusProfile={setFocusedProfileId}
@@ -791,14 +821,24 @@ export function AIInspectionModal({
                     ref={reportScrollViewportRef}
                     className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-app-bg dark:bg-panel-bg"
                   >
-                    <div className="flex flex-1 flex-col p-6">
+                    <div className="flex flex-1 flex-col gap-4 p-6">
+                      <InspectionRecommendationBanner
+                        t={t}
+                        plan={normalInspectionPlan}
+                        selectedProfiles={selectedProfiles}
+                        recommendedProfiles={recommendedProfiles}
+                        totalItemCount={TOTAL_INSPECTION_ITEM_COUNT}
+                        onRestoreRecommendation={handleRestoreRecommendation}
+                      />
                       <InspectionSetupView
                         robot={robot}
                         lang={lang}
                         t={t}
                         selectedProfiles={selectedProfiles}
+                        recommendedProfiles={recommendedProfiles}
                         focusedProfileId={focusedProfileId}
                         onToggleItem={handleToggleSelectedItem}
+                        onRestoreProfileRecommendation={handleRestoreProfileRecommendation}
                       />
                     </div>
                   </div>
@@ -829,6 +869,7 @@ export function AIInspectionModal({
                   focusedProfileId={focusedProfileId}
                   expandedProfiles={expandedProfiles}
                   selectedProfiles={selectedProfiles}
+                  recommendedProfiles={recommendedProfiles}
                   setExpandedProfiles={setExpandedProfiles}
                   setSelectedProfiles={setSelectedProfiles}
                   onFocusProfile={setFocusedProfileId}

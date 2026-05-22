@@ -48,6 +48,53 @@ function createSelectedItems() {
   );
 }
 
+test('setup inspection sidebar groups selectable profiles by profile layer', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const selectedProfiles = createSelectedItems();
+
+  try {
+    await act(async () => {
+      root.render(
+        <InspectionSidebar
+          lang="zh"
+          t={translations.zh}
+          isGeneratingAI={false}
+          readOnly={false}
+          focusedProfileId={INSPECTION_PROFILE_DEFINITIONS[0]?.id ?? ''}
+          expandedProfiles={new Set(INSPECTION_PROFILE_DEFINITIONS.map((profile) => profile.id))}
+          selectedProfiles={selectedProfiles}
+          recommendedProfiles={selectedProfiles}
+          setExpandedProfiles={() => {}}
+          setSelectedProfiles={() => {}}
+          onFocusProfile={() => {}}
+        />,
+      );
+    });
+
+    const layerSections = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-inspection-sidebar-layer]'),
+    );
+
+    assert.equal(layerSections.length, 5, 'expected one sidebar section per profile layer');
+    ['基础通用层', '机器人形态层', '源格式层', '目标平台层', '工作流层'].forEach((layerName) => {
+      assert.equal(
+        layerSections.some((section) => section.textContent?.includes(layerName)),
+        true,
+        `expected ${layerName} layer section to render`,
+      );
+    });
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('running inspection sidebar keeps scroll container interactive without rendering the checking badge', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');

@@ -870,7 +870,7 @@ test('professional mode status badge toggles the inspection item selection', asy
     (sum, profile) => sum + profile.items.length,
     0,
   );
-  const initialSelectedItemCount = getRecommendedSelectedItemCount();
+  const initialSelectedItemCount = getNormalPlanSelectedItemCount();
   const firstProfile = INSPECTION_PROFILE_DEFINITIONS[0];
   const firstItem = firstProfile?.items[0];
   assert.ok(firstProfile, 'expected inspection profiles to include at least one profile');
@@ -923,6 +923,25 @@ test('professional mode status badge toggles the inspection item selection', asy
       container.textContent?.includes(summaryText),
       true,
       'expected the professional-mode summary to reflect the deselected item',
+    );
+    assert.equal(
+      container.textContent?.includes('用户排除推荐'),
+      true,
+      'expected the deselected recommended item to be marked as user-excluded from the recommendation',
+    );
+
+    const restoreProfileButton = getButtonByText('恢复本 Profile 推荐');
+    assert.ok(restoreProfileButton, 'expected profile-level recommendation restore action');
+
+    await act(async () => {
+      restoreProfileButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(badge!.textContent?.trim(), t.inspectionIncluded);
+    assert.equal(
+      container.textContent?.includes('用户排除推荐'),
+      false,
+      'expected restoring the focused profile recommendation to clear the user-excluded badge',
     );
   } finally {
     await act(async () => {
@@ -1696,8 +1715,8 @@ test('inspection setup persists the last selected mode across remounts', async (
       );
       assert.equal(
         container.textContent?.includes(t.inspectionRecommendedPlan),
-        false,
-        'expected the remounted setup to skip the normal-mode layout when advanced was saved',
+        true,
+        'expected the remounted professional setup to still show the recommended plan',
       );
     } finally {
       await act(async () => {
