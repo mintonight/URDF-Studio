@@ -209,6 +209,8 @@ export function InspectionSetupView({
             return (
               <div
                 key={item.id}
+                data-inspection-setup-item-anchor={`${focusedProfile.id}:${item.id}`}
+                tabIndex={-1}
                 className={`rounded-xl border p-3 transition-colors ${
                   isSelected
                     ? 'border-border-black bg-panel-bg shadow-sm'

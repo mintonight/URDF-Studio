@@ -1,4 +1,5 @@
 import { Check, ChevronDown, ChevronRight, FileText, Layers, Minus, Package, Sparkles, Target } from 'lucide-react';
+import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { Language, TranslationKeys } from '@/shared/i18n';
 import {
@@ -25,6 +26,7 @@ interface InspectionSidebarProps {
   onFocusProfile: (profileId: string) => void;
   onNavigateToProfile?: (profileId: string) => void;
   onNavigateToItem?: (profileId: string, itemId: string) => void;
+  onNavigateToSetupItem?: (profileId: string, itemId: string) => void;
 }
 
 const getProfileIcon = (layer: string) => {
@@ -49,7 +51,11 @@ export function InspectionSidebar({
   onFocusProfile,
   onNavigateToProfile,
   onNavigateToItem,
+  onNavigateToSetupItem,
 }: InspectionSidebarProps) {
+  const [expandedLayers, setExpandedLayers] = useState(
+    () => new Set(['base', 'morph', 'format', 'target', 'workflow']),
+  );
   const isInteractionLocked = isGeneratingAI;
   const isRunningInspection = isGeneratingAI && readOnly;
   const totalItemCount = INSPECTION_PROFILE_DEFINITIONS.reduce(
@@ -122,8 +128,23 @@ export function InspectionSidebar({
     });
   };
 
+  const toggleLayerExpand = (layer: string) => {
+    setExpandedLayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(layer)) {
+        next.delete(layer);
+      } else {
+        next.add(layer);
+      }
+      return next;
+    });
+  };
+
   return (
-    <div className="flex min-h-0 w-72 shrink-0 flex-col overflow-hidden border-r border-border-black bg-panel-bg dark:bg-element-bg">
+    <div
+      data-inspection-sidebar
+      className="flex min-h-0 w-72 shrink-0 flex-col overflow-hidden border-r border-border-black bg-panel-bg dark:bg-element-bg"
+    >
       <div className="shrink-0 border-b border-border-black bg-element-bg p-3">
         <div className="min-w-0">
           <h3 className="px-1 text-[10px] font-medium tracking-wide text-text-tertiary">
@@ -162,6 +183,7 @@ export function InspectionSidebar({
       >
         {layerSummaries.map((layerSummary) => {
           const layerName = getInspectionProfileLayerName(layerSummary.layer, lang);
+          const isLayerExpanded = expandedLayers.has(layerSummary.layer);
 
           return (
             <section
@@ -169,18 +191,30 @@ export function InspectionSidebar({
               data-inspection-sidebar-layer
               className="rounded-xl border border-border-black bg-panel-bg shadow-sm"
             >
-              <div className="border-b border-border-black/70 px-2.5 py-2">
-                <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                data-inspection-sidebar-layer-toggle={layerSummary.layer}
+                aria-expanded={isLayerExpanded}
+                disabled={isInteractionLocked}
+                className="flex w-full items-center justify-between gap-2 border-b border-border-black/70 px-2.5 py-2 text-left transition-colors hover:bg-element-hover disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
+                onClick={() => toggleLayerExpand(layerSummary.layer)}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  {isLayerExpanded ? (
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+                  )}
                   <span className="truncate text-[11px] font-semibold text-text-primary">
                     {layerName}
                   </span>
-                  <span className="shrink-0 rounded-md border border-border-black bg-element-bg px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-text-secondary">
-                    {layerSummary.selectedItemCount}/{layerSummary.totalItemCount}
-                  </span>
-                </div>
-              </div>
+                </span>
+                <span className="shrink-0 rounded-md border border-border-black bg-element-bg px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-text-secondary">
+                  {layerSummary.selectedItemCount}/{layerSummary.totalItemCount}
+                </span>
+              </button>
 
-              <div className="space-y-1 p-1.5">
+              {isLayerExpanded && <div className="space-y-1 p-1.5">
                 {layerSummary.profileIds.map((profileId) => {
                   const profile = INSPECTION_PROFILE_DEFINITIONS.find(
                     (entry) => entry.id === profileId,
@@ -323,7 +357,10 @@ export function InspectionSidebar({
                       </div>
 
                       {isExpanded && (
-                        <div className="animate-in fade-in slide-in-from-top-1 border-t border-border-black/80 px-2 pb-2 pt-2 duration-200">
+                        <div
+                          data-inspection-sidebar-item-list
+                          className="animate-in fade-in slide-in-from-top-1 border-t border-border-black/80 px-2 pb-2 pt-2 duration-200"
+                        >
                           <div className="space-y-1">
                             {visibleItems.map((item) => {
                               const isSelected = selectedItemIds.has(item.id);
@@ -380,31 +417,41 @@ export function InspectionSidebar({
                               }
 
                               return (
-                                <button
+                                <div
                                   key={item.id}
-                                  type="button"
-                                  disabled={isInteractionLocked}
                                   className={`flex w-full items-center gap-2 rounded-lg p-1.5 text-left transition-colors ${
                                     isSelected ? 'bg-element-bg' : 'hover:bg-element-hover'
                                   }`}
-                                  onClick={() => {
-                                    toggleItemSelection(profile.id, item.id);
-                                    onFocusProfile(profile.id);
-                                  }}
                                 >
-                                  <div
+                                  <button
+                                    type="button"
+                                    aria-label={itemName}
+                                    disabled={isInteractionLocked}
                                     className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
                                       isSelected
                                         ? 'border-system-blue-solid bg-system-blue-solid'
                                         : 'border-border-strong bg-panel-bg'
                                     }`}
+                                    onClick={() => {
+                                      toggleItemSelection(profile.id, item.id);
+                                      onFocusProfile(profile.id);
+                                    }}
                                   >
                                     {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
-                                  </div>
-                                  <span className="truncate text-[11px] font-medium text-text-secondary">
+                                  </button>
+                                  <button
+                                    type="button"
+                                    data-inspection-sidebar-item-link={`${profile.id}:${item.id}`}
+                                    disabled={isInteractionLocked}
+                                    className="min-w-0 flex-1 truncate rounded-md text-left text-[11px] font-medium text-text-secondary transition-colors hover:text-system-blue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+                                    onClick={() => {
+                                      onFocusProfile(profile.id);
+                                      onNavigateToSetupItem?.(profile.id, item.id);
+                                    }}
+                                  >
                                     {itemName}
-                                  </span>
-                                </button>
+                                  </button>
+                                </div>
                               );
                             })}
                           </div>
@@ -413,7 +460,7 @@ export function InspectionSidebar({
                     </div>
                   );
                 })}
-              </div>
+              </div>}
             </section>
           );
         })}

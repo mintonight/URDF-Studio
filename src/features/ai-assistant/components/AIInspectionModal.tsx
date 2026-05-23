@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { MessageCircle, ScanSearch } from 'lucide-react';
+import { MessageCircle, PanelLeftClose, PanelLeftOpen, ScanSearch } from 'lucide-react';
 import type { InspectionReport, RobotState } from '@/types';
 import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
@@ -83,6 +83,11 @@ interface RetestingItemState {
 
 interface ReportScrollTarget {
   anchorId: string;
+}
+
+interface SetupItemScrollTarget {
+  profileId: string;
+  itemId: string;
 }
 
 interface InspectionRunPointerLayout {
@@ -200,15 +205,14 @@ export function AIInspectionModal({
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
   const [isSavingReportBeforeRegenerate, setIsSavingReportBeforeRegenerate] = useState(false);
   const [retestingItem, setRetestingItem] = useState<RetestingItemState | null>(null);
-  const [expandedProfiles, setExpandedProfiles] = useState<Set<string>>(
-    new Set(profileRecommendation.profileIds),
-  );
+  const [expandedProfiles, setExpandedProfiles] = useState<Set<string>>(() => new Set());
   const [selectedProfiles, setSelectedProfiles] = useState<SelectedInspectionProfiles>(() =>
     createSelectedInspectionProfilesForProfileIds(profileRecommendation.profileIds),
   );
   const [inspectionSetupMode, setInspectionSetupMode] = useState<InspectionSetupMode>(() =>
     readStoredInspectionSetupMode(),
   );
+  const [inspectionSetupSidebarCollapsed, setInspectionSetupSidebarCollapsed] = useState(true);
   const [showRunInspectionPointer, setShowRunInspectionPointer] = useState(false);
   const [runInspectionPointerReplayToken, setRunInspectionPointerReplayToken] = useState(0);
   const [runInspectionPointerLayout, setRunInspectionPointerLayout] =
@@ -223,6 +227,8 @@ export function AIInspectionModal({
   );
   const [pendingReportScrollTarget, setPendingReportScrollTarget] =
     useState<ReportScrollTarget | null>(null);
+  const [pendingSetupItemScrollTarget, setPendingSetupItemScrollTarget] =
+    useState<SetupItemScrollTarget | null>(null);
   const inspectionSidebarReadOnly = Boolean(inspectionProgress || inspectionReport);
 
   const isMountedRef = useRef(false);
@@ -276,7 +282,8 @@ export function AIInspectionModal({
       return;
     }
 
-    setExpandedProfiles(new Set(normalInspectionPlan.includedProfileIds));
+    setExpandedProfiles(new Set());
+    setInspectionSetupSidebarCollapsed(true);
     setSelectedProfiles(cloneSelectedInspectionProfiles(normalInspectionPlan.selectedProfiles));
     setFocusedProfileId(
       normalInspectionPlan.includedProfileIds[0] ??
@@ -339,6 +346,7 @@ export function AIInspectionModal({
       return;
     }
 
+    setExpandedProfiles(new Set(Object.keys(selectedItemsMap)));
     setInspectionRunContext(
       buildInspectionRunContext(robot, selectedProfiles, lang, t.inspectionNormalizedModel),
     );
@@ -495,6 +503,11 @@ export function AIInspectionModal({
     [ensureReportProfileExpanded],
   );
 
+  const handleNavigateToSetupItem = useCallback((profileId: string, itemId: string) => {
+    setFocusedProfileId(profileId);
+    setPendingSetupItemScrollTarget({ profileId, itemId });
+  }, []);
+
   useEffect(() => {
     if (!inspectionReport || !pendingReportScrollTarget) {
       return;
@@ -510,6 +523,39 @@ export function AIInspectionModal({
       window.cancelAnimationFrame(frameId);
     };
   }, [expandedProfiles, inspectionReport, pendingReportScrollTarget, scrollToReportAnchor]);
+
+  useEffect(() => {
+    if (
+      !pendingSetupItemScrollTarget ||
+      inspectionProgress ||
+      inspectionReport ||
+      inspectionSetupMode !== 'advanced'
+    ) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const target = reportScrollViewportRef.current?.querySelector<HTMLElement>(
+        `[data-inspection-setup-item-anchor="${pendingSetupItemScrollTarget.profileId}:${pendingSetupItemScrollTarget.itemId}"]`,
+      );
+
+      if (!target) {
+        return;
+      }
+
+      target.scrollIntoView?.({
+        behavior: 'smooth',
+        block: 'start',
+        inline: 'nearest',
+      });
+      target.focus({ preventScroll: true });
+      setPendingSetupItemScrollTarget(null);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [inspectionProgress, inspectionReport, inspectionSetupMode, pendingSetupItemScrollTarget]);
 
   const handleDownloadPDF = () => {
     return exportInspectionReportPdf({
@@ -803,19 +849,49 @@ export function AIInspectionModal({
             {isSetupView ? (
               inspectionSetupMode === 'advanced' ? (
                 <>
-                  <InspectionSidebar
-                    lang={lang}
-                    t={t}
-                    isGeneratingAI={isInspecting}
-                    readOnly={false}
-                    focusedProfileId={focusedProfileId}
-                    expandedProfiles={expandedProfiles}
-                    selectedProfiles={selectedProfiles}
-                    recommendedProfiles={recommendedProfiles}
-                    setExpandedProfiles={setExpandedProfiles}
-                    setSelectedProfiles={setSelectedProfiles}
-                    onFocusProfile={setFocusedProfileId}
-                  />
+                  {inspectionSetupSidebarCollapsed ? (
+                    <div
+                      data-inspection-setup-sidebar-collapsed
+                      className="flex w-12 shrink-0 flex-col items-center border-r border-border-black bg-panel-bg p-2 dark:bg-element-bg"
+                    >
+                      <button
+                        type="button"
+                        aria-label={`${t.expand} ${t.inspectionItems}`}
+                        title={`${t.expand} ${t.inspectionItems}`}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-black bg-element-bg text-text-secondary transition-colors hover:bg-element-hover hover:text-system-blue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+                        onClick={() => setInspectionSetupSidebarCollapsed(false)}
+                      >
+                        <PanelLeftOpen className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="relative flex shrink-0">
+                      <InspectionSidebar
+                        lang={lang}
+                        t={t}
+                        isGeneratingAI={isInspecting}
+                        readOnly={false}
+                        focusedProfileId={focusedProfileId}
+                        expandedProfiles={expandedProfiles}
+                        selectedProfiles={selectedProfiles}
+                        recommendedProfiles={recommendedProfiles}
+                        setExpandedProfiles={setExpandedProfiles}
+                        setSelectedProfiles={setSelectedProfiles}
+                        onFocusProfile={setFocusedProfileId}
+                        onNavigateToSetupItem={handleNavigateToSetupItem}
+                      />
+
+                      <button
+                        type="button"
+                        aria-label={t.collapseSidebar}
+                        title={t.collapseSidebar}
+                        className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-lg border border-border-black bg-element-bg text-text-tertiary shadow-sm transition-colors hover:bg-element-hover hover:text-system-blue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+                        onClick={() => setInspectionSetupSidebarCollapsed(true)}
+                      >
+                        <PanelLeftClose className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
 
                   <div
                     ref={reportScrollViewportRef}

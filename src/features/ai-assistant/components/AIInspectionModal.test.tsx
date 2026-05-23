@@ -858,6 +858,86 @@ test('inspection setup restores the saved normal mode and keeps selection in syn
   }
 });
 
+test('professional setup sidebar is collapsed by default during selection', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'advanced');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const robot = createRobotFixture();
+  const recommendedProfileIds = buildNormalInspectionPlan({ robot }).includedProfileIds;
+  const firstRecommendedProfile = INSPECTION_PROFILE_DEFINITIONS.find(
+    (profile) => profile.id === recommendedProfileIds[0],
+  );
+  assert.ok(firstRecommendedProfile, 'expected the fixture to recommend at least one profile');
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={robot}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    assert.ok(
+      container.querySelector('[data-inspection-setup-sidebar-collapsed]'),
+      'expected professional mode selection to render the collapsed sidebar rail by default',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-sidebar]'),
+      null,
+      'expected professional mode selection to avoid rendering the full sidebar by default',
+    );
+    assert.equal(
+      container
+        .querySelector('[data-inspection-setup-sidebar-collapsed]')
+        ?.textContent?.includes(firstRecommendedProfile.nameZh),
+      false,
+      'expected collapsed professional setup sidebar to hide profile headings by default',
+    );
+
+    const expandSidebarButton = container.querySelector<HTMLButtonElement>(
+      `[aria-label="${translations.zh.expand} ${translations.zh.inspectionItems}"]`,
+    );
+    assert.ok(expandSidebarButton, 'expected collapsed sidebar rail to expose an expand button');
+
+    await act(async () => {
+      expandSidebarButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      container
+        .querySelector('[data-inspection-sidebar]')
+        ?.textContent?.includes(firstRecommendedProfile.nameZh),
+      true,
+      'expected expanding the professional setup sidebar to reveal profile headings',
+    );
+    assert.ok(
+      container.querySelector('[data-inspection-sidebar-layer]'),
+      'expected the expanded sidebar to keep the layer-grouped profile optimization',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-sidebar-item-list]'),
+      null,
+      'expected profile sections inside the expanded professional sidebar to stay collapsed by default',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('professional mode status badge toggles the inspection item selection', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
@@ -866,10 +946,6 @@ test('professional mode status badge toggles the inspection item selection', asy
   const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
   const root = createRoot(container);
   const t = translations.zh;
-  const totalItemCount = INSPECTION_PROFILE_DEFINITIONS.reduce(
-    (sum, profile) => sum + profile.items.length,
-    0,
-  );
   const initialSelectedItemCount = getNormalPlanSelectedItemCount();
   const firstProfile = INSPECTION_PROFILE_DEFINITIONS[0];
   const firstItem = firstProfile?.items[0];
@@ -916,9 +992,10 @@ test('professional mode status badge toggles the inspection item selection', asy
     assert.equal(badge!.textContent?.trim(), t.inspectionSkipped);
     assert.equal(badge!.getAttribute('aria-pressed'), 'false');
 
-    const summaryText = t.inspectionSelectedChecksSummary
-      .replace('{selected}', String(initialSelectedItemCount - 1))
-      .replace('{total}', String(totalItemCount));
+    const summaryText = t.inspectionSelectedChecks.replace(
+      '{count}',
+      String(initialSelectedItemCount - 1),
+    );
     assert.equal(
       container.textContent?.includes(summaryText),
       true,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { JSDOM } from 'jsdom';
@@ -87,6 +87,165 @@ test('setup inspection sidebar groups selectable profiles by profile layer', asy
         `expected ${layerName} layer section to render`,
       );
     });
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('setup inspection sidebar lets a profile layer collapse and expand', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const selectedProfiles = createSelectedItems();
+  const baseProfile = INSPECTION_PROFILE_DEFINITIONS.find((profile) => profile.layer === 'base');
+  assert.ok(baseProfile, 'expected a base-layer profile');
+
+  function SidebarHarness() {
+    const [expandedProfiles, setExpandedProfiles] = useState(
+      new Set(INSPECTION_PROFILE_DEFINITIONS.map((profile) => profile.id)),
+    );
+    const [localSelectedProfiles, setSelectedProfiles] = useState(selectedProfiles);
+
+    return (
+      <InspectionSidebar
+        lang="zh"
+        t={translations.zh}
+        isGeneratingAI={false}
+        readOnly={false}
+        focusedProfileId={baseProfile.id}
+        expandedProfiles={expandedProfiles}
+        selectedProfiles={localSelectedProfiles}
+        recommendedProfiles={selectedProfiles}
+        setExpandedProfiles={setExpandedProfiles}
+        setSelectedProfiles={setSelectedProfiles}
+        onFocusProfile={() => {}}
+      />
+    );
+  }
+
+  try {
+    await act(async () => {
+      root.render(<SidebarHarness />);
+    });
+
+    const baseLayerToggle = container.querySelector<HTMLButtonElement>(
+      '[data-inspection-sidebar-layer-toggle="base"]',
+    );
+    assert.ok(baseLayerToggle, 'expected the base layer toggle to render');
+    assert.equal(
+      baseLayerToggle.getAttribute('aria-expanded'),
+      'true',
+      'expected the base layer to start expanded',
+    );
+    assert.equal(
+      container.textContent?.includes(baseProfile.nameZh),
+      true,
+      'expected expanded base layer to show its profiles',
+    );
+
+    await act(async () => {
+      baseLayerToggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      baseLayerToggle.getAttribute('aria-expanded'),
+      'false',
+      'expected clicking the base layer header to collapse it',
+    );
+    assert.equal(
+      container.textContent?.includes(baseProfile.nameZh),
+      false,
+      'expected collapsed base layer to hide its profiles',
+    );
+
+    await act(async () => {
+      baseLayerToggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      baseLayerToggle.getAttribute('aria-expanded'),
+      'true',
+      'expected clicking the base layer header again to expand it',
+    );
+    assert.equal(
+      container.textContent?.includes(baseProfile.nameZh),
+      true,
+      'expected expanded base layer to show its profiles again',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('setup inspection sidebar item labels navigate without toggling selection', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const selectedProfiles = createSelectedItems();
+  const firstProfile = INSPECTION_PROFILE_DEFINITIONS[0];
+  const firstItem = firstProfile?.items[0];
+  assert.ok(firstProfile, 'expected an inspection profile');
+  assert.ok(firstItem, 'expected an inspection item');
+  let navigatedTarget: string | null = null;
+
+  function SidebarHarness() {
+    const [expandedProfiles, setExpandedProfiles] = useState(new Set([firstProfile.id]));
+    const [localSelectedProfiles, setSelectedProfiles] = useState(selectedProfiles);
+
+    return (
+      <InspectionSidebar
+        lang="zh"
+        t={translations.zh}
+        isGeneratingAI={false}
+        readOnly={false}
+        focusedProfileId={firstProfile.id}
+        expandedProfiles={expandedProfiles}
+        selectedProfiles={localSelectedProfiles}
+        recommendedProfiles={selectedProfiles}
+        setExpandedProfiles={setExpandedProfiles}
+        setSelectedProfiles={setSelectedProfiles}
+        onFocusProfile={() => {}}
+        onNavigateToSetupItem={(profileId, itemId) => {
+          navigatedTarget = `${profileId}:${itemId}`;
+        }}
+      />
+    );
+  }
+
+  try {
+    await act(async () => {
+      root.render(<SidebarHarness />);
+    });
+
+    const itemLabelButton = container.querySelector<HTMLButtonElement>(
+      `[data-inspection-sidebar-item-link="${firstProfile.id}:${firstItem.id}"]`,
+    );
+    assert.ok(itemLabelButton, 'expected an item navigation button to render');
+
+    await act(async () => {
+      itemLabelButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      navigatedTarget,
+      `${firstProfile.id}:${firstItem.id}`,
+      'expected clicking the item label to request navigation',
+    );
+    assert.equal(
+      container.textContent?.includes(translations.zh.inspectionSkipped),
+      false,
+      'expected item navigation to avoid toggling the item selection',
+    );
   } finally {
     await act(async () => {
       root.unmount();
