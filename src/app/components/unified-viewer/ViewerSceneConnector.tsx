@@ -3,8 +3,8 @@ import React from 'react';
 import type {
   AssemblyState,
   InteractionSelection,
+  RobotData,
   RobotFile,
-  RobotState,
   UrdfOrigin,
 } from '@/types';
 import type {
@@ -58,7 +58,7 @@ interface ViewerSceneConnectorProps {
     objectType: 'visual' | 'collision',
   ) => void;
   onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
-  robot: RobotState;
+  robot: RobotData;
   focusTarget?: string | null;
   onCollisionTransformPreview?: (
     linkId: string,

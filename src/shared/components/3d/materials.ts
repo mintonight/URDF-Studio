@@ -316,7 +316,11 @@ export const emptyRaycast = () => {};
  * @param robotObject - The robot Object3D to enhance
  * @param envMap - Optional environment map (used for realistic reflections)
  */
-export const enhanceMaterials = (robotObject: THREE.Object3D, envMap?: THREE.Texture | null) => {
+export const enhanceMaterials = (
+  robotObject: THREE.Object3D,
+  envMap?: THREE.Texture | null,
+  sharedEnhancedMaterialMemo?: Map<THREE.Material, THREE.Material>,
+) => {
   let enhancedCount = 0;
   let totalMeshes = 0;
   const disposedMaterials = new Set<THREE.Material>();
@@ -324,9 +328,12 @@ export const enhanceMaterials = (robotObject: THREE.Object3D, envMap?: THREE.Tex
   // (e.g. all "metallic_grey" meshes from a URDF/MJCF/MTL). Without memo we
   // would create a fresh MeshStandardMaterial per mesh, multiplying GPU
   // program compiles and VRAM. Memo collapses that to one enhanced material
-  // per unique source. The map is local to this call — different robot loads
-  // still get fresh enhanced instances, preserving lifecycle semantics.
-  const enhancedBySource = new Map<THREE.Material, THREE.Material>();
+  // per unique source. Callers that invoke enhanceMaterials once per mesh
+  // (notably the MJCF path that flattens each <geom> into a separate visual
+  // group) can pass a sharedEnhancedMaterialMemo so cross-mesh reuse still
+  // happens; when omitted, the map stays call-local for the legacy behavior.
+  const enhancedBySource =
+    sharedEnhancedMaterialMemo ?? new Map<THREE.Material, THREE.Material>();
   const enhanceMaterialMemo = (mat: THREE.Material): THREE.Material => {
     const cached = enhancedBySource.get(mat);
     if (cached) return cached;

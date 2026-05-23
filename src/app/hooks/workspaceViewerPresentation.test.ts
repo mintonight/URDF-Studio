@@ -1,29 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DEFAULT_LINK, type RobotData, type RobotState } from '@/types';
+import { DEFAULT_LINK, type RobotData } from '@/types';
 import {
   resolveWorkspaceViewerFallbackRobot,
   resolveWorkspaceViewerRobot,
   shouldPersistStableWorkspaceViewerRobot,
   shouldAnimateWorkspaceViewerRobot,
 } from './workspaceViewerPresentation.ts';
-
-function createRobotState(name: string, rootLinkId = 'base_link'): RobotState {
-  return {
-    name,
-    rootLinkId,
-    links: {
-      [rootLinkId]: {
-        ...DEFAULT_LINK,
-        id: rootLinkId,
-        name: rootLinkId,
-      },
-    },
-    joints: {},
-    selection: { type: 'link', id: rootLinkId },
-  };
-}
 
 function createRobotData(name: string, rootLinkId = 'base_link'): RobotData {
   return {
@@ -70,38 +54,35 @@ test('shouldAnimateWorkspaceViewerRobot disables transitions while bridge creati
 });
 
 test('resolveWorkspaceViewerRobot keeps the live scene while workspace display data is still settling', () => {
-  const liveRobot = createRobotState('live-robot');
+  const liveRobot = createRobotData('live-robot');
 
   const viewerRobot = resolveWorkspaceViewerRobot({
     shouldRenderAssembly: true,
     liveRobot,
     workspaceViewerRobotData: null,
     animatedWorkspaceViewerRobotData: null,
-    selection: { type: null, id: null },
   });
 
   assert.equal(viewerRobot, liveRobot);
 });
 
 test('resolveWorkspaceViewerFallbackRobot keeps the last stable scene during the first workspace handoff', () => {
-  const liveRobot = createRobotState('source-live');
-  const lastStableViewerRobot = createRobotState('last-stable');
+  const liveRobot = createRobotData('source-live');
+  const lastStableViewerRobot = createRobotData('last-stable');
 
   const fallbackRobot = resolveWorkspaceViewerFallbackRobot({
     shouldRenderAssembly: true,
     hasWorkspaceDisplayRobot: false,
     liveRobot,
     lastStableViewerRobot,
-    selection: { type: 'joint', id: 'joint_a' },
   });
 
-  assert.equal(fallbackRobot.name, lastStableViewerRobot.name);
-  assert.deepEqual(fallbackRobot.selection, { type: 'joint', id: 'joint_a' });
+  assert.equal(fallbackRobot, lastStableViewerRobot);
 });
 
 test('resolveWorkspaceViewerFallbackRobot skips the last stable scene after a workspace render failure', () => {
-  const liveRobot = createRobotState('workspace-error');
-  const lastStableViewerRobot = createRobotState('last-stable');
+  const liveRobot = createRobotData('workspace-error');
+  const lastStableViewerRobot = createRobotData('last-stable');
 
   const fallbackRobot = resolveWorkspaceViewerFallbackRobot({
     shouldRenderAssembly: true,
@@ -109,7 +90,6 @@ test('resolveWorkspaceViewerFallbackRobot skips the last stable scene after a wo
     hasWorkspaceRenderFailure: true,
     liveRobot,
     lastStableViewerRobot,
-    selection: { type: null, id: null },
   });
 
   assert.equal(fallbackRobot, liveRobot);
@@ -141,8 +121,8 @@ test('shouldPersistStableWorkspaceViewerRobot only updates the cache when the vi
   );
 });
 
-test('resolveWorkspaceViewerRobot prefers animated workspace data and reapplies selection', () => {
-  const liveRobot = createRobotState('live-robot');
+test('resolveWorkspaceViewerRobot prefers animated workspace data over static data', () => {
+  const liveRobot = createRobotData('live-robot');
   const animatedRobot = createRobotData('workspace-display', '__workspace_world__');
 
   const viewerRobot = resolveWorkspaceViewerRobot({
@@ -150,10 +130,32 @@ test('resolveWorkspaceViewerRobot prefers animated workspace data and reapplies 
     liveRobot,
     workspaceViewerRobotData: createRobotData('workspace-static', '__workspace_world__'),
     animatedWorkspaceViewerRobotData: animatedRobot,
-    selection: { type: 'joint', id: 'joint_a' },
   });
 
-  assert.equal(viewerRobot.name, animatedRobot.name);
-  assert.equal(viewerRobot.rootLinkId, animatedRobot.rootLinkId);
-  assert.deepEqual(viewerRobot.selection, { type: 'joint', id: 'joint_a' });
+  assert.equal(viewerRobot, animatedRobot);
+});
+
+test('resolveWorkspaceViewerRobot reference stays stable across selection-only changes', () => {
+  // Regression: selection used to be folded into the viewer robot, which made
+  // its reference change on every empty click and cascaded into a viewer-wide
+  // re-sync (visibility/color/highlight all re-run, models flashing off for a
+  // frame). The viewer robot must now be selection-independent so the cascade
+  // is gated only on real geometry/topology changes.
+  const liveRobot = createRobotData('live-robot');
+  const animatedRobot = createRobotData('workspace-display', '__workspace_world__');
+
+  const first = resolveWorkspaceViewerRobot({
+    shouldRenderAssembly: true,
+    liveRobot,
+    workspaceViewerRobotData: null,
+    animatedWorkspaceViewerRobotData: animatedRobot,
+  });
+  const second = resolveWorkspaceViewerRobot({
+    shouldRenderAssembly: true,
+    liveRobot,
+    workspaceViewerRobotData: null,
+    animatedWorkspaceViewerRobotData: animatedRobot,
+  });
+
+  assert.equal(first, second);
 });

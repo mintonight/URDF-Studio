@@ -269,6 +269,41 @@ export function useWorkspaceMutations({
     [assemblyState, setName],
   );
 
+  // Joint commit in multi-component assembly mode used to call
+  // updateComponentRobot synchronously, which ran the full immer produce +
+  // patch capture path and bumped `assemblyState` reference. That cascade
+  // forced AppLayout/App.tsx subscribers to rerender and invalidated the
+  // mergeAssembly useMemo in `useWorkspaceSourceSync`, costing a ~180ms
+  // React long task on multi-component scenes.
+  //
+  // We now route joint-motion writes through `setComponentJointMotion` —
+  // an explicit fast path on `assemblyStore` that mutates
+  // `assemblyState.components[id].robot.joints[*].angle/quaternion` in
+  // place. It bumps a dedicated `assemblyJointMotionRevision` field but
+  // does NOT change the `assemblyState` object identity, so React
+  // subscribers selecting `assemblyState` (via `useShallow`) stay quiet,
+  // and the `useMemo([..., visibleAssemblyStateForViewerDisplay])` chain in
+  // `useWorkspaceSourceSync` keeps its cached mergeAssembly output. Export
+  // / save / AI inspection paths still see the latest angles because they
+  // traverse the live `assemblyState` (or `getMergedRobotData()`, whose
+  // cache also invalidates on the motion revision).
+  const scheduleAssemblyComponentJointSync = useCallback(
+    (componentId: string, nextJoints: Record<string, UrdfJoint>) => {
+      const angles: Record<string, number> = {};
+      const quaternions: Record<string, JointQuaternion> = {};
+      for (const [jointId, joint] of Object.entries(nextJoints)) {
+        if (typeof joint.angle === 'number' && Number.isFinite(joint.angle)) {
+          angles[jointId] = joint.angle;
+        }
+        if (joint.quaternion) {
+          quaternions[jointId] = joint.quaternion;
+        }
+      }
+      useAssemblyStore.getState().setComponentJointMotion(componentId, angles, quaternions);
+    },
+    [],
+  );
+
   const renameComponentRootWithDefaults = useCallback(
     (
       componentId: string,
@@ -1116,11 +1151,7 @@ export function useWorkspaceMutations({
               }
             });
 
-            updateComponentRobot(
-              component.id,
-              { joints: nextJoints },
-              { skipHistory: true, label: 'Update joint angle' },
-            );
+            scheduleAssemblyComponentJointSync(component.id, nextJoints);
             return;
           }
 
@@ -1147,11 +1178,7 @@ export function useWorkspaceMutations({
             }
           });
 
-          updateComponentRobot(
-            component.id,
-            { joints: nextJoints },
-            { skipHistory: true, label: 'Update joint angle' },
-          );
+          scheduleAssemblyComponentJointSync(component.id, nextJoints);
           return;
         }
       }
@@ -1175,7 +1202,7 @@ export function useWorkspaceMutations({
 
       setJointAngle(jointName, angle);
     },
-    [applyJointKinematicOverrides, setJointAngle, updateComponentRobot],
+    [applyJointKinematicOverrides, scheduleAssemblyComponentJointSync, setJointAngle],
   );
 
   return {

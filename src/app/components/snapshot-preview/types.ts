@@ -3,7 +3,7 @@ import type {
   ViewerRobotSourceFormat,
 } from '@/features/urdf-viewer/types';
 import type { WorkspaceCameraSnapshot } from '@/shared/components/3d';
-import type { RobotFile, RobotState } from '@/types';
+import type { RobotData, RobotFile } from '@/types';
 import type { Theme } from '@/types';
 
 export type SnapshotDialogPreviewStatus = 'idle' | 'loading' | 'ready' | 'refreshing' | 'error';
@@ -19,7 +19,7 @@ export interface SnapshotPreviewSession {
   cameraSnapshot: WorkspaceCameraSnapshot | null;
   viewportAspectRatio: number;
   robotName: string;
-  robot: RobotState;
+  robot: RobotData;
   assets: Record<string, string>;
   availableFiles: RobotFile[];
   urdfContent: string;

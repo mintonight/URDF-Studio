@@ -4,12 +4,19 @@
  */
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import { applyPatches, enablePatches, produceWithPatches, type Patch } from 'immer';
+import {
+  applyPatches,
+  enablePatches,
+  produceWithPatches,
+  setAutoFreeze,
+  type Patch,
+} from 'immer';
 import type {
   AssemblyState,
   AssemblyComponent,
   AssemblyTransform,
   BridgeJoint,
+  JointQuaternion,
   RenderableBounds,
   RobotClosedLoopConstraint,
   RobotData,
@@ -91,6 +98,15 @@ function shouldRecomputeBridgeAlignedChildTransform(
 }
 
 enablePatches();
+// Disable immer's auto-freeze so the joint-motion fast path
+// (`setComponentJointMotion`) can in-place mutate
+// `assemblyState.components[id].robot.joints[*].angle/quaternion` without
+// triggering a full immer produce cycle and the resulting React subscriber
+// cascade on multi-component drag commit. Auto-freeze is a development-mode
+// safety net (mutations outside an immer recipe would throw); we trade it
+// for the perf win on the hot drag-commit path. All canonical mutations
+// still go through `produceWithPatches` for history correctness.
+setAutoFreeze(false);
 
 function normalizeAssemblySourcePath(path: string): string {
   return normalizeLibraryPathKey(path);
@@ -139,6 +155,40 @@ interface AssemblyActions {
     options?: UpdateOptions,
   ) => void;
   updateComponentRobot: (id: string, robot: Partial<RobotData>, options?: UpdateOptions) => void;
+  /**
+   * Joint-motion fast path: in-place mutates the existing
+   * `assemblyState.components[componentId].robot.joints[*].angle/quaternion`
+   * WITHOUT swapping the `assemblyState` reference. This is intentionally
+   * non-zustand-canonical: it bypasses immer and the React subscriber
+   * notification for `assemblyState` so commit-time joint-angle writes from
+   * direct-drag IK don't cascade into a sidebar rerender + `mergeAssembly`
+   * full rebuild (~180ms long task on multi-component scenes). Bumps the
+   * dedicated `assemblyJointMotionRevision` counter for the few consumers
+   * that need to observe motion changes (currently: assemblyStore merger
+   * cache). Subscribers selecting `assemblyState` (via `useShallow`) will
+   * NOT fire because the reference is unchanged.
+   *
+   * Call `flushPendingAssemblyJointMotion(label?)` BEFORE any code path
+   * that depends on either (a) `assemblyState` reference changing
+   * (history/undo/redo), (b) recording immer patches for the angle change.
+   * The current `getMergedRobotData()` cache, viewer paths, and export
+   * paths all read joint angles by structural traversal of the live
+   * `assemblyState` object, so the in-place mutation is visible to them
+   * without an explicit flush.
+   */
+  setComponentJointMotion: (
+    componentId: string,
+    angles: Record<string, number>,
+    quaternions: Record<string, JointQuaternion>,
+  ) => void;
+  /**
+   * Convert any pending in-place joint motion writes from
+   * `setComponentJointMotion` into a real immer mutation so that
+   * `assemblyState` gets a new reference (and React subscribers see the
+   * change) and history/undo can record patches. No-op if there's no
+   * pending motion.
+   */
+  flushPendingAssemblyJointMotion: (options?: UpdateOptions) => boolean;
   toggleComponentVisibility: (id: string, visible?: boolean) => void;
   updateAssemblyTransform: (transform: AssemblyTransform, options?: UpdateOptions) => void;
 
@@ -367,6 +417,17 @@ export const useAssemblyStore = create<
   {
     assemblyState: AssemblyState | null;
     assemblyRevision: number;
+    /**
+     * Revision counter bumped when {@link AssemblyActions.setComponentJointMotion}
+     * writes joint angle/quaternion in-place onto `assemblyState`. Stays
+     * decoupled from `assemblyRevision` so the hot drag-commit path doesn't
+     * cascade into source-code regeneration / viewer reload triggers that key
+     * off the canonical revision. Bumped via zustand `set` so that consumers
+     * which intentionally want motion-aware updates can subscribe to this
+     * field — subscribers that only select `assemblyState` will not fire
+     * because the reference is unchanged.
+     */
+    assemblyJointMotionRevision: number;
     pendingAutoGroundComponentIds: string[];
     _history: AssemblyHistoryState;
     _activity: ChangeLogEntry[];
@@ -374,7 +435,19 @@ export const useAssemblyStore = create<
 >()(
   immer((set, get) => {
     let cachedAssemblyState: AssemblyState | null | undefined;
+    let cachedAssemblyJointMotionRevision = -1;
     let cachedMergedRobotData: RobotData | null = null;
+    // Tracks pending in-place joint-motion writes per component so that
+    // `flushPendingAssemblyJointMotion` can construct a real immer patch:
+    // we remember the ORIGINAL angle/quaternion (before in-place mutation)
+    // so produceWithPatches can see a meaningful diff. Without this, the
+    // immer recipe would draft FROM the already-mutated live state and emit
+    // no patches at all.
+    interface PendingJointMotionEntry {
+      originalAngles: Map<string, number | undefined>;
+      originalQuaternions: Map<string, JointQuaternion | undefined>;
+    }
+    let pendingJointMotionByComponentId = new Map<string, PendingJointMotionEntry>();
     const appendHistoryEntry = (entry: AssemblyHistoryEntry, label: string) => {
       set((state) => {
         state._history.past = [...state._history.past, cloneAssemblyHistoryEntry(entry)].slice(
@@ -423,6 +496,7 @@ export const useAssemblyStore = create<
     return {
       assemblyState: null,
       assemblyRevision: 0,
+      assemblyJointMotionRevision: 0,
       pendingAutoGroundComponentIds: [],
       _history: { past: [], future: [] },
       _activity: [],
@@ -695,6 +769,179 @@ export const useAssemblyStore = create<
         );
       },
 
+      setComponentJointMotion: (id, angles, quaternions) => {
+        const currentAssemblyState = get().assemblyState;
+        const component = currentAssemblyState?.components[id];
+        if (!component) {
+          return;
+        }
+
+        const pending = pendingJointMotionByComponentId.get(id) ?? {
+          originalAngles: new Map<string, number | undefined>(),
+          originalQuaternions: new Map<string, JointQuaternion | undefined>(),
+        };
+
+        let mutated = false;
+        for (const [jointId, angle] of Object.entries(angles)) {
+          const joint = component.robot.joints[jointId];
+          if (!joint || !Number.isFinite(angle)) {
+            continue;
+          }
+          if (joint.angle === angle) {
+            continue;
+          }
+          if (!pending.originalAngles.has(jointId)) {
+            pending.originalAngles.set(jointId, joint.angle);
+          }
+          // Intentional in-place mutation: we want zustand subscribers reading
+          // `assemblyState` to NOT be notified, while the next `getMergedRobotData()`
+          // call still sees the new angle through structural traversal.
+          (joint as { angle?: number }).angle = angle;
+          mutated = true;
+        }
+
+        for (const [jointId, quaternion] of Object.entries(quaternions)) {
+          const joint = component.robot.joints[jointId];
+          if (!joint || !quaternion) {
+            continue;
+          }
+          const previous = joint.quaternion;
+          if (
+            previous &&
+            previous.x === quaternion.x &&
+            previous.y === quaternion.y &&
+            previous.z === quaternion.z &&
+            previous.w === quaternion.w
+          ) {
+            continue;
+          }
+          if (!pending.originalQuaternions.has(jointId)) {
+            pending.originalQuaternions.set(jointId, previous);
+          }
+          (joint as { quaternion?: JointQuaternion }).quaternion = {
+            x: quaternion.x,
+            y: quaternion.y,
+            z: quaternion.z,
+            w: quaternion.w,
+          };
+          mutated = true;
+        }
+
+        if (!mutated) {
+          return;
+        }
+
+        pendingJointMotionByComponentId.set(id, pending);
+
+        // Bumping the dedicated motion revision via `set` triggers consumers
+        // that intentionally subscribed to motion changes (currently none in
+        // React-land). Critically, this does NOT change `assemblyState`'s
+        // reference, so the `useShallow((s) => ({ assemblyState }))`-style
+        // subscribers across AppLayout / App.tsx remain quiet — that's the
+        // entire point of this fast path.
+        set((state) => {
+          state.assemblyJointMotionRevision += 1;
+        });
+      },
+
+      flushPendingAssemblyJointMotion: (options) => {
+        if (pendingJointMotionByComponentId.size === 0) {
+          return false;
+        }
+        const pendingByComponent = pendingJointMotionByComponentId;
+        pendingJointMotionByComponentId = new Map();
+
+        const liveState = get().assemblyState;
+        if (!liveState) {
+          return false;
+        }
+
+        // We can't naively run produceWithPatches against the already-mutated
+        // live state — immer would draft from the latest values and emit no
+        // patches. We capture the LATEST values now, temporarily revert the
+        // in-place mutations on the live state, then let immer's recipe
+        // re-apply the latest values via the draft. produceWithPatches now
+        // sees a real diff and emits patches suitable for history/undo.
+        type LatestJointMotion = {
+          angles: Map<string, number | undefined>;
+          quaternions: Map<string, JointQuaternion | undefined>;
+        };
+        const latestByComponent = new Map<string, LatestJointMotion>();
+
+        for (const [componentId, entry] of pendingByComponent.entries()) {
+          const component = liveState.components[componentId];
+          if (!component) continue;
+          const latest: LatestJointMotion = {
+            angles: new Map(),
+            quaternions: new Map(),
+          };
+          // Snapshot latest values + revert to originals.
+          for (const [jointId, originalAngle] of entry.originalAngles.entries()) {
+            const joint = component.robot.joints[jointId];
+            if (!joint) continue;
+            latest.angles.set(jointId, joint.angle);
+            if (originalAngle === undefined) {
+              delete (joint as { angle?: number }).angle;
+            } else {
+              (joint as { angle?: number }).angle = originalAngle;
+            }
+          }
+          for (const [jointId, originalQuaternion] of entry.originalQuaternions.entries()) {
+            const joint = component.robot.joints[jointId];
+            if (!joint) continue;
+            latest.quaternions.set(jointId, joint.quaternion);
+            if (originalQuaternion === undefined) {
+              delete (joint as { quaternion?: JointQuaternion }).quaternion;
+            } else {
+              (joint as { quaternion?: JointQuaternion }).quaternion = {
+                x: originalQuaternion.x,
+                y: originalQuaternion.y,
+                z: originalQuaternion.z,
+                w: originalQuaternion.w,
+              };
+            }
+          }
+          latestByComponent.set(componentId, latest);
+        }
+
+        return applyAssemblyMutation(
+          options?.label ?? 'Commit joint motion',
+          (draft) => {
+            if (!draft) {
+              return;
+            }
+            for (const [componentId, latest] of latestByComponent.entries()) {
+              const draftComponent = draft.components[componentId];
+              if (!draftComponent) continue;
+              for (const [jointId, nextAngle] of latest.angles.entries()) {
+                const draftJoint = draftComponent.robot.joints[jointId];
+                if (!draftJoint) continue;
+                if (nextAngle === undefined) {
+                  delete (draftJoint as { angle?: number }).angle;
+                } else {
+                  draftJoint.angle = nextAngle;
+                }
+              }
+              for (const [jointId, nextQuaternion] of latest.quaternions.entries()) {
+                const draftJoint = draftComponent.robot.joints[jointId];
+                if (!draftJoint) continue;
+                if (nextQuaternion === undefined) {
+                  delete (draftJoint as { quaternion?: JointQuaternion }).quaternion;
+                } else {
+                  draftJoint.quaternion = {
+                    x: nextQuaternion.x,
+                    y: nextQuaternion.y,
+                    z: nextQuaternion.z,
+                    w: nextQuaternion.w,
+                  };
+                }
+              }
+            }
+          },
+          { skipHistory: options?.skipHistory },
+        );
+      },
+
       toggleComponentVisibility: (id, visible) => {
         applyAssemblyMutation('Toggle component visibility', (draft) => {
           const component = draft?.components[id];
@@ -903,12 +1150,25 @@ export const useAssemblyStore = create<
       },
 
       getMergedRobotData: () => {
-        const { assemblyState } = get();
-        if (assemblyState === cachedAssemblyState) {
+        const { assemblyState, assemblyJointMotionRevision } = get();
+        // Cache hit requires BOTH the canonical assemblyState reference AND
+        // the joint-motion revision to match. In-place joint-motion writes
+        // bump the revision (without changing the reference), which forces a
+        // recompute — necessary because the cached `RobotData` carries
+        // structural joint copies whose `angle/quaternion` we DO mutate in
+        // place via `setComponentJointMotion`. (Whether the cached merge sees
+        // the new angle depends on whether `mergeAssembly` copies joints by
+        // reference; today it does for non-bridge joints, but caching only by
+        // reference would silently lie about angles on export.)
+        if (
+          assemblyState === cachedAssemblyState &&
+          assemblyJointMotionRevision === cachedAssemblyJointMotionRevision
+        ) {
           return cachedMergedRobotData;
         }
         if (!assemblyState || Object.keys(assemblyState.components).length === 0) {
           cachedAssemblyState = assemblyState;
+          cachedAssemblyJointMotionRevision = assemblyJointMotionRevision;
           cachedMergedRobotData = null;
           return null;
         }
@@ -925,6 +1185,7 @@ export const useAssemblyStore = create<
 
         if (Object.keys(visibleComponents).length === 0) {
           cachedAssemblyState = assemblyState;
+          cachedAssemblyJointMotionRevision = assemblyJointMotionRevision;
           cachedMergedRobotData = null;
           return null;
         }
@@ -941,6 +1202,7 @@ export const useAssemblyStore = create<
         });
 
         cachedAssemblyState = assemblyState;
+        cachedAssemblyJointMotionRevision = assemblyJointMotionRevision;
         cachedMergedRobotData = mergeAssembly({
           ...assemblyState,
           components: visibleComponents,

@@ -252,7 +252,7 @@ export function useWorkspaceSourceSync({
     [shouldRenderAssembly, shouldReuseSelectedFileViewerForWorkspace, workspaceTransformPending],
   );
   const previousShouldRenderAssemblyRef = useRef(shouldRenderAssembly);
-  const lastStableViewerRobotRef = useRef<RobotState | null>(null);
+  const lastStableViewerRobotRef = useRef<RobotData | null>(null);
   const deferredAssemblyState = useDeferredValue(assemblyState);
   const isPreviewingAssemblyBridge = shouldRenderAssembly && Boolean(assemblyBridgePreview);
   const assemblyStateForViewerDisplay = isPreviewingAssemblyBridge
@@ -331,7 +331,11 @@ export function useWorkspaceSourceSync({
     isPreviewingAssemblyBridge,
   });
 
-  const emptyRobot = useMemo<RobotState>(
+  // Selection is intentionally absent: keeping this as RobotData makes the
+  // reference stable across selection changes, which would otherwise cascade
+  // into the viewer's patch-detection + visibility re-sync (manifesting as a
+  // one-frame mesh flicker when the empty-click selection reset runs).
+  const emptyRobot = useMemo<RobotData>(
     () => ({
       name: '',
       links: {
@@ -357,7 +361,6 @@ export function useWorkspaceSourceSync({
       },
       joints: {},
       rootLinkId: 'empty_root',
-      selection: { type: null, id: null },
     }),
     [],
   );
@@ -390,9 +393,17 @@ export function useWorkspaceSourceSync({
     animateWorkspaceViewerRobot,
   );
 
+  // `sourceViewerRobot` / `robot` keep RobotState (with selection) for the
+  // many non-viewer consumers (property editor, tree-editor preview, etc.)
+  // that still read robot.selection. The dedicated viewer-bound variants below
+  // (`sourceViewerRobotData`, `viewerFallbackRobot`, `viewerRobot`) drop
+  // selection so the references stay stable across selection-only changes —
+  // otherwise the viewer's RobotModel re-runs patch detection + visibility
+  // sync on every click and the multi-component scene flashes off for a
+  // frame.
   const sourceViewerRobot = useMemo<RobotState>(() => {
     if (isSelectedUsdHydrating) {
-      return emptyRobot;
+      return { ...emptyRobot, selection };
     }
 
     return {
@@ -421,11 +432,34 @@ export function useWorkspaceSourceSync({
         return { ...mergedRobotData, selection };
       }
 
-      return emptyRobot;
+      return { ...emptyRobot, selection };
     }
 
     return sourceViewerRobot;
   }, [emptyRobot, mergedRobotData, selection, shouldRenderAssembly, sourceViewerRobot]);
+  const sourceViewerRobotData = useMemo<RobotData>(() => {
+    if (isSelectedUsdHydrating) {
+      return emptyRobot;
+    }
+
+    return {
+      name: robotName,
+      links: robotLinks,
+      joints: robotJoints,
+      rootLinkId,
+      materials: robotMaterials,
+      closedLoopConstraints,
+    };
+  }, [
+    closedLoopConstraints,
+    emptyRobot,
+    isSelectedUsdHydrating,
+    robotJoints,
+    robotLinks,
+    robotMaterials,
+    robotName,
+    rootLinkId,
+  ]);
   const hasWorkspaceDisplayRobot = Boolean(
     animatedWorkspaceViewerRobotData ?? workspaceViewerRobotData,
   );
@@ -437,32 +471,30 @@ export function useWorkspaceSourceSync({
         shouldRenderAssembly,
         hasWorkspaceDisplayRobot,
         hasWorkspaceRenderFailure: Boolean(workspaceAssemblyRenderFailureReasonForDisplay),
-        liveRobot: workspaceAssemblyRenderFailureReasonForDisplay ? emptyRobot : sourceViewerRobot,
+        liveRobot: workspaceAssemblyRenderFailureReasonForDisplay
+          ? emptyRobot
+          : sourceViewerRobotData,
         lastStableViewerRobot: lastStableViewerRobotRef.current,
-        selection,
       }),
     [
       emptyRobot,
       hasWorkspaceDisplayRobot,
-      selection,
       shouldRenderAssembly,
-      sourceViewerRobot,
+      sourceViewerRobotData,
       workspaceAssemblyRenderFailureReasonForDisplay,
     ],
   );
-  const viewerRobot = useMemo<RobotState>(
+  const viewerRobot = useMemo<RobotData>(
     () =>
       resolveWorkspaceViewerRobot({
         shouldRenderAssembly,
         liveRobot: viewerFallbackRobot,
         workspaceViewerRobotData,
         animatedWorkspaceViewerRobotData,
-        selection,
       }),
     [
       animatedWorkspaceViewerRobotData,
       viewerFallbackRobot,
-      selection,
       shouldRenderAssembly,
       workspaceViewerRobotData,
     ],

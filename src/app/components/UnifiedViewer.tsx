@@ -5,6 +5,7 @@ import type {
   AppMode,
   AssemblyState,
   InteractionSelection,
+  RobotData,
   RobotFile,
   RobotState,
   Theme,
@@ -56,7 +57,14 @@ import { useUnifiedViewerDerivedState } from './unified-viewer/useUnifiedViewerD
 import { useSelectionStore } from '@/store/selectionStore';
 
 interface UnifiedViewerProps {
-  robot: RobotState;
+  // Viewer-bound scene data: deliberately RobotData (no selection) so the
+  // reference stays stable when only the selection changes. Mixing selection
+  // here would let an empty-click reset cascade through RobotModel patch
+  // detection + visibility re-sync and flash multi-component scenes off for a
+  // frame.
+  robot: RobotData;
+  // Editor-side robot keeps RobotState for closed-loop/IK consumers that still
+  // read selection.
   editorRobot?: RobotState;
   mode: AppMode;
   onSelect: (

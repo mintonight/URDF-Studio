@@ -6,7 +6,7 @@ import {
   type ViewerSceneBaseProps,
 } from '@/features/urdf-viewer/utils/viewerSceneProps';
 import type { ViewerResourceScope } from '@/features/urdf-viewer/utils/viewerResourceScope';
-import type { AssemblyState, AssemblyTransform, RobotFile, RobotState } from '@/types';
+import type { AssemblyState, AssemblyTransform, RobotData, RobotFile } from '@/types';
 import type { AssemblySelection } from '@/store/assemblySelectionStore';
 
 export const EMPTY_VIEWER_SELECTION = {
@@ -34,7 +34,7 @@ interface BuildUnifiedViewerScenePropsArgs {
   onHover?: ViewerProps['onHover'];
   onMeshSelect?: ViewerProps['onMeshSelect'];
   onUpdate?: ViewerProps['onUpdate'];
-  robot: RobotState;
+  robot: RobotData;
   focusTarget?: string | null;
   onCollisionTransformPreview?: ViewerProps['onCollisionTransformPreview'];
   onCollisionTransform?: ViewerProps['onCollisionTransform'];

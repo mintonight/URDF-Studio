@@ -233,7 +233,9 @@ export interface RobotModelProps {
   onJointChange?: (name: string, angle: number, context?: ViewerJointChangeContext) => void;
   onJointChangeCommit?: (name: string, angle: number) => void;
   initialJointAngles?: Record<string, number>;
-  registerSceneRefresh?: (refreshScene: (() => void) | null) => void;
+  registerSceneRefresh?: (
+    refreshScene: ((options?: { force?: boolean }) => void) | null,
+  ) => void;
   setIsDragging?: (dragging: boolean) => void;
   onIkPreviewKinematicOverrides?: (
     jointAngles: Record<string, number>,

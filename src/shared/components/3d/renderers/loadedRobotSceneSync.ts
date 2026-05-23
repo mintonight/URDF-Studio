@@ -485,6 +485,11 @@ export function syncLoadedRobotScene({
   const linkMeshMap = new Map<string, THREE.Mesh[]>();
   let changed = false;
   const disposedMaterials = new Set<THREE.Material>();
+  // Lifts the per-mesh material memo to sync scope so MJCF assets that flatten
+  // each <geom> into its own visual group reuse one MeshStandardMaterial per
+  // source material instead of cloning it per mesh — that was a ~100×
+  // duplicate-clone hot path on multi-geom models like anymal_b.
+  const enhancedMaterialMemo = new Map<THREE.Material, THREE.Material>();
   const robotLinks = (robot as any).links as Record<string, THREE.Object3D> | undefined;
   const mjcfVisualOwnershipByRuntimeLink =
     sourceFormat === 'mjcf'
@@ -657,7 +662,7 @@ export function syncLoadedRobotScene({
     }
 
     if (shouldUpgradeVisualMaterial) {
-      enhanceMaterials(mesh);
+      enhanceMaterials(mesh, null, enhancedMaterialMemo);
       changed = true;
     }
 

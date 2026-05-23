@@ -849,16 +849,30 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       usesExternalHoverSelection,
     ]);
 
-    const requestSceneRefresh = useCallback(() => {
-      if (!robot) {
-        return;
-      }
+    // Default to a dirty-only matrixWorld walk (force=false). All upstream
+    // mutation paths (setJointValue, transform writes) already flag the dirty
+    // chain, so the non-forced walk only touches changed subtrees instead of
+    // the entire merged scene graph. In multi-component assemblies the old
+    // force=true path was an every-frame O(N×L) sweep that dominated drag
+    // latency; force=false reduces it to O(touched joints). needsRaycastRef
+    // and boundingBoxNeedsUpdateRef defer the authoritative recompute to the
+    // next consumer that actually needs world coords, and R3F's render still
+    // calls updateMatrixWorld() before drawing, so visuals stay current.
+    // Callers that *must* see fully-resolved world matrices synchronously
+    // (one-shot transform commits, load handoffs) can pass {force: true}.
+    const requestSceneRefresh = useCallback(
+      (options?: { force?: boolean }) => {
+        if (!robot) {
+          return;
+        }
 
-      robot.updateMatrixWorld(true);
-      boundingBoxNeedsUpdateRef.current = true;
-      needsRaycastRef.current = true;
-      invalidate();
-    }, [boundingBoxNeedsUpdateRef, invalidate, needsRaycastRef, robot]);
+        robot.updateMatrixWorld(options?.force ?? false);
+        boundingBoxNeedsUpdateRef.current = true;
+        needsRaycastRef.current = true;
+        invalidate();
+      },
+      [boundingBoxNeedsUpdateRef, invalidate, needsRaycastRef, robot],
+    );
 
     useEffect(() => {
       registerSceneRefresh?.(requestSceneRefresh);

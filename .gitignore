@@ -72,3 +72,9 @@ __pycache__/
 !scripts/regression/validate_source_editor_mjcf_browser.mjs
 !scripts/regression/validate_source_editor_unitree_browser.mjs
 snapshot-default-page.png
+
+# Debug screenshots
+*.png
+*.jpg
+*.jpeg
+canvas-jpg-chunks.json

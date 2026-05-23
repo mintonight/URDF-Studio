@@ -846,6 +846,7 @@ async function applyMaterialAssetToMesh(
     enqueueDeferredTextureApplication?: ((job: () => Promise<void>) => void) | undefined;
     yieldIfNeeded?: (() => Promise<void>) | undefined;
     onAsyncSceneMutation?: (() => void) | undefined;
+    materialAssetCache?: Map<string, THREE.MeshStandardMaterial>;
   } = {},
 ): Promise<void> {
   const appliedCubeTextureMaterials = await applyCubeMaterialAssetToMesh(
@@ -891,23 +892,49 @@ async function applyMaterialAssetToMesh(
     }
   });
 
+  const materialAssetCache = options.materialAssetCache;
+  // Cache key spans the parameters that materially change the resulting
+  // MeshStandardMaterial. Same (materialDef, alpha, preferDoubleSide,
+  // hasAuthoredRgba) → identical material; can be shared across geoms.
+  // alpha + preferDoubleSide are derived per-mesh (inheritedGeomRgba is
+  // pinned by this call). MJCF documents like menagerie's anymal_b
+  // reference ~10 distinct <material> elements across ~140 <geom>s; without
+  // this cache the loader allocated one MeshStandardMaterial per geom and
+  // every assembly add re-spent that cost — the path the user hit.
+  const buildCacheKey = (preferDoubleSide: boolean): string =>
+    `${materialName || materialDef.name || ''}|a=${alpha.toFixed(4)}|d=${preferDoubleSide ? 1 : 0}|${
+      hasAuthoredRgba ? 'a' : 'g'
+    }|tx=${materialDef.texture || ''}`;
+
   const applyResolvedMaterial = (
     resolvedTexture: THREE.Texture | null,
     mode: 'create' | 'update' = 'create',
   ) => {
+    const updatedSharedMaterials = new Set<THREE.MeshStandardMaterial>();
     materialTargets.forEach((targetMesh) => {
       const preferDoubleSide = alpha < 1 || Boolean(targetMesh.userData?.mjcfPreferDoubleSide);
       const existingMaterial =
         targetMesh.material instanceof THREE.MeshStandardMaterial ? targetMesh.material : null;
 
       if (mode === 'update' && existingMaterial) {
-        existingMaterial.map = resolvedTexture;
-        existingMaterial.needsUpdate = true;
+        if (!updatedSharedMaterials.has(existingMaterial)) {
+          existingMaterial.map = resolvedTexture;
+          existingMaterial.needsUpdate = true;
+          updatedSharedMaterials.add(existingMaterial);
+        }
         applyVisualMeshShadowPolicy(targetMesh);
         return;
       }
 
-      targetMesh.material = createMatteMaterial({
+      const cacheKey = materialAssetCache ? buildCacheKey(preferDoubleSide) : null;
+      const cached = cacheKey ? materialAssetCache!.get(cacheKey) : undefined;
+      if (cached) {
+        targetMesh.material = cached;
+        applyVisualMeshShadowPolicy(targetMesh);
+        return;
+      }
+
+      const fresh = createMatteMaterial({
         color: createThreeColorFromSRGB(r, g, b),
         opacity: alpha,
         transparent: alpha < 1,
@@ -916,20 +943,24 @@ async function applyMaterialAssetToMesh(
         name: materialName || materialDef.name || 'mjcf_material_asset',
         preserveExactColor: hasAuthoredRgba || Boolean(materialDef.texture),
       });
-      if (!(targetMesh.material instanceof THREE.MeshStandardMaterial)) {
+      targetMesh.material = fresh;
+      if (!(fresh instanceof THREE.MeshStandardMaterial)) {
         return;
       }
       if (roughness != null) {
-        targetMesh.material.roughness = roughness;
+        fresh.roughness = roughness;
       }
       if (metalness != null) {
-        targetMesh.material.metalness = metalness;
+        fresh.metalness = metalness;
       }
       if (emission != null) {
-        targetMesh.material.emissive = new THREE.Color(r, g, b);
-        targetMesh.material.emissiveIntensity = emission;
+        fresh.emissive = new THREE.Color(r, g, b);
+        fresh.emissiveIntensity = emission;
       }
-      targetMesh.material.needsUpdate = true;
+      fresh.needsUpdate = true;
+      if (cacheKey && materialAssetCache) {
+        materialAssetCache.set(cacheKey, fresh);
+      }
       applyVisualMeshShadowPolicy(targetMesh);
     });
   };
@@ -1029,6 +1060,7 @@ export async function buildMJCFHierarchy(
   const linksMap: Record<string, THREE.Object3D> = {};
   const jointsMap: Record<string, THREE.Object3D> = {};
   const textureLoadCache: MJCFTextureLoadCache = new Map();
+  const materialAssetCache = new Map<string, THREE.MeshStandardMaterial>();
   const deferredTextureApplications: Array<() => Promise<void>> = [];
   const prewarmedMeshByName = new Map<string, Promise<THREE.Object3D | null>>();
   let textureCacheOwnershipTransferred = false;
@@ -1132,6 +1164,7 @@ export async function buildMJCFHierarchy(
               },
               yieldIfNeeded,
               onAsyncSceneMutation,
+              materialAssetCache,
             },
           );
           throwIfAborted();

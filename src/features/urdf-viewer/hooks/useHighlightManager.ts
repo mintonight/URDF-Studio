@@ -195,7 +195,13 @@ export function useHighlightManager({
             boundingBoxNeedsUpdateRef.current ||
             robotBoundingBoxUpdatedAtRef.current === 0
           ) {
-            robot.updateMatrixWorld(true);
+            // Dirty-only walk: setJointValue / component transforms / bridges
+            // all flag the chain they touch, so force=false still produces
+            // current world matrices for any node that actually moved. Using
+            // force=true here was an every-frame O(N×L) sweep — in a
+            // multi-component assembly that dominated drag latency because
+            // hover broad-phase runs from useFrame (i.e. once per render).
+            robot.updateMatrixWorld(false);
           }
 
           for (let i = 0; i < boundingTargets.length; i += 1) {

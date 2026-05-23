@@ -518,7 +518,7 @@ export const useViewerController = ({
     },
     [active, setHoverFrozen],
   );
-  const sceneRefreshRef = useRef<(() => void) | null>(null);
+  const sceneRefreshRef = useRef<((options?: { force?: boolean }) => void) | null>(null);
   const pendingSceneRefreshFrameRef = useRef<number | null>(null);
   const previousGroundPlaneOffsetRef = useRef(groundPlaneOffset);
   const previousAppliedJointAngleStateRef = useRef<Record<string, number>>({});
@@ -720,25 +720,40 @@ export const useViewerController = ({
     [syncActiveJointSnapshot],
   );
 
+  const pendingSceneRefreshForceRef = useRef(false);
+
   const flushSceneRefresh = useCallback(() => {
     pendingSceneRefreshFrameRef.current = null;
-    sceneRefreshRef.current?.();
+    const force = pendingSceneRefreshForceRef.current;
+    pendingSceneRefreshForceRef.current = false;
+    sceneRefreshRef.current?.(force ? { force: true } : undefined);
   }, []);
 
-  const requestSceneRefresh = useCallback(() => {
-    if (pendingSceneRefreshFrameRef.current !== null) {
-      return;
-    }
+  // Multiple callers in the same frame coalesce into one rAF tick; if any of
+  // them asked for force=true (a one-shot commit/load handoff that must see a
+  // fully-resolved matrixWorld), the flush goes through with force=true so we
+  // never silently downgrade their request.
+  const requestSceneRefresh = useCallback(
+    (options?: { force?: boolean }) => {
+      if (options?.force) {
+        pendingSceneRefreshForceRef.current = true;
+      }
 
-    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-      flushSceneRefresh();
-      return;
-    }
+      if (pendingSceneRefreshFrameRef.current !== null) {
+        return;
+      }
 
-    pendingSceneRefreshFrameRef.current = window.requestAnimationFrame(() => {
-      flushSceneRefresh();
-    });
-  }, [flushSceneRefresh]);
+      if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+        flushSceneRefresh();
+        return;
+      }
+
+      pendingSceneRefreshFrameRef.current = window.requestAnimationFrame(() => {
+        flushSceneRefresh();
+      });
+    },
+    [flushSceneRefresh],
+  );
 
   useEffect(() => {
     if (!active) {
@@ -870,9 +885,12 @@ export const useViewerController = ({
     ],
   );
 
-  const registerSceneRefresh = useCallback((refreshScene: (() => void) | null) => {
-    sceneRefreshRef.current = refreshScene;
-  }, []);
+  const registerSceneRefresh = useCallback(
+    (refreshScene: ((options?: { force?: boolean }) => void) | null) => {
+      sceneRefreshRef.current = refreshScene;
+    },
+    [],
+  );
 
   const applyImmediateClosedLoopActiveJointPreview = useCallback(
     (activeJointId: string, activeAngle: number) => {
