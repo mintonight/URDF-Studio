@@ -463,6 +463,7 @@ export interface TranslationKeys {
   rightClickForActions: string;
   simpleModeSwitchDraftConfirmTitle: string;
   simpleModeSwitchDraftConfirmMessage: string;
+  previewTargetModel: string;
   saveDraftAndOpen: string;
   discardAndOpen: string;
   simpleModeDraftSaved: string;

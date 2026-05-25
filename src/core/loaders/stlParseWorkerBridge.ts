@@ -19,7 +19,8 @@ interface StlParseWorkerPoolClient {
   load: (assetUrl: string) => Promise<SerializedStlGeometryData>;
 }
 
-const DEFAULT_CACHE_LIMIT = 48;
+const DEFAULT_CACHE_LIMIT = 300;
+const FAILURE_CACHE_LIMIT = 200;
 
 async function loadSerializedStlGeometryDataInline(
   assetUrl: string,
@@ -62,11 +63,24 @@ export function createStlParseWorkerPoolClient({
   });
 
   const pendingLoads = new Map<string, Promise<SerializedStlGeometryData>>();
+  const failureCache = new Map<string, unknown>();
+
+  const rememberFailure = (assetUrl: string, error: unknown): void => {
+    if (failureCache.size >= FAILURE_CACHE_LIMIT) {
+      const oldestKey = failureCache.keys().next().value;
+      if (oldestKey !== undefined) failureCache.delete(oldestKey);
+    }
+    failureCache.set(assetUrl, error);
+  };
 
   const load = async (assetUrl: string): Promise<SerializedStlGeometryData> => {
     const cachedResult = client.getCached(assetUrl);
     if (cachedResult) {
       return cachedResult;
+    }
+
+    if (failureCache.has(assetUrl)) {
+      throw failureCache.get(assetUrl);
     }
 
     const pendingLoad = pendingLoads.get(assetUrl);
@@ -83,6 +97,10 @@ export function createStlParseWorkerPoolClient({
         client.setCached(assetUrl, result);
         return result;
       })
+      .catch((error) => {
+        rememberFailure(assetUrl, error);
+        throw error;
+      })
       .finally(() => {
         pendingLoads.delete(assetUrl);
       });
@@ -92,7 +110,10 @@ export function createStlParseWorkerPoolClient({
   };
 
   return {
-    clearCache: () => client.clearCache(),
+    clearCache: () => {
+      client.clearCache();
+      failureCache.clear();
+    },
     dispose: (rejectPendingWith) => client.dispose(rejectPendingWith),
     load,
   };

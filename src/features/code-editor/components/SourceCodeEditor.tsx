@@ -49,6 +49,7 @@ import {
   requestXmlValidationWithWorker,
 } from '../utils/xmlEditorWorkerBridge.ts';
 import {
+  getSourceCodeEditorTabAccentClassName,
   getSourceCodeEditorTabBadgeClassName,
   getSourceCodeEditorTabClassName,
   shouldCollapseSourceCodeEditorTabs,
@@ -1178,64 +1179,62 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
       }}
     >
       {normalizedDocuments.length > 1 ? (
-        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border-black bg-panel-bg px-3 select-none">
-          {shouldUseDocumentSelector ? (
-            <>
-              <Files className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
-              <Select
-                aria-label={t.selectFile}
-                className="h-7 rounded-md bg-element-bg py-1 pr-7 pl-2 font-mono text-[11px] leading-none"
-                containerClassName="min-w-0 max-w-[420px] flex-1"
-                menuClassName="font-mono"
-                optionButtonClassName="rounded-md px-2 py-1.5"
-                optionClassName="text-[11px]"
-                options={documentSelectOptions}
-                title={activeDocumentPath}
-                value={activeDocument.id}
-                onChange={(event) => {
-                  void handleDocumentSwitch(event.currentTarget.value);
-                }}
-              />
-              <span className="shrink-0 text-[10px] font-medium text-text-tertiary">
-                {normalizedDocuments.length} {t.files}
-              </span>
-            </>
-          ) : (
-            <div className="custom-scrollbar flex min-w-0 flex-1 overflow-x-auto">
-              <div
-                aria-label={t.selectFile}
-                className={`${SOURCE_CODE_EDITOR_TABS_CLASS} min-w-max flex-none`}
-                role="tablist"
-              >
-                {normalizedDocuments.map((document) => {
-                  const isActiveDocument = document.id === activeDocument.id;
-                  return (
-                    <button
-                      key={document.id}
-                      aria-selected={isActiveDocument}
-                      className={getSourceCodeEditorTabClassName(isActiveDocument)}
-                      onClick={() => {
-                        void handleDocumentSwitch(document.id);
-                      }}
-                      role="tab"
-                      title={document.filePath ?? document.fileName}
-                      type="button"
-                    >
-                      <span className="max-w-44 truncate">
-                        {document.tabLabel ?? document.fileName}
+        shouldUseDocumentSelector ? (
+          <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border-black bg-element-bg px-3 select-none">
+            <Files className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+            <Select
+              aria-label={t.selectFile}
+              className="h-7 rounded-md bg-element-bg py-1 pr-7 pl-2 font-mono text-[11px] leading-none"
+              containerClassName="min-w-0 max-w-[420px] flex-1"
+              menuClassName="font-mono"
+              optionButtonClassName="rounded-md px-2 py-1.5"
+              optionClassName="text-[11px]"
+              options={documentSelectOptions}
+              title={activeDocumentPath}
+              value={activeDocument.id}
+              onChange={(event) => {
+                void handleDocumentSwitch(event.currentTarget.value);
+              }}
+            />
+            <span className="shrink-0 text-[10px] font-medium text-text-tertiary">
+              {normalizedDocuments.length} {t.files}
+            </span>
+          </div>
+        ) : (
+          <div className="custom-scrollbar flex h-10 shrink-0 items-stretch overflow-x-auto border-b border-border-black bg-element-bg select-none">
+            <div aria-label={t.selectFile} className={SOURCE_CODE_EDITOR_TABS_CLASS} role="tablist">
+              {normalizedDocuments.map((document) => {
+                const isActiveDocument = document.id === activeDocument.id;
+                return (
+                  <button
+                    key={document.id}
+                    aria-selected={isActiveDocument}
+                    className={getSourceCodeEditorTabClassName(isActiveDocument)}
+                    onClick={() => {
+                      void handleDocumentSwitch(document.id);
+                    }}
+                    role="tab"
+                    title={document.filePath ?? document.fileName}
+                    type="button"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={getSourceCodeEditorTabAccentClassName(isActiveDocument)}
+                    />
+                    <span className="max-w-44 truncate">
+                      {document.tabLabel ?? document.fileName}
+                    </span>
+                    {document.documentFlavor === 'equivalent-mjcf' ? (
+                      <span className={getSourceCodeEditorTabBadgeClassName(isActiveDocument)}>
+                        {t.generated}
                       </span>
-                      {document.documentFlavor === 'equivalent-mjcf' ? (
-                        <span className={getSourceCodeEditorTabBadgeClassName(isActiveDocument)}>
-                          {t.generated}
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
-          )}
-        </div>
+          </div>
+        )
       ) : null}
 
       <div className="relative flex-1 overflow-hidden">
@@ -1271,7 +1270,9 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
               fontFamily: resolveCodeEditorFontFamily(codeEditorFontFamily),
               fontLigatures: true,
               scrollBeyondLastLine: false,
-              wordWrap: 'on',
+              wordWrap: 'off',
+              stickyScroll: { enabled: false },
+              scrollbar: { horizontal: 'auto', vertical: 'auto' },
               automaticLayout: false,
               tabSize: 2,
               formatOnPaste: !isReadOnly && documentMeta.isXmlLike,

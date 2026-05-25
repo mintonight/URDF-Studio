@@ -178,7 +178,7 @@ function renderHook(options: {
   };
 }
 
-test('usePreviewFileWithFeedback clears the preview loading overlay after a successful preview parse', async () => {
+test('usePreviewFileWithFeedback hands the preview loading overlay off to the viewer after a successful parse', async () => {
   const domEnvironment = installDomEnvironment();
   const robotFile = createRobotFile();
   const documentLoadStates: DocumentLoadState[] = [];
@@ -228,15 +228,18 @@ test('usePreviewFileWithFeedback clears the preview loading overlay after a succ
 
     assert.deepEqual(previewRequests, [robotFile.name]);
     assert.equal(documentLoadStates.length >= 3, true);
+    // After import resolves, the overlay stays in 'loading' at the import-complete
+    // percentage (40% for non-USD). The viewer's mesh-streaming + onLoad events
+    // are responsible for the final 'ready' transition.
     assert.deepEqual(documentLoadStates.at(-1), {
-      status: 'ready',
+      status: 'loading',
       fileName: robotFile.name,
       format: robotFile.format,
       error: null,
-      phase: null,
+      phase: 'preparing-scene',
       message: null,
       progressMode: 'percent',
-      progressPercent: 100,
+      progressPercent: 40,
       loadedCount: null,
       totalCount: null,
     });

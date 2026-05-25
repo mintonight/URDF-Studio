@@ -2897,13 +2897,32 @@ test('shouldPreviewLibraryRobotLoadFromWorkspace still skips preview for isolate
   );
 });
 
-test('shouldPreviewLibraryRobotLoadFromWorkspace requires preview once the seeded component diverges structurally', () => {
+test('shouldPreviewLibraryRobotLoadFromWorkspace leaves structurally edited single seeds to the unsaved-edit guard', () => {
   const mutatedAssembly = createSeededSingleComponentAssemblyState('robots/demo/demo.urdf');
   mutatedAssembly.components.comp_demo.robot.joints.comp_demo_joint_a.origin.xyz.x = 0.25;
 
   assert.equal(
     shouldPreviewLibraryRobotLoadFromWorkspace({
       assemblyState: mutatedAssembly,
+      activeFile: createUrdfFile('robots/demo/demo.urdf'),
+      sourceSnapshot: createRobotSourceSnapshot(createRobotState()),
+    }),
+    false,
+  );
+});
+
+test('shouldPreviewLibraryRobotLoadFromWorkspace previews when the workspace has multiple components', () => {
+  const assemblyState = createSeededSingleComponentAssemblyState('robots/demo/demo.urdf');
+  assemblyState.components.comp_gripper = {
+    ...structuredClone(assemblyState.components.comp_demo),
+    id: 'comp_gripper',
+    name: 'gripper',
+    sourceFile: 'robots/gripper/gripper.urdf',
+  };
+
+  assert.equal(
+    shouldPreviewLibraryRobotLoadFromWorkspace({
+      assemblyState,
       activeFile: createUrdfFile('robots/demo/demo.urdf'),
       sourceSnapshot: createRobotSourceSnapshot(createRobotState()),
     }),

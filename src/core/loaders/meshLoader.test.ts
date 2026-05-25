@@ -339,6 +339,54 @@ test('createMeshLoader loads legacy MuJoCo msh assets', async () => {
   assert.deepEqual(Array.from(index.array), [0, 1, 2, 0, 1, 3, 0, 2, 3, 1, 2, 3]);
 });
 
+test('createMeshLoader loads PLY mesh assets with vertex colors', async () => {
+  const plyContent = [
+    'ply',
+    'format ascii 1.0',
+    'element vertex 3',
+    'property float x',
+    'property float y',
+    'property float z',
+    'property uchar red',
+    'property uchar green',
+    'property uchar blue',
+    'element face 1',
+    'property list uchar int vertex_indices',
+    'end_header',
+    '0 0 0 255 0 0',
+    '1 0 0 0 255 0',
+    '0 1 0 0 0 255',
+    '3 0 1 2',
+  ].join('\n');
+  const plyDataUrl = `data:model/ply;base64,${Buffer.from(plyContent).toString('base64')}`;
+  const manager = new THREE.LoadingManager();
+  const loadMesh = createMeshLoader(
+    {
+      'meshes/colored_triangle.ply': plyDataUrl,
+    },
+    manager,
+    '',
+  );
+
+  const loadedObject = await new Promise<THREE.Object3D>((resolve, reject) => {
+    loadMesh('meshes/colored_triangle.ply', manager, (result, err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      resolve(result);
+    });
+  });
+
+  assert.ok(loadedObject instanceof THREE.Mesh);
+  const mesh = loadedObject as THREE.Mesh;
+  assert.ok(mesh.geometry.getAttribute('position'));
+  assert.ok(mesh.geometry.getAttribute('normal'));
+  assert.ok(mesh.geometry.getAttribute('color'));
+  assert.equal((mesh.material as THREE.MeshStandardMaterial).vertexColors, true);
+});
+
 test('createMeshLoader reuses parsed STL assets for concurrent duplicate requests', async () => {
   const stlContent = [
     'solid triangle',
@@ -541,6 +589,166 @@ test('createMeshLoader reuses parsed OBJ assets for concurrent duplicate request
   }
 });
 
+test('createMeshLoader yields around OBJ worker results before creating render objects', async () => {
+  const objContent = [
+    'o triangle',
+    'v 0 0 0',
+    'v 1 0 0',
+    'v 0 1 0',
+    'vn 0 0 1',
+    'usemtl default',
+    'f 1//1 2//1 3//1',
+  ].join('\n');
+  const objDataUrl = `data:text/plain;base64,${Buffer.from(objContent).toString('base64')}`;
+  const manager = new THREE.LoadingManager();
+  const originalWorker = (globalThis as { Worker?: typeof Worker }).Worker;
+  let yieldCount = 0;
+  const loadMesh = createMeshLoader(
+    {
+      'meshes/triangle.obj': objDataUrl,
+    },
+    manager,
+    '',
+    {
+      yieldIfNeeded: async () => {
+        yieldCount += 1;
+      },
+    },
+  );
+
+  disposeObjParseWorkerPoolClient();
+  delete (globalThis as { Worker?: typeof Worker }).Worker;
+
+  try {
+    const loadedObject = await new Promise<THREE.Object3D>((resolve, reject) => {
+      loadMesh('meshes/triangle.obj', manager, (result, err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        resolve(result);
+      });
+    });
+
+    assert.ok(loadedObject instanceof THREE.Group);
+    assert.ok(yieldCount >= 3);
+  } finally {
+    disposeObjParseWorkerPoolClient();
+    if (originalWorker) {
+      (globalThis as { Worker?: typeof Worker }).Worker = originalWorker;
+    }
+  }
+});
+
+test('createMeshLoader preserves MTL-authored OBJ materials', async () => {
+  const objContent = [
+    'mtllib material.mtl',
+    'o triangle',
+    'v 0 0 0',
+    'v 1 0 0',
+    'v 0 1 0',
+    'vn 0 0 1',
+    'usemtl red',
+    'f 1//1 2//1 3//1',
+  ].join('\n');
+  const mtlContent = ['newmtl red', 'Kd 1 0 0', 'Ka 0 0 0', 'Ks 0 0 0'].join('\n');
+  const objDataUrl = `data:text/plain;base64,${Buffer.from(objContent).toString('base64')}`;
+  const mtlDataUrl = `data:text/plain;base64,${Buffer.from(mtlContent).toString('base64')}`;
+  const manager = new THREE.LoadingManager();
+  const originalWorker = (globalThis as { Worker?: typeof Worker }).Worker;
+  const loadMesh = createMeshLoader(
+    {
+      'meshes/triangle.obj': objDataUrl,
+      'meshes/material.mtl': mtlDataUrl,
+    },
+    manager,
+    '',
+  );
+
+  disposeObjParseWorkerPoolClient();
+  delete (globalThis as { Worker?: typeof Worker }).Worker;
+
+  try {
+    const loadedObject = await new Promise<THREE.Object3D>((resolve, reject) => {
+      loadMesh('meshes/triangle.obj', manager, (result, err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        resolve(result);
+      });
+    });
+
+    const material = getFirstMesh(loadedObject).material as THREE.MeshPhongMaterial;
+    assert.equal(material.name, 'red');
+    assert.equal(material.color.getHex(), 0xff0000);
+  } finally {
+    disposeObjParseWorkerPoolClient();
+    if (originalWorker) {
+      (globalThis as { Worker?: typeof Worker }).Worker = originalWorker;
+    }
+  }
+});
+
+test('createMeshLoader treats missing OBJ mtllib sidecars as optional under managed assets', async () => {
+  const objContent = [
+    'mtllib pingpong_table.mtl',
+    'o table',
+    'v 0 0 0',
+    'v 1 0 0',
+    'v 0 1 0',
+    'vn 0 0 1',
+    'f 1//1 2//1 3//1',
+  ].join('\n');
+  const objDataUrl = `data:text/plain;base64,${Buffer.from(objContent).toString('base64')}`;
+  const manager = new THREE.LoadingManager();
+  const originalWorker = (globalThis as { Worker?: typeof Worker }).Worker;
+  const originalConsoleError = console.error;
+  const loggedErrors: unknown[][] = [];
+  const loadMesh = createMeshLoader(
+    {
+      'myosuite-main/myosuite/envs/myo/assets/tabletennis_table.obj': objDataUrl,
+    },
+    manager,
+    'myosuite-main/myosuite/envs/myo/assets/',
+  );
+
+  disposeObjParseWorkerPoolClient();
+  delete (globalThis as { Worker?: typeof Worker }).Worker;
+  console.error = (...args) => {
+    loggedErrors.push(args);
+  };
+
+  try {
+    const loadedObject = await new Promise<THREE.Object3D>((resolve, reject) => {
+      loadMesh(
+        'myosuite-main/myosuite/envs/myo/assets/tabletennis_table.obj',
+        manager,
+        (result, err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          resolve(result);
+        },
+      );
+    });
+
+    assert.ok(loadedObject instanceof THREE.Group);
+  } finally {
+    console.error = originalConsoleError;
+    disposeObjParseWorkerPoolClient();
+    if (originalWorker) {
+      (globalThis as { Worker?: typeof Worker }).Worker = originalWorker;
+    }
+  }
+
+  assert.deepEqual(loggedErrors, []);
+});
+
 test('parseColladaSceneData round-trips textureless Collada scenes through ObjectLoader JSON serialization', () => {
   const meshPath = 'test/unitree_ros/robots/b2w_description/meshes/base_link.dae';
   const colladaText = fs.readFileSync(meshPath, 'utf8');
@@ -588,6 +796,9 @@ test('parseColladaSceneData preserves textured image urls for worker transport',
   const meshPath = 'test/gazebo_models/checkerboard_plane/meshes/checkerboard_plane.dae';
   const colladaText = fs.readFileSync(meshPath, 'utf8');
   const serializedScene = parseColladaSceneData(colladaText, meshPath);
+  if (serializedScene.kind === 'fast-mesh-v1') {
+    throw new Error('expected legacy Collada JSON scene data');
+  }
   const sceneJson = serializedScene.sceneJson as {
     images?: Array<{ url?: string | string[]; uuid?: string }>;
     materials?: Array<Record<string, unknown>>;
@@ -1000,7 +1211,7 @@ test('createMeshLoader keeps b2 Collada package meshes in Z-up robot space', asy
   assert.ok(Math.abs(loadedObject.quaternion.w - 1) < 1e-6);
 });
 
-test('createMeshLoader offsets duplicated coplanar material subsets in b2 base_link.dae', async () => {
+test('createMeshLoader offsets coplanar b2 base_link Collada materials', async () => {
   const meshPath = 'test/unitree_ros/robots/b2_description/meshes/base_link.dae';
   const urdfContent = fs.readFileSync(
     'test/unitree_ros/robots/b2_description/urdf/b2_description.urdf',
@@ -1040,24 +1251,22 @@ test('createMeshLoader offsets duplicated coplanar material subsets in b2 base_l
   );
 
   const materials = mesh.material as THREE.Material[];
+  assert.equal(materials.length, 4);
+  assert.equal(mesh.geometry.groups.length, 4);
   assert.equal(materials[0]?.name, '磨砂铝合金.011');
   assert.equal(materials[1]?.name, 'logo.001');
   assert.equal(materials[2]?.name, '材质.023');
   assert.equal(materials[3]?.name, '材质.024');
-  assert.equal(materials[4]?.name, '材质.023');
-  assert.equal(materials[5]?.name, '材质.023');
   assert.equal(isCoplanarOffsetMaterial(materials[0]), false);
   assert.equal(isCoplanarOffsetMaterial(materials[1]), true);
-  assert.equal(isCoplanarOffsetMaterial(materials[2]), false);
+  assert.equal(isCoplanarOffsetMaterial(materials[2]), true);
   assert.equal(isCoplanarOffsetMaterial(materials[3]), true);
-  assert.equal(isCoplanarOffsetMaterial(materials[4]), true);
-  assert.equal(isCoplanarOffsetMaterial(materials[5]), true);
   assert.equal(materials[1].polygonOffsetFactor, -3);
   assert.equal(materials[1].polygonOffsetUnits, -4);
-  assert.equal(materials[4].polygonOffsetFactor, -2);
-  assert.equal(materials[4].polygonOffsetUnits, -2);
-  assert.equal(materials[5].polygonOffsetFactor, -4);
-  assert.equal(materials[5].polygonOffsetUnits, -6);
+  assert.equal(materials[2].polygonOffsetFactor, -2);
+  assert.equal(materials[2].polygonOffsetUnits, -2);
+  assert.equal(materials[3].polygonOffsetFactor, -4);
+  assert.equal(materials[3].polygonOffsetUnits, -6);
 });
 
 test('createMeshLoader offsets near-coplanar shell materials in b2 calf.dae', async () => {

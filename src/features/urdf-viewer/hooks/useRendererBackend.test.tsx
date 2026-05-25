@@ -8,7 +8,14 @@ import * as THREE from 'three';
 import { context as r3fContext } from '@react-three/fiber';
 import { create } from 'zustand';
 
-import { DEFAULT_LINK, GeometryType, type RobotData, type RobotFile } from '@/types';
+import {
+  DEFAULT_JOINT,
+  DEFAULT_LINK,
+  GeometryType,
+  JointType,
+  type RobotData,
+  type RobotFile,
+} from '@/types';
 import { useRendererBackend } from './useRendererBackend.ts';
 
 const sourceFile: RobotFile = {
@@ -16,6 +23,7 @@ const sourceFile: RobotFile = {
   format: 'urdf',
   content: '<robot name="usd_robotstate_placeholder"><link name="world" /></robot>',
 };
+const EMPTY_ASSETS: Record<string, string> = {};
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -92,6 +100,46 @@ function createRobotData(color: string): RobotData {
   };
 }
 
+function createJointOriginRobotData(jointZ: number): RobotData {
+  return {
+    name: 'joint_origin_demo',
+    rootLinkId: 'base',
+    links: {
+      base: {
+        ...structuredClone(DEFAULT_LINK),
+        id: 'base',
+        name: 'base',
+      },
+      payload: {
+        ...structuredClone(DEFAULT_LINK),
+        id: 'payload',
+        name: 'payload',
+        visual: {
+          type: GeometryType.BOX,
+          dimensions: { x: 0.2, y: 0.2, z: 0.2 },
+          color: '#808080',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+      },
+    },
+    joints: {
+      lift_joint: {
+        ...structuredClone(DEFAULT_JOINT),
+        id: 'lift_joint',
+        name: 'lift_joint',
+        type: JointType.FIXED,
+        parentLinkId: 'base',
+        childLinkId: 'payload',
+        origin: {
+          xyz: { x: 0, y: 0, z: jointZ },
+          rpy: { r: 0, p: 0, y: 0 },
+        },
+      },
+    },
+    materials: {},
+  };
+}
+
 const useR3fStore = create(() => ({
   invalidate: () => {},
   camera: new THREE.PerspectiveCamera(),
@@ -128,7 +176,7 @@ function Probe({
 }) {
   useRendererBackend({
     sourceFile,
-    assets: {},
+    assets: EMPTY_ASSETS,
     showVisual: true,
     showCollision: false,
     showCollisionAlwaysOnTop: true,
@@ -204,6 +252,48 @@ test('useRendererBackend patches a link color edit without reloading the backend
 
     assert.equal(loadedRobots.length, 1);
     assert.equal(getMeshHexColor(mesh), '#12ab34');
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('useRendererBackend patches a joint origin edit without reloading the backend scene', async () => {
+  const { dom, root } = createComponentRoot();
+  const loadedRobots: THREE.Object3D[] = [];
+
+  try {
+    await act(async () => {
+      renderProbe(root, createJointOriginRobotData(0), (robot) => {
+        loadedRobots.push(robot);
+      });
+    });
+    await waitForCondition(
+      () => loadedRobots.length === 1,
+      'expected initial robot load to complete',
+    );
+
+    const runtimeRobot = loadedRobots[0] as THREE.Object3D & {
+      joints?: Record<string, THREE.Object3D>;
+    };
+    const runtimeJoint = runtimeRobot.joints?.lift_joint;
+    assert.ok(runtimeJoint, 'expected runtime joint to exist');
+    assert.equal(runtimeJoint.position.z, 0);
+
+    await act(async () => {
+      renderProbe(root, createJointOriginRobotData(1.25), (robot) => {
+        loadedRobots.push(robot);
+      });
+    });
+    await waitForCondition(
+      () => Math.abs(runtimeJoint.position.z - 1.25) < 1e-6,
+      'expected joint origin patch to update the existing runtime joint',
+    );
+
+    assert.equal(loadedRobots.length, 1);
+    assert.equal(runtimeRobot.joints?.lift_joint, runtimeJoint);
   } finally {
     await act(async () => {
       root.unmount();

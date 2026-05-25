@@ -17,7 +17,9 @@ import {
   diffLinkIkDragKinematicState,
   hasMeaningfulLinkIkTargetDelta,
   hasLinkIkKinematicStateChanges,
+  hasRestorableLinkIkPreviewKinematicState,
   limitLinkIkPreviewKinematicStateStep,
+  resolveClosedLoopAwareLinkIkPreviewState,
   resolveLinkIkCommittedStateEpsilon,
   resolveLinkIkSolveRequestOptions,
   shouldAcceptLinkIkSolveState,
@@ -131,6 +133,7 @@ test('diffLinkIkDragKinematicState only returns meaningful deltas for store comm
 test('drag preview state helpers clone and report state changes safely', () => {
   const emptyState = createEmptyLinkIkDragKinematicState();
   assert.equal(hasLinkIkKinematicStateChanges(emptyState), false);
+  assert.equal(hasRestorableLinkIkPreviewKinematicState(emptyState), false);
   assert.equal(resolveLinkIkCommittedStateEpsilon(true), LINK_IK_PREVIEW_COMMIT_EPSILON);
   assert.equal(resolveLinkIkCommittedStateEpsilon(false), LINK_IK_COMMIT_EPSILON);
 
@@ -141,6 +144,7 @@ test('drag preview state helpers clone and report state changes safely', () => {
   clonedState.angles.joint1 = 0.25;
 
   assert.equal(hasLinkIkKinematicStateChanges(clonedState), true);
+  assert.equal(hasRestorableLinkIkPreviewKinematicState(clonedState), true);
   assert.equal(clonedState.angles.joint1, 0.25);
 });
 
@@ -238,6 +242,77 @@ test('limitLinkIkPreviewKinematicStateStep lets passive closed-loop compensation
     z: passiveQuaternion.z,
     w: passiveQuaternion.w,
   });
+});
+
+test('resolveClosedLoopAwareLinkIkPreviewState recomputes passive joints from the limited active chain', () => {
+  const robot = {
+    links: {
+      base: { id: 'base', name: 'base' },
+      link_a: { id: 'link_a', name: 'link_a' },
+      link_b: { id: 'link_b', name: 'link_b' },
+    },
+    joints: {
+      joint_a: {
+        id: 'joint_a',
+        name: 'joint_a',
+        type: 'revolute',
+        parentLinkId: 'base',
+        childLinkId: 'link_a',
+        axis: { x: 0, y: 0, z: 1 },
+        origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        limit: { lower: -Math.PI, upper: Math.PI, effort: 1, velocity: 1 },
+        angle: 0,
+      },
+      joint_b: {
+        id: 'joint_b',
+        name: 'joint_b',
+        type: 'revolute',
+        parentLinkId: 'base',
+        childLinkId: 'link_b',
+        axis: { x: 0, y: 0, z: 1 },
+        origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        limit: { lower: -Math.PI, upper: Math.PI, effort: 1, velocity: 1 },
+        angle: 0,
+      },
+    },
+    rootLinkId: 'base',
+    closedLoopConstraints: [
+      {
+        id: 'connect-links',
+        type: 'connect',
+        linkAId: 'link_a',
+        linkBId: 'link_b',
+        anchorLocalA: { x: 1, y: 0, z: 0 },
+        anchorLocalB: { x: 1, y: 0, z: 0 },
+        anchorWorld: { x: 1, y: 0, z: 0 },
+      },
+    ],
+  } as any;
+
+  const preview = resolveClosedLoopAwareLinkIkPreviewState({
+    baseRobot: robot,
+    previousState: {
+      angles: {
+        joint_a: 0,
+        joint_b: 0,
+      },
+      quaternions: {},
+    },
+    nextSolveState: {
+      angles: {
+        joint_a: 0.4,
+        joint_b: 0.4,
+      },
+      quaternions: {},
+    },
+    limitedJointIds: new Set(['joint_a']),
+  });
+
+  assert.ok(Math.abs(preview.angles.joint_a - LINK_IK_PREVIEW_MAX_ANGLE_STEP) < 1e-9);
+  assert.ok(
+    Math.abs(preview.angles.joint_b - preview.angles.joint_a) < 1e-3,
+    `expected passive joint to be recomputed from limited active angle, preview=${JSON.stringify(preview.angles)}`,
+  );
 });
 
 test('limitLinkIkPreviewKinematicStateStep treats opposite-sign quaternions as the same orientation', () => {

@@ -291,6 +291,49 @@ test('createStableViewerResourceScope keeps sibling mesh assets for xml-based MJ
   });
 });
 
+test('createStableViewerResourceScope scopes broad MJCF scanned-object libraries to the selected model folder', () => {
+  const assets: Record<string, string> = {};
+  for (let index = 0; index < 2200; index += 1) {
+    assets[`mujoco_scanned_objects/models/object_${index}/model.obj`] = `blob:other-${index}`;
+    assets[`mujoco_scanned_objects/models/object_${index}/texture.png`] =
+      `blob:other-texture-${index}`;
+  }
+
+  assets['mujoco_scanned_objects/models/GEOMETRIC_PEG_BOARD/model.obj'] = 'blob:model';
+  assets['mujoco_scanned_objects/models/GEOMETRIC_PEG_BOARD/model_collision_0.obj'] =
+    'blob:collision';
+  assets['mujoco_scanned_objects/models/GEOMETRIC_PEG_BOARD/texture.png'] = 'blob:texture';
+
+  const sourceFile: RobotFile = {
+    name: 'mujoco_scanned_objects/models/GEOMETRIC_PEG_BOARD/model.xml',
+    content: `
+      <mujoco model="model">
+        <asset>
+          <texture type="2d" name="texture" file="texture.png" />
+          <mesh name="model" file="model.obj" />
+          <mesh name="collision" file="model_collision_0.obj" />
+        </asset>
+      </mujoco>
+    `,
+    format: 'mjcf',
+  };
+
+  const scoped = createStableViewerResourceScope(null, {
+    assets,
+    availableFiles: [sourceFile],
+    sourceFile,
+    sourceFilePath: sourceFile.name,
+    robotLinks: {},
+  });
+
+  assert.deepEqual(scoped.assets, {
+    'mujoco_scanned_objects/models/GEOMETRIC_PEG_BOARD/model.obj': 'blob:model',
+    'mujoco_scanned_objects/models/GEOMETRIC_PEG_BOARD/model_collision_0.obj':
+      'blob:collision',
+    'mujoco_scanned_objects/models/GEOMETRIC_PEG_BOARD/texture.png': 'blob:texture',
+  });
+});
+
 test('createStableViewerResourceScope retains repo-rooted sibling package assets that the mesh loader can resolve', () => {
   const scoped = createStableViewerResourceScope(null, {
     assets: {

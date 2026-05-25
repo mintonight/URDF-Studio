@@ -272,6 +272,56 @@ test('generateSDF preserves SDF-native plane and heightmap collision geometry', 
   assert.equal(reparsed?.links.terrain_link.collisionBodies?.[0]?.meshPath, 'heightmaps/terrain.png');
 });
 
+test('generateSDF renames a payload-bearing world link because sdformat reserves world', () => {
+  const robot: RobotState = {
+    name: 'world_root_scene',
+    rootLinkId: 'world',
+    links: {
+      world: {
+        ...DEFAULT_LINK,
+        id: 'world',
+        name: 'world',
+        collision: {
+          ...DEFAULT_LINK.collision,
+          name: 'floor',
+          type: GeometryType.PLANE,
+          dimensions: { x: 5, y: 5, z: 0 },
+        },
+      },
+      base: {
+        ...DEFAULT_LINK,
+        id: 'base',
+        name: 'base',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.BOX,
+          dimensions: { x: 0.2, y: 0.2, z: 0.2 },
+        },
+      },
+    },
+    joints: {
+      world_to_base: {
+        ...DEFAULT_JOINT,
+        id: 'world_to_base',
+        name: 'world_to_base',
+        type: JointType.FIXED,
+        parentLinkId: 'world',
+        childLinkId: 'base',
+      },
+    },
+    selection: { type: null, id: null },
+  };
+
+  const xml = generateSDF(robot, { packageName: 'world_root_scene' });
+  const reparsed = parseSDF(xml, { sourcePath: 'world_root_scene/model.sdf' });
+
+  assert.doesNotMatch(xml, /<link name="world">/);
+  assert.match(xml, /<link name="world_link">/);
+  assert.match(xml, /<parent>world_link<\/parent>/);
+  assert.ok(reparsed?.links.world_link);
+  assert.equal(reparsed?.joints.world_to_base.parentLinkId, 'world_link');
+});
+
 test('generateSDF downgrades unsupported ellipsoid collisions to boxes instead of empty geometry', () => {
   const robot: RobotState = {
     name: 'ellipsoid_collision_demo',
@@ -411,6 +461,96 @@ test('generateSDF emits a single albedo_map for textured visuals', () => {
   const xml = generateSDF(robot, { packageName: 'textured_box_pkg' });
 
   assert.match(xml, /<albedo_map>model:\/\/textured_box_pkg\/textures\/front\.png<\/albedo_map>/);
+});
+
+test('generateSDF emits visual material colors from authored colorRgba values', () => {
+  const robot: RobotState = {
+    name: 'rgba_material_box',
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.BOX,
+          dimensions: { x: 0.5, y: 0.4, z: 0.3 },
+          authoredMaterials: [{ colorRgba: [0.1, 0.2, 0.3, 0.4] }],
+        },
+        collision: {
+          ...DEFAULT_LINK.collision,
+          type: GeometryType.NONE,
+        },
+      },
+    },
+    joints: {},
+  };
+
+  const xml = generateSDF(robot, { packageName: 'rgba_material_box_pkg' });
+
+  assert.match(xml, /<ambient>0\.10000000 0\.20000000 0\.30000000 0\.40000000<\/ambient>/);
+  assert.match(xml, /<diffuse>0\.10000000 0\.20000000 0\.30000000 0\.40000000<\/diffuse>/);
+});
+
+test('generateSDF writes rest-pose link transforms instead of current joint angles', () => {
+  const robot: RobotState = {
+    name: 'sdf_rest_pose_demo',
+    rootLinkId: 'base',
+    selection: { type: null, id: null },
+    links: {
+      base: {
+        ...DEFAULT_LINK,
+        id: 'base',
+        name: 'base',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+        },
+        collision: {
+          ...DEFAULT_LINK.collision,
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+        },
+      },
+      tip: {
+        ...DEFAULT_LINK,
+        id: 'tip',
+        name: 'tip',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.BOX,
+          dimensions: { x: 0.1, y: 0.1, z: 0.1 },
+          color: '#336699',
+        },
+      },
+    },
+    joints: {
+      shoulder: {
+        ...DEFAULT_JOINT,
+        id: 'shoulder',
+        name: 'shoulder',
+        type: JointType.REVOLUTE,
+        parentLinkId: 'base',
+        childLinkId: 'tip',
+        origin: {
+          xyz: { x: 0, y: 0, z: 1 },
+          rpy: { r: 0, p: 0, y: 0 },
+        },
+        axis: { x: 0, y: 0, z: 1 },
+        angle: Math.PI / 2,
+      },
+    },
+  };
+
+  const xml = generateSDF(robot, { packageName: 'sdf_rest_pose_demo' });
+  assert.match(xml, /<link name="tip">[\s\S]*<pose>0 0 1 0 0 0<\/pose>/);
+  assert.doesNotMatch(xml, /<link name="tip">[\s\S]*<pose>0 0 1 0 0 1\.5707963<\/pose>/);
+
+  const reparsed = parseSDF(xml, { sourcePath: 'sdf_rest_pose_demo/model.sdf' });
+  assert.equal(reparsed?.joints.shoulder.origin.rpy.y, 0);
 });
 
 for (const fixture of CLOSED_LOOP_ROUNDTRIP_FIXTURES) {

@@ -1,4 +1,4 @@
-import type { RobotData, RobotState } from '@/types';
+import type { RobotData } from '@/types';
 
 export function shouldAnimateWorkspaceViewerRobot({
   shouldRenderAssembly,
@@ -26,21 +26,23 @@ export function shouldPersistStableWorkspaceViewerRobot({
   return !shouldRenderAssembly || hasWorkspaceDisplayRobot;
 }
 
+// Selection deliberately stays out of the viewer robot so that selection-only
+// changes do not bump the robotData reference and cascade into RobotModel /
+// useRendererBackend patch detection + visibility re-sync (the source of the
+// "models flash off for a frame on empty click" symptom).
 export function resolveWorkspaceViewerFallbackRobot({
   shouldRenderAssembly,
   hasWorkspaceDisplayRobot,
   hasWorkspaceRenderFailure = false,
   liveRobot,
   lastStableViewerRobot,
-  selection,
 }: {
   shouldRenderAssembly: boolean;
   hasWorkspaceDisplayRobot: boolean;
   hasWorkspaceRenderFailure?: boolean;
-  liveRobot: RobotState;
-  lastStableViewerRobot: RobotState | null;
-  selection: RobotState['selection'];
-}): RobotState {
+  liveRobot: RobotData;
+  lastStableViewerRobot: RobotData | null;
+}): RobotData {
   if (
     !shouldRenderAssembly ||
     hasWorkspaceDisplayRobot ||
@@ -50,10 +52,7 @@ export function resolveWorkspaceViewerFallbackRobot({
     return liveRobot;
   }
 
-  return {
-    ...lastStableViewerRobot,
-    selection,
-  };
+  return lastStableViewerRobot;
 }
 
 export function resolveWorkspaceViewerRobot({
@@ -61,14 +60,12 @@ export function resolveWorkspaceViewerRobot({
   liveRobot,
   workspaceViewerRobotData,
   animatedWorkspaceViewerRobotData,
-  selection,
 }: {
   shouldRenderAssembly: boolean;
-  liveRobot: RobotState;
+  liveRobot: RobotData;
   workspaceViewerRobotData: RobotData | null;
   animatedWorkspaceViewerRobotData: RobotData | null;
-  selection: RobotState['selection'];
-}): RobotState {
+}): RobotData {
   if (!shouldRenderAssembly) {
     return liveRobot;
   }
@@ -78,8 +75,5 @@ export function resolveWorkspaceViewerRobot({
     return liveRobot;
   }
 
-  return {
-    ...displayRobot,
-    selection,
-  };
+  return displayRobot;
 }

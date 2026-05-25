@@ -1097,6 +1097,13 @@ export function shouldPreviewLibraryRobotLoadFromWorkspace({
     return false;
   }
 
+  if (
+    Object.keys(assemblyState.components).length <= 1 &&
+    Object.keys(assemblyState.bridges).length === 0
+  ) {
+    return false;
+  }
+
   return !shouldReuseSourceViewerForSingleComponentAssembly({
     assemblyState,
     activeFile,

@@ -5,13 +5,11 @@
 
 ## 1. 代码变更工作流
 
-1. 定位任务所属模式与模块边界
-2. 明确改动是在 `app` 编排层、单一 `feature`、还是 `shared/core` 通用层
-3. 检查依赖方向是否符合架构红线，避免新增例外
-4. 优先复用现有 hooks/utils/components，不重复造轮子
-5. 保持类型完整性，避免 `any`
-6. 涉及 3D/USD/mesh 时，检查材质缓存、资源释放、hydration/export 生命周期
-7. 做最小必要改动并验证
+通用准则（依赖方向、复用、类型、3D 生命周期）见 [CLAUDE.md](../CLAUDE.md) §架构红线与执行准则。本节只给流程：
+
+1. 定位任务所属模式与模块边界，区分 `app` 编排层 / 单一 `feature` / `shared/core` 通用层
+2. 应用 CLAUDE.md 的红线检查（依赖方向、复用、类型完整性、3D/USD 生命周期）
+3. 做最小必要改动并验证
 
 ## 2. 单文件与模块化策略
 
@@ -40,25 +38,11 @@
 - [ ] 若改 USD worker / metadata 链路，已完成 `test/unitree_model` 全量验证且结果落盘到 `tmp/regression/`
 - [ ] 若改运行时代码，已完成对应测试或构建验证
 
-## 4. 常用命令
+## 4. 增量命令
+
+基础命令（dev / lint / typecheck / test / build / verify:fast / verify:full）见 [CLAUDE.md](../CLAUDE.md) §常用命令。本节只列项目特有的回归与构建命令：
 
 ```bash
-# 基础
-npm run dev
-npm run lint
-npm run typecheck
-npm run test          # 仓库内快速测试；不依赖 test/ 大型 fixture 语料
-npm run build
-npm run verify:fast
-npm run verify:full
-
-# 结构查看
-find src -maxdepth 3 -type d | sort
-
-# 仓库级搜索（排除 vendor/产物/临时）
-rg -n "pattern" src docs scripts packages/react-robot-canvas \
-  -g '!test/**' -g '!.tmp/**' -g '!tmp/**' -g '!dist/**' -g '!node_modules/**'
-
 # USD worker / metadata 回归
 node --test \
   src/features/urdf-viewer/runtime/hydra/render-delegate/robot-metadata-stage-fallback.test.js \
@@ -145,8 +129,8 @@ npm run build:package:react-robot-canvas
 
 | 变更范围 | 应更新文档 |
 |----------|-----------|
-| 新增 feature / 拆分 feature 目录 | `AGENTS.md` §2、`architecture.md` §4 |
-| 新增 store | `AGENTS.md` §5、`architecture.md` |
+| 新增 feature / 拆分 feature 目录 | `CLAUDE.md` §src 目录结构、`architecture.md` §4 |
+| 新增 store | `CLAUDE.md` §状态管理、`architecture.md` |
 | 修改 USD worker / runtime 链路 | `viewer.md` §6-7、`update-rules.md` §5 |
 | 修改导入导出流程 | `file-io.md` §2 |
 | 修改 UI 样式 / 新增语义色 token | `style-guide.md` §3 |

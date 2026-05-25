@@ -282,10 +282,13 @@ export function createClosedLoopMotionPreviewWorkerSession(
 ): AsyncClosedLoopMotionPreviewSession {
   let baseRobot: ClosedLoopMotionPreviewRobot | null = null;
   let previewState: ClosedLoopMotionPreviewState = createEmptyClosedLoopMotionPreviewState();
-  let solveGeneration = 0;
+  let resetGeneration = 0;
+  let solveRequestSerial = 0;
+  let lastAppliedRequestSerial = 0;
 
   const resetWorkingRobot = () => {
-    solveGeneration += 1;
+    resetGeneration += 1;
+    lastAppliedRequestSerial = solveRequestSerial;
     previewState = createEmptyClosedLoopMotionPreviewState();
   };
 
@@ -308,7 +311,8 @@ export function createClosedLoopMotionPreviewWorkerSession(
         return { angles: {}, quaternions: {}, appliedAngle: null, constrained: false };
       }
 
-      const requestGeneration = ++solveGeneration;
+      const requestGeneration = resetGeneration;
+      const requestSerial = ++solveRequestSerial;
       const requestPreviewState = cloneClosedLoopMotionPreviewState(previewState);
       const solution = await solveWithWorker(
         baseRobot,
@@ -318,18 +322,22 @@ export function createClosedLoopMotionPreviewWorkerSession(
         requestPreviewState,
       );
 
-      if (requestGeneration !== solveGeneration || !baseRobot) {
+      if (requestGeneration !== resetGeneration || !baseRobot) {
         return { angles: {}, quaternions: {}, appliedAngle: null, constrained: false };
       }
 
-      previewState = applyClosedLoopMotionSolutionToPreviewState(
+      const nextPreviewState = applyClosedLoopMotionSolutionToPreviewState(
         baseRobot,
         requestPreviewState,
         solution,
       );
+      if (requestSerial > lastAppliedRequestSerial) {
+        previewState = nextPreviewState;
+        lastAppliedRequestSerial = requestSerial;
+      }
 
       return {
-        ...cloneClosedLoopMotionPreviewState(previewState),
+        ...cloneClosedLoopMotionPreviewState(nextPreviewState),
         appliedAngle: solution.appliedAngle,
         constrained: solution.constrained,
       };

@@ -479,14 +479,14 @@ test('buildWorkspaceAssemblySourceCodeDocuments shows component source tabs befo
         filePath: 'robots/t1.xml',
         content: '<mujoco model="t1" />',
         documentFlavor: 'mjcf',
-        readOnly: true,
+        readOnly: false,
       },
       {
         fileName: 'piper.xml',
         filePath: 'robots/piper.xml',
         content: '<mujoco model="piper_synced" />',
         documentFlavor: 'mjcf',
-        readOnly: true,
+        readOnly: false,
       },
     ],
   );

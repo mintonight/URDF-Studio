@@ -7,6 +7,7 @@ import type {
   TreeNodeContextMenuTarget,
   TreeNodeEditingTarget,
   VisibleCollisionBody,
+  VisibleVisualBody,
 } from './types';
 import {
   getGeometryVisibilityButtonClass,
@@ -26,9 +27,12 @@ interface TreeNodeGeometrySectionProps {
   editingTarget: TreeNodeEditingTarget | null;
   renameInputRef: RefObject<HTMLInputElement | null>;
   visualRowRef: RefObject<HTMLDivElement | null>;
+  visualBodyRowRefs: RefObject<Record<number, HTMLDivElement | null>>;
   primaryCollisionRowRef: RefObject<HTMLDivElement | null>;
   collisionBodyRowRefs: RefObject<Record<number, HTMLDivElement | null>>;
   geometryRowIndentPx: number;
+  hasPrimaryVisual: boolean;
+  visibleVisualBodies: VisibleVisualBody[];
   hasPrimaryCollision: boolean;
   visibleCollisionBodies: VisibleCollisionBody[];
   isLinkSelected: boolean;
@@ -41,9 +45,11 @@ interface TreeNodeGeometrySectionProps {
   onClearHover: () => void;
   onOpenContextMenu: (event: MouseEvent<HTMLDivElement>, target: TreeNodeContextMenuTarget) => void;
   onSelectVisual: () => void;
+  onSelectVisualBody: (objectIndex: number) => void;
   onSelectPrimaryCollision: () => void;
   onSelectCollisionBody: (objectIndex: number) => void;
   onToggleVisualVisibility: (event: MouseEvent) => void;
+  onToggleVisualBodyVisibility: (event: MouseEvent, bodyIndex: number) => void;
   onTogglePrimaryCollisionVisibility: (event: MouseEvent) => void;
   onToggleCollisionBodyVisibility: (event: MouseEvent, bodyIndex: number) => void;
   readOnly: boolean;
@@ -58,9 +64,12 @@ export const TreeNodeGeometrySection = memo(function TreeNodeGeometrySection({
   editingTarget,
   renameInputRef,
   visualRowRef,
+  visualBodyRowRefs,
   primaryCollisionRowRef,
   collisionBodyRowRefs,
   geometryRowIndentPx,
+  hasPrimaryVisual,
+  visibleVisualBodies,
   hasPrimaryCollision,
   visibleCollisionBodies,
   isLinkSelected,
@@ -73,9 +82,11 @@ export const TreeNodeGeometrySection = memo(function TreeNodeGeometrySection({
   onClearHover,
   onOpenContextMenu,
   onSelectVisual,
+  onSelectVisualBody,
   onSelectPrimaryCollision,
   onSelectCollisionBody,
   onToggleVisualVisibility,
+  onToggleVisualBodyVisibility,
   onTogglePrimaryCollisionVisibility,
   onToggleCollisionBodyVisibility,
   readOnly,
@@ -227,6 +238,140 @@ export const TreeNodeGeometrySection = memo(function TreeNodeGeometrySection({
           )}
         </div>
       )}
+
+      {visibleVisualBodies.map(({ body, bodyIndex, objectIndex }, index) => {
+        const visualFallbackLabel = `${t.visualGeometry} ${index + (hasPrimaryVisual ? 2 : 1)}`;
+        const visualBodyLabel = getGeometryDisplayName(body.name, visualFallbackLabel);
+        const isVisualBodyHovered = matchesSelection(hoveredSelection, {
+          type: 'link',
+          id: linkId,
+          subType: 'visual',
+          objectIndex,
+        });
+        const isVisualBodyAttentionHighlighted = matchesSelection(attentionSelection, {
+          type: 'link',
+          id: linkId,
+          subType: 'visual',
+          objectIndex,
+        });
+        const isVisualBodySelected =
+          isLinkSelected &&
+          robotSelection.subType === 'visual' &&
+          selectedObjectIndex === objectIndex;
+        const isVisualBodyVisible = body.visible !== false;
+        const isVisualBodyInheritedHidden = !isLinkVisible && isVisualBodyVisible;
+        const isVisualBodyEffectivelyVisible = isLinkVisible && isVisualBodyVisible;
+        const isEditingVisualBody =
+          editingTarget?.type === 'geometry' &&
+          editingTarget.linkId === linkId &&
+          editingTarget.subType === 'visual' &&
+          editingTarget.objectIndex === objectIndex;
+
+        return (
+          <div
+            ref={(element) => {
+              visualBodyRowRefs.current[objectIndex] = element;
+            }}
+            key={`visual-extra-${bodyIndex}`}
+            className={`relative flex min-w-0 items-center py-0.5 px-2 mx-1 my-0.5 rounded-md transition-all duration-200 ${readOnly ? 'cursor-default' : 'cursor-pointer'} ${resolveTreeRowStateClass(
+              'text-text-secondary dark:text-text-tertiary',
+              {
+                isHovered: isVisualBodyHovered,
+                isSelected: isVisualBodySelected,
+                isAttentionHighlighted: isVisualBodyAttentionHighlighted,
+              },
+            )}`}
+            onClick={
+              readOnly || isEditingVisualBody ? undefined : () => onSelectVisualBody(objectIndex)
+            }
+            onContextMenu={
+              readOnly
+                ? undefined
+                : (event) => {
+                    onOpenContextMenu(event, {
+                      type: 'geometry',
+                      linkId,
+                      subType: 'visual',
+                      objectIndex,
+                      name: body.name?.trim() || '',
+                    });
+                  }
+            }
+            onMouseEnter={
+              readOnly
+                ? undefined
+                : () =>
+                    onSetHoveredSelection({
+                      type: 'link',
+                      id: linkId,
+                      subType: 'visual',
+                      objectIndex,
+                    })
+            }
+            onMouseLeave={readOnly ? undefined : onClearHover}
+            style={{ marginLeft: `${geometryRowIndentPx}px` }}
+            title={visualBodyLabel}
+          >
+            <div
+              className={getTreeConnectorElbowClass(
+                isVisualBodySelected || isVisualBodyHovered || isVisualBodyAttentionHighlighted,
+              )}
+              style={getTreeConnectorElbowStyle(geometryRowIndentPx)}
+            />
+            <div
+              className={`w-3.5 h-3.5 rounded flex items-center justify-center mr-1 shrink-0 border transition-colors ${
+                isVisualBodySelected || isVisualBodyHovered || isVisualBodyAttentionHighlighted
+                  ? 'bg-emerald-500/15 dark:bg-emerald-400/15 border-emerald-500/20 dark:border-emerald-400/20'
+                  : 'bg-emerald-500/10 dark:bg-emerald-400/10 border-transparent'
+              }`}
+            >
+              <Shapes
+                size={9}
+                className={
+                  isVisualBodySelected || isVisualBodyHovered || isVisualBodyAttentionHighlighted
+                    ? 'text-emerald-700 dark:text-emerald-300'
+                    : 'text-emerald-500 dark:text-emerald-400'
+                }
+              />
+            </div>
+            {isEditingVisualBody ? (
+              <input
+                ref={renameInputRef}
+                value={editingTarget.draft}
+                onChange={(event) => onUpdateRenameDraft(event.target.value)}
+                onClick={(event) => event.stopPropagation()}
+                onBlur={onCommitRenaming}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    onCommitRenaming();
+                  } else if (event.key === 'Escape') {
+                    onCancelRenaming();
+                  }
+                }}
+                className={`${TREE_LINK_NAME_TEXT_CLASS} ${TREE_RENAME_INPUT_BASE_CLASS} flex-1 bg-input-bg border-border-strong text-text-primary focus:border-system-blue`}
+              />
+            ) : (
+              <span className="text-[10px] font-medium truncate flex-1 min-w-0">
+                {visualBodyLabel}
+              </span>
+            )}
+            {!readOnly && (
+              <button
+                type="button"
+                className={getGeometryVisibilityButtonClass(isVisualBodyEffectivelyVisible, {
+                  inheritedHidden: isVisualBodyInheritedHidden,
+                })}
+                onClick={(event) => onToggleVisualBodyVisibility(event, bodyIndex)}
+                title={isVisualBodyVisible ? t.hide : t.show}
+                aria-label={isVisualBodyVisible ? t.hide : t.show}
+                data-visibility-source={isVisualBodyInheritedHidden ? 'inherited' : 'local'}
+              >
+                {isVisualBodyEffectivelyVisible ? <Eye size={10} /> : <EyeOff size={10} />}
+              </button>
+            )}
+          </div>
+        );
+      })}
 
       {link.collision?.type && link.collision.type !== GeometryType.NONE && (
         <div

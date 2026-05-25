@@ -108,6 +108,62 @@ test('validateMJCFImportExternalAssets tolerates a single duplicated path segmen
   assert.deepEqual(issues, []);
 });
 
+test('validateMJCFImportExternalAssets resolves included assets against their scoped source file', () => {
+  const content = `
+    <mujoco>
+      <asset data-urdf-studio-source-file="myosuite/simhive/myo_sim/scene/myosuite_scene.xml">
+        <texture name="texfloor" type="2d" file="../myo_sim/scene/floor0.png" />
+      </asset>
+      <worldbody />
+    </mujoco>
+  `;
+
+  const issues = validateMJCFImportExternalAssets(
+    'myosuite/envs/myo/assets/arm/myoarm_relocate.xml',
+    content,
+    [
+      createMjcfFile(
+        'myosuite/simhive/myo_sim/scene/myosuite_scene.xml',
+        '<mujoco><compiler meshdir=".." texturedir=".." /></mujoco>',
+      ),
+    ],
+    {
+      'myosuite/simhive/myo_sim/scene/floor0.png': 'blob:floor0',
+    },
+  );
+
+  assert.deepEqual(issues, []);
+});
+
+test('validateMJCFImportExternalAssets uses expanded compiler directories for scene wrapper assets', () => {
+  const content = `
+    <mujoco>
+      <compiler data-urdf-studio-source-file="robots/stretch/stretch.xml" assetdir="assets" />
+      <asset>
+        <texture name="wood" type="2d" file="wood.png" />
+      </asset>
+      <worldbody />
+    </mujoco>
+  `;
+
+  const issues = validateMJCFImportExternalAssets(
+    'robots/stretch/scene.xml',
+    content,
+    [
+      createMjcfFile('robots/stretch/scene.xml', '<mujoco><worldbody /></mujoco>'),
+      createMjcfFile(
+        'robots/stretch/stretch.xml',
+        '<mujocoinclude><compiler assetdir="assets" /></mujocoinclude>',
+      ),
+    ],
+    {
+      'robots/stretch/assets/wood.png': 'blob:wood',
+    },
+  );
+
+  assert.deepEqual(issues, []);
+});
+
 test('validateMJCFImportExternalAssets fuzzily rescues geometry asset path variants only', () => {
   const content = `
     <mujoco>

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { GeometryType, JointType, type UrdfJoint, type UrdfLink } from '@/types';
 
 import {
+  areRobotLinkChangesVisibilityOnly,
   detectJointPatches,
   detectSingleGeometryPatch,
   detectSingleJointPatch,
@@ -124,6 +125,42 @@ test('detectJointPatches returns multiple compatible joint patches for batch upd
   assert.deepEqual(patches?.map((patch) => patch.jointName).sort(), ['joint_1', 'joint_2']);
 });
 
+test('detectJointPatches yields one patch for an origin-only edit (keeps it incremental)', () => {
+  const prevJoints = { joint_1: makeJoint() };
+  const nextJoints = {
+    joint_1: makeJoint({
+      origin: {
+        xyz: { x: 0, y: 0, z: 0.42 },
+        rpy: { r: 0, p: 0, y: 0 },
+      },
+    }),
+  };
+
+  const patches = detectJointPatches(prevJoints, nextJoints);
+
+  assert.ok(patches);
+  assert.equal(patches?.length, 1);
+  assert.equal(patches?.[0]?.jointName, 'joint_1');
+});
+
+test('detectJointPatches returns null for structural joint changes (forces full rebuild)', () => {
+  const prevJoints = { joint_1: makeJoint() };
+
+  // Reparented joint: structure changed, must NOT be patched incrementally.
+  assert.equal(
+    detectJointPatches(prevJoints, { joint_1: makeJoint({ childLinkId: 'other_link' }) }),
+    null,
+  );
+  // Joint count changed: must rebuild.
+  assert.equal(
+    detectJointPatches(prevJoints, {
+      joint_1: makeJoint(),
+      joint_2: makeJoint({ id: 'joint_2', name: 'joint_2', childLinkId: 'link_2' }),
+    }),
+    null,
+  );
+});
+
 test('detectSingleJointPatch treats hardware interface changes as joint updates', () => {
   const prevJoints = {
     joint_1: makeJoint(),
@@ -199,6 +236,53 @@ test('detectSingleGeometryPatch treats link display-name edits as compatible met
   assert.equal(patch?.visualBodiesChanged, false);
   assert.equal(patch?.collisionChanged, false);
   assert.equal(patch?.collisionBodiesChanged, false);
+});
+
+test('areRobotLinkChangesVisibilityOnly accepts batched link and geometry visibility edits', () => {
+  const previousLinks = {
+    base_link: makeLink(),
+    arm_link: makeLink({
+      id: 'arm_link',
+      name: 'arm_link',
+    }),
+  };
+  const nextLinks = {
+    base_link: makeLink({
+      visible: false,
+      visual: {
+        ...makeLink().visual,
+        visible: false,
+      },
+    }),
+    arm_link: makeLink({
+      id: 'arm_link',
+      name: 'arm_link',
+      collision: {
+        ...makeLink().collision,
+        visible: false,
+      },
+    }),
+  };
+
+  assert.equal(detectSingleGeometryPatch(previousLinks, nextLinks), null);
+  assert.equal(areRobotLinkChangesVisibilityOnly(previousLinks, nextLinks), true);
+});
+
+test('areRobotLinkChangesVisibilityOnly rejects mixed geometry edits', () => {
+  const previousLinks = {
+    base_link: makeLink(),
+  };
+  const nextLinks = {
+    base_link: makeLink({
+      visible: false,
+      visual: {
+        ...makeLink().visual,
+        dimensions: { x: 0.4, y: 0.2, z: 0.2 },
+      },
+    }),
+  };
+
+  assert.equal(areRobotLinkChangesVisibilityOnly(previousLinks, nextLinks), false);
 });
 
 test('detectSingleGeometryPatch treats collision body name edits as geometry updates', () => {

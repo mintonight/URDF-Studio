@@ -68,6 +68,7 @@ export interface UrdfLink {
 export interface UrdfJointDynamics {
   damping: number;
   friction: number;
+  stiffness?: number;
 }
 
 export interface UrdfJointHardware {
@@ -185,6 +186,10 @@ export interface RobotMjcfInspectionTendonSummary {
   attachments: RobotMjcfInspectionTendonAttachment[];
   actuatorNames: string[];
 }
+
+export type RobotMjcfTendonVisualizationUpdate = Partial<
+  Pick<RobotMjcfInspectionTendonSummary, 'rgba' | 'width'>
+>;
 
 export interface RobotMjcfInspectionTendonAttachment {
   type: 'site' | 'geom' | 'joint' | 'pulley';

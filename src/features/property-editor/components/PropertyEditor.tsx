@@ -28,7 +28,7 @@ import { TendonProperties } from './TendonProperties';
 
 export interface PropertyEditorProps {
   robot: RobotState;
-  onUpdate: (type: 'link' | 'joint', id: string, data: unknown) => void;
+  onUpdate: (type: 'link' | 'joint' | 'tendon', id: string, data: unknown) => void;
   onSelect?: (
     type: Exclude<InteractionSelection['type'], null>,
     id: string,
@@ -118,17 +118,27 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
       ? '选择连杆、关节或肌腱以查看属性。'
       : 'Select a link, joint, or tendon to inspect its properties.');
 
-  const { displayWidth, isDragging, handleResizeMouseDown } = useResizablePanel(collapsed);
+  const { sidebarRef, width, isDragging, handleResizeMouseDown } = useResizablePanel();
 
   const isReadOnlyPreview = Boolean(readOnlyMessage);
+  const sidebarClassName = [
+    'bg-element-bg dark:bg-panel-bg border-l border-border-black flex flex-col h-full z-20 relative will-change-transform',
+    collapsed ? 'translate-x-full pointer-events-none' : 'translate-x-0 pointer-events-auto',
+    isDragging ? '' : 'transition-transform duration-200 ease-out motion-reduce:transition-none',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <div
-      className={`bg-element-bg dark:bg-panel-bg border-l border-border-black flex flex-col h-full z-20 relative will-change-[width,flex] ${isDragging ? '' : 'transition-[width,min-width,flex] duration-200 ease-out'}`}
+      ref={sidebarRef}
+      data-testid="property-editor-sidebar"
+      className={sidebarClassName}
       style={{
-        width: `${displayWidth}px`,
-        minWidth: `${displayWidth}px`,
-        flex: `0 0 ${displayWidth}px`,
+        width: `${width}px`,
+        minWidth: `${width}px`,
+        flex: `0 0 ${width}px`,
+        contain: 'layout style',
       }}
     >
       {/* Side Toggle Button (Centered & Protruding Left) */}
@@ -137,7 +147,7 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
           e.stopPropagation();
           onToggle?.();
         }}
-        className="absolute -left-4 top-1/2 -translate-y-1/2 w-4 h-16 bg-panel-bg hover:bg-system-blue-solid hover:text-white border border-border-strong rounded-l-lg shadow-md flex flex-col items-center justify-center z-50 cursor-pointer text-text-tertiary transition-all group"
+        className="pointer-events-auto absolute -left-4 top-1/2 -translate-y-1/2 w-4 h-16 bg-panel-bg hover:bg-system-blue-solid hover:text-white border border-border-strong rounded-l-lg shadow-md flex flex-col items-center justify-center z-50 cursor-pointer text-text-tertiary transition-colors group"
         title={collapsed ? t.properties : t.collapseSidebar}
       >
         <div className="flex flex-col gap-0.5 items-center">
@@ -151,11 +161,16 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
         </div>
       </button>
 
-      {/* Content Container - use visibility to prevent flash but allow smooth transition */}
-      <div className="h-full w-full flex flex-col overflow-hidden">
+      {/* Keep content at the stored width so collapse/expand only animates transform. */}
+      <div
+        data-testid="property-editor-sidebar-content"
+        className="h-full w-full flex flex-col overflow-hidden"
+        aria-hidden={collapsed ? true : undefined}
+        inert={collapsed ? true : undefined}
+      >
         <div
-          style={{ width: `${displayWidth}px` }}
-          className={`h-full flex flex-col bg-element-bg dark:bg-panel-bg${isDragging ? '' : ' transition-[width] duration-200 ease-out'}`}
+          style={{ width: `${width}px` }}
+          className="h-full flex flex-col bg-element-bg dark:bg-panel-bg"
         >
           {/* Header */}
           <div className="w-full flex items-center justify-between px-2 py-1 border-b border-border-black bg-panel-bg shrink-0 relative z-30">
@@ -219,7 +234,11 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
                   jointTypeLocked={jointTypeLocked}
                 />
               ) : tendonData ? (
-                <TendonProperties data={tendonData} lang={lang} />
+                <TendonProperties
+                  data={tendonData}
+                  lang={lang}
+                  onUpdate={(nextData) => onUpdate('tendon', tendonData.name, nextData)}
+                />
               ) : null}
             </div>
           )}

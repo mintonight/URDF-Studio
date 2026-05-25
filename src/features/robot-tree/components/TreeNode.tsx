@@ -1,15 +1,15 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { TranslationKeys } from '@/shared/i18n';
-import { getCollisionGeometryByObjectIndex, isTransparentDisplayLink } from '@/core/robot';
+import {
+  getCollisionGeometryByObjectIndex,
+  getVisualGeometryByObjectIndex,
+  isTransparentDisplayLink,
+} from '@/core/robot';
 import { useRobotStore } from '@/store';
 import { type Selection, useSelectionStore } from '@/store/selectionStore';
 import { GeometryType, type AppMode, type RobotState } from '@/types';
-import {
-  buildParentLinkByChild,
-  isLinkInSelectionBranch,
-  resolveTreeSelectionIdentity,
-} from '@/features/robot-tree/utils/treeSelectionScope';
+import { resolveTreeSelectionIdentity } from '@/features/robot-tree/utils/treeSelectionScope';
 import { getMjcfLinkDisplayName } from '@/shared/utils/robot/mjcfDisplayNames';
 import { TreeNodeContextMenu } from './tree-node/TreeNodeContextMenu';
 import { TreeNodeGeometrySection } from './tree-node/TreeNodeGeometrySection';
@@ -22,6 +22,7 @@ import type {
   TreeNodeContextMenuState,
   TreeNodeEditingTarget,
   VisibleCollisionBody,
+  VisibleVisualBody,
 } from './tree-node/types';
 import { useTreeNodeActions } from './tree-node/useTreeNodeActions';
 
@@ -85,6 +86,7 @@ export const TreeNode = memo(
     const renameInputRef = useRef<HTMLInputElement>(null);
     const linkRowRef = useRef<HTMLDivElement>(null);
     const visualRowRef = useRef<HTMLDivElement>(null);
+    const visualBodyRowRefs = useRef<Record<number, HTMLDivElement | null>>({});
     const primaryCollisionRowRef = useRef<HTMLDivElement>(null);
     const collisionBodyRowRefs = useRef<Record<number, HTMLDivElement | null>>({});
     const jointRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -119,7 +121,27 @@ export const TreeNode = memo(
         return links;
       }),
     );
-    const storeSelection = useSelectionStore((state) => state.selection);
+    // Merge selection-store subscriptions into a single useShallow read so each
+    // TreeNode only re-renders when the underlying selection primitives change.
+    // Filtering ("is this node hovered/attended?") happens downstream in useMemo
+    // to keep the selector itself referentially stable.
+    const {
+      storeSelection,
+      rawHoveredSelection,
+      rawAttentionSelection,
+      setHoveredSelection,
+      clearHover,
+      setSelection,
+    } = useSelectionStore(
+      useShallow((state) => ({
+        storeSelection: state.selection,
+        rawHoveredSelection: state.hoveredSelection,
+        rawAttentionSelection: state.attentionSelection,
+        setHoveredSelection: state.setHoveredSelection,
+        clearHover: state.clearHover,
+        setSelection: state.setSelection,
+      })),
+    );
     const link = storeDriven ? storeLink : robot?.links[linkId];
     const childJoints = storeDriven
       ? storeChildJoints
@@ -163,41 +185,41 @@ export const TreeNode = memo(
       () => resolveTreeSelectionIdentity(storeSelection, selectionRobotContext),
       [selectionRobotContext, storeSelection],
     );
-    const setHoveredSelection = useSelectionStore((state) => state.setHoveredSelection);
-    const clearHover = useSelectionStore((state) => state.clearHover);
-    const setSelection = useSelectionStore((state) => state.setSelection);
-    const hoveredSelection = useSelectionStore((state) => {
+    // Filter the raw hovered/attention selections down to this node. Reuses the
+    // shared `EMPTY_TREE_SELECTION` singleton so non-matching nodes return a
+    // stable reference and skip downstream re-renders.
+    const hoveredSelection = useMemo<Selection>(() => {
       if (readOnly) {
         return EMPTY_TREE_SELECTION;
       }
-
-      const hovered = state.hoveredSelection;
-      if (hovered.type === 'link' && hovered.id === linkId) {
-        return hovered;
+      if (rawHoveredSelection.type === 'link' && rawHoveredSelection.id === linkId) {
+        return rawHoveredSelection;
       }
-
-      if (hovered.type === 'joint' && hovered.id && childJointIds.has(hovered.id)) {
-        return hovered;
+      if (
+        rawHoveredSelection.type === 'joint' &&
+        rawHoveredSelection.id &&
+        childJointIds.has(rawHoveredSelection.id)
+      ) {
+        return rawHoveredSelection;
       }
-
       return EMPTY_TREE_SELECTION;
-    });
-    const attentionSelection = useSelectionStore((state) => {
+    }, [childJointIds, linkId, rawHoveredSelection, readOnly]);
+    const attentionSelection = useMemo<Selection>(() => {
       if (readOnly) {
         return EMPTY_TREE_SELECTION;
       }
-
-      const attention = state.attentionSelection;
-      if (attention.type === 'link' && attention.id === linkId) {
-        return attention;
+      if (rawAttentionSelection.type === 'link' && rawAttentionSelection.id === linkId) {
+        return rawAttentionSelection;
       }
-
-      if (attention.type === 'joint' && attention.id && childJointIds.has(attention.id)) {
-        return attention;
+      if (
+        rawAttentionSelection.type === 'joint' &&
+        rawAttentionSelection.id &&
+        childJointIds.has(rawAttentionSelection.id)
+      ) {
+        return rawAttentionSelection;
       }
-
       return EMPTY_TREE_SELECTION;
-    });
+    }, [childJointIds, linkId, rawAttentionSelection, readOnly]);
     const effectiveHoveredSelection = useMemo(
       () => resolveTreeSelectionIdentity(hoveredSelection, selectionRobotContext),
       [hoveredSelection, selectionRobotContext],
@@ -206,31 +228,35 @@ export const TreeNode = memo(
       () => resolveTreeSelectionIdentity(attentionSelection, selectionRobotContext),
       [attentionSelection, selectionRobotContext],
     );
-    const storeSelectionInBranch = useRobotStore((state) =>
-      storeDriven
-        ? isLinkInSelectionBranch(
-            linkId,
-            resolveTreeSelectionIdentity(effectiveSelection, {
-              links: state.links as RobotState['links'],
-              joints: state.joints as RobotState['joints'],
-            }),
-            state.joints as RobotState['joints'],
-            buildParentLinkByChild(state.joints as RobotState['joints']),
-          )
-        : false,
-    );
+    // Derive joint-attention flag from the already-subscribed raw attention
+    // selection instead of re-subscribing to the store.
+    const hasJointAttentionSelection =
+      !readOnly &&
+      rawAttentionSelection.type === 'joint' &&
+      Boolean(rawAttentionSelection.id);
     const storeIsTransparentLink = useRobotStore((state) =>
       storeDriven ? isTransparentDisplayLink(state as unknown as RobotState, linkId) : false,
     );
+    const editingTargetFocusKey = useMemo(() => {
+      if (!editingTarget) {
+        return null;
+      }
+
+      if (editingTarget.type === 'geometry') {
+        return `${editingTarget.type}:${editingTarget.linkId}:${editingTarget.subType}:${editingTarget.objectIndex}`;
+      }
+
+      return `${editingTarget.type}:${editingTarget.id}`;
+    }, [editingTarget]);
 
     useEffect(() => {
-      if (!editingTarget) return;
+      if (!editingTargetFocusKey) return;
       const id = window.requestAnimationFrame(() => {
         renameInputRef.current?.focus();
         renameInputRef.current?.select();
       });
       return () => window.cancelAnimationFrame(id);
-    }, [editingTarget]);
+    }, [editingTargetFocusKey]);
 
     useEffect(() => {
       if (!contextMenu) return;
@@ -297,11 +323,21 @@ export const TreeNode = memo(
     const isVisible = link.visible !== false;
     const isVisualVisible = link.visual.visible !== false;
     const isPrimaryCollisionVisible = link.collision.visible !== false;
+    const hasPrimaryVisual = Boolean(link.visual?.type && link.visual.type !== GeometryType.NONE);
     const hasPrimaryCollision = Boolean(
       link.collision?.type && link.collision.type !== GeometryType.NONE,
     );
-    const hasVisual = Boolean(link.visual?.type && link.visual.type !== GeometryType.NONE);
     const selectedObjectIndex = robotSelection.objectIndex ?? 0;
+    const visualBodyCount =
+      (hasPrimaryVisual ? 1 : 0) +
+      (link.visualBodies || []).filter((body) => body.type !== GeometryType.NONE).length;
+    const visibleVisualBodies: VisibleVisualBody[] = (link.visualBodies || [])
+      .map((body, bodyIndex) => ({ body, bodyIndex }))
+      .filter(({ body }) => body.type !== GeometryType.NONE)
+      .map((entry, visibleIndex) => ({
+        ...entry,
+        objectIndex: (hasPrimaryVisual ? 1 : 0) + visibleIndex,
+      }));
     const collisionBodyCount =
       (hasPrimaryCollision ? 1 : 0) +
       (link.collisionBodies || []).filter((body) => body.type !== GeometryType.NONE).length;
@@ -312,6 +348,7 @@ export const TreeNode = memo(
         ...entry,
         objectIndex: (hasPrimaryCollision ? 1 : 0) + visibleIndex,
       }));
+    const hasVisual = visualBodyCount > 0;
     const hasCollision = collisionBodyCount > 0;
     const hasGeometry = hasVisual || hasCollision;
     const isLinkSelected = robotSelection.type === 'link' && robotSelection.id === linkId;
@@ -324,24 +361,34 @@ export const TreeNode = memo(
       isLinkSelected &&
       robotSelection.subType === 'visual' &&
       (robotSelection.objectIndex === undefined || selectedObjectIndex === 0);
+    const hasSelectedExtraVisual = visibleVisualBodies.some(
+      ({ objectIndex }) => objectIndex === selectedObjectIndex,
+    );
     const isPrimaryCollisionSelected =
       isLinkSelected && robotSelection.subType === 'collision' && selectedObjectIndex === 0;
     const hasSelectedExtraCollision = visibleCollisionBodies.some(
       ({ objectIndex }) => objectIndex === selectedObjectIndex,
     );
-    const shouldAutoExpandGeometryDetails = shouldAutoExpandTreeGeometryDetails({
-      showGeometryDetailsByDefault,
-      selectionSubType: isLinkSelected ? robotSelection.subType : undefined,
-      hasSelectedExtraCollision:
-        isLinkSelected && robotSelection.subType === 'collision' && hasSelectedExtraCollision,
-    });
-    const selectionInBranch = storeDriven
-      ? storeSelectionInBranch
-      : (selectionBranchLinkIds?.has(linkId) ?? false);
+    const shouldAutoExpandGeometryDetails =
+      !hasJointAttentionSelection &&
+      shouldAutoExpandTreeGeometryDetails({
+        showGeometryDetailsByDefault,
+        selectionSubType: isLinkSelected ? robotSelection.subType : undefined,
+        hasSelectedExtraCollision:
+          isLinkSelected && robotSelection.subType === 'collision' && hasSelectedExtraCollision,
+        hasSelectedExtraVisual:
+          isLinkSelected && robotSelection.subType === 'visual' && hasSelectedExtraVisual,
+      });
+    // Selection-branch membership is computed once at the TreeEditor level and
+    // threaded down via prop. This used to be a per-node store subscription
+    // that rebuilt the full parent map per render (O(N) per node, O(N^2)
+    // overall) — the prop-driven path keeps the cost linear.
+    const selectionInBranch = selectionBranchLinkIds?.has(linkId) ?? false;
     const contextMenuLink =
       contextMenu?.target.type === 'link' && contextMenu.target.id === linkId ? link : null;
     const contextMenuHasVisual = Boolean(
-      contextMenuLink?.visual?.type && contextMenuLink.visual.type !== GeometryType.NONE,
+      (contextMenuLink?.visual?.type && contextMenuLink.visual.type !== GeometryType.NONE) ||
+      (contextMenuLink?.visualBodies || []).some((body) => body.type !== GeometryType.NONE),
     );
     const contextMenuHasCollision = Boolean(
       (contextMenuLink?.collision?.type && contextMenuLink.collision.type !== GeometryType.NONE) ||
@@ -353,7 +400,8 @@ export const TreeNode = memo(
             const targetLink = contextMenu.target.linkId === linkId ? link : null;
             if (!targetLink) return null;
             return contextMenu.target.subType === 'visual'
-              ? (targetLink.visual?.type ?? null)
+              ? (getVisualGeometryByObjectIndex(targetLink, contextMenu.target.objectIndex)
+                  ?.geometry?.type ?? null)
               : (getCollisionGeometryByObjectIndex(targetLink, contextMenu.target.objectIndex)
                   ?.geometry?.type ?? null);
           })()
@@ -382,25 +430,48 @@ export const TreeNode = memo(
     }, [shouldAutoExpandGeometryDetails]);
 
     useEffect(() => {
-      if (isLinkSelected && !robotSelection.subType) {
+      if (isLinkSelected && !robotSelection.subType && !hasJointAttentionSelection) {
         scrollElementIntoView(linkRowRef.current);
       }
-    }, [isLinkSelected, robotSelection.subType]);
+    }, [hasJointAttentionSelection, isLinkSelected, robotSelection.subType]);
 
     useEffect(() => {
-      if (isGeometryExpanded && isVisualSelected) {
+      if (isGeometryExpanded && isVisualSelected && !hasJointAttentionSelection) {
         scrollElementIntoView(visualRowRef.current);
       }
-    }, [isGeometryExpanded, isVisualSelected]);
-
-    useEffect(() => {
-      if (isGeometryExpanded && isPrimaryCollisionSelected) {
-        scrollElementIntoView(primaryCollisionRowRef.current);
-      }
-    }, [isGeometryExpanded, isPrimaryCollisionSelected]);
+    }, [hasJointAttentionSelection, isGeometryExpanded, isVisualSelected]);
 
     useEffect(() => {
       if (
+        hasJointAttentionSelection ||
+        !(
+          isGeometryExpanded &&
+          isLinkSelected &&
+          robotSelection.subType === 'visual' &&
+          hasSelectedExtraVisual
+        )
+      ) {
+        return;
+      }
+      scrollElementIntoView(visualBodyRowRefs.current[selectedObjectIndex]);
+    }, [
+      hasJointAttentionSelection,
+      isGeometryExpanded,
+      isLinkSelected,
+      robotSelection.subType,
+      selectedObjectIndex,
+      hasSelectedExtraVisual,
+    ]);
+
+    useEffect(() => {
+      if (isGeometryExpanded && isPrimaryCollisionSelected && !hasJointAttentionSelection) {
+        scrollElementIntoView(primaryCollisionRowRef.current);
+      }
+    }, [hasJointAttentionSelection, isGeometryExpanded, isPrimaryCollisionSelected]);
+
+    useEffect(() => {
+      if (
+        hasJointAttentionSelection ||
         !(
           isGeometryExpanded &&
           isLinkSelected &&
@@ -412,6 +483,7 @@ export const TreeNode = memo(
       }
       scrollElementIntoView(collisionBodyRowRefs.current[selectedObjectIndex]);
     }, [
+      hasJointAttentionSelection,
       isGeometryExpanded,
       isLinkSelected,
       robotSelection.subType,
@@ -441,11 +513,25 @@ export const TreeNode = memo(
       if (!isExpanded || robotSelection.type !== 'joint' || !robotSelection.id) return;
       scrollElementIntoView(jointRowRefs.current[robotSelection.id] || null);
     }, [isExpanded, robotSelection.id, robotSelection.type]);
+
+    useEffect(() => {
+      if (
+        !isExpanded ||
+        effectiveAttentionSelection.type !== 'joint' ||
+        !effectiveAttentionSelection.id
+      ) {
+        return;
+      }
+
+      scrollElementIntoView(jointRowRefs.current[effectiveAttentionSelection.id] || null);
+    }, [effectiveAttentionSelection.id, effectiveAttentionSelection.type, isExpanded]);
     const {
       handleSelectVisual,
+      handleSelectVisualBody,
       handleSelectPrimaryCollision,
       handleSelectCollisionBody,
       toggleVisualVisibility,
+      toggleVisualBodyVisibility,
       togglePrimaryCollisionVisibility,
       toggleCollisionBodyVisibility,
       commitRenaming,
@@ -518,7 +604,7 @@ export const TreeNode = memo(
               robot={storeDriven ? undefined : robot}
               showGeometryDetailsByDefault={showGeometryDetailsByDefault}
               childJointsByParent={storeDriven ? undefined : childJointsByParent}
-              selectionBranchLinkIds={storeDriven ? undefined : selectionBranchLinkIds}
+              selectionBranchLinkIds={selectionBranchLinkIds}
               onSelect={onSelect}
               onSelectGeometry={onSelectGeometry}
               onFocus={onFocus}
@@ -554,7 +640,7 @@ export const TreeNode = memo(
             hasGeometry={hasGeometry}
             hasVisual={hasVisual}
             hasCollision={hasCollision}
-            geometryCount={Number(Boolean(hasVisual)) + collisionBodyCount}
+            geometryCount={visualBodyCount + collisionBodyCount}
             isGeometryExpanded={isGeometryExpanded}
             isVisible={isVisible}
             isSelected={isLinkSelected}
@@ -580,11 +666,6 @@ export const TreeNode = memo(
               event.stopPropagation();
               onUpdate('link', linkId, { ...link, visible: !isVisible });
             }}
-            onAddChild={(event) => {
-              event.stopPropagation();
-              onAddChild(linkId);
-              setIsExpanded(true);
-            }}
           />
         </div>
 
@@ -604,9 +685,12 @@ export const TreeNode = memo(
                 editingTarget={editingTarget}
                 renameInputRef={renameInputRef}
                 visualRowRef={visualRowRef}
+                visualBodyRowRefs={visualBodyRowRefs}
                 primaryCollisionRowRef={primaryCollisionRowRef}
                 collisionBodyRowRefs={collisionBodyRowRefs}
                 geometryRowIndentPx={geometryRowIndentPx}
+                hasPrimaryVisual={hasPrimaryVisual}
+                visibleVisualBodies={visibleVisualBodies}
                 hasPrimaryCollision={hasPrimaryCollision}
                 visibleCollisionBodies={visibleCollisionBodies}
                 isLinkSelected={isLinkSelected}
@@ -619,9 +703,11 @@ export const TreeNode = memo(
                 onClearHover={clearHover}
                 onOpenContextMenu={openContextMenu}
                 onSelectVisual={handleSelectVisual}
+                onSelectVisualBody={handleSelectVisualBody}
                 onSelectPrimaryCollision={handleSelectPrimaryCollision}
                 onSelectCollisionBody={handleSelectCollisionBody}
                 onToggleVisualVisibility={toggleVisualVisibility}
+                onToggleVisualBodyVisibility={toggleVisualBodyVisibility}
                 onTogglePrimaryCollisionVisibility={togglePrimaryCollisionVisibility}
                 onToggleCollisionBodyVisibility={toggleCollisionBodyVisibility}
                 readOnly={readOnly}
@@ -660,7 +746,7 @@ export const TreeNode = memo(
                     robot={storeDriven ? undefined : robot}
                     showGeometryDetailsByDefault={showGeometryDetailsByDefault}
                     childJointsByParent={storeDriven ? undefined : childJointsByParent}
-                    selectionBranchLinkIds={storeDriven ? undefined : selectionBranchLinkIds}
+                    selectionBranchLinkIds={selectionBranchLinkIds}
                     onSelect={onSelect}
                     onSelectGeometry={onSelectGeometry}
                     onFocus={onFocus}

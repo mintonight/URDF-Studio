@@ -142,10 +142,13 @@ export function resolveVisualMaterialOverrideFromGeometry(
   };
 }
 
+export type VisualMaterialOverrideCache = Map<string, THREE.MeshStandardMaterial>;
+
 export function applyVisualMaterialOverrideToObject(
   object: THREE.Object3D,
   override: VisualMaterialOverride | null | undefined,
   manager?: THREE.LoadingManager,
+  cache?: VisualMaterialOverrideCache,
 ): void {
   const colorOverride = normalizeMaterialValue(override?.color);
   const texturePath = normalizeMaterialValue(override?.texture);
@@ -177,6 +180,21 @@ export function applyVisualMaterialOverrideToObject(
     return;
   }
 
+  // Cache shares materials across multiple calls within the same robot load
+  // when both the override and the relevant source-material properties match.
+  // MJCF documents like menagerie's anymal_b dispatch one override per <geom>;
+  // before sharing, anymal_b allocated 138 MeshStandardMaterials for the 10
+  // distinct named materials, and the cost compounded on every assembly add.
+  const hasExplicitOverrideColor = Boolean(parsedColor);
+  const cacheKeyBase =
+    cache && (hasExplicitOverrideColor || texturePath)
+      ? `${nextColor ? nextColor.getHexString() : ''}|tx=${texturePath || ''}|op=${
+          nextOpacity ?? 'src'
+        }|rg=${roughnessOverride ?? 'src'}|mt=${metalnessOverride ?? 'src'}|em=${
+          nextEmissive ? nextEmissive.getHexString() : ''
+        }|ei=${emissiveIntensityOverride ?? 'src'}|at=${alphaTestOverride ?? 'src'}`
+      : null;
+
   object.traverse((child) => {
     if (!(child as THREE.Mesh).isMesh) {
       return;
@@ -185,11 +203,26 @@ export function applyVisualMaterialOverrideToObject(
     const mesh = child as THREE.Mesh;
     const currentMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     const nextMaterials = currentMaterials.map((material) => {
+      const sourceSide = material.side;
+      const sourceTransparent = material.transparent || (nextOpacity ?? 1) < 1;
+      const sourceMapKey = texturePath ? 'override' : (material as any).map?.uuid || 'none';
+      const fullCacheKey =
+        cacheKeyBase && cache
+          ? `${cacheKeyBase}|side=${sourceSide}|tr=${sourceTransparent ? 1 : 0}|src=${sourceMapKey}|nm=${material.name || ''}`
+          : null;
+
+      if (fullCacheKey) {
+        const cached = cache!.get(fullCacheKey);
+        if (cached) {
+          return cached;
+        }
+      }
+
       const nextMaterial = createMatteMaterial({
         color: nextColor ?? ((material as any).color?.clone?.() || '#ffffff'),
         opacity: nextOpacity ?? material.opacity ?? 1,
-        transparent: material.transparent || (nextOpacity ?? 1) < 1,
-        side: material.side,
+        transparent: sourceTransparent,
+        side: sourceSide,
         map: texturePath ? null : (material as any).map || null,
         roughness: roughnessOverride,
         metalness: metalnessOverride,
@@ -234,6 +267,10 @@ export function applyVisualMaterialOverrideToObject(
       if (emissiveIntensityOverride !== undefined) {
         nextMaterial.userData.urdfEmissiveIntensityApplied = true;
         nextMaterial.userData.urdfEmissiveIntensity = emissiveIntensityOverride;
+      }
+
+      if (fullCacheKey && cache) {
+        cache.set(fullCacheKey, nextMaterial);
       }
 
       return nextMaterial;

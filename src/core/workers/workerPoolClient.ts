@@ -69,7 +69,7 @@ export interface WorkerPoolClient<Result> {
   readonly unavailable: boolean;
   /** Whether workers can be used in this environment */
   readonly canUseWorker: boolean;
-  /** Ensure workers are initialized and pick the least-loaded one */
+  /** Ensure a worker is initialized and pick the least-loaded one */
   ensureWorker(): WorkerPoolEntry;
   /** Dispatch a request to the worker pool and return a promise for the result */
   dispatch(
@@ -102,7 +102,7 @@ export function resolveDefaultWorkerCount(): number {
   }
 
   const hardwareConcurrency = Number(navigator.hardwareConcurrency || 2);
-  return Math.max(1, Math.min(10, Math.floor(hardwareConcurrency / 2)));
+  return Math.max(1, Math.min(10, hardwareConcurrency - 1));
 }
 
 // ---- Factory ----
@@ -202,18 +202,27 @@ export function createWorkerPoolClient<Response, Result, Progress = unknown>(
     disposePool(workerError);
   }
 
-  function ensureWorker(): WorkerPoolEntry {
-    if (workerPool.length > 0) return pickLeastLoaded();
+  function createWorkerEntry(): WorkerPoolEntry {
+    const worker = createWorker();
+    worker.addEventListener('message', handleWorkerMessage as EventListener);
+    worker.addEventListener('error', handleWorkerError as EventListener);
+    const entry = { worker, pendingCount: 0 };
+    workerPool.push(entry);
+    return entry;
+  }
 
-    const count = Math.max(1, resolvePoolSize());
-    for (let i = 0; i < count; i += 1) {
-      const worker = createWorker();
-      worker.addEventListener('message', handleWorkerMessage as EventListener);
-      worker.addEventListener('error', handleWorkerError as EventListener);
-      workerPool.push({ worker, pendingCount: 0 });
+  function ensureWorker(): WorkerPoolEntry {
+    if (workerPool.length === 0) {
+      return createWorkerEntry();
     }
 
-    return workerPool[0];
+    const best = pickLeastLoaded();
+    const count = Math.max(1, resolvePoolSize());
+    if (best.pendingCount > 0 && workerPool.length < count) {
+      return createWorkerEntry();
+    }
+
+    return best;
   }
 
   function pickLeastLoaded(): WorkerPoolEntry {

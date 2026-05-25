@@ -59,6 +59,7 @@ export interface MJCFModelJoint {
   damping?: number;
   frictionloss?: number;
   armature?: number;
+  stiffness?: number;
   actuatorForceRange?: [number, number];
   actuatorForceLimited?: boolean;
 }
@@ -342,6 +343,13 @@ function parseJointElement(
     const parsedFriction = parseFloat(jointAttrs.frictionloss);
     if (Number.isFinite(parsedFriction)) {
       joint.frictionloss = parsedFriction;
+    }
+  }
+
+  if (jointAttrs.stiffness != null && jointAttrs.stiffness !== '') {
+    const parsedStiffness = parseFloat(jointAttrs.stiffness);
+    if (Number.isFinite(parsedStiffness)) {
+      joint.stiffness = parsedStiffness;
     }
   }
 

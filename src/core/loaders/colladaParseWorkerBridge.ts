@@ -26,9 +26,11 @@ interface ColladaParseWorkerPoolClient {
   clearCache: () => void;
   dispose: (rejectPendingWith?: unknown) => void;
   load: (assetUrl: string, manager: THREE.LoadingManager) => Promise<THREE.Object3D>;
+  loadSerialized: (assetUrl: string) => Promise<SerializedColladaSceneData>;
 }
 
-const DEFAULT_CACHE_LIMIT = 24;
+const DEFAULT_CACHE_LIMIT = 300;
+const FAILURE_CACHE_LIMIT = 200;
 
 export function createColladaParseWorkerPoolClient({
   cacheLimit = DEFAULT_CACHE_LIMIT,
@@ -50,16 +52,29 @@ export function createColladaParseWorkerPoolClient({
   });
 
   const pendingLoads = new Map<string, Promise<SerializedColladaSceneData>>();
+  const failureCache = new Map<string, unknown>();
 
-  const load = async (assetUrl: string, manager: THREE.LoadingManager): Promise<THREE.Object3D> => {
+  const rememberFailure = (assetUrl: string, error: unknown): void => {
+    if (failureCache.size >= FAILURE_CACHE_LIMIT) {
+      const oldestKey = failureCache.keys().next().value;
+      if (oldestKey !== undefined) failureCache.delete(oldestKey);
+    }
+    failureCache.set(assetUrl, error);
+  };
+
+  const loadSerialized = async (assetUrl: string): Promise<SerializedColladaSceneData> => {
     const cachedResult = client.getCached(assetUrl);
     if (cachedResult) {
-      return createSceneFromSerializedColladaData(cachedResult, { manager });
+      return cachedResult;
+    }
+
+    if (failureCache.has(assetUrl)) {
+      throw failureCache.get(assetUrl);
     }
 
     const pendingLoad = pendingLoads.get(assetUrl);
     if (pendingLoad) {
-      return createSceneFromSerializedColladaData(await pendingLoad, { manager });
+      return await pendingLoad;
     }
 
     const nextLoad = client
@@ -68,18 +83,31 @@ export function createColladaParseWorkerPoolClient({
         client.setCached(assetUrl, workerResult);
         return workerResult;
       })
+      .catch((error) => {
+        rememberFailure(assetUrl, error);
+        throw error;
+      })
       .finally(() => {
         pendingLoads.delete(assetUrl);
       });
 
     pendingLoads.set(assetUrl, nextLoad);
-    return createSceneFromSerializedColladaData(await nextLoad, { manager });
+    return await nextLoad;
+  };
+
+  const load = async (assetUrl: string, manager: THREE.LoadingManager): Promise<THREE.Object3D> => {
+    const serializedScene = await loadSerialized(assetUrl);
+    return createSceneFromSerializedColladaData(serializedScene, { manager });
   };
 
   return {
-    clearCache: () => client.clearCache(),
+    clearCache: () => {
+      client.clearCache();
+      failureCache.clear();
+    },
     dispose: (rejectPendingWith) => client.dispose(rejectPendingWith),
     load,
+    loadSerialized,
   };
 }
 
@@ -90,6 +118,12 @@ export async function loadColladaScene(
   manager: THREE.LoadingManager,
 ): Promise<THREE.Object3D> {
   return await sharedColladaParseWorkerPoolClient.load(assetUrl, manager);
+}
+
+export async function loadSerializedColladaSceneData(
+  assetUrl: string,
+): Promise<SerializedColladaSceneData> {
+  return await sharedColladaParseWorkerPoolClient.loadSerialized(assetUrl);
 }
 
 export function clearColladaParseWorkerPoolClientCache(): void {

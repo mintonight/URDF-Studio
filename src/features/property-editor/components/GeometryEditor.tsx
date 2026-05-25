@@ -418,7 +418,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
   const meshFiles = useMemo(
     () =>
       Object.keys(assets)
-        .filter((filePath) => /\.(stl|obj|dae|gltf|glb)$/i.test(filePath))
+        .filter((filePath) => /\.(stl|msh|obj|dae|gltf|glb|ply|vtk)$/i.test(filePath))
         .sort((left, right) => left.localeCompare(right)),
     [assets],
   );
@@ -1196,7 +1196,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
                 type="file"
                 ref={fileInputRef}
                 className="hidden"
-                accept=".stl,.STL,.obj,.OBJ,.dae,.DAE,.gltf,.GLTF,.glb,.GLB"
+                accept=".stl,.STL,.msh,.MSH,.obj,.OBJ,.dae,.DAE,.gltf,.GLTF,.glb,.GLB,.ply,.PLY,.vtk,.VTK"
                 onChange={handleFileChange}
               />
               <button

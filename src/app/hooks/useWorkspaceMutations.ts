@@ -9,6 +9,7 @@ import {
   generateJointId,
   generateLinkId,
   getCollisionGeometryEntries,
+  resolveClosedLoopDrivenJointMotion,
   resolveClosedLoopJointOriginCompensationDetailed,
   resolveJointKey,
   resolveLinkKey,
@@ -17,10 +18,14 @@ import {
 import { cloneAssemblyTransform } from '@/core/robot/assemblyTransforms';
 import { useAssemblyStore, useRobotStore } from '@/store';
 import type { PendingCollisionTransform } from '@/store/collisionTransformStore';
+import type { ViewerJointChangeContext } from '@/features/urdf-viewer/types';
 import type {
   AssemblyState,
   AssemblyTransform,
+  JointQuaternion,
   RobotData,
+  RobotMjcfInspectionTendonSummary,
+  RobotMjcfTendonVisualizationUpdate,
   UrdfJoint,
   UrdfLink,
   UrdfOrigin,
@@ -55,8 +60,20 @@ interface UseWorkspaceMutationsParams {
     updates: Partial<UrdfJoint>,
     options?: { skipHistory?: boolean; label?: string },
   ) => void;
+  updateMjcfTendon: (
+    tendonName: string,
+    updates: RobotMjcfTendonVisualizationUpdate,
+    options?: { skipHistory?: boolean; label?: string },
+  ) => void;
   setAllLinksVisibility: (visible: boolean) => void;
   setJointAngle: (jointName: string, angle: number) => void;
+  applyJointKinematicOverrides: (
+    overrides: {
+      angles?: Record<string, number>;
+      quaternions?: Record<string, JointQuaternion>;
+    },
+    options?: { skipHistory?: boolean; historyLabel?: string },
+  ) => void;
   updateComponentName: (
     componentId: string,
     name: string,
@@ -126,6 +143,59 @@ interface UseWorkspaceMutationsParams {
   handleTransformPendingChange: (pending: boolean) => void;
 }
 
+interface ResolvedViewerJointChangeContext {
+  angles: Record<string, number>;
+  quaternions: Record<string, JointQuaternion>;
+}
+
+function resolveViewerJointChangeContext(
+  joints: Record<string, UrdfJoint>,
+  jointName: string,
+  angle: number,
+  context?: ViewerJointChangeContext,
+): ResolvedViewerJointChangeContext | null {
+  if (!context) {
+    return null;
+  }
+
+  const jointId = resolveJointKey(joints, jointName);
+  const angles: Record<string, number> = {};
+  const quaternions: Record<string, JointQuaternion> = {};
+
+  Object.entries(context.jointAngles ?? {}).forEach(([jointNameOrId, nextAngle]) => {
+    if (!Number.isFinite(nextAngle)) {
+      return;
+    }
+
+    const resolvedJointId = resolveJointKey(joints, jointNameOrId);
+    if (resolvedJointId) {
+      angles[resolvedJointId] = nextAngle;
+    }
+  });
+
+  Object.entries(context.jointQuaternions ?? {}).forEach(([jointNameOrId, quaternion]) => {
+    const resolvedJointId = resolveJointKey(joints, jointNameOrId);
+    if (resolvedJointId) {
+      quaternions[resolvedJointId] = quaternion;
+    }
+  });
+
+  if (
+    jointId &&
+    Number.isFinite(angle) &&
+    (Object.keys(angles).length > 0 || Object.keys(quaternions).length > 0) &&
+    !Object.hasOwn(angles, jointId)
+  ) {
+    angles[jointId] = angle;
+  }
+
+  if (Object.keys(angles).length === 0 && Object.keys(quaternions).length === 0) {
+    return null;
+  }
+
+  return { angles, quaternions };
+}
+
 export function useWorkspaceMutations({
   assemblyState,
   robotLinks,
@@ -135,8 +205,10 @@ export function useWorkspaceMutations({
   deleteSubtree,
   updateLink,
   updateJoint,
+  updateMjcfTendon,
   setAllLinksVisibility,
   setJointAngle,
+  applyJointKinematicOverrides,
   updateComponentName,
   updateComponentTransform,
   updateComponentRobot,
@@ -197,6 +269,41 @@ export function useWorkspaceMutations({
     [assemblyState, setName],
   );
 
+  // Joint commit in multi-component assembly mode used to call
+  // updateComponentRobot synchronously, which ran the full immer produce +
+  // patch capture path and bumped `assemblyState` reference. That cascade
+  // forced AppLayout/App.tsx subscribers to rerender and invalidated the
+  // mergeAssembly useMemo in `useWorkspaceSourceSync`, costing a ~180ms
+  // React long task on multi-component scenes.
+  //
+  // We now route joint-motion writes through `setComponentJointMotion` —
+  // an explicit fast path on `assemblyStore` that mutates
+  // `assemblyState.components[id].robot.joints[*].angle/quaternion` in
+  // place. It bumps a dedicated `assemblyJointMotionRevision` field but
+  // does NOT change the `assemblyState` object identity, so React
+  // subscribers selecting `assemblyState` (via `useShallow`) stay quiet,
+  // and the `useMemo([..., visibleAssemblyStateForViewerDisplay])` chain in
+  // `useWorkspaceSourceSync` keeps its cached mergeAssembly output. Export
+  // / save / AI inspection paths still see the latest angles because they
+  // traverse the live `assemblyState` (or `getMergedRobotData()`, whose
+  // cache also invalidates on the motion revision).
+  const scheduleAssemblyComponentJointSync = useCallback(
+    (componentId: string, nextJoints: Record<string, UrdfJoint>) => {
+      const angles: Record<string, number> = {};
+      const quaternions: Record<string, JointQuaternion> = {};
+      for (const [jointId, joint] of Object.entries(nextJoints)) {
+        if (typeof joint.angle === 'number' && Number.isFinite(joint.angle)) {
+          angles[jointId] = joint.angle;
+        }
+        if (joint.quaternion) {
+          quaternions[jointId] = joint.quaternion;
+        }
+      }
+      useAssemblyStore.getState().setComponentJointMotion(componentId, angles, quaternions);
+    },
+    [],
+  );
+
   const renameComponentRootWithDefaults = useCallback(
     (
       componentId: string,
@@ -229,19 +336,46 @@ export function useWorkspaceMutations({
 
   const applyUpdate = useCallback(
     (
-      type: 'link' | 'joint',
+      type: 'link' | 'joint' | 'tendon',
       id: string,
-      data: UrdfLink | UrdfJoint,
+      data: UrdfLink | UrdfJoint | RobotMjcfInspectionTendonSummary,
       options: UpdateCommitOptions = {},
     ) => {
       const commitMode = options.commitMode ?? 'debounced';
+      if (type === 'tendon') {
+        const tendonUpdates = data as RobotMjcfInspectionTendonSummary;
+        const historyKey = options.historyKey ?? `robot:tendon:${id}`;
+        const historyLabel = options.historyLabel ?? 'Update tendon';
+
+        ensurePendingRobotHistory(historyKey, historyLabel);
+        updateMjcfTendon(
+          id,
+          {
+            rgba: tendonUpdates.rgba,
+            width: tendonUpdates.width,
+          },
+          {
+            skipHistory: true,
+            label: historyLabel,
+          },
+        );
+
+        if (commitMode === 'immediate') {
+          commitPendingRobotHistory(historyKey);
+        } else if (commitMode !== 'manual') {
+          schedulePendingRobotHistoryCommit(historyKey, options.debounceMs);
+        }
+        return;
+      }
+
       const latestAssemblyState = useAssemblyStore.getState().assemblyState;
+      const robotEntityData = data as UrdfLink | UrdfJoint;
 
       if (latestAssemblyState) {
         const handled = applyAssemblyUpdate({
           type,
           id,
-          data,
+          data: robotEntityData,
           options,
           latestAssemblyState,
           commitPendingAssemblyHistory,
@@ -457,11 +591,16 @@ export function useWorkspaceMutations({
       updateComponentRobot,
       updateJoint,
       updateLink,
+      updateMjcfTendon,
     ],
   );
 
   const handleUpdate = useCallback(
-    (type: 'link' | 'joint', id: string, data: UrdfLink | UrdfJoint) => {
+    (
+      type: 'link' | 'joint' | 'tendon',
+      id: string,
+      data: UrdfLink | UrdfJoint | RobotMjcfInspectionTendonSummary,
+    ) => {
       applyUpdate(type, id, data, { commitMode: 'debounced' });
     },
     [applyUpdate],
@@ -974,10 +1113,96 @@ export function useWorkspaceMutations({
   );
 
   const handleJointChange = useCallback(
-    (jointName: string, angle: number) => {
+    (jointName: string, angle: number, context?: ViewerJointChangeContext) => {
+      const latestAssemblyState = useAssemblyStore.getState().assemblyState;
+      if (latestAssemblyState) {
+        for (const component of Object.values(latestAssemblyState.components)) {
+          const jointId = resolveJointKey(component.robot.joints, jointName);
+          if (!jointId) {
+            continue;
+          }
+
+          const contextMotion = resolveViewerJointChangeContext(
+            component.robot.joints,
+            jointName,
+            angle,
+            context,
+          );
+          if (contextMotion) {
+            const nextJoints = { ...component.robot.joints };
+
+            Object.entries(contextMotion.angles).forEach(([resolvedJointId, resolvedAngle]) => {
+              const joint = nextJoints[resolvedJointId];
+              if (joint) {
+                nextJoints[resolvedJointId] = {
+                  ...joint,
+                  angle: resolvedAngle,
+                };
+              }
+            });
+
+            Object.entries(contextMotion.quaternions).forEach(([resolvedJointId, quaternion]) => {
+              const joint = nextJoints[resolvedJointId];
+              if (joint) {
+                nextJoints[resolvedJointId] = {
+                  ...joint,
+                  quaternion,
+                };
+              }
+            });
+
+            scheduleAssemblyComponentJointSync(component.id, nextJoints);
+            return;
+          }
+
+          const solution = resolveClosedLoopDrivenJointMotion(component.robot, jointId, angle);
+          const nextJoints = { ...component.robot.joints };
+
+          Object.entries(solution.angles).forEach(([resolvedJointId, resolvedAngle]) => {
+            const joint = nextJoints[resolvedJointId];
+            if (joint) {
+              nextJoints[resolvedJointId] = {
+                ...joint,
+                angle: resolvedAngle,
+              };
+            }
+          });
+
+          Object.entries(solution.quaternions).forEach(([resolvedJointId, quaternion]) => {
+            const joint = nextJoints[resolvedJointId];
+            if (joint) {
+              nextJoints[resolvedJointId] = {
+                ...joint,
+                quaternion,
+              };
+            }
+          });
+
+          scheduleAssemblyComponentJointSync(component.id, nextJoints);
+          return;
+        }
+      }
+
+      const contextMotion = resolveViewerJointChangeContext(
+        useRobotStore.getState().joints,
+        jointName,
+        angle,
+        context,
+      );
+      if (contextMotion) {
+        applyJointKinematicOverrides(
+          {
+            angles: contextMotion.angles,
+            quaternions: contextMotion.quaternions,
+          },
+          { skipHistory: true, historyLabel: 'Update joint angle' },
+        );
+        return;
+      }
+
       setJointAngle(jointName, angle);
     },
-    [setJointAngle],
+    [applyJointKinematicOverrides, scheduleAssemblyComponentJointSync, setJointAngle],
   );
 
   return {

@@ -126,7 +126,9 @@ export async function loadUsdStage(args) {
         || normalizedPathForDependencyDefaults.includes("/robots/");
     const includeSensorDependency = parseBooleanFlag(params.get("includeSensorDependency"), skipSensorPayloadsOnOpen ? false : defaultIncludeSensorDependency);
     const warmupRuntimeBridge = parseBooleanFlag(params.get("warmupRuntimeBridge"), !nonBlockingLoad);
-    const warmupRuntimeBridgeBeforeDraw = false;
+    const robotSceneSnapshotBeforeDraw = parseBooleanFlag(params.get("robotSceneSnapshotBeforeDraw"), false);
+    const skipHydraFullDrawForRobotSceneSnapshot = parseBooleanFlag(params.get("skipHydraFullDrawForRobotSceneSnapshot"), false);
+    const warmupRuntimeBridgeBeforeDraw = robotSceneSnapshotBeforeDraw;
     const warmupRobotMetadata = true;
     const resolveRobotMetadataBeforeReady = parseBooleanFlag(params.get("resolveRobotMetadataBeforeReady"), !nonBlockingLoad);
     const requireCompleteRobotMetadata = parseBooleanFlag(params.get("requireCompleteRobotMetadata"), !nonBlockingLoad);
@@ -215,6 +217,8 @@ export async function loadUsdStage(args) {
         : Date.now();
     const profileMarks = [];
     const callbackProfileByName = new Map();
+    let driver = null;
+    let lastRuntimeBridgeWarmupSummary = null;
     const profileNow = () => ((typeof performance !== "undefined" && typeof performance.now === "function")
         ? performance.now()
         : Date.now());
@@ -241,6 +245,66 @@ export async function loadUsdStage(args) {
         if (!profileLoad)
             return;
         markLoadPhase(`end:${status}`);
+        const summarizeProfileObject = (value) => {
+            if (!value || typeof value !== "object")
+                return null;
+            try {
+                return Object.fromEntries(Object.entries(value));
+            }
+            catch {
+                return null;
+            }
+        };
+        const callbackProfile = Array.from(callbackProfileByName.entries())
+            .map(([name, sample]) => ({
+            name,
+            count: Number(sample.count || 0),
+            totalMs: Math.round(Number(sample.totalMs || 0) * 10) / 10,
+            maxMs: Math.round(Number(sample.maxMs || 0) * 10) / 10,
+        }))
+            .sort((left, right) => right.totalMs - left.totalMs)
+            .slice(0, 64);
+        let driverInitProfile = null;
+        let robotSceneSnapshotProfile = null;
+        try {
+            driverInitProfile = typeof driver?.GetLastInitProfile === "function"
+                ? summarizeProfileObject(driver.GetLastInitProfile())
+                : null;
+        }
+        catch {
+            driverInitProfile = null;
+        }
+        try {
+            robotSceneSnapshotProfile = typeof driver?.GetLastRobotSceneSnapshotProfile === "function"
+                ? summarizeProfileObject(driver.GetLastRobotSceneSnapshotProfile())
+                : null;
+        }
+        catch {
+            robotSceneSnapshotProfile = null;
+        }
+        try {
+            const loadProfile = {
+                status,
+                normalizedPath: typeof normalizedPath === "string" ? normalizedPath : null,
+                totalMs: Math.round((profileNow() - profileStartTime) * 10) / 10,
+                marks: profileMarks.slice(),
+                callbackProfile,
+                driverInitProfile,
+                robotSceneSnapshotProfile,
+                runtimeBridgeWarmupSummary: lastRuntimeBridgeWarmupSummary
+                    ? { ...lastRuntimeBridgeWarmupSummary }
+                    : null,
+                hydraPhaseProfile: window.renderInterface?.getHydraPhasePerfSnapshot?.() || null,
+                meshStats: getMeshLoadStats(window.renderInterface),
+            };
+            window.__usdLoadProfile = loadProfile;
+            if (state && typeof state === "object") {
+                state.usdLoadProfile = loadProfile;
+            }
+        }
+        catch {
+            // Keep profiling best-effort; load completion must not depend on diagnostics.
+        }
     };
     let eagerRenderCount = 0;
     const runEagerRender = (_phaseLabel, options = {}) => {
@@ -637,7 +701,6 @@ export async function loadUsdStage(args) {
     });
     setMessage("Initializing USD driver...");
     window.usdStage = null;
-    let driver = null;
     const renderInterface = (window.renderInterface = new ThreeRenderDelegateInterface({
         usdRoot: window.usdRoot,
         paths: [],
@@ -771,6 +834,12 @@ export async function loadUsdStage(args) {
         }
     }
     catch { }
+    try {
+        if (typeof driver.SetPreferDirectStageRobotSceneSnapshot === "function") {
+            driver.SetPreferDirectStageRobotSceneSnapshot(!!skipHydraFullDrawForRobotSceneSnapshot);
+        }
+    }
+    catch { }
     state.driver = window.driver = driver;
     if (yieldDuringLoad) {
         await yieldToMainThread();
@@ -795,6 +864,9 @@ export async function loadUsdStage(args) {
             });
             if (summary && typeof summary === "object") {
                 lastRuntimeBridgeWarmupSummary = summary;
+                if (state && typeof state === "object") {
+                    state.runtimeBridgeWarmupSummary = { ...summary };
+                }
                 markLoadPhase(`runtime-bridge-warmup-${phaseLabel}`);
             }
             return summary && typeof summary === "object" ? summary : null;
@@ -804,7 +876,6 @@ export async function loadUsdStage(args) {
             return null;
         }
     };
-    let lastRuntimeBridgeWarmupSummary = null;
     const getRuntimeBridgeWarmupWarningMessage = (summary) => {
         if (!summary || typeof summary !== "object") {
             return null;
@@ -1156,6 +1227,74 @@ export async function loadUsdStage(args) {
         rebuildLinkAxes();
         setMessage("This USD config contains no renderable meshes (sensor/robot metadata only).");
         setProgress(100, true);
+        hideProgress();
+        flushLoadProfile("ok");
+        return state;
+    }
+    const preDrawRuntimeBridgeWarmupSummary = robotSceneSnapshotBeforeDraw
+        ? runRuntimeBridgeWarmup("pre-draw", { force: true })
+        : null;
+    const canCompleteFromRobotSceneSnapshotOnly = (() => {
+        if (!skipHydraFullDrawForRobotSceneSnapshot) {
+            return false;
+        }
+        if (!hasRuntimeBridgeCompletedProtoHydration(preDrawRuntimeBridgeWarmupSummary)) {
+            return false;
+        }
+        const meshDescriptorCount = Number(preDrawRuntimeBridgeWarmupSummary?.meshDescriptorCount || 0);
+        return Number.isFinite(meshDescriptorCount) && meshDescriptorCount > 0;
+    })();
+    if (canCompleteFromRobotSceneSnapshotOnly) {
+        state.robotSceneSnapshotOnly = true;
+        state.drawSkippedForRobotSceneSnapshot = true;
+        markLoadPhase("robot-scene-snapshot-before-draw-ready");
+        window.usdStage = null;
+        const { cachedSceneStageSnapshot } = syncStageAxisAlignment();
+        state.timeout = 40;
+        state.endTimeCode = 0;
+        if (cachedSceneStageSnapshot) {
+            const stageEndTimeCode = Number(cachedSceneStageSnapshot.endTimeCode || 0);
+            const stageTimeCodesPerSecond = Number(cachedSceneStageSnapshot.timeCodesPerSecond || 0);
+            state.endTimeCode = Number.isFinite(stageEndTimeCode) && stageEndTimeCode > 0 ? stageEndTimeCode : 0;
+            state.timeout = Number.isFinite(stageTimeCodesPerSecond) && stageTimeCodesPerSecond > 0 ? 1000 / stageTimeCodesPerSecond : 40;
+        }
+        emitProgress({
+            phase: "resolving-metadata",
+            loadedCount: null,
+            totalCount: null,
+        });
+        setMessage("Resolving robot scene snapshot...");
+        setProgress(92);
+        try {
+            await ensureRobotMetadataReadyBeforeInteractive();
+        }
+        catch (error) {
+            console.error("[usd-loader] Failed to resolve robot metadata before snapshot readiness.", error);
+            setMessage(error instanceof Error && error.message
+                ? error.message
+                : "Failed to resolve robot metadata before snapshot readiness.");
+            state.ready = false;
+            state.drawFailed = true;
+            state.drawFailureReason = "robot-metadata-failed";
+            hideProgress();
+            flushLoadProfile("error");
+            return state;
+        }
+        if (!isLoadStillActive())
+            return state;
+        applyMeshFilters();
+        if (!ensureNoPendingMeshHydrationBeforeReady()) {
+            return state;
+        }
+        state.ready = true;
+        setProgress(100, true);
+        emitProgress({
+            phase: "ready",
+            progressMode: "percent",
+            progressPercent: 100,
+            loadedCount: null,
+            totalCount: null,
+        });
         hideProgress();
         flushLoadProfile("ok");
         return state;

@@ -34,6 +34,12 @@ type Pose = {
   rpy: { r: number; p: number; y: number };
 };
 
+type SdfMaterialState = {
+  color?: string;
+  colorRgba?: [number, number, number, number];
+  texture?: string;
+};
+
 const AXIS_EXPORT_TYPES = new Set<JointType>([
   JointType.REVOLUTE,
   JointType.CONTINUOUS,
@@ -124,47 +130,56 @@ function hexToRgba(hex?: string): string | null {
   return `${r} ${g} ${b} ${a}`;
 }
 
+function colorRgbaToSdfText(colorRgba?: [number, number, number, number]): string | null {
+  if (
+    !Array.isArray(colorRgba) ||
+    colorRgba.length !== 4 ||
+    !colorRgba.every((value) => Number.isFinite(value))
+  ) {
+    return null;
+  }
+
+  return colorRgba
+    .map((value) => Math.min(1, Math.max(0, Number(value))).toFixed(8))
+    .join(' ');
+}
+
 function resolveVisualMaterialState(
   robot: RobotState,
   link: UrdfLink,
   visual: UrdfVisual,
   isPrimaryVisual: boolean,
-): { color?: string; texture?: string } {
+): SdfMaterialState {
   const resolvedMaterial = resolveVisualMaterialOverride(robot, link, visual, {
     isPrimaryVisual,
   });
 
-  if (resolvedMaterial.source === 'authored') {
+  if (resolvedMaterial.source === 'authored' || resolvedMaterial.source === 'legacy-link') {
+    const colorRgba = resolvedMaterial.colorRgba;
+    const texture = resolvedMaterial.texture;
     return {
       color:
         resolvedMaterial.color ||
-        (resolvedMaterial.texture ? '#ffffff' : undefined) ||
-        visual.color ||
+        (colorRgba ? undefined : texture ? '#ffffff' : undefined) ||
+        (colorRgba ? undefined : visual.color) ||
         undefined,
-      texture: resolvedMaterial.texture,
-    };
-  }
-
-  if (resolvedMaterial.source === 'legacy-link') {
-    return {
-      color:
-        resolvedMaterial.color ||
-        (resolvedMaterial.texture ? '#ffffff' : undefined) ||
-        visual.color ||
-        undefined,
-      texture: resolvedMaterial.texture,
+      colorRgba,
+      texture,
     };
   }
 
   const inlineAuthoredMaterial = visual.authoredMaterials?.find(
-    (material) => material.color || material.texture,
+    (material) => material.color || material.colorRgba || material.texture,
   );
+  const inlineColorRgba = inlineAuthoredMaterial?.colorRgba;
   return {
     color:
-      visual.color ||
       inlineAuthoredMaterial?.color ||
-      (inlineAuthoredMaterial?.texture ? '#ffffff' : undefined) ||
+      (inlineColorRgba
+        ? undefined
+        : visual.color || (inlineAuthoredMaterial?.texture ? '#ffffff' : undefined)) ||
       undefined,
+    colorRgba: inlineColorRgba,
     texture: inlineAuthoredMaterial?.texture,
   };
 }
@@ -362,12 +377,9 @@ function buildTextureUri(texturePath: string, packageName: string): string {
   return `model://${packageName}/textures/${exportPath}`;
 }
 
-function generateMaterialXml(
-  materialState: { color?: string; texture?: string },
-  packageName: string,
-): string {
+function generateMaterialXml(materialState: SdfMaterialState, packageName: string): string {
   const resolvedColor = materialState.color || (materialState.texture ? '#ffffff' : undefined);
-  const rgba = hexToRgba(resolvedColor);
+  const rgba = hexToRgba(resolvedColor) ?? colorRgbaToSdfText(materialState.colorRgba);
   if (!rgba && !materialState.texture) {
     return '';
   }
@@ -459,9 +471,32 @@ function generateInertialXml(link: UrdfLink): string | null {
   return lines.join('\n');
 }
 
-function buildLinkWorldMatrices(robot: RobotState): Map<string, THREE.Matrix4> {
+function buildLinkWorldMatrices(robot: RobotState, useCurrentJointPose = false): Map<string, THREE.Matrix4> {
   const matrices = new Map<string, THREE.Matrix4>();
-  Object.entries(computeLinkWorldMatrices(robot)).forEach(([linkId, matrix]) => {
+  if (useCurrentJointPose) {
+    Object.entries(computeLinkWorldMatrices(robot)).forEach(([linkId, matrix]) => {
+      matrices.set(linkId, matrix.clone());
+    });
+    return matrices;
+  }
+
+  const restAngles = Object.fromEntries(
+    Object.values(robot.joints).map((joint) => [
+      joint.id,
+      Number.isFinite(joint.referencePosition) ? joint.referencePosition! : 0,
+    ]),
+  );
+  const restQuaternions = Object.fromEntries(
+    Object.values(robot.joints)
+      .filter((joint) => joint.type === JointType.BALL)
+      .map((joint) => [joint.id, { x: 0, y: 0, z: 0, w: 1 }]),
+  );
+  Object.entries(
+    computeLinkWorldMatrices(robot, {
+      angles: restAngles,
+      quaternions: restQuaternions,
+    }),
+  ).forEach(([linkId, matrix]) => {
     matrices.set(linkId, matrix.clone());
   });
 
@@ -537,6 +572,12 @@ function createUniqueModelChildName(baseName: string, usedNames: Set<string>): s
   const uniqueName = `${preferredName}_${suffix}`;
   usedNames.add(uniqueName);
   return uniqueName;
+}
+
+function createSafeSdfLinkName(baseName: string, usedNames: Set<string>): string {
+  const normalizedBase = baseName.trim() || 'link';
+  const safeBase = normalizedBase === 'world' ? 'world_link' : normalizedBase;
+  return createUniqueModelChildName(safeBase, usedNames);
 }
 
 function generateJointXml(
@@ -659,9 +700,10 @@ export function generateSDF(robot: RobotState, options: GenerateSDFOptions = {})
   const packageName = (options.packageName || robot.name || 'robot').trim() || 'robot';
   const modelName = (robot.name || packageName).trim() || 'robot';
   const version = options.version || '1.7';
-  const linkMatrices = buildLinkWorldMatrices(robot);
+  const linkMatrices = buildLinkWorldMatrices(robot, (robot.closedLoopConstraints?.length ?? 0) > 0);
   const { omittedJointIds, omittedLinkIds } = resolveSyntheticRootOmissions(robot);
   const usedModelChildNames = new Set<string>();
+  const linkNameById = new Map<string, string>();
 
   const lines = [
     '<?xml version="1.0"?>',
@@ -674,11 +716,12 @@ export function generateSDF(robot: RobotState, options: GenerateSDFOptions = {})
       return;
     }
 
-    usedModelChildNames.add(link.name || link.id);
+    const linkName = createSafeSdfLinkName(link.name || link.id, usedModelChildNames);
+    linkNameById.set(link.id, linkName);
     const linkPose = matrixToPose(
       linkMatrices.get(link.id || link.name) ?? new THREE.Matrix4().identity(),
     );
-    lines.push(`    <link name="${escapeXml(link.name || link.id)}">`);
+    lines.push(`    <link name="${escapeXml(linkName)}">`);
     if (!isIdentityPose(linkPose)) {
       lines.push(`      <pose>${formatPose(linkPose)}</pose>`);
     }
@@ -726,8 +769,8 @@ export function generateSDF(robot: RobotState, options: GenerateSDFOptions = {})
         joint,
         jointName,
         mimicJointResolvedName,
-        robot.links[joint.parentLinkId]?.name,
-        robot.links[joint.childLinkId]?.name,
+        linkNameById.get(joint.parentLinkId) || robot.links[joint.parentLinkId]?.name,
+        linkNameById.get(joint.childLinkId) || robot.links[joint.childLinkId]?.name,
       ),
     );
   });
@@ -739,8 +782,12 @@ export function generateSDF(robot: RobotState, options: GenerateSDFOptions = {})
     const closedLoopXml = generateClosedLoopJointXmlWithName(
       constraint,
       closedLoopName,
-      robot.links[constraint.linkAId]?.name || constraint.linkAId,
-      robot.links[constraint.linkBId]?.name || constraint.linkBId,
+      linkNameById.get(constraint.linkAId) ||
+        robot.links[constraint.linkAId]?.name ||
+        constraint.linkAId,
+      linkNameById.get(constraint.linkBId) ||
+        robot.links[constraint.linkBId]?.name ||
+        constraint.linkBId,
     );
     if (closedLoopXml) {
       lines.push(closedLoopXml);

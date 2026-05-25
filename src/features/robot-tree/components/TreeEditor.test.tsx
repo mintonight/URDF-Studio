@@ -246,6 +246,13 @@ function createAssemblyState(): AssemblyState {
         robot: createRobotState(),
         visible: true,
       },
+      comp_tool: {
+        id: 'comp_tool',
+        name: 'tool_component',
+        sourceFile: 'robots/tool_component.urdf',
+        robot: createRobotState(),
+        visible: true,
+      },
     },
     bridges: {},
   };
@@ -326,11 +333,11 @@ function renderTreeEditor(options: {
   availableFiles: RobotFile[];
   onRequestLoadRobot: (
     file: RobotFile,
-    intent: 'direct' | 'save-draft' | 'discard',
+    intent: 'direct' | 'preview' | 'discard',
   ) =>
-    | Promise<'loaded' | 'needs-draft-confirm' | 'blocked'>
+    | Promise<'loaded' | 'needs-preview-or-discard-confirm' | 'blocked'>
     | 'loaded'
-    | 'needs-draft-confirm'
+    | 'needs-preview-or-discard-confirm'
     | 'blocked';
 }) {
   return act(async () => {
@@ -357,7 +364,7 @@ function renderTreeEditor(options: {
   });
 }
 
-test('TreeEditor asks whether to save a draft before opening another library model', async () => {
+test('TreeEditor asks whether to preview or discard before opening another library model with unsaved edits', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -366,7 +373,7 @@ test('TreeEditor asks whether to save a draft before opening another library mod
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   const targetFile = createRobotFile('robots/arm_b.urdf');
-  const requests: Array<{ fileName: string; intent: 'direct' | 'save-draft' | 'discard' }> = [];
+  const requests: Array<{ fileName: string; intent: 'direct' | 'preview' | 'discard' }> = [];
 
   try {
     await renderTreeEditor({
@@ -374,20 +381,20 @@ test('TreeEditor asks whether to save a draft before opening another library mod
       availableFiles: [targetFile],
       onRequestLoadRobot: async (file, intent) => {
         requests.push({ fileName: file.name, intent });
-        return intent === 'direct' ? 'needs-draft-confirm' : 'loaded';
+        return intent === 'direct' ? 'needs-preview-or-discard-confirm' : 'loaded';
       },
     });
 
     await clickByText(dom, container, 'arm_b.urdf');
 
     const dialog = dom.window.document.querySelector('[role="dialog"][aria-modal="true"]');
-    assert.ok(dialog, 'expected unsaved draft dialog to open');
+    assert.ok(dialog, 'expected unsaved model switch dialog to open');
     assert.equal(
-      dialog.textContent?.includes('Save current edits before opening another model?'),
+      dialog.textContent?.includes('Current model has unsaved edits'),
       true,
     );
 
-    await clickByText(dom, container, 'Discard and open');
+    await clickByText(dom, container, 'Discard and switch');
 
     assert.deepEqual(requests, [
       { fileName: 'robots/arm_b.urdf', intent: 'direct' },
@@ -470,7 +477,7 @@ test('TreeEditor shows and edits the robot name from the structure tree root', a
   }
 });
 
-test('TreeEditor forwards the save-draft decision for pending library switches', async () => {
+test('TreeEditor forwards the preview decision for pending library switches', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -479,7 +486,7 @@ test('TreeEditor forwards the save-draft decision for pending library switches',
   useSelectionStore.setState({ selection: { type: null, id: null } });
 
   const targetFile = createRobotFile('robots/arm_c.urdf');
-  const requests: Array<{ fileName: string; intent: 'direct' | 'save-draft' | 'discard' }> = [];
+  const requests: Array<{ fileName: string; intent: 'direct' | 'preview' | 'discard' }> = [];
 
   try {
     await renderTreeEditor({
@@ -487,16 +494,16 @@ test('TreeEditor forwards the save-draft decision for pending library switches',
       availableFiles: [targetFile],
       onRequestLoadRobot: async (file, intent) => {
         requests.push({ fileName: file.name, intent });
-        return intent === 'direct' ? 'needs-draft-confirm' : 'loaded';
+        return intent === 'direct' ? 'needs-preview-or-discard-confirm' : 'loaded';
       },
     });
 
     await clickByText(dom, container, 'arm_c.urdf');
-    await clickByText(dom, container, 'Save draft and open');
+    await clickByText(dom, container, 'Preview target model');
 
     assert.deepEqual(requests, [
       { fileName: 'robots/arm_c.urdf', intent: 'direct' },
-      { fileName: 'robots/arm_c.urdf', intent: 'save-draft' },
+      { fileName: 'robots/arm_c.urdf', intent: 'preview' },
     ]);
   } finally {
     await act(async () => {
@@ -516,7 +523,7 @@ test('TreeEditor opens robot files as the current model and reserves add for ass
 
   const targetFile = createRobotFile('robots/arm_preview.urdf');
   const previewRequests: string[] = [];
-  const loadRequests: Array<{ fileName: string; intent: 'direct' | 'save-draft' | 'discard' }> = [];
+  const loadRequests: Array<{ fileName: string; intent: 'direct' | 'preview' | 'discard' }> = [];
   const addRequests: string[] = [];
 
   try {
@@ -691,7 +698,7 @@ test('TreeEditor keeps non-robot asset row clicks as previews', async () => {
 
   const targetFile = createMeshFile('assets/poster.png');
   const previewRequests: string[] = [];
-  const loadRequests: Array<{ fileName: string; intent: 'direct' | 'save-draft' | 'discard' }> = [];
+  const loadRequests: Array<{ fileName: string; intent: 'direct' | 'preview' | 'discard' }> = [];
 
   try {
     await act(async () => {

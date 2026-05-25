@@ -48,7 +48,8 @@ export interface UsdRobotStateHydrationWorkerClient {
 
 export interface UsdRobotStateHydrationResult {
   robotData: RobotData;
-  preparedCache: PreparedUsdExportCacheResult;
+  preparedCache: PreparedUsdExportCacheResult | null;
+  preparedCachePending: boolean;
   resolution: ViewerRobotDataResolution;
   bakedScene: UsdBakedScene;
   sceneSnapshot: UsdSceneSnapshot;
@@ -70,7 +71,14 @@ export interface StartUsdRobotStateHydrationOptions {
     snapshot: UsdBakedScene,
     resolution: ViewerRobotDataResolution,
   ) => Promise<PreparedUsdExportCacheResult | null>;
+  resolveBeforePreparedCache?: boolean;
   onDeferredSceneSnapshot?: (snapshot: UsdSceneSnapshot, stageSourcePath: string | null) => void;
+  onPreparedCache?: (
+    cache: PreparedUsdExportCacheResult,
+    resolution: ViewerRobotDataResolution,
+    stageSourcePath: string | null,
+  ) => void;
+  onPreparedCacheError?: (error: Error, stageSourcePath: string | null) => void;
   onEvent?: (event: UsdOffscreenViewerWorkerResponse) => void;
 }
 
@@ -78,6 +86,8 @@ const defaultWorkerClient: UsdRobotStateHydrationWorkerClient = {
   prepareStageOpenDispatch: prepareSharedUsdOffscreenViewerStageOpenDispatch,
   shutdown: disposeUsdOffscreenViewerWorker,
 };
+
+const POST_RESOLVE_WORKER_GRACE_MS = 60_000;
 
 function createDefaultOffscreenCanvas(): OffscreenCanvas {
   if (typeof OffscreenCanvas === 'undefined') {
@@ -126,7 +136,10 @@ export function startUsdRobotStateHydration({
   createCanvas = createDefaultOffscreenCanvas,
   workerClient = defaultWorkerClient,
   prepareExportCache = prepareUsdPreparedExportCacheWithWorker,
+  resolveBeforePreparedCache = false,
   onDeferredSceneSnapshot,
+  onPreparedCache,
+  onPreparedCacheError,
   onEvent,
 }: StartUsdRobotStateHydrationOptions): UsdRobotStateHydrationHandle {
   const normalizedSourceFileName = normalizeHydrationPath(sourceFile.name);
@@ -134,7 +147,10 @@ export function startUsdRobotStateHydration({
   let cleanedUp = false;
   let resolution: ViewerRobotDataResolution | null = null;
   let sceneSnapshot: UsdBakedScene | null = null;
+  let resolvedRobotData: RobotData | null = null;
   let workerPreparedCache: PreparedUsdExportCacheResult | null = null;
+  let preparedCachePending = false;
+  let deferredSceneSnapshotPending = false;
   let rejectPromise: (reason?: unknown) => void = () => {};
   let deferredSceneSnapshotShutdownTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -171,6 +187,32 @@ export function startUsdRobotStateHydration({
     rejectPromise(reason);
   };
 
+  const shouldKeepWorkerAliveAfterResolve = () =>
+    Boolean(
+      (preparedCachePending && onPreparedCache) ||
+        (deferredSceneSnapshotPending && onDeferredSceneSnapshot),
+    );
+
+  const schedulePostResolveShutdown = () => {
+    if (deferredSceneSnapshotShutdownTimer) {
+      clearTimeout(deferredSceneSnapshotShutdownTimer);
+    }
+    deferredSceneSnapshotShutdownTimer = setTimeout(shutdown, POST_RESOLVE_WORKER_GRACE_MS);
+  };
+
+  const maybeShutdownAfterSettled = () => {
+    if (!settled || cleanedUp) {
+      return;
+    }
+
+    if (shouldKeepWorkerAliveAfterResolve()) {
+      schedulePostResolveShutdown();
+      return;
+    }
+
+    shutdown();
+  };
+
   const tryResolve = async (
     resolve: (value: UsdRobotStateHydrationResult) => void,
     reject: (reason?: unknown) => void,
@@ -191,6 +233,33 @@ export function startUsdRobotStateHydration({
         return;
       }
 
+      if (resolveBeforePreparedCache && !workerPreparedCache) {
+        const robotData = resolvedRobotData ?? resolution.robotData;
+        const isPreparedCachePending = preparedCachePending;
+        settled = true;
+        if (shouldKeepWorkerAliveAfterResolve()) {
+          schedulePostResolveShutdown();
+        } else {
+          shutdown();
+        }
+        resolve({
+          robotData,
+          preparedCache: null,
+          preparedCachePending: isPreparedCachePending,
+          resolution: {
+            ...resolution,
+            robotData,
+          },
+          bakedScene: resolvedBakedScene,
+          sceneSnapshot: resolvedBakedScene,
+        });
+        return;
+      }
+
+      if (preparedCachePending && !workerPreparedCache) {
+        return;
+      }
+
       const preparedCache =
         workerPreparedCache ?? (await prepareExportCache(resolvedBakedScene, resolution));
       if (settled) {
@@ -203,18 +272,22 @@ export function startUsdRobotStateHydration({
       }
 
       const shouldWaitForDeferredSceneSnapshot = Boolean(
-        workerPreparedCache && !sceneSnapshot && onDeferredSceneSnapshot,
+        workerPreparedCache &&
+          deferredSceneSnapshotPending &&
+          !sceneSnapshot &&
+          onDeferredSceneSnapshot,
       );
 
       settled = true;
       if (shouldWaitForDeferredSceneSnapshot) {
-        deferredSceneSnapshotShutdownTimer = setTimeout(shutdown, 15_000);
+        schedulePostResolveShutdown();
       } else {
         shutdown();
       }
       resolve({
         robotData: preparedCache.robotData,
         preparedCache,
+        preparedCachePending: false,
         resolution,
         bakedScene: resolvedBakedScene,
         sceneSnapshot: resolvedBakedScene,
@@ -243,12 +316,40 @@ export function startUsdRobotStateHydration({
 
     if (settled) {
       if (
+        message.type === 'progress' ||
+        message.type === 'document-load' ||
+        message.type === 'fatal-error' ||
+        message.type === 'load-debug'
+      ) {
+        onEvent?.(message);
+      }
+
+      if (
         message.type === 'scene-snapshot' &&
         !cleanedUp &&
         isMatchingSceneSnapshot(normalizedSourceFileName, resolution, message.stageSourcePath)
       ) {
+        sceneSnapshot = message.bakedScene ?? message.snapshot;
+        deferredSceneSnapshotPending = false;
         onDeferredSceneSnapshot?.(message.snapshot, message.stageSourcePath);
-        shutdown();
+        maybeShutdownAfterSettled();
+        return;
+      }
+
+      if (
+        message.type === 'prepared-cache' &&
+        !cleanedUp &&
+        isMatchingSceneSnapshot(normalizedSourceFileName, resolution, message.stageSourcePath)
+      ) {
+        preparedCachePending = false;
+        if (message.preparedCache) {
+          const preparedCache = hydratePreparedUsdExportCacheFromWorker(message.preparedCache);
+          workerPreparedCache = preparedCache;
+          onPreparedCache?.(preparedCache, preparedCache.resolution, message.stageSourcePath);
+        } else if (message.error) {
+          onPreparedCacheError?.(new Error(message.error), message.stageSourcePath);
+        }
+        maybeShutdownAfterSettled();
       }
       return;
     }
@@ -273,8 +374,27 @@ export function startUsdRobotStateHydration({
         return;
       }
       resolution = message.resolution;
+      resolvedRobotData = message.robotData ?? message.resolution.robotData;
+      preparedCachePending = message.preparedCachePending === true;
+      deferredSceneSnapshotPending =
+        message.deferredSceneSnapshotPending ?? Boolean(message.preparedCache);
       if (message.preparedCache) {
         workerPreparedCache = hydratePreparedUsdExportCacheFromWorker(message.preparedCache);
+        preparedCachePending = false;
+      }
+      void tryResolve(resolvePromise, rejectPromise);
+      return;
+    }
+
+    if (message.type === 'prepared-cache') {
+      if (!isMatchingSceneSnapshot(normalizedSourceFileName, resolution, message.stageSourcePath)) {
+        return;
+      }
+      preparedCachePending = false;
+      if (message.preparedCache) {
+        workerPreparedCache = hydratePreparedUsdExportCacheFromWorker(message.preparedCache);
+      } else if (message.error) {
+        onPreparedCacheError?.(new Error(message.error), message.stageSourcePath);
       }
       void tryResolve(resolvePromise, rejectPromise);
       return;
@@ -285,6 +405,7 @@ export function startUsdRobotStateHydration({
         return;
       }
       sceneSnapshot = message.bakedScene ?? message.snapshot;
+      deferredSceneSnapshotPending = false;
       void tryResolve(resolvePromise, rejectPromise);
     }
   }

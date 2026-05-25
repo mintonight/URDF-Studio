@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useUIStore } from '@/store';
+import { isIkDragToolEnabled } from '@/shared/utils/ikDragFeatureGate';
 import type { ViewerInteractiveLayer } from '../types';
 import { resolveInteractiveLayerPriority } from '../utils/interactiveLayerPriority';
 
@@ -137,6 +138,7 @@ export function useViewerSettings(): ViewerSettings {
     showCenterOfMass,
     modelOpacity,
   } = viewOptions;
+  const effectiveShowIkHandles = isIkDragToolEnabled() && showIkHandles;
 
   const [activeOverlayLayer, setActiveOverlayLayerState] = useState<ViewerOverlayLayer | null>(() =>
     resolveInitialActiveOverlayLayer(),
@@ -481,7 +483,7 @@ export function useViewerSettings(): ViewerSettings {
     () =>
       resolveInteractiveLayerPriority({
         showVisual: localShowVisual,
-        showIkHandles,
+        showIkHandles: effectiveShowIkHandles,
         showIkHandlesAlwaysOnTop,
         showCollision,
         showCollisionAlwaysOnTop,
@@ -497,8 +499,8 @@ export function useViewerSettings(): ViewerSettings {
       }),
     [
       interactionActivationOrder,
+      effectiveShowIkHandles,
       localShowVisual,
-      showIkHandles,
       showIkHandlesAlwaysOnTop,
       showCenterOfMass,
       showCoMOverlay,
@@ -544,7 +546,7 @@ export function useViewerSettings(): ViewerSettings {
     setShowCollisionAlwaysOnTop: setShowCollisionAlwaysOnTopTracked,
     localShowVisual,
     setLocalShowVisual,
-    showIkHandles,
+    showIkHandles: effectiveShowIkHandles,
     setShowIkHandles,
     showIkHandlesAlwaysOnTop,
     setShowIkHandlesAlwaysOnTop,

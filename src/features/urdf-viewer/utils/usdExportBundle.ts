@@ -10,6 +10,7 @@ import {
   type UrdfJoint,
   type UrdfLink,
   type UrdfVisual,
+  type UrdfVisualMaterial,
   type UsdMeshDescriptorRanges,
   type UsdPreparedExportCache,
   type UsdMeshRange,
@@ -58,6 +59,7 @@ type ExportDescriptor = {
     color: [number, number, number];
   }> | null;
   bakeTransformIntoMesh?: boolean;
+  writeTextureCoordinates?: boolean;
 };
 
 type RobotLike = RobotData | RobotState;
@@ -399,6 +401,62 @@ function normalizeTextureMaterialPath(value: unknown): string | null {
   return normalized || null;
 }
 
+function hasNonEmptyTexturePath(value: unknown): boolean {
+  return Boolean(normalizeTextureMaterialPath(value));
+}
+
+function snapshotMaterialUsesTextureCoordinates(
+  material: SnapshotMaterialRecord | null | undefined,
+): boolean {
+  if (!material || typeof material !== 'object') {
+    return false;
+  }
+
+  return (
+    hasNonEmptyTexturePath(material.mapPath) ||
+    hasNonEmptyTexturePath(material.emissiveMapPath) ||
+    hasNonEmptyTexturePath(material.roughnessMapPath) ||
+    hasNonEmptyTexturePath(material.metalnessMapPath) ||
+    hasNonEmptyTexturePath(material.normalMapPath) ||
+    hasNonEmptyTexturePath(material.aoMapPath) ||
+    hasNonEmptyTexturePath(material.alphaMapPath) ||
+    hasNonEmptyTexturePath(material.clearcoatMapPath) ||
+    hasNonEmptyTexturePath(material.clearcoatRoughnessMapPath) ||
+    hasNonEmptyTexturePath(material.clearcoatNormalMapPath) ||
+    hasNonEmptyTexturePath(material.specularColorMapPath) ||
+    hasNonEmptyTexturePath(material.specularIntensityMapPath) ||
+    hasNonEmptyTexturePath(material.transmissionMapPath) ||
+    hasNonEmptyTexturePath(material.thicknessMapPath) ||
+    hasNonEmptyTexturePath(material.sheenColorMapPath) ||
+    hasNonEmptyTexturePath(material.sheenRoughnessMapPath) ||
+    hasNonEmptyTexturePath(material.anisotropyMapPath) ||
+    hasNonEmptyTexturePath(material.iridescenceMapPath) ||
+    hasNonEmptyTexturePath(material.iridescenceThicknessMapPath)
+  );
+}
+
+function authoredMaterialUsesTextureCoordinates(
+  material: UrdfVisualMaterial | null | undefined,
+): boolean {
+  if (!material) {
+    return false;
+  }
+
+  if (hasNonEmptyTexturePath(material.texture)) {
+    return true;
+  }
+
+  return Array.isArray(material.passes)
+    ? material.passes.some((pass) => hasNonEmptyTexturePath(pass.texture))
+    : false;
+}
+
+function visualUsesTextureCoordinates(visual: UrdfVisual | null | undefined): boolean {
+  return Array.isArray(visual?.authoredMaterials)
+    ? visual.authoredMaterials.some(authoredMaterialUsesTextureCoordinates)
+    : false;
+}
+
 function hasSnapshotMaterialRecordContent(
   material: SnapshotMaterialRecord | null | undefined,
 ): boolean {
@@ -640,6 +698,22 @@ function hasSnapshotBufferValues(value: ArrayLike<number> | null | undefined): b
   }
 
   return typeof value.length === 'number' && Number(value.length) > 0;
+}
+
+function getMeshDescriptorNormalDiagnostics(
+  descriptor: SnapshotMeshDescriptor,
+): SnapshotMeshDescriptor['normalDiagnostics'] {
+  return descriptor.normalDiagnostics || descriptor.geometry?.normalDiagnostics || null;
+}
+
+function hasTrustedSnapshotNormals(descriptor: SnapshotMeshDescriptor): boolean {
+  const diagnostics = getMeshDescriptorNormalDiagnostics(descriptor);
+  if (!diagnostics || typeof diagnostics !== 'object') {
+    return false;
+  }
+
+  const postRepairLowDotCount = Number(diagnostics.postRepairLowDotCount);
+  return Number.isFinite(postRepairLowDotCount) && postRepairLowDotCount === 0;
 }
 
 function formatObjNumber(value: number): string {
@@ -1004,10 +1078,14 @@ function buildObjBlobFromDescriptor(
         : `v ${formatObjNumber(tempVector.x)} ${formatObjNumber(tempVector.y)} ${formatObjNumber(tempVector.z)}`,
     );
   }
+  const shouldWriteTextureCoordinates = descriptor.writeTextureCoordinates === true;
   const uvStride = Math.max(1, Number(ranges?.uvs?.stride || 2));
-  const uvCount = Math.floor(uvValues.length / uvStride);
-  const hasIndexedUvs = uvCount >= vertexCount;
-  const hasFaceVaryingUvs = indexValues.length >= 3 && uvCount === fullTriangleIndices.length;
+  const uvCount = shouldWriteTextureCoordinates ? Math.floor(uvValues.length / uvStride) : 0;
+  const hasIndexedUvs = shouldWriteTextureCoordinates && uvCount >= vertexCount;
+  const hasFaceVaryingUvs =
+    shouldWriteTextureCoordinates &&
+    indexValues.length >= 3 &&
+    uvCount === fullTriangleIndices.length;
   const hasPerVertexUvs = hasIndexedUvs && !hasFaceVaryingUvs;
   const normalStride = Math.max(1, Number(ranges?.normals?.stride || 3));
   const normalCount = Math.floor(normalValues.length / normalStride);
@@ -1133,6 +1211,10 @@ function buildObjBlobFromDescriptor(
   };
 
   const shouldWriteRepairedFaceVaryingNormals =
+    !(
+      descriptor.bakeTransformIntoMesh === false &&
+      hasTrustedSnapshotNormals(descriptor.descriptor)
+    ) &&
     (hasFaceVaryingNormals || hasPerVertexNormals) &&
     (() => {
       for (let index = 0; index + 2 < triangleIndices.length; index += 3) {
@@ -1300,10 +1382,7 @@ function buildObjBlobFromDescriptor(
     return null;
   }
 
-  const rawObjText = `${lines.join('\n')}\n`;
-  const objText = writesFaceVaryingNormals
-    ? repairObjFaceVaryingNormalsForExport(rawObjText)
-    : rawObjText;
+  const objText = `${lines.join('\n')}\n`;
   const bytes = new TextEncoder().encode(objText);
 
   return {
@@ -2504,6 +2583,11 @@ function assignVisualDescriptorToLink(
   const descriptorMaterialRecord = getDescriptorMaterialRecord(entry, materialLookup);
   const explicitFallbackColor = colorHexToVertexColor(explicitMaterialFallback?.color);
   const preferredFallbackColor = colorArrayToVertexColor(preferredMaterialRecord?.color);
+  entry.writeTextureCoordinates =
+    snapshotMaterialUsesTextureCoordinates(descriptorMaterialRecord) ||
+    snapshotMaterialUsesTextureCoordinates(preferredMaterialRecord) ||
+    hasNonEmptyTexturePath(explicitMaterialFallback?.texture) ||
+    visualUsesTextureCoordinates(link.visual);
   entry.displayColor =
     colorArrayToVertexColor(descriptorMaterialRecord?.color) ||
     explicitFallbackColor ||

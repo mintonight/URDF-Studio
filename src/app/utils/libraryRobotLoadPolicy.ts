@@ -1,11 +1,10 @@
-export type LibraryRobotLoadIntent = 'direct' | 'save-draft' | 'discard';
+export type LibraryRobotLoadIntent = 'direct' | 'preview' | 'discard';
 
 export type LibraryRobotLoadAction =
   | 'already-loaded'
   | 'load'
-  | 'needs-draft-confirm'
+  | 'needs-preview-or-discard-confirm'
   | 'preview'
-  | 'save-draft'
   | 'blocked';
 
 interface ResolveLibraryRobotLoadActionOptions {
@@ -27,6 +26,10 @@ export function resolveLibraryRobotLoadAction({
     return 'already-loaded';
   }
 
+  if (intent === 'preview') {
+    return 'preview';
+  }
+
   if (intent === 'direct' && shouldPreviewCurrentState) {
     return 'preview';
   }
@@ -39,12 +42,12 @@ export function resolveLibraryRobotLoadAction({
   }
 
   if (intent === 'direct') {
-    return 'needs-draft-confirm';
+    return 'needs-preview-or-discard-confirm';
   }
 
   if (!selectedFileName) {
     return 'blocked';
   }
 
-  return 'save-draft';
+  return 'blocked';
 }

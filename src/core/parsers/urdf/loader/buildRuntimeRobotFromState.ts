@@ -11,6 +11,8 @@ import {
   getCollisionGeometryEntries,
   hasGeometryMeshMaterialGroups,
   getVisualGeometryEntries,
+  isUnactuatedJoint,
+  resolveMjcfPassiveSpringJointMetadata,
   resolveVisualMaterialOverride as resolveRobotVisualMaterialOverride,
 } from '@/core/robot';
 import { createBoxFaceMaterialArray } from '@/core/utils/boxFaceMaterialArray';
@@ -746,6 +748,12 @@ export async function buildRuntimeRobotFromState({
   const jointMap: Record<string, URDFJoint> = {};
   const colliderMap: Record<string, URDFCollider> = {};
   const visualMap: Record<string, URDFVisual> = {};
+  // Shares the resulting MeshStandardMaterial across geoms that resolve to the
+  // same visual material override + source-material profile, so each robot
+  // load only allocates one material per distinct profile instead of one per
+  // mesh. Scope is intentionally one cache per load: dispose lifecycle stays
+  // tied to the loaded robot and there is no cross-load aliasing.
+  const visualMaterialOverrideCache = new Map<string, THREE.MeshStandardMaterial>();
 
   robot.robotName = robotName ?? null;
   robot.name = robotName || '';
@@ -847,7 +855,12 @@ export async function buildRuntimeRobotFromState({
             (hasExplicitMaterialOverride ||
               !loadedObjectShouldPreserveEmbeddedMaterials(meshObject))
           ) {
-            applyVisualMaterialOverrideToObject(meshObject, visualMaterialOverride, manager);
+            applyVisualMaterialOverrideToObject(
+              meshObject,
+              visualMaterialOverride,
+              manager,
+              visualMaterialOverrideCache,
+            );
           }
 
           if (!isCollision && hasGeometryMeshMaterialGroups(geometry)) {
@@ -876,7 +889,12 @@ export async function buildRuntimeRobotFromState({
       const primitiveMesh = createPrimitiveMesh(geometry, isCollision, manager);
       if (primitiveMesh) {
         if (!isCollision && visualMaterialOverride) {
-          applyVisualMaterialOverrideToObject(primitiveMesh, visualMaterialOverride, manager);
+          applyVisualMaterialOverrideToObject(
+            primitiveMesh,
+            visualMaterialOverride,
+            manager,
+            visualMaterialOverrideCache,
+          );
         }
         group.add(primitiveMesh);
       }
@@ -1016,6 +1034,16 @@ export async function buildRuntimeRobotFromState({
     joint.userData.displayName = jointDisplayName;
     joint.userData.jointId = jointKey;
     joint.userData.originalJointType = jointData.type;
+    if (typeof jointData.dynamics?.stiffness === 'number') {
+      joint.userData.mjcfJointStiffness = jointData.dynamics.stiffness;
+      Object.assign(
+        joint.userData,
+        resolveMjcfPassiveSpringJointMetadata({
+          stiffness: jointData.dynamics.stiffness,
+          hasActuator: !isUnactuatedJoint(jointData),
+        }),
+      );
+    }
     joint.jointType = resolveRuntimeJointType(jointData.type);
 
     if (jointData.axis) {

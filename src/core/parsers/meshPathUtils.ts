@@ -1030,7 +1030,7 @@ export const buildMeshLookupCandidates = (meshPath: string): string[] => {
   const exportRelative = normalizeMeshPathForExport(meshPath);
   const filename = (exportRelative || relative || slashNormalized).split('/').pop() || '';
   const extension = filename.includes('.') ? filename.split('.').pop()?.toLowerCase() || '' : '';
-  const directoryVariants = ['assets', 'dae', 'obj', 'stl', 'msh', 'gltf', 'glb'];
+  const directoryVariants = ['assets', 'dae', 'obj', 'stl', 'msh', 'gltf', 'glb', 'ply'];
 
   pushUnique(candidates, seen, raw);
   pushUnique(candidates, seen, slashNormalized);
@@ -1058,7 +1058,7 @@ export const buildMeshLookupCandidates = (meshPath: string): string[] => {
   }
 
   if (extension && exportRelative) {
-    const siblingExtensions = ['dae', 'obj', 'stl', 'msh', 'gltf', 'glb'];
+    const siblingExtensions = ['dae', 'obj', 'stl', 'msh', 'gltf', 'glb', 'ply'];
     siblingExtensions.forEach((nextExtension) => {
       if (nextExtension === extension) return;
       const siblingExportRelative = exportRelative.replace(/\.[^.\/]+$/, `.${nextExtension}`);

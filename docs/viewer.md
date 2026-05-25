@@ -5,21 +5,9 @@
 
 ## 1. 单模式 Editor
 
-URDF Studio 只有 `Editor` 一个编辑模式，统一承载三个子域：
-
-| 子域               | 典型任务                                       |
-| ------------------ | ---------------------------------------------- |
-| 拓扑               | Link / Joint 增删、拓扑编辑、关节参数          |
-| 几何 / 碰撞 / 测量 | Visual / Collision、mesh、材质、纹理、碰撞变换 |
-| 硬件配置           | 电机型号、传动比、阻尼、摩擦                   |
+Editor 子域划分与快速映射见 [CLAUDE.md](../CLAUDE.md) §Editor 单模式。
 
 新增功能前，先判断属于哪类子能力，避免跨子系统逻辑缠绕。
-
-快速映射：
-
-- 统一公开入口：`features/editor/index.ts`
-- 具体实现：`features/urdf-viewer/`（包含拓扑/硬件与几何/碰撞/测量）
-- 跨子域共享交互：`app/` 编排层 或 `shared/components/3d/`
 
 ## 2. 目录结构
 
@@ -75,14 +63,7 @@ features/urdf-viewer/
 - `runtime/*` 是 vendored usd-viewer runtime，不要在 `core/parsers/usd/*` 重复实现 viewer runtime 职责
 - URDF Studio 应把 runtime 输出适配到 `ViewerRobotDataResolution` / `RobotData`
 - `public/usd/bindings/*` 必须保留在静态资源目录，供浏览器运行时 fetch
-- **WASM 构建系统**位于 `third_party/OpenUSD` 和 `scripts/wasm/`，详见 [wasm-build.md](wasm-build.md)
-- 如需重新编译 WASM bindings：
-  ```bash
-  bash scripts/wasm/rebuild-usd-wasm.sh \
-    --robot-trim \
-    --usd-repo ./third_party/OpenUSD \
-    --build-dir ~/.localdeps/openusd-wasm-speed
-  ```
+- **WASM 构建系统**位于 `third_party/OpenUSD` 和 `scripts/wasm/`；重编命令与故障排查见 [wasm-build.md](wasm-build.md)
 
 ## 6. USD worker / metadata 链路约束
 

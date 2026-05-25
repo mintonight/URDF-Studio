@@ -8,9 +8,14 @@ import { JSDOM } from 'jsdom';
 
 import { USD_ROBOT_STATE_VIEWER_PLACEHOLDER_URDF } from '@/app/hooks/workspace-source-sync/mjcfViewerRuntimePolicy';
 import type { DocumentLoadState } from '@/store/assetsStore';
+import { JointType, GeometryType } from '@/types';
 import type { RobotFile, RobotState } from '@/types';
 
 import { FilePreviewWindow } from './FilePreviewWindow.tsx';
+import {
+  buildFilePreviewJointMotionState,
+  resolveFilePreviewShowVisual,
+} from './FilePreviewWindow.tsx';
 import { resolveFilePreviewViewerConfig } from './FilePreviewWindow.tsx';
 import { resolveFilePreviewViewerSourceFile } from './FilePreviewWindow.tsx';
 
@@ -139,6 +144,98 @@ test('resolveFilePreviewViewerConfig reuses standalone MJCF viewer settings', ()
     sourceFilePath: mjcfFile.name,
     viewerSourceFormat: 'mjcf',
   });
+});
+
+test('resolveFilePreviewShowVisual derives visibility from the preview robot when no stored preference exists', () => {
+  const previewRobot = createRobotState('cassie');
+  previewRobot.links.base_link = {
+    id: 'base_link',
+    name: 'base_link',
+    visible: true,
+    visual: {
+      type: GeometryType.BOX,
+      dimensions: { x: 1, y: 1, z: 1 },
+      color: '#808080',
+      origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+    },
+    collision: {
+      type: GeometryType.NONE,
+      dimensions: { x: 0, y: 0, z: 0 },
+      color: '#ef4444',
+      origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+    },
+  };
+
+  assert.equal(
+    resolveFilePreviewShowVisual({
+      previewRobot,
+      fallbackShowVisual: false,
+      storedPreference: null,
+    }),
+    true,
+  );
+  assert.equal(
+    resolveFilePreviewShowVisual({
+      previewRobot,
+      fallbackShowVisual: true,
+      storedPreference: false,
+    }),
+    false,
+  );
+  assert.equal(
+    resolveFilePreviewShowVisual({
+      previewRobot: null,
+      fallbackShowVisual: false,
+      storedPreference: null,
+    }),
+    false,
+  );
+});
+
+test('buildFilePreviewJointMotionState forwards MJCF angle and quaternion pose state', () => {
+  const previewRobot = createRobotState('cassie');
+  previewRobot.joints = {
+    knee: {
+      id: 'knee',
+      name: 'left-knee',
+      type: JointType.REVOLUTE,
+      parentLinkId: 'base_link',
+      childLinkId: 'shin',
+      origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+      dynamics: { damping: 0, friction: 0 },
+      hardware: {
+        motorType: 'None',
+        motorId: '',
+        motorDirection: 1,
+        armature: 0,
+      },
+      angle: -1.1997,
+    },
+    achilles: {
+      id: 'achilles',
+      name: 'right-achilles-rod',
+      type: JointType.BALL,
+      parentLinkId: 'hip',
+      childLinkId: 'rod',
+      origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+      dynamics: { damping: 0, friction: 0 },
+      hardware: {
+        motorType: 'None',
+        motorId: '',
+        motorDirection: 1,
+        armature: 0,
+      },
+      quaternion: { x: 0, y: -0.014423187695796426, z: 0, w: 0.9786415639566073 },
+    },
+  };
+
+  assert.deepEqual(buildFilePreviewJointMotionState(previewRobot), {
+    'left-knee': { angle: -1.1997 },
+    'right-achilles-rod': {
+      quaternion: { x: 0, y: -0.014423187695796426, z: 0, w: 0.9786415639566073 },
+    },
+  });
+  assert.equal(buildFilePreviewJointMotionState(null), undefined);
 });
 
 test('FilePreviewWindow does not render stale robot preview content after switching files', async () => {

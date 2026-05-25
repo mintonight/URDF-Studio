@@ -171,6 +171,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     registerSceneRefresh,
     setIsDragging,
     onIkPreviewKinematicOverrides,
+    onIkCommitKinematicOverrides,
     onClearIkPreviewKinematicOverrides,
     setActiveJoint,
     justSelectedRef,
@@ -289,14 +290,18 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         closedLoopConstraints: state.closedLoopConstraints,
       });
     }, []);
-    const commitIkKinematicOverrides = useCallback((...args: LinkIkCommitArgs) => {
-      const [overrides, historySnapshot, label] = args;
-      const storeState = useRobotStore.getState();
-      storeState.applyJointKinematicOverrides(overrides, {
-        skipHistory: true,
-      });
-      storeState.pushHistorySnapshot(historySnapshot, label);
-    }, []);
+    const commitIkKinematicOverrides = useCallback(
+      (...args: LinkIkCommitArgs) => {
+        const [overrides, historySnapshot, label] = args;
+        const storeState = useRobotStore.getState();
+        storeState.applyJointKinematicOverrides(overrides, {
+          skipHistory: true,
+        });
+        onIkCommitKinematicOverrides?.(overrides.angles, overrides.quaternions);
+        storeState.pushHistorySnapshot(historySnapshot, label);
+      },
+      [onIkCommitKinematicOverrides],
+    );
     const backendRobotData = useMemo(() => {
       const backendLinks = robotData?.links ?? robotLinks;
       const backendJoints = robotData?.joints ?? robotJoints;
@@ -706,6 +711,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         onJointChange,
         onJointChangeCommit,
         throttleJointChangeDuringDrag: true,
+        deferDirectJointRuntimeUpdate: Boolean(ikRobotState?.closedLoopConstraints?.length),
         setIsDragging,
         setHoverFrozen,
         setActiveJoint,
@@ -843,16 +849,30 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       usesExternalHoverSelection,
     ]);
 
-    const requestSceneRefresh = useCallback(() => {
-      if (!robot) {
-        return;
-      }
+    // Default to a dirty-only matrixWorld walk (force=false). All upstream
+    // mutation paths (setJointValue, transform writes) already flag the dirty
+    // chain, so the non-forced walk only touches changed subtrees instead of
+    // the entire merged scene graph. In multi-component assemblies the old
+    // force=true path was an every-frame O(N×L) sweep that dominated drag
+    // latency; force=false reduces it to O(touched joints). needsRaycastRef
+    // and boundingBoxNeedsUpdateRef defer the authoritative recompute to the
+    // next consumer that actually needs world coords, and R3F's render still
+    // calls updateMatrixWorld() before drawing, so visuals stay current.
+    // Callers that *must* see fully-resolved world matrices synchronously
+    // (one-shot transform commits, load handoffs) can pass {force: true}.
+    const requestSceneRefresh = useCallback(
+      (options?: { force?: boolean }) => {
+        if (!robot) {
+          return;
+        }
 
-      robot.updateMatrixWorld(true);
-      boundingBoxNeedsUpdateRef.current = true;
-      needsRaycastRef.current = true;
-      invalidate();
-    }, [boundingBoxNeedsUpdateRef, invalidate, needsRaycastRef, robot]);
+        robot.updateMatrixWorld(options?.force ?? false);
+        boundingBoxNeedsUpdateRef.current = true;
+        needsRaycastRef.current = true;
+        invalidate();
+      },
+      [boundingBoxNeedsUpdateRef, invalidate, needsRaycastRef, robot],
+    );
 
     useEffect(() => {
       registerSceneRefresh?.(requestSceneRefresh);
@@ -930,7 +950,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         >
           {robot ? <primitive object={robot} /> : null}
         </group>
-        {isLoading && !onDocumentLoadEvent ? (
+        {isLoading ? (
           <Html fullscreen>
             <div className={VIEWER_CORNER_OVERLAY_CLASS_NAME}>
               <ViewerLoadingHud

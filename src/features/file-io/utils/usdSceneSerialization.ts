@@ -39,6 +39,7 @@ export type UsdSceneSerializationProgress = {
 };
 
 export type UsdBaseLayerSerializationOptions = {
+  materialProfile?: 'preview' | 'isaacsim';
   useMeshGeometryLibrary?: boolean;
 };
 
@@ -370,6 +371,7 @@ const serializeUsdPreviewMaterials = async (
   lines: string[],
   depth: number,
   context: UsdSerializationContext,
+  options: UsdBaseLayerSerializationOptions,
   progressTracker?: UsdSceneProgressTracker,
 ): Promise<void> => {
   if (context.materialRecords.length === 0) {
@@ -385,11 +387,23 @@ const serializeUsdPreviewMaterials = async (
 
   for (let index = 0; index < context.materialRecords.length; index += 1) {
     const record = context.materialRecords[index];
+    const useIsaacSimMaterial = options.materialProfile === 'isaacsim';
     lines.push(`${childIndent}def Material "${record.name}"`);
     lines.push(`${childIndent}{`);
     lines.push(
       `${grandchildIndent}token outputs:surface.connect = <${record.path}/PreviewSurface.outputs:surface>`,
     );
+    if (useIsaacSimMaterial) {
+      lines.push(
+        `${grandchildIndent}token outputs:mdl:surface.connect = <${record.path}/OmniPBR.outputs:out>`,
+      );
+      lines.push(
+        `${grandchildIndent}token outputs:mdl:displacement.connect = <${record.path}/OmniPBR.outputs:out>`,
+      );
+      lines.push(
+        `${grandchildIndent}token outputs:mdl:volume.connect = <${record.path}/OmniPBR.outputs:out>`,
+      );
+    }
     lines.push(`${grandchildIndent}def Shader "PreviewSurface"`);
     lines.push(`${grandchildIndent}{`);
     lines.push(`${makeUsdIndent(depth + 3)}uniform token info:id = "UsdPreviewSurface"`);
@@ -409,6 +423,36 @@ const serializeUsdPreviewMaterials = async (
     );
     lines.push(`${makeUsdIndent(depth + 3)}token outputs:surface`);
     lines.push(`${grandchildIndent}}`);
+
+    if (useIsaacSimMaterial) {
+      lines.push(`${grandchildIndent}def Shader "OmniPBR"`);
+      lines.push(`${grandchildIndent}{`);
+      lines.push(
+        `${makeUsdIndent(depth + 3)}uniform token info:implementationSource = "sourceAsset"`,
+      );
+      lines.push(`${makeUsdIndent(depth + 3)}uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@`);
+      lines.push(
+        `${makeUsdIndent(depth + 3)}uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"`,
+      );
+      lines.push(
+        `${makeUsdIndent(depth + 3)}color3f inputs:diffuse_color_constant = ${formatUsdTuple(record.appearance.authoredColor)}`,
+      );
+      if (record.appearance.texture) {
+        lines.push(
+          `${makeUsdIndent(depth + 3)}asset inputs:diffuse_texture = @../assets/${record.appearance.texture.exportPath}@`,
+        );
+      }
+      lines.push(
+        `${makeUsdIndent(depth + 3)}float inputs:opacity_constant = ${formatUsdFloat(record.appearance.opacity)}`,
+      );
+      lines.push(
+        `${makeUsdIndent(depth + 3)}bool inputs:enable_opacity = ${record.appearance.opacity < 0.999 ? 'true' : 'false'}`,
+      );
+      lines.push(`${makeUsdIndent(depth + 3)}bool inputs:enable_opacity_texture = false`);
+      lines.push(`${makeUsdIndent(depth + 3)}bool inputs:enable_emission = false`);
+      lines.push(`${makeUsdIndent(depth + 3)}token outputs:out`);
+      lines.push(`${grandchildIndent}}`);
+    }
 
     if (record.appearance.texture) {
       lines.push(`${grandchildIndent}def Shader "PrimvarReader_st"`);
@@ -466,13 +510,12 @@ const serializeUsdMeshGeometryLibrary = async (
   const indent = makeUsdIndent(depth);
   const childIndent = makeUsdIndent(depth + 1);
 
-  lines.push(`${indent}def Scope "__MeshLibrary"`);
+  lines.push(`${indent}class Scope "__MeshLibrary"`);
   lines.push(`${indent}{`);
-  lines.push(`${childIndent}token visibility = "invisible"`);
 
   for (let index = 0; index < context.geometryRecords.length; index += 1) {
     const record = context.geometryRecords[index];
-    lines.push(`${childIndent}def Mesh "${record.name}"`);
+    lines.push(`${childIndent}class Mesh "${record.name}"`);
     lines.push(`${childIndent}{`);
     await serializeMeshGeometryData(record.data, lines, depth + 2);
     lines.push(`${childIndent}}`);
@@ -584,7 +627,7 @@ const serializeSceneNode = async (
     if (options.useMeshGeometryLibrary !== false) {
       await serializeUsdMeshGeometryLibrary(lines, childDepth, context, progressTracker);
     }
-    await serializeUsdPreviewMaterials(lines, childDepth, context, progressTracker);
+    await serializeUsdPreviewMaterials(lines, childDepth, context, options, progressTracker);
     serializeUsdJointScope(lines, childDepth);
   }
 

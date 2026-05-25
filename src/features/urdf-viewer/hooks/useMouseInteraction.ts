@@ -1,12 +1,7 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import {
-  clampJointInteractionValue,
-  getJointActualAngleFromMotionAngle,
-  resolveLinkKey,
-  resolveJointKey,
-} from '@/core/robot';
+import { getJointActualAngleFromMotionAngle, resolveLinkKey, resolveJointKey } from '@/core/robot';
 import { throttle } from '@/shared/utils';
 import type { JointPanelActiveJointOptions } from '@/shared/utils/jointPanelStore';
 import { JointType, type InteractionSelection, type UrdfJoint, type UrdfLink } from '@/types';
@@ -57,11 +52,12 @@ import { resolveActiveViewerJointKeyFromSelection } from '../utils/activeJointSe
 import { resolveMouseDownSelectionPlan } from '../utils/mouseDownSelectionPlan';
 import { resolveIkGeometrySelectionState } from '../utils/ikGeometrySelectionState';
 import { resolveHoverMoveEventName } from '../utils/hoverMoveEventName';
-import { hasEffectivelyFiniteJointLimits } from '@/shared/utils/jointUnits';
 import type { ViewerHelperKind } from '../types';
 import { resolveDirectHelperInteraction } from '../utils/directHelperInteraction';
 import { resolveHelperSelectionIdentity } from '../utils/helperSelectionIdentity';
 import { resolveSelectionCommitHoverAction } from '../utils/selectionCommitHoverPolicy';
+import { resolveJointDragRuntimeStep } from '../utils/jointDragRuntimeStep';
+import { isPassiveSpringJointDragTarget } from '../utils/passiveSpringJointDragTarget';
 import {
   armSelectionMissGuard,
   disarmSelectionMissGuard,
@@ -121,6 +117,7 @@ export interface UseMouseInteractionOptions {
   onJointChange?: (name: string, angle: number) => void;
   onJointChangeCommit?: (name: string, angle: number) => void;
   throttleJointChangeDuringDrag?: boolean;
+  deferDirectJointRuntimeUpdate?: boolean;
   setIsDragging?: (dragging: boolean) => void;
   setHoverFrozen?: (frozen: boolean) => void;
   setActiveJoint?: (jointName: string | null, options?: JointPanelActiveJointOptions) => void;
@@ -167,6 +164,7 @@ export function useMouseInteraction({
   onJointChange,
   onJointChangeCommit,
   throttleJointChangeDuringDrag = false,
+  deferDirectJointRuntimeUpdate = false,
   setIsDragging,
   setHoverFrozen,
   setActiveJoint,
@@ -216,6 +214,7 @@ export function useMouseInteraction({
 
   const isDraggingJoint = useRef(false);
   const dragJoint = useRef<any>(null);
+  const dragJointRuntimeValueRef = useRef<number | null>(null);
   const dragHitDistance = useRef(0);
   const lastRayRef = useRef(new THREE.Ray());
   const selectionResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -600,36 +599,52 @@ export function useMouseInteraction({
       tempPivotPoint.setFromMatrixPosition(joint.matrixWorld);
     };
 
+    const isRuntimeJointObject = (object: THREE.Object3D | null): boolean =>
+      Boolean(object && ((object as any).isURDFJoint || (object as any).type === 'URDFJoint'));
+
+    const findParentLinkForJoint = (jointObject: THREE.Object3D): THREE.Object3D | null => {
+      let parentLink: THREE.Object3D | null = jointObject.parent;
+      while (parentLink && parentLink !== robot) {
+        if ((parentLink as any).isURDFLink || (parentLink as any).type === 'URDFLink') {
+          return parentLink;
+        }
+        parentLink = parentLink.parent;
+      }
+
+      return null;
+    };
+
+    function resolveControllableJoint(jointObject: THREE.Object3D): any {
+      // Skip non-interactive joints and passive MJCF spring hinges; direct
+      // link dragging should drive the nearest controllable parent joint.
+      if (
+        !isSingleDofJoint(jointObject) ||
+        isPassiveSpringJointDragTarget(jointObject.name, robotJoints, jointObject)
+      ) {
+        return findParentJoint(findParentLinkForJoint(jointObject));
+      }
+
+      return jointObject;
+    }
+
     /**
      * Find the parent joint of a link (for drag rotation)
      */
-    const findParentJoint = (linkObject: THREE.Object3D | null): any => {
+    function findParentJoint(linkObject: THREE.Object3D | null): any {
       if (!linkObject) return null;
 
       let current: THREE.Object3D | null = linkObject.parent;
 
       while (current && current !== robot) {
-        if ((current as any).isURDFJoint || (current as any).type === 'URDFJoint') {
-          // Skip non-interactive joints (fixed, floating, planar, etc.)
-          if (!isSingleDofJoint(current)) {
-            let parentLink: THREE.Object3D | null = current.parent;
-            while (parentLink && parentLink !== robot) {
-              if ((parentLink as any).isURDFLink || (parentLink as any).type === 'URDFLink') {
-                return findParentJoint(parentLink);
-              }
-              parentLink = parentLink.parent;
-            }
-            return null;
-          }
-
-          return current;
+        if (isRuntimeJointObject(current)) {
+          return resolveControllableJoint(current);
         }
 
         current = current.parent;
       }
 
       return null;
-    };
+    }
 
     const applyResolvedSelection = ({
       resolvedHit,
@@ -808,20 +823,22 @@ export function useMouseInteraction({
       }
 
       if (Math.abs(delta) > JOINT_DRAG_EPSILON) {
-        const currentAngle = dragJoint.current.angle ?? dragJoint.current.jointValue ?? 0;
-        let newAngle = currentAngle + delta;
+        const step = resolveJointDragRuntimeStep({
+          currentRuntimeValue: dragJointRuntimeValueRef.current,
+          fallbackRuntimeValue: dragJoint.current.angle ?? dragJoint.current.jointValue ?? 0,
+          delta,
+          jointType: jt,
+          limit: dragJoint.current.limit,
+          deferRuntimeUpdate: deferDirectJointRuntimeUpdate,
+          epsilon: JOINT_DRAG_EPSILON,
+        });
 
-        const limit = dragJoint.current.limit;
-        const hasFiniteLimit = hasEffectivelyFiniteJointLimits(limit);
-        if ((jt === 'revolute' || jt === 'prismatic') && hasFiniteLimit) {
-          newAngle = clampJointInteractionValue(newAngle, limit.lower, limit.upper);
-        }
-
-        if (
-          Math.abs(newAngle - currentAngle) > JOINT_DRAG_EPSILON &&
-          dragJoint.current.setJointValue
-        ) {
-          dragJoint.current.setJointValue(newAngle);
+        if (step.changed && dragJoint.current.setJointValue) {
+          const newAngle = step.nextRuntimeValue;
+          dragJointRuntimeValueRef.current = newAngle;
+          if (step.shouldApplyRuntimeUpdate) {
+            dragJoint.current.setJointValue(newAngle);
+          }
           jointDragStoreSync.emit(
             dragJoint.current.name,
             resolveDraggedRuntimeJointActualAngle(dragJoint.current.name, newAngle),
@@ -1081,9 +1098,9 @@ export function useMouseInteraction({
           const jointObject = robot?.getObjectByName(jointName) ?? null;
           if (
             jointObject &&
-            ((jointObject as any).isURDFJoint || (jointObject as any).type === 'URDFJoint')
+            isRuntimeJointObject(jointObject)
           ) {
-            return jointObject;
+            return resolveControllableJoint(jointObject);
           }
           return null;
         }
@@ -1167,6 +1184,7 @@ export function useMouseInteraction({
       if (joint) {
         isDraggingJoint.current = true;
         dragJoint.current = joint;
+        dragJointRuntimeValueRef.current = Number(joint.angle ?? joint.jointValue ?? 0);
         dragHitDistance.current = resolvedHit.distance;
         lastRayRef.current.copy(raycasterRef.current.ray);
         if (shouldDisableOrbitForDirectJointDrag(toolMode || 'select', true)) {
@@ -1256,19 +1274,24 @@ export function useMouseInteraction({
 
       if (isDraggingJoint.current) {
         jointDragFrameSync.flush();
+        const committedRuntimeValue = dragJointRuntimeValueRef.current;
 
         const commitPayload = dragJoint.current
           ? {
               name: dragJoint.current.name,
               angle: resolveDraggedRuntimeJointActualAngle(
                 dragJoint.current.name,
-                dragJoint.current.angle ?? dragJoint.current.jointValue ?? 0,
+                committedRuntimeValue ??
+                  dragJoint.current.angle ??
+                  dragJoint.current.jointValue ??
+                  0,
               ),
             }
           : null;
 
         isDraggingJoint.current = false;
         dragJoint.current = null;
+        dragJointRuntimeValueRef.current = null;
         setIsDraggingRef.current?.(false);
 
         if (commitPayload) {
@@ -1375,6 +1398,7 @@ export function useMouseInteraction({
       throttledMouseMove.cancel();
       jointDragFrameSync.cancel();
       jointDragStoreSync.dispose();
+      dragJointRuntimeValueRef.current = null;
       clearSelectionMissGuardTimer(selectionResetTimerRef);
       releaseDeferredSelectionHover();
       setOrbitControlsEnabled(true);
@@ -1428,6 +1452,7 @@ export function useMouseInteraction({
     resolveDirectIkHandleLink,
     useExternalHover,
     throttleJointChangeDuringDrag,
+    deferDirectJointRuntimeUpdate,
     rayIntersectsBoundingBox,
     getGizmoTargets,
     getHelperTargets,

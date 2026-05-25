@@ -1,7 +1,11 @@
 import * as THREE from 'three';
 
-import type { LinkIkPositionSolveRequest, LinkIkSolveFailureReason } from '@/core/robot';
-import type { JointQuaternion } from '@/types';
+import {
+  solveClosedLoopMotionCompensation,
+  type LinkIkPositionSolveRequest,
+  type LinkIkSolveFailureReason,
+} from '@/core/robot';
+import type { JointQuaternion, RobotState } from '@/types';
 
 // Ignore sub-pixel proxy jitter so the drag loop only solves when the user
 // actually moves the handle to a meaningfully new target.
@@ -72,6 +76,12 @@ export function hasLinkIkKinematicStateChanges(
     state &&
     (Object.keys(state.angles ?? {}).length > 0 || Object.keys(state.quaternions ?? {}).length > 0),
   );
+}
+
+export function hasRestorableLinkIkPreviewKinematicState(
+  state: Partial<LinkIkDragKinematicState> | null | undefined,
+): boolean {
+  return hasLinkIkKinematicStateChanges(state);
 }
 
 export function resolveLinkIkCommittedStateEpsilon(preview: boolean): number {
@@ -229,6 +239,105 @@ export function limitLinkIkPreviewKinematicStateStep(
   });
 
   return limitedState;
+}
+
+function limitLinkIkPreviewKinematicStateStepForJoints(
+  previousState: Partial<LinkIkDragKinematicState> | null | undefined,
+  nextState: Partial<LinkIkDragKinematicState> | null | undefined,
+  limitedJointIds: ReadonlySet<string>,
+  {
+    maxAngleStep = LINK_IK_PREVIEW_MAX_ANGLE_STEP,
+    maxQuaternionStepRadians = LINK_IK_PREVIEW_MAX_QUATERNION_STEP_RADIANS,
+  }: {
+    maxAngleStep?: number;
+    maxQuaternionStepRadians?: number;
+  } = {},
+): LinkIkDragKinematicState {
+  const limitedState = createEmptyLinkIkDragKinematicState();
+  const previousAngles = previousState?.angles ?? {};
+  const previousQuaternions = previousState?.quaternions ?? {};
+
+  Object.entries(nextState?.angles ?? {}).forEach(([jointId, nextAngle]) => {
+    if (!limitedJointIds.has(jointId)) {
+      return;
+    }
+
+    limitedState.angles[jointId] = limitNumberStep(
+      previousAngles[jointId],
+      nextAngle,
+      maxAngleStep,
+    );
+  });
+
+  Object.entries(nextState?.quaternions ?? {}).forEach(([jointId, nextQuaternion]) => {
+    if (!limitedJointIds.has(jointId)) {
+      return;
+    }
+
+    limitedState.quaternions[jointId] = limitQuaternionStep(
+      previousQuaternions[jointId],
+      nextQuaternion,
+      maxQuaternionStepRadians,
+    );
+  });
+
+  return limitedState;
+}
+
+export function resolveClosedLoopAwareLinkIkPreviewState({
+  baseRobot,
+  previousState,
+  nextSolveState,
+  limitedJointIds,
+  maxAngleStep = LINK_IK_PREVIEW_MAX_ANGLE_STEP,
+  maxQuaternionStepRadians = LINK_IK_PREVIEW_MAX_QUATERNION_STEP_RADIANS,
+}: {
+  baseRobot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>;
+  previousState: Partial<LinkIkDragKinematicState> | null | undefined;
+  nextSolveState: Partial<LinkIkDragKinematicState> | null | undefined;
+  limitedJointIds?: ReadonlySet<string>;
+  maxAngleStep?: number;
+  maxQuaternionStepRadians?: number;
+}): LinkIkDragKinematicState {
+  if (!limitedJointIds || limitedJointIds.size === 0) {
+    return limitLinkIkPreviewKinematicStateStep(previousState, nextSolveState, {
+      maxAngleStep,
+      maxQuaternionStepRadians,
+    });
+  }
+
+  const limitedActiveState = limitLinkIkPreviewKinematicStateStepForJoints(
+    previousState,
+    nextSolveState,
+    limitedJointIds,
+    {
+      maxAngleStep,
+      maxQuaternionStepRadians,
+    },
+  );
+
+  if (!baseRobot.closedLoopConstraints?.length) {
+    return limitedActiveState;
+  }
+
+  const compensation = solveClosedLoopMotionCompensation(baseRobot, {
+    angles: limitedActiveState.angles,
+    quaternions: limitedActiveState.quaternions,
+    lockedJointIds: [...limitedJointIds],
+    maxIterations: 12,
+    tolerance: 1e-5,
+  });
+
+  return {
+    angles: {
+      ...limitedActiveState.angles,
+      ...compensation.angles,
+    },
+    quaternions: {
+      ...limitedActiveState.quaternions,
+      ...compensation.quaternions,
+    },
+  };
 }
 
 export function hasMeaningfulLinkIkTargetDelta(

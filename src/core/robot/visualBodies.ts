@@ -67,3 +67,56 @@ export function updateVisualGeometryByObjectIndex(
     visualBodies: nextVisualBodies,
   };
 }
+
+export function removeVisualGeometryByObjectIndex(
+  link: UrdfLink,
+  objectIndex: number,
+): {
+  link: UrdfLink;
+  removed: boolean;
+  nextObjectIndex: number | null;
+} {
+  const target = getVisualGeometryByObjectIndex(link, objectIndex);
+
+  if (!target) {
+    return {
+      link,
+      removed: false,
+      nextObjectIndex: null,
+    };
+  }
+
+  let nextLink = link;
+
+  if (target.bodyIndex === null) {
+    nextLink = {
+      ...link,
+      visual: {
+        ...link.visual,
+        type: GeometryType.NONE,
+        meshPath: undefined,
+      },
+    };
+  } else {
+    const nextVisualBodies = [...(link.visualBodies || [])];
+    nextVisualBodies.splice(target.bodyIndex, 1);
+    nextLink = {
+      ...link,
+      visualBodies: nextVisualBodies,
+    };
+  }
+
+  const remainingEntries = getVisualGeometryEntries(nextLink);
+  const nextObjectIndex =
+    remainingEntries.length === 0
+      ? null
+      : (remainingEntries.find((entry) => entry.objectIndex >= objectIndex)?.objectIndex ??
+        remainingEntries[remainingEntries.length - 1]?.objectIndex ??
+        null);
+
+  return {
+    link: nextLink,
+    removed: true,
+    nextObjectIndex,
+  };
+}

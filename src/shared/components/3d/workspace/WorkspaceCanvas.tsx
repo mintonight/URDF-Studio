@@ -229,6 +229,7 @@ export const WorkspaceCanvas = ({
     () => ({
       antialias: true,
       alpha: true,
+      logarithmicDepthBuffer: true,
       toneMapping,
       toneMappingExposure: toneMappingExposure ?? (environment === 'hdr' ? 1.0 : 1.1),
       powerPreference: 'high-performance' as const,
@@ -539,7 +540,12 @@ export const WorkspaceCanvas = ({
                 <SceneLighting
                   theme={effectiveTheme}
                   cameraFollowPrimary={cameraFollowPrimary}
-                  enableShadows={cameraFollowPrimary ? true : !isInteracting}
+                  // Keep the shadow feature flag stable across interaction so the
+                  // shadow map is frozen (not toggled on/off, which forces a
+                  // material recompile hitch) while orbiting/dragging. The
+                  // per-frame cost is removed inside SceneLighting via
+                  // shadowMap.autoUpdate, not by disabling shadows here.
+                  enableShadows
                 />
                 <SnapshotManager
                   actionRef={snapshotAction}

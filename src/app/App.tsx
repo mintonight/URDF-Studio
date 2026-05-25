@@ -557,7 +557,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
           loadedCount: null,
           totalCount: null,
         });
-        showToast(t.xacroSourceOnlyPreviewHint, 'info');
+        console.info(`[urdf-studio] ${t.xacroSourceOnlyPreviewHint}`);
         return;
       }
 
@@ -617,6 +617,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         importedAssetPaths,
         {
           allFileContents: liveAssetsState.allFileContents,
+          availableFiles: liveAssetsState.availableFiles,
           sourcePath: file.name,
         },
       );
@@ -628,7 +629,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         const message = t.importPackageAssetBundleHint
           .replace('{packages}', assetLabel)
           .replace('{assets}', assetLabel);
-        showToast(message, 'info');
+        console.warn(`[urdf-studio] ${message}`);
         if (!canProceedWithStandaloneImportAssetWarning(file)) {
           setDocumentLoadState({
             status: 'error',
@@ -688,6 +689,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
 
       const preResolvedImportResult = peekPreResolvedRobotImport(file);
       if (preResolvedImportResult) {
+        await waitForNextPaint();
         if (requestId !== loadRequestIdRef.current) {
           return;
         }
@@ -756,16 +758,25 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
             }
 
             const currentDocumentLoadState = useAssetsStore.getState().documentLoadState;
-            const mappedProgressPercent = mapRobotImportProgressToDocumentLoadPercent(
-              file.format,
-              progress,
-            );
-            const nextProgressPercent =
+            const isIndeterminateProgress = progress.progressMode === 'indeterminate';
+            const isCurrentFileLoading =
               currentDocumentLoadState.fileName === file.name &&
               (currentDocumentLoadState.status === 'loading' ||
-                currentDocumentLoadState.status === 'hydrating')
+                currentDocumentLoadState.status === 'hydrating');
+            let nextProgressPercent: number | null;
+            if (isIndeterminateProgress) {
+              nextProgressPercent = isCurrentFileLoading
+                ? (currentDocumentLoadState.progressPercent ?? null)
+                : null;
+            } else {
+              const mappedProgressPercent = mapRobotImportProgressToDocumentLoadPercent(
+                file.format,
+                progress,
+              );
+              nextProgressPercent = isCurrentFileLoading
                 ? Math.max(currentDocumentLoadState.progressPercent ?? 0, mappedProgressPercent)
                 : mappedProgressPercent;
+            }
 
             setDocumentLoadState({
               status: 'loading',
@@ -774,7 +785,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
               error: null,
               phase: resolveBootstrapDocumentLoadPhase(file.format),
               message: progress.message ?? null,
-              progressMode: 'percent',
+              progressMode: isIndeterminateProgress ? 'indeterminate' : 'percent',
               progressPercent: nextProgressPercent,
               loadedCount: null,
               totalCount: null,
@@ -881,10 +892,9 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       return;
     }
 
-    const regressionDebugEnabled =
-      import.meta.env.DEV ||
-      new URLSearchParams(window.location.search).get('regressionDebug') === '1';
-    if (!regressionDebugEnabled) {
+    // Guard with compile-time-replaceable env flags so Vite can dead-code-eliminate
+    // the regressionBridge import (and the __URDF_STUDIO_DEBUG__ global) from prod builds.
+    if (!import.meta.env.DEV && !import.meta.env.VITE_E2E) {
       return;
     }
 
@@ -894,7 +904,6 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
     void import('@/shared/debug/regressionBridge').then(
       ({ installRegressionDebugApi, setRegressionAppHandlers }) => {
         if (disposed) {
-          setRegressionAppHandlers(null);
           return;
         }
 

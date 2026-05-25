@@ -168,6 +168,7 @@ test('resolveInteractionSelectionHit resolves MJCF tendon geometry to a tendon s
   assert.equal(resolved?.linkId, 'base_link');
   assert.equal(resolved?.linkObject, link);
   assert.equal(resolved?.targetKind, 'geometry');
+  assert.equal(resolved?.highlightTarget, tendonGroup);
 });
 
 test('resolveHitLinkTarget allows selectable helper gizmo meshes to resolve parent link', () => {

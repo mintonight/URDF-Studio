@@ -133,11 +133,11 @@ test('buildStandalonePackageAssetImportWarning ignores unrelated assets from oth
   });
 });
 
-test('canProceedWithStandaloneImportAssetWarning only relaxes missing-asset warnings for URDF', () => {
+test('canProceedWithStandaloneImportAssetWarning never hard-stops loading on missing assets', () => {
   assert.equal(canProceedWithStandaloneImportAssetWarning({ format: 'urdf' }), true);
-  assert.equal(canProceedWithStandaloneImportAssetWarning({ format: 'mjcf' }), false);
-  assert.equal(canProceedWithStandaloneImportAssetWarning({ format: 'sdf' }), false);
-  assert.equal(canProceedWithStandaloneImportAssetWarning(null), false);
+  assert.equal(canProceedWithStandaloneImportAssetWarning({ format: 'mjcf' }), true);
+  assert.equal(canProceedWithStandaloneImportAssetWarning({ format: 'sdf' }), true);
+  assert.equal(canProceedWithStandaloneImportAssetWarning(null), true);
 });
 
 test('buildStandaloneImportAssetWarning reports missing mesh assets for standalone MJCF imports', () => {
@@ -175,6 +175,124 @@ test('buildStandaloneImportAssetWarning accepts compiler-normalized MJCF bundle 
         </mujoco>`,
     },
     ['myosuite/envs/myo/assets/tabletennis_table.obj'],
+  );
+
+  assert.equal(warning, null);
+});
+
+test('buildStandaloneImportAssetWarning resolves missing MJCF includes from the source XML directory', () => {
+  const originalConsoleError = console.error;
+  console.error = () => {};
+
+  try {
+    const warning = buildStandaloneImportAssetWarning(
+      {
+        name: 'test/myosuite-main/myosuite/envs/myo/assets/arm/myoarm_relocate.xml',
+        format: 'mjcf',
+        content: `
+          <mujoco model="myoarm">
+            <include file="../../../../simhive/myo_sim/arm/assets/myoarm_assets.xml" />
+            <worldbody />
+          </mujoco>`,
+      },
+      [],
+    );
+
+    assert.deepEqual(warning, {
+      missingAssetPaths: [
+        'test/myosuite-main/myosuite/simhive/myo_sim/arm/assets/myoarm_assets.xml',
+      ],
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+});
+
+test('buildStandaloneImportAssetWarning respects compiler directories from resolved MJCF includes', () => {
+  const sourcePath = 'test/myosuite-main/myosuite/envs/myo/assets/arm/myoarm_relocate.xml';
+  const scenePath = 'test/myosuite-main/myosuite/simhive/myo_sim/scene/myosuite_scene.xml';
+  const sourceContent = `
+    <mujoco model="myoarm">
+      <include file="../../../../simhive/myo_sim/scene/myosuite_scene.xml" />
+      <worldbody />
+    </mujoco>`;
+  const sceneContent = `
+    <mujocoinclude model="myosuite_scene">
+      <compiler meshdir=".." texturedir=".." />
+      <asset>
+        <texture name="texfloor" type="2d" file="../myo_sim/scene/floor0.png" />
+      </asset>
+    </mujocoinclude>`;
+
+  const warning = buildStandaloneImportAssetWarning(
+    {
+      name: sourcePath,
+      format: 'mjcf',
+      content: sourceContent,
+    },
+    ['test/myosuite-main/myosuite/simhive/myo_sim/scene/floor0.png'],
+    {
+      sourcePath,
+      availableFiles: [
+        { name: sourcePath, format: 'mjcf', content: sourceContent },
+        { name: scenePath, format: 'mjcf', content: sceneContent },
+      ],
+      allFileContents: {
+        [sourcePath]: sourceContent,
+        [scenePath]: sceneContent,
+      },
+    },
+  );
+
+  assert.equal(warning, null);
+});
+
+test('buildStandaloneImportAssetWarning accepts MJCF scene wrapper textures resolved through included compiler assetdir', () => {
+  const sourcePath = 'mujoco_menagerie-main/hello_robot_stretch/scene.xml';
+  const robotPath = 'mujoco_menagerie-main/hello_robot_stretch/stretch.xml';
+  const sourceContent = `
+    <mujoco model="stretch scene">
+      <include file="stretch.xml" />
+      <asset>
+        <texture type="2d" name="wood" file="wood.png" />
+        <material name="wood" texture="wood" />
+      </asset>
+      <worldbody>
+        <geom type="box" size=".6 .5 .24" material="wood" />
+      </worldbody>
+    </mujoco>`;
+  const robotContent = `
+    <mujocoinclude>
+      <compiler assetdir="assets" />
+      <asset>
+        <texture type="2d" name="hand_crush" file="hand_crush.png" />
+        <material name="hand_crush" texture="hand_crush" />
+      </asset>
+    </mujocoinclude>`;
+
+  const warning = buildStandaloneImportAssetWarning(
+    {
+      name: sourcePath,
+      format: 'mjcf',
+      content: sourceContent,
+    },
+    [
+      sourcePath,
+      robotPath,
+      'mujoco_menagerie-main/hello_robot_stretch/assets/hand_crush.png',
+      'mujoco_menagerie-main/hello_robot_stretch/assets/wood.png',
+    ],
+    {
+      sourcePath,
+      availableFiles: [
+        { name: sourcePath, format: 'mjcf', content: sourceContent },
+        { name: robotPath, format: 'mjcf', content: robotContent },
+      ],
+      allFileContents: {
+        [sourcePath]: sourceContent,
+        [robotPath]: robotContent,
+      },
+    },
   );
 
   assert.equal(warning, null);

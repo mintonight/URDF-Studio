@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BOX_FACE_MATERIAL_ORDER } from '@/core/robot';
+import { BOX_FACE_MATERIAL_ORDER, resolveMjcfPassiveSpringJointMetadata } from '@/core/robot';
 import { stackCoincidentVisualRoots } from '@/core/loaders/visualMeshStacking';
 import { findAssetByPath } from '@/core/loaders';
 import { createMatteMaterial } from '@/core/utils/materialFactory';
@@ -49,6 +49,7 @@ export interface MJCFHierarchyJoint {
   range?: [number, number];
   ref?: number;
   pos?: [number, number, number];
+  stiffness?: number;
 }
 
 export interface MJCFHierarchySite {
@@ -82,6 +83,7 @@ interface BuildMJCFHierarchyOptions {
   compilerSettings: MJCFCompilerSettings;
   materialMap: Map<string, MJCFMaterial>;
   textureMap: Map<string, MJCFTexture>;
+  actuatorMap?: Map<string, unknown[]>;
   sourceFileDir?: string;
   onProgress?: (progress: { processedGeoms: number; totalGeoms: number }) => void;
   yieldIfNeeded?: () => Promise<void>;
@@ -583,7 +585,11 @@ function collectFirstMeshGeomByMeshName(
   const firstMeshGeomByName = new Map<string, MJCFHierarchyGeom>();
 
   walkMJCFBodies(bodies, (body) => {
-    body.geoms.forEach((geom) => {
+    assignMJCFBodyGeomRoles(body.geoms).forEach(({ geom, renderVisual, renderCollision }) => {
+      if (!renderVisual && !renderCollision) {
+        return;
+      }
+
       if (!geom.mesh || firstMeshGeomByName.has(geom.mesh)) {
         return;
       }
@@ -840,6 +846,7 @@ async function applyMaterialAssetToMesh(
     enqueueDeferredTextureApplication?: ((job: () => Promise<void>) => void) | undefined;
     yieldIfNeeded?: (() => Promise<void>) | undefined;
     onAsyncSceneMutation?: (() => void) | undefined;
+    materialAssetCache?: Map<string, THREE.MeshStandardMaterial>;
   } = {},
 ): Promise<void> {
   const appliedCubeTextureMaterials = await applyCubeMaterialAssetToMesh(
@@ -885,23 +892,49 @@ async function applyMaterialAssetToMesh(
     }
   });
 
+  const materialAssetCache = options.materialAssetCache;
+  // Cache key spans the parameters that materially change the resulting
+  // MeshStandardMaterial. Same (materialDef, alpha, preferDoubleSide,
+  // hasAuthoredRgba) → identical material; can be shared across geoms.
+  // alpha + preferDoubleSide are derived per-mesh (inheritedGeomRgba is
+  // pinned by this call). MJCF documents like menagerie's anymal_b
+  // reference ~10 distinct <material> elements across ~140 <geom>s; without
+  // this cache the loader allocated one MeshStandardMaterial per geom and
+  // every assembly add re-spent that cost — the path the user hit.
+  const buildCacheKey = (preferDoubleSide: boolean): string =>
+    `${materialName || materialDef.name || ''}|a=${alpha.toFixed(4)}|d=${preferDoubleSide ? 1 : 0}|${
+      hasAuthoredRgba ? 'a' : 'g'
+    }|tx=${materialDef.texture || ''}`;
+
   const applyResolvedMaterial = (
     resolvedTexture: THREE.Texture | null,
     mode: 'create' | 'update' = 'create',
   ) => {
+    const updatedSharedMaterials = new Set<THREE.MeshStandardMaterial>();
     materialTargets.forEach((targetMesh) => {
       const preferDoubleSide = alpha < 1 || Boolean(targetMesh.userData?.mjcfPreferDoubleSide);
       const existingMaterial =
         targetMesh.material instanceof THREE.MeshStandardMaterial ? targetMesh.material : null;
 
       if (mode === 'update' && existingMaterial) {
-        existingMaterial.map = resolvedTexture;
-        existingMaterial.needsUpdate = true;
+        if (!updatedSharedMaterials.has(existingMaterial)) {
+          existingMaterial.map = resolvedTexture;
+          existingMaterial.needsUpdate = true;
+          updatedSharedMaterials.add(existingMaterial);
+        }
         applyVisualMeshShadowPolicy(targetMesh);
         return;
       }
 
-      targetMesh.material = createMatteMaterial({
+      const cacheKey = materialAssetCache ? buildCacheKey(preferDoubleSide) : null;
+      const cached = cacheKey ? materialAssetCache!.get(cacheKey) : undefined;
+      if (cached) {
+        targetMesh.material = cached;
+        applyVisualMeshShadowPolicy(targetMesh);
+        return;
+      }
+
+      const fresh = createMatteMaterial({
         color: createThreeColorFromSRGB(r, g, b),
         opacity: alpha,
         transparent: alpha < 1,
@@ -910,20 +943,24 @@ async function applyMaterialAssetToMesh(
         name: materialName || materialDef.name || 'mjcf_material_asset',
         preserveExactColor: hasAuthoredRgba || Boolean(materialDef.texture),
       });
-      if (!(targetMesh.material instanceof THREE.MeshStandardMaterial)) {
+      targetMesh.material = fresh;
+      if (!(fresh instanceof THREE.MeshStandardMaterial)) {
         return;
       }
       if (roughness != null) {
-        targetMesh.material.roughness = roughness;
+        fresh.roughness = roughness;
       }
       if (metalness != null) {
-        targetMesh.material.metalness = metalness;
+        fresh.metalness = metalness;
       }
       if (emission != null) {
-        targetMesh.material.emissive = new THREE.Color(r, g, b);
-        targetMesh.material.emissiveIntensity = emission;
+        fresh.emissive = new THREE.Color(r, g, b);
+        fresh.emissiveIntensity = emission;
       }
-      targetMesh.material.needsUpdate = true;
+      fresh.needsUpdate = true;
+      if (cacheKey && materialAssetCache) {
+        materialAssetCache.set(cacheKey, fresh);
+      }
       applyVisualMeshShadowPolicy(targetMesh);
     });
   };
@@ -1023,6 +1060,7 @@ export async function buildMJCFHierarchy(
   const linksMap: Record<string, THREE.Object3D> = {};
   const jointsMap: Record<string, THREE.Object3D> = {};
   const textureLoadCache: MJCFTextureLoadCache = new Map();
+  const materialAssetCache = new Map<string, THREE.MeshStandardMaterial>();
   const deferredTextureApplications: Array<() => Promise<void>> = [];
   const prewarmedMeshByName = new Map<string, Promise<THREE.Object3D | null>>();
   let textureCacheOwnershipTransferred = false;
@@ -1085,6 +1123,10 @@ export async function buildMJCFHierarchy(
       throwIfAborted();
       let mesh: THREE.Object3D | null = null;
       try {
+        if (!isVisualGeom && !isCollisionGeom) {
+          continue;
+        }
+
         mesh = await consumePrewarmedMesh(geom);
         if (mesh === undefined) {
           mesh = await createGeometryMesh(
@@ -1122,6 +1164,7 @@ export async function buildMJCFHierarchy(
               },
               yieldIfNeeded,
               onAsyncSceneMutation,
+              materialAssetCache,
             },
           );
           throwIfAborted();
@@ -1155,10 +1198,19 @@ export async function buildMJCFHierarchy(
 
           mesh.userData.isVisual = true;
           mesh.userData.isVisualMesh = true;
+          // Force deterministic draw order = XML order. MJCF convention is
+          // that later-declared geoms render on top of earlier ones, and many
+          // menagerie models intentionally model attachments (battery covers,
+          // mount plates, etc.) coplanar with the outer shell. With Three.js
+          // depthFunc=LessEqual, the last-drawn coplanar surface wins, so
+          // ascending renderOrder matches MJCF semantics and prevents the
+          // tie-breaker from flipping per frame (the source of flicker).
+          mesh.renderOrder = geomIndex;
           mesh.traverse((child: any) => {
             if (child.isMesh) {
               child.userData.isVisual = true;
               child.userData.isVisualMesh = true;
+              child.renderOrder = geomIndex;
             }
           });
           visualGroup.add(mesh);
@@ -1194,16 +1246,6 @@ export async function buildMJCFHierarchy(
           targetGroup.add(collisionGroup);
         }
 
-        if (!isVisualGeom && !isCollisionGeom) {
-          const visualGroup = new URDFVisual();
-          visualGroup.name = geom.name || `visual_${geom.type || 'geom'}`;
-          visualGroup.urdfName = visualGroup.name;
-          visualGroup.userData.isVisualGroup = true;
-          visualGroup.userData.visualOrder = geomIndex;
-          applyGeomTransformToContainer(visualGroup);
-          visualGroup.add(mesh);
-          targetGroup.add(visualGroup);
-        }
       } catch (error) {
         if (mesh && !mesh.parent) {
           disposeTransientObject3D(mesh);
@@ -1316,6 +1358,17 @@ export async function buildMJCFHierarchy(
     (jointNode as any).referencePosition = Number.isFinite(joint.ref) ? joint.ref : 0;
     jointNode.position.set(jointPos[0], jointPos[1], jointPos[2]);
     (jointNode as any).bodyOffsetGroup = bodyOffsetGroup;
+    const hasActuator = (options.actuatorMap?.get(joint.name)?.length ?? 0) > 0;
+    if (typeof joint.stiffness === 'number' && Number.isFinite(joint.stiffness)) {
+      jointNode.userData.mjcfJointStiffness = joint.stiffness;
+      Object.assign(
+        jointNode.userData,
+        resolveMjcfPassiveSpringJointMetadata({
+          stiffness: joint.stiffness,
+          hasActuator,
+        }),
+      );
+    }
 
     const axisVec = joint.axis
       ? new THREE.Vector3(joint.axis[0], joint.axis[1], joint.axis[2]).normalize()

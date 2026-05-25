@@ -123,7 +123,10 @@ function createRobot(): RobotState {
   };
 }
 
-function renderPropertyEditor(selection: RobotState['selection'] = createRobot().selection) {
+function renderPropertyEditor(
+  selection: RobotState['selection'] = createRobot().selection,
+  props: Record<string, unknown> = {},
+) {
   const robot = createRobot();
   robot.selection = selection;
 
@@ -137,6 +140,7 @@ function renderPropertyEditor(selection: RobotState['selection'] = createRobot()
       motorLibrary: {},
       lang: 'en',
       theme: 'light',
+      ...props,
     }),
   );
 }
@@ -144,6 +148,12 @@ function renderPropertyEditor(selection: RobotState['selection'] = createRobot()
 function getClassName(markup: string, testId: string): string {
   const match = markup.match(new RegExp(`data-testid="${testId}"[^>]*class="([^"]+)"`));
   assert.ok(match, `${testId} should render`);
+  return match[1];
+}
+
+function getStyle(markup: string, testId: string): string {
+  const match = markup.match(new RegExp(`data-testid="${testId}"[^>]*style="([^"]+)"`));
+  assert.ok(match, `${testId} should render with inline style`);
   return match[1];
 }
 
@@ -170,6 +180,8 @@ test('tendon selection renders tendon inspection data without joint property con
   assert.match(markup, /finger_tendon/);
   assert.match(markup, /finger_tendon_motor/);
   assert.match(markup, /hip_joint/);
+  assert.match(markup, /type="color"/);
+  assert.match(markup, /value="#00ff00"/i);
   assert.doesNotMatch(markup, new RegExp(translations.en.selectedJoint));
 });
 
@@ -177,6 +189,24 @@ test('property editor does not render the shared joints section', () => {
   const markup = renderPropertyEditor();
 
   assert.doesNotMatch(markup, /Joints/);
+});
+
+test('property editor sidebar collapses with transform instead of layout width', () => {
+  const markup = renderPropertyEditor(createRobot().selection, { collapsed: true });
+  const sidebarClassName = getClassName(markup, 'property-editor-sidebar');
+  const sidebarStyle = getStyle(markup, 'property-editor-sidebar');
+
+  assert.match(sidebarClassName, /\btranslate-x-full\b/);
+  assert.match(sidebarClassName, /\btransition-transform\b/);
+  assert.doesNotMatch(sidebarClassName, /transition-\[width/);
+  assert.doesNotMatch(sidebarClassName, /will-change-\[width/);
+  assert.match(sidebarStyle, /width:248px/);
+  assert.match(sidebarStyle, /min-width:248px/);
+  assert.match(sidebarStyle, /contain:layout style/);
+  assert.match(
+    markup,
+    /data-testid="property-editor-sidebar-content"[^>]*aria-hidden="true"[^>]*inert=""/,
+  );
 });
 
 test('property editor sidebar resize handle uses a thin visible rail', () => {

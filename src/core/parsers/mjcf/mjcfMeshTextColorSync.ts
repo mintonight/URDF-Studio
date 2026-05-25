@@ -1,6 +1,4 @@
 import * as THREE from 'three';
-import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 
 import { deriveObjAuthoredMaterialsFromLookup } from '@/core/loaders/objMaterialUtils';
 import { syncRobotMaterialsForLinkUpdate } from '@/core/robot/materials';
@@ -9,7 +7,7 @@ import {
   createSceneFromSerializedColladaData,
   parseColladaSceneData,
 } from '@/core/loaders/colladaWorkerSceneData';
-import { getSourceFileDirectory, resolveImportedAssetPath } from '@/core/parsers/meshPathUtils';
+import { resolveImportedAssetPath } from '@/core/parsers/meshPathUtils';
 import { DEFAULT_VISUAL_COLOR, GeometryType, type RobotData, type UrdfVisual } from '@/types';
 
 import { disposeTransientObject3D } from './mjcfLoadLifecycle';
@@ -37,6 +35,11 @@ function buildTextContentSignature(content: string): string {
 function normalizeMaterialValue(value?: string | null): string | undefined {
   const trimmed = String(value || '').trim();
   return trimmed ? trimmed : undefined;
+}
+
+function rgbaUnitChannelToHex(value: number): string {
+  const byte = Math.max(0, Math.min(255, Math.round(value * 255)));
+  return byte.toString(16).padStart(2, '0');
 }
 
 function createTextAssetContentLookup(
@@ -167,7 +170,7 @@ function parseObjMaterialLibraries(content: string): string[] {
       continue;
     }
 
-    materialLibraries.push(rawValue);
+    materialLibraries.push(...rawValue.split(/\s+/).filter(Boolean));
   }
 
   return materialLibraries;
@@ -222,30 +225,140 @@ function writeRepresentativeMeshColorCache(cacheKey: string, color: string | nul
   }
 }
 
-function createObjSceneFromTextContent(
+function parseObjVertexReferenceIndex(token: string, vertexCount: number): number | null {
+  const rawIndex = Number.parseInt(token.split('/')[0] || '', 10);
+  if (!Number.isFinite(rawIndex) || rawIndex === 0) {
+    return null;
+  }
+
+  const resolvedIndex = rawIndex > 0 ? rawIndex - 1 : vertexCount + rawIndex;
+  return resolvedIndex >= 0 && resolvedIndex < vertexCount ? resolvedIndex : null;
+}
+
+function parseObjVertexColorHex(line: string): string | null {
+  const tokens = line.trim().split(/\s+/);
+  if (tokens.length < 7 || tokens[0] !== 'v') {
+    return null;
+  }
+
+  const channels = tokens.slice(4, 7).map((value) => Number.parseFloat(value));
+  if (!channels.every((value) => Number.isFinite(value))) {
+    return null;
+  }
+
+  return `#${channels.map(rgbaUnitChannelToHex).join('')}`;
+}
+
+function buildObjMaterialColorLookup(
+  meshPath: string,
+  textAssetContentLookup: TextAssetContentLookup,
+): Map<string, string> {
+  const materialColors = new Map<string, string>();
+
+  deriveObjAuthoredMaterialsFromLookup(meshPath, textAssetContentLookup).forEach((material) => {
+    const name = normalizeMaterialValue(material.name);
+    const color =
+      normalizeMaterialValue(material.color) ??
+      (normalizeMaterialValue(material.texture) ? '#ffffff' : undefined);
+    if (name && color) {
+      materialColors.set(name, color);
+    }
+  });
+
+  return materialColors;
+}
+
+function addObjReferenceVertexColors(
+  colorWeights: Map<string, number>,
+  vertexColors: Array<string | null>,
+  references: string[],
+  weightMultiplier = 1,
+): void {
+  references.forEach((reference) => {
+    const vertexIndex = parseObjVertexReferenceIndex(reference, vertexColors.length);
+    if (vertexIndex === null) {
+      return;
+    }
+
+    addColorWeight(colorWeights, vertexColors[vertexIndex] ?? undefined, weightMultiplier);
+  });
+}
+
+function getDominantWeightedColor(colorWeights: Map<string, number>): string | null {
+  let representativeColor: string | null = null;
+  let bestWeight = -1;
+
+  colorWeights.forEach((weight, color) => {
+    if (weight > bestWeight) {
+      bestWeight = weight;
+      representativeColor = color;
+    }
+  });
+
+  return representativeColor;
+}
+
+function deriveRepresentativeObjColorFromTextContent(
   meshPath: string,
   meshContent: string,
   textAssetContentLookup: TextAssetContentLookup,
-): THREE.Object3D {
-  const loader = new OBJLoader();
+): string | null {
+  const materialColors = buildObjMaterialColorLookup(meshPath, textAssetContentLookup);
+  const vertexColors: Array<string | null> = [];
+  const colorWeights = new Map<string, number>();
+  let currentMaterialName = '';
 
-  for (const materialLibrary of parseObjMaterialLibraries(meshContent)) {
-    const resolvedMaterialPath = resolveImportedAssetPath(materialLibrary, meshPath);
-    const materialContent = findTextAssetContent(resolvedMaterialPath, textAssetContentLookup);
-    if (!materialContent) {
-      continue;
+  meshContent.split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      return;
     }
 
-    const materials = new MTLLoader().parse(
-      materialContent,
-      getSourceFileDirectory(resolvedMaterialPath),
-    );
-    materials.preload();
-    loader.setMaterials(materials);
-    break;
-  }
+    if (trimmed.startsWith('v ')) {
+      vertexColors.push(parseObjVertexColorHex(trimmed));
+      return;
+    }
 
-  return loader.parse(meshContent);
+    if (trimmed.startsWith('usemtl ')) {
+      currentMaterialName = trimmed.slice(7).trim();
+      return;
+    }
+
+    const tokens = trimmed.split(/\s+/);
+    const directive = tokens[0];
+    const references = tokens.slice(1);
+    if (references.length === 0 || (directive !== 'f' && directive !== 'l' && directive !== 'p')) {
+      return;
+    }
+
+    const materialColor = materialColors.get(currentMaterialName);
+    const primitiveWeight =
+      directive === 'f'
+        ? Math.max(references.length - 2, 1) * 3
+        : directive === 'l'
+          ? Math.max(references.length - 1, 1) * 2
+          : references.length;
+
+    if (materialColor) {
+      addColorWeight(colorWeights, materialColor, primitiveWeight);
+      return;
+    }
+
+    if (directive === 'f' && references.length >= 3) {
+      for (let index = 1; index + 1 < references.length; index += 1) {
+        addObjReferenceVertexColors(colorWeights, vertexColors, [
+          references[0]!,
+          references[index]!,
+          references[index + 1]!,
+        ]);
+      }
+      return;
+    }
+
+    addObjReferenceVertexColors(colorWeights, vertexColors, references);
+  });
+
+  return getDominantWeightedColor(colorWeights);
 }
 
 function deriveRepresentativeMeshColor(
@@ -280,15 +393,17 @@ function deriveRepresentativeMeshColor(
   let root: THREE.Object3D | null = null;
 
   try {
+    let representativeColor: string | null = null;
     switch (extension) {
       case 'dae':
         root = createSceneFromSerializedColladaData(
           parseColladaSceneData(meshContent, normalizedMeshPath),
         );
         postProcessColladaScene(root);
+        representativeColor = getRepresentativeMeshColor(root);
         break;
       case 'obj':
-        root = createObjSceneFromTextContent(
+        representativeColor = deriveRepresentativeObjColorFromTextContent(
           normalizedMeshPath,
           meshContent,
           textAssetContentLookup,
@@ -299,7 +414,6 @@ function deriveRepresentativeMeshColor(
         return null;
     }
 
-    const representativeColor = getRepresentativeMeshColor(root);
     writeRepresentativeMeshColorCache(cacheKey, representativeColor);
     colorCache.set(normalizedMeshPath, representativeColor);
     return representativeColor;

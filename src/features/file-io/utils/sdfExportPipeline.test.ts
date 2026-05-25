@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { JSDOM } from 'jsdom';
 
 import { resolveRobotFileData } from '@/core/parsers/importRobotFile';
+import { generateSDF } from '@/core/parsers/sdf/sdfGenerator';
 import { generateURDF } from '@/core/parsers/urdf/urdfGenerator';
 import { parseURDF } from '@/core/parsers/urdf/parser';
 import type { RobotFile, RobotState } from '@/types';
@@ -71,6 +74,40 @@ function createExportableSdfFile(): RobotFile {
   };
 }
 
+function createAlohaMjcfContext(): {
+  allFileContents: Record<string, string>;
+  availableFiles: RobotFile[];
+  sourceFile: RobotFile;
+} {
+  const fixtureRoot = path.resolve('test/mujoco_menagerie-main/aloha');
+  const allFileContents: Record<string, string> = {};
+  const availableFiles: RobotFile[] = [];
+
+  fs.readdirSync(fixtureRoot, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.xml'))
+    .forEach((entry) => {
+      const filePath = path.join(fixtureRoot, entry.name).replace(/\\/g, '/');
+      const content = fs.readFileSync(filePath, 'utf8');
+      const file: RobotFile = {
+        name: filePath,
+        format: 'mjcf' as RobotFile['format'],
+        content,
+      };
+      allFileContents[filePath] = content;
+      availableFiles.push(file);
+    });
+
+  const sourcePath = path.join(fixtureRoot, 'aloha.xml').replace(/\\/g, '/');
+  const sourceFile = availableFiles.find((file) => file.name === sourcePath);
+  assert.ok(sourceFile, 'expected Aloha MJCF fixture to be available');
+
+  return {
+    allFileContents,
+    availableFiles,
+    sourceFile,
+  };
+}
+
 function toRobotState(robotData: ReturnType<typeof resolveRobotFileData> extends infer TResult
   ? TResult extends { status: 'ready'; robotData: infer TData }
     ? TData
@@ -116,4 +153,40 @@ test('SDF imports can export to URDF and USD archives', async () => {
       'demo_sdf_export/usd/demo_sdf_export.usd',
     ],
   );
+});
+
+test('Aloha MJCF export to SDF preserves visual material and mesh scale on re-import', () => {
+  const { allFileContents, availableFiles, sourceFile } = createAlohaMjcfContext();
+  const importResult = resolveRobotFileData(sourceFile, {
+    allFileContents,
+    availableFiles,
+  });
+
+  assert.equal(importResult.status, 'ready');
+  if (importResult.status !== 'ready') {
+    assert.fail('expected Aloha MJCF import result to be ready');
+  }
+
+  const robot = toRobotState(importResult.robotData);
+  const sdfContent = generateSDF(robot, { packageName: 'aloha' });
+
+  assert.match(sdfContent, /<diffuse>0\.14902353 0\.14902353 0\.14902353 1\.00000000<\/diffuse>/);
+  assert.match(sdfContent, /<scale>0\.001 0\.001 0\.001<\/scale>/);
+
+  const roundTrip = resolveRobotFileData({
+    name: 'aloha/model.sdf',
+    format: 'sdf' as RobotFile['format'],
+    content: sdfContent,
+  });
+
+  assert.equal(roundTrip.status, 'ready');
+  if (roundTrip.status !== 'ready') {
+    assert.fail('expected Aloha SDF re-import result to be ready');
+  }
+
+  const baseLink = roundTrip.robotData.links['left/base_link'];
+  assert.ok(baseLink, 'expected left/base_link to survive SDF round-trip');
+  assert.equal(baseLink.visual.color, '#262626');
+  assert.deepEqual(roundTrip.robotData.materials?.['left/base_link'], { color: '#262626' });
+  assert.deepEqual(baseLink.visual.dimensions, { x: 0.001, y: 0.001, z: 0.001 });
 });

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import type { AppMode, AssemblyState, RobotFile, RobotState, Theme } from '@/types';
+import type { AppMode, AssemblyState, RobotData, RobotFile, RobotState, Theme } from '@/types';
 import { cloneAssemblyTransform } from '@/core/robot/assemblyTransforms';
 import {
   denormalizeSourceSceneAssemblyComponentTransform,
@@ -37,7 +37,9 @@ interface UseUnifiedViewerDerivedStateParams {
   theme: Theme;
   showOptionsPanel: boolean;
   editorRobotInput?: RobotState;
-  robot: RobotState;
+  // Viewer-bound robot is RobotData (no selection) — keeping it selection-free
+  // is what stops the empty-click cascade that flashes models off for a frame.
+  robot: RobotData;
   assemblyWorkspaceActive: boolean;
   urdfContent: string;
   sourceFilePath?: string;

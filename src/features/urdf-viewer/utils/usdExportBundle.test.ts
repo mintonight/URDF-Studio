@@ -1974,6 +1974,118 @@ test('prepareUsdExportCacheFromResolvedSnapshot keeps descriptor world transform
   assert.doesNotMatch(meshText, /^v 5 0 0(?:\s|$)/m);
 });
 
+test('prepareUsdExportCacheFromResolvedSnapshot omits OBJ UVs for color-only USD materials', async () => {
+  const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  const indices = new Uint32Array([0, 1, 2]);
+  const uvs = new Float32Array([0, 0, 1, 0, 0, 1]);
+  const makeResolution = (color = '#ffffff') => ({
+    stageSourcePath: '/robots/demo/color-only.usd',
+    robotData: {
+      name: 'color_only',
+      rootLinkId: 'base_link',
+      links: {
+        base_link: {
+          id: 'base_link',
+          name: 'base_link',
+          visible: true,
+          visual: {
+            type: GeometryType.MESH,
+            dimensions: { x: 1, y: 1, z: 1 },
+            color,
+            origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          },
+          collision: {
+            type: GeometryType.NONE,
+            dimensions: { x: 0, y: 0, z: 0 },
+            color: '#cccccc',
+            origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          },
+          inertial: {
+            mass: 1,
+            origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+            inertia: { ixx: 1, ixy: 0, ixz: 0, iyy: 1, iyz: 0, izz: 1 },
+          },
+        },
+      },
+      joints: {},
+    },
+    linkIdByPath: {
+      '/Robot/base_link': 'base_link',
+    },
+    linkPathById: {
+      base_link: '/Robot/base_link',
+    },
+    jointPathById: {},
+    childLinkPathByJointId: {},
+    parentLinkPathByJointId: {},
+  });
+  const makeSnapshot = (material: Record<string, unknown>) => ({
+    stageSourcePath: '/robots/demo/color-only.usd',
+    stage: {
+      defaultPrimPath: '/Robot',
+    },
+    robotTree: {
+      linkParentPairs: [['/Robot/base_link', null]] as Array<[string, string | null]>,
+      rootLinkPaths: ['/Robot/base_link'],
+    },
+    robotMetadataSnapshot: {
+      stageSourcePath: '/robots/demo/color-only.usd',
+      linkParentPairs: [['/Robot/base_link', null]] as Array<[string, string | null]>,
+      jointCatalogEntries: [],
+    },
+    render: {
+      materials: [
+        {
+          materialId: '/Robot/Looks/base',
+          name: 'base',
+          ...material,
+        },
+      ],
+      meshDescriptors: [
+        {
+          meshId: '/Robot/base_link/visuals.proto_mesh_id0',
+          sectionName: 'visuals',
+          resolvedPrimPath: '/Robot/base_link/visuals/mesh_0',
+          primType: 'mesh',
+          materialId: '/Robot/Looks/base',
+          normalDiagnostics: {
+            postRepairLowDotCount: 0,
+          },
+          ranges: {
+            positions: { offset: 0, count: 9, stride: 3 },
+            indices: { offset: 0, count: 3, stride: 1 },
+            uvs: { offset: 0, count: 6, stride: 2 },
+          },
+        },
+      ],
+    },
+    buffers: {
+      positions,
+      indices,
+      normals: new Float32Array(0),
+      uvs,
+      transforms: new Float32Array(0),
+      rangesByMeshId: {},
+    },
+  });
+
+  const colorOnly = prepareUsdExportCacheFromResolvedSnapshot(
+    makeSnapshot({ color: [0.8, 0.8, 0.8] }),
+    makeResolution(),
+  );
+  const colorOnlyText = await colorOnly.meshFiles['base_link_visual_0.obj'].text();
+  assert.doesNotMatch(colorOnlyText, /^vt /m);
+  assert.match(colorOnlyText, /^f 1 2 3$/m);
+
+  const textured = prepareUsdExportCacheFromResolvedSnapshot(
+    makeSnapshot({ mapPath: 'textures/base.png' }),
+    makeResolution(),
+  );
+  const texturedText = await textured.meshFiles['base_link_visual_0.obj'].text();
+  assert.match(texturedText, /^vt 0 0$/m);
+  assert.match(texturedText, /^f 1\/1 2\/2 3\/3$/m);
+});
+
 test('canPrepareUsdExportCacheFromSnapshot requires mesh buffers for buffer-backed descriptors', () => {
   const snapshot = {
     stageSourcePath: '/robots/demo/demo.usd',

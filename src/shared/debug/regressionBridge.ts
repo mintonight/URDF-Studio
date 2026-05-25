@@ -1635,6 +1635,9 @@ function summarizeRuntimeSceneTransforms(robot: any) {
     quaternion: [number, number, number, number] | null;
     scale: [number, number, number] | null;
     axis: [number, number, number] | null;
+    mjcfJointStiffness?: number;
+    mjcfPassiveSpringJoint?: boolean;
+    mjcfHardPassiveSpringJoint?: boolean;
   }> = [];
   const visualMeshes: Array<{
     link: string;
@@ -1669,6 +1672,18 @@ function summarizeRuntimeSceneTransforms(robot: any) {
       }
 
       if (child?.isURDFJoint) {
+        const mjcfJointStiffness =
+          typeof child.userData?.mjcfJointStiffness === 'number'
+            ? child.userData.mjcfJointStiffness
+            : undefined;
+        const mjcfPassiveSpringJoint =
+          typeof child.userData?.mjcfPassiveSpringJoint === 'boolean'
+            ? child.userData.mjcfPassiveSpringJoint
+            : undefined;
+        const mjcfHardPassiveSpringJoint =
+          typeof child.userData?.mjcfHardPassiveSpringJoint === 'boolean'
+            ? child.userData.mjcfHardPassiveSpringJoint
+            : undefined;
         joints.push({
           name: typeof child.name === 'string' ? child.name : '',
           type: typeof child?.jointType === 'string' ? child.jointType : null,
@@ -1686,6 +1701,11 @@ function summarizeRuntimeSceneTransforms(robot: any) {
             : null,
           scale: toFixedArray(child.getWorldScale?.(new Vector3())),
           axis: toFixedArray(child.axis),
+          ...(typeof mjcfJointStiffness === 'number' ? { mjcfJointStiffness } : {}),
+          ...(typeof mjcfPassiveSpringJoint === 'boolean' ? { mjcfPassiveSpringJoint } : {}),
+          ...(typeof mjcfHardPassiveSpringJoint === 'boolean'
+            ? { mjcfHardPassiveSpringJoint }
+            : {}),
         });
         return;
       }

@@ -25,7 +25,11 @@ import { getSourceFileDirectory } from '@/core/parsers/meshPathUtils';
 import type { RobotData, UrdfJoint, UrdfLink } from '@/types';
 import { setRegressionRuntimeRobot } from '@/shared/debug/regressionState';
 import { isSingleDofJoint } from '@/shared/utils/jointTypes';
-import { detectJointPatches, detectSingleGeometryPatch } from '../utils/robotLoaderDiff';
+import {
+  areRobotLinkChangesVisibilityOnly,
+  detectJointPatches,
+  detectSingleGeometryPatch,
+} from '../utils/robotLoaderDiff';
 import { applyGeometryPatchInPlace } from '../utils/robotLoaderGeometryPatch';
 import { patchJointsInPlace } from '../utils/robotLoaderJointPatch';
 import { resolveURDFMaterialsForScene } from '@/shared/components/3d/urdfMaterials';
@@ -481,7 +485,13 @@ export function useRobotLoader({
     }
 
     const patch = detectSingleGeometryPatch(previousLinks, robotLinks);
-    if (!patch) return;
+    if (!patch) {
+      if (areRobotLinkChangesVisibilityOnly(previousLinks, robotLinks)) {
+        setRobotVersion((v) => v + 1);
+        setError(null);
+      }
+      return;
+    }
 
     const colladaRootNormalizationHints = buildColladaRootNormalizationHints(robotLinks);
 
@@ -502,6 +512,9 @@ export function useRobotLoader({
     skipReloadCountRef.current += 1;
     setRobotVersion((v) => v + 1);
     setError(null);
+    // See the joint-patch effect below: the scope guard reads
+    // currentSourceScopeKey / reloadToken, so they must be deps to retry the
+    // in-place patch after the mounted-robot refs converge.
   }, [
     robotLinks,
     resolvedSourceFormat,
@@ -510,6 +523,8 @@ export function useRobotLoader({
     invalidate,
     isMeshPreview,
     sourceFileDir,
+    currentSourceScopeKey,
+    reloadToken,
   ]);
 
   // Incremental path: update changed joint metadata/origins in-place and skip
@@ -539,7 +554,19 @@ export function useRobotLoader({
     skipReloadCountRef.current += 1;
     setRobotVersion((v) => v + 1);
     setError(null);
-  }, [robotJoints, resolvedSourceFormat, urdfContent, invalidate, isMeshPreview]);
+    // currentSourceScopeKey / reloadToken are read by the scope guard above; they
+    // must be deps so the effect re-runs (and retries the in-place patch) once the
+    // mounted-robot refs converge, instead of permanently missing the patch and
+    // falling back to a full async rebuild (the multi-model snap-back).
+  }, [
+    robotJoints,
+    resolvedSourceFormat,
+    urdfContent,
+    invalidate,
+    isMeshPreview,
+    currentSourceScopeKey,
+    reloadToken,
+  ]);
 
   // Track component mount state for preventing state updates after unmount
   useEffect(() => {

@@ -125,6 +125,7 @@ export const ViewerPanels = ({
             setActiveJoint={controller.setActiveJoint}
             handleJointAngleChange={controller.handleJointAngleChange}
             handleJointChangeCommit={controller.handleJointChangeCommit}
+            setIsDragging={controller.setIsDragging}
             onSelect={controller.handleSelectWrapper}
             onHover={controller.handleHoverWrapper}
             onUpdate={onUpdate}

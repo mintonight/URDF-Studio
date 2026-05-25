@@ -12,6 +12,7 @@ import {
 import {
   mapRobotImportProgressToDocumentLoadPercent,
   resolveBootstrapDocumentLoadPhase,
+  resolveRobotImportCompletedDocumentLoadPercent,
 } from '../utils/documentLoadProgress';
 import { resolveRobotFileDataWithWorker } from './robotImportWorkerBridge';
 
@@ -79,6 +80,7 @@ export function usePreviewFileWithFeedback({
             importedAssetPaths,
             {
               allFileContents,
+              availableFiles,
               sourcePath: file.name,
             },
           );
@@ -152,16 +154,25 @@ export function usePreviewFileWithFeedback({
             }
 
             const currentDocumentLoadState = useAssetsStore.getState().documentLoadState;
-            const mappedProgressPercent = mapRobotImportProgressToDocumentLoadPercent(
-              file.format,
-              progress,
-            );
-            const nextProgressPercent =
+            const isIndeterminateProgress = progress.progressMode === 'indeterminate';
+            const isCurrentFileLoading =
               currentDocumentLoadState.fileName === file.name &&
               (currentDocumentLoadState.status === 'loading' ||
-                currentDocumentLoadState.status === 'hydrating')
+                currentDocumentLoadState.status === 'hydrating');
+            let nextProgressPercent: number | null;
+            if (isIndeterminateProgress) {
+              nextProgressPercent = isCurrentFileLoading
+                ? (currentDocumentLoadState.progressPercent ?? null)
+                : null;
+            } else {
+              const mappedProgressPercent = mapRobotImportProgressToDocumentLoadPercent(
+                file.format,
+                progress,
+              );
+              nextProgressPercent = isCurrentFileLoading
                 ? Math.max(currentDocumentLoadState.progressPercent ?? 0, mappedProgressPercent)
                 : mappedProgressPercent;
+            }
 
             setDocumentLoadState({
               status: 'loading',
@@ -170,7 +181,7 @@ export function usePreviewFileWithFeedback({
               error: null,
               phase: resolveBootstrapDocumentLoadPhase(file.format),
               message: progress.message ?? null,
-              progressMode: 'percent',
+              progressMode: isIndeterminateProgress ? 'indeterminate' : 'percent',
               progressPercent: nextProgressPercent,
               loadedCount: null,
               totalCount: null,
@@ -184,15 +195,20 @@ export function usePreviewFileWithFeedback({
           }
 
           if (previewResult.status === 'ready') {
+            // Keep the overlay in 'loading' here; the viewer's mesh-streaming +
+            // onLoad events are authoritative for declaring the document ready.
+            // Marking 'ready' eagerly hides the overlay during WASM mesh parsing
+            // and shouldIgnoreViewerLoadRegressionAfterReadySameFile then blocks
+            // the viewer's streaming-meshes events from re-opening it.
             setDocumentLoadState({
-              status: 'ready',
+              status: 'loading',
               fileName: file.name,
               format: file.format,
               error: null,
-              phase: null,
+              phase: resolveBootstrapDocumentLoadPhase(file.format),
               message: null,
               progressMode: 'percent',
-              progressPercent: 100,
+              progressPercent: resolveRobotImportCompletedDocumentLoadPercent(file.format),
               loadedCount: null,
               totalCount: null,
             });

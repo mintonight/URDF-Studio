@@ -1,9 +1,7 @@
 import {
-    type BufferAttribute,
     BufferGeometry,
     Float32BufferAttribute,
     Group,
-    type InterleavedBufferAttribute,
     LineBasicMaterial,
     LineSegments,
     Mesh,
@@ -13,12 +11,13 @@ import {
     type Material,
     type Object3D,
 } from 'three';
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 
 export const GENERATED_OBJ_MATERIAL_USER_DATA_KEY = '__urdfStudioGeneratedObjMaterial';
 
 export interface SerializedObjAttributeData {
     array: ArrayBuffer;
+    byteLength?: number;
+    byteOffset?: number;
     itemSize: number;
     normalized?: boolean;
 }
@@ -59,113 +58,21 @@ export interface SerializedObjModelData {
     materialLibraries: string[];
 }
 
-function extractTransferableBuffer(array: Float32Array): ArrayBuffer {
-    if (array.byteOffset === 0 && array.byteLength === array.buffer.byteLength) {
-        return array.buffer;
-    }
-
-    return array.slice().buffer;
+export interface CreateObjectFromSerializedObjDataAsyncOptions {
+    nodeYieldInterval?: number;
+    yieldIfNeeded?: () => Promise<void>;
 }
 
-function serializeFloat32Attribute(attribute: BufferAttribute | InterleavedBufferAttribute): SerializedObjAttributeData {
-    const float32Array = attribute.array instanceof Float32Array
-        ? attribute.array
-        : new Float32Array(attribute.array as ArrayLike<number>);
-
-    return {
-        array: extractTransferableBuffer(float32Array),
-        itemSize: attribute.itemSize,
-        normalized: attribute.normalized,
-    };
-}
-
-function serializeObjMaterial(material: Material): SerializedObjMaterialData {
-    if ((material as LineBasicMaterial).isLineBasicMaterial) {
-        const lineMaterial = material as LineBasicMaterial;
-        return {
-            kind: 'line-basic',
-            name: lineMaterial.name,
-            color: lineMaterial.color.getHex(),
-            vertexColors: lineMaterial.vertexColors === true,
-        };
-    }
-
-    if ((material as PointsMaterial).isPointsMaterial) {
-        const pointsMaterial = material as PointsMaterial;
-        return {
-            kind: 'points',
-            name: pointsMaterial.name,
-            color: pointsMaterial.color.getHex(),
-            size: pointsMaterial.size,
-            sizeAttenuation: pointsMaterial.sizeAttenuation,
-            vertexColors: pointsMaterial.vertexColors === true,
-        };
-    }
-
-    if ((material as MeshPhongMaterial).isMeshPhongMaterial) {
-        const meshMaterial = material as MeshPhongMaterial;
-        return {
-            kind: 'mesh-phong',
-            name: meshMaterial.name,
-            color: meshMaterial.color.getHex(),
-            flatShading: meshMaterial.flatShading,
-            vertexColors: meshMaterial.vertexColors === true,
-        };
-    }
-
-    throw new Error(`Unsupported OBJ material type: ${material.type}`);
-}
-
-function serializeObjNode(node: Object3D): SerializedObjNodeData {
-    const geometryOwner = node as Mesh | LineSegments | Points;
-    const geometry = geometryOwner.geometry;
-    const position = geometry.getAttribute('position');
-    if (!position) {
-        throw new Error(`OBJ node "${node.name}" is missing a position attribute`);
-    }
-
-    const normal = geometry.getAttribute('normal');
-    const color = geometry.getAttribute('color');
-    const uv = geometry.getAttribute('uv');
-    const materials = Array.isArray(geometryOwner.material)
-        ? geometryOwner.material
-        : [geometryOwner.material];
-
-    let kind: SerializedObjNodeData['kind'] = 'mesh';
-    if ((node as LineSegments).isLineSegments) {
-        kind = 'line-segments';
-    } else if ((node as Points).isPoints) {
-        kind = 'points';
-    }
-
-    return {
-        kind,
-        name: node.name,
-        materials: materials.map(serializeObjMaterial),
-        geometry: {
-            position: serializeFloat32Attribute(position),
-            normal: normal ? serializeFloat32Attribute(normal) : undefined,
-            color: color ? serializeFloat32Attribute(color) : undefined,
-            uv: uv ? serializeFloat32Attribute(uv) : undefined,
-            groups: geometry.groups.map((group) => ({
-                start: group.start,
-                count: group.count,
-                materialIndex: group.materialIndex,
-            })),
-        },
-    };
-}
-
-export function parseObjModelData(text: string): SerializedObjModelData {
-    const object = new OBJLoader().parse(text);
-    return {
-        materialLibraries: [...((object as Group & { materialLibraries?: string[] }).materialLibraries ?? [])],
-        children: object.children.map(serializeObjNode),
-    };
-}
+const DEFAULT_ASYNC_OBJ_NODE_YIELD_INTERVAL = 8;
 
 function createFloat32Attribute(data: SerializedObjAttributeData): Float32BufferAttribute {
-    return new Float32BufferAttribute(new Float32Array(data.array), data.itemSize, data.normalized);
+    const byteOffset = data.byteOffset ?? 0;
+    const byteLength = data.byteLength ?? data.array.byteLength - byteOffset;
+    return new Float32BufferAttribute(
+        new Float32Array(data.array, byteOffset, byteLength / Float32Array.BYTES_PER_ELEMENT),
+        data.itemSize,
+        data.normalized,
+    );
 }
 
 function createGeometryFromSerializedObjNode(node: SerializedObjNodeData): BufferGeometry {
@@ -184,9 +91,11 @@ function createGeometryFromSerializedObjNode(node: SerializedObjNodeData): Buffe
         geometry.setAttribute('uv', createFloat32Attribute(node.geometry.uv));
     }
 
-    node.geometry.groups.forEach((group) => {
-        geometry.addGroup(group.start, group.count, group.materialIndex);
-    });
+    if (node.materials.length > 1) {
+        node.geometry.groups.forEach((group) => {
+            geometry.addGroup(group.start, group.count, group.materialIndex);
+        });
+    }
 
     return geometry;
 }
@@ -277,21 +186,46 @@ export function createObjectFromSerializedObjData(data: SerializedObjModelData):
     return container;
 }
 
+export async function createObjectFromSerializedObjDataAsync(
+    data: SerializedObjModelData,
+    options: CreateObjectFromSerializedObjDataAsyncOptions = {},
+): Promise<Group> {
+    const container = new Group() as Group & { materialLibraries?: string[] };
+    const yieldIfNeeded = options.yieldIfNeeded;
+    const nodeYieldInterval = Math.max(
+        1,
+        Math.floor(options.nodeYieldInterval ?? DEFAULT_ASYNC_OBJ_NODE_YIELD_INTERVAL),
+    );
+
+    container.materialLibraries = [...data.materialLibraries];
+
+    for (let index = 0; index < data.children.length; index += 1) {
+        container.add(createObjectFromSerializedObjNode(data.children[index]));
+
+        if (yieldIfNeeded && (index + 1) % nodeYieldInterval === 0) {
+            await yieldIfNeeded();
+        }
+    }
+
+    await yieldIfNeeded?.();
+    return container;
+}
+
 export function collectSerializedObjTransferables(data: SerializedObjModelData): ArrayBuffer[] {
-    const transferables: ArrayBuffer[] = [];
+    const transferables = new Set<ArrayBuffer>();
 
     data.children.forEach((child) => {
-        transferables.push(child.geometry.position.array);
+        transferables.add(child.geometry.position.array);
         if (child.geometry.normal) {
-            transferables.push(child.geometry.normal.array);
+            transferables.add(child.geometry.normal.array);
         }
         if (child.geometry.color) {
-            transferables.push(child.geometry.color.array);
+            transferables.add(child.geometry.color.array);
         }
         if (child.geometry.uv) {
-            transferables.push(child.geometry.uv.array);
+            transferables.add(child.geometry.uv.array);
         }
     });
 
-    return transferables;
+    return Array.from(transferables);
 }

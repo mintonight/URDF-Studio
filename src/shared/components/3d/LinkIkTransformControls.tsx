@@ -22,7 +22,8 @@ import {
   diffLinkIkDragKinematicState,
   hasMeaningfulLinkIkTargetDelta,
   hasLinkIkKinematicStateChanges,
-  limitLinkIkPreviewKinematicStateStep,
+  hasRestorableLinkIkPreviewKinematicState,
+  resolveClosedLoopAwareLinkIkPreviewState,
   resolveLinkIkCommittedStateEpsilon,
   resolveLinkIkSolveRequestOptions,
   shouldAcceptLinkIkSolveState,
@@ -200,7 +201,9 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
   }, [resetSolveQueue]);
 
   const clearPreviewOverrides = useCallback(() => {
-    onClearPreviewKinematicOverrides?.();
+    if (hasRestorableLinkIkPreviewKinematicState(committedPreviewStateRef.current)) {
+      onClearPreviewKinematicOverrides?.();
+    }
     committedPreviewStateRef.current = createEmptyLinkIkDragKinematicState();
   }, [onClearPreviewKinematicOverrides]);
 
@@ -308,11 +311,11 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
         return;
       }
 
-      previewSolveStateRef.current = nextSolveState;
       const previewBaseState = buildBaseKinematicState(baseRobot, nextSolveState);
       const nextAppliedState = preview
-        ? limitLinkIkPreviewKinematicStateStep(
-            {
+        ? resolveClosedLoopAwareLinkIkPreviewState({
+            baseRobot,
+            previousState: {
               angles: {
                 ...previewBaseState.angles,
                 ...committedPreviewStateRef.current.angles,
@@ -323,11 +326,10 @@ export const LinkIkTransformControls = memo(function LinkIkTransformControls({
               },
             },
             nextSolveState,
-            {
-              limitedJointIds: resolvePreviewLimitedJointIds(baseRobot, activeLinkId),
-            },
-          )
+            limitedJointIds: resolvePreviewLimitedJointIds(baseRobot, activeLinkId),
+          })
         : nextSolveState;
+      previewSolveStateRef.current = nextAppliedState;
       const changedOverrides = diffLinkIkDragKinematicState(
         committedPreviewStateRef.current,
         nextAppliedState,

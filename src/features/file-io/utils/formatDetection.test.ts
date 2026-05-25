@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { ensureWorkerXmlDomApis } from '@/app/workers/ensureWorkerXmlDomApis';
 import {
   detectFormat,
   isAssetFile,
@@ -8,6 +9,8 @@ import {
   isMotorLibraryFile,
   isRobotDefinitionFile,
 } from './formatDetection.ts';
+
+ensureWorkerXmlDomApis(globalThis as typeof globalThis);
 
 test('detectFormat classifies sdf documents by extension and content', () => {
   const content = `<?xml version="1.0"?>
@@ -46,15 +49,33 @@ test('detectFormat classifies MuJoCo include fragments as mjcf', () => {
   assert.equal(isRobotDefinitionFile('bin_asset.xml'), true);
 });
 
+test('detectFormat classifies custom-root MuJoCo include fragments as mjcf', () => {
+  const content = `<?xml version="1.0"?>
+<panda>
+  <asset>
+    <mesh name="body" file="body.stl" />
+  </asset>
+  <worldbody>
+    <body name="base">
+      <geom type="mesh" mesh="body" />
+    </body>
+  </worldbody>
+</panda>`;
+
+  assert.equal(detectFormat(content, 'panda.xml'), 'mjcf');
+});
+
 test('asset and mesh classification includes legacy msh files and gltf bundles used by folder imports', () => {
   assert.equal(isAssetFile('robot/meshes/base.msh'), true);
   assert.equal(isAssetFile('robot/meshes/base.gltf'), true);
   assert.equal(isAssetFile('robot/meshes/base.glb'), true);
+  assert.equal(isAssetFile('robot/meshes/base.ply'), true);
   assert.equal(isAssetFile('robot/meshes/base.vtk'), true);
   assert.equal(isAssetFile('robot/meshes/base.bin'), true);
   assert.equal(isMeshFile('robot/meshes/base.msh'), true);
   assert.equal(isMeshFile('robot/meshes/base.gltf'), true);
   assert.equal(isMeshFile('robot/meshes/base.glb'), true);
+  assert.equal(isMeshFile('robot/meshes/base.ply'), true);
   assert.equal(isMeshFile('robot/meshes/base.vtk'), true);
   assert.equal(isMeshFile('robot/meshes/base.bin'), false);
 });

@@ -316,10 +316,31 @@ export const emptyRaycast = () => {};
  * @param robotObject - The robot Object3D to enhance
  * @param envMap - Optional environment map (used for realistic reflections)
  */
-export const enhanceMaterials = (robotObject: THREE.Object3D, envMap?: THREE.Texture | null) => {
+export const enhanceMaterials = (
+  robotObject: THREE.Object3D,
+  envMap?: THREE.Texture | null,
+  sharedEnhancedMaterialMemo?: Map<THREE.Material, THREE.Material>,
+) => {
   let enhancedCount = 0;
   let totalMeshes = 0;
   const disposedMaterials = new Set<THREE.Material>();
+  // Within one traverse, many meshes often point at the same source material
+  // (e.g. all "metallic_grey" meshes from a URDF/MJCF/MTL). Without memo we
+  // would create a fresh MeshStandardMaterial per mesh, multiplying GPU
+  // program compiles and VRAM. Memo collapses that to one enhanced material
+  // per unique source. Callers that invoke enhanceMaterials once per mesh
+  // (notably the MJCF path that flattens each <geom> into a separate visual
+  // group) can pass a sharedEnhancedMaterialMemo so cross-mesh reuse still
+  // happens; when omitted, the map stays call-local for the legacy behavior.
+  const enhancedBySource =
+    sharedEnhancedMaterialMemo ?? new Map<THREE.Material, THREE.Material>();
+  const enhanceMaterialMemo = (mat: THREE.Material): THREE.Material => {
+    const cached = enhancedBySource.get(mat);
+    if (cached) return cached;
+    const enhanced = enhanceSingleMaterial(mat, envMap);
+    enhancedBySource.set(mat, enhanced);
+    return enhanced;
+  };
 
   robotObject.traverse((child: any) => {
     if (child.isMesh && child.material) {
@@ -331,13 +352,13 @@ export const enhanceMaterials = (robotObject: THREE.Object3D, envMap?: THREE.Tex
       if (Array.isArray(child.material)) {
         child.material = child.material.map((mat: THREE.Material) => {
           if (shouldSkipEnhance(mat)) return mat;
-          const enhanced = enhanceSingleMaterial(mat, envMap);
+          const enhanced = enhanceMaterialMemo(mat);
           if (enhanced !== mat) enhancedCount++;
           return enhanced;
         });
       } else {
         if (!shouldSkipEnhance(child.material)) {
-          const enhanced = enhanceSingleMaterial(child.material, envMap);
+          const enhanced = enhanceMaterialMemo(child.material);
           if (enhanced !== child.material) enhancedCount++;
           child.material = enhanced;
         }

@@ -1,7 +1,7 @@
 import React from 'react';
 import type { Group as ThreeGroup, Object3D as ThreeObject3D } from 'three';
 
-import type { AssemblyState, InteractionSelection, RobotState, UrdfOrigin } from '@/types';
+import type { AssemblyState, InteractionSelection, RobotData, UrdfOrigin } from '@/types';
 import type { AssemblySelection } from '@/store/assemblySelectionStore';
 import type {
   ViewerDocumentLoadEvent,
@@ -47,7 +47,7 @@ interface UnifiedViewerSceneRootsProps {
     objectType: 'visual' | 'collision',
   ) => void;
   onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
-  robot: RobotState;
+  robot: RobotData;
   focusTarget?: string | null;
   onCollisionTransformPreview?: (
     linkId: string,

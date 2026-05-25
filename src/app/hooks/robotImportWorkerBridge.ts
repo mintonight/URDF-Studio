@@ -804,7 +804,9 @@ export function resolveRobotFileDataWithWorker(
   if (preResolvedImportResult) {
     callbacks?.onProgress?.({
       progressPercent: 100,
-      message: null,
+      message: 'Using cached robot document',
+      progressMode: 'percent',
+      phase: 'finalizing-import',
     });
     return Promise.resolve(preResolvedImportResult);
   }

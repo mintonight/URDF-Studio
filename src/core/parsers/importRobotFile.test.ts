@@ -10,6 +10,7 @@ import {
   createUsdPlaceholderRobotData,
   describeRobotImportFailure,
   resolveRobotFileData,
+  type RobotImportProgress,
 } from './importRobotFile';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
@@ -122,6 +123,103 @@ test('resolveRobotFileData stamps source format onto ready RobotData', () => {
   assert.equal(urdfResult.robotData.inspectionContext?.sourceFormat, 'urdf');
   assert.equal(sdfResult.robotData.inspectionContext?.sourceFormat, 'sdf');
   assert.equal(usdResult.robotData.inspectionContext?.sourceFormat, 'usd');
+});
+
+test('resolveRobotFileData reports indeterminate URDF parsing progress', () => {
+  const progressEvents: RobotImportProgress[] = [];
+  const result = resolveRobotFileData(
+    {
+      name: 'robots/demo.urdf',
+      content: `<?xml version="1.0"?><robot name="demo"><link name="base_link" /></robot>`,
+      format: 'urdf',
+    },
+    {},
+    (progress) => progressEvents.push(progress),
+  );
+
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(
+    progressEvents.map((progress) => ({
+      progressPercent: progress.progressPercent,
+      progressMode: progress.progressMode,
+      phase: progress.phase,
+      message: progress.message,
+    })),
+    [
+      {
+        progressPercent: 15,
+        progressMode: 'percent',
+        phase: 'resolving-source',
+        message: 'Resolving URDF source',
+      },
+      {
+        progressPercent: null,
+        progressMode: 'indeterminate',
+        phase: 'parsing-source',
+        message: 'Parsing URDF',
+      },
+      {
+        progressPercent: 100,
+        progressMode: 'percent',
+        phase: 'finalizing-import',
+        message: 'Finalizing robot document',
+      },
+    ],
+  );
+});
+
+test('resolveRobotFileData reports indeterminate MJCF parsing progress', () => {
+  const progressEvents: RobotImportProgress[] = [];
+  const file: RobotFile = {
+    name: 'robots/demo.xml',
+    content: `<mujoco model="demo_mjcf">
+  <worldbody>
+    <body name="base_link">
+      <geom type="box" size="0.1 0.1 0.1" />
+    </body>
+  </worldbody>
+</mujoco>`,
+    format: 'mjcf',
+  };
+  const result = resolveRobotFileData(file, { availableFiles: [file] }, (progress) =>
+    progressEvents.push(progress),
+  );
+
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(
+    progressEvents.map((progress) => ({
+      progressPercent: progress.progressPercent,
+      progressMode: progress.progressMode,
+      phase: progress.phase,
+      message: progress.message,
+    })),
+    [
+      {
+        progressPercent: 10,
+        progressMode: 'percent',
+        phase: 'resolving-source',
+        message: 'Resolving MJCF source',
+      },
+      {
+        progressPercent: 45,
+        progressMode: 'percent',
+        phase: 'checking-assets',
+        message: 'Checking MJCF external assets',
+      },
+      {
+        progressPercent: null,
+        progressMode: 'indeterminate',
+        phase: 'parsing-source',
+        message: 'Parsing MJCF',
+      },
+      {
+        progressPercent: 100,
+        progressMode: 'percent',
+        phase: 'finalizing-import',
+        message: 'Finalizing robot document',
+      },
+    ],
+  );
 });
 
 test('resolveRobotFileData syncs cached USD material colors back onto link visuals', () => {
@@ -824,6 +922,54 @@ test('resolveRobotFileData preserves MJCF inspection context on ready robot data
   assert.equal(result.robotData.inspectionContext?.mjcf?.siteCount, 1);
   assert.equal(result.robotData.inspectionContext?.mjcf?.tendonCount, 1);
   assert.equal(result.robotData.inspectionContext?.mjcf?.tendonActuatorCount, 1);
+});
+
+test('resolveRobotFileData validates MJCF scene wrapper assets through included compiler settings', () => {
+  const sceneFile: RobotFile = {
+    name: 'robots/stretch_scene/scene.xml',
+    content: `
+      <mujoco model="stretch scene">
+        <include file="../stretch/stretch.xml" />
+        <asset>
+          <texture type="2d" name="wood" file="wood.png" />
+          <material name="wood" texture="wood" />
+        </asset>
+        <worldbody>
+          <geom type="box" size=".6 .5 .24" material="wood" />
+        </worldbody>
+      </mujoco>`,
+    format: 'mjcf',
+  };
+  const includedFile: RobotFile = {
+    name: 'robots/stretch/stretch.xml',
+    content: `
+      <mujocoinclude>
+        <compiler assetdir="assets" />
+        <asset>
+          <texture type="2d" name="hand_crush" file="hand_crush.png" />
+          <material name="hand_crush" texture="hand_crush" />
+        </asset>
+        <worldbody>
+          <body name="base_link">
+            <geom type="box" size=".1 .1 .1" material="hand_crush" />
+          </body>
+        </worldbody>
+      </mujocoinclude>`,
+    format: 'mjcf',
+  };
+
+  const result = resolveRobotFileData(sceneFile, {
+    availableFiles: [sceneFile, includedFile],
+    assets: {
+      'robots/stretch/assets/hand_crush.png': 'data:image/png;base64,hand',
+      'robots/stretch_scene/assets/wood.png': 'data:image/png;base64,wood',
+    },
+  });
+
+  assert.equal(result.status, 'ready');
+  if (result.status !== 'ready') {
+    assert.fail('Expected MJCF scene wrapper import to be ready');
+  }
 });
 
 test('resolveRobotFileData still flags missing MJCF assets in auto mode once related assets are present', () => {

@@ -32,7 +32,7 @@ const SnapshotDialog = lazy(() =>
 
 import type { HeaderAction } from './components/header/types';
 import { setOptionsPanelVisibility } from './components/header/viewMenuState.js';
-import type { ToolMode } from '@/features/urdf-viewer/types';
+import type { ToolMode, ViewerJointChangeContext } from '@/features/urdf-viewer/types';
 import { useAppLayoutEffects } from './hooks/useAppLayoutEffects';
 import { useAssemblyComponentPreparation } from './hooks/assemblyComponentPreparation';
 import { useCollisionOptimizationWorkflow } from './hooks/useCollisionOptimizationWorkflow';
@@ -65,8 +65,10 @@ import {
   useAssemblyStore,
   useAssemblySelectionStore,
   useCollisionTransformStore,
+  useJointInteractionPreviewStore,
 } from '@/store';
-import type { BridgeJoint, RobotFile, UrdfJoint, UrdfLink } from '@/types';
+import { resolveClosedLoopDrivenJointMotion, resolveJointKey } from '@/core/robot';
+import type { BridgeJoint, JointQuaternion, RobotFile, UrdfJoint, UrdfLink } from '@/types';
 import { translations } from '@/shared/i18n';
 import {
   resolveWorkspaceOverlayGizmoMargin,
@@ -80,6 +82,7 @@ import type {
 import { resolveViewerDocumentLifecycleCallbacks } from './utils/viewerDocumentLifecycleCallbacks';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
 import { isAssetLibraryOnlyFormat, ROBOT_IMPORT_ACCEPT_ATTRIBUTE } from '@/shared/utils';
+import { isIkDragToolEnabled } from '@/shared/utils/ikDragFeatureGate';
 import { toDocumentLoadLifecycleState } from '@/store/assetsStore';
 import { markUnsavedChangesBaselineSaved } from './utils/unsavedChangesBaseline';
 import { buildPropertyEditorSelectionContext } from './utils/propertyEditorSelectionContext';
@@ -87,10 +90,17 @@ import { resolveDocumentLoadingOverlayTargetFileName } from './utils/documentLoa
 import { clearIkDragHelperSelection } from './utils/ikDragSession';
 import { resolveIkToolSelectionState } from './utils/ikToolSelectionState';
 import { resolveAssemblyRootComponentSelectionAvailability } from './utils/assemblyRootComponentSelection';
-import { buildSimpleModeDraftFile } from './utils/simpleModeDrafts';
 import { resolveWorkspaceOverlayLayoutClassNames } from './utils/workspaceOverlayLayout';
 import { resolveLibraryRobotLoadAction } from './utils/libraryRobotLoadPolicy';
 import type { SnapshotPreviewSession } from './components/snapshot-preview/types';
+
+const TREE_PANEL_JOINT_PREVIEW_SESSION_ID = 'tree-panel-joint-slider';
+const TREE_PANEL_JOINT_COMMIT_EPSILON = 1e-6;
+
+interface TreePanelJointCommitSnapshot {
+  jointAngles: Record<string, number>;
+  jointQuaternions: Record<string, JointQuaternion>;
+}
 
 interface ProModeRoundtripSession {
   baselineSnapshot: string;
@@ -298,8 +308,10 @@ export function AppLayout({
     deleteSubtree,
     updateLink,
     updateJoint,
+    updateMjcfTendon,
     setAllLinksVisibility,
     setJointAngle,
+    applyJointKinematicOverrides,
   } = useRobotStore(
     useShallow((state) => ({
       robotName: state.name,
@@ -315,8 +327,10 @@ export function AppLayout({
       deleteSubtree: state.deleteSubtree,
       updateLink: state.updateLink,
       updateJoint: state.updateJoint,
+      updateMjcfTendon: state.updateMjcfTendon,
       setAllLinksVisibility: state.setAllLinksVisibility,
       setJointAngle: state.setJointAngle,
+      applyJointKinematicOverrides: state.applyJointKinematicOverrides,
     })),
   );
   // Assembly Store
@@ -357,6 +371,7 @@ export function AppLayout({
   const transformPendingRef = useRef(false);
   const pendingUsdAssemblyFileRef = useRef<RobotFile | null>(null);
   const proModeRoundtripSessionRef = useRef<ProModeRoundtripSession | null>(null);
+  const pendingTreePanelJointCommitRef = useRef<TreePanelJointCommitSnapshot | null>(null);
   const [pendingViewerToolMode, setPendingViewerToolMode] = useState<ToolMode | null>(null);
   const [ikDragActive, setIkDragActive] = useState(false);
   const [workspaceTransformPending, setWorkspaceTransformPending] = useState(false);
@@ -426,7 +441,6 @@ export function AppLayout({
     sourceCodeDocuments,
     hasSimpleModeSourceEdits,
     shouldPreviewLibraryRobotLoad,
-    draftUrdfContent,
     filePreview,
     previewRobot,
     previewFileName,
@@ -480,17 +494,6 @@ export function AppLayout({
   const previewFile = previewFileName
     ? (availableFiles.find((file) => file.name === previewFileName) ?? null)
     : null;
-  const selectedFileDraftSourceContent = useMemo(() => {
-    if (!selectedFile) {
-      return null;
-    }
-
-    return (
-      sourceCodeDocuments.find((document) => document.filePath === selectedFile.name)?.content ??
-      selectedFile.content
-    );
-  }, [selectedFile, sourceCodeDocuments]);
-
   const preparedAssetSourceFiles = useMemo(
     () =>
       [selectedFile, previewFile].filter((file): file is RobotFile =>
@@ -674,6 +677,7 @@ export function AppLayout({
     pulseSelection,
     setHoveredSelection,
     focusOn,
+    selectionRobot: previewContextRobot,
   });
   const {
     handleWorkspaceTransformPendingChange,
@@ -732,7 +736,7 @@ export function AppLayout({
     handleDelete,
     handleRenameComponent,
     handleSetShowVisual,
-    handleJointChange,
+    handleJointChange: handleCommittedJointChange,
   } = useWorkspaceMutations({
     assemblyState,
     robotLinks,
@@ -742,8 +746,10 @@ export function AppLayout({
     deleteSubtree,
     updateLink,
     updateJoint,
+    updateMjcfTendon,
     setAllLinksVisibility,
     setJointAngle,
+    applyJointKinematicOverrides,
     updateComponentName,
     updateComponentTransform,
     updateComponentRobot,
@@ -763,6 +769,148 @@ export function AppLayout({
     clearPendingCollisionTransform,
     handleTransformPendingChange: handleWorkspaceTransformPendingChange,
   });
+
+  const isTreePanelJointCommitVisible = useCallback(
+    (commit: TreePanelJointCommitSnapshot) =>
+      Object.entries(commit.jointAngles).every(([jointId, committedAngle]) => {
+        const jointName = previewContextRobot.joints[jointId]?.name;
+        const motionAngle =
+          jointMotionState[jointId]?.angle ??
+          (jointName ? jointMotionState[jointName]?.angle : undefined);
+        const snapshotAngle =
+          jointAngleState[jointId] ?? (jointName ? jointAngleState[jointName] : undefined);
+        const currentAngle =
+          typeof motionAngle === 'number'
+            ? motionAngle
+            : typeof snapshotAngle === 'number'
+              ? snapshotAngle
+              : previewContextRobot.joints[jointId]?.angle;
+
+        return (
+          typeof currentAngle === 'number' &&
+          Math.abs(currentAngle - committedAngle) <= TREE_PANEL_JOINT_COMMIT_EPSILON
+        );
+      }) &&
+      Object.entries(commit.jointQuaternions).every(([jointId, committedQuaternion]) => {
+        const jointName = previewContextRobot.joints[jointId]?.name;
+        const currentQuaternion =
+          jointMotionState[jointId]?.quaternion ??
+          (jointName ? jointMotionState[jointName]?.quaternion : undefined) ??
+          previewContextRobot.joints[jointId]?.quaternion;
+
+        if (!currentQuaternion) {
+          return false;
+        }
+
+        return (
+          Math.abs(currentQuaternion.x - committedQuaternion.x) <=
+            TREE_PANEL_JOINT_COMMIT_EPSILON &&
+          Math.abs(currentQuaternion.y - committedQuaternion.y) <=
+            TREE_PANEL_JOINT_COMMIT_EPSILON &&
+          Math.abs(currentQuaternion.z - committedQuaternion.z) <=
+            TREE_PANEL_JOINT_COMMIT_EPSILON &&
+          Math.abs(currentQuaternion.w - committedQuaternion.w) <= TREE_PANEL_JOINT_COMMIT_EPSILON
+        );
+      }),
+    [jointAngleState, jointMotionState, previewContextRobot.joints],
+  );
+
+  const clearTreePanelJointPreview = useCallback((deferToNextFrame = false) => {
+    const clearPreview = () => {
+      useJointInteractionPreviewStore.getState().clearPreview({
+        source: 'tree-panel',
+        dragSessionId: TREE_PANEL_JOINT_PREVIEW_SESSION_ID,
+      });
+    };
+
+    if (
+      deferToNextFrame &&
+      typeof window !== 'undefined' &&
+      typeof window.requestAnimationFrame === 'function'
+    ) {
+      window.requestAnimationFrame(clearPreview);
+      return;
+    }
+
+    clearPreview();
+  }, []);
+
+  const publishTreePanelJointPreview = useCallback(
+    (jointName: string, angle: number) => {
+      const jointId = resolveJointKey(previewContextRobot.joints, jointName);
+      if (!jointId) {
+        return null;
+      }
+
+      const solution = resolveClosedLoopDrivenJointMotion(previewContextRobot, jointId, angle);
+      const preview = {
+        source: 'tree-panel',
+        dragSessionId: TREE_PANEL_JOINT_PREVIEW_SESSION_ID,
+        activeJointId: jointId,
+        jointAngles: solution.angles,
+        jointQuaternions: solution.quaternions,
+        jointOrigins: {},
+      } as const;
+      useJointInteractionPreviewStore.getState().publishPreview(preview);
+      return preview;
+    },
+    [previewContextRobot],
+  );
+
+  const handleJointPreview = useCallback(
+    (jointName: string, angle: number) => {
+      publishTreePanelJointPreview(jointName, angle);
+    },
+    [publishTreePanelJointPreview],
+  );
+
+  const handleJointChange = useCallback(
+    (jointName: string, angle: number, context?: ViewerJointChangeContext) => {
+      const preview = publishTreePanelJointPreview(jointName, angle);
+      if (preview) {
+        pendingTreePanelJointCommitRef.current = {
+          jointAngles: preview.jointAngles,
+          jointQuaternions: preview.jointQuaternions,
+        };
+      }
+
+      handleCommittedJointChange(jointName, angle, context);
+      if (!preview) {
+        clearTreePanelJointPreview(true);
+        return;
+      }
+
+      const pendingCommit = pendingTreePanelJointCommitRef.current;
+      if (pendingCommit && isTreePanelJointCommitVisible(pendingCommit)) {
+        pendingTreePanelJointCommitRef.current = null;
+        clearTreePanelJointPreview(true);
+      }
+    },
+    [
+      clearTreePanelJointPreview,
+      handleCommittedJointChange,
+      isTreePanelJointCommitVisible,
+      publishTreePanelJointPreview,
+    ],
+  );
+
+  useEffect(() => {
+    const pendingCommit = pendingTreePanelJointCommitRef.current;
+    if (!pendingCommit || !isTreePanelJointCommitVisible(pendingCommit)) {
+      return;
+    }
+
+    pendingTreePanelJointCommitRef.current = null;
+    clearTreePanelJointPreview(true);
+  }, [clearTreePanelJointPreview, isTreePanelJointCommitVisible, jointAngleState, jointMotionState]);
+
+  useEffect(
+    () => () => {
+      pendingTreePanelJointCommitRef.current = null;
+      clearTreePanelJointPreview();
+    },
+    [clearTreePanelJointPreview],
+  );
 
   const {
     handleUploadAsset,
@@ -990,6 +1138,11 @@ export function AppLayout({
   );
 
   const handleOpenIkTool = useCallback(() => {
+    if (!isIkDragToolEnabled()) {
+      handleSetIkDragActive(false);
+      return;
+    }
+
     handleSetIkDragActive(true);
     setIsIkToolPanelOpen(true);
   }, [handleSetIkDragActive]);
@@ -1117,8 +1270,8 @@ export function AppLayout({
   const handleRequestLoadRobot = useCallback(
     async (
       file: RobotFile,
-      intent: 'direct' | 'save-draft' | 'discard',
-    ): Promise<'loaded' | 'needs-draft-confirm' | 'blocked'> => {
+      intent: 'direct' | 'preview' | 'discard',
+    ): Promise<'loaded' | 'needs-preview-or-discard-confirm' | 'blocked'> => {
       if (selectedFile?.name === file.name) {
         return 'loaded';
       }
@@ -1145,67 +1298,18 @@ export function AppLayout({
         return 'loaded';
       }
 
-      if (loadAction === 'needs-draft-confirm') {
-        return 'needs-draft-confirm';
+      if (loadAction === 'needs-preview-or-discard-confirm') {
+        return 'needs-preview-or-discard-confirm';
       }
 
-      if (loadAction === 'blocked' || !selectedFile) {
-        return 'blocked';
-      }
-
-      const fallbackStandaloneDraftUrdfContent =
-        selectedFile.format === 'mjcf'
-          ? draftUrdfContent
-          : (draftUrdfContent ?? urdfContentForViewer);
-      const draftFile = buildSimpleModeDraftFile({
-        selectedFile,
-        currentSourceContent: selectedFileDraftSourceContent,
-        fallbackUrdfContent: fallbackStandaloneDraftUrdfContent,
-        availableFiles,
-      });
-
-      if (!draftFile) {
-        showToast(t.simpleModeDraftSaveFailed, 'info');
-        return 'blocked';
-      }
-
-      const existingDraftIndex = availableFiles.findIndex((entry) => entry.name === draftFile.name);
-      const nextAvailableFiles =
-        existingDraftIndex === -1
-          ? [...availableFiles, draftFile]
-          : availableFiles.map((entry, index) =>
-              index === existingDraftIndex ? draftFile : entry,
-            );
-      setAvailableFiles(nextAvailableFiles);
-      setAllFileContents({
-        ...allFileContents,
-        [draftFile.name]: draftFile.content,
-      });
-      markUnsavedChangesBaselineSaved('robot');
-      showToast(
-        t.simpleModeDraftSaved.replace('{name}', draftFile.name.split('/').pop() || draftFile.name),
-        'success',
-      );
-
-      onLoadRobot(file);
-      return 'loaded';
+      return 'blocked';
     },
     [
-      allFileContents,
-      availableFiles,
-      draftUrdfContent,
       handlePreviewFileWithFeedback,
       hasSimpleModeSourceEdits,
       onLoadRobot,
       selectedFile,
-      selectedFileDraftSourceContent,
-      setAllFileContents,
-      setAvailableFiles,
       shouldPreviewLibraryRobotLoad,
-      showToast,
-      t.simpleModeDraftSaveFailed,
-      t.simpleModeDraftSaved,
-      urdfContentForViewer,
     ],
   );
 
@@ -1312,7 +1416,7 @@ export function AppLayout({
               jointMotionState={jointMotionState}
               onJointChange={handleJointChange}
               syncJointChangesToApp
-              selection={robot.selection}
+              selection={selection}
               focusTarget={focusTarget}
               isMeshPreview={selectedFile?.format === 'mesh'}
               onTransformPendingChange={handleWorkspaceTransformPendingChange}
@@ -1392,6 +1496,7 @@ export function AppLayout({
             onRequestSwitchToStructure={handleRequestSwitchTreeEditorToStructure}
             isReadOnly={isPreviewingWorkspaceSource}
             showJointPanel={viewConfig.showJointPanel}
+            onJointAnglePreview={handleJointPreview}
             onJointAngleChange={handleJointChange}
           />
         </div>

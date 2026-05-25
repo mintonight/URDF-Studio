@@ -11,6 +11,10 @@ const EMBEDDED_USD_VIEWER_SAFE_LOAD_FLAGS = {
   // a zero-pose fallback if interactive mode begins before this data is ready.
   resolveRobotMetadataBeforeReady: '1',
   requireCompleteRobotMetadata: '1',
+  // Full-load mode must compose every referenced payload before ready. The old
+  // Unitree sensor-skip shortcut can make some vendor root layers appear empty.
+  skipSensorPayloadsOnOpen: '0',
+  includeSensorDependency: '1',
   warmupRuntimeBridge: '1',
 } as const;
 
@@ -18,6 +22,7 @@ export interface CreateEmbeddedUsdViewerLoadParamsOptions {
   preferWorkerResolvedRobotData?: boolean;
   preferSlicedMainThreadLoadForLargePureUsd?: boolean;
   dependenciesPreloadedToVirtualFs?: boolean;
+  allowIncompleteWorkerRobotMetadata?: boolean;
 }
 
 export type EmbeddedUsdViewerLoadProfile =
@@ -68,37 +73,55 @@ export function createEmbeddedUsdViewerLoadParams(
   const loadProfile = resolveEmbeddedUsdViewerLoadProfile(options);
 
   if (loadProfile === 'worker-bootstrap') {
-    // Once the stage-open bundle and RobotData bootstrap are already running in
-    // workers, prefer an interactive load profile so the renderer yields during
-    // mesh hydration instead of monopolizing the main thread until one-shot
-    // completion.
-    safeLoadFlags.nonBlockingLoad = '1';
+    // Worker bootstrap resolves USD into RobotState, so it can use the native
+    // stage snapshot and skip the Hydra full-draw path while still requiring a
+    // complete snapshot before ready.
+    safeLoadFlags.nonBlockingLoad = '0';
     safeLoadFlags.aggressiveInitialDraw = '0';
-    safeLoadFlags.strictOneShot = '0';
-    safeLoadFlags.yieldDuringLoad = '1';
-    safeLoadFlags.resolveRobotMetadataBeforeReady = '0';
-    safeLoadFlags.requireCompleteRobotMetadata = '0';
-    // The offscreen worker has no UI responsiveness requirement; draw in larger
-    // bursts to reach mesh readiness faster without starving the compositor.
-    safeLoadFlags.initialDrawBurst = '4';
+    safeLoadFlags.strictOneShot = '1';
+    safeLoadFlags.yieldDuringLoad = '0';
+    safeLoadFlags.resolveRobotMetadataBeforeReady =
+      options.allowIncompleteWorkerRobotMetadata ? '0' : '1';
+    safeLoadFlags.requireCompleteRobotMetadata =
+      options.allowIncompleteWorkerRobotMetadata ? '0' : '1';
+    safeLoadFlags.robotSceneSnapshotBeforeDraw = '1';
+    safeLoadFlags.skipHydraFullDrawForRobotSceneSnapshot = '1';
   }
 
   if (loadProfile === 'large-pure-usd-sliced') {
     // Folder-imported pure `.usd` roots such as `unitree_model/*/usd/*.usd`
-    // should reveal the first drawable scene as early as possible, then keep
-    // hydrating remaining meshes/dependencies in the background. This improves
-    // perceived responsiveness during large vendor bundle imports.
-    safeLoadFlags.nonBlockingLoad = '1';
-    safeLoadFlags.aggressiveInitialDraw = '0';
-    safeLoadFlags.strictOneShot = '0';
-    safeLoadFlags.yieldDuringLoad = '1';
-    safeLoadFlags.resolveRobotMetadataBeforeReady = '0';
-    safeLoadFlags.requireCompleteRobotMetadata = '0';
+    // still use the strict embedded contract: ready is emitted only after
+    // geometry, transforms, materials, textures, and robot metadata are drained.
+    safeLoadFlags.nonBlockingLoad = '0';
+    safeLoadFlags.aggressiveInitialDraw = '1';
+    safeLoadFlags.strictOneShot = '1';
+    safeLoadFlags.yieldDuringLoad = '0';
+    safeLoadFlags.resolveRobotMetadataBeforeReady = '1';
+    safeLoadFlags.requireCompleteRobotMetadata = '1';
   }
 
   if (options.dependenciesPreloadedToVirtualFs) {
     safeLoadFlags.dependenciesPreloadedToVirtualFs = '1';
     safeLoadFlags.autoLoadDependencies = '0';
+  }
+
+  const enableRegressionLoadProfile = (() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    try {
+      const searchParams = new URLSearchParams(window.location?.search ?? '');
+      return (
+        searchParams.get('regressionDebug') === '1' ||
+        searchParams.get('profileUsdLoad') === '1'
+      );
+    } catch {
+      return false;
+    }
+  })();
+  if (enableRegressionLoadProfile) {
+    safeLoadFlags.profileLoad = '1';
+    safeLoadFlags.profileHydraPhases = '1';
   }
 
   params.set('threads', String(threadCount));

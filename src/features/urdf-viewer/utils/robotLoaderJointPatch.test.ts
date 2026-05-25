@@ -228,3 +228,55 @@ test('patchJointInPlace resolves runtime joints by stable id and updates joint d
   assert.equal(joint.userData.jointId, 'joint_1');
   assert.equal(invalidations.length, 1);
 });
+
+test('patchJointInPlace resolves the correct joint by stable id when names collide across models', () => {
+  // Multi-model scene: two runtime joints share the same display name but have
+  // distinct stable ids. A name-first lookup would resolve the wrong joint
+  // (forcing a full rebuild / snap-back); stable-id resolution must win.
+  const robot = new THREE.Group() as THREE.Group & {
+    joints?: Record<string, RuntimeURDFJoint>;
+  };
+
+  const jointA = new RuntimeURDFJoint();
+  jointA.name = 'shoulder';
+  jointA.userData.jointId = 'robotA/shoulder';
+  jointA.origPosition = jointA.position.clone();
+  jointA.origQuaternion = jointA.quaternion.clone();
+
+  const jointB = new RuntimeURDFJoint();
+  jointB.name = 'shoulder';
+  jointB.userData.jointId = 'robotB/shoulder';
+  jointB.origPosition = jointB.position.clone();
+  jointB.origQuaternion = jointB.quaternion.clone();
+
+  // The runtime map is keyed by disambiguated keys; `joints['shoulder']`
+  // (the patch.jointName lookup) would hit jointA.
+  robot.joints = { shoulder: jointA, shoulder__2: jointB };
+
+  const invalidations: number[] = [];
+  const applied = patchJointInPlace(
+    robot,
+    {
+      jointId: 'robotB/shoulder',
+      jointName: 'shoulder',
+      previousJointData: makeJointPatchData({ id: 'robotB/shoulder', name: 'shoulder' }),
+      jointData: makeJointPatchData({
+        id: 'robotB/shoulder',
+        name: 'shoulder',
+        origin: {
+          xyz: { x: 0, y: 0, z: 0.37 },
+          rpy: { r: 0, p: 0, y: 0 },
+        },
+      }),
+    },
+    () => {
+      invalidations.push(1);
+    },
+  );
+
+  assert.equal(applied, true);
+  // jointB (the stable-id match) must move; jointA (the name collision) must not.
+  assert.equal(jointB.position.z, 0.37);
+  assert.equal(jointA.position.z, 0);
+  assert.equal(invalidations.length, 1);
+});

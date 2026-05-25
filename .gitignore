@@ -1,4 +1,5 @@
 node_modules/
+.worktrees/
 .omc/
 .omx/
 .env.local
@@ -22,6 +23,8 @@ scripts/regression/*
 !scripts/regression/benchmark_import_pre_resolve.ts
 !scripts/regression/validate_gazebo_models_against_gazebo_truth.ts
 !scripts/regression/validate_gazebo_models_against_gazebo_truth.test.ts
+!scripts/regression/inspect_isaacsim_usd_stage.py
+!scripts/regression/validate_mujoco_all_exports.ts
 !scripts/mujoco/
 scripts/mujoco/*
 !scripts/mujoco/mjcf_compare.ts
@@ -51,6 +54,7 @@ public/__codex_anymal_c.zip
 
 .claude/
 .codex/
+.antigravitycli/
 .husky/
 .superpowers/
 docs/superpowers/
@@ -69,3 +73,9 @@ __pycache__/
 !scripts/regression/validate_source_editor_mjcf_browser.mjs
 !scripts/regression/validate_source_editor_unitree_browser.mjs
 snapshot-default-page.png
+
+# Debug screenshots
+*.png
+*.jpg
+*.jpeg
+canvas-jpg-chunks.json

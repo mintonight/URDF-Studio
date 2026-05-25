@@ -563,6 +563,24 @@ test('isaacsim USDA export keeps root stem without forcing _description sidecar 
   assert.match(payload.content, /prepend payload = @configuration\/go1_robot\.usda@/);
 });
 
+test('isaacsim USDA export writes OmniPBR material outputs for IsaacSim viewport colors', async () => {
+  const payload = await exportRobotToUsd({
+    robot: createTwoLinkRobot(),
+    exportName: 'go1',
+    assets: createTwoLinkAssets(),
+    fileFormat: 'usda',
+    layoutProfile: 'isaacsim',
+  });
+
+  const baseLayer = await readArchiveText(payload, 'go1/configuration/go1_base.usda');
+
+  assert.match(baseLayer, /token outputs:surface\.connect = <\/go1\/Looks\/Material_0\/PreviewSurface\.outputs:surface>/);
+  assert.match(baseLayer, /token outputs:mdl:surface\.connect = <\/go1\/Looks\/Material_0\/OmniPBR\.outputs:out>/);
+  assert.match(baseLayer, /uniform asset info:mdl:sourceAsset = @OmniPBR\.mdl@/);
+  assert.match(baseLayer, /uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"/);
+  assert.match(baseLayer, /color3f inputs:diffuse_color_constant = \(0\.070593, 0\.670593, 0\.203927\)/);
+});
+
 test('isaacsim USDA export flattens link prim hierarchy for external articulation consumers', async () => {
   const payload = await exportRobotToUsd({
     robot: createTwoLinkRobot(),
@@ -684,7 +702,7 @@ test('isaacsim USDA export hides mesh library prototypes and collision guide sco
 
   assert.match(
     meshBaseLayer,
-    /def Scope "__MeshLibrary"\n\s+\{\n\s+token visibility = "invisible"/,
+    /class Scope "__MeshLibrary"\n\s+\{\n\s+class Mesh "Geometry_0"/,
   );
   assert.match(
     collisionBaseLayer,
@@ -1056,6 +1074,58 @@ test('MJCF USD export merges same-link visual meshes while preserving material s
   assert.match(baseLayer, /color3f inputs:diffuseColor = \(0, 1, 0\)/);
 });
 
+test('isaacsim MJCF USD export merges same-link visual meshes to keep prim counts compact', async () => {
+  const firstMeshPath = 'meshes/first_triangle.obj';
+  const secondMeshPath = 'meshes/second_triangle.obj';
+  const robot = createMeshRobot(firstMeshPath);
+  robot.links.base_link.visual.color = '#ff0000';
+  robot.links.base_link.visualBodies = [
+    {
+      type: GeometryType.MESH,
+      meshPath: secondMeshPath,
+      dimensions: { x: 1, y: 1, z: 1 },
+      color: '#00ff0066',
+      origin: { xyz: { x: 2, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+    },
+  ];
+  robot.inspectionContext = {
+    sourceFormat: 'mjcf',
+    mjcf: {
+      siteCount: 0,
+      tendonCount: 0,
+      tendonActuatorCount: 0,
+      bodiesWithSites: [],
+      tendons: [],
+    },
+  };
+
+  const payload = await exportRobotToUsd({
+    robot,
+    exportName: 'mjcf_isaacsim_merged',
+    assets: {},
+    extraMeshFiles: new Map([
+      [firstMeshPath, createUvObjBlob()],
+      [secondMeshPath, createUvObjBlob()],
+    ]),
+    layoutProfile: 'isaacsim',
+  });
+
+  const baseLayer = await readArchiveText(
+    payload,
+    'mjcf_isaacsim_merged/configuration/mjcf_isaacsim_merged_base.usd',
+  );
+
+  assert.match(baseLayer, /def Mesh "visual_merged"/);
+  assert.doesNotMatch(baseLayer, /def Xform "visual_0"/);
+  assert.doesNotMatch(baseLayer, /def Xform "visual_1"/);
+  assert.equal(Array.from(baseLayer.matchAll(/def GeomSubset "subset_/g)).length, 2);
+  assert.match(baseLayer, /color3f inputs:diffuseColor = \(1, 0, 0\)/);
+  assert.match(baseLayer, /color3f inputs:diffuseColor = \(0, 1, 0\)/);
+  assert.match(baseLayer, /float inputs:opacity = 0\.4/);
+  assert.match(baseLayer, /float inputs:opacity_constant = 0\.4/);
+  assert.match(baseLayer, /bool inputs:enable_opacity = true/);
+});
+
 test('deduplicates repeated mesh geometry into a shared USD mesh library', async () => {
   const meshPath = 'meshes/shared_triangle.obj';
   const payload = await exportRobotToUsd({
@@ -1070,7 +1140,7 @@ test('deduplicates repeated mesh geometry into a shared USD mesh library', async
     'shared_mesh_robot/usd/configuration/shared_mesh_robot_description_base.usd',
   );
 
-  assert.match(baseLayer, /def Scope "__MeshLibrary"/);
+  assert.match(baseLayer, /class Scope "__MeshLibrary"/);
   assert.equal(
     Array.from(baseLayer.matchAll(/point3f\[] points = \[/g)).length,
     1,
@@ -1354,7 +1424,7 @@ test('exports six-face box textures into separate USDA mesh prims and packaged a
   );
 
   assert.equal(payload.downloadFileName, 'box_face_robot.usda');
-  assert.equal((baseLayer.match(/def Mesh "Geometry_/g) ?? []).length, 6);
+  assert.equal((baseLayer.match(/class Mesh "Geometry_/g) ?? []).length, 6);
   assert.match(baseLayer, /custom string urdf:materialTexture = "textures\/right\.png"/);
   assert.match(baseLayer, /custom string urdf:materialTexture = "textures\/left\.png"/);
   assert.match(baseLayer, /custom string urdf:materialTexture = "textures\/up\.png"/);

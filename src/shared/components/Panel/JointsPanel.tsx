@@ -5,7 +5,8 @@ import type { JointPanelActiveJointOptions, JointPanelStore } from '@/shared/uti
 import { JointPanelControls, JointPanelList } from './JointPanelContent';
 
 const JOINT_PANEL_HEADER_ESTIMATED_HEIGHT = 52;
-const JOINT_PANEL_ITEM_ESTIMATED_HEIGHT = 74;
+const JOINT_PANEL_COMPACT_ITEM_ESTIMATED_HEIGHT = 52;
+const JOINT_PANEL_COMPACT_ADVANCED_ITEM_ESTIMATED_HEIGHT = 70;
 
 interface JointsPanelProps {
   showJointPanel: boolean;
@@ -32,6 +33,7 @@ interface JointsPanelProps {
   setActiveJoint: (name: string | null, options?: JointPanelActiveJointOptions) => void;
   handleJointAngleChange: (name: string, angle: number) => void;
   handleJointChangeCommit: (name: string, angle: number) => void;
+  setIsDragging?: (dragging: boolean) => void;
   onSelect?: (type: 'link' | 'joint', id: string) => void;
   onHover?: (
     type: 'link' | 'joint' | null,
@@ -60,6 +62,7 @@ export const JointsPanel: React.FC<JointsPanelProps> = ({
   setActiveJoint,
   handleJointAngleChange,
   handleJointChangeCommit,
+  setIsDragging,
   onSelect,
   onHover,
   onUpdate,
@@ -88,10 +91,13 @@ export const JointsPanel: React.FC<JointsPanelProps> = ({
       return undefined;
     }
 
+    const itemEstimatedHeight = isAdvanced
+      ? JOINT_PANEL_COMPACT_ADVANCED_ITEM_ESTIMATED_HEIGHT
+      : JOINT_PANEL_COMPACT_ITEM_ESTIMATED_HEIGHT;
     const estimatedHeight =
-      JOINT_PANEL_HEADER_ESTIMATED_HEIGHT + jointEntries.length * JOINT_PANEL_ITEM_ESTIMATED_HEIGHT;
+      JOINT_PANEL_HEADER_ESTIMATED_HEIGHT + jointEntries.length * itemEstimatedHeight;
     return Math.min(maxHeight, estimatedHeight);
-  }, [jointEntries.length, maxHeight]);
+  }, [isAdvanced, jointEntries.length, maxHeight]);
 
   const additionalControls = (
     <JointPanelControls
@@ -138,6 +144,7 @@ export const JointsPanel: React.FC<JointsPanelProps> = ({
         setActiveJoint={setActiveJoint}
         handleJointAngleChange={handleJointAngleChange}
         handleJointChangeCommit={handleJointChangeCommit}
+        setIsDragging={setIsDragging}
         onSelect={onSelect}
         onHover={onHover}
         isAdvanced={isAdvanced}

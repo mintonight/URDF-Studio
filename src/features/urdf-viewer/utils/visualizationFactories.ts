@@ -39,6 +39,8 @@ export interface MjcfTendonVisualizationData {
   width?: number;
 }
 
+export const MJCF_TENDON_RENDER_ORDER = MJCF_SITE_WIREFRAME_RENDER_ORDER + 1;
+
 function resolveMjcfTendonPathPointCapacity(tendon: MjcfTendonVisualizationData): number {
   const visualAttachments = tendon.attachments?.filter((attachment) => {
     const ref = attachment.ref ?? attachment.sidesite;
@@ -265,6 +267,8 @@ export function createMjcfTendonVisualization(tendon: MjcfTendonVisualizationDat
     transparent: alpha < 1,
     name: `${tendon.name}_tendon`,
   });
+  material.depthTest = false;
+  material.depthWrite = false;
   material.roughness = 0.76;
   material.metalness = 0.02;
   material.envMapIntensity = Math.min(material.envMapIntensity, 0.16);
@@ -285,6 +289,7 @@ export function createMjcfTendonVisualization(tendon: MjcfTendonVisualizationDat
   for (let index = 0; index < segmentCount; index += 1) {
     const segment = new THREE.Group();
     segment.name = `__mjcf_tendon_segment__:${index}`;
+    segment.renderOrder = MJCF_TENDON_RENDER_ORDER;
     segment.userData = createMjcfTendonUserData({
       mjcfTendonName: tendon.name,
       mjcfTendonSegmentIndex: index,
@@ -293,6 +298,7 @@ export function createMjcfTendonVisualization(tendon: MjcfTendonVisualizationDat
     const shaftGeometry = new THREE.CylinderGeometry(1, 1, 1, 16, 1, false);
     const shaft = new THREE.Mesh(shaftGeometry, material);
     shaft.name = '__mjcf_tendon_shaft__';
+    shaft.renderOrder = MJCF_TENDON_RENDER_ORDER;
     shaft.userData = createMjcfTendonUserData({
       mjcfTendonName: tendon.name,
       mjcfTendonSegmentIndex: index,
@@ -306,6 +312,7 @@ export function createMjcfTendonVisualization(tendon: MjcfTendonVisualizationDat
   for (let index = 0; index < anchorCount; index += 1) {
     const anchor = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), material);
     anchor.name = `__mjcf_tendon_anchor__:${index}`;
+    anchor.renderOrder = MJCF_TENDON_RENDER_ORDER;
     anchor.userData = createMjcfTendonUserData({
       mjcfTendonName: tendon.name,
       mjcfTendonAnchorIndex: index,

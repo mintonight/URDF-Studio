@@ -73,20 +73,31 @@ function isTaggedVisualObject(object: THREE.Object3D | null): boolean {
   );
 }
 
-function resolveMjcfTendonName(hitObject: THREE.Object3D): string | null {
-  const tendonNode = findAncestor(
-    hitObject,
-    (candidate) =>
-      candidate.userData?.isMjcfTendon === true &&
-      typeof candidate.userData?.mjcfTendonName === 'string' &&
-      candidate.userData.mjcfTendonName.trim().length > 0,
-  );
+function resolveMjcfTendonTarget(
+  hitObject: THREE.Object3D,
+): { name: string; object: THREE.Object3D } | null {
+  let current: THREE.Object3D | null = hitObject;
+  let tendonNode: THREE.Object3D | null = null;
+
+  while (current) {
+    if (
+      current.userData?.isMjcfTendon === true &&
+      typeof current.userData?.mjcfTendonName === 'string' &&
+      current.userData.mjcfTendonName.trim().length > 0
+    ) {
+      tendonNode = current;
+    }
+    current = current.parent;
+  }
 
   if (!tendonNode) {
     return null;
   }
 
-  return tendonNode.userData.mjcfTendonName.trim();
+  return {
+    name: tendonNode.userData.mjcfTendonName.trim(),
+    object: tendonNode,
+  };
 }
 
 function resolveGeometrySubType(
@@ -359,16 +370,16 @@ export function resolveInteractionSelectionHit(
   robot: THREE.Object3D | null,
   hitObject: THREE.Object3D,
 ): ResolvedInteractionSelectionHit | null {
-  const mjcfTendonName = resolveMjcfTendonName(hitObject);
-  if (mjcfTendonName) {
+  const mjcfTendonTarget = resolveMjcfTendonTarget(hitObject);
+  if (mjcfTendonTarget) {
     const resolvedLink = resolveHitLinkTarget(robot, hitObject);
     return {
       type: 'tendon',
-      id: mjcfTendonName,
+      id: mjcfTendonTarget.name,
       targetKind: 'geometry',
       linkId: resolvedLink?.linkId,
       linkObject: resolvedLink?.linkObject,
-      highlightTarget: hitObject,
+      highlightTarget: mjcfTendonTarget.object,
     };
   }
 

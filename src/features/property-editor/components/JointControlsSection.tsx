@@ -24,6 +24,8 @@ interface JointControlsSectionProps {
   t: typeof translations['en'];
 }
 
+const PROPERTY_JOINT_DRAG_SYNC_INTERVAL_MS = 48;
+
 export const JointControlsSection: React.FC<JointControlsSectionProps> = ({
   joint,
   selectionId,
@@ -64,6 +66,8 @@ export const JointControlsSection: React.FC<JointControlsSectionProps> = ({
         setActiveJoint={() => {}}
         handleJointAngleChange={handleJointAngleChange}
         handleJointChangeCommit={handleJointAngleChange}
+        dragSyncIntervalMs={PROPERTY_JOINT_DRAG_SYNC_INTERVAL_MS}
+        dragSyncMode="animationFrame"
         isAdvanced={true}
         onUpdate={onUpdate}
       />

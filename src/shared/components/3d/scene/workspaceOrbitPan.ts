@@ -4,8 +4,10 @@ export const DEFAULT_WORKSPACE_ORBIT_PAN_TUNING = {
   closeRangeDistanceFactor: 0.18,
   minDistanceFloorFactor: 4,
   maxBoost: 3,
-  largeSceneBoostFactor: 0.4,
-  maxLargeSceneBoost: 24,
+  farDistanceFactor: 6,
+  localFarDistanceFloorFactor: 4,
+  minFarPanScale: 0.18,
+  minZoomScale: 0.35,
 } as const;
 
 interface ResolveWorkspaceOrbitPanSpeedOptions {
@@ -17,13 +19,40 @@ interface ResolveWorkspaceOrbitPanSpeedOptions {
   maxBoost?: number;
 }
 
+interface ResolveWorkspaceOrbitZoomSpeedOptions {
+  baseZoomSpeed: number;
+  camera: THREE.Camera;
+  target: THREE.Vector3;
+  sceneBounds?: THREE.Box3 | null;
+  minDistance?: number;
+}
+
+function resolveWorkspaceOrbitSceneDiagonal(sceneBounds: THREE.Box3 | null | undefined) {
+  const sceneDiagonal = sceneBounds?.getSize(new THREE.Vector3()).length() ?? 0;
+  return Number.isFinite(sceneDiagonal) && sceneDiagonal > 0 ? sceneDiagonal : 0;
+}
+
+function resolveWorkspaceOrbitNavigationSceneScale(
+  sceneBounds: THREE.Box3 | null | undefined,
+) {
+  const sceneDiagonal = resolveWorkspaceOrbitSceneDiagonal(sceneBounds);
+  if (sceneDiagonal <= 1) {
+    return sceneDiagonal;
+  }
+
+  // Robot workspaces can range from sub-meter hands to very long assemblies.
+  // A square-root scale keeps navigation tuning responsive without letting a
+  // long model linearly amplify close inspection panning.
+  return Math.sqrt(sceneDiagonal);
+}
+
 function resolveWorkspaceOrbitPanDistanceFloor(
   sceneBounds: THREE.Box3 | null | undefined,
   minDistance: number | undefined,
 ) {
-  const sceneDiagonal = sceneBounds?.getSize(new THREE.Vector3()).length() ?? 0;
+  const sceneScale = resolveWorkspaceOrbitNavigationSceneScale(sceneBounds);
   const distanceFromScene =
-    sceneDiagonal * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.closeRangeDistanceFactor;
+    sceneScale * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.closeRangeDistanceFactor;
   const distanceFromControls = Number.isFinite(minDistance)
     ? Math.max(0, Number(minDistance)) * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.minDistanceFloorFactor
     : 0;
@@ -31,23 +60,63 @@ function resolveWorkspaceOrbitPanDistanceFloor(
   return Math.max(distanceFromScene, distanceFromControls);
 }
 
-function resolveWorkspaceOrbitPanMaxBoost(
+function resolveWorkspaceOrbitPanFarDistanceCeiling(
   sceneBounds: THREE.Box3 | null | undefined,
-  fallbackMaxBoost: number,
+  camera: THREE.Camera,
+  distanceFloor: number,
 ) {
-  const sceneDiagonal = sceneBounds?.getSize(new THREE.Vector3()).length() ?? 0;
-  if (!Number.isFinite(sceneDiagonal) || sceneDiagonal <= 0) {
-    return fallbackMaxBoost;
+  if (!sceneBounds || sceneBounds.isEmpty()) {
+    return null;
   }
 
-  // Long serial joint chains can keep the camera very close to one link while
-  // the scene remains meters long overall. Allow larger boosts for those
-  // elongated scenes so perspective panning does not feel glued in place.
-  return THREE.MathUtils.clamp(
-    sceneDiagonal * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.largeSceneBoostFactor,
-    fallbackMaxBoost,
-    DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.maxLargeSceneBoost,
+  const sceneScale = resolveWorkspaceOrbitNavigationSceneScale(sceneBounds);
+  if (sceneScale <= 0 || distanceFloor <= 0) {
+    return null;
+  }
+
+  const cameraDistanceToBounds = sceneBounds.distanceToPoint(camera.position);
+  if (!Number.isFinite(cameraDistanceToBounds) || cameraDistanceToBounds < 0) {
+    return null;
+  }
+
+  const sceneCeiling = sceneScale * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.farDistanceFactor;
+  const localCeiling =
+    cameraDistanceToBounds +
+    distanceFloor * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.localFarDistanceFloorFactor;
+
+  return Math.max(distanceFloor, Math.min(sceneCeiling, localCeiling));
+}
+
+function resolveWorkspaceOrbitEffectivePanDistance({
+  camera,
+  target,
+  sceneBounds,
+  minDistance,
+}: Pick<
+  ResolveWorkspaceOrbitPanSpeedOptions,
+  'camera' | 'target' | 'sceneBounds' | 'minDistance'
+>) {
+  const distance = camera.position.distanceTo(target);
+  if (!Number.isFinite(distance) || distance <= 0) {
+    return null;
+  }
+
+  const distanceFloor = resolveWorkspaceOrbitPanDistanceFloor(sceneBounds, minDistance);
+  const flooredDistance = Math.max(distance, distanceFloor);
+  const farDistanceCeiling = resolveWorkspaceOrbitPanFarDistanceCeiling(
+    sceneBounds,
+    camera,
+    distanceFloor,
   );
+
+  if (farDistanceCeiling === null || distance <= farDistanceCeiling) {
+    return flooredDistance;
+  }
+
+  const dampedDistance =
+    farDistanceCeiling +
+    (distance - farDistanceCeiling) * DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.minFarPanScale;
+  return Math.max(distanceFloor, dampedDistance);
 }
 
 export function resolveWorkspaceOrbitPanSpeed({
@@ -67,15 +136,57 @@ export function resolveWorkspaceOrbitPanSpeed({
     return basePanSpeed;
   }
 
-  const distanceFloor = resolveWorkspaceOrbitPanDistanceFloor(sceneBounds, minDistance);
-  if (distance >= distanceFloor || distanceFloor <= 0) {
+  const effectiveDistance = resolveWorkspaceOrbitEffectivePanDistance({
+    camera,
+    target,
+    sceneBounds,
+    minDistance,
+  });
+  if (effectiveDistance === null) {
     return basePanSpeed;
   }
 
-  // OrbitControls scales perspective panning with camera-target distance. When
-  // zooming in very close this makes drag feel sticky, so keep a bounded
-  // minimum effective distance for panning only.
-  const resolvedMaxBoost = resolveWorkspaceOrbitPanMaxBoost(sceneBounds, maxBoost);
-  const boost = THREE.MathUtils.clamp(distanceFloor / distance, 1, resolvedMaxBoost);
-  return basePanSpeed * boost;
+  // OrbitControls scales perspective panning with camera-target distance. Use a
+  // bounded effective distance so close inspection is not sticky and distant
+  // pivots in large scenes do not make panning overshoot.
+  const speedScale = THREE.MathUtils.clamp(
+    effectiveDistance / distance,
+    DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.minFarPanScale,
+    maxBoost,
+  );
+  return basePanSpeed * speedScale;
+}
+
+export function resolveWorkspaceOrbitZoomSpeed({
+  baseZoomSpeed,
+  camera,
+  target,
+  sceneBounds,
+  minDistance,
+}: ResolveWorkspaceOrbitZoomSpeedOptions) {
+  if (!(camera instanceof THREE.PerspectiveCamera)) {
+    return baseZoomSpeed;
+  }
+
+  const distance = camera.position.distanceTo(target);
+  if (!Number.isFinite(distance) || distance <= 0) {
+    return baseZoomSpeed;
+  }
+
+  const effectiveDistance = resolveWorkspaceOrbitEffectivePanDistance({
+    camera,
+    target,
+    sceneBounds,
+    minDistance,
+  });
+  if (effectiveDistance === null) {
+    return baseZoomSpeed;
+  }
+
+  const speedScale = THREE.MathUtils.clamp(
+    effectiveDistance / distance,
+    DEFAULT_WORKSPACE_ORBIT_PAN_TUNING.minZoomScale,
+    1,
+  );
+  return baseZoomSpeed * speedScale;
 }

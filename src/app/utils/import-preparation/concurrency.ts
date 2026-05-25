@@ -7,6 +7,14 @@ export function resolveImportPreparationConcurrency(): number {
   return Math.max(2, Math.min(8, Math.ceil(hardwareConcurrency / 2)));
 }
 
+const PROCESS_CONCURRENCY_YIELD_INTERVAL = 128;
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
 export async function processWithConcurrency<T>(
   items: readonly T[],
   concurrency: number,
@@ -28,6 +36,9 @@ export async function processWithConcurrency<T>(
           return;
         }
         await task(items[currentIndex], currentIndex);
+        if ((currentIndex + 1) % PROCESS_CONCURRENCY_YIELD_INTERVAL === 0) {
+          await yieldToEventLoop();
+        }
       }
     }),
   );

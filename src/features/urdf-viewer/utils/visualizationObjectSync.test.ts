@@ -17,10 +17,12 @@ import {
   syncJointHelperInteractionStateForJoints,
   syncJointAxesVisualizationForJoints,
   syncLinkHelperInteractionStateForLinks,
+  syncLinkVisualColors,
   syncMjcfSiteVisualizationForLinks,
   syncMjcfTendonVisualizationForRobot,
   syncOriginAxesVisualizationForLinks,
 } from './visualizationObjectSync.ts';
+import { MJCF_TENDON_RENDER_ORDER } from './visualizationFactories.ts';
 import { GIZMO_BASE_RENDER_ORDER } from '@/shared/components/3d/unified-transform-controls/gizmoCore.ts';
 
 function assertTupleClose(
@@ -217,6 +219,129 @@ test('syncIkHandleVisualizationForLinks creates an invisible IK anchor without a
 
   assert.equal(secondChanged, true);
   assert.equal(ikHandle.children.length, 1, 'top-most toggle should keep the hidden pick target');
+});
+
+test('syncLinkVisualColors parses 8-digit hex colors without reusing the previous link color', () => {
+  const robot = new THREE.Group();
+
+  const brownLink = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  brownLink.isURDFLink = true;
+  brownLink.name = 'wing_right';
+  const brownMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: '#341407' }),
+  );
+  brownMesh.userData.isVisualMesh = true;
+  brownLink.add(brownMesh);
+
+  const membraneLink = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  membraneLink.isURDFLink = true;
+  membraneLink.name = 'wing_right_geom_1';
+  const membraneMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({
+      color: '#89afcc',
+      opacity: 0.4,
+      transparent: true,
+    }),
+  );
+  membraneMesh.userData.isVisualMesh = true;
+  membraneLink.add(membraneMesh);
+
+  robot.add(brownLink, membraneLink);
+
+  const changed = syncLinkVisualColors({
+    robot,
+    robotLinks: {
+      wing_right: {
+        ...DEFAULT_LINK,
+        id: 'wing_right',
+        name: 'wing_right',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          color: '#341407',
+        },
+      },
+      wing_right_geom_1: {
+        ...DEFAULT_LINK,
+        id: 'wing_right_geom_1',
+        name: 'wing_right_geom_1',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          color: '#89afcc66',
+        },
+      },
+    },
+  });
+
+  assert.equal(changed, false);
+  assert.equal(
+    (membraneMesh.material as THREE.MeshStandardMaterial).color.getHexString(),
+    '89afcc',
+  );
+  assert.equal((membraneMesh.material as THREE.MeshStandardMaterial).opacity, 0.4);
+});
+
+test('syncLinkVisualColors applies visualBodies colors to their matching visual groups', () => {
+  const robot = new THREE.Group();
+
+  const wingLink = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  wingLink.isURDFLink = true;
+  wingLink.name = 'wing_right';
+
+  const brownGroup = new THREE.Group() as THREE.Group & { isURDFVisual?: boolean };
+  brownGroup.isURDFVisual = true;
+  const brownMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: '#341407' }),
+  );
+  brownMesh.userData.isVisualMesh = true;
+  brownGroup.add(brownMesh);
+
+  const membraneGroup = new THREE.Group() as THREE.Group & { isURDFVisual?: boolean };
+  membraneGroup.isURDFVisual = true;
+  const membraneMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: '#341407' }),
+  );
+  membraneMesh.userData.isVisualMesh = true;
+  membraneGroup.add(membraneMesh);
+
+  wingLink.add(brownGroup, membraneGroup);
+  robot.add(wingLink);
+
+  const changed = syncLinkVisualColors({
+    robot,
+    robotLinks: {
+      wing_right: {
+        ...DEFAULT_LINK,
+        id: 'wing_right',
+        name: 'wing_right',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          color: '#341407',
+        },
+        visualBodies: [
+          {
+            ...DEFAULT_LINK.visual,
+            type: GeometryType.MESH,
+            color: '#89afcc66',
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(changed, true);
+  assert.equal((brownMesh.material as THREE.MeshStandardMaterial).color.getHexString(), '341407');
+  assert.equal(
+    (membraneMesh.material as THREE.MeshStandardMaterial).color.getHexString(),
+    '89afcc',
+  );
+  assert.equal((membraneMesh.material as THREE.MeshStandardMaterial).opacity, 0.4);
 });
 
 test('syncIkHandleVisualizationForLinks exposes a hidden anchor for intermediate links when IK drag is active', () => {
@@ -446,10 +571,11 @@ test('syncMjcfTendonVisualizationForRobot creates hover-pickable tendon meshes w
   const shaft = segment.getObjectByName('__mjcf_tendon_shaft__') as THREE.Mesh | undefined;
   assert.ok(shaft);
   assert.equal(shaft.material instanceof THREE.MeshStandardMaterial, true);
-  assert.equal((shaft.material as THREE.MeshStandardMaterial).depthTest, true);
-  assert.equal((shaft.material as THREE.MeshStandardMaterial).depthWrite, true);
+  assert.equal((shaft.material as THREE.MeshStandardMaterial).depthTest, false);
+  assert.equal((shaft.material as THREE.MeshStandardMaterial).depthWrite, false);
+  assert.equal(shaft.renderOrder, MJCF_TENDON_RENDER_ORDER);
   assert.equal(typeof shaft.raycast, 'function');
-  assert.deepEqual(shaft.scale.toArray(), [0.0025, Math.sqrt(27), 0.0025]);
+  assert.deepEqual(shaft.scale.toArray(), [0.003, Math.sqrt(27), 0.003]);
   assert.equal(shaft.userData.parentLinkName, 'link_a');
   assert.equal(shaft.userData.isVisual, true);
   assert.equal(shaft.userData.isVisualMesh, true);

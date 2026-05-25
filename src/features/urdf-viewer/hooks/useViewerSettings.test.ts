@@ -277,7 +277,7 @@ test('hiding the active overlay layer clears the persisted top-most selection', 
   dom.window.close();
 });
 
-test('ik handle always-on-top preference defaults on and persists explicit opt-out', async () => {
+test('ik handle always-on-top preference persists while disabled handles stay out of interaction priority', async () => {
   const { dom, root, getSettings } = await mountSettings({ showIkHandles: true }, (preparedDom) => {
     preparedDom.window.localStorage.setItem(IK_HANDLE_ALWAYS_ON_TOP_STORAGE_KEY, 'false');
   });
@@ -292,7 +292,7 @@ test('ik handle always-on-top preference defaults on and persists explicit opt-o
   settings = getSettings();
   assert.equal(settings.showIkHandlesAlwaysOnTop, true);
   assert.equal(dom.window.localStorage.getItem(IK_HANDLE_ALWAYS_ON_TOP_STORAGE_KEY), 'true');
-  assert.equal(settings.interactionLayerPriority[0], 'ik-handle');
+  assert.equal(settings.interactionLayerPriority.includes('ik-handle'), false);
 
   await act(async () => {
     getSettings().setShowIkHandlesAlwaysOnTop(false);
@@ -324,6 +324,7 @@ test('joint axes can still take interaction priority while ik handles render on 
   assert.equal(settings.showJointAxes, true);
   assert.equal(settings.showIkHandlesAlwaysOnTop, true);
   assert.equal(settings.interactionLayerPriority[0], 'joint-axis');
+  assert.equal(settings.interactionLayerPriority.includes('ik-handle'), false);
 
   await act(async () => {
     root.unmount();

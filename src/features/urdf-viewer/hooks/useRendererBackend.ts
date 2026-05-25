@@ -21,8 +21,13 @@ import {
   createMemoizedRendererBackendLoadScopeKey,
   type RendererBackendLoadScopeKeyMemo,
 } from '../utils/rendererBackendLoadScope';
-import { detectSingleGeometryPatch } from '../utils/robotLoaderDiff';
+import {
+  areRobotLinkChangesVisibilityOnly,
+  detectJointPatches,
+  detectSingleGeometryPatch,
+} from '../utils/robotLoaderDiff';
 import { applyGeometryPatchInPlace } from '../utils/robotLoaderGeometryPatch';
+import { patchJointsInPlace } from '../utils/robotLoaderJointPatch';
 
 export interface UseRendererBackendOptions extends RendererSceneProps {
   /** Reload token to force re-loading */
@@ -120,6 +125,9 @@ export function useRendererBackend(
   const loadScopeKeyMemoRef = useRef<RendererBackendLoadScopeKeyMemo>({});
   const previousPatchRobotLinksRef = useRef<Record<string, UrdfLink> | null>(
     robotData?.links ?? providedRobotLinks ?? null,
+  );
+  const previousPatchRobotJointsRef = useRef<Record<string, UrdfJoint> | null>(
+    robotData?.joints ?? providedRobotJoints ?? null,
   );
   const runtimeBridgeProxyRef = useRef<ViewerRuntimeStageBridge>({
     onRobotResolved: (robot) => runtimeBridgeRef.current?.onRobotResolved?.(robot),
@@ -233,6 +241,14 @@ export function useRendererBackend(
 
     const patch = detectSingleGeometryPatch(previousLinks, nextLinks);
     if (!patch) {
+      if (areRobotLinkChangesVisibilityOnly(previousLinks, nextLinks)) {
+        setResolvedRobotLinks(nextLinks);
+        if (robotData?.rootLinkId) {
+          setResolvedRootLinkId(robotData.rootLinkId);
+        }
+        setRobotVersion((version) => version + 1);
+        setError(null);
+      }
       return;
     }
 
@@ -272,6 +288,39 @@ export function useRendererBackend(
     showVisual,
     sourceFile,
   ]);
+
+  useEffect(() => {
+    const nextJoints = robotData?.joints ?? providedRobotJoints ?? null;
+    const previousJoints = previousPatchRobotJointsRef.current;
+    previousPatchRobotJointsRef.current = nextJoints;
+
+    if (!previousJoints || !nextJoints || !robotRef.current) {
+      return;
+    }
+
+    if (activeLoadScopeKeyRef.current !== loadScopeKey) {
+      return;
+    }
+
+    const patches = detectJointPatches(previousJoints, nextJoints);
+    if (!patches || patches.length === 0) {
+      return;
+    }
+
+    const currentRobot = robotRef.current;
+    const applied = patchJointsInPlace(currentRobot, patches, invalidate);
+    if (!applied) {
+      setPatchReloadRevision((revision) => revision + 1);
+      return;
+    }
+
+    setResolvedRobotJoints(nextJoints);
+    if (robotData?.rootLinkId) {
+      setResolvedRootLinkId(robotData.rootLinkId);
+    }
+    setRobotVersion((version) => version + 1);
+    setError(null);
+  }, [invalidate, loadScopeKey, providedRobotJoints, robotData]);
 
   // Track component mount state
   useEffect(() => {
@@ -396,6 +445,7 @@ export function useRendererBackend(
         setResolvedRobotJoints(sceneGraph.robotJoints);
         setResolvedRootLinkId(sceneGraph.rootLinkId);
         previousPatchRobotLinksRef.current = sceneGraph.robotLinks;
+        previousPatchRobotJointsRef.current = sceneGraph.robotJoints;
         setRobotVersion((v) => v + 1);
         setIsLoading(false);
         setLoadingProgress(null);

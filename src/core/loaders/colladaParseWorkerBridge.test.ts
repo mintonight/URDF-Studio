@@ -73,9 +73,12 @@ test('Collada parse worker failures reject instead of silently reparsing on the 
     fakeWorker.emitError(new Error('collada worker exploded'));
 
     await assert.rejects(resultPromise, /collada worker exploded/i);
+    // Subsequent loads for the same failed asset hit the bridge-level
+    // failureCache and re-throw the original error without re-dispatching to
+    // the (now-disabled) worker or falling back to inline fetch.
     await assert.rejects(
       client.load('/demo.dae', new THREE.LoadingManager()),
-      /Collada parse worker is unavailable/i,
+      /collada worker exploded/i,
     );
     assert.equal(fetchCount, 0);
     assert.equal(consoleErrors.length, 1);

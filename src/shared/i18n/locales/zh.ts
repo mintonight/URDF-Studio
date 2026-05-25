@@ -475,20 +475,21 @@ export const zh: TranslationKeys = {
   webglRuntimeErrorMessage:
     '3D 视口在运行过程中遇到了未预期错误。请刷新页面；如果问题持续出现，请打开浏览器控制台检查详细报错。',
   emptyAssemblyHint:
-    '点击素材库里的机器人文件会打开为当前模型；点右侧“添加”才会加入工作空间；右键可删除或执行更多操作',
+    '点击素材库里的机器人文件会打开为当前模型；点右侧“添加”才会加入工作空间；右键可执行更多操作',
   clickToAddComponent:
-    '点击机器人文件会打开为当前模型；点右侧“添加”才会加入工作空间；右键可删除或执行更多操作',
+    '点击机器人文件会打开为当前模型；点右侧“添加”才会加入工作空间；右键可执行更多操作',
   removeFromLibrary: '从素材库删除',
   deleteAllLibraryFiles: '全部删除',
   deleteAllLibraryFilesConfirmTitle: '确认删除全部素材',
   deleteAllLibraryFilesConfirmMessage: '是否删除素材库中的全部文件？此操作不可撤销。',
   rightClickToRename: '右键重命名',
   rightClickForActions: '右键更多操作',
-  simpleModeSwitchDraftConfirmTitle: '打开另一个模型前先处理当前修改？',
+  simpleModeSwitchDraftConfirmTitle: '当前模型有未保存编辑',
   simpleModeSwitchDraftConfirmMessage:
-    '当前模型还有未保存的编辑。你可以先把当前结果存成草稿到素材库，再打开另一个模型；也可以直接丢弃这些修改。',
+    '你可以先预览目标模型，或丢弃当前修改并直接切换。',
+  previewTargetModel: '预览目标模型',
   saveDraftAndOpen: '存草稿并打开',
-  discardAndOpen: '丢弃并打开',
+  discardAndOpen: '丢弃并切换',
   simpleModeDraftSaved: '已保存草稿：{name}',
   simpleModeDraftSaveFailed: '保存当前草稿失败，未切换模型。',
   generateWorkspaceUrdf: '生成 URDF',

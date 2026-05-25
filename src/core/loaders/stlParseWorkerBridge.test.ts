@@ -72,7 +72,10 @@ test('STL parse worker failures reject instead of silently reparsing on the main
     fakeWorker.emitError(new Error('stl worker exploded'));
 
     await assert.rejects(resultPromise, /stl worker exploded/i);
-    await assert.rejects(client.load('/demo.stl'), /STL parse worker is unavailable/);
+    // Subsequent loads for the same failed asset hit the bridge-level
+    // failureCache and re-throw the original error without re-dispatching to
+    // the (now-disabled) worker or falling back to inline fetch.
+    await assert.rejects(client.load('/demo.stl'), /stl worker exploded/i);
     assert.equal(fetchCount, 0);
     assert.equal(consoleErrors.length, 1);
     assert.match(String(consoleErrors[0]?.[0] || ''), /STL parse worker crashed/i);

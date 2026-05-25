@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { AlertCircle, FileCode, LoaderCircle, Plus } from 'lucide-react';
 
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
@@ -8,8 +8,14 @@ import {
   classifyLibraryFileKind,
   isLibraryComponentAddableFile,
 } from '@/shared/utils/robotFileSupport';
+import {
+  readStoredWorkspaceViewerShowVisualPreference,
+  resolveWorkspaceViewerShowVisual,
+  subscribeToShowVisualPreference,
+} from '@/app/hooks/workspaceViewerDetailPreferences';
 import { getViewerSourceFile } from '@/app/hooks/workspaceSourceSyncUtils';
 import { resolveStandaloneViewerSourceFormat } from '@/app/hooks/workspace-source-sync/mjcfViewerRuntimePolicy';
+import type { ViewerJointMotionStateValue } from '@/features/urdf-viewer/types';
 import type { Language } from '@/store';
 import type { DocumentLoadLifecycleState, DocumentLoadState } from '@/store/assetsStore';
 import type { RobotFile, RobotState, Theme } from '@/types';
@@ -79,6 +85,49 @@ export function resolveFilePreviewViewerConfig(
       renderSelectedUsdFromRobotState: file.format === 'usd',
     }),
   };
+}
+
+export function resolveFilePreviewShowVisual({
+  previewRobot,
+  fallbackShowVisual,
+  storedPreference,
+}: {
+  previewRobot: RobotState | null;
+  fallbackShowVisual: boolean;
+  storedPreference: boolean | null;
+}): boolean {
+  if (!previewRobot) {
+    return fallbackShowVisual;
+  }
+
+  return resolveWorkspaceViewerShowVisual({
+    robotLinks: previewRobot.links,
+    storedPreference,
+  });
+}
+
+export function buildFilePreviewJointMotionState(
+  previewRobot: RobotState | null,
+): Record<string, ViewerJointMotionStateValue> | undefined {
+  if (!previewRobot) {
+    return undefined;
+  }
+
+  const motions: Record<string, ViewerJointMotionStateValue> = {};
+  Object.values(previewRobot.joints).forEach((joint) => {
+    const nextState: ViewerJointMotionStateValue = {};
+    if (joint.angle !== undefined) {
+      nextState.angle = joint.angle;
+    }
+    if (joint.quaternion) {
+      nextState.quaternion = { ...joint.quaternion };
+    }
+    if (nextState.angle !== undefined || nextState.quaternion) {
+      motions[joint.name] = nextState;
+    }
+  });
+
+  return Object.keys(motions).length > 0 ? motions : undefined;
 }
 
 export function FilePreviewWindow({
@@ -157,9 +206,27 @@ export function FilePreviewWindow({
     () => (file ? resolvePreviewDocumentLoadLifecycleState(file) : null),
     [file],
   );
+  const storedShowVisualPreference = useSyncExternalStore(
+    subscribeToShowVisualPreference,
+    readStoredWorkspaceViewerShowVisualPreference,
+    () => null,
+  );
+  const previewShowVisual = useMemo(
+    () =>
+      resolveFilePreviewShowVisual({
+        previewRobot,
+        fallbackShowVisual: showVisual,
+        storedPreference: storedShowVisualPreference,
+      }),
+    [previewRobot, showVisual, storedShowVisualPreference],
+  );
   const previewViewerConfig = useMemo(
-    () => (file ? resolveFilePreviewViewerConfig(file, { showVisual }) : null),
-    [file, showVisual],
+    () => (file ? resolveFilePreviewViewerConfig(file, { showVisual: previewShowVisual }) : null),
+    [file, previewShowVisual],
+  );
+  const previewJointMotionState = useMemo(
+    () => buildFilePreviewJointMotionState(previewRobot),
+    [previewRobot],
   );
 
   if (!file) {
@@ -234,6 +301,7 @@ export function FilePreviewWindow({
               lang={lang}
               theme={theme}
               showVisual={previewViewerConfig?.showVisual ?? showVisual}
+              jointMotionState={previewJointMotionState}
               showOptionsPanel={false}
               showJointPanel={false}
               availableFiles={availableFiles}

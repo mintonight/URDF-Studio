@@ -71,6 +71,7 @@ function resolveBodyLinkFrameOffsetLocal(
 
 interface MJCFGeom {
   name?: string;
+  sourceName?: string;
   className?: string;
   classQName?: string;
   type: string;
@@ -89,6 +90,11 @@ interface MJCFGeom {
   group?: number;
 }
 
+interface MJCFLinkPair {
+  visual: MJCFGeom | null;
+  collision: MJCFGeom | null;
+}
+
 interface MJCFJointDef {
   name: string;
   type: string;
@@ -100,6 +106,7 @@ interface MJCFJointDef {
   damping?: number;
   frictionloss?: number;
   armature?: number;
+  stiffness?: number;
   actuatorForceRange?: [number, number];
   actuatorForceLimited?: boolean;
 }
@@ -641,6 +648,7 @@ function toParserBody(sharedBody: any, settings: MJCFCompilerSettings): MJCFBody
     quat: toQuatObject(sharedBody.quat),
     geoms: (sharedBody.geoms || []).map((geom: any) => ({
       name: geom.sourceName || geom.name,
+      sourceName: geom.sourceName,
       className: geom.className,
       classQName: geom.classQName,
       type: geom.type,
@@ -681,6 +689,7 @@ function toParserBody(sharedBody: any, settings: MJCFCompilerSettings): MJCFBody
       damping: typeof joint.damping === 'number' ? joint.damping : undefined,
       frictionloss: typeof joint.frictionloss === 'number' ? joint.frictionloss : undefined,
       armature: typeof joint.armature === 'number' ? joint.armature : undefined,
+      stiffness: typeof joint.stiffness === 'number' ? joint.stiffness : undefined,
       actuatorForceRange: joint.actuatorForceRange,
       actuatorForceLimited:
         typeof joint.actuatorForceLimited === 'boolean' ? joint.actuatorForceLimited : undefined,
@@ -1366,6 +1375,18 @@ function mjcfToRobotState(
         ...(geom.material ? { name: geom.material } : {}),
         ...(sharedColor ? { color: sharedColor } : {}),
         ...(texturePath ? { texture: texturePath } : {}),
+        ...(Number.isFinite(materialDef?.shininess)
+          ? { roughness: Math.max(0, Math.min(1, 1 - Number(materialDef!.shininess))) }
+          : {}),
+        ...(Number.isFinite(materialDef?.reflectance)
+          ? { metalness: Math.max(0, Math.min(1, Number(materialDef!.reflectance))) }
+          : {}),
+        ...(Number.isFinite(materialDef?.emission) && sharedColor
+          ? {
+              emissive: sharedColor,
+              emissiveIntensity: Math.max(0, Number(materialDef!.emission)),
+            }
+          : {}),
       },
     ];
   }
@@ -1400,6 +1421,9 @@ function mjcfToRobotState(
     linkFrameOffsetLocal: { x: number; y: number; z: number } | null = null,
   ): UrdfVisual {
     const result: UrdfVisual = { ...DEFAULT_LINK.visual };
+    if (geom.name?.trim()) {
+      result.name = geom.name.trim();
+    }
     const convertedType = convertGeomType(geom.type);
     const hasExplicitPrimitiveParams = Boolean(
       (geom.size && geom.size.length > 0) || (geom.fromto && geom.fromto.length >= 6),
@@ -1599,11 +1623,7 @@ function mjcfToRobotState(
     });
 
     // 2. Pair Visuals and Collisions
-    interface LinkPair {
-      visual: MJCFGeom | null;
-      collision: MJCFGeom | null;
-    }
-    const pairs: LinkPair[] = [];
+    const pairs: MJCFLinkPair[] = [];
     const usedCollisions = new Set<MJCFGeom>();
 
     // Pass 1: Match visuals to collisions (by mesh name match)
@@ -1820,6 +1840,7 @@ function mjcfToRobotState(
           ...DEFAULT_JOINT.dynamics,
           damping: mjcfJoint?.damping ?? DEFAULT_JOINT.dynamics.damping,
           friction: mjcfJoint?.frictionloss ?? DEFAULT_JOINT.dynamics.friction,
+          ...(typeof mjcfJoint?.stiffness === 'number' ? { stiffness: mjcfJoint.stiffness } : {}),
         },
         ...(jointInitialAngle != null ? { referencePosition: jointInitialAngle } : {}),
         ...(jointInitialAngle != null ? { angle: jointInitialAngle } : {}),
@@ -1832,8 +1853,6 @@ function mjcfToRobotState(
     } else {
       rootLinkId = mainLinkId;
     }
-
-    let virtualLinkIndex = 1;
 
     // Process remaining pairs (Pairs 1..N)
     for (let i = 1; i < pairs.length; i++) {
@@ -1864,24 +1883,15 @@ function mjcfToRobotState(
         continue;
       }
 
-      const subLinkId = `${mainLinkId}_geom_${virtualLinkIndex++}`;
-      const subJointId = buildImplicitFixedJointId(mainLinkId, subLinkId);
-
-      // Virtual Link Visual
-      let subVisual = { ...DEFAULT_LINK.visual };
       if (pair.visual) {
-        subVisual = processGeometry(pair.visual, linkFrameOffsetLocal);
-        assignLinkMaterial(subLinkId, pair.visual);
-      } else {
-        subVisual.type = GeometryType.NONE;
+        const extraVisual = processGeometry(pair.visual, linkFrameOffsetLocal);
+        mainLink.visualBodies = [...(mainLink.visualBodies || []), extraVisual];
       }
 
-      // Virtual Link Collision
-      let subCollision = { ...DEFAULT_LINK.collision };
       if (pair.collision) {
         const colGeo = processGeometry(pair.collision, linkFrameOffsetLocal);
-        subCollision = {
-          ...subCollision,
+        const extraCollision: UrdfLink['collision'] = {
+          ...DEFAULT_LINK.collision,
           ...(pair.collision.name?.trim() ? { name: pair.collision.name.trim() } : {}),
           type: colGeo.type,
           dimensions: colGeo.dimensions,
@@ -1892,35 +1902,11 @@ function mjcfToRobotState(
           mjcfHfield: colGeo.mjcfHfield,
         };
         if (colGeo.color) {
-          subCollision.color = colGeo.color;
+          extraCollision.color = colGeo.color;
         }
-      } else {
-        subCollision.type = GeometryType.NONE;
+
+        mainLink.collisionBodies = [...(mainLink.collisionBodies || []), extraCollision];
       }
-
-      const subLink: UrdfLink = {
-        ...DEFAULT_LINK,
-        id: subLinkId,
-        name: subLinkId,
-        visual: subVisual,
-        collision: subCollision,
-        inertial: { ...DEFAULT_LINK.inertial, mass: 0 }, // Massless virtual link
-      };
-      links[subLinkId] = subLink;
-
-      // Fixed Joint connecting Main -> Sub
-      const subJoint: UrdfJoint = {
-        ...DEFAULT_JOINT,
-        id: subJointId,
-        name: subJointId,
-        type: JointType.FIXED,
-        parentLinkId: mainLinkId,
-        childLinkId: subLinkId,
-        origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
-        axis: { x: 0, y: 0, z: 1 },
-        limit: undefined as UrdfJoint['limit'],
-      };
-      joints[subJointId] = subJoint;
     }
 
     body.children.forEach((child) => processBody(child, mainLinkId));

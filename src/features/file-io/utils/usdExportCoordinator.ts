@@ -486,7 +486,9 @@ export async function exportRobotToUsd({
       onProgress,
     });
     await yieldToMainThread();
-    const baseLayerContent = await buildUsdBaseLayerContent(sceneRoot, usdContext, onProgress);
+    const baseLayerContent = await buildUsdBaseLayerContent(sceneRoot, usdContext, onProgress, {
+      materialProfile: resolvedLayoutProfile === 'isaacsim' ? 'isaacsim' : 'preview',
+    });
     await yieldToMainThread();
     const physicsLayerContent = buildUsdPhysicsLayerContent(
       exportRobot,

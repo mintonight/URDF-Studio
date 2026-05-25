@@ -20,6 +20,7 @@ import {
   type JointQuaternionOverrideMap,
 } from './kinematics';
 import { resolveMimicJointAngleTargets } from './mimic';
+import { isHardPassiveSpringJoint } from './passiveSpringJoints';
 
 const TEMP_POSITION = new THREE.Vector3();
 const TEMP_ROTATION = new THREE.Quaternion();
@@ -45,6 +46,7 @@ const ANGLE_SOLVER_PERTURBATION = 1e-4;
 const ANGLE_SOLVER_TOLERANCE = 1e-5;
 const ANGLE_SOLVER_DAMPING = 1e-6;
 const CLOSED_LOOP_LINE_SEARCH_ATTEMPTS = 6;
+const CLOSED_LOOP_SOLVER_MAX_VARIABLE_STEP = 0.2;
 const DRIVEN_JOINT_PROJECTION_ITERATIONS = 18;
 const DRIVEN_JOINT_PROJECTION_EPSILON = 1e-5;
 const ORIGIN_SOLVER_MAX_PASSES = 6;
@@ -80,6 +82,7 @@ export interface ClosedLoopMotionSolveOptions extends JointKinematicOverrideMap 
   maxIterations?: number;
   tolerance?: number;
   damping?: number;
+  maxVariableStep?: number;
 }
 
 export interface ClosedLoopMotionSolveResult extends ClosedLoopMotionCompensation {
@@ -395,6 +398,24 @@ function clampSolvedAngle(joint: UrdfJoint, angle: number, referenceAngle: numbe
   }
 
   return angle;
+}
+
+function limitClosedLoopSolverDelta(delta: number[], maxVariableStep: number): number[] {
+  if (!Number.isFinite(maxVariableStep) || maxVariableStep <= 0) {
+    return delta;
+  }
+
+  let maxComponent = 0;
+  delta.forEach((component) => {
+    maxComponent = Math.max(maxComponent, Math.abs(component));
+  });
+
+  if (maxComponent <= maxVariableStep) {
+    return delta;
+  }
+
+  const scale = maxVariableStep / maxComponent;
+  return delta.map((component) => component * scale);
 }
 
 function computeConstraintError(
@@ -753,12 +774,17 @@ function evaluateDrivenJointMotion(
   selectedJointId: string,
   selectedAngle: number,
   options: Omit<ClosedLoopMotionSolveOptions, 'angles' | 'quaternions' | 'lockedJointIds'> = {},
+  preferredLockedJointIds: readonly string[] = [],
 ): ClosedLoopDrivenJointMotionResult {
   const drivenMotion = resolveMimicJointAngleTargets(robot, selectedJointId, selectedAngle);
+  const lockedJointIds =
+    preferredLockedJointIds.length > 0
+      ? [...new Set([...drivenMotion.lockedJointIds, ...preferredLockedJointIds])]
+      : drivenMotion.lockedJointIds;
   const solution = solveClosedLoopMotionCompensation(robot, {
     ...options,
     angles: drivenMotion.angles,
-    lockedJointIds: drivenMotion.lockedJointIds,
+    lockedJointIds,
   });
   const merged = mergeDrivenMotionCompensation(drivenMotion.angles, solution);
 
@@ -772,6 +798,34 @@ function evaluateDrivenJointMotion(
     iterations: solution.iterations,
     converged: solution.converged,
   };
+}
+
+function collectPreferredLockedPassiveSpringJointIds(
+  robot: Pick<RobotData, 'joints' | 'closedLoopConstraints'>,
+  selectedJointId: string,
+  selectedAngle: number,
+): string[] {
+  const drivenMotion = resolveMimicJointAngleTargets(robot, selectedJointId, selectedAngle);
+  const alreadyLocked = new Set([
+    ...drivenMotion.lockedJointIds,
+    ...Object.keys(drivenMotion.angles),
+  ]);
+
+  const motionConstraints = collectClosedLoopMotionConstraints(
+    robot,
+    getClosedLoopMotionConstraints(robot),
+    alreadyLocked,
+  );
+  const parentJointByChild = getParentJointByChildLink(robot);
+  const constraintEndpointLinkIds = new Set(
+    motionConstraints.flatMap((constraint) => [constraint.linkAId, constraint.linkBId]),
+  );
+
+  return collectClosedLoopSolverJoints(robot, parentJointByChild, motionConstraints, alreadyLocked)
+    .filter((joint) => joint.id !== selectedJointId)
+    .filter((joint) => !constraintEndpointLinkIds.has(joint.childLinkId))
+    .filter(isHardPassiveSpringJoint)
+    .map((joint) => joint.id);
 }
 
 function applyClosedLoopBallJointCompensation(
@@ -1090,6 +1144,7 @@ export function solveClosedLoopMotionCompensation(
   const tolerance = options.tolerance ?? ANGLE_SOLVER_TOLERANCE;
   const maxIterations = options.maxIterations ?? ANGLE_SOLVER_ITERATIONS * 2;
   const damping = options.damping ?? ANGLE_SOLVER_DAMPING;
+  const maxVariableStep = options.maxVariableStep ?? CLOSED_LOOP_SOLVER_MAX_VARIABLE_STEP;
 
   if (motionConstraints.length === 0) {
     const compensation = stripLockedJointOverrides(overrides, lockedJointIds);
@@ -1232,7 +1287,8 @@ export function solveClosedLoopMotionCompensation(
       rhs[rowIndex] = projectedError;
     }
 
-    const delta = solveLinearSystem(normalMatrix, rhs);
+    const rawDelta = solveLinearSystem(normalMatrix, rhs);
+    const delta = rawDelta ? limitClosedLoopSolverDelta(rawDelta, maxVariableStep) : null;
     if (!delta) {
       break;
     }
@@ -1333,44 +1389,129 @@ export function resolveClosedLoopDrivenJointMotion(
 
   const tolerance = options.tolerance ?? ANGLE_SOLVER_TOLERANCE;
   const normalizedSelectedAngle = clampSolvedAngle(selectedJoint, selectedAngle, selectedAngle);
-  const directResult = evaluateDrivenJointMotion(
+  const preferredLockedPassiveSpringJointIds = collectPreferredLockedPassiveSpringJointIds(
     robot,
     selectedJointId,
     normalizedSelectedAngle,
-    options,
   );
+  const preferredDirectResult =
+    preferredLockedPassiveSpringJointIds.length > 0
+      ? evaluateDrivenJointMotion(
+          robot,
+          selectedJointId,
+          normalizedSelectedAngle,
+          options,
+          preferredLockedPassiveSpringJointIds,
+        )
+      : null;
+  const directResult =
+    preferredDirectResult && isFeasibleDrivenJointMotion(preferredDirectResult, tolerance)
+      ? preferredDirectResult
+      : evaluateDrivenJointMotion(
+          robot,
+          selectedJointId,
+          normalizedSelectedAngle,
+          options,
+        );
+  const shouldPreferLockedPassiveSpringJoints =
+    preferredLockedPassiveSpringJointIds.length > 0 &&
+    (preferredDirectResult === directResult ||
+      !isFeasibleDrivenJointMotion(directResult, tolerance));
+  const evaluatePreferredDrivenJointMotion = (angle: number): ClosedLoopDrivenJointMotionResult =>
+    shouldPreferLockedPassiveSpringJoints
+      ? evaluateDrivenJointMotion(
+          robot,
+          selectedJointId,
+          angle,
+          options,
+          preferredLockedPassiveSpringJointIds,
+        )
+      : evaluateDrivenJointMotion(
+          robot,
+          selectedJointId,
+          angle,
+          options,
+        );
+
+  if (
+    preferredDirectResult &&
+    !isFeasibleDrivenJointMotion(preferredDirectResult, tolerance) &&
+    isFeasibleDrivenJointMotion(directResult, tolerance)
+  ) {
+    const currentSelectedAngle = getCurrentJointAngleValue(selectedJoint, {});
+    const preferredCurrentResult = evaluateDrivenJointMotion(
+      robot,
+      selectedJointId,
+      currentSelectedAngle,
+      options,
+      preferredLockedPassiveSpringJointIds,
+    );
+    if (isFeasibleDrivenJointMotion(preferredCurrentResult, tolerance)) {
+      let feasibleAngle = currentSelectedAngle;
+      let infeasibleAngle = normalizedSelectedAngle;
+      let bestResult = preferredCurrentResult;
+
+      for (let iteration = 0; iteration < DRIVEN_JOINT_PROJECTION_ITERATIONS; iteration += 1) {
+        const candidateAngle = (feasibleAngle + infeasibleAngle) * 0.5;
+        const candidateResult = evaluateDrivenJointMotion(
+          robot,
+          selectedJointId,
+          candidateAngle,
+          options,
+          preferredLockedPassiveSpringJointIds,
+        );
+
+        if (isFeasibleDrivenJointMotion(candidateResult, tolerance)) {
+          feasibleAngle = candidateAngle;
+          bestResult = candidateResult;
+        } else {
+          infeasibleAngle = candidateAngle;
+        }
+
+        if (Math.abs(infeasibleAngle - feasibleAngle) <= DRIVEN_JOINT_PROJECTION_EPSILON) {
+          break;
+        }
+      }
+
+      return {
+        ...bestResult,
+        constrained:
+          Math.abs(bestResult.appliedAngle - selectedAngle) > DRIVEN_JOINT_PROJECTION_EPSILON,
+      };
+    }
+  }
+
+  const directResultForProjection = directResult;
 
   if (
     !robot.closedLoopConstraints?.length ||
-    isFeasibleDrivenJointMotion(directResult, tolerance)
+    isFeasibleDrivenJointMotion(directResultForProjection, tolerance)
   ) {
     return {
-      ...directResult,
+      ...directResultForProjection,
       constrained:
-        Math.abs(directResult.appliedAngle - selectedAngle) > DRIVEN_JOINT_PROJECTION_EPSILON,
+        Math.abs(directResultForProjection.appliedAngle - selectedAngle) >
+        DRIVEN_JOINT_PROJECTION_EPSILON,
     };
   }
 
   const currentSelectedAngle = getCurrentJointAngleValue(selectedJoint, {});
   if (Math.abs(normalizedSelectedAngle - currentSelectedAngle) <= DRIVEN_JOINT_PROJECTION_EPSILON) {
     return {
-      ...directResult,
+      ...directResultForProjection,
       constrained:
-        Math.abs(directResult.appliedAngle - selectedAngle) > DRIVEN_JOINT_PROJECTION_EPSILON,
+        Math.abs(directResultForProjection.appliedAngle - selectedAngle) >
+        DRIVEN_JOINT_PROJECTION_EPSILON,
     };
   }
 
-  const currentResult = evaluateDrivenJointMotion(
-    robot,
-    selectedJointId,
-    currentSelectedAngle,
-    options,
-  );
+  const currentResult = evaluatePreferredDrivenJointMotion(currentSelectedAngle);
   if (!isFeasibleDrivenJointMotion(currentResult, tolerance)) {
     return {
-      ...directResult,
+      ...directResultForProjection,
       constrained:
-        Math.abs(directResult.appliedAngle - selectedAngle) > DRIVEN_JOINT_PROJECTION_EPSILON,
+        Math.abs(directResultForProjection.appliedAngle - selectedAngle) >
+        DRIVEN_JOINT_PROJECTION_EPSILON,
     };
   }
 
@@ -1380,12 +1521,7 @@ export function resolveClosedLoopDrivenJointMotion(
 
   for (let iteration = 0; iteration < DRIVEN_JOINT_PROJECTION_ITERATIONS; iteration += 1) {
     const candidateAngle = (feasibleAngle + infeasibleAngle) * 0.5;
-    const candidateResult = evaluateDrivenJointMotion(
-      robot,
-      selectedJointId,
-      candidateAngle,
-      options,
-    );
+    const candidateResult = evaluatePreferredDrivenJointMotion(candidateAngle);
 
     if (isFeasibleDrivenJointMotion(candidateResult, tolerance)) {
       feasibleAngle = candidateAngle;

@@ -130,6 +130,14 @@ export function sameGeometry(a: LinkGeometry | undefined, b: LinkGeometry | unde
   );
 }
 
+function sameGeometryIgnoringVisibility(
+  a: LinkGeometry | undefined,
+  b: LinkGeometry | undefined,
+): boolean {
+  if (!a || !b) return a === b;
+  return sameGeometry({ ...a, visible: true }, { ...b, visible: true });
+}
+
 function sameGeometryList(a: LinkGeometry[] | undefined, b: LinkGeometry[] | undefined): boolean {
   const listA = a || [];
   const listB = b || [];
@@ -137,6 +145,19 @@ function sameGeometryList(a: LinkGeometry[] | undefined, b: LinkGeometry[] | und
   return (
     listA.length === listB.length &&
     listA.every((geometry, index) => sameGeometry(geometry, listB[index]))
+  );
+}
+
+function sameGeometryListIgnoringVisibility(
+  a: LinkGeometry[] | undefined,
+  b: LinkGeometry[] | undefined,
+): boolean {
+  const listA = a || [];
+  const listB = b || [];
+
+  return (
+    listA.length === listB.length &&
+    listA.every((geometry, index) => sameGeometryIgnoringVisibility(geometry, listB[index]))
   );
 }
 
@@ -168,6 +189,46 @@ function isSameLink(prev: UrdfLink, next: UrdfLink): boolean {
     sameGeometryList(prev.visualBodies, next.visualBodies) &&
     sameGeometry(prev.collision, next.collision) &&
     sameGeometryList(prev.collisionBodies, next.collisionBodies)
+  );
+}
+
+function isSameLinkIgnoringVisibility(prev: UrdfLink, next: UrdfLink): boolean {
+  return (
+    prev.id === next.id &&
+    prev.name === next.name &&
+    sameInertial(prev.inertial, next.inertial) &&
+    sameGeometryIgnoringVisibility(prev.visual, next.visual) &&
+    sameGeometryListIgnoringVisibility(prev.visualBodies, next.visualBodies) &&
+    sameGeometryIgnoringVisibility(prev.collision, next.collision) &&
+    sameGeometryListIgnoringVisibility(prev.collisionBodies, next.collisionBodies)
+  );
+}
+
+function hasVisibilityChange(prev: UrdfLink, next: UrdfLink): boolean {
+  if (!sameVisibleFlag(prev.visible, next.visible)) {
+    return true;
+  }
+  if (!sameVisibleFlag(prev.visual.visible, next.visual.visible)) {
+    return true;
+  }
+  if (!sameVisibleFlag(prev.collision.visible, next.collision.visible)) {
+    return true;
+  }
+
+  const previousVisualBodies = prev.visualBodies || [];
+  const nextVisualBodies = next.visualBodies || [];
+  if (
+    previousVisualBodies.some(
+      (geometry, index) => !sameVisibleFlag(geometry.visible, nextVisualBodies[index]?.visible),
+    )
+  ) {
+    return true;
+  }
+
+  const previousCollisionBodies = prev.collisionBodies || [];
+  const nextCollisionBodies = next.collisionBodies || [];
+  return previousCollisionBodies.some(
+    (geometry, index) => !sameVisibleFlag(geometry.visible, nextCollisionBodies[index]?.visible),
   );
 }
 
@@ -241,6 +302,30 @@ export function detectSingleGeometryPatch(
   }
 
   return candidates.length === 1 ? candidates[0] : null;
+}
+
+export function areRobotLinkChangesVisibilityOnly(
+  prevLinks: Record<string, UrdfLink> | null,
+  nextLinks: Record<string, UrdfLink> | undefined,
+): boolean {
+  if (!prevLinks || !nextLinks) return false;
+
+  const prevIds = Object.keys(prevLinks);
+  const nextIds = Object.keys(nextLinks);
+  if (prevIds.length !== nextIds.length) return false;
+
+  let changed = false;
+
+  for (const id of nextIds) {
+    const prev = prevLinks[id];
+    const next = nextLinks[id];
+    if (!prev || !next) return false;
+    if (!isSameLinkIgnoringVisibility(prev, next)) return false;
+
+    changed = hasVisibilityChange(prev, next) || changed;
+  }
+
+  return changed;
 }
 
 function sameLimit(a: UrdfJoint['limit'], b: UrdfJoint['limit']): boolean {

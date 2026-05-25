@@ -44,6 +44,7 @@ export function classifyMJCFGeom(geom: MJCFGeomClassificationInput): MJCFGeomCla
     const hintTokens = buildHintTokenSet(geom);
     const hasCollisionHint = hintTokens.has('collision') || hintTokens.has('collider') || hintTokens.has('col');
     const hasVisualHint = hintTokens.has('visual') || hintTokens.has('render') || hintTokens.has('virtual');
+    const hasNonRenderableHelperHint = hintTokens.has('inertial') || hintTokens.has('fluid');
     const hasVisualGroup = geom.group === 1 || geom.group === 2;
     const hasDedicatedCollisionGroup = typeof geom.group === 'number' && geom.group >= 3;
     const hasContactsDisabled = geom.contype === 0 && geom.conaffinity === 0;
@@ -52,12 +53,20 @@ export function classifyMJCFGeom(geom: MJCFGeomClassificationInput): MJCFGeomCla
         return { isVisual: false, isCollision: true };
     }
 
+    if (hasNonRenderableHelperHint) {
+        return { isVisual: false, isCollision: false };
+    }
+
     if (hasVisualHint || hasVisualGroup) {
         return { isVisual: true, isCollision: false };
     }
 
-    if (hasDedicatedCollisionGroup) {
+    if (hasDedicatedCollisionGroup && !hasContactsDisabled) {
         return { isVisual: false, isCollision: true };
+    }
+
+    if (hasDedicatedCollisionGroup && hasContactsDisabled) {
+        return { isVisual: false, isCollision: false };
     }
 
     if (hasContactsDisabled) {

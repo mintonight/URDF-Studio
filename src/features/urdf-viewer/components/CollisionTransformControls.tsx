@@ -6,10 +6,7 @@ import { resolveLinkKey } from '@/core/robot';
 import type { CollisionTransformControlsProps } from '../types';
 import { useCollisionTransformDragLifecycle } from '../hooks/useCollisionTransformDragLifecycle';
 import { getObjectRPY } from '../utils/collisionTransformMath';
-import {
-  canRenderCollisionTransformControls,
-  resolveCurrentCollisionDraggingControls,
-} from '../utils/collisionTransformControlsShared';
+import { resolveCurrentCollisionDraggingControls } from '../utils/collisionTransformControlsShared';
 
 const COLLISION_TRANSLATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE;
 const COLLISION_ROTATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE * 0.84;
@@ -259,6 +256,15 @@ export const CollisionTransformControls: React.FC<CollisionTransformControlsProp
   });
 
   useEffect(() => {
+    // While a drag is in flight, transform previews can churn the `selection`
+    // object identity, re-running this effect. Recomputing/clearing the target
+    // mid-drag would unmount the gizmo (thick handles vanish, only stock thin
+    // lines remain). The drag lifecycle's useFrame owns finishing the drag, so
+    // keep the resolved target stable until the drag ends.
+    if (isDraggingRef.current) {
+      return;
+    }
+
     if (
       !robot ||
       !selection?.id ||
@@ -360,34 +366,34 @@ export const CollisionTransformControls: React.FC<CollisionTransformControlsProp
     return null;
   }
 
-  const canRenderControls = canRenderCollisionTransformControls(
-    transformMode,
-    shouldUseTranslateProxy,
-    translateProxy,
-  );
-
+  // Keep <UnifiedTransformControls> mounted unconditionally. Gating it on the
+  // translate proxy being ready caused an unmount/remount cycle on first
+  // render (proxy ref callback -> setState -> re-render): the freshly created
+  // Drei gizmo had not yet been patched, so the thick handles vanished for a
+  // frame leaving only the stock thin axis lines. UnifiedTransformControls
+  // already falls back to `object` when `translateObject` is undefined
+  // (resolvedTranslateObject = translateObject ?? object), so attaching to the
+  // real target until the proxy mounts is safe and flicker-free.
   return (
     <>
       {shouldUseTranslateProxy && <group ref={handleTranslateProxyRef} visible={false} />}
 
-      {canRenderControls && (
-        <UnifiedTransformControls
-          ref={transformRef}
-          rotateRef={rotateTransformRef}
-          object={targetObject}
-          translateObject={shouldUseTranslateProxy ? (translateProxy ?? undefined) : undefined}
-          mode={controlMode}
-          size={COLLISION_TRANSLATE_GIZMO_SIZE}
-          rotateSize={COLLISION_ROTATE_GIZMO_SIZE}
-          translateSpace="local"
-          rotateSpace="local"
-          hoverStyle="single-axis"
-          displayStyle="thick-primary"
-          displayThicknessScale={COLLISION_GIZMO_THICKNESS_SCALE}
-          onObjectChange={handleObjectChange}
-          onDraggingChanged={handleDraggingChanged}
-        />
-      )}
+      <UnifiedTransformControls
+        ref={transformRef}
+        rotateRef={rotateTransformRef}
+        object={targetObject}
+        translateObject={shouldUseTranslateProxy ? (translateProxy ?? undefined) : undefined}
+        mode={controlMode}
+        size={COLLISION_TRANSLATE_GIZMO_SIZE}
+        rotateSize={COLLISION_ROTATE_GIZMO_SIZE}
+        translateSpace="local"
+        rotateSpace="local"
+        hoverStyle="single-axis"
+        displayStyle="thick-primary"
+        displayThicknessScale={COLLISION_GIZMO_THICKNESS_SCALE}
+        onObjectChange={handleObjectChange}
+        onDraggingChanged={handleDraggingChanged}
+      />
     </>
   );
 };

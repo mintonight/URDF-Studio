@@ -40,6 +40,32 @@ test('keeps virtual helper geoms out of collision classification', () => {
     assert.deepEqual(classification, { isVisual: true, isCollision: false });
 });
 
+test('keeps inertial and fluid helper geoms out of render and collision roles', () => {
+    assert.deepEqual(
+        classifyMJCFGeom({
+            name: 'wing_left_inertial',
+            className: 'wing-inertial',
+            classQName: 'body/wing/wing-inertial',
+            group: 1,
+            contype: 0,
+            conaffinity: 0,
+        }),
+        { isVisual: false, isCollision: false },
+    );
+
+    assert.deepEqual(
+        classifyMJCFGeom({
+            name: 'wing_left_fluid',
+            className: 'wing-fluid',
+            classQName: 'body/wing/wing-fluid',
+            group: 3,
+            contype: 0,
+            conaffinity: 0,
+        }),
+        { isVisual: false, isCollision: false },
+    );
+});
+
 test('treats plain unclassified geoms as shared visual and collision geometry', () => {
     const classification = classifyMJCFGeom({
         name: 'torso',

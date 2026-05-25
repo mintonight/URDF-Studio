@@ -2,6 +2,7 @@ import React, { useCallback, useMemo } from 'react';
 import { Activity, Box, Crosshair, MessageSquare, RefreshCw, ScanSearch } from 'lucide-react';
 import type { TranslationKeys } from '@/shared/i18n/types';
 import { useEffectiveTheme } from '@/shared/hooks/useEffectiveTheme';
+import { isIkDragToolEnabled } from '@/shared/utils/ikDragFeatureGate';
 import type { ToolboxItem } from '../components/header/types';
 
 interface UseToolItemsParams {
@@ -45,14 +46,18 @@ export function useToolItems(params: UseToolItemsParams): UseToolItemsReturn {
         onClick: openAIConversation,
         tone: 'primary',
       },
-      {
-        key: 'ik-tool',
-        title: t.ikTool,
-        description: t.ikToolboxDesc,
-        icon: <Crosshair className="h-[18px] w-[18px]" />,
-        onClick: openIkTool,
-        tone: 'primary',
-      },
+      ...(isIkDragToolEnabled()
+        ? [
+            {
+              key: 'ik-tool',
+              title: t.ikTool,
+              description: t.ikToolboxDesc,
+              icon: <Crosshair className="h-[18px] w-[18px]" />,
+              onClick: openIkTool,
+              tone: 'primary' as const,
+            },
+          ]
+        : []),
       {
         key: 'collision-optimizer',
         title: t.collisionOptimizerDialog,

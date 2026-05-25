@@ -820,6 +820,7 @@ test('dragging from the visible slider shell previews and commits without target
   const previewAngles: number[] = [];
   const committedAngles: number[] = [];
   const activeJointNames: Array<string | null> = [];
+  const draggingStates: boolean[] = [];
 
   await renderJointControlItem(root, {
     handleJointAngleChange: (_name, angle) => {
@@ -830,6 +831,9 @@ test('dragging from the visible slider shell previews and commits without target
     },
     setActiveJoint: (jointName) => {
       activeJointNames.push(jointName);
+    },
+    setIsDragging: (dragging) => {
+      draggingStates.push(dragging);
     },
   });
 
@@ -860,6 +864,7 @@ test('dragging from the visible slider shell previews and commits without target
   });
 
   assert.deepEqual(activeJointNames, ['R_thigh_joint']);
+  assert.deepEqual(draggingStates, [true]);
   assert.equal(previewAngles.length, 1);
   assert.equal(committedAngles.length, 0);
 
@@ -868,6 +873,7 @@ test('dragging from the visible slider shell previews and commits without target
   });
 
   assert.equal(committedAngles.length, 1);
+  assert.deepEqual(draggingStates, [true, false]);
 
   await act(async () => {
     root.unmount();

@@ -300,9 +300,12 @@ export function TreeEditorStructureSection({
                           childJointsByParent={
                             useStoreDrivenTree ? undefined : childJointsByParent
                           }
-                          selectionBranchLinkIds={
-                            useStoreDrivenTree ? undefined : selectionBranchLinkIds
-                          }
+                          // Always pass the precomputed selection-branch set so
+                          // TreeNode can skip its previous per-node store
+                          // subscription that rebuilt the parent map O(N) per
+                          // node. Branch membership is calculated once at the
+                          // TreeEditor level.
+                          selectionBranchLinkIds={selectionBranchLinkIds}
                           onSelect={onSelect}
                           onSelectGeometry={onSelectGeometry}
                           onFocus={onFocus}

@@ -324,18 +324,11 @@ export function autoSeedAssembly(
     existingComponentNames: [],
   });
 
-  const namespacedRobotData = prepareAssemblyRobotData(robotData, {
-    componentId,
-    rootName: displayName,
-    sourceFilePath: sourceFileName,
-    sourceFormat: options.sourceFile?.format ?? null,
-  });
-
   const component: AssemblyComponent = {
     id: componentId,
     name: robotData.name || displayName,
     sourceFile: sourceFileName,
-    robot: namespacedRobotData,
+    robot: structuredClone(robotData),
     visible: true,
   };
 

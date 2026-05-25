@@ -20,6 +20,8 @@ test('createEmbeddedUsdViewerLoadParams keeps USD auto-fit aligned with the work
   assert.equal(params.get('yieldDuringLoad'), '0');
   assert.equal(params.get('resolveRobotMetadataBeforeReady'), '1');
   assert.equal(params.get('requireCompleteRobotMetadata'), '1');
+  assert.equal(params.get('skipSensorPayloadsOnOpen'), '0');
+  assert.equal(params.get('includeSensorDependency'), '1');
   assert.equal(params.get('warmupRuntimeBridge'), '1');
   assert.equal(params.has('drawBurstRenderEveryDraw'), false);
   assert.equal(params.has('initialDrawYieldMs'), false);
@@ -38,24 +40,50 @@ test('createEmbeddedUsdViewerLoadParams prioritizes fast interactive readiness f
   assert.equal(params.get('yieldDuringLoad'), '0');
   assert.equal(params.get('resolveRobotMetadataBeforeReady'), '1');
   assert.equal(params.get('requireCompleteRobotMetadata'), '1');
+  assert.equal(params.get('skipSensorPayloadsOnOpen'), '0');
+  assert.equal(params.get('includeSensorDependency'), '1');
   assert.equal(params.get('warmupRuntimeBridge'), '1');
   assert.equal(params.has('autoLoadDependencies'), false);
   assert.equal(params.has('initialDrawYieldMs'), false);
 });
 
-test('createEmbeddedUsdViewerLoadParams can defer robot metadata readiness to a parallel worker bootstrap', () => {
+test('createEmbeddedUsdViewerLoadParams keeps worker bootstrap strict while using direct scene snapshots', () => {
   const params = createEmbeddedUsdViewerLoadParams(4, {
     preferWorkerResolvedRobotData: true,
   });
 
-  assert.equal(params.get('nonBlockingLoad'), '1');
+  assert.equal(params.get('nonBlockingLoad'), '0');
   assert.equal(params.get('aggressiveInitialDraw'), '0');
-  assert.equal(params.get('strictOneShot'), '0');
-  assert.equal(params.get('yieldDuringLoad'), '1');
+  assert.equal(params.get('strictOneShot'), '1');
+  assert.equal(params.get('yieldDuringLoad'), '0');
+  assert.equal(params.get('resolveRobotMetadataBeforeReady'), '1');
+  assert.equal(params.get('requireCompleteRobotMetadata'), '1');
+  assert.equal(params.get('skipSensorPayloadsOnOpen'), '0');
+  assert.equal(params.get('includeSensorDependency'), '1');
+  assert.equal(params.get('warmupRuntimeBridge'), '1');
+  assert.equal(params.get('robotSceneSnapshotBeforeDraw'), '1');
+  assert.equal(params.get('skipHydraFullDrawForRobotSceneSnapshot'), '1');
+  assert.equal(params.has('initialDrawBurst'), false);
+});
+
+test('createEmbeddedUsdViewerLoadParams can relax only robot metadata for synthetic worker roots', () => {
+  const params = createEmbeddedUsdViewerLoadParams(4, {
+    preferWorkerResolvedRobotData: true,
+    allowIncompleteWorkerRobotMetadata: true,
+  });
+
+  assert.equal(params.get('nonBlockingLoad'), '0');
+  assert.equal(params.get('aggressiveInitialDraw'), '0');
+  assert.equal(params.get('strictOneShot'), '1');
+  assert.equal(params.get('yieldDuringLoad'), '0');
   assert.equal(params.get('resolveRobotMetadataBeforeReady'), '0');
   assert.equal(params.get('requireCompleteRobotMetadata'), '0');
+  assert.equal(params.get('skipSensorPayloadsOnOpen'), '0');
+  assert.equal(params.get('includeSensorDependency'), '1');
   assert.equal(params.get('warmupRuntimeBridge'), '1');
-  assert.equal(params.get('initialDrawBurst'), '4');
+  assert.equal(params.get('robotSceneSnapshotBeforeDraw'), '1');
+  assert.equal(params.get('skipHydraFullDrawForRobotSceneSnapshot'), '1');
+  assert.equal(params.has('initialDrawBurst'), false);
 });
 
 test('resolveEmbeddedUsdViewerLoadProfile keeps large pure .usd interactive loads distinct from worker bootstrap loads', () => {
@@ -74,17 +102,19 @@ test('resolveEmbeddedUsdViewerLoadProfile keeps large pure .usd interactive load
   );
 });
 
-test('createEmbeddedUsdViewerLoadParams reveals large pure .usd roots before background hydration completes', () => {
+test('createEmbeddedUsdViewerLoadParams keeps large pure .usd roots strict until hydration completes', () => {
   const params = createEmbeddedUsdViewerLoadParams(4, {
     preferSlicedMainThreadLoadForLargePureUsd: true,
   });
 
-  assert.equal(params.get('nonBlockingLoad'), '1');
-  assert.equal(params.get('aggressiveInitialDraw'), '0');
-  assert.equal(params.get('strictOneShot'), '0');
-  assert.equal(params.get('yieldDuringLoad'), '1');
-  assert.equal(params.get('resolveRobotMetadataBeforeReady'), '0');
-  assert.equal(params.get('requireCompleteRobotMetadata'), '0');
+  assert.equal(params.get('nonBlockingLoad'), '0');
+  assert.equal(params.get('aggressiveInitialDraw'), '1');
+  assert.equal(params.get('strictOneShot'), '1');
+  assert.equal(params.get('yieldDuringLoad'), '0');
+  assert.equal(params.get('resolveRobotMetadataBeforeReady'), '1');
+  assert.equal(params.get('requireCompleteRobotMetadata'), '1');
+  assert.equal(params.get('skipSensorPayloadsOnOpen'), '0');
+  assert.equal(params.get('includeSensorDependency'), '1');
   assert.equal(params.get('warmupRuntimeBridge'), '1');
 });
 

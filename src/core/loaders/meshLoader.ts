@@ -1,11 +1,11 @@
 /**
- * Mesh Loader - Handles loading of mesh files (STL, MSH, DAE, OBJ, GLTF/GLB)
+ * Mesh Loader - Handles loading of mesh files (STL, MSH, DAE, OBJ, GLTF/GLB, PLY, VTK)
  *
  * Features:
  * - Pre-indexed asset lookup for O(1) complexity
  * - First-detection mode for automatic unit scaling
  * - Optional placeholder meshes for callers that explicitly opt in
- * - Support for STL, MSH, DAE, OBJ, GLTF/GLB formats
+ * - Support for STL, MSH, DAE, OBJ, GLTF/GLB, PLY, VTK formats
  */
 
 import * as THREE from 'three';
@@ -18,11 +18,9 @@ import {
 import { buildExplicitlyScaledMeshPathHints, hasExplicitMeshScaleHint } from './meshScaleHints';
 import { mitigateCoplanarMaterialZFighting } from './coplanarMaterialOffset';
 import { type ColladaRootNormalizationHints } from './colladaRootNormalization';
-import { loadColladaScene } from './colladaParseWorkerBridge';
-import {
-  createSceneFromSerializedColladaData,
-  parseColladaSceneData,
-} from './colladaWorkerSceneData';
+import { loadSerializedColladaSceneData } from './colladaParseWorkerBridge';
+import { createSceneFromSerializedColladaData } from './colladaWorkerSceneData';
+import { parseColladaMeshDataWithWasm } from './colladaWasmParser';
 import { cleanFilePath } from './pathNormalization';
 import {
   failFastInDev,
@@ -33,7 +31,14 @@ import { MATERIAL_CONFIG } from '@/core/utils/materialFactory';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
 import { ensureWorkerXmlDomApis } from '@/core/utils/ensureWorkerXmlDomApis';
 import { createGeometryFromSerializedMshData, parseMshGeometryData } from './mshGeometryData';
-import { cloneObjSceneWithOwnedResources, loadObjScene } from './objMaterialUtils';
+import {
+  applyObjMaterialLibrariesToObject,
+  cloneObjSceneWithOwnedResources,
+} from './objMaterialUtils';
+import {
+  createObjectFromSerializedObjDataAsync,
+  loadSerializedObjModelData,
+} from './objParseWorkerBridge';
 import { createGeometryFromSerializedStlData } from './stlGeometryData';
 import { loadSerializedStlGeometryData } from './stlParseWorkerBridge';
 
@@ -98,16 +103,28 @@ export const postProcessColladaScene = (root: THREE.Object3D): number => {
   return Math.max(_tempSize.x, _tempSize.y, _tempSize.z);
 };
 
+function extractColladaUrlBase(assetUrl: string): string {
+  const queryIndex = assetUrl.search(/[?#]/);
+  const cleanUrl = queryIndex >= 0 ? assetUrl.slice(0, queryIndex) : assetUrl;
+  const slashIndex = cleanUrl.lastIndexOf('/');
+  return slashIndex >= 0 ? assetUrl.slice(0, slashIndex + 1) : '';
+}
+
 async function loadColladaSceneForMeshLoader(
   assetUrl: string,
   manager: THREE.LoadingManager,
+  runMainThreadTask: <T>(task: () => T | Promise<T>) => Promise<T>,
 ): Promise<THREE.Object3D> {
   if (typeof Worker !== 'undefined') {
     try {
-      return await loadColladaScene(assetUrl, manager);
+      const serializedScene = await loadSerializedColladaSceneData(assetUrl);
+      return await runMainThreadTask(() =>
+        createSceneFromSerializedColladaData(serializedScene, { manager }),
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!/collada parse worker is (?:unavailable|not available)/i.test(message)) {
+        console.error(`[MeshLoader] Collada parse failed for "${assetUrl}":`, error);
         throw error;
       }
       console.warn(`[MeshLoader] ${message}; parsing Collada asset in-process.`);
@@ -120,9 +137,13 @@ async function loadColladaSceneForMeshLoader(
     throw new Error(`Failed to fetch Collada asset: ${response.status} ${response.statusText}`);
   }
 
-  const content = await response.text();
-  const serializedScene = parseColladaSceneData(content, assetUrl);
-  return createSceneFromSerializedColladaData(serializedScene, { manager });
+  const serializedScene = await parseColladaMeshDataWithWasm(
+    await response.arrayBuffer(),
+    extractColladaUrlBase(assetUrl),
+  );
+  return await runMainThreadTask(() =>
+    createSceneFromSerializedColladaData(serializedScene, { manager }),
+  );
 }
 
 // ============================================================
@@ -394,9 +415,18 @@ const splitFilenameStem = (filename: string): { extension: string; stemSegments:
 };
 
 const APPROXIMATE_STEM_SUFFIX_PATTERN = /(?:[_\-.](?:visual|collision|mesh|model))+$/i;
-const SUPPORTED_MESH_EXTENSIONS = new Set(['stl', 'msh', 'dae', 'obj', 'gltf', 'glb', 'vtk']);
+const SUPPORTED_MESH_EXTENSIONS = new Set([
+  'stl',
+  'msh',
+  'dae',
+  'obj',
+  'gltf',
+  'glb',
+  'ply',
+  'vtk',
+]);
 const APPROXIMATE_EXTENSION_ALIASES: Record<string, string[]> = {
-  '.mesh': ['.mesh', '.dae', '.obj', '.stl', '.gltf', '.glb'],
+  '.mesh': ['.mesh', '.dae', '.obj', '.stl', '.gltf', '.glb', '.ply'],
 };
 
 const getPathExtension = (value: string): string => {
@@ -619,6 +649,7 @@ function buildAssetIndexUncached(assets: Record<string, string>, urdfDir: string
     suffixCandidates: new Map(),
     cleanedPaths: [],
   };
+  const cleanedPathSet = new Set<string>();
 
   for (const [key, value] of Object.entries(assets)) {
     // Direct mapping
@@ -627,7 +658,8 @@ function buildAssetIndexUncached(assets: Record<string, string>, urdfDir: string
     // Cleaned path
     const cleaned = cleanFilePath(key);
     index.direct.set(cleaned, value);
-    if (!index.cleanedPaths.includes(cleaned)) {
+    if (!cleanedPathSet.has(cleaned)) {
+      cleanedPathSet.add(cleaned);
       index.cleanedPaths.push(cleaned);
     }
 
@@ -785,6 +817,7 @@ export const findAssetByIndex = (
   // Strategy 5: Filename only
   const lastSlash = resolvedPath.lastIndexOf('/');
   const filename = lastSlash === -1 ? resolvedPath : resolvedPath.substring(lastSlash + 1);
+  const requestedExtension = splitFilenameStem(filename).extension;
   result = selectBestAssetMatch(
     index.filenameCandidates.get(filename.toLowerCase()),
     index,
@@ -812,13 +845,15 @@ export const findAssetByIndex = (
     result = index.lowercase.get(candidate.toLowerCase());
     if (result) return result;
 
-    result = selectBestAssetMatch(
-      index.suffixCandidates.get(candidate.toLowerCase()),
-      index,
-      referencePaths,
-      urdfDir,
-    );
-    if (result) return result;
+    if (requestedExtension !== '.mesh') {
+      result = selectBestAssetMatch(
+        index.suffixCandidates.get(candidate.toLowerCase()),
+        index,
+        referencePaths,
+        urdfDir,
+      );
+      if (result) return result;
+    }
   }
 
   result = selectBestApproximateFilenameMatch(filename, index, referencePaths, urdfDir);
@@ -862,14 +897,11 @@ export const findAssetByPath = (
   return null;
 };
 
-// Loading manager that resolves asset URLs from our blob storage
-export const resolveManagedAssetUrl = (
+const tryResolveManagedAssetUrl = (
   url: string,
   assetIndex: AssetIndex,
   urdfDir: string = '',
-): string => {
-  const isTextureUrl = /\.(jpg|jpeg|png|gif|bmp|tga|tiff|webp)$/i.test(url);
-
+): string | null => {
   // Blob/data URLs are normally already resolved. Collada can sometimes build
   // malformed blob-relative paths like "blob:http://host/texture.png", so try
   // to recover the filename and remap it back through the imported asset index.
@@ -877,7 +909,7 @@ export const resolveManagedAssetUrl = (
     const blobMatch = url.match(/^blob:https?:\/\/[^/]+\/(.+)$/);
     if (
       blobMatch?.[1] &&
-      /\.(jpg|jpeg|png|gif|bmp|tga|tiff|webp|dae|stl|obj|gltf|glb|vtk|bin)$/i.test(blobMatch[1])
+      /\.(jpg|jpeg|png|gif|bmp|tga|tiff|webp|dae|stl|obj|gltf|glb|ply|vtk|bin)$/i.test(blobMatch[1])
     ) {
       const found = findAssetByIndex(blobMatch[1], assetIndex, urdfDir);
       if (found) {
@@ -895,6 +927,20 @@ export const resolveManagedAssetUrl = (
   // Allow HTTP/HTTPS URLs to pass through (e.g. cloud storage or CDN links)
   if (url.startsWith('http://') || url.startsWith('https://')) {
     return url;
+  }
+
+  return null;
+};
+
+// Loading manager that resolves asset URLs from our blob storage
+export const resolveManagedAssetUrl = (
+  url: string,
+  assetIndex: AssetIndex,
+  urdfDir: string = '',
+): string => {
+  const resolvedUrl = tryResolveManagedAssetUrl(url, assetIndex, urdfDir);
+  if (resolvedUrl) {
+    return resolvedUrl;
   }
 
   console.error('[MeshLoader] Asset not found:', url);
@@ -1091,8 +1137,25 @@ export const createMeshLoader = (
   const allowPlaceholderMeshes = options.allowPlaceholderMeshes === true;
   const yieldIfNeeded =
     options.yieldIfNeeded ?? createMainThreadYieldController(options.yieldBudgetMs);
+  let mainThreadTaskQueue: Promise<void> = Promise.resolve();
   const placeholderMeshFailures: MeshLoadIssue[] = [];
   let placeholderMeshFailureWarningScheduled = false;
+
+  const runMainThreadTask = async <T>(task: () => T | Promise<T>): Promise<T> => {
+    const nextTask = mainThreadTaskQueue.then(async () => {
+      await yieldIfNeeded();
+      const result = await task();
+      await yieldIfNeeded();
+      return result;
+    });
+
+    mainThreadTaskQueue = nextTask.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    return await nextTask;
+  };
 
   const schedulePlaceholderMeshFailureWarning = (issue: MeshLoadIssue) => {
     placeholderMeshFailures.push(issue);
@@ -1183,7 +1246,7 @@ export const createMeshLoader = (
       }
 
       if (ext === 'dae') {
-        const scene = await loadColladaSceneForMeshLoader(assetUrl, manager);
+        const scene = await loadColladaSceneForMeshLoader(assetUrl, manager, runMainThreadTask);
 
         await yieldIfNeeded();
         const maxDimension = postProcessColladaScene(scene);
@@ -1216,11 +1279,38 @@ export const createMeshLoader = (
 
       if (ext === 'obj') {
         const sourcePath = assetUrlToPath.get(assetUrl) ?? '';
-        const objManager = new THREE.LoadingManager();
-        objManager.setURLModifier((url: string) =>
-          resolveManagedAssetUrl(url, assetIndex, getSourceFileDirectory(sourcePath)),
+        const serializedObject = await loadSerializedObjModelData(assetUrl);
+        const object = await runMainThreadTask(() =>
+          createObjectFromSerializedObjDataAsync(serializedObject, { yieldIfNeeded }),
         );
-        const object = await loadObjScene(assetUrl, objManager, sourcePath);
+        if (serializedObject.materialLibraries.length === 0) {
+          await yieldIfNeeded();
+
+          return {
+            createInstance: () => cloneObject3DForReuse(object),
+            maxDimension: null,
+            hasDeclaredUnitScale: false,
+            supportsAutoUnitScale: false,
+          };
+        }
+
+        const objManager = new THREE.LoadingManager();
+        const objAssetBaseDir = getSourceFileDirectory(sourcePath);
+        objManager.setURLModifier((url: string) => {
+          const resolvedUrl = tryResolveManagedAssetUrl(url, assetIndex, objAssetBaseDir);
+          if (resolvedUrl) {
+            return resolvedUrl;
+          }
+
+          throw new Error(`Optional OBJ material asset not found: ${url}`);
+        });
+        await applyObjMaterialLibrariesToObject(
+          object,
+          serializedObject.materialLibraries,
+          objManager,
+          sourcePath,
+          { yieldIfNeeded },
+        );
         await yieldIfNeeded();
 
         return {
@@ -1241,6 +1331,33 @@ export const createMeshLoader = (
 
         return {
           createInstance: () => cloneObject3DForReuse(gltfModel.scene, { preserveSkeletons }),
+          maxDimension: null,
+          hasDeclaredUnitScale: false,
+          supportsAutoUnitScale: false,
+        };
+      }
+
+      if (ext === 'ply') {
+        const { PLYLoader } = await import('three/examples/jsm/loaders/PLYLoader.js');
+        const loader = new PLYLoader(manager);
+        const geometry = await new Promise<THREE.BufferGeometry>((resolve, reject) => {
+          loader.load(assetUrl, resolve, undefined, reject);
+        });
+        if (!geometry.getAttribute('normal')) {
+          geometry.computeVertexNormals();
+        }
+        const hasVertexColors = Boolean(geometry.getAttribute('color'));
+
+        return {
+          createInstance: () => {
+            const material = DEFAULT_MESH_MATERIAL.clone();
+            material.vertexColors = hasVertexColors;
+            if (hasVertexColors) {
+              material.color.set(0xffffff);
+              material.toneMapped = false;
+            }
+            return new THREE.Mesh(geometry, material);
+          },
           maxDimension: null,
           hasDeclaredUnitScale: false,
           supportsAutoUnitScale: false,

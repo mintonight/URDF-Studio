@@ -32,6 +32,11 @@ EMSCRIPTEN_BINDINGS(test_usd_imaging_emscripten) {
       optional_override([](pxr::HdWebSyncDriver& self, emscripten::val runtimeLinkPaths, std::string const& stageSourcePath) {
         return self.GetRobotSceneSnapshot(runtimeLinkPaths, stageSourcePath);
       }))
+    .function(
+      "GetRobotSceneSnapshotBlob",
+      optional_override([](pxr::HdWebSyncDriver& self, emscripten::val runtimeLinkPaths, std::string const& stageSourcePath) {
+        return self.GetRobotSceneSnapshotBlob(runtimeLinkPaths, stageSourcePath);
+      }))
     .function("ExportLoadedStageSnapshot", &pxr::HdWebSyncDriver::ExportLoadedStageSnapshot)
     .function("GetPrimTransforms", &pxr::HdWebSyncDriver::GetPrimTransforms)
     .function("GetProtoDataBlob", &pxr::HdWebSyncDriver::GetProtoDataBlob)
@@ -47,6 +52,8 @@ EMSCRIPTEN_BINDINGS(test_usd_imaging_emscripten) {
     .function("GetPrimOverrideDataMap", &pxr::HdWebSyncDriver::GetPrimOverrideDataMap)
     .function("SetPreferProtoBlobOverHydraPayload", &pxr::HdWebSyncDriver::SetPreferProtoBlobOverHydraPayload)
     .function("GetPreferProtoBlobOverHydraPayload", &pxr::HdWebSyncDriver::GetPreferProtoBlobOverHydraPayload)
+    .function("SetPreferDirectStageRobotSceneSnapshot", &pxr::HdWebSyncDriver::SetPreferDirectStageRobotSceneSnapshot)
+    .function("GetPreferDirectStageRobotSceneSnapshot", &pxr::HdWebSyncDriver::GetPreferDirectStageRobotSceneSnapshot)
     .function("SetTime", &pxr::HdWebSyncDriver::SetTime)
     .function("GetTime", &pxr::HdWebSyncDriver::GetTime)
     .smart_ptr<std::shared_ptr<pxr::HdWebSyncDriver>>("std::shared_ptr<pxr::HdWebSyncDriver>")

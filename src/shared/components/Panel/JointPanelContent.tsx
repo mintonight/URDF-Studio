@@ -18,9 +18,11 @@ interface JointPanelItemBindingProps {
   setActiveJoint: (name: string | null, options?: JointPanelActiveJointOptions) => void;
   handleJointAngleChange: (name: string, angle: number) => void;
   handleJointChangeCommit: (name: string, angle: number) => void;
+  setIsDragging?: (dragging: boolean) => void;
   onSelect?: (type: 'link' | 'joint', id: string) => void;
   isAdvanced?: boolean;
   onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
+  compact?: boolean;
 }
 
 interface JointPanelItemSnapshot {
@@ -46,6 +48,7 @@ export interface JointPanelListProps {
   setActiveJoint: (name: string | null, options?: JointPanelActiveJointOptions) => void;
   handleJointAngleChange: (name: string, angle: number) => void;
   handleJointChangeCommit: (name: string, angle: number) => void;
+  setIsDragging?: (dragging: boolean) => void;
   onSelect?: (type: 'link' | 'joint', id: string) => void;
   onHover?: (
     type: 'link' | 'joint' | null,
@@ -55,6 +58,7 @@ export interface JointPanelListProps {
   isAdvanced?: boolean;
   onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
   className?: string;
+  compact?: boolean;
 }
 
 function areJointPanelItemSnapshotsEqual(a: JointPanelItemSnapshot, b: JointPanelItemSnapshot) {
@@ -111,9 +115,11 @@ const JointPanelItemBinding = React.memo(function JointPanelItemBinding({
   setActiveJoint,
   handleJointAngleChange,
   handleJointChangeCommit,
+  setIsDragging,
   onSelect,
   isAdvanced = false,
   onUpdate,
+  compact = true,
 }: JointPanelItemBindingProps) {
   const { value, isActive, shouldAutoScroll } = useJointPanelItemSnapshot(
     jointPanelStore,
@@ -133,9 +139,12 @@ const JointPanelItemBinding = React.memo(function JointPanelItemBinding({
       setActiveJoint={setActiveJoint}
       handleJointAngleChange={handleJointAngleChange}
       handleJointChangeCommit={handleJointChangeCommit}
+      setIsDragging={setIsDragging}
       onSelect={onSelect}
       isAdvanced={isAdvanced}
       onUpdate={onUpdate}
+      compact={compact}
+      dragSyncMode="animationFrame"
     />
   );
 });
@@ -206,11 +215,13 @@ export function JointPanelList({
   setActiveJoint,
   handleJointAngleChange,
   handleJointChangeCommit,
+  setIsDragging,
   onSelect,
   onHover,
   isAdvanced = false,
   onUpdate,
-  className = 'px-1 py-1.5 space-y-1',
+  className = 'space-y-0.5 px-1 py-1',
+  compact = true,
 }: JointPanelListProps) {
   const onHoverRef = useRef(onHover);
   const jointEntries = useMemo(() => getSingleDofJointEntries(robot?.joints), [robot?.joints]);
@@ -265,9 +276,11 @@ export function JointPanelList({
           setActiveJoint={setActiveJoint}
           handleJointAngleChange={handleJointAngleChange}
           handleJointChangeCommit={handleJointChangeCommit}
+          setIsDragging={setIsDragging}
           onSelect={onSelect}
           isAdvanced={isAdvanced}
           onUpdate={onUpdate}
+          compact={compact}
         />
       ))}
     </div>

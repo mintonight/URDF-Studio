@@ -35,15 +35,28 @@ function resolveRuntimeJointKey(
     return stableJointId;
   }
 
+  // The runtime joints map is keyed by joint *name*, but a stable jointId is
+  // unique per joint and is populated on userData at build time. Prefer the
+  // exact stable-id match before the name fallback so an in-flight rename (name
+  // changed in the store, runtime still on the old name) or cross-model name
+  // collision still resolves the correct joint and keeps the edit incremental
+  // instead of forcing a full rebuild (the multi-model snap-back).
+  if (stableJointId) {
+    const byStableId = Object.entries(joints).find(([, joint]) => {
+      const runtimeJointId =
+        typeof joint.userData?.jointId === 'string' ? joint.userData.jointId.trim() : '';
+      return runtimeJointId === stableJointId;
+    });
+    if (byStableId) {
+      return byStableId[0];
+    }
+  }
+
   if (patch.jointName && joints[patch.jointName]) {
     return patch.jointName;
   }
 
-  const resolvedEntry = Object.entries(joints).find(([, joint]) => {
-    const runtimeJointId =
-      typeof joint.userData?.jointId === 'string' ? joint.userData.jointId.trim() : '';
-    return runtimeJointId === stableJointId || joint.name === patch.jointName;
-  });
+  const resolvedEntry = Object.entries(joints).find(([, joint]) => joint.name === patch.jointName);
 
   return resolvedEntry?.[0] ?? null;
 }

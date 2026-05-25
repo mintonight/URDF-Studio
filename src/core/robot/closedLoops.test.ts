@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { JSDOM } from 'jsdom';
 import * as THREE from 'three';
 
-import { GeometryType, JointType, type RobotState, type UrdfVisual } from '@/types';
+import { GeometryType, JointType, type RobotState, type UrdfJoint, type UrdfVisual } from '@/types';
 import { parseMJCF } from '@/core/parsers/mjcf/mjcfParser.ts';
 import { computeLinkWorldMatrices } from '@/core/robot/kinematics.ts';
 
@@ -327,6 +327,92 @@ const robotWithDistanceLoop: RobotState = {
   ],
 };
 
+function createPlanarTwoBranchLoopRobot(driverAngle: number, branchSign: 1 | -1): RobotState {
+  const passiveElbowAngle = branchSign * (2 * Math.PI) / 3;
+  const passiveShoulderAngle = driverAngle - branchSign * Math.PI / 3;
+
+  const createLink = (id: string) => ({
+    id,
+    name: id,
+    visible: true,
+    visual: createNoneVisual(),
+    collision: createNoneVisual(),
+    collisionBodies: [],
+    inertial: {
+      mass: 0,
+      origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+      inertia: { ixx: 0, ixy: 0, ixz: 0, iyy: 0, iyz: 0, izz: 0 },
+    },
+  });
+
+  const createRevoluteJoint = (
+    id: string,
+    parentLinkId: string,
+    childLinkId: string,
+    xyz: { x: number; y: number; z: number },
+    angle: number,
+  ): UrdfJoint => ({
+    id,
+    name: id,
+    type: JointType.REVOLUTE,
+    parentLinkId,
+    childLinkId,
+    origin: { xyz, rpy: { r: 0, p: 0, y: 0 } },
+    axis: { x: 0, y: 0, z: 1 },
+    limit: { lower: -Math.PI * 2, upper: Math.PI * 2, effort: 1, velocity: 1 },
+    angle,
+    dynamics: { damping: 0, friction: 0 },
+    hardware: { armature: 0, motorType: '', motorId: '', motorDirection: 1 },
+  });
+
+  return {
+    name: 'planar-two-branch-loop',
+    rootLinkId: 'base',
+    selection: { type: null, id: null },
+    links: {
+      base: createLink('base'),
+      driver_link: createLink('driver_link'),
+      upper_link: createLink('upper_link'),
+      forearm_link: createLink('forearm_link'),
+    },
+    joints: {
+      driver: createRevoluteJoint(
+        'driver',
+        'base',
+        'driver_link',
+        { x: 0, y: 0, z: 0 },
+        driverAngle,
+      ),
+      shoulder: createRevoluteJoint(
+        'shoulder',
+        'base',
+        'upper_link',
+        { x: 0, y: 0, z: 0 },
+        passiveShoulderAngle,
+      ),
+      elbow: createRevoluteJoint(
+        'elbow',
+        'upper_link',
+        'forearm_link',
+        { x: 1, y: 0, z: 0 },
+        passiveElbowAngle,
+      ),
+    },
+    closedLoopConstraints: [
+      {
+        id: 'connect-driver-passive-end',
+        type: 'connect',
+        linkAId: 'driver_link',
+        linkBId: 'forearm_link',
+        anchorWorld: { x: 0, y: 0, z: 0 },
+        anchorLocalA: { x: 1, y: 0, z: 0 },
+        anchorLocalB: { x: 1, y: 0, z: 0 },
+        source: { format: 'mjcf', body1Name: 'driver_link', body2Name: 'forearm_link' },
+      },
+    ],
+  };
+}
+
 test(
   'resolveClosedLoopJointOriginCompensation moves the opposite branch to preserve a connect loop',
   { concurrency: false },
@@ -419,6 +505,35 @@ test(
 );
 
 test(
+  'resolveClosedLoopJointAngleCompensation still reaches the only feasible branch after a large move',
+  { concurrency: false },
+  () => {
+    const robot: RobotState = {
+      ...robotWithDistanceLoop,
+      closedLoopConstraints: [
+        {
+          id: 'connect-prismatic-link-a-link-b',
+          type: 'connect',
+          linkAId: 'link_a',
+          linkBId: 'link_b',
+          anchorWorld: { x: 1.2, y: 0, z: 0 },
+          anchorLocalA: { x: 1.2, y: 0, z: 0 },
+          anchorLocalB: { x: 0, y: 0, z: 0 },
+          source: { format: 'mjcf', body1Name: 'link_a', body2Name: 'link_b' },
+        },
+      ],
+    };
+
+    const compensation = resolveClosedLoopJointAngleCompensation(robot, 'joint_a', 1.4);
+
+    assert.ok(
+      Math.abs((compensation.joint_b ?? 0) - 1.4) < 1e-3,
+      `expected unique prismatic solution to be reached, angle=${compensation.joint_b}`,
+    );
+  },
+);
+
+test(
   'resolveClosedLoopJointAngleCompensation solves a mirrored loop by adjusting the opposite joint angle',
   { concurrency: false },
   () => {
@@ -455,6 +570,38 @@ test(
     const compensation = resolveClosedLoopJointAngleCompensation(robot, 'joint_a', 0.42);
 
     assert.ok(Math.abs((compensation.joint_b ?? 0) - 0.42) < 1e-3);
+  },
+);
+
+test(
+  'resolveClosedLoopDrivenJointMotion keeps an ambiguous loop on the nearest kinematic branch',
+  { concurrency: false },
+  () => {
+    const initialDriverAngle = 0.6;
+    const requestedDriverAngle = 2.6;
+    const robot = createPlanarTwoBranchLoopRobot(initialDriverAngle, 1);
+    const solution = resolveClosedLoopDrivenJointMotion(robot, 'driver', requestedDriverAngle, {
+      maxIterations: 48,
+      tolerance: 1e-8,
+    });
+
+    const finalShoulderAngle = solution.angles.shoulder ?? robot.joints.shoulder.angle ?? 0;
+    const finalElbowAngle = solution.angles.elbow ?? robot.joints.elbow.angle ?? 0;
+
+    assert.equal(solution.constrained, false);
+    assert.equal(solution.converged, true);
+    assert.ok(
+      solution.residual < 1e-6,
+      `expected branch-preserving solve to close the loop, residual=${solution.residual}`,
+    );
+    assert.ok(
+      Math.abs(finalShoulderAngle - (requestedDriverAngle - Math.PI / 3)) < 1e-4,
+      `expected shoulder to stay on the nearest branch, angle=${finalShoulderAngle}`,
+    );
+    assert.ok(
+      Math.abs(finalElbowAngle - (2 * Math.PI) / 3) < 1e-4,
+      `expected elbow to stay on the pre-drag branch, angle=${finalElbowAngle}`,
+    );
   },
 );
 
@@ -545,7 +692,12 @@ test(
     const compensation = resolveClosedLoopJointMotionCompensation(robot, 'left-knee', -1.2);
 
     assert.ok(compensation.quaternions['left-achilles-rod']);
-    assert.ok(typeof compensation.angles['left-shin'] === 'number');
+    assert.equal(
+      Object.hasOwn(compensation.angles, 'left-shin'),
+      false,
+      'expected high-stiffness left-shin spring to stay on the nearest visual branch',
+    );
+    assert.ok(typeof compensation.angles['left-heel-spring'] === 'number');
 
     const before = computeError({ angles: selectedAngles });
     const after = computeError({
@@ -598,6 +750,31 @@ test(
         `expected Cassie serial or opposite-leg joint "${jointId}" to stay untouched`,
       );
     });
+  },
+);
+
+test(
+  'resolveClosedLoopDrivenJointMotion keeps Cassie high-stiffness shin springs fixed when another solution exists',
+  { concurrency: false },
+  () => {
+    installDomGlobals();
+
+    const xml = fs.readFileSync('test/mujoco_menagerie-main/agility_cassie/cassie.xml', 'utf8');
+    const robot = parseMJCF(xml);
+
+    assert.ok(robot);
+
+    const solution = resolveClosedLoopDrivenJointMotion(robot, 'right-knee', -2.8623399732707004);
+
+    assert.equal(solution.converged, true);
+    assert.ok(solution.residual < 1e-5);
+    assert.equal(
+      Object.hasOwn(solution.angles, 'right-shin'),
+      false,
+      'expected high-stiffness right-shin spring to remain on the current visual branch',
+    );
+    assert.ok(typeof solution.angles['right-heel-spring'] === 'number');
+    assert.ok(typeof solution.angles['right-tarsus'] === 'number');
   },
 );
 

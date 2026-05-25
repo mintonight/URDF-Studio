@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 
+import { parseThreeColorWithOpacity } from '@/core/utils/color.ts';
 import {
+  getVisualGeometryEntries,
   resolveDirectManipulableLinkIkDescriptor,
   resolveLinkIkHandleDescriptor,
   resolveLinkKey,
@@ -18,6 +20,7 @@ import {
   createJointAxisViz,
   createMjcfSiteVisualization,
   createMjcfTendonVisualization,
+  MJCF_TENDON_RENDER_ORDER,
   createOriginAxes,
   type MjcfSiteVisualizationData,
   type MjcfTendonVisualizationData,
@@ -108,6 +111,7 @@ const scratchMjcfTendonBasisV = new THREE.Vector3();
 const scratchMjcfTendonBasisCandidate = new THREE.Vector3();
 const scratchMjcfTendonWorldScale = new THREE.Vector3();
 const mjcfTendonYAxis = new THREE.Vector3(0, 1, 0);
+const MJCF_TENDON_MIN_VISIBLE_RADIUS = 0.003;
 const MJCF_INVERSE_CYLINDER_SIDE_INSIDE_RATIO = 0.75;
 const IK_HANDLE_STYLE_VERSION = 3;
 const IK_HANDLE_IDLE_COLOR = 0x16a34a;
@@ -1215,7 +1219,7 @@ function resolveMjcfTendonRadius(
   siteAnchorsByName: Map<string, MjcfSiteAnchorData>,
 ): number {
   if (typeof tendon.width === 'number' && Number.isFinite(tendon.width) && tendon.width > 0) {
-    return Math.max(tendon.width * 0.5, 0.001);
+    return Math.max(tendon.width * 0.5, MJCF_TENDON_MIN_VISIBLE_RADIUS);
   }
 
   const siteRadii = tendon.attachmentRefs
@@ -1225,10 +1229,10 @@ function resolveMjcfTendonRadius(
         typeof radius === 'number' && Number.isFinite(radius) && radius > 0,
     );
   if (siteRadii.length > 0) {
-    return Math.max(Math.min(...siteRadii) * 0.5, 0.001);
+    return Math.max(Math.min(...siteRadii) * 0.5, MJCF_TENDON_MIN_VISIBLE_RADIUS);
   }
 
-  return 0.0025;
+  return MJCF_TENDON_MIN_VISIBLE_RADIUS;
 }
 
 function cloneMjcfTendonAnchor(anchor: MjcfSiteAnchorData): MjcfSiteAnchorData {
@@ -1929,10 +1933,12 @@ function updateMjcfTendonMeshGeometry(
 
     const segmentLinkName = startAnchor.linkName ?? endAnchor.linkName ?? fallbackLinkName;
     changed = updateVisualMeshMetadata(segment, segmentLinkName) || changed;
+    changed = updateRenderOrder(segment, MJCF_TENDON_RENDER_ORDER) || changed;
 
     const shaft = segment.getObjectByName('__mjcf_tendon_shaft__');
     if (shaft) {
       changed = updateVisualMeshMetadata(shaft, segmentLinkName) || changed;
+      changed = updateRenderOrder(shaft, MJCF_TENDON_RENDER_ORDER) || changed;
     }
 
     changed =
@@ -1962,6 +1968,7 @@ function updateMjcfTendonMeshGeometry(
     }
 
     changed = updateVisualMeshMetadata(anchor, anchorData.linkName ?? fallbackLinkName) || changed;
+    changed = updateRenderOrder(anchor, MJCF_TENDON_RENDER_ORDER) || changed;
     changed =
       updateMjcfTendonAnchorTransform(anchor, robot, anchorData.worldPosition, radius) || changed;
   }
@@ -2187,16 +2194,11 @@ export function syncLinkVisualColors({
   let changed = false;
   const { links } = getRobotSceneNodeIndex(robot);
 
-  const scratchColor = new THREE.Color();
+  const syncVisualRootColor = (visualRoot: THREE.Object3D, targetColor: string): void => {
+    const parsedTargetColor = parseThreeColorWithOpacity(targetColor);
+    if (!parsedTargetColor) return;
 
-  links.forEach((link: any) => {
-    if (!link.isURDFLink) return;
-    const linkData = robotLinks[link.name];
-    if (!linkData?.visual?.color) return;
-
-    const targetColor = linkData.visual.color;
-
-    link.traverse((child: any) => {
+    visualRoot.traverse((child: any) => {
       if (!child.isMesh || !child.userData.isVisualMesh) return;
       if (child.userData.hasVertexColors) return;
 
@@ -2206,17 +2208,51 @@ export function syncLinkVisualColors({
       const lastSynced = child.userData.__syncedColor as string | undefined;
       if (lastSynced === targetColor) return;
 
-      scratchColor.set(targetColor);
-      if (mat.color.equals(scratchColor)) {
+      const nextOpacity = parsedTargetColor.opacity;
+      const colorMatches = mat.color.equals(parsedTargetColor.color);
+      const opacityMatches =
+        nextOpacity == null || Math.abs((mat.opacity ?? 1) - nextOpacity) <= 1e-6;
+
+      if (colorMatches && opacityMatches) {
         child.userData.__syncedColor = targetColor;
         return;
       }
 
-      mat.color.copy(scratchColor);
+      if (!colorMatches) {
+        mat.color.copy(parsedTargetColor.color);
+      }
+      if (nextOpacity != null && !opacityMatches) {
+        mat.opacity = nextOpacity;
+        if (nextOpacity < 1) {
+          mat.transparent = true;
+        }
+      }
       mat.needsUpdate = true;
       child.userData.__syncedColor = targetColor;
       changed = true;
     });
+  };
+
+  links.forEach((link: any) => {
+    if (!link.isURDFLink) return;
+    const linkData = robotLinks[link.name];
+    if (!linkData) return;
+
+    const visualEntries = getVisualGeometryEntries(linkData);
+    const visualGroups = link.children.filter((child: any) => child.isURDFVisual);
+    if (visualGroups.length > 0) {
+      visualEntries.forEach((entry, index) => {
+        const targetColor = entry.geometry.color;
+        const visualGroup = visualGroups[index];
+        if (!targetColor || !visualGroup) return;
+        syncVisualRootColor(visualGroup, targetColor);
+      });
+      return;
+    }
+
+    const primaryTargetColor = visualEntries[0]?.geometry.color;
+    if (!primaryTargetColor) return;
+    syncVisualRootColor(link, primaryTargetColor);
   });
 
   return changed;

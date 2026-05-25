@@ -866,14 +866,29 @@ export function useHoverDetection({
     }
 
     if (resolvedInteraction?.type === 'tendon') {
-      if (hoveredLinkRef.current) {
+      const newHoveredTendon = resolvedInteraction.id;
+      const newHoveredMesh = resolvedInteraction.highlightTarget ?? null;
+      const previousHoveredMesh = (hoveredLinkRef as any).currentMesh ?? null;
+
+      if (
+        hoveredLinkRef.current &&
+        (hoveredLinkRef.current !== newHoveredTendon || previousHoveredMesh !== newHoveredMesh)
+      ) {
         clearHoverHighlight();
       }
 
-      hoveredLinkRef.current = null;
-      (hoveredLinkRef as any).currentMesh = null;
+      if (
+        !useExternalHover &&
+        newHoveredTendon &&
+        (newHoveredTendon !== selection?.id || selection?.type !== 'tendon')
+      ) {
+        highlightGeometry(newHoveredTendon, false, 'visual', newHoveredMesh);
+      }
+
+      hoveredLinkRef.current = newHoveredTendon;
+      (hoveredLinkRef as any).currentMesh = newHoveredMesh;
       (hoveredLinkRef as any).currentObjectIndex = null;
-      (hoveredLinkRef as any).currentSubType = null;
+      (hoveredLinkRef as any).currentSubType = 'visual';
       emitHoverSelection(
         'tendon',
         resolvedInteraction.id,

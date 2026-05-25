@@ -1,4 +1,11 @@
-import type { RobotClosedLoopConstraint, RobotData, RobotFile, UrdfJoint, UrdfLink } from '@/types';
+import {
+  GeometryType,
+  type RobotClosedLoopConstraint,
+  type RobotData,
+  type RobotFile,
+  type UrdfJoint,
+  type UrdfLink,
+} from '@/types';
 import { rewriteRobotMeshPathsForSource } from '@/core/parsers/meshPathUtils';
 
 export function sanitizeAssemblyComponentId(filename: string): string {
@@ -57,9 +64,43 @@ export function buildAssemblyComponentIdentity({
   };
 }
 
+function hasVisibleAssemblyGeometry(link: UrdfLink): boolean {
+  const hasPrimaryVisual = Boolean(link.visual?.type && link.visual.type !== GeometryType.NONE);
+  const hasExtraVisual = (link.visualBodies || []).some(
+    (visual) => visual.type !== GeometryType.NONE,
+  );
+  const hasPrimaryCollision = Boolean(
+    link.collision?.type && link.collision.type !== GeometryType.NONE,
+  );
+  const hasExtraCollision = (link.collisionBodies || []).some(
+    (collision) => collision.type !== GeometryType.NONE,
+  );
+
+  return hasPrimaryVisual || hasExtraVisual || hasPrimaryCollision || hasExtraCollision;
+}
+
+function shouldPreserveMjcfSyntheticWorldRootName(
+  data: RobotData,
+  sourceFormat: RobotFile['format'] | null | undefined,
+  id: string,
+  link: UrdfLink,
+): boolean {
+  const isMjcfSource = data.inspectionContext?.sourceFormat === 'mjcf' || sourceFormat === 'mjcf';
+  if (!isMjcfSource || id !== data.rootLinkId) {
+    return false;
+  }
+
+  const originalName = (link.name?.trim() || id).toLowerCase();
+  if (originalName !== 'world') {
+    return false;
+  }
+
+  return (link.inertial?.mass || 0) <= 0 && !hasVisibleAssemblyGeometry(link);
+}
+
 export function namespaceAssemblyRobotData(
   data: RobotData,
-  options: { componentId: string; rootName: string },
+  options: { componentId: string; rootName: string; sourceFormat?: RobotFile['format'] | null },
 ): RobotData {
   const { componentId, rootName } = options;
   const idPrefix = `${componentId}_`;
@@ -77,7 +118,16 @@ export function namespaceAssemblyRobotData(
     linkIdMap[id] = newId;
     const originalName = link.name?.trim() || id;
     const isRootLink = id === data.rootLinkId;
-    const newName = isRootLink ? rootName : `${rootName}_${originalName}`;
+    const newName = shouldPreserveMjcfSyntheticWorldRootName(
+      data,
+      options.sourceFormat,
+      id,
+      link,
+    )
+      ? originalName
+      : isRootLink
+        ? rootName
+        : `${rootName}_${originalName}`;
     linkNameMap[originalName] = newId;
 
     links[newId] = {
@@ -169,5 +219,6 @@ export function prepareAssemblyRobotData(
   return namespaceAssemblyRobotData(sourceRobotData, {
     componentId: options.componentId,
     rootName: options.rootName,
+    sourceFormat: options.sourceFormat,
   });
 }

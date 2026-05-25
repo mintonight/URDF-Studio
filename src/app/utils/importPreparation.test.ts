@@ -1080,6 +1080,37 @@ test('prepareImportPayload fast-open mode skips MJCF keyframe fragments when ran
   assert.deepEqual(result.preResolvedImports, []);
 });
 
+test('prepareImportPayload imports custom-root MJCF include fragments from franka zip', async () => {
+  const zipFile = new File(
+    [fs.readFileSync('test/mujoco-franka-simulation-main.zip')],
+    'mujoco-franka-simulation-main.zip',
+    { type: 'application/zip' },
+  );
+
+  const result = await prepareImportPayload({
+    files: [zipFile],
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.equal(result.preferredFileName, 'mujoco-franka-simulation-main/world.xml');
+  assert.deepEqual(
+    result.robotFiles.map((file) => ({ name: file.name, format: file.format })),
+    [
+      { name: 'mujoco-franka-simulation-main/mujoco_screw.stl', format: 'mesh' },
+      { name: 'mujoco-franka-simulation-main/mujoco_square_box.stl', format: 'mesh' },
+      { name: 'mujoco-franka-simulation-main/panda.xml', format: 'mjcf' },
+      { name: 'mujoco-franka-simulation-main/world.xml', format: 'mjcf' },
+    ],
+  );
+  assert.deepEqual(result.assetFiles.map((file) => file.name), [
+    'mujoco-franka-simulation-main/mujoco_screw.stl',
+    'mujoco-franka-simulation-main/mujoco_square_box.stl',
+  ]);
+  assert.deepEqual(result.deferredAssetFiles, []);
+  assert.deepEqual(result.preResolvedImports, []);
+});
+
 test('prepareImportPayload fast-open mode prefers standalone MJCF robots over include-based scene wrappers', async () => {
   const files = [
     createLooseFile(

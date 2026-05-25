@@ -286,7 +286,7 @@ test('loadMJCFToThreeJS preserves runtime joint parent-child metadata for implic
           <worldbody>
             <body name="base_link">
               <body name="lower_leg">
-                <joint name="knee_joint" type="hinge" axis="0 0 1" />
+                <joint name="knee_joint" type="hinge" axis="0 0 1" stiffness="1500" />
                 <geom type="box" size="0.05 0.05 0.05" />
                 <body name="tool_link" pos="0 0 0.1">
                   <geom type="box" size="0.02 0.02 0.02" />
@@ -306,6 +306,21 @@ test('loadMJCFToThreeJS preserves runtime joint parent-child metadata for implic
   assert.equal(joints.knee_joint?.childLinkId, 'lower_leg');
   assert.equal((joints.knee_joint?.parentLink as { name?: string } | undefined)?.name, 'base_link');
   assert.equal((joints.knee_joint?.child as { name?: string } | undefined)?.name, 'lower_leg');
+  assert.equal(
+    (joints.knee_joint?.userData as { mjcfJointStiffness?: number } | undefined)
+      ?.mjcfJointStiffness,
+    1500,
+  );
+  assert.equal(
+    (joints.knee_joint?.userData as { mjcfPassiveSpringJoint?: boolean } | undefined)
+      ?.mjcfPassiveSpringJoint,
+    true,
+  );
+  assert.equal(
+    (joints.knee_joint?.userData as { mjcfHardPassiveSpringJoint?: boolean } | undefined)
+      ?.mjcfHardPassiveSpringJoint,
+    true,
+  );
 
   assert.ok(joints.lower_leg_to_tool_link);
   assert.equal(joints.lower_leg_to_tool_link?.jointType, 'fixed');
@@ -358,6 +373,58 @@ test('loadMJCFToThreeJS exposes MJCF tendon visualization metadata on the runtim
       ],
     },
   ]);
+
+  disposeTransientObject3D(root);
+});
+
+test('loadMJCFToThreeJS keeps flybody-style wing helpers out of the visible runtime scene', async () => {
+  installDomGlobals();
+  clearParsedMJCFModelCache();
+
+  const root = await loadMJCFToThreeJS(
+    `
+        <mujoco model="runtime-wing-helper-filtering">
+          <asset>
+            <material name="brown" rgba="0.202 0.0782 0.0262 1" />
+            <material name="membrane" rgba="0.539 0.686 0.8 0.4" />
+            <material name="blue" rgba="0.2 0.3 1 1" />
+          </asset>
+          <worldbody>
+            <body name="wing_right">
+              <geom name="wing_right_brown" type="box" size="0.03 0.003 0.12" group="1" contype="0" conaffinity="0" material="brown" />
+              <geom name="wing_right_brown_collision" type="ellipsoid" size="0.002 0.018 0.114" group="4" contype="1" conaffinity="1" material="blue" />
+              <geom name="wing_right_membrane" type="box" size="0.08 0.001 0.12" group="1" contype="0" conaffinity="0" material="membrane" />
+              <geom name="wing_right_membrane_collision" type="ellipsoid" size="0.001 0.035 0.114" group="5" contype="1" conaffinity="1" material="blue" />
+              <geom name="wing_right_fluid" type="ellipsoid" size="0.0005 0.055 0.114" group="3" contype="0" conaffinity="0" material="brown" />
+              <geom name="wing_right_inertial" type="box" size="0.0005 0.055 0.114" group="1" contype="0" conaffinity="0" material="brown" />
+            </body>
+          </worldbody>
+        </mujoco>
+    `,
+    {},
+  );
+
+  const membrane = root.getObjectByName('wing_right_membrane');
+  assert.ok(membrane);
+  let membraneMaterial: THREE.Material | null = null;
+  membrane.traverse((node: any) => {
+    if (membraneMaterial || !node?.isMesh) {
+      return;
+    }
+    membraneMaterial = Array.isArray(node.material) ? node.material[0] : node.material;
+  });
+
+  assert.ok(membraneMaterial instanceof THREE.MeshStandardMaterial);
+  assert.equal(`#${membraneMaterial.color.getHexString()}`, '#89afcc');
+  assert.ok(Math.abs(membraneMaterial.opacity - 0.4) < 1e-6);
+  assert.equal(membraneMaterial.transparent, true);
+  assert.equal(root.getObjectByName('wing_right_fluid'), undefined);
+  assert.equal(root.getObjectByName('wing_right_inertial'), undefined);
+
+  const membraneCollision = root.getObjectByName('wing_right_membrane_collision');
+  assert.ok(membraneCollision);
+  assert.equal(membraneCollision.userData.isCollisionGroup, true);
+  assert.equal(membraneCollision.visible, false);
 
   disposeTransientObject3D(root);
 });
@@ -891,6 +958,85 @@ test('parseMJCF keeps base-link collision boxes out of duplicated visuals', () =
   assert.equal(robot.links.base_link_geom_1, undefined);
 });
 
+test('parseMJCF keeps extra visual geoms on the source link while preserving generated names', () => {
+  installDomGlobals();
+
+  const robot = parseMJCF(`
+        <mujoco model="interleaved-visual-collision-geoms">
+          <asset>
+            <mesh name="base_panel" file="base_panel.obj" />
+            <mesh name="top_shell" file="top_shell.obj" />
+          </asset>
+          <worldbody>
+            <body name="base">
+              <geom type="mesh" mesh="base_panel" group="2" contype="0" conaffinity="0" />
+              <geom type="box" size="0.1 0.2 0.3" group="3" />
+              <geom type="mesh" mesh="top_shell" group="2" contype="0" conaffinity="0" />
+            </body>
+          </worldbody>
+        </mujoco>
+    `);
+
+  assert.ok(robot);
+  assert.equal(robot.links.base.collision.name, 'base_geom_1');
+  assert.equal(robot.links.base_geom_1, undefined);
+  assert.equal(robot.links.base_geom_2, undefined);
+  assert.equal(robot.links.base.visualBodies?.[0]?.name, 'base_geom_2');
+  assert.equal(robot.links.base.visualBodies?.[0]?.meshPath, 'top_shell.obj');
+});
+
+test('parseMJCF keeps ANYmal extra base visual on visualBodies without shadowing collision names', () => {
+  installDomGlobals();
+
+  const robot = parseMJCF(
+    fs.readFileSync(
+      path.resolve('test/mujoco_menagerie-main/anybotics_anymal_c/anymal_c.xml'),
+      'utf8',
+    ),
+  );
+
+  assert.ok(robot);
+  assert.equal(robot.links.base.collision.name, 'base_geom_6');
+  assert.equal(robot.links.base_geom_6, undefined);
+  assert.equal(robot.links.base_geom_11, undefined);
+  const topShell = robot.links.base.visualBodies?.find((visual) => visual.name === 'base_geom_11');
+  assert.ok(topShell);
+  assert.equal(topShell.meshPath, 'assets/top_shell.obj');
+  assert.equal(topShell.authoredMaterials?.[0]?.texture, 'assets/top_shell.png');
+});
+
+test('parseMJCF keeps flybody wing inertial and fluid helper geoms out of exportable visuals and collisions', () => {
+  installDomGlobals();
+
+  const robot = parseMJCF(
+    fs.readFileSync(path.resolve('test/mujoco_menagerie-main/flybody/fruitfly.xml'), 'utf8'),
+  );
+
+  assert.ok(robot);
+  for (const side of ['left', 'right']) {
+    const wing = robot.links[`wing_${side}`];
+    assert.ok(wing);
+    assert.equal(wing.visual.name, `wing_${side}_brown`);
+    assert.equal(wing.visual.meshPath, `assets/wing_${side}_brown.obj`);
+    assert.equal(robot.links[`wing_${side}_geom_1`], undefined);
+    assert.equal(robot.links[`wing_${side}_geom_2`], undefined);
+    assert.equal(wing.visualBodies?.[0]?.name, `wing_${side}_membrane`);
+    assert.equal(wing.visualBodies?.[0]?.meshPath, `assets/wing_${side}_membrane.obj`);
+    assert.equal(wing.visualBodies?.[0]?.authoredMaterials?.[0]?.color, '#89afcc66');
+    assert.ok(
+      Math.abs((wing.visualBodies?.[0]?.authoredMaterials?.[0]?.roughness ?? 0) - 0.093) < 1e-9,
+    );
+    assert.equal(
+      wing.collisionBodies?.some((collision) => collision.name === `wing_${side}_fluid`),
+      false,
+    );
+    assert.equal(
+      Object.values(robot.links).some((link) => link.visual.name === `wing_${side}_inertial`),
+      false,
+    );
+  }
+});
+
 test('parseMJCF preserves explicit and default-inherited cylinder collision geoms', () => {
   installDomGlobals();
 
@@ -1125,6 +1271,9 @@ test('parseMJCF applies Cassie home keyframe qpos and solves passive closed-loop
   assert.ok(Math.abs((robot.joints['left-knee']?.angle ?? 0) + 1.1997) < 1e-9);
   assert.ok(Math.abs((robot.joints['left-foot']?.angle ?? 0) + 1.59681) < 1e-9);
   assert.ok(Math.abs((robot.joints['right-foot']?.angle ?? 0) + 1.59681) < 1e-9);
+  assert.equal(robot.joints['left-shin']?.dynamics.stiffness, 1500);
+  assert.equal(robot.joints['right-shin']?.dynamics.stiffness, 1500);
+  assert.equal(robot.joints['left-heel-spring']?.dynamics.stiffness, 1250);
 
   assert.ok(Math.abs((robot.joints['left-tarsus']?.angle ?? 0) - 1.4250551414265926) < 1e-9);
   assert.ok(Math.abs((robot.joints['left-foot-crank']?.angle ?? 0) + 1.4888223188309895) < 1e-9);

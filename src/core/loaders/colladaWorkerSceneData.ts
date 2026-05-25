@@ -5,11 +5,68 @@ import { ensureWorkerXmlDomApis } from '@/core/utils/ensureWorkerXmlDomApis';
 
 import { normalizeColladaUpAxis } from './colladaUpAxis';
 
-export interface SerializedColladaSceneData {
+export interface SerializedJsonColladaSceneData {
+  kind?: 'object-json';
   resourcePath: string;
   sceneJson: Record<string, unknown>;
   unitScale?: number | null;
 }
+
+export interface SerializedColladaAttributeData {
+  array: ArrayBuffer;
+  byteLength?: number;
+  byteOffset?: number;
+  itemSize: number;
+}
+
+export interface SerializedColladaGeometryGroup {
+  count: number;
+  materialIndex: number;
+  start: number;
+}
+
+export interface SerializedFastColladaMaterialData {
+  color: number;
+  doubleSided?: boolean;
+  emissive?: number;
+  emissiveMap?: string;
+  lightMap?: string;
+  map?: string;
+  model?: string;
+  name: string;
+  normalMap?: string;
+  opacity: number;
+  specular?: number;
+  specularMap?: string;
+  shininess?: number;
+  transparent?: boolean;
+}
+
+export interface SerializedFastColladaNodeData {
+  geometry: {
+    groups: SerializedColladaGeometryGroup[];
+    color?: SerializedColladaAttributeData;
+    normal?: SerializedColladaAttributeData;
+    position: SerializedColladaAttributeData;
+    uv?: SerializedColladaAttributeData;
+    uv1?: SerializedColladaAttributeData;
+  };
+  materials: SerializedFastColladaMaterialData[];
+  matrix: number[];
+  name: string;
+  primitiveKind?: 'lines' | 'linestrips' | 'mesh';
+}
+
+export interface SerializedFastColladaSceneData {
+  kind: 'fast-mesh-v1';
+  resourcePath: string;
+  children: SerializedFastColladaNodeData[];
+  unitScale?: number | null;
+}
+
+export type SerializedColladaSceneData =
+  | SerializedJsonColladaSceneData
+  | SerializedFastColladaSceneData;
 
 interface SerializedSceneImageRecord {
   url?: string | string[];
@@ -422,16 +479,212 @@ export function parseColladaSceneData(
   applyCapturedColladaImageUrls(sceneJson, capturedImageUrls);
 
   return {
+    kind: 'object-json',
     resourcePath: baseUrl,
     sceneJson,
     unitScale: parseColladaUnitScale(normalizedContent),
   };
 }
 
+function createFloat32Attribute(data: SerializedColladaAttributeData): THREE.Float32BufferAttribute {
+  const byteOffset = data.byteOffset ?? 0;
+  const byteLength = data.byteLength ?? data.array.byteLength - byteOffset;
+  return new THREE.Float32BufferAttribute(
+    new Float32Array(data.array, byteOffset, byteLength / Float32Array.BYTES_PER_ELEMENT),
+    data.itemSize,
+  );
+}
+
+function createFastColladaTexture(
+  texturePath: string | undefined,
+  resourcePath: string,
+  manager: THREE.LoadingManager | undefined,
+  colorSpace?: THREE.ColorSpace,
+): THREE.Texture | undefined {
+  if (!texturePath) {
+    return undefined;
+  }
+
+  ensureWorkerXmlDomApis();
+  const texture = new THREE.TextureLoader(manager).load(
+    resolveSerializedColladaImageUrl(texturePath, resourcePath, manager),
+  );
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  if (colorSpace) {
+    texture.colorSpace = colorSpace;
+  }
+  return texture;
+}
+
+function createFastColladaMaterial(
+  entry: SerializedFastColladaMaterialData,
+  data: SerializedFastColladaSceneData,
+  options: { manager?: THREE.LoadingManager },
+  hasVertexColors: boolean,
+  primitiveKind: SerializedFastColladaNodeData['primitiveKind'],
+): THREE.Material {
+  const common = {
+    color: entry.color,
+    opacity: entry.opacity,
+    side: entry.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
+    transparent: entry.transparent === true || entry.opacity < 1,
+    vertexColors: hasVertexColors,
+  };
+  if (primitiveKind === 'lines' || primitiveKind === 'linestrips') {
+    const lineMaterial = new THREE.LineBasicMaterial(common);
+    lineMaterial.name = entry.name;
+    return lineMaterial;
+  }
+
+  const model = entry.model ?? 'phong';
+  let material: THREE.MeshBasicMaterial | THREE.MeshLambertMaterial | THREE.MeshPhongMaterial;
+  if (model === 'constant') {
+    material = new THREE.MeshBasicMaterial(common);
+  } else if (model === 'lambert') {
+    material = new THREE.MeshLambertMaterial(common);
+  } else {
+    material = new THREE.MeshPhongMaterial({
+      ...common,
+      emissive: entry.emissive ?? 0x000000,
+      shininess: entry.shininess ?? 30,
+      specular: entry.specular ?? 0x111111,
+    });
+  }
+
+  material.name = entry.name;
+  material.map = createFastColladaTexture(
+    entry.map,
+    data.resourcePath,
+    options.manager,
+    THREE.SRGBColorSpace,
+  );
+
+  if ('normalMap' in material) {
+    material.normalMap = createFastColladaTexture(
+      entry.normalMap,
+      data.resourcePath,
+      options.manager,
+    );
+    if (material.normalMap) {
+      material.normalScale = new THREE.Vector2(1, 1);
+    }
+  }
+  if ('specularMap' in material) {
+    material.specularMap = createFastColladaTexture(
+      entry.specularMap,
+      data.resourcePath,
+      options.manager,
+    );
+  }
+  if ('emissiveMap' in material) {
+    material.emissiveMap = createFastColladaTexture(
+      entry.emissiveMap,
+      data.resourcePath,
+      options.manager,
+      THREE.SRGBColorSpace,
+    );
+  }
+  if ('lightMap' in material) {
+    material.lightMap = createFastColladaTexture(
+      entry.lightMap,
+      data.resourcePath,
+      options.manager,
+      THREE.SRGBColorSpace,
+    );
+  }
+
+  return material;
+}
+
+function createFastColladaScene(
+  data: SerializedFastColladaSceneData,
+  options: { manager?: THREE.LoadingManager } = {},
+): THREE.Object3D {
+  const scene = new THREE.Group();
+
+  data.children.forEach((child) => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', createFloat32Attribute(child.geometry.position));
+    if (child.geometry.normal) {
+      geometry.setAttribute('normal', createFloat32Attribute(child.geometry.normal));
+    }
+    if (child.geometry.uv) {
+      geometry.setAttribute('uv', createFloat32Attribute(child.geometry.uv));
+    }
+    if (child.geometry.uv1) {
+      geometry.setAttribute('uv1', createFloat32Attribute(child.geometry.uv1));
+    }
+    if (child.geometry.color) {
+      geometry.setAttribute('color', createFloat32Attribute(child.geometry.color));
+    }
+    child.geometry.groups.forEach((group) => {
+      geometry.addGroup(group.start, group.count, group.materialIndex);
+    });
+
+    const materials = child.materials.map((entry) =>
+      createFastColladaMaterial(
+        entry,
+        data,
+        options,
+        Boolean(child.geometry.color),
+        child.primitiveKind ?? 'mesh',
+      ),
+    );
+
+    const object =
+      child.primitiveKind === 'lines'
+        ? new THREE.LineSegments(geometry, materials.length > 1 ? materials : materials[0])
+        : child.primitiveKind === 'linestrips'
+          ? new THREE.Line(geometry, materials.length > 1 ? materials : materials[0])
+          : new THREE.Mesh(geometry, materials.length > 1 ? materials : materials[0]);
+    object.name = child.name;
+    if (child.matrix.length === 16) {
+      object.matrix.set(
+        child.matrix[0] ?? 1,
+        child.matrix[1] ?? 0,
+        child.matrix[2] ?? 0,
+        child.matrix[3] ?? 0,
+        child.matrix[4] ?? 0,
+        child.matrix[5] ?? 1,
+        child.matrix[6] ?? 0,
+        child.matrix[7] ?? 0,
+        child.matrix[8] ?? 0,
+        child.matrix[9] ?? 0,
+        child.matrix[10] ?? 1,
+        child.matrix[11] ?? 0,
+        child.matrix[12] ?? 0,
+        child.matrix[13] ?? 0,
+        child.matrix[14] ?? 0,
+        child.matrix[15] ?? 1,
+      );
+      object.matrix.decompose(object.position, object.quaternion, object.scale);
+      object.updateMatrix();
+    }
+    scene.add(object);
+  });
+
+  if (data.unitScale && data.unitScale > 0 && data.unitScale !== 1) {
+    scene.scale.multiplyScalar(data.unitScale);
+  }
+
+  scene.userData = {
+    ...(scene.userData ?? {}),
+    colladaUnitScale: data.unitScale ?? null,
+    colladaFastMesh: true,
+  };
+
+  return scene;
+}
+
 export function createSceneFromSerializedColladaData(
   data: SerializedColladaSceneData,
   options: { manager?: THREE.LoadingManager } = {},
 ): THREE.Object3D {
+  if (data.kind === 'fast-mesh-v1') {
+    return createFastColladaScene(data, options);
+  }
+
   ensureWorkerXmlDomApis();
   const objectLoader = new THREE.ObjectLoader(options.manager);
   objectLoader.setResourcePath(data.resourcePath);
@@ -465,7 +718,7 @@ function resolveSerializedColladaImageUrl(
 }
 
 function resolveSerializedColladaImageUrls(
-  data: SerializedColladaSceneData,
+  data: SerializedJsonColladaSceneData,
   manager?: THREE.LoadingManager,
 ): Record<string, unknown> {
   const images = Array.isArray(data.sceneJson.images)
@@ -502,4 +755,30 @@ function resolveSerializedColladaImageUrls(
     ...data.sceneJson,
     images: resolvedImages,
   };
+}
+
+export function collectSerializedColladaTransferables(
+  data: SerializedColladaSceneData,
+): ArrayBuffer[] {
+  if (data.kind !== 'fast-mesh-v1') {
+    return [];
+  }
+
+  const transferables = new Set<ArrayBuffer>();
+  data.children.forEach((child) => {
+    transferables.add(child.geometry.position.array);
+    if (child.geometry.normal) {
+      transferables.add(child.geometry.normal.array);
+    }
+    if (child.geometry.uv) {
+      transferables.add(child.geometry.uv.array);
+    }
+    if (child.geometry.uv1) {
+      transferables.add(child.geometry.uv1.array);
+    }
+    if (child.geometry.color) {
+      transferables.add(child.geometry.color.array);
+    }
+  });
+  return Array.from(transferables);
 }
