@@ -1,4 +1,4 @@
-import type { Dispatch, MouseEventHandler, ReactNode, SetStateAction } from 'react';
+import type { ComponentType, Dispatch, MouseEventHandler, ReactNode, SetStateAction } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { translations } from '@/shared/i18n';
 import type { AppMode, Theme } from '@/types';
@@ -32,7 +32,7 @@ export type HeaderSetViewConfig = Dispatch<SetStateAction<HeaderViewConfig>>;
 export interface HeaderAction {
   label: string;
   title?: string;
-  icon: LucideIcon;
+  icon: LucideIcon | ComponentType<{ className?: string }>;
   onClick: MouseEventHandler<HTMLButtonElement>;
 }
 
