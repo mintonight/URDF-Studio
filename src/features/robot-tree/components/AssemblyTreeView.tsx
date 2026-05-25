@@ -160,6 +160,15 @@ export const AssemblyTreeView = memo(
       (robot && 'selection' in robot ? robot.selection : undefined) ??
       selection ??
       EMPTY_TREE_SELECTION;
+    const editingTargetFocusKey = useMemo(() => {
+      if (!editingTarget) {
+        return null;
+      }
+
+      return editingTarget.kind === 'assembly'
+        ? editingTarget.kind
+        : `${editingTarget.kind}:${editingTarget.id}`;
+    }, [editingTarget]);
     const componentRootLinkIds = useMemo<Record<string, string[]>>(() => {
       const rootLinkIdsByComponent: Record<string, string[]> = {};
 
@@ -194,13 +203,13 @@ export const AssemblyTreeView = memo(
     };
 
     useEffect(() => {
-      if (!editingTarget) return;
+      if (!editingTargetFocusKey) return;
       const id = window.requestAnimationFrame(() => {
         renameInputRef.current?.focus();
         renameInputRef.current?.select();
       });
       return () => window.cancelAnimationFrame(id);
-    }, [editingTarget]);
+    }, [editingTargetFocusKey]);
 
     useEffect(() => {
       if (!contextMenu) return;

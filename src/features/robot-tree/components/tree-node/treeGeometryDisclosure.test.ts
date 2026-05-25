@@ -8,6 +8,7 @@ test('does not auto-expand geometry rows from visual selection when default disc
     shouldAutoExpandTreeGeometryDetails({
       showGeometryDetailsByDefault: false,
       selectionSubType: 'visual',
+      hasSelectedExtraVisual: false,
       hasSelectedExtraCollision: false,
     }),
     false,
@@ -19,6 +20,7 @@ test('does not auto-expand geometry rows from collision selection when default d
     shouldAutoExpandTreeGeometryDetails({
       showGeometryDetailsByDefault: false,
       selectionSubType: 'collision',
+      hasSelectedExtraVisual: false,
       hasSelectedExtraCollision: true,
     }),
     false,
@@ -30,6 +32,7 @@ test('keeps geometry rows expandable when default disclosure is on', () => {
     shouldAutoExpandTreeGeometryDetails({
       showGeometryDetailsByDefault: true,
       selectionSubType: 'visual',
+      hasSelectedExtraVisual: true,
       hasSelectedExtraCollision: false,
     }),
     true,

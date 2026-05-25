@@ -1,10 +1,23 @@
+import { useRef } from 'react';
 import { useUIStore } from '@/store';
 import { usePointerResize } from '@/shared/hooks/usePointerResize';
 
 const PROPERTY_EDITOR_MIN_WIDTH = 220;
 const PROPERTY_EDITOR_MAX_WIDTH = 420;
 
-export function useResizablePanel(collapsed?: boolean) {
+function applyPropertyEditorWidth(node: HTMLDivElement | null, width: number) {
+  if (!node) {
+    return;
+  }
+
+  const widthPx = `${Math.round(width)}px`;
+  node.style.width = widthPx;
+  node.style.minWidth = widthPx;
+  node.style.flex = `0 0 ${widthPx}`;
+}
+
+export function useResizablePanel() {
+  const sidebarRef = useRef<HTMLDivElement>(null);
   const width = useUIStore((state) => state.panelLayout.propertyEditorWidth);
   const setPanelLayout = useUIStore((state) => state.setPanelLayout);
 
@@ -15,12 +28,13 @@ export function useResizablePanel(collapsed?: boolean) {
     min: PROPERTY_EDITOR_MIN_WIDTH,
     max: PROPERTY_EDITOR_MAX_WIDTH,
     value: width,
-    onChange: (nextWidth) => setPanelLayout('propertyEditorWidth', nextWidth),
+    onChange: (nextWidth) => applyPropertyEditorWidth(sidebarRef.current, nextWidth),
+    onCommit: (nextWidth) => setPanelLayout('propertyEditorWidth', nextWidth),
   });
 
   return {
+    sidebarRef,
     width,
-    displayWidth: collapsed ? 0 : width,
     isDragging: resize.isDragging,
     handleResizeMouseDown: resize.handleResizeStart,
   };

@@ -59,6 +59,7 @@ export {
 export {
   getVisualGeometryEntries,
   getVisualGeometryByObjectIndex,
+  removeVisualGeometryByObjectIndex,
   updateVisualGeometryByObjectIndex,
 } from './visualBodies';
 export {

@@ -72,7 +72,7 @@ function createComponentRoot(): TestRoot {
 }
 
 function makeTestItems(overrides?: {
-  onIkTool?: () => void;
+  onAiInspectionClick?: () => void;
   onRobogoClick?: () => void;
 }): ToolboxItem[] {
   return [
@@ -81,15 +81,7 @@ function makeTestItems(overrides?: {
       title: translations.en.aiInspection,
       description: translations.en.aiInspectionDesc,
       icon: <ScanSearch className="h-[18px] w-[18px]" />,
-      onClick: () => {},
-      tone: 'primary',
-    },
-    {
-      key: 'ik-tool',
-      title: translations.en.ikTool,
-      description: translations.en.ikToolboxDesc,
-      icon: <ScanSearch className="h-[18px] w-[18px]" />,
-      onClick: overrides?.onIkTool ?? (() => {}),
+      onClick: overrides?.onAiInspectionClick ?? (() => {}),
       tone: 'primary',
     },
     {
@@ -104,14 +96,14 @@ function makeTestItems(overrides?: {
   ];
 }
 
-test('Toolbox menu exposes the IK entry and triggers its action', async () => {
+test('Toolbox menu triggers a supplied primary action and closes', async () => {
   const { dom, container, root } = createComponentRoot();
   let closed = false;
-  let openIk = false;
+  let opened = false;
 
   const items = makeTestItems({
-    onIkTool: () => {
-      openIk = true;
+    onAiInspectionClick: () => {
+      opened = true;
     },
   });
 
@@ -127,16 +119,16 @@ test('Toolbox menu exposes the IK entry and triggers its action', async () => {
     );
   });
 
-  const ikButton = container.querySelector<HTMLButtonElement>(
-    `button[aria-label="${translations.en.ikTool}"]`,
+  const actionButton = container.querySelector<HTMLButtonElement>(
+    `button[aria-label="${translations.en.aiInspection}"]`,
   );
-  assert.ok(ikButton, 'IK toolbox entry should render');
+  assert.ok(actionButton, 'supplied toolbox entry should render');
 
   await act(async () => {
-    ikButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    actionButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
   });
 
-  assert.equal(openIk, true);
+  assert.equal(opened, true);
   assert.equal(closed, true);
 
   await act(async () => {

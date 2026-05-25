@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 
+import { parseThreeColorWithOpacity } from '@/core/utils/color.ts';
 import {
+  getVisualGeometryEntries,
   resolveDirectManipulableLinkIkDescriptor,
   resolveLinkIkHandleDescriptor,
   resolveLinkKey,
@@ -2192,16 +2194,11 @@ export function syncLinkVisualColors({
   let changed = false;
   const { links } = getRobotSceneNodeIndex(robot);
 
-  const scratchColor = new THREE.Color();
+  const syncVisualRootColor = (visualRoot: THREE.Object3D, targetColor: string): void => {
+    const parsedTargetColor = parseThreeColorWithOpacity(targetColor);
+    if (!parsedTargetColor) return;
 
-  links.forEach((link: any) => {
-    if (!link.isURDFLink) return;
-    const linkData = robotLinks[link.name];
-    if (!linkData?.visual?.color) return;
-
-    const targetColor = linkData.visual.color;
-
-    link.traverse((child: any) => {
+    visualRoot.traverse((child: any) => {
       if (!child.isMesh || !child.userData.isVisualMesh) return;
       if (child.userData.hasVertexColors) return;
 
@@ -2211,17 +2208,51 @@ export function syncLinkVisualColors({
       const lastSynced = child.userData.__syncedColor as string | undefined;
       if (lastSynced === targetColor) return;
 
-      scratchColor.set(targetColor);
-      if (mat.color.equals(scratchColor)) {
+      const nextOpacity = parsedTargetColor.opacity;
+      const colorMatches = mat.color.equals(parsedTargetColor.color);
+      const opacityMatches =
+        nextOpacity == null || Math.abs((mat.opacity ?? 1) - nextOpacity) <= 1e-6;
+
+      if (colorMatches && opacityMatches) {
         child.userData.__syncedColor = targetColor;
         return;
       }
 
-      mat.color.copy(scratchColor);
+      if (!colorMatches) {
+        mat.color.copy(parsedTargetColor.color);
+      }
+      if (nextOpacity != null && !opacityMatches) {
+        mat.opacity = nextOpacity;
+        if (nextOpacity < 1) {
+          mat.transparent = true;
+        }
+      }
       mat.needsUpdate = true;
       child.userData.__syncedColor = targetColor;
       changed = true;
     });
+  };
+
+  links.forEach((link: any) => {
+    if (!link.isURDFLink) return;
+    const linkData = robotLinks[link.name];
+    if (!linkData) return;
+
+    const visualEntries = getVisualGeometryEntries(linkData);
+    const visualGroups = link.children.filter((child: any) => child.isURDFVisual);
+    if (visualGroups.length > 0) {
+      visualEntries.forEach((entry, index) => {
+        const targetColor = entry.geometry.color;
+        const visualGroup = visualGroups[index];
+        if (!targetColor || !visualGroup) return;
+        syncVisualRootColor(visualGroup, targetColor);
+      });
+      return;
+    }
+
+    const primaryTargetColor = visualEntries[0]?.geometry.color;
+    if (!primaryTargetColor) return;
+    syncVisualRootColor(link, primaryTargetColor);
   });
 
   return changed;

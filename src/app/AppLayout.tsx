@@ -82,6 +82,7 @@ import type {
 import { resolveViewerDocumentLifecycleCallbacks } from './utils/viewerDocumentLifecycleCallbacks';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
 import { isAssetLibraryOnlyFormat, ROBOT_IMPORT_ACCEPT_ATTRIBUTE } from '@/shared/utils';
+import { isIkDragToolEnabled } from '@/shared/utils/ikDragFeatureGate';
 import { toDocumentLoadLifecycleState } from '@/store/assetsStore';
 import { markUnsavedChangesBaselineSaved } from './utils/unsavedChangesBaseline';
 import { buildPropertyEditorSelectionContext } from './utils/propertyEditorSelectionContext';
@@ -1137,6 +1138,11 @@ export function AppLayout({
   );
 
   const handleOpenIkTool = useCallback(() => {
+    if (!isIkDragToolEnabled()) {
+      handleSetIkDragActive(false);
+      return;
+    }
+
     handleSetIkDragActive(true);
     setIsIkToolPanelOpen(true);
   }, [handleSetIkDragActive]);

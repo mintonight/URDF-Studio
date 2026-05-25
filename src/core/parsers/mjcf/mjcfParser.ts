@@ -42,7 +42,6 @@ import {
   type MJCFModelTendonAttachment,
   type ParsedMJCFModel,
 } from './mjcfModel';
-import { parseGeneratedMjcfObjectName } from './mjcfGeneratedNames';
 
 interface MJCFBody {
   name: string;
@@ -1593,33 +1592,6 @@ function mjcfToRobotState(
     return result;
   }
 
-  function getGeneratedVisualGeomLinkId(geom: MJCFGeom | null | undefined): string | null {
-    const name = geom?.name?.trim();
-    if (!name || geom?.sourceName) {
-      return null;
-    }
-
-    const parsed = parseGeneratedMjcfObjectName(name);
-    return parsed?.objectKind === 'geom' ? name : null;
-  }
-
-  function buildSyntheticGeomLinkId(
-    mainLinkId: string,
-    pair: MJCFLinkPair,
-    fallbackIndex: number,
-  ): string {
-    const preferredId =
-      getGeneratedVisualGeomLinkId(pair.visual) ?? `${mainLinkId}_geom_${fallbackIndex}`;
-    let candidate = preferredId;
-    let suffix = 2;
-
-    while (links[candidate]) {
-      candidate = `${preferredId}_${suffix++}`;
-    }
-
-    return candidate;
-  }
-
   function processBody(body: MJCFBody, parentLinkId: string | null): string {
     const mainLinkId = body.name || `link_${linkCounter++}`;
     const bodyRotation = toRPYObjectFromQuat(body.quat) || body.euler || { r: 0, p: 0, y: 0 };
@@ -1882,8 +1854,6 @@ function mjcfToRobotState(
       rootLinkId = mainLinkId;
     }
 
-    let virtualLinkIndex = 1;
-
     // Process remaining pairs (Pairs 1..N)
     for (let i = 1; i < pairs.length; i++) {
       const pair = pairs[i];
@@ -1913,24 +1883,15 @@ function mjcfToRobotState(
         continue;
       }
 
-      const subLinkId = buildSyntheticGeomLinkId(mainLinkId, pair, virtualLinkIndex++);
-      const subJointId = buildImplicitFixedJointId(mainLinkId, subLinkId);
-
-      // Virtual Link Visual
-      let subVisual = { ...DEFAULT_LINK.visual };
       if (pair.visual) {
-        subVisual = processGeometry(pair.visual, linkFrameOffsetLocal);
-        assignLinkMaterial(subLinkId, pair.visual);
-      } else {
-        subVisual.type = GeometryType.NONE;
+        const extraVisual = processGeometry(pair.visual, linkFrameOffsetLocal);
+        mainLink.visualBodies = [...(mainLink.visualBodies || []), extraVisual];
       }
 
-      // Virtual Link Collision
-      let subCollision = { ...DEFAULT_LINK.collision };
       if (pair.collision) {
         const colGeo = processGeometry(pair.collision, linkFrameOffsetLocal);
-        subCollision = {
-          ...subCollision,
+        const extraCollision: UrdfLink['collision'] = {
+          ...DEFAULT_LINK.collision,
           ...(pair.collision.name?.trim() ? { name: pair.collision.name.trim() } : {}),
           type: colGeo.type,
           dimensions: colGeo.dimensions,
@@ -1941,35 +1902,11 @@ function mjcfToRobotState(
           mjcfHfield: colGeo.mjcfHfield,
         };
         if (colGeo.color) {
-          subCollision.color = colGeo.color;
+          extraCollision.color = colGeo.color;
         }
-      } else {
-        subCollision.type = GeometryType.NONE;
+
+        mainLink.collisionBodies = [...(mainLink.collisionBodies || []), extraCollision];
       }
-
-      const subLink: UrdfLink = {
-        ...DEFAULT_LINK,
-        id: subLinkId,
-        name: subLinkId,
-        visual: subVisual,
-        collision: subCollision,
-        inertial: { ...DEFAULT_LINK.inertial, mass: 0 }, // Massless virtual link
-      };
-      links[subLinkId] = subLink;
-
-      // Fixed Joint connecting Main -> Sub
-      const subJoint: UrdfJoint = {
-        ...DEFAULT_JOINT,
-        id: subJointId,
-        name: subJointId,
-        type: JointType.FIXED,
-        parentLinkId: mainLinkId,
-        childLinkId: subLinkId,
-        origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
-        axis: { x: 0, y: 0, z: 1 },
-        limit: undefined as UrdfJoint['limit'],
-      };
-      joints[subJointId] = subJoint;
     }
 
     body.children.forEach((child) => processBody(child, mainLinkId));

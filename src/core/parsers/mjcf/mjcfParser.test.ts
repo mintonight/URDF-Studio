@@ -958,7 +958,7 @@ test('parseMJCF keeps base-link collision boxes out of duplicated visuals', () =
   assert.equal(robot.links.base_link_geom_1, undefined);
 });
 
-test('parseMJCF keeps generated visual link ids aligned with interleaved source geom indices', () => {
+test('parseMJCF keeps extra visual geoms on the source link while preserving generated names', () => {
   installDomGlobals();
 
   const robot = parseMJCF(`
@@ -980,11 +980,12 @@ test('parseMJCF keeps generated visual link ids aligned with interleaved source 
   assert.ok(robot);
   assert.equal(robot.links.base.collision.name, 'base_geom_1');
   assert.equal(robot.links.base_geom_1, undefined);
-  assert.equal(robot.links.base_geom_2?.visual.name, 'base_geom_2');
-  assert.equal(robot.links.base_geom_2?.visual.meshPath, 'top_shell.obj');
+  assert.equal(robot.links.base_geom_2, undefined);
+  assert.equal(robot.links.base.visualBodies?.[0]?.name, 'base_geom_2');
+  assert.equal(robot.links.base.visualBodies?.[0]?.meshPath, 'top_shell.obj');
 });
 
-test('parseMJCF avoids shadowing ANYmal base collision geom with a synthetic visual link', () => {
+test('parseMJCF keeps ANYmal extra base visual on visualBodies without shadowing collision names', () => {
   installDomGlobals();
 
   const robot = parseMJCF(
@@ -997,12 +998,11 @@ test('parseMJCF avoids shadowing ANYmal base collision geom with a synthetic vis
   assert.ok(robot);
   assert.equal(robot.links.base.collision.name, 'base_geom_6');
   assert.equal(robot.links.base_geom_6, undefined);
-  assert.equal(robot.links.base_geom_11?.visual.name, 'base_geom_11');
-  assert.equal(robot.links.base_geom_11?.visual.meshPath, 'assets/top_shell.obj');
-  assert.equal(
-    robot.links.base_geom_11?.visual.authoredMaterials?.[0]?.texture,
-    'assets/top_shell.png',
-  );
+  assert.equal(robot.links.base_geom_11, undefined);
+  const topShell = robot.links.base.visualBodies?.find((visual) => visual.name === 'base_geom_11');
+  assert.ok(topShell);
+  assert.equal(topShell.meshPath, 'assets/top_shell.obj');
+  assert.equal(topShell.authoredMaterials?.[0]?.texture, 'assets/top_shell.png');
 });
 
 test('parseMJCF keeps flybody wing inertial and fluid helper geoms out of exportable visuals and collisions', () => {
@@ -1018,23 +1018,14 @@ test('parseMJCF keeps flybody wing inertial and fluid helper geoms out of export
     assert.ok(wing);
     assert.equal(wing.visual.name, `wing_${side}_brown`);
     assert.equal(wing.visual.meshPath, `assets/wing_${side}_brown.obj`);
-    assert.equal(robot.links[`wing_${side}_geom_1`]?.visual.name, `wing_${side}_membrane`);
-    assert.equal(
-      robot.links[`wing_${side}_geom_1`]?.visual.meshPath,
-      `assets/wing_${side}_membrane.obj`,
-    );
-    assert.equal(
-      robot.links[`wing_${side}_geom_1`]?.visual.authoredMaterials?.[0]?.color,
-      '#89afcc66',
-    );
-    assert.ok(
-      Math.abs(
-        (robot.links[`wing_${side}_geom_1`]?.visual.authoredMaterials?.[0]?.roughness ?? 0) -
-          0.093,
-      ) <
-        1e-9,
-    );
+    assert.equal(robot.links[`wing_${side}_geom_1`], undefined);
     assert.equal(robot.links[`wing_${side}_geom_2`], undefined);
+    assert.equal(wing.visualBodies?.[0]?.name, `wing_${side}_membrane`);
+    assert.equal(wing.visualBodies?.[0]?.meshPath, `assets/wing_${side}_membrane.obj`);
+    assert.equal(wing.visualBodies?.[0]?.authoredMaterials?.[0]?.color, '#89afcc66');
+    assert.ok(
+      Math.abs((wing.visualBodies?.[0]?.authoredMaterials?.[0]?.roughness ?? 0) - 0.093) < 1e-9,
+    );
     assert.equal(
       wing.collisionBodies?.some((collision) => collision.name === `wing_${side}_fluid`),
       false,

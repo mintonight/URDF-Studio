@@ -1,7 +1,11 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { TranslationKeys } from '@/shared/i18n';
-import { getCollisionGeometryByObjectIndex, isTransparentDisplayLink } from '@/core/robot';
+import {
+  getCollisionGeometryByObjectIndex,
+  getVisualGeometryByObjectIndex,
+  isTransparentDisplayLink,
+} from '@/core/robot';
 import { useRobotStore } from '@/store';
 import { type Selection, useSelectionStore } from '@/store/selectionStore';
 import { GeometryType, type AppMode, type RobotState } from '@/types';
@@ -18,6 +22,7 @@ import type {
   TreeNodeContextMenuState,
   TreeNodeEditingTarget,
   VisibleCollisionBody,
+  VisibleVisualBody,
 } from './tree-node/types';
 import { useTreeNodeActions } from './tree-node/useTreeNodeActions';
 
@@ -81,6 +86,7 @@ export const TreeNode = memo(
     const renameInputRef = useRef<HTMLInputElement>(null);
     const linkRowRef = useRef<HTMLDivElement>(null);
     const visualRowRef = useRef<HTMLDivElement>(null);
+    const visualBodyRowRefs = useRef<Record<number, HTMLDivElement | null>>({});
     const primaryCollisionRowRef = useRef<HTMLDivElement>(null);
     const collisionBodyRowRefs = useRef<Record<number, HTMLDivElement | null>>({});
     const jointRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -231,15 +237,26 @@ export const TreeNode = memo(
     const storeIsTransparentLink = useRobotStore((state) =>
       storeDriven ? isTransparentDisplayLink(state as unknown as RobotState, linkId) : false,
     );
+    const editingTargetFocusKey = useMemo(() => {
+      if (!editingTarget) {
+        return null;
+      }
+
+      if (editingTarget.type === 'geometry') {
+        return `${editingTarget.type}:${editingTarget.linkId}:${editingTarget.subType}:${editingTarget.objectIndex}`;
+      }
+
+      return `${editingTarget.type}:${editingTarget.id}`;
+    }, [editingTarget]);
 
     useEffect(() => {
-      if (!editingTarget) return;
+      if (!editingTargetFocusKey) return;
       const id = window.requestAnimationFrame(() => {
         renameInputRef.current?.focus();
         renameInputRef.current?.select();
       });
       return () => window.cancelAnimationFrame(id);
-    }, [editingTarget]);
+    }, [editingTargetFocusKey]);
 
     useEffect(() => {
       if (!contextMenu) return;
@@ -306,11 +323,21 @@ export const TreeNode = memo(
     const isVisible = link.visible !== false;
     const isVisualVisible = link.visual.visible !== false;
     const isPrimaryCollisionVisible = link.collision.visible !== false;
+    const hasPrimaryVisual = Boolean(link.visual?.type && link.visual.type !== GeometryType.NONE);
     const hasPrimaryCollision = Boolean(
       link.collision?.type && link.collision.type !== GeometryType.NONE,
     );
-    const hasVisual = Boolean(link.visual?.type && link.visual.type !== GeometryType.NONE);
     const selectedObjectIndex = robotSelection.objectIndex ?? 0;
+    const visualBodyCount =
+      (hasPrimaryVisual ? 1 : 0) +
+      (link.visualBodies || []).filter((body) => body.type !== GeometryType.NONE).length;
+    const visibleVisualBodies: VisibleVisualBody[] = (link.visualBodies || [])
+      .map((body, bodyIndex) => ({ body, bodyIndex }))
+      .filter(({ body }) => body.type !== GeometryType.NONE)
+      .map((entry, visibleIndex) => ({
+        ...entry,
+        objectIndex: (hasPrimaryVisual ? 1 : 0) + visibleIndex,
+      }));
     const collisionBodyCount =
       (hasPrimaryCollision ? 1 : 0) +
       (link.collisionBodies || []).filter((body) => body.type !== GeometryType.NONE).length;
@@ -321,6 +348,7 @@ export const TreeNode = memo(
         ...entry,
         objectIndex: (hasPrimaryCollision ? 1 : 0) + visibleIndex,
       }));
+    const hasVisual = visualBodyCount > 0;
     const hasCollision = collisionBodyCount > 0;
     const hasGeometry = hasVisual || hasCollision;
     const isLinkSelected = robotSelection.type === 'link' && robotSelection.id === linkId;
@@ -333,6 +361,9 @@ export const TreeNode = memo(
       isLinkSelected &&
       robotSelection.subType === 'visual' &&
       (robotSelection.objectIndex === undefined || selectedObjectIndex === 0);
+    const hasSelectedExtraVisual = visibleVisualBodies.some(
+      ({ objectIndex }) => objectIndex === selectedObjectIndex,
+    );
     const isPrimaryCollisionSelected =
       isLinkSelected && robotSelection.subType === 'collision' && selectedObjectIndex === 0;
     const hasSelectedExtraCollision = visibleCollisionBodies.some(
@@ -345,6 +376,8 @@ export const TreeNode = memo(
         selectionSubType: isLinkSelected ? robotSelection.subType : undefined,
         hasSelectedExtraCollision:
           isLinkSelected && robotSelection.subType === 'collision' && hasSelectedExtraCollision,
+        hasSelectedExtraVisual:
+          isLinkSelected && robotSelection.subType === 'visual' && hasSelectedExtraVisual,
       });
     // Selection-branch membership is computed once at the TreeEditor level and
     // threaded down via prop. This used to be a per-node store subscription
@@ -354,7 +387,8 @@ export const TreeNode = memo(
     const contextMenuLink =
       contextMenu?.target.type === 'link' && contextMenu.target.id === linkId ? link : null;
     const contextMenuHasVisual = Boolean(
-      contextMenuLink?.visual?.type && contextMenuLink.visual.type !== GeometryType.NONE,
+      (contextMenuLink?.visual?.type && contextMenuLink.visual.type !== GeometryType.NONE) ||
+      (contextMenuLink?.visualBodies || []).some((body) => body.type !== GeometryType.NONE),
     );
     const contextMenuHasCollision = Boolean(
       (contextMenuLink?.collision?.type && contextMenuLink.collision.type !== GeometryType.NONE) ||
@@ -366,7 +400,8 @@ export const TreeNode = memo(
             const targetLink = contextMenu.target.linkId === linkId ? link : null;
             if (!targetLink) return null;
             return contextMenu.target.subType === 'visual'
-              ? (targetLink.visual?.type ?? null)
+              ? (getVisualGeometryByObjectIndex(targetLink, contextMenu.target.objectIndex)
+                  ?.geometry?.type ?? null)
               : (getCollisionGeometryByObjectIndex(targetLink, contextMenu.target.objectIndex)
                   ?.geometry?.type ?? null);
           })()
@@ -405,6 +440,28 @@ export const TreeNode = memo(
         scrollElementIntoView(visualRowRef.current);
       }
     }, [hasJointAttentionSelection, isGeometryExpanded, isVisualSelected]);
+
+    useEffect(() => {
+      if (
+        hasJointAttentionSelection ||
+        !(
+          isGeometryExpanded &&
+          isLinkSelected &&
+          robotSelection.subType === 'visual' &&
+          hasSelectedExtraVisual
+        )
+      ) {
+        return;
+      }
+      scrollElementIntoView(visualBodyRowRefs.current[selectedObjectIndex]);
+    }, [
+      hasJointAttentionSelection,
+      isGeometryExpanded,
+      isLinkSelected,
+      robotSelection.subType,
+      selectedObjectIndex,
+      hasSelectedExtraVisual,
+    ]);
 
     useEffect(() => {
       if (isGeometryExpanded && isPrimaryCollisionSelected && !hasJointAttentionSelection) {
@@ -470,9 +527,11 @@ export const TreeNode = memo(
     }, [effectiveAttentionSelection.id, effectiveAttentionSelection.type, isExpanded]);
     const {
       handleSelectVisual,
+      handleSelectVisualBody,
       handleSelectPrimaryCollision,
       handleSelectCollisionBody,
       toggleVisualVisibility,
+      toggleVisualBodyVisibility,
       togglePrimaryCollisionVisibility,
       toggleCollisionBodyVisibility,
       commitRenaming,
@@ -581,7 +640,7 @@ export const TreeNode = memo(
             hasGeometry={hasGeometry}
             hasVisual={hasVisual}
             hasCollision={hasCollision}
-            geometryCount={Number(Boolean(hasVisual)) + collisionBodyCount}
+            geometryCount={visualBodyCount + collisionBodyCount}
             isGeometryExpanded={isGeometryExpanded}
             isVisible={isVisible}
             isSelected={isLinkSelected}
@@ -626,9 +685,12 @@ export const TreeNode = memo(
                 editingTarget={editingTarget}
                 renameInputRef={renameInputRef}
                 visualRowRef={visualRowRef}
+                visualBodyRowRefs={visualBodyRowRefs}
                 primaryCollisionRowRef={primaryCollisionRowRef}
                 collisionBodyRowRefs={collisionBodyRowRefs}
                 geometryRowIndentPx={geometryRowIndentPx}
+                hasPrimaryVisual={hasPrimaryVisual}
+                visibleVisualBodies={visibleVisualBodies}
                 hasPrimaryCollision={hasPrimaryCollision}
                 visibleCollisionBodies={visibleCollisionBodies}
                 isLinkSelected={isLinkSelected}
@@ -641,9 +703,11 @@ export const TreeNode = memo(
                 onClearHover={clearHover}
                 onOpenContextMenu={openContextMenu}
                 onSelectVisual={handleSelectVisual}
+                onSelectVisualBody={handleSelectVisualBody}
                 onSelectPrimaryCollision={handleSelectPrimaryCollision}
                 onSelectCollisionBody={handleSelectCollisionBody}
                 onToggleVisualVisibility={toggleVisualVisibility}
+                onToggleVisualBodyVisibility={toggleVisualBodyVisibility}
                 onTogglePrimaryCollisionVisibility={togglePrimaryCollisionVisibility}
                 onToggleCollisionBodyVisibility={toggleCollisionBodyVisibility}
                 readOnly={readOnly}

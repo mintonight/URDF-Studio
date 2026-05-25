@@ -41,6 +41,18 @@ function installDom() {
   if (!dom.window.HTMLElement.prototype.scrollIntoView) {
     dom.window.HTMLElement.prototype.scrollIntoView = function scrollIntoViewStub() {};
   }
+  if (!('attachEvent' in dom.window.HTMLElement.prototype)) {
+    Object.defineProperty(dom.window.HTMLElement.prototype, 'attachEvent', {
+      configurable: true,
+      value: () => {},
+    });
+  }
+  if (!('detachEvent' in dom.window.HTMLElement.prototype)) {
+    Object.defineProperty(dom.window.HTMLElement.prototype, 'detachEvent', {
+      configurable: true,
+      value: () => {},
+    });
+  }
 
   return dom;
 }
@@ -202,6 +214,34 @@ function dispatchReactBlur(input: HTMLInputElement) {
     target: input,
     currentTarget: input,
   });
+}
+
+async function typeInputTextLikeUser(
+  input: HTMLInputElement,
+  value: string,
+  dom: JSDOM,
+) {
+  for (const char of value) {
+    const selectionStart = input.selectionStart ?? input.value.length;
+    const selectionEnd = input.selectionEnd ?? selectionStart;
+    const nextValue =
+      input.value.slice(0, selectionStart) + char + input.value.slice(selectionEnd);
+    const nextCaret = selectionStart + char.length;
+
+    await act(async () => {
+      setInputValue(input, nextValue);
+      input.setSelectionRange(nextCaret, nextCaret);
+      const reactProps = getReactProps(input);
+      const onChange = reactProps.onChange;
+      assert.equal(typeof onChange, 'function', 'React onChange handler should exist');
+      (onChange as (event: { target: HTMLInputElement; currentTarget: HTMLInputElement }) => void)({
+        target: input,
+        currentTarget: input,
+      });
+    });
+
+    await new Promise((resolve) => dom.window.setTimeout(resolve, 0));
+  }
 }
 
 test('TreeNode link context menu is portaled and exposes collision add/delete actions', async () => {
@@ -582,6 +622,73 @@ test('TreeNode resolves joint selections by joint name so the joint row still hi
       /bg-system-blue\/10 text-text-primary shadow-sm ring-1 ring-inset ring-system-blue\/20/,
     );
   } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('TreeNode link rename preserves typed characters while editing', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const originalRequestAnimationFrame = dom.window.requestAnimationFrame;
+
+  dom.window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    callback(0);
+    return 0;
+  }) as typeof dom.window.requestAnimationFrame;
+  (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame =
+    dom.window.requestAnimationFrame.bind(dom.window);
+
+  try {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      hoveredSelection: { type: null, id: null },
+      deferredHoveredSelection: { type: null, id: null },
+      hoverFrozen: false,
+      attentionSelection: { type: null, id: null },
+      focusTarget: null,
+    });
+
+    const robot = createRobotWithCollision();
+
+    await act(async () => {
+      root.render(
+        <div style={{ containIntrinsicSize: '320px', contentVisibility: 'auto' }}>
+          <TreeNode
+            linkId="base_link"
+            robot={robot}
+            onSelect={() => {}}
+            onAddChild={() => {}}
+            onAddCollisionBody={() => {}}
+            onDelete={() => {}}
+            onUpdate={() => {}}
+            mode="editor"
+            t={translations.en}
+          />
+        </div>,
+      );
+    });
+
+    const linkName = container.querySelector('[title="base_link"] span') as HTMLSpanElement | null;
+    assert.ok(linkName, 'link name should render');
+
+    await act(async () => {
+      linkName.dispatchEvent(
+        new dom.window.MouseEvent('dblclick', {
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    const renameInput = container.querySelector('input') as HTMLInputElement | null;
+    assert.ok(renameInput, 'link rename input should render');
+
+    await typeInputTextLikeUser(renameInput, 'arm_tip', dom);
+
+    assert.equal(renameInput.value, 'arm_tip');
+  } finally {
+    dom.window.requestAnimationFrame = originalRequestAnimationFrame;
+    (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame }).requestAnimationFrame =
+      dom.window.requestAnimationFrame.bind(dom.window);
     await destroyComponentRoot(dom, root);
   }
 });

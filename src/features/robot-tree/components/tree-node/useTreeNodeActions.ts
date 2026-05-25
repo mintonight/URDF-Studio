@@ -1,7 +1,9 @@
 import type { Dispatch, MouseEvent, SetStateAction } from 'react';
 import {
   getCollisionGeometryByObjectIndex,
+  getVisualGeometryByObjectIndex,
   removeCollisionGeometryByObjectIndex,
+  removeVisualGeometryByObjectIndex,
   updateCollisionGeometryByObjectIndex,
   updateVisualGeometryByObjectIndex,
 } from '@/core/robot';
@@ -71,6 +73,15 @@ export function useTreeNodeActions({
     onSelect('link', linkId, 'visual');
   };
 
+  const handleSelectVisualBody = (objectIndex: number) => {
+    setIsGeometryExpanded(true);
+    if (onSelectGeometry) {
+      onSelectGeometry(linkId, 'visual', objectIndex, true);
+      return;
+    }
+    onSelect('link', linkId, 'visual');
+  };
+
   const handleSelectPrimaryCollision = () => {
     setIsGeometryExpanded(true);
     if (onSelectGeometry) {
@@ -97,6 +108,23 @@ export function useTreeNodeActions({
         ...link.visual,
         visible: !isVisualVisible,
       },
+    });
+  };
+
+  const toggleVisualBodyVisibility = (event: MouseEvent, bodyIndex: number) => {
+    event.stopPropagation();
+    const nextBodies = [...(link.visualBodies || [])];
+    const targetBody = nextBodies[bodyIndex];
+    if (!targetBody) return;
+
+    nextBodies[bodyIndex] = {
+      ...targetBody,
+      visible: targetBody.visible === false,
+    };
+
+    onUpdate('link', linkId, {
+      ...link,
+      visualBodies: nextBodies,
     });
   };
 
@@ -183,7 +211,7 @@ export function useTreeNodeActions({
       const targetGeometry =
         editingTarget.subType === 'collision'
           ? getCollisionGeometryByObjectIndex(link, editingTarget.objectIndex)?.geometry
-          : link.visual;
+          : getVisualGeometryByObjectIndex(link, editingTarget.objectIndex)?.geometry;
       const normalizedName = nextName || undefined;
       if (targetGeometry?.name !== normalizedName) {
         const nextLink =
@@ -347,23 +375,30 @@ export function useTreeNodeActions({
       return;
     }
 
-    const geometry = targetLink.visual;
-    if (geometry.type === GeometryType.NONE) {
+    const {
+      link: nextLink,
+      removed,
+      nextObjectIndex,
+    } = removeVisualGeometryByObjectIndex(targetLink, objectIndex);
+
+    if (!removed) {
       setContextMenu(null);
       return;
     }
 
-    onUpdate('link', targetLinkId, {
-      ...targetLink,
-      visual: {
-        ...geometry,
-        type: GeometryType.NONE,
-        meshPath: undefined,
-      },
-    });
+    onUpdate('link', targetLinkId, nextLink);
 
     if (shouldSyncSelection) {
-      setSelection({ type: 'link', id: targetLinkId });
+      if (nextObjectIndex === null) {
+        setSelection({ type: 'link', id: targetLinkId });
+      } else {
+        setSelection({
+          type: 'link',
+          id: targetLinkId,
+          subType: 'visual',
+          objectIndex: nextObjectIndex,
+        });
+      }
     }
 
     setContextMenu(null);
@@ -409,19 +444,22 @@ export function useTreeNodeActions({
       return;
     }
 
-    const geometry = targetLink[subType];
-    if (!geometry || geometry.type === GeometryType.NONE) {
+    const hasAnyVisual =
+      targetLink.visual.type !== GeometryType.NONE ||
+      (targetLink.visualBodies || []).some((body) => body.type !== GeometryType.NONE);
+    if (!hasAnyVisual) {
       setContextMenu(null);
       return;
     }
 
     onUpdate('link', contextMenu.target.id, {
       ...targetLink,
-      [subType]: {
-        ...geometry,
+      visual: {
+        ...targetLink.visual,
         type: GeometryType.NONE,
         meshPath: undefined,
       },
+      visualBodies: [],
     });
 
     if (
@@ -437,9 +475,11 @@ export function useTreeNodeActions({
 
   return {
     handleSelectVisual,
+    handleSelectVisualBody,
     handleSelectPrimaryCollision,
     handleSelectCollisionBody,
     toggleVisualVisibility,
+    toggleVisualBodyVisibility,
     togglePrimaryCollisionVisibility,
     toggleCollisionBodyVisibility,
     commitRenaming,

@@ -41,3 +41,9 @@ export interface VisibleCollisionBody {
   bodyIndex: number;
   objectIndex: number;
 }
+
+export interface VisibleVisualBody {
+  body: NonNullable<RobotState['links'][string]['visualBodies']>[number];
+  bodyIndex: number;
+  objectIndex: number;
+}
