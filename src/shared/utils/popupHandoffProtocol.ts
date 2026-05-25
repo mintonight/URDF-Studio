@@ -19,7 +19,7 @@
  * Falls back to localhost-only defaults when env is unset.
  */
 export const ALLOWED_HANDOFF_ORIGINS: ReadonlyArray<string> = (
-  import.meta.env.VITE_HANDOFF_ORIGINS ?? ''
+  import.meta.env.VITE_HANDOFF_ORIGINS || 'http://localhost:*,http://127.0.0.1:*'
 )
   .split(',')
   .map((s: string) => s.trim())
