@@ -139,7 +139,7 @@ export function useAssetImportFromUrl(options: UseAssetImportFromUrlOptions) {
 
     try {
       const apiUrl = new URL('/api/download-asset', fromOrigin);
-      const token = 'urdf_studio_secret_token_2026';
+      const token = import.meta.env.VITE_API_TOKEN;
 
       const response = await fetch(apiUrl.toString(), {
         method: 'POST',
