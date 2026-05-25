@@ -15,14 +15,15 @@
 
 /**
  * Origin patterns allowed for handoff communication.
- * Supports `*` as a wildcard matching any sequence of characters.
+ * Loaded from VITE_HANDOFF_ORIGINS env (comma-separated, supports `*` wildcard).
+ * Falls back to localhost-only defaults when env is unset.
  */
-export const ALLOWED_HANDOFF_ORIGINS: ReadonlyArray<string> = [
-  'https://*.d-robotics.cc',
-  'https://*.enkeebot.com',
-  'http://localhost:*',
-  'http://127.0.0.1:*',
-];
+export const ALLOWED_HANDOFF_ORIGINS: ReadonlyArray<string> = (
+  import.meta.env.VITE_HANDOFF_ORIGINS ?? ''
+)
+  .split(',')
+  .map((s: string) => s.trim())
+  .filter(Boolean);
 
 /** Check whether an origin matches any allowed pattern (with `*` wildcard support). */
 export function isAllowedHandoffOrigin(origin: string): boolean {
