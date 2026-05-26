@@ -1,3 +1,5 @@
+import { isRegressionDebugEnabled } from './regressionDebugEnabled';
+
 export type UsdStageLoadDebugStatus = 'pending' | 'resolved' | 'rejected';
 
 export interface UsdStageLoadDebugEntry {
@@ -30,7 +32,7 @@ export interface UsdStageLoadBaselineDurations {
 }
 
 export function recordUsdStageLoadDebug(entry: UsdStageLoadDebugEntry): void {
-  if (typeof window === 'undefined') {
+  if (typeof window === 'undefined' || !isRegressionDebugEnabled(window)) {
     return;
   }
 

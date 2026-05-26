@@ -10,7 +10,9 @@ import {
 test('visualizer collision load debug records and filters session history by signature', () => {
   const globalScope = globalThis as typeof globalThis & { window?: Window & typeof globalThis };
   const originalWindow = globalScope.window;
-  const fakeWindow = {} as Window & typeof globalThis;
+  const fakeWindow = {
+    location: { search: '?regressionDebug=1' },
+  } as Window & typeof globalThis;
 
   globalScope.window = fakeWindow;
 

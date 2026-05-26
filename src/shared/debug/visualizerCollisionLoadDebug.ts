@@ -1,3 +1,5 @@
+import { isRegressionDebugEnabled } from './regressionDebugEnabled';
+
 export type VisualizerCollisionLoadDebugPhase =
   | 'show-requested'
   | 'reveal-progress'
@@ -20,7 +22,7 @@ type RuntimeWindowWithDebug = Window & {
 };
 
 export function recordVisualizerCollisionLoadDebug(entry: VisualizerCollisionLoadDebugEntry): void {
-  if (typeof window === 'undefined') {
+  if (typeof window === 'undefined' || !isRegressionDebugEnabled(window)) {
     return;
   }
 

@@ -12,6 +12,7 @@ import {
   setRegressionViewerHandlers,
   type RegressionViewerFlags,
 } from '@/shared/debug/regressionState';
+import { isRegressionDebugEnabled } from '@/shared/debug/regressionDebugEnabled';
 import { getJointType, isSingleDofJoint } from '@/shared/utils/jointTypes';
 import { resolveActiveViewerJointKeyFromSelection } from '../utils/activeJointSelection';
 import type {
@@ -1357,10 +1358,7 @@ export const useViewerController = ({
   }, [clearJointInteractionPreview]);
 
   useEffect(() => {
-    const regressionDebugEnabled =
-      import.meta.env?.DEV ||
-      (typeof window !== 'undefined' &&
-        new URLSearchParams(window.location.search).get('regressionDebug') === '1');
+    const regressionDebugEnabled = isRegressionDebugEnabled();
     if (!regressionDebugEnabled) {
       return;
     }

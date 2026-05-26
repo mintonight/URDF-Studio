@@ -6,7 +6,9 @@ import { getUsdStageLoadBaselineDurations, recordUsdStageLoadDebug } from './usd
 test('getUsdStageLoadBaselineDurations returns the canonical five-step timings for a file', () => {
   const globalScope = globalThis as typeof globalThis & { window?: Window & typeof globalThis };
   const originalWindow = globalScope.window;
-  const fakeWindow = {} as Window & typeof globalThis;
+  const fakeWindow = {
+    location: { search: '?regressionDebug=1' },
+  } as Window & typeof globalThis;
 
   globalScope.window = fakeWindow;
 
