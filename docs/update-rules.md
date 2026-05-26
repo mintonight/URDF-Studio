@@ -1,6 +1,6 @@
 # 代码变更 → 文档更新 & 验证映射
 
-> 最后更新：2026-05-13 | 覆盖范围：变更工作流、验证命令、测试样本索引
+> 最后更新：2026-05-26 | 覆盖范围：变更工作流、验证命令、测试样本索引
 > 交叉引用：[architecture.md](architecture.md)、[viewer.md](viewer.md)、[file-io.md](file-io.md)
 
 ## 1. 代码变更工作流
@@ -31,7 +31,8 @@
 - [ ] 新增的 observer / listener / timer / object URL / ImageBitmap / pending request map 均有对称 cleanup
 - [ ] USD hydration / roundtrip / export 未破坏 source-of-truth 流程
 - [ ] 浏览器验证产物放入 `tmp/`，未新增根目录截图/trace
-- [ ] 浏览器测试结束后无残留会话或临时进程
+- [ ] 浏览器测试结束后已关闭 browser/context/page/dev server，并运行清理命令确认无残留临时进程
+- [ ] 回归调试接口默认关闭；仅 `?regressionDebug=1` 路径暴露 `window.__URDF_STUDIO_DEBUG__` 等全局调试对象
 - [ ] 变更符合模块职责，没有破坏依赖方向
 - [ ] 未新增 silent fallback / 吞错式兜底
 - [ ] import/export/hydration 等 worker bridge 失败时显式报错
@@ -123,7 +124,10 @@ npm run build:package:react-robot-canvas
 - 禁止将截图直接写到仓库根目录
 - `output/` 仅用于用户可见导出结果和回归归档
 - 截图前关闭遮挡画面的侧栏、浮层和调试面板
-- 验证完成后关闭残留浏览器标签页、DevTools、Playwright 会话和临时进程
+- 所有 chrome-devtools / Playwright / Puppeteer / MCP 验证都必须用 `try/finally` 或等价机制关闭 page、context、browser；由 agent 启动的 `npm run dev` / Vite 进程也必须在结束前停止
+- 验证完成后关闭残留浏览器标签页、DevTools、Playwright 会话和临时进程，并运行 `node test/usd-viewer/scripts/cleanup-headless.cjs`
+- 如清理后仍怀疑有残留，使用 `ps -eo pid=,command= | rg 'chrome-devtools-mcp|playwright|puppeteer_dev_chrome_profile|playwright_chromiumdev_profile|ms-playwright|chrome-profile'` 核对；只清理自动化临时进程
+- 禁止为了省事执行宽泛 `pkill chrome` / `killall chrome`，避免误杀用户日常浏览器
 
 ## 7. 文档更新映射
 

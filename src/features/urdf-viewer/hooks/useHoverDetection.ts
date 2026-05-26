@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { useSelectionStore } from '@/store';
 import type { InteractionSelection, UrdfJoint, UrdfLink } from '@/types';
 import { setRegressionProjectedInteractionTargetsProvider } from '@/shared/debug/regressionState';
+import { isRegressionDebugEnabled } from '@/shared/debug/regressionDebugEnabled';
 import { highlightFaceMaterial } from '../utils/materials';
 import {
   collectGizmoRaycastTargets,
@@ -165,11 +166,7 @@ export function useHoverDetection({
   const lastToolModeRef = useRef(toolMode);
   const hoverSuppressedByDragRef = useRef(false);
   const useExternalHover = typeof onHover === 'function';
-  const importMetaEnv = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env;
-  const regressionDebugEnabled =
-    importMetaEnv?.DEV === true ||
-    (typeof window !== 'undefined' &&
-      new URLSearchParams(window.location.search).get('regressionDebug') === '1');
+  const regressionDebugEnabled = isRegressionDebugEnabled();
 
   const clearRaycastTargetCaches = useCallback(() => {
     gizmoTargetsRef.current = [];

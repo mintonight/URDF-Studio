@@ -1,6 +1,6 @@
 # 文档索引
 
-> 最后更新：2026-05-20
+> 最后更新：2026-05-26
 
 主入口：[CLAUDE.md](../CLAUDE.md)（项目定位、目录结构、架构红线、Store 表、常用命令、文档导航）
 
@@ -8,12 +8,12 @@
 
 | 文档 | 内容 | 行数 |
 |------|------|------|
-| [CLAUDE.md](../CLAUDE.md) | 项目入口：定位、结构、红线、Store、命令、导航 | ~116 |
+| [CLAUDE.md](../CLAUDE.md) | 项目入口：定位、结构、红线、Store、命令、导航 | ~137 |
 | [viewer.md](viewer.md) | Editor/Viewer 子域：拓扑、几何/碰撞/测量、USD runtime、offscreen、hydration | ~115 |
 | [file-io.md](file-io.md) | 导入导出链路：App 编排、File I/O、Workspace、组装、project archive | ~140 |
 | [wasm-build.md](wasm-build.md) | OpenUSD WASM 构建：源码迁移、编译脚本、故障排查 | ~150 |
 | [style-guide.md](style-guide.md) | UI 样式：语义色 token、蓝色约束、暗色层级、面板文案、验收标准 | ~70 |
 | [ai-features.md](ai-features.md) | AI 助手：环境变量、审阅标准路径、skill-first 路由 | ~60 |
 | [architecture.md](architecture.md) | 架构补充：例外清单、debuggability first、Linux 哲学、内存约束、检查命令 | ~115 |
-| [update-rules.md](update-rules.md) | 变更工作流：验收清单、增量命令、测试样本索引、浏览器验证、文档更新映射 | ~140 |
+| [update-rules.md](update-rules.md) | 变更工作流：验收清单、增量命令、测试样本索引、浏览器验证、文档更新映射 | ~142 |
 | [robot-canvas-lib.md](robot-canvas-lib.md) | 对外库说明：RobotCanvas API、发布流程、后续拆分建议 | ~85 |

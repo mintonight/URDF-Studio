@@ -2,6 +2,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef } from 'react';
 import { MeasureTool } from './MeasureTool';
 import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
 import { setRegressionRuntimeRobot } from '@/shared/debug/regressionState';
+import { isRegressionDebugEnabled } from '@/shared/debug/regressionDebugEnabled';
 import { RobotModel } from './RobotModel';
 import type {
   MeasureTargetResolver,
@@ -66,10 +67,7 @@ export const ViewerScene = ({
   const measureTargetResolverRef = useRef<MeasureTargetResolver | null>(null);
   const readyNotificationFrameARef = useRef<number | null>(null);
   const readyNotificationFrameBRef = useRef<number | null>(null);
-  const regressionRuntimeEnabled =
-    import.meta.env.DEV ||
-    (typeof window !== 'undefined' &&
-      new URLSearchParams(window.location.search).get('regressionDebug') === '1');
+  const regressionRuntimeEnabled = isRegressionDebugEnabled();
 
   const runtimeBridge = useMemo<ViewerRuntimeStageBridge>(
     () => ({

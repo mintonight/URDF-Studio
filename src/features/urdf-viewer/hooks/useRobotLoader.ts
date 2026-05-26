@@ -24,6 +24,7 @@ import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread'
 import { getSourceFileDirectory } from '@/core/parsers/meshPathUtils';
 import type { RobotData, UrdfJoint, UrdfLink } from '@/types';
 import { setRegressionRuntimeRobot } from '@/shared/debug/regressionState';
+import { isRegressionDebugEnabled } from '@/shared/debug/regressionDebugEnabled';
 import { isSingleDofJoint } from '@/shared/utils/jointTypes';
 import {
   areRobotLinkChangesVisibilityOnly,
@@ -601,7 +602,7 @@ export function useRobotLoader({
   ]);
 
   useEffect(() => {
-    if (!import.meta.env.DEV || isMeshPreview) {
+    if (!isRegressionDebugEnabled() || isMeshPreview) {
       return;
     }
 

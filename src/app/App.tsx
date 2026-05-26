@@ -94,6 +94,10 @@ import type { ImportPreparationOverlayState } from './hooks/useFileImport';
 import { useAssetImportFromUrl } from './hooks/useAssetImportFromUrl';
 import { BotWorldImportOverlay } from './components/BotWorldImportOverlay';
 import { setRegressionBeforeUnloadPromptSuppressed } from '@/shared/debug/regressionPromptSuppression';
+import {
+  clearRegressionDebugGlobals,
+  isRegressionDebugEnabled,
+} from '@/shared/debug/regressionDebugEnabled';
 import { markUnsavedChangesBaselineSaved } from './utils/unsavedChangesBaseline';
 import type {
   AIConversationFocusedIssue,
@@ -892,9 +896,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       return;
     }
 
-    // Guard with compile-time-replaceable env flags so Vite can dead-code-eliminate
-    // the regressionBridge import (and the __URDF_STUDIO_DEBUG__ global) from prod builds.
-    if (!import.meta.env.DEV && !import.meta.env.VITE_E2E) {
+    if (!isRegressionDebugEnabled(window)) {
       return;
     }
 
@@ -1006,7 +1008,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       disposed = true;
       clearRegressionAppHandlers?.();
       setRegressionBeforeUnloadPromptSuppressed(false);
-      delete window.__URDF_STUDIO_DEBUG__;
+      clearRegressionDebugGlobals(window);
     };
   }, []);
 
