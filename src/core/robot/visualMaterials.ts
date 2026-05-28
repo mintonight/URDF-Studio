@@ -238,7 +238,7 @@ export function resolveVisualMaterialOverride(
       color: primaryMaterial?.color,
       colorRgba: primaryMaterial?.colorRgba,
       texture: primaryMaterial?.texture,
-      opacity: primaryMaterial?.opacity,
+      opacity: primaryMaterial?.opacity ?? primaryMaterial?.colorRgba?.[3],
       roughness: primaryMaterial?.roughness,
       metalness: primaryMaterial?.metalness,
       emissive: primaryMaterial?.emissive,

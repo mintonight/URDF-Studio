@@ -72,6 +72,83 @@ const hexToRgba = (hex: string): string => {
   return '0.5 0.5 0.5 1.0'; // fallback gray
 };
 
+const clampUnitInterval = (value: number): number => Math.min(1, Math.max(0, value));
+
+const formatUnitInterval = (value: number): string => clampUnitInterval(value).toFixed(8);
+
+const colorRgbaToUrdfRgba = (
+  colorRgba: readonly number[] | undefined,
+  opacityOverride?: number,
+): string | null => {
+  if (
+    !Array.isArray(colorRgba) ||
+    colorRgba.length < 4 ||
+    !colorRgba.slice(0, 4).every((value) => Number.isFinite(value))
+  ) {
+    return null;
+  }
+
+  const alpha = Number.isFinite(opacityOverride) ? Number(opacityOverride) : Number(colorRgba[3]);
+  return [
+    formatUnitInterval(Number(colorRgba[0])),
+    formatUnitInterval(Number(colorRgba[1])),
+    formatUnitInterval(Number(colorRgba[2])),
+    formatUnitInterval(alpha),
+  ].join(' ');
+};
+
+const colorMatchesQuantizedRgba = (
+  color: string | undefined,
+  colorRgba: readonly number[] | undefined,
+): boolean => {
+  if (
+    !color ||
+    !Array.isArray(colorRgba) ||
+    colorRgba.length < 3 ||
+    !colorRgba.slice(0, 3).every((value) => Number.isFinite(value))
+  ) {
+    return false;
+  }
+
+  const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})(?:[a-f\d]{2})?$/i.exec(
+    color.trim(),
+  );
+  if (!match) {
+    return false;
+  }
+
+  return [match[1], match[2], match[3]].every((channelHex, index) => {
+    const parsed = parseInt(channelHex, 16);
+    const expected = Math.floor(clampUnitInterval(Number(colorRgba[index])) * 255);
+    return parsed === expected;
+  });
+};
+
+const hexToRgbaWithOpacity = (hex: string, opacityOverride?: number): string => {
+  const normalized = String(hex || '').trim();
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})?$/i.exec(normalized);
+  if (!result) {
+    return Number.isFinite(opacityOverride)
+      ? `0.5 0.5 0.5 ${formatUnitInterval(Number(opacityOverride))}`
+      : hexToRgba(hex);
+  }
+
+  const serializeChannel = (channelHex: string) => {
+    const channel = parseInt(channelHex, 16);
+    return Math.min(1, (channel + 1e-3) / 255).toFixed(8);
+  };
+
+  const r = serializeChannel(result[1]);
+  const g = serializeChannel(result[2]);
+  const b = serializeChannel(result[3]);
+  const a = Number.isFinite(opacityOverride)
+    ? formatUnitInterval(Number(opacityOverride))
+    : result[4]
+      ? serializeChannel(result[4])
+      : '1.00000000';
+  return `${r} ${g} ${b} ${a}`;
+};
+
 function resolveLinkExportMaterial(
   robot: RobotState,
   link: UrdfLink,
@@ -82,6 +159,8 @@ function resolveLinkExportMaterial(
 ): {
   authoredMaterials?: UrdfVisualMaterial[];
   color?: string;
+  colorRgba?: [number, number, number, number];
+  opacity?: number;
   texture?: string;
   source: 'authored' | 'legacy-link' | 'inline' | 'none';
 } {
@@ -93,6 +172,8 @@ function resolveLinkExportMaterial(
     return {
       authoredMaterials: getEffectiveGeometryAuthoredMaterials(visual),
       color: resolvedMaterial.color,
+      colorRgba: resolvedMaterial.colorRgba,
+      opacity: resolvedMaterial.opacity,
       texture: resolvedMaterial.texture,
       source: 'authored',
     };
@@ -101,6 +182,8 @@ function resolveLinkExportMaterial(
   if (resolvedMaterial.source === 'legacy-link') {
     return {
       color: resolvedMaterial.color,
+      colorRgba: resolvedMaterial.colorRgba,
+      opacity: resolvedMaterial.opacity,
       texture: resolvedMaterial.texture,
       source: 'legacy-link',
     };
@@ -129,8 +212,20 @@ function generateUrdfMaterialXml(
   const nameAttr = material.name ? ` name="${material.name}"` : '';
   let xml = `${indent}<material${nameAttr}>\n`;
 
-  if (material.color) {
-    xml += `${indent}  <color rgba="${hexToRgba(material.color)}"/>\n`;
+  const colorRgba =
+    material.color && material.color.trim()
+      ? colorMatchesQuantizedRgba(material.color, material.colorRgba) &&
+        material.opacity === undefined
+        ? colorRgbaToUrdfRgba(material.colorRgba) ||
+          hexToRgbaWithOpacity(material.color, material.colorRgba?.[3])
+        : hexToRgbaWithOpacity(
+            material.color,
+            material.opacity ?? material.colorRgba?.[3],
+          )
+      : colorRgbaToUrdfRgba(material.colorRgba, material.opacity);
+
+  if (colorRgba) {
+    xml += `${indent}  <color rgba="${colorRgba}"/>\n`;
   }
 
   if (material.texture) {
@@ -494,11 +589,16 @@ export const generateURDF = (
             texturePathOverrides,
           );
         });
-      } else if ((shouldEmitVisualColor && visualMaterial.color) || visualMaterial.texture) {
+      } else if (
+        (shouldEmitVisualColor && (visualMaterial.color || visualMaterial.colorRgba)) ||
+        visualMaterial.texture
+      ) {
         xml += generateUrdfMaterialXml(
           {
             name: index === 0 ? `${link.id}_mat` : `${link.id}_mat_${index}`,
             color: shouldEmitVisualColor ? visualMaterial.color : undefined,
+            colorRgba: shouldEmitVisualColor ? visualMaterial.colorRgba : undefined,
+            opacity: shouldEmitVisualColor ? visualMaterial.opacity : undefined,
             texture: visualMaterial.texture,
           },
           '      ',

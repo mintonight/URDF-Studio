@@ -36,9 +36,18 @@ function toDeferredEditableSourceFormat(
 ): GenerateEditableRobotSourceFormat | null {
   switch (format) {
     case 'urdf':
-    case 'mjcf':
-    case 'sdf':
       return format;
+    case 'mjcf':
+      // MJCF component exports are generated from namespaced assembly data. If
+      // they overwrite the imported source file, repeated inserts of the same
+      // MuJoCo model inherit the previous component namespace.
+      return null;
+    case 'sdf':
+      // SDF imports can depend on Gazebo script/material sidecars. The editable
+      // SDF generator cannot round-trip those external material declarations, so
+      // writing generated component SDF back into the imported source corrupts
+      // later inserts of the same asset.
+      return null;
     default:
       return null;
   }

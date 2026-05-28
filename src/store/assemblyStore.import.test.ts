@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { DEFAULT_JOINT, DEFAULT_LINK, GeometryType, JointType, type RobotFile } from '@/types';
 import type { RobotImportResult } from '@/core/parsers/importRobotFile';
-import { useAssemblyStore } from './assemblyStore.ts';
+import { useRobotStore } from './robotStore.ts';
 
 function assertNearlyEqual(actual: number, expected: number, message: string) {
   assert.ok(
@@ -13,7 +13,7 @@ function assertNearlyEqual(actual: number, expected: number, message: string) {
 }
 
 function resetAssemblyStore() {
-  const state = useAssemblyStore.getState();
+  const state = useRobotStore.getState();
   state.clearHistory();
   state.exitAssembly();
   state.setAssembly(null);
@@ -77,6 +77,45 @@ function createReadyMeshImportResult(): RobotImportResult {
   <link name="base_link" />
 </robot>`,
     resolvedUrdfSourceFilePath: 'robots/demo/mesh.urdf',
+  };
+}
+
+function createReadyArmPartSdfImportResult(): RobotImportResult {
+  return {
+    status: 'ready',
+    format: 'sdf',
+    robotData: {
+      name: 'arm_part',
+      rootLinkId: 'link',
+      links: {
+        link: {
+          ...DEFAULT_LINK,
+          id: 'link',
+          name: 'link',
+          visible: true,
+          visual: {
+            ...DEFAULT_LINK.visual,
+            type: GeometryType.MESH,
+            color: undefined,
+            meshPath: 'arm_part/meshes/arm.dae',
+            authoredMaterials: [
+              {
+                name: 'ArmPart/Diffuse',
+                texture: 'arm_part/materials/textures/parts.png',
+              },
+            ],
+          },
+        },
+      },
+      joints: {},
+      materials: {
+        link: {
+          texture: 'arm_part/materials/textures/parts.png',
+        },
+      },
+    },
+    resolvedUrdfContent: null,
+    resolvedUrdfSourceFilePath: null,
   };
 }
 
@@ -161,7 +200,7 @@ function createReadyMeshCollisionFallbackImportResult(): RobotImportResult {
 test('addComponent reuses a pre-resolved ready import result for non-USD files', () => {
   resetAssemblyStore();
 
-  useAssemblyStore.getState().initAssembly('pre-resolved-import');
+  useRobotStore.getState().initAssembly('pre-resolved-import');
 
   const invalidUrdfFile: RobotFile = {
     name: 'robots/demo/broken.urdf',
@@ -171,7 +210,7 @@ test('addComponent reuses a pre-resolved ready import result for non-USD files',
 
   const preResolvedImportResult = createReadyImportResult();
 
-  const component = useAssemblyStore.getState().addComponent(invalidUrdfFile, {
+  const component = useRobotStore.getState().addComponent(invalidUrdfFile, {
     preResolvedImportResult,
   });
 
@@ -183,10 +222,54 @@ test('addComponent reuses a pre-resolved ready import result for non-USD files',
   assert.equal(component?.robot.rootLinkId, 'comp_broken_base_link');
 });
 
-test('addComponent records patch-based undo history for incremental assembly updates', () => {
+test('addComponent names repeated Gazebo model.sdf inserts from the authored model name', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
+  store.initAssembly('gazebo-arm-part');
+
+  const file: RobotFile = {
+    name: 'test/gazebo_models/arm_part/model.sdf',
+    format: 'sdf',
+    content: `<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="arm_part">
+    <link name="link" />
+  </model>
+</sdf>`,
+  };
+
+  const first = store.addComponent(file, {
+    preResolvedImportResult: createReadyArmPartSdfImportResult(),
+  });
+  const second = store.addComponent(file, {
+    preResolvedImportResult: createReadyArmPartSdfImportResult(),
+  });
+
+  assert.ok(first, 'first component should be added');
+  assert.ok(second, 'second component should be added');
+  assert.equal(first?.id, 'comp_arm_part');
+  assert.equal(first?.name, 'arm_part');
+  assert.equal(second?.id, 'comp_arm_part_1');
+  assert.equal(second?.name, 'arm_part_1');
+  assert.equal(first?.robot.rootLinkId, 'comp_arm_part_link');
+  assert.equal(second?.robot.rootLinkId, 'comp_arm_part_1_link');
+  assert.equal(first?.robot.links.comp_arm_part_link.name, 'arm_part');
+  assert.equal(second?.robot.links.comp_arm_part_1_link.name, 'arm_part_1');
+  assert.equal(
+    second?.robot.links.comp_arm_part_1_link.visual.authoredMaterials?.[0]?.texture,
+    'arm_part/materials/textures/parts.png',
+  );
+  assert.equal(
+    second?.robot.materials?.comp_arm_part_1_link?.texture,
+    'arm_part/materials/textures/parts.png',
+  );
+});
+
+test('addComponent records unified robot undo history for component updates', () => {
+  resetAssemblyStore();
+
+  const store = useRobotStore.getState();
   store.initAssembly('patch-history');
   store.clearHistory();
 
@@ -203,21 +286,19 @@ test('addComponent records patch-based undo history for incremental assembly upd
 
   assert.ok(component, 'component should be created before checking patch history');
 
-  const historyEntry = useAssemblyStore.getState()._history.past[0] as
-    | { kind?: string }
-    | undefined;
-  assert.equal(historyEntry?.kind, 'patch');
+  const historyEntry = useRobotStore.getState()._history.past[0];
+  assert.ok(historyEntry, 'component updates should be tracked in robot history');
 
   store.undo();
   assert.equal(
-    useAssemblyStore.getState().assemblyState?.components[component.id],
+    useRobotStore.getState().assemblyState?.components[component.id],
     undefined,
     'undo should remove the incrementally-added component',
   );
 
   store.redo();
   assert.ok(
-    useAssemblyStore.getState().assemblyState?.components[component.id],
+    useRobotStore.getState().assemblyState?.components[component.id],
     'redo should restore the incrementally-added component',
   );
 });
@@ -225,7 +306,7 @@ test('addComponent records patch-based undo history for incremental assembly upd
 test('updateComponentTransform clones the transform and tracks undo redo history', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('transform-history');
 
   const component = store.addComponent(
@@ -250,20 +331,20 @@ test('updateComponentTransform clones the transform and tracks undo redo history
   store.updateComponentTransform(component.id, nextTransform);
   nextTransform.position.x = 999;
 
-  assert.deepEqual(useAssemblyStore.getState().assemblyState?.components[component.id]?.transform, {
+  assert.deepEqual(useRobotStore.getState().assemblyState?.components[component.id]?.transform, {
     position: { x: 0.5, y: -1.25, z: 2 },
     rotation: { r: 0.1, p: -0.2, y: 0.3 },
   });
   assert.equal(store.canUndo(), true);
 
   store.undo();
-  assert.deepEqual(useAssemblyStore.getState().assemblyState?.components[component.id]?.transform, {
+  assert.deepEqual(useRobotStore.getState().assemblyState?.components[component.id]?.transform, {
     position: { x: 0, y: 0, z: 0.25 },
     rotation: { r: 0, p: 0, y: 0 },
   });
 
   store.redo();
-  assert.deepEqual(useAssemblyStore.getState().assemblyState?.components[component.id]?.transform, {
+  assert.deepEqual(useRobotStore.getState().assemblyState?.components[component.id]?.transform, {
     position: { x: 0.5, y: -1.25, z: 2 },
     rotation: { r: 0.1, p: -0.2, y: 0.3 },
   });
@@ -272,7 +353,7 @@ test('updateComponentTransform clones the transform and tracks undo redo history
 test('updateAssemblyTransform clones the transform and tracks undo redo history', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('assembly-transform-history');
   store.clearHistory();
 
@@ -284,20 +365,20 @@ test('updateAssemblyTransform clones the transform and tracks undo redo history'
   store.updateAssemblyTransform(nextTransform);
   nextTransform.rotation.y = 999;
 
-  assert.deepEqual(useAssemblyStore.getState().assemblyState?.transform, {
+  assert.deepEqual(useRobotStore.getState().assemblyState?.transform, {
     position: { x: 3, y: 4, z: -2 },
     rotation: { r: -0.15, p: 0.25, y: 0.5 },
   });
   assert.equal(store.canUndo(), true);
 
   store.undo();
-  assert.deepEqual(useAssemblyStore.getState().assemblyState?.transform, {
+  assert.deepEqual(useRobotStore.getState().assemblyState?.transform, {
     position: { x: 0, y: 0, z: 0 },
     rotation: { r: 0, p: 0, y: 0 },
   });
 
   store.redo();
-  assert.deepEqual(useAssemblyStore.getState().assemblyState?.transform, {
+  assert.deepEqual(useRobotStore.getState().assemblyState?.transform, {
     position: { x: 3, y: 4, z: -2 },
     rotation: { r: -0.15, p: 0.25, y: 0.5 },
   });
@@ -306,7 +387,7 @@ test('updateAssemblyTransform clones the transform and tracks undo redo history'
 test('addComponent falls back to a fresh identity when a prepared component becomes stale', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('prepared-component-fallback');
 
   const file: RobotFile = {
@@ -352,7 +433,7 @@ test('addComponent falls back to a fresh identity when a prepared component beco
 test('addComponent grounds the first component and places later components beside it on the ground', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('default-placement');
 
   const first = store.addComponent(
@@ -405,7 +486,7 @@ test('addComponent grounds the first component and places later components besid
 test('addComponent queues newly inserted components for visual auto-ground by default', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('pending-auto-ground');
 
   const component = store.addComponent(
@@ -420,16 +501,16 @@ test('addComponent queues newly inserted components for visual auto-ground by de
   );
 
   assert.ok(component, 'component should be created before checking the auto-ground queue');
-  assert.deepEqual(useAssemblyStore.getState().pendingAutoGroundComponentIds, [component.id]);
+  assert.deepEqual(useRobotStore.getState().pendingAutoGroundComponentIds, [component.id]);
 
   store.consumePendingAutoGroundComponentIds([component.id]);
-  assert.deepEqual(useAssemblyStore.getState().pendingAutoGroundComponentIds, []);
+  assert.deepEqual(useRobotStore.getState().pendingAutoGroundComponentIds, []);
 });
 
 test('addComponent can skip visual auto-ground queue for seed workspace components', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('seed-component');
 
   const component = store.addComponent(
@@ -446,7 +527,7 @@ test('addComponent can skip visual auto-ground queue for seed workspace componen
 
   assert.ok(component, 'seed component should still be created');
   assert.deepEqual(
-    useAssemblyStore.getState().pendingAutoGroundComponentIds,
+    useRobotStore.getState().pendingAutoGroundComponentIds,
     [],
     'seed components should preserve their authored transform without delayed auto-ground replay',
   );
@@ -455,7 +536,7 @@ test('addComponent can skip visual auto-ground queue for seed workspace componen
 test('updateComponentTransform consumes pending visual auto-ground for authored component moves', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('pending-authored-transform');
 
   const component = store.addComponent(
@@ -470,7 +551,7 @@ test('updateComponentTransform consumes pending visual auto-ground for authored 
   );
 
   assert.ok(component, 'component should be created before moving it');
-  assert.deepEqual(useAssemblyStore.getState().pendingAutoGroundComponentIds, [component.id]);
+  assert.deepEqual(useRobotStore.getState().pendingAutoGroundComponentIds, [component.id]);
 
   store.updateComponentTransform(component.id, {
     position: { x: 1, y: 2, z: 3 },
@@ -478,7 +559,7 @@ test('updateComponentTransform consumes pending visual auto-ground for authored 
   });
 
   assert.deepEqual(
-    useAssemblyStore.getState().pendingAutoGroundComponentIds,
+    useRobotStore.getState().pendingAutoGroundComponentIds,
     [],
     'authoring a component transform should cancel any deferred visual auto-ground',
   );
@@ -487,7 +568,7 @@ test('updateComponentTransform consumes pending visual auto-ground for authored 
 test('addBridge consumes pending visual auto-ground for the aligned child component', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('pending-bridge-alignment');
 
   const parent = store.addComponent(
@@ -515,7 +596,7 @@ test('addBridge consumes pending visual auto-ground for the aligned child compon
   assert.ok(child, 'child component should be created');
 
   store.consumePendingAutoGroundComponentIds([parent.id]);
-  assert.deepEqual(useAssemblyStore.getState().pendingAutoGroundComponentIds, [child.id]);
+  assert.deepEqual(useRobotStore.getState().pendingAutoGroundComponentIds, [child.id]);
 
   store.addBridge({
     name: 'parent_child_bridge',
@@ -533,7 +614,7 @@ test('addBridge consumes pending visual auto-ground for the aligned child compon
   });
 
   assert.deepEqual(
-    useAssemblyStore.getState().pendingAutoGroundComponentIds,
+    useRobotStore.getState().pendingAutoGroundComponentIds,
     [],
     'bridge-aligned child components should not be re-grounded after their authored bridge transform is applied',
   );
@@ -542,7 +623,7 @@ test('addBridge consumes pending visual auto-ground for the aligned child compon
 test('addComponent uses prepared renderable bounds for mesh component grounding', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('prepared-mesh-grounding');
 
   const first = store.addComponent(
@@ -610,7 +691,7 @@ test('addComponent uses prepared renderable bounds for mesh component grounding'
 test('addComponent does not use placeholder mesh bounds when no real renderable bounds are available', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('mesh-grounding-without-bounds');
 
   const first = store.addComponent(
@@ -647,7 +728,7 @@ test('addComponent does not use placeholder mesh bounds when no real renderable 
 test('addComponent falls back to collision grounding for mesh-only links when prepared bounds are unavailable', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('mesh-grounding-link-fallback');
 
   const first = store.addComponent(
@@ -684,7 +765,7 @@ test('addComponent falls back to collision grounding for mesh-only links when pr
 test('addComponent reuses a worker-suggested transform from the prepared component payload', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('prepared-transform');
 
   const anchor = store.addComponent(

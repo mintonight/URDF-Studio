@@ -16,11 +16,13 @@ import {
   resolveVisualMaterialOverride as resolveRobotVisualMaterialOverride,
 } from '@/core/robot';
 import { createBoxFaceMaterialArray } from '@/core/utils/boxFaceMaterialArray';
+import { colorRgbaTupleToHex, colorRgbaTupleToOpacity } from '@/core/utils/color.ts';
 import { createMatteMaterial } from '@/core/utils/materialFactory';
 import { applyVisualMeshMaterialGroupsToObject } from '@/core/utils/meshMaterialGroups';
 import { forceObjectMaterialSide } from '@/core/utils/three/materialSide';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
 import { getJointMotionAngleFromActualAngle } from '@/core/robot/kinematics';
+import { normalizeJointLimitOrder } from '@/core/robot/jointLimits';
 import {
   createTerrainBlendMaterial,
   loadTexturesForBlending,
@@ -336,26 +338,6 @@ function createPrimitiveMaterial(color?: string): THREE.MeshStandardMaterial {
   });
 }
 
-function colorRgbaToHex(colorRgba: [number, number, number, number] | undefined): string | undefined {
-  if (!Array.isArray(colorRgba) || colorRgba.length !== 4) {
-    return undefined;
-  }
-
-  const channels = colorRgba.map((value) => Number(value));
-  if (!channels.every((value) => Number.isFinite(value))) {
-    return undefined;
-  }
-
-  const to255 = (channel: number) => (Math.abs(channel) <= 1 ? channel * 255 : channel);
-  const toHex = (channel: number) =>
-    Math.max(0, Math.min(255, Math.round(to255(channel))))
-      .toString(16)
-      .padStart(2, '0');
-  const [red, green, blue, alpha] = channels;
-  const rgb = `${toHex(red)}${toHex(green)}${toHex(blue)}`;
-  return alpha < 0.999 ? `#${rgb}${toHex(alpha)}` : `#${rgb}`;
-}
-
 function resolveStateVisualMaterialOverride({
   geometry,
   isPrimaryVisual,
@@ -378,11 +360,12 @@ function resolveStateVisualMaterialOverride({
     return { override: null, isExplicit: false };
   }
 
-  const color = resolved.color ?? colorRgbaToHex(resolved.colorRgba);
+  const color = resolved.color ?? colorRgbaTupleToHex(resolved.colorRgba) ?? undefined;
+  const opacity = resolved.opacity ?? colorRgbaTupleToOpacity(resolved.colorRgba);
   const override: VisualMaterialOverride = {
     ...(color ? { color } : {}),
     ...(resolved.texture ? { texture: resolved.texture } : {}),
-    ...(resolved.opacity !== undefined ? { opacity: resolved.opacity } : {}),
+    ...(opacity !== undefined ? { opacity } : {}),
     ...(resolved.roughness !== undefined ? { roughness: resolved.roughness } : {}),
     ...(resolved.metalness !== undefined ? { metalness: resolved.metalness } : {}),
     ...(resolved.emissive ? { emissive: resolved.emissive } : {}),
@@ -505,7 +488,7 @@ function createHeightfieldMesh(
     (texture) => {
       const image = texture.image;
       if (!image || !image.width || !image.height) {
-        console.warn('[EditorViewer] Heightmap image has no dimensions:', heightmapUri);
+        console.error('[EditorViewer] Heightmap image has no dimensions:', heightmapUri);
         texture.dispose();
         return;
       }
@@ -518,7 +501,7 @@ function createHeightfieldMesh(
       canvas.height = imgHeight;
       const ctx = canvas.getContext('2d');
       if (!ctx) {
-        console.warn('[EditorViewer] Failed to create canvas for heightmap:', heightmapUri);
+        console.error('[EditorViewer] Failed to create canvas for heightmap:', heightmapUri);
         texture.dispose();
         return;
       }
@@ -1054,10 +1037,16 @@ export async function buildRuntimeRobotFromState({
     }
 
     if (jointData.limit) {
-      joint.limit.lower = getJointMotionAngleFromActualAngle(jointData, jointData.limit.lower);
-      joint.limit.upper = getJointMotionAngleFromActualAngle(jointData, jointData.limit.upper);
-      joint.limit.effort = jointData.limit.effort;
-      joint.limit.velocity = jointData.limit.velocity;
+      const motionLimit = normalizeJointLimitOrder({
+        lower: getJointMotionAngleFromActualAngle(jointData, jointData.limit.lower),
+        upper: getJointMotionAngleFromActualAngle(jointData, jointData.limit.upper),
+        effort: jointData.limit.effort,
+        velocity: jointData.limit.velocity,
+      });
+      joint.limit.lower = motionLimit.lower;
+      joint.limit.upper = motionLimit.upper;
+      joint.limit.effort = motionLimit.effort;
+      joint.limit.velocity = motionLimit.velocity;
     }
 
     if (joint instanceof URDFMimicJoint && jointData.mimic) {

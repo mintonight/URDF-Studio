@@ -61,6 +61,7 @@ const GAZEBO_COLORS: Record<string, string> = {
 
 interface ParsedMaterialDefinition {
   color?: string;
+  colorRgba?: [number, number, number, number];
   texture?: string;
   materialSource?: UrdfVisual['materialSource'];
   authoredMaterials?: UrdfVisualMaterial[];
@@ -82,6 +83,7 @@ interface ParsedSdfVisual {
   geometry: ParsedSdfGeometry;
   pose: Pose;
   color?: string;
+  colorRgba?: [number, number, number, number];
   texture?: string;
   materialSource?: UrdfVisual['materialSource'];
   authoredMaterials?: UrdfVisualMaterial[];
@@ -252,16 +254,37 @@ function isIdentityPose(pose: Pose, epsilon = 1e-9): boolean {
   );
 }
 
-function rgbaTextToHex(text: string | null | undefined): string | undefined {
-  const [r, g, b] = parseNumberTuple(text);
+function clampUnitInterval(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+function rgbaTextToColorDefinition(
+  text: string | null | undefined,
+): { color: string; colorRgba?: [number, number, number, number] } | null {
+  const channels = parseNumberTuple(text);
+  const [r, g, b, a] = channels;
   if (![r, g, b].every((value) => Number.isFinite(value))) {
-    return undefined;
+    return null;
   }
 
-  const toByte = (value: number) => Math.max(0, Math.min(255, Math.round(value * 255)));
-  return `#${[toByte(r), toByte(g), toByte(b)]
+  const toByte = (value: number) => Math.round(clampUnitInterval(value) * 255);
+  const color = `#${[toByte(r), toByte(g), toByte(b)]
     .map((value) => value.toString(16).padStart(2, '0'))
     .join('')}`;
+  const colorRgba =
+    channels.length >= 4
+      ? ([
+          clampUnitInterval(Number(r)),
+          clampUnitInterval(Number(g)),
+          clampUnitInterval(Number(b)),
+          clampUnitInterval(Number.isFinite(a) ? Number(a) : 1),
+        ] as [number, number, number, number])
+      : undefined;
+
+  return {
+    color,
+    ...(colorRgba ? { colorRgba } : {}),
+  };
 }
 
 function parseSdfMaterial(
@@ -278,8 +301,13 @@ function parseSdfMaterial(
   const scriptUris = getDirectChildElements(scriptEl ?? materialEl, 'uri')
     .map((uriEl) => uriEl.textContent?.trim() || '')
     .filter(Boolean);
-  const diffuse = rgbaTextToHex(getFirstDirectChild(materialEl, 'diffuse')?.textContent);
-  const ambient = rgbaTextToHex(getFirstDirectChild(materialEl, 'ambient')?.textContent);
+  const diffuse = rgbaTextToColorDefinition(
+    getFirstDirectChild(materialEl, 'diffuse')?.textContent,
+  );
+  const ambient = rgbaTextToColorDefinition(
+    getFirstDirectChild(materialEl, 'ambient')?.textContent,
+  );
+  const inlineColor = diffuse || ambient;
   if (scriptName && GAZEBO_COLORS[scriptName]) {
     return {
       color: GAZEBO_COLORS[scriptName],
@@ -296,18 +324,19 @@ function parseSdfMaterial(
       sourcePath: sourcePath ?? undefined,
     });
     if (scriptMaterial) {
+      const scriptColor = scriptMaterial.color
+        ? { color: scriptMaterial.color, colorRgba: scriptMaterial.colorRgba }
+        : inlineColor;
       return {
-        ...(scriptMaterial.color || diffuse || ambient
-          ? { color: scriptMaterial.color || diffuse || ambient }
-          : {}),
+        ...(scriptColor?.color ? { color: scriptColor.color } : {}),
+        ...(scriptColor?.colorRgba ? { colorRgba: scriptColor.colorRgba } : {}),
         ...(scriptMaterial.texture ? { texture: scriptMaterial.texture } : {}),
         materialSource: 'gazebo',
         authoredMaterials: [
           {
             ...scriptMaterial,
-            ...(scriptMaterial.color || diffuse || ambient
-              ? { color: scriptMaterial.color || diffuse || ambient }
-              : {}),
+            ...(scriptColor?.color ? { color: scriptColor.color } : {}),
+            ...(scriptColor?.colorRgba ? { colorRgba: scriptColor.colorRgba } : {}),
           },
         ],
       };
@@ -316,24 +345,39 @@ function parseSdfMaterial(
 
   if (diffuse) {
     return {
-      color: diffuse,
+      color: diffuse.color,
+      ...(diffuse.colorRgba ? { colorRgba: diffuse.colorRgba } : {}),
       materialSource: 'inline',
-      authoredMaterials: [{ color: diffuse }],
+      authoredMaterials: [
+        {
+          color: diffuse.color,
+          ...(diffuse.colorRgba ? { colorRgba: diffuse.colorRgba } : {}),
+        },
+      ],
     };
   }
 
   return ambient
     ? {
-        color: ambient,
+        color: ambient.color,
+        ...(ambient.colorRgba ? { colorRgba: ambient.colorRgba } : {}),
         materialSource: 'inline',
-        authoredMaterials: [{ color: ambient }],
+        authoredMaterials: [
+          {
+            color: ambient.color,
+            ...(ambient.colorRgba ? { colorRgba: ambient.colorRgba } : {}),
+          },
+        ],
       }
     : {};
 }
 
 function hasParsedMaterialDefinition(definition: ParsedMaterialDefinition): boolean {
   return Boolean(
-    definition.color || definition.texture || (definition.authoredMaterials?.length ?? 0) > 0,
+    definition.color ||
+    definition.colorRgba ||
+    definition.texture ||
+    (definition.authoredMaterials?.length ?? 0) > 0,
   );
 }
 
@@ -1395,9 +1439,10 @@ function parseSdfModel(
         materialSource: visual.materialSource,
         authoredMaterials: visual.authoredMaterials,
       }));
-      if (visuals[0].color || visuals[0].texture) {
+      if (visuals[0].color || visuals[0].colorRgba || visuals[0].texture) {
         graph.materials[linkId] = {
           ...(visuals[0].color ? { color: visuals[0].color } : {}),
+          ...(visuals[0].colorRgba ? { colorRgba: visuals[0].colorRgba } : {}),
           ...(visuals[0].texture ? { texture: visuals[0].texture } : {}),
         };
       }
@@ -1685,9 +1730,7 @@ export function parseSDF(xmlString: string, options: ParseSDFOptions = {}): Robo
   const sdfVersion = sdfEl?.getAttribute('version') || undefined;
 
   const modelName = modelEl.getAttribute('name')?.trim() || 'imported_sdf_model';
-  const includeResolutionContext = createSdfIncludeResolutionContext(
-    options.allFileContents ?? {},
-  );
+  const includeResolutionContext = createSdfIncludeResolutionContext(options.allFileContents ?? {});
   const parsedGraph = parseSdfModel(modelEl, {
     ...options,
     sdfVersion,

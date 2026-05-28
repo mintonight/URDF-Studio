@@ -14,7 +14,7 @@ import {
   injectGazeboTags,
 } from '@/core/parsers';
 import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
-import { useAssemblyStore, useAssetsStore, useRobotStore, useUIStore } from '@/store';
+import { useAssetsStore, useRobotStore, useUIStore } from '@/store';
 import { toDocumentLoadLifecycleState } from '@/store/assetsStore';
 import type { ExportDialogConfig } from '@/features/file-io';
 import { translations } from '@/shared/i18n';
@@ -126,13 +126,27 @@ export function useFileExport() {
     () => toDocumentLoadLifecycleState(documentLoadState),
     [documentLoadState],
   );
-  const { assemblyState, assemblyHistory, assemblyActivity, getMergedRobotData } = useAssemblyStore(
+  const {
+    assemblyState,
+    assemblyHistoryPast,
+    assemblyHistoryFuture,
+    assemblyActivity,
+    getMergedRobotData,
+  } = useRobotStore(
     useShallow((state) => ({
       assemblyState: state.assemblyState,
-      assemblyHistory: state._history,
+      assemblyHistoryPast: state._history.past,
+      assemblyHistoryFuture: state._history.future,
       assemblyActivity: state._activity,
       getMergedRobotData: state.getMergedRobotData,
     })),
+  );
+  const assemblyHistory = useMemo<AssemblyHistoryState>(
+    () => ({
+      past: assemblyHistoryPast.map((entry) => entry.assemblyState ?? null),
+      future: assemblyHistoryFuture.map((entry) => entry.assemblyState ?? null),
+    }),
+    [assemblyHistoryFuture, assemblyHistoryPast],
   );
 
   // Get robot state from store

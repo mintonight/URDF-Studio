@@ -166,7 +166,7 @@ function sanitizeColladaXmlForThreeJs(content: string): string {
   // Check for parse errors
   const parserError = doc.getElementsByTagName('parsererror');
   if (parserError.length > 0) {
-    console.warn('[ColladaSanitize] XML parse error detected, skipping sanitization');
+    console.error('[ColladaSanitize] XML parse error detected, skipping sanitization');
     return content;
   }
 

@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useState } from 'react';
 
-import { buildAssemblyComponentIdentity } from '@/core/robot';
+import { buildAssemblyComponentIdentity, resolveAssemblyComponentBaseName } from '@/core/robot';
 import type { AssemblyComponent, AssemblyState, RobotData, RobotFile } from '@/types';
 
 import type { ImportPreparationOverlayState } from './useFileImport';
@@ -133,6 +133,7 @@ export function useAssemblyComponentPreparation({
     ) => {
       const identity = buildAssemblyComponentIdentity({
         fileName: file.name,
+        baseName: resolveAssemblyComponentBaseName(file, options.preResolvedRobotData?.name),
         existingComponentIds:
           options.existingComponentIds ?? Object.keys(assemblyState?.components ?? {}),
         existingComponentNames:

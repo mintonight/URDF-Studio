@@ -6,6 +6,8 @@ import { roundToMaxDecimals } from '@/core/utils/numberPrecision';
 import type { BridgePickTarget } from '../../utils/bridgeSelection';
 import {
   BRIDGE_AXIS_TONE_STYLES,
+  BRIDGE_COMPACT_PICK_BUTTON_CLASS,
+  BRIDGE_COMPACT_RELATION_GRID_CLASS,
   BRIDGE_FIELD_GROUP_CLASS,
   BRIDGE_FIELD_LABEL_CLASS,
   BRIDGE_INLINE_FIELD_LABEL_CLASS,
@@ -635,16 +637,180 @@ interface BridgeSectionProps {
   title: string;
   children: React.ReactNode;
   className?: string;
+  collapsible?: boolean;
+  defaultCollapsed?: boolean;
+  collapsedSummary?: string;
 }
 
-export function BridgeSection({ title, children, className = '' }: BridgeSectionProps) {
+export function BridgeSection({
+  title,
+  children,
+  className = '',
+  collapsible = false,
+  defaultCollapsed = false,
+  collapsedSummary,
+}: BridgeSectionProps) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+
+  if (collapsible && collapsed) {
+    return (
+      <div className={`${BRIDGE_SECTION_CLASS} ${className}`.trim()}>
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="flex w-full items-center gap-1.5 text-left"
+        >
+          <div className={BRIDGE_SECTION_TITLE_CLASS}>{title}</div>
+          <div className="h-px flex-1 bg-border-black" />
+          {collapsedSummary && (
+            <span className="shrink-0 text-[9px] font-mono tracking-[-0.01em] text-text-tertiary tabular-nums">
+              {collapsedSummary}
+            </span>
+          )}
+          <span className="shrink-0 text-[9px] text-text-tertiary">▸</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className={`${BRIDGE_SECTION_CLASS} ${className}`.trim()}>
       <div className="mb-1.5 flex items-center gap-1.5">
-        <div className={BRIDGE_SECTION_TITLE_CLASS}>{title}</div>
+        {collapsible ? (
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            className="flex items-center gap-1.5"
+          >
+            <div className={BRIDGE_SECTION_TITLE_CLASS}>{title}</div>
+            <span className="text-[9px] text-text-tertiary">▾</span>
+          </button>
+        ) : (
+          <div className={BRIDGE_SECTION_TITLE_CLASS}>{title}</div>
+        )}
         <div className="h-px flex-1 bg-border-black" />
       </div>
       {children}
+    </div>
+  );
+}
+
+interface BridgeCompactRelationRowProps {
+  parentPickLabel: string;
+  childPickLabel: string;
+  parentIsActive: boolean;
+  childIsActive: boolean;
+  parentComponentValue: string;
+  parentLinkValue: string;
+  childComponentValue: string;
+  childLinkValue: string;
+  parentComponentOptions: SelectOption[];
+  parentLinkOptions: SelectOption[];
+  childComponentOptions: SelectOption[];
+  childLinkOptions: SelectOption[];
+  parentComponentLabel: string;
+  parentLinkLabel: string;
+  childComponentLabel: string;
+  childLinkLabel: string;
+  onParentActivate: () => void;
+  onChildActivate: () => void;
+  onParentComponentChange: (value: string) => void;
+  onParentLinkChange: (value: string) => void;
+  onChildComponentChange: (value: string) => void;
+  onChildLinkChange: (value: string) => void;
+}
+
+export function BridgeCompactRelationRow({
+  parentPickLabel,
+  childPickLabel,
+  parentIsActive,
+  childIsActive,
+  parentComponentValue,
+  parentLinkValue,
+  childComponentValue,
+  childLinkValue,
+  parentComponentOptions,
+  parentLinkOptions,
+  childComponentOptions,
+  childLinkOptions,
+  parentComponentLabel,
+  parentLinkLabel,
+  childComponentLabel,
+  childLinkLabel,
+  onParentActivate,
+  onChildActivate,
+  onParentComponentChange,
+  onParentLinkChange,
+  onChildComponentChange,
+  onChildLinkChange,
+}: BridgeCompactRelationRowProps) {
+  return (
+    <div className={BRIDGE_COMPACT_RELATION_GRID_CLASS}>
+      <button
+        type="button"
+        aria-pressed={parentIsActive}
+        onClick={onParentActivate}
+        className={`${BRIDGE_COMPACT_PICK_BUTTON_CLASS} border ${
+          parentIsActive
+            ? 'border-danger-border bg-danger-soft text-danger'
+            : 'border-border-black bg-panel-bg text-text-tertiary hover:bg-element-hover hover:text-text-primary'
+        }`}
+      >
+        {parentPickLabel}
+      </button>
+      <PanelSelect
+        variant="property"
+        aria-label={parentComponentLabel}
+        options={parentComponentOptions}
+        value={parentComponentValue}
+        onChange={(event) => onParentComponentChange(event.target.value)}
+        onFocus={onParentActivate}
+        className={BRIDGE_SELECT_CLASS}
+      />
+      <PanelSelect
+        variant="property"
+        aria-label={parentLinkLabel}
+        options={parentLinkOptions}
+        value={parentLinkValue}
+        onChange={(event) => onParentLinkChange(event.target.value)}
+        onFocus={onParentActivate}
+        className={BRIDGE_SELECT_CLASS}
+      />
+
+      <div className="flex items-center justify-center px-0.5 text-text-tertiary">
+        <Link2 className="h-3.5 w-3.5" />
+      </div>
+
+      <button
+        type="button"
+        aria-pressed={childIsActive}
+        onClick={onChildActivate}
+        className={`${BRIDGE_COMPACT_PICK_BUTTON_CLASS} border ${
+          childIsActive
+            ? 'border-system-blue/25 bg-system-blue/10 text-system-blue'
+            : 'border-border-black bg-panel-bg text-text-tertiary hover:bg-element-hover hover:text-text-primary'
+        }`}
+      >
+        {childPickLabel}
+      </button>
+      <PanelSelect
+        variant="property"
+        aria-label={childComponentLabel}
+        options={childComponentOptions}
+        value={childComponentValue}
+        onChange={(event) => onChildComponentChange(event.target.value)}
+        onFocus={onChildActivate}
+        className={BRIDGE_SELECT_CLASS}
+      />
+      <PanelSelect
+        variant="property"
+        aria-label={childLinkLabel}
+        options={childLinkOptions}
+        value={childLinkValue}
+        onChange={(event) => onChildLinkChange(event.target.value)}
+        onFocus={onChildActivate}
+        className={BRIDGE_SELECT_CLASS}
+      />
     </div>
   );
 }

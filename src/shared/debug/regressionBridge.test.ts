@@ -7,7 +7,13 @@ import {
   setRegressionAppHandlers,
   setRegressionRuntimeRobot,
 } from './regressionBridge';
-import { DEFAULT_JOINT, DEFAULT_LINK, type RobotFile, type RobotState } from '@/types';
+import {
+  DEFAULT_JOINT,
+  DEFAULT_LINK,
+  GeometryType,
+  type RobotFile,
+  type RobotState,
+} from '@/types';
 
 test('getRegressionSnapshot summarizes joint-only runtime proxies without requiring traverse()', () => {
   setRegressionRuntimeRobot({
@@ -46,6 +52,100 @@ test('getRegressionSnapshot summarizes joint-only runtime proxies without requir
   ]);
 
   setRegressionRuntimeRobot(null);
+});
+
+test('getRegressionSnapshot includes visual material colors and mesh material groups', () => {
+  setRegressionAppHandlers({
+    getAvailableFiles: () => [],
+    getSelectedFile: () => null,
+    getUsdSceneSnapshot: () => null,
+    getDocumentLoadState: () => ({
+      status: 'ready',
+      fileName: null,
+      format: null,
+      error: null,
+    }),
+    getRobotState: () => ({
+      name: 'paint_demo',
+      rootLinkId: 'link1',
+      links: {
+        link1: {
+          ...DEFAULT_LINK,
+          id: 'link1',
+          name: 'link1',
+          visual: {
+            ...DEFAULT_LINK.visual,
+            type: GeometryType.MESH,
+            meshPath: 'meshes/cube.obj',
+            color: '#808080',
+            authoredMaterials: [
+              { name: 'base', color: '#808080' },
+              { name: 'paint_link1_0_1', color: '#007aff', opacity: 0.75 },
+            ],
+            meshMaterialGroups: [{ meshKey: '0', start: 0, count: 6, materialIndex: 1 }],
+          },
+          visualBodies: [
+            {
+              ...DEFAULT_LINK.visual,
+              name: 'accent',
+              type: GeometryType.BOX,
+              color: '#33aa44',
+            },
+          ],
+        },
+      },
+      joints: {},
+      selection: { type: null, id: null },
+    }),
+    getAssetDebugState: () => ({
+      appAssetKeys: [],
+      preparedUsdCacheKeysByFile: {},
+    }),
+    getInteractionState: () => ({
+      selection: { type: null, id: null },
+      hoveredSelection: { type: null, id: null },
+    }),
+    loadRobotByName: async () => ({
+      loaded: false,
+      selectedFile: null,
+    }),
+  });
+
+  const link = getRegressionSnapshot().store?.links[0];
+
+  assert.equal(link?.visual.color, '#808080');
+  assert.deepEqual(link?.visual.authoredMaterials, [
+    {
+      name: 'base',
+      color: '#808080',
+      colorRgba: null,
+      texture: null,
+      opacity: null,
+      roughness: null,
+      metalness: null,
+      emissive: null,
+      emissiveIntensity: null,
+      alphaTest: null,
+    },
+    {
+      name: 'paint_link1_0_1',
+      color: '#007aff',
+      colorRgba: null,
+      texture: null,
+      opacity: 0.75,
+      roughness: null,
+      metalness: null,
+      emissive: null,
+      emissiveIntensity: null,
+      alphaTest: null,
+    },
+  ]);
+  assert.deepEqual(link?.visual.meshMaterialGroups, [
+    { meshKey: '0', start: 0, count: 6, materialIndex: 1 },
+  ]);
+  assert.equal(link?.visualBodies[0]?.geometry.color, '#33aa44');
+
+  setRegressionAppHandlers(null);
 });
 
 test('regression debug API summarizes USD visual materials from stored scene snapshots', () => {

@@ -673,7 +673,7 @@ export class ThreeRenderDelegateCore {
                     overwrite: options?.overwrite !== false,
                 }),
             });
-            payload = await response.json().catch(() => null);
+            payload = await response.json();
         }
         catch (error) {
             return {

@@ -509,7 +509,7 @@ function patchCollisionEntriesInPlace({
     }
 
     if (sameGeometry(previousEntry.geometry, nextEntry.geometry)) {
-      if (patchPrimitiveDimensionsInPlace(group, nextEntry.geometry)) {
+      if (patchPrimitiveDimensionsInPlace(group, nextEntry.geometry, true)) {
         applied = true;
       }
       continue;
@@ -684,6 +684,7 @@ function findFirstMeshInObject(object: THREE.Object3D): THREE.Mesh | null {
 function patchPrimitiveDimensionsInPlace(
   targetGroup: THREE.Object3D,
   geometry: LinkGeometry,
+  isCollision: boolean,
 ): boolean {
   const mesh = findFirstMeshInObject(targetGroup);
   if (!mesh) return false;
@@ -823,7 +824,7 @@ function patchGeometryGroupInPlace({
     });
   }
 
-  if (dimensionsChanged && !patchPrimitiveDimensionsInPlace(targetGroup, geometry)) {
+  if (dimensionsChanged && !patchPrimitiveDimensionsInPlace(targetGroup, geometry, isCollision)) {
     return false;
   }
 

@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { DEFAULT_JOINT, DEFAULT_LINK, JointType, type RobotData, type RobotFile } from '@/types';
-import { useAssemblyStore } from './assemblyStore.ts';
+import { useRobotStore } from './robotStore.ts';
 
 function resetAssemblyStore() {
-  const state = useAssemblyStore.getState();
+  const state = useRobotStore.getState();
   state.clearHistory();
   state.exitAssembly();
   state.setAssembly(null);
@@ -48,7 +48,7 @@ function createRobotWithRevolute(name: string): RobotData {
 }
 
 function seedSingleComponentAssembly(name: string) {
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly(name);
 
   const file: RobotFile = {
@@ -70,14 +70,14 @@ test('setComponentJointMotion writes joint.angle in place without changing assem
   resetAssemblyStore();
   const { component, armJointId } = seedSingleComponentAssembly('inplace-angle');
 
-  const before = useAssemblyStore.getState().assemblyState;
+  const before = useRobotStore.getState().assemblyState;
   assert.ok(before);
   const beforeAngle = before!.components[component.id]?.robot.joints[armJointId]?.angle;
   assert.equal(beforeAngle, 0);
 
-  useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 1.234 }, {});
+  useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 1.234 }, {});
 
-  const after = useAssemblyStore.getState().assemblyState;
+  const after = useRobotStore.getState().assemblyState;
   // Critical contract: assemblyState reference is unchanged so React
   // subscribers do NOT fire.
   assert.equal(after, before);
@@ -89,20 +89,20 @@ test('setComponentJointMotion bumps assemblyJointMotionRevision but not assembly
   resetAssemblyStore();
   const { component, armJointId } = seedSingleComponentAssembly('motion-revision');
 
-  const baseline = useAssemblyStore.getState();
+  const baseline = useRobotStore.getState();
   const baselineAssemblyRevision = baseline.assemblyRevision;
   const baselineMotionRevision = baseline.assemblyJointMotionRevision;
 
-  useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.5 }, {});
+  useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.5 }, {});
 
-  const afterFirst = useAssemblyStore.getState();
+  const afterFirst = useRobotStore.getState();
   assert.equal(afterFirst.assemblyRevision, baselineAssemblyRevision);
   assert.equal(afterFirst.assemblyJointMotionRevision, baselineMotionRevision + 1);
 
   // A second write bumps motion revision again.
-  useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.7 }, {});
+  useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.7 }, {});
 
-  const afterSecond = useAssemblyStore.getState();
+  const afterSecond = useRobotStore.getState();
   assert.equal(afterSecond.assemblyRevision, baselineAssemblyRevision);
   assert.equal(afterSecond.assemblyJointMotionRevision, baselineMotionRevision + 2);
 });
@@ -112,16 +112,16 @@ test('setComponentJointMotion does not fire subscribers selecting only assemblyS
   const { component, armJointId } = seedSingleComponentAssembly('subscriber-quiet');
 
   let assemblyStateSubscriberCalls = 0;
-  const unsubscribe = useAssemblyStore.subscribe((state, previous) => {
+  const unsubscribe = useRobotStore.subscribe((state, previous) => {
     if (state.assemblyState !== previous.assemblyState) {
       assemblyStateSubscriberCalls += 1;
     }
   });
 
   try {
-    useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.3 }, {});
-    useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.6 }, {});
-    useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.9 }, {});
+    useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.3 }, {});
+    useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.6 }, {});
+    useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.9 }, {});
     assert.equal(
       assemblyStateSubscriberCalls,
       0,
@@ -136,22 +136,22 @@ test('setComponentJointMotion no-ops when angle is unchanged', () => {
   resetAssemblyStore();
   const { component, armJointId } = seedSingleComponentAssembly('noop-equal');
 
-  const baselineMotionRevision = useAssemblyStore.getState().assemblyJointMotionRevision;
+  const baselineMotionRevision = useRobotStore.getState().assemblyJointMotionRevision;
   // First write — angle is 0 -> 0, no change → revision should NOT bump.
-  useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0 }, {});
-  assert.equal(useAssemblyStore.getState().assemblyJointMotionRevision, baselineMotionRevision);
+  useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0 }, {});
+  assert.equal(useRobotStore.getState().assemblyJointMotionRevision, baselineMotionRevision);
 
   // Real change bumps.
-  useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.1 }, {});
+  useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.1 }, {});
   assert.equal(
-    useAssemblyStore.getState().assemblyJointMotionRevision,
+    useRobotStore.getState().assemblyJointMotionRevision,
     baselineMotionRevision + 1,
   );
 
   // Same value again — no bump.
-  useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.1 }, {});
+  useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.1 }, {});
   assert.equal(
-    useAssemblyStore.getState().assemblyJointMotionRevision,
+    useRobotStore.getState().assemblyJointMotionRevision,
     baselineMotionRevision + 1,
   );
 });
@@ -160,11 +160,11 @@ test('setComponentJointMotion writes quaternion in place', () => {
   resetAssemblyStore();
   const { component, armJointId } = seedSingleComponentAssembly('inplace-quat');
 
-  const before = useAssemblyStore.getState().assemblyState;
-  useAssemblyStore
+  const before = useRobotStore.getState().assemblyState;
+  useRobotStore
     .getState()
     .setComponentJointMotion(component.id, {}, { [armJointId]: { x: 0, y: 0.5, z: 0, w: 0.866 } });
-  const after = useAssemblyStore.getState().assemblyState;
+  const after = useRobotStore.getState().assemblyState;
   assert.equal(after, before, 'reference should still be stable');
   const q = after!.components[component.id]!.robot.joints[armJointId]!.quaternion;
   assert.deepEqual(q, { x: 0, y: 0.5, z: 0, w: 0.866 });
@@ -174,14 +174,14 @@ test('getMergedRobotData picks up in-place joint motion via cache invalidation',
   resetAssemblyStore();
   const { component, armJointId } = seedSingleComponentAssembly('merger-cache');
 
-  const firstMerge = useAssemblyStore.getState().getMergedRobotData();
+  const firstMerge = useRobotStore.getState().getMergedRobotData();
   assert.ok(firstMerge);
   const firstAngle = firstMerge!.joints[armJointId]?.angle;
   assert.equal(firstAngle, 0);
 
-  useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 1.5 }, {});
+  useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 1.5 }, {});
 
-  const secondMerge = useAssemblyStore.getState().getMergedRobotData();
+  const secondMerge = useRobotStore.getState().getMergedRobotData();
   assert.ok(secondMerge);
   assert.equal(secondMerge!.joints[armJointId]?.angle, 1.5);
   // The merged data should be a fresh object (cache invalidated by motion
@@ -193,35 +193,35 @@ test('flushPendingAssemblyJointMotion converts in-place writes into a real assem
   resetAssemblyStore();
   const { component, armJointId } = seedSingleComponentAssembly('flush-roundtrip');
 
-  const before = useAssemblyStore.getState().assemblyState;
-  const baselineAssemblyRevision = useAssemblyStore.getState().assemblyRevision;
+  const before = useRobotStore.getState().assemblyState;
+  const baselineAssemblyRevision = useRobotStore.getState().assemblyRevision;
 
-  useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.42 }, {});
+  useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.42 }, {});
 
   // Pre-flush: same reference.
-  assert.equal(useAssemblyStore.getState().assemblyState, before);
+  assert.equal(useRobotStore.getState().assemblyState, before);
 
-  const flushed = useAssemblyStore
+  const flushed = useRobotStore
     .getState()
     .flushPendingAssemblyJointMotion({ label: 'flush-test', skipHistory: false });
   assert.equal(flushed, true);
 
-  const afterFlush = useAssemblyStore.getState().assemblyState;
+  const afterFlush = useRobotStore.getState().assemblyState;
   // Post-flush: new reference (so subscribers see the change).
   assert.notEqual(afterFlush, before);
   // The angle survives the round trip.
   assert.equal(afterFlush!.components[component.id]!.robot.joints[armJointId]!.angle, 0.42);
   // assemblyRevision bumped (because applyAssemblyMutation always bumps it).
-  assert.ok(useAssemblyStore.getState().assemblyRevision > baselineAssemblyRevision);
+  assert.ok(useRobotStore.getState().assemblyRevision > baselineAssemblyRevision);
 
   // History has the patch and undo restores the original angle.
-  useAssemblyStore.getState().undo();
-  const afterUndo = useAssemblyStore.getState().assemblyState;
+  useRobotStore.getState().undo();
+  const afterUndo = useRobotStore.getState().assemblyState;
   assert.equal(afterUndo!.components[component.id]!.robot.joints[armJointId]!.angle, 0);
 
   // Redo recovers the flushed angle.
-  useAssemblyStore.getState().redo();
-  const afterRedo = useAssemblyStore.getState().assemblyState;
+  useRobotStore.getState().redo();
+  const afterRedo = useRobotStore.getState().assemblyState;
   assert.equal(afterRedo!.components[component.id]!.robot.joints[armJointId]!.angle, 0.42);
 });
 
@@ -229,7 +229,7 @@ test('flushPendingAssemblyJointMotion is a no-op when nothing is pending', () =>
   resetAssemblyStore();
   seedSingleComponentAssembly('flush-empty');
 
-  const flushed = useAssemblyStore.getState().flushPendingAssemblyJointMotion();
+  const flushed = useRobotStore.getState().flushPendingAssemblyJointMotion();
   assert.equal(flushed, false);
 });
 
@@ -237,21 +237,21 @@ test('flushPendingAssemblyJointMotion preserves the latest value across multiple
   resetAssemblyStore();
   const { component, armJointId } = seedSingleComponentAssembly('flush-coalesce');
 
-  useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.1 }, {});
-  useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.5 }, {});
-  useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.9 }, {});
+  useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.1 }, {});
+  useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.5 }, {});
+  useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.9 }, {});
 
-  useAssemblyStore.getState().flushPendingAssemblyJointMotion();
+  useRobotStore.getState().flushPendingAssemblyJointMotion();
   const finalAngle =
-    useAssemblyStore.getState().assemblyState!.components[component.id]!.robot.joints[armJointId]!
+    useRobotStore.getState().assemblyState!.components[component.id]!.robot.joints[armJointId]!
       .angle;
   assert.equal(finalAngle, 0.9);
 
   // Undo brings it back to the ORIGINAL (pre-first-write) value, not the
   // intermediate 0.5. The fast-path captures the first "original" only.
-  useAssemblyStore.getState().undo();
+  useRobotStore.getState().undo();
   const undoAngle =
-    useAssemblyStore.getState().assemblyState!.components[component.id]!.robot.joints[armJointId]!
+    useRobotStore.getState().assemblyState!.components[component.id]!.robot.joints[armJointId]!
       .angle;
   assert.equal(undoAngle, 0);
 });
@@ -261,14 +261,14 @@ test('in-place joint motion survives a subsequent structural mutation without en
   const { component, armJointId } = seedSingleComponentAssembly('inplace-survives-rename');
 
   // Step 1: in-place joint motion write — transient runtime state.
-  useAssemblyStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.77 }, {});
+  useRobotStore.getState().setComponentJointMotion(component.id, { [armJointId]: 0.77 }, {});
 
   // Step 2: structural mutation via the canonical immer path.
-  useAssemblyStore.getState().updateComponentName(component.id, 'renamed_component');
+  useRobotStore.getState().updateComponentName(component.id, 'renamed_component');
 
   // The joint angle persists in the live state (structural sharing keeps the
   // joint object identity stable, and we in-place mutated it).
-  const afterRename = useAssemblyStore.getState().assemblyState;
+  const afterRename = useRobotStore.getState().assemblyState;
   assert.equal(
     afterRename!.components[component.id]!.robot.joints[armJointId]!.angle,
     0.77,
@@ -276,8 +276,8 @@ test('in-place joint motion survives a subsequent structural mutation without en
   );
 
   // Undo: reverts ONLY the rename, leaves the in-place joint angle alone.
-  useAssemblyStore.getState().undo();
-  const afterUndo = useAssemblyStore.getState().assemblyState;
+  useRobotStore.getState().undo();
+  const afterUndo = useRobotStore.getState().assemblyState;
   assert.equal(
     afterUndo!.components[component.id]!.name,
     component.name,
@@ -294,18 +294,18 @@ test('setComponentJointMotion is a no-op when the component or joint is missing'
   resetAssemblyStore();
   const { component, armJointId } = seedSingleComponentAssembly('missing-joint');
 
-  const baselineMotionRevision = useAssemblyStore.getState().assemblyJointMotionRevision;
+  const baselineMotionRevision = useRobotStore.getState().assemblyJointMotionRevision;
   // Missing component.
-  useAssemblyStore.getState().setComponentJointMotion('does-not-exist', { [armJointId]: 1 }, {});
-  assert.equal(useAssemblyStore.getState().assemblyJointMotionRevision, baselineMotionRevision);
+  useRobotStore.getState().setComponentJointMotion('does-not-exist', { [armJointId]: 1 }, {});
+  assert.equal(useRobotStore.getState().assemblyJointMotionRevision, baselineMotionRevision);
 
   // Missing joint within an existing component.
-  useAssemblyStore.getState().setComponentJointMotion(component.id, { ghost_joint: 1 }, {});
-  assert.equal(useAssemblyStore.getState().assemblyJointMotionRevision, baselineMotionRevision);
+  useRobotStore.getState().setComponentJointMotion(component.id, { ghost_joint: 1 }, {});
+  assert.equal(useRobotStore.getState().assemblyJointMotionRevision, baselineMotionRevision);
 
   // Non-finite angle is filtered out.
-  useAssemblyStore
+  useRobotStore
     .getState()
     .setComponentJointMotion(component.id, { [armJointId]: Number.NaN }, {});
-  assert.equal(useAssemblyStore.getState().assemblyJointMotionRevision, baselineMotionRevision);
+  assert.equal(useRobotStore.getState().assemblyJointMotionRevision, baselineMotionRevision);
 });

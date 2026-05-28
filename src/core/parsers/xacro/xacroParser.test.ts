@@ -232,6 +232,27 @@ test('parseXacro expands insert_block block parameters like upstream xacro macro
   assert.equal(robot.joints.FR_joint.origin.xyz.z, 3);
 });
 
+test('parseXacro preserves URDF material alpha after macro expansion', () => {
+  const robot = parseXacro(`
+    <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="transparent_xacro_fixture">
+      <xacro:property name="paint_alpha" value="0.4" />
+      <link name="base">
+        <visual>
+          <geometry>
+            <box size="1 1 1" />
+          </geometry>
+          <material name="clear_paint">
+            <color rgba="0.1 0.2 0.3 \${paint_alpha}" />
+          </material>
+        </visual>
+      </link>
+    </robot>
+  `);
+
+  assert.ok(robot);
+  assert.deepEqual(robot.links.base.visual.authoredMaterials?.[0]?.colorRgba, [0.1, 0.2, 0.3, 0.4]);
+});
+
 test('processXacro preserves gazebo plugin metadata in the real a1 fixture output', () => {
   const fixture = loadRobotFixture('a1_description');
   const processed = processXacro(fixture.xacroContent, {}, unitreeRobotsFileMap, fixture.basePath);

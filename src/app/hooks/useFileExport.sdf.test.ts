@@ -10,7 +10,7 @@ import { JSDOM } from 'jsdom';
 
 import { useFileExport } from './useFileExport.ts';
 import { disposeRobotImportWorker } from './robotImportWorkerBridge.ts';
-import { useAssemblyStore, useAssetsStore, useRobotStore, useUIStore } from '@/store';
+import { useRobotStore, useAssetsStore, useUIStore } from '@/store';
 import {
   DEFAULT_JOINT,
   DEFAULT_LINK,
@@ -155,7 +155,7 @@ function resetStoresToBaseline() {
     appMode: 'editor',
   });
 
-  useAssemblyStore.setState({
+  useRobotStore.setState({
     assemblyState: null,
     _history: { past: [], future: [] },
     _activity: [],

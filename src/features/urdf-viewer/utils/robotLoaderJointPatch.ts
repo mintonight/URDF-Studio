@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { URDFJoint as RuntimeURDFJoint } from '@/core/parsers/urdf/loader';
+import { normalizeJointLimitOrder } from '@/core/robot';
 import type { JointPatchCandidate } from './robotLoaderDiff';
 import { applyOriginToJoint } from './robotLoaderPatchUtils';
 
@@ -114,10 +115,11 @@ function applyJointPatch(joint: RuntimeURDFJoint, patch: JointPatchCandidate): v
 
   const nextLimit = patch.jointData.limit;
   if (nextLimit) {
-    jointLimit.lower = nextLimit.lower;
-    jointLimit.upper = nextLimit.upper;
-    jointLimit.effort = nextLimit.effort;
-    jointLimit.velocity = nextLimit.velocity;
+    const orderedLimit = normalizeJointLimitOrder(nextLimit);
+    jointLimit.lower = orderedLimit.lower;
+    jointLimit.upper = orderedLimit.upper;
+    jointLimit.effort = orderedLimit.effort;
+    jointLimit.velocity = orderedLimit.velocity;
     jointWithMutableState.ignoreLimits = false;
   } else {
     jointLimit.lower = 0;

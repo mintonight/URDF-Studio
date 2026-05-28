@@ -83,6 +83,8 @@ export interface TranslationKeys {
   bridgedComponentLockedHint: string;
   bridgeLimitRangeInvalid: string;
   bridgeNonFixedCycleUnsupported: string;
+  bridgeTabRelation: string;
+  bridgeTabTransform: string;
 
   // Property Editor
   properties: string;
@@ -433,6 +435,18 @@ export interface TranslationKeys {
   simpleMode: string;
   proMode: string;
   structureTree: string;
+  structureGraphTitle: string;
+  openStructureGraph: string;
+  structureGraphEmpty: string;
+  structureGraphRobot: string;
+  structureGraphAssembly: string;
+  structureGraphComponent: string;
+  structureGraphLink: string;
+  structureGraphJoint: string;
+  structureGraphBridge: string;
+  structureGraphZoomIn: string;
+  structureGraphZoomOut: string;
+  structureGraphResetView: string;
   assemblyTree: string;
   projectName: string;
   enterProjectName: string;

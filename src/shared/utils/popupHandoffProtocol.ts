@@ -18,8 +18,12 @@
  * Loaded from VITE_HANDOFF_ORIGINS env (comma-separated, supports `*` wildcard).
  * Falls back to localhost-only defaults when env is unset.
  */
+const handoffOriginsEnv = (
+  import.meta as ImportMeta & { env?: { VITE_HANDOFF_ORIGINS?: string } }
+).env?.VITE_HANDOFF_ORIGINS;
+
 export const ALLOWED_HANDOFF_ORIGINS: ReadonlyArray<string> = (
-  import.meta.env.VITE_HANDOFF_ORIGINS || 'http://localhost:*,http://127.0.0.1:*'
+  handoffOriginsEnv || 'http://localhost:*,http://127.0.0.1:*'
 )
   .split(',')
   .map((s: string) => s.trim())
@@ -42,10 +46,23 @@ export function isAllowedHandoffOrigin(origin: string): boolean {
 export const IMPORT_QUERY_PARAM = 'import';
 export const FROM_QUERY_PARAM = 'from';
 export const IMPORT_PROTOCOL_VERSION = 2;
+export const POPUP_HANDOFF_QUERY_PARAM = 'handoff';
 
 export interface AssetImportParams {
   assetId: string;
   fromOrigin: string;
+}
+
+export interface PopupHandoffArchiveRecord {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sourceOrigin: string;
+  createdAt: number;
+  zipBlob: Blob;
+  status?: 'pending' | 'consumed';
+  pluginKey?: string;
 }
 
 /** Read asset import parameters from a full URL string. Returns null if absent. */
@@ -63,6 +80,20 @@ export function stripImportParamsFromUrl(url: string): string {
   resolvedUrl.searchParams.delete(IMPORT_QUERY_PARAM);
   resolvedUrl.searchParams.delete(FROM_QUERY_PARAM);
   resolvedUrl.searchParams.delete('jwt');
+  return resolvedUrl.toString();
+}
+
+/** Read the legacy popup handoff ID from a URL string. Returns null if absent. */
+export function readHandoffIdFromUrl(url: string): string | null {
+  const resolvedUrl = new URL(url, 'http://localhost');
+  const handoffId = resolvedUrl.searchParams.get(POPUP_HANDOFF_QUERY_PARAM)?.trim() ?? '';
+  return handoffId.length > 0 ? handoffId : null;
+}
+
+/** Remove the legacy popup handoff query parameter from a URL string. */
+export function stripHandoffParamFromUrl(url: string): string {
+  const resolvedUrl = new URL(url, 'http://localhost');
+  resolvedUrl.searchParams.delete(POPUP_HANDOFF_QUERY_PARAM);
   return resolvedUrl.toString();
 }
 

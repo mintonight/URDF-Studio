@@ -216,5 +216,7 @@ export function prewarmPreparedUsdStageOpenDataInBackground(
   availableFiles: StageOpenAvailableFile[],
   assets: Record<string, string>,
 ): void {
-  void loadPreparedUsdStageOpenDataFromWorker(sourceFile, availableFiles, assets).catch(() => {});
+  void loadPreparedUsdStageOpenDataFromWorker(sourceFile, availableFiles, assets).catch((e) => {
+    console.error('[preparedUsdStageOpenCache] Background preload failed:', e);
+  });
 }

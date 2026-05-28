@@ -540,7 +540,7 @@ export class LinkDynamicsController {
         const buildPromise = this.startLinkDynamicsCatalogBuildIfNeeded(renderInterface);
         if (!buildPromise)
             return;
-        void buildPromise.catch(() => { });
+        void buildPromise.catch((e) => { console.error("[LinkDynamicsController] prewarmCatalog build failed:", e); });
     }
     async prewarmCatalogForInteractive(renderInterface) {
         if (!renderInterface?.meshes)
@@ -552,7 +552,9 @@ export class LinkDynamicsController {
         try {
             await buildPromise;
         }
-        catch { }
+        catch (e) {
+            console.error("[LinkDynamicsController] prewarmCatalogForInteractive build failed:", e);
+        }
     }
     async rebuild(usdRoot, renderInterface, optionsOrVisible) {
         const requestId = ++this.rebuildRequestId;

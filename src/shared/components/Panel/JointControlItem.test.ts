@@ -432,6 +432,76 @@ test('advanced limit commit does not leak non-serializable runtime joint fields 
   dom.window.close();
 });
 
+test('limit edits keep crossed lower and upper bounds ordered before updating the joint', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const updates: Array<{
+    type: 'link' | 'joint';
+    id: string;
+    data: { limit?: { lower?: number; upper?: number } };
+  }> = [];
+  const committedAngles: number[] = [];
+
+  await renderJointControlItem(root, {
+    name: 'elbow_joint',
+    joint: {
+      id: 'elbow_joint',
+      name: 'elbow_joint',
+      jointType: 'revolute',
+      limit: { lower: -1, upper: 1, effort: 1, velocity: 1 },
+    },
+    value: 0,
+    onUpdate: (type, id, data) => {
+      updates.push({
+        type,
+        id,
+        data: data as { limit?: { lower?: number; upper?: number } },
+      });
+    },
+    handleJointChangeCommit: (_name, angle) => {
+      committedAngles.push(angle);
+    },
+  });
+
+  const lowerLimitDisplay = Array.from(container.querySelectorAll('div')).find(
+    (node) => node.textContent === '-1.00',
+  );
+  assert.ok(lowerLimitDisplay, 'lower limit display should render');
+
+  await act(async () => {
+    lowerLimitDisplay.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+
+  const lowerInput = Array.from(
+    container.querySelectorAll<HTMLInputElement>('input[type="text"]'),
+  ).find((node) => node.value === '-1.00');
+  assert.ok(lowerInput, 'lower limit editor should open');
+
+  const nameLabel = container.querySelector('span[title="elbow_joint"]');
+  assert.ok(nameLabel, 'joint name label should render');
+
+  await act(async () => {
+    lowerInput.value = '2.00';
+    lowerInput.dispatchEvent(new Event('input', { bubbles: true }));
+    nameLabel.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  });
+
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0]?.type, 'joint');
+  assert.equal(updates[0]?.id, 'elbow_joint');
+  assert.deepEqual(updates[0]?.data.limit, {
+    lower: 1,
+    upper: 2,
+    effort: 1,
+    velocity: 1,
+  });
+  assert.deepEqual(committedAngles, [1]);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
 test('finite-limit sliders keep imported out-of-range poses visible instead of clamping them', async () => {
   const { dom, container, root } = createComponentRoot();
 

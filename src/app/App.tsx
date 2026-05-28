@@ -44,7 +44,6 @@ import {
   useUIStore,
   useSelectionStore,
   useAssetsStore,
-  useAssemblyStore,
 } from '@/store';
 import type { InspectionReport, RobotFile, RobotState } from '@/types';
 import type { HeaderAction } from './components/header/types';
@@ -244,7 +243,7 @@ function AIInspectionConnector({
       inspectionContext: state.inspectionContext,
     })),
   );
-  const { assemblyState, getMergedRobotData } = useAssemblyStore(
+  const { assemblyState, getMergedRobotData } = useRobotStore(
     useShallow((state) => ({
       assemblyState: state.assemblyState,
       getMergedRobotData: state.getMergedRobotData,
@@ -409,7 +408,7 @@ type ExportDialogTarget = { type: 'current' } | { type: 'library-file'; file: Ro
 
 function resolveCurrentAIRobotSnapshot(): RobotState {
   const { selection } = useSelectionStore.getState();
-  const { assemblyState, getMergedRobotData } = useAssemblyStore.getState();
+  const { assemblyState, getMergedRobotData } = useRobotStore.getState();
   const robotState = useRobotStore.getState();
 
   if (assemblyState) {
@@ -441,7 +440,11 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   const importInputRef = useRef<HTMLInputElement>(null);
   const importFolderInputRef = useRef<HTMLInputElement>(null);
   const loadRobotByNameRef = useRef<
-    ((file: RobotFile, options?: { forceReload?: boolean }) => Promise<void> | void) | null
+    | ((
+        file: RobotFile,
+        options?: { forceReload?: boolean; preserveAssemblyState?: boolean },
+      ) => Promise<void> | void)
+    | null
   >(null);
   const loadRequestIdRef = useRef(0);
   const aiConversationSessionIdRef = useRef(0);
@@ -477,7 +480,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       isSettingsOpen: state.isSettingsOpen,
     })),
   );
-  const setAssembly = useAssemblyStore((state) => state.setAssembly);
+  const setAssembly = useRobotStore((state) => state.setAssembly);
   const t = translations[lang];
 
   // Selection Store
@@ -582,7 +585,10 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   // Keep one internal loader so debug automation can force a reload of the
   // currently selected file without changing normal click behavior.
   const loadRobotFile = useCallback(
-    async (requestedFile: RobotFile, options?: { forceReload?: boolean }) => {
+    async (
+      requestedFile: RobotFile,
+      options?: { forceReload?: boolean; preserveAssemblyState?: boolean },
+    ) => {
       const liveAssetsState = useAssetsStore.getState();
       const file = resolveUsdViewerRoundtripSelection(
         requestedFile,
@@ -704,12 +710,13 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
             assets: liveAssetsState.assets,
             allFileContents: liveAssetsState.allFileContents,
             availableFiles: liveAssetsState.availableFiles,
-            currentAssemblyState: useAssemblyStore.getState().assemblyState,
+            currentAssemblyState: useRobotStore.getState().assemblyState,
             currentAppMode: useUIStore.getState().appMode,
             file,
             importResult: preResolvedImportResult,
             markRobotBaselineSaved: () => markUnsavedChangesBaselineSaved('robot'),
             onViewerReload: () => setViewerReloadKey((value) => value + 1),
+            preserveAssemblyState: options?.preserveAssemblyState,
             reloadViewer: shouldReloadViewer,
             setAppMode,
             setAssembly,
@@ -832,12 +839,13 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
           assets: liveAssetsState.assets,
           allFileContents: liveAssetsState.allFileContents,
           availableFiles: liveAssetsState.availableFiles,
-          currentAssemblyState: useAssemblyStore.getState().assemblyState,
+          currentAssemblyState: useRobotStore.getState().assemblyState,
           currentAppMode: useUIStore.getState().appMode,
           file,
           importResult,
           markRobotBaselineSaved: () => markUnsavedChangesBaselineSaved('robot'),
           onViewerReload: () => setViewerReloadKey((value) => value + 1),
+          preserveAssemblyState: options?.preserveAssemblyState,
           reloadViewer: shouldReloadViewer,
           setAppMode,
           setAssembly,
@@ -881,8 +889,8 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   );
 
   const handleLoadRobot = useCallback(
-    (file: RobotFile) => {
-      loadRobotFile(file);
+    (file: RobotFile, options?: { preserveAssemblyState?: boolean }) => {
+      loadRobotFile(file, options);
     },
     [loadRobotFile],
   );
@@ -1228,6 +1236,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
     openCollisionOptimizer: () => void;
     openTool: (key: string) => void;
   }>({ openIkTool: () => {}, openCollisionOptimizer: () => {}, openTool: () => {} });
+  const hasExposedLayoutActionsRef = useRef(false);
 
   const [layoutReady, setLayoutReady] = useState(false);
 
@@ -1266,6 +1275,23 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
 
   // Plugin launch protocol: read ?plugin=<key> from URL and activate the tool
   usePluginLaunch(layoutReady ? layoutActionsRef.current.openTool : undefined);
+
+  const handleExposeLayoutActions = useCallback(
+    (actions: {
+      openIkTool: () => void;
+      openCollisionOptimizer: () => void;
+      openTool: (key: string) => void;
+    }) => {
+      layoutActionsRef.current = actions;
+      if (hasExposedLayoutActionsRef.current) {
+        return;
+      }
+
+      hasExposedLayoutActionsRef.current = true;
+      setLayoutReady(true);
+    },
+    [],
+  );
 
   const handleConfirmDisconnectedWorkspaceUrdfExport = useCallback(async () => {
     if (!disconnectedWorkspaceUrdfDialog) {
@@ -1335,10 +1361,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         importPreparationOverlay={importPreparationOverlay}
         headerQuickAction={extensions?.config?.headerQuickAction}
         headerSecondaryAction={extensions?.config?.headerSecondaryAction}
-        onExposeLayoutActions={(actions) => {
-          layoutActionsRef.current = actions;
-          setLayoutReady(true);
-        }}
+        onExposeLayoutActions={handleExposeLayoutActions}
       />
 
       {/* Modals */}

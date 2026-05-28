@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 
 import { DEFAULT_LINK, GeometryType, type RobotData, type RobotFile } from '@/types';
 import { generateMujocoXML, generateURDF } from '@/core/parsers';
-import { useAssemblyStore } from './assemblyStore.ts';
+import { useRobotStore } from './robotStore.ts';
 
 function resetAssemblyStore() {
-  const state = useAssemblyStore.getState();
+  const state = useRobotStore.getState();
   state.clearHistory();
   state.exitAssembly();
   state.setAssembly(null);
@@ -42,7 +42,7 @@ function expectSerializedHexColor(
 test('addComponent applies USD RobotData provided through context', () => {
   resetAssemblyStore();
 
-  useAssemblyStore.getState().initAssembly('usd-integration');
+  useRobotStore.getState().initAssembly('usd-integration');
 
   const usdFile: RobotFile = {
     name: 'robots/demo/simple.usd',
@@ -64,7 +64,7 @@ test('addComponent applies USD RobotData provided through context', () => {
     joints: {},
   };
 
-  const component = useAssemblyStore.getState().addComponent(usdFile, {
+  const component = useRobotStore.getState().addComponent(usdFile, {
     availableFiles: [],
     assets: {},
     preResolvedRobotData,
@@ -75,7 +75,7 @@ test('addComponent applies USD RobotData provided through context', () => {
   assert.ok(component?.robot.links.comp_simple_usd_root);
   assert.equal(component?.robot.rootLinkId, 'comp_simple_usd_root');
 
-  const stored = useAssemblyStore.getState().assemblyState?.components[component!.id];
+  const stored = useRobotStore.getState().assemblyState?.components[component!.id];
   assert.ok(stored, 'Assembly state should hold the new component');
   assert.equal(stored?.sourceFile, 'robots/demo/simple.usd');
   assert.equal(component?.id, stored?.id);
@@ -84,7 +84,7 @@ test('addComponent applies USD RobotData provided through context', () => {
 test('assembly export preserves colors stored in component materials after prefixing', () => {
   resetAssemblyStore();
 
-  useAssemblyStore.getState().initAssembly('usd-material-export');
+  useRobotStore.getState().initAssembly('usd-material-export');
 
   const usdFile: RobotFile = {
     name: 'robots/demo/materials.usd',
@@ -117,7 +117,7 @@ test('assembly export preserves colors stored in component materials after prefi
     },
   };
 
-  const component = useAssemblyStore.getState().addComponent(usdFile, {
+  const component = useRobotStore.getState().addComponent(usdFile, {
     availableFiles: [],
     assets: {},
     preResolvedRobotData,
@@ -125,7 +125,7 @@ test('assembly export preserves colors stored in component materials after prefi
 
   assert.ok(component, 'USD component creation should not return null');
 
-  const merged = useAssemblyStore.getState().getMergedRobotData();
+  const merged = useRobotStore.getState().getMergedRobotData();
   assert.ok(merged, 'Merged robot data should be available for export');
 
   const robotForExport = {
@@ -155,7 +155,7 @@ test('assembly export preserves colors stored in component materials after prefi
 test('updateComponentRobot keeps namespaced component materials in sync with edited visual colors', () => {
   resetAssemblyStore();
 
-  useAssemblyStore.getState().initAssembly('usd-material-sync');
+  useRobotStore.getState().initAssembly('usd-material-sync');
 
   const usdFile: RobotFile = {
     name: 'robots/demo/material_sync.usd',
@@ -183,7 +183,7 @@ test('updateComponentRobot keeps namespaced component materials in sync with edi
     joints: {},
   };
 
-  const component = useAssemblyStore.getState().addComponent(usdFile, {
+  const component = useRobotStore.getState().addComponent(usdFile, {
     availableFiles: [],
     assets: {},
     preResolvedRobotData,
@@ -200,14 +200,14 @@ test('updateComponentRobot keeps namespaced component materials in sync with edi
     },
   };
 
-  useAssemblyStore.getState().updateComponentRobot(component!.id, {
+  useRobotStore.getState().updateComponentRobot(component!.id, {
     links: {
       ...component!.robot.links,
       [linkId]: updatedLink,
     },
   });
 
-  const stored = useAssemblyStore.getState().assemblyState?.components[component!.id];
+  const stored = useRobotStore.getState().assemblyState?.components[component!.id];
   assert.equal(stored?.robot.links[linkId].visual.color, '#ff6600');
   assert.equal(stored?.robot.materials?.[linkId]?.color, '#ff6600');
 });
@@ -215,7 +215,7 @@ test('updateComponentRobot keeps namespaced component materials in sync with edi
 test('addComponent rewrites USD prepared mesh paths into source-relative library paths', () => {
   resetAssemblyStore();
 
-  useAssemblyStore.getState().initAssembly('usd-mesh-path-rewrite');
+  useRobotStore.getState().initAssembly('usd-mesh-path-rewrite');
 
   const usdFile: RobotFile = {
     name: 'robots/go2/usd/go2.usd',
@@ -242,7 +242,7 @@ test('addComponent rewrites USD prepared mesh paths into source-relative library
     joints: {},
   };
 
-  const component = useAssemblyStore.getState().addComponent(usdFile, {
+  const component = useRobotStore.getState().addComponent(usdFile, {
     availableFiles: [],
     assets: {},
     preResolvedRobotData,

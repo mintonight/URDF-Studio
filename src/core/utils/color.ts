@@ -5,6 +5,8 @@ export interface ParsedThreeColor {
   opacity: number | null;
 }
 
+export type ColorRgbaTuple = [number, number, number, number];
+
 export function createThreeColorFromSRGB(
   red: number,
   green: number,
@@ -27,6 +29,61 @@ function expandShortHex(hex: string): string {
     .split('')
     .map((char) => `${char}${char}`)
     .join('');
+}
+
+function clampUnitInterval(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+function normalizeColorChannel(value: number): number {
+  return Math.abs(value) <= 1 ? value * 255 : value;
+}
+
+function toHexChannel(value: number): string {
+  return Math.max(0, Math.min(255, Math.round(normalizeColorChannel(value))))
+    .toString(16)
+    .padStart(2, '0');
+}
+
+export function normalizeColorRgbaTuple(
+  value: readonly number[] | null | undefined,
+): ColorRgbaTuple | null {
+  if (!Array.isArray(value) || value.length < 4) {
+    return null;
+  }
+
+  const channels = value.slice(0, 4).map((channel) => Number(channel));
+  if (!channels.every((channel) => Number.isFinite(channel))) {
+    return null;
+  }
+
+  return [
+    clampUnitInterval(channels[0]!),
+    clampUnitInterval(channels[1]!),
+    clampUnitInterval(channels[2]!),
+    clampUnitInterval(channels[3]!),
+  ];
+}
+
+export function colorRgbaTupleToHex(
+  value: readonly number[] | null | undefined,
+  options: { includeOpaqueAlpha?: boolean } = {},
+): string | null {
+  const rgba = normalizeColorRgbaTuple(value);
+  if (!rgba) {
+    return null;
+  }
+
+  const [red, green, blue, alpha] = rgba;
+  const rgb = `${toHexChannel(red)}${toHexChannel(green)}${toHexChannel(blue)}`;
+  return alpha < 0.999 || options.includeOpaqueAlpha ? `#${rgb}${toHexChannel(alpha)}` : `#${rgb}`;
+}
+
+export function colorRgbaTupleToOpacity(
+  value: readonly number[] | null | undefined,
+): number | undefined {
+  const rgba = normalizeColorRgbaTuple(value);
+  return rgba ? rgba[3] : undefined;
 }
 
 export function parseThreeColorWithOpacity(
@@ -85,7 +142,8 @@ export function parseThreeColorWithOpacity(
       color: new THREE.Color(value),
       opacity: null,
     };
-  } catch {
+  } catch (e) {
+    console.error('[color] parseColorFast failed:', value, e);
     return null;
   }
 }

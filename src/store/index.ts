@@ -33,11 +33,10 @@ export {
   useRootLinkId,
   useCanUndo,
   useCanRedo,
+  useAssemblyCanUndo,
+  useAssemblyCanRedo,
 } from './robotStore';
 export type { RobotData } from './robotStore';
-
-// Assembly Store - multi-URDF assembly
-export { useAssemblyStore, useAssemblyCanUndo, useAssemblyCanRedo } from './assemblyStore';
 
 // Assembly selection store - component/assembly transform targets in workspace mode
 export { useAssemblySelectionStore, ASSEMBLY_SELECTION_ID } from './assemblySelectionStore';

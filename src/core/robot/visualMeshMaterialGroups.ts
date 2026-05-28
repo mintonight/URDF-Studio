@@ -35,8 +35,11 @@ function normalizeAuthoredMaterialEntry(
         ] as [number, number, number, number])
       : undefined;
   const texture = normalizeMaterialValue(material.texture);
+  const opacity = Number.isFinite(material.opacity)
+    ? Math.min(1, Math.max(0, Number(material.opacity)))
+    : undefined;
 
-  if (!name && !color && !colorRgba && !texture) {
+  if (!name && !color && !colorRgba && !texture && opacity === undefined) {
     return null;
   }
 
@@ -45,6 +48,7 @@ function normalizeAuthoredMaterialEntry(
     ...(color ? { color } : {}),
     ...(colorRgba ? { colorRgba } : {}),
     ...(texture ? { texture } : {}),
+    ...(opacity !== undefined ? { opacity } : {}),
   };
 }
 

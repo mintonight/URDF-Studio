@@ -18,6 +18,11 @@ import {
   formatNumberWithMaxDecimals,
 } from '@/core/utils/numberPrecision';
 import {
+  colorRgbaTupleToHex,
+  normalizeColorRgbaTuple,
+  type ColorRgbaTuple,
+} from '@/core/utils/color';
+import {
   getGeometryAuthoredMaterials,
   collectGeometryTexturePaths,
   computeLinkWorldMatrices,
@@ -251,7 +256,9 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
   };
 
   // Helper to convert hex color to rgba string
-  const hexToRgba = (hex: string) => {
+  const clampUnitForRgba = (value: number) => Math.max(0, Math.min(1, Number(value)));
+
+  const hexToRgba = (hex: string, opacityOverride?: number) => {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})?$/i.exec(
       String(hex || '').trim(),
     );
@@ -259,7 +266,11 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
     const r = parseInt(result[1], 16) / 255;
     const g = parseInt(result[2], 16) / 255;
     const b = parseInt(result[3], 16) / 255;
-    const a = result[4] ? parseInt(result[4], 16) / 255 : 1;
+    const a = Number.isFinite(opacityOverride)
+      ? clampUnitForRgba(Number(opacityOverride))
+      : result[4]
+        ? parseInt(result[4], 16) / 255
+        : 1;
     return `${formatNumberWithMaxDecimals(r, 4)} ${formatNumberWithMaxDecimals(g, 4)} ${formatNumberWithMaxDecimals(b, 4)} ${formatNumberWithMaxDecimals(a, 4)}`;
   };
 
@@ -667,6 +678,8 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
     linkId: string;
     objectIndex: number;
     color: string;
+    colorRgba?: ColorRgbaTuple;
+    opacity?: number;
     texture?: string;
     cubeTextureKey?: string;
     specular?: number;
@@ -692,6 +705,8 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
     linkId: string;
     objectIndex: number;
     color: string;
+    colorRgba?: ColorRgbaTuple;
+    opacity?: number;
     texture?: string;
     specular?: number;
   }
@@ -703,6 +718,27 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
 
     return Math.max(0, Math.min(1, Number(value)));
   };
+
+  const colorRgbaToMjcfRgba = (
+    colorRgba?: readonly number[] | null,
+    opacityOverride?: number,
+  ): string | null => {
+    const normalized = normalizeColorRgbaTuple(colorRgba);
+    if (!normalized) {
+      return null;
+    }
+
+    const opacity = clampUnitScalar(opacityOverride) ?? normalized[3];
+    return [normalized[0], normalized[1], normalized[2], opacity]
+      .map((value) => formatNumberWithMaxDecimals(value, 4))
+      .join(' ');
+  };
+
+  const materialToMjcfRgba = (
+    color: string,
+    colorRgba?: readonly number[] | null,
+    opacity?: number,
+  ): string => colorRgbaToMjcfRgba(colorRgba, opacity) ?? hexToRgba(color, opacity);
 
   const resolveLinkMaterialPbr = (
     link: UrdfLink,
@@ -777,6 +813,8 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
     options: { isPrimaryVisual: boolean },
   ): {
     color: string;
+    colorRgba?: ColorRgbaTuple;
+    opacity?: number;
     texture?: string;
     source: 'authored' | 'legacy-link' | 'inline';
   } => {
@@ -788,9 +826,14 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
       return {
         color:
           resolvedMaterial.color ||
+          colorRgbaTupleToHex(resolvedMaterial.colorRgba) ||
           (resolvedMaterial.texture ? '#ffffff' : undefined) ||
           visual.color ||
           '#808080',
+        ...(resolvedMaterial.colorRgba ? { colorRgba: resolvedMaterial.colorRgba } : {}),
+        ...(Number.isFinite(resolvedMaterial.opacity)
+          ? { opacity: Number(resolvedMaterial.opacity) }
+          : {}),
         texture: resolvedMaterial.texture,
         source: 'authored',
       };
@@ -800,9 +843,14 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
       return {
         color:
           resolvedMaterial.color ||
+          colorRgbaTupleToHex(resolvedMaterial.colorRgba) ||
           (resolvedMaterial.texture ? '#ffffff' : undefined) ||
           visual.color ||
           '#808080',
+        ...(resolvedMaterial.colorRgba ? { colorRgba: resolvedMaterial.colorRgba } : {}),
+        ...(Number.isFinite(resolvedMaterial.opacity)
+          ? { opacity: Number(resolvedMaterial.opacity) }
+          : {}),
         texture: resolvedMaterial.texture,
         source: 'legacy-link',
       };
@@ -817,14 +865,23 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
   const resolveVisualVariantMaterialState = (
     visual: UrdfLink['visual'],
     variant: MjcfVisualMeshVariant,
-    fallback: Pick<ReturnType<typeof resolveVisualMaterialState>, 'color' | 'texture'>,
+    fallback: Pick<
+      ReturnType<typeof resolveVisualMaterialState>,
+      'color' | 'colorRgba' | 'opacity' | 'texture'
+    >,
   ): {
     color: string;
+    colorRgba?: ColorRgbaTuple;
+    opacity?: number;
     texture?: string;
   } => {
     const authoredMaterials = getGeometryAuthoredMaterials(visual);
     const fallbackState = {
       color: variant.color || fallback.color,
+      ...(!variant.color && fallback.colorRgba ? { colorRgba: fallback.colorRgba } : {}),
+      ...(!variant.color && Number.isFinite(fallback.opacity)
+        ? { opacity: Number(fallback.opacity) }
+        : {}),
       ...(fallback.texture ? { texture: fallback.texture } : {}),
     };
 
@@ -844,8 +901,15 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
           color:
             variant.color ||
             matchedMaterial.color ||
+            colorRgbaTupleToHex(matchedMaterial.colorRgba) ||
             (matchedMaterial.texture ? '#ffffff' : undefined) ||
             fallback.color,
+          ...(!variant.color && matchedMaterial.colorRgba
+            ? { colorRgba: matchedMaterial.colorRgba }
+            : {}),
+          ...(!variant.color && Number.isFinite(matchedMaterial.opacity)
+            ? { opacity: Number(matchedMaterial.opacity) }
+            : {}),
           ...(matchedMaterial.texture ? { texture: matchedMaterial.texture } : {}),
         };
       }
@@ -860,8 +924,15 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
           color:
             variant.color ||
             singleMaterial.color ||
+            colorRgbaTupleToHex(singleMaterial.colorRgba) ||
             (singleMaterial.texture ? '#ffffff' : undefined) ||
             fallback.color,
+          ...(!variant.color && singleMaterial.colorRgba
+            ? { colorRgba: singleMaterial.colorRgba }
+            : {}),
+          ...(!variant.color && Number.isFinite(singleMaterial.opacity)
+            ? { opacity: Number(singleMaterial.opacity) }
+            : {}),
           ...(singleMaterial.texture ? { texture: singleMaterial.texture } : {}),
         };
       }
@@ -966,6 +1037,12 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
             linkId,
             objectIndex: entry.objectIndex,
             color: variantMaterialState.color,
+            ...(variantMaterialState.colorRgba
+              ? { colorRgba: variantMaterialState.colorRgba }
+              : {}),
+            ...(Number.isFinite(variantMaterialState.opacity)
+              ? { opacity: Number(variantMaterialState.opacity) }
+              : {}),
             texture: variantMaterialState.texture,
             specular: 0,
           });
@@ -1016,6 +1093,12 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
         linkId,
         objectIndex: entry.objectIndex,
         color: cubeTextureKey ? '#ffffff' : materialState.color,
+        ...(!cubeTextureKey && materialState.colorRgba
+          ? { colorRgba: materialState.colorRgba }
+          : {}),
+        ...(!cubeTextureKey && Number.isFinite(materialState.opacity)
+          ? { opacity: Number(materialState.opacity) }
+          : {}),
         texture: cubeTextureKey ? undefined : materialState.texture,
         ...(cubeTextureKey ? { cubeTextureKey } : {}),
         ...pbr,
@@ -1343,7 +1426,18 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
     xml += `    <texture name="${textureName}" type="cube" fileright="${cubeTextureAsset.fileright}" fileleft="${cubeTextureAsset.fileleft}" fileup="${cubeTextureAsset.fileup}" filedown="${cubeTextureAsset.filedown}" filefront="${cubeTextureAsset.filefront}" fileback="${cubeTextureAsset.fileback}" />\n`;
   });
   visualMaterialAssets.forEach(
-    ({ visualKey, color, texture, cubeTextureKey, specular, shininess, reflectance, emission }) => {
+    ({
+      visualKey,
+      color,
+      colorRgba,
+      opacity,
+      texture,
+      cubeTextureKey,
+      specular,
+      shininess,
+      reflectance,
+      emission,
+    }) => {
       const materialName = visualMaterialNameMap.get(visualKey);
       if (!materialName) {
         return;
@@ -1360,14 +1454,15 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
           : '',
         Number.isFinite(emission) ? ` emission="${formatNumberWithMaxDecimals(emission!, 4)}"` : '',
       ].join('');
+      const rgba = materialToMjcfRgba(color, colorRgba, opacity);
       xml += cubeTextureAssetName
-        ? `    <material name="${materialName}" rgba="${hexToRgba(color)}" texture="${cubeTextureAssetName}"${pbrAttrs} />\n`
+        ? `    <material name="${materialName}" rgba="${rgba}" texture="${cubeTextureAssetName}"${pbrAttrs} />\n`
         : textureAssetName
-          ? `    <material name="${materialName}" rgba="${hexToRgba(color)}" texture="${textureAssetName}"${pbrAttrs} />\n`
-          : `    <material name="${materialName}" rgba="${hexToRgba(color)}"${pbrAttrs} />\n`;
+          ? `    <material name="${materialName}" rgba="${rgba}" texture="${textureAssetName}"${pbrAttrs} />\n`
+          : `    <material name="${materialName}" rgba="${rgba}"${pbrAttrs} />\n`;
     },
   );
-  visualVariantMaterialAssets.forEach(({ key, color, texture, specular }) => {
+  visualVariantMaterialAssets.forEach(({ key, color, colorRgba, opacity, texture, specular }) => {
     const materialName = visualVariantMaterialNameMap.get(key);
     if (!materialName) {
       return;
@@ -1377,9 +1472,10 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
     const specularAttr = Number.isFinite(specular)
       ? ` specular="${formatNumberWithMaxDecimals(specular!, 4)}"`
       : '';
+    const rgba = materialToMjcfRgba(color, colorRgba, opacity);
     xml += textureAssetName
-      ? `    <material name="${materialName}" rgba="${hexToRgba(color)}" texture="${textureAssetName}"${specularAttr} />\n`
-      : `    <material name="${materialName}" rgba="${hexToRgba(color)}"${specularAttr} />\n`;
+      ? `    <material name="${materialName}" rgba="${rgba}" texture="${textureAssetName}"${specularAttr} />\n`
+      : `    <material name="${materialName}" rgba="${rgba}"${specularAttr} />\n`;
   });
   xml += `  </asset>\n\n`;
 
@@ -1416,9 +1512,8 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
       bodyRotation = parentJoint.origin.rpy;
     }
 
-    const bodyName = (link.name || link.id).trim().toLowerCase() === 'world'
-      ? 'world_link'
-      : link.name;
+    const bodyName =
+      (link.name || link.id).trim().toLowerCase() === 'world' ? 'world_link' : link.name;
     let bodyXml = `${indent}<body name="${escapeXmlAttribute(bodyName)}" pos="${pos}"${quatAttr(bodyRotation)}>\n`;
 
     // 1. Joint Definition (inside the body it belongs to)

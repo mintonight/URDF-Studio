@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { JointType } from '@/types';
+import { normalizeJointLimitOrder } from '@/core/robot';
 import type { JointPanelActiveJointOptions } from '@/shared/utils/jointPanelStore';
 import {
   createJointDragStoreSync,
@@ -96,38 +97,47 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
     ],
   );
 
-  const [localLimits, setLocalLimits] = useState({
-    lower: limit.lower,
-    upper: limit.upper,
-    effort: limit.effort || 0,
-    velocity: limit.velocity || 0,
-  });
-
-  useEffect(() => {
-    setLocalLimits({
+  const [localLimits, setLocalLimits] = useState(() =>
+    normalizeJointLimitOrder({
       lower: limit.lower,
       upper: limit.upper,
       effort: limit.effort || 0,
       velocity: limit.velocity || 0,
-    });
+    }),
+  );
+
+  useEffect(() => {
+    setLocalLimits(
+      normalizeJointLimitOrder({
+        lower: limit.lower,
+        upper: limit.upper,
+        effort: limit.effort || 0,
+        velocity: limit.velocity || 0,
+      }),
+    );
   }, [joint.id, limit.lower, limit.upper, limit.effort, limit.velocity]);
 
-  const hasFiniteLimits = supportsAdjustableLimits && hasEffectivelyFiniteJointLimits(localLimits);
+  const orderedLocalLimits = React.useMemo(
+    () => normalizeJointLimitOrder(localLimits),
+    [localLimits],
+  );
+  const hasFiniteLimits =
+    supportsAdjustableLimits && hasEffectivelyFiniteJointLimits(orderedLocalLimits);
 
   const formatLimitInputValue = (limitValue: number | undefined) =>
     Number.isFinite(limitValue) ? Number(limitValue).toFixed(2) : '';
 
   const updateLimit = useCallback(
     (key: 'lower' | 'upper' | 'effort' | 'velocity', val: number) => {
-      const newLimits = { ...localLimits, [key]: val };
+      const newLimits = normalizeJointLimitOrder({ ...localLimits, [key]: val });
       setLocalLimits(newLimits);
 
-      if (key === 'lower' && value < val) {
-        handleJointAngleChange(name, val);
-        handleJointChangeCommit(name, val);
-      } else if (key === 'upper' && value > val) {
-        handleJointAngleChange(name, val);
-        handleJointChangeCommit(name, val);
+      if ((key === 'lower' || key === 'upper') && hasEffectivelyFiniteJointLimits(newLimits)) {
+        const clampedValue = Math.min(Math.max(value, newLimits.lower), newLimits.upper);
+        if (Math.abs(clampedValue - value) > 1e-9) {
+          handleJointAngleChange(name, clampedValue);
+          handleJointChangeCommit(name, clampedValue);
+        }
       }
 
       const jointId = name || joint.id;
@@ -172,10 +182,10 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
 
   const displayValue = toJointDisplayValue(sliderPreviewValue, jointType, angleUnit);
   const displayMin = hasFiniteLimits
-    ? toJointDisplayValue(localLimits.lower, jointType, angleUnit)
+    ? toJointDisplayValue(orderedLocalLimits.lower, jointType, angleUnit)
     : Number.NEGATIVE_INFINITY;
   const displayMax = hasFiniteLimits
-    ? toJointDisplayValue(localLimits.upper, jointType, angleUnit)
+    ? toJointDisplayValue(orderedLocalLimits.upper, jointType, angleUnit)
     : Number.POSITIVE_INFINITY;
   const displayUnit = getJointValueUnitLabel(jointType, angleUnit);
   const step = getJointSliderStep(jointType, angleUnit);
@@ -259,19 +269,19 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
   const effortInputRef = useRef<HTMLInputElement>(null);
   const velocityInputRef = useRef<HTMLInputElement>(null);
 
-  const [lowerInput, setLowerInput] = useState(formatLimitInputValue(localLimits.lower));
-  const [upperInput, setUpperInput] = useState(formatLimitInputValue(localLimits.upper));
+  const [lowerInput, setLowerInput] = useState(formatLimitInputValue(orderedLocalLimits.lower));
+  const [upperInput, setUpperInput] = useState(formatLimitInputValue(orderedLocalLimits.upper));
 
   const [effortInput, setEffortInput] = useState(localLimits.effort.toFixed(2));
   const [velocityInput, setVelocityInput] = useState(localLimits.velocity.toFixed(2));
 
   useEffect(() => {
-    if (!isEditingLower) setLowerInput(formatLimitInputValue(localLimits.lower));
-  }, [localLimits.lower, isEditingLower]);
+    if (!isEditingLower) setLowerInput(formatLimitInputValue(orderedLocalLimits.lower));
+  }, [orderedLocalLimits.lower, isEditingLower]);
 
   useEffect(() => {
-    if (!isEditingUpper) setUpperInput(formatLimitInputValue(localLimits.upper));
-  }, [localLimits.upper, isEditingUpper]);
+    if (!isEditingUpper) setUpperInput(formatLimitInputValue(orderedLocalLimits.upper));
+  }, [orderedLocalLimits.upper, isEditingUpper]);
 
   useEffect(() => {
     if (!isEditingEffort) setEffortInput(localLimits.effort.toFixed(2));

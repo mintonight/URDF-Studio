@@ -456,6 +456,22 @@ function rgbaToHexColor(rgba: number[]): string | null {
   return `#${rgbHex}${toHexChannel(a)}`;
 }
 
+function rgbaToColorRgbaTuple(
+  rgba: number[] | undefined,
+): [number, number, number, number] | undefined {
+  if (!rgba || rgba.length < 3) {
+    return undefined;
+  }
+
+  const [r, g, b, a = 1] = rgba;
+  if (![r, g, b, a].every((value) => Number.isFinite(value))) {
+    return undefined;
+  }
+
+  const clamp = (value: number) => Math.max(0, Math.min(1, Number(value)));
+  return [clamp(r), clamp(g), clamp(b), clamp(a)];
+}
+
 function deriveGeomMassInertial(geoms: MJCFGeom[]): UrdfLink['inertial'] | null {
   const massGeoms = geoms.filter(
     (geom) => typeof geom.mass === 'number' && Number.isFinite(geom.mass) && (geom.mass ?? 0) > 0,
@@ -1319,7 +1335,9 @@ function mjcfToRobotState(
   let rootLinkId = '';
   let linkCounter = 0;
 
-  function resolveGeomMaterialState(geom: MJCFGeom): { color?: string; texture?: string } | null {
+  function resolveGeomMaterialState(
+    geom: MJCFGeom,
+  ): { color?: string; colorRgba?: [number, number, number, number]; texture?: string } | null {
     const materialDef = geom.material ? materialMap.get(geom.material) : undefined;
     const texturePath = materialDef?.texture
       ? textureMap.get(materialDef.texture)?.file
@@ -1332,6 +1350,7 @@ function mjcfToRobotState(
     const inheritedGeomRgba = geom.rgba && geom.rgba.length >= 3 ? geom.rgba : undefined;
     const resolvedRgba = explicitGeomRgba ?? materialRgba ?? inheritedGeomRgba;
     const resolvedColor = resolvedRgba ? rgbaToHexColor(resolvedRgba) || undefined : undefined;
+    const resolvedColorRgba = rgbaToColorRgbaTuple(resolvedRgba);
 
     // MJCF textures use white as the neutral color multiplier when rgba is absent.
     const neutralTextureColor = texturePath ? '#ffffff' : undefined;
@@ -1343,6 +1362,7 @@ function mjcfToRobotState(
 
     return {
       ...(color ? { color } : {}),
+      ...(resolvedColorRgba ? { colorRgba: resolvedColorRgba } : {}),
       ...(texturePath ? { texture: texturePath } : {}),
     };
   }
@@ -1360,9 +1380,10 @@ function mjcfToRobotState(
     const inheritedGeomRgba = geom.rgba && geom.rgba.length >= 3 ? geom.rgba : undefined;
     const resolvedRgba = explicitGeomRgba ?? materialRgba ?? inheritedGeomRgba;
     const sharedColor = resolvedRgba ? rgbaToHexColor(resolvedRgba) || undefined : undefined;
+    const sharedColorRgba = rgbaToColorRgbaTuple(resolvedRgba);
 
     if (cubeFaceRecord) {
-      return buildMjcfCubeAuthoredMaterials(cubeFaceRecord, sharedColor);
+      return buildMjcfCubeAuthoredMaterials(cubeFaceRecord, sharedColor, sharedColorRgba);
     }
 
     const texturePath = textureDef?.file;
@@ -1374,6 +1395,7 @@ function mjcfToRobotState(
       {
         ...(geom.material ? { name: geom.material } : {}),
         ...(sharedColor ? { color: sharedColor } : {}),
+        ...(sharedColorRgba ? { colorRgba: sharedColorRgba } : {}),
         ...(texturePath ? { texture: texturePath } : {}),
         ...(Number.isFinite(materialDef?.shininess)
           ? { roughness: Math.max(0, Math.min(1, 1 - Number(materialDef!.shininess))) }

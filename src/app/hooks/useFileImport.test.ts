@@ -13,9 +13,8 @@ import { disposeImportPreparationWorker } from './importPreparationWorkerBridge.
 import { disposeRobotImportWorker } from './robotImportWorkerBridge.ts';
 import { hydrateDeferredImportAssets, prepareImportPayload } from '@/app/utils/importPreparation';
 import {
-  useAssemblyStore,
-  useAssetsStore,
   useRobotStore,
+  useAssetsStore,
   useSelectionStore,
   useUIStore,
 } from '@/store';
@@ -144,7 +143,7 @@ function resetStoresToBaseline() {
     appMode: 'editor',
   });
 
-  useAssemblyStore.setState({
+  useRobotStore.setState({
     assemblyState: null,
     _history: { past: [], future: [] },
     _activity: [],
@@ -582,7 +581,7 @@ test('useFileImport opens a single loose folder robot without auto-adding it to 
     assert.equal(loadCalls.length, 1);
     assert.equal(loadCalls[0]?.name, 'demo_bundle/urdf/demo.urdf');
     assert.equal(
-      useAssemblyStore.getState().assemblyState,
+      useRobotStore.getState().assemblyState,
       null,
       'single folder robot imports should wait for the explicit Add action before entering workspace assembly',
     );
@@ -659,7 +658,7 @@ test('useFileImport does not hide-seed an assembly when importing multiple stand
       true,
     );
     assert.equal(
-      useAssemblyStore.getState().assemblyState,
+      useRobotStore.getState().assemblyState,
       null,
       'multiple standalone MJCF imports should wait for an explicit advanced-mode seed',
     );
@@ -733,10 +732,15 @@ test('useFileImport keeps editor mode active across repeated imports', async () 
   }
 });
 
-test('useFileImport still auto-opens standalone package-backed URDF files with a warning toast', async () => {
+test('useFileImport still auto-opens standalone package-backed URDF files with a console warning', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const workerMock = installRobotImportWorkerMock();
+  const originalConsoleWarn = console.warn;
+  const warnCalls: string[] = [];
+  console.warn = (...args: unknown[]) => {
+    warnCalls.push(args.map((arg) => String(arg)).join(' '));
+  };
 
   const importedFile = new File(
     [
@@ -755,13 +759,9 @@ test('useFileImport still auto-opens standalone package-backed URDF files with a
   );
 
   const loadCalls: RobotFile[] = [];
-  const toastCalls: Array<{ message: string; type?: 'info' | 'success' }> = [];
   const rendered = renderHook({
     onLoadRobot: (file) => {
       loadCalls.push(file);
-    },
-    onShowToast: (message, type) => {
-      toastCalls.push({ message, type });
     },
   });
 
@@ -773,10 +773,12 @@ test('useFileImport still auto-opens standalone package-backed URDF files with a
     assert.equal(useAssetsStore.getState().selectedFile, null);
     assert.equal(useAssetsStore.getState().availableFiles[0]?.name, 'aliengo.urdf');
     assert.match(
-      toastCalls.map((entry) => entry.message).join('\n'),
+      warnCalls.join('\n'),
       /Import the full folder or archive so meshes and textures are available/i,
     );
+    assert.match(warnCalls.join('\n'), /aliengo_description\/meshes\/trunk\.dae/i);
   } finally {
+    console.warn = originalConsoleWarn;
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 20));
     workerMock.restore();
@@ -785,10 +787,15 @@ test('useFileImport still auto-opens standalone package-backed URDF files with a
   }
 });
 
-test('useFileImport blocks standalone MJCF files from auto-opening without matching mesh assets', async () => {
+test('useFileImport warns and auto-opens standalone MJCF files without matching mesh assets', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const workerMock = installRobotImportWorkerMock();
+  const originalConsoleWarn = console.warn;
+  const warnCalls: string[] = [];
+  console.warn = (...args: unknown[]) => {
+    warnCalls.push(args.map((arg) => String(arg)).join(' '));
+  };
 
   const importedFile = new File(
     [
@@ -809,27 +816,26 @@ test('useFileImport blocks standalone MJCF files from auto-opening without match
   );
 
   const loadCalls: RobotFile[] = [];
-  const toastCalls: Array<{ message: string; type?: 'info' | 'success' }> = [];
   const rendered = renderHook({
     onLoadRobot: (file) => {
       loadCalls.push(file);
-    },
-    onShowToast: (message, type) => {
-      toastCalls.push({ message, type });
     },
   });
 
   try {
     await rendered.hook.handleImport([importedFile] as unknown as FileList);
 
-    assert.equal(loadCalls.length, 0);
+    assert.equal(loadCalls.length, 1);
+    assert.equal(loadCalls[0]?.name, 'dynamixel_2r.xml');
     assert.equal(useAssetsStore.getState().selectedFile, null);
+    assert.equal(useAssetsStore.getState().availableFiles[0]?.name, 'dynamixel_2r.xml');
     assert.match(
-      toastCalls.map((entry) => entry.message).join('\n'),
+      warnCalls.join('\n'),
       /Import the full folder or archive so meshes and textures are available/i,
     );
-    assert.match(toastCalls.map((entry) => entry.message).join('\n'), /assets\/nut_2_5\.stl/i);
+    assert.match(warnCalls.join('\n'), /assets\/nut_2_5\.stl/i);
   } finally {
+    console.warn = originalConsoleWarn;
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 20));
     workerMock.restore();
@@ -1025,7 +1031,7 @@ test('useFileImport opens the preferred multi-MJCF archive file without auto-see
       ['demo/first.xml'],
     );
     assert.equal(
-      useAssemblyStore.getState().assemblyState,
+      useRobotStore.getState().assemblyState,
       null,
       'multi-MJCF archives should behave like folder imports and wait for explicit assembly adds',
     );
@@ -1112,7 +1118,7 @@ test('useFileImport skips unresolved MJCF templates without auto-seeding a singl
       ['myosuite/ready.xml'],
     );
     assert.equal(
-      useAssemblyStore.getState().assemblyState,
+      useRobotStore.getState().assemblyState,
       null,
       'a single valid archive model should open like a normal file instead of entering workspace assembly',
     );
@@ -1502,7 +1508,7 @@ test('useFileImport imports multi-component archives into the file library witho
       ['demo_bundle/base/base.urdf'],
     );
     assert.equal(
-      useAssemblyStore.getState().assemblyState,
+      useRobotStore.getState().assemblyState,
       null,
       'multi-component archives should wait for explicit Add actions before entering assembly',
     );
@@ -1822,7 +1828,7 @@ test('useFileImport preserves earlier custom motors across successive library im
   }
 });
 
-test('useFileImport restores staged files when downstream robot loading fails', async () => {
+test('useFileImport keeps staged files when downstream robot loading fails', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const workerMock = installRobotImportWorkerMock();
@@ -1871,7 +1877,10 @@ test('useFileImport restores staged files when downstream robot loading fails', 
     const result = await rendered.hook.handleImport([importedFile] as unknown as FileList);
 
     assert.equal(result.status, 'failed');
-    assert.deepEqual(useAssetsStore.getState().availableFiles, [existingFile]);
+    assert.deepEqual(
+      useAssetsStore.getState().availableFiles.map((file) => file.name),
+      ['library/existing.urdf', 'demo.urdf'],
+    );
     assert.deepEqual(useAssetsStore.getState().assets, existingAssets);
     assert.deepEqual(useAssetsStore.getState().allFileContents, existingAllFileContents);
     assert.equal(
@@ -1966,7 +1975,7 @@ test('useFileImport keeps editor mode when importing a project archive', async (
   }
 });
 
-test('useFileImport restores project-import state when usp import fails after mutating stores', async () => {
+test('useFileImport keeps project-import state when usp import fails after mutating stores', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const workerMock = installRobotImportWorkerMock();
@@ -2076,10 +2085,13 @@ test('useFileImport restores project-import state when usp import fails after mu
     const result = await rendered.hook.handleImport([projectFile] as unknown as FileList);
 
     assert.equal(result.status, 'failed');
-    assert.deepEqual(useAssetsStore.getState().availableFiles, [existingFile]);
-    assert.equal(useAssetsStore.getState().selectedFile?.name, existingFile.name);
+    assert.deepEqual(
+      useAssetsStore.getState().availableFiles.map((file) => file.name),
+      ['robots/demo.urdf'],
+    );
+    assert.equal(useAssetsStore.getState().selectedFile?.name, 'robots/demo.urdf');
     assert.equal(useRobotStore.getState().name, 'my_robot');
-    assert.deepEqual(useSelectionStore.getState().selection, { type: 'link', id: 'base_link' });
+    assert.deepEqual(useSelectionStore.getState().selection, { type: null, id: null });
     assert.match(alertMessage, /project imported exploded/i);
   } finally {
     rendered.cleanup();

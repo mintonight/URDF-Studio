@@ -149,6 +149,30 @@ test('generateURDF preserves per-visual colors for links with multiple visuals',
   assert.equal(reparsed.links.base_link.visualBodies?.[0]?.color, '#191919');
 });
 
+test('generateURDF emits fallback materials that only define colorRgba', () => {
+  const robot = parseURDF(`<?xml version="1.0"?>
+<robot name="rgba_only_demo">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="1 1 1"/>
+      </geometry>
+    </visual>
+  </link>
+</robot>`);
+
+  assert.ok(robot);
+  robot.materials = {
+    base_link: {
+      colorRgba: [0.1, 0.2, 0.3, 0.4],
+    },
+  };
+
+  const generated = generateURDF(robot);
+
+  assert.match(generated, /<color rgba="0\.10000000 0\.20000000 0\.30000000 0\.40000000"\/>/);
+});
+
 test('generateURDF downgrades capsule geometry to urdfdom-compatible cylinders', () => {
   const robot: RobotState = {
     name: 'capsule_compat_demo',

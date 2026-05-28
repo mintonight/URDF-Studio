@@ -6,7 +6,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import { DEFAULT_LINK } from '@/types/constants';
-import { useAssemblyStore } from '@/store';
+import { useRobotStore } from '@/store';
 import type {
   AssemblyState,
   RobotData,
@@ -86,8 +86,8 @@ function renderWorkspaceModeTransitionsHook(
       handleClosePreview: () => {},
       prepareAssemblyComponentForInsert: () => new Promise(() => {}),
       activateInsertedAssemblyComponent: () => {},
-      addComponent: useAssemblyStore.getState().addComponent,
-      initAssembly: useAssemblyStore.getState().initAssembly,
+      addComponent: useRobotStore.getState().addComponent,
+      initAssembly: useRobotStore.getState().initAssembly,
       onLoadRobot: () => {},
       pendingUsdAssemblyFileRef: { current: null },
       proModeRoundtripSessionRef: { current: null },
@@ -115,7 +115,7 @@ function renderWorkspaceModeTransitionsHook(
 }
 
 function resetAssemblyStore() {
-  useAssemblyStore.setState({
+  useRobotStore.setState({
     assemblyState: null,
     assemblyRevision: 0,
     pendingAutoGroundComponentIds: [],
@@ -272,7 +272,7 @@ test('resolveUsdAssemblySeedRobotData requests a fresh usd load when no usable s
 test('handleSwitchTreeEditorToProMode appends the active preview file instead of resetting an existing assembly', () => {
   const dom = installDomEnvironment();
   resetAssemblyStore();
-  useAssemblyStore.setState({
+  useRobotStore.setState({
     assemblyState: createSingleComponentAssembly('robots/old.urdf'),
     assemblyRevision: 1,
   });
@@ -288,7 +288,7 @@ test('handleSwitchTreeEditorToProMode appends the active preview file instead of
       rendered.hook.handleSwitchTreeEditorToProMode();
     });
 
-    const assemblyState = useAssemblyStore.getState().assemblyState;
+    const assemblyState = useRobotStore.getState().assemblyState;
     assert.ok(assemblyState, 'assembly should stay initialized while new component prepares');
     const components = Object.values(assemblyState.components);
     assert.equal(components.length, 2);

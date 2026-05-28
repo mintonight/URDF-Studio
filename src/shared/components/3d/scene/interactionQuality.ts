@@ -2,10 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 export const INTERACTION_RECOVERY_DELAY_MS = 180;
 export const RESTING_DPR_CAP = 1.75;
-// Keep the interaction DPR aligned with the resting cap so helper primitives
-// like the ground grid do not visibly change thickness when orbiting stops.
-// Callers can still opt into a lower interaction cap explicitly.
-export const INTERACTION_DPR_CAP = RESTING_DPR_CAP;
+export const MIN_RENDER_DPR = 1.5;
+// Dense assembly scenes can become fill-rate bound while orbiting. Drop the
+// interaction DPR temporarily, then restore the resting cap after controls end.
+export const INTERACTION_DPR_CAP = 1.25;
 
 const WorkspaceCanvasInteractionStateContext = React.createContext(false);
 
@@ -14,6 +14,7 @@ interface ResolveCanvasDprOptions {
   isInteracting: boolean;
   restingCap?: number;
   interactionCap?: number;
+  minRenderDpr?: number;
 }
 
 export function resolveCanvasDpr({
@@ -21,13 +22,15 @@ export function resolveCanvasDpr({
   isInteracting,
   restingCap = RESTING_DPR_CAP,
   interactionCap = INTERACTION_DPR_CAP,
+  minRenderDpr = MIN_RENDER_DPR,
 }: ResolveCanvasDprOptions) {
   const safeDevicePixelRatio =
     Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
   const safeRestingCap = restingCap > 0 ? restingCap : RESTING_DPR_CAP;
   const safeInteractionCap = interactionCap > 0 ? interactionCap : INTERACTION_DPR_CAP;
+  const safeMinRenderDpr = minRenderDpr > 0 ? minRenderDpr : 1;
   const activeCap = isInteracting ? Math.min(safeRestingCap, safeInteractionCap) : safeRestingCap;
-  return Math.min(safeDevicePixelRatio, activeCap);
+  return Math.min(Math.max(safeDevicePixelRatio, safeMinRenderDpr), activeCap);
 }
 
 export function useAdaptiveInteractionQuality(recoveryDelayMs = INTERACTION_RECOVERY_DELAY_MS) {

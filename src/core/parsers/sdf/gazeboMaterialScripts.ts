@@ -16,9 +16,7 @@ const materialScriptCache = new Map<string, Record<string, GazeboScriptMaterialD
 
 function uniquePaths(paths: Array<string | null | undefined>): string[] {
   return Array.from(
-    new Set(
-      paths.map((path) => normalizeRelativePath(String(path || '').trim())).filter(Boolean),
-    ),
+    new Set(paths.map((path) => normalizeRelativePath(String(path || '').trim())).filter(Boolean)),
   );
 }
 
@@ -39,7 +37,9 @@ function resolveScriptUriPath(uri: string, sourcePath?: string): string | null {
   return normalizeRelativePath(resolveImportedAssetPath(trimmed, sourcePath));
 }
 
-function toHexColor(value: string): string | undefined {
+function parseMaterialColor(
+  value: string,
+): { color: string; colorRgba?: [number, number, number, number] } | undefined {
   const parts = value.trim().split(/\s+/);
   const numericParts = parts
     .map((part) => Number.parseFloat(part))
@@ -50,15 +50,38 @@ function toHexColor(value: string): string | undefined {
   }
 
   const isUnitRange = numericParts.slice(0, 3).every((part) => part >= 0 && part <= 1);
+  const normalizeChannel = (part: number) => {
+    const normalized = isUnitRange ? part : part / 255;
+    return Math.max(0, Math.min(1, normalized));
+  };
   const toByte = (part: number) => {
     const normalized = isUnitRange ? part * 255 : part;
     return Math.max(0, Math.min(255, Math.round(normalized)));
   };
+  const normalizeAlpha = (part: number) => {
+    const normalized = part >= 0 && part <= 1 ? part : part / 255;
+    return Math.max(0, Math.min(1, normalized));
+  };
 
-  return `#${numericParts
+  const color = `#${numericParts
     .slice(0, 3)
     .map((part) => toByte(part).toString(16).padStart(2, '0'))
     .join('')}`;
+  const alpha = numericParts[3];
+  const colorRgba =
+    numericParts.length >= 4 && Number.isFinite(alpha)
+      ? ([
+          normalizeChannel(numericParts[0]!),
+          normalizeChannel(numericParts[1]!),
+          normalizeChannel(numericParts[2]!),
+          normalizeAlpha(alpha!),
+        ] as [number, number, number, number])
+      : undefined;
+
+  return {
+    color,
+    ...(colorRgba ? { colorRgba } : {}),
+  };
 }
 
 function readMaterialBlock(
@@ -157,8 +180,9 @@ function parseMaterialScript(text: string): Record<string, GazeboScriptMaterialD
 
     const block = blockResult.block;
     const texture = block.match(/\btexture\s+([^\s{}]+)/i)?.[1]?.trim();
-    const diffuse = toHexColor(block.match(/\bdiffuse\s+([^\r\n{}]+)/i)?.[1] || '');
-    const ambient = toHexColor(block.match(/\bambient\s+([^\r\n{}]+)/i)?.[1] || '');
+    const diffuse = parseMaterialColor(block.match(/\bdiffuse\s+([^\r\n{}]+)/i)?.[1] || '');
+    const ambient = parseMaterialColor(block.match(/\bambient\s+([^\r\n{}]+)/i)?.[1] || '');
+    const colorDefinition = diffuse || ambient;
 
     const alphaRejectionMatch = block.match(
       /\balpha_rejection\s+(?:greater|greater_equal|less|less_equal|not_equal)\s+(\d+)/i,
@@ -171,7 +195,8 @@ function parseMaterialScript(text: string): Record<string, GazeboScriptMaterialD
 
     definitions[materialName] = {
       name: materialName,
-      ...(diffuse || ambient ? { color: diffuse || ambient } : {}),
+      ...(colorDefinition?.color ? { color: colorDefinition.color } : {}),
+      ...(colorDefinition?.colorRgba ? { colorRgba: colorDefinition.colorRgba } : {}),
       ...(texture ? { texture } : {}),
       ...(alphaTest !== undefined ? { alphaTest } : {}),
       ...(passes.length > 1 ? { passes } : {}),

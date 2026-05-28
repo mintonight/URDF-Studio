@@ -14,7 +14,7 @@ import {
   isLibraryRobotExportableFormat,
   isVisibleLibraryEntry,
 } from '@/shared/utils';
-import { useAssemblyStore, useSelectionStore, useUIStore, type Language } from '@/store';
+import { useRobotStore, useSelectionStore, useUIStore, type Language } from '@/store';
 import { buildFileTree } from '../utils';
 import {
   buildChildJointsByParent,
@@ -141,7 +141,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
       setStructureTreeShowGeometryDetails: state.setStructureTreeShowGeometryDetails,
     })),
   );
-  const { toggleComponentVisibility } = useAssemblyStore(
+  const { toggleComponentVisibility } = useRobotStore(
     useShallow((state) => ({
       toggleComponentVisibility: state.toggleComponentVisibility,
     })),

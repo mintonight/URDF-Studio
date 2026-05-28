@@ -362,6 +362,17 @@ function dispatchReactChange(input: HTMLInputElement, value: string) {
   });
 }
 
+function dispatchReactBlur(input: HTMLInputElement) {
+  const reactProps = getReactProps(input);
+  const onBlur = reactProps.onBlur;
+  assert.equal(typeof onBlur, 'function', 'React onBlur handler should exist');
+
+  (onBlur as (event: { target: HTMLInputElement; currentTarget: HTMLInputElement }) => void)({
+    target: input,
+    currentTarget: input,
+  });
+}
+
 async function commitColorPickerValue(input: HTMLInputElement, value: string) {
   await act(async () => {
     dispatchReactChange(input, value);
@@ -391,6 +402,14 @@ function dispatchReactSelectChange(select: HTMLSelectElement, value: string) {
 function getColorInput(container: Element): HTMLInputElement {
   const input = container.querySelector('input[type="color"][aria-label="Color"]');
   assert.ok(input, 'color input should exist');
+  return input as HTMLInputElement;
+}
+
+function getOpacityInput(container: Element, expectedValue: string): HTMLInputElement {
+  const input = Array.from(container.querySelectorAll('input[inputmode="decimal"]')).find(
+    (candidate) => (candidate as HTMLInputElement).value === expectedValue,
+  );
+  assert.ok(input, `opacity input with value ${expectedValue} should exist`);
   return input as HTMLInputElement;
 }
 
@@ -445,6 +464,7 @@ async function renderGeometryEditor(
         onUpdate,
         assets: options.assets ?? {},
         onUploadAsset: options.onUploadAsset ?? (() => {}),
+        onLinkNameChange: () => {},
         t: translations.en,
         lang: 'en',
         isTabbed: true,
@@ -673,7 +693,7 @@ test('GeometryEditor keeps the type and name header responsive for visual and co
       );
       assert.ok(typeLabel, `${category} geometry should render the type label`);
 
-      const sharedRow = typeLabel.parentElement;
+      const sharedRow = typeLabel.parentElement?.parentElement;
       assert.ok(sharedRow, `${category} geometry should render the shared header row`);
 
       const nameLabel = Array.from(sharedRow.querySelectorAll('span')).find(
@@ -682,7 +702,7 @@ test('GeometryEditor keeps the type and name header responsive for visual and co
       assert.ok(nameLabel, `${category} geometry should render the name label`);
 
       assert.equal(
-        nameLabel.parentElement,
+        nameLabel.parentElement?.parentElement,
         sharedRow,
         `${category} geometry should keep type and name on the same row`,
       );
@@ -1537,6 +1557,34 @@ test('GeometryEditor normalizes alpha colors for the picker while preserving alp
   }
 });
 
+test('GeometryEditor exposes and updates material opacity for alpha colors', async () => {
+  const { dom, container, root } = createComponentRoot();
+  try {
+    const link = createLink('#12345680');
+    const updates: UrdfLink[] = [];
+
+    await renderGeometryEditor(root, link, (nextLink) => {
+      updates.push(nextLink);
+    });
+
+    const opacityInput = getOpacityInput(container, '0.502');
+
+    await act(async () => {
+      dispatchReactChange(opacityInput, '0.25');
+      dispatchReactBlur(opacityInput);
+    });
+
+    const nextLink = updates.at(-1);
+    assert.ok(nextLink, 'GeometryEditor should emit an updated link');
+    assert.deepEqual(nextLink.visualBodies?.[0]?.authoredMaterials?.[0], {
+      color: '#12345640',
+      opacity: 0.25,
+    });
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
 test('GeometryEditor shows the effective legacy link material color when the primary visual has no inline color', async () => {
   const { dom, container, root } = createComponentRoot();
   try {
@@ -1558,6 +1606,37 @@ test('GeometryEditor shows the effective legacy link material color when the pri
 
     const colorInput = getColorInput(container);
     assert.equal(colorInput.value.toLowerCase(), '#b2b2b2');
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('GeometryEditor surfaces paint material groups even when the mesh keeps its legacy color', async () => {
+  const { dom, container, root } = createComponentRoot();
+  try {
+    const link = createLink('#808080');
+    link.visual = {
+      ...link.visual,
+      type: GeometryType.MESH,
+      dimensions: { x: 1, y: 1, z: 1 },
+      color: '#808080',
+      authoredMaterials: [
+        { name: 'base', color: '#808080' },
+        { name: 'paint_link1_0_1', color: '#007aff' },
+      ],
+      meshMaterialGroups: [{ meshKey: '0', start: 0, count: 6, materialIndex: 1 }],
+    };
+    const robot = createRobot(link);
+    robot.selection.objectIndex = 0;
+
+    await renderGeometryEditor(root, link, () => {}, robot);
+
+    assert.ok(container.textContent?.includes('Multiple Materials'));
+    const inputValues = Array.from(container.querySelectorAll('input')).map((input) =>
+      (input as HTMLInputElement).value.trim().toLowerCase(),
+    );
+    assert.ok(inputValues.includes('#007aff'));
+    assert.equal(container.querySelector('input[type="color"][aria-label="Color"]'), null);
   } finally {
     await destroyComponentRoot(dom, root);
   }

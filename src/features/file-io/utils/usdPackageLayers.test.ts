@@ -262,6 +262,7 @@ test('usd package layers serialize articulation, joint paths, and mesh collision
     physicsLayer,
     /over "collision_0" \(\n\s+prepend apiSchemas = \["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"\]\n\s*\)\n\s+\{/,
   );
+  assert.match(physicsLayer, /bool physics:collisionEnabled = true/);
   assert.match(physicsLayer, /uniform token physics:approximation = "convexHull"/);
 });
 
@@ -280,12 +281,51 @@ test('isaacsim usd package layers flatten link prim paths for physics bodies', (
   assert.doesNotMatch(physicsLayer, /rel physics:body1 = <\/demo_robot\/base_link\/child_link>/);
   assert.match(
     physicsLayer,
-    /over "base_link" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI", "PhysicsArticulationRootAPI"\]\n\s*\)\n\s+\{/,
+    /def PhysicsScene "physicsScene" \(\n\s+prepend apiSchemas = \["PhysxSceneAPI"\]\n\s*\)\n\{/,
   );
+  assert.match(physicsLayer, /uniform token physxScene:broadphaseType = "MBP"/);
+  assert.match(physicsLayer, /bool physxScene:enableCCD = true/);
+  assert.match(physicsLayer, /bool physxScene:enableGPUDynamics = false/);
+  assert.match(physicsLayer, /bool physxScene:enableStabilization = true/);
+  assert.match(physicsLayer, /uniform token physxScene:solverType = "TGS"/);
+  assert.match(
+    physicsLayer,
+    /over "base_link" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI", "PhysicsArticulationRootAPI", "PhysxArticulationAPI"\]\n\s*\)\n\s+\{/,
+  );
+  assert.match(physicsLayer, /bool physxArticulation:enabledSelfCollisions = true/);
+  assert.match(physicsLayer, /int physxArticulation:solverPositionIterationCount = 32/);
+  assert.match(physicsLayer, /int physxArticulation:solverVelocityIterationCount = 1/);
+  assert.match(
+    physicsLayer,
+    /prepend apiSchemas = \["PhysicsJointStateAPI:angular", "PhysxJointAPI", "PhysicsDriveAPI:angular", "IsaacJointAPI"\]/,
+  );
+  assert.match(physicsLayer, /float drive:angular:physics:stiffness = 625/);
+  assert.match(physicsLayer, /float drive:angular:physics:damping = 0\.25/);
+  assert.match(physicsLayer, /float drive:angular:physics:targetPosition = 0/);
+  assert.match(physicsLayer, /float physxJoint:maxJointVelocity = 171\.887/);
   assert.match(
     physicsLayer,
     /over "child_link" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI", "PhysicsMassAPI"\]\n\s*\)\n\s+\{/,
   );
+});
+
+test('isaacsim usd package layers provide IsaacLab default drive gains when source dynamics are absent', () => {
+  const robot = createLayeredRobot();
+  robot.joints.child_joint.dynamics = { damping: 0, friction: 0 };
+  const pathMaps = buildUsdLinkPathMaps(robot, 'demo_robot', {
+    layoutProfile: 'isaacsim',
+  });
+  const physicsLayer = buildUsdPhysicsLayerContent(robot, pathMaps, 'demo_robot', 'demo_robot', {
+    layoutProfile: 'isaacsim',
+    fileFormat: 'usda',
+  });
+
+  assert.match(
+    physicsLayer,
+    /prepend apiSchemas = \["PhysicsJointStateAPI:angular", "PhysxJointAPI", "PhysicsDriveAPI:angular", "IsaacJointAPI"\]/,
+  );
+  assert.match(physicsLayer, /float drive:angular:physics:stiffness = 625/);
+  assert.match(physicsLayer, /float drive:angular:physics:damping = 0\.25/);
 });
 
 test('isaacsim usd package layers author the articulation root on the root link instead of the package root', () => {
@@ -310,7 +350,7 @@ test('isaacsim usd package layers author the articulation root on the root link 
   );
   assert.match(
     physicsLayer,
-    /over "base_link" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysicsArticulationRootAPI"\]\n\s*\)\n\s+\{/,
+    /over "base_link" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysicsArticulationRootAPI", "PhysxArticulationAPI"\]\n\s*\)\n\s+\{/,
   );
 });
 
@@ -334,7 +374,7 @@ test('isaacsim mjcf package layers omit an empty floating world anchor from robo
   assert.doesNotMatch(physicsLayer, /def PhysicsFixedJoint "joint_0"/);
   assert.match(
     physicsLayer,
-    /over "base" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysicsArticulationRootAPI"\]\n\s*\)\n\s+\{/,
+    /over "base" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysicsArticulationRootAPI", "PhysxArticulationAPI"\]\n\s*\)\n\s+\{/,
   );
 
   assert.doesNotMatch(robotLayer, /<\/mjcf_go2\/world>/);

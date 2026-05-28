@@ -5,6 +5,7 @@ import {
   Eye,
   EyeOff,
   FileCode,
+  Network,
   Plus,
   Shapes,
   Shield,
@@ -14,6 +15,7 @@ import { translations } from '@/shared/i18n';
 import type { AppMode, AssemblyState, RobotState } from '@/types';
 import { AssemblyTreeView } from '../AssemblyTreeView';
 import { TreeNode } from '../TreeNode';
+import { TreeStructureGraphDialog } from './TreeStructureGraphDialog';
 
 type TreeEditorTranslations = typeof translations.en;
 
@@ -95,6 +97,7 @@ export function TreeEditorStructureSection({
   const useStoreDrivenTree = !isAssemblyView && !isReadOnly;
   const [isEditingRobotName, setIsEditingRobotName] = useState(false);
   const [robotNameDraft, setRobotNameDraft] = useState('');
+  const [isStructureGraphOpen, setIsStructureGraphOpen] = useState(false);
   const robotNameInputRef = useRef<HTMLInputElement>(null);
   const robotNamePlaceholder = t.enterRobotName;
   const currentRobotName = robot.name;
@@ -176,6 +179,23 @@ export function TreeEditorStructureSection({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            className={`flex h-5 w-5 items-center justify-center rounded-md transition-colors ${
+              isStructureGraphOpen
+                ? 'bg-system-blue/10 text-system-blue ring-1 ring-inset ring-system-blue/20'
+                : 'text-text-tertiary hover:bg-element-hover hover:text-text-primary'
+            }`}
+            onClick={(event) => {
+              event.stopPropagation();
+              setIsStructureGraphOpen(true);
+            }}
+            title={t.openStructureGraph}
+            aria-label={t.openStructureGraph}
+          >
+            <Network size={13} />
+          </button>
+
           <button
             type="button"
             className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors ${
@@ -327,6 +347,19 @@ export function TreeEditorStructureSection({
           </div>
         </div>
       )}
+
+      <TreeStructureGraphDialog
+        isOpen={isStructureGraphOpen}
+        isAssemblyView={isAssemblyView}
+        assemblyState={assemblyState}
+        robot={robot}
+        treeRootLinkIds={treeRootLinkIds}
+        childJointsByParent={childJointsByParent}
+        t={t}
+        onClose={() => setIsStructureGraphOpen(false)}
+        onSelect={onSelect}
+        onFocus={onFocus}
+      />
     </div>
   );
 }

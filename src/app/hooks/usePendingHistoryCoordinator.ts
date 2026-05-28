@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { registerPendingHistoryFlusher } from '@/app/utils/pendingHistory';
-import { useAssemblyStore, useRobotStore } from '@/store';
+import { useRobotStore } from '@/store';
 import type { AssemblyState, RobotData } from '@/types';
 import type { UpdateCommitOptions } from '@/types/viewer';
 
@@ -64,7 +64,7 @@ export function usePendingHistoryCoordinator({
       const currentSnapshot = createAssemblySnapshot();
       if (snapshotsMatch(pending.snapshot, currentSnapshot)) return;
 
-      useAssemblyStore.getState().pushHistorySnapshot(pending.snapshot, pending.label);
+      useRobotStore.getState().pushHistorySnapshot(pending.snapshot, pending.label);
     },
     [clearPendingHistoryTimer, createAssemblySnapshot, snapshotsMatch],
   );
