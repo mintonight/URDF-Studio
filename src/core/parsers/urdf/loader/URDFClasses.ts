@@ -1,4 +1,5 @@
 import { Euler, Matrix4, Object3D, Quaternion, Vector3 } from 'three';
+import { getOrderedJointLimitBounds } from '@/core/robot/jointLimits';
 
 const _tempAxis = new Vector3();
 const _tempEuler = new Euler();
@@ -147,8 +148,9 @@ export class URDFJoint extends URDFBase {
                 if (angle === currentValues[0]) return didUpdate;
 
                 if (!this.ignoreLimits && this.jointType === 'revolute') {
-                    angle = Math.min(this.limit.upper, angle);
-                    angle = Math.max(this.limit.lower, angle);
+                    const limit = getOrderedJointLimitBounds(this.limit.lower, this.limit.upper);
+                    angle = Math.min(limit.upper, angle);
+                    angle = Math.max(limit.lower, angle);
                 }
 
                 this.quaternion.setFromAxisAngle(this.axis, angle).premultiply(this.origQuaternion);
@@ -169,8 +171,9 @@ export class URDFJoint extends URDFBase {
                 if (position === currentValues[0]) return didUpdate;
 
                 if (!this.ignoreLimits) {
-                    position = Math.min(this.limit.upper, position);
-                    position = Math.max(this.limit.lower, position);
+                    const limit = getOrderedJointLimitBounds(this.limit.lower, this.limit.upper);
+                    position = Math.min(limit.upper, position);
+                    position = Math.max(limit.lower, position);
                 }
 
                 this.position.copy(this.origPosition);

@@ -7,7 +7,7 @@ import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { DEFAULT_LINK, JointType, type RobotData, type UrdfJoint } from '@/types';
-import { useRobotStore, useAssemblyStore } from '@/store';
+import { useRobotStore } from '@/store';
 import { setRegressionBeforeUnloadPromptSuppressed } from '@/shared/debug/regressionBridge';
 
 import { useUnsavedChangesPrompt } from './useUnsavedChangesPrompt.ts';
@@ -149,7 +149,7 @@ function createRobotData(): RobotData {
 
 function resetStoresToBaseline() {
   setRegressionBeforeUnloadPromptSuppressed(false);
-  useAssemblyStore.setState({
+  useRobotStore.setState({
     assemblyState: null,
     _history: { past: [], future: [] },
     _activity: [],

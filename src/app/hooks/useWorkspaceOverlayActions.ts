@@ -19,7 +19,8 @@ interface UseWorkspaceOverlayActionsParams {
   getUsdPreparedExportCache: (
     fileName: string,
   ) => { robotData?: RobotData | null } | null | undefined;
-  onLoadRobot: (file: RobotFile) => void;
+  onLoadRobot: (file: RobotFile, options?: { preserveAssemblyState?: boolean }) => void;
+  ensureWorkspaceSeededForAdd?: (file: RobotFile) => void;
   setPendingUsdAssemblyFile: (file: RobotFile | null) => void;
   insertAssemblyComponentIntoWorkspace: (
     file: RobotFile,
@@ -49,6 +50,7 @@ interface UseWorkspaceOverlayActionsParams {
 export function useWorkspaceOverlayActions({
   getUsdPreparedExportCache,
   onLoadRobot,
+  ensureWorkspaceSeededForAdd,
   setPendingUsdAssemblyFile,
   insertAssemblyComponentIntoWorkspace,
   showAssemblyComponentPreparationOverlay,
@@ -67,12 +69,14 @@ export function useWorkspaceOverlayActions({
         file.format === 'usd' ? (getUsdPreparedExportCache(file.name)?.robotData ?? null) : null;
 
       if (file.format === 'usd' && !preResolvedRobotData) {
+        ensureWorkspaceSeededForAdd?.(file);
         showAssemblyComponentPreparationOverlay(file, 'prepare');
         setPendingUsdAssemblyFile(file);
-        onLoadRobot(file);
+        onLoadRobot(file, { preserveAssemblyState: true });
         return;
       }
 
+      ensureWorkspaceSeededForAdd?.(file);
       void insertAssemblyComponentIntoWorkspace(file, {
         preResolvedRobotData,
       })
@@ -94,10 +98,10 @@ export function useWorkspaceOverlayActions({
     },
     [
       clearAssemblyComponentPreparationOverlay,
+      ensureWorkspaceSeededForAdd,
       getUsdPreparedExportCache,
       insertAssemblyComponentIntoWorkspace,
       onLoadRobot,
-      setPendingUsdAssemblyFile,
       setPendingUsdAssemblyFile,
       showAssemblyComponentPreparationOverlay,
       showToast,

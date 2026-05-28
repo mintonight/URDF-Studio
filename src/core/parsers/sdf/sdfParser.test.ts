@@ -108,6 +108,34 @@ test('parseSDF keeps mesh visuals without explicit material colors uncolored so 
   assert.equal(robot?.links.body.visual.color, undefined);
 });
 
+test('parseSDF preserves inline material alpha from diffuse RGBA values', () => {
+  const robot = parseSDF(`<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="transparent_demo">
+    <link name="base_link">
+      <visual name="body">
+        <geometry>
+          <box>
+            <size>1 2 3</size>
+          </box>
+        </geometry>
+        <material>
+          <diffuse>0.1 0.2 0.3 0.4</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>`);
+
+  assert.ok(robot);
+  assert.equal(robot?.links.base_link.visual.color, '#1a334d');
+  assert.deepEqual(
+    robot?.links.base_link.visual.authoredMaterials?.[0]?.colorRgba,
+    [0.1, 0.2, 0.3, 0.4],
+  );
+  assert.deepEqual(robot?.materials?.base_link?.colorRgba, [0.1, 0.2, 0.3, 0.4]);
+});
+
 test('parseSDF resolves gazebo material scripts into texture-backed material metadata', () => {
   const robot = parseSDF(
     `<?xml version="1.0"?>
@@ -140,7 +168,7 @@ test('parseSDF resolves gazebo material scripts into texture-backed material met
   {
     pass
     {
-      diffuse 1 0.5 0 1
+      diffuse 1 0.5 0 0.4
       texture_unit
       {
         texture demo.png
@@ -156,10 +184,15 @@ test('parseSDF resolves gazebo material scripts into texture-backed material met
   assert.equal(robot?.links.base_link.visual.color, '#ff8000');
   assert.equal(robot?.links.base_link.visual.materialSource, 'gazebo');
   assert.equal(robot?.links.base_link.visual.authoredMaterials?.[0]?.name, 'Demo/Diffuse');
+  assert.deepEqual(
+    robot?.links.base_link.visual.authoredMaterials?.[0]?.colorRgba,
+    [1, 0.5, 0, 0.4],
+  );
   assert.equal(
     robot?.links.base_link.visual.authoredMaterials?.[0]?.texture,
     'demo/materials/textures/demo.png',
   );
+  assert.deepEqual(robot?.materials?.base_link?.colorRgba, [1, 0.5, 0, 0.4]);
   assert.equal(robot?.materials?.base_link?.texture, 'demo/materials/textures/demo.png');
 });
 
@@ -607,7 +640,9 @@ test('parseSDF keeps the Gazebo PR2 gripper closed-loop links inside one rooted 
   assert.equal(robot?.joints.r_gripper_r_finger_joint?.parentLinkId, 'r_wrist_roll_link');
   assert.equal(robot?.joints.r_gripper_r_finger_joint?.childLinkId, 'r_gripper_r_finger_link');
 
-  const childLinkIds = new Set(Object.values(robot?.joints ?? {}).map((joint) => joint.childLinkId));
+  const childLinkIds = new Set(
+    Object.values(robot?.joints ?? {}).map((joint) => joint.childLinkId),
+  );
   const rootLinkIds = Object.keys(robot?.links ?? {}).filter((linkId) => !childLinkIds.has(linkId));
 
   assert.deepEqual(rootLinkIds, ['base_footprint']);

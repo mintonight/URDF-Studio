@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 
 import { createMatteMaterial } from './materialFactory';
+import { colorRgbaTupleToOpacity } from './color.ts';
 import type { UrdfVisualMaterial } from '@/types';
 
 export interface BoxFaceMaterialDescriptor extends Pick<
   UrdfVisualMaterial,
   | 'color'
+  | 'colorRgba'
   | 'name'
   | 'texture'
   | 'opacity'
@@ -60,7 +62,9 @@ export function createBoxFaceMaterialArray(
   const materials = descriptors.map((descriptor, index) => {
     const texturePath = normalizeMaterialValue(descriptor.texture);
     const authoredColor = normalizeMaterialValue(descriptor.color);
-    const authoredOpacity = normalizeUnitIntervalValue(descriptor.opacity);
+    const authoredOpacity =
+      normalizeUnitIntervalValue(descriptor.opacity) ??
+      colorRgbaTupleToOpacity(descriptor.colorRgba);
     const baseColor = authoredColor || (texturePath ? '#ffffff' : fallbackColor);
     const effectiveOpacity = authoredOpacity ?? opacity;
     const material = createMatteMaterial({

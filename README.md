@@ -227,6 +227,9 @@ npm run check                  # Run verify:fast (format, lint, typecheck, test,
 npm run verify:fast            # Fast verification (no fixture tests)
 npm run verify:full            # Full verification including fixture tests
 npm test                       # Run unit tests
+npm run test:unit -- path/to/file.test.ts  # Run targeted Node tests
+npm run test:unit:all          # Run all source-adjacent Node tests
+npm run test:unit:list         # List test runner suites
 
 # Formatting
 npm run format                 # Format code with Prettier
@@ -275,9 +278,11 @@ Git hooks and hosted CI configuration are intentionally not required; run the qu
 
 `npm test` stays limited to repo-contained tests that do not require the external fixture corpora under `test/`.
 
+Node test entrypoints are centralized in `scripts/test/run-node-tests.mjs`. Unit tests should stay next to the source they cover under `src/**/*.test.*` or `src/**/*.spec.*`; use `npm run test:unit -- path/to/file.test.ts` for targeted validation and `npm run test:unit:all` when source-adjacent coverage matters more than fast feedback.
+
 Validation is typically done through:
 
-- targeted `node --test` / `npx tsx --test` runs next to the changed module
+- targeted `npm run test:unit -- path/to/file.test.ts` runs next to the changed module
 - focused regression scripts under `scripts/regression/`
 - `npm test` for the fast repo-contained lane used by `npm run verify:fast`
 - `npm run build`

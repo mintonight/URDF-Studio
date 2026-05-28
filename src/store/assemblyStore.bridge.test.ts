@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { DEFAULT_JOINT, DEFAULT_LINK, JointType, type RobotData, type RobotFile } from '@/types';
-import { useAssemblyStore } from './assemblyStore.ts';
+import { useRobotStore } from './robotStore.ts';
 
 function resetAssemblyStore() {
-  const state = useAssemblyStore.getState();
+  const state = useRobotStore.getState();
   state.clearHistory();
   state.exitAssembly();
   state.setAssembly(null);
@@ -66,7 +66,7 @@ function createRobotWithOffsetChild(name: string): RobotData {
 test('updateBridge keeps bridge display name in sync with joint name changes', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('bridge-sync');
 
   const leftFile: RobotFile = {
@@ -105,14 +105,14 @@ test('updateBridge keeps bridge display name in sync with joint name changes', (
     },
   });
 
-  useAssemblyStore.getState().updateBridge(bridge.id, {
+  useRobotStore.getState().updateBridge(bridge.id, {
     joint: {
       ...bridge.joint,
       name: 'bridge_beta',
     },
   });
 
-  const updatedBridge = useAssemblyStore.getState().assemblyState?.bridges[bridge.id];
+  const updatedBridge = useRobotStore.getState().assemblyState?.bridges[bridge.id];
   assert.equal(updatedBridge?.name, 'bridge_beta');
   assert.equal(updatedBridge?.joint.name, 'bridge_beta');
 });
@@ -120,7 +120,7 @@ test('updateBridge keeps bridge display name in sync with joint name changes', (
 test('addBridge realigns the child component transform so a non-root child link snaps to the parent link', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('bridge-auto-align');
 
   const parentComponent = store.addComponent(
@@ -163,7 +163,7 @@ test('addBridge realigns the child component transform so a non-root child link 
   });
 
   const childTransform =
-    useAssemblyStore.getState().assemblyState?.components[childComponent!.id]?.transform;
+    useRobotStore.getState().assemblyState?.components[childComponent!.id]?.transform;
   assert.deepEqual(childTransform, {
     position: { x: -1.2, y: 0, z: 0.25 },
     rotation: { r: 0, p: 0, y: 0 },
@@ -173,7 +173,7 @@ test('addBridge realigns the child component transform so a non-root child link 
 test('addBridge rejects a second incoming bridge for the same child component', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('bridge-single-parent');
 
   const leftParent = store.addComponent(
@@ -237,7 +237,7 @@ test('addBridge rejects a second incoming bridge for the same child component', 
     /already has an incoming bridge: bridge_/,
   );
 
-  const assemblyState = useAssemblyStore.getState().assemblyState;
+  const assemblyState = useRobotStore.getState().assemblyState;
   assert.ok(assemblyState);
   assert.equal(Object.keys(assemblyState!.bridges).length, 1);
 });
@@ -245,7 +245,7 @@ test('addBridge rejects a second incoming bridge for the same child component', 
 test('addBridge rejects a non-fixed bridge that would close an assembly cycle', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('bridge-non-fixed-cycle');
 
   const leftComponent = store.addComponent(
@@ -300,7 +300,7 @@ test('addBridge rejects a non-fixed bridge that would close an assembly cycle', 
     /would close a cycle with joint type "revolute". Only fixed cyclic bridges can be converted into closed-loop constraints\./,
   );
 
-  const assemblyState = useAssemblyStore.getState().assemblyState;
+  const assemblyState = useRobotStore.getState().assemblyState;
   assert.ok(assemblyState);
   assert.equal(Object.keys(assemblyState!.bridges).length, 1);
 });
@@ -308,7 +308,7 @@ test('addBridge rejects a non-fixed bridge that would close an assembly cycle', 
 test('updateBridge re-aligns the child component transform when the bridge child link changes', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('bridge-link-realign');
 
   const parentComponent = store.addComponent(
@@ -351,7 +351,7 @@ test('updateBridge re-aligns the child component transform when the bridge child
   });
 
   assert.deepEqual(
-    useAssemblyStore.getState().assemblyState?.components[childComponent!.id]?.transform,
+    useRobotStore.getState().assemblyState?.components[childComponent!.id]?.transform,
     {
       position: { x: 0.5, y: 0, z: 0.25 },
       rotation: { r: 0, p: 0, y: 0 },
@@ -371,7 +371,7 @@ test('updateBridge re-aligns the child component transform when the bridge child
   });
 
   const childTransform =
-    useAssemblyStore.getState().assemblyState?.components[childComponent!.id]?.transform;
+    useRobotStore.getState().assemblyState?.components[childComponent!.id]?.transform;
   assert.deepEqual(childTransform, {
     position: { x: -1.2, y: 0, z: 0.25 },
     rotation: { r: 0, p: 0, y: 0 },
@@ -381,7 +381,7 @@ test('updateBridge re-aligns the child component transform when the bridge child
 test('updateBridge rejects retargeting a bridge onto a child component that already has an incoming bridge', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('bridge-update-single-parent');
 
   const parentA = store.addComponent(
@@ -467,7 +467,7 @@ test('updateBridge rejects retargeting a bridge onto a child component that alre
     /already has an incoming bridge: bridge_/,
   );
 
-  const updatedBridge = useAssemblyStore.getState().assemblyState?.bridges[movableBridge.id];
+  const updatedBridge = useRobotStore.getState().assemblyState?.bridges[movableBridge.id];
   assert.equal(updatedBridge?.childComponentId, childB!.id);
   assert.equal(updatedBridge?.childLinkId, 'base_link');
 });
@@ -475,7 +475,7 @@ test('updateBridge rejects retargeting a bridge onto a child component that alre
 test('updateBridge rejects changing a fixed cyclic bridge into a non-fixed bridge', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('bridge-update-non-fixed-cycle');
 
   const leftComponent = store.addComponent(
@@ -536,6 +536,6 @@ test('updateBridge rejects changing a fixed cyclic bridge into a non-fixed bridg
     /would close a cycle with joint type "revolute". Only fixed cyclic bridges can be converted into closed-loop constraints\./,
   );
 
-  const updatedBridge = useAssemblyStore.getState().assemblyState?.bridges[cyclicBridge.id];
+  const updatedBridge = useRobotStore.getState().assemblyState?.bridges[cyclicBridge.id];
   assert.equal(updatedBridge?.joint.type, JointType.FIXED);
 });

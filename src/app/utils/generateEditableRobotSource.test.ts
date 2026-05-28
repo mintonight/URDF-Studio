@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
 import { parseURDF } from '@/core/parsers';
-import type { RobotFile, RobotState } from '@/types';
+import { DEFAULT_LINK, GeometryType, type RobotFile, type RobotState } from '@/types';
 
 import { parseEditableRobotSource } from './parseEditableRobotSource.ts';
 import { generateEditableRobotSource } from './generateEditableRobotSource.ts';
@@ -89,6 +89,41 @@ test('generateEditableRobotSource round-trips URDF output', () => {
   });
 
   assertRoundTrip('urdf', content, /<robot\b/i);
+});
+
+test('generateEditableRobotSource emits paint material colors for mesh material groups', () => {
+  const robotState: RobotState = {
+    name: 'paint_demo',
+    rootLinkId: 'link1',
+    links: {
+      link1: {
+        ...DEFAULT_LINK,
+        id: 'link1',
+        name: 'link1',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          meshPath: 'meshes/cube.obj',
+          color: '#808080',
+          authoredMaterials: [
+            { name: 'base', color: '#808080' },
+            { name: 'paint_link1_0_1', color: '#007aff' },
+          ],
+          meshMaterialGroups: [{ meshKey: '0', start: 0, count: 6, materialIndex: 1 }],
+        },
+      },
+    },
+    joints: {},
+    selection: { type: null, id: null },
+  };
+
+  const content = generateEditableRobotSource({
+    format: 'urdf',
+    robotState,
+  });
+
+  assert.match(content, /<material name="paint_link1_0_1">/);
+  assert.match(content, /<color rgba="0\.00000392 0\.47843529 1\.00000000 1\.00000000"\/>/);
 });
 
 test('generateEditableRobotSource round-trips SDF output', () => {

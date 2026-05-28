@@ -1,7 +1,11 @@
 import * as THREE from 'three';
 import { createMatteMaterial } from './materialFactory';
 import { isProtectedMaterial } from './three/materialProtection';
-import { parseThreeColorWithOpacity } from './color.ts';
+import {
+  colorRgbaTupleToHex,
+  colorRgbaTupleToOpacity,
+  parseThreeColorWithOpacity,
+} from './color.ts';
 import type { UrdfVisual } from '@/types';
 
 export interface VisualMaterialOverride {
@@ -64,6 +68,7 @@ export function hasExplicitGeometryMaterialOverride(
     geometry?.authoredMaterials?.filter(
       (material) =>
         Boolean(normalizeMaterialValue(material?.color)) ||
+        colorRgbaTupleToHex(material?.colorRgba) !== null ||
         Boolean(normalizeMaterialValue(material?.texture)) ||
         normalizeUnitIntervalValue(material?.opacity) !== undefined ||
         normalizeUnitIntervalValue(material?.roughness) !== undefined ||
@@ -87,6 +92,7 @@ export function resolveVisualMaterialOverrideFromGeometry(
     geometry?.authoredMaterials?.filter(
       (material) =>
         Boolean(normalizeMaterialValue(material?.color)) ||
+        colorRgbaTupleToHex(material?.colorRgba) !== null ||
         Boolean(normalizeMaterialValue(material?.texture)) ||
         normalizeUnitIntervalValue(material?.opacity) !== undefined ||
         normalizeUnitIntervalValue(material?.roughness) !== undefined ||
@@ -105,11 +111,17 @@ export function resolveVisualMaterialOverrideFromGeometry(
   const authoredMaterial = authoredMaterials[0];
   const texture = normalizeMaterialValue(authoredMaterial?.texture);
   const geometryColor = normalizeMaterialValue(geometry?.color);
+  const colorRgba = authoredMaterial
+    ? colorRgbaTupleToHex(authoredMaterial.colorRgba)
+    : null;
   const color =
     normalizeMaterialValue(authoredMaterial?.color) ??
+    colorRgba ??
     (texture && isImplicitDefaultVisualColor(geometryColor) ? undefined : geometryColor);
   const textureRotation = authoredMaterial?.textureRotation;
-  const opacity = normalizeUnitIntervalValue(authoredMaterial?.opacity);
+  const opacity =
+    normalizeUnitIntervalValue(authoredMaterial?.opacity) ??
+    colorRgbaTupleToOpacity(authoredMaterial?.colorRgba);
   const roughness = normalizeUnitIntervalValue(authoredMaterial?.roughness);
   const metalness = normalizeUnitIntervalValue(authoredMaterial?.metalness);
   const emissive = normalizeMaterialValue(authoredMaterial?.emissive);

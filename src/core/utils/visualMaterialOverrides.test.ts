@@ -35,6 +35,39 @@ test('resolveVisualMaterialOverrideFromGeometry includes first-batch PBR paramet
   });
 });
 
+test('resolveVisualMaterialOverrideFromGeometry derives opacity from authored colorRgba alpha', () => {
+  const override = resolveVisualMaterialOverrideFromGeometry({
+    color: '#808080',
+    authoredMaterials: [
+      {
+        color: '#19334c',
+        colorRgba: [0.1, 0.2, 0.3, 0.4],
+      },
+    ],
+  });
+
+  assert.deepEqual(override, {
+    color: '#19334c',
+    opacity: 0.4,
+  });
+});
+
+test('resolveVisualMaterialOverrideFromGeometry uses colorRgba when no hex color is available', () => {
+  const override = resolveVisualMaterialOverrideFromGeometry({
+    color: '#808080',
+    authoredMaterials: [
+      {
+        colorRgba: [0.1, 0.2, 0.3, 0.4],
+      },
+    ],
+  });
+
+  assert.deepEqual(override, {
+    color: '#1a334d66',
+    opacity: 0.4,
+  });
+});
+
 test('hasExplicitGeometryMaterialOverride detects PBR-only authored overrides', () => {
   assert.equal(
     hasExplicitGeometryMaterialOverride({

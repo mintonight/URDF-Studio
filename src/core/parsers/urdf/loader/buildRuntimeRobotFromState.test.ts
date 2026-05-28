@@ -405,6 +405,50 @@ test('buildRuntimeRobotFromState exposes referenced joint limits in runtime moti
   assert.ok(Math.abs((joint.jointValue?.[0] ?? Number.NaN) - 0.8) <= 1e-12);
 });
 
+test('buildRuntimeRobotFromState orders crossed finite limits before runtime clamping', async () => {
+  const robot = await buildRuntimeRobotFromState({
+    robotName: 'crossed_limit_robot',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+      },
+      child_link: {
+        ...DEFAULT_LINK,
+        id: 'child_link',
+        name: 'child_link',
+      },
+    },
+    joints: {
+      elbow_joint: {
+        ...DEFAULT_JOINT,
+        id: 'elbow_joint',
+        name: 'elbow_joint',
+        type: JointType.REVOLUTE,
+        parentLinkId: 'base_link',
+        childLinkId: 'child_link',
+        axis: { x: 0, y: 0, z: 1 },
+        limit: { lower: 2, upper: 1, effort: 1, velocity: 1 },
+      },
+    },
+    manager: new THREE.LoadingManager(),
+    loadMeshCb: createNoopMeshLoadCb(),
+  });
+
+  const joint = robot.joints.elbow_joint as {
+    angle: number;
+    limit: { lower: number; upper: number };
+    setJointValue: (value: number) => boolean;
+  };
+
+  assert.equal(joint.limit.lower, 1);
+  assert.equal(joint.limit.upper, 2);
+
+  joint.setJointValue(1.5);
+  assert.equal(joint.angle, 1.5);
+});
+
 test('buildRuntimeRobotFromState applies RobotState ball joint quaternion as motion relative to joint origin', async () => {
   const originRpy = { r: 0.2, p: -0.15, y: 0.35 };
   const motionQuaternion = new THREE.Quaternion().setFromAxisAngle(
@@ -686,6 +730,52 @@ test('buildRuntimeRobotFromState applies mesh scale and visual color overrides o
   const parsedColor = parseThreeColorWithOpacity('#12ab34');
   assert.ok(parsedColor, 'expected parsed override color');
   assert.deepEqual(toFixedColorArray(material.color), toFixedColorArray(parsedColor.color));
+});
+
+test('buildRuntimeRobotFromState applies visual material alpha from colorRgba', async () => {
+  const robot = await buildRuntimeRobotFromState({
+    robotName: 'transparent_state_robot',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#19334c',
+          authoredMaterials: [
+            {
+              name: 'transparent_paint',
+              color: '#19334c',
+              colorRgba: [0.1, 0.2, 0.3, 0.4],
+            },
+          ],
+        },
+        collision: {
+          ...DEFAULT_LINK.collision,
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+        },
+      },
+    },
+    joints: {},
+    manager: new THREE.LoadingManager(),
+    loadMeshCb: createNoopMeshLoadCb(),
+  });
+
+  const baseLink = robot.links.base_link;
+  const visualGroup = baseLink.children.find((child: any) => child.isURDFVisual) as
+    | THREE.Object3D
+    | undefined;
+  assert.ok(visualGroup, 'expected visual group');
+  const mesh = visualGroup.children[0] as THREE.Mesh;
+  assert.ok(mesh.isMesh, 'expected primitive visual mesh');
+
+  const material = mesh.material as THREE.MeshStandardMaterial;
+  assert.ok(Math.abs(material.opacity - 0.4) <= 1e-6);
+  assert.equal(material.transparent, true);
 });
 
 test('buildRuntimeRobotFromState applies double-sided rendering to marked visual meshes', async () => {

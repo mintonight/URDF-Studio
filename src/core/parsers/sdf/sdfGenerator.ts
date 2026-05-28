@@ -139,9 +139,7 @@ function colorRgbaToSdfText(colorRgba?: [number, number, number, number]): strin
     return null;
   }
 
-  return colorRgba
-    .map((value) => Math.min(1, Math.max(0, Number(value))).toFixed(8))
-    .join(' ');
+  return colorRgba.map((value) => Math.min(1, Math.max(0, Number(value))).toFixed(8)).join(' ');
 }
 
 function resolveVisualMaterialState(
@@ -379,7 +377,7 @@ function buildTextureUri(texturePath: string, packageName: string): string {
 
 function generateMaterialXml(materialState: SdfMaterialState, packageName: string): string {
   const resolvedColor = materialState.color || (materialState.texture ? '#ffffff' : undefined);
-  const rgba = hexToRgba(resolvedColor) ?? colorRgbaToSdfText(materialState.colorRgba);
+  const rgba = colorRgbaToSdfText(materialState.colorRgba) ?? hexToRgba(resolvedColor);
   if (!rgba && !materialState.texture) {
     return '';
   }
@@ -471,7 +469,10 @@ function generateInertialXml(link: UrdfLink): string | null {
   return lines.join('\n');
 }
 
-function buildLinkWorldMatrices(robot: RobotState, useCurrentJointPose = false): Map<string, THREE.Matrix4> {
+function buildLinkWorldMatrices(
+  robot: RobotState,
+  useCurrentJointPose = false,
+): Map<string, THREE.Matrix4> {
   const matrices = new Map<string, THREE.Matrix4>();
   if (useCurrentJointPose) {
     Object.entries(computeLinkWorldMatrices(robot)).forEach(([linkId, matrix]) => {
@@ -700,7 +701,10 @@ export function generateSDF(robot: RobotState, options: GenerateSDFOptions = {})
   const packageName = (options.packageName || robot.name || 'robot').trim() || 'robot';
   const modelName = (robot.name || packageName).trim() || 'robot';
   const version = options.version || '1.7';
-  const linkMatrices = buildLinkWorldMatrices(robot, (robot.closedLoopConstraints?.length ?? 0) > 0);
+  const linkMatrices = buildLinkWorldMatrices(
+    robot,
+    (robot.closedLoopConstraints?.length ?? 0) > 0,
+  );
   const { omittedJointIds, omittedLinkIds } = resolveSyntheticRootOmissions(robot);
   const usedModelChildNames = new Set<string>();
   const linkNameById = new Map<string, string>();

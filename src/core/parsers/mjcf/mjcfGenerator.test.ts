@@ -1319,6 +1319,54 @@ test('generated MJCF writes visual materials from robot state and binds them on 
   );
 });
 
+test('generated MJCF prefers exact colorRgba values over quantized hex colors', () => {
+  installDomParser();
+
+  const robot: RobotState = {
+    name: 'rgba-material-export',
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+    links: {
+      base_link: {
+        id: 'base_link',
+        name: 'base_link',
+        visible: true,
+        visual: {
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#262626',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collision: {
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+          color: '#ff0000',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collisionBodies: [],
+        inertial: {
+          mass: 1,
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+          inertia: { ixx: 1, ixy: 0, ixz: 0, iyy: 1, iyz: 0, izz: 1 },
+        },
+      },
+    },
+    joints: {},
+    materials: {
+      base_link: {
+        color: '#19334c',
+        colorRgba: [0.1, 0.2, 0.3, 0.4],
+      },
+    },
+  };
+
+  const generated = generateMujocoXML(robot, { includeSceneHelpers: false });
+  const parsed = parseMJCFModel(generated);
+  const visualMaterial = parsed.materialMap.get('base_link_mat');
+
+  assert.deepEqual(visualMaterial?.rgba, [0.1, 0.2, 0.3, 0.4]);
+});
+
 test('generated MJCF exports texture assets and binds them through material definitions', () => {
   installDomParser();
 

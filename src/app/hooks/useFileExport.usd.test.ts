@@ -9,7 +9,7 @@ import JSZip from 'jszip';
 
 import { useFileExport } from './useFileExport.ts';
 import { disposeUsdBinaryArchiveWorker } from '../utils/usdBinaryArchiveWorkerBridge.ts';
-import { useAssemblyStore, useAssetsStore, useRobotStore, useUIStore } from '@/store';
+import { useRobotStore, useAssetsStore, useUIStore } from '@/store';
 import {
   GeometryType,
   type RobotFile,
@@ -168,7 +168,7 @@ function resetStoresToBaseline() {
     appMode: 'editor',
   });
 
-  useAssemblyStore.setState({
+  useRobotStore.setState({
     assemblyState: null,
     _history: { past: [], future: [] },
     _activity: [],

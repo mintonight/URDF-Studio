@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createThreeColorFromSRGB } from '@/core/utils/color.ts';
+import { createThreeColorFromSRGB, parseThreeColorWithOpacity } from '@/core/utils/color.ts';
 import { getVisualGeometryEntries } from '@/core/robot';
 import type { UrdfLink, UrdfVisual, UrdfVisualMaterial } from '@/types';
 import { isProtectedMaterial } from '@/core/utils/three/materialProtection';
@@ -19,6 +19,22 @@ function toMaterialRgba(
   textureValue?: string,
   colorRgbaValue?: [number, number, number, number],
 ): [number, number, number, number] | null {
+  const raw = String(colorValue || '').trim();
+  if (raw) {
+    const parsedColor = parseThreeColorWithOpacity(raw);
+    if (parsedColor) {
+      const color = parsedColor.color.convertLinearToSRGB();
+      const alpha =
+        parsedColor.opacity ??
+        (Array.isArray(colorRgbaValue) &&
+        colorRgbaValue.length === 4 &&
+        Number.isFinite(colorRgbaValue[3])
+          ? colorRgbaValue[3]
+          : 1);
+      return [color.r, color.g, color.b, Math.min(1, Math.max(0, alpha))];
+    }
+  }
+
   if (
     Array.isArray(colorRgbaValue) &&
     colorRgbaValue.length === 4 &&
@@ -27,7 +43,6 @@ function toMaterialRgba(
     return colorRgbaValue;
   }
 
-  const raw = String(colorValue || '').trim();
   if (!raw) {
     return textureValue ? [1, 1, 1, 1] : null;
   }

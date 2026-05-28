@@ -41,9 +41,9 @@ export function normalizeJointInteractionLimits(lowerLimit, upperLimit, defaultL
   }
 
   if (lower > upper) {
-    const midpoint = (lower + upper) * 0.5;
-    lower = midpoint;
-    upper = midpoint;
+    const previousLower = lower;
+    lower = upper;
+    upper = previousLower;
   }
 
   return { lower, upper };

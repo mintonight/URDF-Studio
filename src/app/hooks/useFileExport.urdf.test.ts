@@ -8,7 +8,7 @@ import JSZip from 'jszip';
 import { JSDOM } from 'jsdom';
 
 import { useFileExport, type ExportActionRequired } from './useFileExport.ts';
-import { useAssemblyStore, useAssetsStore, useRobotStore, useUIStore } from '@/store';
+import { useRobotStore, useAssetsStore, useUIStore } from '@/store';
 import {
   DEFAULT_JOINT,
   DEFAULT_LINK,
@@ -154,7 +154,7 @@ function resetStoresToBaseline() {
     appMode: 'editor',
   });
 
-  useAssemblyStore.setState({
+  useRobotStore.setState({
     assemblyState: null,
     _history: { past: [], future: [] },
     _activity: [],
@@ -516,7 +516,7 @@ function installDisconnectedWorkspaceAssembly() {
     [leftFile.name]: leftFile.content,
     [rightFile.name]: rightFile.content,
   });
-  useAssemblyStore.setState({
+  useRobotStore.setState({
     assemblyState: createAssemblyState(),
   });
 }
@@ -524,7 +524,7 @@ function installDisconnectedWorkspaceAssembly() {
 function installClosedLoopWorkspaceAssembly() {
   installDisconnectedWorkspaceAssembly();
 
-  useAssemblyStore.setState((state) => ({
+  useRobotStore.setState((state) => ({
     assemblyState: state.assemblyState
       ? {
           ...state.assemblyState,
@@ -817,7 +817,7 @@ test('useFileExport still allows a single URDF export when workspace components 
   const domEnvironment = installDomEnvironment();
   installDisconnectedWorkspaceAssembly();
 
-  useAssemblyStore.setState((state) => ({
+  useRobotStore.setState((state) => ({
     assemblyState: state.assemblyState
       ? {
           ...state.assemblyState,

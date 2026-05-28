@@ -60,6 +60,9 @@ export interface DraggableWindowProps {
   cornerResizeDirection?: ResizeDirection;
   cornerResizeHandle?: React.ReactNode;
   controlIcons?: WindowControlIcons;
+  role?: React.AriaRole;
+  ariaLabel?: string;
+  ariaModal?: boolean | 'true' | 'false';
 }
 
 const DEFAULT_CONTROL_BUTTON_CLASS = 'p-1.5 hover:bg-element-hover rounded-md transition-colors';
@@ -113,6 +116,9 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   cornerResizeDirection = 'corner',
   cornerResizeHandle,
   controlIcons,
+  role,
+  ariaLabel,
+  ariaModal,
 }) => {
   const { activateHoverBlock, deactivateHoverBlock } = useOverlayHoverBlock();
   const {
@@ -154,6 +160,9 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
       ref={containerRef}
       style={windowStyle}
       className={rootClassName}
+      role={role}
+      aria-label={ariaLabel}
+      aria-modal={ariaModal}
       onMouseEnter={activateHoverBlock}
       onMouseLeave={deactivateHoverBlock}
     >

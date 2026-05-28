@@ -6,6 +6,7 @@ import {
   buildAssemblyComponentIdentity,
   namespaceAssemblyRobotData,
   prepareAssemblyRobotData,
+  resolveAssemblyComponentBaseName,
 } from './assemblyComponentPreparation.ts';
 import { isSyntheticWorldRoot } from './treeRoots.ts';
 
@@ -18,6 +19,32 @@ test('buildAssemblyComponentIdentity creates a stable unique component id and di
 
   assert.equal(identity.displayName, 'my_robot_1');
   assert.equal(identity.componentId, 'comp_my_robot_1');
+});
+
+test('buildAssemblyComponentIdentity uses model package names for generic model files', () => {
+  const identity = buildAssemblyComponentIdentity({
+    fileName: 'test/gazebo_models/arm_part/model.sdf',
+    existingComponentIds: new Set(['comp_arm_part']),
+    existingComponentNames: new Set(['arm_part']),
+  });
+
+  assert.equal(identity.displayName, 'arm_part_1');
+  assert.equal(identity.componentId, 'comp_arm_part_1');
+});
+
+test('resolveAssemblyComponentBaseName prefers the authored source model name', () => {
+  const name = resolveAssemblyComponentBaseName({
+    name: 'test/gazebo_models/arm_part/model.sdf',
+    format: 'sdf',
+    content: `<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="arm_part">
+    <link name="link" />
+  </model>
+</sdf>`,
+  });
+
+  assert.equal(name, 'arm_part');
 });
 
 test('namespaceAssemblyRobotData prefixes links, joints, and materials for assembly components', () => {

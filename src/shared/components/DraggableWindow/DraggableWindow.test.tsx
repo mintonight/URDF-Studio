@@ -7,6 +7,7 @@ import { JSDOM } from 'jsdom';
 
 import { DraggableWindow } from './DraggableWindow';
 import { useSelectionStore } from '@/store/selectionStore';
+import { OverlayHoverBlockProvider } from '@/shared/hooks/useOverlayHoverBlock';
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -66,23 +67,33 @@ test('DraggableWindow freezes shared hover while hovered and releases the block 
   try {
     await act(async () => {
       root.render(
-        React.createElement(DraggableWindow, {
-          window: {
-            isMaximized: false,
-            isMinimized: false,
-            isDragging: false,
-            isResizing: false,
-            containerRef: windowRef,
-            handleDragStart: () => {},
-            handleResizeStart: () => {},
-            toggleMaximize: () => {},
-            toggleMinimize: () => {},
-            windowStyle: {},
+        React.createElement(
+          OverlayHoverBlockProvider,
+          {
+            value: {
+              beginHoverBlock: useSelectionStore.getState().beginHoverBlock,
+              endHoverBlock: useSelectionStore.getState().endHoverBlock,
+              clearHover: useSelectionStore.getState().clearHover,
+            },
+            children: React.createElement(DraggableWindow, {
+              window: {
+                isMaximized: false,
+                isMinimized: false,
+                isDragging: false,
+                isResizing: false,
+                containerRef: windowRef,
+                handleDragStart: () => {},
+                handleResizeStart: () => {},
+                toggleMaximize: () => {},
+                toggleMinimize: () => {},
+                windowStyle: {},
+              },
+              onClose: () => {},
+              title: 'Export',
+              children: React.createElement('div', null, 'content'),
+            }),
           },
-          onClose: () => {},
-          title: 'Export',
-          children: React.createElement('div', null, 'content'),
-        }),
+        ),
       );
     });
 

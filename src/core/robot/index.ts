@@ -101,6 +101,11 @@ export {
   getParentJointByChildLink,
 } from './kinematics';
 
+export {
+  getOrderedJointLimitBounds,
+  normalizeJointLimitOrder,
+} from './jointLimits';
+
 export { resolveMimicJointAngleTargets } from './mimic';
 export {
   clampJointInteractionValue,
@@ -134,6 +139,7 @@ export {
   createUniqueAssemblyComponentName,
   namespaceAssemblyRobotData,
   prepareAssemblyRobotData,
+  resolveAssemblyComponentBaseName,
   sanitizeAssemblyComponentId,
 } from './assemblyComponentPreparation';
 export {

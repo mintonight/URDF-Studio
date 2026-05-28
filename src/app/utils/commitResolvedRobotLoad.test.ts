@@ -230,7 +230,7 @@ test('commitResolvedRobotLoad uses resolved URDF content for ready xacro files',
   assert.equal(originalContent, '<robot name="b2"><link name="base_link" /></robot>');
 });
 
-test('commitResolvedRobotLoad seeds directly clicked MJCF scene wrappers as a single selected-file component', () => {
+test('commitResolvedRobotLoad seeds directly clicked MJCF scene wrappers as one component', () => {
   const sceneFile = createRobotFile({
     name: 'robots/go2/scene.xml',
     format: 'mjcf',
@@ -301,14 +301,14 @@ test('commitResolvedRobotLoad seeds directly clicked MJCF scene wrappers as a si
   assert.equal(Object.values(seededAssembly?.bridges ?? {}).length, 0);
 });
 
-test('commitResolvedRobotLoad preserves existing multi-component assemblies', () => {
+test('commitResolvedRobotLoad replaces existing assemblies for direct robot loads', () => {
   const file = createRobotFile({
     name: 'robots/standalone.urdf',
     format: 'urdf',
     content: '<robot name="standalone"><link name="base_link" /></robot>',
   });
   const existingAssembly = createExistingAssembly();
-  let setAssemblyCallCount = 0;
+  let nextAssemblyState: AssemblyState | null = null;
 
   commitResolvedRobotLoad({
     file,
@@ -326,6 +326,44 @@ test('commitResolvedRobotLoad preserves existing multi-component assemblies', ()
     },
     currentAppMode: 'editor',
     currentAssemblyState: existingAssembly,
+    markRobotBaselineSaved: () => {},
+    setAppMode: () => {},
+    setOriginalFileFormat: () => {},
+    setOriginalUrdfContent: () => {},
+    setRobot: () => {},
+    setSelectedFile: () => {},
+    setSelection: () => {},
+    setAssembly: (assembly) => {
+      nextAssemblyState = assembly;
+    },
+  });
+
+  assert.equal(nextAssemblyState?.name, 'standalone');
+  assert.deepEqual(
+    Object.values(nextAssemblyState?.components ?? {}).map((component) => component.sourceFile),
+    [file.name],
+  );
+  assert.equal(Object.values(nextAssemblyState?.bridges ?? {}).length, 0);
+});
+
+test('commitResolvedRobotLoad preserves existing assemblies when requested by component insertion', () => {
+  const file = createRobotFile({
+    name: 'robots/usd_tool.usd',
+    format: 'usd',
+    content: '',
+  });
+  const existingAssembly = createExistingAssembly();
+  let setAssemblyCallCount = 0;
+
+  commitResolvedRobotLoad({
+    file,
+    importResult: {
+      status: 'needs_hydration',
+      format: 'usd',
+    },
+    currentAppMode: 'editor',
+    currentAssemblyState: existingAssembly,
+    preserveAssemblyState: true,
     markRobotBaselineSaved: () => {},
     setAppMode: () => {},
     setOriginalFileFormat: () => {},

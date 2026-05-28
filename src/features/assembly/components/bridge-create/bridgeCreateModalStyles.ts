@@ -37,6 +37,12 @@ export const BRIDGE_SIDE_CARD_ACTIONS_CLASS =
   'flex shrink-0 items-center gap-1.5 justify-self-end';
 export const BRIDGE_RELATION_GRID_CLASS =
   'grid grid-cols-[minmax(0,1fr)_2.25rem_minmax(0,1fr)] items-stretch gap-1.5';
+export const BRIDGE_COMPACT_RELATION_GRID_CLASS =
+  'grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto_auto_minmax(0,1fr)_minmax(0,1fr)] items-center gap-1.5';
+export const BRIDGE_COMPACT_PICK_BUTTON_CLASS =
+  'shrink-0 rounded-md px-1 py-0.5 text-[8px] font-semibold transition-colors whitespace-nowrap';
+export const BRIDGE_TAB_CLASS =
+  'bg-segmented-bg rounded-lg p-0.5 flex min-w-0';
 export const BRIDGE_RELATION_CONNECTOR_LINE_CLASS =
   'w-px flex-1 bg-gradient-to-b from-border-black/0 via-border-black to-border-black/0';
 export const BRIDGE_SECTION_CLASS =

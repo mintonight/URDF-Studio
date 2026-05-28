@@ -12,6 +12,9 @@ test/
 scripts/
 !scripts/
 scripts/*
+!scripts/test/
+scripts/test/*
+!scripts/test/run-node-tests.mjs
 !scripts/regression/
 !scripts/wasm/
 scripts/regression/*

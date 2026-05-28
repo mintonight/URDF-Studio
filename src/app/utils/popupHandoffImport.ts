@@ -59,8 +59,16 @@ export function didPopupHandoffImportChangeState(
 }
 
 export function stripPopupHandoffQueryParam(urlLike: string): string {
-  const fullUrl = urlLike.startsWith('http') ? urlLike : `http://localhost${urlLike}`;
-  return stripHandoffParamFromUrl(fullUrl);
+  const isAbsoluteUrl = /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(urlLike);
+  const fullUrl = isAbsoluteUrl ? urlLike : `http://localhost${urlLike}`;
+  const cleanedUrl = stripHandoffParamFromUrl(fullUrl);
+
+  if (isAbsoluteUrl) {
+    return cleanedUrl;
+  }
+
+  const parsedCleanedUrl = new URL(cleanedUrl);
+  return `${parsedCleanedUrl.pathname}${parsedCleanedUrl.search}${parsedCleanedUrl.hash}`;
 }
 
 export async function resolvePopupHandoffImport(

@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { DEFAULT_LINK, type RobotData, type RobotFile } from '@/types';
-import { useAssemblyStore } from './assemblyStore.ts';
+import { useRobotStore } from './robotStore.ts';
 
 function resetAssemblyStore() {
-  const state = useAssemblyStore.getState();
+  const state = useRobotStore.getState();
   state.clearHistory();
   state.exitAssembly();
   state.setAssembly(null);
@@ -14,11 +14,11 @@ function resetAssemblyStore() {
 test('assemblyRevision increments for assembly mutations and undo/redo', () => {
   resetAssemblyStore();
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   const initialRevision = store.assemblyRevision;
 
   store.initAssembly('revision-bench');
-  const afterInitRevision = useAssemblyStore.getState().assemblyRevision;
+  const afterInitRevision = useRobotStore.getState().assemblyRevision;
   assert.ok(afterInitRevision > initialRevision);
 
   const file: RobotFile = {
@@ -40,23 +40,23 @@ test('assemblyRevision increments for assembly mutations and undo/redo', () => {
     joints: {},
   };
 
-  const component = useAssemblyStore.getState().addComponent(file, {
+  const component = useRobotStore.getState().addComponent(file, {
     preResolvedRobotData: robotData,
   });
 
   assert.ok(component);
-  const afterAddRevision = useAssemblyStore.getState().assemblyRevision;
+  const afterAddRevision = useRobotStore.getState().assemblyRevision;
   assert.ok(afterAddRevision > afterInitRevision);
 
-  useAssemblyStore.getState().updateComponentName(component!.id, 'renamed_component');
-  const afterRenameRevision = useAssemblyStore.getState().assemblyRevision;
+  useRobotStore.getState().updateComponentName(component!.id, 'renamed_component');
+  const afterRenameRevision = useRobotStore.getState().assemblyRevision;
   assert.ok(afterRenameRevision > afterAddRevision);
 
-  useAssemblyStore.getState().undo();
-  const afterUndoRevision = useAssemblyStore.getState().assemblyRevision;
+  useRobotStore.getState().undo();
+  const afterUndoRevision = useRobotStore.getState().assemblyRevision;
   assert.ok(afterUndoRevision > afterRenameRevision);
 
-  useAssemblyStore.getState().redo();
-  const afterRedoRevision = useAssemblyStore.getState().assemblyRevision;
+  useRobotStore.getState().redo();
+  const afterRedoRevision = useRobotStore.getState().assemblyRevision;
   assert.ok(afterRedoRevision > afterUndoRevision);
 });

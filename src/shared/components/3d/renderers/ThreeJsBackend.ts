@@ -621,7 +621,12 @@ export class ThreeJsBackend implements RobotRendererBackend {
   }
 
   getJointAngles(): Record<string, number> {
-    if (!this.robot || !(this.robot as any).joints) return {};
+    if (!this.robot || !(this.robot as any).joints) {
+      if (this.robot && !(this.robot as any).joints) {
+        console.error('[ThreeJsBackend] getJointAngles: robot loaded but has no joints');
+      }
+      return {};
+    }
 
     const angles: Record<string, number> = {};
     Object.entries((this.robot as any).joints).forEach(([name, joint]) => {

@@ -7,7 +7,6 @@ import type { RobotFile } from '@/types';
 import { DEFAULT_MOTOR_LIBRARY } from '@/shared/data/motorLibrary';
 import { mergeMotorLibraryEntries } from '@/shared/data/motorLibraryMerge';
 import {
-  useAssemblyStore,
   useAssetsStore,
   useRobotStore,
   useSelectionStore,
@@ -30,7 +29,6 @@ import {
 import { resolveRobotFileDataWithWorker } from './robotImportWorkerBridge';
 import {
   detectImportFormat,
-  prepareImportPayload,
   type PreparedImportPayload,
   type PrepareImportProgress,
 } from '@/app/utils/importPreparation';
@@ -332,9 +330,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
 
       const uiState = useUIStore.getState();
       const assetsState = useAssetsStore.getState();
-      const robotState = useRobotStore.getState();
       const selectionState = useSelectionStore.getState();
-      const assemblyStoreState = useAssemblyStore.getState();
       const t = translations[uiState.lang];
       const rawInputFiles = Array.from(files);
       const candidateInputFiles = rawInputFiles.filter((file) =>
@@ -352,44 +348,6 @@ export function useFileImport(options: UseFileImportOptions = {}) {
 
       const createdBlobUrls: string[] = [];
       let importStateMutated = false;
-      const assetsSnapshot = {
-        assets: assetsState.assets,
-        availableFiles: assetsState.availableFiles,
-        usdSceneSnapshots: assetsState.usdSceneSnapshots,
-        usdPreparedExportCaches: assetsState.usdPreparedExportCaches,
-        selectedFile: assetsState.selectedFile,
-        documentLoadState: assetsState.documentLoadState,
-        allFileContents: assetsState.allFileContents,
-        motorLibrary: assetsState.motorLibrary,
-        originalUrdfContent: assetsState.originalUrdfContent,
-        originalFileFormat: assetsState.originalFileFormat,
-      };
-      const assemblySnapshot = {
-        assemblyState: assemblyStoreState.assemblyState,
-        _history: assemblyStoreState._history,
-        _activity: assemblyStoreState._activity,
-      };
-      const robotSnapshot = structuredClone({
-        name: robotState.name,
-        links: robotState.links,
-        joints: robotState.joints,
-        rootLinkId: robotState.rootLinkId,
-        materials: robotState.materials,
-        closedLoopConstraints: robotState.closedLoopConstraints,
-        inspectionContext: robotState.inspectionContext,
-        _history: robotState._history,
-        _activity: robotState._activity,
-      });
-      const selectionSnapshot = structuredClone({
-        selection: selectionState.selection,
-        interactionGuard: selectionState.interactionGuard,
-        hoveredSelection: selectionState.hoveredSelection,
-        deferredHoveredSelection: selectionState.deferredHoveredSelection,
-        hoverFrozen: selectionState.hoverFrozen,
-        attentionSelection: selectionState.attentionSelection,
-        focusTarget: selectionState.focusTarget,
-      });
-      const uiSnapshot = {};
       let importOverlayActive = false;
 
       const setImportPreparationOverlay = (state: ImportPreparationOverlayState | null) => {
@@ -444,10 +402,12 @@ export function useFileImport(options: UseFileImportOptions = {}) {
             ),
           );
 
-          useAssemblyStore.setState({
+          useRobotStore.setState({
             assemblyState: result.assemblyState,
-            _history: result.assemblyHistory,
-            _activity: result.assemblyActivity,
+            components: result.assemblyState?.components ?? {},
+            bridges: result.assemblyState?.bridges ?? {},
+            workspaceTransform: result.assemblyState?.transform,
+            activeComponentId: Object.keys(result.assemblyState?.components ?? {})[0] ?? null,
           });
 
           markUnsavedChangesBaselineSaved('all');
@@ -475,26 +435,12 @@ export function useFileImport(options: UseFileImportOptions = {}) {
               );
             }
           : undefined;
-        let preparedImportPayload: PreparedImportPayload;
-        try {
-          preparedImportPayload = await prepareImportPayloadWithWorker({
-            files: inputFiles,
-            existingPaths: existingImportPaths,
-            preResolvePreferredImport: false,
-            onProgress: onPreparationProgress,
-          });
-        } catch (error) {
-          if (typeof Worker !== 'undefined') {
-            throw error;
-          }
-
-          preparedImportPayload = await prepareImportPayload({
-            files: inputFiles,
-            existingPaths: existingImportPaths,
-            preResolvePreferredImport: false,
-            onProgress: onPreparationProgress,
-          });
-        }
+        const preparedImportPayload: PreparedImportPayload = await prepareImportPayloadWithWorker({
+          files: inputFiles,
+          existingPaths: existingImportPaths,
+          preResolvePreferredImport: false,
+          onProgress: onPreparationProgress,
+        });
 
         const {
           robotFiles: renamedRobotFiles,
@@ -821,13 +767,6 @@ export function useFileImport(options: UseFileImportOptions = {}) {
       } catch (error) {
         console.error('Import failed:', error);
         if (!importStateMutated) {
-          revokeBlobUrls(createdBlobUrls);
-        } else {
-          useAssetsStore.setState(assetsSnapshot);
-          useAssemblyStore.setState(assemblySnapshot);
-          useRobotStore.setState(robotSnapshot);
-          useSelectionStore.setState(selectionSnapshot);
-          useUIStore.setState(uiSnapshot);
           revokeBlobUrls(createdBlobUrls);
         }
         const fallbackMessage = translations[useUIStore.getState().lang].importFailedCheckFiles;

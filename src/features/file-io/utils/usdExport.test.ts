@@ -603,6 +603,31 @@ test('isaacsim USDA export flattens link prim hierarchy for external articulatio
   assert.match(physicsLayer, /rel physics:body0 = <\/go1\/base_link>/);
   assert.match(physicsLayer, /rel physics:body1 = <\/go1\/link1>/);
   assert.doesNotMatch(physicsLayer, /rel physics:body1 = <\/go1\/base_link\/link1>/);
+  assert.match(
+    physicsLayer,
+    /def PhysicsScene "physicsScene" \(\n\s+prepend apiSchemas = \["PhysxSceneAPI"\]\n\s*\)\n\{/,
+  );
+  assert.match(physicsLayer, /uniform token physxScene:broadphaseType = "MBP"/);
+  assert.match(physicsLayer, /bool physxScene:enableCCD = true/);
+  assert.match(physicsLayer, /bool physxScene:enableGPUDynamics = false/);
+  assert.match(physicsLayer, /bool physxScene:enableStabilization = true/);
+  assert.match(physicsLayer, /uniform token physxScene:solverType = "TGS"/);
+  assert.match(
+    physicsLayer,
+    /over "base_link" \(\n\s+prepend apiSchemas = \["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysicsArticulationRootAPI", "PhysxArticulationAPI"\]/,
+  );
+  assert.match(physicsLayer, /bool physxArticulation:enabledSelfCollisions = true/);
+  assert.match(physicsLayer, /int physxArticulation:solverPositionIterationCount = 32/);
+  assert.match(physicsLayer, /int physxArticulation:solverVelocityIterationCount = 1/);
+  assert.match(
+    physicsLayer,
+    /prepend apiSchemas = \["PhysicsJointStateAPI:angular", "PhysxJointAPI", "PhysicsDriveAPI:angular", "IsaacJointAPI"\]/,
+  );
+  assert.match(physicsLayer, /float drive:angular:physics:stiffness = 625/);
+  assert.match(physicsLayer, /float drive:angular:physics:damping = 0\.25/);
+  assert.match(physicsLayer, /float drive:angular:physics:targetPosition = 0/);
+  assert.match(physicsLayer, /float physxJoint:maxJointVelocity = 229\.183/);
+  assert.match(physicsLayer, /bool physics:collisionEnabled = true/);
 
   assert.match(robotLayer, /<\/go1\/base_link>/);
   assert.match(robotLayer, /<\/go1\/link1>/);

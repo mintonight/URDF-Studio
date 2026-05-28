@@ -20,6 +20,7 @@ interface CommitResolvedRobotLoadArgs {
   importResult: CommitResolvedRobotLoadResult;
   markRobotBaselineSaved: () => void;
   onViewerReload?: () => void;
+  preserveAssemblyState?: boolean;
   reloadViewer?: boolean;
   setAppMode: (mode: AppMode) => void;
   setAssembly?: (state: AssemblyState | null) => void;
@@ -63,17 +64,6 @@ function resolveCommittedOriginalSourceContent(
   return file.content;
 }
 
-function shouldPreserveExistingAssembly(assemblyState: AssemblyState | null | undefined): boolean {
-  if (!assemblyState) {
-    return false;
-  }
-
-  return (
-    Object.keys(assemblyState.components).length > 1 ||
-    Object.keys(assemblyState.bridges).length > 0
-  );
-}
-
 export function commitResolvedRobotLoad({
   assets,
   allFileContents,
@@ -84,6 +74,7 @@ export function commitResolvedRobotLoad({
   importResult,
   markRobotBaselineSaved,
   onViewerReload,
+  preserveAssemblyState = false,
   reloadViewer = true,
   setAppMode,
   setAssembly,
@@ -96,11 +87,9 @@ export function commitResolvedRobotLoad({
   const nextAppMode = resolveAppModeAfterRobotContentChange(currentAppMode);
   const nextOriginalFileFormat = resolveCommittedOriginalFileFormat(file);
   const nextOriginalSourceContent = resolveCommittedOriginalSourceContent(file, importResult);
-  const canSeedAssembly =
-    importResult.status === 'ready' &&
-    Boolean(setAssembly) &&
-    !shouldPreserveExistingAssembly(currentAssemblyState);
-  const seededAssembly = canSeedAssembly
+  const shouldSeedAssembly =
+    importResult.status === 'ready' && Boolean(setAssembly) && !preserveAssemblyState;
+  const seededAssembly = shouldSeedAssembly
     ? autoSeedAssembly(importResult.robotData, file.name, {
         sourceFile: file,
         availableFiles,
@@ -108,23 +97,21 @@ export function commitResolvedRobotLoad({
         allFileContents,
       })
     : null;
+  const shouldClearAssembly =
+    importResult.status !== 'ready' &&
+    Boolean(setAssembly && currentAssemblyState && !preserveAssemblyState);
 
   unstable_batchedUpdates(() => {
     if (importResult.status === 'ready') {
-      const committedRobotData =
-        seededAssembly && seededAssembly.name !== importResult.robotData.name
-          ? { ...importResult.robotData, name: seededAssembly.name }
-          : importResult.robotData;
-
-      setRobot(committedRobotData, {
+      setRobot(importResult.robotData, {
         resetHistory: true,
         label: file.format === 'usd' ? 'Load USD stage' : 'Load imported robot',
       });
       markRobotBaselineSaved();
+    }
 
-      if (seededAssembly) {
-        setAssembly?.(seededAssembly);
-      }
+    if (seededAssembly || shouldClearAssembly) {
+      setAssembly?.(seededAssembly);
     }
 
     setSelectedFile(file);

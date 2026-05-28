@@ -16,7 +16,7 @@ import {
 } from '@/features/urdf-viewer/utils/rendererBackendLoadScope.ts';
 import type { RobotFile } from '@/types';
 import { JointType } from '@/types';
-import { useAssemblyStore } from './assemblyStore.ts';
+import { useRobotStore } from './robotStore.ts';
 
 const { window } = new JSDOM();
 
@@ -29,7 +29,7 @@ if (!globalThis.XMLSerializer) {
 }
 
 function resetAssemblyStore() {
-  const state = useAssemblyStore.getState();
+  const state = useRobotStore.getState();
   state.clearHistory();
   state.exitAssembly();
   state.setAssembly(null);
@@ -91,7 +91,7 @@ function buildT1PiperAssemblyExportRobot() {
   assert.ok(t1File, 'expected t1.xml fixture');
   assert.ok(piperFile, 'expected piper.xml fixture');
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('t1-piper-export');
 
   const t1Component = store.addComponent(t1File, {
@@ -117,7 +117,7 @@ function buildT1PiperAssemblyExportRobot() {
     joint: { type: JointType.FIXED },
   });
 
-  const assemblyState = useAssemblyStore.getState().assemblyState;
+  const assemblyState = useRobotStore.getState().assemblyState;
   assert.ok(assemblyState, 'expected assembly state after adding the bridge');
 
   return {
@@ -142,7 +142,7 @@ function buildT1PiperLink5AssemblyExportRobot() {
   assert.ok(t1File, 'expected t1.xml fixture');
   assert.ok(piperFile, 'expected piper.xml fixture');
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('t1-piper-link5-export');
 
   const t1Component = store.addComponent(t1File, {
@@ -173,7 +173,7 @@ function buildT1PiperLink5AssemblyExportRobot() {
     joint: { type: JointType.FIXED },
   });
 
-  const assemblyState = useAssemblyStore.getState().assemblyState;
+  const assemblyState = useRobotStore.getState().assemblyState;
   assert.ok(assemblyState, 'expected assembly state after adding the link5 bridge');
 
   return {
@@ -198,7 +198,7 @@ test('MJCF assembly merge re-roots the merged graph after bridge joints change t
   assert.ok(barkourFile, 'expected barkour_vb.xml fixture');
   assert.ok(go2File, 'expected go2.xml fixture');
 
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('mjcf-root-recompute');
 
   const barkourComponent = store.addComponent(barkourFile, {
@@ -224,7 +224,7 @@ test('MJCF assembly merge re-roots the merged graph after bridge joints change t
     joint: { type: JointType.FIXED },
   });
 
-  const merged = useAssemblyStore.getState().getMergedRobotData();
+  const merged = useRobotStore.getState().getMergedRobotData();
   assert.ok(merged, 'expected merged robot data after adding the bridge');
 
   const childLinkIds = new Set(Object.values(merged.joints).map((joint) => joint.childLinkId));
@@ -240,7 +240,7 @@ test('MJCF assembly merge re-roots the merged graph after bridge joints change t
 
 test('MJCF assembly export keeps PiPER mimic joints valid after bridge creation', () => {
   const { exportRobot } = buildT1PiperAssemblyExportRobot();
-  const merged = useAssemblyStore.getState().getMergedRobotData();
+  const merged = useRobotStore.getState().getMergedRobotData();
   assert.ok(merged, 'expected merged robot data after adding the bridge');
 
   const piperJoint8 = Object.values(merged.joints).find((joint) => joint.name === 'piper_joint8');
@@ -255,7 +255,7 @@ test('MJCF assembly export keeps PiPER mimic joints valid after bridge creation'
 
 test('T1 plus PiPER assembly viewer load key stays stable during joint motion', () => {
   buildT1PiperAssemblyExportRobot();
-  const merged = useAssemblyStore.getState().getMergedRobotData();
+  const merged = useRobotStore.getState().getMergedRobotData();
   assert.ok(merged, 'expected merged robot data after adding the bridge');
 
   const piperJoint2Key = resolveJointKey(merged.joints, 'piper_joint2');
@@ -384,7 +384,7 @@ test('addComponent surfaces actionable MyoSuite template placeholder errors for 
   );
 
   const file = supportFiles[0]!;
-  const store = useAssemblyStore.getState();
+  const store = useRobotStore.getState();
   store.initAssembly('myosuite-placeholder-error');
 
   assert.throws(
@@ -403,5 +403,5 @@ test('addComponent surfaces actionable MyoSuite template placeholder errors for 
     },
   );
 
-  assert.deepEqual(useAssemblyStore.getState().assemblyState?.components ?? {}, {});
+  assert.deepEqual(useRobotStore.getState().assemblyState?.components ?? {}, {});
 });

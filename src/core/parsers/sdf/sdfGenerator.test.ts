@@ -269,7 +269,10 @@ test('generateSDF preserves SDF-native plane and heightmap collision geometry', 
   assert.doesNotMatch(xml, /<empty\/>/);
   assert.equal(reparsed?.links.terrain_link.collision.type, GeometryType.PLANE);
   assert.equal(reparsed?.links.terrain_link.collisionBodies?.[0]?.type, GeometryType.HFIELD);
-  assert.equal(reparsed?.links.terrain_link.collisionBodies?.[0]?.meshPath, 'heightmaps/terrain.png');
+  assert.equal(
+    reparsed?.links.terrain_link.collisionBodies?.[0]?.meshPath,
+    'heightmaps/terrain.png',
+  );
 });
 
 test('generateSDF renames a payload-bearing world link because sdformat reserves world', () => {
@@ -477,7 +480,7 @@ test('generateSDF emits visual material colors from authored colorRgba values', 
           ...DEFAULT_LINK.visual,
           type: GeometryType.BOX,
           dimensions: { x: 0.5, y: 0.4, z: 0.3 },
-          authoredMaterials: [{ colorRgba: [0.1, 0.2, 0.3, 0.4] }],
+          authoredMaterials: [{ color: '#19334c', colorRgba: [0.1, 0.2, 0.3, 0.4] }],
         },
         collision: {
           ...DEFAULT_LINK.collision,

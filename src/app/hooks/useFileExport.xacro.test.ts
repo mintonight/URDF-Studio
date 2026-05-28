@@ -8,7 +8,7 @@ import JSZip from 'jszip';
 import { JSDOM } from 'jsdom';
 
 import { useFileExport } from './useFileExport.ts';
-import { useAssemblyStore, useAssetsStore, useRobotStore, useUIStore } from '@/store';
+import { useRobotStore, useAssetsStore, useUIStore } from '@/store';
 import { processXacro } from '@/core/parsers/xacro/xacroParser.ts';
 import {
   DEFAULT_JOINT,
@@ -161,7 +161,7 @@ function resetStoresToBaseline() {
     appMode: 'editor',
   });
 
-  useAssemblyStore.setState({
+  useRobotStore.setState({
     assemblyState: null,
     _history: { past: [], future: [] },
     _activity: [],

@@ -58,7 +58,7 @@ export const parseURDF = (xmlString: string): RobotState | null => {
 
   const materials = Object.fromEntries(
       Object.entries(linkMaterials)
-          .filter(([, material]) => Boolean(material.color || material.texture))
+          .filter(([, material]) => Boolean(material.color || material.colorRgba || material.texture))
           .map(([linkId, material]) => [linkId, material]),
   );
 

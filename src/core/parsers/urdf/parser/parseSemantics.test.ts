@@ -80,6 +80,39 @@ test('generateURDF falls back to robot materials when exporting visual colors', 
   );
 });
 
+test('parseURDF and generateURDF preserve visual material alpha values', () => {
+  const robot = parseURDF(`<?xml version="1.0"?>
+<robot name="transparent_material_demo">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="1 1 1" />
+      </geometry>
+      <material name="transparent_paint">
+        <color rgba="0.1 0.2 0.3 0.4" />
+      </material>
+    </visual>
+  </link>
+</robot>`);
+
+  assert.ok(robot);
+  assert.equal(robot.links.base_link.visual.color, '#19334c');
+  assert.deepEqual(robot.links.base_link.visual.authoredMaterials?.[0]?.colorRgba, [
+    0.1,
+    0.2,
+    0.3,
+    0.4,
+  ]);
+  assert.deepEqual(robot.materials?.base_link?.colorRgba, [0.1, 0.2, 0.3, 0.4]);
+
+  const exported = generateURDF({
+    ...robot,
+    selection: { type: null, id: null },
+  });
+
+  assert.match(exported, /<color rgba="0\.10000000 0\.20000000 0\.30000000 0\.40000000"\/>/);
+});
+
 test('generateURDF serializes additional visualBodies as extra visual tags', () => {
   const robot = parseURDF(`<?xml version="1.0"?>
 <robot name="multi_visual_export">

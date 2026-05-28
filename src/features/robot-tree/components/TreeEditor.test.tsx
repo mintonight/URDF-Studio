@@ -9,7 +9,12 @@ import { JSDOM } from 'jsdom';
 import { DEFAULT_LINK } from '@/types/constants';
 import type { AssemblyState, RobotFile, RobotState } from '@/types';
 import { GeometryType, JointType } from '@/types';
-import { useRobotStore, useSelectionStore, useUIStore } from '@/store';
+import {
+  useAssemblySelectionStore,
+  useRobotStore,
+  useSelectionStore,
+  useUIStore,
+} from '@/store';
 
 import { TreeEditor } from './TreeEditor.tsx';
 
@@ -39,6 +44,12 @@ function installDom() {
   (globalThis as { getComputedStyle?: typeof getComputedStyle }).getComputedStyle =
     dom.window.getComputedStyle.bind(dom.window);
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const htmlElementPrototype = dom.window.HTMLElement.prototype as HTMLElement & {
+    attachEvent?: () => undefined;
+    detachEvent?: () => undefined;
+  };
+  htmlElementPrototype.attachEvent = () => undefined;
+  htmlElementPrototype.detachEvent = () => undefined;
 
   return dom;
 }
@@ -258,6 +269,25 @@ function createAssemblyState(): AssemblyState {
   };
 }
 
+function createSingleComponentAssemblyState(): AssemblyState {
+  const robot = createRobotStateWithJoint();
+  robot.name = 'T1';
+
+  return {
+    name: 'T1',
+    components: {
+      comp_t1: {
+        id: 'comp_t1',
+        name: 'T1',
+        sourceFile: 'test/mujoco_menagerie-main/booster_t1/t1.xml',
+        robot,
+        visible: true,
+      },
+    },
+    bridges: {},
+  };
+}
+
 async function clickByText(dom: JSDOM, container: HTMLElement, text: string) {
   const target = Array.from(dom.window.document.querySelectorAll('button, span')).find(
     (element) => element.textContent?.trim() === text,
@@ -469,6 +499,301 @@ test('TreeEditor shows and edits the robot name from the structure tree root', a
     });
 
     assert.deepEqual(nameChanges, ['renamed_demo']);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('TreeEditor opens a clickable structure graph from the structure tree header', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+  const selections: Array<{ type: 'link' | 'joint'; id: string }> = [];
+  const longJointName = 'hip_roll_joint_with_full_display_name_for_graph_view';
+  const robotWithLongJointName = createRobotStateWithJoint();
+  robotWithLongJointName.joints.joint_1.name = longJointName;
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={robotWithLongJointName}
+          onSelect={(type, id) => selections.push({ type, id })}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          availableFiles={[]}
+        />,
+      );
+    });
+
+    await clickButtonByTitle(dom, 'Open Structure Graph');
+
+    const dialog = dom.window.document.querySelector(
+      '[role="dialog"][aria-label="Structure Graph"]',
+    );
+    assert.ok(dialog, 'expected structure graph dialog to open');
+    assert.equal(
+      dialog.getAttribute('aria-modal'),
+      'false',
+      'structure graph should be a floating window instead of a blocking modal overlay',
+    );
+    assert.equal(dialog.textContent?.includes('base_link'), true);
+    assert.equal(dialog.textContent?.includes(longJointName), true);
+    assert.equal(dialog.textContent?.includes(`${longJointName.slice(0, 15)}...`), false);
+    assert.equal(dialog.textContent?.includes('child_link'), true);
+
+    const graphLayer = dialog.querySelector('[data-testid="structure-graph-layer"]');
+    assert.ok(graphLayer, 'expected structure graph layer');
+    const initialTransform = graphLayer.getAttribute('transform') ?? '';
+    const transformValues = initialTransform.match(/translate\(([-\d.]+) ([-\d.]+)\) scale/);
+    assert.ok(transformValues, 'expected a translated vertical tree graph');
+    assert.equal(
+      Number(transformValues[2]) < 40,
+      true,
+      'vertical tree should start near the top of the graph surface',
+    );
+    assert.equal(
+      dialog.querySelector('[data-structure-graph-accent]'),
+      null,
+      'structure graph nodes should not render the old colored side strip',
+    );
+
+    const canvas = dialog.querySelector('[data-testid="structure-graph-canvas"]');
+    assert.ok(canvas, 'expected zoomable graph canvas');
+    const initialScale = Number(initialTransform.match(/scale\(([-\d.]+)\)/)?.[1] ?? '0');
+
+    await act(async () => {
+      canvas.dispatchEvent(
+        new dom.window.WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          deltaY: -120,
+          clientX: 240,
+          clientY: 180,
+        }),
+      );
+    });
+
+    assert.notEqual(
+      graphLayer.getAttribute('transform'),
+      initialTransform,
+      'mouse wheel should zoom the graph canvas',
+    );
+    const zoomedScale = Number(
+      graphLayer.getAttribute('transform')?.match(/scale\(([-\d.]+)\)/)?.[1] ?? '0',
+    );
+    assert.equal(
+      zoomedScale > initialScale && zoomedScale / initialScale < 1.1,
+      true,
+      'mouse wheel zoom should stay below the old per-notch jump',
+    );
+
+    const childLinkNode = dialog.querySelector('[role="button"][aria-label="Link child_link"]');
+    assert.ok(childLinkNode, 'expected child link graph node');
+    const childRectsBeforeHover = childLinkNode.querySelectorAll('rect').length;
+
+    await act(async () => {
+      childLinkNode.dispatchEvent(
+        new dom.window.MouseEvent('mouseover', {
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    assert.equal(
+      childLinkNode.querySelectorAll('rect').length > childRectsBeforeHover,
+      true,
+      'structure graph nodes should show an immediate hover surface',
+    );
+
+    await act(async () => {
+      childLinkNode.dispatchEvent(
+        new dom.window.MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    const jointNode = dialog.querySelector(
+      `[role="button"][aria-label="Joint ${longJointName}"]`,
+    );
+    assert.ok(jointNode, 'expected joint graph node');
+
+    await act(async () => {
+      jointNode.dispatchEvent(
+        new dom.window.MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    assert.deepEqual(selections, [
+      { type: 'link', id: 'child_link' },
+      { type: 'joint', id: 'joint_1' },
+    ]);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('TreeEditor structure graph renders a single imported robot as a top-level component', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+  const selections: Array<{ type: 'link' | 'joint'; id: string }> = [];
+
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+  useAssemblySelectionStore.getState().clearSelection();
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={createRobotStateWithJoint()}
+          onSelect={(type, id) => selections.push({ type, id })}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          availableFiles={[]}
+          assemblyState={createSingleComponentAssemblyState()}
+          onAddComponent={() => {}}
+        />,
+      );
+    });
+
+    await clickButtonByTitle(dom, 'Open Structure Graph');
+
+    const dialog = dom.window.document.querySelector(
+      '[role="dialog"][aria-label="Structure Graph"]',
+    );
+    assert.ok(dialog, 'expected structure graph dialog to open');
+
+    assert.equal(dialog.querySelector('[aria-label="Assembly T1"]'), null);
+    assert.equal(dialog.querySelector('[aria-label="Robot T1"]'), null);
+
+    const componentNode = dialog.querySelector('[role="button"][aria-label="Component T1"]');
+    assert.ok(componentNode, 'expected the single import to render as a top-level component');
+    assert.ok(dialog.querySelector('[role="button"][aria-label="Link base_link"]'));
+    assert.ok(dialog.querySelector('[role="button"][aria-label="Joint joint_1"]'));
+
+    await act(async () => {
+      componentNode.dispatchEvent(
+        new dom.window.MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    assert.deepEqual(useAssemblySelectionStore.getState().selection, {
+      type: 'component',
+      id: 'comp_t1',
+    });
+    assert.deepEqual(selections, [{ type: 'link', id: 'base_link' }]);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('TreeEditor structure graph renders workspace assemblies as top-level components', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+  const selections: Array<{ type: 'link' | 'joint'; id: string }> = [];
+
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+  useAssemblySelectionStore.getState().clearSelection();
+
+  try {
+    await act(async () => {
+      root.render(
+        <TreeEditor
+          robot={createRobotState()}
+          onSelect={(type, id) => selections.push({ type, id })}
+          onAddChild={() => {}}
+          onAddCollisionBody={() => {}}
+          onDelete={() => {}}
+          onNameChange={() => {}}
+          onUpdate={() => {}}
+          showVisual
+          setShowVisual={() => {}}
+          mode="editor"
+          lang="en"
+          theme="light"
+          collapsed={false}
+          onToggle={() => {}}
+          availableFiles={[]}
+          assemblyState={createAssemblyState()}
+          onAddComponent={() => {}}
+        />,
+      );
+    });
+
+    await clickButtonByTitle(dom, 'Open Structure Graph');
+
+    const dialog = dom.window.document.querySelector(
+      '[role="dialog"][aria-label="Structure Graph"]',
+    );
+    assert.ok(dialog, 'expected structure graph dialog to open');
+
+    assert.equal(dialog.querySelector('[aria-label="Assembly demo_assembly"]'), null);
+    const armComponentNode = dialog.querySelector(
+      '[role="button"][aria-label="Component arm_component"]',
+    );
+    const toolComponentNode = dialog.querySelector(
+      '[role="button"][aria-label="Component tool_component"]',
+    );
+    assert.ok(armComponentNode, 'expected arm component as a top-level graph node');
+    assert.ok(toolComponentNode, 'expected tool component as a top-level graph node');
+
+    await act(async () => {
+      armComponentNode.dispatchEvent(
+        new dom.window.MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    assert.deepEqual(useAssemblySelectionStore.getState().selection, {
+      type: 'component',
+      id: 'comp_arm',
+    });
+    assert.deepEqual(selections, [{ type: 'link', id: 'base_link' }]);
   } finally {
     await act(async () => {
       root.unmount();

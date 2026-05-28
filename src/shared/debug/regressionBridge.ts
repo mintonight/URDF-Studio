@@ -1184,8 +1184,39 @@ function summarizeSelectedUsdNormalDiagnostics(): RegressionSelectedUsdNormalDia
   };
 }
 
+function summarizeVisualMaterial(
+  material: NonNullable<UrdfLink['visual']['authoredMaterials']>[number],
+) {
+  return {
+    name: material.name ?? null,
+    color: material.color ?? null,
+    colorRgba: material.colorRgba ?? null,
+    texture: material.texture ?? null,
+    opacity: Number.isFinite(material.opacity) ? Number(material.opacity) : null,
+    roughness: Number.isFinite(material.roughness) ? Number(material.roughness) : null,
+    metalness: Number.isFinite(material.metalness) ? Number(material.metalness) : null,
+    emissive: material.emissive ?? null,
+    emissiveIntensity: Number.isFinite(material.emissiveIntensity)
+      ? Number(material.emissiveIntensity)
+      : null,
+    alphaTest: Number.isFinite(material.alphaTest) ? Number(material.alphaTest) : null,
+  };
+}
+
+function summarizeMeshMaterialGroup(
+  group: NonNullable<UrdfLink['visual']['meshMaterialGroups']>[number],
+) {
+  return {
+    meshKey: group.meshKey,
+    start: Number(group.start ?? 0),
+    count: Number(group.count ?? 0),
+    materialIndex: Number(group.materialIndex ?? 0),
+  };
+}
+
 function summarizeGeometry(geometry: UrdfLink['visual'] | UrdfLink['collision']) {
   return {
+    name: geometry.name ?? null,
     type: geometry.type,
     meshPath: geometry.meshPath || null,
     dimensions: geometry.dimensions
@@ -1210,6 +1241,15 @@ function summarizeGeometry(geometry: UrdfLink['visual'] | UrdfLink['collision'])
         }
       : null,
     visible: geometry.visible ?? true,
+    color: geometry.color || null,
+    materialSource: geometry.materialSource ?? null,
+    authoredMaterials: Array.isArray(geometry.authoredMaterials)
+      ? geometry.authoredMaterials.map(summarizeVisualMaterial)
+      : [],
+    meshMaterialGroups: Array.isArray(geometry.meshMaterialGroups)
+      ? geometry.meshMaterialGroups.map(summarizeMeshMaterialGroup)
+      : [],
+    doubleSided: geometry.doubleSided ?? null,
   };
 }
 
@@ -1243,6 +1283,10 @@ function summarizeLink(link: UrdfLink) {
         }
       : null,
     visual: summarizeGeometry(link.visual),
+    visualBodies: (link.visualBodies || []).map((body, index) => ({
+      index,
+      geometry: summarizeGeometry(body),
+    })),
     collision: summarizeGeometry(link.collision),
     collisionBodies: (link.collisionBodies || []).map((body, index) => ({
       index,

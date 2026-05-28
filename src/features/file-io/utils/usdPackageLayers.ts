@@ -89,6 +89,16 @@ const rpyToQuaternion = (r: number, p: number, y: number): THREE.Quaternion => {
 };
 
 const ZERO_EPSILON = 1e-9;
+const ISAACSIM_DEFAULT_JOINT_STIFFNESS = 625;
+const ISAACSIM_DEFAULT_JOINT_DAMPING = 0.25;
+const ISAACSIM_DEFAULT_ENABLED_SELF_COLLISIONS = true;
+const ISAACSIM_DEFAULT_SOLVER_POSITION_ITERATION_COUNT = 32;
+const ISAACSIM_DEFAULT_SOLVER_VELOCITY_ITERATION_COUNT = 1;
+const ISAACSIM_DEFAULT_PHYSX_SCENE_BROADPHASE_TYPE = 'MBP';
+const ISAACSIM_DEFAULT_PHYSX_SCENE_ENABLE_CCD = true;
+const ISAACSIM_DEFAULT_PHYSX_SCENE_ENABLE_GPU_DYNAMICS = false;
+const ISAACSIM_DEFAULT_PHYSX_SCENE_ENABLE_STABILIZATION = true;
+const ISAACSIM_DEFAULT_PHYSX_SCENE_SOLVER_TYPE = 'TGS';
 
 const hasExportableGeometry = (geometry: UrdfLink['visual'] | UrdfLink['collision'] | undefined): boolean => {
   return Boolean(geometry) && getGeometryType(geometry.type) !== GEOMETRY_TYPES.NONE;
@@ -209,6 +219,32 @@ const radiansToDegrees = (value: number): number => {
   return (value * 180) / Math.PI;
 };
 
+const angularDriveGainToUsdUnits = (value: number): number => {
+  return (Math.PI / 180) * value;
+};
+
+const angularVelocityToUsdUnits = (value: number): number => {
+  return radiansToDegrees(value);
+};
+
+const resolveIsaacSimDriveGain = (
+  sourceGain: number | null,
+  defaultGain: number | null,
+  shouldConvertAngularDriveGains: boolean,
+): number | null => {
+  const authoredSourceGain =
+    sourceGain !== null && shouldConvertAngularDriveGains
+      ? angularDriveGainToUsdUnits(sourceGain)
+      : sourceGain;
+  if (defaultGain === null) {
+    return authoredSourceGain;
+  }
+  if (authoredSourceGain === null) {
+    return defaultGain;
+  }
+  return Math.max(authoredSourceGain, defaultGain);
+};
+
 const getUsdDriveInstanceName = (typeName: string): 'angular' | 'linear' | null => {
   if (typeName === 'PhysicsRevoluteJoint') {
     return 'angular';
@@ -263,6 +299,9 @@ const serializeJointDefinition = (
   linkPaths: Map<string, string>,
   lines: string[],
   depth: number,
+  options: {
+    layoutProfile?: ResolvedUsdPackageLayoutProfile;
+  } = {},
 ): void => {
   const indent = makeUsdIndent(depth);
   const childIndent = makeUsdIndent(depth + 1);
@@ -277,22 +316,61 @@ const serializeJointDefinition = (
   const supportsAxis = typeName === 'PhysicsRevoluteJoint' || typeName === 'PhysicsPrismaticJoint';
   const axisToken = getAxisToken(joint.axis);
   const driveInstanceName = getUsdDriveInstanceName(typeName);
-  const driveDamping =
+  const shouldUseIsaacDefaults = options.layoutProfile === 'isaacsim' && driveInstanceName !== null;
+  const sourceDriveStiffness =
+    Number.isFinite(joint.dynamics?.stiffness) && Math.abs(Number(joint.dynamics?.stiffness)) > 1e-9
+      ? Number(joint.dynamics?.stiffness)
+      : null;
+  const sourceDriveDamping =
     Number.isFinite(joint.dynamics?.damping) && Math.abs(joint.dynamics.damping) > 1e-9
       ? joint.dynamics.damping
       : null;
+  const shouldConvertAngularDriveGains =
+    options.layoutProfile === 'isaacsim' && driveInstanceName === 'angular';
+  const defaultDriveStiffness = shouldUseIsaacDefaults ? ISAACSIM_DEFAULT_JOINT_STIFFNESS : null;
+  const defaultDriveDamping = shouldUseIsaacDefaults ? ISAACSIM_DEFAULT_JOINT_DAMPING : null;
+  const driveStiffness = resolveIsaacSimDriveGain(
+    sourceDriveStiffness,
+    defaultDriveStiffness,
+    shouldConvertAngularDriveGains,
+  );
+  const driveDamping = resolveIsaacSimDriveGain(
+    sourceDriveDamping,
+    defaultDriveDamping,
+    shouldConvertAngularDriveGains,
+  );
   const driveMaxForce =
     Number.isFinite(joint.limit?.effort) && Math.abs(joint.limit.effort) > 1e-9
       ? joint.limit.effort
       : null;
+  const maxJointVelocity =
+    options.layoutProfile === 'isaacsim' &&
+    driveInstanceName !== null &&
+    Number.isFinite(joint.limit?.velocity) &&
+    Math.abs(joint.limit.velocity) > 1e-9
+      ? driveInstanceName === 'angular'
+        ? angularVelocityToUsdUnits(joint.limit.velocity)
+        : joint.limit.velocity
+      : null;
   const shouldEmitDrive =
-    driveInstanceName !== null && (driveDamping !== null || driveMaxForce !== null);
+    driveInstanceName !== null &&
+    (driveStiffness !== null || driveDamping !== null || driveMaxForce !== null);
+  const jointApiSchemas: string[] = [];
+  if (options.layoutProfile === 'isaacsim' && driveInstanceName !== null) {
+    jointApiSchemas.push(`"PhysicsJointStateAPI:${driveInstanceName}"`, '"PhysxJointAPI"');
+  }
+  if (shouldEmitDrive) {
+    jointApiSchemas.push(`"PhysicsDriveAPI:${driveInstanceName}"`);
+  }
+  if (options.layoutProfile === 'isaacsim' && driveInstanceName !== null) {
+    jointApiSchemas.push('"IsaacJointAPI"');
+  }
 
   serializeUsdPrimSpecWithMetadata(
     lines,
     depth,
     `def ${typeName} "${sanitizeUsdIdentifier(joint.id || joint.name || 'joint')}"`,
-    shouldEmitDrive ? [`prepend apiSchemas = ["PhysicsDriveAPI:${driveInstanceName}"]`] : [],
+    jointApiSchemas.length > 0 ? [`prepend apiSchemas = [${jointApiSchemas.join(', ')}]`] : [],
   );
   lines.push(`${indent}{`);
   lines.push(`${childIndent}rel physics:body0 = <${parentPath}>`);
@@ -330,6 +408,11 @@ const serializeJointDefinition = (
 
   if (shouldEmitDrive) {
     lines.push(`${childIndent}uniform token drive:${driveInstanceName}:physics:type = "force"`);
+    if (driveStiffness !== null) {
+      lines.push(
+        `${childIndent}float drive:${driveInstanceName}:physics:stiffness = ${formatUsdFloat(driveStiffness)}`,
+      );
+    }
     if (driveDamping !== null) {
       lines.push(
         `${childIndent}float drive:${driveInstanceName}:physics:damping = ${formatUsdFloat(driveDamping)}`,
@@ -340,6 +423,15 @@ const serializeJointDefinition = (
         `${childIndent}float drive:${driveInstanceName}:physics:maxForce = ${formatUsdFloat(driveMaxForce)}`,
       );
     }
+    if (options.layoutProfile === 'isaacsim') {
+      lines.push(`${childIndent}float drive:${driveInstanceName}:physics:targetPosition = 0`);
+    }
+  }
+
+  if (maxJointVelocity !== null) {
+    lines.push(
+      `${childIndent}float physxJoint:maxJointVelocity = ${formatUsdFloat(maxJointVelocity)}`,
+    );
   }
 
   lines.push(
@@ -477,6 +569,7 @@ const serializeLinkPhysicsOverride = (
   depth: number,
   options: {
     addArticulationRootApi?: boolean;
+    layoutProfile?: ResolvedUsdPackageLayoutProfile;
   } = {},
 ): void => {
   const link = robot.links[linkId];
@@ -490,6 +583,9 @@ const serializeLinkPhysicsOverride = (
     '"PhysicsRigidBodyAPI"',
     ...(link.inertial ? ['"PhysicsMassAPI"'] : []),
     ...(options.addArticulationRootApi ? ['"PhysicsArticulationRootAPI"'] : []),
+    ...(options.addArticulationRootApi && options.layoutProfile === 'isaacsim'
+      ? ['"PhysxArticulationAPI"']
+      : []),
   ].join(', ');
 
   serializeUsdPrimSpecWithMetadata(lines, depth, `over "${sanitizeUsdIdentifier(linkId)}"`, [
@@ -519,6 +615,18 @@ const serializeLinkPhysicsOverride = (
     );
     lines.push(
       `${childIndent}quatf physics:principalAxes = ${quaternionToUsdTuple(usdInertia?.principalAxesLocal)}`,
+    );
+  }
+
+  if (options.addArticulationRootApi && options.layoutProfile === 'isaacsim') {
+    lines.push(
+      `${childIndent}bool physxArticulation:enabledSelfCollisions = ${ISAACSIM_DEFAULT_ENABLED_SELF_COLLISIONS ? 'true' : 'false'}`,
+    );
+    lines.push(
+      `${childIndent}int physxArticulation:solverPositionIterationCount = ${ISAACSIM_DEFAULT_SOLVER_POSITION_ITERATION_COUNT}`,
+    );
+    lines.push(
+      `${childIndent}int physxArticulation:solverVelocityIterationCount = ${ISAACSIM_DEFAULT_SOLVER_VELOCITY_ITERATION_COUNT}`,
     );
   }
 
@@ -592,10 +700,32 @@ export const buildUsdPhysicsLayerContent = (
     '',
   ];
 
-  lines.push('def PhysicsScene "physicsScene"');
+  serializeUsdPrimSpecWithMetadata(
+    lines,
+    0,
+    'def PhysicsScene "physicsScene"',
+    layoutProfile === 'isaacsim' ? ['prepend apiSchemas = ["PhysxSceneAPI"]'] : [],
+  );
   lines.push('{');
   lines.push('    vector3f physics:gravityDirection = (0, 0, -1)');
   lines.push('    float physics:gravityMagnitude = 9.81');
+  if (layoutProfile === 'isaacsim') {
+    lines.push(
+      `    uniform token physxScene:broadphaseType = "${ISAACSIM_DEFAULT_PHYSX_SCENE_BROADPHASE_TYPE}"`,
+    );
+    lines.push(
+      `    bool physxScene:enableCCD = ${ISAACSIM_DEFAULT_PHYSX_SCENE_ENABLE_CCD ? 'true' : 'false'}`,
+    );
+    lines.push(
+      `    bool physxScene:enableGPUDynamics = ${ISAACSIM_DEFAULT_PHYSX_SCENE_ENABLE_GPU_DYNAMICS ? 'true' : 'false'}`,
+    );
+    lines.push(
+      `    bool physxScene:enableStabilization = ${ISAACSIM_DEFAULT_PHYSX_SCENE_ENABLE_STABILIZATION ? 'true' : 'false'}`,
+    );
+    lines.push(
+      `    uniform token physxScene:solverType = "${ISAACSIM_DEFAULT_PHYSX_SCENE_SOLVER_TYPE}"`,
+    );
+  }
   lines.push('}');
   lines.push('');
 
@@ -612,6 +742,7 @@ export const buildUsdPhysicsLayerContent = (
       serializeLinkPhysicsOverride(robot, linkId, lines, 1, {
         addArticulationRootApi:
           linkId === (omittedRootAnchor?.articulationRootLinkId || robot.rootLinkId),
+        layoutProfile,
       });
     });
   } else {
@@ -632,7 +763,7 @@ export const buildUsdPhysicsLayerContent = (
     if (omittedRootAnchor?.omittedJointIds.has(joint.id)) {
       return;
     }
-    serializeJointDefinition(joint, pathMaps.linkPaths, lines, 2);
+    serializeJointDefinition(joint, pathMaps.linkPaths, lines, 2, { layoutProfile });
   });
   (robot.closedLoopConstraints || []).forEach((constraint) => {
     serializeClosedLoopConstraintDefinition(constraint, pathMaps.linkPaths, lines, 2);

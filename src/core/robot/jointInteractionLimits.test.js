@@ -54,6 +54,15 @@ test('normalizeJointInteractionLimits falls back only for missing bounds', () =>
   );
 });
 
+test('normalizeJointInteractionLimits treats crossed bounds as an ordered range', () => {
+  assert.deepEqual(normalizeJointInteractionLimits(2, 1), {
+    lower: 1,
+    upper: 2,
+  });
+
+  assert.equal(clampJointInteractionValue(1.25, 2, 1), 1.25);
+});
+
 test('clampJointInteractionValue keeps neutral zero only when the real range spans zero', () => {
   assert.equal(
     clampJointInteractionValue(0, 10, 20, {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { useAssemblyStore, useRobotStore } from '@/store';
+import { useRobotStore } from '@/store';
 import {
   isRegressionBeforeUnloadPromptSuppressed,
   subscribeRegressionBeforeUnloadPromptSuppression,
@@ -32,12 +32,19 @@ function getCurrentRobotPersistenceSnapshot(): string {
 }
 
 function getCurrentAssemblyPersistenceSnapshot(): string {
-  return createAssemblyPersistenceSnapshot(useAssemblyStore.getState().assemblyState);
+  return createAssemblyPersistenceSnapshot(useRobotStore.getState().assemblyState);
 }
 
 export function useUnsavedChangesPrompt() {
-  const { robotName, robotLinks, robotJoints, rootLinkId, robotMaterials, closedLoopConstraints } =
-    useRobotStore(
+  const {
+    robotName,
+    robotLinks,
+    robotJoints,
+    rootLinkId,
+    robotMaterials,
+    closedLoopConstraints,
+    assemblyState,
+  } = useRobotStore(
       useShallow((state) => ({
         robotName: state.name,
         robotLinks: state.links,
@@ -45,9 +52,9 @@ export function useUnsavedChangesPrompt() {
         rootLinkId: state.rootLinkId,
         robotMaterials: state.materials,
         closedLoopConstraints: state.closedLoopConstraints,
+        assemblyState: state.assemblyState,
       })),
     );
-  const assemblyState = useAssemblyStore((state) => state.assemblyState);
 
   const currentRobotSnapshot = useMemo(
     () =>

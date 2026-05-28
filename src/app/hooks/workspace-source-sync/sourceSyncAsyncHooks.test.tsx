@@ -374,3 +374,143 @@ test('useDeferredWorkspaceSourceSync ignores late immediate results after the wo
     dom.window.close();
   }
 });
+
+test('useDeferredWorkspaceSourceSync does not overwrite SDF component sources', async () => {
+  const { dom, root } = createComponentRoot();
+  const workerEnv = createFakeWorkerEnvironment();
+  const selectedFile = {
+    name: 'arm_part/model.sdf',
+    format: 'sdf',
+    content: `<sdf version="1.7">
+  <model name="arm_part">
+    <link name="link">
+      <visual name="visual">
+        <geometry><mesh><uri>model://arm_part/meshes/arm.dae</uri></mesh></geometry>
+        <material>
+          <script>
+            <uri>model://arm_part/materials/scripts</uri>
+            <name>ArmPart/Diffuse</name>
+          </script>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>`,
+  } as const satisfies RobotFile;
+  const assemblyState: AssemblyState = {
+    name: 'demo_assembly',
+    components: {
+      arm_part_1: {
+        id: 'arm_part_1',
+        name: 'arm_part_1',
+        sourceFile: selectedFile.name,
+        robot: createRobotState('arm_part_1'),
+        visible: true,
+      },
+    },
+    bridges: {},
+  };
+  const allFileContents = {
+    [selectedFile.name]: selectedFile.content,
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(DeferredHookHarness, {
+          shouldRenderAssembly: true,
+          assemblyState,
+          isCodeViewerOpen: false,
+          selectedFile,
+          availableFiles: [selectedFile],
+          allFileContents,
+          generatedSourceCache: new Map<string, string>(),
+          syncTextFileContent: () => {
+            assert.fail('SDF component sources should not be synced through generated output');
+          },
+          setSelectedFile: () => {
+            assert.fail('selected SDF file should not be overwritten');
+          },
+          setAvailableFiles: () => {
+            assert.fail('available SDF file should not be overwritten');
+          },
+          setAllFileContents: () => {
+            assert.fail('SDF text cache should not be overwritten');
+          },
+        }),
+      );
+      await wait(30);
+    });
+
+    assert.equal(workerEnv.instances.length, 0);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    workerEnv.restore();
+    dom.window.close();
+  }
+});
+
+test('useDeferredWorkspaceSourceSync does not overwrite MJCF component sources', async () => {
+  const { dom, root } = createComponentRoot();
+  const workerEnv = createFakeWorkerEnvironment();
+  const selectedFile = {
+    name: 'unitree_go2/go2.xml',
+    format: 'mjcf',
+    content: '<mujoco model="go2"><worldbody><body name="base" /></worldbody></mujoco>',
+  } as const satisfies RobotFile;
+  const assemblyState: AssemblyState = {
+    name: 'demo_assembly',
+    components: {
+      go2_1: {
+        id: 'go2_1',
+        name: 'go2_1',
+        sourceFile: selectedFile.name,
+        robot: createRobotState('go2_1'),
+        visible: true,
+      },
+    },
+    bridges: {},
+  };
+  const allFileContents = {
+    [selectedFile.name]: selectedFile.content,
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(DeferredHookHarness, {
+          shouldRenderAssembly: true,
+          assemblyState,
+          isCodeViewerOpen: false,
+          selectedFile,
+          availableFiles: [selectedFile],
+          allFileContents,
+          generatedSourceCache: new Map<string, string>(),
+          syncTextFileContent: () => {
+            assert.fail('MJCF component sources should not be synced through generated output');
+          },
+          setSelectedFile: () => {
+            assert.fail('selected MJCF file should not be overwritten');
+          },
+          setAvailableFiles: () => {
+            assert.fail('available MJCF file should not be overwritten');
+          },
+          setAllFileContents: () => {
+            assert.fail('MJCF text cache should not be overwritten');
+          },
+        }),
+      );
+      await wait(30);
+    });
+
+    assert.equal(workerEnv.instances.length, 0);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    workerEnv.restore();
+    dom.window.close();
+  }
+});

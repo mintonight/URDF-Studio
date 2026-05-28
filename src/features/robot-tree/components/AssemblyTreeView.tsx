@@ -76,18 +76,14 @@ function componentContainsSelection(
   }
 
   if (selection.type === 'link') {
-    if (component.robot.links[selection.id]) {
-      return true;
-    }
-
-    return Object.values(component.robot.links).some((link) => link.name === selection.id);
+    return selection.id in component.robot.links;
   }
 
-  if (component.robot.joints[selection.id]) {
-    return true;
+  if (selection.type === 'joint') {
+    return selection.id in component.robot.joints;
   }
 
-  return Object.values(component.robot.joints).some((joint) => joint.name === selection.id);
+  return false;
 }
 
 function resolveComponentHoverLinkId(

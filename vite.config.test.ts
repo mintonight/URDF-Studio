@@ -116,13 +116,13 @@ async function reserveFreePort(): Promise<number> {
   return address.port;
 }
 
-test('dev server listens on external interfaces by default and supports a host override', async () => {
+test('dev server listens on localhost by default and supports a host override', async () => {
   const defaultConfig = await loadViteConfigWithDevServerEnv({
     URDF_STUDIO_DEV_HOST: undefined,
     URDF_STUDIO_DEV_ALLOWED_HOSTS: undefined,
   });
 
-  assert.equal(defaultConfig.server?.host, '0.0.0.0');
+  assert.equal(defaultConfig.server?.host, 'localhost');
 
   const overriddenConfig = await loadViteConfigWithDevServerEnv({
     URDF_STUDIO_DEV_HOST: '127.0.0.1',

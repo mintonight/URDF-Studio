@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  INTERACTION_DPR_CAP,
+  MIN_RENDER_DPR,
   RESTING_DPR_CAP,
   resolveCanvasDpr,
 } from './interactionQuality.ts';
@@ -13,23 +15,42 @@ test('resolveCanvasDpr keeps resting canvases crisp up to the resting cap', () =
   );
 });
 
-test('resolveCanvasDpr keeps interactive canvases at the resting DPR cap to avoid grid thickness shifts', () => {
+test('resolveCanvasDpr lowers interactive canvases to the interaction DPR cap', () => {
   assert.equal(
     resolveCanvasDpr({ devicePixelRatio: 2.5, isInteracting: true }),
-    RESTING_DPR_CAP,
+    INTERACTION_DPR_CAP,
   );
 });
 
-test('resolveCanvasDpr does not upscale low-DPR displays while interacting', () => {
+test('resolveCanvasDpr supersamples low-DPR displays to reduce viewport aliasing', () => {
   assert.equal(
-    resolveCanvasDpr({ devicePixelRatio: 0.9, isInteracting: true }),
-    0.9,
+    resolveCanvasDpr({ devicePixelRatio: 0.9, isInteracting: false }),
+    MIN_RENDER_DPR,
+  );
+});
+
+test('resolveCanvasDpr respects explicit interaction caps below the supersampling floor', () => {
+  assert.equal(
+    resolveCanvasDpr({ devicePixelRatio: 2, isInteracting: true, interactionCap: 1.25 }),
+    1.25,
   );
 });
 
 test('resolveCanvasDpr falls back to a safe DPR when the device ratio is invalid', () => {
   assert.equal(
     resolveCanvasDpr({ devicePixelRatio: Number.NaN, isInteracting: false }),
+    MIN_RENDER_DPR,
+  );
+});
+
+test('resolveCanvasDpr can opt out of supersampling with a custom floor', () => {
+  assert.equal(
+    resolveCanvasDpr({
+      devicePixelRatio: 1,
+      isInteracting: true,
+      interactionCap: INTERACTION_DPR_CAP,
+      minRenderDpr: 1,
+    }),
     1,
   );
 });

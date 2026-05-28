@@ -1,6 +1,6 @@
 import type { AssemblyState, RobotData, UrdfJoint, UrdfLink } from '@/types';
 import type { UpdateCommitOptions } from '@/types/viewer';
-import { resolveJointKey, resolveLinkKey } from '@/core/robot';
+import { normalizeJointLimitOrder, resolveJointKey, resolveLinkKey } from '@/core/robot';
 import {
   findAddedCollisionGeometryPatch,
   findRemovedCollisionGeometryObjectIndex,
@@ -226,15 +226,16 @@ export function applyAssemblyUpdate(params: AssemblyUpdateParams): boolean {
         return false;
       }
       const jointPatch = params.data as Partial<UrdfJoint>;
+      const mergedLimit = jointPatch.limit
+        ? normalizeJointLimitOrder({
+            ...(currentJoint.limit ?? jointPatch.limit),
+            ...jointPatch.limit,
+          })
+        : currentJoint.limit;
       const nextJoint: UrdfJoint = {
         ...currentJoint,
         ...jointPatch,
-        limit: jointPatch.limit
-          ? {
-              ...currentJoint.limit,
-              ...jointPatch.limit,
-            }
-          : currentJoint.limit,
+        limit: mergedLimit,
       };
 
       params.ensurePendingAssemblyHistory(historyKey, historyLabel);

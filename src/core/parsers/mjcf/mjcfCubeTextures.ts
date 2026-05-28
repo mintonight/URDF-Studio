@@ -73,9 +73,11 @@ export function getMjcfCubeTextureFacePaths(
 export function buildMjcfCubeAuthoredMaterials(
   faceRecord: MjcfCubeTextureFaceRecord,
   sharedColor?: string,
+  sharedColorRgba?: [number, number, number, number],
 ): UrdfVisualMaterial[] {
   return BOX_FACE_MATERIAL_ORDER.map((face) => ({
     ...(sharedColor ? { color: sharedColor } : {}),
+    ...(sharedColorRgba ? { colorRgba: sharedColorRgba } : {}),
     texture: faceRecord[face],
   }));
 }

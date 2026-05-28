@@ -1397,6 +1397,32 @@ test('parseMJCF syncs visual colors into robot materials state', () => {
   assert.equal(robot.materials?.base_link?.color, '#969696');
 });
 
+test('parseMJCF preserves visual material alpha as exact colorRgba metadata', () => {
+  installDomGlobals();
+
+  const robot = parseMJCF(`
+        <mujoco model="transparent-material-sync">
+          <asset>
+            <material name="clear_mat" rgba="0.1 0.2 0.3 0.4" />
+            <mesh name="base_mesh" file="base.stl" />
+          </asset>
+          <worldbody>
+            <body name="base_link">
+              <geom type="mesh" mesh="base_mesh" material="clear_mat" group="1" contype="0" conaffinity="0" />
+            </body>
+          </worldbody>
+        </mujoco>
+    `);
+
+  assert.ok(robot);
+  assert.equal(robot.links.base_link.visual.color, '#1a334d66');
+  assert.deepEqual(
+    robot.links.base_link.visual.authoredMaterials?.[0]?.colorRgba,
+    [0.1, 0.2, 0.3, 0.4],
+  );
+  assert.deepEqual(robot.materials?.base_link?.colorRgba, [0.1, 0.2, 0.3, 0.4]);
+});
+
 test('parseMJCF inherits actuator effort limits from default-backed position actuators', () => {
   installDomGlobals();
 

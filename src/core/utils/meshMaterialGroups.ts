@@ -5,7 +5,7 @@ import { getGeometryMeshMaterialGroupsForMesh } from '@/core/robot/visualMeshMat
 import { getGeometryAuthoredMaterials } from '@/core/robot/visualMaterials';
 import { createMatteMaterial } from './materialFactory';
 import { isProtectedMaterial } from './three/materialProtection';
-import { parseThreeColorWithOpacity } from './color.ts';
+import { colorRgbaTupleToOpacity, parseThreeColorWithOpacity } from './color.ts';
 
 export type MeshFaceSelectionScope = 'face' | 'island';
 
@@ -205,7 +205,9 @@ function createPaletteMaterial(
   const parsedColor = parseThreeColorWithOpacity(descriptor?.color);
   const parsedEmissive = parseThreeColorWithOpacity(descriptor?.emissive);
   const texturePath = normalizeMaterialValue(descriptor?.texture);
-  const opacityOverride = normalizeUnitIntervalValue(descriptor?.opacity);
+  const opacityOverride =
+    normalizeUnitIntervalValue(descriptor?.opacity) ??
+    colorRgbaTupleToOpacity(descriptor?.colorRgba);
   const roughnessOverride = normalizeUnitIntervalValue(descriptor?.roughness);
   const metalnessOverride = normalizeUnitIntervalValue(descriptor?.metalness);
   const emissiveIntensityOverride = normalizeNonNegativeValue(descriptor?.emissiveIntensity);

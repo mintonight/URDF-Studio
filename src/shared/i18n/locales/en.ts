@@ -97,6 +97,8 @@ export const en: TranslationKeys = {
   bridgeLimitRangeInvalid: 'Lower limit must be less than or equal to upper limit.',
   bridgeNonFixedCycleUnsupported:
     'Cycle-closing bridges only support fixed joints. Use a fixed bridge for closed-loop conversion.',
+  bridgeTabRelation: 'Relation',
+  bridgeTabTransform: 'Transform',
 
   // Property Editor
   properties: 'Properties',
@@ -474,6 +476,18 @@ export const en: TranslationKeys = {
   simpleMode: 'Current Model',
   proMode: 'Assembly',
   structureTree: 'Structure Tree',
+  structureGraphTitle: 'Structure Graph',
+  openStructureGraph: 'Open Structure Graph',
+  structureGraphEmpty: 'No structure data available',
+  structureGraphRobot: 'Robot',
+  structureGraphAssembly: 'Assembly',
+  structureGraphComponent: 'Component',
+  structureGraphLink: 'Link',
+  structureGraphJoint: 'Joint',
+  structureGraphBridge: 'Bridge',
+  structureGraphZoomIn: 'Zoom in',
+  structureGraphZoomOut: 'Zoom out',
+  structureGraphResetView: 'Reset view',
   assemblyTree: 'Assembly View',
   projectName: 'Project Name',
   enterProjectName: 'Enter project name',

@@ -216,6 +216,10 @@ export interface RobotState {
   links: Record<string, UrdfLink>;
   joints: Record<string, UrdfJoint>;
   rootLinkId: string;
+  components?: Record<string, AssemblyComponent>;
+  bridges?: Record<string, BridgeJoint>;
+  workspaceTransform?: AssemblyTransform;
+  activeComponentId?: string | null;
   materials?: Record<string, RobotMaterialState>;
   closedLoopConstraints?: RobotClosedLoopConstraint[];
   inspectionContext?: RobotInspectionContext;
@@ -229,6 +233,10 @@ export interface RobotData {
   links: Record<string, UrdfLink>;
   joints: Record<string, UrdfJoint>;
   rootLinkId: string;
+  components?: Record<string, AssemblyComponent>;
+  bridges?: Record<string, BridgeJoint>;
+  workspaceTransform?: AssemblyTransform;
+  activeComponentId?: string | null;
   materials?: Record<string, RobotMaterialState>;
   closedLoopConstraints?: RobotClosedLoopConstraint[];
   inspectionContext?: RobotInspectionContext;

@@ -655,6 +655,8 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         const baseMaterial = visualGeometry.authoredMaterials?.[0] ?? {
           name: `paint_base_${objectIndex}`,
           color: resolvedMaterial.color ?? undefined,
+          colorRgba: resolvedMaterial.colorRgba ?? undefined,
+          opacity: resolvedMaterial.opacity ?? undefined,
           texture: resolvedMaterial.texture ?? undefined,
         };
         const nextLink = updateVisualGeometryByObjectIndex(link, objectIndex, {
@@ -669,9 +671,13 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
             materialNamePrefix: `paint_${linkId}_${objectIndex}`,
           }),
         });
-        useRobotStore.getState().updateLink(link.id, nextLink, {
-          label: paintOperation === 'erase' ? 'Erase painted mesh faces' : 'Paint mesh faces',
-        });
+        if (onUpdate) {
+          onUpdate('link', link.id, nextLink);
+        } else {
+          useRobotStore.getState().updateLink(link.id, nextLink, {
+            label: paintOperation === 'erase' ? 'Erase painted mesh faces' : 'Paint mesh faces',
+          });
+        }
         onPaintStatusChange?.({
           tone: 'success',
           message: paintOperation === 'erase' ? t.paintStatusRemoved : t.paintStatusApplied,
@@ -680,6 +686,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       [
         isMeshPreview,
         onPaintStatusChange,
+        onUpdate,
         paintColor,
         paintOperation,
         paintSelectionScope,

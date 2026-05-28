@@ -981,7 +981,8 @@ export function syncInertiaVisualizationForLinks({
         if (!isFinite(maxLinkSize) || maxLinkSize <= 0) {
           maxLinkSize = undefined;
         }
-      } catch {
+      } catch (e) {
+        console.error('[visualizationObjectSync] Failed to compute maxLinkSize for inertia box:', e);
         maxLinkSize = undefined;
       }
 

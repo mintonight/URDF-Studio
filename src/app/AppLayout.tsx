@@ -62,13 +62,19 @@ import {
   useSelectionStore,
   useAssetsStore,
   useRobotStore,
-  useAssemblyStore,
   useAssemblySelectionStore,
   useCollisionTransformStore,
   useJointInteractionPreviewStore,
 } from '@/store';
 import { resolveClosedLoopDrivenJointMotion, resolveJointKey } from '@/core/robot';
-import type { BridgeJoint, JointQuaternion, RobotFile, UrdfJoint, UrdfLink } from '@/types';
+import type {
+  BridgeJoint,
+  JointQuaternion,
+  RobotData,
+  RobotFile,
+  UrdfJoint,
+  UrdfLink,
+} from '@/types';
 import { translations } from '@/shared/i18n';
 import {
   resolveWorkspaceOverlayGizmoMargin,
@@ -137,7 +143,7 @@ interface AppLayoutProps {
     }>
   >;
   // Robot file handling
-  onLoadRobot: (file: RobotFile) => void;
+  onLoadRobot: (file: RobotFile, options?: { preserveAssemblyState?: boolean }) => void;
   viewerReloadKey: number;
   importPreparationOverlay?: ImportPreparationOverlayState | null;
   /** Called once layout handlers are ready, so the parent can expose them externally */
@@ -333,7 +339,6 @@ export function AppLayout({
       applyJointKinematicOverrides: state.applyJointKinematicOverrides,
     })),
   );
-  // Assembly Store
   const {
     assemblyState,
     assemblyRevision,
@@ -347,7 +352,7 @@ export function AppLayout({
     updateComponentRobot,
     updateAssemblyTransform,
     renameComponentSourceFolder,
-  } = useAssemblyStore(
+  } = useRobotStore(
     useShallow((state) => ({
       assemblyState: state.assemblyState,
       assemblyRevision: state.assemblyRevision,
@@ -938,6 +943,66 @@ export function AppLayout({
     t,
   });
 
+  const ensureWorkspaceSeededForAdd = useCallback(
+    (targetFile: RobotFile) => {
+      const currentAssemblyState = useRobotStore.getState().assemblyState;
+      if (currentAssemblyState && Object.keys(currentAssemblyState.components).length > 0) {
+        return;
+      }
+
+      if (!currentAssemblyState) {
+        initAssembly(robotName || 'assembly');
+      }
+
+      const activeFile = selectedFile;
+      if (
+        !activeFile ||
+        activeFile.name === targetFile.name ||
+        activeFile.format === 'mesh' ||
+        activeFile.format === 'asset'
+      ) {
+        return;
+      }
+
+      const currentRobotData: RobotData = structuredClone({
+        name: robotName,
+        links: robotLinks,
+        joints: robotJoints,
+        rootLinkId,
+        materials: robotMaterials,
+        closedLoopConstraints,
+      });
+
+      addComponent(activeFile, {
+        availableFiles,
+        assets,
+        allFileContents,
+        preResolvedImportResult: {
+          status: 'ready',
+          format: activeFile.format,
+          robotData: currentRobotData,
+          resolvedUrdfContent: null,
+          resolvedUrdfSourceFilePath: null,
+        },
+        queueAutoGround: false,
+      });
+    },
+    [
+      addComponent,
+      allFileContents,
+      assets,
+      availableFiles,
+      closedLoopConstraints,
+      initAssembly,
+      robotJoints,
+      robotLinks,
+      robotMaterials,
+      robotName,
+      rootLinkId,
+      selectedFile,
+    ],
+  );
+
   const {
     handleAddComponent,
     handleCreateBridge,
@@ -948,6 +1013,7 @@ export function AppLayout({
   } = useWorkspaceOverlayActions({
     getUsdPreparedExportCache,
     onLoadRobot,
+    ensureWorkspaceSeededForAdd,
     setPendingUsdAssemblyFile: (file) => {
       pendingUsdAssemblyFileRef.current = file;
     },

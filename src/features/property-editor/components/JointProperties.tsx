@@ -6,6 +6,7 @@
 import React from 'react';
 import { ExternalLink } from 'lucide-react';
 import { JointType, type AppMode, type MotorSpec } from '@/types';
+import { normalizeJointLimitOrder } from '@/core/robot';
 import { translations } from '@/shared/i18n';
 import type { Language } from '@/store';
 import {
@@ -145,6 +146,7 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
     jointType !== JointType.PLANAR &&
     jointType !== JointType.BALL;
   const defaultLimit = getDefaultJointLimit(jointType);
+  const resolvedLimit = normalizeJointLimitOrder({ ...defaultLimit, ...data.limit });
   const limitUnit = getJointValueUnitLabel(jointType, 'rad');
   const velocityUnit = getJointVelocityUnitLabel(jointType);
   const effortUnit = getJointEffortUnitLabel(jointType);
@@ -408,10 +410,10 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
                     labelWidthClassName={sectionUnitInlineLabelWidthClassName}
                   >
                     <NumberInput
-                      value={data.limit?.lower ?? defaultLimit.lower}
+                      value={resolvedLimit.lower}
                       onChange={(v: number) =>
                         updateJoint({
-                          limit: { ...defaultLimit, ...data.limit, lower: v },
+                          limit: normalizeJointLimitOrder({ ...resolvedLimit, lower: v }),
                         })
                       }
                     />
@@ -422,10 +424,10 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
                     labelWidthClassName={sectionUnitInlineLabelWidthClassName}
                   >
                     <NumberInput
-                      value={data.limit?.upper ?? defaultLimit.upper}
+                      value={resolvedLimit.upper}
                       onChange={(v: number) =>
                         updateJoint({
-                          limit: { ...defaultLimit, ...data.limit, upper: v },
+                          limit: normalizeJointLimitOrder({ ...resolvedLimit, upper: v }),
                         })
                       }
                     />
@@ -438,11 +440,11 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
                 labelWidthClassName={sectionUnitInlineLabelWidthClassName}
               >
                 <NumberInput
-                  value={data.limit?.velocity ?? defaultLimit.velocity}
+                  value={resolvedLimit.velocity}
                   min={0}
                   onChange={(v: number) =>
                     updateJoint({
-                      limit: { ...defaultLimit, ...data.limit, velocity: v },
+                      limit: normalizeJointLimitOrder({ ...resolvedLimit, velocity: v }),
                     })
                   }
                 />
@@ -453,11 +455,11 @@ export const JointProperties: React.FC<JointPropertiesProps> = ({
                 labelWidthClassName={sectionUnitInlineLabelWidthClassName}
               >
                 <NumberInput
-                  value={data.limit?.effort ?? defaultLimit.effort}
+                  value={resolvedLimit.effort}
                   min={0}
                   onChange={(v: number) =>
                     updateJoint({
-                      limit: { ...defaultLimit, ...data.limit, effort: v },
+                      limit: normalizeJointLimitOrder({ ...resolvedLimit, effort: v }),
                     })
                   }
                 />

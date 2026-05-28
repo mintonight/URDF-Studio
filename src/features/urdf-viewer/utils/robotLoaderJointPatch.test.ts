@@ -114,6 +114,45 @@ test('patchJointInPlace preserves MJCF scalar joint values and initializes missi
   assert.equal(invalidations.length, 1);
 });
 
+test('patchJointInPlace orders crossed finite limits before reapplying the current joint value', () => {
+  const robot = new THREE.Group() as THREE.Group & {
+    joints?: Record<string, RuntimeURDFJoint>;
+  };
+  const joint = new RuntimeURDFJoint();
+  joint.name = 'joint_1';
+  joint.jointType = JointType.REVOLUTE;
+  joint.axis = new THREE.Vector3(0, 0, 1);
+  joint.limit.lower = -1;
+  joint.limit.upper = 1;
+  joint.origPosition = joint.position.clone();
+  joint.origQuaternion = joint.quaternion.clone();
+  joint.jointValue = [1.5];
+  robot.joints = { joint_1: joint };
+
+  const invalidations: number[] = [];
+  const applied = patchJointInPlace(
+    robot,
+    {
+      jointName: 'joint_1',
+      previousJointData: makeJointPatchData({
+        limit: { lower: -1, upper: 1, effort: 1, velocity: 1 },
+      }),
+      jointData: makeJointPatchData({
+        limit: { lower: 2, upper: 1, effort: 1, velocity: 1 },
+      }),
+    },
+    () => {
+      invalidations.push(1);
+    },
+  );
+
+  assert.equal(applied, true);
+  assert.equal(joint.limit.lower, 1);
+  assert.equal(joint.limit.upper, 2);
+  assert.equal(joint.angle, 1.5);
+  assert.equal(invalidations.length, 1);
+});
+
 test('patchJointsInPlace applies batched root-anchor updates without remounting the runtime scene', () => {
   const robot = new THREE.Group() as THREE.Group & {
     joints?: Record<string, RuntimeURDFJoint>;

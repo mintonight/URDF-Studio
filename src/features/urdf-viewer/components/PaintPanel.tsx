@@ -3,6 +3,7 @@ import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
 import { WORKSPACE_OVERLAY_RIGHT_EDGE_GAP } from '@/shared/components/3d/scene';
 import { OptionsPanel } from '@/shared/components/Panel/OptionsPanel';
+import { parseThreeColorWithOpacity } from '@/core/utils/color.ts';
 import type {
   ToolMode,
   ViewerPaintOperation,
@@ -26,11 +27,51 @@ interface PaintPanelProps {
 
 function normalizeHexColor(value: string): string | null {
   const normalized = value.trim().replace(/^#/, '').toLowerCase();
-  if (!/^[0-9a-f]{6}$/.test(normalized)) {
+  if (!/^[0-9a-f]{6}(?:[0-9a-f]{2})?$/.test(normalized)) {
     return null;
   }
 
   return `#${normalized}`;
+}
+
+function clampOpacity(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+
+  return Math.min(1, Math.max(0, value));
+}
+
+function opacityToHex(opacity: number): string {
+  return Math.round(clampOpacity(opacity) * 255)
+    .toString(16)
+    .padStart(2, '0');
+}
+
+function getPaintColorPickerValue(value: string): string {
+  const parsed = parseThreeColorWithOpacity(value);
+  return parsed ? `#${parsed.color.getHexString()}` : '#ff6c0a';
+}
+
+function getPaintOpacity(value: string): number {
+  const parsed = parseThreeColorWithOpacity(value);
+  return clampOpacity(parsed?.opacity ?? 1);
+}
+
+function mergePaintColor(nextColor: string, previousColor: string): string {
+  const baseColor = normalizeHexColor(nextColor);
+  if (!baseColor) {
+    return previousColor;
+  }
+
+  const opacity = getPaintOpacity(previousColor);
+  return opacity >= 0.999 ? baseColor : `${baseColor}${opacityToHex(opacity)}`;
+}
+
+function mergePaintOpacity(previousColor: string, opacity: number): string {
+  const baseColor = getPaintColorPickerValue(previousColor);
+  const nextOpacity = clampOpacity(opacity);
+  return nextOpacity >= 0.999 ? baseColor : `${baseColor}${opacityToHex(nextOpacity)}`;
 }
 
 function getStatusClassName(tone: ViewerPaintStatus['tone']) {
@@ -61,6 +102,8 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [hexInputValue, setHexInputValue] = useState(paintColor);
   const t = translations[lang];
+  const paintColorPickerValue = getPaintColorPickerValue(paintColor);
+  const paintOpacity = getPaintOpacity(paintColor);
   const status = useMemo<ViewerPaintStatus>(
     () =>
       paintStatus ??
@@ -104,13 +147,10 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({
           <div className="flex items-center gap-2">
             <input
               type="color"
-              value={paintColor}
+              value={paintColorPickerValue}
               disabled={!supported}
               onChange={(event) => {
-                const nextColor = normalizeHexColor(event.target.value);
-                if (!nextColor) {
-                  return;
-                }
+                const nextColor = mergePaintColor(event.target.value, paintColor);
 
                 setHexInputValue(nextColor);
                 onPaintColorChange(nextColor);
@@ -132,7 +172,46 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({
               }}
               className="min-w-0 flex-1 rounded border border-border-black/60 bg-element-bg px-2 py-1.5 font-mono text-[11px] text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
               spellCheck={false}
-              placeholder="#ff6c0a"
+              placeholder="#ff6c0a80"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="block text-[10px] font-semibold uppercase tracking-[0.04em] text-text-tertiary">
+            {t.opacity}
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={Math.round(paintOpacity * 100)}
+              disabled={!supported}
+              onChange={(event) => {
+                const nextColor = mergePaintOpacity(
+                  paintColor,
+                  Number(event.currentTarget.value) / 100,
+                );
+                setHexInputValue(nextColor);
+                onPaintColorChange(nextColor);
+              }}
+              className="min-w-0 flex-1 accent-system-blue disabled:cursor-not-allowed disabled:opacity-50"
+            />
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.01}
+              value={Number(paintOpacity.toFixed(2))}
+              disabled={!supported}
+              onChange={(event) => {
+                const nextColor = mergePaintOpacity(paintColor, Number(event.currentTarget.value));
+                setHexInputValue(nextColor);
+                onPaintColorChange(nextColor);
+              }}
+              className="h-8 w-14 rounded border border-border-black/60 bg-element-bg px-1.5 text-right font-mono text-[11px] tabular-nums text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
             />
           </div>
         </div>

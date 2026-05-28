@@ -1,7 +1,7 @@
 /**
  * BridgeCreateModal - Dialog to create a bridge joint between two components
  */
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link2 } from 'lucide-react';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { PanelSelect, SegmentedControl, type SelectOption } from '@/shared/components/ui';
@@ -18,6 +18,7 @@ import {
 import { buildBridgeJointFromDraft, buildBridgePreview } from '../../utils/bridgePreview';
 import {
   BridgeAxisSpinnerField,
+  BridgeCompactRelationRow,
   BridgeInlineFieldRow,
   BridgeQuickRotateButtonGroup,
   BridgeRelationConnector,
@@ -84,7 +85,8 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const axisLabelWidthClassName = 'w-4 justify-center';
   const nameInputId = React.useId();
   const jointTypeSelectId = React.useId();
-  const defaultWindowSize = useMemo(() => ({ width: 600, height: 330 }), []);
+  const defaultWindowSize = useMemo(() => ({ width: 600, height: 360 }), []);
+  const [activeTab, setActiveTab] = useState<'relation' | 'transform'>('relation');
   const comps = Object.values(assemblyState.components);
   const defaultPosition = useMemo(() => {
     if (typeof window === 'undefined') {
@@ -100,7 +102,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     isOpen,
     defaultPosition,
     defaultSize: defaultWindowSize,
-    minSize: { width: 480, height: 300 },
+    minSize: { width: 480, height: 320 },
     centerOnMount: false,
     enableMinimize: false,
     enableMaximize: false,
@@ -720,7 +722,8 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
       closeButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-red-500 hover:text-white"
     >
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 custom-scrollbar">
-        <div className="space-y-1.5">
+        <div className="space-y-2">
+          {/* Identity row — always visible */}
           <div data-bridge-row="identity" className={topFieldGridClassName}>
             <BridgeInlineFieldRow
               label={t.name}
@@ -791,362 +794,433 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
             </div>
           ) : null}
 
-          <div className="min-h-0 space-y-1.5" data-bridge-section-content>
-            <div data-bridge-section-panel="relation" className="space-y-1.5">
+          {/* Tab switcher */}
+          <SegmentedControl
+            options={[
+              { value: 'relation' as const, label: t.bridgeTabRelation },
+              { value: 'transform' as const, label: t.bridgeTabTransform },
+            ]}
+            value={activeTab}
+            onChange={(value) => setActiveTab(value as 'relation' | 'transform')}
+            size="xs"
+            className="w-full [&>button]:min-h-6 [&>button]:flex-1 [&>button]:!gap-0.5 [&>button]:!px-1.5 [&>button]:!py-0 [&>button]:!text-[9px]"
+          />
+
+          {/* Tab: Relation */}
+          {activeTab === 'relation' ? (
+            <div data-bridge-section-panel="relation" className="space-y-2">
               <BridgeSection title={relationSectionTitle}>
-                <div className={relationGridClassName}>
-                  <BridgeSideCard
-                    side="parent"
-                    isActive={pickTarget === 'parent'}
-                    title={sideCardTitle.parent}
-                    pickLabel={t.bridgePickParent}
-                    componentLabel={t.parentComponent}
-                    linkLabel={t.parentLink}
-                    componentValue={parentCompId}
-                    linkValue={parentLinkId}
-                    componentSummary={parentSummary}
-                    linkSummary={parentLinkSummary}
-                    onActivate={() => setPickTarget('parent')}
-                    onComponentChange={(value) => {
+                {usesCadInspectorLayout ? (
+                  <BridgeCompactRelationRow
+                    parentPickLabel={t.bridgePickParent}
+                    childPickLabel={t.bridgePickChild}
+                    parentIsActive={pickTarget === 'parent'}
+                    childIsActive={pickTarget === 'child'}
+                    parentComponentValue={parentCompId}
+                    parentLinkValue={parentLinkId}
+                    childComponentValue={childCompId}
+                    childLinkValue={childLinkId}
+                    parentComponentOptions={parentComponentSelectOptions}
+                    parentLinkOptions={parentLinkSelectOptions}
+                    childComponentOptions={childComponentSelectOptions}
+                    childLinkOptions={childLinkSelectOptions}
+                    parentComponentLabel={t.parentComponent}
+                    parentLinkLabel={t.parentLink}
+                    childComponentLabel={t.childComponent}
+                    childLinkLabel={t.childLink}
+                    onParentActivate={() => setPickTarget('parent')}
+                    onChildActivate={() => setPickTarget('child')}
+                    onParentComponentChange={(value) => {
                       setPickTarget('parent');
                       setParentCompId(value);
                       setParentLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
                     }}
-                    onLinkChange={(value) => {
+                    onParentLinkChange={(value) => {
                       setPickTarget('parent');
                       setParentLinkId(value);
                     }}
-                    componentOptions={parentComponentSelectOptions}
-                    linkOptions={parentLinkSelectOptions}
-                  />
-
-                  <BridgeRelationConnector
-                    orientation={usesCadInspectorLayout ? 'vertical' : 'horizontal'}
-                  />
-
-                  <BridgeSideCard
-                    side="child"
-                    isActive={pickTarget === 'child'}
-                    title={sideCardTitle.child}
-                    pickLabel={t.bridgePickChild}
-                    componentLabel={t.childComponent}
-                    linkLabel={t.childLink}
-                    componentValue={childCompId}
-                    linkValue={childLinkId}
-                    componentSummary={childSummary}
-                    linkSummary={childLinkSummary}
-                    onActivate={() => setPickTarget('child')}
-                    onComponentChange={(value) => {
+                    onChildComponentChange={(value) => {
                       setPickTarget('child');
                       setChildCompId(value);
                       setChildLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
                     }}
-                    onLinkChange={(value) => {
+                    onChildLinkChange={(value) => {
                       setPickTarget('child');
                       setChildLinkId(value);
                     }}
-                    componentOptions={childComponentSelectOptions}
-                    linkOptions={childLinkSelectOptions}
                   />
-                </div>
-              </BridgeSection>
-            </div>
-
-            <div data-bridge-section-panel="transform" className={transformPanelClassName}>
-              <BridgeSection title={t.originRelativeParent}>
-                <div data-bridge-row="origin" className={xyzStackClassName}>
-                  <BridgeAxisSpinnerField
-                    axis="x"
-                    fieldKey="origin-x"
-                    label="X"
-                    value={originX}
-                    step={0.01}
-                    precision={4}
-                    onChange={handleOriginXChange}
-                    className="min-w-0"
-                  />
-                  <BridgeAxisSpinnerField
-                    axis="y"
-                    fieldKey="origin-y"
-                    label="Y"
-                    value={originY}
-                    step={0.01}
-                    precision={4}
-                    onChange={handleOriginYChange}
-                    className="min-w-0"
-                  />
-                  <BridgeAxisSpinnerField
-                    axis="z"
-                    fieldKey="origin-z"
-                    label="Z"
-                    value={originZ}
-                    step={0.01}
-                    precision={4}
-                    onChange={handleOriginZChange}
-                    className="min-w-0"
-                  />
-                </div>
-              </BridgeSection>
-
-              <BridgeSection title={t.rotation}>
-                <SegmentedControl
-                  options={[
-                    { value: 'euler_deg', label: t.eulerDegrees },
-                    { value: 'euler_rad', label: t.eulerRadians },
-                    { value: 'quaternion', label: t.quaternion },
-                  ]}
-                  value={rotationDisplayMode}
-                  onChange={(value) => setRotationDisplayMode(value)}
-                  size="xs"
-                  className="w-full [&>button]:min-h-6 [&>button]:flex-1 [&>button]:!gap-0.5 [&>button]:!px-1.5 [&>button]:!py-0 [&>button]:!text-[9px]"
-                />
-
-                {rotationDisplayMode === 'quaternion' ? (
-                  <div className={`mt-1.5 ${quaternionFieldGridClassName}`}>
-                    <BridgeSpinnerField
-                      fieldKey="quat-x"
-                      label="X"
-                      value={quatX}
-                      step={0.001}
-                      precision={4}
-                      onChange={(value) =>
-                        applyQuaternionRotation({ x: value, y: quatY, z: quatZ, w: quatW })
-                      }
-                      className="min-w-0"
-                    />
-                    <BridgeSpinnerField
-                      fieldKey="quat-y"
-                      label="Y"
-                      value={quatY}
-                      step={0.001}
-                      precision={4}
-                      onChange={(value) =>
-                        applyQuaternionRotation({ x: quatX, y: value, z: quatZ, w: quatW })
-                      }
-                      className="min-w-0"
-                    />
-                    <BridgeSpinnerField
-                      fieldKey="quat-z"
-                      label="Z"
-                      value={quatZ}
-                      step={0.001}
-                      precision={4}
-                      onChange={(value) =>
-                        applyQuaternionRotation({ x: quatX, y: quatY, z: value, w: quatW })
-                      }
-                      className="min-w-0"
-                    />
-                    <BridgeSpinnerField
-                      fieldKey="quat-w"
-                      label="W"
-                      value={quatW}
-                      step={0.001}
-                      precision={4}
-                      onChange={(value) =>
-                        applyQuaternionRotation({ x: quatX, y: quatY, z: quatZ, w: value })
-                      }
-                      className="min-w-0"
-                    />
-                  </div>
-                ) : usesCadInspectorLayout ? (
-                  <div className={`mt-1.5 ${eulerFieldGridClassName}`}>
-                    {rotationAxisFields.map((field) => (
-                      <div key={field.key} className="min-w-0 space-y-1">
-                        <BridgeSpinnerField
-                          fieldKey={`rot-${field.key}`}
-                          label={field.label}
-                          value={field.value}
-                          step={rotationDisplayMode === 'euler_rad' ? 0.1 : 1}
-                          precision={rotationDisplayMode === 'euler_rad' ? 4 : 2}
-                          onChange={field.onChange}
-                          className="min-w-0"
-                        />
-                        <BridgeQuickRotateButtonGroup
-                          label={field.label}
-                          decreaseLabel={quickRotateAriaLabelSuffix.decrease}
-                          increaseLabel={quickRotateAriaLabelSuffix.increase}
-                          decreaseText={quickRotateButtonText.decrease}
-                          increaseText={quickRotateButtonText.increase}
-                          onDecrease={() => handleQuickRotate(field.key, -1)}
-                          onIncrease={() => handleQuickRotate(field.key, 1)}
-                        />
-                      </div>
-                    ))}
-                  </div>
                 ) : (
-                  <div className="mt-1.5 space-y-1">
-                    {rotationAxisFields.map((field) => (
-                      <div
-                        key={field.key}
-                        className="grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-1"
-                      >
-                        <BridgeSpinnerField
-                          inline
-                          label={field.label}
-                          value={field.value}
-                          step={rotationDisplayMode === 'euler_rad' ? 0.1 : 1}
-                          precision={rotationDisplayMode === 'euler_rad' ? 4 : 2}
-                          onChange={field.onChange}
-                          className="gap-1.5"
-                          labelClassName="w-[34px]"
-                        />
-                        <BridgeQuickRotateButtonGroup
-                          label={field.label}
-                          decreaseLabel={quickRotateAriaLabelSuffix.decrease}
-                          increaseLabel={quickRotateAriaLabelSuffix.increase}
-                          decreaseText={quickRotateButtonText.decrease}
-                          increaseText={quickRotateButtonText.increase}
-                          onDecrease={() => handleQuickRotate(field.key, -1)}
-                          onIncrease={() => handleQuickRotate(field.key, 1)}
-                        />
-                      </div>
-                    ))}
+                  <div className={relationGridClassName}>
+                    <BridgeSideCard
+                      side="parent"
+                      isActive={pickTarget === 'parent'}
+                      title={sideCardTitle.parent}
+                      pickLabel={t.bridgePickParent}
+                      componentLabel={t.parentComponent}
+                      linkLabel={t.parentLink}
+                      componentValue={parentCompId}
+                      linkValue={parentLinkId}
+                      componentSummary={parentSummary}
+                      linkSummary={parentLinkSummary}
+                      onActivate={() => setPickTarget('parent')}
+                      onComponentChange={(value) => {
+                        setPickTarget('parent');
+                        setParentCompId(value);
+                        setParentLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
+                      }}
+                      onLinkChange={(value) => {
+                        setPickTarget('parent');
+                        setParentLinkId(value);
+                      }}
+                      componentOptions={parentComponentSelectOptions}
+                      linkOptions={parentLinkSelectOptions}
+                    />
+
+                    <BridgeRelationConnector orientation="horizontal" />
+
+                    <BridgeSideCard
+                      side="child"
+                      isActive={pickTarget === 'child'}
+                      title={sideCardTitle.child}
+                      pickLabel={t.bridgePickChild}
+                      componentLabel={t.childComponent}
+                      linkLabel={t.childLink}
+                      componentValue={childCompId}
+                      linkValue={childLinkId}
+                      componentSummary={childSummary}
+                      linkSummary={childLinkSummary}
+                      onActivate={() => setPickTarget('child')}
+                      onComponentChange={(value) => {
+                        setPickTarget('child');
+                        setChildCompId(value);
+                        setChildLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
+                      }}
+                      onLinkChange={(value) => {
+                        setPickTarget('child');
+                        setChildLinkId(value);
+                      }}
+                      componentOptions={childComponentSelectOptions}
+                      linkOptions={childLinkSelectOptions}
+                    />
                   </div>
                 )}
               </BridgeSection>
             </div>
+          ) : null}
 
-            {jointSupportsAxisAndLimits ? (
-              <div data-bridge-section-panel="joint" className={jointPanelClassName}>
-                <BridgeSection title={t.axisRotation}>
-                  <div data-bridge-row="axis" className={xyzStackClassName}>
-                    <BridgeSpinnerField
-                      inline
-                      fieldKey="axis-x"
+          {/* Tab: Transform */}
+          {activeTab === 'transform' ? (
+            <div className="min-h-0 space-y-2" data-bridge-section-content>
+              <div data-bridge-section-panel="transform" className={transformPanelClassName}>
+                <BridgeSection title={t.originRelativeParent}>
+                  <div data-bridge-row="origin" className={xyzStackClassName}>
+                    <BridgeAxisSpinnerField
+                      axis="x"
+                      fieldKey="origin-x"
                       label="X"
-                      value={axisX}
+                      value={originX}
                       step={0.01}
                       precision={4}
-                      onChange={setAxisX}
+                      onChange={handleOriginXChange}
                       className="min-w-0"
-                      labelClassName={axisLabelWidthClassName}
                     />
-                    <BridgeSpinnerField
-                      inline
-                      fieldKey="axis-y"
+                    <BridgeAxisSpinnerField
+                      axis="y"
+                      fieldKey="origin-y"
                       label="Y"
-                      value={axisY}
+                      value={originY}
                       step={0.01}
                       precision={4}
-                      onChange={setAxisY}
+                      onChange={handleOriginYChange}
                       className="min-w-0"
-                      labelClassName={axisLabelWidthClassName}
                     />
-                    <BridgeSpinnerField
-                      inline
-                      fieldKey="axis-z"
+                    <BridgeAxisSpinnerField
+                      axis="z"
+                      fieldKey="origin-z"
                       label="Z"
-                      value={axisZ}
+                      value={originZ}
                       step={0.01}
                       precision={4}
-                      onChange={setAxisZ}
+                      onChange={handleOriginZChange}
                       className="min-w-0"
-                      labelClassName={axisLabelWidthClassName}
                     />
                   </div>
                 </BridgeSection>
 
-                <BridgeSection title={t.limits}>
-                  <div className={limitsGridClassName}>
-                    {jointSupportsPositionLimits && usesCadInspectorLayout ? (
-                      <>
-                        <BridgeSpinnerField
-                          fieldKey="limit-lower"
-                          label={positionLowerLabel}
-                          value={limitLower}
-                          step={0.01}
-                          precision={4}
-                          onChange={setLimitLower}
-                          className="min-w-0"
-                        />
-                        <BridgeSpinnerField
-                          fieldKey="limit-upper"
-                          label={positionUpperLabel}
-                          value={limitUpper}
-                          step={0.01}
-                          precision={4}
-                          onChange={setLimitUpper}
-                          className="min-w-0"
-                        />
-                      </>
-                    ) : jointSupportsPositionLimits ? (
-                      <>
-                        <BridgeSpinnerField
-                          inline
-                          label={positionLowerLabel}
-                          value={limitLower}
-                          step={0.01}
-                          precision={4}
-                          onChange={setLimitLower}
-                          className="gap-1.5"
-                          labelClassName="w-[34px]"
-                        />
-                        <BridgeSpinnerField
-                          inline
-                          label={positionUpperLabel}
-                          value={limitUpper}
-                          step={0.01}
-                          precision={4}
-                          onChange={setLimitUpper}
-                          className="gap-1.5"
-                          labelClassName="w-[34px]"
-                        />
-                      </>
-                    ) : null}
-                    {usesCadInspectorLayout ? (
-                      <>
-                        <BridgeSpinnerField
-                          fieldKey="limit-effort"
-                          label={t.effort}
-                          value={limitEffort}
-                          step={1}
-                          precision={2}
-                          min={0}
-                          onChange={setLimitEffort}
-                          className="min-w-0"
-                        />
-                        <BridgeSpinnerField
-                          fieldKey="limit-velocity"
-                          label={t.velocity}
-                          value={limitVelocity}
-                          step={0.1}
-                          precision={3}
-                          min={0}
-                          onChange={setLimitVelocity}
-                          className="min-w-0"
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <BridgeSpinnerField
-                          inline
-                          label={t.effort}
-                          value={limitEffort}
-                          step={1}
-                          precision={2}
-                          min={0}
-                          onChange={setLimitEffort}
-                          className="gap-1.5"
-                          labelClassName="w-[34px]"
-                        />
-                        <BridgeSpinnerField
-                          inline
-                          label={t.velocity}
-                          value={limitVelocity}
-                          step={0.1}
-                          precision={3}
-                          min={0}
-                          onChange={setLimitVelocity}
-                          className="gap-1.5"
-                          labelClassName="w-[34px]"
-                        />
-                      </>
-                    )}
-                  </div>
+                <BridgeSection title={t.rotation}>
+                  <SegmentedControl
+                    options={[
+                      { value: 'euler_deg', label: t.eulerDegrees },
+                      { value: 'euler_rad', label: t.eulerRadians },
+                      { value: 'quaternion', label: t.quaternion },
+                    ]}
+                    value={rotationDisplayMode}
+                    onChange={(value) => setRotationDisplayMode(value)}
+                    size="xs"
+                    className="w-full [&>button]:min-h-6 [&>button]:flex-1 [&>button]:!gap-0.5 [&>button]:!px-1.5 [&>button]:!py-0 [&>button]:!text-[9px]"
+                  />
+
+                  {rotationDisplayMode === 'quaternion' ? (
+                    <div className={`mt-1.5 ${quaternionFieldGridClassName}`}>
+                      <BridgeSpinnerField
+                        fieldKey="quat-x"
+                        label="X"
+                        value={quatX}
+                        step={0.001}
+                        precision={4}
+                        onChange={(value) =>
+                          applyQuaternionRotation({ x: value, y: quatY, z: quatZ, w: quatW })
+                        }
+                        className="min-w-0"
+                      />
+                      <BridgeSpinnerField
+                        fieldKey="quat-y"
+                        label="Y"
+                        value={quatY}
+                        step={0.001}
+                        precision={4}
+                        onChange={(value) =>
+                          applyQuaternionRotation({ x: quatX, y: value, z: quatZ, w: quatW })
+                        }
+                        className="min-w-0"
+                      />
+                      <BridgeSpinnerField
+                        fieldKey="quat-z"
+                        label="Z"
+                        value={quatZ}
+                        step={0.001}
+                        precision={4}
+                        onChange={(value) =>
+                          applyQuaternionRotation({ x: quatX, y: quatY, z: value, w: quatW })
+                        }
+                        className="min-w-0"
+                      />
+                      <BridgeSpinnerField
+                        fieldKey="quat-w"
+                        label="W"
+                        value={quatW}
+                        step={0.001}
+                        precision={4}
+                        onChange={(value) =>
+                          applyQuaternionRotation({ x: quatX, y: quatY, z: quatZ, w: value })
+                        }
+                        className="min-w-0"
+                      />
+                    </div>
+                  ) : usesCadInspectorLayout ? (
+                    <div className={`mt-1.5 ${eulerFieldGridClassName}`}>
+                      {rotationAxisFields.map((field) => (
+                        <div key={field.key} className="min-w-0 space-y-1">
+                          <BridgeSpinnerField
+                            fieldKey={`rot-${field.key}`}
+                            label={field.label}
+                            value={field.value}
+                            step={rotationDisplayMode === 'euler_rad' ? 0.1 : 1}
+                            precision={rotationDisplayMode === 'euler_rad' ? 4 : 2}
+                            onChange={field.onChange}
+                            className="min-w-0"
+                          />
+                          <BridgeQuickRotateButtonGroup
+                            label={field.label}
+                            decreaseLabel={quickRotateAriaLabelSuffix.decrease}
+                            increaseLabel={quickRotateAriaLabelSuffix.increase}
+                            decreaseText={quickRotateButtonText.decrease}
+                            increaseText={quickRotateButtonText.increase}
+                            onDecrease={() => handleQuickRotate(field.key, -1)}
+                            onIncrease={() => handleQuickRotate(field.key, 1)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-1.5 space-y-1">
+                      {rotationAxisFields.map((field) => (
+                        <div
+                          key={field.key}
+                          className="grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-1"
+                        >
+                          <BridgeSpinnerField
+                            inline
+                            label={field.label}
+                            value={field.value}
+                            step={rotationDisplayMode === 'euler_rad' ? 0.1 : 1}
+                            precision={rotationDisplayMode === 'euler_rad' ? 4 : 2}
+                            onChange={field.onChange}
+                            className="gap-1.5"
+                            labelClassName="w-[34px]"
+                          />
+                          <BridgeQuickRotateButtonGroup
+                            label={field.label}
+                            decreaseLabel={quickRotateAriaLabelSuffix.decrease}
+                            increaseLabel={quickRotateAriaLabelSuffix.increase}
+                            decreaseText={quickRotateButtonText.decrease}
+                            increaseText={quickRotateButtonText.increase}
+                            onDecrease={() => handleQuickRotate(field.key, -1)}
+                            onIncrease={() => handleQuickRotate(field.key, 1)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </BridgeSection>
               </div>
-            ) : null}
-          </div>
+
+              {jointSupportsAxisAndLimits ? (
+                <div data-bridge-section-panel="joint" className={jointPanelClassName}>
+                  <BridgeSection
+                    title={t.axisRotation}
+                    collapsible
+                    defaultCollapsed
+                    collapsedSummary={`(${axisX}, ${axisY}, ${axisZ})`}
+                  >
+                    <div data-bridge-row="axis" className={xyzStackClassName}>
+                      <BridgeSpinnerField
+                        inline
+                        fieldKey="axis-x"
+                        label="X"
+                        value={axisX}
+                        step={0.01}
+                        precision={4}
+                        onChange={setAxisX}
+                        className="min-w-0"
+                        labelClassName={axisLabelWidthClassName}
+                      />
+                      <BridgeSpinnerField
+                        inline
+                        fieldKey="axis-y"
+                        label="Y"
+                        value={axisY}
+                        step={0.01}
+                        precision={4}
+                        onChange={setAxisY}
+                        className="min-w-0"
+                        labelClassName={axisLabelWidthClassName}
+                      />
+                      <BridgeSpinnerField
+                        inline
+                        fieldKey="axis-z"
+                        label="Z"
+                        value={axisZ}
+                        step={0.01}
+                        precision={4}
+                        onChange={setAxisZ}
+                        className="min-w-0"
+                        labelClassName={axisLabelWidthClassName}
+                      />
+                    </div>
+                  </BridgeSection>
+
+                  <BridgeSection
+                    title={t.limits}
+                    collapsible
+                    defaultCollapsed
+                    collapsedSummary={
+                      jointSupportsPositionLimits
+                        ? `[${limitLower}, ${limitUpper}]`
+                        : `E=${limitEffort} V=${limitVelocity}`
+                    }
+                  >
+                    <div className={limitsGridClassName}>
+                      {jointSupportsPositionLimits && usesCadInspectorLayout ? (
+                        <>
+                          <BridgeSpinnerField
+                            fieldKey="limit-lower"
+                            label={positionLowerLabel}
+                            value={limitLower}
+                            step={0.01}
+                            precision={4}
+                            onChange={setLimitLower}
+                            className="min-w-0"
+                          />
+                          <BridgeSpinnerField
+                            fieldKey="limit-upper"
+                            label={positionUpperLabel}
+                            value={limitUpper}
+                            step={0.01}
+                            precision={4}
+                            onChange={setLimitUpper}
+                            className="min-w-0"
+                          />
+                        </>
+                      ) : jointSupportsPositionLimits ? (
+                        <>
+                          <BridgeSpinnerField
+                            inline
+                            label={positionLowerLabel}
+                            value={limitLower}
+                            step={0.01}
+                            precision={4}
+                            onChange={setLimitLower}
+                            className="gap-1.5"
+                            labelClassName="w-[34px]"
+                          />
+                          <BridgeSpinnerField
+                            inline
+                            label={positionUpperLabel}
+                            value={limitUpper}
+                            step={0.01}
+                            precision={4}
+                            onChange={setLimitUpper}
+                            className="gap-1.5"
+                            labelClassName="w-[34px]"
+                          />
+                        </>
+                      ) : null}
+                      {usesCadInspectorLayout ? (
+                        <>
+                          <BridgeSpinnerField
+                            fieldKey="limit-effort"
+                            label={t.effort}
+                            value={limitEffort}
+                            step={1}
+                            precision={2}
+                            min={0}
+                            onChange={setLimitEffort}
+                            className="min-w-0"
+                          />
+                          <BridgeSpinnerField
+                            fieldKey="limit-velocity"
+                            label={t.velocity}
+                            value={limitVelocity}
+                            step={0.1}
+                            precision={3}
+                            min={0}
+                            onChange={setLimitVelocity}
+                            className="min-w-0"
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <BridgeSpinnerField
+                            inline
+                            label={t.effort}
+                            value={limitEffort}
+                            step={1}
+                            precision={2}
+                            min={0}
+                            onChange={setLimitEffort}
+                            className="gap-1.5"
+                            labelClassName="w-[34px]"
+                          />
+                          <BridgeSpinnerField
+                            inline
+                            label={t.velocity}
+                            value={limitVelocity}
+                            step={0.1}
+                            precision={3}
+                            min={0}
+                            onChange={setLimitVelocity}
+                            className="gap-1.5"
+                            labelClassName="w-[34px]"
+                          />
+                        </>
+                      )}
+                    </div>
+                  </BridgeSection>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 

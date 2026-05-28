@@ -9,6 +9,7 @@ import {
   generateJointId,
   generateLinkId,
   getCollisionGeometryEntries,
+  normalizeJointLimitOrder,
   resolveClosedLoopDrivenJointMotion,
   resolveClosedLoopJointOriginCompensationDetailed,
   resolveJointKey,
@@ -16,7 +17,7 @@ import {
   updateCollisionGeometryByObjectIndex,
 } from '@/core/robot';
 import { cloneAssemblyTransform } from '@/core/robot/assemblyTransforms';
-import { useAssemblyStore, useRobotStore } from '@/store';
+import { useRobotStore } from '@/store';
 import type { PendingCollisionTransform } from '@/store/collisionTransformStore';
 import type { ViewerJointChangeContext } from '@/features/urdf-viewer/types';
 import type {
@@ -241,7 +242,7 @@ export function useWorkspaceMutations({
   }, []);
 
   const createAssemblySnapshot = useCallback(() => {
-    return structuredClone(useAssemblyStore.getState().assemblyState);
+    return structuredClone(useRobotStore.getState().assemblyState);
   }, []);
   const historyScopeKey = assemblyState ? 'assembly' : 'robot';
 
@@ -261,7 +262,7 @@ export function useWorkspaceMutations({
   const handleNameChange = useCallback(
     (name: string) => {
       if (assemblyState) {
-        useAssemblyStore.getState().setAssembly({ ...assemblyState, name });
+        useRobotStore.getState().setAssembly({ ...assemblyState, name });
       } else {
         setName(name);
       }
@@ -277,7 +278,7 @@ export function useWorkspaceMutations({
   // React long task on multi-component scenes.
   //
   // We now route joint-motion writes through `setComponentJointMotion` —
-  // an explicit fast path on `assemblyStore` that mutates
+  // an explicit fast path on `robotStore` that mutates
   // `assemblyState.components[id].robot.joints[*].angle/quaternion` in
   // place. It bumps a dedicated `assemblyJointMotionRevision` field but
   // does NOT change the `assemblyState` object identity, so React
@@ -299,7 +300,7 @@ export function useWorkspaceMutations({
           quaternions[jointId] = joint.quaternion;
         }
       }
-      useAssemblyStore.getState().setComponentJointMotion(componentId, angles, quaternions);
+      useRobotStore.getState().setComponentJointMotion(componentId, angles, quaternions);
     },
     [],
   );
@@ -310,7 +311,7 @@ export function useWorkspaceMutations({
       nextRootNameRaw: string,
       options?: { skipHistory?: boolean; label?: string },
     ) => {
-      const latestAssembly = useAssemblyStore.getState().assemblyState;
+      const latestAssembly = useRobotStore.getState().assemblyState;
       if (!latestAssembly) return;
       const component = latestAssembly.components[componentId];
       if (!component) return;
@@ -368,7 +369,7 @@ export function useWorkspaceMutations({
         return;
       }
 
-      const latestAssemblyState = useAssemblyStore.getState().assemblyState;
+      const latestAssemblyState = useRobotStore.getState().assemblyState;
       const robotEntityData = data as UrdfLink | UrdfJoint;
 
       if (latestAssemblyState) {
@@ -405,21 +406,22 @@ export function useWorkspaceMutations({
             : null;
         if (type === 'joint' && bridge) {
           const jointPatch = data as Partial<UrdfJoint>;
+          const mergedLimit = jointPatch.limit
+            ? normalizeJointLimitOrder({
+                ...(bridge.joint.limit ?? jointPatch.limit),
+                ...jointPatch.limit,
+              })
+            : bridge.joint.limit;
           const nextJoint: UrdfJoint = {
             ...bridge.joint,
             ...jointPatch,
-            limit: jointPatch.limit
-              ? {
-                  ...bridge.joint.limit,
-                  ...jointPatch.limit,
-                }
-              : bridge.joint.limit,
+            limit: mergedLimit,
           };
           const historyKey = options.historyKey ?? `assembly:bridge:${bridge.id}`;
           const historyLabel = options.historyLabel ?? 'Update bridge joint';
 
           ensurePendingAssemblyHistory(historyKey, historyLabel);
-          useAssemblyStore.getState().updateBridge(
+          useRobotStore.getState().updateBridge(
             bridge.id,
             { joint: nextJoint },
             {
@@ -504,7 +506,17 @@ export function useWorkspaceMutations({
           const historyLabel = options.historyLabel ?? 'Update joint';
           const currentRobotState = useRobotStore.getState();
           const currentJoint = currentRobotState.joints[resolvedJointId];
-          const jointUpdates = data as Partial<UrdfJoint>;
+          const rawJointUpdates = data as Partial<UrdfJoint>;
+          const jointUpdates =
+            currentJoint && rawJointUpdates.limit
+              ? {
+                  ...rawJointUpdates,
+                  limit: normalizeJointLimitOrder({
+                    ...(currentJoint.limit ?? rawJointUpdates.limit),
+                    ...rawJointUpdates.limit,
+                  }),
+                }
+              : rawJointUpdates;
 
           ensurePendingRobotHistory(historyKey, historyLabel);
           updateJoint(resolvedJointId, jointUpdates, {
@@ -614,7 +626,7 @@ export function useWorkspaceMutations({
       commitMode: UpdateCommitMode,
       objectIndex?: number,
     ) => {
-      const latestAssemblyState = useAssemblyStore.getState().assemblyState;
+      const latestAssemblyState = useRobotStore.getState().assemblyState;
 
       if (latestAssemblyState) {
         for (const comp of Object.values(latestAssemblyState.components)) {
@@ -713,7 +725,7 @@ export function useWorkspaceMutations({
       }
 
       const nextTransform = cloneAssemblyTransform(transform);
-      const latestAssembly = useAssemblyStore.getState().assemblyState;
+      const latestAssembly = useRobotStore.getState().assemblyState;
       if (!latestAssembly || areAssemblyTransformsEqual(latestAssembly.transform, nextTransform)) {
         return;
       }
@@ -750,7 +762,7 @@ export function useWorkspaceMutations({
         return;
       }
 
-      const latestAssembly = useAssemblyStore.getState().assemblyState;
+      const latestAssembly = useRobotStore.getState().assemblyState;
       const latestComponent = latestAssembly?.components[componentId];
       if (!latestComponent) {
         return;
@@ -801,7 +813,7 @@ export function useWorkspaceMutations({
         return;
       }
 
-      const latestAssembly = useAssemblyStore.getState().assemblyState;
+      const latestAssembly = useRobotStore.getState().assemblyState;
       const latestBridge = latestAssembly?.bridges[bridgeId];
       if (!latestBridge) {
         return;
@@ -828,7 +840,7 @@ export function useWorkspaceMutations({
       const commitMode = options.commitMode ?? 'immediate';
 
       ensurePendingAssemblyHistory(historyKey, historyLabel);
-      useAssemblyStore.getState().updateBridge(
+      useRobotStore.getState().updateBridge(
         bridgeId,
         {
           joint: {
@@ -1114,7 +1126,7 @@ export function useWorkspaceMutations({
 
   const handleJointChange = useCallback(
     (jointName: string, angle: number, context?: ViewerJointChangeContext) => {
-      const latestAssemblyState = useAssemblyStore.getState().assemblyState;
+      const latestAssemblyState = useRobotStore.getState().assemblyState;
       if (latestAssemblyState) {
         for (const component of Object.values(latestAssemblyState.components)) {
           const jointId = resolveJointKey(component.robot.joints, jointName);

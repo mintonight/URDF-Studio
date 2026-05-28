@@ -5,7 +5,7 @@
  */
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { Upload, File, Wand, Check, Trash2, Eye } from 'lucide-react';
-import type { RobotState, UrdfLink, UrdfVisual } from '@/types';
+import type { RobotState, UrdfLink, UrdfVisual, UrdfVisualMaterial } from '@/types';
 import { GeometryType } from '@/types';
 import { translations } from '@/shared/i18n';
 import { useCollisionTransformStore, useSelectionStore } from '@/store';
@@ -14,6 +14,7 @@ import {
   canEditGeometryBaseTexture,
   getVisualGeometryEntries,
   getVisualGeometryByObjectIndex,
+  hasGeometryMeshMaterialGroups,
   resolveVisualMaterialOverride,
   updateVisualBaseTextureByObjectIndex,
   updateVisualGeometryByObjectIndex,
@@ -39,7 +40,12 @@ import {
 
 import { MeshPreview } from './MeshPreview';
 import { computeAutoAlign, convertGeometryType } from '../utils/geometryConversion';
-import { getColorPickerHexValue, mergeColorPickerHexValue } from '../utils/colorInput';
+import {
+  getColorOpacityValue,
+  getColorPickerHexValue,
+  mergeColorOpacityValue,
+  mergeColorPickerHexValue,
+} from '../utils/colorInput';
 import type {
   MeshAnalysis,
   MeshAnalysisOptions,
@@ -242,6 +248,7 @@ const DeferredColorPickerInput = ({
   const draftValueRef = useRef(value);
   const committedValueRef = useRef(value);
   const onCommitRef = useRef(onCommit);
+  const pendingCommitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     onCommitRef.current = onCommit;
@@ -258,7 +265,17 @@ const DeferredColorPickerInput = ({
     setDraftValue((currentValue) => (currentValue === nextValue ? currentValue : nextValue));
   }, []);
 
+  const clearPendingCommit = useCallback(() => {
+    if (pendingCommitTimeoutRef.current === null) {
+      return;
+    }
+
+    clearTimeout(pendingCommitTimeoutRef.current);
+    pendingCommitTimeoutRef.current = null;
+  }, []);
+
   const commitDraft = useCallback(() => {
+    clearPendingCommit();
     const nextValue = draftValueRef.current;
     if (nextValue === committedValueRef.current) {
       return;
@@ -266,7 +283,25 @@ const DeferredColorPickerInput = ({
 
     committedValueRef.current = nextValue;
     onCommitRef.current(nextValue);
-  }, []);
+  }, [clearPendingCommit]);
+
+  const scheduleCommit = useCallback(() => {
+    clearPendingCommit();
+    pendingCommitTimeoutRef.current = setTimeout(() => {
+      pendingCommitTimeoutRef.current = null;
+      commitDraft();
+    }, 50);
+  }, [clearPendingCommit, commitDraft]);
+
+  const handleDraftChange = useCallback(
+    (nextValue: string) => {
+      setDraft(nextValue);
+      scheduleCommit();
+    },
+    [scheduleCommit, setDraft],
+  );
+
+  useEffect(() => clearPendingCommit, [clearPendingCommit]);
 
   useEffect(() => {
     const input = inputRef.current;
@@ -290,8 +325,8 @@ const DeferredColorPickerInput = ({
       ref={inputRef}
       type="color"
       value={draftValue}
-      onInput={(event) => setDraft(event.currentTarget.value)}
-      onChange={(event) => setDraft(event.currentTarget.value)}
+      onInput={(event) => handleDraftChange(event.currentTarget.value)}
+      onChange={(event) => handleDraftChange(event.currentTarget.value)}
       onPointerUp={commitDraft}
       onMouseUp={commitDraft}
       onBlur={commitDraft}
@@ -308,6 +343,57 @@ const DeferredColorPickerInput = ({
 
 const POSITIVE_GEOMETRY_VALUE_MIN = 10 ** -MAX_GEOMETRY_DIMENSION_DECIMALS;
 const stripAxisSuffix = (label: string) => label.replace(/\s*\([^)]*\)\s*$/, '');
+const MATERIAL_OPACITY_STEP = 0.05;
+const MATERIAL_OPACITY_DECIMALS = 3;
+
+function clampMaterialOpacity(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+
+  return Math.min(1, Math.max(0, value));
+}
+
+function getAuthoredMaterialOpacity(
+  material: UrdfVisualMaterial | null | undefined,
+  fallbackColor?: string | null,
+): number {
+  if (Number.isFinite(material?.opacity)) {
+    return clampMaterialOpacity(Number(material?.opacity));
+  }
+
+  if (
+    Array.isArray(material?.colorRgba) &&
+    material.colorRgba.length === 4 &&
+    Number.isFinite(material.colorRgba[3])
+  ) {
+    return clampMaterialOpacity(Number(material.colorRgba[3]));
+  }
+
+  return getColorOpacityValue(material?.color, getColorOpacityValue(fallbackColor, 1));
+}
+
+function withAuthoredMaterialOpacity(
+  material: UrdfVisualMaterial,
+  opacity: number,
+): UrdfVisualMaterial {
+  const nextOpacity = clampMaterialOpacity(opacity);
+  return {
+    ...material,
+    ...(material.color ? { color: mergeColorOpacityValue(material.color, nextOpacity) } : {}),
+    ...(material.colorRgba
+      ? {
+          colorRgba: [
+            material.colorRgba[0],
+            material.colorRgba[1],
+            material.colorRgba[2],
+            nextOpacity,
+          ] as [number, number, number, number],
+        }
+      : {}),
+    opacity: nextOpacity,
+  };
+}
 
 const InlineDimensionInputRow = ({
   fields,
@@ -533,7 +619,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
   const hasReadonlyAuthoredMaterialDisplay =
     category === 'visual' &&
     geomData.type === GeometryType.MESH &&
-    !geomData.color &&
+    (!geomData.color || hasGeometryMeshMaterialGroups(geomData)) &&
     authoredMaterialColors.length > 0;
   const authoredMaterialDisplayLabel = hasReadonlyAuthoredMaterialDisplay
     ? authoredMaterialColors.length === 1
@@ -561,6 +647,14 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
     category === 'visual'
       ? resolvedVisualMaterial?.color?.trim() || geomData.color || '#ffffff'
       : geomData.color || '#ffffff';
+  const effectiveOpacityValue =
+    category === 'visual'
+      ? clampMaterialOpacity(
+          resolvedVisualMaterial?.opacity ??
+            resolvedVisualMaterial?.colorRgba?.[3] ??
+            getColorOpacityValue(effectiveColorValue, 1),
+        )
+      : clampMaterialOpacity(getColorOpacityValue(geomData.color, 1));
   const describeMeshPath = (filePath: string) => {
     const normalizedPath = filePath.replace(/\\/g, '/');
     const pathSegments = normalizedPath.split('/');
@@ -902,6 +996,65 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
     };
 
     update({ authoredMaterials: nextAuthoredMaterials });
+  };
+
+  const handleAuthoredMaterialOpacityChange = (index: number, opacity: number) => {
+    const currentAuthoredMaterials = geomData.authoredMaterials || [];
+    const currentMaterial = currentAuthoredMaterials[index];
+    if (!currentMaterial) {
+      return;
+    }
+
+    const nextAuthoredMaterials = [...currentAuthoredMaterials];
+    nextAuthoredMaterials[index] = withAuthoredMaterialOpacity(currentMaterial, opacity);
+
+    update({ authoredMaterials: nextAuthoredMaterials });
+  };
+
+  const handleSingleMaterialColorChange = (newColor: string) => {
+    const currentAuthoredMaterials = geomData.authoredMaterials || [];
+    const hasSingleAuthoredMaterial =
+      currentAuthoredMaterials.length === 1 || resolvedVisualMaterial?.source === 'authored';
+
+    if (hasSingleAuthoredMaterial) {
+      const currentMaterial = currentAuthoredMaterials[0] || {};
+      update({
+        authoredMaterials: [
+          {
+            ...currentMaterial,
+            color: newColor,
+          },
+        ],
+      });
+      return;
+    }
+
+    update({ color: newColor });
+  };
+
+  const handleSingleMaterialOpacityChange = (opacity: number) => {
+    if (category !== 'visual') {
+      return;
+    }
+
+    const currentAuthoredMaterials = geomData.authoredMaterials || [];
+    const currentMaterial = currentAuthoredMaterials[0] || {};
+    const nextColor =
+      currentMaterial.color ||
+      resolvedVisualMaterial?.color ||
+      geomData.color ||
+      mergeColorOpacityValue('#ffffff', opacity);
+    const nextTexture = currentMaterial.texture || resolvedVisualMaterial?.texture || undefined;
+    const nextMaterial = withAuthoredMaterialOpacity(
+      {
+        ...currentMaterial,
+        ...(nextColor ? { color: nextColor } : {}),
+        ...(nextTexture ? { texture: nextTexture } : {}),
+      },
+      opacity,
+    );
+
+    update({ authoredMaterials: [nextMaterial] });
   };
 
   // Memoized auto-align calculation
@@ -1611,10 +1764,13 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
                           onCommit={(nextColor) =>
                             handleAuthoredMaterialColorChange(
                               index,
-                              mergeColorPickerHexValue(nextColor, material.color || '')
+                              mergeColorOpacityValue(
+                                mergeColorPickerHexValue(nextColor, material.color || ''),
+                                getAuthoredMaterialOpacity(material),
+                              )
                             )
                           }
-                          ariaLabel={`Color ${index + 1}`}
+                          ariaLabel={`${t.color} ${material.name || index + 1}`}
                           className="h-6 w-7 shrink-0 cursor-pointer rounded-md border border-border-strong bg-input-bg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_28%,transparent)]"
                         />
                       </div>
@@ -1626,7 +1782,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
                   <input
                     type="text"
                     value={effectiveColorValue}
-                    onChange={(e) => update({ color: e.target.value })}
+                    onChange={(e) => handleSingleMaterialColorChange(e.target.value)}
                     className={`${PROPERTY_EDITOR_INPUT_CLASS} flex-1 font-mono uppercase tracking-[0.04em]`}
                     spellCheck={false}
                   />
@@ -1637,15 +1793,60 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
                   </span>
                   <DeferredColorPickerInput
                     value={getColorPickerHexValue(effectiveColorValue)}
-                    onCommit={(nextColor) =>
-                      update({
-                        color: mergeColorPickerHexValue(nextColor, effectiveColorValue),
-                      })
-                    }
+                    onCommit={(nextColor) => {
+                      const mergedColor = mergeColorPickerHexValue(nextColor, effectiveColorValue);
+                      handleSingleMaterialColorChange(
+                        effectiveOpacityValue < 0.999
+                          ? mergeColorOpacityValue(mergedColor, effectiveOpacityValue)
+                          : mergedColor,
+                      );
+                    }}
                     ariaLabel={t.color}
                     className="h-7 w-8 shrink-0 cursor-pointer rounded-md border border-border-strong bg-input-bg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_28%,transparent)]"
                   />
                 </div>
+              )}
+            </InlineInputGroup>
+
+            <InlineInputGroup label={t.opacity} labelWidthClassName="whitespace-nowrap">
+              {hasReadonlyAuthoredMaterialDisplay ? (
+                <div className="flex flex-col gap-1">
+                  {(geomData.authoredMaterials || []).map((material, index) => (
+                    <div
+                      key={`${material.name || material.color || ''}-opacity-${index}`}
+                      className="grid min-w-0 grid-cols-[minmax(0,1fr)_4.75rem] items-center gap-1.5"
+                    >
+                      <span
+                        className={`${PROPERTY_EDITOR_HELPER_TEXT_CLASS} min-w-0 truncate`}
+                        title={material.name || `${t.material} ${index + 1}`}
+                      >
+                        {material.name || `${t.material} ${index + 1}`}
+                      </span>
+                      <NumberInput
+                        value={getAuthoredMaterialOpacity(material)}
+                        onChange={(value) => handleAuthoredMaterialOpacityChange(index, value)}
+                        min={0}
+                        max={1}
+                        step={MATERIAL_OPACITY_STEP}
+                        precision={MATERIAL_OPACITY_DECIMALS}
+                        compact
+                        showStepper={false}
+                        commitOnBlurOnly
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <NumberInput
+                  value={effectiveOpacityValue}
+                  onChange={handleSingleMaterialOpacityChange}
+                  min={0}
+                  max={1}
+                  step={MATERIAL_OPACITY_STEP}
+                  precision={MATERIAL_OPACITY_DECIMALS}
+                  compact
+                  commitOnBlurOnly
+                />
               )}
             </InlineInputGroup>
 

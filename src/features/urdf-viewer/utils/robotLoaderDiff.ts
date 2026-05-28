@@ -42,6 +42,11 @@ function sameRgba(
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
 }
 
+function sameOptionalNumber(a: number | undefined, b: number | undefined): boolean {
+  if (!Number.isFinite(a) && !Number.isFinite(b)) return true;
+  return a === b;
+}
+
 function sameAuthoredMaterials(
   a: LinkGeometry['authoredMaterials'] | undefined,
   b: LinkGeometry['authoredMaterials'] | undefined,
@@ -57,6 +62,7 @@ function sameAuthoredMaterials(
         normalizeMaterialField(material?.name) === normalizeMaterialField(target?.name) &&
         normalizeMaterialField(material?.color) === normalizeMaterialField(target?.color) &&
         sameRgba(material?.colorRgba, target?.colorRgba) &&
+        sameOptionalNumber(material?.opacity, target?.opacity) &&
         normalizeMaterialField(material?.texture) === normalizeMaterialField(target?.texture)
       );
     })
