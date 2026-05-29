@@ -39,11 +39,6 @@
       "count": 1
     }
   },
-  "scripts/testing/browser/test_language_switching.mjs": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "scripts/testing/browser/test_measure_tool.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -61,7 +56,7 @@
   },
   "scripts/testing/browser/test_urdf_export.mjs": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 4
+      "count": 3
     }
   },
   "scripts/testing/browser/test_urdf_tree_crud.mjs": {

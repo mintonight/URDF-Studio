@@ -1257,6 +1257,7 @@ function summarizeLink(link: UrdfLink) {
   return {
     id: link.id,
     name: link.name,
+    visible: link.visible ?? true,
     mass: Number(link.inertial?.mass ?? 0),
     centerOfMass: link.inertial?.origin
       ? {
@@ -1329,6 +1330,15 @@ function summarizeJoint(joint: UrdfJoint) {
           velocity: Number(joint.limit.velocity ?? 0),
         }
       : null,
+    dynamics: joint.dynamics
+      ? {
+          damping: Number(joint.dynamics.damping ?? 0),
+          friction: Number(joint.dynamics.friction ?? 0),
+          stiffness:
+            joint.dynamics.stiffness == null ? null : Number(joint.dynamics.stiffness),
+        }
+      : null,
+    hardware: joint.hardware ?? null,
   };
 }
 

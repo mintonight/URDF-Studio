@@ -29,6 +29,7 @@ function validateUrdf(xml, expectedLinks, expectedJoints) {
 
   if (links < expectedLinks * 0.5) issues.push(`links ${links} < expected ${expectedLinks}`);
   if (parents !== joints) issues.push(`parent count ${parents} != joint count ${joints}`);
+  if (children !== joints) issues.push(`child count ${children} != joint count ${joints}`);
 
   return { valid: issues.length === 0, issues, links, joints };
 }
@@ -49,15 +50,23 @@ async function main() {
     const urdfFromMjcf = await page.evaluate(() => {
       const s = window.__URDF_STUDIO_DEBUG__?.getRegressionSnapshot?.()?.store;
       if (!s) return { error: 'no store' };
+      const vector = (value, keys) => {
+        if (Array.isArray(value)) return value;
+        return keys.map((key) => Number(value?.[key] ?? 0));
+      };
       const links = Object.values(s.links ?? {});
       const joints = Object.values(s.joints ?? {});
       let xml = `<?xml version="1.0"?>\n<robot name="${s.name ?? 'robot'}">\n`;
       for (const l of links) xml += `  <link name="${l?.name ?? '?'}"/>\n`;
       for (const j of joints) {
         xml += `  <joint name="${j?.name ?? '?'}" type="${j?.type ?? 'fixed'}">\n`;
-        if (j?.origin) xml += `    <origin xyz="${(j.origin.xyz ?? [0,0,0]).join(' ')}" rpy="${(j.origin.rpy ?? [0,0,0]).join(' ')}"/>\n`;
-        if (j?.parentLinkName) xml += `    <parent link="${j.parentLinkName}"/>\n`;
-        if (j?.childLinkName) xml += `    <child link="${j.childLinkName}"/>\n`;
+        if (j?.origin) {
+          const xyz = vector(j.origin.xyz, ['x', 'y', 'z']).join(' ');
+          const rpy = vector(j.origin.rpy, ['r', 'p', 'y']).join(' ');
+          xml += `    <origin xyz="${xyz}" rpy="${rpy}"/>\n`;
+        }
+        if (j?.parentLinkId) xml += `    <parent link="${j.parentLinkId}"/>\n`;
+        if (j?.childLinkId) xml += `    <child link="${j.childLinkId}"/>\n`;
         xml += `  </joint>\n`;
       }
       xml += `</robot>`;
@@ -91,6 +100,8 @@ async function main() {
       for (const l of links) xml += `  <link name="${l?.name ?? '?'}"/>\n`;
       for (const j of joints) {
         xml += `  <joint name="${j?.name ?? '?'}" type="${j?.type ?? 'fixed'}">\n`;
+        if (j?.parentLinkId) xml += `    <parent link="${j.parentLinkId}"/>\n`;
+        if (j?.childLinkId) xml += `    <child link="${j.childLinkId}"/>\n`;
         xml += `  </joint>\n`;
       }
       xml += `</robot>`;
@@ -111,14 +122,27 @@ async function main() {
     assert(suite, dupJoints.length === 0, 'no duplicate joint names');
 
     // ── Test 4: Export UI flow ──
-    await page.evaluate(() => {
+    const fileMenuOpened = await page.evaluate(() => {
       const btn = [...document.querySelectorAll('button')].find((b) =>
-        /export/i.test(b.textContent ?? ''));
+        /file|文件/i.test(`${b.textContent ?? ''} ${b.getAttribute('aria-label') ?? ''}`));
       btn?.click();
+      return Boolean(btn);
     });
-    await page.evaluate(() => new Promise((r) => setTimeout(r, 300)));
+    assert(suite, fileMenuOpened, 'file menu opened');
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 200)));
+    const exportDialogOpened = await page.evaluate(() => {
+      const menuItems = [...document.querySelectorAll('[role="menu"] button, [role="menuitem"], button')];
+      const btn = menuItems.find((b) => {
+        const text = b.textContent?.trim() ?? '';
+        return /^(export|导出)$/i.test(text);
+      });
+      btn?.click();
+      return Boolean(btn);
+    });
+    assert(suite, exportDialogOpened, 'export dialog opened');
+    await page.waitForSelector('[data-export-format-picker]', { timeout: 30_000 });
     const exportOptions = await page.evaluate(() =>
-      [...document.querySelectorAll('button, [role="menuitem"], [role="option"]')]
+      [...document.querySelectorAll('[data-export-format-picker] button')]
         .filter((b) => /mjcf|urdf|usd|sdf/i.test(b.textContent ?? ''))
         .map((b) => b.textContent?.trim()),
     );

@@ -26,17 +26,20 @@ async function main() {
       const el = document.documentElement;
       return {
         lang: el.getAttribute('lang'),
-        storeLang: window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.()?.language,
+        dataLang: el.getAttribute('data-lang'),
+        storeLang: window.__URDF_STUDIO_DEBUG__?.__uiStore__?.getState?.()?.lang,
       };
     });
+    assert(suite, currentLang.storeLang === 'en' || currentLang.storeLang === 'zh',
+      'current language readable from ui store');
 
     // ── 2. Switch language via store ──
     const switchResult = await page.evaluate(() => {
-      const store = window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.();
-      if (!store?.setLanguage) return { ok: false };
-      const current = store.language;
+      const store = window.__URDF_STUDIO_DEBUG__?.__uiStore__?.getState?.();
+      if (!store?.setLang) return { ok: false };
+      const current = store.lang;
       const next = current === 'en' ? 'zh' : 'en';
-      store.setLanguage(next);
+      store.setLang(next);
       return { ok: true, from: current, to: next };
     });
     assert(suite, switchResult?.ok, 'language switched via store');
@@ -47,21 +50,23 @@ async function main() {
       const el = document.documentElement;
       return {
         lang: el.getAttribute('lang'),
-        storeLang: window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.()?.language,
+        dataLang: el.getAttribute('data-lang'),
+        storeLang: window.__URDF_STUDIO_DEBUG__?.__uiStore__?.getState?.()?.lang,
         bodyText: document.body?.innerText?.slice(0, 500) ?? '',
       };
     });
     assert(suite, afterSwitch.storeLang === switchResult.to, 'store language updated');
+    assert(suite, afterSwitch.dataLang === switchResult.to, 'document data-lang updated');
 
     // ── 4. Switch back ──
     await page.evaluate((from) => {
-      const store = window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.();
-      store?.setLanguage?.(from);
+      const store = window.__URDF_STUDIO_DEBUG__?.__uiStore__?.getState?.();
+      store?.setLang?.(from);
     }, switchResult.from);
     await delay(200);
 
     const restored = await page.evaluate(() =>
-      window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.()?.language);
+      window.__URDF_STUDIO_DEBUG__?.__uiStore__?.getState?.()?.lang);
     assert(suite, restored === switchResult.from, 'language restored');
 
     const errs = session.errors();

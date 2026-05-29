@@ -104,6 +104,10 @@ export async function waitForReady(page, timeoutMs = 120_000) {
 
 export async function getTopology(page) {
   return page.evaluate(() => {
+    const vector = (value, keys) => {
+      if (Array.isArray(value)) return value;
+      return keys.map((key) => Number(value?.[key] ?? 0));
+    };
     const s = window.__URDF_STUDIO_DEBUG__?.getRegressionSnapshot?.();
     const store = s?.store;
     const links = store?.links ? Object.entries(store.links) : [];
@@ -112,16 +116,18 @@ export async function getTopology(page) {
       name: store?.name, rootLinkId: store?.rootLinkId,
       linkCount: links.length, jointCount: joints.length,
       links: links.map(([id, l]) => ({
-        id, name: l?.name, visible: l?.visible,
-        visualCount: l?.visualBodies?.length ?? (l?.visual ? 1 : 0),
-        collisionCount: l?.collisionBodies?.length ?? (l?.collision ? 1 : 0),
-        inertial: l?.inertial ? { mass: l.inertial.mass } : null,
+        id: l?.id ?? id, name: l?.name, visible: l?.visible,
+        visualCount: (l?.visualBodies?.length ?? 0) > 0 ? l.visualBodies.length : (l?.visual ? 1 : 0),
+        collisionCount: (l?.collisionBodies?.length ?? 0) > 0 ? l.collisionBodies.length : (l?.collision ? 1 : 0),
+        inertial: l?.inertial ? { mass: l.inertial.mass } : (Number.isFinite(l?.mass) ? { mass: l.mass } : null),
       })),
       joints: joints.map(([id, j]) => ({
-        id, name: j?.name, type: j?.type,
+        id: j?.id ?? id, name: j?.name, type: j?.type,
         parentLinkId: j?.parentLinkId, childLinkId: j?.childLinkId,
-        originXyz: j?.origin?.xyz, originRpy: j?.origin?.rpy,
-        axis: j?.axis, limit: j?.limit,
+        originXyz: vector(j?.origin?.xyz, ['x', 'y', 'z']),
+        originRpy: vector(j?.origin?.rpy, ['r', 'p', 'y']),
+        axis: j?.axis ? vector(j.axis, ['x', 'y', 'z']) : null,
+        limit: j?.limit,
         damping: j?.dynamics?.damping ?? j?.damping,
         friction: j?.dynamics?.friction ?? j?.friction,
         hardware: j?.hardware,
@@ -133,15 +139,14 @@ export async function getTopology(page) {
 
 export async function getAssemblyState(page) {
   return page.evaluate(() => {
-    const s = window.__URDF_STUDIO_DEBUG__?.getRegressionSnapshot?.();
-    const a = s?.assembly;
+    const a = window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.()?.assemblyState;
     if (!a) return { exists: false };
     return {
       exists: true, name: a.name,
       componentCount: Object.keys(a.components ?? {}).length,
       bridgeCount: Object.keys(a.bridges ?? {}).length,
       components: Object.entries(a.components ?? {}).map(([id, c]) => ({
-        id, name: c.name, linkCount: Object.keys(c.robotData?.links ?? {}).length,
+        id, name: c.name, linkCount: Object.keys(c.robot?.links ?? {}).length,
       })),
       bridges: Object.entries(a.bridges ?? {}).map(([id, b]) => ({
         id, name: b.name, jointType: b.joint?.type,

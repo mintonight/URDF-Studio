@@ -32,7 +32,7 @@ async function main() {
     assert(suite, !!hipJoint, 'FL_hip_joint found');
 
     await store.updateJoint(page, hipJoint.id, {
-      origin: { xyz: [0.1, 0.2, 0.3], rpy: [0.1, 0.2, 0.3] },
+      origin: { xyz: { x: 0.1, y: 0.2, z: 0.3 }, rpy: { r: 0.1, p: 0.2, y: 0.3 } },
     });
     await delay(200);
     const t1 = await getTopology(page);
@@ -41,19 +41,24 @@ async function main() {
 
     // Restore
     await store.updateJoint(page, hipJoint.id, {
-      origin: { xyz: hipJoint.originXyz, rpy: hipJoint.originRpy },
+      origin: {
+        xyz: { x: hipJoint.originXyz[0], y: hipJoint.originXyz[1], z: hipJoint.originXyz[2] },
+        rpy: { r: hipJoint.originRpy[0], p: hipJoint.originRpy[1], y: hipJoint.originRpy[2] },
+      },
     });
     await delay(200);
 
     // ── 2. Joint axis editing ──
-    await store.updateJoint(page, hipJoint.id, { axis: [1, 0, 0] });
+    await store.updateJoint(page, hipJoint.id, { axis: { x: 1, y: 0, z: 0 } });
     await delay(200);
     const t2 = await getTopology(page);
     const j2 = t2.joints.find((j) => j.id === hipJoint.id);
     assertEqual(suite, j2.axis?.[0], 1, 'joint axis updated');
 
     // Restore
-    await store.updateJoint(page, hipJoint.id, { axis: hipJoint.axis });
+    await store.updateJoint(page, hipJoint.id, {
+      axis: { x: hipJoint.axis[0], y: hipJoint.axis[1], z: hipJoint.axis[2] },
+    });
     await delay(200);
 
     // ── 3. Joint limit editing ──

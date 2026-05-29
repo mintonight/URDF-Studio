@@ -29,10 +29,11 @@ async function main() {
       const isLight = classList.some((c) => /light/i.test(c));
       const dataTheme = el.getAttribute('data-theme');
       const colorScheme = getComputedStyle(el).colorScheme;
-      return { classList, isDark, isLight, dataTheme, colorScheme };
+      const storeTheme = window.__URDF_STUDIO_DEBUG__?.__uiStore__?.getState?.()?.theme;
+      return { classList, isDark, isLight, dataTheme, colorScheme, storeTheme };
     });
-    assert(suite, currentTheme.isDark || currentTheme.isLight || currentTheme.dataTheme,
-      'theme detectable from DOM');
+    assert(suite, ['light', 'dark', 'system'].includes(currentTheme.storeTheme),
+      'theme detectable from ui store');
 
     // ── 2. Find and click theme toggle button ──
     const themeToggleFound = await page.evaluate(() => {
@@ -55,9 +56,10 @@ async function main() {
           isDark: [...el.classList].some((c) => /dark/i.test(c)),
           isLight: [...el.classList].some((c) => /light/i.test(c)),
           dataTheme: el.getAttribute('data-theme'),
+          storeTheme: window.__URDF_STUDIO_DEBUG__?.__uiStore__?.getState?.()?.theme,
         };
       });
-      assert(suite, newTheme.isDark !== currentTheme.isDark || newTheme.dataTheme !== currentTheme.dataTheme,
+      assert(suite, newTheme.isDark !== currentTheme.isDark || newTheme.storeTheme !== currentTheme.storeTheme,
         'theme changed after toggle');
 
       // ── 4. Verify canvas still renders ──
@@ -78,11 +80,14 @@ async function main() {
     } else {
       // Try via store
       const storeToggle = await page.evaluate(() => {
-        const store = window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.();
-        if (store?.toggleTheme) { store.toggleTheme(); return true; }
+        const store = window.__URDF_STUDIO_DEBUG__?.__uiStore__?.getState?.();
+        if (store?.setTheme) {
+          store.setTheme(store.theme === 'dark' ? 'light' : 'dark');
+          return true;
+        }
         return false;
       });
-      assert(suite, storeToggle || true, 'theme toggle attempted (button or store)');
+      assert(suite, storeToggle, 'theme toggled through ui store');
     }
 
     const errs = session.errors();

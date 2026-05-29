@@ -8,6 +8,8 @@
 
 import path from 'node:path';
 
+import { importZippedModel } from './zip-import-helpers.mjs';
+
 // Re-export all format-agnostic helpers
 export {
   createTestSuite, assert, assertEqual, assertGreaterThan, assertNonNull, printSummary,
@@ -29,47 +31,8 @@ export {
  * @param {number} [options.timeoutMs=120_000]
  */
 export async function importModel(page, { sourceRoot, exposedRoot, loadFileName }, timeoutMs = 120_000) {
-  // Reset fixture files first
-  const resetResult = await page.evaluate(() => {
-    const api = window.__URDF_STUDIO_DEBUG__;
-    return api?.resetFixtureFiles?.() ?? { ok: false };
-  });
-  if (!resetResult?.ok) {
-    throw new Error(`Failed to reset fixture files: ${JSON.stringify(resetResult)}`);
-  }
-
-  // Wait for regression debug handlers to be ready
-  await page.waitForFunction(
-    () => {
-      const api = window.__URDF_STUDIO_DEBUG__;
-      return typeof api?.seedFixtureFile === 'function' && typeof api?.loadRobotByName === 'function';
-    },
-    { timeout: timeoutMs },
-  );
-
-  // Seed the fixture directory
-  const seedResult = await page.evaluate(
-    ({ root, exposed }) => {
-      const api = window.__URDF_STUDIO_DEBUG__;
-      return api?.seedFixtureFile?.(root, exposed) ?? { ok: false };
-    },
-    { root: sourceRoot, exposed: exposedRoot },
-  );
-  if (!seedResult?.ok) {
-    throw new Error(`Failed to seed fixture: ${JSON.stringify(seedResult)}`);
-  }
-
-  // Load the robot by name
-  const loadResult = await page.evaluate(
-    (name) => {
-      const api = window.__URDF_STUDIO_DEBUG__;
-      return api?.loadRobotByName?.(name) ?? { ok: false };
-    },
-    loadFileName,
-  );
-  if (!loadResult?.ok) {
-    throw new Error(`Failed to load robot "${loadFileName}": ${JSON.stringify(loadResult)}`);
-  }
+  void exposedRoot;
+  return importZippedModel(page, sourceRoot, loadFileName, timeoutMs, 'usd');
 }
 
 /**

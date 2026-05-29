@@ -8,7 +8,7 @@
 
 import {
   createSession, createTestSuite, assert, assertGreaterThan,
-  importModel, waitForReady, getTopology, getRuntimeTransforms,
+  importModel, waitForReady, getTopology,
   writeReport, printSummary,
 } from './helpers/xacro-helpers.mjs';
 
@@ -28,15 +28,16 @@ async function main() {
       console.log(`\n── ${xacroPath} ──`);
 
       try {
-        await importModel(session.page, xacroPath, expectedName);
+        const loadedName = await importModel(session.page, xacroPath, expectedName);
         await waitForReady(session.page);
         const topo = await getTopology(session.page);
 
         assertGreaterThan(suite, topo.linkCount, 0, `${xacroPath}: links > 0 (${topo.linkCount})`);
         assertGreaterThan(suite, topo.jointCount, 0, `${xacroPath}: joints > 0 (${topo.jointCount})`);
 
-        const rt = await getRuntimeTransforms(session.page);
-        assertGreaterThan(suite, rt.length, 0, `${xacroPath}: runtime transforms present`);
+        const loadState = await session.page.evaluate(() =>
+          window.__URDF_STUDIO_DEBUG__?.getDocumentLoadState?.());
+        assert(suite, loadState?.fileName === loadedName, `${xacroPath}: document state tracks loaded file`);
 
         results.push({ model: xacroPath, status: 'ok', linkCount: topo.linkCount, jointCount: topo.jointCount });
       } catch (err) {

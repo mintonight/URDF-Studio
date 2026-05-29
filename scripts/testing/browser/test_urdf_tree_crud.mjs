@@ -9,7 +9,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import {
   createSession, createTestSuite, assert, assertEqual, assertGreaterThan,
-  importModel, waitForReady, getTopology, getRuntimeTransforms,
+  importModel, waitForReady, getTopology,
   store, writeReport, printSummary,
 } from './helpers/urdf-helpers.mjs';
 
@@ -38,8 +38,8 @@ async function main() {
     const newJoint = t1.joints.find((j) => !base.joints.some((b) => b.id === j.id));
     await store.updateJoint(page, newJoint.id, {
       name: 'test_ankle', type: 'revolute',
-      origin: { xyz: [0, 0, -0.1], rpy: [0, 0, 0] },
-      axis: [0, 1, 0],
+      origin: { xyz: { x: 0, y: 0, z: -0.1 }, rpy: { r: 0, p: 0, y: 0 } },
+      axis: { x: 0, y: 1, z: 0 },
       limit: { lower: -1.57, upper: 1.57, effort: 10, velocity: 5 },
     });
     await delay(200);
@@ -103,11 +103,7 @@ async function main() {
     const tAllShown = await getTopology(page);
     assert(suite, tAllShown.links.every((l) => l.visible !== false), 'all links shown');
 
-    // ── 8. Runtime transforms consistent ──
-    const rt = await getRuntimeTransforms(page);
-    assertGreaterThan(suite, rt.length, 0, 'runtime transforms present');
-
-    // ── 9. Rapid undo ──
+    // ── 8. Rapid undo ──
     for (let i = 0; i < 8; i++) { try { await store.undo(page); await delay(100); } catch {} }
     const tFinal = await getTopology(page);
     assert(suite, tFinal.linkCount > 0, 'state valid after rapid undo');

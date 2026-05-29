@@ -9,7 +9,7 @@
 
 import {
   createSession, createTestSuite, assert, assertGreaterThan,
-  importModel, waitForReady, getTopology, getRuntimeTransforms,
+  importModel, waitForReady, getTopology,
   writeReport, printSummary,
 } from './helpers/sdf-helpers.mjs';
 
@@ -28,15 +28,16 @@ async function main() {
       console.log(`\n── ${dir}/${file} ──`);
 
       try {
-        await importModel(session.page, dir, file);
+        const loadedName = await importModel(session.page, dir, file);
         await waitForReady(session.page);
         const topo = await getTopology(session.page);
 
         assertGreaterThan(suite, topo.linkCount, 0, `${dir}: links > 0 (${topo.linkCount})`);
         assertGreaterThan(suite, topo.jointCount, 0, `${dir}: joints > 0 (${topo.jointCount})`);
 
-        const rt = await getRuntimeTransforms(session.page);
-        assertGreaterThan(suite, rt.length, 0, `${dir}: runtime transforms present`);
+        const loadState = await session.page.evaluate(() =>
+          window.__URDF_STUDIO_DEBUG__?.getDocumentLoadState?.());
+        assert(suite, loadState?.fileName === loadedName, `${dir}: document state tracks loaded file`);
 
         results.push({ model: dir, status: 'ok', linkCount: topo.linkCount, jointCount: topo.jointCount });
       } catch (err) {

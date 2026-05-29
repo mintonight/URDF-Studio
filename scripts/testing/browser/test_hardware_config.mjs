@@ -35,7 +35,13 @@ async function main() {
       'hardware field accessible (null or object)');
 
     // ── 2. Set hardware config ──
-    const hwConfig = { motorName: 'test_motor', gearRatio: 100, maxTorque: 10 };
+    const hwConfig = {
+      armature: 0.1,
+      brand: 'test_brand',
+      motorType: 'test_motor',
+      motorId: 'test_motor_001',
+      motorDirection: 1,
+    };
     await store.updateJoint(page, hipJoint.id, { hardware: hwConfig });
     await delay(200);
 
@@ -43,13 +49,13 @@ async function main() {
     const topo2 = await getTopology(page);
     const j2 = topo2.joints.find((j) => j.id === hipJoint.id);
     assert(suite, j2.hardware != null, 'hardware config persisted');
-    assertEqual(suite, j2.hardware?.motorName, 'test_motor', 'motor name persisted');
+    assertEqual(suite, j2.hardware?.motorId, 'test_motor_001', 'motor id persisted');
 
     // ── 4. Undo hardware config ──
     await store.undo(page); await delay(200);
     const topo3 = await getTopology(page);
     const j3 = topo3.joints.find((j) => j.id === hipJoint.id);
-    assert(suite, j3.hardware == null || j3.hardware?.motorName !== 'test_motor',
+    assert(suite, j3.hardware == null || j3.hardware?.motorId !== 'test_motor_001',
       'hardware config undone');
 
     const errs = session.errors();

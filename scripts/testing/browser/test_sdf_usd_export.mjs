@@ -68,14 +68,24 @@ async function main() {
     assert(suite, !!sdfFromMjcf.xml, 'SDF from MJCF generated');
 
     // ── Test 3: Export menu appears ──
-    await page.evaluate(() => {
+    const fileMenuOpened = await page.evaluate(() => {
       const btn = [...document.querySelectorAll('button')].find((b) =>
-        /export/i.test(b.textContent ?? ''));
+        /file|文件/i.test(`${b.textContent ?? ''} ${b.getAttribute('aria-label') ?? ''}`));
       btn?.click();
+      return Boolean(btn);
     });
-    await delay(300);
+    assert(suite, fileMenuOpened, 'file menu opened');
+    await delay(200);
+    const exportDialogOpened = await page.evaluate(() => {
+      const menuItems = [...document.querySelectorAll('[role="menu"] button, [role="menuitem"], button')];
+      const btn = menuItems.find((b) => /^(export|导出)$/i.test(b.textContent?.trim() ?? ''));
+      btn?.click();
+      return Boolean(btn);
+    });
+    assert(suite, exportDialogOpened, 'export dialog opened');
+    await page.waitForSelector('[data-export-format-picker]', { timeout: 30_000 });
     const exportOptions = await page.evaluate(() =>
-      [...document.querySelectorAll('button, [role="menuitem"], [role="option"]')]
+      [...document.querySelectorAll('[data-export-format-picker] button')]
         .filter((b) => /mjcf|urdf|usd|sdf/i.test(b.textContent ?? ''))
         .map((b) => b.textContent?.trim()),
     );
