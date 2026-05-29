@@ -1005,11 +1005,6 @@
       "count": 1
     }
   },
-  "src/features/urdf-viewer/utils/usdViewerRobotAdapter.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/features/urdf-viewer/utils/usdWasmRuntime.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 7
