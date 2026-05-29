@@ -17,6 +17,13 @@ scripts/test/*
 !scripts/test/run-node-tests.mjs
 !scripts/regression/
 !scripts/wasm/
+!scripts/testing/
+!scripts/e2e/
+!scripts/build/
+!scripts/codegen/
+!scripts/isaacsim/
+!scripts/util/
+!scripts/version/
 scripts/regression/*
 !scripts/regression/validate_sdf_cli_truth.ts
 !scripts/regression/run_shadow_hand_hover_regression.mjs
