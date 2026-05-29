@@ -1020,9 +1020,29 @@
       "count": 7
     }
   },
-  "src/features/urdf-viewer/utils/visualizationObjectSync.ts": {
+  "src/features/urdf-viewer/utils/visualizationSync/interactionPrimitives.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 27
+      "count": 4
+    }
+  },
+  "src/features/urdf-viewer/utils/visualizationSync/interactionStateSync.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "src/features/urdf-viewer/utils/visualizationSync/mjcfSiteTendonSync.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/features/urdf-viewer/utils/visualizationSync/objectPrimitives.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/features/urdf-viewer/utils/visualizationSync/structuralHelperSync.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 17
     }
   },
   "src/features/urdf-viewer/workers/usdOffscreenViewer.worker.ts": {
