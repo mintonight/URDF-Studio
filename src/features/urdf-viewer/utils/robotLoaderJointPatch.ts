@@ -105,7 +105,7 @@ function applyJointPatch(joint: RuntimeURDFJoint, patch: JointPatchCandidate): v
 
   const axis = patch.jointData.axis;
   const axisLengthSq = axis ? axis.x * axis.x + axis.y * axis.y + axis.z * axis.z : 0;
-  if (axisLengthSq > 0) {
+  if (axis && axisLengthSq > 0) {
     jointAxis.set(axis.x, axis.y, axis.z).normalize();
   } else if (joint.jointType === 'planar') {
     jointAxis.set(0, 0, 1);

@@ -16,7 +16,7 @@ import {
 const MODELS = [
   { dir: 'a1_description',  file: 'a1.urdf' },
   { dir: 'go1_description', file: 'go1.urdf' },
-  { dir: 'go2_description', file: 'go2.urdf' },
+  { dir: 'go2_description', file: 'go2_description.urdf' },
 ];
 
 async function main() {

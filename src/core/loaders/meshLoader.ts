@@ -379,7 +379,7 @@ function resolveImportedPackageCandidateMatch(
   });
 
   for (const candidate of importedPackageCandidates) {
-    let result = index.direct.get(candidate);
+    let result: string | null | undefined = index.direct.get(candidate);
     if (result) return result;
 
     result = index.lowercase.get(candidate.toLowerCase());
@@ -723,7 +723,7 @@ export const findAssetByIndex = (
   urdfDir: string = '',
 ): string | null => {
   // Strategy 0: Direct match (most common case)
-  let result = index.direct.get(path);
+  let result: string | null | undefined = index.direct.get(path);
   if (result) return result;
 
   const referencePaths: string[] = [];

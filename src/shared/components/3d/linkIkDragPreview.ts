@@ -137,7 +137,7 @@ export function diffLinkIkDragKinematicState(
 }
 
 function limitNumberStep(previous: number | undefined, next: number, maxStep: number): number {
-  if (!Number.isFinite(next) || !Number.isFinite(previous)) {
+  if (!Number.isFinite(next) || previous === undefined || !Number.isFinite(previous)) {
     return next;
   }
 

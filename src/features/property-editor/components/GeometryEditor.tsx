@@ -465,7 +465,9 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
   const meshAnalysisRef = useRef<MeshAnalysis | null>(null);
   const meshAnalysisKeyRef = useRef<string | null>(null);
   const meshAnalysisCacheRef = useRef<Record<string, MeshAnalysis | null>>({});
-  const meshAnalysisPromiseCacheRef = useRef<Record<string, Promise<MeshAnalysis | null>>>({});
+  const meshAnalysisPromiseCacheRef = useRef<Partial<Record<string, Promise<MeshAnalysis | null>>>>(
+    {},
+  );
   const typeChangeRequestRef = useRef(0);
   const [geometryHeaderRowWidth, setGeometryHeaderRowWidth] = useState<number | null>(null);
   const setSelection = useSelectionStore((state) => state.setSelection);

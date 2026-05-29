@@ -2,15 +2,15 @@
  * Simple throttle function that limits function execution to once per specified interval.
  * Returns a throttled version of the function that can be cancelled.
  */
-export function throttle<T extends (...args: unknown[]) => void>(
-    fn: T,
+export function throttle<TArgs extends unknown[]>(
+    fn: (...args: TArgs) => void,
     limit: number
-): T & { cancel: () => void } {
+): ((...args: TArgs) => void) & { cancel: () => void } {
     let lastCall = 0;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    let lastArgs: Parameters<T> | null = null;
+    let lastArgs: TArgs | null = null;
 
-    const throttled = ((...args: Parameters<T>) => {
+    const throttled = ((...args: TArgs) => {
         const now = Date.now();
         const remaining = limit - (now - lastCall);
 
@@ -32,7 +32,7 @@ export function throttle<T extends (...args: unknown[]) => void>(
                 }
             }, remaining);
         }
-    }) as T & { cancel: () => void };
+    }) as ((...args: TArgs) => void) & { cancel: () => void };
 
     throttled.cancel = () => {
         if (timeoutId) {

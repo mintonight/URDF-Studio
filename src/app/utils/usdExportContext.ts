@@ -6,12 +6,16 @@ import {
   type UsdExportBundle,
 } from '@/features/urdf-viewer/utils/usdExportBundle';
 
+type ResolveUsdExportSceneSnapshotOptions = NonNullable<
+  Parameters<typeof resolveUsdExportSceneSnapshot>[0]
+>;
+
 export interface ResolveCurrentUsdExportBundleOptions {
   stageSourcePath: string;
   currentRobot: RobotState;
   cachedSnapshot?: unknown | null;
   preparedCache?: UsdPreparedExportCache | null;
-  targetWindow?: Parameters<typeof resolveUsdExportSceneSnapshot>[0]['targetWindow'];
+  targetWindow?: ResolveUsdExportSceneSnapshotOptions['targetWindow'];
 }
 
 export function resolveCurrentUsdExportBundle({
@@ -23,9 +27,7 @@ export function resolveCurrentUsdExportBundle({
 }: ResolveCurrentUsdExportBundleOptions): UsdExportBundle | null {
   const snapshot = resolveUsdExportSceneSnapshot({
     stageSourcePath,
-    cachedSnapshot: cachedSnapshot as Parameters<
-      typeof resolveUsdExportSceneSnapshot
-    >[0]['cachedSnapshot'],
+    cachedSnapshot: cachedSnapshot as ResolveUsdExportSceneSnapshotOptions['cachedSnapshot'],
     targetWindow,
   });
 

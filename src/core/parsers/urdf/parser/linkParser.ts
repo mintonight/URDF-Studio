@@ -158,7 +158,7 @@ export const parseLinks = (
       type: GeometryType.NONE,
       dimensions: { x: 0, y: 0, z: 0 },
       origin: {
-        xyz: parseVec3(undefined),
+        xyz: parseVec3(null),
         rpy: { r: 0, p: 0, y: 0 },
       },
       color: undefined,

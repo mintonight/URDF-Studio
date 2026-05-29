@@ -21,7 +21,7 @@ import { useSelectionStore } from '@/store/selectionStore';
 
 interface MeasurePanelProps {
   toolMode: ToolMode;
-  measurePanelRef: React.RefObject<HTMLDivElement>;
+  measurePanelRef: React.RefObject<HTMLDivElement | null>;
   measurePanelPos: { x: number; y: number } | null;
   onMouseDown: (e: React.MouseEvent) => void;
   onClose: () => void;

@@ -48,7 +48,7 @@ export async function buildProjectArchiveBlob(
       onProgress?.({
         completed: Math.round(metadata.percent),
         total: 100,
-        label: metadata.currentFile,
+        label: metadata.currentFile ?? undefined,
       });
     },
   );

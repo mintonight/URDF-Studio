@@ -27,7 +27,7 @@ interface CommitResolvedRobotLoadArgs {
   setOriginalFileFormat: (
     format: Extract<RobotFile['format'], 'urdf' | 'mjcf' | 'usd' | 'xacro' | 'sdf'> | null,
   ) => void;
-  setOriginalUrdfContent: (content: string | null) => void;
+  setOriginalUrdfContent: (content: string) => void;
   setRobot: (robot: RobotData, options?: { resetHistory?: boolean; label?: string }) => void;
   setSelectedFile: (file: RobotFile) => void;
   setSelection: (selection: { type: null; id: null }) => void;
@@ -48,7 +48,7 @@ function resolveCommittedOriginalFileFormat(
 function resolveCommittedOriginalSourceContent(
   file: RobotFile,
   importResult: CommitResolvedRobotLoadResult,
-): string | null {
+): string {
   if (isAssetLibraryOnlyFormat(file.format)) {
     return '';
   }

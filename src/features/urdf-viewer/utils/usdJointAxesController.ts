@@ -101,7 +101,7 @@ export class UsdJointAxesController {
 
       const axisVisual = createJointAxisViz(
         joint.type,
-        new THREE.Vector3(joint.axis.x, joint.axis.y, joint.axis.z),
+        new THREE.Vector3(joint.axis?.x ?? 0, joint.axis?.y ?? 0, joint.axis?.z ?? 1),
         jointAxisSize,
       );
       axisVisual.userData = {

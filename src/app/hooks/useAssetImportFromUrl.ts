@@ -28,7 +28,7 @@ function startTitleBlink(alertTitle: string) {
   let show = true;
 
   blinkTimer = setInterval(() => {
-    document.title = show ? alertTitle : savedOriginalTitle;
+    document.title = show ? alertTitle : (savedOriginalTitle ?? document.title);
     show = !show;
   }, 800);
 

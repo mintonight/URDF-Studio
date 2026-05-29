@@ -428,6 +428,10 @@ export async function createGeometryMesh(
       }
 
       const loadedMesh = await loadMJCFMeshObject(assetUrl, meshDef.file, meshCache, abortSignal);
+      if (!loadedMesh) {
+        return null;
+      }
+
       if (abortSignal?.aborted) {
         disposeTransientObject3D(loadedMesh);
         throwIfMJCFLoadAborted(abortSignal);

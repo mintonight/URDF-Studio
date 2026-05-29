@@ -39,7 +39,7 @@ export function resolveUsdRuntimeGeometry(
     return getVisualGeometryByObjectIndex(link, objectIndex ?? 0)?.geometry;
   }
 
-  if (!Number.isInteger(objectIndex) || objectIndex < 0) {
+  if (typeof objectIndex !== 'number' || !Number.isInteger(objectIndex) || objectIndex < 0) {
     return undefined;
   }
 

@@ -112,7 +112,7 @@ function buildPrimitiveAxisDescriptorForGeometry(
   let bestFit: PrimitiveFitCandidate | null = null;
   let bestAlignment = -Infinity;
 
-  fitCandidates.forEach((fit) => {
+  for (const fit of fitCandidates) {
     const axisLocal = applyOriginRotationToVector(
       geometry.origin,
       new THREE.Vector3(fit.axis.x, fit.axis.y, fit.axis.z),
@@ -122,13 +122,13 @@ function buildPrimitiveAxisDescriptorForGeometry(
     if (alignment > bestAlignment + 1e-8) {
       bestAlignment = alignment;
       bestFit = fit;
-      return;
+      continue;
     }
 
     if (Math.abs(alignment - bestAlignment) <= 1e-8 && bestFit && fit.volume < bestFit.volume) {
       bestFit = fit;
     }
-  });
+  }
 
   if (!bestFit) {
     return null;
@@ -287,7 +287,8 @@ function buildCoaxialMergeCandidateForJoint(
     return null;
   }
 
-  const jointAxisLocal = new THREE.Vector3(joint.axis.x, joint.axis.y, joint.axis.z);
+  const jointAxis = joint.axis ?? { x: 0, y: 0, z: 1 };
+  const jointAxisLocal = new THREE.Vector3(jointAxis.x, jointAxis.y, jointAxis.z);
   if (jointAxisLocal.lengthSq() <= 1e-12) {
     return null;
   }

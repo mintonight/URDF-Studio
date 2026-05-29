@@ -227,7 +227,7 @@ export function useDeferredWorkspaceSourceSync({
               if (
                 availableFiles.some((file) => file.name === fileName && file.content !== content)
               ) {
-                const baseFiles = nextAvailableFiles ?? availableFiles;
+                const baseFiles: RobotFile[] = nextAvailableFiles ?? availableFiles;
                 nextAvailableFiles = baseFiles.map((file) =>
                   file.name === fileName ? { ...file, content } : file,
                 );

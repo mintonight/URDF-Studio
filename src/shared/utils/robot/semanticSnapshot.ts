@@ -117,8 +117,8 @@ export function createRobotSemanticSnapshot(robot: RobotSnapshotLike | RobotStat
     links: robot.links,
     joints: robot.joints,
     rootLinkId: robot.rootLinkId,
-    materials: robot.materials ?? null,
-    closedLoopConstraints: robot.closedLoopConstraints ?? null,
+    materials: robot.materials,
+    closedLoopConstraints: robot.closedLoopConstraints,
   });
 
   return createStableJsonSnapshot(sanitizedRobot);
@@ -130,8 +130,8 @@ export function createRobotPersistenceSnapshot(robot: RobotSnapshotLike | RobotS
     links: robot.links,
     joints: robot.joints,
     rootLinkId: robot.rootLinkId,
-    materials: robot.materials ?? null,
-    closedLoopConstraints: robot.closedLoopConstraints ?? null,
+    materials: robot.materials,
+    closedLoopConstraints: robot.closedLoopConstraints,
   });
 
   return createStableJsonSnapshot(sanitizedRobot);

@@ -33,6 +33,10 @@ function applyAssemblyHistoryEntry(
   direction: 'undo' | 'redo',
 ): AssemblyState | null {
   if (isAssemblyHistoryPatchEntry(entry)) {
+    if (!currentState) {
+      return null;
+    }
+
     return applyPatches(
       currentState,
       direction === 'undo' ? entry.undoPatches : entry.redoPatches,

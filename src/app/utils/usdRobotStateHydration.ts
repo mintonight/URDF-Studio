@@ -3,31 +3,17 @@ import {
   prepareSharedUsdOffscreenViewerStageOpenDispatch,
 } from '@/features/urdf-viewer/utils/usdOffscreenViewerWorkerClient';
 import { prepareUsdPreparedExportCacheWithWorker } from '@/features/urdf-viewer/utils/usdPreparedExportCacheWorkerBridge';
-import type {
-  UsdOffscreenViewerWorkerRequest,
-  UsdOffscreenViewerWorkerResponse,
-} from '@/features/urdf-viewer/utils/usdOffscreenViewerProtocol';
+import type { UsdOffscreenViewerWorkerResponse } from '@/features/urdf-viewer/utils/usdOffscreenViewerProtocol';
 import type { PreparedUsdExportCacheResult } from '@/features/urdf-viewer/utils/usdExportBundle';
 import { hydratePreparedUsdExportCacheFromWorker } from '@/features/urdf-viewer/utils/usdPreparedExportCacheWorkerTransfer';
 import type { ViewerRobotDataResolution } from '@/features/urdf-viewer/utils/viewerRobotData';
 import type { RobotData, RobotFile, UsdBakedScene, UsdSceneSnapshot } from '@/types';
 import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 
-type HydrationWorkerEventHandler = (
-  event: MessageEvent<UsdOffscreenViewerWorkerResponse | undefined>,
-) => void;
-type HydrationWorkerFailureHandler = (event: ErrorEvent | MessageEvent<unknown> | Event) => void;
-
 export interface UsdRobotStateHydrationWorkerLike {
-  addEventListener: (
-    type: 'message' | 'error' | 'messageerror',
-    listener: EventListenerOrEventListenerObject,
-  ) => void;
-  removeEventListener: (
-    type: 'message' | 'error' | 'messageerror',
-    listener: EventListenerOrEventListenerObject,
-  ) => void;
-  postMessage: (message: UsdOffscreenViewerWorkerRequest, transfer?: Transferable[]) => void;
+  addEventListener: Worker['addEventListener'];
+  removeEventListener: Worker['removeEventListener'];
+  postMessage: Worker['postMessage'];
 }
 
 export interface UsdRobotStateHydrationWorkerClient {
@@ -429,9 +415,9 @@ export function startUsdRobotStateHydration({
     );
   }
 
-  worker.addEventListener('message', handleMessage as HydrationWorkerEventHandler);
-  worker.addEventListener('error', handleWorkerFailure as HydrationWorkerFailureHandler);
-  worker.addEventListener('messageerror', handleWorkerFailure as HydrationWorkerFailureHandler);
+  worker.addEventListener('message', handleMessage as EventListener);
+  worker.addEventListener('error', handleWorkerFailure as EventListener);
+  worker.addEventListener('messageerror', handleWorkerFailure as EventListener);
   signal?.addEventListener('abort', handleAbort, { once: true });
 
   if (signal?.aborted) {

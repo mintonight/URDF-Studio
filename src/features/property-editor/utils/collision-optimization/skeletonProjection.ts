@@ -58,7 +58,8 @@ function createJointMotionMatrix(joint: UrdfJoint): THREE.Matrix4 {
   const angle = Number.isFinite(joint.angle) ? joint.angle! : 0;
 
   if (joint.type === 'revolute' || joint.type === 'continuous') {
-    const axisVector = new THREE.Vector3(joint.axis.x, joint.axis.y, joint.axis.z);
+    const axis = joint.axis ?? { x: 0, y: 0, z: 1 };
+    const axisVector = new THREE.Vector3(axis.x, axis.y, axis.z);
     if (axisVector.lengthSq() > 1e-12 && Math.abs(angle) > 1e-12) {
       axisVector.normalize();
       matrix.makeRotationAxis(axisVector, angle);
@@ -67,7 +68,8 @@ function createJointMotionMatrix(joint: UrdfJoint): THREE.Matrix4 {
   }
 
   if (joint.type === 'prismatic') {
-    const axisVector = new THREE.Vector3(joint.axis.x, joint.axis.y, joint.axis.z);
+    const axis = joint.axis ?? { x: 0, y: 0, z: 1 };
+    const axisVector = new THREE.Vector3(axis.x, axis.y, axis.z);
     if (axisVector.lengthSq() > 1e-12 && Math.abs(angle) > 1e-12) {
       axisVector.normalize().multiplyScalar(angle);
       matrix.makeTranslation(axisVector.x, axisVector.y, axisVector.z);

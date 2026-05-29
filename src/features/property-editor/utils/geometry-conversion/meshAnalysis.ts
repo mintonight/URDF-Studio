@@ -86,8 +86,13 @@ function getRepresentativeMeshColor(object: THREE.Object3D): string | undefined 
     const groupWeights = new Array<number>(materials.length).fill(0);
     if (geometry?.groups?.length) {
       geometry.groups.forEach((group) => {
-        if (group.materialIndex >= 0 && group.materialIndex < groupWeights.length) {
-          groupWeights[group.materialIndex] += Math.max(group.count, 1);
+        const materialIndex = group.materialIndex;
+        if (
+          materialIndex !== undefined &&
+          materialIndex >= 0 &&
+          materialIndex < groupWeights.length
+        ) {
+          groupWeights[materialIndex] += Math.max(group.count, 1);
         }
       });
     }

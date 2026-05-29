@@ -190,7 +190,8 @@ function computeDensityFromGeometries(
     return { value: null, volume: null };
   }
 
-  const totalVolume = volumes.reduce((sum, volume) => sum + (volume ?? 0), 0);
+  const numericVolumes = volumes.filter((volume): volume is number => volume !== null);
+  const totalVolume = numericVolumes.reduce((sum, volume) => sum + volume, 0);
   if (!Number.isFinite(totalVolume) || totalVolume < MIN_VOLUME || mass <= 0) {
     return { value: null, volume: totalVolume || null };
   }

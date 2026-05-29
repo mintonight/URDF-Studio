@@ -85,6 +85,7 @@ import type {
   SnapshotCaptureAction,
   SnapshotCaptureOptions,
 } from '@/shared/components/3d/scene/snapshotConfig';
+import type { SourceCodeEditorApplyRequest } from '@/features/code-editor/utils/sourceCodeEditorSession';
 import { resolveViewerDocumentLifecycleCallbacks } from './utils/viewerDocumentLifecycleCallbacks';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
 import { isAssetLibraryOnlyFormat, ROBOT_IMPORT_ACCEPT_ATTRIBUTE } from '@/shared/utils';
@@ -115,14 +116,14 @@ interface ProModeRoundtripSession {
 
 interface AppLayoutProps {
   // Import handlers (passed from App)
-  importInputRef: React.RefObject<HTMLInputElement>;
-  importFolderInputRef: React.RefObject<HTMLInputElement>;
+  importInputRef: React.RefObject<HTMLInputElement | null>;
+  importFolderInputRef: React.RefObject<HTMLInputElement | null>;
   onFileDrop: (files: File[]) => void;
   onOpenExport: () => void;
   onOpenLibraryExport: (file: RobotFile) => void;
   onExportProject: () => void;
   // Toast handler
-  showToast: (message: string, type?: 'info' | 'success') => void;
+  showToast: (message: string, type?: 'info' | 'success' | 'error') => void;
   // Modal handlers
   onOpenAIInspection: () => void;
   onOpenAIConversation: () => void;
@@ -368,6 +369,7 @@ export function AppLayout({
       renameComponentSourceFolder: state.renameComponentSourceFolder,
     })),
   );
+  const normalizedAssemblyState = assemblyState ?? null;
 
   const snapshotActionRef = useRef<
     ((options?: Partial<SnapshotCaptureOptions>) => Promise<void>) | null
@@ -417,7 +419,7 @@ export function AppLayout({
     activateInsertedAssemblyComponent,
     insertAssemblyComponentIntoWorkspace,
   } = useAssemblyComponentPreparation({
-    assemblyState,
+    assemblyState: normalizedAssemblyState,
     availableFiles,
     assets,
     allFileContents,
@@ -452,7 +454,7 @@ export function AppLayout({
     handlePreviewFile,
     handleClosePreview,
   } = useWorkspaceSourceSync({
-    assemblyState,
+    assemblyState: normalizedAssemblyState,
     assemblyRevision,
     assemblyBridgePreview: bridgePreview,
     assemblySelection,
@@ -486,7 +488,7 @@ export function AppLayout({
 
   useWorkspaceAssemblyRenderFailureNotice({
     assemblyRevision,
-    assemblyState,
+    assemblyState: normalizedAssemblyState,
     labels: {
       workspaceAssemblyRenderFailedMergedData: t.workspaceAssemblyRenderFailedMergedData,
       workspaceAssemblyRenderFailedViewerData: t.workspaceAssemblyRenderFailedViewerData,
@@ -508,7 +510,7 @@ export function AppLayout({
   );
 
   const viewerAssets = usePreparedUsdViewerAssets({
-    assemblyState,
+    assemblyState: normalizedAssemblyState,
     assets,
     availableFiles,
     additionalSourceFiles: preparedAssetSourceFiles,
@@ -633,8 +635,8 @@ export function AppLayout({
     );
   }, [ikToolSelectionState.currentLinkId, previewContextRobot.links, robotLinks]);
   const propertyEditorSelectionContext = useMemo(
-    () => buildPropertyEditorSelectionContext(previewContextRobot, assemblyState),
-    [assemblyState, previewContextRobot],
+    () => buildPropertyEditorSelectionContext(previewContextRobot, normalizedAssemblyState),
+    [normalizedAssemblyState, previewContextRobot],
   );
   const workspaceLayoutClassNames = useMemo(() => resolveWorkspaceOverlayLayoutClassNames(), []);
   const workspaceOverlaySafeAreaStyle = useMemo(
@@ -691,7 +693,7 @@ export function AppLayout({
     handleSelectGeometryWithAssemblyClear,
     handleViewerMeshSelectWithAssemblyClear,
   } = useWorkspaceViewerSelectionBridge({
-    assemblyState,
+    assemblyState: normalizedAssemblyState,
     canSelectAssemblyRootComponent: resolveAssemblyRootComponentSelectionAvailability({
       shouldRenderAssembly,
       sourceSceneAssemblyComponentId,
@@ -743,7 +745,7 @@ export function AppLayout({
     handleSetShowVisual,
     handleJointChange: handleCommittedJointChange,
   } = useWorkspaceMutations({
-    assemblyState,
+    assemblyState: normalizedAssemblyState,
     robotLinks,
     rootLinkId,
     setName,
@@ -927,7 +929,7 @@ export function AppLayout({
   } = useLibraryFileActions({
     availableFiles,
     selectedFile,
-    assemblyState,
+    assemblyState: normalizedAssemblyState,
     emptyRobot,
     removeComponent,
     removeRobotFile,
@@ -1033,7 +1035,7 @@ export function AppLayout({
     handlePreviewCollisionOptimizationTarget,
     handleApplyCollisionOptimization,
   } = useCollisionOptimizationWorkflow({
-    assemblyState,
+    assemblyState: normalizedAssemblyState,
     robotName,
     robotLinks,
     robotJoints,
@@ -1070,7 +1072,7 @@ export function AppLayout({
         documentFlavor: document.documentFlavor,
         readOnly: document.readOnly,
         validationEnabled: document.validationEnabled,
-        onCodeChange: (newCode: string, applyRequest) =>
+        onCodeChange: (newCode: string, applyRequest?: SourceCodeEditorApplyRequest) =>
           handleCodeChange(newCode, document.changeTarget, applyRequest),
         onDownload: document.readOnly
           ? undefined
@@ -1487,7 +1489,7 @@ export function AppLayout({
               isMeshPreview={selectedFile?.format === 'mesh'}
               onTransformPendingChange={handleWorkspaceTransformPendingChange}
               onCollisionTransform={handleCollisionTransform}
-              assemblyState={assemblyState}
+              assemblyState={normalizedAssemblyState}
               assemblyWorkspaceActive={shouldRenderAssembly}
               assemblySelection={assemblySelection}
               sourceSceneAssemblyComponentId={sourceSceneAssemblyComponentId}
@@ -1547,7 +1549,7 @@ export function AppLayout({
             onRequestLoadRobot={handleRequestLoadRobot}
             currentFileName={selectedFile?.name}
             sourceFilePath={viewerSourceFilePath}
-            assemblyState={assemblyState}
+              assemblyState={normalizedAssemblyState}
             onAddComponent={handleAddComponent}
             onDeleteLibraryFile={handleDeleteLibraryFile}
             onDeleteLibraryFolder={handleDeleteLibraryFolder}
@@ -1646,7 +1648,7 @@ export function AppLayout({
         onCloseCollisionOptimizer={() => setIsCollisionOptimizerOpen(false)}
         onSelectCollisionTarget={handlePreviewCollisionOptimizationTarget}
         onApplyCollisionOptimization={handleApplyCollisionOptimization}
-        assemblyState={assemblyState}
+        assemblyState={normalizedAssemblyState}
         shouldRenderBridgeModal={shouldRenderBridgeModal}
         loadingBridgeDialogLabel={t.loadingBridgeDialog}
         isBridgeModalOpen={isBridgeModalOpen}

@@ -12,10 +12,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import {
   createSession, createTestSuite, assert,
   waitForReady, getTopology, writeReport, printSummary,
-  DEFAULT_OPERATION_TIMEOUT_MS,
 } from './helpers/base-helpers.mjs';
+import { importModel } from './helpers/mjcf-helpers.mjs';
 
-import { ensureDir } from '../../../e2e/helpers/browser-helpers.mjs';
+import { ensureDir } from '../../e2e/helpers/browser-helpers.mjs';
 
 async function main() {
   const suite = createTestSuite('Drag & Drop + Snapshot');
@@ -24,24 +24,16 @@ async function main() {
 
   try {
     // ── 1. Drag-and-drop file upload via DataTransfer ──
-    const dropFile = path.resolve('test/mujoco_menagerie-main/unitree_go2/go2.xml');
-    const dropSuccess = await page.evaluate(async (filePath) => {
+    const dropSuccess = await page.evaluate(async () => {
       // Simulate drop by using file input as fallback
       const input = document.querySelector('input[type="file"]');
       if (!input) return false;
       return true;
-    }, dropFile);
+    });
     assert(suite, true, 'page has file input for drop');
 
-    // Use file upload as proxy for drag-drop (drag-drop requires CDP)
-    const input = await page.waitForSelector('input[type="file"]', { timeout: 30_000 });
-    await input.uploadFile(dropFile);
-
-    // Wait for the file to appear in debug snapshot
-    await page.waitForFunction(
-      () => window.__URDF_STUDIO_DEBUG__?.getRegressionSnapshot?.()?.selectedFile != null,
-      { timeout: 60_000 },
-    );
+    // Use the same zip-backed import path that real folder drag/drop should hit.
+    await importModel(page, 'unitree_go2', 'go2.xml');
     await waitForReady(page);
 
     const topo = await getTopology(page);

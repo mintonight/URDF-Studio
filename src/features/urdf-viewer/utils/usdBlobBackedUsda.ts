@@ -5,7 +5,9 @@ type BlobBackedUsdaFileLike = Pick<RobotFile, 'name' | 'content' | 'blobUrl' | '
 
 const LARGE_BLOB_BACKED_USDA_PATTERN = /\.usda$/i;
 
-function isUsdFileLike(file: BlobBackedUsdaFileLike | null | undefined): boolean {
+function isUsdFileLike(
+  file: BlobBackedUsdaFileLike | null | undefined,
+): file is BlobBackedUsdaFileLike {
   return Boolean(file && (file.format === 'usd' || /\.usd[a-z]?$/i.test(file.name)));
 }
 

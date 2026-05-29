@@ -1,13 +1,18 @@
 import js from '@eslint/js';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
+import reactHooks from 'eslint-plugin-react-hooks';
+import reactPlugin from 'eslint-plugin-react';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
 
 const globalIgnores = [
   '**/node_modules/**',
   '**/dist/**',
   '**/tmp/**',
   '**/.tmp/**',
+  '**/.venv/**',
   '**/output/**',
+  '**/*.min.js',
   'third_party/**',
   '**/.playwright-mcp/**',
   '**/.worktrees/**',
@@ -26,6 +31,11 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   {
     files: ['**/*.{js,mjs,cjs,ts,tsx,jsx}'],
+    plugins: {
+      'react-hooks': reactHooks,
+      react: reactPlugin,
+      'jsx-a11y': jsxA11y,
+    },
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
@@ -39,25 +49,41 @@ export default tseslint.config(
         ...globals.node,
       },
     },
+    settings: {
+      react: { version: 'detect' },
+    },
     linterOptions: {
       reportUnusedDisableDirectives: 'off',
     },
     rules: {
+      // --- noise rules that intentionally stay off (legitimately hit by parsers / regex / generated code) ---
       'no-console': 'off',
       'no-cond-assign': 'off',
-      'no-empty': 'off',
       'no-loss-of-precision': 'off',
       'no-regex-spaces': 'off',
-      'no-undef': 'off',
-      'no-unused-vars': 'off',
+      'no-undef': 'off', // TypeScript handles undefined identifiers
       'no-useless-escape': 'off',
-      'prefer-const': 'off',
+      'no-case-declarations': 'off',
       '@typescript-eslint/no-empty-object-type': 'off',
-      '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-require-imports': 'off',
       '@typescript-eslint/no-unused-expressions': 'off',
-      '@typescript-eslint/no-unused-vars': 'off',
-      'no-case-declarations': 'off',
+
+      // --- re-enabled core hygiene rules (existing backlog captured in eslint-suppressions.json) ---
+      'prefer-const': 'error',
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
+
+      // --- React correctness (the highest-value lint at scale) ---
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'error',
+      'react/jsx-key': 'error',
+
+      // --- accessibility (recommended set; existing backlog suppressed, burned down in Phase E) ---
+      ...jsxA11y.flatConfigs.recommended.rules,
     },
   },
   {

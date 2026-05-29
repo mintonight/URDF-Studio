@@ -845,7 +845,8 @@ export function useRobotLoader({
             );
           };
           manager.onLoad = () => {
-            if (!robotModel) return;
+            const loadedRobot = robotModel;
+            if (!loadedRobot) return;
             if (!abortController.aborted && isMountedRef.current) {
               const currentProgress =
                 pendingLoadingDispatchRef.current?.progress ?? lastPublishedProgressRef.current;
@@ -868,7 +869,7 @@ export function useRobotLoader({
                 }),
               );
             }
-            void finalizeLoadedRobot(robotModel);
+            void finalizeLoadedRobot(loadedRobot);
           };
           // Use new local URDFLoader
           const loader = new URDFLoader(manager);
@@ -950,7 +951,12 @@ export function useRobotLoader({
           return;
         }
 
-        if (robotModel && isMountedRef.current) {
+        if (!robotModel) {
+          return;
+        }
+        const loadedRobot = robotModel as THREE.Object3D;
+
+        if (isMountedRef.current) {
           const currentProgress =
             pendingLoadingDispatchRef.current?.progress ?? lastPublishedProgressRef.current;
           const nextProgress =
@@ -972,10 +978,10 @@ export function useRobotLoader({
               message: null,
             }),
           );
-          void finalizeLoadedRobot(robotModel);
-        } else if (robotModel) {
+          void finalizeLoadedRobot(loadedRobot);
+        } else {
           // Aborted or unmounted after load but before we could use it
-          disposeObject3D(robotModel, true, SHARED_MATERIALS);
+          disposeObject3D(loadedRobot, true, SHARED_MATERIALS);
         }
       } catch (err) {
         if (!abortController.aborted && isMountedRef.current) {

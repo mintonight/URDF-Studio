@@ -611,12 +611,13 @@ export function syncIkHandleVisualizationForLinks({
       link.userData.__ikHandle = undefined;
     }
 
-    const linkId = robotData ? resolveLinkKey(robotData.links, link.name) : null;
-    const descriptor = linkId
+    const scopedRobotData = robotData;
+    const linkId = scopedRobotData ? resolveLinkKey(scopedRobotData.links, link.name) : null;
+    const descriptor = linkId && scopedRobotData
       ? ikDragActive
-        ? (resolveDirectManipulableLinkIkDescriptor(robotData, linkId) ??
-          resolveLinkIkHandleDescriptor(robotData, linkId))
-        : resolveLinkIkHandleDescriptor(robotData, linkId)
+        ? (resolveDirectManipulableLinkIkDescriptor(scopedRobotData, linkId) ??
+          resolveLinkIkHandleDescriptor(scopedRobotData, linkId))
+        : resolveLinkIkHandleDescriptor(scopedRobotData, linkId)
       : null;
 
     if (!descriptor) {

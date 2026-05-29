@@ -41,7 +41,7 @@ export function reconcileUsdCollisionMeshAssignments({
     }
   });
 
-  if (Number.isInteger(deletedObjectIndex)) {
+  if (typeof deletedObjectIndex === 'number' && Number.isInteger(deletedObjectIndex)) {
     for (const [meshId, assignedIndex] of workingAssignments.entries()) {
       if (assignedIndex === deletedObjectIndex) {
         workingAssignments.delete(meshId);
@@ -64,12 +64,16 @@ export function reconcileUsdCollisionMeshAssignments({
   const seenIndices = new Set<number>();
   sortedMeshes.forEach(({ meshId }) => {
     const assignedIndex = workingAssignments.get(meshId);
-    if (!Number.isInteger(assignedIndex) || seenIndices.has(assignedIndex)) {
+    if (
+      typeof assignedIndex !== 'number' ||
+      !Number.isInteger(assignedIndex) ||
+      seenIndices.has(assignedIndex)
+    ) {
       return;
     }
 
-    uniqueAssignments.set(meshId, assignedIndex as number);
-    seenIndices.add(assignedIndex as number);
+    uniqueAssignments.set(meshId, assignedIndex);
+    seenIndices.add(assignedIndex);
   });
 
   const availableIndices: number[] = [];

@@ -1153,7 +1153,7 @@ export async function prepareImportPayload({
   const firstFile = files[0] ? resolveImportInputFile(files[0]) : null;
   const isSingleArchiveImport =
     files.length === 1 && firstFile ? isSupportedArchiveImportFile(firstFile.name) : false;
-  if (isSingleArchiveImport) {
+  if (isSingleArchiveImport && firstFile) {
     return withArchiveImportSession(firstFile, async (archiveSession) => {
       const collectedPayload = await collectImportPayloadFromArchiveSession(
         archiveSession,

@@ -109,7 +109,7 @@ interface JointData {
 interface JointPropertiesProps {
   data: JointData;
   mode: AppMode;
-  selection: { id: string | null; type: string };
+  selection: { id: string | null; type: string | null };
   onUpdate: (type: 'link' | 'joint', id: string, data: unknown) => void;
   motorLibrary: Record<string, MotorSpec[]>;
   t: (typeof translations)['en'];

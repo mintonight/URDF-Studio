@@ -11,7 +11,7 @@ const JOINT_PANEL_COMPACT_ADVANCED_ITEM_ESTIMATED_HEIGHT = 70;
 interface JointsPanelProps {
   showJointPanel: boolean;
   robot: any;
-  jointPanelRef: React.RefObject<HTMLDivElement>;
+  jointPanelRef: React.RefObject<HTMLDivElement | null>;
   jointPanelPos: { x: number; y: number } | null;
   defaultPosition?: {
     top?: string;

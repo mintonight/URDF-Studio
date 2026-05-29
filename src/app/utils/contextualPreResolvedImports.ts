@@ -10,9 +10,12 @@ import { buildPreResolvedImportContentSignature } from './preResolvedImportSigna
 export function shouldBuildContextualPreResolvedImports(
   options: Pick<ResolveRobotFileDataOptions, 'availableFiles' | 'assets' | 'allFileContents'>,
 ): boolean {
-  return options.availableFiles.length > 0
-    || Object.keys(options.assets).length > 0
-    || Object.keys(options.allFileContents).length > 0;
+  const availableFiles = options.availableFiles ?? [];
+  const assets = options.assets ?? {};
+  const allFileContents = options.allFileContents ?? {};
+  return availableFiles.length > 0
+    || Object.keys(assets).length > 0
+    || Object.keys(allFileContents).length > 0;
 }
 
 function compareContextualXacroPathPreference(left: RobotFile, right: RobotFile): number {

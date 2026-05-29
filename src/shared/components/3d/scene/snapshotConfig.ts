@@ -104,7 +104,7 @@ export function normalizeSnapshotLongEdgePx(value: number) {
 
 export function normalizeSnapshotImageQuality(value: number | null | undefined) {
   const fallback = SNAPSHOT_DEFAULT_IMAGE_QUALITY;
-  if (!Number.isFinite(value)) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
     return fallback;
   }
 

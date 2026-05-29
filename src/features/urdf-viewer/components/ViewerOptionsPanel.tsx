@@ -12,7 +12,7 @@ import { useOverlayHoverBlock } from '@/shared/hooks/useOverlayHoverBlock';
 
 interface ViewerOptionsPanelProps {
   showOptionsPanel: boolean;
-  optionsPanelRef: React.RefObject<HTMLDivElement>;
+  optionsPanelRef: React.RefObject<HTMLDivElement | null>;
   optionsPanelPos: { x: number; y: number } | null;
   defaultPosition?: {
     top?: string;

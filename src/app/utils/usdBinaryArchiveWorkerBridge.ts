@@ -1,6 +1,5 @@
 import type {
   ConvertUsdArchiveFilesToBinaryWorkerRequest,
-  UsdBinaryArchiveWorkerRequest,
   UsdBinaryArchiveWorkerResponse,
 } from './usdBinaryArchiveWorker.ts';
 import {
@@ -9,10 +8,10 @@ import {
 } from './usdBinaryArchiveWorkerTransfer.ts';
 
 interface WorkerLike {
-  addEventListener: (type: 'message' | 'error', listener: EventListenerOrEventListenerObject) => void;
-  removeEventListener: (type: 'message' | 'error', listener: EventListenerOrEventListenerObject) => void;
-  postMessage: (message: UsdBinaryArchiveWorkerRequest, transfer?: Transferable[]) => void;
-  terminate: () => void;
+  addEventListener: Worker['addEventListener'];
+  removeEventListener: Worker['removeEventListener'];
+  postMessage: Worker['postMessage'];
+  terminate: Worker['terminate'];
 }
 
 interface PendingWorkerRequest {

@@ -126,7 +126,7 @@ export function createMatteMaterial(options: CreateMaterialOptions): THREE.MeshS
     preserveExactColor = false,
   } = options;
   const parsedColor = parseThreeColorWithOpacity(color);
-  let finalColor = parsedColor?.color ?? new THREE.Color('#ffffff');
+  const finalColor = parsedColor?.color ?? new THREE.Color('#ffffff');
   const effectiveOpacity = Number.isFinite(options.opacity)
     ? Number(options.opacity)
     : (parsedColor?.opacity ?? 1.0);

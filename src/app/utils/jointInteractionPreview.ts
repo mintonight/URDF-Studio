@@ -8,7 +8,7 @@ export interface JointInteractionPreviewLike {
 
 export function hasJointInteractionPreviewLike(
   preview: JointInteractionPreviewLike | null | undefined,
-): boolean {
+): preview is JointInteractionPreviewLike {
   if (!preview) {
     return false;
   }

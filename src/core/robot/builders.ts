@@ -31,14 +31,18 @@ export const generateLinkId = (): string => generateId(LINK_ID_PREFIX);
  */
 export const generateJointId = (): string => generateId(JOINT_ID_PREFIX);
 
-const cloneOrigin = (origin?: UrdfOrigin): UrdfOrigin | undefined =>
-  origin
+function cloneOrigin(origin: UrdfOrigin): UrdfOrigin;
+function cloneOrigin(origin: undefined): undefined;
+function cloneOrigin(origin: UrdfOrigin | undefined): UrdfOrigin | undefined;
+function cloneOrigin(origin?: UrdfOrigin): UrdfOrigin | undefined {
+  return origin
     ? {
         xyz: { ...origin.xyz },
         rpy: { ...origin.rpy },
         ...(origin.quatXyzw ? { quatXyzw: { ...origin.quatXyzw } } : {}),
       }
     : undefined;
+}
 
 function resolveAttachedChildGeometryOriginZ(
   geometry: Pick<UrdfLink['visual'], 'type' | 'dimensions'> | undefined,
@@ -58,10 +62,10 @@ function resolveAttachedChildGeometryOriginZ(
   }
 }
 
-function createOffsetOrigin(
-  origin: UrdfOrigin | undefined,
-  offsetZ: number,
-): UrdfOrigin | undefined {
+function createOffsetOrigin(origin: UrdfOrigin, offsetZ: number): UrdfOrigin;
+function createOffsetOrigin(origin: undefined, offsetZ: number): undefined;
+function createOffsetOrigin(origin: UrdfOrigin | undefined, offsetZ: number): UrdfOrigin | undefined;
+function createOffsetOrigin(origin: UrdfOrigin | undefined, offsetZ: number): UrdfOrigin | undefined {
   if (!origin) {
     return origin;
   }
@@ -161,33 +165,44 @@ export const createJoint = (
     childLinkId: string;
   },
 ): UrdfJoint => {
-  const id = options.id || generateJointId();
+  const {
+    id: optionId,
+    name: optionName,
+    type,
+    parentLinkId,
+    childLinkId,
+    origin,
+    axis,
+    limit,
+    dynamics,
+    hardware,
+    ...jointOptions
+  } = options;
+  const id = optionId || generateJointId();
+  const hasLimit = Object.prototype.hasOwnProperty.call(options, 'limit');
   return {
     ...DEFAULT_JOINT,
+    ...jointOptions,
     id,
-    name: options.name || id,
-    type: options.type || JointType.REVOLUTE,
-    parentLinkId: options.parentLinkId,
-    childLinkId: options.childLinkId,
+    name: optionName || id,
+    type: type || JointType.REVOLUTE,
+    parentLinkId,
+    childLinkId,
     origin: {
       xyz: { x: 0, y: 0, z: 0.5 },
       rpy: { r: 0, p: 0, y: 0 },
-      ...options.origin,
+      ...origin,
     },
-    axis: options.axis || { x: 0, y: 0, z: 1 },
-    limit: {
-      ...DEFAULT_JOINT.limit,
-      ...options.limit,
-    },
+    axis: axis || { x: 0, y: 0, z: 1 },
+    limit: hasLimit ? (limit ? { ...DEFAULT_JOINT.limit, ...limit } : undefined) : { ...DEFAULT_JOINT.limit },
     dynamics: {
       ...DEFAULT_JOINT.dynamics,
-      ...options.dynamics,
+      ...dynamics,
     },
     hardware: {
       ...DEFAULT_JOINT.hardware,
-      ...options.hardware,
+      ...hardware,
     },
-    ...options,
   };
 };
 

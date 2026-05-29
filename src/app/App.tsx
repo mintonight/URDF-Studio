@@ -918,6 +918,14 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         }
 
         installRegressionDebugApi(window);
+        const regressionApi = window.__URDF_STUDIO_DEBUG__ as typeof window.__URDF_STUDIO_DEBUG__ & {
+          __store__?: typeof useRobotStore;
+          __uiStore__?: typeof useUIStore;
+          __assetsStore__?: typeof useAssetsStore;
+        };
+        regressionApi.__store__ = useRobotStore;
+        regressionApi.__uiStore__ = useUIStore;
+        regressionApi.__assetsStore__ = useAssetsStore;
 
         setRegressionAppHandlers({
           getAvailableFiles: () => useAssetsStore.getState().availableFiles,
@@ -1242,6 +1250,9 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
 
   const handleExportProjectBlob = useCallback(async (): Promise<Blob> => {
     const result = await runProjectExport({ skipDownload: true });
+    if (!result.blob) {
+      throw new Error('Project export did not produce an archive blob.');
+    }
     return result.blob;
   }, [runProjectExport]);
 

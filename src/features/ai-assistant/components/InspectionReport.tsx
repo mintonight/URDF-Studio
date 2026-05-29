@@ -489,12 +489,13 @@ export function InspectionReportView({
 
                     {relatedEntities.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">
-                        {relatedEntities.map((entity) =>
-                          entity.target && !hasSingleLocatableTarget ? (
+                        {relatedEntities.map((entity) => {
+                          const target = entity.target;
+                          return target && !hasSingleLocatableTarget ? (
                             <button
-                              key={`${issue.title}:${entity.target.type}:${entity.id}`}
+                              key={`${issue.title}:${target.type}:${entity.id}`}
                               type="button"
-                              onClick={() => onSelectItem(entity.target.type, entity.target.id)}
+                              onClick={() => onSelectItem(target.type, target.id)}
                               className="inline-flex items-center gap-1.5 rounded-md border border-border-black bg-element-bg px-2 py-1 text-[10px] font-medium text-text-secondary transition-colors hover:bg-element-hover hover:text-system-blue"
                             >
                               <Crosshair className="h-3 w-3" />
@@ -507,8 +508,8 @@ export function InspectionReportView({
                             >
                               {entity.name}
                             </span>
-                          ),
-                        )}
+                          );
+                        })}
                       </div>
                     )}
 
@@ -764,16 +765,14 @@ export function InspectionReportView({
 
                                         {relatedEntities.length > 0 && (
                                           <div className="flex flex-wrap gap-1.5">
-                                            {relatedEntities.map((entity) =>
-                                              entity.target ? (
+                                            {relatedEntities.map((entity) => {
+                                              const target = entity.target;
+                                              return target ? (
                                                 <button
-                                                  key={`${entity.target.type}:${entity.id}`}
+                                                  key={`${target.type}:${entity.id}`}
                                                   type="button"
                                                   onClick={() => {
-                                                    onSelectItem(
-                                                      entity.target.type,
-                                                      entity.target.id,
-                                                    );
+                                                    onSelectItem(target.type, target.id);
                                                   }}
                                                   className="rounded-md border border-border-black bg-element-bg px-2 py-1 text-[10px] font-medium text-text-secondary transition-colors hover:bg-element-hover hover:text-system-blue"
                                                 >
@@ -786,8 +785,8 @@ export function InspectionReportView({
                                                 >
                                                   {entity.name}
                                                 </span>
-                                              ),
-                                            )}
+                                              );
+                                            })}
                                           </div>
                                         )}
                                       </div>

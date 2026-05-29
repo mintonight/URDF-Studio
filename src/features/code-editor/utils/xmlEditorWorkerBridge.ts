@@ -120,7 +120,10 @@ const postRequestToWorker = <TResponse>(request: XmlEditorWorkerRequest): Promis
       return;
     }
 
-    pendingWorkerRequests.set(request.requestId, { resolve, reject });
+    pendingWorkerRequests.set(request.requestId, {
+      resolve: (value: unknown) => resolve(value as TResponse),
+      reject,
+    });
 
     try {
       worker.postMessage(request);

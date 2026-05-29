@@ -11,16 +11,10 @@ import type {
 } from './usdOffscreenViewerProtocol';
 
 interface WorkerLike {
-  addEventListener: (
-    type: 'message' | 'error' | 'messageerror',
-    listener: EventListenerOrEventListenerObject,
-  ) => void;
-  removeEventListener: (
-    type: 'message' | 'error' | 'messageerror',
-    listener: EventListenerOrEventListenerObject,
-  ) => void;
-  postMessage: (message: UsdOffscreenViewerWorkerRequest, transfer?: Transferable[]) => void;
-  terminate: () => void;
+  addEventListener: Worker['addEventListener'];
+  removeEventListener: Worker['removeEventListener'];
+  postMessage: Worker['postMessage'];
+  terminate: Worker['terminate'];
 }
 
 interface CreateUsdOffscreenViewerWorkerClientOptions {
@@ -127,7 +121,13 @@ export function createUsdOffscreenViewerWorkerClient({
     message: UsdOffscreenViewerWorkerRequest,
     transfer?: Transferable[],
   ): void => {
-    getWorker().postMessage(message, transfer);
+    const worker = getWorker();
+    if (transfer) {
+      worker.postMessage(message, transfer);
+      return;
+    }
+
+    worker.postMessage(message);
   };
 
   const commitStageOpenContextKey = (contextKey?: string): void => {

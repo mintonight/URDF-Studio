@@ -853,7 +853,11 @@ function collectMeshTriangles(object: THREE.Object3D): MeshTriangle[] {
     }
 
     const geometry = mesh.geometry as THREE.BufferGeometry | undefined;
-    const position = geometry?.attributes?.position as THREE.BufferAttribute | undefined;
+    if (!geometry) {
+      return;
+    }
+
+    const position = geometry.attributes.position as THREE.BufferAttribute | undefined;
     if (!position || position.count < 3) {
       return;
     }

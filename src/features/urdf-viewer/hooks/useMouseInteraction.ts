@@ -745,7 +745,8 @@ export function useMouseInteraction({
       }
 
       const activeJointKey = resolveActiveViewerJointKeyFromSelection(
-        (robot as { joints?: Record<string, unknown> } | null)?.joints,
+        (robot as { joints?: Parameters<typeof resolveActiveViewerJointKeyFromSelection>[0] } | null)
+          ?.joints,
         selection,
       );
 

@@ -516,7 +516,7 @@ function patchUrdfLikeSource(
   }
 
   const changedKeys = collectChangedUrdfLikeKeys(sourceRobot, generatedRobot);
-  let patched = applyRootAttributePatch(sourceContent, sourceRoot, generatedRoot, generatedContent, [
+  const patched = applyRootAttributePatch(sourceContent, sourceRoot, generatedRoot, generatedContent, [
     'name',
     'version',
   ]);
@@ -603,7 +603,7 @@ function patchMjcfSource(sourceContent: string, generatedContent: string): strin
     );
   }
 
-  let patched = applyRootAttributePatch(sourceContent, sourceRoot, generatedRoot, generatedContent, [
+  const patched = applyRootAttributePatch(sourceContent, sourceRoot, generatedRoot, generatedContent, [
     'model',
   ]);
   const patchedRoot = findRootElement(patched, 'mujoco');

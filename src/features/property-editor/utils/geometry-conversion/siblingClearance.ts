@@ -290,7 +290,7 @@ export function applySiblingCollisionClearance(
     volume: number;
   } | null = null;
 
-  radiusCandidates.forEach((radiusCandidate) => {
+  for (const radiusCandidate of radiusCandidates) {
     const sweepHalfExtent = computeSweepHalfExtent(radiusCandidate, primitiveLength, newType);
     const safeInterval = resolveAvailableSweepInterval(
       candidateCenter,
@@ -302,13 +302,13 @@ export function applySiblingCollisionClearance(
     );
 
     if (!safeInterval) {
-      return;
+      continue;
     }
 
     const length = composePrimitiveLength(safeInterval.sweepHalfExtent, radiusCandidate, newType);
     const volume = computePrimitiveVolume(newType, radiusCandidate, length);
     if (!Number.isFinite(volume) || volume <= 0) {
-      return;
+      continue;
     }
 
     const nextCandidate = {
@@ -320,19 +320,19 @@ export function applySiblingCollisionClearance(
 
     if (!bestCandidate) {
       bestCandidate = nextCandidate;
-      return;
+      continue;
     }
 
     const volumeTolerance = Math.max(bestCandidate.volume * 0.01, 1e-8);
     if (nextCandidate.volume > bestCandidate.volume + volumeTolerance) {
       bestCandidate = nextCandidate;
-      return;
+      continue;
     }
 
     if (Math.abs(nextCandidate.volume - bestCandidate.volume) <= volumeTolerance) {
       if (nextCandidate.sweepHalfExtent > bestCandidate.sweepHalfExtent + 1e-8) {
         bestCandidate = nextCandidate;
-        return;
+        continue;
       }
 
       if (
@@ -342,7 +342,7 @@ export function applySiblingCollisionClearance(
         bestCandidate = nextCandidate;
       }
     }
-  });
+  }
 
   if (bestCandidate) {
     return {
@@ -359,7 +359,7 @@ export function applySiblingCollisionClearance(
     volume: number;
   } | null = null;
 
-  radiusCandidates.forEach((radiusCandidate) => {
+  for (const radiusCandidate of radiusCandidates) {
     const centerShift = findNearestSafeCenterShift(
       candidateCenter,
       axisVector,
@@ -374,7 +374,7 @@ export function applySiblingCollisionClearance(
     );
     const volume = computePrimitiveVolume(newType, radiusCandidate, length);
     if (!Number.isFinite(volume) || volume <= 0) {
-      return;
+      continue;
     }
 
     const nextCandidate = {
@@ -386,14 +386,14 @@ export function applySiblingCollisionClearance(
 
     if (!fallbackCandidate) {
       fallbackCandidate = nextCandidate;
-      return;
+      continue;
     }
 
     const shiftDelta =
       Math.abs(nextCandidate.centerShift) - Math.abs(fallbackCandidate.centerShift);
     if (shiftDelta < -1e-8) {
       fallbackCandidate = nextCandidate;
-      return;
+      continue;
     }
 
     if (Math.abs(shiftDelta) <= 1e-8) {
@@ -402,7 +402,7 @@ export function applySiblingCollisionClearance(
         fallbackCandidate = nextCandidate;
       }
     }
-  });
+  }
 
   if (fallbackCandidate) {
     return {
@@ -456,7 +456,7 @@ export function applySiblingBoxClearance(
 
   let bestShift: { localAxis: Point3; centerShift: number } | null = null;
 
-  axisPriority.forEach(({ axis }) => {
+  for (const { axis } of axisPriority) {
     const localAxis = getAxisVectorForPrimaryAxis(axis);
     const axisInLinkSpace = rotateLocalVectorByOrigin(origin, localAxis);
     const centerShift = findNearestSafeCenterShift(
@@ -469,14 +469,14 @@ export function applySiblingBoxClearance(
 
     if (!bestShift) {
       bestShift = { localAxis, centerShift };
-      return;
+      continue;
     }
 
     const nextShiftMagnitude = Math.abs(centerShift);
     const bestShiftMagnitude = Math.abs(bestShift.centerShift);
     if (nextShiftMagnitude < bestShiftMagnitude - 1e-8) {
       bestShift = { localAxis, centerShift };
-      return;
+      continue;
     }
 
     if (
@@ -485,7 +485,7 @@ export function applySiblingBoxClearance(
     ) {
       bestShift = { localAxis, centerShift };
     }
-  });
+  }
 
   if (!bestShift || Math.abs(bestShift.centerShift) <= 1e-8) {
     return origin;

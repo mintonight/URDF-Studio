@@ -3,21 +3,14 @@ import type { Language } from '@/shared/i18n';
 import { hydrateImportedProjectResult, type ImportResult } from './projectImport.ts';
 import type {
   ImportProjectWorkerRequest,
-  ProjectImportWorkerRequest,
   ProjectImportWorkerResponse,
 } from './projectImportWorker.ts';
 
 interface WorkerLike {
-  addEventListener: (
-    type: 'message' | 'error',
-    listener: EventListenerOrEventListenerObject,
-  ) => void;
-  removeEventListener: (
-    type: 'message' | 'error',
-    listener: EventListenerOrEventListenerObject,
-  ) => void;
-  postMessage: (message: ProjectImportWorkerRequest, transfer?: Transferable[]) => void;
-  terminate: () => void;
+  addEventListener: Worker['addEventListener'];
+  removeEventListener: Worker['removeEventListener'];
+  postMessage: Worker['postMessage'];
+  terminate: Worker['terminate'];
 }
 
 interface PendingWorkerRequest {

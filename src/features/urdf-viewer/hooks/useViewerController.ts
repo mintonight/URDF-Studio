@@ -75,8 +75,8 @@ function isSameJointAngle(left: number | undefined, right: number | undefined) {
 }
 
 function isSameJointQuaternion(
-  left: ViewerJointMotionStateValue['quaternion'] | undefined,
-  right: ViewerJointMotionStateValue['quaternion'] | undefined,
+  left: ViewerJointMotionStateValue['quaternion'] | null | undefined,
+  right: ViewerJointMotionStateValue['quaternion'] | null | undefined,
 ) {
   if (!left || !right) {
     return left === right;

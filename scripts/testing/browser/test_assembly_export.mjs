@@ -10,7 +10,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import {
   createSession, createTestSuite, assert, assertEqual, assertGreaterThan,
-  waitForReady, getTopology, getAssemblyState,
+  waitForReady, getTopology, getAssemblyState, findAvailableFile,
   store, writeReport, printSummary,
 } from './helpers/base-helpers.mjs';
 
@@ -30,14 +30,12 @@ async function main() {
 
     await store.initAssembly(page, 'export_asm'); await delay(300);
 
-    const fileMjcf = await page.evaluate((fn) =>
-      window.__URDF_STUDIO_DEBUG__?.getAvailableFiles?.()?.find?.((f) => f.name === fn), 'go2.xml');
+    const fileMjcf = await findAvailableFile(page, 'go2.xml');
     const compA = await store.addComponent(page, fileMjcf); await delay(500);
 
     await importUrdf(page, 'a1_description', 'a1.urdf');
     await waitForReady(page);
-    const fileUrdf = await page.evaluate((fn) =>
-      window.__URDF_STUDIO_DEBUG__?.getAvailableFiles?.()?.find?.((f) => f.name === fn), 'a1.urdf');
+    const fileUrdf = await findAvailableFile(page, 'a1.urdf');
     const compB = await store.addComponent(page, fileUrdf); await delay(500);
 
     // Create bridge

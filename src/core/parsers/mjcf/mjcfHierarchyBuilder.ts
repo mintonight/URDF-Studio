@@ -1121,7 +1121,7 @@ export async function buildMJCFHierarchy(
       { geom, renderVisual: isVisualGeom, renderCollision: isCollisionGeom },
     ] of geomRoles.entries()) {
       throwIfAborted();
-      let mesh: THREE.Object3D | null = null;
+      let mesh: THREE.Object3D | null | undefined = null;
       try {
         if (!isVisualGeom && !isCollisionGeom) {
           continue;
@@ -1170,8 +1170,7 @@ export async function buildMJCFHierarchy(
           throwIfAborted();
         }
 
-        const shouldApplyGeomRgba = Boolean(geom.rgba && (geom.hasExplicitRgba || !materialDef));
-        if (shouldApplyGeomRgba) {
+        if (geom.rgba && (geom.hasExplicitRgba || !materialDef)) {
           applyRgbaToMesh(mesh, geom.rgba);
         }
 

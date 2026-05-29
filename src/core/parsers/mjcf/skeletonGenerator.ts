@@ -1,5 +1,14 @@
 import * as THREE from 'three';
-import { GeometryType, JointType, type Euler, type RobotState, type UrdfJoint, type UrdfLink, type Vector3 } from '@/types';
+import {
+  DEFAULT_LINK,
+  GeometryType,
+  JointType,
+  type Euler,
+  type RobotState,
+  type UrdfJoint,
+  type UrdfLink,
+  type Vector3,
+} from '@/types';
 import { getTreeDisplayRootLinkIds } from '@/core/robot';
 import {
   MAX_GEOMETRY_DIMENSION_DECIMALS,
@@ -274,7 +283,7 @@ export const generateSkeletonXML = (robot: RobotState, options: SkeletonExportOp
   };
 
   const buildInertialXml = (link: UrdfLink, indent: string): string => {
-    const inertial = link.inertial;
+    const inertial = link.inertial ?? DEFAULT_LINK.inertial;
     const origin = inertial.origin ?? { xyz: ZERO_VECTOR, rpy: ZERO_EULER };
     const mass = inertial.mass > 0 ? inertial.mass : MIN_INERTIAL_MASS;
     const ixx = Math.max(Math.abs(inertial.inertia.ixx || 0), MIN_INERTIAL_DIAG);

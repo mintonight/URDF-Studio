@@ -67,6 +67,7 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
   robotJoints,
   closedLoopRobotState = null,
 }) => {
+  const resolvedTransformMode = transformMode ?? 'select';
   const transformRef = useRef<any>(null);
   const rotateTransformRef = useRef<any>(null);
   const proxyRef = useRef<THREE.Group | null>(null);
@@ -351,7 +352,7 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
     isDraggingRef,
     shouldUseTranslateProxy,
   } = useCollisionTransformDragLifecycle({
-    transformMode,
+    transformMode: resolvedTransformMode,
     transformRef,
     rotateTransformRef,
     invalidate,
@@ -373,7 +374,7 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
 
   useEffect(() => {
     const resolvedTarget = resolveOriginTransformTarget(robot, selection, robotJoints);
-    if (!resolvedTarget || transformMode === 'select' || !onUpdate) {
+    if (!resolvedTarget || resolvedTransformMode === 'select' || !onUpdate) {
       if (isDraggingRef.current) {
         cancelActiveDrag();
       }
@@ -411,7 +412,7 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
     robotVersion,
     selection,
     syncProxyFromJoint,
-    transformMode,
+    resolvedTransformMode,
   ]);
 
   useEffect(() => {
@@ -446,12 +447,12 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
     }
   }, 1000);
 
-  if (!proxy || !targetJoint || !onUpdate || transformMode === 'select') {
+  if (!proxy || !targetJoint || !onUpdate || resolvedTransformMode === 'select') {
     return null;
   }
 
   const canRenderControls = canRenderCollisionTransformControls(
-    transformMode,
+    resolvedTransformMode,
     shouldUseTranslateProxy,
     proxy,
   );

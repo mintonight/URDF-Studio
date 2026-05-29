@@ -229,7 +229,7 @@ let runtimeMeshMetaByObject = new Map<THREE.Object3D, RuntimeMeshMeta>();
 let runtimeMeshesByLinkKey = new Map<string, THREE.Mesh[]>();
 let runtimePickMeshes: THREE.Mesh[] = [];
 let runtimeHelperTargets: THREE.Object3D[] = [];
-let highlightedMeshes = new Map<THREE.Mesh, HighlightedMeshSnapshot>();
+const highlightedMeshes = new Map<THREE.Mesh, HighlightedMeshSnapshot>();
 const runtimeRaycaster = new THREE.Raycaster();
 const runtimePointer = new THREE.Vector2();
 let linkAxesController: InstanceType<typeof LinkAxesController> | null = null;
@@ -1667,11 +1667,17 @@ async function writeUsdBytesToVirtualPath(
     }
   }
 
+  const unlinkUsdFile = activeRuntime.USD.FS_unlink;
+  const createUsdDataFile = activeRuntime.USD.FS_createDataFile;
+  if (typeof unlinkUsdFile !== 'function' || typeof createUsdDataFile !== 'function') {
+    return false;
+  }
+
   try {
-    activeRuntime.USD.FS_unlink(normalizedVirtualPath);
+    unlinkUsdFile(normalizedVirtualPath);
   } catch {}
   activeRuntime.usdFsHelper.untrackVirtualFilePath?.(normalizedVirtualPath);
-  activeRuntime.USD.FS_createDataFile(directory, fileName, bytes, true, true, true);
+  createUsdDataFile(directory, fileName, bytes, true, true, true);
   activeRuntime.usdFsHelper.trackVirtualFilePath?.(normalizedVirtualPath);
 
   return activeRuntime.usdFsHelper.hasVirtualFilePath(normalizedVirtualPath);
@@ -2121,6 +2127,10 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
     }
     installRuntimeWindowAlias();
     runtimeWindow.USD = runtime.USD;
+    const activeRuntime = runtime;
+    if (!activeRuntime) {
+      throw new Error('USD runtime initialization returned no runtime.');
+    }
 
     emitWorkerLoadingStep('preloading-dependencies', 'Preparing USD preload bundle...', 4);
     disposeStageResources();
@@ -2185,7 +2195,7 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
       },
       run: async () => {
         await preloadUsdDependencies(
-          runtime,
+          activeRuntime,
           preparedStageOpenData.stageSourcePath,
           preparedStageOpenData.preloadFiles,
           () => isLoadGenerationActive(loadGeneration),
@@ -2196,7 +2206,7 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
           12,
         );
         await ensureCriticalUsdDependenciesLoaded(
-          runtime,
+          activeRuntime,
           preparedStageOpenData.stageSourcePath,
           preparedStageOpenData.criticalDependencyPaths,
           preparedStageOpenData.preloadFiles,
@@ -2217,7 +2227,7 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
       'Opening USD stage inside worker renderer...',
       18,
     );
-    const params = createEmbeddedUsdViewerLoadParams(runtime.threadCount, {
+    const params = createEmbeddedUsdViewerLoadParams(activeRuntime.threadCount, {
       preferWorkerResolvedRobotData: true,
       dependenciesPreloadedToVirtualFs: true,
       // Vendor USDs can be fully renderable while lacking complete robot
@@ -2234,9 +2244,9 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
         stageSourcePath: preparedStageOpenData.stageSourcePath,
       },
       run: async () =>
-        await runtime.loadUsdStage({
-          USD: runtime.USD,
-          usdFsHelper: runtime.usdFsHelper,
+        await activeRuntime.loadUsdStage({
+          USD: activeRuntime.USD,
+          usdFsHelper: activeRuntime.usdFsHelper,
           messageLog: null,
           progressBar: null,
           progressLabel: null,

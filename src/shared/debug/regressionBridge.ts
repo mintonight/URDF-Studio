@@ -1546,8 +1546,8 @@ function summarizeRuntimeRobot(robot: any) {
 
         if (isVisualMesh) {
           const materials = Array.isArray(child.material) ? child.material : [child.material];
-          const summarizedMaterials = materials.map(summarizeRuntimeMaterial);
-          if (summarizedMaterials.some((material) => material.hasTexture)) {
+          const summarizedMaterials: RuntimeMaterialSummary[] = materials.map(summarizeRuntimeMaterial);
+          if (summarizedMaterials.some(({ hasTexture }) => hasTexture)) {
             entry.texturedVisualMeshCount += 1;
           }
 
@@ -1847,7 +1847,7 @@ export function setRegressionProjectedInteractionTargetsProvider(
 export function getRegressionSnapshot(): RegressionSnapshot {
   const selectedFile = regressionDebugState.appHandlers?.getSelectedFile() ?? null;
   const robotState = regressionDebugState.appHandlers?.getRobotState();
-  const interactionState = regressionDebugState.appHandlers?.getInteractionState() ?? null;
+  const interactionState = regressionDebugState.appHandlers?.getInteractionState?.() ?? null;
   return {
     timestamp: Date.now(),
     runtimeRevision: regressionDebugState.runtimeRevision,
@@ -1963,7 +1963,7 @@ export function installRegressionDebugApi(targetWindow: Window): void {
       return documentLoadState
         ? {
             status: documentLoadState.status,
-            fileName: documentLoadState.fileName,
+            fileName: documentLoadState.fileName ?? null,
             format: documentLoadState.format ?? null,
             error: documentLoadState.error ?? null,
           }
@@ -1971,7 +1971,7 @@ export function installRegressionDebugApi(targetWindow: Window): void {
     },
     getProjectedInteractionTargets: () => regressionDebugState.projectedInteractionTargetsProvider?.() ?? [],
     getAssetDebugState: () => {
-      const appAssetDebugState = regressionDebugState.appHandlers?.getAssetDebugState() ?? {
+      const appAssetDebugState = regressionDebugState.appHandlers?.getAssetDebugState?.() ?? {
         appAssetKeys: [],
         preparedUsdCacheKeysByFile: {},
       };

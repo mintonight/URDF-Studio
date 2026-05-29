@@ -156,7 +156,7 @@ export function hasWorkspaceViewerRobotTransitionDiff(
   fromRobot: RobotData | null,
   toRobot: RobotData | null,
 ): boolean {
-  if (!canAnimateWorkspaceViewerRobotTransition(fromRobot, toRobot)) {
+  if (!toRobot || !canAnimateWorkspaceViewerRobotTransition(fromRobot, toRobot)) {
     return false;
   }
 

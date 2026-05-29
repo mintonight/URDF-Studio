@@ -373,7 +373,7 @@ function buildImportedJointLimit(
   range: [number, number] | undefined,
   effort: number,
   velocity = 0,
-): UrdfJoint['limit'] | undefined {
+): NonNullable<UrdfJoint['limit']> | undefined {
   if (
     jointType === JointType.FIXED ||
     jointType === JointType.FLOATING ||
@@ -383,8 +383,8 @@ function buildImportedJointLimit(
   }
 
   return {
-    lower: range?.[0] as UrdfJoint['limit']['lower'],
-    upper: range?.[1] as UrdfJoint['limit']['upper'],
+    lower: range?.[0] ?? Number.NEGATIVE_INFINITY,
+    upper: range?.[1] ?? Number.POSITIVE_INFINITY,
     effort,
     velocity,
   };
@@ -409,7 +409,7 @@ function resolveJointInitialAngle(
   return undefined;
 }
 
-function createEmptyLinkInertial(): UrdfLink['inertial'] {
+function createEmptyLinkInertial(): NonNullable<UrdfLink['inertial']> {
   return {
     mass: 0,
     origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
@@ -472,7 +472,7 @@ function rgbaToColorRgbaTuple(
   return [clamp(r), clamp(g), clamp(b), clamp(a)];
 }
 
-function deriveGeomMassInertial(geoms: MJCFGeom[]): UrdfLink['inertial'] | null {
+function deriveGeomMassInertial(geoms: MJCFGeom[]): NonNullable<UrdfLink['inertial']> | null {
   const massGeoms = geoms.filter(
     (geom) => typeof geom.mass === 'number' && Number.isFinite(geom.mass) && (geom.mass ?? 0) > 0,
   );
@@ -1248,8 +1248,9 @@ function refreshClosedLoopAnchorWorlds(
 function buildMjcfInspectionContext(
   parsedModel: ParsedMJCFModel,
 ): NonNullable<RobotState['inspectionContext']> {
-  const bodiesWithSites: NonNullable<RobotState['inspectionContext']>['mjcf']['bodiesWithSites'] =
-    [];
+  const bodiesWithSites: NonNullable<
+    NonNullable<RobotState['inspectionContext']>['mjcf']
+  >['bodiesWithSites'] = [];
   let siteCount = 0;
 
   const visitBody = (body: ParsedMJCFModel['worldBody']): void => {
@@ -1704,7 +1705,7 @@ function mjcfToRobotState(
     // Process Main Link (Index 0)
     const mainPair = pairs[0];
 
-    let visual = { ...DEFAULT_LINK.visual };
+    let visual: UrdfVisual = { ...DEFAULT_LINK.visual };
     if (mainPair.visual) {
       visual = processGeometry(mainPair.visual, linkFrameOffsetLocal);
       assignLinkMaterial(mainLinkId, mainPair.visual);
@@ -1712,7 +1713,7 @@ function mjcfToRobotState(
       visual.type = GeometryType.NONE;
     }
 
-    let collision = { ...DEFAULT_LINK.collision };
+    let collision: UrdfVisual = { ...DEFAULT_LINK.collision };
     if (mainPair.collision) {
       const colGeo = processGeometry(mainPair.collision, linkFrameOffsetLocal);
       collision = {
@@ -1775,7 +1776,7 @@ function mjcfToRobotState(
     } else {
       const derivedGeomMassInertial = deriveGeomMassInertial(body.geoms);
       if (derivedGeomMassInertial) {
-        if (linkFrameOffsetLocal) {
+        if (linkFrameOffsetLocal && derivedGeomMassInertial.origin) {
           derivedGeomMassInertial.origin.xyz = subtractLocalOffset(
             derivedGeomMassInertial.origin.xyz,
             linkFrameOffsetLocal,

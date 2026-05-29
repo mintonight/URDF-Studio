@@ -181,7 +181,11 @@ export function resolveOriginTransformTarget(
   const runtimeJointKey =
     resolveRuntimeJointKey(runtimeJoints, sourceJoint?.name ?? jointIdentity.jointId) ??
     resolveRuntimeJointKey(runtimeJoints, jointIdentity.jointId);
-  const runtimeJoint = runtimeJointKey ? (runtimeJoints?.[runtimeJointKey] ?? null) : null;
+  if (!runtimeJointKey) {
+    return null;
+  }
+
+  const runtimeJoint = runtimeJoints?.[runtimeJointKey] ?? null;
   if (!runtimeJoint) {
     return null;
   }

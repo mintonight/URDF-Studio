@@ -110,7 +110,11 @@ function getDescriptorTransformScale(
 }
 
 function hasNonIdentityScale(scale: PrimitiveScale | null): scale is PrimitiveScale {
-  return Boolean(scale) && (
+  if (!scale) {
+    return false;
+  }
+
+  return (
     Math.abs(scale[0] - 1) > 1e-9 ||
     Math.abs(scale[1] - 1) > 1e-9 ||
     Math.abs(scale[2] - 1) > 1e-9
@@ -196,14 +200,15 @@ export function resolveUsdPrimitiveGeometryFromDescriptor(
     : extentDimensions;
 
   if (primitiveType === GeometryType.BOX) {
+    const transformScale = nonIdentityTransformScale;
     const scaledSize = nonIdentityTransformScale
       ? size ?? (!extentDimensions ? 1 : null)
       : null;
-    const scaledDimensions = scaledSize !== null
+    const scaledDimensions = scaledSize !== null && transformScale
       ? [
-          nonIdentityTransformScale[0] * scaledSize,
-          nonIdentityTransformScale[1] * scaledSize,
-          nonIdentityTransformScale[2] * scaledSize,
+          transformScale[0] * scaledSize,
+          transformScale[1] * scaledSize,
+          transformScale[2] * scaledSize,
         ]
       : null;
 
@@ -214,9 +219,9 @@ export function resolveUsdPrimitiveGeometryFromDescriptor(
     return {
       type: GeometryType.BOX,
       dimensions: {
-        x: scaledDimensions?.[0] ?? scaledExtentDimensions?.[0] ?? size,
-        y: scaledDimensions?.[1] ?? scaledExtentDimensions?.[1] ?? size,
-        z: scaledDimensions?.[2] ?? scaledExtentDimensions?.[2] ?? size,
+        x: scaledDimensions?.[0] ?? scaledExtentDimensions?.[0] ?? size ?? 0,
+        y: scaledDimensions?.[1] ?? scaledExtentDimensions?.[1] ?? size ?? 0,
+        z: scaledDimensions?.[2] ?? scaledExtentDimensions?.[2] ?? size ?? 0,
       },
     };
   }

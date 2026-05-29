@@ -589,7 +589,7 @@ function applyVisualGroupMaterialsToLink(
   if (resolvedMaterials.length > 1) {
     link.visual = {
       ...link.visual,
-      color: undefined,
+      color: link.visual.color,
       authoredMaterials: resolvedMaterials.map(({ authoredMaterial }) => ({ ...authoredMaterial })),
       materialSource: 'named',
     };
@@ -1070,20 +1070,20 @@ function deriveMeshCountsByLinkPath(
     const derivedEntry = cloneMeshCountsEntry(derived[linkPath]);
     const mergedEntry: MeshCountsEntry = {
       visualMeshCount:
-        derivedEntry.visualMeshCount > 0
-          ? derivedEntry.visualMeshCount
-          : existingEntry.visualMeshCount,
+        (derivedEntry.visualMeshCount ?? 0) > 0
+          ? (derivedEntry.visualMeshCount ?? 0)
+          : (existingEntry.visualMeshCount ?? 0),
       collisionMeshCount:
-        derivedEntry.collisionMeshCount > 0
-          ? derivedEntry.collisionMeshCount
-          : existingEntry.collisionMeshCount,
+        (derivedEntry.collisionMeshCount ?? 0) > 0
+          ? (derivedEntry.collisionMeshCount ?? 0)
+          : (existingEntry.collisionMeshCount ?? 0),
       collisionPrimitiveCounts:
         Object.keys(derivedEntry.collisionPrimitiveCounts || {}).length > 0
           ? derivedEntry.collisionPrimitiveCounts
           : existingEntry.collisionPrimitiveCounts,
     };
 
-    if (mergedEntry.visualMeshCount > 0 || mergedEntry.collisionMeshCount > 0) {
+    if ((mergedEntry.visualMeshCount ?? 0) > 0 || (mergedEntry.collisionMeshCount ?? 0) > 0) {
       result[linkPath] = mergedEntry;
     }
   });

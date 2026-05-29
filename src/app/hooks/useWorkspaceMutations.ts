@@ -242,7 +242,7 @@ export function useWorkspaceMutations({
   }, []);
 
   const createAssemblySnapshot = useCallback(() => {
-    return structuredClone(useRobotStore.getState().assemblyState);
+    return structuredClone(useRobotStore.getState().assemblyState ?? null);
   }, []);
   const historyScopeKey = assemblyState ? 'assembly' : 'robot';
 
@@ -611,9 +611,11 @@ export function useWorkspaceMutations({
     (
       type: 'link' | 'joint' | 'tendon',
       id: string,
-      data: UrdfLink | UrdfJoint | RobotMjcfInspectionTendonSummary,
+      data: unknown,
     ) => {
-      applyUpdate(type, id, data, { commitMode: 'debounced' });
+      applyUpdate(type, id, data as UrdfLink | UrdfJoint | RobotMjcfInspectionTendonSummary, {
+        commitMode: 'debounced',
+      });
     },
     [applyUpdate],
   );

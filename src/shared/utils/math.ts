@@ -187,7 +187,7 @@ export class MathUtils {
         const hasOffDiagonal = Math.abs(Ixy) > 1e-10 || Math.abs(Ixz) > 1e-10 || Math.abs(Iyz) > 1e-10;
 
         let principalInertias: number[];
-        let rotation = new THREE.Quaternion(); // Default no rotation
+        const rotation = new THREE.Quaternion(); // Default no rotation
 
         if (hasOffDiagonal) {
             // Has off-diagonal components, need eigenvalue decomposition

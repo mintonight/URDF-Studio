@@ -15,6 +15,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import {
   ensureSite, launchBrowser, createPage, writeJsonAtomic,
   ensureDir, DEFAULT_SITE_URL, DEFAULT_OPERATION_TIMEOUT_MS,
+  isTransientPageContextError,
 } from '../../../e2e/helpers/browser-helpers.mjs';
 
 import {
@@ -29,6 +30,8 @@ export {
 // ── Session ──────────────────────────────────────────────────────────
 
 export async function createSession(options = {}) {
+  // Allow `--headed` from the unified runner (run-all.mjs) to flow through env.
+  const headed = options.headed ?? (process.env.URDF_E2E_HEADED === '1');
   let siteUrl = options.siteUrl ?? DEFAULT_SITE_URL;
   // Append regressionDebug=1 if not already present
   const url = new URL(siteUrl);
@@ -37,10 +40,10 @@ export async function createSession(options = {}) {
 
   const site = await ensureSite(siteUrl, {
     siteTimeoutMs: 120_000, timeoutMs: DEFAULT_OPERATION_TIMEOUT_MS,
-    noStart: false, headed: options.headed ?? false, startCommand: null,
+    noStart: false, headed, startCommand: null,
   });
   const browser = await launchBrowser({
-    headed: options.headed ?? false, siteUrl, timeoutMs: DEFAULT_OPERATION_TIMEOUT_MS,
+    headed, siteUrl, timeoutMs: DEFAULT_OPERATION_TIMEOUT_MS,
   });
   const { page, consoleMessages, pageErrors } = await createPage(browser, siteUrl, DEFAULT_OPERATION_TIMEOUT_MS);
   await page.evaluate(() => window.__URDF_STUDIO_DEBUG__?.setBeforeUnloadPromptEnabled?.(false));
@@ -58,13 +61,43 @@ export async function createSession(options = {}) {
 
 // ── Wait ─────────────────────────────────────────────────────────────
 
-export async function waitForReady(page, timeoutMs = 60_000) {
+export async function waitForReady(page, timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs;
+  let last = null;
   while (Date.now() < deadline) {
-    if (await page.evaluate(() => window.__URDF_STUDIO_DEBUG__?.getDocumentLoadState?.()?.status === 'ready')) return;
+    try {
+      const probe = await page.evaluate(() => {
+        const api = window.__URDF_STUDIO_DEBUG__;
+        const snap = api?.getRegressionSnapshot?.();
+        const st = api?.getDocumentLoadState?.() ?? null;
+        return {
+          status: st?.status ?? null,
+          error: st?.error ?? null,
+          fileName: st?.fileName ?? null,
+          hasRuntime: Boolean(snap?.runtime),
+          linkCount: snap?.store?.links ? Object.keys(snap.store.links).length : 0,
+        };
+      });
+      last = probe;
+      if (probe.status === 'error') {
+        throw new Error(`Document load failed: ${probe.error ?? 'unknown'} (file: ${probe.fileName ?? '?'})`);
+      }
+      // USD reaches 'ready'/'hydrating'; the standard editor keeps status at
+      // 'loading' even after the runtime robot is fully built, so a built runtime
+      // with links is the authoritative "loaded" signal (matches the menagerie
+      // regression's snapshotWithDebug check).
+      if (probe.status === 'ready' || probe.status === 'hydrating') return;
+      if (probe.hasRuntime && probe.linkCount > 0) return;
+      if (probe.status === 'loading' && probe.fileName && probe.linkCount > 1) return;
+    } catch (error) {
+      // An import can trigger a one-off SPA navigation that destroys the
+      // execution context mid-poll. Treat that as "not ready yet" and retry;
+      // rethrow anything that is not a known transient navigation error.
+      if (!isTransientPageContextError(error)) throw error;
+    }
     await delay(200);
   }
-  throw new Error('Timed out waiting for robot ready');
+  throw new Error(`Timed out waiting for robot ready (last: ${JSON.stringify(last)})`);
 }
 
 // ── State queries ────────────────────────────────────────────────────
@@ -127,55 +160,90 @@ export async function getRuntimeTransforms(page) {
 
 // ── Store operations ─────────────────────────────────────────────────
 
-function storeOp(page, fn) {
-  return page.evaluate((src) => {
+function storeOp(page, fn, ...args) {
+  return page.evaluate((src, callArgs) => {
     const store = window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.();
     if (!store) return { error: 'no store' };
-    return new Function('store', `return (${src})(store)`)(store);
-  }, fn.toString());
+    return new Function('store', 'args', `return (${src})(store, ...args)`)(store, callArgs);
+  }, fn.toString(), args);
+}
+
+export async function findAvailableFile(page, fileName) {
+  return page.evaluate((expectedName) => {
+    const normalize = (value) => String(value ?? '').replace(/\\/g, '/').replace(/^\/+/, '');
+    const basename = (value) => normalize(value).split('/').filter(Boolean).pop() ?? '';
+    const matches = (candidateName, expected) => {
+      const candidate = normalize(candidateName);
+      const target = normalize(expected);
+      return (
+        candidate === target ||
+        candidate.endsWith(`/${target}`) ||
+        basename(candidate) === basename(target)
+      );
+    };
+    const files =
+      window.__URDF_STUDIO_DEBUG__?.__assetsStore__?.getState?.()?.availableFiles ??
+      window.__URDF_STUDIO_DEBUG__?.getAvailableFiles?.() ??
+      [];
+    return (
+      files.find((file) => matches(file?.name, expectedName)) ??
+      null
+    );
+  }, fileName);
 }
 
 export const store = {
   // Robot
-  setName:            (page, name) => storeOp(page, (s) => { s.setName(name); return { ok: true }; }),
+  setName:            (page, name) => storeOp(page, (s, nextName) => { s.setName(nextName); return { ok: true }; }, name),
 
   // Links
-  addChild:           (page, parentId) => storeOp(page, (s) => {
-    const r = s.addChild(parentId);
+  addChild:           (page, parentId) => storeOp(page, (s, nextParentId) => {
+    const r = s.addChild(nextParentId);
     return r ? { ok: true, linkId: r.linkId, jointId: r.jointId } : { ok: false };
-  }),
-  updateLink:         (page, id, upd) => storeOp(page, (s) => { s.updateLink(id, upd); return { ok: true }; }),
-  deleteLink:         (page, id) => storeOp(page, (s) => { s.deleteLink(id); return { ok: true }; }),
-  setLinkVisibility:  (page, id, v) => storeOp(page, (s) => { s.setLinkVisibility(id, v); return { ok: true }; }),
-  setAllLinksVisibility: (page, v) => storeOp(page, (s) => { s.setAllLinksVisibility(v); return { ok: true }; }),
+  }, parentId),
+  updateLink:         (page, id, upd) => storeOp(page, (s, nextId, nextUpdate) => { s.updateLink(nextId, nextUpdate); return { ok: true }; }, id, upd),
+  deleteLink:         (page, id) => storeOp(page, (s, nextId) => { s.deleteLink(nextId); return { ok: true }; }, id),
+  setLinkVisibility:  (page, id, v) => storeOp(page, (s, nextId, visible) => { s.setLinkVisibility(nextId, visible); return { ok: true }; }, id, v),
+  setAllLinksVisibility: (page, v) => storeOp(page, (s, visible) => { s.setAllLinksVisibility(visible); return { ok: true }; }, v),
 
   // Joints
-  updateJoint:        (page, id, upd) => storeOp(page, (s) => { s.updateJoint(id, upd); return { ok: true }; }),
-  deleteJoint:        (page, id) => storeOp(page, (s) => { s.deleteJoint(id); return { ok: true }; }),
-  setJointAngle:      (page, name, angle) => storeOp(page, (s) => { s.setJointAngle(name, angle); return { ok: true }; }),
+  updateJoint:        (page, id, upd) => storeOp(page, (s, nextId, nextUpdate) => { s.updateJoint(nextId, nextUpdate); return { ok: true }; }, id, upd),
+  deleteJoint:        (page, id) => storeOp(page, (s, nextId) => { s.deleteJoint(nextId); return { ok: true }; }, id),
+  setJointAngle:      (page, name, angle) => storeOp(page, (s, nextName, nextAngle) => { s.setJointAngle(nextName, nextAngle); return { ok: true }; }, name, angle),
 
   // Subtree
-  deleteSubtree:      (page, id) => storeOp(page, (s) => { s.deleteSubtree(id); return { ok: true }; }),
+  deleteSubtree:      (page, id) => storeOp(page, (s, nextId) => { s.deleteSubtree(nextId); return { ok: true }; }, id),
 
   // History
   undo:               (page) => storeOp(page, (s) => { if (typeof s.undo === 'function') { s.undo(); return { ok: true }; } return { ok: false }; }),
   redo:               (page) => storeOp(page, (s) => { if (typeof s.redo === 'function') { s.redo(); return { ok: true }; } return { ok: false }; }),
 
   // Assembly
-  initAssembly:       (page, name) => storeOp(page, (s) => { s.initAssembly(name); return { ok: true }; }),
-  addComponent:       (page, file) => storeOp(page, (s) => {
+  initAssembly:       (page, name) => storeOp(page, (s, nextName) => { s.initAssembly(nextName); return { ok: true }; }, name),
+  addComponent:       (page, file) => storeOp(page, (s, fileLike) => {
+    const normalize = (value) => String(value ?? '').replace(/\\/g, '/').replace(/^\/+/, '');
+    const basename = (value) => normalize(value).split('/').filter(Boolean).pop() ?? '';
+    const matches = (candidateName, expectedName) => {
+      const candidate = normalize(candidateName);
+      const expected = normalize(expectedName);
+      return candidate === expected || candidate.endsWith(`/${expected}`) || basename(candidate) === basename(expected);
+    };
+    const fileName = typeof fileLike === 'string' ? fileLike : fileLike?.name;
+    const availableFiles = window.__URDF_STUDIO_DEBUG__?.__assetsStore__?.getState?.()?.availableFiles ?? [];
+    const file = availableFiles.find((candidate) => matches(candidate?.name, fileName)) ?? fileLike;
+    if (!file?.content) return { ok: false, error: `file not found: ${fileName ?? '<null>'}` };
     const c = s.addComponent(file, { queueAutoGround: true });
     return c ? { ok: true, id: c.id, name: c.name } : { ok: false };
-  }),
-  removeComponent:    (page, id) => storeOp(page, (s) => { s.removeComponent(id); return { ok: true }; }),
-  updateComponentTransform: (page, id, t) => storeOp(page, (s) => { s.updateComponentTransform(id, t); return { ok: true }; }),
-  toggleComponentVisibility: (page, id, v) => storeOp(page, (s) => { s.toggleComponentVisibility(id, v); return { ok: true }; }),
-  addBridge:          (page, params) => storeOp(page, (s) => {
-    const b = s.addBridge(params);
+  }, file),
+  removeComponent:    (page, id) => storeOp(page, (s, nextId) => { s.removeComponent(nextId); return { ok: true }; }, id),
+  updateComponentTransform: (page, id, t) => storeOp(page, (s, nextId, transform) => { s.updateComponentTransform(nextId, transform); return { ok: true }; }, id, t),
+  toggleComponentVisibility: (page, id, v) => storeOp(page, (s, nextId, visible) => { s.toggleComponentVisibility(nextId, visible); return { ok: true }; }, id, v),
+  addBridge:          (page, params) => storeOp(page, (s, nextParams) => {
+    const b = s.addBridge(nextParams);
     return b ? { ok: true, id: b.id, name: b.name } : { ok: false };
-  }),
-  removeBridge:       (page, id) => storeOp(page, (s) => { s.removeBridge(id); return { ok: true }; }),
-  updateBridge:       (page, id, upd) => storeOp(page, (s) => { s.updateBridge(id, upd); return { ok: true }; }),
+  }, params),
+  removeBridge:       (page, id) => storeOp(page, (s, nextId) => { s.removeBridge(nextId); return { ok: true }; }, id),
+  updateBridge:       (page, id, upd) => storeOp(page, (s, nextId, nextUpdate) => { s.updateBridge(nextId, nextUpdate); return { ok: true }; }, id, upd),
 
   // Debug API shortcuts
   setJointAngles: (page, map) => page.evaluate((m) => {

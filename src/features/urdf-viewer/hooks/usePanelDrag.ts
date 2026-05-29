@@ -39,10 +39,10 @@ const readWorkspaceOverlayInsets = (element: HTMLElement) => {
 };
 
 export function usePanelDrag(
-  containerRef: React.RefObject<HTMLDivElement>,
-  optionsPanelRef: React.RefObject<HTMLDivElement>,
-  jointPanelRef: React.RefObject<HTMLDivElement>,
-  measurePanelRef: React.RefObject<HTMLDivElement>
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  optionsPanelRef: React.RefObject<HTMLDivElement | null>,
+  jointPanelRef: React.RefObject<HTMLDivElement | null>,
+  measurePanelRef: React.RefObject<HTMLDivElement | null>
 ) {
   const [dragging, setDragging] = useState<PanelType | null>(null);
   const dragStartRef = useRef<DragStart | null>(null);
@@ -88,7 +88,7 @@ export function usePanelDrag(
     setMeasurePanelPos(position);
   }, []);
 
-  const applyPanelPosition = useCallback((panelRef: React.RefObject<HTMLDivElement>, position: PanelPosition) => {
+  const applyPanelPosition = useCallback((panelRef: React.RefObject<HTMLDivElement | null>, position: PanelPosition) => {
     if (!panelRef.current) return;
 
     panelRef.current.style.left = `${position.x}px`;
@@ -98,7 +98,7 @@ export function usePanelDrag(
     panelRef.current.style.transform = 'none';
   }, []);
 
-  const clampPosition = useCallback((position: PanelPosition, panelRef: React.RefObject<HTMLDivElement>) => {
+  const clampPosition = useCallback((position: PanelPosition, panelRef: React.RefObject<HTMLDivElement | null>) => {
     if (!containerRef.current || !panelRef.current) {
       return position;
     }
@@ -126,7 +126,7 @@ export function usePanelDrag(
 
   // Tighter clamping for container resize — keeps the entire panel visible
   // (drag clamping allows peeking with only MIN_VISIBLE_PANEL_WIDTH visible).
-  const clampPositionFullyVisible = useCallback((position: PanelPosition, panelRef: React.RefObject<HTMLDivElement>) => {
+  const clampPositionFullyVisible = useCallback((position: PanelPosition, panelRef: React.RefObject<HTMLDivElement | null>) => {
     if (!containerRef.current || !panelRef.current) {
       return position;
     }

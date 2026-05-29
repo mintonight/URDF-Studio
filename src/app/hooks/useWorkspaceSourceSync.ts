@@ -104,7 +104,7 @@ interface UseWorkspaceSourceSyncOptions {
   setSelectedFile: (file: RobotFile | null) => void;
   setAvailableFiles: (files: RobotFile[]) => void;
   setAllFileContents: (contents: Record<string, string>) => void;
-  setOriginalUrdfContent: (content: string | null) => void;
+  setOriginalUrdfContent: (content: string) => void;
 }
 
 export function useWorkspaceSourceSync({

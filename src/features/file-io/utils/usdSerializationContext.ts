@@ -459,7 +459,8 @@ const getUsdMeshSubsetAppearances = (object: THREE.Object3D): UsdMeshSubsetAppea
         return null;
       }
 
-      const material = object.material[materialIndex] || object.material[0];
+      const objectMaterials = Array.isArray(object.material) ? object.material : [object.material];
+      const material = objectMaterials[materialIndex] || objectMaterials[0];
       const displayName =
         getUsdPaletteEntry(object, materialIndex)?.usdSourceMaterialName ||
         material?.name ||

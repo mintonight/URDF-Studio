@@ -125,7 +125,7 @@ test('visualizer options panel hides model opacity and ground alignment controls
 test('visualizer options panel binds the top toggle to visual visibility', async () => {
   const { dom, container, root } = createComponentRoot();
   const visualVisibilityUpdates: boolean[] = [];
-  let geometryToggleCalls = 0;
+  const geometryToggleCalls = 0;
 
   await renderPanel(root, {
     setShowVisual: (nextValue) => {

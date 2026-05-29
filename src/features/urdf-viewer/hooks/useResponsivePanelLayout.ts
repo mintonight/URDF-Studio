@@ -15,9 +15,9 @@ export type FloatingPanelPosition = {
 };
 
 interface UseResponsivePanelLayoutOptions {
-  containerRef: RefObject<HTMLDivElement>;
-  optionsPanelRef: RefObject<HTMLDivElement>;
-  jointPanelRef: RefObject<HTMLDivElement>;
+  containerRef: RefObject<HTMLDivElement | null>;
+  optionsPanelRef: RefObject<HTMLDivElement | null>;
+  jointPanelRef: RefObject<HTMLDivElement | null>;
   showOptionsPanel: boolean;
   showJointPanel: boolean;
   preferEdgeDockedOptionsPanel?: boolean;
@@ -54,9 +54,9 @@ const OPTIONS_PANEL_EDGE_REVEAL_WIDTH = 56;
 const JOINT_PANEL_EDGE_REVEAL_WIDTH = 56;
 
 const readPanelMetrics = (
-  containerRef: RefObject<HTMLDivElement>,
-  optionsPanelRef: RefObject<HTMLDivElement>,
-  jointPanelRef: RefObject<HTMLDivElement>,
+  containerRef: RefObject<HTMLDivElement | null>,
+  optionsPanelRef: RefObject<HTMLDivElement | null>,
+  jointPanelRef: RefObject<HTMLDivElement | null>,
 ): ResponsivePanelLayoutMetrics => {
   const container = containerRef.current;
   const computedStyle = container ? window.getComputedStyle(container) : null;

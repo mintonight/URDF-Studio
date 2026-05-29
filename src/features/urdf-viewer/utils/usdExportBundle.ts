@@ -2030,9 +2030,8 @@ function enrichSnapshotWithLivePreferredMaterials(
       return;
     }
 
-    const liveRecord = serializeLivePreferredMaterialRecord(
-      renderInterface.getPreferredVisualMaterialForLink(linkPath, null),
-    );
+    const preferredMaterial = renderInterface.getPreferredVisualMaterialForLink?.(linkPath, null);
+    const liveRecord = serializeLivePreferredMaterialRecord(preferredMaterial);
     if (!liveRecord) {
       return;
     }

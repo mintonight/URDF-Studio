@@ -29,13 +29,13 @@ export function resolveUsdVisualMeshObjectOrder({
   fallbackOrder: number;
 }): number {
   const parsedIndex = parseUsdMeshObjectIndex(meshId);
-  if (Number.isInteger(parsedIndex)) {
+  if (typeof parsedIndex === 'number' && Number.isInteger(parsedIndex)) {
     return parsedIndex;
   }
 
   const truthContext = renderInterface?.getUrdfTruthLinkContextForMeshId?.(meshId, 'visuals');
   const truthIndex = truthContext?.proto?.protoIndex;
-  if (Number.isInteger(truthIndex) && truthIndex >= 0) {
+  if (typeof truthIndex === 'number' && Number.isInteger(truthIndex) && truthIndex >= 0) {
     return truthIndex;
   }
 

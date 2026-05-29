@@ -53,7 +53,7 @@ interface WorkspaceCanvasProps {
   lang?: Language;
   robotName?: string;
   className?: string;
-  containerRef?: React.RefObject<HTMLDivElement>;
+  containerRef?: React.RefObject<HTMLDivElement | null>;
   sceneRef?: React.RefObject<THREE.Scene | null>;
   snapshotAction?: React.RefObject<SnapshotCaptureAction | null>;
   onSnapshotActionChange?: (action: SnapshotCaptureAction | null) => void;

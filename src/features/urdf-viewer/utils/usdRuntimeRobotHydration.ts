@@ -596,12 +596,13 @@ export function hydrateUsdViewerRobotResolutionFromRuntime(
     }
 
     const originalInertialOrigin = originalInertialOriginsByLinkId.get(linkId);
-    const originalLinkLocalMatrix = originalJointLocalMatricesByChildLinkId.get(linkId);
-    const hydratedLinkLocalMatrix = hydratedJointLocalMatricesByChildLinkId.get(linkId);
-    if (originalInertialOrigin && originalLinkLocalMatrix && hydratedLinkLocalMatrix) {
-      link.inertial = {
-        ...link.inertial,
-        origin: applyLinkLocalFrameDeltaToOrigin(
+      const originalLinkLocalMatrix = originalJointLocalMatricesByChildLinkId.get(linkId);
+      const hydratedLinkLocalMatrix = hydratedJointLocalMatricesByChildLinkId.get(linkId);
+      if (originalInertialOrigin && originalLinkLocalMatrix && hydratedLinkLocalMatrix) {
+        link.inertial = {
+          ...DEFAULT_LINK.inertial,
+          ...link.inertial,
+          origin: applyLinkLocalFrameDeltaToOrigin(
           originalInertialOrigin,
           originalLinkLocalMatrix,
           hydratedLinkLocalMatrix,
@@ -671,6 +672,9 @@ export function hydrateUsdViewerRobotResolutionFromRuntime(
 
       const currentCollision = index === 0 ? link.collision : link.collisionBodies?.[index - 1];
       const collisionForHydration = currentCollision;
+      if (!collisionForHydration) {
+        return;
+      }
 
       if (index === 0) {
         link.collision = {

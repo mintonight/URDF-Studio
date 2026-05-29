@@ -243,7 +243,7 @@ export function collectUsdStageOpenRelevantVirtualPaths(
     orderedPaths.push(currentPath);
 
     const currentFile = fileIndex.get(currentPath);
-    if (!hasInlineUsdLayerTextContent(currentFile)) {
+    if (!currentFile || !hasInlineUsdLayerTextContent(currentFile)) {
       continue;
     }
 

@@ -63,7 +63,7 @@ const createUsdExportRobot = (robot: RobotState): RobotState => {
 };
 
 const isMeaningfulGeometry = (geometry: UrdfVisual | null | undefined): geometry is UrdfVisual => {
-  return Boolean(geometry) && geometry.type !== GeometryType.NONE;
+  return geometry !== null && geometry !== undefined && geometry.type !== GeometryType.NONE;
 };
 
 const hasMeaningfulGeometryBodies = (bodies: UrdfVisual[] | null | undefined): boolean => {

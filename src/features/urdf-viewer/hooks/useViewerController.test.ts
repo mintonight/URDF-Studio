@@ -687,7 +687,7 @@ test('handleRuntimeJointAngleChange publishes live closed-loop preview compensat
       await nextAnimationFrame(dom);
     });
 
-    let panelAngles = getHook().jointPanelStore.getSnapshot().jointAngles;
+    const panelAngles = getHook().jointPanelStore.getSnapshot().jointAngles;
     assertAlmostEqual(panelAngles.joint_a, 0.42);
     assertAlmostEqual(panelAngles.joint_b, 0.42);
     assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.42);
@@ -1594,7 +1594,7 @@ test('handleJointAngleChange batches closed-loop slider preview into one frame-a
       await nextAnimationFrame(dom);
     });
 
-    let panelAngles = getHook().jointPanelStore.getSnapshot().jointAngles;
+    const panelAngles = getHook().jointPanelStore.getSnapshot().jointAngles;
     assertAlmostEqual(panelAngles.joint_a, 0.42);
     assertAlmostEqual(panelAngles.joint_b, 0.42);
     assertAlmostEqual(runtimeRobot.joints.joint_a?.angle, 0.42);

@@ -1065,7 +1065,7 @@ function applyVisualToLink(link: UrdfLink, visual: ParsedSdfVisual): UrdfLink {
       ...DEFAULT_LINK.visual,
       ...visual.geometry,
       origin: visual.pose,
-      color: visual.color,
+      color: visual.color ?? DEFAULT_LINK.visual.color,
       materialSource: visual.materialSource,
       authoredMaterials: visual.authoredMaterials,
     },
@@ -1435,7 +1435,7 @@ function parseSdfModel(
         ...DEFAULT_LINK.visual,
         ...visual.geometry,
         origin: visual.pose,
-        color: visual.color,
+        color: visual.color ?? DEFAULT_LINK.visual.color,
         materialSource: visual.materialSource,
         authoredMaterials: visual.authoredMaterials,
       }));

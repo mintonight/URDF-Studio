@@ -18,7 +18,8 @@ interface JointAxisProps {
 
 export const JointAxesVisual = React.memo(
   ({ joint, scale = 1.0, hovered = false, selected = false }: JointAxisProps) => {
-    const { type, axis } = joint;
+    const { type } = joint;
+    const axis = joint.axis ?? { x: 0, y: 0, z: 1 };
     const groupRef = useRef<THREE.Group | null>(null);
     const isActive = hovered || selected;
 

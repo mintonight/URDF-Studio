@@ -64,7 +64,7 @@ export function resolveSnapshotRenderPlan({
       : sanitizePositiveInteger(targetLongEdge, baseLongEdge);
 
   const gpuCaps = [maxRenderbufferSize, maxTextureSize]
-    .filter((value): value is number => Number.isFinite(value) && value > 0)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
     .map((value) => Math.max(baseLongEdge, Math.floor(value)));
   const maxLongEdge =
     gpuCaps.length > 0

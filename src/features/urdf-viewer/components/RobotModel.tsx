@@ -507,7 +507,11 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
 
       const runtimeJoints = (robot as Object3D & { joints?: Record<string, any> }).joints;
       const jointKey = resolveViewerJointKey(runtimeJoints, selection.id);
-      const joint = jointKey ? runtimeJoints?.[jointKey] : null;
+      if (!jointKey) {
+        return null;
+      }
+
+      const joint = runtimeJoints?.[jointKey] ?? null;
       if (!joint || !isSingleDofJoint(joint)) {
         return null;
       }

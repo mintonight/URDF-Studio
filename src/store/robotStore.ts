@@ -399,7 +399,7 @@ function syncWorkspaceFieldsFromAssemblyDraft(
       ? state.activeComponentId
       : (Object.keys(state.components)[0] ?? null);
 
-  if (!shouldProjectAssemblyToTopLevel(assemblyState)) {
+  if (!assemblyState || !shouldProjectAssemblyToTopLevel(assemblyState)) {
     return;
   }
 
@@ -855,10 +855,11 @@ export const useRobotStore = create<
         if (!identity) {
           return null;
         }
+        const resolvedIdentity = identity;
 
         const component: AssemblyComponent = {
-          id: identity.componentId,
-          name: identity.displayName,
+          id: resolvedIdentity.componentId,
+          name: resolvedIdentity.displayName,
           sourceFile: file.name,
           robot: namespacedRobot,
           renderableBounds: preparedComponent?.renderableBounds ?? undefined,
@@ -879,7 +880,7 @@ export const useRobotStore = create<
             components: {},
             bridges: {},
           };
-          nextDraft.components[identity.componentId] = component;
+          nextDraft.components[resolvedIdentity.componentId] = component;
           return draft ? undefined : nextDraft;
         });
 
@@ -887,7 +888,7 @@ export const useRobotStore = create<
           set((storeState) => {
             appendPendingAutoGroundComponentId(
               storeState.pendingAutoGroundComponentIds,
-              identity.componentId,
+              resolvedIdentity.componentId,
             );
           });
         }

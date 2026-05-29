@@ -526,7 +526,7 @@ export class URDFLoader {
       let xyz = [0, 0, 0];
       let rpy = [0, 0, 0];
 
-      children.forEach((n) => {
+      for (const n of children) {
         const type = n.nodeName.toLowerCase();
         if (type === 'origin') {
           xyz = processTuple(n.getAttribute('xyz'));
@@ -541,7 +541,7 @@ export class URDFLoader {
           joint.limit.lower = parseFloat(n.getAttribute('lower') || String(joint.limit.lower));
           joint.limit.upper = parseFloat(n.getAttribute('upper') || String(joint.limit.upper));
         }
-      });
+      }
 
       if (parent && child) {
         parent.add(joint);

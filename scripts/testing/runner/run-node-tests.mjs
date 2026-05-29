@@ -5,7 +5,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+// This runner lives at scripts/testing/runner/, so the repo root is three levels up.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:cjs|mjs|js|jsx|ts|tsx)$/;
 
 const FAST_APP_TESTS = [
@@ -111,8 +112,8 @@ const suiteDefinitions = {
 
 function printUsage() {
   console.log(`Usage:
-  node scripts/test/run-node-tests.mjs [suite] [-- node-test-args...]
-  node scripts/test/run-node-tests.mjs <test-file...> [-- node-test-args...]
+  node scripts/testing/runner/run-node-tests.mjs [suite] [-- node-test-args...]
+  node scripts/testing/runner/run-node-tests.mjs <test-file...> [-- node-test-args...]
 
 Suites:
 ${Object.entries(suiteDefinitions)
@@ -125,7 +126,7 @@ Examples:
   npm run test:unit -- src/core/robot/builders.test.ts
   npm run test:unit -- src/core/robot/builders.test.ts -- --test-name-pattern "builder"
   npm run test:unit:list
-  node scripts/test/run-node-tests.mjs --list-files`);
+  node scripts/testing/runner/run-node-tests.mjs --list-files`);
 }
 
 function parseArgs(argv) {

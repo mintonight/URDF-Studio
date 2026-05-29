@@ -920,7 +920,7 @@ function vectorToTuple(vector: THREE.Vector3): [number, number, number] {
 
 function quaternionToAxisTuple(
   quaternion: THREE.Quaternion,
-  axis: [number, number, number],
+  axis: [number, number, number] = [0, 0, 1],
 ): [number, number, number] {
   const rotated = new THREE.Vector3(axis[0] ?? 0, axis[1] ?? 0, axis[2] ?? 1).applyQuaternion(
     quaternion,
@@ -1072,14 +1072,11 @@ function applyJointTransform(
   joint: MJCFModelJoint,
   inheritedTransform?: MJCFLocalTransform,
 ): MJCFModelJoint {
-  if (isIdentityTransform(inheritedTransform)) {
+  if (!inheritedTransform || isIdentityTransform(inheritedTransform)) {
     return joint;
   }
 
-  const composedTransform = composeTransforms(
-    inheritedTransform!,
-    createLocalTransform(joint.pos, undefined),
-  );
+  const composedTransform = composeTransforms(inheritedTransform, createLocalTransform(joint.pos, undefined));
 
   return {
     ...joint,
@@ -1087,7 +1084,7 @@ function applyJointTransform(
     axis:
       joint.type.toLowerCase() === 'free'
         ? joint.axis
-        : quaternionToAxisTuple(inheritedTransform!.quaternion, joint.axis),
+        : quaternionToAxisTuple(inheritedTransform.quaternion, joint.axis),
   };
 }
 

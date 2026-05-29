@@ -88,7 +88,7 @@ function resolveFocusObject(
     return (robot as any).joints[focusTarget] as THREE.Object3D;
   }
 
-  return robot.getObjectByName(focusTarget);
+  return robot.getObjectByName(focusTarget) ?? null;
 }
 
 export function useCameraFocus({

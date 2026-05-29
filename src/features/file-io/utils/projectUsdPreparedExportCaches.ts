@@ -133,7 +133,11 @@ export async function readUsdPreparedExportCaches(
     caches[normalizedKey] = {
       stageSourcePath: payload.stageSourcePath || entry.stageSourcePath,
       robotData: payload.robotData,
-      meshFiles: Object.fromEntries(meshFilesEntries.filter(Boolean)),
+      meshFiles: Object.fromEntries(
+        meshFilesEntries.filter(
+          (meshFilesEntry): meshFilesEntry is readonly [string, Blob] => meshFilesEntry !== null,
+        ),
+      ),
     };
   }));
 

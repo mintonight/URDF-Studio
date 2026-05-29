@@ -14,7 +14,16 @@ import {
 } from './workspaceSourceSyncUtils';
 import { buildGeneratedWorkspaceFileState } from './workspaceGeneratedSourceState';
 import { useAssetsStore, useRobotStore } from '@/store';
-import type { RobotData, RobotFile, UrdfJoint, UrdfLink, UsdPreparedExportCache } from '@/types';
+import type {
+  AssemblyComponent,
+  AssemblyTransform,
+  RenderableBounds,
+  RobotData,
+  RobotFile,
+  UrdfJoint,
+  UrdfLink,
+  UsdPreparedExportCache,
+} from '@/types';
 
 export interface ProModeRoundtripSession {
   baselineSnapshot: string;
@@ -125,10 +134,7 @@ interface UseWorkspaceModeTransitionsParams {
       preResolvedRobotData?: RobotData | null;
     },
   ) => Promise<unknown>;
-  activateInsertedAssemblyComponent: (component: {
-    id: string;
-    robot: { rootLinkId: string };
-  }) => void;
+  activateInsertedAssemblyComponent: (component: AssemblyComponent) => void;
   addComponent: (
     file: RobotFile,
     context?: {
@@ -137,9 +143,15 @@ interface UseWorkspaceModeTransitionsParams {
       allFileContents?: Record<string, string>;
       preResolvedRobotData?: RobotData | null;
       queueAutoGround?: boolean;
-      preparedComponent?: unknown;
+      preparedComponent?: {
+        componentId: string;
+        displayName: string;
+        robotData: RobotData;
+        renderableBounds?: RenderableBounds | null;
+        suggestedTransform?: AssemblyTransform | null;
+      } | null;
     },
-  ) => { id: string; name: string; robot: { rootLinkId: string } } | null;
+  ) => AssemblyComponent | null;
   initAssembly: (name: string) => void;
   onLoadRobot: (file: RobotFile) => void;
   pendingUsdAssemblyFileRef: MutableRefObject<RobotFile | null>;
@@ -206,7 +218,8 @@ export function useWorkspaceModeTransitions({
     (options: { switchToStructure?: boolean } = {}) => {
       const { switchToStructure = false } = options;
       const robotStoreState = useRobotStore.getState();
-      const connectivity = analyzeAssemblyConnectivity(robotStoreState.assemblyState);
+      const currentAssemblyState = robotStoreState.assemblyState ?? null;
+      const connectivity = analyzeAssemblyConnectivity(currentAssemblyState);
       const activeFile = previewFile ?? selectedFile;
 
       if (connectivity.hasDisconnectedComponents) {
@@ -215,7 +228,7 @@ export function useWorkspaceModeTransitions({
       }
 
       const mergedRobotData = resolveWorkspaceGeneratedUrdfRobotData({
-        assemblyState: robotStoreState.assemblyState,
+        assemblyState: currentAssemblyState,
         activeFile,
         availableFiles,
         assets,
@@ -330,7 +343,7 @@ export function useWorkspaceModeTransitions({
         materials: robotMaterials,
         closedLoopConstraints,
       });
-      const latestAssemblyState = useRobotStore.getState().assemblyState;
+      const latestAssemblyState = useRobotStore.getState().assemblyState ?? null;
       if (intent === 'skip-generate') {
         return switchTreeEditorToStructure();
       }
@@ -366,7 +379,7 @@ export function useWorkspaceModeTransitions({
 
   const handleSwitchTreeEditorToProMode = useCallback(() => {
     const activeFile = previewFile ?? selectedFile;
-    const currentAssemblyState = useRobotStore.getState().assemblyState;
+    const currentAssemblyState = useRobotStore.getState().assemblyState ?? null;
     const activeGeneratedFileName = isGeneratedWorkspaceUrdfFileName(activeFile?.name)
       ? (activeFile?.name ?? null)
       : null;

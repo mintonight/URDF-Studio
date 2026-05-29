@@ -477,7 +477,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
       updateSliderValueFromClientX(event.clientX);
     };
 
-    const handleWindowPointerUp = (event: PointerEvent) => {
+    const handleWindowPointerUp = () => {
       handleSliderChangeEnd();
     };
 

@@ -2,9 +2,22 @@
  * Default values and constants
  */
 
-import { GeometryType } from './geometry';
+import { GeometryType, type UrdfVisual, type Vector3 } from './geometry';
 import { JointType } from './robot';
-import type { UrdfLink, UrdfJoint } from './robot';
+import type { UrdfInertial, UrdfLink, UrdfJoint } from './robot';
+
+type DefaultLink = UrdfLink & {
+  visual: UrdfVisual;
+  visualBodies: UrdfVisual[];
+  collision: UrdfVisual;
+  collisionBodies: UrdfVisual[];
+  inertial: UrdfInertial;
+};
+
+type DefaultJoint = UrdfJoint & {
+  axis: Vector3;
+  limit: NonNullable<UrdfJoint['limit']>;
+};
 
 export const DEFAULT_VISUAL_COLOR = '#f2f0e8';
 export const DEFAULT_COLLISION_COLOR = '#ef4444';
@@ -12,7 +25,7 @@ export const DEFAULT_MESH_PREVIEW_COLOR = '#6b9bd2';
 export const DEFAULT_PAINT_COLOR = '#ff6c0a';
 export const UI_ACCENT_COLOR = '#007aff';
 
-export const DEFAULT_LINK: UrdfLink = {
+export const DEFAULT_LINK: DefaultLink = {
   id: '',
   name: 'link',
   visible: true,
@@ -37,7 +50,7 @@ export const DEFAULT_LINK: UrdfLink = {
   },
 };
 
-export const DEFAULT_JOINT: UrdfJoint = {
+export const DEFAULT_JOINT: DefaultJoint = {
   id: '',
   name: 'joint',
   type: JointType.REVOLUTE,

@@ -1,8 +1,8 @@
 import { useEffect, type RefObject } from 'react';
 
 interface UseImportInputBindingOptions {
-  importInputRef: RefObject<HTMLInputElement>;
-  importFolderInputRef: RefObject<HTMLInputElement>;
+  importInputRef: RefObject<HTMLInputElement | null>;
+  importFolderInputRef: RefObject<HTMLInputElement | null>;
   onImport: (files: FileList | null) => void | Promise<unknown>;
 }
 

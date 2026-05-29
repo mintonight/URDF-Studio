@@ -416,9 +416,11 @@ function buildIndexedGeometrySubset(
 
   if (sourceGeometry.morphAttributes) {
     Object.entries(sourceGeometry.morphAttributes).forEach(([attributeName, morphAttributes]) => {
-      subsetGeometry.morphAttributes[attributeName] = morphAttributes.map((attribute) =>
-        cloneAttributeSubset(attribute, sourceVertexIndexes),
-      );
+      if (attributeName === 'position' || attributeName === 'normal' || attributeName === 'color') {
+        subsetGeometry.morphAttributes[attributeName] = morphAttributes.map((attribute) =>
+          cloneAttributeSubset(attribute, sourceVertexIndexes),
+        );
+      }
     });
   }
   subsetGeometry.morphTargetsRelative = sourceGeometry.morphTargetsRelative;
@@ -477,9 +479,11 @@ function buildNonIndexedGeometrySubset(
 
   if (sourceGeometry.morphAttributes) {
     Object.entries(sourceGeometry.morphAttributes).forEach(([attributeName, morphAttributes]) => {
-      subsetGeometry.morphAttributes[attributeName] = morphAttributes.map((attribute) =>
-        cloneAttributeSubset(attribute, vertexIndexes),
-      );
+      if (attributeName === 'position' || attributeName === 'normal' || attributeName === 'color') {
+        subsetGeometry.morphAttributes[attributeName] = morphAttributes.map((attribute) =>
+          cloneAttributeSubset(attribute, vertexIndexes),
+        );
+      }
     });
   }
   subsetGeometry.morphTargetsRelative = sourceGeometry.morphTargetsRelative;
@@ -976,7 +980,9 @@ function collectReferencedMeshUsage(robot: RobotState): Map<string, ReferencedMe
       }
 
       markUsage(entry.geometry.meshPath, 'visual');
-      const normalizedPath = normalizeMeshPathForExport(entry.geometry.meshPath);
+      const normalizedPath = entry.geometry.meshPath
+        ? normalizeMeshPathForExport(entry.geometry.meshPath)
+        : '';
       if (
         (entry.geometry.authoredMaterials?.length || 0) > 1 ||
         hasCustomMeshMaterialUsage(entry.geometry)

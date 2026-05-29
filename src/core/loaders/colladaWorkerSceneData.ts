@@ -500,9 +500,9 @@ function createFastColladaTexture(
   resourcePath: string,
   manager: THREE.LoadingManager | undefined,
   colorSpace?: THREE.ColorSpace,
-): THREE.Texture | undefined {
+): THREE.Texture | null {
   if (!texturePath) {
-    return undefined;
+    return null;
   }
 
   ensureWorkerXmlDomApis();

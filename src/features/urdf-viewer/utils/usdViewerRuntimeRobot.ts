@@ -45,7 +45,7 @@ export function createUsdViewerRuntimeRobot({
       const runtimeJointAngle = degreesToRadians(jointInfo?.angleDeg);
       const hasAuthoredJointAngle =
         typeof joint.angle === 'number' && Number.isFinite(joint.angle);
-      const initialJointAngle = hasAuthoredJointAngle ? joint.angle : 0;
+      const initialJointAngle = hasAuthoredJointAngle ? Number(joint.angle) : 0;
       const runtimeJoint = {
         id: jointId,
         name: joint.name || jointId,

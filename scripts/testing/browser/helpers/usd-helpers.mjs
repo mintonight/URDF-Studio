@@ -13,6 +13,7 @@ export {
   createTestSuite, assert, assertEqual, assertGreaterThan, assertNonNull, printSummary,
   DEFAULT_OPERATION_TIMEOUT_MS,
   createSession, waitForReady, getTopology, getAssemblyState, getRuntimeTransforms,
+  findAvailableFile,
   store, writeReport,
 } from './base-helpers.mjs';
 

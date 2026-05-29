@@ -101,7 +101,7 @@ const ISAACSIM_DEFAULT_PHYSX_SCENE_ENABLE_STABILIZATION = true;
 const ISAACSIM_DEFAULT_PHYSX_SCENE_SOLVER_TYPE = 'TGS';
 
 const hasExportableGeometry = (geometry: UrdfLink['visual'] | UrdfLink['collision'] | undefined): boolean => {
-  return Boolean(geometry) && getGeometryType(geometry.type) !== GEOMETRY_TYPES.NONE;
+  return geometry !== undefined && getGeometryType(geometry.type) !== GEOMETRY_TYPES.NONE;
 };
 
 const linkHasExportablePayload = (link: UrdfLink | undefined): boolean => {
@@ -339,18 +339,22 @@ const serializeJointDefinition = (
     defaultDriveDamping,
     shouldConvertAngularDriveGains,
   );
+  const jointLimit = joint.limit;
+  const jointEffort = jointLimit?.effort;
+  const jointVelocity = jointLimit?.velocity;
   const driveMaxForce =
-    Number.isFinite(joint.limit?.effort) && Math.abs(joint.limit.effort) > 1e-9
-      ? joint.limit.effort
+    typeof jointEffort === 'number' && Number.isFinite(jointEffort) && Math.abs(jointEffort) > 1e-9
+      ? jointEffort
       : null;
   const maxJointVelocity =
     options.layoutProfile === 'isaacsim' &&
     driveInstanceName !== null &&
-    Number.isFinite(joint.limit?.velocity) &&
-    Math.abs(joint.limit.velocity) > 1e-9
+    typeof jointVelocity === 'number' &&
+    Number.isFinite(jointVelocity) &&
+    Math.abs(jointVelocity) > 1e-9
       ? driveInstanceName === 'angular'
-        ? angularVelocityToUsdUnits(joint.limit.velocity)
-        : joint.limit.velocity
+        ? angularVelocityToUsdUnits(jointVelocity)
+        : jointVelocity
       : null;
   const shouldEmitDrive =
     driveInstanceName !== null &&

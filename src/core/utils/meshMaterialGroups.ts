@@ -226,7 +226,7 @@ function createPaletteMaterial(
     }
   }
 
-  if (effectiveOpacity !== undefined) {
+  if (effectiveOpacity != null) {
     nextMaterial.opacity = effectiveOpacity;
     nextMaterial.transparent = nextMaterial.transparent || effectiveOpacity < 1;
   }
@@ -299,7 +299,7 @@ export function resolveRuntimeMeshMaterialGroupKey(
   let current: THREE.Object3D | null = mesh;
 
   while (current && current !== root) {
-    const parent = current.parent;
+    const parent: THREE.Object3D | null = current.parent;
     if (!parent) {
       break;
     }

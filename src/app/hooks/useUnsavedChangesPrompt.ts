@@ -32,7 +32,7 @@ function getCurrentRobotPersistenceSnapshot(): string {
 }
 
 function getCurrentAssemblyPersistenceSnapshot(): string {
-  return createAssemblyPersistenceSnapshot(useRobotStore.getState().assemblyState);
+  return createAssemblyPersistenceSnapshot(useRobotStore.getState().assemblyState ?? null);
 }
 
 export function useUnsavedChangesPrompt() {
@@ -69,7 +69,7 @@ export function useUnsavedChangesPrompt() {
     [closedLoopConstraints, robotJoints, robotLinks, robotMaterials, robotName, rootLinkId],
   );
   const currentAssemblySnapshot = useMemo(
-    () => createAssemblyPersistenceSnapshot(assemblyState),
+    () => createAssemblyPersistenceSnapshot(assemblyState ?? null),
     [assemblyState],
   );
 

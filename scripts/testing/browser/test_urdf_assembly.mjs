@@ -10,7 +10,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import {
   createSession, createTestSuite, assert, assertEqual, assertGreaterThan,
-  importModel, waitForReady, getTopology, getAssemblyState,
+  importModel, waitForReady, getTopology, getAssemblyState, findAvailableFile,
   store, writeReport, printSummary,
 } from './helpers/urdf-helpers.mjs';
 
@@ -31,15 +31,13 @@ async function main() {
     await store.initAssembly(page, 'test_urdf_asm'); await delay(300);
     assert(suite, (await getAssemblyState(page)).exists, 'assembly initialized');
 
-    const fileA = await page.evaluate((fn) =>
-      window.__URDF_STUDIO_DEBUG__?.getAvailableFiles?.()?.find?.((f) => f.name === fn), ROBOT_A.file);
+    const fileA = await findAvailableFile(page, ROBOT_A.file);
     const compA = await store.addComponent(page, fileA); await delay(500);
     assertGreaterThan(suite, (await getAssemblyState(page)).componentCount, 0, 'comp A added');
 
     await importModel(page, ROBOT_B.dir, ROBOT_B.file);
     await waitForReady(page);
-    const fileB = await page.evaluate((fn) =>
-      window.__URDF_STUDIO_DEBUG__?.getAvailableFiles?.()?.find?.((f) => f.name === fn), ROBOT_B.file);
+    const fileB = await findAvailableFile(page, ROBOT_B.file);
     const compB = await store.addComponent(page, fileB); await delay(500);
     assertEqual(suite, (await getAssemblyState(page)).componentCount, 2, 'comp B added');
 

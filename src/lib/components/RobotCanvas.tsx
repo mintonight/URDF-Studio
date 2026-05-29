@@ -160,7 +160,7 @@ export const RobotCanvas = memo(function RobotCanvas({
   );
 
   const handleSelect = useCallback(
-    (type: 'link' | 'joint', id: string, subType?: 'visual' | 'collision') => {
+    (type: 'link' | 'joint' | 'tendon', id: string, subType?: 'visual' | 'collision') => {
       if (transformPendingRef.current) {
         return;
       }
@@ -194,7 +194,7 @@ export const RobotCanvas = memo(function RobotCanvas({
 
   const handleHover = useCallback(
     (
-      type: 'link' | 'joint' | null,
+      type: 'link' | 'joint' | 'tendon' | null,
       id: string | null,
       subType?: 'visual' | 'collision',
       objectIndex?: number,

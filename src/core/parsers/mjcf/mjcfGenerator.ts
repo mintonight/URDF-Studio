@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import {
+  DEFAULT_JOINT,
   DEFAULT_LINK,
   RobotState,
   GeometryType,
@@ -435,6 +436,10 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
   const resolveVisualMeshVariants = (
     meshPath?: string,
   ): readonly MjcfVisualMeshVariant[] | undefined => {
+    if (!meshPath) {
+      return undefined;
+    }
+
     const normalizedPath = normalizeMeshPathForExport(meshPath);
     if (!normalizedPath) {
       return undefined;
@@ -446,6 +451,10 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
   };
 
   const resolveExportMeshPath = (meshPath?: string): string => {
+    if (!meshPath) {
+      return '';
+    }
+
     const normalizedPath = normalizeMeshPathForExport(meshPath);
     if (!normalizedPath) {
       return '';
@@ -1544,7 +1553,9 @@ export const generateMujocoXML = (robot: RobotState, options: MujocoExportOption
           : '';
         const limitedStr = shouldEmitRange ? ' limited="true"' : '';
         const axisStr =
-          parentJoint.type === JointType.BALL ? '' : ` axis="${vecStr(parentJoint.axis)}"`;
+          parentJoint.type === JointType.BALL
+            ? ''
+            : ` axis="${vecStr(parentJoint.axis ?? DEFAULT_JOINT.axis)}"`;
         const supportsScalarReference =
           parentJoint.type === JointType.REVOLUTE ||
           parentJoint.type === JointType.CONTINUOUS ||

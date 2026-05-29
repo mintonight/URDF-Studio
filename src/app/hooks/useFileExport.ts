@@ -141,6 +141,7 @@ export function useFileExport() {
       getMergedRobotData: state.getMergedRobotData,
     })),
   );
+  const normalizedAssemblyState = assemblyState ?? null;
   const assemblyHistory = useMemo<AssemblyHistoryState>(
     () => ({
       past: assemblyHistoryPast.map((entry) => entry.assemblyState ?? null),
@@ -818,10 +819,10 @@ export function useFileExport() {
       if (
         config.format === 'urdf' &&
         target.type === 'current' &&
-        assemblyState
+        normalizedAssemblyState
       ) {
         assertAssemblyUrdfExportSupported(
-          assemblyState,
+          normalizedAssemblyState,
           replaceTemplate,
           t.exportClosedLoopUrdfUnsupported,
         );
@@ -830,7 +831,7 @@ export function useFileExport() {
       const disconnectedWorkspaceUrdfAction = resolveDisconnectedWorkspaceUrdfAction(
         target,
         config,
-        assemblyState,
+        normalizedAssemblyState,
       );
       if (disconnectedWorkspaceUrdfAction) {
         return {
@@ -1314,7 +1315,7 @@ export function useFileExport() {
         closedLoopConstraints,
         robotHistory,
         robotActivity,
-        assemblyState,
+        assemblyState: normalizedAssemblyState,
         assemblyHistory: assemblyHistory as AssemblyHistoryState,
         assemblyActivity,
         mergedAppMode,
@@ -1344,7 +1345,7 @@ export function useFileExport() {
       closedLoopConstraints,
       robotHistory,
       robotActivity,
-      assemblyState,
+      normalizedAssemblyState,
       assemblyHistory,
       assemblyActivity,
       mergedAppMode,

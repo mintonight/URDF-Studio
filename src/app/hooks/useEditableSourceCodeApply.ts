@@ -18,7 +18,7 @@ interface UseEditableSourceCodeApplyOptions {
   selectedFile: RobotFile | null;
   setAllFileContents: (contents: Record<string, string>) => void;
   setAvailableFiles: (files: RobotFile[]) => void;
-  setOriginalUrdfContent: (content: string | null) => void;
+  setOriginalUrdfContent: (content: string) => void;
   setRobot: (
     data: RobotData,
     options?: { label?: string; resetHistory?: boolean; skipHistory?: boolean },
@@ -32,7 +32,7 @@ interface CommitEditableSourceApplyOptions {
   targetFileName: string;
   nextState: RobotState;
   syncSelectedEditableFileContent: (targetFileName: string, content: string) => void;
-  setOriginalUrdfContent: (content: string | null) => void;
+  setOriginalUrdfContent: (content: string) => void;
   setRobot: (
     data: RobotData,
     options?: { label?: string; resetHistory?: boolean; skipHistory?: boolean },
@@ -58,7 +58,7 @@ export function commitEditableSourceApply({
 
   if (sourceFile.format === 'xacro') {
     setOriginalUrdfContent(
-      canGenerateUrdf(nextState) ? generateURDF(nextState, { preserveMeshPaths: true }) : null,
+      canGenerateUrdf(nextState) ? generateURDF(nextState, { preserveMeshPaths: true }) : '',
     );
   }
 

@@ -167,7 +167,7 @@ export function applyMeshPointCollisionClearance(
     volume: number;
   } | null = null;
 
-  radiusCandidates.forEach((radiusCandidate) => {
+  for (const radiusCandidate of radiusCandidates) {
     const sweepHalfExtent = computeSweepHalfExtent(radiusCandidate, primitiveLength, newType);
     const blockedIntervals = buildMeshPointBlockedIntervals(
       candidateCenter,
@@ -184,13 +184,13 @@ export function applyMeshPointCollisionClearance(
     );
 
     if (!safeInterval) {
-      return;
+      continue;
     }
 
     const length = composePrimitiveLength(safeInterval.sweepHalfExtent, radiusCandidate, newType);
     const volume = computePrimitiveVolume(newType, radiusCandidate, length);
     if (!Number.isFinite(volume) || volume <= 0) {
-      return;
+      continue;
     }
 
     const nextCandidate = {
@@ -202,19 +202,19 @@ export function applyMeshPointCollisionClearance(
 
     if (!bestCandidate) {
       bestCandidate = nextCandidate;
-      return;
+      continue;
     }
 
     const volumeTolerance = Math.max(bestCandidate.volume * 0.01, 1e-8);
     if (nextCandidate.volume > bestCandidate.volume + volumeTolerance) {
       bestCandidate = nextCandidate;
-      return;
+      continue;
     }
 
     if (Math.abs(nextCandidate.volume - bestCandidate.volume) <= volumeTolerance) {
       if (nextCandidate.sweepHalfExtent > bestCandidate.sweepHalfExtent + 1e-8) {
         bestCandidate = nextCandidate;
-        return;
+        continue;
       }
 
       if (
@@ -224,7 +224,7 @@ export function applyMeshPointCollisionClearance(
         bestCandidate = nextCandidate;
       }
     }
-  });
+  }
 
   if (bestCandidate) {
     return {
@@ -241,7 +241,7 @@ export function applyMeshPointCollisionClearance(
     volume: number;
   } | null = null;
 
-  radiusCandidates.forEach((radiusCandidate) => {
+  for (const radiusCandidate of radiusCandidates) {
     const fallbackHalfExtent = computeSweepHalfExtent(
       radiusCandidate,
       newType === GeometryType.CAPSULE ? radiusCandidate * 2 : minSize,
@@ -260,7 +260,7 @@ export function applyMeshPointCollisionClearance(
     const length = composePrimitiveLength(fallbackHalfExtent, radiusCandidate, newType);
     const volume = computePrimitiveVolume(newType, radiusCandidate, length);
     if (!Number.isFinite(volume) || volume <= 0) {
-      return;
+      continue;
     }
 
     const nextCandidate = {
@@ -272,14 +272,14 @@ export function applyMeshPointCollisionClearance(
 
     if (!fallbackCandidate) {
       fallbackCandidate = nextCandidate;
-      return;
+      continue;
     }
 
     const shiftDelta =
       Math.abs(nextCandidate.centerShift) - Math.abs(fallbackCandidate.centerShift);
     if (shiftDelta < -1e-8) {
       fallbackCandidate = nextCandidate;
-      return;
+      continue;
     }
 
     if (Math.abs(shiftDelta) <= 1e-8) {
@@ -288,7 +288,7 @@ export function applyMeshPointCollisionClearance(
         fallbackCandidate = nextCandidate;
       }
     }
-  });
+  }
 
   if (fallbackCandidate) {
     return {

@@ -606,7 +606,7 @@ function createPolylineMesh(
   }
   shape.closePath();
 
-  const extrudeDepth = Math.max(height, 1e-5);
+  const extrudeDepth = Math.max(height ?? 0, 1e-5);
   const extrudeSettings: THREE.ExtrudeGeometryOptions = {
     depth: extrudeDepth,
     bevelEnabled: false,

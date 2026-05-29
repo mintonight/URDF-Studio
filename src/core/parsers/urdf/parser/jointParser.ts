@@ -68,7 +68,7 @@ export const parseJoints = (robotEl: Element): Record<string, UrdfJoint> => {
     const hardwareEl = jointEl.querySelector('hardware');
     const mimicEl = jointEl.querySelector('mimic');
 
-    let hardware = {
+    let hardware: UrdfJoint['hardware'] = {
       armature: 0,
       brand: '',
       motorType: 'None',

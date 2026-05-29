@@ -14,7 +14,7 @@ export interface RobotCanvasSource {
 }
 
 export interface RobotCanvasSelection {
-  type: 'link' | 'joint' | null;
+  type: 'link' | 'joint' | 'tendon' | null;
   id: string | null;
   subType?: 'visual' | 'collision';
   objectIndex?: number;
