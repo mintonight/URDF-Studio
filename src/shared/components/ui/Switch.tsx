@@ -56,12 +56,14 @@ export const Switch: React.FC<SwitchProps> = ({
   return (
     <div className={`flex items-center justify-between ${className}`}>
       {label && (
-        <span
-          className={`select-none cursor-pointer text-xs font-medium text-text-secondary ${labelClassName}`}
+        <button
+          type="button"
+          className={`border-0 bg-transparent p-0 text-left select-none cursor-pointer text-xs font-medium text-text-secondary disabled:cursor-not-allowed disabled:opacity-50 ${labelClassName}`}
           onClick={handleToggle}
+          disabled={disabled}
         >
           {label}
-        </span>
+        </button>
       )}
       <button
         type="button"

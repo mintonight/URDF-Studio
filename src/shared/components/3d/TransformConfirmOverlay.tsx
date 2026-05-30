@@ -35,10 +35,20 @@ export const TransformConfirmOverlay: React.FC<TransformConfirmOverlayProps> = (
   rootClassName = '',
   contentClassName = '',
 }) => {
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
   return (
     <div
       className={`flex flex-col items-center gap-1 ${rootClassName}`.trim()}
+      role="toolbar"
+      aria-label={`${axisLabel} transform confirmation`}
+      tabIndex={-1}
       onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
       <div className={`flex items-center gap-1 ${contentClassName}`.trim()}>
@@ -49,12 +59,12 @@ export const TransformConfirmOverlay: React.FC<TransformConfirmOverlayProps> = (
           {axisLabel}
         </span>
         <input
+          ref={inputRef}
           type="number"
           step={step}
           value={value}
           onChange={onValueChange}
           onKeyDown={onKeyDown}
-          autoFocus
           className="w-20 rounded border border-border-strong bg-panel-bg px-1.5 py-0.5 text-xs font-mono text-text-primary shadow-sm focus:border-system-blue focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
         />
         <span className="text-[10px] text-text-tertiary">
@@ -63,10 +73,22 @@ export const TransformConfirmOverlay: React.FC<TransformConfirmOverlayProps> = (
       </div>
 
       <div className="flex gap-1">
-        <IconButton variant="solid" tone="success" size="sm" onClick={onConfirm} title={confirmTitle}>
+        <IconButton
+          variant="solid"
+          tone="success"
+          size="sm"
+          onClick={onConfirm}
+          title={confirmTitle}
+        >
           <Check className="h-4 w-4" />
         </IconButton>
-        <IconButton variant="solid" tone="danger" size="sm" onClick={onCancel} title={cancelTitle}>
+        <IconButton
+          variant="solid"
+          tone="danger"
+          size="sm"
+          onClick={onCancel}
+          title={cancelTitle}
+        >
           <X className="h-4 w-4" />
         </IconButton>
       </div>

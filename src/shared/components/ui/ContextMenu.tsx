@@ -26,7 +26,10 @@ export const ContextMenuFrame: React.FC<ContextMenuFrameProps> = ({
     <div
       className={`fixed z-[120] ${widthClassName} rounded-md border border-border-black bg-panel-bg p-1 shadow-xl ${className}`.trim()}
       style={{ left: `${position.x}px`, top: `${position.y}px` }}
+      role="menu"
+      tabIndex={-1}
       onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
     >
       {children}
     </div>
@@ -68,6 +71,7 @@ export const ContextMenuItem: React.FC<ContextMenuItemProps> = ({
   return (
     <button
       type={type}
+      role="menuitem"
       className={`group/menu-item flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-xs transition-colors ${itemClasses} ${className}`.trim()}
       {...props}
     >

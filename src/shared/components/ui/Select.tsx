@@ -301,6 +301,14 @@ export const Select: React.FC<SelectProps> = ({
     optionRefs.current[selectedIndex]?.focus();
   }, [isOpen, options, selectedValue, updateMenuLayout, usingNativeFallback]);
 
+  React.useEffect(() => {
+    if (!autoFocus) {
+      return;
+    }
+    const focusTarget = usingNativeFallback ? hiddenSelectRef.current : triggerRef.current;
+    focusTarget?.focus();
+  }, [autoFocus, usingNativeFallback]);
+
   const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (disabled || options.length === 0) {
       return;
@@ -371,7 +379,6 @@ export const Select: React.FC<SelectProps> = ({
             onBlur={onBlur}
             onFocus={onFocus}
             disabled={disabled}
-            autoFocus={autoFocus}
             name={name}
             required={required}
             form={form}
@@ -511,7 +518,6 @@ export const Select: React.FC<SelectProps> = ({
           aria-invalid={invalid}
           title={title}
           disabled={disabled}
-          autoFocus={autoFocus}
           className={`
             relative inline-flex w-full items-center rounded-lg border border-border-black bg-input-bg px-3 py-1.5 pr-8 text-left text-sm text-text-primary
             transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-system-blue/30 focus:border-system-blue
