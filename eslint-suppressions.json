@@ -547,12 +547,6 @@
     }
   },
   "src/features/property-editor/components/GeometryEditor.tsx": {
-    "jsx-a11y/click-events-have-key-events": {
-      "count": 2
-    },
-    "jsx-a11y/no-static-element-interactions": {
-      "count": 2
-    },
     "react-hooks/exhaustive-deps": {
       "count": 3
     }

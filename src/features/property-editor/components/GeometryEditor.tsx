@@ -1379,7 +1379,8 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
                 const { fileName, parentPath } = describeMeshPath(filePath);
 
                 return (
-                  <div
+                  <button
+                    type="button"
                     key={filePath}
                     title={filePath}
                     onClick={() => setPreviewMeshPath(filePath)}
@@ -1388,7 +1389,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
                       setPreviewMeshPath(null);
                     }}
                     className={`
-                                            grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 rounded-md border px-1.5 py-1 transition-colors
+                                            grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 rounded-md border px-1.5 py-1 text-left transition-colors
                                             ${
                                               isApplied
                                                 ? 'border-system-blue/35 bg-system-blue/10 text-system-blue dark:bg-system-blue/20'
@@ -1416,7 +1417,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
                     ) : isPreviewing ? (
                       <Eye className="h-3 w-3 shrink-0" />
                     ) : null}
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -1925,7 +1926,8 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
                       const { fileName, parentPath } = describeMeshPath(filePath);
 
                       return (
-                        <div
+                        <button
+                          type="button"
                           key={filePath}
                           title={filePath}
                           onClick={() => setPreviewTexturePath(filePath)}
@@ -1972,7 +1974,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
                           ) : isPreviewing ? (
                             <Eye className="h-3 w-3 shrink-0" />
                           ) : null}
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
