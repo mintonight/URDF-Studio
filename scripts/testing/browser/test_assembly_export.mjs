@@ -28,22 +28,32 @@ async function main() {
     await waitForReady(page);
     const topoA = await getTopology(page);
 
+    await importUrdf(page, 'a1_description', 'a1.urdf');
+    await waitForReady(page);
+
     await store.initAssembly(page, 'export_asm'); await delay(300);
 
     const fileMjcf = await findAvailableFile(page, 'go2.xml');
     const compA = await store.addComponent(page, fileMjcf); await delay(500);
 
-    await importUrdf(page, 'a1_description', 'a1.urdf');
-    await waitForReady(page);
     const fileUrdf = await findAvailableFile(page, 'a1.urdf');
     const compB = await store.addComponent(page, fileUrdf); await delay(500);
 
+    const beforeBridge = await getAssemblyState(page);
+    const componentA = beforeBridge.components.find((component) => component.id === compA.id);
+    const componentB = beforeBridge.components.find((component) => component.id === compB.id);
+    assert(suite, Boolean(componentA?.rootLinkId), 'parent component root link found');
+    assert(suite, Boolean(componentB?.rootLinkId), 'child component root link found');
+
     // Create bridge
     const bridge = await store.addBridge(page, {
-      parentComponentId: compA.id, childComponentId: compB.id,
-      joint: { name: 'asm_bridge', type: 'fixed', parentLinkName: 'base', childLinkName: 'base',
+      name: 'asm_bridge',
+      parentComponentId: compA.id, parentLinkId: componentA.rootLinkId,
+      childComponentId: compB.id, childLinkId: componentB.rootLinkId,
+      joint: { name: 'asm_bridge', type: 'fixed',
         origin: { xyz: [0.5, 0, 0], rpy: [0, 0, 0] } },
     }); await delay(500);
+    assert(suite, bridge.ok, 'bridge created');
 
     const asm = await getAssemblyState(page);
     assertEqual(suite, asm.componentCount, 2, '2 components');

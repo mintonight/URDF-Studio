@@ -146,7 +146,11 @@ export async function getAssemblyState(page) {
       componentCount: Object.keys(a.components ?? {}).length,
       bridgeCount: Object.keys(a.bridges ?? {}).length,
       components: Object.entries(a.components ?? {}).map(([id, c]) => ({
-        id, name: c.name, linkCount: Object.keys(c.robot?.links ?? {}).length,
+        id,
+        name: c.name,
+        sourceFile: c.sourceFile,
+        rootLinkId: c.robot?.rootLinkId ?? null,
+        linkCount: Object.keys(c.robot?.links ?? {}).length,
       })),
       bridges: Object.entries(a.bridges ?? {}).map(([id, b]) => ({
         id, name: b.name, jointType: b.joint?.type,
