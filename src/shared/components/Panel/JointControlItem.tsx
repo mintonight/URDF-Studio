@@ -48,6 +48,20 @@ interface SliderDragBounds {
   width: number;
 }
 
+function useFocusInputWhenEditing(
+  inputRef: React.RefObject<HTMLInputElement | null>,
+  isEditing: boolean,
+) {
+  useEffect(() => {
+    if (!isEditing) {
+      return;
+    }
+
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [inputRef, isEditing]);
+}
+
 const JointControlItemComponent: React.FC<JointControlItemProps> = ({
   name,
   joint,
@@ -268,6 +282,12 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
   const upperInputRef = useRef<HTMLInputElement>(null);
   const effortInputRef = useRef<HTMLInputElement>(null);
   const velocityInputRef = useRef<HTMLInputElement>(null);
+
+  useFocusInputWhenEditing(valueInputRef, isEditingValue);
+  useFocusInputWhenEditing(lowerInputRef, isEditingLower);
+  useFocusInputWhenEditing(upperInputRef, isEditingUpper);
+  useFocusInputWhenEditing(effortInputRef, isEditingEffort);
+  useFocusInputWhenEditing(velocityInputRef, isEditingVelocity);
 
   const [lowerInput, setLowerInput] = useState(formatLimitInputValue(orderedLocalLimits.lower));
   const [upperInput, setUpperInput] = useState(formatLimitInputValue(orderedLocalLimits.upper));
@@ -625,20 +645,48 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
   const sliderInputHeightClassName = compact ? 'h-6' : 'h-7';
   const sliderTrackHeightClassName = compact ? 'h-1' : 'h-[5px]';
   const sliderThumbSizeClassName = compact ? 'h-4 w-4' : 'h-[18px] w-[18px]';
+  const selectCurrentJoint = useCallback(() => {
+    setActiveJoint(name, { autoScroll: false });
+    onSelect?.('joint', name);
+  }, [name, onSelect, setActiveJoint]);
+  const handleCardKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.target !== event.currentTarget) {
+        return;
+      }
+
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+      }
+
+      event.preventDefault();
+      selectCurrentJoint();
+    },
+    [selectCurrentJoint],
+  );
 
   const renderValueDisplay = () => (
     <div className="flex h-full shrink-0 items-center justify-end gap-0.5 whitespace-nowrap">
       <div
+        className={`${mainValueFieldWidthClassName} text-right`}
         onClick={(e) => {
           e.stopPropagation();
           setIsEditingValue(true);
         }}
-        className={`${mainValueFieldWidthClassName} text-right`}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) {
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          setIsEditingValue(true);
+        }}
+        role="button"
+        tabIndex={-1}
       >
         {isEditingValue ? (
           <input
             ref={valueInputRef}
-            autoFocus
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
@@ -653,9 +701,18 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
             className="h-3.5 w-full rounded border border-border-strong bg-input-bg px-0.5 py-0 text-right text-[9px] leading-none font-mono tabular-nums text-text-primary outline-none focus:border-system-blue focus:ring-1 focus:ring-system-blue/20"
           />
         ) : (
-          <div className="flex h-3.5 w-full items-center justify-end whitespace-nowrap rounded border border-transparent px-0.5 py-0 text-right font-mono tabular-nums text-[9px] leading-none text-text-primary transition-colors hover:border-border-strong/70 hover:text-system-blue">
-            {displayValue.toFixed(2)}
-          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsEditingValue(true);
+            }}
+            className="w-full border-0 bg-transparent p-0 text-right"
+          >
+            <div className="flex h-3.5 w-full items-center justify-end whitespace-nowrap rounded border border-transparent px-0.5 py-0 text-right font-mono tabular-nums text-[9px] leading-none text-text-primary transition-colors hover:border-border-strong/70 hover:text-system-blue">
+              {displayValue.toFixed(2)}
+            </div>
+          </button>
         )}
       </div>
       <span className="min-w-[1.1rem] text-left text-[9px] leading-none text-text-tertiary">
@@ -666,20 +723,13 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
 
   const renderAdvancedInputs = () => (
     <div className="flex items-center gap-2 shrink-0">
-      <div
-        className="flex items-center gap-1.5 cursor-text group"
-        onClick={(e) => {
-          e.stopPropagation();
-          setIsEditingEffort(true);
-        }}
-      >
-        <span className="inline-flex h-4 w-3 items-center justify-center font-serif text-[10px] italic leading-none text-text-tertiary">
-          τ
-        </span>
-        {isEditingEffort ? (
+      {isEditingEffort ? (
+        <div className="flex items-center gap-1.5 cursor-text group">
+          <span className="inline-flex h-4 w-3 items-center justify-center font-serif text-[10px] italic leading-none text-text-tertiary">
+            τ
+          </span>
           <input
             ref={effortInputRef}
-            autoFocus
             type="text"
             value={effortInput}
             onChange={(e) => setEffortInput(e.target.value)}
@@ -692,26 +742,31 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
             onClick={(e) => e.stopPropagation()}
             className="h-4 w-10 rounded border border-border-strong bg-input-bg px-0.5 py-0 text-center text-[10px] leading-none font-mono text-text-primary outline-none focus:border-system-blue focus:ring-1 focus:ring-system-blue/20"
           />
-        ) : (
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="flex items-center gap-1.5 cursor-text group border-0 bg-transparent p-0"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsEditingEffort(true);
+          }}
+        >
+          <span className="inline-flex h-4 w-3 items-center justify-center font-serif text-[10px] italic leading-none text-text-tertiary">
+            τ
+          </span>
           <span className="flex h-4 w-10 items-center justify-center border-b border-transparent text-center text-[10px] leading-none text-text-secondary transition-colors group-hover:border-border-strong/80 group-hover:text-text-primary">
             {localLimits.effort.toFixed(2)}
           </span>
-        )}
-      </div>
-      <div
-        className="flex items-center gap-1.5 cursor-text group"
-        onClick={(e) => {
-          e.stopPropagation();
-          setIsEditingVelocity(true);
-        }}
-      >
-        <span className="inline-flex h-4 w-3 items-center justify-center font-serif text-[10px] italic leading-none text-text-tertiary">
-          v
-        </span>
-        {isEditingVelocity ? (
+        </button>
+      )}
+      {isEditingVelocity ? (
+        <div className="flex items-center gap-1.5 cursor-text group">
+          <span className="inline-flex h-4 w-3 items-center justify-center font-serif text-[10px] italic leading-none text-text-tertiary">
+            v
+          </span>
           <input
             ref={velocityInputRef}
-            autoFocus
             type="text"
             value={velocityInput}
             onChange={(e) => setVelocityInput(e.target.value)}
@@ -724,12 +779,24 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
             onClick={(e) => e.stopPropagation()}
             className="h-4 w-10 rounded border border-border-strong bg-input-bg px-0.5 py-0 text-center text-[10px] leading-none font-mono text-text-primary outline-none focus:border-system-blue focus:ring-1 focus:ring-system-blue/20"
           />
-        ) : (
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="flex items-center gap-1.5 cursor-text group border-0 bg-transparent p-0"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsEditingVelocity(true);
+          }}
+        >
+          <span className="inline-flex h-4 w-3 items-center justify-center font-serif text-[10px] italic leading-none text-text-tertiary">
+            v
+          </span>
           <span className="flex h-4 w-10 items-center justify-center border-b border-transparent text-center text-[10px] text-text-secondary transition-colors group-hover:border-border-strong/80 group-hover:text-text-primary">
             {localLimits.velocity.toFixed(2)}
           </span>
-        )}
-      </div>
+        </button>
+      )}
     </div>
   );
 
@@ -737,12 +804,13 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
     <div
       ref={itemRef}
       data-panel-hovered={isPanelHovered ? 'true' : 'false'}
-      onClick={() => {
-        setActiveJoint(name, { autoScroll: false });
-        onSelect?.('joint', name);
-      }}
+      onClick={selectCurrentJoint}
+      onKeyDown={handleCardKeyDown}
       onMouseEnter={() => setIsPanelHovered(true)}
       onMouseLeave={() => setIsPanelHovered(false)}
+      role="button"
+      aria-label={resolvedDisplayName}
+      tabIndex={0}
       className={`cursor-pointer border transition-colors ${cardSpacingClassName} ${
         isActive
           ? 'border-system-blue/20 bg-system-blue/10 dark:border-system-blue/30 dark:bg-system-blue/18'
@@ -783,11 +851,24 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
             e.stopPropagation();
             setIsEditingLower(true);
           }}
+          onKeyDown={(e) => {
+            if (
+              !hasFiniteLimits ||
+              e.target !== e.currentTarget ||
+              (e.key !== 'Enter' && e.key !== ' ')
+            ) {
+              return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            setIsEditingLower(true);
+          }}
+          role={hasFiniteLimits ? 'button' : undefined}
+          tabIndex={hasFiniteLimits ? -1 : undefined}
         >
           {hasFiniteLimits && isEditingLower ? (
             <input
               ref={lowerInputRef}
-              autoFocus
               type="text"
               value={lowerInput}
               onChange={(e) => setLowerInput(e.target.value)}
@@ -797,11 +878,26 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
               }}
               className={`absolute left-0 top-0 z-20 ${limitFieldBaseClassName} ${limitInputWidthClassName} border-border-strong bg-input-bg text-right text-text-primary outline-none focus:border-system-blue focus:ring-1 focus:ring-system-blue/20`}
             />
+          ) : hasFiniteLimits ? (
+            <button
+              type="button"
+              className="border-0 bg-transparent p-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsEditingLower(true);
+              }}
+            >
+              <div
+                className={`${limitFieldBaseClassName} w-fit cursor-text justify-end border-transparent text-right text-text-tertiary hover:border-border-strong/70 hover:text-system-blue`}
+              >
+                {displayMin.toFixed(2)}
+              </div>
+            </button>
           ) : (
             <div
               className={`${limitFieldBaseClassName} w-fit cursor-text justify-end border-transparent text-right text-text-tertiary hover:border-border-strong/70 hover:text-system-blue`}
             >
-              {hasFiniteLimits ? displayMin.toFixed(2) : '−∞'}
+              −∞
             </div>
           )}
         </div>
@@ -810,6 +906,13 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
           ref={sliderShellRef}
           className="relative flex min-w-0 items-center"
           data-testid="joint-slider-shell"
+          role="slider"
+          aria-label={`${resolvedDisplayName} slider`}
+          aria-valuemin={sliderMin}
+          aria-valuemax={sliderMax}
+          aria-valuenow={sliderValue}
+          tabIndex={-1}
+          onKeyDown={(event) => event.stopPropagation()}
           onPointerEnter={(event) => updateSliderThumbHover(event.clientX, event.clientY)}
           onPointerMove={(event) => {
             if (!isSliderDraggingRef.current) {
@@ -832,10 +935,13 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
               style={{ width: `${clampedSliderPercentage}%` }}
             />
           </div>
-          <div
+          <button
+            type="button"
             data-testid="joint-slider-thumb"
             data-hovered={isSliderThumbHovered ? 'true' : 'false'}
-            className={`absolute top-1/2 z-20 ${sliderThumbSizeClassName} -translate-y-1/2 rounded-full border transition-[transform,box-shadow] duration-150 ease-out ${
+            aria-label={`${resolvedDisplayName} slider thumb`}
+            tabIndex={-1}
+            className={`absolute top-1/2 z-20 ${sliderThumbSizeClassName} -translate-y-1/2 rounded-full border p-0 transition-[transform,box-shadow] duration-150 ease-out ${
               isSliderDragging
                 ? 'scale-110 ring-4 ring-system-blue/15'
                 : isSliderThumbHovered
@@ -895,11 +1001,24 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
             e.stopPropagation();
             setIsEditingUpper(true);
           }}
+          onKeyDown={(e) => {
+            if (
+              !hasFiniteLimits ||
+              e.target !== e.currentTarget ||
+              (e.key !== 'Enter' && e.key !== ' ')
+            ) {
+              return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            setIsEditingUpper(true);
+          }}
+          role={hasFiniteLimits ? 'button' : undefined}
+          tabIndex={hasFiniteLimits ? -1 : undefined}
         >
           {hasFiniteLimits && isEditingUpper ? (
             <input
               ref={upperInputRef}
-              autoFocus
               type="text"
               value={upperInput}
               onChange={(e) => setUpperInput(e.target.value)}
@@ -909,11 +1028,26 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
               }}
               className={`absolute right-0 top-0 z-20 ${limitFieldBaseClassName} ${limitInputWidthClassName} border-border-strong bg-input-bg text-left text-text-primary outline-none focus:border-system-blue focus:ring-1 focus:ring-system-blue/20`}
             />
+          ) : hasFiniteLimits ? (
+            <button
+              type="button"
+              className="ml-auto block border-0 bg-transparent p-0"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsEditingUpper(true);
+              }}
+            >
+              <div
+                className={`${limitFieldBaseClassName} ml-auto w-fit cursor-text justify-start border-transparent text-left text-text-tertiary hover:border-border-strong/70 hover:text-system-blue`}
+              >
+                {displayMax.toFixed(2)}
+              </div>
+            </button>
           ) : (
             <div
               className={`${limitFieldBaseClassName} ml-auto w-fit cursor-text justify-start border-transparent text-left text-text-tertiary hover:border-border-strong/70 hover:text-system-blue`}
             >
-              {hasFiniteLimits ? displayMax.toFixed(2) : '∞'}
+              ∞
             </div>
           )}
         </div>

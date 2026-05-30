@@ -1149,15 +1149,6 @@
     "@typescript-eslint/no-explicit-any": {
       "count": 1
     },
-    "jsx-a11y/click-events-have-key-events": {
-      "count": 6
-    },
-    "jsx-a11y/no-autofocus": {
-      "count": 5
-    },
-    "jsx-a11y/no-static-element-interactions": {
-      "count": 6
-    },
     "react-hooks/exhaustive-deps": {
       "count": 2
     }
