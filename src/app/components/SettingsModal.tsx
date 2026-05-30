@@ -752,9 +752,13 @@ export function SettingsModal() {
       ref={panelRef}
       style={{ left: settingsPos.x, top: settingsPos.y }}
       className="pointer-events-auto fixed z-[100]"
+      role="toolbar"
+      aria-label={t.settings}
+      tabIndex={-1}
       onClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
       onWheel={(event) => event.stopPropagation()}
     >
@@ -772,6 +776,9 @@ export function SettingsModal() {
         <div className="flex h-full min-h-0 flex-col bg-settings-shell">
           <div
             data-testid="settings-drag-handle"
+            role="toolbar"
+            aria-label={`${t.settings} window controls`}
+            tabIndex={-1}
             onMouseDown={handleDragStart}
             className="flex min-h-11 select-none items-center justify-between gap-3 border-b border-border-black bg-panel-bg/95 px-3.5 py-2.5"
           >
@@ -786,17 +793,16 @@ export function SettingsModal() {
                 <p className="truncate text-[11px] font-medium text-text-tertiary">{pageTitle}</p>
               </div>
             </div>
-            <div onMouseDown={(event) => event.stopPropagation()}>
-              <IconButton
-                onClick={closeSettings}
-                size="sm"
-                variant="close"
-                aria-label={t.close}
-                className="h-6.5 w-6.5 rounded-[6px] p-0"
-              >
-                <X className="h-3.5 w-3.5" strokeWidth={SETTINGS_ICON_STROKE_WIDTH} />
-              </IconButton>
-            </div>
+            <IconButton
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={closeSettings}
+              size="sm"
+              variant="close"
+              aria-label={t.close}
+              className="h-6.5 w-6.5 rounded-[6px] p-0"
+            >
+              <X className="h-3.5 w-3.5" strokeWidth={SETTINGS_ICON_STROKE_WIDTH} />
+            </IconButton>
           </div>
 
           <div className="grid min-h-0 flex-1 grid-cols-[108px_minmax(0,1fr)] gap-2.5 p-2.5">
