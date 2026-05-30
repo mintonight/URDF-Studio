@@ -946,11 +946,6 @@
       "count": 1
     }
   },
-  "src/shared/components/3d/helpers/InertiaBox.tsx": {
-    "react-hooks/rules-of-hooks": {
-      "count": 1
-    }
-  },
   "src/shared/components/3d/linkIkDragPreview.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
@@ -1090,16 +1085,6 @@
   },
   "src/shared/components/Panel/UnifiedVisualizerOptionsPanel.tsx": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/shared/components/ui/Input.tsx": {
-    "react-hooks/rules-of-hooks": {
-      "count": 1
-    }
-  },
-  "src/shared/components/ui/Select.tsx": {
-    "react-hooks/rules-of-hooks": {
       "count": 1
     }
   },

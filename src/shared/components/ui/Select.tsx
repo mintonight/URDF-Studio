@@ -129,7 +129,8 @@ export const Select: React.FC<SelectProps> = ({
   title,
   ...props
 }) => {
-  const selectId = id || React.useId();
+  const generatedSelectId = React.useId();
+  const selectId = id || generatedSelectId;
   const labelId = `${selectId}__label`;
   const triggerId = `${selectId}__trigger`;
   const listboxId = `${selectId}__listbox`;

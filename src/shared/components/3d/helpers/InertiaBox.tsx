@@ -18,6 +18,12 @@ interface InertiaBoxProps {
 export const InertiaBox = React.memo(
   ({ link, hovered = false, selected = false }: InertiaBoxProps) => {
     const outlineRef = React.useRef<THREE.LineSegments>(null);
+    React.useLayoutEffect(() => {
+      if (outlineRef.current) {
+        outlineRef.current.raycast = ignoreRaycast;
+      }
+    }, []);
+
     const inertial = link.inertial;
     if (!inertial) return null;
 
@@ -42,12 +48,6 @@ export const InertiaBox = React.memo(
     const fillColor = isActive ? 0x7dd3fc : 0x4a9eff;
     const edgeColor = isActive ? 0xe0f2fe : 0x93c5fd;
     const opacity = hovered ? 0.58 : selected ? 0.5 : 0.35;
-
-    React.useLayoutEffect(() => {
-      if (outlineRef.current) {
-        outlineRef.current.raycast = ignoreRaycast;
-      }
-    }, []);
 
     return (
       <group position={[pos.x, pos.y, pos.z]} rotation={finalEuler}>

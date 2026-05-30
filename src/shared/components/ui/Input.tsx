@@ -14,7 +14,8 @@ export const Input: React.FC<InputProps> = ({
   id,
   ...props
 }) => {
-  const inputId = id || React.useId();
+  const generatedInputId = React.useId();
+  const inputId = id || generatedInputId;
 
   return (
     <div className="w-full">
