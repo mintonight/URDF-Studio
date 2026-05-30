@@ -74,8 +74,7 @@ export const JointInteraction: React.FC<JointInteractionProps> = ({
     () => (joint ? getJointMotionAngleFromActualAngle(joint, value) : 0),
     [joint, value],
   );
-
-  if (!joint || snapshotRenderActive || !controlMode) return null;
+  const isInteractionVisible = Boolean(joint && !snapshotRenderActive && controlMode);
 
   const updateDummyTransform = useCallback(() => {
     if (dummyRef.current && joint) {
@@ -115,13 +114,15 @@ export const JointInteraction: React.FC<JointInteractionProps> = ({
   }, [axisNormalized, controlAxisVector, controlMode, displayedMotionAngle, joint]);
 
   useEffect(() => {
+    if (!isInteractionVisible) return;
     forceUpdate((n) => n + 1);
-  }, []);
+  }, [isInteractionVisible]);
 
   useEffect(() => {
+    if (!isInteractionVisible) return;
     updateDummyTransform();
     invalidate();
-  }, [updateDummyTransform, invalidate]);
+  }, [isInteractionVisible, updateDummyTransform, invalidate]);
 
   const clearUnlockTimer = useCallback(() => {
     if (unlockTimerRef.current !== null && typeof window !== 'undefined') {
@@ -157,14 +158,15 @@ export const JointInteraction: React.FC<JointInteractionProps> = ({
   );
 
   useEffect(() => {
+    if (!isInteractionVisible) return;
     return () => {
       unlockInteraction();
       setIsDragging?.(false);
     };
-  }, [setIsDragging, unlockInteraction]);
+  }, [isInteractionVisible, setIsDragging, unlockInteraction]);
 
   const handleChange = useCallback(() => {
-    if (!dummyRef.current || !isDragging.current) return;
+    if (!joint || !controlMode || !dummyRef.current || !isDragging.current) return;
 
     try {
       let newValue: number;
@@ -226,8 +228,11 @@ export const JointInteraction: React.FC<JointInteractionProps> = ({
   }, [axisNormalized, controlAxisVector, controlMode, joint, onChange, value]);
 
   useEffect(() => {
+    if (!isInteractionVisible) return;
     lastValueRef.current = value;
-  }, [value]);
+  }, [isInteractionVisible, value]);
+
+  if (!joint || snapshotRenderActive || !controlMode) return null;
 
   return (
     <>

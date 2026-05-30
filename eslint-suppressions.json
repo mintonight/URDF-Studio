@@ -617,9 +617,6 @@
   "src/features/urdf-viewer/components/JointInteraction.tsx": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
-    },
-    "react-hooks/rules-of-hooks": {
-      "count": 9
     }
   },
   "src/features/urdf-viewer/components/MeasureTool.tsx": {
