@@ -8,7 +8,7 @@ import {
 } from '@/core/robot';
 import { useRobotStore } from '@/store';
 import { type Selection, useSelectionStore } from '@/store/selectionStore';
-import { GeometryType, type AppMode, type RobotState } from '@/types';
+import { DEFAULT_LINK, GeometryType, type AppMode, type RobotState } from '@/types';
 import { resolveTreeSelectionIdentity } from '@/features/robot-tree/utils/treeSelectionScope';
 import { getMjcfLinkDisplayName } from '@/shared/utils/robot/mjcfDisplayNames';
 import { TreeNodeContextMenu } from './tree-node/TreeNodeContextMenu';
@@ -143,6 +143,17 @@ export const TreeNode = memo(
       })),
     );
     const link = storeDriven ? storeLink : robot?.links[linkId];
+    const hasLink = Boolean(link);
+    const resolvedLink = link ?? {
+      ...DEFAULT_LINK,
+      id: linkId,
+      name: linkId,
+      visual: { ...DEFAULT_LINK.visual, type: GeometryType.NONE },
+      visualBodies: [],
+      collision: { ...DEFAULT_LINK.collision, type: GeometryType.NONE },
+      collisionBodies: [],
+      inertial: undefined,
+    };
     const childJoints = storeDriven
       ? storeChildJoints
       : (childJointsByParent?.[linkId] ?? EMPTY_CHILD_JOINTS);
@@ -281,13 +292,10 @@ export const TreeNode = memo(
       };
     }, [contextMenu]);
 
-    if (!link) {
-      return null;
-    }
-
     const sourceFormat = (storeDriven ? storeInspectionContext : robot?.inspectionContext)
       ?.sourceFormat;
-    const rawLinkDisplayName = sourceFormat === 'mjcf' ? getMjcfLinkDisplayName(link) : link.name;
+    const rawLinkDisplayName =
+      sourceFormat === 'mjcf' ? getMjcfLinkDisplayName(resolvedLink) : resolvedLink.name;
     const linkDisplayName = stripTreeDisplayNamePrefix(
       rawLinkDisplayName,
       componentDisplayNamePrefix,
@@ -320,18 +328,20 @@ export const TreeNode = memo(
       : robot
         ? isTransparentDisplayLink(robot, linkId)
         : false;
-    const isVisible = link.visible !== false;
-    const isVisualVisible = link.visual.visible !== false;
-    const isPrimaryCollisionVisible = link.collision.visible !== false;
-    const hasPrimaryVisual = Boolean(link.visual?.type && link.visual.type !== GeometryType.NONE);
+    const isVisible = resolvedLink.visible !== false;
+    const isVisualVisible = resolvedLink.visual.visible !== false;
+    const isPrimaryCollisionVisible = resolvedLink.collision.visible !== false;
+    const hasPrimaryVisual = Boolean(
+      resolvedLink.visual?.type && resolvedLink.visual.type !== GeometryType.NONE,
+    );
     const hasPrimaryCollision = Boolean(
-      link.collision?.type && link.collision.type !== GeometryType.NONE,
+      resolvedLink.collision?.type && resolvedLink.collision.type !== GeometryType.NONE,
     );
     const selectedObjectIndex = robotSelection.objectIndex ?? 0;
     const visualBodyCount =
       (hasPrimaryVisual ? 1 : 0) +
-      (link.visualBodies || []).filter((body) => body.type !== GeometryType.NONE).length;
-    const visibleVisualBodies: VisibleVisualBody[] = (link.visualBodies || [])
+      (resolvedLink.visualBodies || []).filter((body) => body.type !== GeometryType.NONE).length;
+    const visibleVisualBodies: VisibleVisualBody[] = (resolvedLink.visualBodies || [])
       .map((body, bodyIndex) => ({ body, bodyIndex }))
       .filter(({ body }) => body.type !== GeometryType.NONE)
       .map((entry, visibleIndex) => ({
@@ -340,8 +350,9 @@ export const TreeNode = memo(
       }));
     const collisionBodyCount =
       (hasPrimaryCollision ? 1 : 0) +
-      (link.collisionBodies || []).filter((body) => body.type !== GeometryType.NONE).length;
-    const visibleCollisionBodies: VisibleCollisionBody[] = (link.collisionBodies || [])
+      (resolvedLink.collisionBodies || []).filter((body) => body.type !== GeometryType.NONE)
+        .length;
+    const visibleCollisionBodies: VisibleCollisionBody[] = (resolvedLink.collisionBodies || [])
       .map((body, bodyIndex) => ({ body, bodyIndex }))
       .filter(({ body }) => body.type !== GeometryType.NONE)
       .map((entry, visibleIndex) => ({
@@ -385,7 +396,7 @@ export const TreeNode = memo(
     // overall) — the prop-driven path keeps the cost linear.
     const selectionInBranch = selectionBranchLinkIds?.has(linkId) ?? false;
     const contextMenuLink =
-      contextMenu?.target.type === 'link' && contextMenu.target.id === linkId ? link : null;
+      contextMenu?.target.type === 'link' && contextMenu.target.id === linkId ? resolvedLink : null;
     const contextMenuHasVisual = Boolean(
       (contextMenuLink?.visual?.type && contextMenuLink.visual.type !== GeometryType.NONE) ||
       (contextMenuLink?.visualBodies || []).some((body) => body.type !== GeometryType.NONE),
@@ -410,38 +421,45 @@ export const TreeNode = memo(
       isLinkSelected || isLinkHovered || isLinkAttentionHighlighted || selectionInBranch;
 
     useEffect(() => {
+      if (!hasLink) return;
       setIsExpanded(true);
-    }, [childBranchKey, linkId]);
+    }, [childBranchKey, hasLink, linkId]);
 
     useEffect(() => {
+      if (!hasLink) return;
       if (selectionInBranch && hasExpandableContent) {
         setIsExpanded(true);
       }
-    }, [selectionInBranch, hasExpandableContent]);
+    }, [hasExpandableContent, hasLink, selectionInBranch]);
 
     useEffect(() => {
+      if (!hasLink) return;
       setIsGeometryExpanded(showGeometryDetailsByDefault);
-    }, [showGeometryDetailsByDefault]);
+    }, [hasLink, showGeometryDetailsByDefault]);
 
     useEffect(() => {
+      if (!hasLink) return;
       if (shouldAutoExpandGeometryDetails) {
         setIsGeometryExpanded(true);
       }
-    }, [shouldAutoExpandGeometryDetails]);
+    }, [hasLink, shouldAutoExpandGeometryDetails]);
 
     useEffect(() => {
+      if (!hasLink) return;
       if (isLinkSelected && !robotSelection.subType && !hasJointAttentionSelection) {
         scrollElementIntoView(linkRowRef.current);
       }
-    }, [hasJointAttentionSelection, isLinkSelected, robotSelection.subType]);
+    }, [hasJointAttentionSelection, hasLink, isLinkSelected, robotSelection.subType]);
 
     useEffect(() => {
+      if (!hasLink) return;
       if (isGeometryExpanded && isVisualSelected && !hasJointAttentionSelection) {
         scrollElementIntoView(visualRowRef.current);
       }
-    }, [hasJointAttentionSelection, isGeometryExpanded, isVisualSelected]);
+    }, [hasJointAttentionSelection, hasLink, isGeometryExpanded, isVisualSelected]);
 
     useEffect(() => {
+      if (!hasLink) return;
       if (
         hasJointAttentionSelection ||
         !(
@@ -456,6 +474,7 @@ export const TreeNode = memo(
       scrollElementIntoView(visualBodyRowRefs.current[selectedObjectIndex]);
     }, [
       hasJointAttentionSelection,
+      hasLink,
       isGeometryExpanded,
       isLinkSelected,
       robotSelection.subType,
@@ -464,12 +483,14 @@ export const TreeNode = memo(
     ]);
 
     useEffect(() => {
+      if (!hasLink) return;
       if (isGeometryExpanded && isPrimaryCollisionSelected && !hasJointAttentionSelection) {
         scrollElementIntoView(primaryCollisionRowRef.current);
       }
-    }, [hasJointAttentionSelection, isGeometryExpanded, isPrimaryCollisionSelected]);
+    }, [hasJointAttentionSelection, hasLink, isGeometryExpanded, isPrimaryCollisionSelected]);
 
     useEffect(() => {
+      if (!hasLink) return;
       if (
         hasJointAttentionSelection ||
         !(
@@ -484,6 +505,7 @@ export const TreeNode = memo(
       scrollElementIntoView(collisionBodyRowRefs.current[selectedObjectIndex]);
     }, [
       hasJointAttentionSelection,
+      hasLink,
       isGeometryExpanded,
       isLinkSelected,
       robotSelection.subType,
@@ -492,6 +514,7 @@ export const TreeNode = memo(
     ]);
 
     useEffect(() => {
+      if (!hasLink) return;
       if (
         effectiveAttentionSelection.type !== 'link' ||
         effectiveAttentionSelection.id !== linkId
@@ -507,14 +530,16 @@ export const TreeNode = memo(
       }
 
       scrollElementIntoView(linkRowRef.current);
-    }, [effectiveAttentionSelection, linkId]);
+    }, [effectiveAttentionSelection, hasLink, linkId]);
 
     useEffect(() => {
+      if (!hasLink) return;
       if (!isExpanded || robotSelection.type !== 'joint' || !robotSelection.id) return;
       scrollElementIntoView(jointRowRefs.current[robotSelection.id] || null);
-    }, [isExpanded, robotSelection.id, robotSelection.type]);
+    }, [hasLink, isExpanded, robotSelection.id, robotSelection.type]);
 
     useEffect(() => {
+      if (!hasLink) return;
       if (
         !isExpanded ||
         effectiveAttentionSelection.type !== 'joint' ||
@@ -524,7 +549,7 @@ export const TreeNode = memo(
       }
 
       scrollElementIntoView(jointRowRefs.current[effectiveAttentionSelection.id] || null);
-    }, [effectiveAttentionSelection.id, effectiveAttentionSelection.type, isExpanded]);
+    }, [effectiveAttentionSelection.id, effectiveAttentionSelection.type, hasLink, isExpanded]);
     const {
       handleSelectVisual,
       handleSelectVisualBody,
@@ -547,7 +572,7 @@ export const TreeNode = memo(
       handleDeleteLinkGeometry,
     } = useTreeNodeActions({
       linkId,
-      link,
+      link: resolvedLink,
       childJointsById,
       selection: effectiveSelection,
       isVisualVisible,
@@ -566,6 +591,10 @@ export const TreeNode = memo(
       setEditingTarget,
       setContextMenu,
     });
+
+    if (!link) {
+      return null;
+    }
 
     if (isTransparentLink) {
       if (!hasChildren) {

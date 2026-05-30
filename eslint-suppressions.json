@@ -586,11 +586,6 @@
       "count": 1
     }
   },
-  "src/features/robot-tree/components/TreeNode.tsx": {
-    "react-hooks/rules-of-hooks": {
-      "count": 13
-    }
-  },
   "src/features/robot-tree/components/VirtualTreeViewDemo.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 2
