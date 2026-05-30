@@ -1135,11 +1135,6 @@
       "count": 1
     }
   },
-  "src/shared/components/3d/workspace/WorkspaceCanvas.tsx": {
-    "jsx-a11y/no-static-element-interactions": {
-      "count": 1
-    }
-  },
   "src/shared/components/3d/workspace/workspaceCameraSnapshot.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 3

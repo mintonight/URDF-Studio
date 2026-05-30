@@ -496,6 +496,9 @@ export const WorkspaceCanvas = ({
       onMouseLeave={handleMouseLeave}
       onWheelCapture={() => pulseInteraction()}
       onContextMenuCapture={(event) => event.preventDefault()}
+      role="button"
+      aria-label={`${robotName} workspace`}
+      tabIndex={-1}
     >
       {overlays}
       {shouldRenderCanvas ? (
