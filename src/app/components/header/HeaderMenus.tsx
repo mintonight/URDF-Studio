@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { ToolboxMenu } from './ToolboxMenu';
 import { HeaderButton } from './HeaderButton';
+import { HeaderMenuOverlay } from './HeaderMenuOverlay';
 import { HeaderMenuItem, HeaderMenuSeparator } from './HeaderMenuItem';
 import { ViewMenuItem } from './ViewMenuItem';
 import { toggleOptionsPanel, toggleViewPanel } from './viewMenuState.js';
@@ -47,10 +48,6 @@ interface HeaderMenusProps {
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
-}
-
-function MenuOverlay({ onClose }: { onClose: () => void }) {
-  return <div className="fixed inset-0 z-40" onClick={onClose} />;
 }
 
 export function HeaderMenus({
@@ -114,7 +111,7 @@ export function HeaderMenus({
 
         {activeMenu === 'file' && (
           <>
-            <MenuOverlay onClose={() => setActiveMenu(null)} />
+            <HeaderMenuOverlay onClose={() => setActiveMenu(null)} label={t.close} />
             <div
               className="absolute top-full left-0 mt-1 w-max bg-panel-bg dark:bg-panel-bg rounded-lg shadow-md dark:shadow-xl border border-border-black z-50 overflow-visible py-1"
               role="menu"
@@ -182,7 +179,7 @@ export function HeaderMenus({
 
         {activeMenu === 'edit' && (
           <>
-            <MenuOverlay onClose={() => setActiveMenu(null)} />
+            <HeaderMenuOverlay onClose={() => setActiveMenu(null)} label={t.close} />
             <div
               className="absolute top-full left-0 mt-1 w-max bg-panel-bg dark:bg-panel-bg rounded-lg shadow-md dark:shadow-xl border border-border-black z-50 overflow-visible py-1"
               role="menu"
@@ -258,7 +255,7 @@ export function HeaderMenus({
 
         {activeMenu === 'view' && (
           <>
-            <MenuOverlay onClose={() => setActiveMenu(null)} />
+            <HeaderMenuOverlay onClose={() => setActiveMenu(null)} label={t.close} />
             <div
               className="absolute top-full left-0 mt-1 w-auto min-w-[10.5rem] bg-panel-bg dark:bg-panel-bg rounded-lg shadow-md dark:shadow-xl border border-border-black z-50 overflow-hidden py-1"
               role="menu"

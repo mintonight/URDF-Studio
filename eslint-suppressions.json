@@ -121,30 +121,6 @@
       "count": 5
     }
   },
-  "src/app/components/header/HeaderMenus.tsx": {
-    "jsx-a11y/click-events-have-key-events": {
-      "count": 1
-    },
-    "jsx-a11y/no-static-element-interactions": {
-      "count": 1
-    }
-  },
-  "src/app/components/header/HeaderOverflowMenu.tsx": {
-    "jsx-a11y/click-events-have-key-events": {
-      "count": 1
-    },
-    "jsx-a11y/no-static-element-interactions": {
-      "count": 1
-    }
-  },
-  "src/app/components/header/ToolboxMenu.tsx": {
-    "jsx-a11y/click-events-have-key-events": {
-      "count": 1
-    },
-    "jsx-a11y/no-static-element-interactions": {
-      "count": 1
-    }
-  },
   "src/app/components/header/types.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1

@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import type { TranslationKeys } from '@/shared/i18n/types';
+import { HeaderMenuOverlay } from './HeaderMenuOverlay';
 import type { ToolboxItem } from './types';
 
 interface ToolboxMenuProps {
@@ -84,7 +85,7 @@ export function ToolboxMenu({ t, onClose, items }: ToolboxMenuProps) {
 
   return (
     <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <HeaderMenuOverlay onClose={onClose} label={t.close} />
       <div className="absolute top-full left-0 z-50 mt-1 w-[23rem] max-w-[calc(100vw-1rem)] rounded-2xl border border-border-black bg-panel-bg p-2 shadow-xl dark:shadow-black sm:left-1/2 sm:-translate-x-1/2">
         <div className="grid grid-cols-4 gap-x-0.5 gap-y-0.5">
           {items.map((item) => (

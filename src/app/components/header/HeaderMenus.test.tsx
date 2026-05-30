@@ -278,3 +278,33 @@ test('file menu opens the folder picker synchronously from the menu item click',
     domEnvironment.restore();
   }
 });
+
+test('file menu renders a semantic overlay button that closes the menu', async () => {
+  const domEnvironment = installDomEnvironment();
+  let closed = false;
+  const rendered = renderFileMenu({
+    setActiveMenu: (menu) => {
+      closed = menu === null;
+    },
+  });
+
+  try {
+    const overlayButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Close"][tabindex="-1"]',
+    );
+    assert.ok(overlayButton, 'expected semantic menu overlay button');
+
+    overlayButton.dispatchEvent(
+      new domEnvironment.dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    assert.equal(closed, true);
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    domEnvironment.restore();
+  }
+});

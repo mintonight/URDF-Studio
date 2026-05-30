@@ -10,6 +10,7 @@ import {
   Sun,
   Undo,
 } from 'lucide-react';
+import { HeaderMenuOverlay } from './HeaderMenuOverlay';
 import { HeaderMenuItem, HeaderMenuSeparator } from './HeaderMenuItem';
 import type { HeaderOverflowMenuProps } from './types';
 
@@ -66,7 +67,7 @@ export function HeaderOverflowMenu({
       </button>
       {activeMenu === 'more' && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setActiveMenu(null)} />
+          <HeaderMenuOverlay onClose={() => setActiveMenu(null)} label={t.close} />
           <div
             className="absolute top-full right-0 mt-1 w-auto min-w-[10.5rem] bg-panel-bg dark:bg-panel-bg rounded-lg shadow-md dark:shadow-xl border border-border-black z-50 overflow-hidden py-1"
             role="menu"
