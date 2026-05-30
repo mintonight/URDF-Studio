@@ -30,29 +30,29 @@ async function main() {
     // ── 1. Open source editor via UI ──
     const editorOpened = await page.evaluate(() => {
       const btn = [...document.querySelectorAll('button')].find((b) =>
-        /source|code|xml/i.test(b.textContent ?? '') || b.dataset?.action === 'source-editor');
+        /source|code|xml/i.test(`${b.textContent ?? ''} ${b.title ?? ''} ${b.getAttribute('aria-label') ?? ''}`) ||
+        b.dataset?.action === 'source-editor');
       btn?.click();
       return !!btn;
     });
     assert(suite, editorOpened, 'source editor button found and clicked');
-    await delay(500);
 
     // ── 2. Verify Monaco editor loaded with URDF XML ──
-    const hasMonaco = await page.evaluate(() => {
-      const editorEl = document.querySelector('.monaco-editor') ?? document.querySelector('[data-mode-id]');
-      return !!editorEl;
-    });
+    const hasMonaco = await page
+      .waitForSelector('.monaco-editor, [data-mode-id]', { timeout: 30_000 })
+      .then(() => true)
+      .catch(() => false);
     assert(suite, hasMonaco, 'Monaco editor present');
 
-    const editorContent = await page.evaluate(() => {
-      const lines = document.querySelectorAll('.view-line');
-      return lines.length > 0;
-    });
+    const editorContent = await page
+      .waitForFunction(() => document.querySelectorAll('.view-line').length > 0, { timeout: 30_000 })
+      .then(() => true)
+      .catch(() => false);
     assert(suite, editorContent, 'editor has content');
 
     // ── 3. Verify source contains robot XML ──
     const sourceText = await page.evaluate(() => {
-      const el = document.querySelector('.monaco-editor');
+      const el = document.querySelector('.monaco-editor') ?? document.querySelector('[data-mode-id]');
       if (!el) return '';
       return el.textContent ?? '';
     });
