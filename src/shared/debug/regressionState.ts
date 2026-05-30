@@ -5,6 +5,7 @@ import type {
   RobotState,
   UsdSceneSnapshot,
 } from '@/types';
+import type { RuntimeRobotObject } from '@/shared/components/3d/runtimeRobotTypes';
 
 type HighlightMode = 'link' | 'collision';
 
@@ -104,7 +105,7 @@ export const regressionDebugState: {
   appHandlers: AppRegressionHandlers | null;
   viewerHandlers: ViewerRegressionHandlers | null;
   viewerResourceScopeState: RegressionViewerResourceScopeState | null;
-  runtimeRobot: any | null;
+  runtimeRobot: RuntimeRobotObject | null;
   runtimeRevision: number;
   projectedInteractionTargetsProvider: (() => RegressionProjectedInteractionTarget[]) | null;
 } = {
@@ -130,7 +131,7 @@ export function setRegressionViewerResourceScope(
   regressionDebugState.viewerResourceScopeState = scope;
 }
 
-export function setRegressionRuntimeRobot(robot: any | null): void {
+export function setRegressionRuntimeRobot(robot: RuntimeRobotObject | null): void {
   regressionDebugState.runtimeRobot = robot;
   regressionDebugState.runtimeRevision += 1;
 }

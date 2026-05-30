@@ -15,6 +15,11 @@ export {
   createTestSuite, assert, assertEqual, assertGreaterThan, assertNonNull, printSummary,
   DEFAULT_OPERATION_TIMEOUT_MS,
   createSession, waitForReady, getTopology, getAssemblyState, getRuntimeTransforms,
+  getRegressionSnapshot, getProjectedInteractionTargets, getBestProjectedInteractionTarget,
+  getCanvasDiagnostics, clickCanvasTarget, dragCanvasByDelta, measureCanvasDrag,
+  measureInteractionFrames, getSemanticSnapshot, getMaterialSnapshot,
+  openSourceEditor, getSourceEditorText, replaceSourceEditorText, saveSourceEditor,
+  waitForRobotPredicate, assertNoBrowserErrors,
   findAvailableFile,
   store, writeReport,
 } from './base-helpers.mjs';

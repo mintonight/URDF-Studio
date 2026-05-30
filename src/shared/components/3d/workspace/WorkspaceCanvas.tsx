@@ -59,6 +59,7 @@ interface WorkspaceCanvasProps {
   onSnapshotActionChange?: (action: SnapshotCaptureAction | null) => void;
   previewAction?: React.RefObject<SnapshotPreviewAction | null>;
   onPreviewActionChange?: (action: SnapshotPreviewAction | null) => void;
+  subscribeGroundPlaneInvalidation?: (listener: () => void) => () => void;
   children: React.ReactNode;
   overlays?: React.ReactNode;
   onPointerMissed?: () => void;
@@ -147,6 +148,7 @@ export const WorkspaceCanvas = ({
   onSnapshotActionChange,
   previewAction,
   onPreviewActionChange,
+  subscribeGroundPlaneInvalidation,
   children,
   overlays,
   onPointerMissed,
@@ -564,6 +566,7 @@ export const WorkspaceCanvas = ({
                   theme={effectiveTheme}
                   groundOffset={groundOffset}
                   showShadow
+                  subscribeInvalidation={subscribeGroundPlaneInvalidation}
                 />
                 {showWorldOriginAxes && !snapshotRenderActive && <WorldOriginAxes />}
                 <WorkspaceOrbitControls

@@ -2,7 +2,7 @@
  * Main App Component
  * Root component that assembles all pieces together
  */
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Providers } from './Providers';
 import { AppLayout } from './AppLayout';
@@ -14,7 +14,6 @@ import { useImportInputBinding } from './hooks/useImportInputBinding';
 import { useUnsavedChangesPrompt } from './hooks/useUnsavedChangesPrompt';
 import { usePluginLaunch } from './hooks/usePluginLaunch';
 import { resolveRobotFileDataWithWorker } from './hooks/robotImportWorkerBridge';
-import { resolveCurrentUsdExportMode } from './utils/currentUsdExportMode';
 import {
   buildRobotLoadSupportContextKey,
   preserveDocumentLoadProgressForSameFile,
@@ -47,6 +46,7 @@ import {
 } from '@/store';
 import type { InspectionReport, RobotFile, RobotState } from '@/types';
 import type { HeaderAction } from './components/header/types';
+import { AppToast } from './components/AppToast';
 
 /** Render slots: allows external repos to inject extra modals and overlays */
 export interface AppExtensionSlots {
@@ -85,10 +85,8 @@ interface AppContentProps {
 }
 import type { RobotImportResult } from '@/core/parsers/importRobotFile';
 import { resolveMJCFSource } from '@/core/parsers/mjcf/mjcfSourceResolver';
-import { translations, type Language } from '@/shared/i18n';
-import { isLibraryRobotExportableFormat } from '@/shared/utils';
-import type { ExportDialogConfig } from '@/features/file-io/components/ExportDialog/ExportDialog';
-import type { ExportProgressState } from '@/features/file-io/types';
+import { translations } from '@/shared/i18n';
+import type { ExportDialogConfig, ExportProgressState } from '@/features/file-io';
 import type { ImportPreparationOverlayState } from './hooks/useFileImport';
 import { useAssetImportFromUrl } from './hooks/useAssetImportFromUrl';
 import { BotWorldImportOverlay } from './components/BotWorldImportOverlay';
@@ -105,25 +103,30 @@ import type {
   AIConversationMode,
   AIConversationSelection,
 } from '@/features/ai-assistant/types';
-import { toDocumentLoadLifecycleState } from '@/store/assetsStore';
+import type { ExportTarget } from './hooks/file-export/types';
+import {
+  createConversationLaunchContext,
+  resolveCurrentAIRobotSnapshot,
+} from './utils/aiConversationLaunch';
 
-const loadAIInspectionModalModule = () =>
-  import('@/features/ai-assistant/components/AIInspectionModal');
-const loadAIConversationModalModule = () =>
-  import('@/features/ai-assistant/components/AIConversationModal');
-const loadExportDialogModule = () => import('@/features/file-io');
+const loadAIInspectionConnectorModule = () => import('./components/ai/AIInspectionConnector');
+const loadAIConversationConnectorModule = () => import('./components/ai/AIConversationConnector');
+const loadExportDialogConnectorModule = () => import('./components/export/ExportDialogConnector');
 const loadDisconnectedWorkspaceUrdfExportDialogModule = () =>
-  import('@/features/file-io/components/DisconnectedWorkspaceUrdfExportDialog');
-const loadExportProgressDialogModule = () =>
-  import('@/features/file-io/components/ExportProgressDialog');
+  import('@/features/file-io');
+const loadExportProgressDialogModule = () => import('@/features/file-io');
 const loadSettingsModalModule = () => import('./components/SettingsModal');
 
-const AIInspectionModal = lazy(() =>
-  loadAIInspectionModalModule().then((module) => ({ default: module.AIInspectionModal })),
+const AIInspectionConnector = lazy(() =>
+  loadAIInspectionConnectorModule().then((module) => ({
+    default: module.AIInspectionConnector,
+  })),
 );
 
-const AIConversationModal = lazy(() =>
-  loadAIConversationModalModule().then((module) => ({ default: module.AIConversationModal })),
+const AIConversationConnector = lazy(() =>
+  loadAIConversationConnectorModule().then((module) => ({
+    default: module.AIConversationConnector,
+  })),
 );
 const DisconnectedWorkspaceUrdfExportDialog = lazy(() =>
   loadDisconnectedWorkspaceUrdfExportDialogModule().then((module) => ({
@@ -136,262 +139,15 @@ const ExportProgressDialog = lazy(() =>
   })),
 );
 
-const ExportDialog = lazy(() =>
-  loadExportDialogModule().then((module) => ({ default: module.ExportDialog })),
+const ExportDialogConnector = lazy(() =>
+  loadExportDialogConnectorModule().then((module) => ({
+    default: module.ExportDialogConnector,
+  })),
 );
 
 const SettingsModal = lazy(() =>
   loadSettingsModalModule().then((module) => ({ default: module.SettingsModal })),
 );
-
-function cloneAISnapshot<T>(value: T): T {
-  if (typeof structuredClone === 'function') {
-    return structuredClone(value);
-  }
-
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function resolveConversationSelectedEntity(robotSnapshot: RobotState) {
-  if (!robotSnapshot.selection.type || !robotSnapshot.selection.id) {
-    return null;
-  }
-
-  if (robotSnapshot.selection.type !== 'link' && robotSnapshot.selection.type !== 'joint') {
-    return null;
-  }
-
-  return {
-    type: robotSnapshot.selection.type,
-    id: robotSnapshot.selection.id,
-  };
-}
-
-function createConversationLaunchContext({
-  sessionId,
-  mode,
-  robotSnapshot,
-  inspectionReportSnapshot = null,
-  selectedEntity = null,
-  focusedIssue = null,
-}: {
-  sessionId: number;
-  mode: AIConversationMode;
-  robotSnapshot: RobotState;
-  inspectionReportSnapshot?: InspectionReport | null;
-  selectedEntity?: AIConversationSelection | null;
-  focusedIssue?: AIConversationFocusedIssue | null;
-}): AIConversationLaunchContext {
-  const nextRobotSnapshot = cloneAISnapshot(robotSnapshot);
-  const nextFocusedIssue = focusedIssue ? cloneAISnapshot(focusedIssue) : null;
-
-  return {
-    sessionId,
-    mode,
-    robotSnapshot: nextRobotSnapshot,
-    inspectionReportSnapshot: inspectionReportSnapshot
-      ? cloneAISnapshot(inspectionReportSnapshot)
-      : null,
-    selectedEntity: selectedEntity
-      ? cloneAISnapshot(selectedEntity)
-      : resolveConversationSelectedEntity(nextRobotSnapshot),
-    focusedIssue: nextFocusedIssue,
-  };
-}
-
-function AIInspectionConnector({
-  isOpen,
-  onClose,
-  lang,
-  onOpenConversationWithReport,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  lang: Language;
-  onOpenConversationWithReport: (
-    report: InspectionReport,
-    robotSnapshot: RobotState,
-    options?: {
-      selectedEntity?: AIConversationSelection | null;
-      focusedIssue?: AIConversationFocusedIssue | null;
-    },
-  ) => void;
-}) {
-  const { selection, setSelection, focusOn, pulseSelection } = useSelectionStore(
-    useShallow((state) => ({
-      selection: state.selection,
-      setSelection: state.setSelection,
-      focusOn: state.focusOn,
-      pulseSelection: state.pulseSelection,
-    })),
-  );
-  const {
-    robotName,
-    robotLinks,
-    robotJoints,
-    rootLinkId,
-    robotMaterials,
-    robotClosedLoopConstraints,
-    inspectionContext,
-  } = useRobotStore(
-    useShallow((state) => ({
-      robotName: state.name,
-      robotLinks: state.links,
-      robotJoints: state.joints,
-      rootLinkId: state.rootLinkId,
-      robotMaterials: state.materials,
-      robotClosedLoopConstraints: state.closedLoopConstraints,
-      inspectionContext: state.inspectionContext,
-    })),
-  );
-  const { assemblyState, getMergedRobotData } = useRobotStore(
-    useShallow((state) => ({
-      assemblyState: state.assemblyState,
-      getMergedRobotData: state.getMergedRobotData,
-    })),
-  );
-
-  const mergedWorkspaceRobot = useMemo(() => {
-    if (!assemblyState) {
-      return null;
-    }
-
-    return getMergedRobotData();
-  }, [assemblyState, getMergedRobotData]);
-
-  const robot: RobotState = useMemo(() => {
-    if (mergedWorkspaceRobot) {
-      return {
-        ...mergedWorkspaceRobot,
-        selection,
-      };
-    }
-
-    return {
-      name: robotName,
-      links: robotLinks,
-      joints: robotJoints,
-      rootLinkId,
-      materials: robotMaterials,
-      closedLoopConstraints: robotClosedLoopConstraints,
-      inspectionContext,
-      selection,
-    };
-  }, [
-    mergedWorkspaceRobot,
-    robotJoints,
-    robotLinks,
-    robotName,
-    rootLinkId,
-    robotMaterials,
-    robotClosedLoopConstraints,
-    inspectionContext,
-    selection,
-  ]);
-
-  return (
-    <AIInspectionModal
-      isOpen={isOpen}
-      onClose={onClose}
-      robot={robot}
-      lang={lang}
-      onSelectItem={(type, id) => {
-        setSelection({ type, id });
-        pulseSelection({ type, id });
-        focusOn(id);
-      }}
-      onOpenConversationWithReport={onOpenConversationWithReport}
-    />
-  );
-}
-
-function AIConversationConnector({
-  isOpen,
-  onClose,
-  lang,
-  launchContext,
-  onStartNewConversation,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  lang: Language;
-  launchContext: AIConversationLaunchContext | null;
-  onStartNewConversation: (launchContext: AIConversationLaunchContext) => void;
-}) {
-  return (
-    <AIConversationModal
-      isOpen={isOpen}
-      onClose={onClose}
-      lang={lang}
-      launchContext={launchContext}
-      onStartNewConversation={onStartNewConversation}
-    />
-  );
-}
-
-function ExportDialogConnector({
-  target,
-  lang,
-  isExporting,
-  onClose,
-  onExport,
-}: {
-  target: ExportDialogTarget;
-  lang: Language;
-  isExporting: boolean;
-  onClose: () => void;
-  onExport: (
-    config: ExportDialogConfig,
-    options?: { onProgress?: (progress: ExportProgressState) => void },
-  ) => Promise<void>;
-}) {
-  const { selectedFile, documentLoadState, getUsdSceneSnapshot, getUsdPreparedExportCache } =
-    useAssetsStore(
-      useShallow((state) => ({
-        selectedFile: state.selectedFile,
-        documentLoadState: state.documentLoadState,
-        getUsdSceneSnapshot: state.getUsdSceneSnapshot,
-        getUsdPreparedExportCache: state.getUsdPreparedExportCache,
-      })),
-    );
-  const documentLoadLifecycleState = useMemo(
-    () => toDocumentLoadLifecycleState(documentLoadState),
-    [documentLoadState],
-  );
-
-  const isSelectedUsdHydrating =
-    selectedFile?.format === 'usd' &&
-    documentLoadLifecycleState.status === 'hydrating' &&
-    documentLoadLifecycleState.fileName === selectedFile.name;
-
-  const currentUsdExportMode =
-    selectedFile?.format === 'usd'
-      ? resolveCurrentUsdExportMode({
-          isHydrating: isSelectedUsdHydrating,
-          hasPreparedExportCache: Boolean(getUsdPreparedExportCache(selectedFile.name)),
-          hasSceneSnapshot: Boolean(getUsdSceneSnapshot(selectedFile.name)),
-        })
-      : 'unavailable';
-
-  const canExportUsd =
-    target.type === 'current'
-      ? selectedFile?.format === 'usd'
-        ? currentUsdExportMode !== 'unavailable'
-        : !isSelectedUsdHydrating
-      : isLibraryRobotExportableFormat(target.file.format);
-  const defaultFormat: ExportDialogConfig['format'] = 'mjcf';
-
-  return (
-    <ExportDialog
-      onClose={onClose}
-      onExport={onExport}
-      lang={lang}
-      isExporting={isExporting}
-      canExportUsd={canExportUsd}
-      defaultFormat={defaultFormat}
-    />
-  );
-}
 
 function waitForNextPaint(): Promise<void> {
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
@@ -405,32 +161,13 @@ function waitForNextPaint(): Promise<void> {
   });
 }
 
-type ExportDialogTarget = { type: 'current' } | { type: 'library-file'; file: RobotFile };
-
-function resolveCurrentAIRobotSnapshot(): RobotState {
-  const { selection } = useSelectionStore.getState();
-  const { assemblyState, getMergedRobotData } = useRobotStore.getState();
-  const robotState = useRobotStore.getState();
-
-  if (assemblyState) {
-    const mergedWorkspaceRobot = getMergedRobotData();
-    if (mergedWorkspaceRobot) {
-      return cloneAISnapshot({
-        ...mergedWorkspaceRobot,
-        selection,
-      });
-    }
+function waitForAnimationFrame(): Promise<void> {
+  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+    return Promise.resolve();
   }
 
-  return cloneAISnapshot({
-    name: robotState.name,
-    links: robotState.links,
-    joints: robotState.joints,
-    rootLinkId: robotState.rootLinkId,
-    materials: robotState.materials,
-    closedLoopConstraints: robotState.closedLoopConstraints,
-    inspectionContext: robotState.inspectionContext,
-    selection,
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
   });
 }
 
@@ -454,7 +191,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   const [aiConversationLaunchContext, setAIConversationLaunchContext] =
     useState<AIConversationLaunchContext | null>(null);
   const lastLoadSupportContextKeyRef = useRef<string | null>(null);
-  const [exportDialogTarget, setExportDialogTarget] = useState<ExportDialogTarget>({
+  const [exportDialogTarget, setExportDialogTarget] = useState<ExportTarget>({
     type: 'current',
   });
   const [disconnectedWorkspaceUrdfDialog, setDisconnectedWorkspaceUrdfDialog] = useState<{
@@ -1141,7 +878,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
     }
 
     setShouldRenderAIInspectionModal(true);
-    void loadAIInspectionModalModule();
+    void loadAIInspectionConnectorModule();
     openAIInspection();
   }, [ensureAIEntryAvailable, openAIInspection]);
 
@@ -1152,7 +889,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
 
     if (aiConversationLaunchContext?.mode === 'general') {
       setShouldRenderAIConversationModal(true);
-      void loadAIConversationModalModule();
+      void loadAIConversationConnectorModule();
       openAIConversation();
       return;
     }
@@ -1164,7 +901,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
 
     setAIConversationLaunchContext(launchContext);
     setShouldRenderAIConversationModal(true);
-    void loadAIConversationModalModule();
+    void loadAIConversationConnectorModule();
     openAIConversation();
   }, [
     aiConversationLaunchContext,
@@ -1195,7 +932,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
 
       setAIConversationLaunchContext(launchContext);
       setShouldRenderAIConversationModal(true);
-      void loadAIConversationModalModule();
+      void loadAIConversationConnectorModule();
       setIsAIConversationOpen(true);
       setAILaunchMode('conversation');
     },
@@ -1225,18 +962,71 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   );
 
   const handleOpenExportDialog = useCallback(() => {
-    void loadExportDialogModule();
+    void loadExportDialogConnectorModule();
     setExportDialogTarget({ type: 'current' });
     setIsExportDialogOpen(true);
   }, [setIsExportDialogOpen]);
 
   const handleOpenLibraryExportDialog = useCallback(
     (file: RobotFile) => {
-      void loadExportDialogModule();
+      void loadExportDialogConnectorModule();
       setExportDialogTarget({ type: 'library-file', file });
       setIsExportDialogOpen(true);
     },
     [setIsExportDialogOpen],
+  );
+
+  const handleExportDialogExport = useCallback(
+    async (
+      config: ExportDialogConfig,
+      options?: { onProgress?: (progress: ExportProgressState) => void },
+    ) => {
+      setIsExporting(true);
+      await waitForAnimationFrame();
+      try {
+        const result =
+          config.format === 'project'
+            ? await runProjectExport({
+                onProgress: options?.onProgress,
+              })
+            : await handleExportWithConfig(config, exportDialogTarget, {
+                onProgress: options?.onProgress,
+              });
+        if (result.actionRequired?.type === 'disconnected-workspace-urdf') {
+          void loadDisconnectedWorkspaceUrdfExportDialogModule();
+          setDisconnectedWorkspaceUrdfDialog({
+            config,
+            request: result.actionRequired,
+          });
+          setIsExportDialogOpen(false);
+          return;
+        }
+        if (result.partial && result.warnings.length > 0) {
+          showToast(result.warnings[0], 'info');
+        }
+        setIsExportDialogOpen(false);
+      } catch (error) {
+        showToast(
+          resolveExportErrorMessage(error, {
+            exportFailedParse: t.exportFailedParse,
+            exportUrdfBallJointUnsupported: t.exportUrdfBallJointUnsupported,
+          }),
+          'error',
+        );
+      } finally {
+        setIsExporting(false);
+      }
+    },
+    [
+      exportDialogTarget,
+      handleExportWithConfig,
+      runProjectExport,
+      setIsExportDialogOpen,
+      setIsExporting,
+      showToast,
+      t.exportFailedParse,
+      t.exportUrdfBallJointUnsupported,
+    ],
   );
 
   // Expose internal actions to external consumers (ref keeps the reference fresh)
@@ -1258,7 +1048,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   }, [runProjectExport]);
 
   const handleCollectRawFilesBlob = useCallback(async (): Promise<Blob> => {
-    const { collectRawFilesZip } = await import('@/features/file-io/utils/rawFilesExport');
+    const { collectRawFilesZip } = await import('@/features/file-io');
     const assetsState = useAssetsStore.getState();
     return collectRawFilesZip({
       assets: assetsState.assets,
@@ -1332,22 +1122,6 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   ]);
 
   const loadingLabel = t.loadingPanel;
-  const toastPresentation =
-    toast.type === 'success'
-      ? {
-          badgeClassName: 'border border-success-border bg-success-soft text-success',
-          iconPath: 'M5 13l4 4L19 7',
-        }
-      : toast.type === 'error'
-        ? {
-            badgeClassName: 'border border-danger-border bg-danger-soft text-danger',
-            iconPath:
-              'M12 8v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z',
-          }
-        : {
-            badgeClassName: 'border border-system-blue/20 bg-system-blue/10 text-system-blue',
-            iconPath: 'M12 8h.01M11 12h1v4h1m-1-13a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z',
-          };
 
   return (
     <>
@@ -1421,39 +1195,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
                 setIsExportDialogOpen(false);
               }
             }}
-            onExport={async (config, options) => {
-              setIsExporting(true);
-              await new Promise<void>((resolve) => {
-                requestAnimationFrame(() => resolve());
-              });
-              try {
-                const result =
-                  config.format === 'project'
-                    ? await runProjectExport({
-                        onProgress: options?.onProgress,
-                      })
-                    : await handleExportWithConfig(config, exportDialogTarget, {
-                        onProgress: options?.onProgress,
-                      });
-                if (result.actionRequired?.type === 'disconnected-workspace-urdf') {
-                  void loadDisconnectedWorkspaceUrdfExportDialogModule();
-                  setDisconnectedWorkspaceUrdfDialog({
-                    config,
-                    request: result.actionRequired,
-                  });
-                  setIsExportDialogOpen(false);
-                  return;
-                }
-                if (result.partial && result.warnings.length > 0) {
-                  showToast(result.warnings[0], 'info');
-                }
-                setIsExportDialogOpen(false);
-              } catch (error) {
-                showToast(resolveExportErrorMessage(error, t), 'error');
-              } finally {
-                setIsExporting(false);
-              }
-            }}
+            onExport={handleExportDialogExport}
           />
         </Suspense>
       )}
@@ -1488,40 +1230,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       {extensions?.slots?.renderModals?.()}
 
       {/* Toast */}
-      {toast.show && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[200] animate-in fade-in slide-in-from-top-4 duration-300">
-          <div className="flex max-w-[min(44rem,calc(100vw-2rem))] items-center gap-2.5 rounded-[1.75rem] border border-border-black bg-panel-bg px-3.5 py-2.5 shadow-2xl dark:shadow-black/40">
-            <div
-              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${toastPresentation.badgeClassName}`}
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d={toastPresentation.iconPath}
-                />
-              </svg>
-            </div>
-            <div className="flex min-h-6 min-w-0 flex-1 items-center whitespace-pre-line break-words text-[15px] font-semibold leading-5 text-text-primary">
-              {toast.message}
-            </div>
-            <button
-              onClick={closeToast}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-element-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
+      <AppToast toast={toast} onClose={closeToast} />
 
       {/* Extension slot: top overlay layer (highest z-index) */}
       {extensions?.slots?.renderTopOverlays?.()}

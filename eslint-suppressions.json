@@ -92,7 +92,7 @@
       "count": 5
     },
     "react-hooks/exhaustive-deps": {
-      "count": 2
+      "count": 1
     }
   },
   "src/app/components/SettingsModal.test.tsx": {
@@ -443,9 +443,6 @@
     }
   },
   "src/core/utils/meshMaterialGroups.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
@@ -548,7 +545,7 @@
   },
   "src/features/property-editor/components/GeometryEditor.tsx": {
     "react-hooks/exhaustive-deps": {
-      "count": 3
+      "count": 2
     }
   },
   "src/features/property-editor/components/LinkProperties.tsx": {
@@ -727,7 +724,7 @@
   },
   "src/features/urdf-viewer/types.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 2
+      "count": 1
     }
   },
   "src/features/urdf-viewer/utils/capsulePostProcessor.ts": {
@@ -964,24 +961,6 @@
       "count": 1
     }
   },
-  "src/shared/components/3d/renderers/loadedRobotSceneSync.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    }
-  },
-  "src/shared/components/3d/renderers/types.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/shared/components/3d/runtimeGeometrySelection.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    }
-  },
   "src/shared/components/3d/scene/snapshotSceneQuality.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
@@ -1093,18 +1072,8 @@
       "count": 1
     }
   },
-  "src/shared/debug/regressionState.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    }
-  },
   "src/shared/hooks/useDraggableWindow.ts": {
     "react-hooks/exhaustive-deps": {
-      "count": 2
-    }
-  },
-  "src/shared/utils/jointTypes.ts": {
-    "@typescript-eslint/no-explicit-any": {
       "count": 2
     }
   },
@@ -1126,11 +1095,6 @@
   "src/shared/utils/three/dispose.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 2
-    }
-  },
-  "src/shared/utils/threeBounds.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
     }
   },
   "src/store/assemblyStore.import.test.ts": {

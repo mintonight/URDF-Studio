@@ -18,6 +18,7 @@ import {
 } from '../urdfMaterials';
 import { applyVisualMeshShadowPolicy } from '@/core/utils/visualMeshShadowPolicy';
 import { getGeometryObjectIndexUserDataKey } from '../runtimeGeometrySelection';
+import { asRuntimeObject3D, asRuntimeRobotObject } from '../runtimeRobotTypes';
 
 export interface SyncLoadedRobotSceneOptions {
   robot: THREE.Object3D;
@@ -490,7 +491,7 @@ export function syncLoadedRobotScene({
   // source material instead of cloning it per mesh — that was a ~100×
   // duplicate-clone hot path on multi-geom models like anymal_b.
   const enhancedMaterialMemo = new Map<THREE.Material, THREE.Material>();
-  const robotLinks = (robot as any).links as Record<string, THREE.Object3D> | undefined;
+  const robotLinks = asRuntimeRobotObject(robot).links;
   const mjcfVisualOwnershipByRuntimeLink =
     sourceFormat === 'mjcf'
       ? buildMjcfVisualOwnershipByRuntimeLink(robotLinkData)
@@ -514,7 +515,7 @@ export function syncLoadedRobotScene({
   }
 
   const isLinkNode = (object: THREE.Object3D): boolean =>
-    Boolean((object as any).isURDFLink || robotLinks?.[object.name]);
+    Boolean(asRuntimeObject3D(object).isURDFLink || robotLinks?.[object.name]);
 
   const processCollisionMesh = (mesh: THREE.Mesh, parentLink: THREE.Object3D | null) => {
     if (mesh.userData?.isCollisionMesh !== true || mesh.userData?.isVisualMesh !== false) {
@@ -711,7 +712,7 @@ export function syncLoadedRobotScene({
   ) => {
     const nextParentLink = isLinkNode(node) ? node : parentLink;
     const nodeIsCollider = Boolean(
-      (node as any).isURDFCollider || node.userData?.isCollisionGroup === true,
+      asRuntimeObject3D(node).isURDFCollider || node.userData?.isCollisionGroup === true,
     );
     const nextInsideCollider = insideCollider || nodeIsCollider;
 

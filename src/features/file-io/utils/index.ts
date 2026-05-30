@@ -28,7 +28,7 @@ export type {
   ExportLibraryRobotFileResult,
 } from './libraryFileExport';
 
-export { getDroppedFiles } from './fileTraverser';
+export { getDroppedFiles, getDroppedFilesFromEntries } from './fileTraverser';
 export { createImportPathCollisionMap, remapImportedPath } from './libraryImportPathCollisions';
 
 export { exportProject, exportProjectWithWorker } from './projectExport';

@@ -5,7 +5,7 @@
  */
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { Upload, File, Wand, Check, Trash2, Eye } from 'lucide-react';
-import type { RobotState, UrdfLink, UrdfVisual, UrdfVisualMaterial } from '@/types';
+import type { RobotState, UrdfLink, UrdfVisual } from '@/types';
 import { GeometryType } from '@/types';
 import { translations } from '@/shared/i18n';
 import { useCollisionTransformStore, useSelectionStore } from '@/store';
@@ -46,12 +46,15 @@ import {
   mergeColorOpacityValue,
   mergeColorPickerHexValue,
 } from '../utils/colorInput';
-import type {
-  MeshAnalysis,
-  MeshAnalysisOptions,
-  MeshClearanceObstacle,
-} from '../utils/geometryConversion';
-import { analyzeMeshBatchWithWorker } from '../utils/meshAnalysisWorkerBridge';
+import {
+  clampMaterialOpacity,
+  getAuthoredMaterialOpacity,
+  getUniqueAuthoredMaterialColors,
+  normalizeMaterialColor,
+  withAuthoredMaterialOpacity,
+} from '../utils/geometryMaterial';
+import type { MeshAnalysis, MeshClearanceObstacle } from '../utils/geometryConversion';
+import { useGeometryMeshAnalysis } from '../utils/useGeometryMeshAnalysis';
 import {
   GEOMETRY_DIMENSION_STEP,
   MAX_GEOMETRY_DIMENSION_DECIMALS,
@@ -62,13 +65,6 @@ import {
 } from '@/core/loaders/colladaRootNormalization';
 import { cleanFilePath } from '@/core/loaders';
 import { TransformFields } from './TransformFields';
-import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
-
-const GEOMETRY_EDITOR_MESH_ANALYSIS_OPTIONS = {
-  includePrimitiveFits: true,
-  includeSurfacePoints: false,
-  pointCollectionLimit: 2048,
-} satisfies MeshAnalysisOptions;
 
 const GEOMETRY_EDITOR_COMPACT_ACTIONS_WIDTH = 360;
 const GEOMETRY_EDITOR_RELAXED_OVERLAP_ALLOWANCE_RATIO = 0.12;
@@ -346,55 +342,6 @@ const stripAxisSuffix = (label: string) => label.replace(/\s*\([^)]*\)\s*$/, '')
 const MATERIAL_OPACITY_STEP = 0.05;
 const MATERIAL_OPACITY_DECIMALS = 3;
 
-function clampMaterialOpacity(value: number): number {
-  if (!Number.isFinite(value)) {
-    return 1;
-  }
-
-  return Math.min(1, Math.max(0, value));
-}
-
-function getAuthoredMaterialOpacity(
-  material: UrdfVisualMaterial | null | undefined,
-  fallbackColor?: string | null,
-): number {
-  if (Number.isFinite(material?.opacity)) {
-    return clampMaterialOpacity(Number(material?.opacity));
-  }
-
-  if (
-    Array.isArray(material?.colorRgba) &&
-    material.colorRgba.length === 4 &&
-    Number.isFinite(material.colorRgba[3])
-  ) {
-    return clampMaterialOpacity(Number(material.colorRgba[3]));
-  }
-
-  return getColorOpacityValue(material?.color, getColorOpacityValue(fallbackColor, 1));
-}
-
-function withAuthoredMaterialOpacity(
-  material: UrdfVisualMaterial,
-  opacity: number,
-): UrdfVisualMaterial {
-  const nextOpacity = clampMaterialOpacity(opacity);
-  return {
-    ...material,
-    ...(material.color ? { color: mergeColorOpacityValue(material.color, nextOpacity) } : {}),
-    ...(material.colorRgba
-      ? {
-          colorRgba: [
-            material.colorRgba[0],
-            material.colorRgba[1],
-            material.colorRgba[2],
-            nextOpacity,
-          ] as [number, number, number, number],
-        }
-      : {}),
-    opacity: nextOpacity,
-  };
-}
-
 const InlineDimensionInputRow = ({
   fields,
   columns = 3,
@@ -462,12 +409,6 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
   const [previewMeshPath, setPreviewMeshPath] = useState<string | null>(null);
   const [previewTexturePath, setPreviewTexturePath] = useState<string | null>(null);
   const geometryHeaderRowRef = useRef<HTMLDivElement>(null);
-  const meshAnalysisRef = useRef<MeshAnalysis | null>(null);
-  const meshAnalysisKeyRef = useRef<string | null>(null);
-  const meshAnalysisCacheRef = useRef<Record<string, MeshAnalysis | null>>({});
-  const meshAnalysisPromiseCacheRef = useRef<Partial<Record<string, Promise<MeshAnalysis | null>>>>(
-    {},
-  );
   const typeChangeRequestRef = useRef(0);
   const [geometryHeaderRowWidth, setGeometryHeaderRowWidth] = useState<number | null>(null);
   const setSelection = useSelectionStore((state) => state.setSelection);
@@ -499,6 +440,11 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
     category === 'collision'
       ? selectedCollisionGeometry?.geometry || data.collision
       : selectedVisualGeometry?.geometry || data.visual;
+  const { meshAnalysisRef, resolveMeshAnalysisForGeometry } = useGeometryMeshAnalysis({
+    assets,
+    geometry: geomData,
+    sourceFilePath,
+  });
   const colladaRootNormalizationHints = useMemo(
     () => buildColladaRootNormalizationHints(robot.links),
     [robot.links],
@@ -599,24 +545,8 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
     color: source?.color,
   });
 
-  const normalizeColor = (value?: string) => value?.trim().toLowerCase();
   const authoredMaterialColors = useMemo(() => {
-    const uniqueColors: string[] = [];
-    const seenColors = new Set<string>();
-
-    for (const material of geomData.authoredMaterials ?? []) {
-      const rawColor = material.color?.trim();
-      const normalizedColor = normalizeColor(rawColor);
-
-      if (!rawColor || !normalizedColor || seenColors.has(normalizedColor)) {
-        continue;
-      }
-
-      seenColors.add(normalizedColor);
-      uniqueColors.push(rawColor);
-    }
-
-    return uniqueColors;
+    return getUniqueAuthoredMaterialColors(geomData.authoredMaterials);
   }, [geomData.authoredMaterials]);
   const hasReadonlyAuthoredMaterialDisplay =
     category === 'visual' &&
@@ -687,42 +617,6 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
     };
   }, [category, data.id, geomData.origin, pendingCollisionTransform, selectedCollisionObjectIndex]);
 
-  const createMeshAnalysisKey = (geometry: Pick<UrdfVisual, 'meshPath' | 'dimensions'>) =>
-    [
-      geometry.meshPath ?? '',
-      geometry.dimensions?.x ?? 1,
-      geometry.dimensions?.y ?? 1,
-      geometry.dimensions?.z ?? 1,
-      sourceFilePath ?? '',
-    ].join('::');
-
-  const analyzeMeshGeometry = async (
-    geometry: Pick<UrdfVisual, 'meshPath' | 'dimensions' | 'type'>,
-    signal?: AbortSignal,
-  ): Promise<MeshAnalysis | null> => {
-    if (geometry.type !== GeometryType.MESH || !geometry.meshPath) {
-      return null;
-    }
-
-    const analysisKey = createMeshAnalysisKey(geometry);
-    const workerResults = await analyzeMeshBatchWithWorker({
-      assets,
-      tasks: [
-        {
-          targetId: analysisKey,
-          cacheKey: analysisKey,
-          meshPath: geometry.meshPath,
-          dimensions: geometry.dimensions,
-          sourceFilePath,
-        },
-      ],
-      options: GEOMETRY_EDITOR_MESH_ANALYSIS_OPTIONS,
-      signal,
-    });
-
-    return workerResults[analysisKey] ?? null;
-  };
-
   const update = (newData: Partial<typeof geomData>) => {
     if (category === 'collision') {
       if (selectedCollisionGeometry) {
@@ -792,103 +686,6 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
   useEffect(() => {
     setPreviewTexturePath(null);
   }, [category, data.id, selectedVisualObjectIndex]);
-
-  useEffect(() => {
-    if (geomData.type !== GeometryType.MESH || !geomData.meshPath) {
-      return;
-    }
-    const analysisKey = createMeshAnalysisKey(geomData);
-    if (meshAnalysisKeyRef.current === analysisKey && meshAnalysisRef.current) {
-      return;
-    }
-    if (meshAnalysisPromiseCacheRef.current[analysisKey]) {
-      return;
-    }
-    meshAnalysisKeyRef.current = analysisKey;
-    meshAnalysisRef.current = null;
-    const controller = new AbortController();
-    const analysisPromise = analyzeMeshGeometry(geomData, controller.signal);
-    meshAnalysisPromiseCacheRef.current[analysisKey] = analysisPromise;
-    void analysisPromise
-      .then((analysis) => {
-        if (meshAnalysisPromiseCacheRef.current[analysisKey] === analysisPromise) {
-          delete meshAnalysisPromiseCacheRef.current[analysisKey];
-        }
-        if (!controller.signal.aborted) {
-          meshAnalysisCacheRef.current[analysisKey] = analysis;
-          meshAnalysisRef.current = analysis;
-        }
-      })
-      .catch((error) => {
-        if (meshAnalysisPromiseCacheRef.current[analysisKey] === analysisPromise) {
-          delete meshAnalysisPromiseCacheRef.current[analysisKey];
-        }
-        if (!controller.signal.aborted) {
-          scheduleFailFastInDev(
-            'GeometryEditor:meshAnalysis',
-            new Error(`Failed to analyze mesh geometry for ${geomData.meshPath}.`, {
-              cause: error,
-            }),
-          );
-        }
-      });
-    return () => {
-      controller.abort();
-    };
-  }, [
-    geomData.meshPath,
-    geomData.type,
-    geomData.dimensions?.x,
-    geomData.dimensions?.y,
-    geomData.dimensions?.z,
-    assets,
-    sourceFilePath,
-  ]);
-
-  const resolveMeshAnalysisForGeometry = async (
-    geometry: UrdfVisual,
-  ): Promise<MeshAnalysis | null> => {
-    if (geometry.type !== GeometryType.MESH || !geometry.meshPath) {
-      return null;
-    }
-
-    const analysisKey = createMeshAnalysisKey(geometry);
-    if (analysisKey in meshAnalysisCacheRef.current) {
-      return meshAnalysisCacheRef.current[analysisKey];
-    }
-    if (meshAnalysisKeyRef.current === analysisKey && meshAnalysisRef.current) {
-      meshAnalysisCacheRef.current[analysisKey] = meshAnalysisRef.current;
-      return meshAnalysisRef.current;
-    }
-
-    const pendingAnalysis = meshAnalysisPromiseCacheRef.current[analysisKey];
-    if (pendingAnalysis) {
-      const analysis = await pendingAnalysis;
-      meshAnalysisCacheRef.current[analysisKey] = analysis;
-      return analysis;
-    }
-
-    const analysisPromise = analyzeMeshGeometry(geometry);
-    meshAnalysisPromiseCacheRef.current[analysisKey] = analysisPromise;
-    try {
-      const analysis = await analysisPromise;
-      meshAnalysisCacheRef.current[analysisKey] = analysis;
-
-      if (
-        geometry.meshPath === geomData.meshPath &&
-        analysisKey === createMeshAnalysisKey(geomData)
-      ) {
-        meshAnalysisKeyRef.current = analysisKey;
-        meshAnalysisRef.current = analysis;
-      }
-
-      return analysis;
-    } finally {
-      if (meshAnalysisPromiseCacheRef.current[analysisKey] === analysisPromise) {
-        delete meshAnalysisPromiseCacheRef.current[analysisKey];
-      }
-    }
-  };
 
   const resolveCollisionClearanceContext = async (): Promise<{
     siblingGeometries?: UrdfVisual[];
@@ -1095,7 +892,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
         Boolean(representativeMeshColor) &&
         newType !== GeometryType.MESH &&
         (!cachedTarget.color ||
-          normalizeColor(cachedTarget.color) === normalizeColor(geomData.color));
+          normalizeMaterialColor(cachedTarget.color) === normalizeMaterialColor(geomData.color));
 
       update({
         type: newType,

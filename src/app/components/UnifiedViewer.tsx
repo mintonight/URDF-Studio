@@ -37,6 +37,7 @@ import {
   shouldRestoreUnifiedViewerOptionsPanel,
 } from '@/app/utils/unifiedViewerOptionsRestore';
 import { useUIStore } from '@/store';
+import { subscribeRobotGroundPlaneInvalidation } from '@/store/robotGroundPlaneInvalidation';
 import type { AssemblySelection } from '@/store/assemblySelectionStore';
 import type { DocumentLoadLifecycleState } from '@/store/assetsStore';
 import type { UpdateCommitOptions } from '@/types/viewer';
@@ -596,6 +597,7 @@ export const UnifiedViewer = React.memo(
         onMouseLeave={handleWorkspaceMouseLeave}
         environment={workspaceEnvironment}
         environmentIntensity={workspaceEnvironmentIntensity}
+        subscribeGroundPlaneInvalidation={subscribeRobotGroundPlaneInvalidation}
         cameraFollowPrimary={useViewerCanvasPresentation}
         controlLayerKey={controlLayerKey}
         gizmoMargin={gizmoMargin}

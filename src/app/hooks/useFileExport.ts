@@ -16,7 +16,7 @@ import {
 import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
 import { useAssetsStore, useRobotStore, useUIStore } from '@/store';
 import { toDocumentLoadLifecycleState } from '@/store/assetsStore';
-import type { ExportDialogConfig } from '@/features/file-io';
+import type { ExportDialogConfig, PrepareMjcfMeshExportAssetsOptions } from '@/features/file-io';
 import { translations } from '@/shared/i18n';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
 import type { RobotAssetPackagingFailure } from '../utils/exportArchiveAssets';
@@ -78,11 +78,9 @@ async function createZip(): Promise<JSZipInstance> {
 }
 
 async function prepareMjcfMeshExportAssetsLazy(
-  params: Parameters<
-    typeof import('@/features/file-io/utils/mjcfMeshExport').prepareMjcfMeshExportAssets
-  >[0],
+  params: PrepareMjcfMeshExportAssetsOptions,
 ) {
-  const { prepareMjcfMeshExportAssets } = await import('@/features/file-io/utils/mjcfMeshExport');
+  const { prepareMjcfMeshExportAssets } = await import('@/features/file-io');
   return prepareMjcfMeshExportAssets(params);
 }
 

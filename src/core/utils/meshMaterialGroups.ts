@@ -11,6 +11,8 @@ export type MeshFaceSelectionScope = 'face' | 'island';
 
 const FACE_ISLAND_NORMAL_DOT_THRESHOLD = Math.cos((18 * Math.PI) / 180);
 
+type RuntimeVisualObject = THREE.Object3D & { isURDFVisual?: boolean };
+
 interface FaceIslandTopology {
   normals: THREE.Vector3[];
   adjacency: number[][];
@@ -284,7 +286,7 @@ function createPaletteMaterial(
 export function resolveRuntimeMeshRootWithinVisual(mesh: THREE.Object3D): THREE.Object3D {
   let current: THREE.Object3D = mesh;
 
-  while (current.parent && !(current.parent as any).isURDFVisual) {
+  while (current.parent && !(current.parent as RuntimeVisualObject).isURDFVisual) {
     current = current.parent;
   }
 

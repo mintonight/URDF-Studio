@@ -13,6 +13,7 @@ import {
   type RobotRendererBackend,
   type RendererSceneProps,
 } from '@/shared/components/3d/renderers';
+import type { RuntimeRobotObject } from '@/shared/components/3d/runtimeRobotTypes';
 import { buildColladaRootNormalizationHints } from '@/core/loaders';
 import { getSourceFileDirectory } from '@/core/parsers/meshPathUtils';
 import type { UrdfJoint, UrdfLink } from '@/types';
@@ -33,14 +34,14 @@ export interface UseRendererBackendOptions extends RendererSceneProps {
   /** Reload token to force re-loading */
   reloadToken?: number;
   /** Initial robot object (for hot reloading) */
-  initialRobot?: THREE.Object3D | null;
+  initialRobot?: RuntimeRobotObject | null;
   /** Callback when robot is loaded */
-  onRobotLoaded?: (robot: THREE.Object3D) => void;
+  onRobotLoaded?: (robot: RuntimeRobotObject) => void;
 }
 
 export interface UseRendererBackendResult {
   /** The robot scene object */
-  robot: THREE.Object3D | null;
+  robot: RuntimeRobotObject | null;
   /** Map of link ID to meshes */
   linkMeshMapRef: React.RefObject<Map<string, THREE.Mesh[]>>;
   /** Robot links data */
@@ -58,7 +59,7 @@ export interface UseRendererBackendResult {
   /** Runtime version for change tracking */
   robotVersion: number;
   /** Robot reference */
-  robotRef: React.RefObject<THREE.Object3D | null>;
+  robotRef: React.RefObject<RuntimeRobotObject | null>;
   /** Error message if loading failed */
   error: string | null;
 }
@@ -91,7 +92,7 @@ export function useRendererBackend(
   } = options;
 
   // State
-  const [robot, setRobot] = useState<THREE.Object3D | null>(() => initialRobot);
+  const [robot, setRobot] = useState<RuntimeRobotObject | null>(() => initialRobot);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState<ViewerDocumentLoadEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -108,7 +109,7 @@ export function useRendererBackend(
   const [patchReloadRevision, setPatchReloadRevision] = useState(0);
 
   // Refs
-  const robotRef = useRef<THREE.Object3D | null>(initialRobot);
+  const robotRef = useRef<RuntimeRobotObject | null>(initialRobot);
   const backendRef = useRef<RobotRendererBackend | null>(null);
   const inFlightBackendRef = useRef<RobotRendererBackend | null>(null);
   const pendingDisposeBackendRef = useRef<RobotRendererBackend | null>(null);

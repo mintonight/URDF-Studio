@@ -209,9 +209,7 @@ export function useAppLayoutEffects({
       if (entries.length === 0) return;
 
       try {
-        const { getDroppedFilesFromEntries } = await import(
-          '@/features/file-io/utils/fileTraverser'
-        );
+        const { getDroppedFilesFromEntries } = await import('@/features/file-io');
         const files = await getDroppedFilesFromEntries(entries);
         if (files.length > 0) {
           onFileDrop(files);

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import type { Language } from '@/shared/i18n';
 import { STUDIO_ENVIRONMENT_INTENSITY, type SnapshotCaptureAction } from '@/shared/components/3d';
 import { WorkspaceCanvas } from '@/shared/components/3d';
+import { subscribeRobotGroundPlaneInvalidation } from '@/store/robotGroundPlaneInvalidation';
 
 interface ViewerCanvasProps {
   lang: Language;
@@ -42,6 +43,7 @@ export const ViewerCanvas = memo(function ViewerCanvas({
       environment="studio"
       environmentIntensityByTheme={STUDIO_ENVIRONMENT_INTENSITY.viewer}
       groundOffset={groundOffset}
+      subscribeGroundPlaneInvalidation={subscribeRobotGroundPlaneInvalidation}
       toneMapping={THREE.NeutralToneMapping}
       toneMappingExposure={1.0}
       cameraFollowPrimary

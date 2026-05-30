@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useThree } from '@react-three/fiber';
 import type { Theme } from '@/types';
-import { useRobotStore } from '@/store';
 import { GroundShadowPlane } from './GroundShadowPlane';
 import { ReferenceGrid } from './ReferenceGrid';
 import { useWorkspaceCanvasInteractionState } from './interactionQuality';
@@ -16,6 +15,7 @@ interface AdaptiveGroundPlaneProps {
   theme: Theme;
   groundOffset?: number;
   showShadow?: boolean;
+  subscribeInvalidation?: (listener: () => void) => () => void;
 }
 
 interface SceneEventDispatcherLike {
@@ -27,6 +27,7 @@ export function AdaptiveGroundPlane({
   theme,
   groundOffset = 0,
   showShadow = false,
+  subscribeInvalidation,
 }: AdaptiveGroundPlaneProps) {
   const scene = useThree((state) => state.scene);
   const isInteracting = useWorkspaceCanvasInteractionState();
@@ -63,14 +64,10 @@ export function AdaptiveGroundPlane({
   // 4 Hz via useFrame; that traversal dominated demand-driven idle work
   // once several MJCF models were loaded.
   //
-  // Also subscribe to robotStore for joint-angle commits (slider release,
-  // typed values, IK solver results). These mutate Three.js Object3D
-  // matrices in place without changing the scene tree, so `childadded`
-  // / `childremoved` would miss them. The subscription fires synchronously
-  // from inside the store's set() call — before React has re-rendered
-  // RobotModel and re-applied transforms to the meshes — so the refresh is
-  // deferred to the next animation frame, by which point R3F has flushed
-  // the new transforms and computeVisibleMeshBounds sees current geometry.
+  // Callers can provide an invalidation subscription for state changes that
+  // mutate Three.js Object3D matrices in place without changing the scene tree
+  // (for example joint-angle commits). The refresh is deferred one frame so R3F
+  // has flushed those transforms before bounds are measured.
   useEffect(() => {
     if (isInteracting) {
       return;
@@ -95,22 +92,18 @@ export function AdaptiveGroundPlane({
     sceneDispatcher.addEventListener?.('childadded' as never, sceneHandler as never);
     sceneDispatcher.addEventListener?.('childremoved' as never, sceneHandler as never);
 
-    const unsubscribeRobotStore = useRobotStore.subscribe((state, prev) => {
-      if (state.joints !== prev.joints || state.links !== prev.links) {
-        scheduleRefresh();
-      }
-    });
+    const unsubscribeInvalidation = subscribeInvalidation?.(scheduleRefresh);
 
     return () => {
       sceneDispatcher.removeEventListener?.('childadded' as never, sceneHandler as never);
       sceneDispatcher.removeEventListener?.('childremoved' as never, sceneHandler as never);
-      unsubscribeRobotStore();
+      unsubscribeInvalidation?.();
       if (scheduledFrame !== null) {
         cancelAnimationFrame(scheduledFrame);
         scheduledFrame = null;
       }
     };
-  }, [invalidateSceneBounds, isInteracting, refreshLayout, scene]);
+  }, [invalidateSceneBounds, isInteracting, refreshLayout, scene, subscribeInvalidation]);
 
   return (
     <>

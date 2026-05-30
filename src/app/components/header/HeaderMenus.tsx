@@ -285,6 +285,7 @@ export function HeaderMenus({
             onMouseEnter={onPrefetchCodeViewer}
             onFocus={onPrefetchCodeViewer}
             onPointerDown={onPrefetchCodeViewer}
+            data-testid="source-code-open"
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-md whitespace-nowrap text-xs font-medium transition-colors text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-900 dark:hover:text-white"
             title={t.sourceCode}
             aria-label={t.sourceCode}
@@ -303,6 +304,7 @@ export function HeaderMenus({
             type="button"
             onClick={undo}
             disabled={!canUndo}
+            data-testid="history-undo"
             className={`p-1 rounded-md transition-all ${
               !canUndo
                 ? 'text-slate-300 dark:text-element-hover cursor-not-allowed'
@@ -317,6 +319,7 @@ export function HeaderMenus({
             type="button"
             onClick={redo}
             disabled={!canRedo}
+            data-testid="history-redo"
             className={`p-1 rounded-md transition-all ${
               !canRedo
                 ? 'text-slate-300 dark:text-element-hover cursor-not-allowed'

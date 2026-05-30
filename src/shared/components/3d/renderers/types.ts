@@ -10,12 +10,12 @@ import type * as THREE from 'three';
 import type { InteractionSelection, RobotData, RobotFile, UrdfJoint, UrdfLink } from '@/types';
 import type {
   ToolMode,
-  ViewerSceneMode,
   ViewerHelperKind,
   ViewerInteractiveLayer,
   ViewerRuntimeStageBridge,
 } from '@/shared/components/3d/viewerInteractionTypes';
 import type { ViewerDocumentLoadEvent } from '@/shared/components/3d/loadingTypes';
+import type { RuntimeRobotObject } from '@/shared/components/3d/runtimeRobotTypes';
 
 /**
  * Raycast hit result returned by backend raycast operations
@@ -138,7 +138,7 @@ export interface RendererSceneProps {
   /** Callback for document load events */
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   /** Callback when runtime robot is loaded */
-  onRuntimeRobotLoaded?: (robot: any) => void;
+  onRuntimeRobotLoaded?: (robot: RuntimeRobotObject) => void;
   /** Runtime bridge for USD-specific interactions */
   runtimeBridge?: ViewerRuntimeStageBridge;
   /** Renderer invalidation callback */

@@ -16,6 +16,7 @@ import { resolveSnapshotPreviewSurfaceSize } from '@/shared/components/3d';
 import { ViewerSceneConnector } from '../unified-viewer/ViewerSceneConnector';
 import { toSnapshotPreviewActionState } from './previewActionState';
 import { logRegressionError } from '@/shared/debug/consoleDiagnostics';
+import { subscribeRobotGroundPlaneInvalidation } from '@/store/robotGroundPlaneInvalidation';
 
 import type { SnapshotDialogPreviewState, SnapshotPreviewSession } from './types';
 
@@ -245,6 +246,7 @@ export function SnapshotPreviewRenderer({
         showWorldOriginAxes={false}
         showUsageGuide={false}
         groundOffset={session.groundPlaneOffset}
+        subscribeGroundPlaneInvalidation={subscribeRobotGroundPlaneInvalidation}
         initialCameraSnapshot={session.cameraSnapshot}
         orbitControlsProps={{
           enabled: false,

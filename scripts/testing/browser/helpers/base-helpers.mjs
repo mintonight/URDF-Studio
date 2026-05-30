@@ -151,6 +151,7 @@ export async function getAssemblyState(page) {
         sourceFile: c.sourceFile,
         rootLinkId: c.robot?.rootLinkId ?? null,
         linkCount: Object.keys(c.robot?.links ?? {}).length,
+        transform: c.transform ?? null,
       })),
       bridges: Object.entries(a.bridges ?? {}).map(([id, b]) => ({
         id, name: b.name, jointType: b.joint?.type,
@@ -165,6 +166,441 @@ export async function getRuntimeTransforms(page) {
     const rt = window.__URDF_STUDIO_DEBUG__?.getRuntimeSceneTransforms?.();
     return rt ? Object.values(rt.links ?? {}).map((l) => ({ name: l?.name, position: l?.position })) : [];
   });
+}
+
+export async function getRegressionSnapshot(page) {
+  return page.evaluate(() => window.__URDF_STUDIO_DEBUG__?.getRegressionSnapshot?.() ?? null);
+}
+
+export async function getProjectedInteractionTargets(page, filters = {}) {
+  const targets = await page.evaluate(() =>
+    window.__URDF_STUDIO_DEBUG__?.getProjectedInteractionTargets?.() ?? []);
+  return targets
+    .filter((target) => !filters.type || target.type === filters.type)
+    .filter((target) => !filters.subType || target.subType === filters.subType)
+    .filter((target) => !filters.targetKind || target.targetKind === filters.targetKind)
+    .filter((target) => !filters.helperKind || target.helperKind === filters.helperKind)
+    .filter((target) => filters.id == null || target.id === filters.id)
+    .filter((target) => Number.isFinite(target.clientX) && Number.isFinite(target.clientY))
+    .sort((left, right) => {
+      const areaDelta = Number(right.projectedArea ?? 0) - Number(left.projectedArea ?? 0);
+      if (areaDelta !== 0) return areaDelta;
+      return Number(left.averageDepth ?? 0) - Number(right.averageDepth ?? 0);
+    });
+}
+
+export async function getBestProjectedInteractionTarget(page, filters = {}) {
+  const targets = await getProjectedInteractionTargets(page, filters);
+  return targets[0] ?? null;
+}
+
+export async function getCanvasDiagnostics(page) {
+  return page.evaluate(() => {
+    const canvases = [...document.querySelectorAll('canvas')].map((canvas) => {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        width: canvas.width,
+        height: canvas.height,
+        clientWidth: rect.width,
+        clientHeight: rect.height,
+        visible: rect.width > 0 && rect.height > 0,
+      };
+    });
+    const primary = canvases.find((canvas) => canvas.visible) ?? canvases[0] ?? null;
+    return {
+      canvasCount: canvases.length,
+      primary,
+      usable: Boolean(primary && primary.clientWidth >= 200 && primary.clientHeight >= 200),
+      canvases,
+    };
+  });
+}
+
+async function resolveCanvasPoint(page, point) {
+  if (point && Number.isFinite(point.clientX) && Number.isFinite(point.clientY)) {
+    return { x: point.clientX, y: point.clientY };
+  }
+
+  const center = await page.evaluate(() => {
+    const canvas = document.querySelector('canvas');
+    if (!(canvas instanceof HTMLCanvasElement)) return null;
+    const rect = canvas.getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  });
+  if (!center) throw new Error('Could not resolve a usable canvas point.');
+  return center;
+}
+
+export async function clickCanvasTarget(page, target) {
+  const point = await resolveCanvasPoint(page, target);
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  return point;
+}
+
+export async function dragCanvasByDelta(page, target, delta, options = {}) {
+  const point = await resolveCanvasPoint(page, target);
+  const steps = options.steps ?? 12;
+  const end = {
+    x: point.x + Number(delta?.x ?? 0),
+    y: point.y + Number(delta?.y ?? 0),
+  };
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps });
+  await page.mouse.up();
+  return { start: point, end, steps };
+}
+
+async function startFrameProbe(page, durationMs) {
+  return page.evaluate((probeDurationMs) =>
+    new Promise((resolve) => {
+      const frames = [];
+      const start = performance.now();
+      let last = start;
+      const step = (now) => {
+        frames.push(now - last);
+        last = now;
+        if (now - start >= probeDurationMs) {
+          const sorted = [...frames].sort((left, right) => left - right);
+          const sum = frames.reduce((total, value) => total + value, 0);
+          const percentile = (ratio) =>
+            sorted.length === 0 ? 0 : sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * ratio))];
+          resolve({
+            durationMs: now - start,
+            frameCount: frames.length,
+            averageFrameMs: frames.length > 0 ? sum / frames.length : 0,
+            maxFrameMs: frames.length > 0 ? Math.max(...frames) : 0,
+            p95FrameMs: percentile(0.95),
+            longFrameCount: frames.filter((value) => value > 50).length,
+          });
+          return;
+        }
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    }), durationMs);
+}
+
+export async function measureCanvasDrag(page, target, delta, options = {}) {
+  const durationMs = options.durationMs ?? 900;
+  const probePromise = startFrameProbe(page, durationMs);
+  await delay(50);
+  const drag = await dragCanvasByDelta(page, target, delta, options);
+  const metrics = await probePromise;
+  return { drag, metrics };
+}
+
+export async function measureInteractionFrames(page, action, options = {}) {
+  const durationMs = options.durationMs ?? 900;
+  const probePromise = startFrameProbe(page, durationMs);
+  await delay(50);
+  const actionResult = await action();
+  const metrics = await probePromise;
+  return { actionResult, metrics };
+}
+
+export async function getSemanticSnapshot(page) {
+  return page.evaluate(() => {
+    const api = window.__URDF_STUDIO_DEBUG__;
+    const snapshot = api?.getRegressionSnapshot?.() ?? null;
+    const assemblyState = api?.__store__?.getState?.()?.assemblyState ?? null;
+    const assetsState = api?.getAssetDebugState?.() ?? null;
+    const usdScene = api?.getSelectedUsdSceneSummary?.() ?? null;
+
+    const links = snapshot?.store?.links ?? [];
+    const joints = snapshot?.store?.joints ?? [];
+    const geometrySummary = (geometry) => ({
+      name: geometry?.name ?? null,
+      type: geometry?.type ?? null,
+      meshPath: geometry?.meshPath ?? null,
+      visible: geometry?.visible !== false,
+      color: geometry?.color ?? null,
+      materialSource: geometry?.materialSource ?? null,
+      authoredMaterialCount: Array.isArray(geometry?.authoredMaterials)
+        ? geometry.authoredMaterials.length
+        : 0,
+      meshMaterialGroupCount: Array.isArray(geometry?.meshMaterialGroups)
+        ? geometry.meshMaterialGroups.length
+        : 0,
+      origin: geometry?.origin ?? null,
+    });
+
+    return {
+      selectedFile: snapshot?.selectedFile ?? null,
+      robot: snapshot?.store
+        ? {
+            name: snapshot.store.name,
+            rootLinkId: snapshot.store.rootLinkId,
+            linkCount: snapshot.store.linkCount,
+            jointCount: snapshot.store.jointCount,
+            totalMass: snapshot.store.totalMass,
+          }
+        : null,
+      links: links
+        .map((link) => ({
+          id: link.id,
+          name: link.name,
+          visible: link.visible !== false,
+          visual: geometrySummary(link.visual),
+          visualBodyCount: Array.isArray(link.visualBodies) ? link.visualBodies.length : 0,
+          collision: geometrySummary(link.collision),
+          collisionBodyCount: Array.isArray(link.collisionBodies) ? link.collisionBodies.length : 0,
+        }))
+        .sort((left, right) => left.id.localeCompare(right.id)),
+      joints: joints
+        .map((joint) => ({
+          id: joint.id,
+          name: joint.name,
+          type: joint.type,
+          parentLinkId: joint.parentLinkId,
+          childLinkId: joint.childLinkId,
+          axis: joint.axis,
+          origin: joint.origin,
+          limit: joint.limit,
+          dynamics: joint.dynamics,
+        }))
+        .sort((left, right) => left.id.localeCompare(right.id)),
+      runtime: snapshot?.runtime
+        ? {
+            linkCount: snapshot.runtime.linkCount,
+            jointCount: snapshot.runtime.jointCount,
+            visualMeshCount: snapshot.runtime.visualMeshCount,
+            collisionMeshCount: snapshot.runtime.collisionMeshCount,
+            texturedVisualMeshCount: snapshot.runtime.texturedVisualMeshCount,
+            visiblePlaceholderMeshCount: snapshot.runtime.visiblePlaceholderMeshCount,
+            hiddenPlaceholderMeshCount: snapshot.runtime.hiddenPlaceholderMeshCount,
+          }
+        : null,
+      assembly: assemblyState
+        ? {
+            name: assemblyState.name,
+            componentCount: Object.keys(assemblyState.components ?? {}).length,
+            bridgeCount: Object.keys(assemblyState.bridges ?? {}).length,
+            components: Object.entries(assemblyState.components ?? {})
+              .map(([id, component]) => ({
+                id,
+                name: component.name,
+                sourceFile: component.sourceFile,
+                rootLinkId: component.robot?.rootLinkId ?? null,
+                linkCount: Object.keys(component.robot?.links ?? {}).length,
+                transform: component.transform ?? null,
+              }))
+              .sort((left, right) => left.id.localeCompare(right.id)),
+            bridges: Object.entries(assemblyState.bridges ?? {})
+              .map(([id, bridge]) => ({
+                id,
+                name: bridge.name,
+                jointType: bridge.joint?.type ?? null,
+                parentComponentId: bridge.parentComponentId,
+                childComponentId: bridge.childComponentId,
+              }))
+              .sort((left, right) => left.id.localeCompare(right.id)),
+          }
+        : null,
+      assets: assetsState,
+      usdScene,
+      interaction: snapshot?.interaction ?? null,
+      viewer: snapshot?.viewer ?? null,
+    };
+  });
+}
+
+export async function getMaterialSnapshot(page) {
+  return page.evaluate(() => {
+    const api = window.__URDF_STUDIO_DEBUG__;
+    const snapshot = api?.getRegressionSnapshot?.() ?? null;
+    const usdMaterials = api?.getSelectedUsdVisualMaterialSummary?.() ?? null;
+    const links = snapshot?.store?.links ?? [];
+    const storeMaterials = [];
+
+    const collectGeometry = (link, role, geometry, bodyIndex = 0) => {
+      const authoredMaterials = Array.isArray(geometry?.authoredMaterials)
+        ? geometry.authoredMaterials
+        : [];
+      if (geometry?.color || geometry?.materialSource || authoredMaterials.length > 0) {
+        storeMaterials.push({
+          linkId: link.id,
+          linkName: link.name,
+          role,
+          bodyIndex,
+          color: geometry?.color ?? null,
+          materialSource: geometry?.materialSource ?? null,
+          meshPath: geometry?.meshPath ?? null,
+          materialCount: authoredMaterials.length,
+          textureCount: authoredMaterials.filter((material) => Boolean(material?.texture)).length,
+          materialNames: authoredMaterials
+            .map((material) => material?.name)
+            .filter(Boolean)
+            .sort(),
+          meshMaterialGroupCount: Array.isArray(geometry?.meshMaterialGroups)
+            ? geometry.meshMaterialGroups.length
+            : 0,
+        });
+      }
+    };
+
+    links.forEach((link) => {
+      collectGeometry(link, 'visual', link.visual, 0);
+      (link.visualBodies ?? []).forEach((entry, index) =>
+        collectGeometry(link, 'visual', entry.geometry, index + 1));
+      collectGeometry(link, 'collision', link.collision, 0);
+      (link.collisionBodies ?? []).forEach((entry, index) =>
+        collectGeometry(link, 'collision', entry.geometry, index + 1));
+    });
+
+    const runtimeVisualMeshes = snapshot?.runtime?.visualMeshes ?? [];
+    const runtimeMaterialCount = runtimeVisualMeshes.reduce(
+      (sum, mesh) => sum + (Array.isArray(mesh.materials) ? mesh.materials.length : 0),
+      0,
+    );
+    const runtimeTextureCount = runtimeVisualMeshes.reduce(
+      (sum, mesh) =>
+        sum + (Array.isArray(mesh.materials) ? mesh.materials.filter((m) => m.hasTexture).length : 0),
+      0,
+    );
+
+    return {
+      selectedFile: snapshot?.selectedFile ?? null,
+      storeMaterialCount: storeMaterials.length,
+      storeTextureCount: storeMaterials.reduce((sum, material) => sum + material.textureCount, 0),
+      storeMaterials: storeMaterials.sort((left, right) =>
+        `${left.linkId}:${left.role}:${left.bodyIndex}`.localeCompare(
+          `${right.linkId}:${right.role}:${right.bodyIndex}`,
+        )),
+      runtimeVisualMeshCount: runtimeVisualMeshes.length,
+      runtimeMaterialCount,
+      runtimeTextureCount,
+      runtimeVisualMeshes: runtimeVisualMeshes
+        .map((mesh) => ({
+          link: mesh.link,
+          name: mesh.name,
+          visible: mesh.visible,
+          effectiveVisible: mesh.effectiveVisible,
+          isPlaceholder: mesh.isPlaceholder,
+          missingMeshPath: mesh.missingMeshPath,
+          materialCount: Array.isArray(mesh.materials) ? mesh.materials.length : 0,
+          textureCount: Array.isArray(mesh.materials)
+            ? mesh.materials.filter((material) => material.hasTexture).length
+            : 0,
+          colors: Array.isArray(mesh.materials)
+            ? mesh.materials.map((material) => material.color).filter(Boolean).sort()
+            : [],
+        }))
+        .sort((left, right) => `${left.link}:${left.name}`.localeCompare(`${right.link}:${right.name}`)),
+      usdMaterials,
+    };
+  });
+}
+
+export async function openSourceEditor(page) {
+  const opened = await page.evaluate(() => {
+    const candidates = [
+      document.querySelector('[data-testid="source-code-open"]'),
+      ...document.querySelectorAll('button'),
+    ].filter(Boolean);
+    const button = candidates.find((candidate) => {
+      const text = `${candidate.textContent ?? ''} ${candidate.getAttribute?.('title') ?? ''} ${
+        candidate.getAttribute?.('aria-label') ?? ''
+      }`;
+      return /source|code|xml|源码|源代码/i.test(text);
+    });
+    button?.click();
+    return Boolean(button);
+  });
+  if (!opened) throw new Error('Could not find source editor open button.');
+
+  await page.waitForSelector('.monaco-editor', { timeout: 30_000 });
+  await page.waitForFunction(() => document.querySelectorAll('.monaco-editor .view-line').length > 0, {
+    timeout: 30_000,
+  });
+}
+
+export async function getSourceEditorText(page) {
+  return page.evaluate(() => {
+    const monacoModels = globalThis.monaco?.editor?.getModels?.();
+    const activeModel = Array.isArray(monacoModels) ? monacoModels[monacoModels.length - 1] : null;
+    const monacoText = activeModel?.getValue?.();
+    if (typeof monacoText === 'string' && monacoText.length > 0) return monacoText;
+    return document.querySelector('.monaco-editor')?.textContent ?? '';
+  });
+}
+
+export async function replaceSourceEditorText(page, nextText) {
+  const changedViaMonaco = await page.evaluate((value) => {
+    const monacoModels = globalThis.monaco?.editor?.getModels?.();
+    const activeModel = Array.isArray(monacoModels) ? monacoModels[monacoModels.length - 1] : null;
+    if (!activeModel || typeof activeModel.setValue !== 'function') return false;
+    activeModel.setValue(value);
+    return true;
+  }, nextText);
+  if (changedViaMonaco) {
+    await delay(100);
+    return;
+  }
+
+  await page.click('.monaco-editor');
+  await page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
+  await page.keyboard.press('A');
+  await page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.type(nextText, { delay: 0 });
+  await page.waitForFunction(
+    (expectedLength) => {
+      const monacoModels = globalThis.monaco?.editor?.getModels?.();
+      const activeModel = Array.isArray(monacoModels) ? monacoModels[monacoModels.length - 1] : null;
+      const value = activeModel?.getValue?.();
+      return typeof value === 'string' && value.length === expectedLength;
+    },
+    { timeout: 30_000 },
+    nextText.length,
+  ).catch(() => {});
+}
+
+export async function saveSourceEditor(page) {
+  await page.waitForFunction(
+    () => {
+      const button =
+        document.querySelector('[data-testid="source-code-save"]') ??
+        [...document.querySelectorAll('button')].find((candidate) =>
+          /save|保存/i.test(`${candidate.textContent ?? ''} ${candidate.title ?? ''} ${candidate.getAttribute('aria-label') ?? ''}`));
+      return Boolean(button && !button.disabled);
+    },
+    { timeout: 30_000 },
+  );
+  const clicked = await page.evaluate(() => {
+    const button =
+      document.querySelector('[data-testid="source-code-save"]') ??
+      [...document.querySelectorAll('button')].find((candidate) =>
+        /save|保存/i.test(`${candidate.textContent ?? ''} ${candidate.title ?? ''} ${candidate.getAttribute('aria-label') ?? ''}`));
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  });
+  if (!clicked) throw new Error('Could not click source editor save button.');
+}
+
+export async function waitForRobotPredicate(page, predicateSource, timeoutMs = 60_000) {
+  await page.waitForFunction(
+    (source) => {
+      const snapshot = window.__URDF_STUDIO_DEBUG__?.getRegressionSnapshot?.();
+      if (!snapshot?.store) return false;
+      return new Function('snapshot', `return (${source})(snapshot);`)(snapshot);
+    },
+    { timeout: timeoutMs },
+    predicateSource,
+  );
+}
+
+export function assertNoBrowserErrors(suite, session, label = 'no browser errors') {
+  const errs = session.errors();
+  assert(suite, errs.page.length === 0, `${label}: no page errors`);
+  assert(
+    suite,
+    errs.console.filter((entry) => /\[(error|assert)\]/i.test(entry)).length === 0,
+    `${label}: no console errors`,
+  );
 }
 
 // ── Store operations ─────────────────────────────────────────────────

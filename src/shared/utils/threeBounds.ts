@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+import { asRuntimeObject3D } from '@/shared/components/3d/runtimeRobotTypes';
+
 interface LowestMeshZOptions {
   includeInvisible?: boolean;
   includeVisual?: boolean;
@@ -22,11 +24,9 @@ function refreshWorldMatrices(root: THREE.Object3D): void {
 }
 
 function isRuntimeUrdfNode(object: THREE.Object3D | null): boolean {
-  return Boolean(
-    object &&
-    ((object as THREE.Object3D & { isURDFJoint?: boolean }).isURDFJoint ||
-      (object as THREE.Object3D & { isURDFLink?: boolean }).isURDFLink),
-  );
+  const runtimeObject = object ? asRuntimeObject3D(object) : null;
+
+  return Boolean(runtimeObject?.isURDFJoint || runtimeObject?.isURDFLink);
 }
 
 function shouldIgnoreBoundsAncestor(
@@ -59,8 +59,10 @@ function getMeshRole(mesh: THREE.Mesh): MeshRole {
   let current: THREE.Object3D | null = mesh;
 
   while (current) {
+    const runtimeCurrent = asRuntimeObject3D(current);
+
     if (
-      (current as any).isURDFCollider ||
+      runtimeCurrent.isURDFCollider ||
       current.userData?.isCollisionMesh === true ||
       current.userData?.geometryRole === 'collision'
     ) {

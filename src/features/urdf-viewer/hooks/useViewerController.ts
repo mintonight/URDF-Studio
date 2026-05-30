@@ -23,6 +23,7 @@ import { beginInitialGroundAlignment } from '@/shared/components/3d/robotPositio
 import { useViewerSettings } from './useViewerSettings';
 import { usePanelLayoutController } from './viewer-controller/usePanelLayoutController';
 import { useRegressionBridge } from './viewer-controller/useRegressionBridge';
+import { useSceneRefreshScheduler } from './viewer-controller/useSceneRefreshScheduler';
 import { useToolModeController } from './viewer-controller/useToolModeController';
 import {
   CLOSED_LOOP_PREVIEW_MAX_IN_FLIGHT,
@@ -250,8 +251,6 @@ export const useViewerController = ({
     },
     [active, setHoverFrozen],
   );
-  const sceneRefreshRef = useRef<((options?: { force?: boolean }) => void) | null>(null);
-  const pendingSceneRefreshFrameRef = useRef<number | null>(null);
   const previousGroundPlaneOffsetRef = useRef(groundPlaneOffset);
   const previousAppliedJointAngleStateRef = useRef<Record<string, number>>({});
   const runtimeAutoFitGroundHandlerRef = useRef<(() => void) | null>(null);
@@ -452,40 +451,8 @@ export const useViewerController = ({
     [syncActiveJointSnapshot],
   );
 
-  const pendingSceneRefreshForceRef = useRef(false);
-
-  const flushSceneRefresh = useCallback(() => {
-    pendingSceneRefreshFrameRef.current = null;
-    const force = pendingSceneRefreshForceRef.current;
-    pendingSceneRefreshForceRef.current = false;
-    sceneRefreshRef.current?.(force ? { force: true } : undefined);
-  }, []);
-
-  // Multiple callers in the same frame coalesce into one rAF tick; if any of
-  // them asked for force=true (a one-shot commit/load handoff that must see a
-  // fully-resolved matrixWorld), the flush goes through with force=true so we
-  // never silently downgrade their request.
-  const requestSceneRefresh = useCallback(
-    (options?: { force?: boolean }) => {
-      if (options?.force) {
-        pendingSceneRefreshForceRef.current = true;
-      }
-
-      if (pendingSceneRefreshFrameRef.current !== null) {
-        return;
-      }
-
-      if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-        flushSceneRefresh();
-        return;
-      }
-
-      pendingSceneRefreshFrameRef.current = window.requestAnimationFrame(() => {
-        flushSceneRefresh();
-      });
-    },
-    [flushSceneRefresh],
-  );
+  const { requestSceneRefresh, registerSceneRefresh, cancelSceneRefresh } =
+    useSceneRefreshScheduler();
 
   useEffect(() => {
     if (!active) {
@@ -615,13 +582,6 @@ export const useViewerController = ({
       requestSceneRefresh,
       resolveRuntimeMotionAngle,
     ],
-  );
-
-  const registerSceneRefresh = useCallback(
-    (refreshScene: ((options?: { force?: boolean }) => void) | null) => {
-      sceneRefreshRef.current = refreshScene;
-    },
-    [],
   );
 
   const applyImmediateClosedLoopActiveJointPreview = useCallback(
@@ -1077,16 +1037,13 @@ export const useViewerController = ({
   useEffect(() => {
     return () => {
       clearJointInteractionPreview();
-      if (pendingSceneRefreshFrameRef.current !== null && typeof window !== 'undefined') {
-        window.cancelAnimationFrame(pendingSceneRefreshFrameRef.current);
-        pendingSceneRefreshFrameRef.current = null;
-      }
+      cancelSceneRefresh();
       if (closedLoopPreviewFrameRef.current !== null && typeof window !== 'undefined') {
         window.cancelAnimationFrame(closedLoopPreviewFrameRef.current);
         closedLoopPreviewFrameRef.current = null;
       }
     };
-  }, [clearJointInteractionPreview]);
+  }, [cancelSceneRefresh, clearJointInteractionPreview]);
 
   useRegressionBridge({
     active,

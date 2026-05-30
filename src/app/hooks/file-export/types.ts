@@ -1,5 +1,6 @@
 import type { Patch } from 'immer';
 
+import type { ExportProgressState } from '@/features/file-io';
 import type { RobotFile, RobotState, AssemblyState } from '@/types';
 
 export type ExportTarget = { type: 'current' } | { type: 'library-file'; file: RobotFile };
@@ -13,11 +14,11 @@ export interface ExportContext {
 }
 
 export interface HandleExportWithConfigOptions {
-  onProgress?: (progress: import('@/features/file-io').ExportProgressState) => void;
+  onProgress?: (progress: ExportProgressState) => void;
 }
 
 export interface HandleProjectExportOptions {
-  onProgress?: (progress: import('@/features/file-io').ExportProgressState) => void;
+  onProgress?: (progress: ExportProgressState) => void;
   /**
    * Skip the default browser download and only return the generated blob.
    * Useful when another caller needs to upload or otherwise handle the file.

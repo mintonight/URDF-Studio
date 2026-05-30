@@ -8,13 +8,11 @@ import { useShallow } from 'zustand/react/shallow';
 import { Header } from './components/Header';
 import { IkToolPanel } from './components/IkToolPanel';
 import { AppLayoutOverlays } from './components/AppLayoutOverlays';
-import { ConnectedDocumentLoadingOverlay } from './components/ConnectedDocumentLoadingOverlay';
-import { FilePreviewWindow } from './components/FilePreviewWindow';
 import { FileDropOverlay } from './components/FileDropOverlay';
 import { ImportPreparationOverlay } from './components/ImportPreparationOverlay';
 import { LazyOverlayFallback } from './components/LazyOverlayFallback';
-import { TreeEditor } from '@/features/robot-tree/components/TreeEditor';
-import { PropertyEditor } from '@/features/property-editor/components/PropertyEditor';
+import { WorkspaceSidebars } from './components/workspace/WorkspaceSidebars';
+import { WorkspaceViewerLayer } from './components/workspace/WorkspaceViewerLayer';
 import { resolveSnapshotCaptureAction } from './components/snapshot-preview/resolveSnapshotCaptureAction';
 import {
   loadBridgeCreateModalModule,
@@ -22,10 +20,6 @@ import {
 } from './utils/overlayLoaders';
 import { preloadSourceCodeEditorRuntime } from './utils/sourceCodeEditorLoader';
 
-// Lazy load heavy 3D viewer component
-const UnifiedViewer = lazy(() =>
-  import('./components/UnifiedViewer').then((m) => ({ default: m.UnifiedViewer })),
-);
 const SnapshotDialog = lazy(() =>
   import('./components/SnapshotDialog').then((m) => ({ default: m.SnapshotDialog })),
 );
@@ -41,6 +35,7 @@ import { useEditableSourcePatches } from './hooks/useEditableSourcePatches';
 import { useLibraryFileActions } from './hooks/useLibraryFileActions';
 import { usePreviewFileWithFeedback } from './hooks/usePreviewFileWithFeedback';
 import { usePreparedUsdViewerAssets } from './hooks/usePreparedUsdViewerAssets';
+import { useResponsiveSidebarCollapse } from './hooks/useResponsiveSidebarCollapse';
 import { useSourceCodeEditorWarmup } from './hooks/useSourceCodeEditorWarmup';
 import { useIkToolController } from './hooks/useIkToolController';
 import { useSnapshotDialogController } from './hooks/useSnapshotDialogController';
@@ -193,26 +188,7 @@ export function AppLayout({
     })),
   );
 
-  // Responsive sidebar effect
-  useEffect(() => {
-    const handleResize = () => {
-      const width = window.innerWidth;
-      // Use a ref-like approach to only trigger when crossing thresholds
-      // to avoid fighting with user manual toggles on every pixel change
-      if (width < 1024) {
-        if (!sidebar.leftCollapsed) setSidebar('left', true);
-        if (!sidebar.rightCollapsed) setSidebar('right', true);
-      } else if (width < 1200) {
-        if (!sidebar.rightCollapsed) setSidebar('right', true);
-      }
-    };
-
-    // Run once on mount
-    handleResize();
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [setSidebar]); // Minimal dependencies to prevent loops
+  useResponsiveSidebarCollapse({ sidebar, setSidebar });
   const mergedAppMode = normalizeMergedAppMode(appMode);
   const t = translations[lang];
 
@@ -1192,173 +1168,150 @@ export function AppLayout({
 
       {/* Main Workspace */}
       <div className={workspaceLayoutClassNames.root}>
-        {/* Viewer Container — fills the workspace while sidebars cover it, so sidebar width
-            changes do not resize or stretch the Three.js canvas. */}
-        <div
+        <WorkspaceViewerLayer
           className={workspaceLayoutClassNames.viewerLayer}
           style={workspaceOverlaySafeAreaStyle}
-        >
-          <Suspense
-            fallback={
-              <div className="flex-1 h-full bg-google-light-bg dark:bg-app-bg animate-pulse" />
-            }
-          >
-            <UnifiedViewer
-              robot={viewerRobot}
-              editorRobot={robot}
-              mode={mergedAppMode}
-              onSelect={handleViewerSelectWithBridgePreview}
-              onMeshSelect={handleViewerMeshSelectWithAssemblyClear}
-              onHover={handleHover}
-              onUpdate={handleUpdate}
-              assets={viewerAssets}
-              allFileContents={allFileContents}
-              lang={lang}
-              theme={theme}
-              showVisual={showVisual}
-              setShowVisual={handleSetShowVisual}
-              snapshotAction={snapshotActionRef}
-              onCanvasCreated={(state) => {
-                viewerCanvasStateRef.current = state;
-              }}
-              showOptionsPanel={viewConfig.showOptionsPanel}
-              setShowOptionsPanel={handleSetDetailOptionsPanelVisibility}
-              showJointPanel={false}
-              availableFiles={availableFiles}
-              urdfContent={urdfContentForViewer}
-              viewerSourceFormat={viewerSourceFormat}
-              sourceFilePath={viewerSourceFilePath}
-              sourceFile={viewerSourceFile}
-              onDocumentLoadEvent={viewerDocumentLifecycleCallbacks.onDocumentLoadEvent}
-              onRuntimeRobotLoaded={viewerDocumentLifecycleCallbacks.onRuntimeRobotLoaded}
-              onRuntimeSceneReadyForDisplay={
-                viewerDocumentLifecycleCallbacks.onRuntimeSceneReadyForDisplay
-              }
-              jointAngleState={jointAngleState}
-              jointMotionState={jointMotionState}
-              onJointChange={handleJointChange}
-              syncJointChangesToApp
-              selection={selection}
-              focusTarget={focusTarget}
-              isMeshPreview={selectedFile?.format === 'mesh'}
-              onTransformPendingChange={handleWorkspaceTransformPendingChange}
-              onCollisionTransform={handleCollisionTransform}
-              assemblyState={normalizedAssemblyState}
-              assemblyWorkspaceActive={shouldRenderAssembly}
-              assemblySelection={assemblySelection}
-              sourceSceneAssemblyComponentId={sourceSceneAssemblyComponentId}
-              onAssemblyTransform={handleAssemblyTransform}
-              onComponentTransform={handleComponentTransform}
-              onBridgeTransform={handleBridgeTransform}
-              ikDragActive={ikDragActive}
-              pendingViewerToolMode={pendingViewerToolMode}
-              onConsumePendingViewerToolMode={() => setPendingViewerToolMode(null)}
-              viewerReloadKey={viewerReloadKey}
-              documentLoadState={documentLoadLifecycleState}
-              gizmoMargin={workspaceOverlayGizmoMargin}
-            />
-          </Suspense>
-          <ConnectedDocumentLoadingOverlay
-            lang={lang}
-            targetFileName={resolveDocumentLoadingOverlayTargetFileName({
-              previewFileName: null,
-              selectedFileName: selectedFile?.name ?? null,
-              suppressDocumentLoadingOverlay:
-                shouldRenderAssembly || Boolean(assemblyComponentPreparationOverlay),
-              documentLoadState,
-            })}
-          />
-          {importPreparationOverlay ? (
-            <ImportPreparationOverlay
-              label={importPreparationOverlay.label}
-              detail={importPreparationOverlay.detail}
-              progress={importPreparationOverlay.progress}
-              statusLabel={importPreparationOverlay.statusLabel}
-              stageLabel={importPreparationOverlay.stageLabel}
-              placement="viewer-corner"
-            />
-          ) : null}
-        </div>
-
-        <div className={workspaceLayoutClassNames.leftSidebarLayer}>
-          <TreeEditor
-            robot={previewContextRobot}
-            onSelect={handleSelectWithAssemblyClear}
-            onSelectGeometry={handleSelectGeometryWithAssemblyClear}
-            onFocus={handleFocus}
-            onAddChild={handleAddChild}
-            onAddCollisionBody={handleAddCollisionBody}
-            onDelete={handleDelete}
-            onNameChange={handleNameChange}
-            onUpdate={handleUpdate}
-            showVisual={showVisual}
-            setShowVisual={handleSetShowVisual}
-            mode={mergedAppMode}
-            lang={lang}
-            theme={theme}
-            collapsed={sidebar.leftCollapsed}
-            onToggle={() => toggleSidebar('left')}
-            availableFiles={availableFiles}
-            onLoadRobot={handlePreviewFileWithFeedback}
-            onRequestLoadRobot={handleRequestLoadRobot}
-            currentFileName={selectedFile?.name}
-            sourceFilePath={viewerSourceFilePath}
-              assemblyState={normalizedAssemblyState}
-            onAddComponent={handleAddComponent}
-            onDeleteLibraryFile={handleDeleteLibraryFile}
-            onDeleteLibraryFolder={handleDeleteLibraryFolder}
-            onRenameLibraryFolder={handleRenameLibraryFolder}
-            onDeleteAllLibraryFiles={handleDeleteAllLibraryFiles}
-            onExportLibraryFile={handleExportLibraryFile}
-            onCreateBridge={handleCreateBridge}
-            onRemoveComponent={removeComponent}
-            onRemoveBridge={removeBridge}
-            onRenameComponent={handleRenameComponent}
-            onSwitchToProMode={handleSwitchTreeEditorToProMode}
-            onRequestSwitchToStructure={handleRequestSwitchTreeEditorToStructure}
-            isReadOnly={isPreviewingWorkspaceSource}
-            showJointPanel={viewConfig.showJointPanel}
-            onJointAnglePreview={handleJointPreview}
-            onJointAngleChange={handleJointChange}
-          />
-        </div>
-
-        <FilePreviewWindow
-          file={previewFile}
-          previewRobot={previewRobot}
-          previewState={filePreview}
-          assets={viewerAssets}
-          allFileContents={allFileContents}
-          availableFiles={availableFiles}
-          documentLoadState={documentLoadState}
-          lang={lang}
-          theme={theme}
-          showVisual={showVisual}
-          onClose={handleClosePreview}
-          onAddComponent={handleAddComponent}
+          viewerProps={{
+            robot: viewerRobot,
+            editorRobot: robot,
+            mode: mergedAppMode,
+            onSelect: handleViewerSelectWithBridgePreview,
+            onMeshSelect: handleViewerMeshSelectWithAssemblyClear,
+            onHover: handleHover,
+            onUpdate: handleUpdate,
+            assets: viewerAssets,
+            allFileContents,
+            lang,
+            theme,
+            showVisual,
+            setShowVisual: handleSetShowVisual,
+            snapshotAction: snapshotActionRef,
+            onCanvasCreated: (state) => {
+              viewerCanvasStateRef.current = state;
+            },
+            showOptionsPanel: viewConfig.showOptionsPanel,
+            setShowOptionsPanel: handleSetDetailOptionsPanelVisibility,
+            showJointPanel: false,
+            availableFiles,
+            urdfContent: urdfContentForViewer,
+            viewerSourceFormat,
+            sourceFilePath: viewerSourceFilePath,
+            sourceFile: viewerSourceFile,
+            onDocumentLoadEvent: viewerDocumentLifecycleCallbacks.onDocumentLoadEvent,
+            onRuntimeRobotLoaded: viewerDocumentLifecycleCallbacks.onRuntimeRobotLoaded,
+            onRuntimeSceneReadyForDisplay:
+              viewerDocumentLifecycleCallbacks.onRuntimeSceneReadyForDisplay,
+            jointAngleState,
+            jointMotionState,
+            onJointChange: handleJointChange,
+            syncJointChangesToApp: true,
+            selection,
+            focusTarget,
+            isMeshPreview: selectedFile?.format === 'mesh',
+            onTransformPendingChange: handleWorkspaceTransformPendingChange,
+            onCollisionTransform: handleCollisionTransform,
+            assemblyState: normalizedAssemblyState,
+            assemblyWorkspaceActive: shouldRenderAssembly,
+            assemblySelection,
+            sourceSceneAssemblyComponentId,
+            onAssemblyTransform: handleAssemblyTransform,
+            onComponentTransform: handleComponentTransform,
+            onBridgeTransform: handleBridgeTransform,
+            ikDragActive,
+            pendingViewerToolMode,
+            onConsumePendingViewerToolMode: () => setPendingViewerToolMode(null),
+            viewerReloadKey,
+            documentLoadState: documentLoadLifecycleState,
+            gizmoMargin: workspaceOverlayGizmoMargin,
+          }}
+          documentLoadingOverlayLang={lang}
+          documentLoadingOverlayTargetFileName={resolveDocumentLoadingOverlayTargetFileName({
+            previewFileName: null,
+            selectedFileName: selectedFile?.name ?? null,
+            suppressDocumentLoadingOverlay:
+              shouldRenderAssembly || Boolean(assemblyComponentPreparationOverlay),
+            documentLoadState,
+          })}
+          importPreparationOverlay={importPreparationOverlay}
         />
 
-        <div className={workspaceLayoutClassNames.rightSidebarLayer}>
-          <PropertyEditor
-            robot={propertyEditorSelectionContext.robot}
-            onUpdate={handleUpdate}
-            onSelect={handleSelectWithAssemblyClear}
-            onSelectGeometry={handleSelectGeometryWithAssemblyClear}
-            onAddCollisionBody={handleAddCollisionBody}
-            onHover={handleHover}
-            mode={mergedAppMode}
-            assets={viewerAssets}
-            onUploadAsset={handleUploadAsset}
-            motorLibrary={motorLibrary}
-            lang={lang}
-            theme={theme}
-            collapsed={sidebar.rightCollapsed}
-            onToggle={() => toggleSidebar('right')}
-            readOnlyMessage={isPreviewingWorkspaceSource ? t.previewReadOnlyHint : undefined}
-            jointTypeLocked={Boolean(propertyEditorSelectionContext.selectedClosedLoopBridge)}
-            sourceFilePath={viewerSourceFilePath}
-          />
-        </div>
+        <WorkspaceSidebars
+          leftSidebarClassName={workspaceLayoutClassNames.leftSidebarLayer}
+          rightSidebarClassName={workspaceLayoutClassNames.rightSidebarLayer}
+          treeEditorProps={{
+            robot: previewContextRobot,
+            onSelect: handleSelectWithAssemblyClear,
+            onSelectGeometry: handleSelectGeometryWithAssemblyClear,
+            onFocus: handleFocus,
+            onAddChild: handleAddChild,
+            onAddCollisionBody: handleAddCollisionBody,
+            onDelete: handleDelete,
+            onNameChange: handleNameChange,
+            onUpdate: handleUpdate,
+            showVisual,
+            setShowVisual: handleSetShowVisual,
+            mode: mergedAppMode,
+            lang,
+            theme,
+            collapsed: sidebar.leftCollapsed,
+            onToggle: () => toggleSidebar('left'),
+            availableFiles,
+            onLoadRobot: handlePreviewFileWithFeedback,
+            onRequestLoadRobot: handleRequestLoadRobot,
+            currentFileName: selectedFile?.name,
+            sourceFilePath: viewerSourceFilePath,
+            assemblyState: normalizedAssemblyState,
+            onAddComponent: handleAddComponent,
+            onDeleteLibraryFile: handleDeleteLibraryFile,
+            onDeleteLibraryFolder: handleDeleteLibraryFolder,
+            onRenameLibraryFolder: handleRenameLibraryFolder,
+            onDeleteAllLibraryFiles: handleDeleteAllLibraryFiles,
+            onExportLibraryFile: handleExportLibraryFile,
+            onCreateBridge: handleCreateBridge,
+            onRemoveComponent: removeComponent,
+            onRemoveBridge: removeBridge,
+            onRenameComponent: handleRenameComponent,
+            onSwitchToProMode: handleSwitchTreeEditorToProMode,
+            onRequestSwitchToStructure: handleRequestSwitchTreeEditorToStructure,
+            isReadOnly: isPreviewingWorkspaceSource,
+            showJointPanel: viewConfig.showJointPanel,
+            onJointAnglePreview: handleJointPreview,
+            onJointAngleChange: handleJointChange,
+          }}
+          filePreviewWindowProps={{
+            file: previewFile,
+            previewRobot,
+            previewState: filePreview,
+            assets: viewerAssets,
+            allFileContents,
+            availableFiles,
+            documentLoadState,
+            lang,
+            theme,
+            showVisual,
+            onClose: handleClosePreview,
+            onAddComponent: handleAddComponent,
+          }}
+          propertyEditorProps={{
+            robot: propertyEditorSelectionContext.robot,
+            onUpdate: handleUpdate,
+            onSelect: handleSelectWithAssemblyClear,
+            onSelectGeometry: handleSelectGeometryWithAssemblyClear,
+            onAddCollisionBody: handleAddCollisionBody,
+            onHover: handleHover,
+            mode: mergedAppMode,
+            assets: viewerAssets,
+            onUploadAsset: handleUploadAsset,
+            motorLibrary,
+            lang,
+            theme,
+            collapsed: sidebar.rightCollapsed,
+            onToggle: () => toggleSidebar('right'),
+            readOnlyMessage: isPreviewingWorkspaceSource ? t.previewReadOnlyHint : undefined,
+            jointTypeLocked: Boolean(propertyEditorSelectionContext.selectedClosedLoopBridge),
+            sourceFilePath: viewerSourceFilePath,
+          }}
+        />
       </div>
 
       {isSnapshotDialogOpen ? (

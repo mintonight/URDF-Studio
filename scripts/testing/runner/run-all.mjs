@@ -84,6 +84,7 @@ function readPackageScripts() {
 function discoverBrowserKeys(scripts, filter) {
   return Object.keys(scripts)
     .filter((key) => key.startsWith('test:browser:') && key !== 'test:browser:all')
+    .filter((key) => key !== 'test:browser:editor-deep-all')
     .filter((key) => (filter ? key.includes(filter) : true))
     .sort();
 }

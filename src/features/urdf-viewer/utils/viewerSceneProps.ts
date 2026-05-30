@@ -1,9 +1,9 @@
-import type { Object3D as ThreeObject3D } from 'three';
 import type { AssemblyState, RobotFile } from '@/types';
 import type { AssemblyTransform } from '@/types';
 import type { AssemblySelection } from '@/store/assemblySelectionStore';
 import type { ViewerController } from '../hooks/useViewerController';
 import type { ToolMode, ViewerProps, ViewerDocumentLoadEvent, ViewerSceneMode } from '../types';
+import type { RuntimeRobotObject } from '@/shared/components/3d/runtimeRobotTypes';
 
 interface BuildViewerScenePropsArgs {
   resolvedTheme?: 'light' | 'dark';
@@ -17,8 +17,8 @@ interface BuildViewerScenePropsArgs {
   assets: Record<string, string>;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   onSceneReadyForDisplay?: () => void;
-  retainedRobot?: ThreeObject3D | null;
-  onRuntimeRobotLoaded?: (robot: ThreeObject3D) => void;
+  retainedRobot?: RuntimeRobotObject | null;
+  onRuntimeRobotLoaded?: (robot: RuntimeRobotObject) => void;
   sourceFilePath?: string;
   groundPlaneOffset?: number;
   mode: ViewerSceneMode;

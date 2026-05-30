@@ -51,15 +51,71 @@ function getFeatureName(repoPath: string): string | null {
   return match?.[1] ?? null;
 }
 
+const layerRanks = new Map([
+  ['types', 0],
+  ['core', 1],
+  ['shared', 2],
+  ['store', 3],
+  ['features', 4],
+  ['app', 5],
+]);
+
+function getLayerName(repoPath: string): string | null {
+  const match = /^src\/([^/]+)/.exec(repoPath);
+  const layerName = match?.[1] ?? null;
+  return layerName && layerRanks.has(layerName) ? layerName : null;
+}
+
+function collectLocalImports(filePath: string): Array<{ specifier: string; resolved: string }> {
+  const imports: Array<{ specifier: string; resolved: string }> = [];
+  const text = fs.readFileSync(filePath, 'utf8');
+  let match: RegExpExecArray | null;
+
+  while ((match = importPattern.exec(text))) {
+    const specifier = match[1] ?? match[2] ?? '';
+    const resolved = resolveLocalImport(filePath, specifier);
+    if (resolved) {
+      imports.push({ specifier, resolved });
+    }
+  }
+
+  return imports;
+}
+
+test('runtime layer dependencies only point downward', () => {
+  const violations: string[] = [];
+
+  for (const filePath of collectSourceFiles(sourceRoot)) {
+    const importer = toRepoPath(filePath);
+    const importerLayer = getLayerName(importer);
+    if (!importerLayer) {
+      continue;
+    }
+
+    const importerRank = layerRanks.get(importerLayer);
+    if (importerRank === undefined) {
+      continue;
+    }
+
+    for (const { specifier, resolved } of collectLocalImports(filePath)) {
+      const targetLayer = getLayerName(resolved);
+      const targetRank = targetLayer ? layerRanks.get(targetLayer) : undefined;
+      if (!targetLayer || targetRank === undefined || targetRank <= importerRank) {
+        continue;
+      }
+
+      violations.push(`${importer} -> ${specifier}`);
+    }
+  }
+
+  assert.deepEqual(violations, []);
+});
+
 test('shared runtime code does not import store', () => {
   const violations: string[] = [];
 
   for (const filePath of collectSourceFiles(path.join(sourceRoot, 'shared'))) {
-    const text = fs.readFileSync(filePath, 'utf8');
-    let match: RegExpExecArray | null;
-    while ((match = importPattern.exec(text))) {
-      const specifier = match[1] ?? match[2] ?? '';
-      const resolved = resolveLocalImport(filePath, specifier);
+    for (const { specifier, resolved } of collectLocalImports(filePath)) {
       if (resolved?.startsWith('src/store')) {
         violations.push(`${toRepoPath(filePath)} -> ${specifier}`);
       }
@@ -75,12 +131,8 @@ test('features do not import sibling feature internals', () => {
   for (const filePath of collectSourceFiles(path.join(sourceRoot, 'features'))) {
     const importer = toRepoPath(filePath);
     const importerFeature = getFeatureName(importer);
-    const text = fs.readFileSync(filePath, 'utf8');
-    let match: RegExpExecArray | null;
 
-    while ((match = importPattern.exec(text))) {
-      const specifier = match[1] ?? match[2] ?? '';
-      const resolved = resolveLocalImport(filePath, specifier);
+    for (const { specifier, resolved } of collectLocalImports(filePath)) {
       const targetFeature = resolved ? getFeatureName(resolved) : null;
       if (!importerFeature || !targetFeature || importerFeature === targetFeature) {
         continue;
@@ -105,11 +157,7 @@ test('public lib feature imports stay limited to the current RobotCanvas bridge 
 
   const violations: string[] = [];
   for (const filePath of collectSourceFiles(libRoot)) {
-    const text = fs.readFileSync(filePath, 'utf8');
-    let match: RegExpExecArray | null;
-    while ((match = importPattern.exec(text))) {
-      const specifier = match[1] ?? match[2] ?? '';
-      const resolved = resolveLocalImport(filePath, specifier);
+    for (const { specifier, resolved } of collectLocalImports(filePath)) {
       if (resolved?.startsWith('src/features/')) {
         violations.push(`${toRepoPath(filePath)} -> ${specifier}`);
       }
@@ -121,4 +169,11 @@ test('public lib feature imports stay limited to the current RobotCanvas bridge 
     'src/lib/components/RobotCanvas.tsx -> ../../features/urdf-viewer/components/JointInteraction',
     'src/lib/components/RobotCanvas.tsx -> ../../features/urdf-viewer/components/RobotModel',
   ]);
+});
+
+test('urdf-viewer root entrypoint does not expose internal utility barrels', () => {
+  const entrypoint = fs.readFileSync(path.join(sourceRoot, 'features/urdf-viewer/index.ts'), 'utf8');
+
+  assert.doesNotMatch(entrypoint, /export\s+\*\s+from\s+['"]\.\/utils['"]/);
+  assert.doesNotMatch(entrypoint, /export\s+\*\s+from\s+['"]\.\/hooks['"]/);
 });

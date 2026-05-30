@@ -12,6 +12,5 @@ export { ViewerScene } from './components/ViewerScene';
 export { ViewerPanels } from './components/ViewerPanels';
 
 export * from './types';
-export * from './utils';
 export { useViewerController, useResponsivePanelLayout } from './hooks';
 export type { ViewerController } from './hooks';

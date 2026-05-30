@@ -1,10 +1,20 @@
 const SINGLE_DOF_JOINT_TYPES = new Set(['revolute', 'continuous', 'prismatic']);
 
-export const getJointType = (joint: any): string => {
-  return String(joint?.jointType ?? joint?.type ?? '').toLowerCase();
+type JointTypeLike = {
+  jointType?: unknown;
+  type?: unknown;
 };
 
-export const isSingleDofJoint = (joint: any): boolean => {
+function asJointTypeLike(joint: unknown): JointTypeLike | null {
+  return typeof joint === 'object' && joint !== null ? (joint as JointTypeLike) : null;
+}
+
+export const getJointType = (joint: unknown): string => {
+  const jointLike = asJointTypeLike(joint);
+  return String(jointLike?.jointType ?? jointLike?.type ?? '').toLowerCase();
+};
+
+export const isSingleDofJoint = (joint: unknown): boolean => {
   return SINGLE_DOF_JOINT_TYPES.has(getJointType(joint));
 };
 

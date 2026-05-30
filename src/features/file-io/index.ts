@@ -35,6 +35,12 @@ export type {
   UsdMeshCompressionOptions,
   ExportProjectParams,
 } from './utils';
+export type {
+  MjcfVisualMeshVariant,
+  PreparedMjcfMeshExportAssets,
+  PrepareMjcfMeshExportAssetsOptions,
+} from './utils/mjcfMeshExport';
+export type { RawFilesCollectOptions } from './utils/rawFilesExport';
 
 // Utilities
 export {
@@ -57,6 +63,7 @@ export {
   getUsdExportWorkerUnsupportedMeshPaths,
   exportLibraryRobotFile,
   getDroppedFiles,
+  getDroppedFilesFromEntries,
   isUsdExportWorkerSupportedMeshPath,
   createImportPathCollisionMap,
   remapImportedPath,
@@ -67,6 +74,7 @@ export {
   disposeProjectImportWorker,
   USD_EXPORT_WORKER_SUPPORTED_MESH_EXTENSIONS,
 } from './utils';
+export { collectRawFilesZip } from './utils/rawFilesExport';
 
 // Hooks
 export { useSnapshot, usePdfExport } from './hooks';

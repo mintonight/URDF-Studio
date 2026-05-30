@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+import { asRuntimeObject3D } from './runtimeRobotTypes';
+
 export type RuntimeGeometrySubType = 'visual' | 'collision';
 
 function normalizeLinkName(candidate: unknown): string | null {
@@ -28,24 +30,28 @@ export function getGeometryObjectIndexUserDataKey(
 }
 
 function isTaggedCollisionObject(object: THREE.Object3D | null): boolean {
+  const runtimeObject = object ? asRuntimeObject3D(object) : null;
+
   return Boolean(
-    object &&
-    ((object as any).isURDFCollider ||
-      object.userData?.isCollisionGroup === true ||
-      object.userData?.isCollisionMesh === true ||
-      object.userData?.isCollision === true ||
-      object.userData?.geometryRole === 'collision'),
+    runtimeObject &&
+    (runtimeObject.isURDFCollider ||
+      runtimeObject.userData?.isCollisionGroup === true ||
+      runtimeObject.userData?.isCollisionMesh === true ||
+      runtimeObject.userData?.isCollision === true ||
+      runtimeObject.userData?.geometryRole === 'collision'),
   );
 }
 
 function isTaggedVisualObject(object: THREE.Object3D | null): boolean {
+  const runtimeObject = object ? asRuntimeObject3D(object) : null;
+
   return Boolean(
-    object &&
-    ((object as any).isURDFVisual ||
-      object.userData?.isVisualGroup === true ||
-      object.userData?.isVisualMesh === true ||
-      object.userData?.isVisual === true ||
-      object.userData?.geometryRole === 'visual'),
+    runtimeObject &&
+    (runtimeObject.isURDFVisual ||
+      runtimeObject.userData?.isVisualGroup === true ||
+      runtimeObject.userData?.isVisualMesh === true ||
+      runtimeObject.userData?.isVisual === true ||
+      runtimeObject.userData?.geometryRole === 'visual'),
   );
 }
 
@@ -145,8 +151,10 @@ export function resolveRuntimeGeometryRoot(
   subType: RuntimeGeometrySubType,
   objectIndex = 0,
 ): THREE.Object3D | null {
-  const directGeometryRoots = linkObject.children.filter((child: any) => {
-    if (child.isURDFJoint || child.isURDFLink) {
+  const directGeometryRoots = linkObject.children.filter((child) => {
+    const runtimeChild = asRuntimeObject3D(child);
+
+    if (runtimeChild.isURDFJoint || runtimeChild.isURDFLink) {
       return false;
     }
 

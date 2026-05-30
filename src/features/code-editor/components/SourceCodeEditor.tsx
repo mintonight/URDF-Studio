@@ -1107,6 +1107,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
                   void handleApply('manual');
                 }}
                 disabled={!isDirty || isApplying}
+                data-testid="source-code-save"
                 className={`${HEADER_PRIMARY_ACTION_CLASS} ${
                   isDirty || isApplying
                     ? 'bg-system-blue-solid text-white hover:bg-system-blue-hover'

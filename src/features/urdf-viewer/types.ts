@@ -37,6 +37,7 @@ import type {
   ViewerRuntimeStageBridge,
   ViewerSceneMode,
 } from '@/shared/components/3d/viewerInteractionTypes';
+import type { RuntimeRobotObject } from '@/shared/components/3d/runtimeRobotTypes';
 
 export type {
   RobotLoadingPhase,
@@ -197,7 +198,7 @@ export interface RobotModelProps {
   reloadToken?: number;
   initialRobot?: THREE.Object3D | null;
   sourceFilePath?: string;
-  onRobotLoaded?: (robot: any) => void;
+  onRobotLoaded?: (robot: RuntimeRobotObject) => void;
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   runtimeBridge?: ViewerRuntimeStageBridge;
   showCollision?: boolean;
