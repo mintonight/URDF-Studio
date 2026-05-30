@@ -32,7 +32,7 @@ const SnapshotDialog = lazy(() =>
 
 import type { HeaderAction } from './components/header/types';
 import { setOptionsPanelVisibility } from './components/header/viewMenuState.js';
-import type { ToolMode, ViewerJointChangeContext } from '@/features/urdf-viewer/types';
+import type { ToolMode } from '@/features/urdf-viewer/types';
 import { useAppLayoutEffects } from './hooks/useAppLayoutEffects';
 import { useAssemblyComponentPreparation } from './hooks/assemblyComponentPreparation';
 import { useCollisionOptimizationWorkflow } from './hooks/useCollisionOptimizationWorkflow';
@@ -42,8 +42,15 @@ import { useLibraryFileActions } from './hooks/useLibraryFileActions';
 import { usePreviewFileWithFeedback } from './hooks/usePreviewFileWithFeedback';
 import { usePreparedUsdViewerAssets } from './hooks/usePreparedUsdViewerAssets';
 import { useSourceCodeEditorWarmup } from './hooks/useSourceCodeEditorWarmup';
+import { useIkToolController } from './hooks/useIkToolController';
+import { useSnapshotDialogController } from './hooks/useSnapshotDialogController';
 import { useToolItems } from './hooks/useToolItems';
+import {
+  useTreePanelJointPreview,
+  type TreePanelJointCommitSnapshot,
+} from './hooks/useTreePanelJointPreview';
 import { useUsdDocumentLifecycle } from './hooks/useUsdDocumentLifecycle';
+import { useWorkspaceLayoutDerivations } from './hooks/useWorkspaceLayoutDerivations';
 import { useWorkspaceAssemblyRenderFailureNotice } from './hooks/useWorkspaceAssemblyRenderFailureNotice';
 import { useViewerOrchestration } from './hooks/useViewerOrchestration';
 import { useWorkspaceMutations } from './hooks/useWorkspaceMutations';
@@ -64,23 +71,15 @@ import {
   useRobotStore,
   useAssemblySelectionStore,
   useCollisionTransformStore,
-  useJointInteractionPreviewStore,
 } from '@/store';
-import { resolveClosedLoopDrivenJointMotion, resolveJointKey } from '@/core/robot';
 import type {
   BridgeJoint,
-  JointQuaternion,
   RobotData,
   RobotFile,
   UrdfJoint,
   UrdfLink,
 } from '@/types';
 import { translations } from '@/shared/i18n';
-import {
-  resolveWorkspaceOverlayGizmoMargin,
-  resolveWorkspaceOverlaySafeAreaStyle,
-  type WorkspaceOverlayGizmoMargin,
-} from '@/shared/components/3d/scene/viewerOverlaySafeArea';
 import type {
   SnapshotCaptureAction,
   SnapshotCaptureOptions,
@@ -92,22 +91,11 @@ import { isAssetLibraryOnlyFormat, ROBOT_IMPORT_ACCEPT_ATTRIBUTE } from '@/share
 import { isIkDragToolEnabled } from '@/shared/utils/ikDragFeatureGate';
 import { toDocumentLoadLifecycleState } from '@/store/assetsStore';
 import { markUnsavedChangesBaselineSaved } from './utils/unsavedChangesBaseline';
-import { buildPropertyEditorSelectionContext } from './utils/propertyEditorSelectionContext';
 import { resolveDocumentLoadingOverlayTargetFileName } from './utils/documentLoadProgress';
 import { clearIkDragHelperSelection } from './utils/ikDragSession';
-import { resolveIkToolSelectionState } from './utils/ikToolSelectionState';
 import { resolveAssemblyRootComponentSelectionAvailability } from './utils/assemblyRootComponentSelection';
-import { resolveWorkspaceOverlayLayoutClassNames } from './utils/workspaceOverlayLayout';
 import { resolveLibraryRobotLoadAction } from './utils/libraryRobotLoadPolicy';
 import type { SnapshotPreviewSession } from './components/snapshot-preview/types';
-
-const TREE_PANEL_JOINT_PREVIEW_SESSION_ID = 'tree-panel-joint-slider';
-const TREE_PANEL_JOINT_COMMIT_EPSILON = 1e-6;
-
-interface TreePanelJointCommitSnapshot {
-  jointAngles: Record<string, number>;
-  jointQuaternions: Record<string, JointQuaternion>;
-}
 
 interface ProModeRoundtripSession {
   baselineSnapshot: string;
@@ -594,81 +582,25 @@ export function AppLayout({
   // through AppLayout forces the tree and property sidebars into high-frequency re-render.
   const previewContextRobot = robot;
   const isPreviewingWorkspaceSource = false;
-  const ikToolSelectionState = useMemo(
-    () =>
-      resolveIkToolSelectionState({
-        selection,
-        ikDragActive,
-        robotLinks: previewContextRobot.links,
-        robotJoints: previewContextRobot.joints,
-        rootLinkId: previewContextRobot.rootLinkId,
-      }),
-    [
-      ikDragActive,
-      previewContextRobot.joints,
-      previewContextRobot.links,
-      previewContextRobot.rootLinkId,
-      selection,
-    ],
-  );
-  const selectedIkLinkId = ikToolSelectionState.selectedLinkId;
-  const selectedIkLinkLabel = useMemo(() => {
-    if (!selectedIkLinkId) {
-      return null;
-    }
-
-    return (
-      previewContextRobot.links[selectedIkLinkId]?.name ??
-      robotLinks[selectedIkLinkId]?.name ??
-      selectedIkLinkId
-    );
-  }, [previewContextRobot.links, robotLinks, selectedIkLinkId]);
-  const currentIkLinkLabel = useMemo(() => {
-    if (!ikToolSelectionState.currentLinkId) {
-      return null;
-    }
-
-    return (
-      previewContextRobot.links[ikToolSelectionState.currentLinkId]?.name ??
-      robotLinks[ikToolSelectionState.currentLinkId]?.name ??
-      ikToolSelectionState.currentLinkId
-    );
-  }, [ikToolSelectionState.currentLinkId, previewContextRobot.links, robotLinks]);
-  const propertyEditorSelectionContext = useMemo(
-    () => buildPropertyEditorSelectionContext(previewContextRobot, normalizedAssemblyState),
-    [normalizedAssemblyState, previewContextRobot],
-  );
-  const workspaceLayoutClassNames = useMemo(() => resolveWorkspaceOverlayLayoutClassNames(), []);
-  const workspaceOverlaySafeAreaStyle = useMemo(
-    () =>
-      resolveWorkspaceOverlaySafeAreaStyle({
-        leftCollapsed: sidebar.leftCollapsed,
-        propertyEditorWidth: panelLayout.propertyEditorWidth,
-        rightCollapsed: sidebar.rightCollapsed,
-        treeSidebarWidth: panelLayout.treeSidebarWidth,
-      }),
-    [
-      panelLayout.propertyEditorWidth,
-      panelLayout.treeSidebarWidth,
-      sidebar.leftCollapsed,
-      sidebar.rightCollapsed,
-    ],
-  );
-  const workspaceOverlayGizmoMargin = useMemo<WorkspaceOverlayGizmoMargin>(
-    () =>
-      resolveWorkspaceOverlayGizmoMargin({
-        leftCollapsed: sidebar.leftCollapsed,
-        propertyEditorWidth: panelLayout.propertyEditorWidth,
-        rightCollapsed: sidebar.rightCollapsed,
-        treeSidebarWidth: panelLayout.treeSidebarWidth,
-      }),
-    [
-      panelLayout.propertyEditorWidth,
-      panelLayout.treeSidebarWidth,
-      sidebar.leftCollapsed,
-      sidebar.rightCollapsed,
-    ],
-  );
+  const { ikToolSelectionState, selectedIkLinkLabel, currentIkLinkLabel } = useIkToolController({
+    ikDragActive,
+    previewContextRobot,
+    robotLinks,
+    robotJoints,
+    rootLinkId,
+    selection,
+  });
+  const {
+    propertyEditorSelectionContext,
+    workspaceLayoutClassNames,
+    workspaceOverlaySafeAreaStyle,
+    workspaceOverlayGizmoMargin,
+  } = useWorkspaceLayoutDerivations({
+    normalizedAssemblyState,
+    panelLayout,
+    previewContextRobot,
+    sidebar,
+  });
 
   const {
     handleSelect,
@@ -777,147 +709,13 @@ export function AppLayout({
     handleTransformPendingChange: handleWorkspaceTransformPendingChange,
   });
 
-  const isTreePanelJointCommitVisible = useCallback(
-    (commit: TreePanelJointCommitSnapshot) =>
-      Object.entries(commit.jointAngles).every(([jointId, committedAngle]) => {
-        const jointName = previewContextRobot.joints[jointId]?.name;
-        const motionAngle =
-          jointMotionState[jointId]?.angle ??
-          (jointName ? jointMotionState[jointName]?.angle : undefined);
-        const snapshotAngle =
-          jointAngleState[jointId] ?? (jointName ? jointAngleState[jointName] : undefined);
-        const currentAngle =
-          typeof motionAngle === 'number'
-            ? motionAngle
-            : typeof snapshotAngle === 'number'
-              ? snapshotAngle
-              : previewContextRobot.joints[jointId]?.angle;
-
-        return (
-          typeof currentAngle === 'number' &&
-          Math.abs(currentAngle - committedAngle) <= TREE_PANEL_JOINT_COMMIT_EPSILON
-        );
-      }) &&
-      Object.entries(commit.jointQuaternions).every(([jointId, committedQuaternion]) => {
-        const jointName = previewContextRobot.joints[jointId]?.name;
-        const currentQuaternion =
-          jointMotionState[jointId]?.quaternion ??
-          (jointName ? jointMotionState[jointName]?.quaternion : undefined) ??
-          previewContextRobot.joints[jointId]?.quaternion;
-
-        if (!currentQuaternion) {
-          return false;
-        }
-
-        return (
-          Math.abs(currentQuaternion.x - committedQuaternion.x) <=
-            TREE_PANEL_JOINT_COMMIT_EPSILON &&
-          Math.abs(currentQuaternion.y - committedQuaternion.y) <=
-            TREE_PANEL_JOINT_COMMIT_EPSILON &&
-          Math.abs(currentQuaternion.z - committedQuaternion.z) <=
-            TREE_PANEL_JOINT_COMMIT_EPSILON &&
-          Math.abs(currentQuaternion.w - committedQuaternion.w) <= TREE_PANEL_JOINT_COMMIT_EPSILON
-        );
-      }),
-    [jointAngleState, jointMotionState, previewContextRobot.joints],
-  );
-
-  const clearTreePanelJointPreview = useCallback((deferToNextFrame = false) => {
-    const clearPreview = () => {
-      useJointInteractionPreviewStore.getState().clearPreview({
-        source: 'tree-panel',
-        dragSessionId: TREE_PANEL_JOINT_PREVIEW_SESSION_ID,
-      });
-    };
-
-    if (
-      deferToNextFrame &&
-      typeof window !== 'undefined' &&
-      typeof window.requestAnimationFrame === 'function'
-    ) {
-      window.requestAnimationFrame(clearPreview);
-      return;
-    }
-
-    clearPreview();
-  }, []);
-
-  const publishTreePanelJointPreview = useCallback(
-    (jointName: string, angle: number) => {
-      const jointId = resolveJointKey(previewContextRobot.joints, jointName);
-      if (!jointId) {
-        return null;
-      }
-
-      const solution = resolveClosedLoopDrivenJointMotion(previewContextRobot, jointId, angle);
-      const preview = {
-        source: 'tree-panel',
-        dragSessionId: TREE_PANEL_JOINT_PREVIEW_SESSION_ID,
-        activeJointId: jointId,
-        jointAngles: solution.angles,
-        jointQuaternions: solution.quaternions,
-        jointOrigins: {},
-      } as const;
-      useJointInteractionPreviewStore.getState().publishPreview(preview);
-      return preview;
-    },
-    [previewContextRobot],
-  );
-
-  const handleJointPreview = useCallback(
-    (jointName: string, angle: number) => {
-      publishTreePanelJointPreview(jointName, angle);
-    },
-    [publishTreePanelJointPreview],
-  );
-
-  const handleJointChange = useCallback(
-    (jointName: string, angle: number, context?: ViewerJointChangeContext) => {
-      const preview = publishTreePanelJointPreview(jointName, angle);
-      if (preview) {
-        pendingTreePanelJointCommitRef.current = {
-          jointAngles: preview.jointAngles,
-          jointQuaternions: preview.jointQuaternions,
-        };
-      }
-
-      handleCommittedJointChange(jointName, angle, context);
-      if (!preview) {
-        clearTreePanelJointPreview(true);
-        return;
-      }
-
-      const pendingCommit = pendingTreePanelJointCommitRef.current;
-      if (pendingCommit && isTreePanelJointCommitVisible(pendingCommit)) {
-        pendingTreePanelJointCommitRef.current = null;
-        clearTreePanelJointPreview(true);
-      }
-    },
-    [
-      clearTreePanelJointPreview,
-      handleCommittedJointChange,
-      isTreePanelJointCommitVisible,
-      publishTreePanelJointPreview,
-    ],
-  );
-
-  useEffect(() => {
-    const pendingCommit = pendingTreePanelJointCommitRef.current;
-    if (!pendingCommit || !isTreePanelJointCommitVisible(pendingCommit)) {
-      return;
-    }
-
-    pendingTreePanelJointCommitRef.current = null;
-    clearTreePanelJointPreview(true);
-  }, [clearTreePanelJointPreview, isTreePanelJointCommitVisible, jointAngleState, jointMotionState]);
-
-  useEffect(
-    () => () => {
-      pendingTreePanelJointCommitRef.current = null;
-      clearTreePanelJointPreview();
-    },
-    [clearTreePanelJointPreview],
-  );
+  const { handleJointPreview, handleJointChange } = useTreePanelJointPreview({
+    previewContextRobot,
+    jointAngleState,
+    jointMotionState,
+    pendingTreePanelJointCommitRef,
+    handleCommittedJointChange,
+  });
 
   const {
     handleUploadAsset,
@@ -1116,75 +914,30 @@ export function AppLayout({
     ],
   );
 
-  const handleCloseSnapshotDialog = useCallback(() => {
-    setIsSnapshotDialogOpen(false);
-    setSnapshotPreviewSession(null);
-    snapshotPreviewCaptureActionRef.current = null;
-  }, []);
-
-  const handleSnapshotPreviewCaptureActionChange = useCallback(
-    (action: SnapshotCaptureAction | null) => {
-      snapshotPreviewCaptureActionRef.current = action;
-    },
-    [],
-  );
-
-  const handleSnapshot = useCallback(async () => {
-    const viewerCanvasState = viewerCanvasStateRef.current;
-    let cameraSnapshot: SnapshotPreviewSession['cameraSnapshot'] = null;
-    if (viewerCanvasState) {
-      try {
-        const { captureWorkspaceCameraSnapshot } = await import(
-          '@/shared/components/3d/workspace/workspaceCameraSnapshot'
-        );
-        cameraSnapshot = captureWorkspaceCameraSnapshot(viewerCanvasState);
-      } catch (error) {
-        console.error('[AppLayout] Failed to capture workspace camera snapshot:', error);
-      }
-    }
-    const viewportAspectRatio =
-      cameraSnapshot?.aspectRatio ??
-      (viewerCanvasState?.size.width && viewerCanvasState.size.height
-        ? viewerCanvasState.size.width / viewerCanvasState.size.height
-        : 16 / 9);
-
-    snapshotPreviewCaptureActionRef.current = null;
-    setSnapshotPreviewSession({
-      theme,
-      cameraSnapshot,
-      viewportAspectRatio,
-      robotName: viewerRobot.name || 'robot',
-      robot: viewerRobot,
-      assets: viewerAssets,
-      availableFiles,
-      urdfContent: urdfContentForViewer,
-      viewerSourceFormat,
-      sourceFilePath: viewerSourceFilePath,
-      sourceFile: viewerSourceFile,
-      jointAngleState,
-      jointMotionState,
-      showVisual,
-      isMeshPreview: selectedFile?.format === 'mesh',
-      viewerReloadKey,
-      groundPlaneOffset,
-    });
-    setIsSnapshotDialogOpen(true);
-  }, [
+  const {
+    handleCloseSnapshotDialog,
+    handleSnapshotPreviewCaptureActionChange,
+    handleSnapshot,
+  } = useSnapshotDialogController({
     availableFiles,
     groundPlaneOffset,
     jointAngleState,
     jointMotionState,
-    selectedFile?.format,
+    selectedFileFormat: selectedFile?.format ?? null,
     showVisual,
     theme,
     urdfContentForViewer,
     viewerAssets,
+    viewerCanvasStateRef,
     viewerReloadKey,
     viewerRobot,
     viewerSourceFile,
     viewerSourceFilePath,
     viewerSourceFormat,
-  ]);
+    snapshotPreviewCaptureActionRef,
+    setIsSnapshotDialogOpen,
+    setSnapshotPreviewSession,
+  });
 
   const handleSetIkDragActive = useCallback(
     (active: boolean) => {
