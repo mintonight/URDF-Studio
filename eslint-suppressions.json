@@ -31,7 +31,7 @@
   },
   "scripts/testing/browser/test_assembly_export.mjs": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 2
+      "count": 1
     }
   },
   "scripts/testing/browser/test_drag_drop_snapshot.mjs": {
@@ -51,7 +51,7 @@
   },
   "scripts/testing/browser/test_multi_format_import.mjs": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 2
+      "count": 1
     }
   },
   "scripts/testing/browser/test_urdf_export.mjs": {
