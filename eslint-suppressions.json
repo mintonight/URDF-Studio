@@ -570,9 +570,6 @@
   "src/features/property-editor/components/PropertyEditor.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
-    },
-    "jsx-a11y/no-static-element-interactions": {
-      "count": 1
     }
   },
   "src/features/property-editor/components/RotationValueInput.tsx": {
@@ -713,12 +710,6 @@
   "src/features/urdf-viewer/components/MeasureTool.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
-    },
-    "jsx-a11y/click-events-have-key-events": {
-      "count": 1
-    },
-    "jsx-a11y/no-static-element-interactions": {
-      "count": 1
     }
   },
   "src/features/urdf-viewer/components/OriginTransformControls.tsx": {
@@ -745,12 +736,6 @@
   },
   "src/features/urdf-viewer/components/ViewerOptionsPanel.tsx": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
-    "jsx-a11y/click-events-have-key-events": {
-      "count": 1
-    },
-    "jsx-a11y/no-static-element-interactions": {
       "count": 1
     }
   },
@@ -1210,11 +1195,6 @@
   },
   "src/shared/components/Panel/UnifiedVisualizerOptionsPanel.tsx": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/shared/components/SelectableText.tsx": {
-    "jsx-a11y/no-static-element-interactions": {
       "count": 1
     }
   },

@@ -210,6 +210,20 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
   const stopPanelEventPropagation = (event: React.SyntheticEvent) => {
     event.stopPropagation();
   };
+  const handlePanelFocus = (event: React.FocusEvent<HTMLDivElement>) => {
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
+      return;
+    }
+    activateHoverBlock();
+  };
+  const handlePanelBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
+      return;
+    }
+    deactivateHoverBlock();
+  };
 
   return (
     <div
@@ -229,10 +243,16 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
       onClick={stopPanelEventPropagation}
       onContextMenu={stopPanelEventPropagation}
       onDoubleClick={stopPanelEventPropagation}
+      onKeyDown={stopPanelEventPropagation}
       onMouseEnter={activateHoverBlock}
       onMouseLeave={deactivateHoverBlock}
+      onFocus={handlePanelFocus}
+      onBlur={handlePanelBlur}
       onPointerDown={stopPanelEventPropagation}
       onWheel={stopPanelEventPropagation}
+      role="toolbar"
+      aria-label={t.viewOptions}
+      tabIndex={-1}
     >
       <OptionsPanelContainer
         width="9.5rem"

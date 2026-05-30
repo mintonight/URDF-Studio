@@ -388,8 +388,9 @@ const MeasurementItem = memo(
           className="pointer-events-none select-none"
           zIndexRange={MEASURE_LABEL_Z_INDEX_RANGE}
         >
-          <div
-            className={`group pointer-events-auto flex cursor-pointer items-center gap-1 rounded-[7px] bg-slate-950/68 px-1.5 py-[3px] font-mono text-[10px] leading-none font-semibold whitespace-nowrap shadow-[0_1px_8px_rgba(2,6,23,0.28)] transition-colors [text-rendering:geometricPrecision] ${
+          <button
+            type="button"
+            className={`group pointer-events-auto flex cursor-pointer items-center gap-1 rounded-[7px] border-0 bg-slate-950/68 px-1.5 py-[3px] font-mono text-[10px] leading-none font-semibold whitespace-nowrap shadow-[0_1px_8px_rgba(2,6,23,0.28)] transition-colors [text-rendering:geometricPrecision] ${
               isHovered ? 'text-red-50' : 'text-red-100/96 hover:text-red-50'
             }`}
             onMouseEnter={onHover}
@@ -399,6 +400,7 @@ const MeasurementItem = memo(
               onDelete();
             }}
             title={deleteTooltip}
+            aria-label={deleteTooltip}
           >
             {distance}
             <svg
@@ -414,7 +416,7 @@ const MeasurementItem = memo(
                 d="M6 18L18 6M6 6l12 12"
               />
             </svg>
-          </div>
+          </button>
         </Html>
       </group>
     );

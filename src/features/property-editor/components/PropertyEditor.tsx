@@ -247,16 +247,18 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
 
       {/* Resize Handle - only show when expanded */}
       {!collapsed && (
-        <div
+        <button
+          type="button"
           data-testid="property-editor-sidebar-resize-handle"
-          className="group absolute left-0 top-0 bottom-0 z-40 w-2 cursor-col-resize bg-transparent"
+          aria-label={t.resize}
+          className="group absolute left-0 top-0 bottom-0 z-40 w-2 cursor-col-resize border-0 bg-transparent p-0"
           onMouseDown={handleResizeMouseDown}
         >
-          <div
+          <span
             data-testid="property-editor-sidebar-resize-rail"
             className="pointer-events-none absolute left-0 top-0 bottom-0 w-px bg-transparent transition-colors group-hover:bg-system-blue/50 group-active:bg-system-blue/60"
           />
-        </div>
+        </button>
       )}
     </div>
   );

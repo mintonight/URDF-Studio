@@ -15,20 +15,17 @@ export const SelectableText: React.FC<SelectableTextProps> = ({
   const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const elementRef = useRef<HTMLSpanElement>(null);
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
+  const startLongPress = useCallback((event: MouseEvent) => {
+    event.preventDefault();
 
-      pressTimerRef.current = setTimeout(() => {
-        setIsLongPressing(true);
-        if (elementRef.current) {
-          elementRef.current.style.userSelect = 'text';
-          elementRef.current.style.webkitUserSelect = 'text';
-        }
-      }, longPressMs);
-    },
-    [longPressMs],
-  );
+    pressTimerRef.current = setTimeout(() => {
+      setIsLongPressing(true);
+      if (elementRef.current) {
+        elementRef.current.style.userSelect = 'text';
+        elementRef.current.style.webkitUserSelect = 'text';
+      }
+    }, longPressMs);
+  }, [longPressMs]);
 
   const handleMouseUp = useCallback(() => {
     if (pressTimerRef.current) {
@@ -59,6 +56,23 @@ export const SelectableText: React.FC<SelectableTextProps> = ({
   }, []);
 
   useEffect(() => {
+    const element = elementRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    element.addEventListener('mousedown', startLongPress);
+    element.addEventListener('mouseup', handleMouseUp);
+    element.addEventListener('mouseleave', handleMouseLeave);
+
+    return () => {
+      element.removeEventListener('mousedown', startLongPress);
+      element.removeEventListener('mouseup', handleMouseUp);
+      element.removeEventListener('mouseleave', handleMouseLeave);
+    };
+  }, [handleMouseLeave, handleMouseUp, startLongPress]);
+
+  useEffect(() => {
     return () => {
       if (pressTimerRef.current) {
         clearTimeout(pressTimerRef.current);
@@ -71,9 +85,6 @@ export const SelectableText: React.FC<SelectableTextProps> = ({
       ref={elementRef}
       className={className}
       style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
-      onMouseDown={handleMouseDown}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseLeave}
     >
       {children}
     </span>
