@@ -9,8 +9,8 @@
 
 import { setTimeout as delay } from 'node:timers/promises';
 import {
-  createSession, createTestSuite, assert, assertGreaterThan,
-  waitForReady, getTopology, store, writeReport, printSummary,
+  createSession, createTestSuite, assert, assertEqual, assertGreaterThan,
+  waitForReady, getTopology, getRuntimeTransforms, writeReport, printSummary,
 } from './helpers/base-helpers.mjs';
 
 import { importModel as importUrdf } from './helpers/urdf-helpers.mjs';
@@ -72,11 +72,28 @@ async function main() {
         await importUnitreeModel(session.page, key);
         await waitForReady(session.page, 120_000);
         const topo = await getTopology(session.page);
+        const runtimeTransforms = await getRuntimeTransforms(session.page);
+        const usdState = await session.page.evaluate(() => {
+          const api = window.__URDF_STUDIO_DEBUG__;
+          const snap = api?.getRegressionSnapshot?.();
+          const load = api?.getDocumentLoadState?.();
+          return { selectedFile: snap?.selectedFile ?? null, loadState: load ?? null };
+        });
 
         assertGreaterThan(suite, topo.linkCount, 0, `${label}: links > 0`);
-        assertGreaterThan(suite, topo.jointCount, 0, `${label}: joints > 0`);
+        assertGreaterThan(suite, runtimeTransforms.length, 0, `${label}: runtime transforms present`);
+        assert(suite, usdState.selectedFile?.format === 'usd', `${label}: selected file is USD`);
+        assert(suite, usdState.loadState?.format === 'usd', `${label}: load state is USD`);
+        assertEqual(suite, topo.jointCount, 0, `${label}: Go2 USD hydrates without URDF joints`);
 
-        results.push({ format: label, status: 'ok', links: topo.linkCount, joints: topo.jointCount });
+        results.push({
+          format: label,
+          status: 'ok',
+          links: topo.linkCount,
+          joints: topo.jointCount,
+          runtimeTransforms: runtimeTransforms.length,
+          selectedFile: usdState.selectedFile?.name ?? null,
+        });
       } catch (err) {
         assert(suite, false, `${label}: load succeeded — ${err.message}`);
         results.push({ format: label, status: 'error', error: err.message });
