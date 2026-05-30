@@ -1150,11 +1150,6 @@
       "count": 1
     }
   },
-  "src/shared/components/DraggableWindow/DraggableWindow.tsx": {
-    "jsx-a11y/no-static-element-interactions": {
-      "count": 5
-    }
-  },
   "src/shared/components/Panel/JointControlItem.tsx": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
@@ -1185,12 +1180,6 @@
   "src/shared/components/Panel/OptionsPanel.tsx": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
-    },
-    "jsx-a11y/click-events-have-key-events": {
-      "count": 1
-    },
-    "jsx-a11y/no-static-element-interactions": {
-      "count": 2
     }
   },
   "src/shared/components/Panel/UnifiedVisualizerOptionsPanel.tsx": {

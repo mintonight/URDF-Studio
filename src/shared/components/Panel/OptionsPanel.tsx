@@ -428,6 +428,10 @@ export const OptionsPanelHeader: React.FC<OptionsPanelHeaderProps> = ({
     <div
       className={`group flex min-w-0 shrink-0 select-none touch-none items-center justify-between gap-1.5 border-b border-border-black/60 bg-element-bg px-2 py-1.5 text-[10px] transition-colors hover:bg-element-hover ${className}`}
       onMouseDown={onMouseDown}
+      onKeyDown={(e) => e.stopPropagation()}
+      role="toolbar"
+      aria-label={title}
+      tabIndex={-1}
     >
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {showDragGrip ? (
@@ -617,7 +621,7 @@ export const OptionsPanelContainer: React.FC<OptionsPanelContainerProps> = ({
   );
 
   const handleResizeStart = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>, direction: 'right' | 'bottom' | 'corner') => {
+    (e: React.PointerEvent<HTMLElement>, direction: 'right' | 'bottom' | 'corner') => {
       e.preventDefault();
       e.stopPropagation();
 
@@ -695,22 +699,28 @@ export const OptionsPanelContainer: React.FC<OptionsPanelContainerProps> = ({
       {resizable && !isCollapsed && (
         <>
           {showRightResizeHandle ? (
-            <div
+            <button
+              type="button"
               data-testid="ui-options-panel-resize-right"
-              className="absolute right-0.5 top-10 bottom-4 w-2 cursor-ew-resize rounded-full z-40 hover:bg-system-blue/20 transition-colors"
+              aria-label={resizeTitle}
+              className="absolute right-0.5 top-10 bottom-4 w-2 cursor-ew-resize rounded-full z-40 border-0 bg-transparent p-0 hover:bg-system-blue/20 transition-colors"
               onPointerDown={(e) => handleResizeStart(e, 'right')}
             />
           ) : null}
           {/* Bottom Handle */}
-          <div
+          <button
+            type="button"
             data-testid="ui-options-panel-resize-bottom"
-            className="absolute bottom-0 left-0 w-full h-1.5 cursor-ns-resize z-40 hover:bg-system-blue/20 transition-colors"
+            aria-label={resizeTitle}
+            className="absolute bottom-0 left-0 w-full h-1.5 cursor-ns-resize z-40 border-0 bg-transparent p-0 hover:bg-system-blue/20 transition-colors"
             onPointerDown={(e) => handleResizeStart(e, 'bottom')}
           />
           {/* Corner Handle */}
-          <div
+          <button
+            type="button"
             data-testid="ui-options-panel-resize-corner"
-            className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-50 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-transparent"
+            aria-label={resizeTitle}
+            className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-50 flex items-center justify-center border-0 bg-transparent p-0 opacity-0 hover:opacity-100 transition-opacity"
             onPointerDown={(e) => handleResizeStart(e, 'corner')}
             title={resizeTitle}
           >
@@ -720,7 +730,7 @@ export const OptionsPanelContainer: React.FC<OptionsPanelContainerProps> = ({
             >
               <path d="M4 4 L6 6 M2 2 L6 2 L6 6 L2 6 Z" />
             </svg>
-          </div>
+          </button>
         </>
       )}
     </div>
@@ -905,6 +915,22 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
     event.stopPropagation();
   };
 
+  const handlePanelFocus = (event: React.FocusEvent<HTMLDivElement>) => {
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
+      return;
+    }
+    activateHoverBlock();
+  };
+
+  const handlePanelBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
+      return;
+    }
+    deactivateHoverBlock();
+  };
+
   const handleMouseEnter: React.MouseEventHandler<HTMLDivElement> = (event) => {
     activateHoverBlock();
     onMouseEnter?.(event);
@@ -923,10 +949,16 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
       onClick={stopPanelEventPropagation}
       onContextMenu={stopPanelEventPropagation}
       onDoubleClick={stopPanelEventPropagation}
+      onKeyDown={stopPanelEventPropagation}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onFocus={handlePanelFocus}
+      onBlur={handlePanelBlur}
       onPointerDown={stopPanelEventPropagation}
       onWheel={stopPanelEventPropagation}
+      role="toolbar"
+      aria-label={title}
+      tabIndex={-1}
     >
       <OptionsPanelContainer
         width={width}

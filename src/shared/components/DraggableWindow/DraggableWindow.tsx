@@ -80,6 +80,9 @@ const DEFAULT_CORNER_RESIZE_CLASS =
 const joinClassNames = (...classes: Array<string | undefined | false>) =>
   classes.filter(Boolean).join(' ');
 
+const isEventTransitionInside = (element: HTMLElement, relatedTarget: EventTarget | null) =>
+  relatedTarget instanceof Node && element.contains(relatedTarget);
+
 export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   window,
   onClose,
@@ -154,6 +157,36 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   );
   const restoreIcon = controlIcons?.restore ?? <Minimize2 className="w-4 h-4 text-text-tertiary" />;
   const closeIcon = controlIcons?.close ?? <X className="w-4 h-4" />;
+  const headerAriaLabel = typeof title === 'string' ? title : ariaLabel;
+
+  React.useEffect(() => {
+    const element = containerRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    const handleMouseOver = (event: MouseEvent) => {
+      if (isEventTransitionInside(element, event.relatedTarget)) {
+        return;
+      }
+      activateHoverBlock();
+    };
+
+    const handleMouseOut = (event: MouseEvent) => {
+      if (isEventTransitionInside(element, event.relatedTarget)) {
+        return;
+      }
+      deactivateHoverBlock();
+    };
+
+    element.addEventListener('mouseover', handleMouseOver);
+    element.addEventListener('mouseout', handleMouseOut);
+
+    return () => {
+      element.removeEventListener('mouseover', handleMouseOver);
+      element.removeEventListener('mouseout', handleMouseOut);
+    };
+  }, [activateHoverBlock, containerRef, deactivateHoverBlock]);
 
   return (
     <div
@@ -163,29 +196,35 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
       role={role}
       aria-label={ariaLabel}
       aria-modal={ariaModal}
-      onMouseEnter={activateHoverBlock}
-      onMouseLeave={deactivateHoverBlock}
     >
       {shouldRenderResizeHandles && (
         <>
-          <div
-            className={leftResizeHandleClassName}
+          <button
+            type="button"
+            aria-label="Resize"
+            className={joinClassNames(leftResizeHandleClassName, 'border-0 bg-transparent p-0')}
             onMouseDown={(e) => handleResizeStart(e, leftResizeDirection)}
           />
-          <div
-            className={rightResizeHandleClassName}
+          <button
+            type="button"
+            aria-label="Resize"
+            className={joinClassNames(rightResizeHandleClassName, 'border-0 bg-transparent p-0')}
             onMouseDown={(e) => handleResizeStart(e, rightResizeDirection)}
           />
-          <div
-            className={bottomResizeHandleClassName}
+          <button
+            type="button"
+            aria-label="Resize"
+            className={joinClassNames(bottomResizeHandleClassName, 'border-0 bg-transparent p-0')}
             onMouseDown={(e) => handleResizeStart(e, bottomResizeDirection)}
           />
-          <div
-            className={cornerResizeHandleClassName}
+          <button
+            type="button"
+            aria-label="Resize"
+            className={joinClassNames(cornerResizeHandleClassName, 'border-0 bg-transparent p-0')}
             onMouseDown={(e) => handleResizeStart(e, cornerResizeDirection)}
           >
             {cornerResizeHandle}
-          </div>
+          </button>
         </>
       )}
 
@@ -193,6 +232,10 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
         className={computedHeaderClassName}
         onMouseDown={handleDragStart}
         onDoubleClick={onHeaderDoubleClick}
+        onKeyDown={(e) => e.stopPropagation()}
+        role="toolbar"
+        aria-label={headerAriaLabel}
+        tabIndex={-1}
       >
         <div className={headerLeftClassName}>{title}</div>
         <div className={headerRightClassName}>
@@ -200,6 +243,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
           <div className={controlsClassName}>
             {showMinimizeButton && (
               <button
+                type="button"
                 data-window-control
                 onClick={toggleMinimize}
                 className={controlButtonClassName}
@@ -211,6 +255,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
 
             {showMaximizeButton && (
               <button
+                type="button"
                 data-window-control
                 onClick={toggleMaximize}
                 className={controlButtonClassName}
@@ -222,6 +267,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
 
             {showCloseButton && (
               <button
+                type="button"
                 data-window-control
                 onClick={onClose}
                 className={closeButtonClassName}
