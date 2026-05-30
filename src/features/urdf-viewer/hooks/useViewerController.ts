@@ -8,21 +8,10 @@ import {
   normalizeViewerJointAngleState,
   resolveViewerJointKey,
 } from '@/shared/utils/jointPanelState';
-import {
-  setRegressionViewerHandlers,
-  type RegressionViewerFlags,
-} from '@/shared/debug/regressionState';
-import { isRegressionDebugEnabled } from '@/shared/debug/regressionDebugEnabled';
 import { getJointType, isSingleDofJoint } from '@/shared/utils/jointTypes';
 import { resolveActiveViewerJointKeyFromSelection } from '../utils/activeJointSelection';
 import type {
-  MeasureAnchorMode,
-  MeasurePoseRepresentation,
-  MeasureState,
   ToolMode,
-  ViewerPaintOperation,
-  ViewerPaintSelectionScope,
-  ViewerPaintStatus,
   ViewerProps,
   ViewerJointChangeContext,
   ViewerHelperKind,
@@ -31,9 +20,10 @@ import type {
 import { resolveInitialJointControlState } from '../utils/jointControlState';
 import { createEmptyMeasureState } from '../utils/measurements';
 import { beginInitialGroundAlignment } from '@/shared/components/3d/robotPositioning';
-import { createScopedToolModeState, resolveScopedToolModeState } from '../utils/scopedToolMode';
-import { usePanelDrag } from './usePanelDrag';
 import { useViewerSettings } from './useViewerSettings';
+import { usePanelLayoutController } from './viewer-controller/usePanelLayoutController';
+import { useRegressionBridge } from './viewer-controller/useRegressionBridge';
+import { useToolModeController } from './viewer-controller/useToolModeController';
 import {
   JointType,
   type InteractionSelection,
@@ -436,41 +426,42 @@ export const useViewerController = ({
     [propSetShowVisual, recordInteractionLayerActivation, setLocalShowVisual, showVisual],
   );
 
-  const normalizedToolModeScopeKey = toolModeScopeKey ?? null;
-  const [toolModeState, setToolModeState] = useState(() =>
-    createScopedToolModeState(normalizedToolModeScopeKey, defaultToolMode),
-  );
-  const resolvedToolModeState = useMemo(
-    () => resolveScopedToolModeState(toolModeState, normalizedToolModeScopeKey, defaultToolMode),
-    [defaultToolMode, normalizedToolModeScopeKey, toolModeState],
-  );
-  const toolMode = resolvedToolModeState.mode;
-  const [measureState, setMeasureState] = useState<MeasureState>(createEmptyMeasureState);
-  const [measureAnchorMode, setMeasureAnchorMode] = useState<MeasureAnchorMode>('frame');
-  const [showMeasureDecomposition, setShowMeasureDecomposition] = useState(false);
-  const [measurePoseRepresentation, setMeasurePoseRepresentation] =
-    useState<MeasurePoseRepresentation>('matrix');
-  const [paintColor, setPaintColor] = useState('#ff6c0a');
-  const [paintSelectionScope, setPaintSelectionScope] =
-    useState<ViewerPaintSelectionScope>('island');
-  const [paintOperation, setPaintOperation] = useState<ViewerPaintOperation>('paint');
-  const [paintStatus, setPaintStatus] = useState<ViewerPaintStatus | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const optionsPanelRef = useRef<HTMLDivElement>(null);
-  const jointPanelRef = useRef<HTMLDivElement>(null);
-  const measurePanelRef = useRef<HTMLDivElement>(null);
   const {
+    normalizedToolModeScopeKey,
+    toolModeState,
+    setToolModeState,
+    resolvedToolModeState,
+    toolMode,
+    transformMode,
+    measureState,
+    setMeasureState,
+    measureAnchorMode,
+    setMeasureAnchorMode,
+    showMeasureDecomposition,
+    setShowMeasureDecomposition,
+    measurePoseRepresentation,
+    setMeasurePoseRepresentation,
+    paintColor,
+    setPaintColor,
+    paintSelectionScope,
+    setPaintSelectionScope,
+    paintOperation,
+    setPaintOperation,
+    paintStatus,
+    setPaintStatus,
+  } = useToolModeController({ defaultToolMode, toolModeScopeKey });
+  const {
+    containerRef,
+    optionsPanelRef,
+    jointPanelRef,
+    measurePanelRef,
     optionsPanelPos,
     jointPanelPos,
     measurePanelPos,
     handleMouseDown,
     handleMouseMove,
     handleMouseUp,
-  } = usePanelDrag(containerRef, optionsPanelRef, jointPanelRef, measurePanelRef);
-
-  const transformMode = (
-    ['translate', 'rotate', 'universal'].includes(toolMode) ? toolMode : 'select'
-  ) as 'select' | 'translate' | 'rotate' | 'universal';
+  } = usePanelLayoutController();
   const updateGroundPlaneOffset = useCallback(
     (nextOffset: number) => {
       setGroundPlaneOffset?.(nextOffset);
@@ -484,7 +475,7 @@ export const useViewerController = ({
     }
 
     setToolModeState(resolvedToolModeState);
-  }, [resolvedToolModeState, toolModeState]);
+  }, [resolvedToolModeState, setToolModeState, toolModeState]);
 
   useEffect(() => {
     if (selection?.subType === 'collision') {
@@ -610,7 +601,7 @@ export const useViewerController = ({
       jointInteractionPreviewSessionCounterRef.current,
     );
     return activeJointInteractionPreviewSessionRef.current;
-  }, []);
+  }, [setIsDragging]);
 
   const publishJointInteractionPreview = useCallback(
     (preview: {
@@ -1357,158 +1348,30 @@ export const useViewerController = ({
     };
   }, [clearJointInteractionPreview]);
 
-  useEffect(() => {
-    const regressionDebugEnabled = isRegressionDebugEnabled();
-    if (!regressionDebugEnabled) {
-      return;
-    }
-
-    if (!active) {
-      setRegressionViewerHandlers(null);
-      return () => {
-        setRegressionViewerHandlers(null);
-      };
-    }
-
-    const applyFlags = (flags: RegressionViewerFlags) => {
-      if (flags.showCollision !== undefined) setShowCollision(flags.showCollision);
-      if (flags.showCollisionAlwaysOnTop !== undefined)
-        setShowCollisionAlwaysOnTop(flags.showCollisionAlwaysOnTop);
-      if (flags.showVisual !== undefined) setShowVisual(flags.showVisual);
-      if (flags.showCenterOfMass !== undefined) setShowCenterOfMass(flags.showCenterOfMass);
-      if (flags.showCoMOverlay !== undefined) setShowCoMOverlay(flags.showCoMOverlay);
-      if (flags.centerOfMassSize !== undefined) setCenterOfMassSize(flags.centerOfMassSize);
-      if (flags.showInertia !== undefined) setShowInertia(flags.showInertia);
-      if (flags.showInertiaOverlay !== undefined) setShowInertiaOverlay(flags.showInertiaOverlay);
-      if (flags.showOrigins !== undefined) setShowOrigins(flags.showOrigins);
-      if (flags.showOriginsOverlay !== undefined) setShowOriginsOverlay(flags.showOriginsOverlay);
-      if (flags.originSize !== undefined) setOriginSize(flags.originSize);
-      if (flags.showJointAxes !== undefined) setShowJointAxes(flags.showJointAxes);
-      if (flags.showJointAxesOverlay !== undefined)
-        setShowJointAxesOverlay(flags.showJointAxesOverlay);
-      if (flags.jointAxisSize !== undefined) setJointAxisSize(flags.jointAxisSize);
-      if (flags.highlightMode !== undefined) setHighlightMode(flags.highlightMode);
-      if (flags.modelOpacity !== undefined) setModelOpacity(flags.modelOpacity);
-    };
-
-    setRegressionViewerHandlers({
-      getSnapshot: () => ({
-        jointAngles: { ...jointAnglesRef.current },
-        activeJoint: activeJointRef.current,
-        toolMode,
-        highlightMode,
-        flags: {
-          showCollision,
-          showCollisionAlwaysOnTop,
-          showVisual,
-          showCenterOfMass,
-          showCoMOverlay,
-          centerOfMassSize,
-          showInertia,
-          showInertiaOverlay,
-          showOrigins,
-          showOriginsOverlay,
-          originSize,
-          showJointAxes,
-          showJointAxesOverlay,
-          jointAxisSize,
-          highlightMode,
-          modelOpacity,
-        },
-      }),
-      setFlags: applyFlags,
-      setToolMode: (nextMode) => {
-        const normalizedMode = String(nextMode || '').trim();
-        const allowedModes: ToolMode[] = [
-          'select',
-          'translate',
-          'rotate',
-          'universal',
-          'view',
-          'face',
-          'measure',
-          'paint',
-        ];
-        const resolvedMode = allowedModes.includes(normalizedMode as ToolMode)
-          ? (normalizedMode as ToolMode)
-          : toolMode;
-        const changed = resolvedMode !== toolMode;
-
-        if (changed) {
-          setToolModeState({
-            scopeKey: normalizedToolModeScopeKey,
-            explicit: true,
-            mode: resolvedMode,
-          });
-          if (resolvedMode !== 'measure') {
-            setMeasureState((prev) => (!prev.hoverTarget ? prev : { ...prev, hoverTarget: null }));
-          }
-          if (resolvedMode !== 'paint') {
-            setPaintStatus(null);
-          }
-        }
-
-        return {
-          changed,
-          activeMode: resolvedMode,
-        };
-      },
-      setJointAngles: (nextJointAngles) => {
-        if (!nextJointAngles || typeof nextJointAngles !== 'object') {
-          return { changed: false };
-        }
-
-        let changed = false;
-
-        Object.entries(nextJointAngles).forEach(([jointName, angle]) => {
-          if (!Number.isFinite(Number(angle))) {
-            return;
-          }
-
-          const numericAngle = Number(angle);
-          const jointKey = resolveViewerJointKey(robot?.joints, jointName) ?? jointName;
-          const joint = robot?.joints?.[jointKey];
-          if (joint && isSingleDofJoint(joint)) {
-            joint.setJointValue?.(resolveRuntimeMotionAngle(jointName, numericAngle, joint));
-          }
-
-          if (jointAnglesRef.current[jointName] !== numericAngle) {
-            changed = true;
-          }
-        });
-
-        if (changed) {
-          patchJointPanelAngles(nextJointAngles);
-        }
-
-        robot?.updateMatrixWorld?.(true);
-        requestSceneRefresh();
-        return { changed };
-      },
-    });
-
-    return () => {
-      setRegressionViewerHandlers(null);
-    };
-  }, [
+  useRegressionBridge({
     active,
     centerOfMassSize,
     highlightMode,
     jointAxisSize,
     modelOpacity,
+    normalizedToolModeScopeKey,
     originSize,
-    patchJointPanelAngles,
     requestSceneRefresh,
     robot,
+    toolMode,
+    jointAnglesRef,
+    activeJointRef,
+    patchJointPanelAngles,
+    resolveRuntimeMotionAngle,
     setCenterOfMassSize,
     setHighlightMode,
     setJointAxisSize,
+    setMeasureState,
     setModelOpacity,
-    normalizedToolModeScopeKey,
     setOriginSize,
-    resolveRuntimeMotionAngle,
-    setShowCoMOverlay,
+    setPaintStatus,
     setShowCenterOfMass,
+    setShowCoMOverlay,
     setShowCollision,
     setShowCollisionAlwaysOnTop,
     setShowInertia,
@@ -1518,6 +1381,7 @@ export const useViewerController = ({
     setShowOrigins,
     setShowOriginsOverlay,
     setShowVisual,
+    setToolModeState,
     showCenterOfMass,
     showCoMOverlay,
     showCollision,
@@ -1529,9 +1393,7 @@ export const useViewerController = ({
     showOrigins,
     showOriginsOverlay,
     showVisual,
-    setMeasureState,
-    toolMode,
-  ]);
+  });
 
   const initializeJointControlState = useCallback(
     (loadedRobot: any) => {
@@ -2051,7 +1913,6 @@ export const useViewerController = ({
     },
     [
       applyRuntimeJointMotionPreview,
-      effectiveClosedLoopRobotState?.closedLoopConstraints,
       effectiveClosedLoopRobotState,
       jointControlJoints,
       jointControlRobot,
@@ -2376,7 +2237,7 @@ export const useViewerController = ({
       );
       setPanelActiveJoint(activeJointKey);
     },
-    [jointControlJoints, jointControlRobot, onSelect, setPanelActiveJoint],
+    [jointControlJoints, onSelect, setPanelActiveJoint],
   );
 
   const handleHoverWrapper = useCallback(
@@ -2438,7 +2299,7 @@ export const useViewerController = ({
         setPaintStatus(null);
       }
     },
-    [normalizedToolModeScopeKey],
+    [normalizedToolModeScopeKey, setMeasureState, setPaintStatus, setToolModeState],
   );
 
   const handleCloseMeasureTool = useCallback(() => {
@@ -2449,7 +2310,7 @@ export const useViewerController = ({
       mode: 'select',
     });
     onHover?.(null, null);
-  }, [normalizedToolModeScopeKey, onHover]);
+  }, [normalizedToolModeScopeKey, onHover, setMeasureState, setToolModeState]);
 
   const handleClosePaintTool = useCallback(() => {
     setPaintStatus(null);
@@ -2458,7 +2319,7 @@ export const useViewerController = ({
       explicit: true,
       mode: 'select',
     });
-  }, [normalizedToolModeScopeKey]);
+  }, [normalizedToolModeScopeKey, setPaintStatus, setToolModeState]);
 
   const handlePointerMissed = useCallback(() => {
     if (justSelectedRef.current) return;

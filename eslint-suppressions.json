@@ -701,7 +701,7 @@
       "count": 1
     },
     "react-hooks/exhaustive-deps": {
-      "count": 3
+      "count": 2
     }
   },
   "src/features/urdf-viewer/hooks/useViewerSettings.ts": {
