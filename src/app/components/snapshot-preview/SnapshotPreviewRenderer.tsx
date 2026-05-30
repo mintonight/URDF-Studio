@@ -15,6 +15,7 @@ import { buildUnifiedViewerResourceScopes } from '@/app/utils/unifiedViewerResou
 import { resolveSnapshotPreviewSurfaceSize } from '@/shared/components/3d';
 import { ViewerSceneConnector } from '../unified-viewer/ViewerSceneConnector';
 import { toSnapshotPreviewActionState } from './previewActionState';
+import { logRegressionError } from '@/shared/debug/consoleDiagnostics';
 
 import type { SnapshotDialogPreviewState, SnapshotPreviewSession } from './types';
 
@@ -147,7 +148,7 @@ export function SnapshotPreviewRenderer({
           });
         })
         .catch((error) => {
-          console.error('[SnapshotPreviewRenderer] Failed to refresh preview.', error);
+          logRegressionError('[SnapshotPreviewRenderer] Failed to refresh preview.', error);
           if (requestId !== previewRequestIdRef.current) {
             return;
           }

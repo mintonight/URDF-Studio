@@ -97,6 +97,7 @@ import {
   clearRegressionDebugGlobals,
   isRegressionDebugEnabled,
 } from '@/shared/debug/regressionDebugEnabled';
+import { logRegressionInfo, logRegressionWarn } from '@/shared/debug/consoleDiagnostics';
 import { markUnsavedChangesBaselineSaved } from './utils/unsavedChangesBaseline';
 import type {
   AIConversationFocusedIssue,
@@ -564,7 +565,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
           loadedCount: null,
           totalCount: null,
         });
-        console.info(`[urdf-studio] ${t.xacroSourceOnlyPreviewHint}`);
+        logRegressionInfo(`[urdf-studio] ${t.xacroSourceOnlyPreviewHint}`);
         return;
       }
 
@@ -639,7 +640,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         const message = t.importPackageAssetBundleHint
           .replace('{packages}', assetLabel)
           .replace('{assets}', assetLabel);
-        console.warn(`[urdf-studio] ${message}`);
+        logRegressionWarn(`[urdf-studio] ${message}`);
         if (!canProceedWithStandaloneImportAssetWarning(file)) {
           setDocumentLoadState({
             status: 'error',

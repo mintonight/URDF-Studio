@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { logRegressionError } from '@/shared/debug/consoleDiagnostics';
 
 /**
  * Reads `?plugin=<key>` from the URL and calls `openTool(key)` once the app
@@ -33,7 +34,7 @@ export function usePluginLaunch(openTool: ((key: string) => void) | undefined): 
         try {
           openTool(pluginKey);
         } catch (error) {
-          console.error('[plugin-launch] Failed to open tool:', pluginKey, error);
+          logRegressionError('[plugin-launch] Failed to open tool:', pluginKey, error);
         }
       });
     });

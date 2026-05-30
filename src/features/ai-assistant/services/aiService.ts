@@ -13,6 +13,7 @@ import { buildInspectionRobotContext } from '../utils/buildInspectionRobotContex
 import { normalizeAIRobotResponse } from '../utils/normalizeRobotData'
 import { processInspectionResults } from '../utils/processInspectionResults'
 import { INSPECTION_CRITERIA } from '../utils/inspectionCriteria'
+import { logRegressionError } from '@/shared/debug/consoleDiagnostics'
 
 export type RobotInspectionStage =
   | 'preparing-context'
@@ -196,8 +197,8 @@ export const generateRobotFromPrompt = async (
   }
 
   if (!process.env.API_KEY) {
-    console.error('API Key missing')
-    console.error('Available env vars:', {
+    logRegressionError('API Key missing')
+    logRegressionError('Available env vars:', {
       API_KEY: process.env.API_KEY ? '***' : 'missing',
       OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
       OPENAI_MODEL: process.env.OPENAI_MODEL
@@ -263,7 +264,7 @@ export const generateRobotFromPrompt = async (
 
     const content = response.choices[0]?.message?.content
     if (!content) {
-      console.error('No content in API response')
+      logRegressionError('No content in API response')
       return {
         explanation: text.noContentFromApi,
         actionType: 'advice' as const
@@ -325,8 +326,8 @@ export const generateRobotFromPrompt = async (
     }
   } catch (e: unknown) {
     const error = e as { message?: string; status?: number; code?: string; response?: unknown }
-    console.error('OpenAI API call failed', e)
-    console.error('Error details:', {
+    logRegressionError('OpenAI API call failed', e)
+    logRegressionError('Error details:', {
       message: error?.message,
       status: error?.status,
       code: error?.code,
@@ -351,7 +352,7 @@ export const runRobotInspection = async (
 ): Promise<InspectionReport | null> => {
   const text = getAiServiceTexts(lang)
   if (!process.env.API_KEY) {
-    console.error('API Key missing')
+    logRegressionError('API Key missing')
     return {
       summary: text.apiKeyMissing,
       issues: [
@@ -420,7 +421,7 @@ export const runRobotInspection = async (
     return processInspectionResults(result, selectedItems, lang)
   } catch (e: unknown) {
     const error = e as { message?: string }
-    console.error('Inspection failed', e)
+    logRegressionError('Inspection failed', e)
     return {
       summary: text.failedToCompleteInspection,
       issues: [

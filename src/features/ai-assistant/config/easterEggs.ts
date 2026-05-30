@@ -1,4 +1,5 @@
 import type { AIResponse } from '../types'
+import { logRegressionError } from '@/shared/debug/consoleDiagnostics'
 
 /**
  * Helper to decode Base64 UTF-8 strings using TextDecoder
@@ -12,7 +13,7 @@ export const b64DecodeUnicode = (str: string): string => {
     }
     return new TextDecoder().decode(bytes)
   } catch (error) {
-    console.error('Failed to decode base64 string', error)
+    logRegressionError('Failed to decode base64 string', error)
     return ''
   }
 }

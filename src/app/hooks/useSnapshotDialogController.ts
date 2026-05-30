@@ -3,6 +3,7 @@ import type { RootState } from '@react-three/fiber';
 import type { SnapshotCaptureAction } from '@/shared/components/3d/scene/snapshotConfig';
 import type { RobotFile } from '@/types';
 import type { SnapshotPreviewSession } from '../components/snapshot-preview/types';
+import { logRegressionError } from '@/shared/debug/consoleDiagnostics';
 
 interface UseSnapshotDialogControllerParams {
   availableFiles: RobotFile[];
@@ -68,7 +69,7 @@ export function useSnapshotDialogController({
         );
         cameraSnapshot = captureWorkspaceCameraSnapshot(viewerCanvasState);
       } catch (error) {
-        console.error('[AppLayout] Failed to capture workspace camera snapshot:', error);
+        logRegressionError('[AppLayout] Failed to capture workspace camera snapshot:', error);
       }
     }
     const viewportAspectRatio =

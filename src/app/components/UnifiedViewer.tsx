@@ -55,6 +55,7 @@ import { UnifiedViewerSceneRoots } from './unified-viewer/UnifiedViewerSceneRoot
 import type { FilePreviewState } from './unified-viewer/types';
 import { useUnifiedViewerDerivedState } from './unified-viewer/useUnifiedViewerDerivedState';
 import { useSelectionStore } from '@/store/selectionStore';
+import { logRegressionWarn } from '@/shared/debug/consoleDiagnostics';
 
 interface UnifiedViewerProps {
   // Viewer-bound scene data: deliberately RobotData (no selection) so the
@@ -544,7 +545,7 @@ export const UnifiedViewer = React.memo(
       return schedulePostReadyBackgroundTask(
         () => {
           void preloadDeferredViewerModeModules().catch((error) => {
-            console.warn('[UnifiedViewer] Failed to preload deferred mode modules.', error);
+            logRegressionWarn('[UnifiedViewer] Failed to preload deferred mode modules.', error);
           });
         },
         {

@@ -46,6 +46,7 @@ import { primePreResolvedRobotImports } from '@/app/utils/preResolvedRobotImport
 import { prewarmUsdSelectionInBackground } from '@/app/utils/usdSelectionPrewarm';
 import { markUnsavedChangesBaselineSaved } from '@/app/utils/unsavedChangesBaseline';
 import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
+import { logRegressionInfo } from '@/shared/debug/consoleDiagnostics';
 
 export interface ImportPreparationOverlayState {
   label: string;
@@ -744,7 +745,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
           }
         } else if (renamedLibraryFiles.length === 0) {
           const infoMessage = t.noSupportedImportFilesFound;
-          console.info('[useFileImport] Skipped import with no visible library files.', {
+          logRegressionInfo('[useFileImport] Skipped import with no visible library files.', {
             importedFileNames: inputFiles.map((file) => file.name),
           });
           if (onShowToast) {

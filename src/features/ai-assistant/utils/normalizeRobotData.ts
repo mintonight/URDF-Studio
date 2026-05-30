@@ -1,4 +1,5 @@
 import type { GeometryType, JointType, RobotState } from '@/types'
+import { logRegressionError } from '@/shared/debug/consoleDiagnostics'
 
 interface NormalizedRobotData {
   name: string
@@ -111,7 +112,7 @@ export function normalizeAIRobotResponse(raw: unknown): NormalizedRobotData | nu
   const linksToProcess = toObjectArray(data.links)
   linksToProcess.forEach(link => {
     if (!link.id) {
-      console.error('[AI Service] Skipping invalid link:', link)
+      logRegressionError('[AI Service] Skipping invalid link:', link)
       return
     }
 
@@ -144,7 +145,7 @@ export function normalizeAIRobotResponse(raw: unknown): NormalizedRobotData | nu
   const jointsToProcess = toObjectArray(data.joints)
   jointsToProcess.forEach(joint => {
     if (!joint.id) {
-      console.error('[AI Service] Skipping invalid joint:', joint)
+      logRegressionError('[AI Service] Skipping invalid joint:', joint)
       return
     }
 

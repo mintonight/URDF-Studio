@@ -96,6 +96,7 @@ import { clearIkDragHelperSelection } from './utils/ikDragSession';
 import { resolveAssemblyRootComponentSelectionAvailability } from './utils/assemblyRootComponentSelection';
 import { resolveLibraryRobotLoadAction } from './utils/libraryRobotLoadPolicy';
 import type { SnapshotPreviewSession } from './components/snapshot-preview/types';
+import { logRegressionError } from '@/shared/debug/consoleDiagnostics';
 
 interface ProModeRoundtripSession {
   baselineSnapshot: string;
@@ -1019,7 +1020,7 @@ export function AppLayout({
           cameraSnapshot: snapshotPreviewSession?.cameraSnapshot ?? null,
         });
       } catch (error) {
-        console.error('Snapshot failed:', error);
+        logRegressionError('Snapshot failed:', error);
         showToast(t.snapshotFailed, 'info');
       } finally {
         setIsSnapshotCapturing(false);
@@ -1044,7 +1045,7 @@ export function AppLayout({
     onDropError: () => showToast(t.failedToProcessFiles, 'info'),
   });
   const handleSourceCodeEditorPreloadError = useCallback((error: unknown) => {
-    console.error('[AppLayout] Failed to preload source code editor runtime:', error);
+    logRegressionError('[AppLayout] Failed to preload source code editor runtime:', error);
   }, []);
 
   const { handleOpenCodeViewer, handlePrefetchCodeViewer } = useSourceCodeEditorWarmup({
