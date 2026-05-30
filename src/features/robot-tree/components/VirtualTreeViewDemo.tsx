@@ -187,8 +187,9 @@ function VirtualTreeNode({
         : 'text-green-500';
 
   return (
-    <div
-      className="flex items-center gap-2 px-2 hover:bg-element-hover cursor-pointer group whitespace-nowrap"
+    <button
+      type="button"
+      className="flex w-full items-center gap-2 border-0 bg-transparent px-2 text-left hover:bg-element-hover cursor-pointer group whitespace-nowrap"
       style={{ height, paddingLeft: `${node.depth * 12 + 8}px` }}
       onClick={onToggle}
     >
@@ -201,6 +202,6 @@ function VirtualTreeNode({
       {node.type === 'component' && (
         <span className="text-[9px] bg-system-blue/10 text-system-blue px-1 rounded">root</span>
       )}
-    </div>
+    </button>
   );
 }

@@ -1112,6 +1112,10 @@ export function TreeStructureGraphDialog({
               setHoveredNodeUid(null);
             }
           }}
+          onKeyDown={(event) => event.stopPropagation()}
+          role="button"
+          aria-label={t.structureGraphTitle}
+          tabIndex={0}
         >
           {layout.nodes.length === 0 ? (
             <div className="flex h-full items-center justify-center text-[12px] text-text-tertiary">

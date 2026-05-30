@@ -8,6 +8,7 @@ import {
   Shapes,
   Shield,
 } from 'lucide-react';
+import type { KeyboardEvent } from 'react';
 import { AssemblyTreeView } from './AssemblyTreeView';
 import { TreeNode } from './TreeNode';
 import type { TreeEditorTranslations } from './treeEditorTypes';
@@ -84,6 +85,16 @@ export function TreeEditorStructureSection({
   t,
   treeRootLinkIds,
 }: TreeEditorStructureSectionProps) {
+  const headerLabel = isAssemblyView ? t.assemblyTree : t.structureTree;
+  const handleHeaderKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) {
+      return;
+    }
+
+    event.preventDefault();
+    onToggleOpen();
+  };
+
   return (
     <div
       className="flex flex-col min-h-0 transition-all flex-1"
@@ -92,6 +103,10 @@ export function TreeEditorStructureSection({
       <div
         className="flex items-center justify-between px-3 py-2 bg-element-bg dark:bg-element-bg cursor-pointer select-none border-b border-border-black dark:border-border-black"
         onClick={onToggleOpen}
+        onKeyDown={handleHeaderKeyDown}
+        role="button"
+        aria-label={headerLabel}
+        tabIndex={0}
       >
         <div className="flex min-w-0 items-center gap-2">
           {isOpen ? (
@@ -136,6 +151,7 @@ export function TreeEditorStructureSection({
 
           {sidebarTab === 'structure' && (
             <button
+              type="button"
               className="p-1 bg-system-blue-solid hover:bg-system-blue-hover text-white rounded-md transition-colors shadow-sm"
               onClick={(event) => {
                 event.stopPropagation();
@@ -148,16 +164,18 @@ export function TreeEditorStructureSection({
           )}
 
           {!isAssemblyView && (
-            <div
+            <button
+              type="button"
               className="flex items-center justify-center w-5 h-5 rounded hover:bg-element-hover cursor-pointer text-text-tertiary transition-colors"
               onClick={(event) => {
                 event.stopPropagation();
                 onToggleShowVisual();
               }}
               title={showVisual ? t.hideAllVisuals : t.showAllVisuals}
+              aria-label={showVisual ? t.hideAllVisuals : t.showAllVisuals}
             >
               {showVisual ? <Eye size={14} /> : <EyeOff size={14} />}
-            </div>
+            </button>
           )}
         </div>
       </div>

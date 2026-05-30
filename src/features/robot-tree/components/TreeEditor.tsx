@@ -569,9 +569,11 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
           />
 
           {isFileBrowserOpen && isStructureOpen && (
-            <div
+            <button
+              type="button"
               data-testid="tree-editor-file-browser-resize-handle"
-              className="relative -my-1 h-2 shrink-0 cursor-row-resize bg-transparent z-10"
+              aria-label={t.resize}
+              className="relative -my-1 h-2 shrink-0 cursor-row-resize border-0 bg-transparent p-0 z-10"
               onMouseDown={handleVerticalResizeStart}
             />
           )}
@@ -590,9 +592,11 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
               isDragging={isDragging}
             />
             {hasVisibleJointPanel && (
-              <div
+              <button
+                type="button"
                 data-testid="tree-editor-joint-section-resize-handle"
-                className="relative -my-1 h-2 shrink-0 cursor-row-resize bg-transparent z-10"
+                aria-label={t.resize}
+                className="relative -my-1 h-2 shrink-0 cursor-row-resize border-0 bg-transparent p-0 z-10"
                 onMouseDown={handleJointPanelResizeStart}
               />
             )}
@@ -635,16 +639,18 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
       )}
 
       {!collapsed && (
-        <div
+        <button
+          type="button"
           data-testid="tree-editor-sidebar-resize-handle"
-          className="group absolute right-0 top-0 bottom-0 z-30 w-2 cursor-col-resize bg-transparent"
+          aria-label={t.resize}
+          className="group absolute right-0 top-0 bottom-0 z-30 w-2 cursor-col-resize border-0 bg-transparent p-0"
           onMouseDown={handleHorizontalResizeStart}
         >
           <div
             data-testid="tree-editor-sidebar-resize-rail"
             className="pointer-events-none absolute right-0 top-0 bottom-0 w-px bg-transparent transition-colors group-hover:bg-system-blue/50 group-active:bg-system-blue/60"
           />
-        </div>
+        </button>
       )}
 
       <FileTreeContextMenu

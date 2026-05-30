@@ -328,6 +328,39 @@ export const AssemblyTreeView = memo(
     const renameInputClassName =
       'select-text text-[11px] font-medium leading-none flex-1 min-w-0 px-1 py-0.5 rounded border outline-none transition-colors bg-input-bg border-border-strong text-text-primary focus:border-system-blue';
     const isEditingAssembly = editingTarget?.kind === 'assembly';
+    const runOnActivationKey = (
+      event: React.KeyboardEvent<HTMLElement>,
+      action: () => void,
+    ) => {
+      if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) {
+        return;
+      }
+
+      event.preventDefault();
+      action();
+    };
+    const selectAssemblyRoot = () => {
+      // With a single imported model the assembly root *is* "the
+      // whole robot" the user expects to move. Arm its lone component
+      // (root joint drives the entire chain) instead of the
+      // assembly-level target, which has no attachable Object3D for a
+      // plain import. With multiple components keep assembly-level
+      // selection.
+      if (components.length === 1) {
+        const only = components[0]!;
+        const onlyRootLinkId = resolveComponentHoverLinkId(only, componentRootLinkIds);
+        selectComponent(only.id);
+        if (onlyRootLinkId) {
+          onSelect('link', onlyRootLinkId);
+        } else {
+          setSelection({ type: null, id: null });
+        }
+        return;
+      }
+
+      setSelection({ type: null, id: null });
+      selectAssembly();
+    };
 
     return (
       <div className="@container space-y-1 select-none">
@@ -338,29 +371,12 @@ export const AssemblyTreeView = memo(
                 ? itemSelectedClass
                 : `bg-element-bg ${itemHoverClass}`
             }`}
-            onClick={() => {
-              // With a single imported model the assembly root *is* "the
-              // whole robot" the user expects to move. Arm its lone component
-              // (root joint drives the entire chain) instead of the
-              // assembly-level target, which has no attachable Object3D for a
-              // plain import. With multiple components keep assembly-level
-              // selection.
-              if (components.length === 1) {
-                const only = components[0]!;
-                const onlyRootLinkId = resolveComponentHoverLinkId(only, componentRootLinkIds);
-                selectComponent(only.id);
-                if (onlyRootLinkId) {
-                  onSelect('link', onlyRootLinkId);
-                } else {
-                  setSelection({ type: null, id: null });
-                }
-                return;
-              }
-
-              setSelection({ type: null, id: null });
-              selectAssembly();
-            }}
+            onClick={selectAssemblyRoot}
+            onKeyDown={(event) => runOnActivationKey(event, selectAssemblyRoot)}
             onContextMenu={(event) => openContextMenu(event, { kind: 'assembly' }, 1)}
+            role="button"
+            aria-label={assemblyState.name}
+            tabIndex={0}
           >
             <Cuboid size={14} className="mr-1.5 text-system-blue" />
             {isEditingAssembly ? (
@@ -441,33 +457,35 @@ export const AssemblyTreeView = memo(
                 : isComponentHovered
                   ? itemHoveredClass
                   : itemHoverClass;
+            const selectComponentRow = () => {
+              if (interactionGuard && componentHoverLinkId) {
+                setExpandedComponents((prev) =>
+                  prev[component.id] ? prev : { ...prev, [component.id]: true },
+                );
+                onSelect('link', componentHoverLinkId);
+                return;
+              }
+
+              // Selecting the robot/component name should arm the move
+              // gizmo for the whole component (its root joint drives the
+              // entire chain), so the user does not have to drill into
+              // the "base" link first. Mirror the link-selection path
+              // that already makes "base" transformable.
+              selectComponent(component.id);
+              if (componentHoverLinkId) {
+                onSelect('link', componentHoverLinkId);
+              } else {
+                setSelection({ type: null, id: null });
+              }
+            };
 
             return (
               <div key={component.id}>
                 <div
                   className={`mx-1 flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 transition-all duration-200 group ${componentRowStateClass}
                   ${!isVisible ? 'opacity-60' : ''}`}
-                  onClick={() => {
-                    if (interactionGuard && componentHoverLinkId) {
-                      setExpandedComponents((prev) =>
-                        prev[component.id] ? prev : { ...prev, [component.id]: true },
-                      );
-                      onSelect('link', componentHoverLinkId);
-                      return;
-                    }
-
-                    // Selecting the robot/component name should arm the move
-                    // gizmo for the whole component (its root joint drives the
-                    // entire chain), so the user does not have to drill into
-                    // the "base" link first. Mirror the link-selection path
-                    // that already makes "base" transformable.
-                    selectComponent(component.id);
-                    if (componentHoverLinkId) {
-                      onSelect('link', componentHoverLinkId);
-                    } else {
-                      setSelection({ type: null, id: null });
-                    }
-                  }}
+                  onClick={selectComponentRow}
+                  onKeyDown={(event) => runOnActivationKey(event, selectComponentRow)}
                   onContextMenu={(event) =>
                     openContextMenu(event, { kind: 'component', id: component.id })
                   }
@@ -477,6 +495,9 @@ export const AssemblyTreeView = memo(
                     }
                   }}
                   onMouseLeave={clearHover}
+                  role="button"
+                  aria-label={component.name}
+                  tabIndex={0}
                 >
                   <button
                     type="button"
@@ -554,22 +575,26 @@ export const AssemblyTreeView = memo(
 
                   <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                     <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         onToggleComponentVisibility?.(component.id);
                       }}
                       className="rounded p-1 text-text-tertiary transition-colors hover:bg-element-hover"
                       title={isVisible ? t.hide : t.show}
+                      aria-label={isVisible ? t.hide : t.show}
                     >
                       {isVisible ? <Eye size={12} /> : <EyeOff size={12} />}
                     </button>
                     <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         onRemoveComponent?.(component.id);
                       }}
                       className="rounded p-1 text-red-500 transition-colors hover:bg-red-100 dark:hover:bg-red-900/30"
                       title={t.deleteBranch}
+                      aria-label={t.deleteBranch}
                     >
                       <Trash2 size={12} />
                     </button>
@@ -613,6 +638,12 @@ export const AssemblyTreeView = memo(
             <div
               className={`group flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 transition-all duration-200 ${sectionHoverClass}`}
               onClick={() => setIsBridgesExpanded(!isBridgesExpanded)}
+              onKeyDown={(event) =>
+                runOnActivationKey(event, () => setIsBridgesExpanded(!isBridgesExpanded))
+              }
+              role="button"
+              aria-label={t.bridges}
+              tabIndex={0}
             >
               {isBridgesExpanded ? (
                 <ChevronDown size={12} className="shrink-0 text-text-tertiary" />
@@ -625,12 +656,14 @@ export const AssemblyTreeView = memo(
               </span>
               <span className="mr-1 shrink-0 text-[10px] text-text-tertiary">{bridges.length}</span>
               <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   onCreateBridge?.();
                 }}
                 className="flex shrink-0 items-center gap-1 rounded border border-system-blue/25 bg-system-blue/10 px-1.5 py-0.5 text-system-blue transition-colors hover:bg-system-blue/15 dark:border-system-blue/35 dark:bg-system-blue/20 dark:hover:bg-system-blue/25 group/btn"
                 title={t.createBridge}
+                aria-label={t.createBridge}
               >
                 <Plus
                   size={10}
@@ -663,11 +696,17 @@ export const AssemblyTreeView = memo(
                       onClick={() => {
                         onSelect('joint', bridge.id);
                       }}
+                      onKeyDown={(event) =>
+                        runOnActivationKey(event, () => onSelect('joint', bridge.id))
+                      }
                       onContextMenu={(event) =>
                         openContextMenu(event, { kind: 'bridge', id: bridge.id })
                       }
                       onMouseEnter={() => setHoveredSelection({ type: 'joint', id: bridge.id })}
                       onMouseLeave={clearHover}
+                      role="button"
+                      aria-label={bridge.name}
+                      tabIndex={0}
                     >
                       <ArrowRightLeft size={12} className="text-orange-500 dark:text-orange-300" />
                       {editingTarget?.kind === 'bridge' && editingTarget.id === bridge.id ? (
@@ -710,12 +749,14 @@ export const AssemblyTreeView = memo(
                         </div>
                       )}
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           onRemoveBridge?.(bridge.id);
                         }}
                         className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-opacity"
                         title={t.deleteBranch}
+                        aria-label={t.deleteBranch}
                       >
                         <Trash2 size={12} />
                       </button>

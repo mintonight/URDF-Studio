@@ -1,4 +1,4 @@
-import { memo, type MouseEvent, type RefObject } from 'react';
+import { memo, type KeyboardEvent, type MouseEvent, type RefObject } from 'react';
 import { Box, ChevronDown, ChevronRight, Eye, EyeOff, Shapes, Shield } from 'lucide-react';
 import type { TranslationKeys } from '@/shared/i18n';
 import type { TreeNodeEditingTarget } from './types';
@@ -83,6 +83,18 @@ export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
 }: TreeNodeLinkRowProps) {
   const selectedLinkActionClass =
     'text-system-blue hover:bg-system-blue/15 hover:text-system-blue-hover dark:hover:bg-system-blue/25';
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (
+      readOnly ||
+      event.target !== event.currentTarget ||
+      (event.key !== 'Enter' && event.key !== ' ')
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    onSelect();
+  };
 
   return (
     <div
@@ -99,6 +111,10 @@ export const TreeNodeLinkRow = memo(function TreeNodeLinkRow({
       onContextMenu={readOnly ? undefined : onOpenContextMenu}
       onMouseEnter={readOnly ? undefined : onMouseEnter}
       onMouseLeave={readOnly ? undefined : onMouseLeave}
+      onKeyDown={handleKeyDown}
+      role={readOnly ? undefined : 'button'}
+      aria-label={linkName || linkId}
+      tabIndex={readOnly ? undefined : 0}
       title={linkName || linkId}
       style={{ marginLeft: depth > 0 ? `${linkRowIndentPx}px` : '0' }}
     >

@@ -10,7 +10,7 @@ import {
   Shapes,
   Shield,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { translations } from '@/shared/i18n';
 import type { AppMode, AssemblyState, RobotState } from '@/types';
 import { AssemblyTreeView } from '../AssemblyTreeView';
@@ -101,6 +101,14 @@ export function TreeEditorStructureSection({
   const robotNameInputRef = useRef<HTMLInputElement>(null);
   const robotNamePlaceholder = t.enterRobotName;
   const currentRobotName = robot.name;
+  const handleHeaderKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) {
+      return;
+    }
+
+    event.preventDefault();
+    onToggleOpen();
+  };
 
   useEffect(() => {
     if (!isEditingRobotName) return;
@@ -137,6 +145,10 @@ export function TreeEditorStructureSection({
       <div
         className="flex h-8 items-center justify-between gap-2 px-2.5 bg-element-bg dark:bg-element-bg cursor-pointer select-none"
         onClick={onToggleOpen}
+        onKeyDown={handleHeaderKeyDown}
+        role="button"
+        aria-label={t.structureTree}
+        tabIndex={0}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
           {isOpen ? (
@@ -158,6 +170,10 @@ export function TreeEditorStructureSection({
               title={currentFileName}
               onClick={(event) => event.stopPropagation()}
               onMouseDown={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+              role="button"
+              aria-label={currentFileName ?? t.structureTree}
+              tabIndex={-1}
             >
               <FileCode className="h-3 w-3 shrink-0 text-system-blue" />
               <input
@@ -218,6 +234,7 @@ export function TreeEditorStructureSection({
 
           {!isAssemblyView && !isReadOnly && (
             <button
+              type="button"
               className="p-0.5 bg-system-blue-solid hover:bg-system-blue-hover text-white rounded-md transition-colors shadow-sm"
               onClick={(event) => {
                 event.stopPropagation();
@@ -230,16 +247,18 @@ export function TreeEditorStructureSection({
           )}
 
           {!isAssemblyView && !isReadOnly && (
-            <div
+            <button
+              type="button"
               className="flex items-center justify-center w-5 h-5 rounded hover:bg-element-hover cursor-pointer text-text-tertiary transition-colors"
               onClick={(event) => {
                 event.stopPropagation();
                 onToggleVisuals();
               }}
               title={showVisual ? t.hideAllVisuals : t.showAllVisuals}
+              aria-label={showVisual ? t.hideAllVisuals : t.showAllVisuals}
             >
               {showVisual ? <Eye size={14} /> : <EyeOff size={14} />}
-            </div>
+            </button>
           )}
         </div>
       </div>
@@ -278,6 +297,20 @@ export function TreeEditorStructureSection({
                       event.stopPropagation();
                       startRobotNameEditing();
                     }}
+                    onKeyDown={(event) => {
+                      if (
+                        event.target !== event.currentTarget ||
+                        (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'F2')
+                      ) {
+                        return;
+                      }
+
+                      event.preventDefault();
+                      startRobotNameEditing();
+                    }}
+                    role="button"
+                    aria-label={currentRobotName || robotNamePlaceholder}
+                    tabIndex={isReadOnly ? -1 : 0}
                   >
                     <Cuboid size={14} className="mr-1.5 shrink-0 text-system-blue" />
                     {isEditingRobotName ? (

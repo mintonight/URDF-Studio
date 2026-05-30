@@ -82,8 +82,10 @@ export function TreeEditorFileBrowserSection({
       />
 
       {isFileBrowserOpen && isStructureOpen && (
-        <div
+        <button
+          type="button"
           className="h-1 bg-border-black cursor-row-resize hover:bg-system-blue transition-colors shrink-0 z-10"
+          aria-label={t.resize}
           onMouseDown={onResizeMouseDown}
         />
       )}

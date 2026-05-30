@@ -1,4 +1,4 @@
-import { memo, type MouseEvent, type ReactNode, type RefObject } from 'react';
+import { memo, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { TranslationKeys } from '@/shared/i18n';
 import { getMjcfJointDisplayName } from '@/shared/utils/robot/mjcfDisplayNames';
@@ -111,6 +111,18 @@ export const TreeNodeJointBranchList = memo(function TreeNodeJointBranchList({
           isJointHovered ||
           isJointAttentionHighlighted ||
           (selectionBranchLinkIds?.has(joint.childLinkId) ?? false);
+        const handleJointKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+          if (
+            readOnly ||
+            event.target !== event.currentTarget ||
+            (event.key !== 'Enter' && event.key !== ' ')
+          ) {
+            return;
+          }
+
+          event.preventDefault();
+          onSelect('joint', joint.id);
+        };
 
         return (
           <div key={joint.id} className="relative">
@@ -142,6 +154,10 @@ export const TreeNodeJointBranchList = memo(function TreeNodeJointBranchList({
                 readOnly ? undefined : () => onSetHoveredSelection({ type: 'joint', id: joint.id })
               }
               onMouseLeave={readOnly ? undefined : onClearHover}
+              onKeyDown={handleJointKeyDown}
+              role={readOnly ? undefined : 'button'}
+              aria-label={jointDisplayName}
+              tabIndex={readOnly ? undefined : 0}
               title={`${jointDisplayName} · ${jointTypeLabel}`}
               style={{ marginLeft: `${jointRowIndentPx}px` }}
             >

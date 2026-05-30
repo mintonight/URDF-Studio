@@ -1,4 +1,4 @@
-import { memo, type MouseEvent, type RefObject } from 'react';
+import { memo, type KeyboardEvent, type MouseEvent, type RefObject } from 'react';
 import { Eye, EyeOff, Shapes, Shield } from 'lucide-react';
 import type { TranslationKeys } from '@/shared/i18n';
 import { matchesSelection, type Selection } from '@/store/selectionStore';
@@ -142,6 +142,21 @@ export const TreeNodeGeometrySection = memo(function TreeNodeGeometrySection({
   const isVisualEffectivelyVisible = isLinkVisible && isVisualVisible;
   const isPrimaryCollisionInheritedHidden = !isLinkVisible && isPrimaryCollisionVisible;
   const isPrimaryCollisionEffectivelyVisible = isLinkVisible && isPrimaryCollisionVisible;
+  const handleGeometryKeyDown = (
+    event: KeyboardEvent<HTMLDivElement>,
+    action: (() => void) | undefined,
+  ) => {
+    if (
+      !action ||
+      event.target !== event.currentTarget ||
+      (event.key !== 'Enter' && event.key !== ' ')
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    action();
+  };
 
   return (
     <>
@@ -182,6 +197,15 @@ export const TreeNodeGeometrySection = memo(function TreeNodeGeometrySection({
                   })
           }
           onMouseLeave={readOnly ? undefined : onClearHover}
+          onKeyDown={(event) =>
+            handleGeometryKeyDown(
+              event,
+              readOnly || isEditingVisual ? undefined : onSelectVisual,
+            )
+          }
+          role={readOnly || isEditingVisual ? undefined : 'button'}
+          aria-label={visualLabel}
+          tabIndex={readOnly || isEditingVisual ? undefined : 0}
           style={{ marginLeft: `${geometryRowIndentPx}px` }}
           title={visualLabel}
         >
@@ -309,6 +333,17 @@ export const TreeNodeGeometrySection = memo(function TreeNodeGeometrySection({
                     })
             }
             onMouseLeave={readOnly ? undefined : onClearHover}
+            onKeyDown={(event) =>
+              handleGeometryKeyDown(
+                event,
+                readOnly || isEditingVisualBody
+                  ? undefined
+                  : () => onSelectVisualBody(objectIndex),
+              )
+            }
+            role={readOnly || isEditingVisualBody ? undefined : 'button'}
+            aria-label={visualBodyLabel}
+            tabIndex={readOnly || isEditingVisualBody ? undefined : 0}
             style={{ marginLeft: `${geometryRowIndentPx}px` }}
             title={visualBodyLabel}
           >
@@ -410,6 +445,15 @@ export const TreeNodeGeometrySection = memo(function TreeNodeGeometrySection({
                   })
           }
           onMouseLeave={readOnly ? undefined : onClearHover}
+          onKeyDown={(event) =>
+            handleGeometryKeyDown(
+              event,
+              readOnly || isEditingPrimaryCollision ? undefined : onSelectPrimaryCollision,
+            )
+          }
+          role={readOnly || isEditingPrimaryCollision ? undefined : 'button'}
+          aria-label={primaryCollisionLabel}
+          tabIndex={readOnly || isEditingPrimaryCollision ? undefined : 0}
           style={{ marginLeft: `${geometryRowIndentPx}px` }}
           title={primaryCollisionLabel}
         >
@@ -545,6 +589,17 @@ export const TreeNodeGeometrySection = memo(function TreeNodeGeometrySection({
                     })
             }
             onMouseLeave={readOnly ? undefined : onClearHover}
+            onKeyDown={(event) =>
+              handleGeometryKeyDown(
+                event,
+                readOnly || isEditingCollisionBody
+                  ? undefined
+                  : () => onSelectCollisionBody(objectIndex),
+              )
+            }
+            role={readOnly || isEditingCollisionBody ? undefined : 'button'}
+            aria-label={collisionBodyLabel}
+            tabIndex={readOnly || isEditingCollisionBody ? undefined : 0}
             style={{ marginLeft: `${geometryRowIndentPx}px` }}
             title={collisionBodyLabel}
           >

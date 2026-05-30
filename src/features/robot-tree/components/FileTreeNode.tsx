@@ -87,6 +87,15 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
     }
   };
 
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) {
+      return;
+    }
+
+    event.preventDefault();
+    handleClick();
+  };
+
   const handleAddAsComponent = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (node.file && onAddAsComponent && isLibraryComponentAddableFile(node.file)) {
@@ -110,7 +119,7 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
   return (
     <div>
       <div
-        className={`group flex w-full cursor-pointer select-none items-center gap-1.5 rounded-sm py-1 pr-2 transition-colors
+        className={`group flex w-max min-w-full cursor-pointer select-none items-center gap-1.5 rounded-sm py-1 pr-2 transition-colors
           ${
             isSelectedFile
               ? 'bg-element-bg dark:bg-element-hover shadow-sm ring-1 ring-inset ring-border-strong'
@@ -119,6 +128,10 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
         style={{ paddingLeft: `${paddingLeft}px` }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
+        onKeyDown={handleKeyDown}
+        role="button"
+        aria-label={node.name}
+        tabIndex={isEditingFolder ? -1 : 0}
       >
         {node.isFolder ? (
           <span className="flex h-3 w-3 shrink-0 items-center justify-center">
@@ -177,6 +190,7 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
           >
             {showAddButton && (
               <button
+                type="button"
                 onClick={handleAddAsComponent}
                 className="flex shrink-0 items-center gap-1 rounded border border-green-200 bg-green-50 px-1.5 py-0.5 text-green-600 transition-colors hover:bg-green-100 dark:border-green-800/50 dark:bg-green-900/20 dark:text-green-400 dark:hover:bg-green-900/40 group/btn"
                 title={t.addComponent}
