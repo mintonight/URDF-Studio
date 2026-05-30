@@ -15,6 +15,36 @@ interface DialogProps {
   closeLabel?: string;
 }
 
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'textarea:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+function getFocusableElements(container: HTMLElement | null): HTMLElement[] {
+  if (!container) {
+    return [];
+  }
+
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (element) => {
+      const computedStyle = element.ownerDocument.defaultView?.getComputedStyle(element);
+
+      return (
+        !element.hasAttribute('disabled') &&
+        element.getAttribute('aria-hidden') !== 'true' &&
+        element.getAttribute('tabindex') !== '-1' &&
+        !element.hidden &&
+        computedStyle?.display !== 'none' &&
+        computedStyle?.visibility !== 'hidden'
+      );
+    },
+  );
+}
+
 export const Dialog: React.FC<DialogProps> = ({
   isOpen,
   onClose,
@@ -26,17 +56,98 @@ export const Dialog: React.FC<DialogProps> = ({
   zIndexClassName = 'z-[100]',
   closeLabel = 'Close dialog',
 }) => {
+  const dialogRef = React.useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = React.useRef<HTMLElement | null>(null);
+  const onCloseRef = React.useRef(onClose);
+
+  React.useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  React.useEffect(() => {
+    if (!isOpen || typeof document === 'undefined') {
+      return undefined;
+    }
+
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const focusTarget = getFocusableElements(dialogRef.current)[0] ?? dialogRef.current;
+    focusTarget?.focus();
+
+    return () => {
+      const previousFocus = previousFocusRef.current;
+      if (previousFocus && document.contains(previousFocus)) {
+        previousFocus.focus();
+      }
+      previousFocusRef.current = null;
+    };
+  }, [isOpen]);
+
+  React.useEffect(() => {
+    if (!isOpen || typeof document === 'undefined') {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+
+      if (event.key !== 'Tab') {
+        return;
+      }
+
+      const focusableElements = getFocusableElements(dialogRef.current);
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        dialogRef.current?.focus();
+        return;
+      }
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+      const activeElement =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+      if (event.shiftKey && activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+        return;
+      }
+
+      if (!event.shiftKey && activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const content = (
     <div
+      ref={dialogRef}
       className={`fixed inset-0 ${zIndexClassName} flex items-center justify-center`}
       role="dialog"
       aria-modal="true"
       aria-label={title}
+      tabIndex={-1}
     >
-      {/* Overlay - No blur, just dim */}
-      <div className="absolute inset-0 bg-black/40 transition-opacity" onClick={onClose} />
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/40 transition-opacity"
+        onClick={onClose}
+        aria-label={closeLabel}
+        tabIndex={-1}
+      />
 
       <div
         className={`
