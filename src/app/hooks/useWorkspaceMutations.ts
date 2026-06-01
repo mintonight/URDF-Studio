@@ -4,35 +4,26 @@ import {
   appendCollisionBody,
   applyDeletionPlan,
   buildDeletionPlan,
-  createJoint,
-  createLink,
-  generateJointId,
-  generateLinkId,
   getCollisionGeometryEntries,
   normalizeJointLimitOrder,
   resolveClosedLoopDrivenJointMotion,
   resolveClosedLoopJointOriginCompensationDetailed,
   resolveJointKey,
   resolveLinkKey,
-  updateCollisionGeometryByObjectIndex,
 } from '@/core/robot';
 import { cloneAssemblyTransform } from '@/core/robot/assemblyTransforms';
 import { useRobotStore } from '@/store';
-import type { PendingCollisionTransform } from '@/store/collisionTransformStore';
 import type { ViewerJointChangeContext } from '@/features/urdf-viewer/types';
 import type {
-  AssemblyState,
   AssemblyTransform,
-  JointQuaternion,
-  RobotData,
   RobotMjcfInspectionTendonSummary,
-  RobotMjcfTendonVisualizationUpdate,
   UrdfJoint,
   UrdfLink,
   UrdfOrigin,
 } from '@/types';
-import type { UpdateCommitMode, UpdateCommitOptions } from '@/types/viewer';
+import type { UpdateCommitOptions } from '@/types/viewer';
 import { usePendingHistoryCoordinator } from './usePendingHistoryCoordinator';
+import type { UseWorkspaceMutationsParams } from './useWorkspaceMutationsTypes';
 import { persistWorkspaceViewerShowVisualPreference } from './workspaceViewerDetailPreferences';
 import { areAssemblyTransformsEqual } from './workspace-mutations/assemblyTransforms';
 import { applyAssemblyUpdate } from './workspace-mutations/assemblyUpdate';
@@ -41,161 +32,13 @@ import {
   findRemovedCollisionGeometryObjectIndex,
   findUpdatedCollisionGeometryPatch,
 } from './workspace-mutations/collisionGeometryDiff';
+import {
+  applyJointMotionToJoints,
+  resolveViewerJointChangeContext,
+  syncAssemblyComponentJointMotion,
+} from './workspace-mutations/jointMotion';
 import { renameComponentRobotRoot } from './workspace-mutations/renameComponentRobotRoot';
-import type { MJCFRenameOperation } from '../utils/mjcfEditableSourcePatch';
-
-interface UseWorkspaceMutationsParams {
-  assemblyState: AssemblyState | null;
-  robotLinks: Record<string, UrdfLink>;
-  rootLinkId: string;
-  setName: (name: string) => void;
-  addChild: (parentId: string) => { linkId: string; jointId: string };
-  deleteSubtree: (linkId: string) => void;
-  updateLink: (
-    id: string,
-    updates: Partial<UrdfLink>,
-    options?: { skipHistory?: boolean; label?: string },
-  ) => void;
-  updateJoint: (
-    id: string,
-    updates: Partial<UrdfJoint>,
-    options?: { skipHistory?: boolean; label?: string },
-  ) => void;
-  updateMjcfTendon: (
-    tendonName: string,
-    updates: RobotMjcfTendonVisualizationUpdate,
-    options?: { skipHistory?: boolean; label?: string },
-  ) => void;
-  setAllLinksVisibility: (visible: boolean) => void;
-  setJointAngle: (jointName: string, angle: number) => void;
-  applyJointKinematicOverrides: (
-    overrides: {
-      angles?: Record<string, number>;
-      quaternions?: Record<string, JointQuaternion>;
-    },
-    options?: { skipHistory?: boolean; historyLabel?: string },
-  ) => void;
-  updateComponentName: (
-    componentId: string,
-    name: string,
-    options?: { skipHistory?: boolean; label?: string },
-  ) => void;
-  updateComponentTransform: (
-    componentId: string,
-    transform: AssemblyTransform,
-    options?: { skipHistory?: boolean; label?: string },
-  ) => void;
-  updateComponentRobot: (
-    componentId: string,
-    partialRobot: Partial<RobotData>,
-    options?: { skipHistory?: boolean; label?: string },
-  ) => void;
-  updateAssemblyTransform: (
-    transform: AssemblyTransform,
-    options?: { skipHistory?: boolean; label?: string },
-  ) => void;
-  removeComponent: (id: string) => void;
-  removeBridge: (id: string) => void;
-  focusOn: (id: string) => void;
-  patchEditableSourceAddChild?: (args: {
-    sourceFileName?: string | null;
-    parentLinkName: string;
-    linkName: string;
-    joint: UrdfJoint;
-  }) => void;
-  patchEditableSourceDeleteSubtree?: (args: {
-    sourceFileName?: string | null;
-    linkName: string;
-  }) => void;
-  patchEditableSourceAddCollisionBody?: (args: {
-    sourceFileName?: string | null;
-    linkName: string;
-    geometry: UrdfLink['collision'];
-  }) => void;
-  patchEditableSourceDeleteCollisionBody?: (args: {
-    sourceFileName?: string | null;
-    linkName: string;
-    objectIndex: number;
-  }) => void;
-  patchEditableSourceUpdateCollisionBody?: (args: {
-    sourceFileName?: string | null;
-    linkName: string;
-    objectIndex: number;
-    geometry: UrdfLink['collision'];
-  }) => void;
-  patchEditableSourceUpdateJointLimit?: (args: {
-    sourceFileName?: string | null;
-    jointName: string;
-    jointType: UrdfJoint['type'];
-    limit: NonNullable<UrdfJoint['limit']>;
-  }) => void;
-  patchEditableSourceRenameEntities?: (args: {
-    sourceFileName?: string | null;
-    operations: MJCFRenameOperation[];
-  }) => void;
-  setSelection: (selection: {
-    type: 'link' | 'joint' | null;
-    id: string | null;
-    subType?: 'visual' | 'collision';
-    objectIndex?: number;
-  }) => void;
-  setPendingCollisionTransform: (transform: PendingCollisionTransform) => void;
-  clearPendingCollisionTransform: () => void;
-  handleTransformPendingChange: (pending: boolean) => void;
-}
-
-interface ResolvedViewerJointChangeContext {
-  angles: Record<string, number>;
-  quaternions: Record<string, JointQuaternion>;
-}
-
-function resolveViewerJointChangeContext(
-  joints: Record<string, UrdfJoint>,
-  jointName: string,
-  angle: number,
-  context?: ViewerJointChangeContext,
-): ResolvedViewerJointChangeContext | null {
-  if (!context) {
-    return null;
-  }
-
-  const jointId = resolveJointKey(joints, jointName);
-  const angles: Record<string, number> = {};
-  const quaternions: Record<string, JointQuaternion> = {};
-
-  Object.entries(context.jointAngles ?? {}).forEach(([jointNameOrId, nextAngle]) => {
-    if (!Number.isFinite(nextAngle)) {
-      return;
-    }
-
-    const resolvedJointId = resolveJointKey(joints, jointNameOrId);
-    if (resolvedJointId) {
-      angles[resolvedJointId] = nextAngle;
-    }
-  });
-
-  Object.entries(context.jointQuaternions ?? {}).forEach(([jointNameOrId, quaternion]) => {
-    const resolvedJointId = resolveJointKey(joints, jointNameOrId);
-    if (resolvedJointId) {
-      quaternions[resolvedJointId] = quaternion;
-    }
-  });
-
-  if (
-    jointId &&
-    Number.isFinite(angle) &&
-    (Object.keys(angles).length > 0 || Object.keys(quaternions).length > 0) &&
-    !Object.hasOwn(angles, jointId)
-  ) {
-    angles[jointId] = angle;
-  }
-
-  if (Object.keys(angles).length === 0 && Object.keys(quaternions).length === 0) {
-    return null;
-  }
-
-  return { angles, quaternions };
-}
+import { useCollisionTransformHandlers } from './workspace-mutations/useCollisionTransformHandlers';
 
 export function useWorkspaceMutations({
   assemblyState,
@@ -270,38 +113,8 @@ export function useWorkspaceMutations({
     [assemblyState, setName],
   );
 
-  // Joint commit in multi-component assembly mode used to call
-  // updateComponentRobot synchronously, which ran the full immer produce +
-  // patch capture path and bumped `assemblyState` reference. That cascade
-  // forced AppLayout/App.tsx subscribers to rerender and invalidated the
-  // mergeAssembly useMemo in `useWorkspaceSourceSync`, costing a ~180ms
-  // React long task on multi-component scenes.
-  //
-  // We now route joint-motion writes through `setComponentJointMotion` —
-  // an explicit fast path on `robotStore` that mutates
-  // `assemblyState.components[id].robot.joints[*].angle/quaternion` in
-  // place. It bumps a dedicated `assemblyJointMotionRevision` field but
-  // does NOT change the `assemblyState` object identity, so React
-  // subscribers selecting `assemblyState` (via `useShallow`) stay quiet,
-  // and the `useMemo([..., visibleAssemblyStateForViewerDisplay])` chain in
-  // `useWorkspaceSourceSync` keeps its cached mergeAssembly output. Export
-  // / save / AI inspection paths still see the latest angles because they
-  // traverse the live `assemblyState` (or `getMergedRobotData()`, whose
-  // cache also invalidates on the motion revision).
   const scheduleAssemblyComponentJointSync = useCallback(
-    (componentId: string, nextJoints: Record<string, UrdfJoint>) => {
-      const angles: Record<string, number> = {};
-      const quaternions: Record<string, JointQuaternion> = {};
-      for (const [jointId, joint] of Object.entries(nextJoints)) {
-        if (typeof joint.angle === 'number' && Number.isFinite(joint.angle)) {
-          angles[jointId] = joint.angle;
-        }
-        if (joint.quaternion) {
-          quaternions[jointId] = joint.quaternion;
-        }
-      }
-      useRobotStore.getState().setComponentJointMotion(componentId, angles, quaternions);
-    },
+    syncAssemblyComponentJointMotion,
     [],
   );
 
@@ -620,105 +433,17 @@ export function useWorkspaceMutations({
     [applyUpdate],
   );
 
-  const applyCollisionTransformUpdate = useCallback(
-    (
-      linkId: string,
-      position: { x: number; y: number; z: number },
-      rotation: { r: number; p: number; y: number },
-      commitMode: UpdateCommitMode,
-      objectIndex?: number,
-    ) => {
-      const latestAssemblyState = useRobotStore.getState().assemblyState;
-
-      if (latestAssemblyState) {
-        for (const comp of Object.values(latestAssemblyState.components)) {
-          const resolvedLinkId = resolveLinkKey(comp.robot.links, linkId);
-          if (!resolvedLinkId) continue;
-
-          const link = comp.robot.links[resolvedLinkId];
-          if (!link) return;
-
-          const updatedLink = updateCollisionGeometryByObjectIndex(link, objectIndex ?? 0, {
-            origin: {
-              xyz: position,
-              rpy: rotation,
-            },
-          });
-
-          applyUpdate('link', resolvedLinkId, updatedLink, {
-            historyKey: `collision-transform:${comp.id}:${resolvedLinkId}:${objectIndex ?? 0}`,
-            historyLabel: 'Transform collision body',
-            commitMode,
-          });
-          return;
-        }
-
-        return;
-      }
-
-      const latestLinks = useRobotStore.getState().links;
-      const resolvedLinkId = resolveLinkKey(latestLinks, linkId);
-      if (!resolvedLinkId) return;
-
-      const link = latestLinks[resolvedLinkId];
-      if (!link) return;
-
-      const updatedLink = updateCollisionGeometryByObjectIndex(link, objectIndex ?? 0, {
-        origin: {
-          xyz: position,
-          rpy: rotation,
-        },
-      });
-
-      applyUpdate('link', resolvedLinkId, updatedLink, {
-        historyKey: `collision-transform:${resolvedLinkId}:${objectIndex ?? 0}`,
-        historyLabel: 'Transform collision body',
-        commitMode,
-      });
-    },
-    [applyUpdate],
-  );
-
-  const handleCollisionTransformPreview = useCallback(
-    (
-      linkId: string,
-      position: { x: number; y: number; z: number },
-      rotation: { r: number; p: number; y: number },
-      objectIndex?: number,
-    ) => {
-      const resolvedLinkId = resolveLinkKey(robotLinks, linkId) ?? linkId;
-      setPendingCollisionTransform({
-        linkId: resolvedLinkId,
-        objectIndex: objectIndex ?? 0,
-        position,
-        rotation,
-      });
-    },
-    [resolveLinkKey, robotLinks, setPendingCollisionTransform],
-  );
-
-  const handleCollisionTransform = useCallback(
-    (
-      linkId: string,
-      position: { x: number; y: number; z: number },
-      rotation: { r: number; p: number; y: number },
-      objectIndex?: number,
-    ) => {
-      clearPendingCollisionTransform();
-      applyCollisionTransformUpdate(linkId, position, rotation, 'immediate', objectIndex);
-    },
-    [applyCollisionTransformUpdate, clearPendingCollisionTransform],
-  );
-
-  const handleCollisionTransformPendingChange = useCallback(
-    (pending: boolean) => {
-      handleTransformPendingChange(pending);
-      if (!pending) {
-        clearPendingCollisionTransform();
-      }
-    },
-    [clearPendingCollisionTransform, handleTransformPendingChange],
-  );
+  const {
+    handleCollisionTransformPreview,
+    handleCollisionTransform,
+    handleCollisionTransformPendingChange,
+  } = useCollisionTransformHandlers({
+    robotLinks,
+    setPendingCollisionTransform,
+    clearPendingCollisionTransform,
+    handleTransformPendingChange,
+    applyUpdate,
+  });
 
   const handleAssemblyTransform = useCallback(
     (transform: AssemblyTransform, options: UpdateCommitOptions = {}) => {
@@ -1143,56 +868,18 @@ export function useWorkspaceMutations({
             context,
           );
           if (contextMotion) {
-            const nextJoints = { ...component.robot.joints };
-
-            Object.entries(contextMotion.angles).forEach(([resolvedJointId, resolvedAngle]) => {
-              const joint = nextJoints[resolvedJointId];
-              if (joint) {
-                nextJoints[resolvedJointId] = {
-                  ...joint,
-                  angle: resolvedAngle,
-                };
-              }
-            });
-
-            Object.entries(contextMotion.quaternions).forEach(([resolvedJointId, quaternion]) => {
-              const joint = nextJoints[resolvedJointId];
-              if (joint) {
-                nextJoints[resolvedJointId] = {
-                  ...joint,
-                  quaternion,
-                };
-              }
-            });
-
-            scheduleAssemblyComponentJointSync(component.id, nextJoints);
+            scheduleAssemblyComponentJointSync(
+              component.id,
+              applyJointMotionToJoints(component.robot.joints, contextMotion),
+            );
             return;
           }
 
           const solution = resolveClosedLoopDrivenJointMotion(component.robot, jointId, angle);
-          const nextJoints = { ...component.robot.joints };
-
-          Object.entries(solution.angles).forEach(([resolvedJointId, resolvedAngle]) => {
-            const joint = nextJoints[resolvedJointId];
-            if (joint) {
-              nextJoints[resolvedJointId] = {
-                ...joint,
-                angle: resolvedAngle,
-              };
-            }
-          });
-
-          Object.entries(solution.quaternions).forEach(([resolvedJointId, quaternion]) => {
-            const joint = nextJoints[resolvedJointId];
-            if (joint) {
-              nextJoints[resolvedJointId] = {
-                ...joint,
-                quaternion,
-              };
-            }
-          });
-
-          scheduleAssemblyComponentJointSync(component.id, nextJoints);
+          scheduleAssemblyComponentJointSync(
+            component.id,
+            applyJointMotionToJoints(component.robot.joints, solution),
+          );
           return;
         }
       }

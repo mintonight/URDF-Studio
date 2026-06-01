@@ -15,9 +15,15 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>');
 globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
 globalThis.XMLSerializer = dom.window.XMLSerializer as typeof XMLSerializer;
 
+function parseRequiredURDF(content: string) {
+  const robot = parseURDF(content);
+  assert.ok(robot, 'expected URDF fixture to parse');
+  return robot;
+}
+
 test('buildColladaRootNormalizationHints marks go2 Collada assets for normalization from URDF visual origins', () => {
   const urdfContent = fs.readFileSync('test/unitree_ros/robots/go2_description/urdf/go2_description.urdf', 'utf8');
-  const robot = parseURDF(urdfContent);
+  const robot = parseRequiredURDF(urdfContent);
   const hints = buildColladaRootNormalizationHints(robot.links);
 
   assert.ok(hints);
@@ -29,7 +35,7 @@ test('buildColladaRootNormalizationHints marks go2 Collada assets for normalizat
 
 test('buildColladaRootNormalizationHints leaves b2w Collada assets on raw loader path when URDF origins are identity', () => {
   const urdfContent = fs.readFileSync('test/unitree_ros/robots/b2w_description/urdf/b2w_description.urdf', 'utf8');
-  const robot = parseURDF(urdfContent);
+  const robot = parseRequiredURDF(urdfContent);
   const hints = buildColladaRootNormalizationHints(robot.links);
 
   assert.equal(shouldNormalizeColladaRoot('package://b2w_description/meshes/RL_thigh.dae', hints), false);

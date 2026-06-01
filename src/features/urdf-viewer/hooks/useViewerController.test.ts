@@ -243,7 +243,7 @@ type ClosedLoopPreviewMockWorkerClass = new () => {
 };
 
 function renderHook() {
-  let hookValue: ReturnType<typeof useViewerController> | null = null;
+  let hookValue: ReturnType<typeof useViewerController> | null = null as ReturnType<typeof useViewerController> | null;
 
   function Probe() {
     hookValue = useViewerController({ active: false });
@@ -252,7 +252,7 @@ function renderHook() {
 
   renderToStaticMarkup(React.createElement(Probe));
   assert.ok(hookValue, 'hook should render');
-  return hookValue;
+  return hookValue as ReturnType<typeof useViewerController>;
 }
 
 function installDom(
@@ -512,7 +512,7 @@ async function mountControllerWithDom(
   useJointInteractionPreviewStore.getState().clearPreview();
 
   const root = createRoot(container);
-  let hookValue: ReturnType<typeof useViewerController> | null = null;
+  let hookValue: ReturnType<typeof useViewerController> | null = null as ReturnType<typeof useViewerController> | null;
   let currentProps = props;
 
   function Probe() {
@@ -535,7 +535,7 @@ async function mountControllerWithDom(
     },
     getHook() {
       assert.ok(hookValue, 'hook should stay mounted');
-      return hookValue;
+      return hookValue as ReturnType<typeof useViewerController>;
     },
   };
 }
@@ -833,7 +833,7 @@ test('closedLoopRobotState sanitizes runtime-shaped joints before preview sessio
   const runtimeLikeJoint = {
     ...runtimeClosedLoopRobotState.joints.joint_a,
     quaternion: new THREE.Quaternion(0, 0.25, 0, 0.9682458),
-    setJointValue(angle: number) {
+    setJointValue(this: { angle?: number }, angle: number) {
       this.angle = angle;
     },
   } as unknown as RobotState['joints'][string];
@@ -1781,7 +1781,7 @@ test('handleJointChangeCommit keeps local closed-loop state when worker commit s
       getHook().handleRobotLoaded(runtimeRobot);
     });
 
-    let commitPromise: Promise<void> | null = null;
+    let commitPromise: Promise<void> | null = null as Promise<void> | null;
     await act(async () => {
       commitPromise = getHook().handleJointChangeCommit('joint_a', 0.73);
       await Promise.resolve();

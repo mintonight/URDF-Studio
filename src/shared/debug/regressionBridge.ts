@@ -295,9 +295,12 @@ interface RegressionSelectedUsdVisualMaterialSummary {
     overrideColor: string | null;
     hasOverrideMaterial: boolean;
     materials: Array<{
+      materialId: string | null;
       name: string | null;
       type: string | null;
       color: string | null;
+      colorSource: string | null;
+      authoredColor: string | null;
       emissive: string | null;
     }>;
   }>;
@@ -500,18 +503,21 @@ function colorArrayToRegressionHex(
     colorSpaceToken === 'srgb' ||
     colorSpaceToken === 'srgbcolorspace' ||
     colorSpaceToken === 's-rgb';
-  const normalizedColor =
-    shouldReadAsSrgb &&
-    Math.abs(r) <= 1 &&
-    Math.abs(g) <= 1 &&
-    Math.abs(b) <= 1
+  const hasUnitChannels = Math.abs(r) <= 1 && Math.abs(g) <= 1 && Math.abs(b) <= 1;
+  const normalizedColor = hasUnitChannels
+    ? shouldReadAsSrgb
       ? new Color().setRGB(
           Math.max(0, Math.min(1, r)),
           Math.max(0, Math.min(1, g)),
           Math.max(0, Math.min(1, b)),
           SRGBColorSpace,
         )
-      : null;
+      : new Color().setRGB(
+          Math.max(0, Math.min(1, r)),
+          Math.max(0, Math.min(1, g)),
+          Math.max(0, Math.min(1, b)),
+        )
+    : null;
   const a = opacityOverride ?? (source.length >= 4 ? Number(source[3]) : null);
   const rgb = normalizedColor
     ? [normalizedColor.getHexString()]
@@ -528,18 +534,23 @@ function summarizeRegressionUsdMaterial(
   material: UsdSceneMaterialRecord | null | undefined,
   materialId?: string | null,
 ): {
+  materialId: string | null;
   name: string | null;
   type: string | null;
   color: string | null;
+  colorSource: string | null;
+  authoredColor: string | null;
   emissive: string | null;
 } | null {
   if (!material) {
     return null;
   }
 
+  const normalizedMaterialId =
+    normalizeUsdDebugPathWithLeadingSlash(material.materialId || materialId || '') || null;
   const name =
     String(material.name || '').trim() ||
-    getUsdPathBasename(material.materialId || materialId || '') ||
+    getUsdPathBasename(normalizedMaterialId || '') ||
     null;
   const type =
     String(material.shaderName || '').trim() ||
@@ -554,19 +565,35 @@ function summarizeRegressionUsdMaterial(
         : material.isOmniPbr === true
           ? false
           : true;
-  const color = colorArrayToRegressionHex(material.color, material.opacity, material.colorSpace);
+  const colorSource = String(material.colorSource || '').trim() || null;
+  const materialColorSpace = colorSource === 'authored' ? 'linear' : material.colorSpace;
+  const authoredMaterialColorSpace =
+    colorSource === 'authored'
+      ? 'linear'
+      : material.authoredColorSpace || material.colorSpace;
+  const emissiveMaterialColorSpace =
+    colorSource === 'authored' ? 'linear' : material.emissiveColorSpace;
+  const color = colorArrayToRegressionHex(material.color, material.opacity, materialColorSpace);
+  const authoredColor = colorArrayToRegressionHex(
+    material.authoredColor,
+    material.opacity,
+    authoredMaterialColorSpace,
+  );
   const emissive = emissiveEnabled
-    ? colorArrayToRegressionHex(material.emissive, null, material.emissiveColorSpace)
+    ? colorArrayToRegressionHex(material.emissive, null, emissiveMaterialColorSpace)
     : null;
 
-  if (!name && !type && !color && !emissive) {
+  if (!normalizedMaterialId && !name && !type && !color && !colorSource && !authoredColor && !emissive) {
     return null;
   }
 
   return {
+    materialId: normalizedMaterialId,
     name,
     type,
     color,
+    colorSource,
+    authoredColor,
     emissive,
   };
 }

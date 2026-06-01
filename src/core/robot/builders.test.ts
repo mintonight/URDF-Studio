@@ -31,7 +31,8 @@ test('addChildToRobot anchors default child link geometry at the new joint origi
   assert.equal(newJoint.origin.xyz.z, 0.25);
   assert.equal(newLink.visual.origin.xyz.z, 0.25);
   assert.equal(newLink.collision.origin.xyz.z, 0.25);
-  assert.equal(newLink.inertial?.origin.xyz.z, 0.25);
+  assert.ok(newLink.inertial?.origin);
+  assert.equal(newLink.inertial.origin.xyz.z, 0.25);
 });
 
 test('createEmptyRobot places the default base link frame at the bottom of the body', () => {
@@ -40,5 +41,6 @@ test('createEmptyRobot places the default base link frame at the bottom of the b
 
   assert.equal(rootLink.visual.origin.xyz.z, 0.25);
   assert.equal(rootLink.collision.origin.xyz.z, 0.25);
-  assert.equal(rootLink.inertial?.origin.xyz.z, 0.25);
+  assert.ok(rootLink.inertial?.origin);
+  assert.equal(rootLink.inertial.origin.xyz.z, 0.25);
 });

@@ -63,6 +63,7 @@ test('createUsdJointAxesDisplayResolution preserves authored joint pivot origins
   const authored = createResolution(0.25);
   const resolved = createResolution(4.5);
 
+  assert.ok(resolved.robotData.joints.hip_joint.limit);
   resolved.robotData.joints.hip_joint.limit.upper = 1.75;
 
   const displayResolution = createUsdJointAxesDisplayResolution(resolved, authored);
@@ -73,7 +74,8 @@ test('createUsdJointAxesDisplayResolution preserves authored joint pivot origins
   assert.equal(displayResolution?.robotData.joints.hip_joint.origin.xyz.x, 0.25);
   assert.equal(displayResolution?.robotData.joints.hip_joint.origin.xyz.y, 2);
   assert.equal(displayResolution?.robotData.joints.hip_joint.origin.rpy.y, 0.3);
-  assert.equal(displayResolution?.robotData.joints.hip_joint.limit.upper, 1.75);
+  assert.ok(displayResolution.robotData.joints.hip_joint.limit);
+  assert.equal(displayResolution.robotData.joints.hip_joint.limit.upper, 1.75);
 });
 
 test('createUsdJointAxesDisplayResolution falls back to resolved data when authored metadata is missing', () => {

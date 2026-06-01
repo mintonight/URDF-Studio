@@ -77,7 +77,7 @@ function resetUiStore(viewOptions: Partial<ViewerSettingsTestViewOptions> = {}) 
 }
 
 function renderSettings() {
-  let hookValue: ReturnType<typeof useViewerSettings> | null = null;
+  let hookValue: ReturnType<typeof useViewerSettings> | null = null as ReturnType<typeof useViewerSettings> | null;
 
   function Probe() {
     hookValue = useViewerSettings();
@@ -86,7 +86,7 @@ function renderSettings() {
 
   renderToStaticMarkup(React.createElement(Probe));
   assert.ok(hookValue, 'hook should render');
-  return hookValue;
+  return hookValue as ReturnType<typeof useViewerSettings>;
 }
 
 async function mountSettings(
@@ -101,7 +101,7 @@ async function mountSettings(
   dom.window.document.body.appendChild(container);
   const root = createRoot(container);
 
-  let hookValue: ReturnType<typeof useViewerSettings> | null = null;
+  let hookValue: ReturnType<typeof useViewerSettings> | null = null as ReturnType<typeof useViewerSettings> | null;
 
   function Probe() {
     hookValue = useViewerSettings();
@@ -117,7 +117,7 @@ async function mountSettings(
     root,
     getSettings() {
       assert.ok(hookValue, 'hook should stay mounted');
-      return hookValue;
+      return hookValue as ReturnType<typeof useViewerSettings>;
     },
   };
 }

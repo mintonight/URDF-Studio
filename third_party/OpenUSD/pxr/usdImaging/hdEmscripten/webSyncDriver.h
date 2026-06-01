@@ -131,10 +131,11 @@ public:
         TfTokenVector renderTags;
         renderTags.push_back(HdRenderTagTokens->geometry);
 
-        _Init(_OpenStageForPath(renderDelegateInterface, usdFilePath),
+        _Init(_OpenStageForPathWithProfile(renderDelegateInterface, usdFilePath),
               collection,
               SdfPath::AbsoluteRootPath(),
-              renderTags);
+              renderTags,
+              _ShouldSkipHydraPopulateForRobotSceneSnapshot(renderDelegateInterface));
     }
 
     HdWebSyncDriver(emscripten::val renderDelegateInterface,
@@ -156,7 +157,8 @@ public:
         _Init(usdStage,
               collection,
               SdfPath::AbsoluteRootPath(),
-              renderTags);
+              renderTags,
+              false);
     }
 
     ~HdWebSyncDriver()
@@ -1133,6 +1135,23 @@ public:
         return payload;
     }
 
+    emscripten::val GetFullLoadPayload(
+        emscripten::val runtimeLinkPaths,
+        std::string const& stageSourcePath = std::string(),
+        emscripten::val options = emscripten::val::object()) {
+        emscripten::val payload =
+            GetRobotSceneSnapshotBlob(runtimeLinkPaths, stageSourcePath);
+        payload.set("format", std::string("usd-full-load-payload-v1"));
+        payload.set("version", 1.0);
+        payload.set("transport", std::string("packed-object-v1"));
+        if (options.isUndefined() || options.isNull()) {
+            payload.set("options", emscripten::val::object());
+        } else {
+            payload.set("options", options);
+        }
+        return payload;
+    }
+
     emscripten::val ExportLoadedStageSnapshot(emscripten::val options = emscripten::val::object()) {
         emscripten::val result = emscripten::val::object();
         result.set("ok", false);
@@ -1575,9 +1594,11 @@ private:
     mutable std::unordered_map<std::string, WebRenderDelegate::ProtoDataBlobRecord> _primOverrideMeshPayloadCache;
     mutable std::unordered_map<std::string, bool> _materialTextureUsageCache;
     bool _preferDirectStageRobotSceneSnapshot = false;
+    double _lastStageOpenMs = 0.0;
 
     struct DriverInitProfile {
         double totalMs = 0.0;
+        double stageOpenMs = 0.0;
         double renderIndexCreateMs = 0.0;
         double delegateCreateMs = 0.0;
         double stageAssignMs = 0.0;
@@ -1591,6 +1612,7 @@ private:
         bool stageSaveSkipped = false;
         bool bakeSkinningSkipped = false;
         bool stageHasSkinning = false;
+        bool hydraPopulateSkipped = false;
     };
 
     struct RobotSceneSnapshotProfile {
@@ -1697,6 +1719,8 @@ private:
         DriverInitProfile const& profile) {
         emscripten::val result = emscripten::val::object();
         result.set("totalMs", profile.totalMs);
+        result.set("stageOpenMs", profile.stageOpenMs);
+        result.set("totalWithStageOpenMs", profile.totalMs + profile.stageOpenMs);
         result.set("renderIndexCreateMs", profile.renderIndexCreateMs);
         result.set("delegateCreateMs", profile.delegateCreateMs);
         result.set("stageAssignMs", profile.stageAssignMs);
@@ -1710,6 +1734,7 @@ private:
         result.set("stageSaveSkipped", profile.stageSaveSkipped);
         result.set("bakeSkinningSkipped", profile.bakeSkinningSkipped);
         result.set("stageHasSkinning", profile.stageHasSkinning);
+        result.set("hydraPopulateSkipped", profile.hydraPopulateSkipped);
         return result;
     }
 
@@ -1954,6 +1979,90 @@ private:
             sortedLinkPaths = _CollectRuntimeLinkPathsFromLiveRprims();
             linkPathSet.insert(sortedLinkPaths.begin(), sortedLinkPaths.end());
         }
+
+        const UsdPrim defaultPrim = _stage->GetDefaultPrim();
+        const std::string defaultPrimPath =
+            defaultPrim ? defaultPrim.GetPath().GetString() : std::string();
+        const std::string defaultPrimPrefix =
+            defaultPrimPath.empty() ? std::string() : (defaultPrimPath + "/");
+        auto isWithinDefaultPrim = [&](std::string const& primPath) {
+            return defaultPrimPath.empty()
+                || primPath == defaultPrimPath
+                || primPath.rfind(defaultPrimPrefix, 0) == 0;
+        };
+        auto addDiscoveredLinkPath = [&](std::string const& rawPath) {
+            const std::string normalizedPath = _NormalizeRuntimePathToken(rawPath);
+            if (normalizedPath.empty() || normalizedPath == "/") return;
+            if (!isWithinDefaultPrim(normalizedPath)) return;
+            linkPathSet.insert(normalizedPath);
+        };
+
+        const UsdTimeCode discoveryTimeCode =
+            _delegate ? _delegate->GetTime() : UsdTimeCode::Default();
+        const Usd_PrimFlagsPredicate discoveryPredicate =
+            UsdTraverseInstanceProxies(UsdPrimAllPrimsPredicate);
+        for (UsdPrim const& prim : UsdPrimRange::Stage(_stage, discoveryPredicate)) {
+            if (!prim) continue;
+            const std::string primTypeName = prim.GetTypeName().GetString();
+            if (primTypeName == "PhysicsRevoluteJoint"
+                || primTypeName == "PhysicsPrismaticJoint"
+                || primTypeName == "PhysicsFixedJoint") {
+                addDiscoveredLinkPath(
+                    _ReadFirstRelationshipTargetPath(
+                        prim.GetRelationship(TfToken("physics:body0"))));
+                addDiscoveredLinkPath(
+                    _ReadFirstRelationshipTargetPath(
+                        prim.GetRelationship(TfToken("physics:body1"))));
+                continue;
+            }
+
+            const std::string primPath = prim.GetPath().GetString();
+            if (primPath.empty() || !isWithinDefaultPrim(primPath)) continue;
+            if (primPath.find("/visuals") != std::string::npos) continue;
+            if (primPath.find("/collisions") != std::string::npos) continue;
+            if (primPath.find("/Looks") != std::string::npos) continue;
+            if (primPath.find("/joints") != std::string::npos) continue;
+
+            const std::string normalizedTypeName =
+                _ToLowerAscii(prim.GetTypeName().GetString());
+            if (!normalizedTypeName.empty() && normalizedTypeName != "xform") {
+                continue;
+            }
+
+            double mass = 0.0;
+            const bool hasMass =
+                _TryReadDoubleAttr(prim, "physics:mass", discoveryTimeCode, &mass);
+            std::array<double, 3> centerOfMassLocal = {0.0, 0.0, 0.0};
+            const bool hasCenterOfMass = _TryReadVec3Attr(
+                prim.GetAttribute(TfToken("physics:centerOfMass")),
+                discoveryTimeCode,
+                &centerOfMassLocal);
+            std::array<double, 3> diagonalInertia = {0.0, 0.0, 0.0};
+            const bool hasDiagonalInertia = _TryReadVec3Attr(
+                prim.GetAttribute(TfToken("physics:diagonalInertia")),
+                discoveryTimeCode,
+                &diagonalInertia);
+            std::array<double, 4> principalAxesLocalWxyz = {
+                1.0, 0.0, 0.0, 0.0};
+            const bool hasPrincipalAxes = _TryReadQuatWxyzAttr(
+                prim.GetAttribute(TfToken("physics:principalAxes")),
+                discoveryTimeCode,
+                &principalAxesLocalWxyz);
+
+            if (_HasMeaningfulPhysicsDynamics(
+                    hasMass,
+                    mass,
+                    hasCenterOfMass,
+                    centerOfMassLocal,
+                    hasDiagonalInertia,
+                    diagonalInertia,
+                    hasPrincipalAxes,
+                    principalAxesLocalWxyz)) {
+                addDiscoveredLinkPath(primPath);
+            }
+        }
+
+        sortedLinkPaths.assign(linkPathSet.begin(), linkPathSet.end());
         std::sort(sortedLinkPaths.begin(), sortedLinkPaths.end());
 
         snapshot.set("generatedAtMs", _NowSteadyMs());
@@ -2682,6 +2791,7 @@ private:
         record.set("materialId", materialId);
         record.set("name", std::string("displayColor_") + _ColorToHexString(color));
         record.set("color", _Vec3ToJsArray(color));
+        record.set("colorSource", std::string("display-color"));
         if (opacity < 1.0) {
           record.set("opacity", std::max(0.0, std::min(1.0, opacity)));
         }
@@ -2787,6 +2897,7 @@ private:
         std::array<double, 3> inferredColor = {0.0, 0.0, 0.0};
         if (_TryInferColorFromMaterialName(materialName, &inferredColor)) {
             record.set("color", _Vec3ToJsArray(inferredColor));
+            record.set("colorSource", std::string("material-name"));
         }
 
         const UsdPrim shaderPrim = _FindMaterialShaderPrim(materialPrim);
@@ -2916,7 +3027,8 @@ private:
             "inputs:albedo_constant",
         });
         if (hasBaseColor) {
-            record.set("colorSpace", std::string("srgb"));
+            record.set("colorSpace", std::string("linear"));
+            record.set("colorSource", std::string("authored"));
         }
         (void)hasBaseColor;
 
@@ -2976,7 +3088,7 @@ private:
         setScalar("emissiveIntensity", { "inputs:emissive_intensity" }, false, true, 0.0);
 
         if (setColor("specularColor", { "inputs:specularColor", "inputs:specular_color" })) {
-            record.set("specularColorSpace", std::string("srgb"));
+            record.set("specularColorSpace", std::string("linear"));
         }
         setColor("attenuationColor", { "inputs:attenuationColor", "inputs:attenuation_color" });
         setColor("sheenColor", { "inputs:sheenColor", "inputs:sheen_color" });
@@ -2985,7 +3097,7 @@ private:
             "inputs:emissive_color",
             "inputs:emissive_color_constant",
         })) {
-            record.set("emissiveColorSpace", std::string("srgb"));
+            record.set("emissiveColorSpace", std::string("linear"));
         }
 
         setVec2("normalScale", { "inputs:normalScale", "inputs:normal_scale" });
@@ -4982,9 +5094,12 @@ private:
     void _Init(UsdStageRefPtr const& usdStage,
                HdRprimCollection const &collection,
                SdfPath const &delegateId,
-               TfTokenVector const &renderTags) {
+               TfTokenVector const &renderTags,
+               bool skipHydraPopulateForRobotSceneSnapshot = false) {
         DriverInitProfile initProfile;
         const double initStartedAtMs = _NowSteadyMs();
+        initProfile.stageOpenMs = _lastStageOpenMs;
+        initProfile.hydraPopulateSkipped = skipHydraPopulateForRobotSceneSnapshot;
 
         const double renderIndexStartedAtMs = _NowSteadyMs();
         _renderIndex = HdRenderIndex::New(&_renderDelegate, HdDriverVector());
@@ -5010,24 +5125,31 @@ private:
         initProfile.clearProtoCacheMs =
             _NowSteadyMs() - clearProtoCacheStartedAtMs;
 
-        const double skinningDetectStartedAtMs = _NowSteadyMs();
-        initProfile.stageHasSkinning = _StageRequiresSkinningBake(_stage);
-        initProfile.skinningDetectMs =
-            _NowSteadyMs() - skinningDetectStartedAtMs;
-
-        const double bakeSkinningStartedAtMs = _NowSteadyMs();
-        if (initProfile.stageHasSkinning) {
-            UsdSkelBakeSkinning(_stage->Traverse());
-        } else {
+        if (skipHydraPopulateForRobotSceneSnapshot) {
+            initProfile.stageHasSkinning = false;
             initProfile.bakeSkinningSkipped = true;
+        } else {
+            const double skinningDetectStartedAtMs = _NowSteadyMs();
+            initProfile.stageHasSkinning = _StageRequiresSkinningBake(_stage);
+            initProfile.skinningDetectMs =
+                _NowSteadyMs() - skinningDetectStartedAtMs;
+
+            const double bakeSkinningStartedAtMs = _NowSteadyMs();
+            if (initProfile.stageHasSkinning) {
+                UsdSkelBakeSkinning(_stage->Traverse());
+            } else {
+                initProfile.bakeSkinningSkipped = true;
+            }
+            initProfile.bakeSkinningMs =
+                _NowSteadyMs() - bakeSkinningStartedAtMs;
         }
-        initProfile.bakeSkinningMs =
-            _NowSteadyMs() - bakeSkinningStartedAtMs;
         initProfile.stageSaveSkipped = true;
 
-        const double populateStartedAtMs = _NowSteadyMs();
-        _delegate->Populate(_stage->GetPseudoRoot());
-        initProfile.populateMs = _NowSteadyMs() - populateStartedAtMs;
+        if (!skipHydraPopulateForRobotSceneSnapshot) {
+            const double populateStartedAtMs = _NowSteadyMs();
+            _delegate->Populate(_stage->GetPseudoRoot());
+            initProfile.populateMs = _NowSteadyMs() - populateStartedAtMs;
+        }
 
         const double geometryPassStartedAtMs = _NowSteadyMs();
         _geometryPass = HdRenderPassSharedPtr(
@@ -5098,6 +5220,32 @@ private:
             }
             emscripten::val config = renderDelegateInterface["config"];
             return _ReadJsBooleanOption(config, "skipSensorPayloadsOnOpen", false);
+        } catch (...) {
+            return false;
+        }
+    }
+
+    UsdStageRefPtr _OpenStageForPathWithProfile(
+        emscripten::val const& renderDelegateInterface,
+        std::string const& usdFilePath) {
+        const double stageOpenStartedAtMs = _NowSteadyMs();
+        UsdStageRefPtr stage = _OpenStageForPath(renderDelegateInterface, usdFilePath);
+        _lastStageOpenMs = _NowSteadyMs() - stageOpenStartedAtMs;
+        return stage;
+    }
+
+    static bool _ShouldSkipHydraPopulateForRobotSceneSnapshot(
+        emscripten::val const& renderDelegateInterface) {
+        try {
+            if (renderDelegateInterface.isUndefined()
+                || renderDelegateInterface.isNull()) {
+                return false;
+            }
+            emscripten::val config = renderDelegateInterface["config"];
+            return _ReadJsBooleanOption(
+                config,
+                "skipHydraPopulateForRobotSceneSnapshot",
+                false);
         } catch (...) {
             return false;
         }

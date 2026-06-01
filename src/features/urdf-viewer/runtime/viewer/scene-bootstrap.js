@@ -35,7 +35,7 @@ export async function initializeViewerScene(options) {
     let interactionPixelRatioTimer = null;
     let environmentRenderTarget = null;
     const pixelRatioCap = parseNonNegativeNumber(params.get("pixelRatioCap"), 1.0);
-    const interactionPixelRatioCap = parseNonNegativeNumber(params.get("interactionPixelRatioCap"), 1.0);
+    const interactionPixelRatioCap = parseNonNegativeNumber(params.get("interactionPixelRatioCap"), pixelRatioCap);
     const interactionPixelRatioHoldMs = Math.max(0, Math.min(10000, Math.floor(parseNonNegativeNumber(params.get("interactionPixelRatioHoldMs"), 220))));
     const safePixelRatioCap = Math.max(0.5, pixelRatioCap);
     const resolveBasePixelRatio = () => Math.max(0.5, Math.min(window.devicePixelRatio || 1, safePixelRatioCap));

@@ -10,7 +10,7 @@ import { Dialog } from '@/shared/components/ui/Dialog';
 import { SegmentedControl } from '@/shared/components/ui/SegmentedControl';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { runRobotInspection } from '../services/aiService';
-import { calculateOverallScore, INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
+import { INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
 import {
   buildInspectionRunContext,
   type InspectionRunContext,
@@ -27,6 +27,17 @@ import {
 import { InspectionSidebar, type SelectedInspectionItems } from './InspectionSidebar';
 import { InspectionSetupNormalView } from './InspectionSetupNormalView';
 import { InspectionSetupView } from './InspectionSetupView';
+import {
+  createInitialSelectedItems,
+  readStoredInspectionSetupMode,
+  recalculateReportMetrics,
+  TOTAL_INSPECTION_ITEM_COUNT,
+  writeStoredInspectionSetupMode,
+  type InspectionRunPointerLayout,
+  type InspectionSetupMode,
+  type ReportScrollTarget,
+  type RetestingItemState,
+} from './inspectionModalState';
 
 interface AIInspectionModalProps {
   isOpen: boolean;
@@ -42,89 +53,6 @@ interface AIInspectionModalProps {
       focusedIssue?: InspectionReport['issues'][number] | null;
     },
   ) => void;
-}
-
-interface RetestingItemState {
-  categoryId: string;
-  itemId: string;
-}
-
-interface ReportScrollTarget {
-  anchorId: string;
-}
-
-interface InspectionRunPointerLayout {
-  deltaX: number;
-  deltaY: number;
-  targetX: number;
-  targetY: number;
-}
-
-type InspectionSetupMode = 'normal' | 'advanced';
-
-const INSPECTION_SETUP_MODE_STORAGE_KEY = 'urdf-studio.ai-inspection.setup-mode';
-const TOTAL_INSPECTION_ITEM_COUNT = INSPECTION_CRITERIA.reduce(
-  (sum, category) => sum + category.items.length,
-  0,
-);
-
-function readStoredInspectionSetupMode(): InspectionSetupMode {
-  if (typeof window === 'undefined') {
-    return 'advanced';
-  }
-
-  try {
-    const storedMode = window.localStorage.getItem(INSPECTION_SETUP_MODE_STORAGE_KEY);
-    return storedMode === 'normal' || storedMode === 'advanced' ? storedMode : 'advanced';
-  } catch {
-    return 'advanced';
-  }
-}
-
-function createInitialSelectedItems(): SelectedInspectionItems {
-  const initial: SelectedInspectionItems = {};
-  INSPECTION_CRITERIA.forEach((category) => {
-    initial[category.id] = new Set(category.items.map((item) => item.id));
-  });
-  return initial;
-}
-
-function recalculateReportMetrics(
-  issues: InspectionReport['issues'],
-  fallbackMaxScore: number | undefined,
-): Pick<InspectionReport, 'overallScore' | 'categoryScores' | 'maxScore'> {
-  const categoryScoreBuckets: Record<string, number[]> = {};
-  INSPECTION_CRITERIA.forEach((category) => {
-    categoryScoreBuckets[category.id] = [];
-  });
-
-  issues.forEach((issue) => {
-    if (!issue.category || issue.score === undefined) {
-      return;
-    }
-    if (!categoryScoreBuckets[issue.category]) {
-      categoryScoreBuckets[issue.category] = [];
-    }
-    categoryScoreBuckets[issue.category].push(issue.score);
-  });
-
-  const categoryScores: Record<string, number> = {};
-  Object.entries(categoryScoreBuckets).forEach(([categoryId, scores]) => {
-    categoryScores[categoryId] =
-      scores.length > 0 ? scores.reduce((sum, score) => sum + score, 0) / scores.length : 10;
-  });
-
-  const allItemScores = issues
-    .map((issue) => issue.score)
-    .filter((score): score is number => score !== undefined);
-
-  const overallScore = calculateOverallScore(categoryScores, allItemScores);
-
-  return {
-    overallScore: Math.round(overallScore * 10) / 10,
-    categoryScores,
-    maxScore: allItemScores.length > 0 ? allItemScores.length * 10 : (fallbackMaxScore ?? 100),
-  };
 }
 
 export function AIInspectionModal({
@@ -226,11 +154,7 @@ export function AIInspectionModal({
       return;
     }
 
-    try {
-      window.localStorage.setItem(INSPECTION_SETUP_MODE_STORAGE_KEY, inspectionSetupMode);
-    } catch {
-      // Ignore storage write failures and keep the in-memory mode.
-    }
+    writeStoredInspectionSetupMode(inspectionSetupMode);
   }, [inspectionSetupMode]);
 
   useEffect(() => {

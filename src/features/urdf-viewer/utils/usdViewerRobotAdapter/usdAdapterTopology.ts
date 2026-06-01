@@ -161,7 +161,7 @@ export function createLinkFromViewerMetadata(
       ...DEFAULT_LINK.inertial,
       mass: Number.isFinite(Number(dynamicsEntry?.mass))
         ? Number(dynamicsEntry?.mass)
-        : DEFAULT_LINK.inertial.mass,
+        : 0,
       origin: {
         xyz: toVector3(dynamicsEntry?.centerOfMassLocal, DEFAULT_LINK.inertial.origin?.xyz),
         rpy: getDynamicsOriginRotation(dynamicsEntry),

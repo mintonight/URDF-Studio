@@ -1,409 +1,52 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Upload, Package, FileCode, Layers, Lock, Braces, Loader2, Info } from 'lucide-react';
+import { Upload, Package, FileCode, Layers, Lock, Braces, Loader2 } from 'lucide-react';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
-import { CompactSwitch, PanelSelect, Slider, Tooltip } from '@/shared/components/ui';
 import { translations } from '@/shared/i18n';
-import type { TranslationKeys } from '@/shared/i18n/types';
 import type { ExportProgressState } from '../../types';
 import type { MjcfActuatorType } from '@/core/parsers/mjcf/mjcfGenerator';
 import { ExportProgressView } from '../ExportProgressView';
+import {
+  DEFAULT_CONFIG,
+  EXPORT_FORMATS,
+  getExportFormatSupports,
+} from './config';
+import {
+  Row,
+  SectionLabel,
+  SegmentedChoiceField,
+  SelectField,
+  TextField,
+  Toggle,
+} from './fields';
+import { getStlPreset, STLQualitySelector, type StlPresetKey } from './stlQualitySelector';
+import type {
+  ExportDialogConfig,
+  ExportDialogProps,
+  ExportFormat,
+  MeshExportFormat,
+  RosHwInterface,
+  RosVersion,
+  MjcfExportConfig,
+  SdfExportConfig,
+  UrdfExportConfig,
+  UsdExportConfig,
+  XacroExportConfig,
+} from './types';
 
-export type ExportFormat = 'project' | 'mjcf' | 'urdf' | 'xacro' | 'sdf' | 'usd';
-
-export interface MjcfExportConfig {
-  meshdir: string;
-  addFloatBase: boolean;
-  preferSharedMeshReuse: boolean;
-  includeActuators: boolean;
-  actuatorType: MjcfActuatorType;
-  includeMeshes: boolean;
-  compressSTL: boolean;
-  stlQuality: number;
-}
-
-export interface UrdfExportConfig {
-  includeExtended: boolean;
-  includeBOM: boolean;
-  useRelativePaths: boolean;
-  preferSourceVisualMeshes: boolean;
-  includeMeshes: boolean;
-  compressSTL: boolean;
-  stlQuality: number;
-}
-
-export type RosVersion = 'ros1' | 'ros2';
-export type RosHwInterface = 'effort' | 'position' | 'velocity';
-
-export interface XacroExportConfig {
-  rosVersion: RosVersion;
-  rosHardwareInterface: RosHwInterface;
-  useRelativePaths: boolean;
-  includeMeshes: boolean;
-  compressSTL: boolean;
-  stlQuality: number;
-}
-
-export interface SdfExportConfig {
-  includeMeshes: boolean;
-  compressSTL: boolean;
-  stlQuality: number;
-}
-
-export interface UsdExportConfig {
-  fileFormat: 'usd' | 'usda';
-  compressMeshes: boolean;
-  meshQuality: number;
-}
-
-export interface ExportDialogConfig {
-  format: ExportFormat;
-  includeSkeleton: boolean;
-  mjcf: MjcfExportConfig;
-  urdf: UrdfExportConfig;
-  xacro: XacroExportConfig;
-  sdf: SdfExportConfig;
-  usd: UsdExportConfig;
-}
-
-const MJCF_SUPPORTS = ['MuJoCo', 'Motphys', 'Genesis'];
-const URDF_SUPPORTS = ['Isaac Sim', 'Isaac Gym', 'Genesis', 'PyBullet', 'ManiSkill', 'Motphys'];
-const XACRO_SUPPORTS = ['Gazebo', 'ROS1', 'ROS2'];
-const SDF_SUPPORTS = ['Gazebo', 'Ignition Gazebo', 'sdformat'];
-const USD_SUPPORTS = ['OpenUSD', 'Isaac Sim', 'Genesis', 'Omniverse'];
-
-const DEFAULT_CONFIG: ExportDialogConfig = {
-  format: 'mjcf',
-  includeSkeleton: false,
-  mjcf: {
-    meshdir: 'meshes/',
-    addFloatBase: false,
-    preferSharedMeshReuse: true,
-    includeActuators: true,
-    actuatorType: 'position',
-    includeMeshes: true,
-    compressSTL: false,
-    stlQuality: 50,
-  },
-  urdf: {
-    includeExtended: false,
-    includeBOM: false,
-    useRelativePaths: true,
-    preferSourceVisualMeshes: true,
-    includeMeshes: true,
-    compressSTL: false,
-    stlQuality: 50,
-  },
-  xacro: {
-    rosVersion: 'ros2',
-    rosHardwareInterface: 'effort',
-    useRelativePaths: true,
-    includeMeshes: true,
-    compressSTL: false,
-    stlQuality: 50,
-  },
-  sdf: {
-    includeMeshes: true,
-    compressSTL: false,
-    stlQuality: 50,
-  },
-  usd: {
-    fileFormat: 'usd',
-    compressMeshes: true,
-    meshQuality: 100,
-  },
-};
-
-interface ExportDialogProps {
-  onClose: () => void;
-  onExport: (
-    config: ExportDialogConfig,
-    options?: {
-      onProgress?: (progress: ExportProgressState) => void;
-    },
-  ) => void | Promise<void>;
-  lang: 'en' | 'zh';
-  isExporting?: boolean;
-  canExportUsd?: boolean;
-  defaultFormat?: ExportFormat;
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[9px] font-semibold tracking-[0.02em] text-text-tertiary mb-1.5 mt-3 first:mt-0">
-      {children}
-    </div>
-  );
-}
-
-function Row({
-  label,
-  desc,
-  hint,
-  stacked = false,
-  children,
-}: {
-  label: string;
-  desc?: string;
-  hint?: string;
-  stacked?: boolean;
-  children: React.ReactNode;
-}) {
-  const isCenteredRow = !stacked && !desc;
-
-  return (
-    <div
-      className={`flex gap-3 border-b border-border-black py-1.5 last:border-0 ${
-        stacked
-          ? 'flex-col'
-          : isCenteredRow
-            ? 'items-center justify-between'
-            : 'items-start justify-between'
-      }`}
-    >
-      <div className={`min-w-0 flex flex-col gap-0.5 ${isCenteredRow ? 'justify-center' : ''}`}>
-        <div className={`flex min-w-0 gap-1.5 ${isCenteredRow ? 'items-center' : 'items-start'}`}>
-          <span className="text-[11px] text-text-primary leading-tight">{label}</span>
-          {hint && (
-            <Tooltip content={hint} side="top" align="start" className="max-w-[20rem]">
-              <button
-                type="button"
-                aria-label={hint}
-                className="mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-system-blue/10 hover:text-system-blue focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
-              >
-                <Info className="h-3 w-3" />
-              </button>
-            </Tooltip>
-          )}
-        </div>
-        {desc && <span className="text-[9px] text-text-tertiary leading-tight">{desc}</span>}
-      </div>
-      <div
-        className={stacked ? 'w-full min-w-0' : isCenteredRow ? 'shrink-0 self-center' : 'shrink-0'}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return <CompactSwitch checked={value} onChange={onChange} />;
-}
-
-function SelectField({
-  value,
-  options,
-  onChange,
-  title,
-  fullWidth = false,
-}: {
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (v: string) => void;
-  title?: string;
-  fullWidth?: boolean;
-}) {
-  return (
-    <PanelSelect
-      variant="compact"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      options={options}
-      title={title}
-      className={fullWidth ? 'w-full min-w-0' : 'min-w-[9rem]'}
-    />
-  );
-}
-
-function SegmentedChoiceField<T extends string>({
-  value,
-  options,
-  onChange,
-}: {
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (value: T) => void;
-}) {
-  return (
-    <div className="grid grid-cols-2 gap-1 rounded-xl border border-border-black bg-segmented-bg p-1">
-      {options.map((option) => {
-        const isActive = option.value === value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            aria-pressed={isActive}
-            onClick={() => onChange(option.value)}
-            className={`inline-flex min-h-8 items-center justify-center rounded-lg px-3 py-1.5 text-center text-xs font-medium leading-none transition-all ${
-              isActive
-                ? 'bg-white text-text-primary shadow-sm dark:bg-segmented-active'
-                : 'text-text-secondary hover:bg-element-hover hover:text-text-primary'
-            }`}
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function TextField({
-  value,
-  onChange,
-  placeholder,
-  fullWidth = false,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  fullWidth?: boolean;
-}) {
-  return (
-    <input
-      type="text"
-      value={value}
-      placeholder={placeholder}
-      onChange={(e) => onChange(e.target.value)}
-      className={`bg-input-bg border border-border-black text-text-primary text-xs rounded-md px-2 py-1 focus:ring-2 focus:ring-system-blue/25 focus:border-system-blue transition-all ${
-        fullWidth ? 'w-full min-w-0' : 'w-28'
-      }`}
-    />
-  );
-}
-
-const STL_QUALITY_PRESETS = [
-  { key: 'none', quality: 100, compress: false },
-  { key: 'light', quality: 75, compress: true },
-  { key: 'medium', quality: 50, compress: true },
-] as const;
-
-type StlPresetKey = (typeof STL_QUALITY_PRESETS)[number]['key'] | 'custom';
-
-const QUALITY_SLIDER_MIN = 10;
-const QUALITY_SLIDER_MAX = 100;
-
-function getStlPreset(compressSTL: boolean, stlQuality: number): StlPresetKey {
-  if (!compressSTL) return 'none';
-  if (stlQuality === 75) return 'light';
-  if (stlQuality === 50) return 'medium';
-  return 'custom';
-}
-
-function getCustomCompressionLabel(t: TranslationKeys, quality: number): string {
-  if (quality <= 25) return t.compressionLevelAggressive;
-  if (quality <= 45) return t.compressionLevelCompact;
-  if (quality <= 65) return t.compressionLevelBalanced;
-  if (quality <= 85) return t.compressionLevelDetailed;
-  return t.compressionLevelPreserve;
-}
-
-function STLQualitySelector({
-  compressSTL,
-  stlQuality,
-  mode,
-  t,
-  onCompressChange,
-  onQualityChange,
-  onModeChange,
-  label,
-  description,
-}: {
-  compressSTL: boolean;
-  stlQuality: number;
-  mode: StlPresetKey;
-  t: TranslationKeys;
-  onCompressChange: (v: boolean) => void;
-  onQualityChange: (v: number) => void;
-  onModeChange: (mode: StlPresetKey) => void;
-  label?: string;
-  description?: string | null;
-}) {
-  const active = mode;
-  const presetLabels: Record<StlPresetKey, string> = {
-    none: t.stlQualityOriginal,
-    light: t.stlQualityLight,
-    medium: t.stlQualityMedium,
-    custom: t.presetCustom,
-  };
-  const customQuality = Math.min(
-    Math.max(Math.round(stlQuality), QUALITY_SLIDER_MIN),
-    QUALITY_SLIDER_MAX,
-  );
-
-  const handlePresetSelect = useCallback(
-    (preset: StlPresetKey) => {
-      onModeChange(preset);
-
-      if (preset === 'custom') {
-        if (!compressSTL) onCompressChange(true);
-        return;
-      }
-
-      const selectedPreset = STL_QUALITY_PRESETS.find((candidate) => candidate.key === preset);
-      if (!selectedPreset) return;
-
-      onCompressChange(selectedPreset.compress);
-      if (selectedPreset.compress) {
-        onQualityChange(selectedPreset.quality);
-      }
-    },
-    [compressSTL, onCompressChange, onModeChange, onQualityChange],
-  );
-
-  const resolvedDescription = description === undefined ? t.stlMeshQualityDesc : description;
-
-  return (
-    <div className="py-2">
-      <div className="text-xs text-text-primary mb-0.5">{label || t.stlMeshQuality}</div>
-      {resolvedDescription ? (
-        <div className="mb-2 text-[10px] text-text-tertiary">{resolvedDescription}</div>
-      ) : null}
-      <div className="grid grid-cols-4 gap-1 p-1 bg-segmented-bg rounded-xl border border-border-black">
-        {[...STL_QUALITY_PRESETS, { key: 'custom' as const }].map((p) => (
-          <button
-            key={p.key}
-            onClick={() => handlePresetSelect(p.key)}
-            className={`flex-1 py-1 px-2.5 text-xs rounded-lg transition-all font-medium ${
-              active === p.key
-                ? 'bg-white dark:bg-segmented-active text-text-primary shadow-sm'
-                : 'text-text-secondary hover:text-text-primary hover:bg-element-hover'
-            }`}
-          >
-            {presetLabels[p.key]}
-          </button>
-        ))}
-      </div>
-      {active === 'custom' && compressSTL && (
-        <div className="mt-3 px-1">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-medium text-text-primary">{t.presetCustom}</span>
-            <span className="rounded-md bg-element-bg px-1.5 py-0.5 text-[10px] text-text-secondary">
-              {getCustomCompressionLabel(t, customQuality)}
-            </span>
-          </div>
-          <Slider
-            value={customQuality}
-            min={QUALITY_SLIDER_MIN}
-            max={QUALITY_SLIDER_MAX}
-            step={1}
-            showValue={false}
-            onChange={(value) => {
-              onModeChange('custom');
-              if (!compressSTL) onCompressChange(true);
-              onQualityChange(value);
-            }}
-          />
-          <div className="mt-1.5 flex items-center justify-between text-[10px] text-text-tertiary">
-            <span>{t.compressionSmallerFile}</span>
-            <span>{t.compressionMoreDetail}</span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+export type {
+  ExportDialogConfig,
+  ExportDialogProps,
+  ExportFormat,
+  MeshExportFormat,
+  MjcfExportConfig,
+  RosHwInterface,
+  RosVersion,
+  SdfExportConfig,
+  UrdfExportConfig,
+  UsdExportConfig,
+  XacroExportConfig,
+} from './types';
 
 export const ExportDialog: React.FC<ExportDialogProps> = ({
   onClose,
@@ -414,7 +57,6 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   defaultFormat = DEFAULT_CONFIG.format,
 }) => {
   const t = translations[lang];
-  type MeshExportFormat = Exclude<ExportFormat, 'project'>;
   const initialFormat = defaultFormat === 'project' ? DEFAULT_CONFIG.format : defaultFormat;
   const [config, setConfig] = useState<ExportDialogConfig>(() => ({
     ...DEFAULT_CONFIG,
@@ -572,6 +214,8 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     sdf: t.exportFormatSDF,
     usd: t.exportFormatUSD,
   };
+  const compatibleTargets =
+    config.format === 'project' ? [] : getExportFormatSupports(config.format);
 
   return (
     <>
@@ -609,7 +253,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
               data-export-format-picker
               className={`grid gap-1 rounded-xl border border-border-black bg-segmented-bg p-1 ${formatGridClassName}`}
             >
-              {(['mjcf', 'urdf', 'xacro', 'sdf', 'usd'] as MeshExportFormat[]).map((fmt) => {
+              {EXPORT_FORMATS.map((fmt) => {
                 const isDisabled = fmt === 'usd' && !canExportUsd;
                 const isActive = config.format === fmt;
                 return (
@@ -648,16 +292,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
 
             {/* Compatible simulators */}
             <div className="flex flex-wrap gap-1 pt-1 pb-0.5">
-              {(config.format === 'mjcf'
-                ? MJCF_SUPPORTS
-                : config.format === 'urdf'
-                  ? URDF_SUPPORTS
-                  : config.format === 'xacro'
-                    ? XACRO_SUPPORTS
-                    : config.format === 'sdf'
-                      ? SDF_SUPPORTS
-                      : USD_SUPPORTS
-              ).map((name) => (
+              {compatibleTargets.map((name) => (
                 <span
                   key={name}
                   className="px-2 py-0.5 bg-element-bg border border-border-black rounded-full text-[10px] text-text-tertiary"

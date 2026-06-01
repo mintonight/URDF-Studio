@@ -31,7 +31,7 @@ test('coalesces multiple pointer updates into a single frame using the latest po
 
 test('flush applies the latest pending pointer update immediately', () => {
   const calls: Array<[number, number]> = [];
-  let cancelledHandle: number | null = null;
+  let cancelledHandle: number | null = null as number | null;
   const scheduler = createJointDragFrameSync({
     onFrame: (clientX, clientY) => {
       calls.push([clientX, clientY]);
@@ -53,7 +53,7 @@ test('flush applies the latest pending pointer update immediately', () => {
 test('cancel drops the pending frame without emitting a drag update', () => {
   const queued: FrameRequestCallback[] = [];
   const calls: Array<[number, number]> = [];
-  let cancelledHandle: number | null = null;
+  let cancelledHandle: number | null = null as number | null;
   const scheduler = createJointDragFrameSync({
     onFrame: (clientX, clientY) => {
       calls.push([clientX, clientY]);

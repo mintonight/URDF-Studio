@@ -1,13 +1,12 @@
 import React, { memo, useRef, useState, useMemo, useEffect, useCallback } from 'react';
 import { useThree } from '@react-three/fiber';
-import { Html } from '@react-three/drei';
 import { Box3, Matrix4, Vector3 as ThreeVector3, type Group, type Object3D } from 'three';
 import {
   LinkIkTransformControls,
   SceneCompileWarmup,
-  VIEWER_CORNER_OVERLAY_CLASS_NAME,
   shouldUseIndeterminateStreamingMeshProgress,
 } from '@/shared/components/3d';
+import { requestShadowMapRefresh } from '@/shared/components/3d/scene/shadowMapRefresh';
 import { isAssemblyTransformSelectionArmed } from '@/shared/utils/assembly/transformSelection';
 import {
   resolveViewerJointAngleValue,
@@ -36,7 +35,7 @@ import { HoverSelectionSync } from './HoverSelectionSync';
 import { JointInteraction } from './JointInteraction';
 import { OriginTransformControls } from './OriginTransformControls';
 import { AssemblyTransformControls } from './AssemblyTransformControls';
-import { ViewerLoadingHud } from './ViewerLoadingHud';
+import { ViewerLoadingHudOverlay } from './ViewerLoadingHudOverlay';
 import type { RobotModelProps, ViewerPaintFaceHit } from '../types';
 import { buildViewerLoadingHudState } from '../utils/viewerLoadingHud';
 import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
@@ -219,7 +218,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     showSourceSceneAssemblyComponentControls = false,
     onSourceSceneAssemblyComponentTransform,
   }) => {
-    const { invalidate } = useThree();
+    const { gl, invalidate } = useThree();
     const snapshotRenderActive = useSnapshotRenderActive();
     const showMjcfWorldLink = useUIStore((state) => state.viewOptions.showMjcfWorldLink);
     const setHoverFrozen = useSelectionStore((state) => state.setHoverFrozen);
@@ -880,9 +879,10 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         robot.updateMatrixWorld(options?.force ?? false);
         boundingBoxNeedsUpdateRef.current = true;
         needsRaycastRef.current = true;
+        requestShadowMapRefresh(gl);
         invalidate();
       },
-      [boundingBoxNeedsUpdateRef, invalidate, needsRaycastRef, robot],
+      [boundingBoxNeedsUpdateRef, gl, invalidate, needsRaycastRef, robot],
     );
 
     useEffect(() => {
@@ -962,19 +962,14 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
           {robot ? <primitive object={robot} /> : null}
         </group>
         {isLoading ? (
-          <Html fullscreen>
-            <div className={VIEWER_CORNER_OVERLAY_CLASS_NAME}>
-              <ViewerLoadingHud
-                title={t.loadingRobot}
-                detail={loadingDetail}
-                progress={loadingHudState.progress}
-                progressMode={loadingHudState.progressMode}
-                statusLabel={loadingHudState.statusLabel}
-                stageLabel={loadingStageLabel}
-                delayMs={0}
-              />
-            </div>
-          </Html>
+          <ViewerLoadingHudOverlay
+            title={t.loadingRobot}
+            detail={loadingDetail}
+            progress={loadingHudState.progress}
+            progressMode={loadingHudState.progressMode}
+            statusLabel={loadingHudState.statusLabel}
+            stageLabel={loadingStageLabel}
+          />
         ) : null}
         {!snapshotRenderActive && robot && toolMode !== 'measure' && (
           <LinkIkTransformControls

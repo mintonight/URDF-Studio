@@ -8,13 +8,29 @@ import type { RobotState, UsdPreparedExportCache, UsdSceneSnapshot } from '../..
 import {
   __private__ as usdExportBundlePrivate,
   canPrepareUsdExportCacheFromSnapshot,
-  buildUsdExportBundleFromPreparedCache,
-  buildUsdExportBundleFromSnapshot,
+  buildUsdExportBundleFromPreparedCache as buildNullableUsdExportBundleFromPreparedCache,
+  buildUsdExportBundleFromSnapshot as buildNullableUsdExportBundleFromSnapshot,
   prepareUsdExportCacheFromResolvedSnapshot,
   prepareUsdExportCacheFromSnapshot,
   repairObjFaceVaryingNormalsForExport,
   resolveUsdExportSceneSnapshot,
 } from './usdExportBundle.ts';
+
+function buildUsdExportBundleFromSnapshot(
+  ...args: Parameters<typeof buildNullableUsdExportBundleFromSnapshot>
+): NonNullable<ReturnType<typeof buildNullableUsdExportBundleFromSnapshot>> {
+  const bundle = buildNullableUsdExportBundleFromSnapshot(...args);
+  assert.ok(bundle, 'expected USD export bundle from snapshot');
+  return bundle;
+}
+
+function buildUsdExportBundleFromPreparedCache(
+  ...args: Parameters<typeof buildNullableUsdExportBundleFromPreparedCache>
+): NonNullable<ReturnType<typeof buildNullableUsdExportBundleFromPreparedCache>> {
+  const bundle = buildNullableUsdExportBundleFromPreparedCache(...args);
+  assert.ok(bundle, 'expected USD export bundle from prepared cache');
+  return bundle;
+}
 
 function createTriangleBuffers() {
   const positions = new Float32Array([
@@ -213,6 +229,7 @@ test('buildUsdExportBundleFromSnapshot preserves current robot edits and emits e
   });
 
   assert.equal(bundle.robot.name, 'edited_robot');
+  assert.ok(bundle.robot.links.link1.inertial);
   assert.equal(bundle.robot.links.link1.inertial.mass, 42);
   assert.deepEqual(bundle.robot.links.base_link.visual.origin.xyz, { x: 1, y: 2, z: 3 });
   assert.deepEqual(bundle.robot.links.link1.visual.origin.xyz, { x: 4, y: 5, z: 6 });
@@ -2777,7 +2794,7 @@ test('resolveUsdExportSceneSnapshot enriches cached snapshots with live preferre
 });
 
 test('resolveUsdExportSceneSnapshot normalizes bare stage source paths for live snapshot lookups', () => {
-  let receivedStageSourcePath: string | null = null;
+  let receivedStageSourcePath: string | null = null as string | null;
   const liveSnapshot = {
     stageSourcePath: '/robots/b2/b2.usd',
     render: {
@@ -2790,8 +2807,8 @@ test('resolveUsdExportSceneSnapshot normalizes bare stage source paths for live 
     cachedSnapshot: null,
     targetWindow: {
       renderInterface: {
-        getCachedRobotSceneSnapshot: (stageSourcePath: string | null) => {
-          receivedStageSourcePath = stageSourcePath;
+        getCachedRobotSceneSnapshot: (stageSourcePath?: string | null) => {
+          receivedStageSourcePath = stageSourcePath ?? null;
           return stageSourcePath === '/robots/b2/b2.usd' ? liveSnapshot : null;
         },
       },

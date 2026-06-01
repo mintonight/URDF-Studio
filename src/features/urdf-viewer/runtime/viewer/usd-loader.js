@@ -128,6 +128,8 @@ export async function loadUsdStage(args) {
     const warmupRuntimeBridge = parseBooleanFlag(params.get("warmupRuntimeBridge"), !nonBlockingLoad);
     const robotSceneSnapshotBeforeDraw = parseBooleanFlag(params.get("robotSceneSnapshotBeforeDraw"), false);
     const skipHydraFullDrawForRobotSceneSnapshot = parseBooleanFlag(params.get("skipHydraFullDrawForRobotSceneSnapshot"), false);
+    const skipHydraPopulateForRobotSceneSnapshot = parseBooleanFlag(params.get("skipHydraPopulateForRobotSceneSnapshot"), false);
+    const disableStageLayerTextFallbacks = parseBooleanFlag(params.get("disableStageLayerTextFallbacks"), false);
     const warmupRuntimeBridgeBeforeDraw = robotSceneSnapshotBeforeDraw;
     const warmupRobotMetadata = true;
     const resolveRobotMetadataBeforeReady = parseBooleanFlag(params.get("resolveRobotMetadataBeforeReady"), !nonBlockingLoad);
@@ -219,6 +221,7 @@ export async function loadUsdStage(args) {
     const callbackProfileByName = new Map();
     let driver = null;
     let lastRuntimeBridgeWarmupSummary = null;
+    let profileTargetState = null;
     const profileNow = () => ((typeof performance !== "undefined" && typeof performance.now === "function")
         ? performance.now()
         : Date.now());
@@ -241,29 +244,17 @@ export async function loadUsdStage(args) {
         existing.maxMs = Math.max(existing.maxMs, safeDuration);
         callbackProfileByName.set(name, existing);
     };
-    const flushLoadProfile = (status) => {
-        if (!profileLoad)
-            return;
-        markLoadPhase(`end:${status}`);
-        const summarizeProfileObject = (value) => {
-            if (!value || typeof value !== "object")
-                return null;
-            try {
-                return Object.fromEntries(Object.entries(value));
-            }
-            catch {
-                return null;
-            }
-        };
-        const callbackProfile = Array.from(callbackProfileByName.entries())
-            .map(([name, sample]) => ({
-            name,
-            count: Number(sample.count || 0),
-            totalMs: Math.round(Number(sample.totalMs || 0) * 10) / 10,
-            maxMs: Math.round(Number(sample.maxMs || 0) * 10) / 10,
-        }))
-            .sort((left, right) => right.totalMs - left.totalMs)
-            .slice(0, 64);
+    const summarizeProfileObject = (value) => {
+        if (!value || typeof value !== "object")
+            return null;
+        try {
+            return Object.fromEntries(Object.entries(value));
+        }
+        catch {
+            return null;
+        }
+    };
+    const refreshNativeDriverProfiles = () => {
         let driverInitProfile = null;
         let robotSceneSnapshotProfile = null;
         try {
@@ -282,6 +273,30 @@ export async function loadUsdStage(args) {
         catch {
             robotSceneSnapshotProfile = null;
         }
+        try {
+            if (profileTargetState && typeof profileTargetState === "object") {
+                profileTargetState.driverInitProfile = driverInitProfile;
+                profileTargetState.robotSceneSnapshotProfile = robotSceneSnapshotProfile;
+            }
+        }
+        catch {
+        }
+        return { driverInitProfile, robotSceneSnapshotProfile };
+    };
+    const flushLoadProfile = (status) => {
+        if (!profileLoad)
+            return;
+        markLoadPhase(`end:${status}`);
+        const callbackProfile = Array.from(callbackProfileByName.entries())
+            .map(([name, sample]) => ({
+            name,
+            count: Number(sample.count || 0),
+            totalMs: Math.round(Number(sample.totalMs || 0) * 10) / 10,
+            maxMs: Math.round(Number(sample.maxMs || 0) * 10) / 10,
+        }))
+            .sort((left, right) => right.totalMs - left.totalMs)
+            .slice(0, 64);
+        const { driverInitProfile, robotSceneSnapshotProfile } = refreshNativeDriverProfiles();
         try {
             const loadProfile = {
                 status,
@@ -442,6 +457,7 @@ export async function loadUsdStage(args) {
         loadedCollisionPrims: !!loadCollisionPrims,
         loadedVisualPrims: !!loadVisualPrims,
     };
+    profileTargetState = state;
     if (!isLoadStillActive())
         return state;
     onResolvedFilename(normalizedPath, displayName || normalizedPath);
@@ -732,6 +748,12 @@ export async function loadUsdStage(args) {
         // Unitree root stages can skip optional sensor payloads during stage open.
         // This avoids composing/fetching sensor-only payloads on the critical path.
         skipSensorPayloadsOnOpen,
+        // Worker bootstrap resolves RobotState from the direct stage snapshot and
+        // never needs live Hydra rprims, so it can skip the expensive Populate.
+        skipHydraPopulateForRobotSceneSnapshot,
+        // Snapshot-only worker bootstrap should not reopen and stringify the USD
+        // stage for JS fallback parsing after the C++ snapshot is already ready.
+        disableStageLayerTextFallbacks,
         // Low-noise phase instrumentation:
         //   1) WASM payload fetch/copy
         //   2) Three.js object/build work
@@ -828,6 +850,7 @@ export async function loadUsdStage(args) {
         flushLoadProfile("error");
         return state;
     }
+    refreshNativeDriverProfiles();
     try {
         if (typeof driver.SetPreferProtoBlobOverHydraPayload === "function") {
             driver.SetPreferProtoBlobOverHydraPayload(renderInterface?.preferProtoBlobOverHydraPayload !== false);
@@ -864,6 +887,7 @@ export async function loadUsdStage(args) {
             });
             if (summary && typeof summary === "object") {
                 lastRuntimeBridgeWarmupSummary = summary;
+                refreshNativeDriverProfiles();
                 if (state && typeof state === "object") {
                     state.runtimeBridgeWarmupSummary = { ...summary };
                 }
@@ -980,7 +1004,14 @@ export async function loadUsdStage(args) {
         const protoHydrationSummary = runProtoHydrationPass();
         if (state.drawFailed)
             return false;
-        const resolvedPrimHydrationSummary = runResolvedPrimHydrationPass({ force: true });
+        // Snapshot-only loads publish the complete WASM scene snapshot instead
+        // of waiting for Hydra placeholder meshes to receive Three geometry.
+        // Primitive-only USDA stages can legitimately have descriptor-backed
+        // placeholders with no position buffer; treating those as unresolved
+        // would reintroduce a false "background hydration" failure.
+        const resolvedPrimHydrationSummary = state.robotSceneSnapshotOnly === true
+            ? { pendingCount: 0 }
+            : runResolvedPrimHydrationPass({ force: true });
         if (state.drawFailed)
             return false;
         const pendingProtoCount = Math.max(0, Number(getPendingProtoHydrationCount(protoHydrationSummary) ?? 0));

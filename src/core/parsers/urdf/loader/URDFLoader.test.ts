@@ -44,11 +44,17 @@ function expectBoxEquals(actual: THREE.Box3, expected: THREE.Box3, epsilon = 1e-
   });
 }
 
+function parseRequiredURDF(source: string) {
+  const robot = parseURDF(source);
+  assert.ok(robot, 'expected URDF source to parse');
+  return robot;
+}
+
 async function loadVisualSnapshot(params: {
   urdfContent: string;
   urdfDir: string;
   assets: Record<string, string>;
-  robotLinks: ReturnType<typeof parseURDF>['links'];
+  robotLinks: ReturnType<typeof parseRequiredURDF>['links'];
   linkName: string;
 }) {
   const { urdfContent, urdfDir, assets, robotLinks, linkName } = params;
@@ -60,7 +66,7 @@ async function loadVisualSnapshot(params: {
   const loader = new URDFLoader(manager);
   loader.loadMeshCb = meshLoader;
 
-  let robot: ReturnType<URDFLoader['parse']> | null = null;
+  let robot: ReturnType<URDFLoader['parse']> | null = null as ReturnType<URDFLoader['parse']> | null;
   const snapshotPromise = new Promise<{
     visualChildren: number;
     meshCount: number;
@@ -127,7 +133,7 @@ test('URDFLoader applies local visual material to nested mesh groups', () => {
     '/tmp/',
   );
 
-  let nestedMesh: THREE.Mesh | null = null;
+  let nestedMesh: THREE.Mesh | null = null as THREE.Mesh | null;
   robot.traverse((child) => {
     if ((child as THREE.Mesh).isMesh && !nestedMesh) {
       nestedMesh = child as THREE.Mesh;
@@ -218,7 +224,7 @@ test('URDFLoader preserves named mesh materials for multi-material DAE groups', 
     '/tmp/',
   );
 
-  let nestedMesh: THREE.Mesh | null = null;
+  let nestedMesh: THREE.Mesh | null = null as THREE.Mesh | null;
   robot.traverse((child) => {
     if ((child as THREE.Mesh).isMesh && !nestedMesh) {
       nestedMesh = child as THREE.Mesh;
@@ -259,7 +265,7 @@ test('URDFLoader keeps placeholder meshes for missing visual geometry', () => {
     | undefined;
   assert.ok(visualGroup);
 
-  let placeholderMesh: THREE.Mesh | null = null;
+  let placeholderMesh: THREE.Mesh | null = null as THREE.Mesh | null;
   visualGroup.traverse((child) => {
     if ((child as THREE.Mesh).isMesh && child.userData?.isPlaceholder) {
       placeholderMesh = child as THREE.Mesh;
@@ -273,7 +279,7 @@ test('URDFLoader keeps placeholder meshes for missing visual geometry', () => {
 test('URDFLoader logs when a mesh callback completes without an object', () => {
   const loader = new URDFLoader();
   loader.loadMeshCb = (_url, _manager, onLoad) => {
-    onLoad(undefined, undefined);
+    onLoad(null, undefined);
   };
 
   const originalConsoleError = console.error;
@@ -535,7 +541,7 @@ test('URDFLoader overrides single named OBJ materials when URDF provides the exp
     '/tmp/',
   );
 
-  let nestedMesh: THREE.Mesh | null = null;
+  let nestedMesh: THREE.Mesh | null = null as THREE.Mesh | null;
   robot.traverse((child) => {
     if ((child as THREE.Mesh).isMesh && !nestedMesh) {
       nestedMesh = child as THREE.Mesh;
@@ -579,7 +585,7 @@ test('URDFLoader parses Unitree B1 orange visuals as sRGB colors', () => {
     '/tmp/',
   );
 
-  let nestedMesh: THREE.Mesh | null = null;
+  let nestedMesh: THREE.Mesh | null = null as THREE.Mesh | null;
   robot.traverse((child) => {
     if ((child as THREE.Mesh).isMesh && !nestedMesh) {
       nestedMesh = child as THREE.Mesh;
@@ -602,7 +608,7 @@ test('URDFLoader preserves Z-up semantics for b2w base_link Collada meshes befor
     'utf8',
   );
   const colladaRootNormalizationHints = buildColladaRootNormalizationHints(
-    parseURDF(urdfContent).links,
+    parseRequiredURDF(urdfContent).links,
   );
   const meshDataUrl = `data:text/xml;base64,${Buffer.from(fs.readFileSync(meshPath, 'utf8')).toString('base64')}`;
   const manager = createLoadingManager({
@@ -631,7 +637,7 @@ test('URDFLoader preserves Z-up semantics for b2w base_link Collada meshes befor
         return;
       }
 
-      resolve(result);
+      resolve(result!);
     });
   });
   const referenceBox = getWorldBox(referenceObject);
@@ -681,7 +687,7 @@ test('URDFLoader preserves Z-up semantics for b2 base_link Collada meshes before
     'utf8',
   );
   const colladaRootNormalizationHints = buildColladaRootNormalizationHints(
-    parseURDF(urdfContent).links,
+    parseRequiredURDF(urdfContent).links,
   );
   const meshDataUrl = `data:text/xml;base64,${Buffer.from(fs.readFileSync(meshPath, 'utf8')).toString('base64')}`;
   const manager = createLoadingManager({
@@ -710,7 +716,7 @@ test('URDFLoader preserves Z-up semantics for b2 base_link Collada meshes before
         return;
       }
 
-      resolve(result);
+      resolve(result!);
     });
   });
   const referenceBox = getWorldBox(referenceObject);
@@ -784,7 +790,7 @@ test('LoadingManager onLoad waits for imported go2w exported thigh visuals to at
   const loader = new URDFLoader(manager);
   loader.loadMeshCb = meshLoader;
 
-  let robot: ReturnType<URDFLoader['parse']> | null = null;
+  let robot: ReturnType<URDFLoader['parse']> | null = null as ReturnType<URDFLoader['parse']> | null;
   const onLoadSnapshot = new Promise<{ visualChildren: number; hasVisualMesh: boolean }>(
     (resolve) => {
       manager.onLoad = () => {
@@ -906,7 +912,7 @@ test('URDFLoader preserves Unitree A2 base_link mesh offsets without translating
   const loader = new URDFLoader(manager);
   loader.loadMeshCb = meshLoader;
 
-  let robot: ReturnType<URDFLoader['parse']> | null = null;
+  let robot: ReturnType<URDFLoader['parse']> | null = null as ReturnType<URDFLoader['parse']> | null;
   const onLoadPromise = new Promise<void>((resolve) => {
     manager.onLoad = () => resolve();
   });

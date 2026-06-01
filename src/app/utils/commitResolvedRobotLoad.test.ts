@@ -195,7 +195,7 @@ test('commitResolvedRobotLoad uses resolved URDF content for ready xacro files',
     content: '<xacro:robot name="b2" />',
   });
 
-  let originalContent: string | null = null;
+  let originalContent: string | null = null as string | null;
   let writeCount = 0;
 
   commitResolvedRobotLoad({
@@ -267,8 +267,8 @@ test('commitResolvedRobotLoad seeds directly clicked MJCF scene wrappers as one 
     assert.fail('expected scene test fixture to resolve');
   }
 
-  let committedRobotName: string | null = null;
-  let seededAssembly: AssemblyState | null = null;
+  let committedRobotName: string | null = null as string | null;
+  let seededAssembly: AssemblyState | null = null as AssemblyState | null;
 
   commitResolvedRobotLoad({
     file: sceneFile,
@@ -308,7 +308,7 @@ test('commitResolvedRobotLoad replaces existing assemblies for direct robot load
     content: '<robot name="standalone"><link name="base_link" /></robot>',
   });
   const existingAssembly = createExistingAssembly();
-  let nextAssemblyState: AssemblyState | null = null;
+  let nextAssemblyState: AssemblyState | null = null as AssemblyState | null;
 
   commitResolvedRobotLoad({
     file,

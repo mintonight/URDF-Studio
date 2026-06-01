@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { GeometryType, type RobotFile, type UrdfLink } from '@/types';
 import { buildUnifiedViewerResourceScopes } from './unifiedViewerResourceScopes';
 
+const ZERO_ORIGIN = { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } };
+
 function createMeshLink(meshPath: string): UrdfLink {
   return {
     id: 'base_link',
@@ -13,16 +15,15 @@ function createMeshLink(meshPath: string): UrdfLink {
       meshPath,
       color: '#ffffff',
       dimensions: { x: 1, y: 1, z: 1 },
-      origin: undefined,
+      origin: ZERO_ORIGIN,
     },
     collision: {
       type: GeometryType.MESH,
       meshPath,
       color: '#ffffff',
       dimensions: { x: 1, y: 1, z: 1 },
-      origin: undefined,
+      origin: ZERO_ORIGIN,
     },
-    inertial: undefined,
     visible: true,
     collisionBodies: [],
   };

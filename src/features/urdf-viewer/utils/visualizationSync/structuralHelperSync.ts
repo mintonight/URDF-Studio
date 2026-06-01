@@ -517,8 +517,8 @@ export function syncInertiaVisualizationForLinks({
                 opacity:
                   child.type === 'Mesh' ? 0.25 : child.type === 'LineSegments' ? 0.6 : undefined,
                 transparent: true,
-                depthTest: !showInertiaOverlay,
-                depthWrite: !showInertiaOverlay,
+                depthTest: true,
+                depthWrite: false,
               }) || changed;
           }
 

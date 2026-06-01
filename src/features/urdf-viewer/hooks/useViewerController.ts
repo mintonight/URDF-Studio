@@ -19,6 +19,7 @@ import type {
 } from '../types';
 import { resolveInitialJointControlState } from '../utils/jointControlState';
 import { createEmptyMeasureState } from '../utils/measurements';
+import { hasRuntimeJointQuaternionSetter, type RuntimeViewerRobot } from '../utils/runtimeRobotMotion';
 import { beginInitialGroundAlignment } from '@/shared/components/3d/robotPositioning';
 import { useViewerSettings } from './useViewerSettings';
 import { usePanelLayoutController } from './viewer-controller/usePanelLayoutController';
@@ -50,6 +51,7 @@ import {
 } from '@/core/robot';
 import { createClosedLoopMotionPreviewWorkerSession } from '@/shared/utils/robot/closedLoopMotionPreview';
 import { logRuntimeFailure, scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
+import type { RuntimeRobotObject } from '@/shared/components/3d/runtimeRobotTypes';
 
 type Selection = ViewerProps['selection'];
 // Publish viewer previews through a small external store so local consumers like
@@ -106,8 +108,8 @@ export const useViewerController = ({
   const setHoverFrozen = useSelectionStore((state) => state.setHoverFrozen);
   const setHoveredSelection = useSelectionStore((state) => state.setHoveredSelection);
   const isOrbitDragging = useRef(false);
-  const [robot, setRobot] = useState<any>(null);
-  const [jointPanelRobot, setJointPanelRobot] = useState<any>(null);
+  const [robot, setRobot] = useState<RuntimeRobotObject | null>(null);
+  const [jointPanelRobot, setJointPanelRobot] = useState<RuntimeRobotObject | null>(null);
   const {
     showCollision,
     setShowCollision,
@@ -283,7 +285,7 @@ export const useViewerController = ({
 
   const justSelectedRef = useRef(false);
   const transformPendingRef = useRef(false);
-  const jointControlRobot = jointPanelRobot || robot;
+  const jointControlRobot = (jointPanelRobot || robot) as RuntimeViewerRobot | null;
   const jointControlJoints = jointControlRobot?.joints;
   const effectiveClosedLoopRobotState = useMemo(
     () =>
@@ -522,13 +524,13 @@ export const useViewerController = ({
         if (
           !joint ||
           !quaternion ||
-          typeof (joint as any).setJointQuaternion !== 'function' ||
+          !hasRuntimeJointQuaternionSetter(joint) ||
           isSameJointQuaternion(getRuntimeJointCurrentMotionQuaternion(joint), quaternion)
         ) {
           return;
         }
 
-        (joint as any).setJointQuaternion(quaternion);
+        joint.setJointQuaternion(quaternion);
         shouldRefresh = true;
       });
 
@@ -772,13 +774,13 @@ export const useViewerController = ({
           if (
             !joint ||
             !motion?.quaternion ||
-            typeof (joint as any).setJointQuaternion !== 'function' ||
+            !hasRuntimeJointQuaternionSetter(joint) ||
             isSameJointQuaternion(getRuntimeJointCurrentMotionQuaternion(joint), motion.quaternion)
           ) {
             return;
           }
 
-          (joint as any).setJointQuaternion(motion.quaternion);
+          joint.setJointQuaternion(motion.quaternion);
           shouldRefresh = true;
         },
       );
@@ -1093,11 +1095,11 @@ export const useViewerController = ({
   });
 
   const initializeJointControlState = useCallback(
-    (loadedRobot: any) => {
-      const preservePreviousAngles =
-        jointStateScopeRef.current !== null && jointStateScopeRef.current === jointStateScopeKey;
+    (loadedRobot: RuntimeRobotObject) => {
+      const loadedJoints = (loadedRobot as RuntimeViewerRobot | null)?.joints;
+      const preservePreviousAngles = jointStateScopeRef.current !== null && jointStateScopeRef.current === jointStateScopeKey;
       const { currentAngles, defaultAngles } = resolveInitialJointControlState({
-        joints: loadedRobot?.joints,
+        joints: loadedJoints,
         previousAngles: jointAnglesRef.current,
         preservePreviousAngles,
         isControllableJoint: isSingleDofJoint,
@@ -1118,7 +1120,7 @@ export const useViewerController = ({
   );
 
   const handleRobotLoaded = useCallback(
-    (loadedRobot: any) => {
+    (loadedRobot: RuntimeRobotObject) => {
       clearJointInteractionPreview();
       setJointPanelRobot(null);
       setRobot(loadedRobot);
@@ -1128,7 +1130,7 @@ export const useViewerController = ({
   );
 
   const handleJointPanelRobotLoaded = useCallback(
-    (loadedRobot: any | null) => {
+    (loadedRobot: RuntimeRobotObject | null) => {
       clearJointInteractionPreview();
       setJointPanelRobot(loadedRobot);
       if (!loadedRobot) {
@@ -1480,10 +1482,10 @@ export const useViewerController = ({
 
       if (
         motion.quaternion &&
-        typeof (joint as any).setJointQuaternion === 'function' &&
+        hasRuntimeJointQuaternionSetter(joint) &&
         !isSameJointQuaternion(getRuntimeJointCurrentMotionQuaternion(joint), motion.quaternion)
       ) {
-        (joint as any).setJointQuaternion(motion.quaternion);
+        joint.setJointQuaternion(motion.quaternion);
         shouldRefresh = true;
       }
     });
@@ -1492,7 +1494,7 @@ export const useViewerController = ({
       Object.entries(changedPanelAngles).forEach(([name, angle]) => {
         const jointKey = resolveViewerJointKey(jointControlJoints, name) ?? name;
         const joint = jointControlRobot.joints?.[jointKey];
-        if (isSingleDofJoint(joint)) {
+        if (joint && isSingleDofJoint(joint)) {
           const runtimeMotionAngle = resolveRuntimeMotionAngle(name, angle, joint);
           const currentAngle = Number(joint.angle ?? joint.jointValue);
           if (!isSameJointAngle(currentAngle, runtimeMotionAngle)) {
@@ -1900,11 +1902,10 @@ export const useViewerController = ({
 
   const handleResetJoints = useCallback(() => {
     if (!jointControlRobot?.joints) return;
-
+    const runtimeJoints = jointControlRobot.joints;
     Object.keys(jointAnglesRef.current).forEach((name) => {
       const initialAngle = initialJointAnglesRef.current[name] || 0;
-      const joint = jointControlRobot.joints[name];
-
+      const joint = runtimeJoints[name];
       if (joint) {
         const originalIgnoreLimits = joint.ignoreLimits;
         joint.ignoreLimits = true;

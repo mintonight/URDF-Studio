@@ -1,80 +1,60 @@
 {
-  "scripts/generate-robot-previews.js": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
-    }
-  },
-  "scripts/regression/run_awesome_robot_browser_regression.mjs": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 2
-    }
-  },
-  "scripts/regression/validate_unitree_ros_urdfs.ts": {
+  "scripts/test/browser/run_shadow_hand_hover_regression.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "scripts/regression/validate_usd_export_samples.ts": {
+  "scripts/test/browser/test_ai_assistant.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "scripts/testing/browser/run_shadow_hand_hover_regression.mjs": {
+  "scripts/test/browser/test_assembly_export.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "scripts/testing/browser/test_ai_assistant.mjs": {
+  "scripts/test/browser/test_drag_drop_snapshot.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "scripts/testing/browser/test_assembly_export.mjs": {
+  "scripts/test/browser/test_measure_tool.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "scripts/testing/browser/test_drag_drop_snapshot.mjs": {
+  "scripts/test/browser/test_mjcf_export.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "scripts/testing/browser/test_measure_tool.mjs": {
+  "scripts/test/browser/test_multi_format_import.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "scripts/testing/browser/test_mjcf_export.mjs": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "scripts/testing/browser/test_multi_format_import.mjs": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "scripts/testing/browser/test_urdf_export.mjs": {
+  "scripts/test/browser/test_urdf_export.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 3
     }
   },
-  "scripts/testing/browser/test_urdf_tree_crud.mjs": {
+  "scripts/test/browser/test_urdf_tree_crud.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "scripts/testing/browser/test_xacro_import.mjs": {
+  "scripts/test/browser/test_xacro_import.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "scripts/testing/browser/validate_source_editor_mjcf_browser.mjs": {
+  "scripts/test/browser/validate_source_editor_mjcf_browser.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
-  "scripts/testing/truth/validate_sdf_cli_truth.ts": {
+  "scripts/test/truth/validate_sdf_cli_truth.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
@@ -88,9 +68,6 @@
     }
   },
   "src/app/AppLayout.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 5
-    },
     "react-hooks/exhaustive-deps": {
       "count": 1
     }
@@ -199,20 +176,12 @@
     }
   },
   "src/app/hooks/useWorkspaceMutations.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 4
-    },
     "react-hooks/exhaustive-deps": {
-      "count": 5
+      "count": 4
     }
   },
   "src/app/hooks/useWorkspaceSourceSync.ts": {
     "react-hooks/exhaustive-deps": {
-      "count": 1
-    }
-  },
-  "src/app/hooks/workspace-mutations/useCollisionTransformHandlers.ts": {
-    "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
@@ -402,11 +371,6 @@
       "count": 8
     }
   },
-  "src/core/parsers/urdf/loader/buildRuntimeRobotFromState.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    }
-  },
   "src/core/parsers/urdf/parser/geometry.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
@@ -495,11 +459,6 @@
       "count": 1
     }
   },
-  "src/features/file-io/utils/projectExport.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/features/file-io/utils/projectImport.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -545,7 +504,7 @@
   },
   "src/features/property-editor/components/GeometryEditor.tsx": {
     "react-hooks/exhaustive-deps": {
-      "count": 2
+      "count": 1
     }
   },
   "src/features/property-editor/components/LinkProperties.tsx": {
@@ -691,9 +650,6 @@
     }
   },
   "src/features/urdf-viewer/hooks/useViewerController.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 11
-    },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     },
@@ -1032,9 +988,6 @@
     }
   },
   "src/shared/components/Panel/JointControlItem.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "react-hooks/exhaustive-deps": {
       "count": 2
     }

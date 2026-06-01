@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import type { RefObject } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { buildRuntimeRobotFromState, URDFLoader } from '@/core/parsers/urdf/loader';
@@ -22,7 +21,7 @@ import {
 } from '@/core/loaders';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
 import { getSourceFileDirectory } from '@/core/parsers/meshPathUtils';
-import type { RobotData, UrdfJoint, UrdfLink } from '@/types';
+import type { UrdfJoint, UrdfLink } from '@/types';
 import { setRegressionRuntimeRobot } from '@/shared/debug/regressionState';
 import { isRegressionDebugEnabled } from '@/shared/debug/regressionDebugEnabled';
 import { isSingleDofJoint } from '@/shared/utils/jointTypes';
@@ -40,121 +39,44 @@ import { resolveRobotLoaderSourceMetadata } from '@/shared/components/3d/rendere
 import { createViewerRobotLoadInputSignature } from '../utils/robotLoadScope';
 import { resolveViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
 import { shouldWaitForStructuredUrdfRobotState } from '@/shared/components/3d/renderers/urdfXmlFallbackPolicy';
-import type { RobotLoadingPhase, ViewerDocumentLoadEvent, ViewerRobotSourceFormat } from '../types';
+import type { ViewerDocumentLoadEvent } from '../types';
+import {
+  createAssetScopeKey,
+  createLoadingDispatchKey,
+  normalizeExternalDocumentLoadEvent,
+  preprocessURDFForLoader,
+  resolveRobotJoint,
+  VIEWER_LOAD_YIELD_BUDGET_MS,
+  waitForLoadingHudPaint,
+  type PendingLoadingDispatch,
+  type RobotLoadingProgress,
+  type UseRobotLoaderOptions,
+  type UseRobotLoaderResult,
+} from './robotLoaderSupport';
 
-const VIEWER_LOAD_YIELD_BUDGET_MS = 4;
+export type {
+  RobotLoadingProgress,
+  UseRobotLoaderOptions,
+  UseRobotLoaderResult,
+} from './robotLoaderSupport';
 
-function preprocessURDFForLoader(content: string): string {
-  // Remove <transmission> blocks to prevent urdf-loader from finding duplicate joints
-  // which can overwrite valid joints with empty origins
-  return content.replace(/<transmission[\s\S]*?<\/transmission>/g, '');
-}
+type RuntimeCollisionHost = THREE.Object3D & {
+  colliders?: Record<string, unknown>;
+};
 
-function waitForLoadingHudPaint(invalidate?: () => void): Promise<void> {
-  invalidate?.();
-
-  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-    return Promise.resolve();
+function hasRuntimeCollisionGroups(robotObject: THREE.Object3D): boolean {
+  const colliders = (robotObject as RuntimeCollisionHost).colliders;
+  if (colliders && Object.keys(colliders).length > 0) {
+    return true;
   }
 
-  return new Promise((resolve) => {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => resolve());
-    });
-  });
-}
-
-function resolveRobotJoint(
-  joints: Record<string, UrdfJoint> | null | undefined,
-  jointNameOrId: string,
-): UrdfJoint | undefined {
-  if (!joints) {
-    return undefined;
-  }
-
-  return (
-    joints[jointNameOrId] ??
-    Object.values(joints).find((joint) => joint.name === jointNameOrId)
-  );
-}
-
-function createAssetScopeKey(assets: Record<string, string>): string {
-  const assetEntries = Object.entries(assets).sort(([leftPath], [rightPath]) =>
-    leftPath.localeCompare(rightPath),
-  );
-  let hash = 0x811c9dc5;
-
-  for (const [assetPath, assetUrl] of assetEntries) {
-    const signature = `${assetPath}\u0000${assetUrl}`;
-    for (let index = 0; index < signature.length; index += 1) {
-      hash ^= signature.charCodeAt(index);
-      hash = Math.imul(hash, 0x01000193);
+  let hasCollisionGroup = false;
+  robotObject.traverse((child) => {
+    if ((child as { isURDFCollider?: boolean }).isURDFCollider === true) {
+      hasCollisionGroup = true;
     }
-  }
-
-  return `${assetEntries.length}:${(hash >>> 0).toString(36)}`;
-}
-
-interface RobotLoadingProgress {
-  phase: RobotLoadingPhase;
-  progressMode?: ViewerDocumentLoadEvent['progressMode'];
-  loadedCount?: number | null;
-  totalCount?: number | null;
-  progressPercent?: number | null;
-}
-
-export interface UseRobotLoaderOptions {
-  urdfContent: string;
-  assets: Record<string, string>;
-  sourceFormat?: ViewerRobotSourceFormat;
-  allowUrdfXmlFallback?: boolean;
-  reloadToken?: number;
-  initialRobot?: THREE.Object3D | null;
-  showCollision: boolean;
-  showVisual: boolean;
-  showCollisionAlwaysOnTop?: boolean;
-  isMeshPreview?: boolean;
-  robotLinks?: Record<string, UrdfLink>;
-  robotJoints?: Record<string, UrdfJoint>;
-  robotInspectionContext?: RobotData['inspectionContext'];
-  initialJointAngles?: Record<string, number>;
-  sourceFilePath?: string;
-  onRobotLoaded?: (robot: THREE.Object3D) => void;
-  onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
-  groundPlaneOffset?: number;
-  showMjcfWorldLink?: boolean;
-}
-
-export interface UseRobotLoaderResult {
-  robot: THREE.Object3D | null;
-  error: string | null;
-  isLoading: boolean;
-  loadingProgress: RobotLoadingProgress | null;
-  robotVersion: number;
-  robotRef: RefObject<THREE.Object3D | null>;
-  linkMeshMapRef: RefObject<Map<string, THREE.Mesh[]>>;
-}
-
-interface PendingLoadingDispatch {
-  event: ViewerDocumentLoadEvent;
-  progress: RobotLoadingProgress | null;
-}
-
-function normalizeExternalDocumentLoadEvent(
-  event: ViewerDocumentLoadEvent,
-): ViewerDocumentLoadEvent {
-  if (event.status !== 'loading') {
-    return event;
-  }
-
-  return normalizeLoadingProgress<ViewerDocumentLoadEvent>(event);
-}
-
-function createLoadingDispatchKey(
-  progress: RobotLoadingProgress | null,
-  event: ViewerDocumentLoadEvent | null,
-): string {
-  return JSON.stringify({ progress, event });
+  });
+  return hasCollisionGroup;
 }
 
 export function useRobotLoader({
@@ -200,6 +122,7 @@ export function useRobotLoader({
   const groundAlignTimerRef = useRef<number[]>([]);
   const mountedRobotSourceScopeKeyRef = useRef<string | null>(null);
   const mountedRobotReloadTokenRef = useRef<number | null>(null);
+  const mountedRobotHasCollisionGroupsRef = useRef(false);
   const progressDispatchFrameRef = useRef<number | null>(null);
   const pendingLoadingDispatchRef = useRef<PendingLoadingDispatch | null>(null);
   const lastPublishedLoadingDispatchKeyRef = useRef('');
@@ -229,9 +152,11 @@ export function useRobotLoader({
   // incremental patch. A counter is more robust than strict content matching
   // when robotLinks/robotJoints and urdfContent updates are not perfectly in sync.
   const skipReloadCountRef = useRef(0);
-  // Force-parse collision meshes for all viewer loads. This removes the
-  // deferred URDF collision stream split and keeps the visibility chain single-path.
-  const shouldParseCollisionMeshes = true;
+  const currentSourceScopeKey = `${resolvedSourceFormat}:${sourceFilePath ?? '__inline__'}`;
+  const shouldParseCollisionMeshes =
+    showCollision ||
+    (mountedRobotSourceScopeKeyRef.current === currentSourceScopeKey &&
+      mountedRobotHasCollisionGroupsRef.current);
   const hasStructuredRobotState =
     Boolean(robotLinks && robotJoints) &&
     (Object.keys(robotLinks ?? {}).length > 0 || Object.keys(robotJoints ?? {}).length > 0);
@@ -240,7 +165,6 @@ export function useRobotLoader({
     hasStructuredRobotState,
     allowUrdfXmlFallback,
   });
-  const currentSourceScopeKey = `${resolvedSourceFormat}:${sourceFilePath ?? '__inline__'}`;
   const loadInputSignature = useMemo(
     () =>
       createViewerRobotLoadInputSignature({
@@ -262,6 +186,7 @@ export function useRobotLoader({
         `assets:${assetScopeKey}`,
         `structured:${hasStructuredRobotState ? '1' : '0'}`,
         `xml-fallback:${allowUrdfXmlFallback ? '1' : '0'}`,
+        `parse-collision:${shouldParseCollisionMeshes ? '1' : '0'}`,
       ].join('|'),
     [
       allowUrdfXmlFallback,
@@ -270,6 +195,7 @@ export function useRobotLoader({
       hasStructuredRobotState,
       loadInputSignature,
       reloadToken,
+      shouldParseCollisionMeshes,
       sourceFileDir,
     ],
   );
@@ -591,6 +517,7 @@ export function useRobotLoader({
       }
       mountedRobotSourceScopeKeyRef.current = null;
       mountedRobotReloadTokenRef.current = null;
+      mountedRobotHasCollisionGroupsRef.current = false;
       inFlightLoadScopeKeyRef.current = null;
       completedLoadScopeKeyRef.current = null;
     };
@@ -751,6 +678,7 @@ export function useRobotLoader({
           robotRef.current = loadedRobot;
           mountedRobotSourceScopeKeyRef.current = currentSourceScopeKey;
           mountedRobotReloadTokenRef.current = reloadToken;
+          mountedRobotHasCollisionGroupsRef.current = hasRuntimeCollisionGroups(loadedRobot);
           setRobot(loadedRobot);
           setRobotVersion((v) => v + 1);
           setError(null);

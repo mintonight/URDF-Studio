@@ -955,6 +955,7 @@ test('AssemblyTreeView keeps labels non-selectable while supporting component an
     );
 
     await act(async () => {
+      assert.ok(renameInput);
       dispatchReactChange(renameInput, 'arm_module_v2');
     });
 
@@ -962,6 +963,7 @@ test('AssemblyTreeView keeps labels non-selectable while supporting component an
     assert.ok(renameInput, 'component rename input should stay mounted after change');
 
     await act(async () => {
+      assert.ok(renameInput);
       dispatchReactKeyDown(renameInput, 'Enter');
     });
 
@@ -983,6 +985,7 @@ test('AssemblyTreeView keeps labels non-selectable while supporting component an
     assert.ok(renameInput, 'bridge rename input should render on double click');
 
     await act(async () => {
+      assert.ok(renameInput);
       dispatchReactChange(renameInput, 'bridge_beta');
     });
 
@@ -990,6 +993,7 @@ test('AssemblyTreeView keeps labels non-selectable while supporting component an
     assert.ok(renameInput, 'bridge rename input should stay mounted after change');
 
     await act(async () => {
+      assert.ok(renameInput);
       dispatchReactKeyDown(renameInput, 'Enter');
     });
 

@@ -609,7 +609,6 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             'inputs:albedo',
             'inputs:albedo_constant',
         ], 'color', {
-            colorSpace: SRGBColorSpace,
             treatAsSrgbWhenMatchingMaterialName: treatNamedHexDiffuseAsSrgb,
         });
         const roughnessAssigned = this.applyStageFallbackScalarInput(material, shaderPrim, [
@@ -722,9 +721,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         this.applyStageFallbackColorInput(material, shaderPrim, [
             'inputs:specularColor',
             'inputs:specular_color',
-        ], 'specularColor', {
-            colorSpace: SRGBColorSpace,
-        });
+        ], 'specularColor');
         this.applyStageFallbackColorInput(material, shaderPrim, [
             'inputs:attenuationColor',
             'inputs:attenuation_color',
@@ -738,7 +735,6 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             'inputs:emissive_color',
             'inputs:emissive_color_constant',
         ], 'emissive', {
-            colorSpace: SRGBColorSpace,
             requireValue: effectiveEmissiveEnabled,
         });
         if (emissiveColor && !effectiveEmissiveEnabled) {
@@ -923,11 +919,6 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             return color;
         let nextColor = createHydraColorFromTuple(color, options.colorSpace || null);
         const inferredHex = this.inferColorHexFromMaterialName(material?.name);
-        if (Number.isFinite(inferredHex)
-            && color.every((channel) => Math.abs(channel - 1) <= 1e-4)
-            && inferredHex !== 0xffffff) {
-            nextColor = new Color(inferredHex);
-        }
         if (options.treatAsSrgbWhenMatchingMaterialName && material?.name) {
             if (Number.isFinite(inferredHex)) {
                 const sr = ((inferredHex >> 16) & 0xff) / 255;
@@ -1670,6 +1661,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         }
         this._protoDataBlobBatchPrimed = true;
         this._protoDataBlobBatchCache?.clear?.();
+        this._protoDataBlobMissCache?.clear?.();
         if (typeof resolvedDriver.GetAllProtoDataBlobs !== 'function') {
             return { count: 0, source: "single-only" };
         }
@@ -1725,9 +1717,12 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         this._collisionProtoOverrideBatchPrimed = true;
         this._visualProtoOverrideBatchPrimed = true;
         this._collisionProtoOverrideCache?.clear?.();
+        this._collisionProtoOverrideMissCache?.clear?.();
         this._visualProtoOverrideCache?.clear?.();
+        this._visualProtoOverrideMissCache?.clear?.();
         if (forceRefresh) {
             this._primOverrideDataCache?.clear?.();
+            this._primOverrideDataMissCache?.clear?.();
             this._resolvedProtoPrimPathCache?.clear?.();
             this._resolvedVisualPrimPathCache?.clear?.();
         }
@@ -1785,10 +1780,12 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             normalizedOverride.meshId = normalizedMeshId;
             if (sectionName === 'collisions') {
                 this._collisionProtoOverrideCache.set(normalizedMeshId, normalizedOverride);
+                this._collisionProtoOverrideMissCache?.delete?.(normalizedMeshId);
                 collisionCount += 1;
             }
             else if (sectionName === 'visuals') {
                 this._visualProtoOverrideCache.set(normalizedMeshId, normalizedOverride);
+                this._visualProtoOverrideMissCache?.delete?.(normalizedMeshId);
                 visualCount += 1;
             }
             else {
@@ -1811,6 +1808,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             if (!normalizedPrimPath)
                 return;
             this._primOverrideDataCache.set(normalizedPrimPath, normalizedPrimOverride);
+            this._primOverrideDataMissCache?.delete?.(normalizedPrimPath);
             primOverridePaths.add(normalizedPrimPath);
         };
         for (const [meshId, rawOverride] of Object.entries(collisionPayload)) {
@@ -1855,8 +1853,11 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         }
         if (forceRefresh) {
             this._collisionProtoOverrideCache?.clear?.();
+            this._collisionProtoOverrideMissCache?.clear?.();
             this._visualProtoOverrideCache?.clear?.();
+            this._visualProtoOverrideMissCache?.clear?.();
             this._primOverrideDataCache?.clear?.();
+            this._primOverrideDataMissCache?.clear?.();
             this._resolvedProtoPrimPathCache?.clear?.();
             this._resolvedVisualPrimPathCache?.clear?.();
             this._finalStageOverrideBatchProtoMeshCount = 0;
@@ -1934,17 +1935,20 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                 const normalizedPrimOverride = this.normalizePrimOverrideData(rawOverride);
                 if (normalizedPrimOverride) {
                     this._primOverrideDataCache.set(resolvedPrimPath, normalizedPrimOverride);
+                    this._primOverrideDataMissCache?.delete?.(resolvedPrimPath);
                     primOverridePaths.add(resolvedPrimPath);
                 }
             }
             if (normalizedOverride.sectionName === 'visuals') {
                 this._visualProtoOverrideCache.set(cacheMeshId, normalizedOverride);
+                this._visualProtoOverrideMissCache?.delete?.(cacheMeshId);
                 if (resolvedPrimPath)
                     this._resolvedVisualPrimPathCache.set(cacheMeshId, resolvedPrimPath);
                 visualCount += 1;
             }
             else {
                 this._collisionProtoOverrideCache.set(cacheMeshId, normalizedOverride);
+                this._collisionProtoOverrideMissCache?.delete?.(cacheMeshId);
                 if (resolvedPrimPath)
                     this._resolvedProtoPrimPathCache.set(cacheMeshId, resolvedPrimPath);
                 collisionCount += 1;
@@ -1969,8 +1973,11 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             : (rawDescriptors && typeof rawDescriptors.length === 'number' ? Array.from(rawDescriptors) : []);
         if (forceRefresh) {
             this._collisionProtoOverrideCache?.clear?.();
+            this._collisionProtoOverrideMissCache?.clear?.();
             this._visualProtoOverrideCache?.clear?.();
+            this._visualProtoOverrideMissCache?.clear?.();
             this._primOverrideDataCache?.clear?.();
+            this._primOverrideDataMissCache?.clear?.();
             this._resolvedProtoPrimPathCache?.clear?.();
             this._resolvedVisualPrimPathCache?.clear?.();
             this._finalStageOverrideBatchProtoMeshCount = 0;
@@ -2141,11 +2148,21 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             applied: 0,
             meshIds: new Set(),
         };
+        if (this.strictOneShotSceneLoad === true
+            && this.allowPostReadyDriverDelta !== true
+            && this.hasResolvedRobotSceneSnapshot?.()) {
+            summary.ok = true;
+            summary.source = "cache-only-after-snapshot";
+            return summary;
+        }
         if (!resolvedDriver || typeof resolvedDriver.GetRprimDeltaBatch !== 'function') {
             return summary;
         }
         let payload = null;
         try {
+            if (this._driverFallbackCallCounts) {
+                this._driverFallbackCallCounts.rprimDeltaBatch = Number(this._driverFallbackCallCounts.rprimDeltaBatch || 0) + 1;
+            }
             payload = resolvedDriver.GetRprimDeltaBatch();
         }
         catch {
@@ -2293,6 +2310,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         }
         this._collisionProtoOverrideBatchPrimed = true;
         this._collisionProtoOverrideCache?.clear?.();
+        this._collisionProtoOverrideMissCache?.clear?.();
         if (typeof resolvedDriver.GetCollisionProtoOverrides !== 'function') {
             return { count: 0, source: "single-only" };
         }
@@ -2314,6 +2332,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             if (!normalizedOverride)
                 continue;
             this._collisionProtoOverrideCache.set(meshId, normalizedOverride);
+            this._collisionProtoOverrideMissCache?.delete?.(meshId);
             this.cacheResolvedWorldTransformFromOverride(normalizedOverride);
             loaded += 1;
         }
@@ -2335,6 +2354,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         }
         this._visualProtoOverrideBatchPrimed = true;
         this._visualProtoOverrideCache?.clear?.();
+        this._visualProtoOverrideMissCache?.clear?.();
         if (typeof resolvedDriver.GetVisualProtoOverrides !== 'function') {
             return { count: 0, source: "single-only" };
         }
@@ -2356,6 +2376,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             if (!normalizedOverride)
                 continue;
             this._visualProtoOverrideCache.set(meshId, normalizedOverride);
+            this._visualProtoOverrideMissCache?.delete?.(meshId);
             this.cacheResolvedWorldTransformFromOverride(normalizedOverride);
             loaded += 1;
         }
@@ -2397,18 +2418,32 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (forceRefresh) {
             for (const primPath of normalizedPaths) {
                 this._primOverrideDataCache.delete(primPath);
+                this._primOverrideDataMissCache?.delete?.(primPath);
             }
+        }
+        const cachedCount = normalizedPaths.filter((primPath) => this._primOverrideDataCache.has(primPath)).length;
+        if (this.strictOneShotSceneLoad === true
+            && this.allowPostReadyDriverDelta !== true
+            && this.hasResolvedRobotSceneSnapshot?.()) {
+            return { count: cachedCount, source: "cache-only-after-snapshot" };
+        }
+        const requestPaths = normalizedPaths.filter((primPath) => forceRefresh
+            || (!this._primOverrideDataCache.has(primPath)
+                && !this._primOverrideDataMissCache?.has?.(primPath)));
+        if (requestPaths.length === 0) {
+            return { count: cachedCount, source: "cache" };
         }
         if (typeof resolvedDriver.GetPrimOverrideDataMap === 'function') {
             let payload = null;
             try {
-                payload = resolvedDriver.GetPrimOverrideDataMap(normalizedPaths);
+                payload = resolvedDriver.GetPrimOverrideDataMap(requestPaths);
             }
             catch {
                 payload = null;
             }
             if (payload && typeof payload === 'object') {
                 let loaded = 0;
+                const loadedPaths = new Set();
                 for (const [primPath, rawData] of Object.entries(payload)) {
                     const normalizedPath = normalizeHydraPath(primPath);
                     if (!normalizedPath || !normalizedPath.startsWith('/'))
@@ -2417,16 +2452,23 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
                     if (!normalizedData)
                         continue;
                     this._primOverrideDataCache.set(normalizedPath, normalizedData);
+                    this._primOverrideDataMissCache?.delete?.(normalizedPath);
+                    loadedPaths.add(normalizedPath);
                     loaded += 1;
                 }
+                for (const primPath of requestPaths) {
+                    if (!loadedPaths.has(primPath) && !forceRefresh) {
+                        this._primOverrideDataMissCache?.add?.(primPath);
+                    }
+                }
                 return {
-                    count: loaded,
+                    count: cachedCount + loaded,
                     source: forceRefresh ? "batch-refresh" : "batch",
                 };
             }
         }
-        let loaded = 0;
-        for (const primPath of normalizedPaths) {
+        let loaded = cachedCount;
+        for (const primPath of requestPaths) {
             const normalizedData = this.getPrimOverrideData(primPath);
             if (!normalizedData)
                 continue;
@@ -2497,7 +2539,10 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (!rawPayload || typeof rawPayload !== 'object')
             return null;
         const format = String(rawPayload.format || '').trim();
-        if (format !== 'robot-scene-snapshot-blob-v1')
+        const isRobotSceneSnapshotBlob = format === 'robot-scene-snapshot-blob-v1';
+        const isFullLoadPayload = format === 'usd-full-load-payload-v1'
+            || format === 'full-load-payload';
+        if (!isRobotSceneSnapshotBlob && !isFullLoadPayload)
             return this.normalizeRobotSceneSnapshot(rawPayload, options);
         const rawSnapshot = rawPayload.snapshot && typeof rawPayload.snapshot === 'object'
             ? rawPayload.snapshot
@@ -2507,14 +2552,25 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         const normalized = this.normalizeRobotSceneSnapshot(rawSnapshot, {
             ...options,
             transportFormat: format,
+            fullLoadPayload: isFullLoadPayload,
         });
+        if (normalized) {
+            normalized.transportFormat = format;
+            normalized.fullLoadPayload = isFullLoadPayload;
+        }
         if (normalized && rawPayload.nativeProfile && typeof rawPayload.nativeProfile === 'object') {
             normalized.nativeProfile = rawPayload.nativeProfile;
+        }
+        if (normalized && rawPayload.driverInitProfile && typeof rawPayload.driverInitProfile === 'object') {
+            normalized.driverInitProfile = rawPayload.driverInitProfile;
         }
         return normalized;
     }
     normalizeRobotSceneSnapshot(rawSnapshot, options = {}) {
-        if (rawSnapshot?.format === 'robot-scene-snapshot-blob-v1') {
+        const rawSnapshotFormat = String(rawSnapshot?.format || '').trim();
+        if (rawSnapshotFormat === 'robot-scene-snapshot-blob-v1'
+            || rawSnapshotFormat === 'usd-full-load-payload-v1'
+            || rawSnapshotFormat === 'full-load-payload') {
             return this.normalizeRobotSceneSnapshotBlob(rawSnapshot, options);
         }
         if (!rawSnapshot || typeof rawSnapshot !== 'object')
@@ -3598,6 +3654,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         attachReferencedMeshLibraryPayloads();
         if (hasPackedMeshBuffers) {
             this._protoDataBlobBatchCache?.clear?.();
+            this._protoDataBlobMissCache?.clear?.();
             let packedBlobCount = 0;
             for (const descriptor of normalizedMeshDescriptors) {
                 const meshId = normalizeHydraPath(descriptor?.meshId || '');
@@ -3660,7 +3717,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             const existingGeomSubsetSections = Array.isArray(descriptor?.geometry?.geomSubsetSections)
                 ? descriptor.geometry.geomSubsetSections
                 : [];
-            return !existingMaterialId || existingGeomSubsetSections.length === 0;
+            return !existingMaterialId && existingGeomSubsetSections.length === 0;
         });
         const parsedRoundtripMaterialRecovery = requiresStandardMaterialBindingRecovery
             ? getParsedRoundtripMaterialRecovery(this, resolvedStageSourcePath, getStageLayerTexts(), {
@@ -4012,6 +4069,8 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             generatedAtMs: Number(rawSnapshot.generatedAtMs || Date.now()),
             source: 'robot-scene-snapshot',
             nativeSnapshotSource: String(rawSnapshot.snapshotSource || '').trim() || null,
+            transportFormat: String(options?.transportFormat || '').trim() || null,
+            fullLoadPayload: options?.fullLoadPayload === true,
             nativeProfile: rawSnapshot.nativeProfile && typeof rawSnapshot.nativeProfile === 'object'
                 ? rawSnapshot.nativeProfile
                 : null,
@@ -4069,6 +4128,16 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
     warmupRobotSceneSnapshotFromDriver(driver, options = {}) {
         const forceRefresh = options?.force === true;
         const resolvedDriver = driver || this.config?.driver?.();
+        const nowMs = () => {
+            try {
+                if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+                    return performance.now();
+                }
+            }
+            catch { }
+            return Date.now();
+        };
+        const warmupStartedAtMs = nowMs();
         const summary = {
             source: 'none',
             used: false,
@@ -4082,6 +4151,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             robotMetadataJointCount: 0,
             robotMetadataDynamicsCount: 0,
             meshDescriptorCount: 0,
+            fullLoadPayloadUsed: false,
             driverSnapshotSource: 'none',
             hydratedProtoMeshAttemptedCount: 0,
             hydratedProtoMeshPendingCount: 0,
@@ -4089,6 +4159,12 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             driverStageResolveSource: 'none',
             driverStageResolveError: null,
             driverStageResolvePending: false,
+            snapshotFetchMs: 0,
+            snapshotNormalizeMs: 0,
+            snapshotHydrateMs: 0,
+            snapshotMaterialApplyMs: 0,
+            snapshotEmitMs: 0,
+            totalMs: 0,
         };
         const finalizeSummary = () => {
             const driverStageResolveSummary = this.getDriverStageResolveSummary?.() || null;
@@ -4096,30 +4172,36 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             summary.driverStageResolveSource = String(driverStageResolveSummary?.source || 'none');
             summary.driverStageResolveError = String(driverStageResolveSummary?.error || '').trim() || null;
             summary.driverStageResolvePending = driverStageResolveSummary?.pending === true;
+            summary.totalMs = nowMs() - warmupStartedAtMs;
             this._lastRobotSceneWarmupSummary = { ...summary };
             return summary;
         };
         if (!resolvedDriver)
             return finalizeSummary();
         const stageSourcePath = String(options?.stageSourcePath || this.getStageSourcePath() || '').trim().split('?')[0];
+        const snapshotFetchStartedAtMs = nowMs();
         const snapshotResult = this.getRobotSceneSnapshotFromDriver(resolvedDriver, {
             stageSourcePath,
         });
+        summary.snapshotFetchMs = nowMs() - snapshotFetchStartedAtMs;
         summary.driverSnapshotSource = String(snapshotResult?.source || 'none');
         const rawSnapshot = snapshotResult?.rawSnapshot || null;
         if (!rawSnapshot || typeof rawSnapshot !== 'object') {
             summary.source = String(summary.driverSnapshotSource || 'empty');
             return finalizeSummary();
         }
-        const normalizeSnapshot = summary.driverSnapshotSource === 'robot-scene-snapshot-blob'
+        const normalizeSnapshot = (summary.driverSnapshotSource === 'robot-scene-snapshot-blob'
+            || summary.driverSnapshotSource === 'full-load-payload')
             && typeof this.normalizeRobotSceneSnapshotBlob === 'function'
             ? this.normalizeRobotSceneSnapshotBlob
             : this.normalizeRobotSceneSnapshot;
+        const snapshotNormalizeStartedAtMs = nowMs();
         const normalizedSnapshot = normalizeSnapshot.call(this, rawSnapshot, {
             force: forceRefresh,
             stageSourcePath,
             emitRobotMetadataEvent: options?.emitRobotMetadataEvent === true,
         });
+        summary.snapshotNormalizeMs = nowMs() - snapshotNormalizeStartedAtMs;
         if (!normalizedSnapshot) {
             summary.source = 'normalize-failed';
             return finalizeSummary();
@@ -4128,10 +4210,19 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (cacheKey) {
             this._runtimeBridgeCacheStageKey = cacheKey;
             this._robotSceneSnapshotByStageSource.set(cacheKey, normalizedSnapshot);
+            if (normalizedSnapshot.fullLoadPayload === true || summary.driverSnapshotSource === 'full-load-payload') {
+                this._fullLoadPayloadReadyByStageSource?.add?.(cacheKey);
+            }
         }
+        const snapshotHydrateStartedAtMs = nowMs();
         const hydrateSummary = this.hydratePendingProtoMeshes({ allowDeferredFinalBatch: false });
+        summary.snapshotHydrateMs = nowMs() - snapshotHydrateStartedAtMs;
+        const snapshotMaterialApplyStartedAtMs = nowMs();
         const materialApplySummary = this.applySnapshotMaterialsToMeshes();
+        summary.snapshotMaterialApplyMs = nowMs() - snapshotMaterialApplyStartedAtMs;
+        const snapshotEmitStartedAtMs = nowMs();
         this.emitRobotSceneSnapshotReady(normalizedSnapshot);
+        summary.snapshotEmitMs = nowMs() - snapshotEmitStartedAtMs;
         summary.source = 'scene-snapshot';
         summary.used = true;
         summary.sceneSnapshotReady = true;
@@ -4144,6 +4235,8 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         summary.robotMetadataJointCount = Number(normalizedSnapshot.robotMetadataSnapshot?.jointCatalogEntries?.length || 0);
         summary.robotMetadataDynamicsCount = Number(normalizedSnapshot.robotMetadataSnapshot?.linkDynamicsEntries?.length || 0);
         summary.meshDescriptorCount = Number(normalizedSnapshot.render?.meshDescriptors?.length || 0);
+        summary.fullLoadPayloadUsed = normalizedSnapshot.fullLoadPayload === true
+            || summary.driverSnapshotSource === 'full-load-payload';
         summary.nativeSnapshotSource = String(normalizedSnapshot.nativeSnapshotSource || 'none');
         summary.hydratedProtoMeshAttemptedCount = Number(hydrateSummary?.attemptedCount || 0);
         summary.hydratedProtoMeshCount = Number(hydrateSummary?.completedCount || 0);
@@ -4166,9 +4259,33 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         const runtimeLinkPaths = Array.isArray(options?.runtimeLinkPaths)
             ? options.runtimeLinkPaths
             : [];
+        const supportsFullLoadPayload = typeof resolvedDriver?.GetFullLoadPayload === 'function';
+        if (supportsFullLoadPayload) {
+            try {
+                if (this._driverFallbackCallCounts) {
+                    this._driverFallbackCallCounts.fullLoadPayload = Number(this._driverFallbackCallCounts.fullLoadPayload || 0) + 1;
+                }
+                const rawSnapshot = resolvedDriver.GetFullLoadPayload(runtimeLinkPaths, stageSourcePath, {
+                    completeBeforeReady: true,
+                    includePackedBuffers: true,
+                });
+                if (rawSnapshot && typeof rawSnapshot === 'object') {
+                    return {
+                        source: 'full-load-payload',
+                        rawSnapshot,
+                        stageSourcePath,
+                        runtimeLinkPaths,
+                    };
+                }
+            }
+            catch { }
+        }
         const supportsRobotSceneSnapshotBlob = typeof resolvedDriver?.GetRobotSceneSnapshotBlob === 'function';
         if (supportsRobotSceneSnapshotBlob) {
             try {
+                if (this._driverFallbackCallCounts) {
+                    this._driverFallbackCallCounts.robotSceneSnapshotBlob = Number(this._driverFallbackCallCounts.robotSceneSnapshotBlob || 0) + 1;
+                }
                 const rawSnapshot = resolvedDriver.GetRobotSceneSnapshotBlob(runtimeLinkPaths, stageSourcePath);
                 if (rawSnapshot && typeof rawSnapshot === 'object') {
                     return {
@@ -4184,6 +4301,9 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         const supportsRobotSceneSnapshot = typeof resolvedDriver?.GetRobotSceneSnapshot === 'function';
         if (supportsRobotSceneSnapshot) {
             try {
+                if (this._driverFallbackCallCounts) {
+                    this._driverFallbackCallCounts.robotSceneSnapshot = Number(this._driverFallbackCallCounts.robotSceneSnapshot || 0) + 1;
+                }
                 const rawSnapshot = resolvedDriver.GetRobotSceneSnapshot(runtimeLinkPaths, stageSourcePath);
                 if (rawSnapshot && typeof rawSnapshot === 'object') {
                     return {
@@ -4197,7 +4317,7 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             catch { }
         }
         return {
-            source: supportsRobotSceneSnapshotBlob || supportsRobotSceneSnapshot
+            source: supportsFullLoadPayload || supportsRobotSceneSnapshotBlob || supportsRobotSceneSnapshot
                 ? 'empty-robot-scene-snapshot'
                 : 'unsupported',
             rawSnapshot: null,
@@ -4392,6 +4512,8 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         const cached = this._protoDataBlobBatchCache.get(protoPath);
         if (cached && (!forceRefresh || strictOneShotSceneLoad))
             return cached;
+        if (!forceRefresh && this._protoDataBlobMissCache?.has?.(protoPath))
+            return null;
         if (strictOneShotSceneLoad)
             return cached || null;
         if (hasSceneSnapshot)
@@ -4408,18 +4530,29 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             }
         }
         try {
+            if (this._driverFallbackCallCounts) {
+                this._driverFallbackCallCounts.protoDataBlob = Number(this._driverFallbackCallCounts.protoDataBlob || 0) + 1;
+            }
             const blob = driver.GetProtoDataBlob(protoPath);
             const normalizedBlob = this.normalizeProtoDataBlob(blob);
             if (!normalizedBlob) {
                 if (forceRefresh) {
                     this._protoDataBlobBatchCache.delete(protoPath);
+                    this._protoDataBlobMissCache?.delete?.(protoPath);
+                }
+                else {
+                    this._protoDataBlobMissCache?.add?.(protoPath);
                 }
                 return null;
             }
             this._protoDataBlobBatchCache.set(protoPath, normalizedBlob);
+            this._protoDataBlobMissCache?.delete?.(protoPath);
             return normalizedBlob;
         }
         catch {
+            if (!forceRefresh) {
+                this._protoDataBlobMissCache?.add?.(protoPath);
+            }
             return null;
         }
     }
@@ -4432,6 +4565,8 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             const cached = this._collisionProtoOverrideCache.get(meshId);
             return cached || null;
         }
+        if (this._collisionProtoOverrideMissCache?.has?.(meshId))
+            return null;
         if (this.strictOneShotSceneLoad === true)
             return null;
         const hasSceneSnapshot = this.hasResolvedRobotSceneSnapshot();
@@ -4462,15 +4597,22 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (typeof driver.GetCollisionProtoOverride !== 'function')
             return null;
         try {
+            if (this._driverFallbackCallCounts) {
+                this._driverFallbackCallCounts.collisionProtoOverride = Number(this._driverFallbackCallCounts.collisionProtoOverride || 0) + 1;
+            }
             const rawOverride = driver.GetCollisionProtoOverride(meshId);
             const normalizedOverride = this.normalizeCollisionProtoOverride(rawOverride);
-            if (!normalizedOverride)
+            if (!normalizedOverride) {
+                this._collisionProtoOverrideMissCache?.add?.(meshId);
                 return null;
+            }
             this._collisionProtoOverrideCache.set(meshId, normalizedOverride);
+            this._collisionProtoOverrideMissCache?.delete?.(meshId);
             this.cacheResolvedWorldTransformFromOverride(normalizedOverride);
             return normalizedOverride;
         }
         catch {
+            this._collisionProtoOverrideMissCache?.add?.(meshId);
             return null;
         }
     }
@@ -4483,6 +4625,8 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             const cached = this._visualProtoOverrideCache.get(meshId);
             return cached || null;
         }
+        if (this._visualProtoOverrideMissCache?.has?.(meshId))
+            return null;
         if (this.strictOneShotSceneLoad === true)
             return null;
         const hasSceneSnapshot = this.hasResolvedRobotSceneSnapshot();
@@ -4513,15 +4657,22 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
         if (typeof driver.GetVisualProtoOverride !== 'function')
             return null;
         try {
+            if (this._driverFallbackCallCounts) {
+                this._driverFallbackCallCounts.visualProtoOverride = Number(this._driverFallbackCallCounts.visualProtoOverride || 0) + 1;
+            }
             const rawOverride = driver.GetVisualProtoOverride(meshId);
             const normalizedOverride = this.normalizeVisualProtoOverride(rawOverride);
-            if (!normalizedOverride)
+            if (!normalizedOverride) {
+                this._visualProtoOverrideMissCache?.add?.(meshId);
                 return null;
+            }
             this._visualProtoOverrideCache.set(meshId, normalizedOverride);
+            this._visualProtoOverrideMissCache?.delete?.(meshId);
             this.cacheResolvedWorldTransformFromOverride(normalizedOverride);
             return normalizedOverride;
         }
         catch {
+            this._visualProtoOverrideMissCache?.add?.(meshId);
             return null;
         }
     }
@@ -4535,20 +4686,29 @@ export class ThreeRenderDelegateInterface extends ThreeRenderDelegateMaterialOps
             const cached = this._primOverrideDataCache.get(normalizedPath);
             return cached || null;
         }
+        if (this._primOverrideDataMissCache?.has?.(normalizedPath))
+            return null;
         if (this.strictOneShotSceneLoad === true)
             return null;
         const driver = this.config.driver();
         if (!driver || typeof driver.GetPrimOverrideData !== 'function')
             return null;
         try {
+            if (this._driverFallbackCallCounts) {
+                this._driverFallbackCallCounts.primOverrideData = Number(this._driverFallbackCallCounts.primOverrideData || 0) + 1;
+            }
             const rawData = driver.GetPrimOverrideData(normalizedPath);
             const normalizedData = this.normalizePrimOverrideData(rawData);
-            if (!normalizedData)
+            if (!normalizedData) {
+                this._primOverrideDataMissCache?.add?.(normalizedPath);
                 return null;
+            }
             this._primOverrideDataCache.set(normalizedPath, normalizedData);
+            this._primOverrideDataMissCache?.delete?.(normalizedPath);
             return normalizedData;
         }
         catch {
+            this._primOverrideDataMissCache?.add?.(normalizedPath);
             return null;
         }
     }

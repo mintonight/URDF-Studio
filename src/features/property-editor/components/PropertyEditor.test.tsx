@@ -197,6 +197,7 @@ test('property editor sidebar collapses with transform instead of layout width',
   const sidebarStyle = getStyle(markup, 'property-editor-sidebar');
 
   assert.match(sidebarClassName, /\btranslate-x-full\b/);
+  assert.match(sidebarClassName, /\bpointer-events-auto\b/);
   assert.match(sidebarClassName, /\btransition-transform\b/);
   assert.doesNotMatch(sidebarClassName, /transition-\[width/);
   assert.doesNotMatch(sidebarClassName, /will-change-\[width/);

@@ -80,7 +80,8 @@ test('addChild offsets the default child link body away from the parent joint', 
   assert.equal(newJoint.origin.xyz.z, 0.5);
   assert.equal(newLink.visual.origin.xyz.z, 0.25);
   assert.equal(newLink.collision.origin.xyz.z, 0.25);
-  assert.equal(newLink.inertial?.origin.xyz.z, 0.25);
+  assert.ok(newLink.inertial?.origin);
+  assert.equal(newLink.inertial.origin.xyz.z, 0.25);
 });
 
 test('resetRobot creates a base_link whose frame sits at the bottom of the default body', () => {
@@ -91,7 +92,8 @@ test('resetRobot creates a base_link whose frame sits at the bottom of the defau
 
   assert.equal(rootLink.visual.origin.xyz.z, 0.25);
   assert.equal(rootLink.collision.origin.xyz.z, 0.25);
-  assert.equal(rootLink.inertial?.origin.xyz.z, 0.25);
+  assert.ok(rootLink.inertial?.origin);
+  assert.equal(rootLink.inertial.origin.xyz.z, 0.25);
 });
 
 test('setRobot can reset undo history for a fresh USD file load', () => {

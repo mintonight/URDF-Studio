@@ -137,6 +137,7 @@ test('buildImportedRobotStoreState syncs imported material colors onto link visu
 
   const patch = buildImportedRobotStoreState(robotData, { past: [], future: [] }, []);
 
+  assert.ok(patch.links);
   assert.equal(patch.links.base_link.visual.color, '#12ab34');
   assert.equal(patch.materials?.base_link?.color, '#12ab34');
 });

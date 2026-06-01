@@ -73,9 +73,14 @@ export interface UsdSceneMaterialRecord {
   opacityTextureEnabled?: boolean | null;
   emissiveEnabled?: boolean | null;
   colorSpace?: string | null;
+  colorSource?: string | null;
+  authoredColorSpace?: string | null;
   emissiveColorSpace?: string | null;
   specularColorSpace?: string | null;
+  attenuationColorSpace?: string | null;
+  sheenColorSpace?: string | null;
   color?: ArrayLike<number> | null;
+  authoredColor?: ArrayLike<number> | null;
   emissive?: ArrayLike<number> | null;
   specularColor?: ArrayLike<number> | null;
   attenuationColor?: ArrayLike<number> | null;

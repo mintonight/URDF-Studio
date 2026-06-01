@@ -1,11 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { JointType } from '@/types';
 import { normalizeJointLimitOrder } from '@/core/robot';
-import type { JointPanelActiveJointOptions } from '@/shared/utils/jointPanelStore';
-import {
-  createJointDragStoreSync,
-  type JointDragSyncMode,
-} from '@/shared/utils/jointDragStoreSync';
+import { createJointDragStoreSync } from '@/shared/utils/jointDragStoreSync';
 import { getJointType } from '@/shared/utils/jointTypes';
 import {
   fromJointDisplayValue,
@@ -18,49 +14,16 @@ import {
   supportsFiniteJointLimits,
   toJointDisplayValue,
 } from '@/shared/utils/jointUnits';
+import {
+  JOINT_PANEL_STORE_SYNC_INTERVAL_MS,
+  type JointControlItemProps,
+  type SliderDragBounds,
+  type SliderDragSource,
+} from './jointControlItemTypes';
+import { snapSliderValue } from './jointSliderMath';
+import { useFocusInputWhenEditing } from './useFocusInputWhenEditing';
 
-const JOINT_PANEL_STORE_SYNC_INTERVAL_MS = 33;
-
-export interface JointControlItemProps {
-  name: string;
-  joint: any;
-  displayName?: string;
-  value: number;
-  angleUnit: 'rad' | 'deg';
-  isActive: boolean;
-  shouldAutoScroll?: boolean;
-  setActiveJoint: (name: string | null, options?: JointPanelActiveJointOptions) => void;
-  handleJointAngleChange: (name: string, val: number) => void;
-  handleJointChangeCommit: (name: string, val: number) => void;
-  setIsDragging?: (dragging: boolean) => void;
-  onSelect?: (type: 'link' | 'joint', id: string) => void;
-  isAdvanced?: boolean;
-  onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
-  compact?: boolean;
-  dragSyncIntervalMs?: number;
-  throttleDragSync?: boolean;
-  dragSyncMode?: JointDragSyncMode;
-}
-
-type SliderDragSource = 'native-input' | 'slider-shell';
-interface SliderDragBounds {
-  left: number;
-  width: number;
-}
-
-function useFocusInputWhenEditing(
-  inputRef: React.RefObject<HTMLInputElement | null>,
-  isEditing: boolean,
-) {
-  useEffect(() => {
-    if (!isEditing) {
-      return;
-    }
-
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, [inputRef, isEditing]);
-}
+export type { JointControlItemProps } from './jointControlItemTypes';
 
 const JointControlItemComponent: React.FC<JointControlItemProps> = ({
   name,
@@ -246,30 +209,6 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
   const sliderPercentage = sliderRange > 0 ? ((sliderValue - sliderMin) / sliderRange) * 100 : 0;
   const clampedSliderPercentage = Math.min(Math.max(sliderPercentage, 0), 100);
 
-  const clampSliderValue = useCallback((nextValue: number, min: number, max: number) => {
-    if (!Number.isFinite(nextValue)) {
-      return min;
-    }
-    return Math.min(Math.max(nextValue, min), max);
-  }, []);
-
-  const snapSliderValue = useCallback(
-    (nextValue: number, min: number, max: number, currentStep: number) => {
-      const clampedValue = clampSliderValue(nextValue, min, max);
-
-      if (!Number.isFinite(currentStep) || currentStep <= 0) {
-        return clampedValue;
-      }
-
-      const steppedValue = min + Math.round((clampedValue - min) / currentStep) * currentStep;
-      const stepDecimals = `${currentStep}`.split('.')[1]?.length ?? 0;
-      const precision = Math.min(stepDecimals + 2, 10);
-
-      return clampSliderValue(Number(steppedValue.toFixed(precision)), min, max);
-    },
-    [clampSliderValue],
-  );
-
   const [inputValue, setInputValue] = useState(displayValue.toFixed(2));
   const [isEditingValue, setIsEditingValue] = useState(false);
   const valueInputRef = useRef<HTMLInputElement>(null);
@@ -445,7 +384,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
       const rawSliderValue = currentMin + ratio * (currentMax - currentMin);
       handleSliderInput(snapSliderValue(rawSliderValue, currentMin, currentMax, currentStep));
     },
-    [handleSliderInput, readSliderDragBounds, snapSliderValue],
+    [handleSliderInput, readSliderDragBounds],
   );
 
   const handleSliderShellDragStart = useCallback(

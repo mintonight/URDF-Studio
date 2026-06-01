@@ -68,7 +68,7 @@ test('getUsdStageLoadBaselineDurations returns the canonical five-step timings f
     });
   } finally {
     if (originalWindow === undefined) {
-      delete globalScope.window;
+      Reflect.deleteProperty(globalScope, 'window');
     } else {
       globalScope.window = originalWindow;
     }

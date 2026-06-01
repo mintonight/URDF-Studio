@@ -1,18 +1,23 @@
 /**
  * Main App Component
- * Root component that assembles all pieces together
+ * Root component that assembles app workflows and overlay layers.
  */
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Providers } from './Providers';
 import { AppLayout } from './AppLayout';
-import { LazyOverlayFallback } from './components/LazyOverlayFallback';
+import type { AppContentProps, AppExposedActions } from './appExtensions';
+import {
+  AppOverlayLayer,
+  type DisconnectedWorkspaceUrdfDialogState,
+} from './components/AppOverlayLayer';
 import { useAppShellState } from './hooks/useAppShellState';
 import { useFileImport } from './hooks/useFileImport';
 import { useFileExport } from './hooks/useFileExport';
 import { useImportInputBinding } from './hooks/useImportInputBinding';
 import { useUnsavedChangesPrompt } from './hooks/useUnsavedChangesPrompt';
 import { usePluginLaunch } from './hooks/usePluginLaunch';
+import { useRegressionDebugApi } from './hooks/useRegressionDebugApi';
 import { resolveRobotFileDataWithWorker } from './hooks/robotImportWorkerBridge';
 import {
   buildRobotLoadSupportContextKey,
@@ -45,56 +50,19 @@ import {
   useAssetsStore,
 } from '@/store';
 import type { InspectionReport, RobotFile, RobotState } from '@/types';
-import type { HeaderAction } from './components/header/types';
-import { AppToast } from './components/AppToast';
-
-/** Render slots: allows external repos to inject extra modals and overlays */
-export interface AppExtensionSlots {
-  /** Rendered after core built-in modals, before toast */
-  renderModals?: () => React.ReactNode;
-  /** Rendered after toast (highest z-index layer) */
-  renderTopOverlays?: () => React.ReactNode;
-}
-
-/** Config extension: allows external repos to inject header actions etc. */
-export interface AppExtensionConfig {
-  headerQuickAction?: HeaderAction;
-  headerSecondaryAction?: HeaderAction;
-}
-
-/** Core internal actions exposed to external consumers */
-export interface AppExposedActions {
-  importFiles: (files: FileList | File[]) => void;
-  openLibraryExport: (file: RobotFile) => void;
-  openAIInspection: () => void;
-  openAIConversation: () => void;
-  openIkTool: () => void;
-  openCollisionOptimizer: () => void;
-  openTool: (key: string) => void;
-  exportProjectBlob: () => Promise<Blob>;
-  collectRawFilesBlob: () => Promise<Blob>;
-}
-
-interface AppContentProps {
-  extensions?: {
-    slots?: AppExtensionSlots;
-    config?: AppExtensionConfig;
-  };
-  /** Core calls this on mount to expose internal handlers to the external host */
-  onExposeActions?: (actions: AppExposedActions) => void;
-}
 import type { RobotImportResult } from '@/core/parsers/importRobotFile';
 import { resolveMJCFSource } from '@/core/parsers/mjcf/mjcfSourceResolver';
 import { translations } from '@/shared/i18n';
 import type { ExportDialogConfig, ExportProgressState } from '@/features/file-io';
 import type { ImportPreparationOverlayState } from './hooks/useFileImport';
 import { useAssetImportFromUrl } from './hooks/useAssetImportFromUrl';
-import { BotWorldImportOverlay } from './components/BotWorldImportOverlay';
-import { setRegressionBeforeUnloadPromptSuppressed } from '@/shared/debug/regressionPromptSuppression';
 import {
-  clearRegressionDebugGlobals,
-  isRegressionDebugEnabled,
-} from '@/shared/debug/regressionDebugEnabled';
+  loadAIConversationConnectorModule,
+  loadAIInspectionConnectorModule,
+  loadDisconnectedWorkspaceUrdfExportDialogModule,
+  loadExportDialogConnectorModule,
+  loadExportProgressDialogModule,
+} from './components/lazyAppOverlays';
 import { logRegressionInfo, logRegressionWarn } from '@/shared/debug/consoleDiagnostics';
 import { markUnsavedChangesBaselineSaved } from './utils/unsavedChangesBaseline';
 import type {
@@ -108,68 +76,8 @@ import {
   createConversationLaunchContext,
   resolveCurrentAIRobotSnapshot,
 } from './utils/aiConversationLaunch';
-
-const loadAIInspectionConnectorModule = () => import('./components/ai/AIInspectionConnector');
-const loadAIConversationConnectorModule = () => import('./components/ai/AIConversationConnector');
-const loadExportDialogConnectorModule = () => import('./components/export/ExportDialogConnector');
-const loadDisconnectedWorkspaceUrdfExportDialogModule = () =>
-  import('@/features/file-io');
-const loadExportProgressDialogModule = () => import('@/features/file-io');
-const loadSettingsModalModule = () => import('./components/SettingsModal');
-
-const AIInspectionConnector = lazy(() =>
-  loadAIInspectionConnectorModule().then((module) => ({
-    default: module.AIInspectionConnector,
-  })),
-);
-
-const AIConversationConnector = lazy(() =>
-  loadAIConversationConnectorModule().then((module) => ({
-    default: module.AIConversationConnector,
-  })),
-);
-const DisconnectedWorkspaceUrdfExportDialog = lazy(() =>
-  loadDisconnectedWorkspaceUrdfExportDialogModule().then((module) => ({
-    default: module.DisconnectedWorkspaceUrdfExportDialog,
-  })),
-);
-const ExportProgressDialog = lazy(() =>
-  loadExportProgressDialogModule().then((module) => ({
-    default: module.ExportProgressDialog,
-  })),
-);
-
-const ExportDialogConnector = lazy(() =>
-  loadExportDialogConnectorModule().then((module) => ({
-    default: module.ExportDialogConnector,
-  })),
-);
-
-const SettingsModal = lazy(() =>
-  loadSettingsModalModule().then((module) => ({ default: module.SettingsModal })),
-);
-
-function waitForNextPaint(): Promise<void> {
-  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve) => {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => resolve());
-    });
-  });
-}
-
-function waitForAnimationFrame(): Promise<void> {
-  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve) => {
-    window.requestAnimationFrame(() => resolve());
-  });
-}
+import { waitForNextPaint } from './utils/waitForNextPaint';
+import { waitForAnimationFrame } from './utils/waitForAnimationFrame';
 
 export function AppContent({ extensions, onExposeActions }: AppContentProps = {}) {
   useUnsavedChangesPrompt();
@@ -194,15 +102,8 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   const [exportDialogTarget, setExportDialogTarget] = useState<ExportTarget>({
     type: 'current',
   });
-  const [disconnectedWorkspaceUrdfDialog, setDisconnectedWorkspaceUrdfDialog] = useState<{
-    config: ExportDialogConfig;
-    request: {
-      type: 'disconnected-workspace-urdf';
-      componentCount: number;
-      connectedGroupCount: number;
-      exportName: string;
-    };
-  } | null>(null);
+  const [disconnectedWorkspaceUrdfDialog, setDisconnectedWorkspaceUrdfDialog] =
+    useState<DisconnectedWorkspaceUrdfDialogState | null>(null);
   const [isDisconnectedWorkspaceUrdfExporting, setIsDisconnectedWorkspaceUrdfExporting] =
     useState(false);
   const [viewerReloadKey, setViewerReloadKey] = useState(0);
@@ -637,134 +538,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
 
   useEffect(() => scheduleUsdRuntimeStartupIdlePrewarm(), []);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    if (!isRegressionDebugEnabled(window)) {
-      return;
-    }
-
-    let disposed = false;
-    let clearRegressionAppHandlers: (() => void) | null = null;
-
-    void import('@/shared/debug/regressionBridge').then(
-      ({ installRegressionDebugApi, setRegressionAppHandlers }) => {
-        if (disposed) {
-          return;
-        }
-
-        installRegressionDebugApi(window);
-        const regressionApi = window.__URDF_STUDIO_DEBUG__ as typeof window.__URDF_STUDIO_DEBUG__ & {
-          __store__?: typeof useRobotStore;
-          __uiStore__?: typeof useUIStore;
-          __assetsStore__?: typeof useAssetsStore;
-        };
-        regressionApi.__store__ = useRobotStore;
-        regressionApi.__uiStore__ = useUIStore;
-        regressionApi.__assetsStore__ = useAssetsStore;
-
-        setRegressionAppHandlers({
-          getAvailableFiles: () => useAssetsStore.getState().availableFiles,
-          getSelectedFile: () => useAssetsStore.getState().selectedFile,
-          getUsdSceneSnapshot: (fileName: string) =>
-            useAssetsStore.getState().getUsdSceneSnapshot(fileName),
-          getDocumentLoadState: () => useAssetsStore.getState().documentLoadState,
-          getRobotState: () => ({
-            name: useRobotStore.getState().name,
-            links: useRobotStore.getState().links,
-            joints: useRobotStore.getState().joints,
-            rootLinkId: useRobotStore.getState().rootLinkId,
-            selection: useSelectionStore.getState().selection,
-          }),
-          getAssetDebugState: () => {
-            const assetsState = useAssetsStore.getState();
-            return {
-              appAssetKeys: Object.keys(assetsState.assets).sort((left, right) =>
-                left.localeCompare(right),
-              ),
-              preparedUsdCacheKeysByFile: Object.fromEntries(
-                Object.entries(assetsState.usdPreparedExportCaches)
-                  .sort(([left], [right]) => left.localeCompare(right))
-                  .map(([fileName, cache]) => [
-                    fileName,
-                    Object.keys(cache.meshFiles || {}).sort((left, right) =>
-                      left.localeCompare(right),
-                    ),
-                  ]),
-              ),
-            };
-          },
-          getInteractionState: () => ({
-            selection: useSelectionStore.getState().selection,
-            hoveredSelection: useSelectionStore.getState().hoveredSelection,
-          }),
-          resetFixtureFiles: () => {
-            const assetsState = useAssetsStore.getState();
-            assetsState.revokeAllAssets();
-            assetsState.setAssets({});
-            assetsState.setAvailableFiles([]);
-            assetsState.setAllFileContents({});
-            assetsState.clearUsdSceneSnapshots();
-            assetsState.clearUsdPreparedExportCaches();
-            assetsState.setSelectedFile(null);
-            assetsState.resetDocumentLoadState();
-          },
-          seedFixtureFile: (file) => {
-            const assetsState = useAssetsStore.getState();
-            const normalizedName = file.name.replace(/\\/g, '/').replace(/^\/+/, '');
-            const nextFile = {
-              name: normalizedName,
-              content: file.content,
-              format: file.format,
-              ...(file.blobUrl ? { blobUrl: file.blobUrl } : {}),
-            };
-
-            if (file.blobUrl) {
-              assetsState.addAsset(normalizedName, file.blobUrl);
-            }
-            assetsState.addRobotFile(nextFile);
-            if (file.addFileContent) {
-              assetsState.addFileContent(normalizedName, file.content);
-            }
-
-            return {
-              availableFileCount: useAssetsStore.getState().availableFiles.length,
-            };
-          },
-          loadRobotByName: async (fileName: string) => {
-            const file =
-              useAssetsStore.getState().availableFiles.find((entry) => entry.name === fileName) ??
-              null;
-            if (!file) {
-              return {
-                loaded: false,
-                selectedFile: useAssetsStore.getState().selectedFile?.name ?? null,
-              };
-            }
-
-            loadRobotByNameRef.current?.(file, { forceReload: true });
-            return {
-              loaded: true,
-              selectedFile: file.name,
-            };
-          },
-        });
-
-        clearRegressionAppHandlers = () => {
-          setRegressionAppHandlers(null);
-        };
-      },
-    );
-
-    return () => {
-      disposed = true;
-      clearRegressionAppHandlers?.();
-      setRegressionBeforeUnloadPromptSuppressed(false);
-      clearRegressionDebugGlobals(window);
-    };
-  }, []);
+  useRegressionDebugApi(loadRobotByNameRef);
 
   // File import/export hooks
   const { handleImport } = useFileImport({
@@ -1150,99 +924,34 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         onExposeLayoutActions={handleExposeLayoutActions}
       />
 
-      {/* Modals */}
-      {isSettingsOpen && (
-        <Suspense fallback={<LazyOverlayFallback label={loadingLabel} />}>
-          <SettingsModal />
-        </Suspense>
-      )}
-      {shouldRenderAIInspectionModal && (
-        <Suspense fallback={<LazyOverlayFallback label={loadingLabel} />}>
-          {/* Keep the modal mounted after first open so inspection results survive close/reopen. */}
-          <AIInspectionConnector
-            isOpen={isAIInspectionOpen}
-            onClose={() => {
-              setIsAIInspectionOpen(false);
-            }}
-            lang={lang}
-            onOpenConversationWithReport={handleOpenConversationWithReport}
-          />
-        </Suspense>
-      )}
-      {shouldRenderAIConversationModal && (
-        <Suspense fallback={<LazyOverlayFallback label={loadingLabel} />}>
-          <AIConversationConnector
-            isOpen={isAIConversationOpen}
-            onClose={() => {
-              setIsAIConversationOpen(false);
-            }}
-            lang={lang}
-            launchContext={aiConversationLaunchContext}
-            onStartNewConversation={handleStartNewAIConversation}
-          />
-        </Suspense>
-      )}
-
-      {/* Export Dialog */}
-      {isExportDialogOpen && (
-        <Suspense fallback={<LazyOverlayFallback label={loadingLabel} />}>
-          <ExportDialogConnector
-            target={exportDialogTarget}
-            lang={lang}
-            isExporting={isExporting}
-            onClose={() => {
-              if (!isExporting) {
-                setIsExportDialogOpen(false);
-              }
-            }}
-            onExport={handleExportDialogExport}
-          />
-        </Suspense>
-      )}
-
-      {disconnectedWorkspaceUrdfDialog && (
-        <Suspense fallback={<LazyOverlayFallback label={loadingLabel} />}>
-          <DisconnectedWorkspaceUrdfExportDialog
-            isOpen={true}
-            lang={lang}
-            componentCount={disconnectedWorkspaceUrdfDialog.request.componentCount}
-            connectedGroupCount={disconnectedWorkspaceUrdfDialog.request.connectedGroupCount}
-            isExporting={isDisconnectedWorkspaceUrdfExporting}
-            onClose={() => {
-              if (!isDisconnectedWorkspaceUrdfExporting) {
-                setDisconnectedWorkspaceUrdfDialog(null);
-              }
-            }}
-            onExportMultiple={() => {
-              void handleConfirmDisconnectedWorkspaceUrdfExport();
-            }}
-          />
-        </Suspense>
-      )}
-
-      {projectExportProgress && !isExportDialogOpen && (
-        <Suspense fallback={<LazyOverlayFallback label={loadingLabel} />}>
-          <ExportProgressDialog lang={lang} progress={projectExportProgress} />
-        </Suspense>
-      )}
-
-      {/* Extension slot: external modal layer */}
-      {extensions?.slots?.renderModals?.()}
-
-      {/* Toast */}
-      <AppToast toast={toast} onClose={closeToast} />
-
-      {/* Extension slot: top overlay layer (highest z-index) */}
-      {extensions?.slots?.renderTopOverlays?.()}
-
-      {/* BOT-World import download progress overlay */}
-      {botWorldImportState.isImporting && (
-        <BotWorldImportOverlay
-          phase={botWorldImportState.phase}
-          progress={botWorldImportState.progress}
-          lang={lang}
-        />
-      )}
+      <AppOverlayLayer
+        aiConversationLaunchContext={aiConversationLaunchContext}
+        botWorldImportState={botWorldImportState}
+        closeToast={closeToast}
+        disconnectedWorkspaceUrdfDialog={disconnectedWorkspaceUrdfDialog}
+        exportDialogTarget={exportDialogTarget}
+        extensions={extensions}
+        handleConfirmDisconnectedWorkspaceUrdfExport={handleConfirmDisconnectedWorkspaceUrdfExport}
+        handleExportDialogExport={handleExportDialogExport}
+        handleOpenConversationWithReport={handleOpenConversationWithReport}
+        handleStartNewAIConversation={handleStartNewAIConversation}
+        isAIConversationOpen={isAIConversationOpen}
+        isAIInspectionOpen={isAIInspectionOpen}
+        isDisconnectedWorkspaceUrdfExporting={isDisconnectedWorkspaceUrdfExporting}
+        isExportDialogOpen={isExportDialogOpen}
+        isExporting={isExporting}
+        isSettingsOpen={isSettingsOpen}
+        lang={lang}
+        loadingLabel={loadingLabel}
+        projectExportProgress={projectExportProgress}
+        setDisconnectedWorkspaceUrdfDialog={setDisconnectedWorkspaceUrdfDialog}
+        setIsAIConversationOpen={setIsAIConversationOpen}
+        setIsAIInspectionOpen={setIsAIInspectionOpen}
+        setIsExportDialogOpen={setIsExportDialogOpen}
+        shouldRenderAIConversationModal={shouldRenderAIConversationModal}
+        shouldRenderAIInspectionModal={shouldRenderAIInspectionModal}
+        toast={toast}
+      />
     </>
   );
 }

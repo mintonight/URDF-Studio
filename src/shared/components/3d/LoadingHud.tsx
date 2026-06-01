@@ -55,7 +55,12 @@ export function LoadingHud({
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-none min-w-[220px] max-w-[280px] rounded-2xl border border-border-black bg-panel-bg/95 px-3.5 py-3 shadow-xl backdrop-blur-sm"
+      className="pointer-events-none min-w-0 rounded-2xl border border-border-black bg-panel-bg/95 px-3.5 py-3 shadow-xl backdrop-blur-sm"
+      style={{
+        boxSizing: 'border-box',
+        maxWidth: '100%',
+        width: 'min(280px, 100%)',
+      }}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">

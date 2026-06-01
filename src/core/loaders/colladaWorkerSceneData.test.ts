@@ -31,38 +31,36 @@ function restoreWorkerImageGlobals(snapshot: WorkerImageGlobalSnapshot): void {
   if (snapshot.DOMParser) {
     globalThis.DOMParser = snapshot.DOMParser;
   } else {
-    delete (globalThis as typeof globalThis & { DOMParser?: typeof DOMParser }).DOMParser;
+    Reflect.deleteProperty(globalThis, 'DOMParser');
   }
 
   if (snapshot.document) {
     globalThis.document = snapshot.document;
   } else {
-    delete (globalThis as typeof globalThis & { document?: Document }).document;
+    Reflect.deleteProperty(globalThis, 'document');
   }
 
   if (snapshot.HTMLImageElement) {
     globalThis.HTMLImageElement = snapshot.HTMLImageElement;
   } else {
-    delete (globalThis as typeof globalThis & { HTMLImageElement?: typeof HTMLImageElement })
-      .HTMLImageElement;
+    Reflect.deleteProperty(globalThis, 'HTMLImageElement');
   }
 
   if (snapshot.Image) {
     globalThis.Image = snapshot.Image;
   } else {
-    delete (globalThis as typeof globalThis & { Image?: typeof Image }).Image;
+    Reflect.deleteProperty(globalThis, 'Image');
   }
 
   if (snapshot.XMLSerializer) {
     globalThis.XMLSerializer = snapshot.XMLSerializer;
   } else {
-    delete (globalThis as typeof globalThis & { XMLSerializer?: typeof XMLSerializer })
-      .XMLSerializer;
+    Reflect.deleteProperty(globalThis, 'XMLSerializer');
   }
 }
 
 function getFirstMesh(root: THREE.Object3D): THREE.Mesh {
-  let foundMesh: THREE.Mesh | null = null;
+  let foundMesh: THREE.Mesh | null = null as THREE.Mesh | null;
 
   root.traverse((child) => {
     if (!foundMesh && (child as THREE.Mesh).isMesh) {
@@ -79,12 +77,11 @@ test('textured Collada worker scene data restores image-backed textures without 
   const colladaText = fs.readFileSync(meshPath, 'utf8');
   const snapshot = captureWorkerImageGlobals();
 
-  delete (globalThis as typeof globalThis & { DOMParser?: typeof DOMParser }).DOMParser;
-  delete (globalThis as typeof globalThis & { document?: Document }).document;
-  delete (globalThis as typeof globalThis & { HTMLImageElement?: typeof HTMLImageElement })
-    .HTMLImageElement;
-  delete (globalThis as typeof globalThis & { Image?: typeof Image }).Image;
-  delete (globalThis as typeof globalThis & { XMLSerializer?: typeof XMLSerializer }).XMLSerializer;
+  Reflect.deleteProperty(globalThis, 'DOMParser');
+  Reflect.deleteProperty(globalThis, 'document');
+  Reflect.deleteProperty(globalThis, 'HTMLImageElement');
+  Reflect.deleteProperty(globalThis, 'Image');
+  Reflect.deleteProperty(globalThis, 'XMLSerializer');
 
   try {
     const serializedScene = parseColladaSceneData(colladaText, meshPath);

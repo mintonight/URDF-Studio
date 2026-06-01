@@ -160,6 +160,65 @@ test('syncInertiaVisualizationForLinks is a no-op on the second identical pass',
   assert.equal(link.userData.__inertiaVisualGroup.visible, true);
 });
 
+test('syncInertiaVisualizationForLinks keeps overlay inertia depth-tested against robot meshes', () => {
+  const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  link.isURDFLink = true;
+  link.name = 'base_link';
+  link.userData.__cachedMaxLinkSize = 1;
+  link.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()));
+
+  const robotLinks: Record<string, UrdfLink> = {
+    base_link: {
+      ...DEFAULT_LINK,
+      id: 'base_link',
+      name: 'base_link',
+      inertial: {
+        mass: 1,
+        inertia: {
+          ixx: 1,
+          ixy: 0,
+          ixz: 0,
+          iyy: 1,
+          iyz: 0,
+          izz: 1,
+        },
+        origin: {
+          xyz: { x: 0, y: 0, z: 0 },
+          rpy: { r: 0, p: 0, y: 0 },
+        },
+      },
+    },
+  };
+
+  syncInertiaVisualizationForLinks({
+    links: [link],
+    robotLinks,
+    showInertia: true,
+    showInertiaOverlay: true,
+    showCenterOfMass: false,
+    showCoMOverlay: true,
+    centerOfMassSize: 0.01,
+  });
+
+  const inertiaBox = link.userData.__inertiaBox as THREE.Object3D | undefined;
+  assert.ok(inertiaBox, 'inertia box should be created');
+
+  const inertiaRenderables: Array<THREE.Mesh | THREE.LineSegments> = [];
+  inertiaBox.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh || child.type === 'LineSegments') {
+      inertiaRenderables.push(child as THREE.Mesh | THREE.LineSegments);
+    }
+  });
+
+  assert.equal(inertiaRenderables.length, 2);
+  inertiaRenderables.forEach((child) => {
+    const material = child.material as THREE.Material;
+    assert.equal(material.depthTest, true);
+    assert.equal(material.depthWrite, false);
+    assert.ok(child.renderOrder > 0, 'overlay inertia should still draw in the helper layer');
+  });
+});
+
 test('syncIkHandleVisualizationForLinks creates an invisible IK anchor without a visible mesh sphere', () => {
   const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
   link.isURDFLink = true;

@@ -472,6 +472,7 @@ export function useUsdDocumentLifecycle({
         availableFiles: useAssetsStore.getState().availableFiles,
         assets: useAssetsStore.getState().assets,
         signal: controller.signal,
+        completionMode: 'complete',
         resolveBeforePreparedCache: false,
         onDeferredSceneSnapshot: (snapshot, stageSourcePath) => {
           if (cancelled) {

@@ -104,6 +104,7 @@ import { scheduleStabilizedAutoFrame } from '../utils/stabilizedAutoFrame.ts';
 import type {
   UsdOffscreenViewerInitRequest,
   OffscreenViewerInteractionSelection,
+  UsdOffscreenViewerCompletionMode,
   UsdOffscreenViewerLoadDebugEntry,
   UsdOffscreenViewerWorkerRequest,
   UsdOffscreenViewerWorkerResponse,
@@ -248,6 +249,7 @@ let useCollisionVisualProxyMode = false;
 interface PublishedWorkerRobotData {
   resolution: ViewerRobotDataResolution;
   fullSceneSnapshot: ViewerRobotDataResolution['usdSceneSnapshot'];
+  preparedCacheCompletion: Promise<void>;
 }
 
 function clearScheduledAutoFrame(): void {
@@ -1852,9 +1854,9 @@ async function ensureCriticalUsdDependenciesLoaded(
 function publishDeferredSceneSnapshot(
   snapshot: ViewerRobotDataResolution['usdSceneSnapshot'],
   sourceFileName: string,
-): void {
+): boolean {
   if (!snapshot || !hasUsdSceneSnapshotHeavyBuffers(snapshot)) {
-    return;
+    return true;
   }
 
   const transferables = collectUsdSceneSnapshotTransferables(snapshot);
@@ -1880,6 +1882,7 @@ function publishDeferredSceneSnapshot(
         transferableBufferCount: transferables.length,
       },
     });
+    return true;
   } catch (error) {
     emitLoadDebugEntry({
       sourceFileName,
@@ -1892,6 +1895,7 @@ function publishDeferredSceneSnapshot(
         error: error instanceof Error ? error.message : String(error),
       },
     });
+    return false;
   }
 }
 
@@ -1981,7 +1985,82 @@ function scheduleDeferredSceneSnapshotPublish(
   );
 }
 
-async function publishResolvedRobotData(): Promise<PublishedWorkerRobotData> {
+function resolveWorkerCompletionMode(
+  completionMode: UsdOffscreenViewerInitRequest['completionMode'],
+): UsdOffscreenViewerCompletionMode {
+  return completionMode === 'complete' ? 'complete' : 'interactive';
+}
+
+async function prepareAndPublishWorkerPreparedCache({
+  snapshot,
+  resolution,
+  sourceFileName,
+  isActive,
+  failOnError = false,
+}: {
+  snapshot: NonNullable<ViewerRobotDataResolution['usdSceneSnapshot']>;
+  resolution: ViewerRobotDataResolution;
+  sourceFileName: string;
+  isActive: () => boolean;
+  failOnError?: boolean;
+}): Promise<void> {
+  try {
+    const serializedPreparedCache = await trackWorkerLoadDebugStep({
+      sourceFileName,
+      step: 'prepare-worker-export-cache',
+      pendingDetail: {
+        rendererMode: 'offscreen-worker',
+        source: 'worker-scene-snapshot',
+      },
+      run: async () => {
+        const preparedCache = prepareUsdExportCacheFromResolvedSnapshot(
+          snapshot,
+          resolution,
+          { includeTransferBytes: true },
+        );
+        return await serializePreparedUsdExportCacheForWorker(preparedCache);
+      },
+      resolveDetail: (result) => ({
+        rendererMode: 'offscreen-worker',
+        source: 'worker-scene-snapshot',
+        meshFileCount: result.payload.meshFiles.length,
+        transferableBufferCount: result.transferables.length,
+      }),
+    });
+
+    if (!isActive()) {
+      return;
+    }
+
+    postWorkerMessage(
+      {
+        type: 'prepared-cache',
+        stageSourcePath: snapshot.stageSourcePath || resolution.stageSourcePath || null,
+        preparedCache: serializedPreparedCache.payload,
+      },
+      serializedPreparedCache.transferables,
+    );
+  } catch (error) {
+    if (!isActive()) {
+      return;
+    }
+
+    postWorkerMessage({
+      type: 'prepared-cache',
+      stageSourcePath: snapshot.stageSourcePath || resolution.stageSourcePath || null,
+      preparedCache: null,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    if (failOnError) {
+      throw error;
+    }
+  }
+}
+
+async function publishResolvedRobotData(
+  loadGeneration: number,
+  options: { completionMode?: UsdOffscreenViewerCompletionMode } = {},
+): Promise<PublishedWorkerRobotData> {
   if (!runtimeWindow.renderInterface) {
     throw new Error(
       'USD offscreen worker cannot publish RobotData before the render interface is ready.',
@@ -2030,61 +2109,28 @@ async function publishResolvedRobotData(): Promise<PublishedWorkerRobotData> {
     },
   );
 
-  if (snapshot) {
-    void (async () => {
-      try {
-        const serializedPreparedCache = await trackWorkerLoadDebugStep({
-          sourceFileName: currentSourceFileName,
-          step: 'prepare-worker-export-cache',
-          pendingDetail: {
-            rendererMode: 'offscreen-worker',
-            source: 'worker-scene-snapshot',
-          },
-          run: async () => {
-            const preparedCache = prepareUsdExportCacheFromResolvedSnapshot(
-              snapshot,
-              resolutionWithSnapshot,
-              { includeTransferBytes: true },
-            );
-            return await serializePreparedUsdExportCacheForWorker(preparedCache);
-          },
-          resolveDetail: (result) => ({
-            rendererMode: 'offscreen-worker',
-            source: 'worker-scene-snapshot',
-            meshFileCount: result.payload.meshFiles.length,
-            transferableBufferCount: result.transferables.length,
-          }),
-        });
+  const preparedCacheCompletion = snapshot
+    ? prepareAndPublishWorkerPreparedCache({
+        snapshot,
+        resolution: resolutionWithSnapshot,
+        sourceFileName: currentSourceFileName,
+        isActive: () => isLoadGenerationActive(loadGeneration),
+        failOnError: options.completionMode === 'complete',
+      })
+    : Promise.resolve();
 
-        postWorkerMessage(
-          {
-            type: 'prepared-cache',
-            stageSourcePath:
-              snapshot.stageSourcePath || resolutionWithSnapshot.stageSourcePath || null,
-            preparedCache: serializedPreparedCache.payload,
-          },
-          serializedPreparedCache.transferables,
-        );
-      } catch (error) {
-        postWorkerMessage({
-          type: 'prepared-cache',
-          stageSourcePath: snapshot.stageSourcePath || resolutionWithSnapshot.stageSourcePath || null,
-          preparedCache: null,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    })();
-  }
   emitCurrentJointAngles();
 
   return {
     resolution: resolutionWithSnapshot,
     fullSceneSnapshot: snapshot,
+    preparedCacheCompletion,
   };
 }
 
 async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): Promise<void> {
   const loadGeneration = ++currentLoadGeneration;
+  const completionMode = resolveWorkerCompletionMode(message.completionMode);
   currentSourceFileName = message.sourceFile.name;
   viewerActive = message.active;
   showVisual = message.showVisual;
@@ -2283,11 +2329,23 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
         const usdLoadProfile = (
           result as {
             usdLoadProfile?: {
+              driverInitProfile?: unknown;
               runtimeBridgeWarmupSummary?: { nativeSnapshotSource?: unknown };
               robotSceneSnapshotProfile?: unknown;
             };
           } | null | undefined
         )?.usdLoadProfile;
+        const driverInitProfile =
+          (result as { driverInitProfile?: unknown } | null | undefined)?.driverInitProfile ??
+          usdLoadProfile?.driverInitProfile ??
+          null;
+        const robotSceneSnapshotProfile =
+          (result as { robotSceneSnapshotProfile?: unknown } | null | undefined)
+            ?.robotSceneSnapshotProfile ??
+          usdLoadProfile?.robotSceneSnapshotProfile ??
+          null;
+        const runtimeBridgeWarmupSummary =
+          runtimeWarmupSummary ?? usdLoadProfile?.runtimeBridgeWarmupSummary ?? null;
 
         return {
           rendererMode: 'offscreen-worker',
@@ -2303,7 +2361,9 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
               usdLoadProfile?.runtimeBridgeWarmupSummary?.nativeSnapshotSource ??
               '',
           ) || null,
-          robotSceneSnapshotProfile: usdLoadProfile?.robotSceneSnapshotProfile ?? null,
+          runtimeBridgeWarmupSummary,
+          driverInitProfile,
+          robotSceneSnapshotProfile,
         };
       },
     });
@@ -2372,7 +2432,7 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
         resolutionSource: 'worker-bootstrap',
         rendererMode: 'offscreen-worker',
       },
-      run: async () => await publishResolvedRobotData(),
+      run: async () => await publishResolvedRobotData(loadGeneration, { completionMode }),
       resolveDetail: (result) => ({
         resolutionSource: 'worker-bootstrap',
         rendererMode: 'offscreen-worker',
@@ -2403,6 +2463,28 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
       validateWorkerRenderedScene(currentSourceFileName || message.sourceFile.name);
     }
 
+    if (completionMode === 'complete') {
+      emitWorkerLoadingStep(
+        'finalizing-scene',
+        'Completing USD hydration artifacts...',
+        99,
+      );
+      await workerResolvedRobotData.preparedCacheCompletion;
+      if (!isLoadGenerationActive(loadGeneration)) {
+        return;
+      }
+
+      const sceneSnapshotPublished = publishDeferredSceneSnapshot(
+        workerResolvedRobotData.fullSceneSnapshot,
+        message.sourceFile.name,
+      );
+      if (!sceneSnapshotPublished) {
+        throw new Error(
+          `USD offscreen worker failed to publish the scene snapshot for "${message.sourceFile.name}".`,
+        );
+      }
+    }
+
     emitLoadDebugEntry({
       sourceFileName: message.sourceFile.name,
       step: 'ready',
@@ -2424,6 +2506,7 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
         preparedStageOpenCacheHit,
         collisionVisualProxyMode: useCollisionVisualProxyMode,
         robotSceneSnapshotOnly: robotSceneSnapshotOnlyLoad,
+        completionMode,
         ...(getRuntimeWarmupDebugDetail(runtimeWindow.renderInterface) ?? {}),
       },
     });
@@ -2440,11 +2523,13 @@ async function loadUsdStageIntoWorker(message: UsdOffscreenViewerInitRequest): P
       }),
     );
 
-    scheduleDeferredSceneSnapshotPublish(
-      workerResolvedRobotData.fullSceneSnapshot,
-      message.sourceFile.name,
-      loadGeneration,
-    );
+    if (completionMode !== 'complete') {
+      scheduleDeferredSceneSnapshotPublish(
+        workerResolvedRobotData.fullSceneSnapshot,
+        message.sourceFile.name,
+        loadGeneration,
+      );
+    }
   } catch (error) {
     disposeStageResources();
     if (!isLoadGenerationActive(loadGeneration)) {

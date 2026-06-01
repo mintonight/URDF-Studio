@@ -300,6 +300,10 @@ async function fetchBlobFromUrl(url: string): Promise<Blob> {
     throw new Error(`Failed to fetch blob source: ${response.status}`);
   }
 
+  if (typeof response.blob === 'function') {
+    return await response.blob();
+  }
+
   const bytes = await response.arrayBuffer();
   return new Blob([bytes], {
     type: response.headers.get('content-type') || 'application/octet-stream',

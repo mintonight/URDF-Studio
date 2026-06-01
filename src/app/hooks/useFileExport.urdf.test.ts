@@ -121,7 +121,7 @@ function installDomEnvironment() {
 }
 
 function renderHook() {
-  let hookValue: ReturnType<typeof useFileExport> | null = null;
+  let hookValue: ReturnType<typeof useFileExport> | null = null as ReturnType<typeof useFileExport> | null;
   const container = document.createElement('div');
   document.body.appendChild(container);
 
@@ -135,8 +135,9 @@ function renderHook() {
     root.render(React.createElement(Probe));
   });
   assert.ok(hookValue, 'hook should render');
+  const hook = hookValue as ReturnType<typeof useFileExport>;
   return {
-    hook: hookValue,
+    hook,
     cleanup() {
       flushSync(() => {
         root.unmount();
@@ -186,9 +187,9 @@ function installDownloadMocks() {
   const originalCreateObjectURL = URL.createObjectURL;
   const originalRevokeObjectURL = URL.revokeObjectURL;
 
-  let capturedBlob: Blob | null = null;
+  let capturedBlob: Blob | null = null as Blob | null;
   let clicked = false;
-  let appendedAnchor: HTMLAnchorElement | null = null;
+  let appendedAnchor: HTMLAnchorElement | null = null as HTMLAnchorElement | null;
 
   Object.defineProperty(document, 'createElement', {
     configurable: true,

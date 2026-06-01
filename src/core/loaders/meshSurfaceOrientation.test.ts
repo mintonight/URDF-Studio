@@ -294,7 +294,7 @@ test('prepareMeshSurfaceForSingleSidedRendering skips ambiguous open shells', ()
 test('prepareMeshSurfaceForSingleSidedRendering does not rewrite already consistent concave MJCF mesh fixtures', () => {
   const fixturePath = path.resolve('test/mujoco_menagerie-main/flybody/assets/femur_T1_left_body.obj');
   const object = new OBJLoader().parse(fs.readFileSync(fixturePath, 'utf8'));
-  let mesh: THREE.Mesh | null = null;
+  let mesh: THREE.Mesh | null = null as THREE.Mesh | null;
 
   object.traverse((child: any) => {
     if (!mesh && child?.isMesh) {

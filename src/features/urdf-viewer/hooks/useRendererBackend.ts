@@ -64,6 +64,29 @@ export interface UseRendererBackendResult {
   error: string | null;
 }
 
+type RuntimeCollisionHost = RuntimeRobotObject & {
+  colliders?: Record<string, unknown>;
+};
+
+function hasRuntimeCollisionGroups(robotObject: RuntimeRobotObject | null): boolean {
+  if (!robotObject) {
+    return false;
+  }
+
+  const colliders = (robotObject as RuntimeCollisionHost).colliders;
+  if (colliders && Object.keys(colliders).length > 0) {
+    return true;
+  }
+
+  let hasCollisionGroup = false;
+  robotObject.traverse((child) => {
+    if ((child as { isURDFCollider?: boolean }).isURDFCollider === true) {
+      hasCollisionGroup = true;
+    }
+  });
+  return hasCollisionGroup;
+}
+
 export function useRendererBackend(
   options: UseRendererBackendOptions,
 ): UseRendererBackendResult {
@@ -123,6 +146,8 @@ export function useRendererBackend(
   const onRuntimeRobotLoadedRef = useRef(onRuntimeRobotLoaded);
   const runtimeBridgeRef = useRef(runtimeBridge);
   const activeLoadScopeKeyRef = useRef<string | null>(null);
+  const activeBaseLoadScopeKeyRef = useRef<string | null>(null);
+  const mountedRobotHasCollisionGroupsRef = useRef(false);
   const loadScopeKeyMemoRef = useRef<RendererBackendLoadScopeKeyMemo>({});
   const previousPatchRobotLinksRef = useRef<Record<string, UrdfLink> | null>(
     robotData?.links ?? providedRobotLinks ?? null,
@@ -166,9 +191,18 @@ export function useRendererBackend(
       sourceFile,
     ],
   );
+  const shouldParseCollisionMeshes =
+    showCollision === true ||
+    (activeBaseLoadScopeKeyRef.current === baseLoadScopeKey &&
+      mountedRobotHasCollisionGroupsRef.current);
   const loadScopeKey = useMemo(
-    () => `${baseLoadScopeKey}|patch-reload:${patchReloadRevision}`,
-    [baseLoadScopeKey, patchReloadRevision],
+    () =>
+      [
+        baseLoadScopeKey,
+        `patch-reload:${patchReloadRevision}`,
+        `parse-collision:${shouldParseCollisionMeshes ? '1' : '0'}`,
+      ].join('|'),
+    [baseLoadScopeKey, patchReloadRevision, shouldParseCollisionMeshes],
   );
 
   const emitDocumentLoadEvent = useCallback(
@@ -192,6 +226,7 @@ export function useRendererBackend(
     groundPlaneOffset,
     showVisual,
     showCollision,
+    parseCollisionMeshes: shouldParseCollisionMeshes,
     showCollisionAlwaysOnTop,
     allowUrdfXmlFallback,
     robotLinks: providedRobotLinks,
@@ -396,6 +431,9 @@ export function useRendererBackend(
         backendRef.current.dispose();
         backendRef.current = null;
       }
+      activeLoadScopeKeyRef.current = null;
+      activeBaseLoadScopeKeyRef.current = null;
+      mountedRobotHasCollisionGroupsRef.current = false;
     };
   }, [flushPendingBackendDispose]);
 
@@ -434,12 +472,14 @@ export function useRendererBackend(
         const previousBackend = backendRef.current;
         backendRef.current = backend;
         activeLoadScopeKeyRef.current = loadScopeKey;
+        activeBaseLoadScopeKeyRef.current = baseLoadScopeKey;
         if (inFlightBackendRef.current === backend) {
           inFlightBackendRef.current = null;
         }
 
         // Update state
         robotRef.current = sceneGraph.root;
+        mountedRobotHasCollisionGroupsRef.current = hasRuntimeCollisionGroups(sceneGraph.root);
         setRobot(sceneGraph.root);
         linkMeshMapRef.current = sceneGraph.linkMeshMap;
         setResolvedRobotLinks(sceneGraph.robotLinks);
@@ -515,7 +555,7 @@ export function useRendererBackend(
         backend.dispose();
       }
     };
-  }, [invalidate, loadScopeKey, scheduleBackendDispose]);
+  }, [baseLoadScopeKey, invalidate, loadScopeKey, scheduleBackendDispose]);
 
   return {
     robot,

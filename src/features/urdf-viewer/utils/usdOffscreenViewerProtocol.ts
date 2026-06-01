@@ -12,6 +12,7 @@ import type { PreparedUsdExportCacheWorkerPayload } from './usdPreparedExportCac
 import type { UsdBakedScene } from '@/types';
 
 type OffscreenViewerSourceFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl'>;
+export type UsdOffscreenViewerCompletionMode = 'interactive' | 'complete';
 export type OffscreenViewerInteractionSelection = Pick<
   InteractionSelection,
   'type' | 'id' | 'subType' | 'objectIndex' | 'helperKind'
@@ -41,6 +42,7 @@ export interface UsdOffscreenViewerInitRequest {
   showOriginsOverlay: boolean;
   originSize: number;
   sourceFile: OffscreenViewerSourceFile;
+  completionMode?: UsdOffscreenViewerCompletionMode;
   stageOpenContextKey?: string;
   stageOpenContext?: UsdStageOpenPreparationWorkerContextSnapshot | null;
   stageOpenContextCacheHit?: boolean;

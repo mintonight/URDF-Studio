@@ -87,17 +87,18 @@ function installDomEnvironment() {
 }
 
 function createFileEntry(name: string, content: BlobPart = ''): FakeEntry {
-  return {
+  const fileObject = new File([content], name);
+  const entry = {
     name,
     fullPath: `/${name}`,
     filesystem: {} as FileSystem,
     isFile: true,
     isDirectory: false,
-    fileObject: new File([content], name),
     file(successCallback: (file: File) => void) {
-      successCallback(this.fileObject as File);
+      successCallback(fileObject);
     },
-  } as unknown as FakeEntry;
+  };
+  return entry as unknown as FakeEntry;
 }
 
 function createDirectoryEntry(name: string, children: FakeEntry[]): FakeEntry {
@@ -153,7 +154,7 @@ function renderProbe(options: {
 
   function Probe() {
     const layoutEffects = useAppLayoutEffects({
-      robot: { links: {}, joints: {}, inspectionContext: null },
+      robot: { links: {}, joints: {}, inspectionContext: undefined },
       selection: { type: null, id: null },
       clearSelection: () => {},
       onFileDrop: options.onFileDrop,

@@ -43,12 +43,9 @@ test('usdExport worker transfer serialization preserves extra mesh blobs in requ
   assert.equal(hydrated.exportName, 'worker_bot');
   assert.equal(hydrated.assets['meshes/base.glb'], 'blob:mesh-base');
   assert.equal(await hydrated.extraMeshFiles?.get('meshes/base.glb')?.text(), 'mesh-bytes');
-  assert.deepEqual(
-    Array.from(
-      new Uint8Array(await hydrated.extraMeshFiles?.get('textures/base.png')!.arrayBuffer()),
-    ),
-    [1, 2, 3],
-  );
+  const textureBlob = hydrated.extraMeshFiles?.get('textures/base.png');
+  assert.ok(textureBlob);
+  assert.deepEqual(Array.from(new Uint8Array(await textureBlob.arrayBuffer())), [1, 2, 3]);
   assert.deepEqual(hydrated.meshCompression, {
     enabled: true,
     quality: 0.5,

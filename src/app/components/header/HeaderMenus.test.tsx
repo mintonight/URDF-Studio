@@ -103,7 +103,7 @@ function installDomEnvironment() {
       dom.window.close();
 
       if (originalWindow === undefined) {
-        delete globalThis.window;
+        Reflect.deleteProperty(globalThis, 'window');
       } else {
         Object.defineProperty(globalThis, 'window', {
           configurable: true,
@@ -113,7 +113,7 @@ function installDomEnvironment() {
       }
 
       if (originalDocument === undefined) {
-        delete globalThis.document;
+        Reflect.deleteProperty(globalThis, 'document');
       } else {
         Object.defineProperty(globalThis, 'document', {
           configurable: true,
@@ -123,7 +123,7 @@ function installDomEnvironment() {
       }
 
       if (originalHTMLElement === undefined) {
-        delete globalThis.HTMLElement;
+        Reflect.deleteProperty(globalThis, 'HTMLElement');
       } else {
         Object.defineProperty(globalThis, 'HTMLElement', {
           configurable: true,
@@ -133,7 +133,7 @@ function installDomEnvironment() {
       }
 
       if (originalSVGElement === undefined) {
-        delete globalThis.SVGElement;
+        Reflect.deleteProperty(globalThis, 'SVGElement');
       } else {
         Object.defineProperty(globalThis, 'SVGElement', {
           configurable: true,
@@ -143,7 +143,7 @@ function installDomEnvironment() {
       }
 
       if (originalNode === undefined) {
-        delete globalThis.Node;
+        Reflect.deleteProperty(globalThis, 'Node');
       } else {
         Object.defineProperty(globalThis, 'Node', {
           configurable: true,

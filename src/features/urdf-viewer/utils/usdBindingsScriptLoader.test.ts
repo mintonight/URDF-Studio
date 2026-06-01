@@ -121,7 +121,7 @@ test('loads USD bindings in a worker-like environment without document access', 
     await Promise.all([firstPromise, secondPromise]);
 
     assert.equal(fetchCount, 1);
-    assert.equal(globalThis.__usdWorkerBindingsLoadedCount, 1);
+    assert.equal((globalThis as { __usdWorkerBindingsLoadedCount?: number }).__usdWorkerBindingsLoadedCount, 1);
     assert.equal(typeof (globalThis as { USD_WASM_MODULE?: unknown }).USD_WASM_MODULE, 'function');
   } finally {
     delete (globalThis as { __usdWorkerBindingsLoadedCount?: number })

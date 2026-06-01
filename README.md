@@ -116,7 +116,7 @@ packages/react-robot-canvas/
 docs/
   Architecture notes, viewer docs, file-io docs, style guide, AI features
 scripts/
-  Regression, schema generation, comparison, validation scripts
+  Build, codegen, testing (browser/truth/benchmark/e2e), IsaacSim tools, version scripts
 public/
   Static assets, Monaco editor, USD WASM bindings, sample robots
 test/
@@ -159,9 +159,6 @@ The app can run without AI credentials. If you want AI generation / inspection e
 OPENAI_API_KEY=your_api_key
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4.1-mini
-
-# Optional: Monaco editor CDN path override
-VITE_MONACO_VS_PATH=
 ```
 
 You can place them in `.env.local`.
@@ -221,9 +218,9 @@ npm run preview                # Preview production build
 
 # Quality & Verification
 npm run lint                   # Run ESLint and stylelint
-npm run typecheck              # Full TypeScript check
+npm run typecheck              # Full TypeScript debt check, including tests
 npm run typecheck:quality      # TypeScript check excluding test/spec files
-npm run check                  # Run verify:fast (format, lint, typecheck, test, build)
+npm run check                  # Run verify:fast (format, lint, runtime typecheck, test, build)
 npm run verify:fast            # Fast verification (no fixture tests)
 npm run verify:full            # Full verification including fixture tests
 npm test                       # Run unit tests
@@ -278,12 +275,12 @@ Git hooks and hosted CI configuration are intentionally not required; run the qu
 
 `npm test` stays limited to repo-contained tests that do not require the external fixture corpora under `test/`.
 
-Node test entrypoints are centralized in `scripts/test/run-node-tests.mjs`. Unit tests should stay next to the source they cover under `src/**/*.test.*` or `src/**/*.spec.*`; use `npm run test:unit -- path/to/file.test.ts` for targeted validation and `npm run test:unit:all` when source-adjacent coverage matters more than fast feedback.
+Node test entrypoints are centralized in `scripts/test/runner/run-node-tests.mjs`. Unit tests should stay next to the source they cover under `src/**/*.test.*` or `src/**/*.spec.*`; use `npm run test:unit -- path/to/file.test.ts` for targeted validation and `npm run test:unit:all` when source-adjacent coverage matters more than fast feedback.
 
 Validation is typically done through:
 
 - targeted `npm run test:unit -- path/to/file.test.ts` runs next to the changed module
-- focused regression scripts under `scripts/regression/`
+- focused regression scripts under `scripts/test/`
 - `npm test` for the fast repo-contained lane used by `npm run verify:fast`
 - `npm run build`
 - package workspace builds when touching `src/lib` or `packages/react-robot-canvas`

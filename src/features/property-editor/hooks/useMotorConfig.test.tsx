@@ -103,7 +103,7 @@ function installDomEnvironment() {
 }
 
 function renderHook(options: Parameters<typeof useMotorConfig>[0]) {
-  let hookValue: ReturnType<typeof useMotorConfig> | null = null;
+  let hookValue: ReturnType<typeof useMotorConfig> | null = null as ReturnType<typeof useMotorConfig> | null;
   const container = document.createElement('div');
   document.body.appendChild(container);
 

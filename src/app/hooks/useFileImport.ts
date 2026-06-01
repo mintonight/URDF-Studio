@@ -45,6 +45,7 @@ import {
 import { primePreResolvedRobotImports } from '@/app/utils/preResolvedRobotImportCache';
 import { prewarmUsdSelectionInBackground } from '@/app/utils/usdSelectionPrewarm';
 import { markUnsavedChangesBaselineSaved } from '@/app/utils/unsavedChangesBaseline';
+import { waitForAnimationFrame } from '@/app/utils/waitForAnimationFrame';
 import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 import { logRegressionInfo } from '@/shared/debug/consoleDiagnostics';
 
@@ -104,7 +105,7 @@ async function createAssetUrls(
       options.yieldToBrowser &&
       (index + 1) % ASSET_URL_CREATION_YIELD_INTERVAL === 0
     ) {
-      await waitForNextPaint();
+      await waitForAnimationFrame();
     }
 
     if (
@@ -165,16 +166,6 @@ function pickPreparedPreferredFile(
     visibleFiles.find((file) => isLibraryPreviewableFile(file)) ??
     null
   );
-}
-
-function waitForNextPaint(): Promise<void> {
-  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve) => {
-    window.requestAnimationFrame(() => resolve());
-  });
 }
 
 function hydrateDeferredArchiveAssetsInBackground(
@@ -421,7 +412,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
 
         if (shouldShowPreparationOverlay) {
           setImportPreparationOverlay(createInitialImportPreparationOverlayState(t));
-          await waitForNextPaint();
+          await waitForAnimationFrame();
         }
 
         const existingImportPaths = [
@@ -644,7 +635,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
         // Yield to the browser so the library panel renders with the new assets
         // before the potentially heavy canvas loading begins.
         if (importStateMutated) {
-          await waitForNextPaint();
+          await waitForAnimationFrame();
         }
 
         if (visibleImportedFiles.length > 0) {

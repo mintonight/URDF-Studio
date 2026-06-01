@@ -1771,7 +1771,7 @@ test('prepareImportPayload logs XML probe exceptions without throwing from SDF p
     if (originalDomParser) {
       globalThis.DOMParser = originalDomParser;
     } else {
-      delete globalThis.DOMParser;
+      Reflect.deleteProperty(globalThis, 'DOMParser');
     }
   }
 });
@@ -2039,7 +2039,7 @@ test('prepareImportPayload pre-resolves standalone urdf imports for immediate lo
   assert.equal(result.preResolvedImports[0]?.format, 'urdf');
   assert.equal(
     result.preResolvedImports[0]?.contentSignature,
-    buildPreResolvedImportContentSignature(files[0]?.text ? await files[0].text() : ''),
+    buildPreResolvedImportContentSignature(await files[0]!.text()),
   );
   assert.equal(result.preResolvedImports[0]?.result.status, 'ready');
   if (result.preResolvedImports[0]?.result.status !== 'ready') {

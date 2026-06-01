@@ -1,0 +1,44 @@
+import type React from 'react';
+
+import type { HeaderAction } from './components/header/types';
+import type { ImportPreparationOverlayState } from './hooks/useFileImport';
+import type { RobotFile } from '@/types';
+
+export interface ProModeRoundtripSession {
+  baselineSnapshot: string;
+  generatedFileName: string | null;
+}
+
+export interface AppLayoutViewConfig {
+  showOptionsPanel: boolean;
+  showJointPanel: boolean;
+}
+
+export interface AppLayoutExposedActions {
+  openIkTool: () => void;
+  openCollisionOptimizer: () => void;
+  openTool: (key: string) => void;
+}
+
+export interface AppLayoutProps {
+  importInputRef: React.RefObject<HTMLInputElement | null>;
+  importFolderInputRef: React.RefObject<HTMLInputElement | null>;
+  onFileDrop: (files: File[]) => void;
+  onOpenExport: () => void;
+  onOpenLibraryExport: (file: RobotFile) => void;
+  onExportProject: () => void;
+  showToast: (message: string, type?: 'info' | 'success' | 'error') => void;
+  onOpenAIInspection: () => void;
+  onOpenAIConversation: () => void;
+  isCodeViewerOpen: boolean;
+  setIsCodeViewerOpen: (open: boolean) => void;
+  onOpenSettings: () => void;
+  headerQuickAction?: HeaderAction;
+  headerSecondaryAction?: HeaderAction;
+  viewConfig: AppLayoutViewConfig;
+  setViewConfig: React.Dispatch<React.SetStateAction<AppLayoutViewConfig>>;
+  onLoadRobot: (file: RobotFile, options?: { preserveAssemblyState?: boolean }) => void;
+  viewerReloadKey: number;
+  importPreparationOverlay?: ImportPreparationOverlayState | null;
+  onExposeLayoutActions?: (actions: AppLayoutExposedActions) => void;
+}

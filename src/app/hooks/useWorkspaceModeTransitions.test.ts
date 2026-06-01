@@ -52,7 +52,7 @@ function installDomEnvironment() {
 function renderWorkspaceModeTransitionsHook(
   options: Partial<Parameters<typeof useWorkspaceModeTransitions>[0]> = {},
 ) {
-  let hookValue: ReturnType<typeof useWorkspaceModeTransitions> | null = null;
+  let hookValue: ReturnType<typeof useWorkspaceModeTransitions> | null = null as ReturnType<typeof useWorkspaceModeTransitions> | null;
   const container = document.createElement('div');
   document.body.appendChild(container);
 
@@ -102,9 +102,10 @@ function renderWorkspaceModeTransitionsHook(
   });
 
   assert.ok(hookValue, 'hook should render');
+  const hook = hookValue as ReturnType<typeof useWorkspaceModeTransitions>;
 
   return {
-    hook: hookValue,
+    hook,
     cleanup() {
       flushSync(() => {
         root.unmount();

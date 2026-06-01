@@ -705,6 +705,7 @@ test('slider drag previews locally and only commits on pointer release', async (
   assert.ok(rangeInput, 'slider input should render');
 
   await act(async () => {
+    assert.ok(rangeInput);
     rangeInput.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     rangeInput.value = '0.5';
     rangeInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1111,11 +1112,12 @@ test('slider drag ignores transient external echoes until the drag finishes', as
 
   let rangeInput = container.querySelector('input[type="range"]') as HTMLInputElement | null;
   assert.ok(rangeInput, 'slider input should render');
+  const sliderInput = rangeInput;
 
   await act(async () => {
-    rangeInput.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    rangeInput.value = '0.5';
-    rangeInput.dispatchEvent(new Event('input', { bubbles: true }));
+    sliderInput.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    sliderInput.value = '0.5';
+    sliderInput.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
   await renderJointControlItem(root, {

@@ -279,7 +279,7 @@ async function loadReferenceMeshObject(
         return;
       }
 
-      resolve(result);
+      resolve(result!);
     });
   });
 }
@@ -982,7 +982,7 @@ test('prepareMjcfMeshExportAssets exports visual variants for native OBJ face-ma
   };
 
   const referenceObject = await loadReferenceMeshObject(meshPath, assets, robot);
-  let referenceMesh: THREE.Mesh | null = null;
+  let referenceMesh: THREE.Mesh | null = null as THREE.Mesh | null;
   referenceObject.traverse((child) => {
     if (!referenceMesh && (child as THREE.Mesh).isMesh) {
       referenceMesh = child as THREE.Mesh;

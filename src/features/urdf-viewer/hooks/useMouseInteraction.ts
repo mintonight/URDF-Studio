@@ -3,6 +3,7 @@ import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getJointActualAngleFromMotionAngle, resolveLinkKey, resolveJointKey } from '@/core/robot';
 import { throttle } from '@/shared/utils';
+import { requestShadowMapRefresh } from '@/shared/components/3d/scene/shadowMapRefresh';
 import type { JointPanelActiveJointOptions } from '@/shared/utils/jointPanelStore';
 import { JointType, type InteractionSelection, type UrdfJoint, type UrdfLink } from '@/types';
 import { THROTTLE_INTERVAL } from '../constants';
@@ -839,6 +840,7 @@ export function useMouseInteraction({
           dragJointRuntimeValueRef.current = newAngle;
           if (step.shouldApplyRuntimeUpdate) {
             dragJoint.current.setJointValue(newAngle);
+            requestShadowMapRefresh(gl);
           }
           jointDragStoreSync.emit(
             dragJoint.current.name,

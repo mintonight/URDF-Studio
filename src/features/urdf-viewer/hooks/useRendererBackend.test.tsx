@@ -151,7 +151,7 @@ const useR3fStore = create(() => ({
 }));
 
 function findFirstMesh(root: THREE.Object3D): THREE.Mesh {
-  let found: THREE.Mesh | null = null;
+  let found: THREE.Mesh | null = null as THREE.Mesh | null;
   root.traverse((child) => {
     if (!found && (child as THREE.Mesh).isMesh) {
       found = child as THREE.Mesh;

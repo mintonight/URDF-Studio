@@ -8,7 +8,7 @@ import { JSDOM } from 'jsdom';
 import { resolveRobotFileData } from '@/core/parsers/importRobotFile';
 import { useAssetsStore } from '@/store';
 import type { DocumentLoadState } from '@/store/assetsStore';
-import type { RobotFile } from '@/types';
+import type { RobotData, RobotFile } from '@/types';
 
 import { buildPreResolvedImportContentSignature } from '../utils/preResolvedImportSignature.ts';
 import {
@@ -136,7 +136,7 @@ function renderHook(options: {
   assemblyComponentFileNames?: ReadonlySet<string>;
   assets: Record<string, string>;
   availableFiles: RobotFile[];
-  getUsdPreparedExportCache: (path: string) => { robotData?: null } | null;
+  getUsdPreparedExportCache: (path: string) => { robotData?: RobotData } | null;
   handlePreviewFile: (file: RobotFile) => void;
   labels: {
     failedToParseFormat: string;
@@ -148,7 +148,7 @@ function renderHook(options: {
   setDocumentLoadState: (state: DocumentLoadState) => void;
   showToast: (message: string, type?: 'info' | 'success') => void;
 }) {
-  let hookValue: ReturnType<typeof usePreviewFileWithFeedback> | null = null;
+  let hookValue: ReturnType<typeof usePreviewFileWithFeedback> | null = null as ReturnType<typeof usePreviewFileWithFeedback> | null;
   const container = document.createElement('div');
   document.body.appendChild(container);
 

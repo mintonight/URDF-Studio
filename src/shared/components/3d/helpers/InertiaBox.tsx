@@ -59,7 +59,7 @@ export const InertiaBox = React.memo(
             transparent
             opacity={opacity}
             depthWrite={false}
-            depthTest={false}
+            depthTest
             shininess={isActive ? 80 : 50}
           />
         </mesh>
@@ -74,7 +74,7 @@ export const InertiaBox = React.memo(
             transparent
             opacity={hovered ? 0.95 : 0.7}
             depthWrite={false}
-            depthTest={false}
+            depthTest
           />
         </lineSegments>
       </group>

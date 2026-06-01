@@ -54,7 +54,21 @@ test('applyUnifiedHydraMaterialDefaults normalizes existing material settings', 
     assert.equal(material.toneMapped, false);
 });
 
-test('createHydraColorFromTuple interprets authored SRGB tuples consistently', () => {
+test('createHydraColorFromTuple treats authored scalar tuples as linear by default', () => {
+    const authoredTuple = [1, 0.5, 0.2];
+    const expected = new THREE.Color().setRGB(
+        authoredTuple[0],
+        authoredTuple[1],
+        authoredTuple[2],
+    );
+    const actual = createHydraColorFromTuple(authoredTuple);
+
+    assert.ok(Math.abs(actual.r - expected.r) <= 1e-6);
+    assert.ok(Math.abs(actual.g - expected.g) <= 1e-6);
+    assert.ok(Math.abs(actual.b - expected.b) <= 1e-6);
+});
+
+test('createHydraColorFromTuple interprets explicit SRGB tuples consistently', () => {
     const authoredTuple = [1, 0.5, 0.2];
     const expected = new THREE.Color().setRGB(
         authoredTuple[0],

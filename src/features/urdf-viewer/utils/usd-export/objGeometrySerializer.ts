@@ -713,6 +713,7 @@ function serializeAsOBJ(ctx: ObjBuildContext): { blob: Blob; bytes: Uint8Array }
     return String(vertexIndex);
   };
 
+  let wroteFace = false;
   for (let index = 0; index + 2 < triangleIndices.length; index += 3) {
     const a = readRangeNumber(triangleIndices, index) + 1;
     const b = readRangeNumber(triangleIndices, index + 1) + 1;
@@ -737,9 +738,10 @@ function serializeAsOBJ(ctx: ObjBuildContext): { blob: Blob; bytes: Uint8Array }
         normalIndexes[1],
       )} ${formatObjFaceVertex(c, uvIndexes[2], normalIndexes[2])}`,
     );
+    wroteFace = true;
   }
 
-  if (!lines.some((line) => line.startsWith('f '))) {
+  if (!wroteFace) {
     return null;
   }
 
@@ -747,7 +749,7 @@ function serializeAsOBJ(ctx: ObjBuildContext): { blob: Blob; bytes: Uint8Array }
   const bytes = new TextEncoder().encode(objText);
 
   return {
-    blob: new Blob([objText], { type: 'text/plain;charset=utf-8' }),
+    blob: new Blob([bytes], { type: 'text/plain;charset=utf-8' }),
     bytes,
   };
 }

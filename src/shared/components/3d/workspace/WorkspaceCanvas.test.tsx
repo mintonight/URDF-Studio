@@ -107,8 +107,8 @@ test('WorkspaceCanvas keeps canvas resize responsive during sidebar drags', () =
 });
 
 test('scheduleWorkspaceCanvasResizeEvent dispatches resize on the next animation frame', () => {
-  let frameCallback: FrameRequestCallback | null = null;
-  let dispatchedEventType: string | null = null;
+  let frameCallback: FrameRequestCallback | null = null as FrameRequestCallback | null;
+  let dispatchedEventType: string | null = null as string | null;
 
   const frameId = scheduleWorkspaceCanvasResizeEvent({
     requestAnimationFrame: (callback) => {

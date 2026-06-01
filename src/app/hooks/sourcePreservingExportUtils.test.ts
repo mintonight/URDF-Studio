@@ -7,18 +7,39 @@ import {
   generateSDF,
   generateURDF,
   injectGazeboTags,
-  parseMJCF,
-  parseSDF,
-  parseURDF,
-  parseXacro,
+  parseMJCF as parseNullableMJCF,
+  parseSDF as parseNullableSDF,
+  parseURDF as parseNullableURDF,
+  parseXacro as parseNullableXacro,
 } from '@/core/parsers';
 import { processMJCFIncludes } from '@/core/parsers/mjcf/mjcfSourceResolver';
-import { GeometryType } from '@/types';
+import { GeometryType, type RobotState } from '@/types';
 import { resolveSourcePreservingExportContent } from './sourcePreservingExportUtils.ts';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
 globalThis.XMLSerializer = dom.window.XMLSerializer as typeof XMLSerializer;
+
+function requireParsed<T>(value: T | null, label: string): T {
+  assert.ok(value, label);
+  return value;
+}
+
+function parseMJCF(source: string): RobotState {
+  return requireParsed(parseNullableMJCF(source), 'expected MJCF source to parse');
+}
+
+function parseSDF(...args: Parameters<typeof parseNullableSDF>): RobotState {
+  return requireParsed(parseNullableSDF(...args), 'expected SDF source to parse');
+}
+
+function parseURDF(source: string): RobotState {
+  return requireParsed(parseNullableURDF(source), 'expected URDF source to parse');
+}
+
+function parseXacro(...args: Parameters<typeof parseNullableXacro>): RobotState {
+  return requireParsed(parseNullableXacro(...args), 'expected Xacro source to parse');
+}
 
 const URDF_SOURCE = `<?xml version="1.0"?>
 <robot name="demo">
@@ -41,6 +62,7 @@ const URDF_SOURCE = `<?xml version="1.0"?>
 
 test('resolveSourcePreservingExportContent patches URDF from RobotState while preserving untouched source text', () => {
   const robot = parseURDF(URDF_SOURCE);
+  assert.ok(robot.joints.tool_joint.limit);
   robot.joints.tool_joint.limit = {
     ...robot.joints.tool_joint.limit,
     upper: 2,
@@ -268,7 +290,7 @@ test('resolveSourcePreservingExportContent patches concrete Xacro elements and k
     '<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="demo">\n  <xacro:property name="prefix" value="" />',
   );
   const robot = parseXacro(source, {}, { 'robots/demo.urdf.xacro': source }, 'robots');
-  assert.ok(robot);
+  assert.ok(robot.joints.tool_joint.limit);
   robot.joints.tool_joint.limit = {
     ...robot.joints.tool_joint.limit,
     upper: 4,

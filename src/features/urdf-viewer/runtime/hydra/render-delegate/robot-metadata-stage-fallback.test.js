@@ -353,6 +353,7 @@ test('getStageMetadataLayerTexts stops reopening identical relative-path layer t
 test('stage text helper parsing skips large base layers before exporting their text', () => {
     const delegate = Object.create(ThreeRenderDelegateCore.prototype);
     delegate.stageSourcePath = '/robots/two_link_robot.usd';
+    delegate._robotSceneSnapshotByStageSource = new Map();
     delegate._guideCollisionRefMapByStageSource = new Map();
     delegate._stageLayerTextParseCacheByStageSource = new Map();
     let exportedBaseLayer = false;
@@ -388,6 +389,7 @@ test('stage text helper parsing skips large base layers before exporting their t
 test('stage text helper parsing reuses cached layer text across helper lookups', () => {
     const delegate = Object.create(ThreeRenderDelegateCore.prototype);
     delegate.stageSourcePath = '/robots/cached_stage.usd';
+    delegate._robotSceneSnapshotByStageSource = new Map();
     delegate._guideCollisionRefMapByStageSource = new Map();
     delegate._visualSemanticChildMapByStageSource = new Map();
     delegate._xformOpFallbackMapByStageSource = new Map();
@@ -735,6 +737,106 @@ test('buildRobotMetadataSnapshotForStage seeds helper links from driver joint re
         ]);
         assert.ok(snapshot.linkParentPairs.some(([childPath, parentPath]) => childPath === '/Robot/base_link/imu_link' && parentPath === '/Robot/base_link'));
         assert.ok(snapshot.jointCatalogEntries.some((entry) => entry.linkPath === '/Robot/base_link/imu_link'));
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});
+
+test('buildRobotMetadataSnapshotForStage seeds meshless physics links from stage text before driver snapshot build', () => {
+    const previousWindow = globalThis.window;
+    let receivedSortedLinkPaths = null;
+    globalThis.window = {
+        driver: {
+            GetRootLayerText() {
+                return `#usda 1.0
+def Xform "Robot"
+{
+    over "base_link"
+    {
+        over "rotor" (
+            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+        )
+        {
+            float physics:mass = 0.089
+            float3 physics:centerOfMass = (0, 0, 0)
+            float3 physics:diagonalInertia = (0.00006, 0.000112, 0.00006)
+            quatf physics:principalAxes = (1, 0, 0, 0)
+        }
+    }
+}
+
+def Scope "joints"
+{
+    def PhysicsFixedJoint "rotor_joint"
+    {
+        rel physics:body0 = </Robot/base_link>
+        rel physics:body1 = </Robot/base_link/rotor>
+        custom string urdf:jointType = "fixed"
+        point3f physics:localPos0 = (0, -0.03235, 0)
+        point3f physics:localPos1 = (0, 0, 0)
+        quatf physics:localRot0 = (1, 0, 0, 0)
+        quatf physics:localRot1 = (1, 0, 0, 0)
+    }
+}
+`;
+            },
+            GetPhysicsJointRecords() {
+                return [];
+            },
+            GetPhysicsLinkDynamicsRecords() {
+                return [];
+            },
+            GetRobotMetadataSnapshot(sortedLinkPaths, stageSourcePath) {
+                receivedSortedLinkPaths = Array.from(sortedLinkPaths || []);
+                assert.equal(stageSourcePath, '/robots/meshless_stage_text_links.usd');
+                return {
+                    stageSourcePath,
+                    source: 'usd-stage-cpp',
+                    linkParentPairs: [
+                        ['/Robot/base_link', null],
+                        ['/Robot/base_link/rotor', '/Robot/base_link'],
+                    ],
+                    jointCatalogEntries: [{
+                        jointPath: '/Robot/joints/rotor_joint',
+                        jointName: 'rotor_joint',
+                        jointTypeName: 'PhysicsFixedJoint',
+                        linkPath: '/Robot/base_link/rotor',
+                        parentLinkPath: '/Robot/base_link',
+                    }],
+                    linkDynamicsEntries: [{
+                        linkPath: '/Robot/base_link/rotor',
+                        mass: 0.089,
+                        centerOfMassLocal: [0, 0, 0],
+                        diagonalInertia: [0.00006, 0.000112, 0.00006],
+                        principalAxesLocalWxyz: [1, 0, 0, 0],
+                    }],
+                    meshCountsByLinkPath: {},
+                };
+            },
+        },
+    };
+
+    try {
+        const delegate = Object.create(ThreeRenderDelegateCore.prototype);
+        delegate.meshes = {
+            '/Robot/base_link/visuals.proto_mesh_id0': {},
+        };
+        delegate._protoMeshMetadataByMeshId = new Map();
+        delegate._robotMetadataSnapshotByStageSource = new Map();
+        delegate._robotMetadataBuildPromisesByStageSource = new Map();
+        delegate._nowPerfMs = () => 1234;
+        delegate.getNormalizedStageSourcePath = () => '/robots/meshless_stage_text_links.usd';
+        delegate.getStage = () => null;
+
+        const snapshot = delegate.buildRobotMetadataSnapshotForStage('/robots/meshless_stage_text_links.usd', null);
+        assert.ok(snapshot);
+        assert.deepEqual(receivedSortedLinkPaths, [
+            '/Robot/base_link',
+            '/Robot/base_link/rotor',
+        ]);
+        assert.ok(snapshot.jointCatalogEntries.some((entry) => entry.linkPath === '/Robot/base_link/rotor'));
+        assert.ok(snapshot.linkDynamicsEntries.some((entry) => entry.linkPath === '/Robot/base_link/rotor' && entry.mass === 0.089));
     }
     finally {
         globalThis.window = previousWindow;

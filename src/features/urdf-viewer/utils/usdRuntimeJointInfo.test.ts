@@ -9,7 +9,7 @@ import {
 } from './usdRuntimeJointInfo';
 
 function assertClose(actual: number | undefined, expected: number) {
-  assert.equal(typeof actual, 'number');
+  assert.ok(actual !== undefined);
   assert.ok(Math.abs(actual - expected) < 1e-9);
 }
 

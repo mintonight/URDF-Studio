@@ -158,7 +158,7 @@ function resetStoresToBaseline() {
 }
 
 function renderHook() {
-  let hookValue: ReturnType<typeof useUnsavedChangesPrompt> | null = null;
+  let hookValue: ReturnType<typeof useUnsavedChangesPrompt> | null = null as ReturnType<typeof useUnsavedChangesPrompt> | null;
   const container = document.createElement('div');
   document.body.appendChild(container);
 

@@ -148,9 +148,6 @@ OPENAI_MODEL=gpt-4.1-mini
 
 # 当前 Vite define shim 也支持这个备选键
 GEMINI_API_KEY=
-
-# 可选：覆盖 Monaco 静态资源路径
-VITE_MONACO_VS_PATH=
 ```
 
 可以放到 `.env.local` 中。
@@ -212,7 +209,7 @@ npm run sdf:compare
 
 # 回归脚本
 npm run regression:shadow-hand-hover
-npx tsx scripts/regression/validate_unitree_model_roundtrip_archive.ts
+npm run test:fixtures:unitree-usd
 
 # Codex 韧性 / key-router 工具
 npm run codex:retry
@@ -241,7 +238,7 @@ Git hooks 和托管 CI 配置不是运行项目的必要条件；共享改动前
 通常通过以下方式完成验证：
 
 - 在改动模块旁边运行定向 `node --test` / `npx tsx --test`
-- 运行 `scripts/regression/` 下的定向回归脚本
+- 运行 `scripts/test/` 下的定向回归脚本
 - 使用 `npm test` 跑 `npm run verify:fast` 采用的仓库内快速测试
 - 执行 `npm run build`
 - 如果改动了 `src/lib` 或 `packages/react-robot-canvas`，补跑包构建

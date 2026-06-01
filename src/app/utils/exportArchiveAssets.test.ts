@@ -1,14 +1,117 @@
-import test from 'node:test';
+import test, { afterEach, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import JSZip from 'jszip';
 
 import { DEFAULT_LINK, GeometryType, type RobotState } from '@/types';
 
 import { addRobotAssetsToZip, collectRobotAssetReferences } from './exportArchiveAssets.ts';
+import { disposeExportArchiveAssetsWorker } from './exportArchiveAssetsWorkerBridge.ts';
+import type {
+  ExportArchiveAssetsWorkerResponse,
+  PrepareExportArchiveAssetsWorkerRequest,
+} from './exportArchiveAssetsWorker.ts';
+import {
+  hydratePrepareExportArchiveAssetsArgsFromWorker,
+  prepareExportArchiveAssets,
+} from './exportArchiveAssetsWorker.ts';
 
 function createDataUrl(content: string, mimeType = 'text/plain'): string {
   return `data:${mimeType};base64,${Buffer.from(content).toString('base64')}`;
 }
+
+type FakeWorkerEventHandler = (event: { data?: unknown; error?: unknown; message?: string }) => void;
+
+class FakeExportArchiveAssetsWorker {
+  private readonly listeners = new Map<string, Set<FakeWorkerEventHandler>>();
+
+  public readonly postedMessages: unknown[] = [];
+
+  public terminated = false;
+
+  addEventListener(type: string, handler: FakeWorkerEventHandler): void {
+    const handlers = this.listeners.get(type) ?? new Set<FakeWorkerEventHandler>();
+    handlers.add(handler);
+    this.listeners.set(type, handlers);
+  }
+
+  removeEventListener(type: string, handler: FakeWorkerEventHandler): void {
+    this.listeners.get(type)?.delete(handler);
+  }
+
+  postMessage(message: unknown, _transfer?: Transferable[]): void {
+    this.postedMessages.push(message);
+  }
+
+  terminate(): void {
+    this.terminated = true;
+  }
+
+  protected emitMessage(message: ExportArchiveAssetsWorkerResponse): void {
+    this.listeners.get('message')?.forEach((handler) => {
+      handler({ data: message });
+    });
+  }
+}
+
+let workerInstances: FakeExportArchiveAssetsWorker[] = [];
+const originalWorker = globalThis.Worker;
+
+class InlinePreparationWorkerFake extends FakeExportArchiveAssetsWorker {
+  constructor() {
+    super();
+    workerInstances.push(this);
+  }
+
+  override postMessage(message: unknown, transfer?: Transferable[]): void {
+    super.postMessage(message, transfer);
+    const request = message as PrepareExportArchiveAssetsWorkerRequest;
+
+    queueMicrotask(() => {
+      void (async () => {
+        try {
+          const result = await prepareExportArchiveAssets(
+            hydratePrepareExportArchiveAssetsArgsFromWorker(request.payload, (progress) => {
+              this.emitMessage({
+                type: 'prepare-export-archive-assets-progress',
+                requestId: request.requestId,
+                progress,
+              });
+            }),
+          );
+          this.emitMessage({
+            type: 'prepare-export-archive-assets-result',
+            requestId: request.requestId,
+            result,
+          });
+        } catch (error) {
+          this.emitMessage({
+            type: 'prepare-export-archive-assets-error',
+            requestId: request.requestId,
+            error: error instanceof Error ? error.message : 'worker failed',
+          });
+        }
+      })();
+    });
+  }
+}
+
+beforeEach(() => {
+  workerInstances = [];
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: InlinePreparationWorkerFake,
+  });
+});
+
+afterEach(() => {
+  disposeExportArchiveAssetsWorker();
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: originalWorker,
+  });
+});
 
 test('collectRobotAssetReferences includes both mesh and texture dependencies', () => {
   const robot: RobotState = {
@@ -60,6 +163,128 @@ test('collectRobotAssetReferences includes both mesh and texture dependencies', 
     'package://demo/textures/body/coat.png',
     'package://demo/textures/body/secondary.png',
   ]);
+});
+
+test('addRobotAssetsToZip writes asset files prepared by the worker', async () => {
+  const robot: RobotState = {
+    name: 'worker_asset_zip',
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          meshPath: 'package://demo/meshes/base.stl',
+          dimensions: { x: 1, y: 1, z: 1 },
+        },
+      },
+    },
+    joints: {},
+    materials: {
+      base_link: {
+        texture: 'package://demo/textures/body/coat.png',
+      },
+    },
+  };
+  const progressEvents: string[] = [];
+  const zip = new JSZip();
+  const result = await addRobotAssetsToZip({
+    robot,
+    zip,
+    assets: {
+      'package://demo/meshes/base.stl': createDataUrl('solid worker\nendsolid worker', 'model/stl'),
+      'package://demo/textures/body/coat.png': createDataUrl('worker-texture', 'image/png'),
+    },
+    onProgress: ({ completed, currentFile }) => {
+      progressEvents.push(`${completed}:${currentFile}`);
+    },
+  });
+
+  assert.equal(workerInstances.length, 1);
+  assert.equal(result.failedAssets.length, 0);
+  assert.equal(result.totalTasks, 2);
+  assert.equal(result.completedTasks, 2);
+  assert.equal(progressEvents[0], '0:');
+  assert.ok(progressEvents.includes('1:base.stl') || progressEvents.includes('2:base.stl'));
+  assert.ok(
+    progressEvents.includes('1:body/coat.png') ||
+      progressEvents.includes('2:body/coat.png'),
+  );
+
+  const postedRequest =
+    workerInstances[0]?.postedMessages[0] as PrepareExportArchiveAssetsWorkerRequest;
+  assert.equal(postedRequest.type, 'prepare-export-archive-assets');
+  assert.equal(postedRequest.payload.robot.name, 'worker_asset_zip');
+
+  const roundtripZip = await JSZip.loadAsync(await zip.generateAsync({ type: 'uint8array' }));
+  assert.match(await roundtripZip.file('meshes/base.stl')!.async('string'), /solid worker/);
+  assert.equal(
+    await roundtripZip.file('textures/body/coat.png')!.async('string'),
+    'worker-texture',
+  );
+});
+
+test('addRobotAssetsToZip rejects when the worker reports an error', async () => {
+  class WorkerErrorFake extends FakeExportArchiveAssetsWorker {
+    override postMessage(message: unknown, transfer?: Transferable[]): void {
+      super.postMessage(message, transfer);
+      const request = message as PrepareExportArchiveAssetsWorkerRequest;
+
+      queueMicrotask(() => {
+        this.emitMessage({
+          type: 'prepare-export-archive-assets-error',
+          requestId: request.requestId,
+          error: 'worker failed',
+        });
+      });
+    }
+  }
+
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: WorkerErrorFake,
+  });
+
+  const robot: RobotState = {
+    name: 'worker_required_zip',
+    rootLinkId: 'base_link',
+    selection: { type: null, id: null },
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          meshPath: 'package://demo/meshes/base.stl',
+          dimensions: { x: 1, y: 1, z: 1 },
+        },
+      },
+    },
+    joints: {},
+    materials: {},
+  };
+  const zip = new JSZip();
+
+  await assert.rejects(
+    addRobotAssetsToZip({
+      robot,
+      zip,
+      assets: {
+        'package://demo/meshes/base.stl': createDataUrl('solid inline\nendsolid inline', 'model/stl'),
+      },
+    }),
+    /worker failed/,
+  );
+
+  const roundtripZip = await JSZip.loadAsync(await zip.generateAsync({ type: 'uint8array' }));
+  assert.equal(roundtripZip.file('meshes/base.stl'), null);
 });
 
 test('addRobotAssetsToZip packages texture assets alongside meshes for roundtrip exports', async () => {

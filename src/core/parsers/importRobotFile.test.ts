@@ -550,7 +550,7 @@ test('resolveRobotFileData returns a parse error when XML parser APIs are unavai
   const previousDomParser = globalThis.DOMParser;
 
   try {
-    delete globalThis.DOMParser;
+    Reflect.deleteProperty(globalThis, 'DOMParser');
 
     const result = resolveRobotFileData(createSdfFile());
     assert.equal(result.status, 'error');

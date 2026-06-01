@@ -37,7 +37,7 @@ test('resolves the global export handler before renderInterface fallback', async
 });
 
 test('exports a USD stage snapshot without persisting to the server', async () => {
-  let receivedOptions: Record<string, unknown> | null = null;
+  let receivedOptions: Record<string, unknown> | null = null as Record<string, unknown> | null;
   const payload = await exportUsdStageSnapshot({
     stageSourcePath: '/robots/go2/go2.usd',
     targetWindow: {
@@ -64,7 +64,7 @@ test('exports a USD stage snapshot without persisting to the server', async () =
 });
 
 test('passes persistToServer through to the export bridge when requested', async () => {
-  let receivedOptions: Record<string, unknown> | null = null;
+  let receivedOptions: Record<string, unknown> | null = null as Record<string, unknown> | null;
 
   await exportUsdStageSnapshot({
     stageSourcePath: '/robots/go2/go2.usd',
@@ -87,7 +87,7 @@ test('passes persistToServer through to the export bridge when requested', async
 });
 
 test('normalizes bare stage source paths before invoking the export bridge', async () => {
-  let receivedOptions: Record<string, unknown> | null = null;
+  let receivedOptions: Record<string, unknown> | null = null as Record<string, unknown> | null;
 
   await exportUsdStageSnapshot({
     stageSourcePath: 'robots/b2/b2.usd',

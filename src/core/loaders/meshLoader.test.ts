@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { JSDOM } from 'jsdom';
 import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
 
-import { parseURDF } from '@/core/parsers/urdf/parser';
+import { parseURDF as parseNullableURDF } from '@/core/parsers/urdf/parser';
+import type { RobotState } from '@/types';
 
 import {
   buildColladaRootNormalizationHints,
@@ -37,6 +38,12 @@ globalThis.HTMLElement = dom.window.HTMLElement as typeof HTMLElement;
 globalThis.Image = dom.window.Image as typeof Image;
 globalThis.XMLSerializer = dom.window.XMLSerializer as typeof XMLSerializer;
 globalThis.ProgressEvent = dom.window.ProgressEvent as typeof ProgressEvent;
+
+function parseURDF(source: string): RobotState {
+  const robot = parseNullableURDF(source);
+  assert.ok(robot, 'expected URDF source to parse');
+  return robot;
+}
 
 test('createMeshLoader exposes unresolved visual meshes as errors instead of placeholders', async () => {
   const manager = new THREE.LoadingManager();
@@ -141,7 +148,7 @@ function getFirstRenderable(object: THREE.Object3D): THREE.Object3D {
 }
 
 function getFirstMesh(object: THREE.Object3D): THREE.Mesh {
-  let found: THREE.Mesh | null = null;
+  let found: THREE.Mesh | null = null as THREE.Mesh | null;
   object.traverse((child) => {
     if (!found && (child as THREE.Mesh).isMesh) {
       found = child as THREE.Mesh;
@@ -320,7 +327,7 @@ test('createMeshLoader loads legacy MuJoCo msh assets', async () => {
         return;
       }
 
-      resolve(result);
+      resolve(result!);
     });
   });
 
@@ -375,7 +382,7 @@ test('createMeshLoader loads PLY mesh assets with vertex colors', async () => {
         return;
       }
 
-      resolve(result);
+      resolve(result!);
     });
   });
 
@@ -429,7 +436,7 @@ test('createMeshLoader reuses parsed STL assets for concurrent duplicate request
           return;
         }
 
-        resolve(result);
+        resolve(result!);
       });
     });
 
@@ -498,7 +505,7 @@ test('createMeshLoader honors a custom yield controller without forcing animatio
           return;
         }
 
-        resolve(result);
+        resolve(result!);
       });
     });
 
@@ -555,7 +562,7 @@ test('createMeshLoader reuses parsed OBJ assets for concurrent duplicate request
           return;
         }
 
-        resolve(result);
+        resolve(result!);
       });
     });
 
@@ -627,7 +634,7 @@ test('createMeshLoader yields around OBJ worker results before creating render o
           return;
         }
 
-        resolve(result);
+        resolve(result!);
       });
     });
 
@@ -677,7 +684,7 @@ test('createMeshLoader preserves MTL-authored OBJ materials', async () => {
           return;
         }
 
-        resolve(result);
+        resolve(result!);
       });
     });
 
@@ -732,7 +739,7 @@ test('createMeshLoader treats missing OBJ mtllib sidecars as optional under mana
             return;
           }
 
-          resolve(result);
+          resolve(result!);
         },
       );
     });
@@ -867,7 +874,7 @@ test('createMeshLoader keeps large Cessna Collada meshes at authored meter scale
           return;
         }
 
-        resolve(result);
+        resolve(result!);
       });
     });
 
@@ -928,7 +935,7 @@ test('createMeshLoader respects declared Collada unit metadata across common Gaz
             return;
           }
 
-          resolve(result);
+          resolve(result!);
         });
       });
 
@@ -1019,7 +1026,7 @@ test('createMeshLoader keeps the legacy auto-unit heuristic for large Collada as
           return;
         }
 
-        resolve(result);
+        resolve(result!);
       });
     });
 
@@ -1071,7 +1078,7 @@ test('createMeshLoader normalizes go2 Collada scene roots for unitree DAE assets
         return;
       }
 
-      resolve(result);
+      resolve(result!);
     });
   });
 
@@ -1114,7 +1121,7 @@ test('createMeshLoader normalizes go2 Collada scene roots for exported zip mesh 
         return;
       }
 
-      resolve(result);
+      resolve(result!);
     });
   });
 
@@ -1156,7 +1163,7 @@ test('createMeshLoader keeps b2w Collada package meshes in Z-up robot space', as
         return;
       }
 
-      resolve(result);
+      resolve(result!);
     });
   });
 
@@ -1198,7 +1205,7 @@ test('createMeshLoader keeps b2 Collada package meshes in Z-up robot space', asy
         return;
       }
 
-      resolve(result);
+      resolve(result!);
     });
   });
 
@@ -1240,7 +1247,7 @@ test('createMeshLoader offsets coplanar b2 base_link Collada materials', async (
         return;
       }
 
-      resolve(result);
+      resolve(result!);
     });
   });
 
@@ -1298,7 +1305,7 @@ test('createMeshLoader offsets near-coplanar shell materials in b2 calf.dae', as
         return;
       }
 
-      resolve(result);
+      resolve(result!);
     });
   });
 
@@ -1370,7 +1377,7 @@ test('createMeshLoader keeps the b2 RR_thigh silicone shell ahead of the aluminu
         return;
       }
 
-      resolve(result);
+      resolve(result!);
     });
   });
 
@@ -1677,7 +1684,7 @@ test('createMeshLoader loads Romeo local .mesh references through imported visua
           return;
         }
 
-        resolve(result);
+        resolve(result!);
       },
     );
   });
@@ -1793,7 +1800,7 @@ test('createMeshLoader keeps b2w rear hip mesh selection stable when generic hip
           return;
         }
 
-        resolve(result);
+        resolve(result!);
       });
     });
 

@@ -9,6 +9,26 @@ export interface SerializedMshGeometryData {
   maxDimension: number | null;
 }
 
+export function cloneSerializedMshGeometryData(
+  data: SerializedMshGeometryData,
+): SerializedMshGeometryData {
+  return {
+    positions: data.positions.slice(0),
+    normals: data.normals ? data.normals.slice(0) : null,
+    uvs: data.uvs ? data.uvs.slice(0) : null,
+    indices: data.indices ? data.indices.slice(0) : null,
+    maxDimension: data.maxDimension,
+  };
+}
+
+export function collectSerializedMshTransferables(
+  data: SerializedMshGeometryData,
+): Transferable[] {
+  return [data.positions, data.normals, data.uvs, data.indices].filter(
+    (value): value is ArrayBuffer => value instanceof ArrayBuffer,
+  );
+}
+
 function cloneBufferSlice(
   buffer: ArrayBuffer,
   byteOffset: number,

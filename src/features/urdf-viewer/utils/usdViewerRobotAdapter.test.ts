@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { GeometryType, JointType } from '../../../types/index.ts';
+import { DEFAULT_LINK, GeometryType, JointType } from '../../../types/index.ts';
 import { adaptUsdViewerSnapshotToRobotData } from './usdViewerRobotAdapter';
 
 test('adapts usd-viewer robot scene snapshot into URDF Studio RobotData', () => {
@@ -122,6 +122,11 @@ test('adapts usd-viewer robot scene snapshot into URDF Studio RobotData', () => 
   assert.equal(baseLink.visual.meshPath, undefined);
   assert.equal(baseLink.collision.type, GeometryType.BOX);
   assert.deepEqual(baseLink.collision.dimensions, { x: 0.4, y: 0.5, z: 0.6 });
+  assert.equal(
+    baseLink.inertial.mass,
+    0,
+    'USD links without authored MassAPI should not inherit the editor default mass',
+  );
   assert.equal(link1.collision.type, GeometryType.CAPSULE);
   assert.deepEqual(link1.collision.dimensions, { x: 0.1, y: 0.8, z: 0 });
   assert.equal(link1.visual.meshPath, undefined);
@@ -129,6 +134,7 @@ test('adapts usd-viewer robot scene snapshot into URDF Studio RobotData', () => 
   assert.equal(link1.collisionBodies?.length, 1);
   assert.deepEqual(link1.collisionBodies?.[0]?.dimensions, { x: 0.15, y: 1.0, z: 0 });
   assert.equal(link1.collisionBodies?.[0]?.meshPath, undefined);
+  assert.ok(link1.inertial);
   assert.equal(link1.inertial.mass, 1.25);
   assert.deepEqual(link1.inertial.origin?.xyz, { x: 0.1, y: 0.2, z: 0.3 });
   assert.ok(Math.abs((link1.inertial.origin?.rpy.y || 0) - Math.PI / 2) < 1e-6);
@@ -149,6 +155,7 @@ test('adapts usd-viewer robot scene snapshot into URDF Studio RobotData', () => 
   assert.equal(joint.parentLinkId, 'base_link');
   assert.equal(joint.childLinkId, 'link1');
   assert.deepEqual(joint.axis, { x: 0, y: 0, z: -1 });
+  assert.ok(joint.limit);
   assert.equal(joint.limit.lower, -Math.PI / 2);
   assert.equal(joint.limit.upper, Math.PI / 2);
   assert.ok(Math.abs((joint.angle ?? Number.NaN) - Math.PI / 6) < 1e-6);
@@ -709,7 +716,7 @@ test('preserves multiple authored materials when one USD visual scope emits mult
   );
 
   assert.ok(result);
-  assert.equal(result.robotData.links.base_link.visual.color, undefined);
+  assert.equal(result.robotData.links.base_link.visual.color, DEFAULT_LINK.visual.color);
   assert.equal(result.robotData.links.base_link.visual.materialSource, 'named');
   assert.deepEqual(
     result.robotData.links.base_link.visual.authoredMaterials?.map((material) => material.color),
@@ -775,7 +782,7 @@ test('preserves multiple authored materials from USD geom subset sections on a s
   );
 
   assert.ok(result);
-  assert.equal(result.robotData.links.base_link.visual.color, undefined);
+  assert.equal(result.robotData.links.base_link.visual.color, DEFAULT_LINK.visual.color);
   assert.equal(result.robotData.links.base_link.visual.materialSource, 'named');
   assert.deepEqual(
     result.robotData.links.base_link.visual.authoredMaterials?.map((material) => material.color),
@@ -878,6 +885,7 @@ test('does not preserve disabled OmniPBR default white emission as authored USD 
             isOmniPbr: true,
             emissiveEnabled: false,
             colorSpace: 'srgb',
+            colorSource: 'authored',
             emissiveColorSpace: 'srgb',
             color: [0, 0, 0],
             emissive: [1, 1, 1],
@@ -889,8 +897,9 @@ test('does not preserve disabled OmniPBR default white emission as authored USD 
             isOmniPbr: true,
             emissiveEnabled: false,
             colorSpace: 'srgb',
+            colorSource: 'authored',
             emissiveColorSpace: 'srgb',
-            color: [0.003, 0.003, 0.003],
+            color: [0.002853, 0.002853, 0.002853],
             emissive: [1, 1, 1],
             emissiveIntensity: 10000,
           },
@@ -911,7 +920,7 @@ test('does not preserve disabled OmniPBR default white emission as authored USD 
     })),
     [
       { color: '#000000', emissive: undefined, emissiveIntensity: undefined },
-      { color: '#010101', emissive: undefined, emissiveIntensity: undefined },
+      { color: '#090909', emissive: undefined, emissiveIntensity: undefined },
     ],
   );
 });

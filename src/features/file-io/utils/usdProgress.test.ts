@@ -89,7 +89,7 @@ test('yieldToMainThread returns immediately inside a worker scope', async () => 
         callback();
       }
       return 1 as unknown as ReturnType<typeof setTimeout>;
-    }) as typeof globalThis.setTimeout;
+    }) as unknown as typeof globalThis.setTimeout;
 
     await yieldToMainThread();
 

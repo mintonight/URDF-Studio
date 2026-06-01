@@ -4,7 +4,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import type { Object3D } from 'three';
 
-import { DEFAULT_JOINT, DEFAULT_LINK, JointType, type RobotData } from '@/types';
+import { DEFAULT_JOINT, DEFAULT_LINK, GeometryType, JointType, type RobotData } from '@/types';
 import { ThreeJsBackend, resolveThreeJsBackendSourceFileDirectory } from './ThreeJsBackend';
 
 const rendererSourceDirUrl = new URL('./', import.meta.url);
@@ -75,6 +75,16 @@ function getRuntimeJointValue(robot: Object3D | null, jointId: string): number {
     jointId
   ];
   return joint?.jointValue?.[0] ?? Number.NaN;
+}
+
+function countRuntimeCollisionGroups(robot: Object3D | null): number {
+  let count = 0;
+  robot?.traverse((child) => {
+    if ((child as { isURDFCollider?: boolean }).isURDFCollider === true) {
+      count += 1;
+    }
+  });
+  return count;
 }
 
 test('resolveThreeJsBackendSourceFileDirectory falls back to RobotFile name for virtual sources', () => {
@@ -165,6 +175,65 @@ test('ThreeJsBackend waits for external URDF meshes before returning the pick ma
   assert.equal(visualMeshes.length, 1);
   assert.equal(visualMeshes[0].userData.parentLinkName, 'base_link');
   assert.equal(visualMeshes[0].userData.isVisualMesh, true);
+});
+
+test('ThreeJsBackend skips collision geometry when collision display is disabled', async () => {
+  const robotData: RobotData = {
+    name: 'collision_parse_robot',
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#f2f0e8',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collision: {
+          type: GeometryType.BOX,
+          dimensions: { x: 2, y: 2, z: 2 },
+          color: '#ef4444',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+      },
+    },
+    joints: {},
+  };
+  const sourceFile = {
+    id: 'collision-parse.urdf',
+    name: 'collision-parse.urdf',
+    content: '<robot name="collision_parse_robot" />',
+    format: 'urdf' as const,
+  };
+
+  const hiddenCollisionBackend = new ThreeJsBackend(sourceFile, {});
+  const hiddenCollisionScene = await hiddenCollisionBackend.load({
+    sourceFile,
+    assets: {},
+    robotData,
+    showVisual: true,
+    showCollision: false,
+    showCollisionAlwaysOnTop: true,
+  });
+
+  assert.equal(hiddenCollisionScene.linkMeshMap.get('base_link:collision'), undefined);
+  assert.equal(countRuntimeCollisionGroups(hiddenCollisionScene.root), 0);
+
+  const shownCollisionBackend = new ThreeJsBackend(sourceFile, {});
+  const shownCollisionScene = await shownCollisionBackend.load({
+    sourceFile,
+    assets: {},
+    robotData,
+    showVisual: true,
+    showCollision: true,
+    showCollisionAlwaysOnTop: true,
+  });
+
+  assert.equal(shownCollisionScene.linkMeshMap.get('base_link:collision')?.length, 1);
+  assert.equal(countRuntimeCollisionGroups(shownCollisionScene.root), 1);
 });
 
 test('ThreeJsBackend respects disabled URDF XML fallback when structured state is missing', async () => {

@@ -19,7 +19,7 @@ export const DEFAULT_WORKSPACE_OVERLAY_GIZMO_MARGIN: WorkspaceOverlayGizmoMargin
 ];
 
 export const VIEWER_CORNER_OVERLAY_CLASS_NAME =
-  'pointer-events-none absolute inset-0 z-20 flex items-end justify-end py-4 pl-[calc(var(--workspace-overlay-left-inset,0px)+1rem)] pr-[calc(var(--workspace-overlay-right-inset,0px)+1rem)]';
+  'pointer-events-none absolute inset-0 z-20 box-border flex min-w-0 items-end justify-end overflow-hidden py-4 pl-[calc(var(--workspace-overlay-left-inset,0px)+1rem)] pr-[calc(var(--workspace-overlay-right-inset,0px)+1rem)]';
 
 export interface WorkspaceOverlaySafeAreaInput {
   leftCollapsed: boolean;

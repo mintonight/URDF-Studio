@@ -123,7 +123,7 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
   const isReadOnlyPreview = Boolean(readOnlyMessage);
   const sidebarClassName = [
     'bg-element-bg dark:bg-panel-bg border-l border-border-black flex flex-col h-full z-20 relative will-change-transform',
-    collapsed ? 'translate-x-full pointer-events-none' : 'translate-x-0 pointer-events-auto',
+    collapsed ? 'translate-x-full pointer-events-auto' : 'translate-x-0 pointer-events-auto',
     isDragging ? '' : 'transition-transform duration-200 ease-out motion-reduce:transition-none',
   ]
     .filter(Boolean)

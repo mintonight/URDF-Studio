@@ -1,7 +1,7 @@
 /**
  * Generated from src/features/code-editor/resources/urdf.xsd
  * Source: https://github.com/ros/urdfdom/blob/rolling/xsd/urdf.xsd
- * Do not edit manually. Re-run scripts/generate_urdf_schema_metadata.mjs after updating the XSD.
+ * Do not edit manually. Re-run scripts/generate/generate_urdf_schema_metadata.mjs after updating the XSD.
  */
 
 export interface GeneratedUrdfSchemaAttribute {

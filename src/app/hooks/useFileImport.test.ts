@@ -171,7 +171,7 @@ function resetStoresToBaseline() {
 }
 
 function renderHook(options?: Parameters<typeof useFileImport>[0]) {
-  let hookValue: ReturnType<typeof useFileImport> | null = null;
+  let hookValue: ReturnType<typeof useFileImport> | null = null as ReturnType<typeof useFileImport> | null;
   const container = document.createElement('div');
   document.body.appendChild(container);
 
@@ -186,9 +186,10 @@ function renderHook(options?: Parameters<typeof useFileImport>[0]) {
   });
 
   assert.ok(hookValue, 'hook should render');
+  const hook = hookValue as ReturnType<typeof useFileImport>;
 
   return {
-    hook: hookValue,
+    hook,
     cleanup() {
       flushSync(() => {
         root.unmount();

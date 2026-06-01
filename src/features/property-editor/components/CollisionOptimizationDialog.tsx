@@ -13,7 +13,7 @@ import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { CompactSwitch } from '@/shared/components/ui';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { translations } from '@/shared/i18n';
-import { GeometryType } from '@/types';
+import { GeometryType, type InteractionSelection } from '@/types';
 import type {
   CollisionOptimizationAnalysis,
   CollisionOptimizationBaseAnalysis,
@@ -26,27 +26,23 @@ import type {
   RodBoxOptimizationStrategy,
 } from '../utils/collisionOptimization';
 import {
-  buildCollisionOptimizationAnalysisAsync,
   buildCollisionOptimizationOperations,
   countSameLinkOverlapWarnings,
   createCollisionOptimizationCandidateKey,
   createCollisionOptimizationCandidateKeyFromTargets,
-  prepareCollisionOptimizationBaseAnalysis,
   type CollisionOptimizationCandidate,
   type CollisionOptimizationOperation,
   type CollisionTargetRef,
 } from '../utils/collisionOptimization';
-import {
-  applyCandidateTypeOverride,
-  getCandidateOverrideOptions,
-} from '../utils/collision-optimization/candidateOverrides';
+import { analyzeCollisionOptimizationWithWorker } from '../utils/collisionOptimizationWorkerBridge';
+import type { CollisionOptimizationWorkerStage } from '../utils/collisionOptimizationWorkerTypes';
+import { applyCandidateTypeOverride, getCandidateOverrideOptions } from '../utils/collision-optimization/candidateOverrides';
 import {
   CollisionOptimizationCandidatesPanel,
   type CollisionOptimizationCandidatesViewMode,
 } from './CollisionOptimizationCandidatesPanel';
 import type { CollisionOptimizationPlanarGraphConnectionState } from './CollisionOptimizationPlanarGraph';
 import { CollisionOptimizationStrategyPanel } from './CollisionOptimizationStrategyPanel';
-import type { InteractionSelection } from '@/types';
 
 interface CollisionOptimizationDialogProps {
   source: CollisionOptimizationSource;
@@ -61,6 +57,10 @@ interface CollisionOptimizationDialogProps {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function isCandidateAnalysisStage(stage: CollisionOptimizationWorkerStage): boolean {
+  return stage === 'candidates' || stage === 'finalizing';
 }
 
 function afterNextPaint(callback: () => void): () => void {
@@ -459,6 +459,10 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
   }, [source]);
 
   const effectiveSelectedTargetId = scope === 'selected' ? selectedTargetId : null;
+  const shouldIncludePrimitiveFits =
+    hasRequestedPrimitiveFits ||
+    coaxialJointMergeStrategy !== 'keep' ||
+    manualMergePairs.length > 0;
 
   useEffect(() => {
     if (hasRequestedPrimitiveFits) {
@@ -471,37 +475,75 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
   }, [candidatesViewMode, hasRequestedPrimitiveFits, manualMergePairs.length]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    setIsPreparingBaseAnalysis(true);
-    setIsComputingCandidates(false);
     setBaseAnalysis(null);
     setAnalysis(null);
+    setIsPreparingBaseAnalysis(true);
+    setIsComputingCandidates(false);
     hasCustomCheckedSelectionRef.current = false;
     setCheckedCandidateKeys(new Set());
     setCandidateTypeOverrides({});
     setActiveCandidateKey(null);
     setManualMergePairs([]);
     setManualConnection(null);
+  }, [assets, source, sourceFilePath]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setIsPreparingBaseAnalysis(true);
+    setIsComputingCandidates(false);
+    setAnalysis(null);
 
     const cancelScheduledStart = afterNextPaint(() => {
-      void prepareCollisionOptimizationBaseAnalysis(source, assets, {
+      void analyzeCollisionOptimizationWithWorker({
+        source,
+        assets,
+        settings: {
+          scope,
+          meshStrategy,
+          cylinderStrategy,
+          rodBoxStrategy,
+          coaxialJointMergeStrategy,
+          manualMergePairs,
+          avoidSiblingOverlap,
+          selectedTargetId: effectiveSelectedTargetId,
+        },
         signal: controller.signal,
-        includeClearanceData: avoidSiblingOverlap,
-        includePrimitiveFits: hasRequestedPrimitiveFits,
-        sourceFilePath,
+        options: {
+          includeClearanceData: avoidSiblingOverlap,
+          includePrimitiveFits: shouldIncludePrimitiveFits,
+          sourceFilePath,
+        },
+        onProgress: (progress) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          const isCandidateStage = isCandidateAnalysisStage(progress.stage);
+          setIsPreparingBaseAnalysis(!isCandidateStage);
+          setIsComputingCandidates(isCandidateStage);
+        },
       })
         .then((result) => {
           if (controller.signal.aborted) return;
-          setBaseAnalysis(result);
+          setBaseAnalysis({
+            source,
+            targets: result.targets,
+            meshAnalysisByTargetId: result.meshAnalysisByTargetId,
+            clearanceWorld: null,
+          });
+          setAnalysis(result);
         })
         .catch((error) => {
           if (!isAbortError(error)) {
-            console.error('Failed to prepare collision optimization base analysis', error);
+            console.error('Failed to analyze collision optimization candidates', error);
+            setBaseAnalysis(null);
+            setAnalysis(null);
           }
         })
         .finally(() => {
           if (!controller.signal.aborted) {
             setIsPreparingBaseAnalysis(false);
+            setIsComputingCandidates(false);
           }
         });
     });
@@ -510,63 +552,20 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
       cancelScheduledStart();
       controller.abort();
     };
-  }, [assets, avoidSiblingOverlap, hasRequestedPrimitiveFits, source, sourceFilePath]);
-
-  useEffect(() => {
-    if (!baseAnalysis) {
-      setIsComputingCandidates(false);
-      setAnalysis(null);
-      return;
-    }
-
-    const controller = new AbortController();
-    setIsComputingCandidates(true);
-    setAnalysis(null);
-
-    void buildCollisionOptimizationAnalysisAsync(
-      baseAnalysis,
-      {
-        scope,
-        meshStrategy,
-        cylinderStrategy,
-        rodBoxStrategy,
-        coaxialJointMergeStrategy,
-        manualMergePairs,
-        avoidSiblingOverlap,
-        selectedTargetId: effectiveSelectedTargetId,
-      },
-      {
-        signal: controller.signal,
-      },
-    )
-      .then((result) => {
-        if (controller.signal.aborted) return;
-        setAnalysis(result);
-      })
-      .catch((error) => {
-        if (!isAbortError(error)) {
-          console.error('Failed to build collision optimization candidates', error);
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setIsComputingCandidates(false);
-        }
-      });
-
-    return () => {
-      controller.abort();
-    };
   }, [
+    assets,
     avoidSiblingOverlap,
-    baseAnalysis,
     coaxialJointMergeStrategy,
     cylinderStrategy,
     effectiveSelectedTargetId,
+    hasRequestedPrimitiveFits,
     manualMergePairs,
     meshStrategy,
     rodBoxStrategy,
     scope,
+    shouldIncludePrimitiveFits,
+    source,
+    sourceFilePath,
   ]);
 
   useEffect(() => {

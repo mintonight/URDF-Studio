@@ -96,7 +96,6 @@ function createReadyArmPartSdfImportResult(): RobotImportResult {
           visual: {
             ...DEFAULT_LINK.visual,
             type: GeometryType.MESH,
-            color: undefined,
             meshPath: 'arm_part/meshes/arm.dae',
             authoredMaterials: [
               {

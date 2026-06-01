@@ -34,6 +34,41 @@ test('LinkDynamicsController marks catalog ready when data already exists', () =
     assert.equal(controller.catalogError, null);
 });
 
+test('LinkDynamicsController keeps overlay inertia depth-tested against USD meshes', () => {
+    const controller = new LinkDynamicsController();
+    const markerGroup = controller.createMarkerGroupForLink({
+        linkPath: '/Robot/base_link',
+        centerOfMassLocal: new Vector3(0, 0, 0),
+        diagonalInertia: new Vector3(1, 1, 1),
+        mass: 1,
+        principalAxesLocal: new Quaternion(),
+    }, {
+        showCenterOfMass: false,
+        showInertia: true,
+        showCoMOverlay: true,
+        showInertiaOverlay: true,
+        centerOfMassSize: 0.01,
+    });
+
+    assert.ok(markerGroup, 'inertia marker group should be created');
+    const inertiaBox = markerGroup.children.find((child) => child.name === '__inertia_box__');
+    assert.ok(inertiaBox, 'inertia box should be present');
+
+    const inertiaRenderables = [];
+    inertiaBox.traverse((child) => {
+        if (child.isMesh || child.type === 'LineSegments') {
+            inertiaRenderables.push(child);
+        }
+    });
+
+    assert.equal(inertiaRenderables.length, 2);
+    for (const child of inertiaRenderables) {
+        assert.equal(child.material.depthTest, true);
+        assert.equal(child.material.depthWrite, false);
+        assert.ok(child.renderOrder > 0, 'overlay inertia should still draw in the helper layer');
+    }
+});
+
 test('LinkDynamicsController builds catalog from stage and reports ready', async () => {
     const controller = new LinkDynamicsController();
     controller.buildLinkDynamicsCatalog = async function () {

@@ -3,7 +3,10 @@ import {
   prepareSharedUsdOffscreenViewerStageOpenDispatch,
 } from '@/features/urdf-viewer/utils/usdOffscreenViewerWorkerClient';
 import { prepareUsdPreparedExportCacheWithWorker } from '@/features/urdf-viewer/utils/usdPreparedExportCacheWorkerBridge';
-import type { UsdOffscreenViewerWorkerResponse } from '@/features/urdf-viewer/utils/usdOffscreenViewerProtocol';
+import type {
+  UsdOffscreenViewerCompletionMode,
+  UsdOffscreenViewerWorkerResponse,
+} from '@/features/urdf-viewer/utils/usdOffscreenViewerProtocol';
 import type { PreparedUsdExportCacheResult } from '@/features/urdf-viewer/utils/usdExportBundle';
 import { hydratePreparedUsdExportCacheFromWorker } from '@/features/urdf-viewer/utils/usdPreparedExportCacheWorkerTransfer';
 import type { ViewerRobotDataResolution } from '@/features/urdf-viewer/utils/viewerRobotData';
@@ -57,6 +60,7 @@ export interface StartUsdRobotStateHydrationOptions {
     snapshot: UsdBakedScene,
     resolution: ViewerRobotDataResolution,
   ) => Promise<PreparedUsdExportCacheResult | null>;
+  completionMode?: UsdOffscreenViewerCompletionMode;
   resolveBeforePreparedCache?: boolean;
   onDeferredSceneSnapshot?: (snapshot: UsdSceneSnapshot, stageSourcePath: string | null) => void;
   onPreparedCache?: (
@@ -122,6 +126,7 @@ export function startUsdRobotStateHydration({
   createCanvas = createDefaultOffscreenCanvas,
   workerClient = defaultWorkerClient,
   prepareExportCache = prepareUsdPreparedExportCacheWithWorker,
+  completionMode = 'interactive',
   resolveBeforePreparedCache = false,
   onDeferredSceneSnapshot,
   onPreparedCache,
@@ -219,7 +224,11 @@ export function startUsdRobotStateHydration({
         return;
       }
 
-      if (resolveBeforePreparedCache && !workerPreparedCache) {
+      if (completionMode === 'complete' && deferredSceneSnapshotPending && !sceneSnapshot) {
+        return;
+      }
+
+      if (completionMode !== 'complete' && resolveBeforePreparedCache && !workerPreparedCache) {
         const robotData = resolvedRobotData ?? resolution.robotData;
         const isPreparedCachePending = preparedCachePending;
         settled = true;
@@ -259,6 +268,7 @@ export function startUsdRobotStateHydration({
 
       const shouldWaitForDeferredSceneSnapshot = Boolean(
         workerPreparedCache &&
+          completionMode !== 'complete' &&
           deferredSceneSnapshotPending &&
           !sceneSnapshot &&
           onDeferredSceneSnapshot,
@@ -392,6 +402,7 @@ export function startUsdRobotStateHydration({
       }
       sceneSnapshot = message.bakedScene ?? message.snapshot;
       deferredSceneSnapshotPending = false;
+      onDeferredSceneSnapshot?.(message.snapshot, message.stageSourcePath);
       void tryResolve(resolvePromise, rejectPromise);
     }
   }
@@ -445,6 +456,7 @@ export function startUsdRobotStateHydration({
       showOriginsOverlay: false,
       originSize: 0.2,
       sourceFile: stageDispatch.sourceFile,
+      completionMode,
       stageOpenContextKey: stageDispatch.stageOpenContextKey,
       stageOpenContext: stageDispatch.stageOpenContext as never,
       stageOpenContextCacheHit: stageDispatch.stageOpenContextCacheHit,

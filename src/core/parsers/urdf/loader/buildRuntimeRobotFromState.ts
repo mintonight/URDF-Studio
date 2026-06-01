@@ -43,6 +43,7 @@ import {
   URDFVisual,
 } from './URDFClasses';
 import type { MeshLoadFunc } from './URDFLoader';
+import { createVisualRestackBatch } from './visualRestackBatch';
 import type { VisualMaterialOverride } from '@/core/utils/visualMaterialOverrides';
 
 const DEFAULT_COLOR = '#808080';
@@ -280,7 +281,7 @@ function extractSubmesh(
 
 function restackLinkVisualRoots(linkTarget: THREE.Object3D): void {
   const visualRoots = linkTarget.children
-    .filter((child: any) => child?.isURDFVisual)
+    .filter((child) => (child as { isURDFVisual?: boolean }).isURDFVisual === true)
     .map((child, index) => ({
       root: child,
       stableId: child.name || child.userData?.runtimeKey || index,
@@ -293,28 +294,13 @@ function restackLinkVisualRoots(linkTarget: THREE.Object3D): void {
   stackCoincidentVisualRoots(visualRoots);
 }
 
-function findVisualRestackRoot(object: THREE.Object3D): THREE.Object3D {
-  let current: THREE.Object3D | null = object;
-  let highest: THREE.Object3D = object;
-
-  while (current) {
-    highest = current;
-    if ((current as any).isURDFRobot) {
-      return current;
-    }
-    current = current.parent;
-  }
-
-  return highest;
-}
-
 function restackRobotVisualRoots(root: THREE.Object3D): void {
   root.updateMatrixWorld(true);
 
   const visualRoots: Array<{ root: THREE.Object3D; stableId: number }> = [];
   let visualIndex = 0;
-  root.traverse((child: any) => {
-    if (!child?.isURDFVisual) {
+  root.traverse((child) => {
+    if ((child as { isURDFVisual?: boolean }).isURDFVisual !== true) {
       return;
     }
 
@@ -737,6 +723,7 @@ export async function buildRuntimeRobotFromState({
   // mesh. Scope is intentionally one cache per load: dispose lifecycle stays
   // tied to the loaded robot and there is no cross-load aliasing.
   const visualMaterialOverrideCache = new Map<string, THREE.MeshStandardMaterial>();
+  const visualRestackBatch = createVisualRestackBatch(() => restackRobotVisualRoots(robot));
 
   robot.robotName = robotName ?? null;
   robot.name = robotName || '';
@@ -800,61 +787,69 @@ export async function buildRuntimeRobotFromState({
       if (isImageAssetPath(geometry.meshPath)) {
         group.add(createImagePreviewMesh(geometry, manager, isCollision));
       } else {
+        const completeVisualMeshLoad = isCollision ? null : visualRestackBatch.trackLoad();
+
         loadMeshCb(geometry.meshPath, manager, (object, error) => {
-          if (error) {
-            console.error('[EditorViewer] Failed to load mesh from robot state:', error);
-          } else if (!object) {
-            console.error(
-              '[EditorViewer] Mesh loader completed without an object for robot state geometry:',
-              geometry.meshPath,
-            );
-          }
+          let didAttachVisualMesh = false;
 
-          if (!object || !shouldAttachLoadedMeshObject(object, isCollision)) {
-            return;
-          }
-
-          // Apply SDF submesh filtering: extract only the named child node
-          // from the loaded Collada scene when the geometry specifies one.
-          let meshObject = object;
-          if (geometry.submeshName) {
-            const submesh = extractSubmesh(
-              object,
-              geometry.submeshName,
-              geometry.submeshCenter === true,
-            );
-            if (submesh) {
-              meshObject = submesh;
-            } else {
-              console.warn(
-                `[EditorViewer] Submesh "${geometry.submeshName}" not found in "${geometry.meshPath}", using full mesh.`,
+          try {
+            if (error) {
+              console.error('[EditorViewer] Failed to load mesh from robot state:', error);
+            } else if (!object) {
+              console.error(
+                '[EditorViewer] Mesh loader completed without an object for robot state geometry:',
+                geometry.meshPath,
               );
             }
-          }
 
-          if (
-            !isCollision &&
-            visualMaterialOverride &&
-            (hasExplicitMaterialOverride ||
-              !loadedObjectShouldPreserveEmbeddedMaterials(meshObject))
-          ) {
-            applyVisualMaterialOverrideToObject(
-              meshObject,
-              visualMaterialOverride,
-              manager,
-              visualMaterialOverrideCache,
-            );
-          }
+            if (!object || !shouldAttachLoadedMeshObject(object, isCollision)) {
+              return;
+            }
 
-          if (!isCollision && hasGeometryMeshMaterialGroups(geometry)) {
-            applyVisualMeshMaterialGroupsToObject(meshObject, geometry, { manager });
-          }
+            // Apply SDF submesh filtering: extract only the named child node
+            // from the loaded Collada scene when the geometry specifies one.
+            let meshObject = object;
+            if (geometry.submeshName) {
+              const submesh = extractSubmesh(
+                object,
+                geometry.submeshName,
+                geometry.submeshCenter === true,
+              );
+              if (submesh) {
+                meshObject = submesh;
+              } else {
+                console.warn(
+                  `[EditorViewer] Submesh "${geometry.submeshName}" not found in "${geometry.meshPath}", using full mesh.`,
+                );
+              }
+            }
 
-          applyVisualMaterialSidePolicy(meshObject, geometry, isCollision);
-          group.add(meshObject);
-          if (group.parent && !isCollision) {
-            restackLinkVisualRoots(group.parent);
-            restackRobotVisualRoots(findVisualRestackRoot(group.parent));
+            if (
+              !isCollision &&
+              visualMaterialOverride &&
+              (hasExplicitMaterialOverride ||
+                !loadedObjectShouldPreserveEmbeddedMaterials(meshObject))
+            ) {
+              applyVisualMaterialOverrideToObject(
+                meshObject,
+                visualMaterialOverride,
+                manager,
+                visualMaterialOverrideCache,
+              );
+            }
+
+            if (!isCollision && hasGeometryMeshMaterialGroups(geometry)) {
+              applyVisualMeshMaterialGroupsToObject(meshObject, geometry, { manager });
+            }
+
+            applyVisualMaterialSidePolicy(meshObject, geometry, isCollision);
+            group.add(meshObject);
+            didAttachVisualMesh = !isCollision;
+            if (group.parent && !isCollision) {
+              restackLinkVisualRoots(group.parent);
+            }
+          } finally {
+            completeVisualMeshLoad?.(didAttachVisualMesh);
           }
         });
       }
@@ -1141,6 +1136,9 @@ export async function buildRuntimeRobotFromState({
     ...jointMap,
   };
 
+  visualRestackBatch.markHierarchyReady();
   restackRobotVisualRoots(robot);
+  visualRestackBatch.resetAfterImmediateRestack();
+  visualRestackBatch.flush();
   return robot;
 }

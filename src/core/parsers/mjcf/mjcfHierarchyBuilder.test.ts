@@ -110,7 +110,7 @@ test('applies texture-backed material assets to generated visual meshes', async 
   });
   await waitForNextMacrotask();
 
-  let visualMaterial: THREE.MeshStandardMaterial | null = null;
+  let visualMaterial: THREE.MeshStandardMaterial | null = null as THREE.MeshStandardMaterial | null;
   rootGroup.traverse((child) => {
     if (!('isMesh' in child) || !(child as any).isMesh) {
       return;
@@ -207,7 +207,7 @@ test('applies builtin cube textures to box geoms without reporting them as incom
   });
   await waitForNextMacrotask();
 
-  let visualMesh: THREE.Mesh | null = null;
+  let visualMesh: THREE.Mesh | null = null as THREE.Mesh | null;
   rootGroup.traverse((child) => {
     if (!('isMesh' in child) || !(child as any).isMesh) {
       return;
@@ -321,7 +321,7 @@ test('applies single-file cube textures to box geoms without reporting them as i
   });
   await waitForNextMacrotask();
 
-  let visualMesh: THREE.Mesh | null = null;
+  let visualMesh: THREE.Mesh | null = null as THREE.Mesh | null;
   rootGroup.traverse((child) => {
     if (!('isMesh' in child) || !(child as any).isMesh) {
       return;
@@ -389,7 +389,7 @@ test('prefers ImageBitmap texture decoding when the browser supports it', async 
     if (originalCreateImageBitmap) {
       globalWithImageBitmap.createImageBitmap = originalCreateImageBitmap;
     } else {
-      delete globalWithImageBitmap.createImageBitmap;
+      Reflect.deleteProperty(globalWithImageBitmap, 'createImageBitmap');
     }
   });
 
@@ -454,7 +454,7 @@ test('prefers ImageBitmap texture decoding when the browser supports it', async 
   assert.equal(bitmapLoadCount, 1);
   assert.equal(textureLoadCount, 0);
 
-  let visualMaterial: THREE.MeshStandardMaterial | null = null;
+  let visualMaterial: THREE.MeshStandardMaterial | null = null as THREE.MeshStandardMaterial | null;
   rootGroup.traverse((child) => {
     if (!('isMesh' in child) || !(child as any).isMesh) {
       return;
@@ -472,7 +472,7 @@ test('prefers ImageBitmap texture decoding when the browser supports it', async 
 
 test('does not block hierarchy completion on unresolved texture-backed materials', async (t) => {
   const originalLoadAsync = THREE.TextureLoader.prototype.loadAsync;
-  let resolveTexture: ((texture: THREE.Texture<HTMLImageElement>) => void) | null = null;
+  let resolveTexture: ((texture: THREE.Texture<HTMLImageElement>) => void) | undefined;
   THREE.TextureLoader.prototype.loadAsync = async function mockLoadAsync(
     _url: string,
     _onProgress?: (event: ProgressEvent<EventTarget>) => void,
@@ -548,7 +548,7 @@ test('does not block hierarchy completion on unresolved texture-backed materials
   ]);
 
   const findVisualMaterial = () => {
-    let nextVisualMaterial: THREE.MeshStandardMaterial | null = null;
+    let nextVisualMaterial: THREE.MeshStandardMaterial | null = null as THREE.MeshStandardMaterial | null;
     rootGroup.traverse((child) => {
       if (!('isMesh' in child) || !(child as any).isMesh) {
         return;
@@ -569,7 +569,8 @@ test('does not block hierarchy completion on unresolved texture-backed materials
 
   const resolvedTexture = new THREE.Texture() as THREE.Texture<HTMLImageElement>;
   resolvedTexture.needsUpdate = true;
-  resolveTexture?.(resolvedTexture);
+  assert.ok(resolveTexture);
+  resolveTexture(resolvedTexture);
   await waitForNextMacrotask();
 
   const updatedVisualMaterial = findVisualMaterial();
@@ -850,7 +851,7 @@ test('disposes temporary base textures after a hierarchy build completes', async
 
   await waitForNextMacrotask();
 
-  let visualMap: THREE.Texture | null = null;
+  let visualMap: THREE.Texture | null = null as THREE.Texture | null;
   rootGroup.traverse((child) => {
     if (!('isMesh' in child) || !(child as any).isMesh) {
       return;
@@ -1033,7 +1034,7 @@ test('does not let inherited geom rgba override material asset colors', async ()
     sourceFileDir: '',
   });
 
-  let visualMaterial: THREE.MeshStandardMaterial | null = null;
+  let visualMaterial: THREE.MeshStandardMaterial | null = null as THREE.MeshStandardMaterial | null;
   rootGroup.traverse((child) => {
     if (!('isMesh' in child) || !(child as any).isMesh) {
       return;
@@ -1102,7 +1103,7 @@ test('inherits geom alpha onto material asset opacity without overriding asset r
     sourceFileDir: '',
   });
 
-  let visualMaterial: THREE.MeshStandardMaterial | null = null;
+  let visualMaterial: THREE.MeshStandardMaterial | null = null as THREE.MeshStandardMaterial | null;
   rootGroup.traverse((child) => {
     if (!('isMesh' in child) || !(child as any).isMesh) {
       return;
@@ -1221,7 +1222,7 @@ test('interprets explicit MJCF geom rgba values as sRGB to match URDF imports', 
     sourceFileDir: '',
   });
 
-  let visualMaterial: THREE.MeshStandardMaterial | null = null;
+  let visualMaterial: THREE.MeshStandardMaterial | null = null as THREE.MeshStandardMaterial | null;
   rootGroup.traverse((child) => {
     if (!('isMesh' in child) || !(child as any).isMesh) {
       return;

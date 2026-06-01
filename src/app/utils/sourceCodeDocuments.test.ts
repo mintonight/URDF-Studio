@@ -37,6 +37,7 @@ test('buildSourceCodeDocuments adds xacro include tabs for related source files'
     },
   });
 
+  assert.ok(documents);
   assert.deepEqual(
     documents.map((document) => ({
       id: document.id,
@@ -232,6 +233,7 @@ def Xform "h1_2"
     allFileContents: {},
   });
 
+  assert.ok(documents);
   assert.deepEqual(
     documents.map((document) => ({
       id: document.id,
@@ -465,6 +467,7 @@ test('buildWorkspaceAssemblySourceCodeDocuments shows component source tabs befo
     },
   });
 
+  assert.ok(documents);
   assert.deepEqual(
     documents.map((document) => ({
       fileName: document.fileName,

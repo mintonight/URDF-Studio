@@ -26,6 +26,12 @@ globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
 globalThis.XMLSerializer = dom.window.XMLSerializer as typeof XMLSerializer;
 globalThis.ProgressEvent = dom.window.ProgressEvent as typeof ProgressEvent;
 
+function parseRequiredURDF(source: string) {
+  const robot = parseURDF(source);
+  assert.ok(robot, 'expected URDF fixture to parse');
+  return robot;
+}
+
 function getWorldBox(object: THREE.Object3D) {
   object.updateMatrixWorld(true);
   return new THREE.Box3().setFromObject(object);
@@ -94,7 +100,7 @@ test(
       'utf8',
     );
     const colladaRootNormalizationHints = buildColladaRootNormalizationHints(
-      parseURDF(urdfContent).links,
+      parseRequiredURDF(urdfContent).links,
     );
     const meshDataUrl = `data:text/xml;base64,${Buffer.from(fs.readFileSync(meshPath, 'utf8')).toString('base64')}`;
     const manager = createLoadingManager({
@@ -121,7 +127,7 @@ test(
           return;
         }
 
-        resolve(result);
+        resolve(result!);
       });
     });
     const referenceBox = getWorldBox(referenceObject);
@@ -1147,7 +1153,7 @@ test(
     assert.equal(applied, true);
 
     const rebuiltRoot = await waitForPatchedChild(visualGroup);
-    let rebuiltMesh: THREE.Mesh | null = null;
+    let rebuiltMesh: THREE.Mesh | null = null as THREE.Mesh | null;
     rebuiltRoot.traverse((child: any) => {
       if (!rebuiltMesh && child.isMesh) {
         rebuiltMesh = child as THREE.Mesh;

@@ -25,7 +25,7 @@ test('downloadSourceCodeDocument triggers browser download and emits completion 
   const originalCreateObjectUrl = URL.createObjectURL;
   const originalRevokeObjectUrl = URL.revokeObjectURL;
   const originalAnchorClick = HTMLAnchorElement.prototype.click;
-  let revokeArg: string | null = null;
+  let revokeArg: string | null = null as string | null;
   let anchorClickCount = 0;
   let completionCount = 0;
 

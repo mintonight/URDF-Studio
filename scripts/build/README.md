@@ -5,7 +5,7 @@
 ## 目录结构
 
 ```
-scripts/wasm/
+scripts/build/
 ├── rebuild-usd-wasm.sh        # 主编译脚本
 ├── sync-openusd-source.sh     # 同步 OpenUSD 源码脚本
 └── README.md                  # 本文档
@@ -47,7 +47,7 @@ public/usd/bindings/           # 编译产物输出目录
 source ~/.localdeps/emsdk/emsdk_env.sh
 
 # 编译（使用项目内置的 OpenUSD 源码）
-bash scripts/wasm/rebuild-usd-wasm.sh \
+bash scripts/build/rebuild-usd-wasm.sh \
   --robot-trim \
   --usd-repo ./third_party/OpenUSD \
   --build-dir ~/.localdeps/openusd-wasm-speed
@@ -100,7 +100,7 @@ WASM_OPT_LEVEL=-O3        # wasm-opt 优化级别
 如果有外部 OpenUSD 源码需要同步：
 
 ```bash
-bash scripts/wasm/sync-openusd-source.sh
+bash scripts/build/sync-openusd-source.sh
 ```
 
 默认从 `~/.localdeps/OpenUSD` 同步到 `third_party/OpenUSD`。

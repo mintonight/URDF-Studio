@@ -585,7 +585,7 @@ test('does not fall back to the link frame when a usd center-of-mass target cann
               ...DEFAULT_LINK,
               id: 'base_link',
               name: 'base_link',
-              inertial: null,
+              inertial: undefined,
             },
           },
           joints: {},

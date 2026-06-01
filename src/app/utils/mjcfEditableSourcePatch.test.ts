@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { GeometryType, JointType } from '@/types';
-import { parseMJCF } from '@/core/parsers/mjcf/mjcfParser';
+import { GeometryType, JointType, type RobotState } from '@/types';
+import { parseMJCF as parseNullableMJCF } from '@/core/parsers/mjcf/mjcfParser';
 import {
   appendMJCFChildBodyToSource,
   appendMJCFBodyCollisionGeomToSource,
@@ -20,6 +20,12 @@ if (!globalThis.DOMParser) {
 }
 if (!globalThis.XMLSerializer) {
   globalThis.XMLSerializer = dom.window.XMLSerializer;
+}
+
+function parseMJCF(source: string): RobotState {
+  const parsed = parseNullableMJCF(source);
+  assert.ok(parsed, 'expected MJCF source to parse');
+  return parsed;
 }
 
 test('appendMJCFChildBodyToSource inserts a nested child body without rewriting the full document', () => {

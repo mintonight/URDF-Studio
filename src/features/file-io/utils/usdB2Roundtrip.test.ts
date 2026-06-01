@@ -51,9 +51,11 @@ class FakeColladaWorker {
       return;
     }
 
+    const assetUrl = request.assetUrl;
+    const requestId = request.requestId;
     void (async () => {
       try {
-        const response = await fetch(request.assetUrl);
+        const response = await fetch(assetUrl);
         if (!response.ok) {
           throw new Error(
             `Failed to fetch Collada asset: ${response.status} ${response.statusText}`,
@@ -62,11 +64,11 @@ class FakeColladaWorker {
 
         const colladaText = await response.text();
         const result = withSuppressedColladaConsole(() =>
-          parseColladaSceneData(colladaText, request.assetUrl),
+          parseColladaSceneData(colladaText, assetUrl),
         );
         this.emitMessage({
           type: 'parse-collada-result',
-          requestId: request.requestId,
+          requestId,
           result,
         });
       } catch (error) {
@@ -581,7 +583,9 @@ test('b2 roundtrip metadata does not promote visual_0 container scopes into fake
     assert.equal(metadata.linkParentPairs.length, Object.keys(robot.links).length - 1);
     assert.equal(metadata.meshCountsByLinkPath['/b2_description/visual_0'], undefined);
     assert.ok(
-      !metadata.linkParentPairs.some(([childPath]) => childPath === '/b2_description/visual_0'),
+      !metadata.linkParentPairs.some(
+        ([childPath]: [string, string | null]) => childPath === '/b2_description/visual_0',
+      ),
       'expected roundtrip metadata to keep visual_0 scoped under base_link instead of promoting it to a link',
     );
 

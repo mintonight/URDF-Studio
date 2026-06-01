@@ -16,9 +16,9 @@ import { computeLinkWorldMatrices } from '@/core/robot/kinematics';
 
 import { generateMujocoXML } from './mjcfGenerator.ts';
 import { classifyMJCFGeom } from './mjcfGeomClassification.ts';
-import { parseMJCFModel } from './mjcfModel.ts';
-import { parseMJCF } from './mjcfParser.ts';
-import { parseURDF } from '../urdf/parser/index.ts';
+import { parseMJCFModel as parseNullableMJCFModel } from './mjcfModel.ts';
+import { parseMJCF as parseNullableMJCF } from './mjcfParser.ts';
+import { parseURDF as parseNullableURDF } from '../urdf/parser/index.ts';
 
 const GO2_MJCF_PATH = path.resolve('test/mujoco_menagerie-main/unitree_go2/go2.xml');
 
@@ -44,6 +44,25 @@ function findBodyByName(body: { name: string; children: any[] }, name: string): 
   }
 
   return null;
+}
+
+function requireParsed<T>(value: T | null, label: string): T {
+  assert.ok(value, label);
+  return value;
+}
+
+function parseMJCFModel(
+  xmlContent: string,
+): NonNullable<ReturnType<typeof parseNullableMJCFModel>> {
+  return requireParsed(parseNullableMJCFModel(xmlContent), 'expected MJCF model to parse');
+}
+
+function parseMJCF(xmlContent: string): RobotState {
+  return requireParsed(parseNullableMJCF(xmlContent), 'expected MJCF robot to parse');
+}
+
+function parseURDF(xmlContent: string): RobotState {
+  return requireParsed(parseNullableURDF(xmlContent), 'expected URDF robot to parse');
 }
 
 function assertMatricesClose(

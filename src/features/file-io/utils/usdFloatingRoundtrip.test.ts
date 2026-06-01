@@ -210,7 +210,7 @@ test('USD roundtrip preserves floating-root joint semantics for MJCF free joints
 
   assert.equal(metadata.source, 'usd-stage');
   const floatingJointEntry = metadata.jointCatalogEntries.find(
-    (entry) => entry.jointName === 'floating_base_joint',
+    (entry: { jointName?: string }) => entry.jointName === 'floating_base_joint',
   );
   assert.ok(
     floatingJointEntry,
@@ -256,6 +256,7 @@ test('USD roundtrip preserves floating-root joint semantics for MJCF free joints
 test('USD roundtrip preserves official drive damping and maxForce for supported joints', async () => {
   const robot = createFloatingRootRobot();
   robot.joints.child_joint.dynamics.damping = 0.35;
+  assert.ok(robot.joints.child_joint.limit);
   robot.joints.child_joint.limit.effort = 9;
 
   const payload = await exportRobotToUsd({
@@ -295,7 +296,7 @@ test('USD roundtrip preserves official drive damping and maxForce for supported 
   });
 
   const childJointEntry = metadata.jointCatalogEntries.find(
-    (entry) => entry.jointName === 'child_joint',
+    (entry: { jointName?: string }) => entry.jointName === 'child_joint',
   );
   assert.ok(childJointEntry, 'expected child_joint metadata to survive exported USD parsing');
   assert.equal(childJointEntry?.driveDamping, 0.35);
@@ -332,5 +333,6 @@ test('USD roundtrip preserves official drive damping and maxForce for supported 
   );
   assert.ok(childJoint, 'expected child_joint to survive USD reload');
   assert.equal(childJoint?.dynamics.damping, 0.35);
-  assert.equal(childJoint?.limit.effort, 9);
+  assert.ok(childJoint.limit);
+  assert.equal(childJoint.limit.effort, 9);
 });

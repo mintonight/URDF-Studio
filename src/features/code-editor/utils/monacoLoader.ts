@@ -1,37 +1,38 @@
 import { loader } from '@monaco-editor/react';
+import * as monaco from 'monaco-editor';
+import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
+import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
+import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
+import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 import type * as Monaco from 'monaco-editor';
 
-function resolveDefaultMonacoVsPath(): string {
-  const baseUrl = String(import.meta.env.BASE_URL || '/').trim();
-  const normalizedBaseUrl = baseUrl === '/'
-    ? ''
-    : `/${baseUrl.replace(/^\/+|\/+$/g, '')}`;
-
-  // Prefer the vendored Monaco runtime under public/ so the app startup path
-  // does not depend on an external CDN being reachable.
-  return `${normalizedBaseUrl}/monaco-editor/min/vs`;
-}
-
-const DEFAULT_MONACO_VS_PATH = resolveDefaultMonacoVsPath();
-
-const resolveMonacoVsPath = (): string => {
-  const configured = String(import.meta.env.VITE_MONACO_VS_PATH || '').trim();
-  const path = configured.length > 0 ? configured : DEFAULT_MONACO_VS_PATH;
-  return path.replace(/\/+$/, '');
+type MonacoEnvironmentGlobal = typeof globalThis & {
+  MonacoEnvironment?: {
+    getWorker?: (_workerId: string, label: string) => Worker;
+  };
 };
 
-const monacoVsPath = resolveMonacoVsPath();
+const monacoGlobal = globalThis as MonacoEnvironmentGlobal;
+monacoGlobal.MonacoEnvironment = {
+  getWorker(_workerId: string, label: string): Worker {
+    if (label === 'json') {
+      return new JsonWorker();
+    }
+    if (label === 'css' || label === 'scss' || label === 'less') {
+      return new CssWorker();
+    }
+    if (label === 'html' || label === 'handlebars' || label === 'razor') {
+      return new HtmlWorker();
+    }
+    if (label === 'typescript' || label === 'javascript') {
+      return new TsWorker();
+    }
+    return new EditorWorker();
+  },
+};
 
-loader.config({
-  paths: {
-    vs: monacoVsPath,
-  },
-  'vs/nls': {
-    availableLanguages: {
-      '*': 'en',
-    },
-  },
-});
+loader.config({ monaco });
 
 export type MonacoInstance = typeof Monaco;
 
@@ -79,5 +80,3 @@ export const preloadMonacoEditorWorker = (): Promise<void> => {
 
   return monacoWorkerWarmupPromise;
 };
-
-export const getMonacoVsPath = (): string => monacoVsPath;

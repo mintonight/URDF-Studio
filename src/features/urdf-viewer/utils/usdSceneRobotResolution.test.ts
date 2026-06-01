@@ -88,7 +88,7 @@ test('returns an adapted robot resolution from the cached USD scene snapshot wit
 });
 
 test('warms up the USD scene snapshot when no cached snapshot exists yet', () => {
-  let snapshot: UsdSceneSnapshot | null = null;
+  let snapshot: UsdSceneSnapshot | null = null as UsdSceneSnapshot | null;
   const warmupCalls: boolean[] = [];
 
   const result = resolveUsdSceneRobotResolution({

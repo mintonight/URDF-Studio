@@ -98,7 +98,7 @@ function renderHook(params: Parameters<typeof useSourceCodeEditorWarmup>[0]): {
   hook: ReturnType<typeof useSourceCodeEditorWarmup>;
   cleanup: () => Promise<void>;
 } {
-  let hookValue: ReturnType<typeof useSourceCodeEditorWarmup> | null = null;
+  let hookValue: ReturnType<typeof useSourceCodeEditorWarmup> | null = null as ReturnType<typeof useSourceCodeEditorWarmup> | null;
   const container = document.createElement('div');
   document.body.appendChild(container);
 

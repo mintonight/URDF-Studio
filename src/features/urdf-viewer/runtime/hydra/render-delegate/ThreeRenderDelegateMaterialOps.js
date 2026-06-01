@@ -2,7 +2,7 @@
 import { Color, FrontSide, LinearSRGBColorSpace, Quaternion, SRGBColorSpace, Vector2, Vector3 } from 'three';
 import * as Shared from './shared.js';
 import { ThreeRenderDelegateCore } from './ThreeRenderDelegateCore.js';
-import { createUnifiedHydraPhysicalMaterial, createUnifiedHydraStandardMaterial, hydraMaterialRequiresPhysicalExtensions, HYDRA_UNIFIED_MATERIAL_DEFAULTS } from './material-defaults.js';
+import { createHydraColorFromTuple, createUnifiedHydraPhysicalMaterial, createUnifiedHydraStandardMaterial, hydraMaterialRequiresPhysicalExtensions, HYDRA_UNIFIED_MATERIAL_DEFAULTS } from './material-defaults.js';
 const { buildProtoPrimPathCandidates, clamp01, createMatrixFromXformOp, debugInstancer, debugMaterials, debugMeshes, debugPrims, debugTextures, defaultGrayComponent, disableMaterials, disableTextures, extractPrimPathFromMaterialBindingWarning, extractReferencePrimTargets, extractScopeBodyText, extractUsdAssetReferencesFromLayerText, getActiveMaterialBindingWarningOwner, getAngleInRadians, getCollisionGeometryTypeFromUrdfElement, getExpectedPrimTypesForCollisionProto, getExpectedPrimTypesForProtoType, getMatrixMaxElementDelta, getPathBasename, getPathWithoutRoot, getRawConsoleMethod, getRootPathFromPrimPath, getSafePrimTypeName, hasNonZeroTranslation, hydraCallbackErrorCounts, installMaterialBindingApiWarningInterceptor, isIdentityQuaternion, isLikelyDefaultGrayMaterial, isLikelyInverseTransform, isMaterialBindingApiWarningMessage, isMatrixApproximatelyIdentity, isNonZero, isPotentiallyLargeBaseAssetPath, logHydraCallbackError, materialBindingRepairMaxLayerTextLength, materialBindingWarningHandlers, maxHydraCallbackErrorLogsPerMethod, nearlyEqual, normalizeHydraPath, normalizeUsdPathToken, parseGuideCollisionReferencesFromLayerText, parseProtoMeshIdentifier, parseUrdfTruthFromText, parseVector3Text, parseXformOpFallbacksFromLayerText, rawConsoleError, rawConsoleWarn, registerMaterialBindingApiWarningHandler, remapRootPathIfNeeded, resolveUrdfTruthFileNameForStagePath, resolveUsdAssetPath, setActiveMaterialBindingWarningOwner, shouldAllowLargeBaseAssetScan, stringifyConsoleArgs, toArrayLike, toColorArray, toFiniteNumber, toFiniteQuaternionWxyzTuple, toFiniteVector2Tuple, toFiniteVector3Tuple, toMatrixFromUrdfOrigin, toQuaternionWxyzFromRpy, transformEpsilon, wrapHydraCallbackObject } = Shared;
 export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
     snapshotRecordRequiresPhysicalMaterial(record) {
@@ -1734,6 +1734,33 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
                 return null;
             return [Number(color[0] || 0), Number(color[1] || 0), Number(color[2] || 0)];
         };
+        const normalizeColorSpace = (value) => {
+            const normalized = String(value || '').trim();
+            return normalized || null;
+        };
+        const normalizeColorSource = (value) => {
+            const normalized = String(value || '').trim().toLowerCase().replace(/[_\s]+/g, '-');
+            if (!normalized)
+                return null;
+            if (normalized === 'author' || normalized === 'authored' || normalized === 'shader') {
+                return 'authored';
+            }
+            if (normalized === 'material-name' || normalized === 'materialname' || normalized === 'name') {
+                return 'material-name';
+            }
+            if (normalized === 'display-color' || normalized === 'displaycolor') {
+                return 'display-color';
+            }
+            return normalized;
+        };
+        const colorMatchesHex = (color, hex) => {
+            if (!Array.isArray(color) || !Number.isFinite(hex))
+                return false;
+            const epsilon = 1 / 255 + 1e-4;
+            return Math.abs(Number(color[0]) - (((hex >> 16) & 0xff) / 255)) <= epsilon
+                && Math.abs(Number(color[1]) - (((hex >> 8) & 0xff) / 255)) <= epsilon
+                && Math.abs(Number(color[2]) - ((hex & 0xff) / 255)) <= epsilon;
+        };
         const normalizeVec2 = (value) => {
             const tuple = toFiniteVector2Tuple(value)
                 || (() => {
@@ -1758,6 +1785,37 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
             if (!materialId)
                 return null;
             const name = String(rawRecord.name || materialId.split('/').filter(Boolean).pop() || materialId).trim();
+            const authoredOrRawColor = normalizeColor(rawRecord.color);
+            const rawColorSource = normalizeColorSource(rawRecord.colorSource);
+            const colorSpace = rawColorSource === 'authored'
+                ? 'linear'
+                : normalizeColorSpace(rawRecord.colorSpace);
+            const inferredColorHex = this.inferColorHexFromMaterialName(name);
+            const inferredColor = Number.isFinite(inferredColorHex)
+                ? [
+                    ((inferredColorHex >> 16) & 0xff) / 255,
+                    ((inferredColorHex >> 8) & 0xff) / 255,
+                    (inferredColorHex & 0xff) / 255,
+                ]
+                : null;
+            const hasShaderColorEvidence = Boolean(rawRecord.shaderPath
+                || rawRecord.shaderName
+                || rawRecord.shaderInfoId
+                || rawRecord.isOmniPbr === true
+                || rawRecord.colorSpace
+                || rawRecord.roughness != null
+                || rawRecord.metalness != null
+                || rawRecord.opacity != null
+                || rawRecord.mapPath);
+            const resolvedColorSource = authoredOrRawColor
+                ? (rawColorSource
+                    || (colorMatchesHex(authoredOrRawColor, inferredColorHex) && !hasShaderColorEvidence
+                        ? 'material-name'
+                        : 'authored'))
+                : (inferredColor ? 'material-name' : null);
+            const authoredColor = authoredOrRawColor && resolvedColorSource !== 'material-name'
+                ? authoredOrRawColor.slice(0, 3)
+                : null;
             const normalizedRecord = {
                 materialId,
                 name,
@@ -1769,11 +1827,19 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
                 opacityEnabled: typeof rawRecord.opacityEnabled === 'boolean' ? rawRecord.opacityEnabled : null,
                 opacityTextureEnabled: typeof rawRecord.opacityTextureEnabled === 'boolean' ? rawRecord.opacityTextureEnabled : null,
                 emissiveEnabled: typeof rawRecord.emissiveEnabled === 'boolean' ? rawRecord.emissiveEnabled : null,
-                color: normalizeColor(rawRecord.color),
+                color: authoredOrRawColor || inferredColor,
+                colorSpace,
+                colorSource: resolvedColorSource,
+                authoredColor,
+                authoredColorSpace: authoredColor ? colorSpace : null,
                 emissive: normalizeColor(rawRecord.emissive),
+                emissiveColorSpace: normalizeColorSpace(rawRecord.emissiveColorSpace),
                 specularColor: normalizeColor(rawRecord.specularColor),
+                specularColorSpace: normalizeColorSpace(rawRecord.specularColorSpace),
                 attenuationColor: normalizeColor(rawRecord.attenuationColor),
+                attenuationColorSpace: normalizeColorSpace(rawRecord.attenuationColorSpace),
                 sheenColor: normalizeColor(rawRecord.sheenColor),
+                sheenColorSpace: normalizeColorSpace(rawRecord.sheenColorSpace),
                 normalScale: normalizeVec2(rawRecord.normalScale),
                 clearcoatNormalScale: normalizeVec2(rawRecord.clearcoatNormalScale),
                 roughness: normalizeScalar(rawRecord.roughness, { clamp01: true }),
@@ -1815,20 +1881,6 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
                 iridescenceMapPath: normalizeTexturePath(rawRecord.iridescenceMapPath),
                 iridescenceThicknessMapPath: normalizeTexturePath(rawRecord.iridescenceThicknessMapPath),
             };
-            const inferredColorHex = this.inferColorHexFromMaterialName(name);
-            if (Number.isFinite(inferredColorHex)) {
-                const inferredColor = [
-                    ((inferredColorHex >> 16) & 0xff) / 255,
-                    ((inferredColorHex >> 8) & 0xff) / 255,
-                    (inferredColorHex & 0xff) / 255,
-                ];
-                const hasSuspiciousPureWhiteColor = Array.isArray(normalizedRecord.color)
-                    && normalizedRecord.color.length >= 3
-                    && normalizedRecord.color.every((channel) => Math.abs(Number(channel) - 1) <= 1e-4);
-                if (!normalizedRecord.color || (hasSuspiciousPureWhiteColor && inferredColorHex !== 0xffffff)) {
-                    normalizedRecord.color = inferredColor;
-                }
-            }
             if (this.resolveSnapshotMaterialEmissionEnabled(normalizedRecord) === false) {
                 normalizedRecord.emissiveEnabled = false;
                 normalizedRecord.emissive = null;
@@ -2038,13 +2090,16 @@ export class ThreeRenderDelegateMaterialOps extends ThreeRenderDelegateCore {
             const color = toColorArray(record?.[recordField]);
             if (!color)
                 return false;
-            let nextColor = new Color().fromArray(color);
+            const colorSpaceFieldByRecordField = {
+                color: 'colorSpace',
+                emissive: 'emissiveColorSpace',
+                specularColor: 'specularColorSpace',
+                attenuationColor: 'attenuationColorSpace',
+                sheenColor: 'sheenColorSpace',
+            };
+            const colorSpaceField = colorSpaceFieldByRecordField[recordField] || `${recordField}ColorSpace`;
+            let nextColor = createHydraColorFromTuple(color, options.colorSpace || record?.[colorSpaceField] || null);
             const inferredHex = this.inferColorHexFromMaterialName(material?.name);
-            if (Number.isFinite(inferredHex)
-                && color.every((channel) => Math.abs(channel - 1) <= 1e-4)
-                && inferredHex !== 0xffffff) {
-                nextColor = new Color(inferredHex);
-            }
             if (options.treatAsSrgbWhenMatchingMaterialName && material?.name) {
                 if (Number.isFinite(inferredHex)) {
                     const sr = ((inferredHex >> 16) & 0xff) / 255;

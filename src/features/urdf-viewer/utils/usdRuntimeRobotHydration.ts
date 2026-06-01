@@ -405,18 +405,12 @@ function applyLocalOriginToVisual(
   };
 }
 
-function applyLinkLocalFrameDeltaToOrigin(
-  origin: NonNullable<UrdfVisual['origin']>,
-  previousLinkLocalMatrix: THREE.Matrix4,
-  nextLinkLocalMatrix: THREE.Matrix4,
-): NonNullable<UrdfVisual['origin']> {
-  return matrixToOrigin(
-    nextLinkLocalMatrix
-      .clone()
-      .invert()
-      .multiply(previousLinkLocalMatrix)
-      .multiply(createOriginMatrix(origin)),
-  );
+function cloneOrigin(origin: NonNullable<UrdfVisual['origin']>): NonNullable<UrdfVisual['origin']> {
+  return {
+    xyz: { ...origin.xyz },
+    rpy: { ...origin.rpy },
+    ...(origin.quatXyzw ? { quatXyzw: { ...origin.quatXyzw } } : {}),
+  };
 }
 
 function isIdentityTransform(matrix: THREE.Matrix4): boolean {
@@ -504,8 +498,6 @@ export function hydrateUsdViewerRobotResolutionFromRuntime(
     parentLinkPathByJointId: { ...resolution.parentLinkPathByJointId },
     robotData: structuredClone(resolution.robotData),
   };
-  const originalJointLocalMatricesByChildLinkId = new Map<string, THREE.Matrix4>();
-  const originalInertialOriginsByLinkId = new Map<string, NonNullable<UrdfVisual['origin']>>();
   Object.values(nextResolution.robotData.joints).forEach((joint) => {
     const childLinkPath =
       resolution.childLinkPathByJointId[joint.id] || resolution.linkPathById[joint.childLinkId];
@@ -516,16 +508,6 @@ export function hydrateUsdViewerRobotResolutionFromRuntime(
       if (runtimeAngle !== undefined) {
         joint.angle = runtimeAngle;
       }
-    }
-
-    originalJointLocalMatricesByChildLinkId.set(
-      joint.childLinkId,
-      createOriginMatrix(joint.origin),
-    );
-  });
-  Object.values(nextResolution.robotData.links).forEach((link) => {
-    if (link.inertial?.origin) {
-      originalInertialOriginsByLinkId.set(link.id, structuredClone(link.inertial.origin));
     }
   });
   let computedLinkWorldMatrices = computeLinkWorldMatrices(nextResolution.robotData);
@@ -570,13 +552,6 @@ export function hydrateUsdViewerRobotResolutionFromRuntime(
   );
 
   computedLinkWorldMatrices = computeLinkWorldMatrices(nextResolution.robotData);
-  const hydratedJointLocalMatricesByChildLinkId = new Map<string, THREE.Matrix4>();
-  Object.values(nextResolution.robotData.joints).forEach((joint) => {
-    hydratedJointLocalMatricesByChildLinkId.set(
-      joint.childLinkId,
-      createOriginMatrix(joint.origin),
-    );
-  });
   const descriptorsByLinkRole = buildDescriptorMap(snapshot, resolution);
 
   Object.entries(resolution.linkIdByPath).forEach(([linkPath, linkId]) => {
@@ -595,18 +570,11 @@ export function hydrateUsdViewerRobotResolutionFromRuntime(
       return;
     }
 
-    const originalInertialOrigin = originalInertialOriginsByLinkId.get(linkId);
-      const originalLinkLocalMatrix = originalJointLocalMatricesByChildLinkId.get(linkId);
-      const hydratedLinkLocalMatrix = hydratedJointLocalMatricesByChildLinkId.get(linkId);
-      if (originalInertialOrigin && originalLinkLocalMatrix && hydratedLinkLocalMatrix) {
-        link.inertial = {
-          ...DEFAULT_LINK.inertial,
-          ...link.inertial,
-          origin: applyLinkLocalFrameDeltaToOrigin(
-          originalInertialOrigin,
-          originalLinkLocalMatrix,
-          hydratedLinkLocalMatrix,
-        ),
+    if (link.inertial?.origin) {
+      link.inertial = {
+        ...DEFAULT_LINK.inertial,
+        ...link.inertial,
+        origin: cloneOrigin(link.inertial.origin),
       };
     }
 

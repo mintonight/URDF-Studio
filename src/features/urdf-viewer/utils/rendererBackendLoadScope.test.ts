@@ -231,7 +231,7 @@ test('createMemoizedRendererBackendLoadScopeKey recomputes for structural joint 
       shoulder: {
         ...robotData.joints.shoulder,
         limit: {
-          ...robotData.joints.shoulder.limit,
+          ...robotData.joints.shoulder.limit!,
           upper: 2,
         },
       },

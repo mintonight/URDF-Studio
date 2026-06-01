@@ -75,7 +75,7 @@ test('patchJointInPlace preserves MJCF scalar joint values and initializes missi
   joint.jointValue = [0.42];
   joint.origPosition = joint.position.clone();
   joint.origQuaternion = joint.quaternion.clone();
-  joint.setJointValue = function setJointValue(...values: Array<number | null>) {
+  joint.setJointValue = function setJointValue(this: typeof joint, ...values: Array<number | null>) {
     const value = typeof values[0] === 'number' ? values[0] : 0;
     RuntimeURDFJoint.prototype.setJointValue.call(this, value);
     this.lastSetValue = value;

@@ -109,6 +109,7 @@ test('buildExportableAssemblyRobotData wraps isolated components and the whole a
 
   const assemblyWrapperJoint = exportRobot.joints.__assembly_root_joint_comp_left;
   assert.ok(assemblyWrapperJoint, 'expected assembly wrapper joint for isolated component root');
+  assert.ok(assembly.transform);
   assert.deepEqual(assemblyWrapperJoint.origin.xyz, assembly.transform.position);
   assert.deepEqual(assemblyWrapperJoint.origin.rpy, assembly.transform.rotation);
 

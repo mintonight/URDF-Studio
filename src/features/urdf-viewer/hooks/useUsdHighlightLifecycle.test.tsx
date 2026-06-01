@@ -18,7 +18,11 @@ function createComponentRoot(): {
   globalThis.document = window.document;
   globalThis.HTMLElement = window.HTMLElement;
   globalThis.Node = window.Node;
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
+    configurable: true,
+    writable: true,
+    value: true,
+  });
 
   const container = window.document.createElement('div');
   window.document.body.appendChild(container);

@@ -103,7 +103,7 @@ test('convertUsdArchiveFilesToBinary prefers root layer crate export and leaves 
       convertUsdArchiveFilesToBinary as typeof convertUsdArchiveFilesToBinary &
         ((...args: any[]) => Promise<Map<string, Blob>>)
     )(archiveFiles, {
-      onProgress: ({ filePath }) => progress.push(filePath),
+      onProgress: ({ filePath }: { filePath: string }) => progress.push(filePath),
       loadRuntime: async () => runtime,
     } as any);
 
@@ -117,7 +117,7 @@ test('convertUsdArchiveFilesToBinary prefers root layer crate export and leaves 
     assert.deepEqual(rootLayerExportCalls[0]?.[2], { format: 'usdc' });
   } finally {
     if (previousDocument === undefined) {
-      delete (globalThis as typeof globalThis & { document?: object }).document;
+      Reflect.deleteProperty(globalThis, 'document');
     } else {
       (globalThis as typeof globalThis & { document?: object }).document = previousDocument;
     }
@@ -153,7 +153,7 @@ test('convertUsdArchiveFilesToBinary preserves failed USD export attempt causes'
     );
   } finally {
     if (previousDocument === undefined) {
-      delete (globalThis as typeof globalThis & { document?: object }).document;
+      Reflect.deleteProperty(globalThis, 'document');
     } else {
       (globalThis as typeof globalThis & { document?: object }).document = previousDocument;
     }
@@ -187,7 +187,7 @@ test('convertUsdArchiveFilesToBinary falls back to stage export when root layer 
     assert.deepEqual(stageExportCalls[0]?.[2], { format: 'usdc' });
   } finally {
     if (previousDocument === undefined) {
-      delete (globalThis as typeof globalThis & { document?: object }).document;
+      Reflect.deleteProperty(globalThis, 'document');
     } else {
       (globalThis as typeof globalThis & { document?: object }).document = previousDocument;
     }

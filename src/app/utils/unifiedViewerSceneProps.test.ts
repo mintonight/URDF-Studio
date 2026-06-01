@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { ViewerController, ViewerProps, ViewerResourceScope } from '@/features/editor';
+import type { ViewerController, ViewerProps } from '@/features/editor';
+import type { ViewerResourceScope } from '@/features/urdf-viewer/utils/viewerResourceScope';
 import type { AssemblyState, RobotState } from '@/types';
 import { buildUnifiedViewerSceneProps, EMPTY_VIEWER_SELECTION } from './unifiedViewerSceneProps';
 

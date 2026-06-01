@@ -72,9 +72,9 @@ function createRobotState(): RobotState {
 
 test('commitEditableSourceApply commits parsed source data without forcing a viewer reload', () => {
   const events: string[] = [];
-  let syncedFileName: string | null = null;
-  let syncedContent: string | null = null;
-  let committedRobot: RobotData | null = null;
+  let syncedFileName: string | null = null as string | null;
+  let syncedContent: string | null = null as string | null;
+  let committedRobot: RobotData | null = null as RobotData | null;
 
   commitEditableSourceApply({
     newCode: '<robot name="demo_robot" />',
@@ -113,7 +113,7 @@ test('commitEditableSourceApply commits parsed source data without forcing a vie
 
 test('commitEditableSourceApply refreshes the resolved URDF baseline for xacro sources before commit', () => {
   const events: string[] = [];
-  let resolvedUrdfContent: string | null = null;
+  let resolvedUrdfContent: string | null = null as string | null;
 
   commitEditableSourceApply({
     newCode: '<xacro:robot name="demo_robot" />',

@@ -686,7 +686,7 @@ test('buildRuntimeRobotFromState applies mesh scale and visual color overrides o
     joints: {},
   };
 
-  let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null;
+  let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null as Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null;
   const ready = new Promise<void>((resolve) => {
     manager.onLoad = () => resolve();
   });
@@ -804,7 +804,7 @@ test('buildRuntimeRobotFromState applies double-sided rendering to marked visual
     joints: {},
   };
 
-  let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null;
+  let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null as Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null;
   const ready = new Promise<void>((resolve) => {
     manager.onLoad = () => resolve();
   });
@@ -884,7 +884,7 @@ test('buildRuntimeRobotFromState applies authored texture overrides onto loaded 
       joints: {},
     };
 
-    let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null;
+    let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null as Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null;
     const ready = new Promise<void>((resolve) => {
       manager.onLoad = () => resolve();
     });
@@ -987,7 +987,7 @@ test('buildRuntimeRobotFromState applies link-level RobotData materials to state
       },
     };
 
-    let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null;
+    let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null as Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null;
     const ready = new Promise<void>((resolve) => {
       manager.onLoad = () => resolve();
     });
@@ -1062,7 +1062,7 @@ test('buildRuntimeRobotFromState keeps Cassie MJCF texture-only materials neutra
     assert.ok(cassiePelvisLink, 'expected Cassie pelvis link');
 
     const manager = new THREE.LoadingManager();
-    let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null;
+    let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null as Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null;
     const ready = new Promise<void>((resolve) => {
       manager.onLoad = () => resolve();
     });
@@ -1147,7 +1147,7 @@ test('buildRuntimeRobotFromState preserves embedded multi-material mesh slots fo
     joints: {},
   };
 
-  let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null;
+  let robot: Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null = null as Awaited<ReturnType<typeof buildRuntimeRobotFromState>> | null;
   const ready = new Promise<void>((resolve) => {
     manager.onLoad = () => resolve();
   });
@@ -1234,7 +1234,7 @@ test('buildRuntimeRobotFromState keeps placeholder meshes for missing visual ass
     | undefined;
   assert.ok(visualGroup);
 
-  let placeholderMesh: THREE.Mesh | null = null;
+  let placeholderMesh: THREE.Mesh | null = null as THREE.Mesh | null;
   visualGroup.traverse((child) => {
     if ((child as THREE.Mesh).isMesh && child.userData?.isPlaceholder) {
       placeholderMesh = child as THREE.Mesh;
@@ -1280,7 +1280,7 @@ test('buildRuntimeRobotFromState logs when a mesh callback completes without an 
       joints: robotState.joints,
       manager: new THREE.LoadingManager(),
       loadMeshCb: (_path, _manager, done) => {
-        done(undefined, undefined);
+        done(null, undefined);
       },
     });
   } finally {

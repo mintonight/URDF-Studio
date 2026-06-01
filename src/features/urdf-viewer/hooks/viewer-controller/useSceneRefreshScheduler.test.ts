@@ -119,7 +119,7 @@ async function renderScheduler() {
   const container = env.dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
-  let hookValue: HookValue | null = null;
+  let hookValue: HookValue | null = null as HookValue | null;
 
   function Probe() {
     hookValue = useSceneRefreshScheduler();

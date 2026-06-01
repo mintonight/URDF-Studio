@@ -22,3 +22,11 @@ test('HdWebSyncDriver sensor-skipping stage open reuses the LoadNone stage when 
     /if\s*\(\s*!loadSet\.empty\(\)\s*\)\s*{\s*stage->LoadAndUnload\(loadSet,\s*SdfPathSet\(\),\s*UsdLoadWithDescendants\);/,
   );
 });
+
+test('HdWebSyncDriver exposes a versioned full-load payload for one-shot TS hydration', () => {
+  const source = readFileSync(webSyncDriverPath, 'utf8');
+
+  assert.match(source, /emscripten::val\s+GetFullLoadPayload\s*\(/);
+  assert.match(source, /payload\.set\("format",\s*std::string\("usd-full-load-payload-v1"\)\);/);
+  assert.match(source, /GetRobotSceneSnapshotBlob\(runtimeLinkPaths,\s*stageSourcePath\)/);
+});

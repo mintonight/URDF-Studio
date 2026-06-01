@@ -1486,7 +1486,7 @@ test('TreeEditor restores file browser and structure disclosure state after remo
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
   const root = createRoot(container);
-  let remountedRoot: Root | null = null;
+  let remountedRoot: Root | null = null as Root | null;
 
   useUIStore.setState({
     panelSections: {},

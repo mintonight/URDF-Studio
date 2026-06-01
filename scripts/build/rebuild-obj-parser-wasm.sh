@@ -6,7 +6,7 @@ usage() {
 Build the standalone OBJ parser WebAssembly module.
 
 Usage:
-  scripts/wasm/rebuild-obj-parser-wasm.sh [options]
+  scripts/build/rebuild-obj-parser-wasm.sh [options]
 
 Options:
   --emsdk-env <path>    Path to emsdk_env.sh. If omitted, common local paths

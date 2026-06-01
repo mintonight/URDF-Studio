@@ -95,20 +95,8 @@ function isMonacoReactChunkModule(normalizedId: string): boolean {
   return normalizedId.includes('/@monaco-editor/react/');
 }
 
-function isMonacoLanguageChunkModule(normalizedId: string): boolean {
-  return (
-    normalizedId.includes('/monaco-editor/esm/vs/basic-languages/') ||
-    normalizedId.includes('/monaco-editor/esm/vs/language/')
-  );
-}
-
-function isMonacoCoreChunkModule(normalizedId: string): boolean {
-  return (
-    normalizedId.includes('/monaco-editor/esm/') &&
-    !isMonacoLanguageChunkModule(normalizedId) &&
-    !isMonacoReactChunkModule(normalizedId) &&
-    normalizedId.includes('/monaco-editor/esm/vs/')
-  );
+function isMonacoEditorChunkModule(normalizedId: string): boolean {
+  return normalizedId.includes('/monaco-editor/esm/vs/');
 }
 
 const INITIAL_HTML_MODULE_PRELOAD_BLOCKLIST = [
@@ -394,12 +382,8 @@ export default defineConfig(({ mode }) => {
               return 'editor-monaco-react';
             }
 
-            if (isMonacoLanguageChunkModule(normalizedId)) {
-              return 'editor-monaco-language';
-            }
-
-            if (isMonacoCoreChunkModule(normalizedId)) {
-              return 'editor-monaco-core';
+            if (isMonacoEditorChunkModule(normalizedId)) {
+              return 'editor-monaco';
             }
 
             if (

@@ -11,6 +11,7 @@ import type {
 import { GeometryType } from '@/types';
 import {
   convertGeometryType,
+  computeMeshAnalysisFromAssets,
   type MeshAnalysis,
   type MeshClearanceObstacle,
 } from './geometryConversion';
@@ -171,6 +172,8 @@ export interface CollisionOptimizationAsyncOptions {
   surfacePointLimit?: number;
   sourceFilePath?: string;
 }
+
+type AnalyzeMeshBatch = typeof analyzeMeshBatchWithWorker;
 
 function createAbortError(): DOMException {
   return new DOMException('Collision optimization analysis aborted', 'AbortError');
@@ -484,10 +487,11 @@ export function buildCollisionOptimizationAnalysis(
   };
 }
 
-export async function prepareCollisionOptimizationBaseAnalysis(
+export async function prepareCollisionOptimizationBaseAnalysisWithAnalyzer(
   source: CollisionOptimizationSource,
   assets: Record<string, string>,
   options: CollisionOptimizationAsyncOptions = {},
+  analyzeMeshBatch: AnalyzeMeshBatch = analyzeMeshBatchWithWorker,
 ): Promise<CollisionOptimizationBaseAnalysis> {
   const targets = collectCollisionTargets(source);
   const meshTargets = targets.filter(
@@ -500,7 +504,7 @@ export async function prepareCollisionOptimizationBaseAnalysis(
   const includePrimitiveFits = options.includePrimitiveFits ?? false;
   const clearancePointCollectionLimit = Math.max(options.pointCollectionLimit ?? 1024, 1);
   const clearanceSurfacePointLimit = Math.max(options.surfacePointLimit ?? 512, 1);
-  const workerResults = await analyzeMeshBatchWithWorker({
+  const workerResults = await analyzeMeshBatch({
     assets,
     tasks: meshTargets.map((target) => {
       const targetSourceFilePath = resolveCollisionTargetSourceFilePath(
@@ -543,6 +547,36 @@ export async function prepareCollisionOptimizationBaseAnalysis(
     clearanceWorld,
   };
 }
+
+export async function prepareCollisionOptimizationBaseAnalysis(
+  source: CollisionOptimizationSource,
+  assets: Record<string, string>,
+  options: CollisionOptimizationAsyncOptions = {},
+): Promise<CollisionOptimizationBaseAnalysis> {
+  return await prepareCollisionOptimizationBaseAnalysisWithAnalyzer(source, assets, options);
+}
+
+export const analyzeMeshBatchInline: AnalyzeMeshBatch = async ({ assets, tasks, options }) => {
+  const localCache = new Map<string, MeshAnalysis | null>();
+  const results: Record<string, MeshAnalysis | null> = {};
+
+  for (const task of tasks) {
+    let analysis = localCache.get(task.cacheKey);
+    if (!localCache.has(task.cacheKey)) {
+      analysis = await computeMeshAnalysisFromAssets(
+        task.meshPath,
+        assets,
+        task.dimensions,
+        options,
+        task.sourceFilePath,
+      );
+      localCache.set(task.cacheKey, analysis ?? null);
+    }
+    results[task.targetId] = analysis ?? null;
+  }
+
+  return results;
+};
 
 export async function buildCollisionClearanceContextForTarget(
   robot: RobotData,

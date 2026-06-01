@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { resolveWorkspaceOverlayLayoutClassNames } from './workspaceOverlayLayout';
 import {
+  VIEWER_CORNER_OVERLAY_CLASS_NAME,
   resolveWorkspaceOverlayGizmoMargin,
   resolveWorkspaceOverlaySafeAreaStyle,
 } from '@/shared/components/3d/scene';
@@ -18,6 +19,7 @@ test('workspace overlay layout keeps the viewer independent from sidebar width',
   assert.match(classes.leftSidebarLayer, /\bleft-0\b/);
   assert.match(classes.rightSidebarLayer, /\babsolute\b/);
   assert.match(classes.rightSidebarLayer, /\bright-0\b/);
+  assert.match(classes.rightSidebarLayer, /\bpointer-events-none\b/);
 });
 
 test('workspace overlay safe area exposes visible sidebar widths as CSS variables', () => {
@@ -45,6 +47,20 @@ test('workspace overlay safe area exposes visible sidebar widths as CSS variable
       '--workspace-overlay-left-inset': '0px',
       '--workspace-overlay-right-inset': '0px',
     },
+  );
+});
+
+test('viewer corner overlay clips and shrinks HUDs inside the safe area', () => {
+  assert.match(VIEWER_CORNER_OVERLAY_CLASS_NAME, /\bbox-border\b/);
+  assert.match(VIEWER_CORNER_OVERLAY_CLASS_NAME, /\bmin-w-0\b/);
+  assert.match(VIEWER_CORNER_OVERLAY_CLASS_NAME, /\boverflow-hidden\b/);
+  assert.match(
+    VIEWER_CORNER_OVERLAY_CLASS_NAME,
+    /var\(--workspace-overlay-left-inset,0px\)\+1rem/,
+  );
+  assert.match(
+    VIEWER_CORNER_OVERLAY_CLASS_NAME,
+    /var\(--workspace-overlay-right-inset,0px\)\+1rem/,
   );
 });
 

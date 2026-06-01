@@ -123,6 +123,8 @@ export interface RendererSceneProps {
   showVisual?: boolean;
   /** Show collision meshes */
   showCollision?: boolean;
+  /** Parse collision meshes into the runtime scene */
+  parseCollisionMeshes?: boolean;
   /** Show collision always on top */
   showCollisionAlwaysOnTop?: boolean;
   /** Allow raw URDF XML parsing before structured robot state is available */

@@ -316,7 +316,7 @@ class HydraMaterial {
                     if (materialParameterMapName == 'alphaMap' && channel != 'a') {
                         targetSwizzle = channel + channel + channel + channel;
                     }
-                    clonedTexture.colorSpace = HydraMaterial.usdPreviewToColorSpaceMap[parameterName] || LinearSRGBColorSpace;
+                    clonedTexture.colorSpace = HydraMaterial.usdPreviewTextureColorSpaceMap[parameterName] || LinearSRGBColorSpace;
                     // clonedTexture.image = HydraMaterial._swizzleImageChannels(clonedTexture.image, targetSwizzle);
                     // if (materialParameterToTargetChannel[materialParameterMapName] && channel != materialParameterToTargetChannel[materialParameterMapName])
                     if (targetSwizzle != 'rgba') {
@@ -492,7 +492,7 @@ class HydraMaterial {
             const colorTuple = toColorArray(rawValue);
             if (!colorTuple)
                 return;
-            const colorSpace = HydraMaterial.usdPreviewToColorSpaceMap[parameterName] || null;
+            const colorSpace = HydraMaterial.usdPreviewPropertyColorSpaceMap[parameterName] || null;
             this._material[materialParameterName] = createHydraColorFromTuple(colorTuple, colorSpace);
             return;
         }
@@ -633,7 +633,7 @@ HydraMaterial.usdPreviewToMeshPhysicalTextureMap = {
     'iridescence': 'iridescenceMap',
     'iridescenceThickness': 'iridescenceThicknessMap',
 };
-HydraMaterial.usdPreviewToColorSpaceMap = {
+HydraMaterial.usdPreviewTextureColorSpaceMap = {
     'diffuseColor': SRGBColorSpace,
     'baseColor': SRGBColorSpace,
     'base_color': SRGBColorSpace,
@@ -648,6 +648,7 @@ HydraMaterial.usdPreviewToColorSpaceMap = {
     'specularColor': SRGBColorSpace,
     'specular_color': SRGBColorSpace,
 };
+HydraMaterial.usdPreviewPropertyColorSpaceMap = {};
 HydraMaterial.channelMap = {
     // Three.js expects many 8bit values such as roughness or metallness in a specific RGB texture channel.
     // We could write code to combine multiple 8bit texture files into different channels of one RGB texture where it

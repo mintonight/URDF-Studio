@@ -47,6 +47,74 @@ test('resolveUsdStageOpenPreparationConcurrency caps worker preload fan-out at 1
   assert.equal(resolveUsdStageOpenPreparationConcurrency(1), 2);
 });
 
+test('prepareUsdStageOpenDataCore emits bytes for inline USDA stage layers', async () => {
+  const rootLayerSource = '#usda 1.0\n(\n  subLayers = [@./configuration/demo_base.usda@]\n)\n';
+  const baseLayerSource = `#usda 1.0
+def Xform "demo"
+{
+    def Xform "base_link"
+    {
+    }
+}
+`;
+
+  const result = await prepareUsdStageOpenDataCore(
+    {
+      name: 'robots/demo/root.usda',
+      content: rootLayerSource,
+      blobUrl: undefined,
+    },
+    [
+      {
+        name: 'robots/demo/root.usda',
+        content: rootLayerSource,
+        blobUrl: undefined,
+        format: 'usd',
+      },
+      {
+        name: 'robots/demo/configuration/demo_base.usda',
+        content: baseLayerSource,
+        blobUrl: undefined,
+        format: 'usd',
+      },
+    ],
+    {},
+  );
+
+  assert.deepEqual(
+    result.preloadFiles.map((entry) => ({
+      path: entry.path,
+      hasBlob: Boolean(entry.blob),
+      hasBytes: entry.bytes instanceof Uint8Array,
+      transferBytes: entry.transferBytes === true,
+    })),
+    [
+      {
+        path: '/robots/demo/configuration/demo_base.usda',
+        hasBlob: false,
+        hasBytes: true,
+        transferBytes: false,
+      },
+      {
+        path: '/robots/demo/root.usda',
+        hasBlob: false,
+        hasBytes: true,
+        transferBytes: false,
+      },
+    ],
+  );
+
+  const encodedRootLayer = new TextEncoder().encode(rootLayerSource);
+  const encodedBaseLayer = new TextEncoder().encode(baseLayerSource);
+  assert.equal(result.metrics?.blobByteCount, 0);
+  assert.equal(
+    result.metrics?.bytesByteCount,
+    encodedRootLayer.byteLength + encodedBaseLayer.byteLength,
+  );
+  assert.equal(result.metrics?.transferableByteCount, 0);
+  assert.equal(result.metrics?.normalizedTextFileCount, 0);
+});
+
 test('prepareUsdStageOpenDataCore materializes preload blobs and keeps optional failures soft', async () => {
   const originalFetch = globalThis.fetch;
   const fetchCalls: string[] = [];

@@ -63,6 +63,8 @@ test('createEmbeddedUsdViewerLoadParams keeps worker bootstrap strict while usin
   assert.equal(params.get('warmupRuntimeBridge'), '1');
   assert.equal(params.get('robotSceneSnapshotBeforeDraw'), '1');
   assert.equal(params.get('skipHydraFullDrawForRobotSceneSnapshot'), '1');
+  assert.equal(params.get('skipHydraPopulateForRobotSceneSnapshot'), '1');
+  assert.equal(params.get('disableStageLayerTextFallbacks'), '1');
   assert.equal(params.has('initialDrawBurst'), false);
 });
 
@@ -83,6 +85,8 @@ test('createEmbeddedUsdViewerLoadParams can relax only robot metadata for synthe
   assert.equal(params.get('warmupRuntimeBridge'), '1');
   assert.equal(params.get('robotSceneSnapshotBeforeDraw'), '1');
   assert.equal(params.get('skipHydraFullDrawForRobotSceneSnapshot'), '1');
+  assert.equal(params.get('skipHydraPopulateForRobotSceneSnapshot'), '1');
+  assert.equal(params.get('disableStageLayerTextFallbacks'), '1');
   assert.equal(params.has('initialDrawBurst'), false);
 });
 

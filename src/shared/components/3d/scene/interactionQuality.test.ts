@@ -15,10 +15,16 @@ test('resolveCanvasDpr keeps resting canvases crisp up to the resting cap', () =
   );
 });
 
-test('resolveCanvasDpr lowers interactive canvases to the interaction DPR cap', () => {
+test('resolveCanvasDpr keeps interactive canvases as crisp as resting canvases by default', () => {
+  const devicePixelRatio = 2.5;
+
   assert.equal(
-    resolveCanvasDpr({ devicePixelRatio: 2.5, isInteracting: true }),
-    INTERACTION_DPR_CAP,
+    resolveCanvasDpr({ devicePixelRatio, isInteracting: true }),
+    resolveCanvasDpr({ devicePixelRatio, isInteracting: false }),
+  );
+  assert.equal(
+    resolveCanvasDpr({ devicePixelRatio, isInteracting: true }),
+    RESTING_DPR_CAP,
   );
 });
 

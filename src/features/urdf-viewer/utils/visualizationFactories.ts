@@ -561,7 +561,7 @@ export function createInertiaBox(
     transparent: true,
     opacity: 0.25,
     depthWrite: false,
-    depthTest: false,
+    depthTest: true,
   });
   markMaterialAsShared(mat);
   const mesh = new THREE.Mesh(geom, mat);
@@ -577,7 +577,7 @@ export function createInertiaBox(
     transparent: true,
     opacity: 0.6,
     depthWrite: false,
-    depthTest: false,
+    depthTest: true,
   });
   markMaterialAsShared(lineMat);
   const line = new THREE.LineSegments(edges, lineMat);

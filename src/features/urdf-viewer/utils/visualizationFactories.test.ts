@@ -52,6 +52,10 @@ test('createInertiaBox uses the fill surface for hover and keeps the outline dec
 
   assert.ok(fillMesh, 'inertia box should include a filled mesh');
   assert.ok(outline, 'inertia box should include an outline');
+  assert.equal((fillMesh.material as Material).depthTest, true);
+  assert.equal((fillMesh.material as Material).depthWrite, false);
+  assert.equal((outline.material as Material).depthTest, true);
+  assert.equal((outline.material as Material).depthWrite, false);
   assert.notEqual(fillMesh?.raycast, ignoreRaycast);
   assert.equal(outline?.raycast, ignoreRaycast);
 });

@@ -15,13 +15,13 @@ const createHydraInterfaceStub = () => ({
     config: {
         usdRoot: new Group(),
     },
-    meshes: {},
-    materials: {},
+    meshes: {} as Record<string, HydraMesh>,
+    materials: {} as Record<string, { _material: MeshPhysicalMaterial }>,
     _preferredVisualMaterialByLinkCache: new Map(),
-    resolveMaterialIdForMesh(materialId) {
+    resolveMaterialIdForMesh(materialId: string) {
         return materialId;
     },
-    getOrCreateMaterialById(materialId) {
+    getOrCreateMaterialById(materialId: string) {
         return this.materials[materialId] || null;
     },
     getPreferredVisualMaterialForLink() {
@@ -206,11 +206,13 @@ test('HydraMesh preserves USD displayColor vertex values as raw linear colors', 
     assert.ok(material);
     assert.equal(material.vertexColors, true);
     const expectedColors = [1, 0.5, 0.2, 0.25, 0.5, 0.75];
-    assert.equal(hydraMesh._colors.length, expectedColors.length);
+    assert.ok(hydraMesh._colors);
+    const colors = hydraMesh._colors;
+    assert.equal(colors.length, expectedColors.length);
     for (let index = 0; index < expectedColors.length; index += 1) {
         assert.ok(
-            Math.abs(hydraMesh._colors[index] - expectedColors[index]) <= 1e-6,
-            `expected color[${index}]=${hydraMesh._colors[index]} to be close to ${expectedColors[index]}`,
+            Math.abs(colors[index] - expectedColors[index]) <= 1e-6,
+            `expected color[${index}]=${colors[index]} to be close to ${expectedColors[index]}`,
         );
     }
 });
@@ -273,8 +275,8 @@ test('HydraMesh restacks repeated Unitree-style visual shells idempotently', () 
 
     innerMesh.setMaterial('/Looks/Inner');
     outerMesh.setMaterial('/Looks/Outer');
-    outerMesh.restackSiblingVisualProtoMeshes('/go2_description/base_link');
-    innerMesh.restackSiblingVisualProtoMeshes('/go2_description/base_link');
+    (outerMesh as any).restackSiblingVisualProtoMeshes('/go2_description/base_link');
+    (innerMesh as any).restackSiblingVisualProtoMeshes('/go2_description/base_link');
 
     const resolvedInnerMaterial = Array.isArray(innerMesh._mesh.material)
         ? innerMesh._mesh.material[0]
@@ -312,7 +314,7 @@ test('HydraMesh preserves uncovered geometry ranges when geom subsets leave gaps
     const groupSummary = hydraMesh._geometry.groups.map((group) => ({
         start: group.start,
         count: group.count,
-        material: assignedMaterials[group.materialIndex]?.name ?? null,
+        material: assignedMaterials[group.materialIndex ?? 0]?.name ?? null,
     }));
 
     assert.deepEqual(groupSummary, [
@@ -345,7 +347,7 @@ test('HydraMesh prefers the next resolved subset material for uncovered visual g
     const groupSummary = hydraMesh._geometry.groups.map((group) => ({
         start: group.start,
         count: group.count,
-        material: assignedMaterials[group.materialIndex]?.name ?? null,
+        material: assignedMaterials[group.materialIndex ?? 0]?.name ?? null,
     }));
 
     assert.deepEqual(groupSummary, [

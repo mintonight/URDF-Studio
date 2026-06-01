@@ -9,7 +9,7 @@ import { isIkDragToolEnabled } from '@/shared/utils/ikDragFeatureGate';
 import { useToolItems } from './useToolItems.tsx';
 
 function renderHook(overrides?: { openIkTool?: () => void }) {
-  let hookValue: ReturnType<typeof useToolItems> | null = null;
+  let hookValue: ReturnType<typeof useToolItems> | null = null as ReturnType<typeof useToolItems> | null;
 
   function Probe() {
     hookValue = useToolItems({
@@ -24,7 +24,7 @@ function renderHook(overrides?: { openIkTool?: () => void }) {
 
   renderToStaticMarkup(<Probe />);
   assert.ok(hookValue, 'hook should render');
-  return hookValue;
+  return hookValue as ReturnType<typeof useToolItems>;
 }
 
 test('useToolItems hides the unfinished IK drag tool entry', () => {

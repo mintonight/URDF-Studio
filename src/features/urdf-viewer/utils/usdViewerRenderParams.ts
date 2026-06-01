@@ -86,6 +86,8 @@ export function createEmbeddedUsdViewerLoadParams(
       options.allowIncompleteWorkerRobotMetadata ? '0' : '1';
     safeLoadFlags.robotSceneSnapshotBeforeDraw = '1';
     safeLoadFlags.skipHydraFullDrawForRobotSceneSnapshot = '1';
+    safeLoadFlags.skipHydraPopulateForRobotSceneSnapshot = '1';
+    safeLoadFlags.disableStageLayerTextFallbacks = '1';
   }
 
   if (loadProfile === 'large-pure-usd-sliced') {

@@ -102,7 +102,7 @@ function installDomEnvironment() {
 }
 
 function renderHook() {
-  let hookValue: ReturnType<typeof useAppShellState> | null = null;
+  let hookValue: ReturnType<typeof useAppShellState> | null = null as ReturnType<typeof useAppShellState> | null;
   const container = document.createElement('div');
   document.body.appendChild(container);
 

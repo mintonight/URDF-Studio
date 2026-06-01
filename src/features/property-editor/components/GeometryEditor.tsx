@@ -3,16 +3,13 @@
  * Handles geometry type selection, dimension editing, mesh selection,
  * origin/rotation, color, and auto-align.
  */
-import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
-import { Upload, File, Wand, Check, Trash2, Eye } from 'lucide-react';
-import type { RobotState, UrdfLink, UrdfVisual } from '@/types';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { Trash2 } from 'lucide-react';
+import type { UrdfVisual } from '@/types';
 import { GeometryType } from '@/types';
-import { translations } from '@/shared/i18n';
 import { useCollisionTransformStore, useSelectionStore } from '@/store';
-import type { Language } from '@/store';
 import {
   canEditGeometryBaseTexture,
-  getVisualGeometryEntries,
   getVisualGeometryByObjectIndex,
   hasGeometryMeshMaterialGroups,
   resolveVisualMaterialOverride,
@@ -24,371 +21,42 @@ import {
 } from '@/core/robot';
 import {
   InputGroup,
-  InlineInputGroup,
-  NumberInput,
-  PROPERTY_EDITOR_FIELD_LABEL_CLASS,
-  PROPERTY_EDITOR_HELPER_TEXT_CLASS,
-  PROPERTY_EDITOR_INPUT_CLASS,
-  PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS,
-  PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS,
-  PROPERTY_EDITOR_PRIMARY_BUTTON_CLASS,
-  PropertyEditorSelect,
-  ReadonlyValueField,
-  PROPERTY_EDITOR_SECONDARY_BUTTON_CLASS,
   PROPERTY_EDITOR_SECTION_TITLE_CLASS,
 } from './FormControls';
 
-import { MeshPreview } from './MeshPreview';
 import { computeAutoAlign, convertGeometryType } from '../utils/geometryConversion';
 import {
   getColorOpacityValue,
-  getColorPickerHexValue,
   mergeColorOpacityValue,
-  mergeColorPickerHexValue,
 } from '../utils/colorInput';
 import {
   clampMaterialOpacity,
-  getAuthoredMaterialOpacity,
   getUniqueAuthoredMaterialColors,
   normalizeMaterialColor,
   withAuthoredMaterialOpacity,
 } from '../utils/geometryMaterial';
 import type { MeshAnalysis, MeshClearanceObstacle } from '../utils/geometryConversion';
 import { useGeometryMeshAnalysis } from '../utils/useGeometryMeshAnalysis';
-import {
-  GEOMETRY_DIMENSION_STEP,
-  MAX_GEOMETRY_DIMENSION_DECIMALS,
-} from '@/core/utils/numberPrecision';
-import {
-  buildColladaRootNormalizationHints,
-  shouldNormalizeColladaGeometry,
-} from '@/core/loaders/colladaRootNormalization';
-import { cleanFilePath } from '@/core/loaders';
+import { buildColladaRootNormalizationHints } from '@/core/loaders/colladaRootNormalization';
 import { TransformFields } from './TransformFields';
-
-const GEOMETRY_EDITOR_COMPACT_ACTIONS_WIDTH = 360;
-const GEOMETRY_EDITOR_RELAXED_OVERLAP_ALLOWANCE_RATIO = 0.12;
-const GEOMETRY_EDITOR_RELAXED_FIT_VOLUME_WINDOW_RATIO = 1.75;
-const EDITABLE_GEOMETRY_TYPES: GeometryType[] = [
-  GeometryType.BOX,
-  GeometryType.CYLINDER,
-  GeometryType.SPHERE,
-  GeometryType.ELLIPSOID,
-  GeometryType.CAPSULE,
-  GeometryType.MESH,
-];
-const MJCF_SPECIAL_GEOMETRY_TYPES = new Set<GeometryType>([
-  GeometryType.PLANE,
-  GeometryType.HFIELD,
-  GeometryType.SDF,
-]);
-const COLLISION_VISUAL_MESH_REFERENCE_TYPES = new Set<GeometryType>([
-  GeometryType.BOX,
-  GeometryType.CYLINDER,
-  GeometryType.ELLIPSOID,
-  GeometryType.CAPSULE,
-]);
-const APPROXIMATE_VISUAL_REFERENCE_STEM_SUFFIX_PATTERN =
-  /(?:[_\-.](?:visual|collision|collider|mesh|model|col|vis))+$/i;
-
-async function yieldToNextFrame(): Promise<void> {
-  await new Promise<void>((resolve) => {
-    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-      window.requestAnimationFrame(() => resolve());
-      return;
-    }
-
-    setTimeout(resolve, 0);
-  });
-}
-
-function getOriginDistanceSquared(
-  left: UrdfVisual['origin'] | undefined,
-  right: UrdfVisual['origin'] | undefined,
-): number {
-  const leftX = left?.xyz?.x ?? 0;
-  const leftY = left?.xyz?.y ?? 0;
-  const leftZ = left?.xyz?.z ?? 0;
-  const rightX = right?.xyz?.x ?? 0;
-  const rightY = right?.xyz?.y ?? 0;
-  const rightZ = right?.xyz?.z ?? 0;
-  const dx = leftX - rightX;
-  const dy = leftY - rightY;
-  const dz = leftZ - rightZ;
-  return dx * dx + dy * dy + dz * dz;
-}
-
-function normalizeMeshReferenceStem(meshPath: string | undefined): string | null {
-  const normalizedPath = cleanFilePath((meshPath ?? '').trim());
-  if (!normalizedPath) {
-    return null;
-  }
-
-  const filename = normalizedPath.split('/').pop() ?? normalizedPath;
-  const lastDotIndex = filename.lastIndexOf('.');
-  const stem = (lastDotIndex >= 0 ? filename.slice(0, lastDotIndex) : filename).toLowerCase();
-  if (!stem) {
-    return null;
-  }
-
-  let simplifiedStem = stem;
-  let previousStem = '';
-  while (simplifiedStem && simplifiedStem !== previousStem) {
-    previousStem = simplifiedStem;
-    simplifiedStem = simplifiedStem.replace(APPROXIMATE_VISUAL_REFERENCE_STEM_SUFFIX_PATTERN, '');
-  }
-
-  return simplifiedStem || stem;
-}
-
-function resolveCollisionVisualMeshReference(
-  link: UrdfLink,
-  collisionObjectIndex: number,
-  collisionGeometry: UrdfVisual,
-): UrdfVisual | null {
-  const meshEntries = getVisualGeometryEntries(link).filter(
-    (entry) => entry.geometry.type === GeometryType.MESH && Boolean(entry.geometry.meshPath),
-  );
-
-  if (meshEntries.length === 0) {
-    return null;
-  }
-
-  const collisionMeshStem = normalizeMeshReferenceStem(collisionGeometry.meshPath);
-
-  const nearestEntry = meshEntries.reduce((bestEntry, entry) => {
-    if (!bestEntry) {
-      return entry;
-    }
-
-    const entryMeshStem = normalizeMeshReferenceStem(entry.geometry.meshPath);
-    const bestMeshStem = normalizeMeshReferenceStem(bestEntry.geometry.meshPath);
-    const entryStemMatched = Boolean(
-      collisionMeshStem && entryMeshStem && collisionMeshStem === entryMeshStem,
-    );
-    const bestStemMatched = Boolean(
-      collisionMeshStem && bestMeshStem && collisionMeshStem === bestMeshStem,
-    );
-
-    if (entryStemMatched !== bestStemMatched) {
-      return entryStemMatched ? entry : bestEntry;
-    }
-
-    const entrySameIndex = entry.objectIndex === collisionObjectIndex;
-    const bestSameIndex = bestEntry.objectIndex === collisionObjectIndex;
-    if (entrySameIndex !== bestSameIndex) {
-      return entrySameIndex ? entry : bestEntry;
-    }
-
-    const bestDistance = getOriginDistanceSquared(
-      bestEntry.geometry.origin,
-      collisionGeometry.origin,
-    );
-    const nextDistance = getOriginDistanceSquared(entry.geometry.origin, collisionGeometry.origin);
-
-    if (nextDistance < bestDistance - 1e-8) {
-      return entry;
-    }
-
-    if (
-      Math.abs(nextDistance - bestDistance) <= 1e-8 &&
-      entry.objectIndex < bestEntry.objectIndex
-    ) {
-      return entry;
-    }
-
-    return bestEntry;
-  }, meshEntries[0] ?? null);
-
-  return nearestEntry?.geometry ?? null;
-}
-
-interface GeometryEditorProps {
-  data: UrdfLink;
-  robot: RobotState;
-  category: 'visual' | 'collision';
-  onUpdate: (d: UrdfLink) => void;
-  assets: Record<string, string>;
-  onUploadAsset: (file: File) => void;
-  t: (typeof translations)['en'];
-  lang: Language;
-  isTabbed?: boolean;
-  showCollisionDeleteAction?: boolean;
-  sourceFilePath?: string;
-  onLinkNameChange?: (name: string) => void;
-}
-
-interface DimensionInputField {
-  label: string;
-  max?: number;
-  min?: number;
-  onChange: (value: number) => void;
-  value: number;
-}
-
-interface DeferredColorPickerInputProps {
-  ariaLabel: string;
-  className?: string;
-  onCommit: (value: string) => void;
-  value: string;
-}
-
-const DeferredColorPickerInput = ({
-  ariaLabel,
-  className,
-  onCommit,
-  value,
-}: DeferredColorPickerInputProps) => {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [draftValue, setDraftValue] = useState(value);
-  const draftValueRef = useRef(value);
-  const committedValueRef = useRef(value);
-  const onCommitRef = useRef(onCommit);
-  const pendingCommitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    onCommitRef.current = onCommit;
-  }, [onCommit]);
-
-  useEffect(() => {
-    draftValueRef.current = value;
-    committedValueRef.current = value;
-    setDraftValue(value);
-  }, [value]);
-
-  const setDraft = useCallback((nextValue: string) => {
-    draftValueRef.current = nextValue;
-    setDraftValue((currentValue) => (currentValue === nextValue ? currentValue : nextValue));
-  }, []);
-
-  const clearPendingCommit = useCallback(() => {
-    if (pendingCommitTimeoutRef.current === null) {
-      return;
-    }
-
-    clearTimeout(pendingCommitTimeoutRef.current);
-    pendingCommitTimeoutRef.current = null;
-  }, []);
-
-  const commitDraft = useCallback(() => {
-    clearPendingCommit();
-    const nextValue = draftValueRef.current;
-    if (nextValue === committedValueRef.current) {
-      return;
-    }
-
-    committedValueRef.current = nextValue;
-    onCommitRef.current(nextValue);
-  }, [clearPendingCommit]);
-
-  const scheduleCommit = useCallback(() => {
-    clearPendingCommit();
-    pendingCommitTimeoutRef.current = setTimeout(() => {
-      pendingCommitTimeoutRef.current = null;
-      commitDraft();
-    }, 50);
-  }, [clearPendingCommit, commitDraft]);
-
-  const handleDraftChange = useCallback(
-    (nextValue: string) => {
-      setDraft(nextValue);
-      scheduleCommit();
-    },
-    [scheduleCommit, setDraft],
-  );
-
-  useEffect(() => clearPendingCommit, [clearPendingCommit]);
-
-  useEffect(() => {
-    const input = inputRef.current;
-    if (!input) {
-      return;
-    }
-
-    const handleNativeChange = () => {
-      setDraft(input.value);
-      commitDraft();
-    };
-
-    input.addEventListener('change', handleNativeChange);
-    return () => {
-      input.removeEventListener('change', handleNativeChange);
-    };
-  }, [commitDraft, setDraft]);
-
-  return (
-    <input
-      ref={inputRef}
-      type="color"
-      value={draftValue}
-      onInput={(event) => handleDraftChange(event.currentTarget.value)}
-      onChange={(event) => handleDraftChange(event.currentTarget.value)}
-      onPointerUp={commitDraft}
-      onMouseUp={commitDraft}
-      onBlur={commitDraft}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') {
-          commitDraft();
-        }
-      }}
-      aria-label={ariaLabel}
-      className={className}
-    />
-  );
-};
-
-const POSITIVE_GEOMETRY_VALUE_MIN = 10 ** -MAX_GEOMETRY_DIMENSION_DECIMALS;
-const stripAxisSuffix = (label: string) => label.replace(/\s*\([^)]*\)\s*$/, '');
-const MATERIAL_OPACITY_STEP = 0.05;
-const MATERIAL_OPACITY_DECIMALS = 3;
-
-const InlineDimensionInputRow = ({
-  fields,
-  columns = 3,
-  labelClassName = PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS,
-  labelWidthClassName = 'w-2 text-center',
-  showStepper = true,
-}: {
-  fields: DimensionInputField[];
-  columns?: 1 | 2 | 3;
-  labelClassName?: string;
-  labelWidthClassName?: string;
-  showStepper?: boolean;
-}) => (
-  <div
-    className={`min-w-0 ${
-      columns === 1
-        ? 'grid grid-cols-1 gap-1.5'
-        : columns === 2
-          ? 'grid grid-cols-2 gap-1.5'
-          : 'grid grid-cols-3 gap-1.5'
-    }`}
-  >
-    {fields.map((field) => (
-      <div key={field.label} className="flex min-w-0 items-center gap-1.5">
-        <span
-          className={`${labelClassName} ${labelWidthClassName} min-w-0 shrink truncate`}
-          title={field.label}
-        >
-          {field.label}
-        </span>
-        <div className="min-w-0 flex-1">
-          <NumberInput
-            value={field.value}
-            onChange={field.onChange}
-            min={field.min}
-            max={field.max}
-            compact
-            showStepper={showStepper}
-            step={GEOMETRY_DIMENSION_STEP}
-            precision={MAX_GEOMETRY_DIMENSION_DECIMALS}
-            commitOnBlurOnly
-          />
-        </div>
-      </div>
-    ))}
-  </div>
-);
+import { GeometryEditorHeader } from './GeometryEditorHeader';
+import { GeometryDimensionsSection } from './GeometryDimensionsSection';
+import { GeometryMeshLibraryPanel } from './GeometryMeshLibraryPanel';
+import { VisualMaterialEditor } from './VisualMaterialEditor';
+import type { GeometryEditorProps, GeometrySnapshotCache } from './GeometryEditor.types';
+import {
+  COLLISION_VISUAL_MESH_REFERENCE_TYPES,
+  EDITABLE_GEOMETRY_TYPES,
+  GEOMETRY_EDITOR_COMPACT_ACTIONS_WIDTH,
+  GEOMETRY_EDITOR_RELAXED_FIT_VOLUME_WINDOW_RATIO,
+  GEOMETRY_EDITOR_RELAXED_OVERLAP_ALLOWANCE_RATIO,
+  MJCF_SPECIAL_GEOMETRY_TYPES,
+} from './geometryEditorConstants';
+import {
+  createGeometrySnapshot,
+  resolveCollisionVisualMeshReference,
+  yieldToNextFrame,
+} from './geometryEditorUtils';
 
 export const GeometryEditor: React.FC<GeometryEditorProps> = ({
   data,
@@ -482,68 +150,11 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
     currentGeometryType === GeometryType.NONE
       ? [...EDITABLE_GEOMETRY_TYPES, GeometryType.NONE]
       : [...EDITABLE_GEOMETRY_TYPES, currentGeometryType, GeometryType.NONE];
-  const geometryAssetReference = geomData.assetRef?.trim() || geomData.meshPath?.trim() || '';
-  const hfieldAssetMetadata =
-    geomData.type === GeometryType.HFIELD ? geomData.mjcfHfield : undefined;
-  const geometrySnapshotCacheRef = useRef<
-    Record<
-      string,
-      Partial<
-        Record<
-          GeometryType,
-          {
-            dimensions?: { x: number; y: number; z: number };
-            origin?: {
-              xyz: { x: number; y: number; z: number };
-              rpy: { r: number; p: number; y: number };
-            };
-            meshPath?: string;
-            assetRef?: string;
-            mjcfHfield?: typeof geomData.mjcfHfield;
-            color?: string;
-          }
-        >
-      >
-    >
-  >({});
+  const geometrySnapshotCacheRef = useRef<GeometrySnapshotCache>({});
   const snapshotKey =
     category === 'collision'
       ? `${data.id}:${category}:${selectedCollisionGeometry?.bodyIndex ?? 'primary'}`
       : `${data.id}:${category}:${selectedVisualGeometry?.bodyIndex ?? 'primary'}`;
-
-  const createSnapshot = (source: typeof geomData) => ({
-    dimensions: source?.dimensions
-      ? {
-          x: source.dimensions.x,
-          y: source.dimensions.y,
-          z: source.dimensions.z,
-        }
-      : undefined,
-    origin: source?.origin
-      ? {
-          xyz: {
-            x: source.origin.xyz.x,
-            y: source.origin.xyz.y,
-            z: source.origin.xyz.z,
-          },
-          rpy: {
-            r: source.origin.rpy.r,
-            p: source.origin.rpy.p,
-            y: source.origin.rpy.y,
-          },
-        }
-      : undefined,
-    meshPath: source?.meshPath,
-    assetRef: source?.assetRef,
-    mjcfHfield: source?.mjcfHfield
-      ? {
-          ...source.mjcfHfield,
-          size: source.mjcfHfield.size ? { ...source.mjcfHfield.size } : undefined,
-          elevation: source.mjcfHfield.elevation ? [...source.mjcfHfield.elevation] : undefined,
-        }
-      : undefined,
-    color: source?.color,
-  });
 
   const authoredMaterialColors = useMemo(() => {
     return getUniqueAuthoredMaterialColors(geomData.authoredMaterials);
@@ -587,17 +198,6 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
             getColorOpacityValue(effectiveColorValue, 1),
         )
       : clampMaterialOpacity(getColorOpacityValue(geomData.color, 1));
-  const describeMeshPath = (filePath: string) => {
-    const normalizedPath = filePath.replace(/\\/g, '/');
-    const pathSegments = normalizedPath.split('/');
-    const fileName = pathSegments[pathSegments.length - 1] || normalizedPath;
-    const parentPath = pathSegments.slice(0, -1).join('/');
-
-    return {
-      fileName,
-      parentPath,
-    };
-  };
   const displayedOrigin = useMemo(() => {
     if (category !== 'collision' || !pendingCollisionTransform) {
       return geomData.origin;
@@ -680,7 +280,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
     if (!geometrySnapshotCacheRef.current[snapshotKey]) {
       geometrySnapshotCacheRef.current[snapshotKey] = {};
     }
-    geometrySnapshotCacheRef.current[snapshotKey][currentType] = createSnapshot(geomData);
+    geometrySnapshotCacheRef.current[snapshotKey][currentType] = createGeometrySnapshot(geomData);
   }, [geomData, snapshotKey]);
 
   useEffect(() => {
@@ -880,7 +480,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
       geometrySnapshotCacheRef.current[snapshotKey] = {};
     }
     const cacheByType = geometrySnapshotCacheRef.current[snapshotKey];
-    cacheByType[currentType] = createSnapshot(geomData);
+    cacheByType[currentType] = createGeometrySnapshot(geomData);
 
     const cachedTarget = cacheByType[newType];
     const representativeMeshColor =
@@ -980,7 +580,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
             : resolvedRepresentativeMeshColor || geomData.color,
       };
 
-      cacheByType[newType] = createSnapshot(nextGeom);
+      cacheByType[newType] = createGeometrySnapshot(nextGeom);
       update(nextGeom);
     })();
   };
@@ -1035,465 +635,42 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
       )}
 
       <div ref={geometryHeaderRowRef} className="mb-1 flex min-w-0 items-center gap-1.5">
-        {category === 'visual' && onLinkNameChange ? (
-          <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span
-              className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} min-w-0 shrink whitespace-nowrap`}
-            >
-              {t.name}
-            </span>
-            <input
-              type="text"
-              value={data.name ?? ''}
-              onChange={(e) => onLinkNameChange(e.target.value)}
-              className={`${PROPERTY_EDITOR_INPUT_CLASS} min-w-0 flex-1`}
-              spellCheck={false}
-            />
-          </div>
-        ) : category === 'collision' ? (
-          <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span
-              className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} min-w-0 shrink whitespace-nowrap`}
-            >
-              {t.name}
-            </span>
-            <input
-              type="text"
-              value={geometryNameValue}
-              onChange={(e) => {
-                const nextName = e.target.value.trim();
-                update({ name: nextName || undefined });
-              }}
-              className={`${PROPERTY_EDITOR_INPUT_CLASS} min-w-0 flex-1`}
-              spellCheck={false}
-            />
-          </div>
-        ) : null}
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          <span
-            className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} min-w-0 shrink whitespace-nowrap`}
-          >
-            {t.type}
-          </span>
-          <div
-            className="min-w-0 flex-1"
-            style={{
-              height: 22,
-              display: 'flex',
-              alignItems: 'center',
-              overflow: 'hidden',
-              lineHeight: 0,
-            }}
-          >
-            <PropertyEditorSelect
-              value={currentGeometryType}
-              aria-label={t.type}
-              options={geometryTypeOptions.map((typeOption) => {
-                const label =
-                  typeOption === GeometryType.BOX
-                    ? t.box
-                    : typeOption === GeometryType.PLANE
-                      ? t.plane
-                      : typeOption === GeometryType.CYLINDER
-                        ? t.cylinder
-                        : typeOption === GeometryType.SPHERE
-                          ? t.sphere
-                          : typeOption === GeometryType.ELLIPSOID
-                            ? t.ellipsoid
-                            : typeOption === GeometryType.CAPSULE
-                              ? t.capsule
-                              : typeOption === GeometryType.HFIELD
-                                ? t.hfield
-                                : typeOption === GeometryType.SDF
-                                  ? t.sdf
-                                  : typeOption === GeometryType.MESH
-                                    ? t.mesh
-                                    : t.none;
-
-                return {
-                  value: typeOption,
-                  label,
-                };
-              })}
-              onChange={handleTypeChange}
-              className="min-w-0 w-full"
-            />
-          </div>
-        </div>
-        {category === 'collision' &&
-          geomData.type === GeometryType.CYLINDER &&
-          !isCompactGeometryActions && (
-            <button
-              onClick={handleAutoAlign}
-              className="inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border border-border-strong bg-element-bg text-text-tertiary transition-colors hover:bg-element-hover hover:text-text-primary"
-              title={t.autoAlign}
-            >
-              <Wand className="h-3.5 w-3.5" />
-            </button>
-          )}
+        <GeometryEditorHeader
+          category={category}
+          currentGeometryType={currentGeometryType}
+          geometryNameValue={geometryNameValue}
+          geometryTypeOptions={geometryTypeOptions}
+          isCompactGeometryActions={isCompactGeometryActions}
+          linkName={data.name ?? ''}
+          onAutoAlign={handleAutoAlign}
+          onGeometryNameChange={(nextName) => update({ name: nextName })}
+          onLinkNameChange={onLinkNameChange}
+          onTypeChange={handleTypeChange}
+          showAutoAlign={category === 'collision' && geomData.type === GeometryType.CYLINDER}
+          t={t}
+        />
       </div>
 
-      {/* Mesh Selection UI */}
       {geomData.type === GeometryType.MESH && (
-        <div className="mb-2 overflow-hidden rounded-lg border border-border-black bg-panel-bg/70">
-          <div className="flex items-center justify-between gap-2 border-b border-border-black/60 bg-element-bg/70 px-2 py-1.5">
-            <div className="flex min-w-0 items-center gap-1.5">
-              <span className={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}>{t.meshLibrary}</span>
-              <span className="inline-flex min-w-4 items-center justify-center rounded-full border border-border-black bg-panel-bg px-1 py-0.5 text-[8px] font-semibold leading-none text-text-tertiary">
-                {meshFiles.length}
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
-              <input
-                type="file"
-                ref={fileInputRef}
-                className="hidden"
-                accept=".stl,.STL,.msh,.MSH,.obj,.OBJ,.dae,.DAE,.gltf,.GLTF,.glb,.GLB,.ply,.PLY,.vtk,.VTK"
-                onChange={handleFileChange}
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="inline-flex h-6 items-center justify-center gap-1 rounded-md bg-system-blue-solid px-1.5 text-[10px] font-semibold text-white transition-colors hover:bg-system-blue-hover"
-              >
-                <Upload className="h-2.5 w-2.5" />
-                {t.upload}
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-1 px-1.5 py-1.5">
-            <div className="flex max-h-32 flex-col gap-0.5 overflow-y-auto custom-scrollbar pr-0.5">
-              {meshFiles.length === 0 && (
-                <div className="rounded-md border border-dashed border-border-black/70 bg-element-bg/70 px-2 py-3 text-center">
-                  <div className={`${PROPERTY_EDITOR_HELPER_TEXT_CLASS} italic`}>
-                    {t.meshNotFound}
-                  </div>
-                </div>
-              )}
-              {meshFiles.map((filePath) => {
-                const isApplied = geomData.meshPath === filePath && !previewMeshPath;
-                const isPreviewing = previewMeshPath === filePath;
-                const { fileName, parentPath } = describeMeshPath(filePath);
-
-                return (
-                  <button
-                    type="button"
-                    key={filePath}
-                    title={filePath}
-                    onClick={() => setPreviewMeshPath(filePath)}
-                    onDoubleClick={() => {
-                      update({ meshPath: filePath });
-                      setPreviewMeshPath(null);
-                    }}
-                    className={`
-                                            grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 rounded-md border px-1.5 py-1 text-left transition-colors
-                                            ${
-                                              isApplied
-                                                ? 'border-system-blue/35 bg-system-blue/10 text-system-blue dark:bg-system-blue/20'
-                                                : isPreviewing
-                                                  ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                                                  : 'border-transparent bg-transparent text-text-secondary hover:border-border-black/50 hover:bg-element-hover'
-                                            }
-                                        `}
-                  >
-                    <File className="h-3 w-3 shrink-0" />
-                    <div className="min-w-0">
-                      <div
-                        className={`truncate text-[10px] font-medium ${isApplied ? 'text-system-blue' : 'text-text-primary'}`}
-                      >
-                        {fileName}
-                      </div>
-                      {parentPath && (
-                        <div className="truncate text-[9px] leading-4 text-text-tertiary">
-                          {parentPath}
-                        </div>
-                      )}
-                    </div>
-                    {isApplied ? (
-                      <Check className="h-3 w-3 shrink-0" />
-                    ) : isPreviewing ? (
-                      <Eye className="h-3 w-3 shrink-0" />
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-
-            {previewMeshPath && (
-              <div className="flex flex-col gap-1 rounded-md border border-border-black/60 bg-element-bg/70 p-1">
-                <MeshPreview
-                  meshPath={previewMeshPath}
-                  assets={assets}
-                  normalizeColladaRoot={shouldNormalizeColladaGeometry(
-                    previewMeshPath,
-                    geomData.origin,
-                    colladaRootNormalizationHints,
-                  )}
-                  notFoundText={t.meshNotFound}
-                />
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={handleApplyMesh}
-                    className={`${PROPERTY_EDITOR_PRIMARY_BUTTON_CLASS} flex-1`}
-                  >
-                    <Check className="h-2.5 w-2.5" />
-                    {t.applyMesh}
-                  </button>
-                  <button
-                    onClick={() => setPreviewMeshPath(null)}
-                    className={`${PROPERTY_EDITOR_SECONDARY_BUTTON_CLASS} flex-1`}
-                  >
-                    {t.cancel}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {geomData.meshPath && !previewMeshPath && (
-              <div className="rounded-md border border-system-blue/20 bg-system-blue/5 px-1.5 py-0.5">
-                <div className={`${PROPERTY_EDITOR_HELPER_TEXT_CLASS} truncate`}>
-                  {t.selected}:{' '}
-                  <span className="font-medium text-system-blue">{geomData.meshPath}</span>
-                </div>
-              </div>
-            )}
-
-            {!previewMeshPath && meshFiles.length > 0 && (
-              <div className={`${PROPERTY_EDITOR_HELPER_TEXT_CLASS} px-0.5`}>{t.meshHint}</div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {geomData.type === GeometryType.MESH && (
-        <div className="mb-1">
-          <label className={`${PROPERTY_EDITOR_FIELD_LABEL_CLASS} mb-0.5`}>{t.meshScale}</label>
-          <InlineDimensionInputRow
-            columns={3}
-            showStepper={false}
-            fields={[
-              {
-                label: 'X',
-                value: geomData.dimensions?.x ?? 1,
-                onChange: (v: number) => update({ dimensions: { ...geomData.dimensions, x: v } }),
-              },
-              {
-                label: 'Y',
-                value: geomData.dimensions?.y ?? 1,
-                onChange: (v: number) => update({ dimensions: { ...geomData.dimensions, y: v } }),
-              },
-              {
-                label: 'Z',
-                value: geomData.dimensions?.z ?? 1,
-                onChange: (v: number) => update({ dimensions: { ...geomData.dimensions, z: v } }),
-              },
-            ]}
-          />
-        </div>
-      )}
-
-      {/* Box dimensions: Width (X), Depth (Y), Height (Z) */}
-      {geomData.type === GeometryType.BOX && (
-        <InlineDimensionInputRow
-          columns={3}
-          fields={[
-            {
-              label: stripAxisSuffix(t.width || 'Width'),
-              min: POSITIVE_GEOMETRY_VALUE_MIN,
-              value: geomData.dimensions?.x || 0.1,
-              onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v } }),
-            },
-            {
-              label: stripAxisSuffix(t.height || 'Height'),
-              min: POSITIVE_GEOMETRY_VALUE_MIN,
-              value: geomData.dimensions?.z || 0.1,
-              onChange: (v) => update({ dimensions: { ...geomData.dimensions, z: v } }),
-            },
-            {
-              label: stripAxisSuffix(t.depth || 'Depth'),
-              min: POSITIVE_GEOMETRY_VALUE_MIN,
-              value: geomData.dimensions?.y || 0.1,
-              onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
-            },
-          ]}
-          labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
-          labelWidthClassName="whitespace-nowrap"
+        <GeometryMeshLibraryPanel
+          assets={assets}
+          colladaRootNormalizationHints={colladaRootNormalizationHints}
+          fileInputRef={fileInputRef}
+          geometry={geomData}
+          meshFiles={meshFiles}
+          onApplyPreview={handleApplyMesh}
+          onCommitMesh={(filePath) => {
+            update({ meshPath: filePath });
+            setPreviewMeshPath(null);
+          }}
+          onFileChange={handleFileChange}
+          onPreviewMesh={setPreviewMeshPath}
+          previewMeshPath={previewMeshPath}
+          t={t}
         />
       )}
 
-      {geomData.type === GeometryType.PLANE && (
-        <InlineDimensionInputRow
-          columns={2}
-          fields={[
-            {
-              label: stripAxisSuffix(t.width || 'Width'),
-              min: POSITIVE_GEOMETRY_VALUE_MIN,
-              value: geomData.dimensions?.x || 1,
-              onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v } }),
-            },
-            {
-              label: stripAxisSuffix(t.depth || 'Depth'),
-              min: POSITIVE_GEOMETRY_VALUE_MIN,
-              value: geomData.dimensions?.y || 1,
-              onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
-            },
-          ]}
-          labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
-          labelWidthClassName="whitespace-nowrap"
-        />
-      )}
-
-      {/* Sphere dimensions: Radius only */}
-      {geomData.type === GeometryType.SPHERE && (
-        <InlineDimensionInputRow
-          columns={1}
-          fields={[
-            {
-              label: t.radius || 'Radius',
-              min: POSITIVE_GEOMETRY_VALUE_MIN,
-              value: geomData.dimensions?.x || 0.1,
-              onChange: (v) => update({ dimensions: { x: v, y: v, z: v } }),
-            },
-          ]}
-          labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
-          labelWidthClassName="whitespace-nowrap"
-        />
-      )}
-
-      {/* Ellipsoid dimensions: axis radii */}
-      {geomData.type === GeometryType.ELLIPSOID && (
-        <InlineDimensionInputRow
-          columns={3}
-          fields={[
-            {
-              label: t.radiusX || 'Radius X',
-              min: POSITIVE_GEOMETRY_VALUE_MIN,
-              value: geomData.dimensions?.x || 0.1,
-              onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v } }),
-            },
-            {
-              label: t.radiusY || 'Radius Y',
-              min: POSITIVE_GEOMETRY_VALUE_MIN,
-              value: geomData.dimensions?.y || geomData.dimensions?.x || 0.1,
-              onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
-            },
-            {
-              label: t.radiusZ || 'Radius Z',
-              min: POSITIVE_GEOMETRY_VALUE_MIN,
-              value: geomData.dimensions?.z || geomData.dimensions?.x || 0.1,
-              onChange: (v) => update({ dimensions: { ...geomData.dimensions, z: v } }),
-            },
-          ]}
-          labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
-          labelWidthClassName="whitespace-nowrap"
-        />
-      )}
-
-      {/* Cylinder dimensions: Radius and Height */}
-      {geomData.type === GeometryType.CYLINDER && (
-        <InlineDimensionInputRow
-          columns={2}
-          fields={[
-            {
-              label: t.radius || 'Radius',
-              min: POSITIVE_GEOMETRY_VALUE_MIN,
-              value: geomData.dimensions?.x || 0.05,
-              onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v, z: v } }),
-            },
-            {
-              label: t.height || 'Height',
-              min: POSITIVE_GEOMETRY_VALUE_MIN,
-              value: geomData.dimensions?.y || 0.5,
-              onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
-            },
-          ]}
-          labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
-          labelWidthClassName="whitespace-nowrap"
-        />
-      )}
-
-      {/* Capsule dimensions: Radius and Total Length */}
-      {geomData.type === GeometryType.CAPSULE && (
-        <InlineDimensionInputRow
-          columns={2}
-          fields={[
-            {
-              label: t.radius || 'Radius',
-              min: POSITIVE_GEOMETRY_VALUE_MIN,
-              value: geomData.dimensions?.x || 0.05,
-              onChange: (v) => update({ dimensions: { ...geomData.dimensions, x: v, z: v } }),
-            },
-            {
-              label: t.totalLength || 'Total Length',
-              min: POSITIVE_GEOMETRY_VALUE_MIN,
-              value: geomData.dimensions?.y || 0.5,
-              onChange: (v) => update({ dimensions: { ...geomData.dimensions, y: v } }),
-            },
-          ]}
-          labelClassName={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}
-          labelWidthClassName="whitespace-nowrap"
-        />
-      )}
-
-      {(geomData.type === GeometryType.HFIELD || geomData.type === GeometryType.SDF) && (
-        <div className="space-y-2">
-          {geometryAssetReference ? (
-            <InlineInputGroup label={t.assetReference} labelWidthClassName="w-16">
-              <ReadonlyValueField className="bg-element-bg text-[10px] font-medium">
-                {geometryAssetReference}
-              </ReadonlyValueField>
-            </InlineInputGroup>
-          ) : null}
-          {hfieldAssetMetadata?.file ? (
-            <InlineInputGroup label={t.file} labelWidthClassName="w-16">
-              <ReadonlyValueField className="bg-element-bg text-[10px] font-medium">
-                {hfieldAssetMetadata.file}
-              </ReadonlyValueField>
-            </InlineInputGroup>
-          ) : null}
-          {hfieldAssetMetadata?.contentType ? (
-            <InlineInputGroup label={t.contentType} labelWidthClassName="w-16">
-              <ReadonlyValueField className="bg-element-bg text-[10px] font-medium">
-                {hfieldAssetMetadata.contentType}
-              </ReadonlyValueField>
-            </InlineInputGroup>
-          ) : null}
-          {hfieldAssetMetadata?.size ? (
-            <>
-              <InlineInputGroup label={t.size} labelWidthClassName="w-16">
-                <div className="grid min-w-0 flex-1 grid-cols-2 gap-1.5">
-                  <ReadonlyValueField className="bg-element-bg text-[10px] font-medium">
-                    {`${t.width}: ${hfieldAssetMetadata.size.radiusX * 2}`}
-                  </ReadonlyValueField>
-                  <ReadonlyValueField className="bg-element-bg text-[10px] font-medium">
-                    {`${t.depth}: ${hfieldAssetMetadata.size.radiusY * 2}`}
-                  </ReadonlyValueField>
-                  <ReadonlyValueField className="bg-element-bg text-[10px] font-medium">
-                    {`${t.height}: ${hfieldAssetMetadata.size.elevationZ}`}
-                  </ReadonlyValueField>
-                  <ReadonlyValueField className="bg-element-bg text-[10px] font-medium">
-                    {`${t.baseHeight}: ${hfieldAssetMetadata.size.baseZ}`}
-                  </ReadonlyValueField>
-                </div>
-              </InlineInputGroup>
-            </>
-          ) : null}
-          {Number.isFinite(hfieldAssetMetadata?.nrow) ||
-          Number.isFinite(hfieldAssetMetadata?.ncol) ? (
-            <InlineInputGroup label={t.size} labelWidthClassName="w-16">
-              <div className="grid min-w-0 flex-1 grid-cols-2 gap-1.5">
-                <ReadonlyValueField className="bg-element-bg text-[10px] font-medium">
-                  {`${t.rows}: ${hfieldAssetMetadata?.nrow ?? 0}`}
-                </ReadonlyValueField>
-                <ReadonlyValueField className="bg-element-bg text-[10px] font-medium">
-                  {`${t.cols}: ${hfieldAssetMetadata?.ncol ?? 0}`}
-                </ReadonlyValueField>
-              </div>
-            </InlineInputGroup>
-          ) : null}
-          <div className={PROPERTY_EDITOR_HELPER_TEXT_CLASS}>{t.mjcfLimitedGeometryHint}</div>
-        </div>
-      )}
+      <GeometryDimensionsSection geometry={geomData} onUpdate={update} t={t} />
 
       {geomData.type !== GeometryType.NONE && (
         <InputGroup label={t.originRelativeLink}>
@@ -1521,302 +698,31 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
       )}
 
       {category === 'visual' && geomData.type !== GeometryType.NONE && (
-        <div className="mt-3 overflow-hidden rounded-lg border border-border-black bg-panel-bg/70">
-          <div className="border-b border-border-black/60 bg-element-bg/70 px-2 py-1.5">
-            <h4 className={PROPERTY_EDITOR_SECTION_TITLE_CLASS}>{t.material}</h4>
-          </div>
-
-          <div className="space-y-2 px-2 py-2">
-            {materialSourceLabel ? (
-              <InlineInputGroup label={t.materialSource} labelWidthClassName="w-16">
-                <ReadonlyValueField className="bg-element-bg text-[10px] font-medium">
-                  {materialSourceLabel}
-                </ReadonlyValueField>
-              </InlineInputGroup>
-            ) : null}
-
-            <InlineInputGroup label={t.color} labelWidthClassName="whitespace-nowrap">
-              {hasReadonlyAuthoredMaterialDisplay ? (
-                <div className="space-y-1.5">
-                  <ReadonlyValueField className="bg-element-bg text-[10px] font-medium">
-                    {authoredMaterialDisplayLabel}
-                  </ReadonlyValueField>
-                  <div className="flex flex-col gap-1">
-                    {(geomData.authoredMaterials || []).map((material, index) => (
-                      <div
-                        key={`${material.name || material.color || ''}-${index}`}
-                        className="flex items-center gap-1.5"
-                      >
-                        <input
-                          type="text"
-                          value={material.color || ''}
-                          onChange={(e) => handleAuthoredMaterialColorChange(index, e.target.value)}
-                          className={`${PROPERTY_EDITOR_INPUT_CLASS} flex-1 font-mono uppercase tracking-[0.04em] text-[10px]`}
-                          spellCheck={false}
-                        />
-                        <span
-                          aria-hidden="true"
-                          className="h-5 w-5 shrink-0 rounded-full border border-border-black/70"
-                          style={{ backgroundColor: material.color || 'transparent' }}
-                        />
-                        <DeferredColorPickerInput
-                          value={getColorPickerHexValue(material.color || '')}
-                          onCommit={(nextColor) =>
-                            handleAuthoredMaterialColorChange(
-                              index,
-                              mergeColorOpacityValue(
-                                mergeColorPickerHexValue(nextColor, material.color || ''),
-                                getAuthoredMaterialOpacity(material),
-                              )
-                            )
-                          }
-                          ariaLabel={`${t.color} ${material.name || index + 1}`}
-                          className="h-6 w-7 shrink-0 cursor-pointer rounded-md border border-border-strong bg-input-bg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_28%,transparent)]"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={effectiveColorValue}
-                    onChange={(e) => handleSingleMaterialColorChange(e.target.value)}
-                    className={`${PROPERTY_EDITOR_INPUT_CLASS} flex-1 font-mono uppercase tracking-[0.04em]`}
-                    spellCheck={false}
-                  />
-                  <span
-                    className={`${PROPERTY_EDITOR_INLINE_AXIS_LABEL_CLASS} w-auto whitespace-nowrap`}
-                  >
-                    HEX
-                  </span>
-                  <DeferredColorPickerInput
-                    value={getColorPickerHexValue(effectiveColorValue)}
-                    onCommit={(nextColor) => {
-                      const mergedColor = mergeColorPickerHexValue(nextColor, effectiveColorValue);
-                      handleSingleMaterialColorChange(
-                        effectiveOpacityValue < 0.999
-                          ? mergeColorOpacityValue(mergedColor, effectiveOpacityValue)
-                          : mergedColor,
-                      );
-                    }}
-                    ariaLabel={t.color}
-                    className="h-7 w-8 shrink-0 cursor-pointer rounded-md border border-border-strong bg-input-bg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_28%,transparent)]"
-                  />
-                </div>
-              )}
-            </InlineInputGroup>
-
-            <InlineInputGroup label={t.opacity} labelWidthClassName="whitespace-nowrap">
-              {hasReadonlyAuthoredMaterialDisplay ? (
-                <div className="flex flex-col gap-1">
-                  {(geomData.authoredMaterials || []).map((material, index) => (
-                    <div
-                      key={`${material.name || material.color || ''}-opacity-${index}`}
-                      className="grid min-w-0 grid-cols-[minmax(0,1fr)_4.75rem] items-center gap-1.5"
-                    >
-                      <span
-                        className={`${PROPERTY_EDITOR_HELPER_TEXT_CLASS} min-w-0 truncate`}
-                        title={material.name || `${t.material} ${index + 1}`}
-                      >
-                        {material.name || `${t.material} ${index + 1}`}
-                      </span>
-                      <NumberInput
-                        value={getAuthoredMaterialOpacity(material)}
-                        onChange={(value) => handleAuthoredMaterialOpacityChange(index, value)}
-                        min={0}
-                        max={1}
-                        step={MATERIAL_OPACITY_STEP}
-                        precision={MATERIAL_OPACITY_DECIMALS}
-                        compact
-                        showStepper={false}
-                        commitOnBlurOnly
-                      />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <NumberInput
-                  value={effectiveOpacityValue}
-                  onChange={handleSingleMaterialOpacityChange}
-                  min={0}
-                  max={1}
-                  step={MATERIAL_OPACITY_STEP}
-                  precision={MATERIAL_OPACITY_DECIMALS}
-                  compact
-                  commitOnBlurOnly
-                />
-              )}
-            </InlineInputGroup>
-
-            <InlineInputGroup label={t.texture} labelWidthClassName="whitespace-nowrap">
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <div className="flex items-center gap-1.5">
-                  <ReadonlyValueField className="min-w-0 flex-1 bg-element-bg text-[10px] font-medium">
-                    <span className="block truncate">{displayedTexturePath || t.none}</span>
-                  </ReadonlyValueField>
-                  <input
-                    type="file"
-                    ref={textureFileInputRef}
-                    className="hidden"
-                    accept=".png,.PNG,.jpg,.JPG,.jpeg,.JPEG,.webp,.WEBP"
-                    onChange={handleTextureFileChange}
-                  />
-                  {!isTextureReadonly && (
-                    <button
-                      type="button"
-                      onClick={() => textureFileInputRef.current?.click()}
-                      className={`${PROPERTY_EDITOR_SECONDARY_BUTTON_CLASS} shrink-0`}
-                    >
-                      <Upload className="h-3 w-3" />
-                      <span>{t.uploadTexture}</span>
-                    </button>
-                  )}
-                  {!isTextureReadonly && effectiveTexturePath && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPreviewTexturePath(null);
-                        applyVisualTexture(undefined);
-                      }}
-                      className={`${PROPERTY_EDITOR_SECONDARY_BUTTON_CLASS} shrink-0`}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                      <span>{t.clearTexture}</span>
-                    </button>
-                  )}
-                </div>
-                {isTextureReadonly ? (
-                  <div className={PROPERTY_EDITOR_HELPER_TEXT_CLASS}>
-                    {t.textureReadonlyMultiMaterialHint}
-                  </div>
-                ) : null}
-              </div>
-            </InlineInputGroup>
-
-            {!isTextureReadonly && (
-              <div className="mb-2 overflow-hidden rounded-lg border border-border-black bg-panel-bg/70">
-                <div className="flex items-center justify-between gap-2 border-b border-border-black/60 bg-element-bg/70 px-2 py-1.5">
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    <span className={PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS}>
-                      {t.textureLibrary}
-                    </span>
-                    <span className="inline-flex min-w-4 items-center justify-center rounded-full border border-border-black bg-panel-bg px-1 py-0.5 text-[8px] font-semibold leading-none text-text-tertiary">
-                      {textureFiles.length}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-1 px-1.5 py-1.5">
-                  <div className="flex max-h-32 flex-col gap-0.5 overflow-y-auto custom-scrollbar pr-0.5">
-                    {textureFiles.length === 0 && (
-                      <div className="rounded-md border border-dashed border-border-black/70 bg-element-bg/70 px-2 py-3 text-center">
-                        <div className={`${PROPERTY_EDITOR_HELPER_TEXT_CLASS} italic`}>
-                          {t.textureNotFound}
-                        </div>
-                      </div>
-                    )}
-                    {textureFiles.map((filePath) => {
-                      const isApplied = effectiveTexturePath === filePath && !previewTexturePath;
-                      const isPreviewing = previewTexturePath === filePath;
-                      const { fileName, parentPath } = describeMeshPath(filePath);
-
-                      return (
-                        <button
-                          type="button"
-                          key={filePath}
-                          title={filePath}
-                          onClick={() => setPreviewTexturePath(filePath)}
-                          onDoubleClick={() => {
-                            applyVisualTexture(filePath);
-                            setPreviewTexturePath(null);
-                          }}
-                          className={`
-                            grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 rounded-md border px-1.5 py-1 text-left transition-colors
-                            ${
-                              isApplied
-                                ? 'border-system-blue/35 bg-system-blue/10 text-system-blue dark:bg-system-blue/20'
-                                : isPreviewing
-                                  ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                                  : 'border-transparent bg-transparent text-text-secondary hover:border-border-black/50 hover:bg-element-hover'
-                            }
-                          `}
-                        >
-                          <span
-                            aria-hidden="true"
-                            className="h-3 w-3 shrink-0 rounded border border-border-black/70 bg-cover bg-center"
-                            style={
-                              assets[filePath]
-                                ? { backgroundImage: `url("${assets[filePath]}")` }
-                                : undefined
-                            }
-                          />
-                          <span className="min-w-0">
-                            <span
-                              className={`block truncate text-[10px] font-medium ${
-                                isApplied ? 'text-system-blue' : 'text-text-primary'
-                              }`}
-                            >
-                              {fileName}
-                            </span>
-                            {parentPath && (
-                              <span className="block truncate text-[9px] leading-4 text-text-tertiary">
-                                {parentPath}
-                              </span>
-                            )}
-                          </span>
-                          {isApplied ? (
-                            <Check className="h-3 w-3 shrink-0" />
-                          ) : isPreviewing ? (
-                            <Eye className="h-3 w-3 shrink-0" />
-                          ) : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {displayedTexturePath ? (
-              <div className="flex flex-col gap-1 rounded-md border border-border-black/60 bg-element-bg/70 p-1">
-                <div className="overflow-hidden rounded-md border border-border-black/60 bg-panel-bg/80">
-                  {displayedTextureAssetUrl ? (
-                    <img
-                      src={displayedTextureAssetUrl}
-                      alt={`${t.preview}: ${displayedTexturePath}`}
-                      className="block max-h-40 w-full object-contain"
-                    />
-                  ) : (
-                    <div className="flex min-h-28 items-center justify-center px-2 py-3 text-center">
-                      <div className={PROPERTY_EDITOR_HELPER_TEXT_CLASS}>{t.noPreviewImage}</div>
-                    </div>
-                  )}
-                </div>
-                {previewTexturePath ? (
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={handleApplyTexture}
-                      className={`${PROPERTY_EDITOR_PRIMARY_BUTTON_CLASS} flex-1`}
-                    >
-                      <Check className="h-2.5 w-2.5" />
-                      {t.apply}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPreviewTexturePath(null)}
-                      className={`${PROPERTY_EDITOR_SECONDARY_BUTTON_CLASS} flex-1`}
-                    >
-                      {t.cancel}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
+        <VisualMaterialEditor
+          assets={assets}
+          authoredMaterialDisplayLabel={authoredMaterialDisplayLabel}
+          displayedTextureAssetUrl={displayedTextureAssetUrl}
+          displayedTexturePath={displayedTexturePath}
+          effectiveColorValue={effectiveColorValue}
+          effectiveOpacityValue={effectiveOpacityValue}
+          effectiveTexturePath={effectiveTexturePath}
+          geometry={geomData}
+          hasReadonlyAuthoredMaterialDisplay={hasReadonlyAuthoredMaterialDisplay}
+          isTextureReadonly={isTextureReadonly}
+          materialSourceLabel={materialSourceLabel}
+          onApplyTexturePreview={handleApplyTexture}
+          onApplyVisualTexture={applyVisualTexture}
+          onAuthoredMaterialColorChange={handleAuthoredMaterialColorChange}
+          onAuthoredMaterialOpacityChange={handleAuthoredMaterialOpacityChange}
+          onPreviewTexturePathChange={setPreviewTexturePath}
+          onSingleMaterialColorChange={handleSingleMaterialColorChange}
+          onSingleMaterialOpacityChange={handleSingleMaterialOpacityChange}
+          onTextureFileChange={handleTextureFileChange}
+          previewTexturePath={previewTexturePath}
+          t={t}
+          textureFileInputRef={textureFileInputRef}
+          textureFiles={textureFiles}
+        />
       )}
 
       {category === 'collision' &&

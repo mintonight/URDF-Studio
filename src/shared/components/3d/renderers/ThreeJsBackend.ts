@@ -162,6 +162,7 @@ export class ThreeJsBackend implements RobotRendererBackend {
       groundPlaneOffset = 0,
       showVisual = true,
       showCollision = true,
+      parseCollisionMeshes = showCollision,
       showCollisionAlwaysOnTop = true,
       allowUrdfXmlFallback = false,
       robotLinks: providedRobotLinks,
@@ -198,6 +199,7 @@ export class ThreeJsBackend implements RobotRendererBackend {
       const robotModel = await this.loadRobotInternal({
         showVisual,
         showCollision,
+        parseCollisionMeshes,
         showCollisionAlwaysOnTop,
         allowUrdfXmlFallback,
         onDocumentLoadEvent,
@@ -276,6 +278,7 @@ export class ThreeJsBackend implements RobotRendererBackend {
   private async loadRobotInternal(options: {
     showVisual: boolean;
     showCollision: boolean;
+    parseCollisionMeshes: boolean;
     showCollisionAlwaysOnTop: boolean;
     allowUrdfXmlFallback: boolean;
     onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
@@ -283,6 +286,7 @@ export class ThreeJsBackend implements RobotRendererBackend {
     const {
       showVisual,
       showCollision,
+      parseCollisionMeshes,
       showCollisionAlwaysOnTop,
       allowUrdfXmlFallback,
       onDocumentLoadEvent,
@@ -316,7 +320,7 @@ export class ThreeJsBackend implements RobotRendererBackend {
       return changed;
     };
 
-    const shouldParseCollisionMeshes = true;
+    const shouldParseCollisionMeshes = parseCollisionMeshes;
     const hasStructuredRobotState =
       Boolean(this.robotLinks && this.robotJoints) &&
       (Object.keys(this.robotLinks ?? {}).length > 0 ||

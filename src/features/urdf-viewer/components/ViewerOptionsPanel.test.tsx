@@ -80,72 +80,133 @@ async function renderPanel(
     root.render(
       React.createElement(
         OverlayHoverBlockProvider,
-        { value: overlayHoverBlockActions },
-        React.createElement(ViewerOptionsPanel, {
-          showOptionsPanel: true,
-          optionsPanelRef: { current: null },
-          optionsPanelPos: null,
-          onMouseDown: () => {},
-          t: {
-            resize: 'Resize',
-            viewOptions: 'View Options',
-            showVisual: 'Show Visual',
-            showCollision: 'Show Collision',
-            showIkHandles: 'Show IK Handles',
-            alwaysOnTop: 'Always on top',
-            showOrigin: 'Show Origin',
-            showMjcfSites: 'Show MJCF Sites',
-            size: 'Size',
-            showJointAxes: 'Show Joint Axes',
-            showCenterOfMass: 'Show Center Of Mass',
-            showInertia: 'Show Inertia',
-            modelOpacity: 'Model Opacity',
-            autoFitGround: 'Auto Fit Ground',
-            groundPlaneOffset: 'Ground Offset',
-            reset: 'Reset',
-          },
-          isOptionsCollapsed: false,
-          toggleOptionsCollapsed: () => {},
-          showVisual: true,
-          setShowVisual: () => {},
-          showCollision: false,
-          setShowCollision: () => {},
-          showCollisionAlwaysOnTop: false,
-          setShowCollisionAlwaysOnTop: () => {},
-          modelOpacity: 0.5,
-          setModelOpacity: () => {},
-          showOrigins: false,
-          setShowOrigins: () => {},
-          showOriginsOverlay: false,
-          setShowOriginsOverlay: () => {},
-          originSize: 0.1,
-          setOriginSize: () => {},
-          showMjcfSiteToggle: false,
-          showMjcfSites: false,
-          setShowMjcfSites: () => {},
-          showJointAxes: false,
-          setShowJointAxes: () => {},
-          showJointAxesOverlay: false,
-          setShowJointAxesOverlay: () => {},
-          jointAxisSize: 0.1,
-          setJointAxisSize: () => {},
-          showCenterOfMass: false,
-          setShowCenterOfMass: () => {},
-          showCoMOverlay: false,
-          setShowCoMOverlay: () => {},
-          centerOfMassSize: 0.01,
-          setCenterOfMassSize: () => {},
-          showInertia: false,
-          setShowInertia: () => {},
-          showInertiaOverlay: false,
-          setShowInertiaOverlay: () => {},
-          onAutoFitGround: () => {},
-          groundPlaneOffset: 0.25,
-          groundPlaneOffsetReadOnly: readOnly,
-          setGroundPlaneOffset: () => {},
-          ...overrides,
-        }),
+        {
+          value: overlayHoverBlockActions,
+          children: React.createElement(ViewerOptionsPanel, {
+            showOptionsPanel: true,
+            optionsPanelRef: { current: null },
+            optionsPanelPos: null,
+            onMouseDown: () => {},
+            t: {
+              resize: 'Resize',
+              viewOptions: 'View Options',
+              showVisual: 'Show Visual',
+              showCollision: 'Show Collision',
+              showIkHandles: 'Show IK Handles',
+              alwaysOnTop: 'Always on top',
+              showOrigin: 'Show Origin',
+              showMjcfSites: 'Show MJCF Sites',
+              size: 'Size',
+              showJointAxes: 'Show Joint Axes',
+              showCenterOfMass: 'Show Center Of Mass',
+              showInertia: 'Show Inertia',
+              modelOpacity: 'Model Opacity',
+              autoFitGround: 'Auto Fit Ground',
+              groundPlaneOffset: 'Ground Offset',
+              reset: 'Reset',
+              expand: 'Expand',
+              collapse: 'Collapse',
+              close: 'Close',
+            },
+            isOptionsCollapsed: false,
+            toggleOptionsCollapsed: () => {},
+            showVisual: true,
+            setShowVisual: () => {},
+            showCollision: false,
+            setShowCollision: () => {},
+            showCollisionAlwaysOnTop: false,
+            setShowCollisionAlwaysOnTop: () => {},
+            modelOpacity: 0.5,
+            setModelOpacity: () => {},
+            showOrigins: false,
+            setShowOrigins: () => {},
+            showOriginsOverlay: false,
+            setShowOriginsOverlay: () => {},
+            originSize: 0.1,
+            setOriginSize: () => {},
+            showMjcfSiteToggle: false,
+            showMjcfSites: false,
+            setShowMjcfSites: () => {},
+            showJointAxes: false,
+            setShowJointAxes: () => {},
+            showJointAxesOverlay: false,
+            setShowJointAxesOverlay: () => {},
+            jointAxisSize: 0.1,
+            setJointAxisSize: () => {},
+            showCenterOfMass: false,
+            setShowCenterOfMass: () => {},
+            showCoMOverlay: false,
+            setShowCoMOverlay: () => {},
+            centerOfMassSize: 0.01,
+            setCenterOfMassSize: () => {},
+            showInertia: false,
+            setShowInertia: () => {},
+            showInertiaOverlay: false,
+            setShowInertiaOverlay: () => {},
+            onAutoFitGround: () => {},
+            groundPlaneOffset: 0.25,
+            groundPlaneOffsetReadOnly: readOnly,
+            setGroundPlaneOffset: () => {},
+            ...overrides,
+          }),
+        },
       ),
+    );
+  });
+}
+
+function getOptionCheckbox(container: HTMLElement, labelText: string): HTMLInputElement {
+  const label = Array.from(container.querySelectorAll('label')).find((candidate) =>
+    candidate.textContent?.includes(labelText),
+  );
+  assert.ok(label, `${labelText} checkbox label should render`);
+
+  const input = label.querySelector<HTMLInputElement>('input[type="checkbox"]');
+  assert.ok(input, `${labelText} checkbox input should render`);
+  return input;
+}
+
+function getOptionTrailingButton(
+  container: HTMLElement,
+  labelText: string,
+  title: string,
+): HTMLButtonElement {
+  const input = getOptionCheckbox(container, labelText);
+  const row = input.closest('label')?.parentElement?.parentElement;
+  const button = row?.querySelector<HTMLButtonElement>(`button[title="${title}"]`);
+  assert.ok(button, `${labelText} trailing "${title}" button should render`);
+  return button;
+}
+
+async function clickElement(element: HTMLElement) {
+  await act(async () => {
+    element.click();
+  });
+}
+
+async function clickSliderTrackAt(track: HTMLElement, clientX: number) {
+  Object.defineProperty(track, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({
+      bottom: 24,
+      height: 24,
+      left: 0,
+      right: 100,
+      top: 0,
+      width: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }),
+  });
+
+  await act(async () => {
+    track.dispatchEvent(
+      new MouseEvent('pointerdown', {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+      }),
     );
   });
 }
@@ -281,6 +342,145 @@ test('ViewerOptionsPanel keeps the same right-edge resize affordance as the join
     container.querySelector('[data-testid="ui-options-panel-resize-corner"]'),
     'view options panel should keep the bottom-right resize handle',
   );
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('ViewerOptionsPanel wires every detail checkbox click to its setter', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const calls: Array<[string, boolean]> = [];
+
+  await renderPanel(root, false, {
+    showMjcfSiteToggle: true,
+    setShowVisual: (value) => calls.push(['visual', value]),
+    setShowCollision: (value) => calls.push(['collision', value]),
+    setShowMjcfSites: (value) => calls.push(['mjcfSites', value]),
+    setShowOrigins: (value) => calls.push(['origin', value]),
+    setShowJointAxes: (value) => calls.push(['jointAxes', value]),
+    setShowCenterOfMass: (value) => calls.push(['centerOfMass', value]),
+    setShowInertia: (value) => calls.push(['inertia', value]),
+  });
+
+  await clickElement(getOptionCheckbox(container, 'Show Visual'));
+  await clickElement(getOptionCheckbox(container, 'Show Collision'));
+  await clickElement(getOptionCheckbox(container, 'Show MJCF Sites'));
+  await clickElement(getOptionCheckbox(container, 'Show Origin'));
+  await clickElement(getOptionCheckbox(container, 'Show Joint Axes'));
+  await clickElement(getOptionCheckbox(container, 'Show Center Of Mass'));
+  await clickElement(getOptionCheckbox(container, 'Show Inertia'));
+
+  assert.deepEqual(calls, [
+    ['visual', false],
+    ['collision', true],
+    ['mjcfSites', true],
+    ['origin', true],
+    ['jointAxes', true],
+    ['centerOfMass', true],
+    ['inertia', true],
+  ]);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('ViewerOptionsPanel wires every detail always-on-top click to its setter', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const calls: Array<[string, boolean]> = [];
+
+  await renderPanel(root, false, {
+    showCollision: true,
+    showOrigins: true,
+    showJointAxes: true,
+    showCenterOfMass: true,
+    showInertia: true,
+    setShowCollisionAlwaysOnTop: (value) => calls.push(['collisionOverlay', value]),
+    setShowOriginsOverlay: (value) => calls.push(['originOverlay', value]),
+    setShowJointAxesOverlay: (value) => calls.push(['jointAxesOverlay', value]),
+    setShowCoMOverlay: (value) => calls.push(['centerOfMassOverlay', value]),
+    setShowInertiaOverlay: (value) => calls.push(['inertiaOverlay', value]),
+  });
+
+  await clickElement(getOptionTrailingButton(container, 'Show Collision', 'Always on top'));
+  await clickElement(getOptionTrailingButton(container, 'Show Origin', 'Always on top'));
+  await clickElement(getOptionTrailingButton(container, 'Show Joint Axes', 'Always on top'));
+  await clickElement(getOptionTrailingButton(container, 'Show Center Of Mass', 'Always on top'));
+  await clickElement(getOptionTrailingButton(container, 'Show Inertia', 'Always on top'));
+
+  assert.deepEqual(calls, [
+    ['collisionOverlay', true],
+    ['originOverlay', true],
+    ['jointAxesOverlay', true],
+    ['centerOfMassOverlay', true],
+    ['inertiaOverlay', true],
+  ]);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('ViewerOptionsPanel wires every detail size slider track click to its setter', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const calls: Array<[string, number]> = [];
+
+  await renderPanel(root, false, {
+    showOrigins: true,
+    showJointAxes: true,
+    showCenterOfMass: true,
+    setOriginSize: (value) => calls.push(['originSize', value]),
+    setJointAxisSize: (value) => calls.push(['jointAxisSize', value]),
+    setCenterOfMassSize: (value) => calls.push(['centerOfMassSize', value]),
+  });
+
+  const sliderTracks = Array.from(
+    container.querySelectorAll<HTMLElement>('[data-testid="ui-slider-track"]'),
+  );
+  assert.equal(sliderTracks.length, 3, 'enabled detail size sliders should render');
+
+  await clickSliderTrackAt(sliderTracks[0], 50);
+  await clickSliderTrackAt(sliderTracks[1], 50);
+  await clickSliderTrackAt(sliderTracks[2], 50);
+
+  assert.deepEqual(calls, [
+    ['originSize', 0.26],
+    ['jointAxisSize', 1],
+    ['centerOfMassSize', 0.055],
+  ]);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('ViewerOptionsPanel header collapse and close controls remain clickable', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const calls: Array<[string, boolean?]> = [];
+
+  await renderPanel(root, false, {
+    toggleOptionsCollapsed: () => calls.push(['collapse']),
+    setShowOptionsPanel: (value) => calls.push(['visible', value]),
+  });
+
+  const collapseButton = container.querySelector<HTMLButtonElement>(
+    '.urdf-options-panel button[title="Collapse"]',
+  );
+  assert.ok(collapseButton, 'detail options collapse button should render');
+  await clickElement(collapseButton);
+
+  const closeButton = container.querySelector<HTMLButtonElement>(
+    '.urdf-options-panel button[aria-label="Close"]',
+  );
+  assert.ok(closeButton, 'detail options close button should render');
+  await clickElement(closeButton);
+
+  assert.deepEqual(calls, [['collapse'], ['visible', false]]);
 
   await act(async () => {
     root.unmount();

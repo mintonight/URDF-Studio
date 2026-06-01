@@ -2,11 +2,29 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  applyStageAxisAlignmentToRoot,
+  applyStageAxisAlignmentToRoot as applyStageAxisAlignmentToRootUntyped,
   extractStageUpAxisFromLayerText,
-  resolveAxisAlignmentRotationX,
-  resolveStageUpAxis,
+  resolveAxisAlignmentRotationX as resolveAxisAlignmentRotationXUntyped,
+  resolveStageUpAxis as resolveStageUpAxisUntyped,
 } from './stage-up-axis.js';
+
+type StageUpAxis = 'y' | 'z' | null;
+type StageLike = { GetRootLayer?: () => { ExportToString?: () => string } | null } | null;
+
+const resolveStageUpAxis = resolveStageUpAxisUntyped as (options?: {
+  reportedUpAxis?: string | null;
+  stage?: StageLike;
+}) => StageUpAxis;
+
+const resolveAxisAlignmentRotationX = resolveAxisAlignmentRotationXUntyped as (options?: {
+  sourceUpAxis?: string | null;
+  targetUpAxis?: string | null;
+}) => number;
+
+const applyStageAxisAlignmentToRoot = applyStageAxisAlignmentToRootUntyped as (
+  root: { rotation?: { x: number; y: number; z: number } } | null,
+  options?: { reportedUpAxis?: string | null; stage?: StageLike; targetUpAxis?: string | null },
+) => number;
 
 test('extracts up-axis from authored USD root-layer metadata', () => {
   assert.equal(

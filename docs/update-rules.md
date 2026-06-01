@@ -41,7 +41,7 @@
 
 ## 4. 增量命令
 
-基础命令（dev / lint / typecheck / test / build / verify:fast / verify:full）见 [CLAUDE.md](../CLAUDE.md) §常用命令。本节只列项目特有的回归与构建命令：
+基础命令（dev / lint / typecheck:quality / typecheck 债务检查 / test / build / verify:fast / verify:full）见 [CLAUDE.md](../CLAUDE.md) §常用命令。本节只列项目特有的回归与构建命令：
 
 ```bash
 # AI / agent 优先入口
@@ -59,7 +59,7 @@ npx tsx --test \
   src/features/urdf-viewer/utils/usdRuntimeRobotHydration.test.ts
 
 # Unitree roundtrip / archive 验证
-npx tsx scripts/regression/validate_unitree_model_roundtrip_archive.ts
+npm run test:fixtures:unitree-usd
 
 # 现成 fixture 回归入口
 npm run test:fixtures:imports
@@ -73,7 +73,7 @@ npm run build:package:react-robot-canvas
 
 说明：
 `npm run verify:fast` 只跑仓库内可自给的检查。
-`npm test` / `npm run test:unit` 由 `scripts/test/run-node-tests.mjs` 统一管理，默认是 fast lane；变更邻近测试优先用 `npm run test:unit -- path/to/file.test.ts`。
+`npm test` / `npm run test:unit` 由 `scripts/test/runner/run-node-tests.mjs` 统一管理，默认是 fast lane；变更邻近测试优先用 `npm run test:unit -- path/to/file.test.ts`。
 依赖 `test/` 目录大型语料的回归，统一走 `npm run test:fixtures:*` 或 `npm run verify:full`。
 
 ## 5. 测试样本索引

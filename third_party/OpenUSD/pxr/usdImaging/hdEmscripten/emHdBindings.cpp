@@ -37,6 +37,11 @@ EMSCRIPTEN_BINDINGS(test_usd_imaging_emscripten) {
       optional_override([](pxr::HdWebSyncDriver& self, emscripten::val runtimeLinkPaths, std::string const& stageSourcePath) {
         return self.GetRobotSceneSnapshotBlob(runtimeLinkPaths, stageSourcePath);
       }))
+    .function(
+      "GetFullLoadPayload",
+      optional_override([](pxr::HdWebSyncDriver& self, emscripten::val runtimeLinkPaths, std::string const& stageSourcePath, emscripten::val options) {
+        return self.GetFullLoadPayload(runtimeLinkPaths, stageSourcePath, options);
+      }))
     .function("ExportLoadedStageSnapshot", &pxr::HdWebSyncDriver::ExportLoadedStageSnapshot)
     .function("GetPrimTransforms", &pxr::HdWebSyncDriver::GetPrimTransforms)
     .function("GetProtoDataBlob", &pxr::HdWebSyncDriver::GetProtoDataBlob)

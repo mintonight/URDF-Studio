@@ -35,7 +35,7 @@ function renderHook(options: {
   transformPendingRef: { current: boolean };
   selectionRobot?: Pick<RobotState, 'links' | 'joints'>;
 }) {
-  let hookValue: ReturnType<typeof useViewerOrchestration> | null = null;
+  let hookValue: ReturnType<typeof useViewerOrchestration> | null = null as ReturnType<typeof useViewerOrchestration> | null;
 
   function Probe() {
     hookValue = useViewerOrchestration(options);
@@ -44,7 +44,7 @@ function renderHook(options: {
 
   renderToStaticMarkup(React.createElement(Probe));
   assert.ok(hookValue, 'hook should render');
-  return hookValue;
+  return hookValue as ReturnType<typeof useViewerOrchestration>;
 }
 
 function createSelectionRobot(): Pick<RobotState, 'links' | 'joints'> {
@@ -83,7 +83,7 @@ test('handleSelect preserves the selected collision body index for the same link
     objectIndex: 2,
   });
 
-  let nextSelection: RobotState['selection'] | null = null;
+  let nextSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
   const hook = renderHook({
     setSelection: (selection) => {
       nextSelection = selection;
@@ -132,8 +132,8 @@ test('handleViewerSelect preserves collision objectIndex when re-selecting the s
     objectIndex: 1,
   });
 
-  let nextSelection: RobotState['selection'] | null = null;
-  let pulsedSelection: RobotState['selection'] | null = null;
+  let nextSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
+  let pulsedSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
   const hook = renderHook({
     setSelection: (selection) => {
       nextSelection = selection;
@@ -179,8 +179,8 @@ test('handleViewerSelect pulses the parent joint for clicked child links', () =>
   resetSelectionStore();
   resetUiStore();
 
-  let nextSelection: RobotState['selection'] | null = null;
-  let pulsedSelection: RobotState['selection'] | null = null;
+  let nextSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
+  let pulsedSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
   const hook = renderHook({
     setSelection: (selection) => {
       nextSelection = selection;
@@ -208,7 +208,7 @@ test('handleViewerSelect falls back to link attention when no parent joint exist
   resetSelectionStore();
   resetUiStore();
 
-  let pulsedSelection: RobotState['selection'] | null = null;
+  let pulsedSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
   const hook = renderHook({
     setSelection: () => {},
     pulseSelection: (selection) => {
@@ -233,7 +233,7 @@ test('handleViewerSelect does not pin hover for regular selection clicks', () =>
   resetSelectionStore();
   resetUiStore();
 
-  let nextHoveredSelection: InteractionSelection | null = null;
+  let nextHoveredSelection: InteractionSelection | null = null as InteractionSelection | null;
   const hook = renderHook({
     setSelection: () => {},
     pulseSelection: () => {},
@@ -267,9 +267,9 @@ test('handleViewerSelect clears hover when blank canvas clears selection', () =>
     highlightObjectId: 101,
   });
 
-  let nextSelection: RobotState['selection'] | null = null;
-  let nextHoveredSelection: InteractionSelection | null = null;
-  let pulsedSelection: RobotState['selection'] | null = null;
+  let nextSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
+  let nextHoveredSelection: InteractionSelection | null = null as InteractionSelection | null;
+  let pulsedSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
   const hook = renderHook({
     setSelection: (selection) => {
       nextSelection = selection;
@@ -305,7 +305,7 @@ test('handleHover ignores redundant viewer hover updates for the currently selec
     id: 'base_link',
   });
 
-  let nextHoveredSelection: InteractionSelection | null = null;
+  let nextHoveredSelection: InteractionSelection | null = null as InteractionSelection | null;
   const hook = renderHook({
     setSelection: () => {},
     pulseSelection: () => {},
@@ -335,7 +335,7 @@ test('handleHover still updates hover when the viewer moves to a different link'
     id: 'base_link',
   });
 
-  let nextHoveredSelection: InteractionSelection | null = null;
+  let nextHoveredSelection: InteractionSelection | null = null as InteractionSelection | null;
   const hook = renderHook({
     setSelection: () => {},
     pulseSelection: () => {},
@@ -368,7 +368,7 @@ test('handleSelect does not carry collision objectIndex across different links',
     objectIndex: 2,
   });
 
-  let nextSelection: RobotState['selection'] | null = null;
+  let nextSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
   const hook = renderHook({
     setSelection: (selection) => {
       nextSelection = selection;
@@ -412,8 +412,8 @@ test('handleViewerMeshSelect pulses the parent joint while preserving geometry s
   resetSelectionStore();
   resetUiStore();
 
-  let nextSelection: RobotState['selection'] | null = null;
-  let pulsedSelection: RobotState['selection'] | null = null;
+  let nextSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
+  let pulsedSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
   const hook = renderHook({
     setSelection: (selection) => {
       nextSelection = selection;
@@ -442,8 +442,8 @@ test('handleSelectGeometry pulses the selected link geometry so the tree can rel
   resetSelectionStore();
   resetUiStore();
 
-  let nextSelection: RobotState['selection'] | null = null;
-  let pulsedSelection: RobotState['selection'] | null = null;
+  let nextSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
+  let pulsedSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
   const hook = renderHook({
     setSelection: (selection) => {
       nextSelection = selection;
@@ -490,7 +490,7 @@ test('handleSelectGeometry can skip auto-revealing collision visibility for prop
   resetUiStore();
   assert.equal(useUIStore.getState().viewOptions.showCollision, false);
 
-  let nextSelection: RobotState['selection'] | null = null;
+  let nextSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
   const hook = renderHook({
     setSelection: (selection) => {
       nextSelection = selection;
@@ -516,8 +516,8 @@ test('handleSelectGeometry can skip relocation pulses for in-tree geometry click
   resetSelectionStore();
   resetUiStore();
 
-  let nextSelection: RobotState['selection'] | null = null;
-  let pulsedSelection: RobotState['selection'] | null = null;
+  let nextSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
+  let pulsedSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
   const hook = renderHook({
     setSelection: (selection) => {
       nextSelection = selection;
@@ -545,7 +545,7 @@ test('handleViewerMeshSelect does not pin hover while selecting a body', () => {
   resetSelectionStore();
   resetUiStore();
 
-  let nextHoveredSelection: InteractionSelection | null = null;
+  let nextHoveredSelection: InteractionSelection | null = null as InteractionSelection | null;
   const hook = renderHook({
     setSelection: () => {},
     pulseSelection: () => {},
@@ -573,7 +573,7 @@ test('handleViewerMeshSelect preserves the active hover highlight target for the
     highlightObjectId: 101,
   });
 
-  let nextSelection: RobotState['selection'] | null = null;
+  let nextSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
   const hook = renderHook({
     setSelection: (selection) => {
       nextSelection = selection;
@@ -617,8 +617,8 @@ test('handleViewerSelect routes inertial helpers to the physics tab without pinn
   resetSelectionStore();
   resetUiStore();
 
-  let nextSelection: RobotState['selection'] | null = null;
-  let nextHoveredSelection: RobotState['selection'] | null = null;
+  let nextSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
+  let nextHoveredSelection: RobotState['selection'] | null = null as RobotState['selection'] | null;
   const hook = renderHook({
     setSelection: (selection) => {
       nextSelection = selection;
@@ -684,7 +684,7 @@ test('handleHover preserves helper identity so helper-only hover changes are not
   resetSelectionStore();
   resetUiStore();
 
-  let nextHoveredSelection: InteractionSelection | null = null;
+  let nextHoveredSelection: InteractionSelection | null = null as InteractionSelection | null;
   const hook = renderHook({
     setSelection: () => {},
     pulseSelection: () => {},

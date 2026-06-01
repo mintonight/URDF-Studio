@@ -52,6 +52,7 @@ function createContinuousResolution(
   initialAngle = Math.PI * 2 + Math.PI / 6,
 ): ViewerRobotDataResolution {
   const resolution = createResolution();
+  assert.ok(resolution.robotData.joints.arm_joint.limit);
   resolution.robotData.joints.arm_joint = {
     ...resolution.robotData.joints.arm_joint,
     type: JointType.CONTINUOUS,

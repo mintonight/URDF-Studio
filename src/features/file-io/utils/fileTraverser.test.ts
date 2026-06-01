@@ -9,15 +9,15 @@ type FakeEntry = FileSystemEntry & {
 };
 
 function createFileEntry(name: string, content: BlobPart = ''): FakeEntry {
+  const fileObject = new File([content], name);
   return {
     name,
     fullPath: `/${name}`,
     filesystem: {} as FileSystem,
     isFile: true,
     isDirectory: false,
-    fileObject: new File([content], name),
     file(successCallback: (file: File) => void) {
-      successCallback(this.fileObject as File);
+      successCallback(fileObject);
     },
   } as unknown as FakeEntry;
 }

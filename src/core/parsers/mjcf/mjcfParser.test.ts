@@ -6,7 +6,7 @@ import path from 'node:path';
 import * as THREE from 'three';
 import { JSDOM } from 'jsdom';
 
-import { GeometryType, type RobotFile } from '@/types';
+import { GeometryType, type RobotFile, type RobotState } from '@/types';
 import { loadMJCFToThreeJS } from './mjcfLoader.ts';
 import { disposeTransientObject3D } from './mjcfLoadLifecycle.ts';
 import {
@@ -15,7 +15,7 @@ import {
   getParsedMJCFModelCacheSize,
   parseMJCFModel,
 } from './mjcfModel.ts';
-import { parseMJCF } from './mjcfParser.ts';
+import { parseMJCF as parseNullableMJCF } from './mjcfParser.ts';
 import { resolveMJCFSource } from './mjcfSourceResolver.ts';
 import { computeLinkWorldMatrices } from '@/core/robot';
 
@@ -48,8 +48,14 @@ function installDomGlobals(): void {
   globalThis.Document = dom.window.Document as any;
 }
 
+function parseMJCF(xmlContent: string): RobotState {
+  const robot = parseNullableMJCF(xmlContent);
+  assert.ok(robot, 'expected MJCF source to parse');
+  return robot;
+}
+
 const MYOSUITE_FIXTURE_ROOT = path.resolve('test/myosuite-main');
-let myosuiteMjcfFilesCache: RobotFile[] | null = null;
+let myosuiteMjcfFilesCache: RobotFile[] | null = null as RobotFile[] | null;
 const CASSIE_MUJOCO_HOME_CONNECT_ANCHOR_TOLERANCE = 0.0025;
 const CASSIE_MUJOCO_HOME_CONNECT_ANCHORS = new Map<string, THREE.Vector3>([
   [
@@ -211,7 +217,7 @@ test('loadMJCFToThreeJS keeps top-level world plane geoms and applies builtin ch
     consoleErrors.push(args.map((arg) => String(arg)).join(' '));
   };
 
-  let root: THREE.Object3D | null = null;
+  let root: THREE.Object3D | null = null as THREE.Object3D | null;
   try {
     root = await loadMJCFToThreeJS(
       `
@@ -246,7 +252,7 @@ test('loadMJCFToThreeJS keeps top-level world plane geoms and applies builtin ch
     assert.ok(root.getObjectByName('body_box'));
     assert.ok((root as THREE.Object3D & { links?: Record<string, THREE.Object3D> }).links?.world);
 
-    let floorMaterial: THREE.Material | null = null;
+    let floorMaterial: THREE.Material | null = null as THREE.Material | null;
     floor?.traverse((child: any) => {
       if (!child?.isMesh || floorMaterial) {
         return;
@@ -406,7 +412,7 @@ test('loadMJCFToThreeJS keeps flybody-style wing helpers out of the visible runt
 
   const membrane = root.getObjectByName('wing_right_membrane');
   assert.ok(membrane);
-  let membraneMaterial: THREE.Material | null = null;
+  let membraneMaterial: THREE.Material | null = null as THREE.Material | null;
   membrane.traverse((node: any) => {
     if (membraneMaterial || !node?.isMesh) {
       return;
@@ -498,7 +504,7 @@ test('loadMJCFToThreeJS reports ready before deferred textures finish and applie
   clearParsedMJCFModelCache();
 
   const originalLoadAsync = THREE.TextureLoader.prototype.loadAsync;
-  let resolveTexture: ((texture: THREE.Texture<HTMLImageElement>) => void) | null = null;
+  let resolveTexture: ((texture: THREE.Texture<HTMLImageElement>) => void) | undefined;
 
   THREE.TextureLoader.prototype.loadAsync = async function mockLoadAsync(
     _url: string,
@@ -574,7 +580,7 @@ test('loadMJCFToThreeJS reports ready before deferred textures finish and applie
   const resolvedTexture = new THREE.Texture() as THREE.Texture<HTMLImageElement>;
   resolvedTexture.needsUpdate = true;
   assert.ok(resolveTexture);
-  resolveTexture?.(resolvedTexture);
+  resolveTexture(resolvedTexture);
 
   await waitForCondition(() => asyncSceneMutationCount > 0);
   await waitForCondition(hasMappedTexture);

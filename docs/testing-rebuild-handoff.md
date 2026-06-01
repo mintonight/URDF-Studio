@@ -16,16 +16,16 @@
 | 层 | 入口 | 状态 |
 |----|------|------|
 | L1 单元（536+） | `npm test` / `npm run test:unit:all` | ✅ 已修好（见 §2.1） |
-| L2 浏览器 E2E（~22 个真实文件） | `npm run test:browser:*` / `npm run test:all` | 🟡 地基已修好；MJCF(zip)路径已验证跑通；**目录上传格式(URDF/SDF)导入超时待修(T2)**；个别测试断言待对齐(T3) |
+| L2 浏览器 E2E（30+ 个真实文件） | `npm run test:browser:*` / `npm run test:all` | 🟡 地基已修好；MJCF(zip)路径已验证跑通；**目录上传格式(URDF/SDF)导入超时待修(T2)**；个别测试断言待对齐(T3) |
 | L3 语料/真值回归 | `npm run test:fixtures` / `verify:full` | ✅ 原本可用 |
 
 ---
 
 ## 1. 已确认的根因（不要重复排查，直接基于这些结论）
 
-1. **浏览器测试地基从未存在**：`scripts/testing/browser/helpers/*.mjs` 与 `test_drag_drop_snapshot.mjs` 都 `import` 自 `scripts/e2e/helpers/browser-helpers.mjs` 和 `assertions.mjs`，但这两个文件（及 `scripts/testing/setup/clone_*.mjs`）从未被创建。→ **已重建**（§2.2）。`.gitignore` 第 20/21 行 `!scripts/testing/`、`!scripts/e2e/` 已放行这些新文件，`git check-ignore` 确认可追踪，**无需改 .gitignore**。
+1. **浏览器测试地基从未存在**：`scripts/test/browser/helpers/*.mjs` 与 `test_drag_drop_snapshot.mjs` 都 `import` 自 `scripts/test/helpers/browser-helpers.mjs` 和 `assertions.mjs`，但这两个文件（及 `scripts/test/setup/clone_*.mjs`）从未被创建。→ **已重建**（§2.2）。`.gitignore` 已放行 `scripts/test/**`，`git check-ignore` 确认可追踪。
 
-2. **`npm test` 本身是坏的**：`scripts/testing/runner/run-node-tests.mjs` 被移动到 `runner/` 子目录后，`REPO_ROOT` 仍用 `../..`（落在 `scripts/`），导致所有单元测试"文件缺失"。→ **已修为 `../../..`**（§2.1）。
+2. **`npm test` 本身是坏的**：`scripts/test/runner/run-node-tests.mjs` 被移动到 `runner/` 子目录后，`REPO_ROOT` 仍用 `../..`（落在 `scripts/`），导致所有单元测试"文件缺失"。→ **已修为 `../../..`**（§2.1）。
 
 3. **浏览器测试集体挂起的真正机制**（关键，务必理解）：
    - 上传文件（`input.uploadFile`）只会**注册 + auto-select**（`selectedFile.name` 被设上），**不会把文档加载进 viewer**。
@@ -34,35 +34,34 @@
    - 正确的"已加载"判据是 **`snapshot.runtime` 已构建 + 有 link**（committed 的 `run_menagerie_browser_regression.mjs` 的 `snapshotWithDebug` 正是这么判的，不看 `status==='ready'`）。USD 路径才会到 `ready`/`hydrating`。
    - → **已修复**：`triggerRobotLoad` 改 fire-and-forget（不 await 内部 stable-wait）；`waitForReady` 改为"runtime 已建 + 有 link 即就绪，或 status 为 ready/hydrating"（§2.3）。theme 测试已据此跑通（模型加载、canvas 渲染、无页面错误）。
 
-4. **package.json 有悬空脚本引用**（指向从未创建的文件）：
-   - 7 个 `test:browser:mujoco-*` → `scripts/testing/browser/test_mujoco_*.mjs`（不存在）：`mujoco-import / source-editor / property-editor / tree-crud / assembly / viewer / export`。它们是 `test:browser:all` 的前 7 项。
-   - 4 个 `test:e2e*` → `scripts/e2e/test_*.mjs`（不存在）。
-   - → **待处理**（T1）。
+4. **package.json 脚本入口已统一到新测试目录**：
+   - `test:browser:mujoco-*` → `scripts/test/browser/test_mujoco_*.mjs`。
+   - `test:e2e*` → `scripts/test/e2e/test_*.mjs`。
 
 ---
 
 ## 2. 已完成的修改（已落盘，勿重复）
 
 ### 2.1 修 `npm test`
-- `scripts/testing/runner/run-node-tests.mjs`：`REPO_ROOT` 由 `../..` 改 `../../..`；usage 文本里的旧路径 `scripts/test/...` 改为 `scripts/testing/runner/...`。
+- `scripts/test/runner/run-node-tests.mjs`：`REPO_ROOT` 由 `../..` 改 `../../..`；usage 文本里的旧路径 `scripts/test/...` 改为 `scripts/test/runner/...`。
 - 验证：`npm test` 通过（fast lane 36 测试绿）；`--list` 显示 `src` suite 正确解析 538 文件。
 
 ### 2.2 重建地基（新增文件）
-- `scripts/e2e/helpers/browser-helpers.mjs`：导出 `ensureSite / launchBrowser / createPage / uploadFile / uploadDirectory / collectFiles / writeJsonAtomic / ensureDir / triggerRobotLoad / stabilizeDebugPage / isTransientPageContextError / DEFAULT_SITE_URL / DEFAULT_OPERATION_TIMEOUT_MS`。实现整合自 committed 的 `run_menagerie_browser_regression.mjs`、`run_unitree_browser_regression.mjs`、`run_shadow_hand_hover_regression.mjs`。
-- `scripts/e2e/helpers/assertions.mjs`：`createTestSuite / assert / assertEqual / assertGreaterThan / assertNonNull / printSummary`（零依赖）。
-- `scripts/testing/setup/_clone-util.mjs` + `clone_{all_test_data,mujoco_menagerie,unitree_model,unitree_ros}.mjs`：幂等 git clone（目录已存在则跳过）。
+- `scripts/test/helpers/browser-helpers.mjs`：导出 `ensureSite / launchBrowser / createPage / uploadFile / uploadDirectory / collectFiles / writeJsonAtomic / ensureDir / triggerRobotLoad / stabilizeDebugPage / isTransientPageContextError / DEFAULT_SITE_URL / DEFAULT_OPERATION_TIMEOUT_MS`。实现整合自 committed 的 `run_menagerie_browser_regression.mjs`、`run_unitree_browser_regression.mjs`、`run_shadow_hand_hover_regression.mjs`。
+- `scripts/test/helpers/assertions.mjs`：`createTestSuite / assert / assertEqual / assertGreaterThan / assertNonNull / printSummary`（零依赖）。
+- `scripts/test/setup/_clone-util.mjs` + `clone_{all_test_data,mujoco_menagerie,unitree_model,unitree_ros}.mjs`：幂等 git clone（目录已存在则跳过）。
 - 验证：全部 format-helper 的 import 链可解析、导出齐全。
 
 ### 2.3 修加载/就绪路径（改 committed 文件）
-- `scripts/testing/browser/helpers/base-helpers.mjs`：
+- `scripts/test/browser/helpers/base-helpers.mjs`：
   - 引入 `isTransientPageContextError`；`createSession` 支持 `URDF_E2E_HEADED=1` 环境变量（供 run-all `--headed`）。
   - `waitForReady`：默认超时 120s；**runtime 已建+有 link 即就绪**（或 status ready/hydrating）；status 为 error 抛出含原因；瞬时导航错误重试；超时打印 last state。
-- `scripts/e2e/helpers/browser-helpers.mjs` 的 `triggerRobotLoad`：**fire-and-forget**（`void loadRobotByName(fn)`，不 await 内部 180s stable-wait），容忍瞬时导航错误。
+- `scripts/test/helpers/browser-helpers.mjs` 的 `triggerRobotLoad`：**fire-and-forget**（`void loadRobotByName(fn)`，不 await 内部 180s stable-wait），容忍瞬时导航错误。
 - 4 个格式 helper（`urdf/mjcf/sdf/xacro-helpers.mjs`）的 `importModel`：在等到 `selectedFile.name===fileName` 后追加 `await triggerRobotLoad(page, fileName, timeoutMs)`。
 
 ### 2.4 统一入口（新增）
-- `scripts/testing/runner/run-all.mjs`：L1 单元 → L2 浏览器 →（可选 `--fixtures`）L3。**失败不中断**，自动从 package.json 发现 `test:browser:*`，**先起一个共享 dev server**（各测试 `ensureSite` 复用、不再各自冷启动 Vite），结尾跑 `cleanup-headless.cjs`，输出汇总表 + `tmp/regression/run-all-summary.json`。支持 `--unit-only/--browser-only/--skip-*/--fixtures/--headed/--filter/--list`。
-- `package.json`：新增 `"test:all": "node scripts/testing/runner/run-all.mjs"`。
+- `scripts/test/runner/run-all.mjs`：L1 单元 → L2 浏览器 →（可选 `--fixtures`）L3。**失败不中断**，自动从 package.json 发现 `test:browser:*`，**先起一个共享 dev server**（各测试 `ensureSite` 复用、不再各自冷启动 Vite），结尾跑 `cleanup-headless.cjs`，输出汇总表 + `tmp/regression/run-all-summary.json`。支持 `--unit-only/--browser-only/--skip-*/--fixtures/--headed/--filter/--list`。
+- `package.json`：新增 `"test:all": "node scripts/test/runner/run-all.mjs"`。
 - 验证：`--list` 正确；`--browser-only --filter import` 实跑时共享 server 成功启动并被复用。
 
 ### 2.5 文档（新增）
@@ -74,11 +73,9 @@
 
 > 每跑完浏览器自动化，必须 `node test/usd-viewer/scripts/cleanup-headless.cjs`（CLAUDE.md 红线）。Vite 冷启动在本机较慢（单个浏览器测试约 1.5–3 分钟）；强烈建议用 `run-all` 起共享 server 批量跑。
 
-### T1. 清理 package.json 悬空脚本引用（先做，快）
-- 删除 7 个 `test:browser:mujoco-*` 脚本（文件不存在），并从 `test:browser:all` 串联里移除这 7 项（它们是开头 7 个 `&&`）。
-- 删除 4 个 `test:e2e*` 脚本（`scripts/e2e/test_*.mjs` 不存在），或在 T4 决定是否新建对应 e2e 测试后再定。
-- 目的：`npm run test:all` / `test:browser:all` 不再因缺文件直接报错。
-- 注意：被删的 MJCF 专项浏览器覆盖记入 T4（不要静默丢弃）。
+### T1. package.json 脚本入口统一（已完成）
+- 浏览器、E2E、fixture、runner 入口统一指向 `scripts/test/**`。
+- `test:browser:all` / `test:all` 由 `scripts/test/runner/run-all.mjs` 自动发现脚本，不再维护手写串联。
 
 ### T2.（高优先）修目录上传路径：URDF + SDF 导入超时
 - **现象（实测）**：`test:browser:sdf-import`（demo_joint_friction、r2_description）与 `test:browser:urdf-import`（a1_description…）**都**在 `importModel` 阶段超时——等 `selectedFile.name === <fileName>` 60s 不满足。而 MJCF（theme 测试）能过。
@@ -92,18 +89,18 @@
 
 ### T3. 逐个对齐浏览器测试断言（主体工作量，Phase C）
 - 这些 `test_*.mjs` 从未真正跑过，预期会有"断言和真实 app 对不上"的小问题。已知例：`test_theme_switching.mjs` 的 assert 1「theme detectable from DOM」失败——它检查 `documentElement` 上的 `dark/light` class 或 `data-theme`，但 app 实际的主题表示方式不同（需查 `uiStore`/主题应用逻辑确认真实信号，再改断言）。
-- 执行方式（推荐）：用 `node scripts/testing/runner/run-all.mjs --browser-only` 一次性跑全部，拿到 `tmp/regression/run-all-summary.json` 的失败清单；然后**逐个**：读对应 `test_*.mjs` → 用 `--filter <key片段>` 单跑 → 据失败信息查 app 真实行为（`src/` + `window.__URDF_STUDIO_DEBUG__` 暴露的接口见 `src/shared/debug/regressionBridge.ts`）→ 修断言或修 helper → 重跑至绿。
+- 执行方式（推荐）：用 `node scripts/test/runner/run-all.mjs --browser-only` 一次性跑全部，拿到 `tmp/regression/run-all-summary.json` 的失败清单；然后**逐个**：读对应 `test_*.mjs` → 用 `--filter <key片段>` 单跑 → 据失败信息查 app 真实行为（`src/` + `window.__URDF_STUDIO_DEBUG__` 暴露的接口见 `src/shared/debug/regressionBridge.ts`）→ 修断言或修 helper → 重跑至绿。
 - 原则：断言要对齐 app 的**真实**行为，不要为了变绿而把断言改空。改不动/疑似 app bug 的，在测试里标注并汇报，不要静默跳过。
-- 全部 22 个真实 `test_*.mjs`：ai_assistant, assembly_export, collision_optimization, cross_format_assembly, drag_drop_snapshot, hardware_config, ik_drag, language_switching, measure_tool, mjcf_export, multi_format_import, paint_mode, sdf_model_import, theme_switching, urdf_assembly, urdf_export, urdf_model_import, urdf_property_editor, urdf_source_editor, urdf_tree_crud, usd_model_import, xacro_import。
+- 主要 `test_*.mjs` 包括 ai_assistant, assembly_export, collision_optimization, cross_format_assembly, drag_drop_snapshot, hardware_config, ik_drag, language_switching, measure_tool, mjcf_export, mujoco_*, multi_format_import, paint_mode, sdf_model_import, theme_switching, urdf_*, usd_model_import, xacro_import。
 
-### T4.（可选，补盲）重建 7 个 MJCF 专项浏览器测试
-- 若要恢复 `test:browser:mujoco-*` 覆盖：以对应的 `test_urdf_*.mjs` 为模板，把 `urdf-helpers` 换成 `mjcf-helpers`、模型换成 menagerie 下的（如 `unitree_go2` / `go2.xml`）新建 `test_mujoco_*.mjs`，并在 package.json 恢复脚本。MJCF 导入路径已验证可用（theme 测试用的就是它）。
-- 同理可决定是否新建 `scripts/e2e/test_*.mjs`（assembly_bridge / import_export / editor_operations）以支撑 `test:e2e*`。
+### T4. MJCF / E2E 入口（已补齐）
+- `test:browser:mujoco-*` 覆盖已位于 `scripts/test/browser/test_mujoco_*.mjs`，由 `package.json` 暴露为独立 npm scripts。
+- E2E 入口已位于 `scripts/test/e2e/test_*.mjs`（assembly_bridge / import_export / editor_operations）。
 
 ### T5. 收尾验证
 - `npm test`（L1 仍绿）。
-- `node scripts/testing/runner/run-all.mjs --browser-only`（L2 全绿；阅读汇总表）。
-- `npm run lint && npm run typecheck`。
+- `node scripts/test/runner/run-all.mjs --browser-only`（L2 全绿；阅读汇总表）。
+- `npm run lint && npm run typecheck:quality`；`npm run typecheck` 是含 test/spec 的全仓 TypeScript 债务检查。
 - 每轮浏览器后 `node test/usd-viewer/scripts/cleanup-headless.cjs`，确认无残留（只清本次自动化进程，勿杀用户日常浏览器）。
 - 视情况 `npm run verify:full`。
 
@@ -118,13 +115,13 @@
 - **共享 server**：`ensureSite` 探测到 4173 可达就复用。批量跑务必用 `run-all` 起一个共享 server，否则每个测试冷启 Vite 极慢。
 - **Vite 冷启动慢**：单测试首启可能 60–90s；超时设置已放宽，勿误判为挂死。
 - **清理纪律**：见 T5 / CLAUDE.md。
-- **可复用参考实现**（只读，勿改）：`scripts/regression/run_menagerie_browser_regression.mjs`（site/browser/load/重试范式）、`run_unitree_browser_regression.mjs`（upload/collectFiles）。
+- **可复用参考实现**（只读，勿改）：`scripts/test/browser/run_unitree_browser_regression.mjs`（site/browser/load/upload/collectFiles 范式）。
 
 ---
 
 ## 5. 验收标准（Done 的定义）
 1. `npm test` 绿；`npm run test:all --browser-only` 汇总表中浏览器测试全绿（或对无法修复项有明确标注与说明）。
 2. package.json 无悬空脚本引用。
-3. `lint` + `typecheck` 通过。
+3. `lint` + `typecheck:quality` 通过；全仓 test/spec 类型债务若未清零，需要在交接中单独标注。
 4. 浏览器自动化无进程残留。
 5. `docs/testing.md` 与实际命令一致。

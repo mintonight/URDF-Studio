@@ -49,7 +49,7 @@ test('collision selection updates highlight mode without auto-enabling collision
   dom.window.document.body.appendChild(container);
   const root = createRoot(container);
 
-  let controller: ReturnType<typeof useViewerController> | null = null;
+  let controller: ReturnType<typeof useViewerController> | null = null as ReturnType<typeof useViewerController> | null;
 
   function Probe() {
     controller = useViewerController({

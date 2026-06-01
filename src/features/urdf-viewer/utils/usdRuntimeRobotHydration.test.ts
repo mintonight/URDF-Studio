@@ -6,8 +6,18 @@ import * as THREE from 'three';
 import { DEFAULT_JOINT, DEFAULT_LINK, GeometryType, JointType } from '@/types';
 import { createOriginMatrix } from '@/core/robot/kinematics';
 import type { ViewerRobotDataResolution } from './viewerRobotData';
-import { hydrateUsdViewerRobotResolutionFromRuntime } from './usdRuntimeRobotHydration.ts';
+import {
+  hydrateUsdViewerRobotResolutionFromRuntime as hydrateNullableUsdViewerRobotResolutionFromRuntime,
+} from './usdRuntimeRobotHydration.ts';
 import { createUsdViewerRuntimeRobot } from './usdViewerRuntimeRobot.ts';
+
+function hydrateUsdViewerRobotResolutionFromRuntime(
+  ...args: Parameters<typeof hydrateNullableUsdViewerRobotResolutionFromRuntime>
+): NonNullable<ReturnType<typeof hydrateNullableUsdViewerRobotResolutionFromRuntime>> {
+  const hydrated = hydrateNullableUsdViewerRobotResolutionFromRuntime(...args);
+  assert.ok(hydrated, 'expected USD runtime resolution hydration to succeed');
+  return hydrated;
+}
 
 function composeMatrix(
   position: { x: number; y: number; z: number },
@@ -232,13 +242,12 @@ test('hydrateUsdViewerRobotResolutionFromRuntime syncs runtime link and mesh tra
   );
 });
 
-test('hydrateUsdViewerRobotResolutionFromRuntime repositions inertial origin when the runtime link frame moves', () => {
+test('hydrateUsdViewerRobotResolutionFromRuntime preserves USD link-local inertial origin when the runtime link frame moves', () => {
   const baseWorld = composeMatrix({ x: 0, y: 0, z: 0 });
   const previousJointOrigin = {
     xyz: { x: 0.25, y: -0.15, z: 0.4 },
     rpy: { r: 0.03, p: -0.02, y: 0.01 },
   };
-  const previousJointMatrix = composeMatrix(previousJointOrigin.xyz, previousJointOrigin.rpy);
   const runtimeChildWorld = composeMatrix(
     { x: 1.2, y: 2.1, z: -0.7 },
     { r: 0.08, p: 0.04, y: -0.12 },
@@ -335,14 +344,11 @@ test('hydrateUsdViewerRobotResolutionFromRuntime repositions inertial origin whe
     baseWorld.clone().invert().multiply(runtimeChildWorld.clone()),
     'joint origin should match the runtime child link transform',
   );
-  assertMatrixClose(
+  assert.ok(hydrated.robotData.links.arm_link.inertial);
+  assert.deepEqual(
     hydrated.robotData.links.arm_link.inertial.origin,
-    runtimeChildWorld
-      .clone()
-      .invert()
-      .multiply(previousJointMatrix.clone())
-      .multiply(createOriginMatrix(inertialOrigin)),
-    'inertial origin should stay attached to the link when the link frame is realigned to runtime data',
+    inertialOrigin,
+    'USD physics centerOfMass is already authored in the link prim frame',
   );
 });
 

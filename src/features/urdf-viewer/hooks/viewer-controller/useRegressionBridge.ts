@@ -4,23 +4,17 @@ import {
   setRegressionViewerHandlers,
   type RegressionViewerFlags,
 } from '@/shared/debug/regressionState';
+import type { RuntimeRobotObject } from '@/shared/components/3d/runtimeRobotTypes';
 import { isSingleDofJoint } from '@/shared/utils/jointTypes';
 import { resolveViewerJointKey } from '@/shared/utils/jointPanelState';
-import type { RobotState } from '@/types';
+import type { RuntimeViewerJoint } from '../../utils/runtimeRobotMotion';
 import type { MeasureState, ToolMode, ViewerPaintStatus } from '../../types';
 
 type HighlightMode = 'link' | 'collision';
 type BooleanSetter = Dispatch<SetStateAction<boolean>>;
 type NumberSetter = Dispatch<SetStateAction<number>>;
 
-type RuntimeJointLike = RobotState['joints'][string] & {
-  setJointValue?: (value: number) => void;
-};
-
-interface RegressionRobotLike {
-  joints?: Record<string, RuntimeJointLike>;
-  updateMatrixWorld?: (force?: boolean) => void;
-}
+type RuntimeJointLike = RuntimeViewerJoint;
 
 interface UseRegressionBridgeParams {
   active: boolean;
@@ -31,7 +25,7 @@ interface UseRegressionBridgeParams {
   normalizedToolModeScopeKey: string | null;
   originSize: number;
   requestSceneRefresh: (options?: { force?: boolean }) => void;
-  robot: RegressionRobotLike | null;
+  robot: RuntimeRobotObject | null;
   toolMode: ToolMode;
   jointAnglesRef: MutableRefObject<Record<string, number>>;
   activeJointRef: MutableRefObject<string | null>;
@@ -234,8 +228,9 @@ export function useRegressionBridge({
           }
 
           const numericAngle = Number(angle);
-          const jointKey = resolveViewerJointKey(robot?.joints, jointName) ?? jointName;
-          const joint = robot?.joints?.[jointKey];
+          const runtimeJoints = robot?.joints as Record<string, RuntimeJointLike> | undefined;
+          const jointKey = resolveViewerJointKey(runtimeJoints, jointName) ?? jointName;
+          const joint = runtimeJoints?.[jointKey];
           if (joint && isSingleDofJoint(joint)) {
             joint.setJointValue?.(resolveRuntimeMotionAngle(jointName, numericAngle, joint));
           }

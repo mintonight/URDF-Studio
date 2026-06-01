@@ -147,6 +147,23 @@ export function colorArrayToHex(
   return `#${rgb.join('')}`;
 }
 
+function normalizeMaterialColorSource(value: string | null | undefined): string | null {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-');
+  return normalized || null;
+}
+
+function resolveAuthoredScalarColorSpace(
+  material: MaterialRecord | null | undefined,
+  colorSpace: string | null | undefined,
+): string | null | undefined {
+  return normalizeMaterialColorSource(material?.colorSource) === 'authored'
+    ? 'linear'
+    : colorSpace;
+}
+
 export function hasMaterialRecordContent(material: MaterialRecord | null | undefined): boolean {
   if (!material || typeof material !== 'object') {
     return false;
@@ -172,7 +189,11 @@ export function hasMaterialRecordContent(material: MaterialRecord | null | undef
 export function resolveSnapshotMaterialColorHex(
   material: MaterialRecord | null | undefined,
 ): string | null {
-  const authoredColor = colorArrayToHex(material?.color, material?.opacity, material?.colorSpace);
+  const authoredColor = colorArrayToHex(
+    material?.color,
+    material?.opacity,
+    resolveAuthoredScalarColorSpace(material, material?.colorSpace),
+  );
   if (authoredColor) {
     return authoredColor;
   }
@@ -229,7 +250,11 @@ export function resolveSnapshotAuthoredMaterial(
   const metalness = Number(material.metalness);
   const emissiveEnabled = resolveSnapshotMaterialEmissionEnabled(material);
   const emissive = emissiveEnabled
-    ? colorArrayToHex(material.emissive, null, material.emissiveColorSpace) || undefined
+    ? colorArrayToHex(
+        material.emissive,
+        null,
+        resolveAuthoredScalarColorSpace(material, material.emissiveColorSpace),
+      ) || undefined
     : undefined;
   const emissiveIntensity = emissiveEnabled ? Number(material.emissiveIntensity) : Number.NaN;
 

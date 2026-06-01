@@ -214,7 +214,7 @@ test('SDF export explains that per-face box textures are flattened during export
 
 test('USD export lets the user switch authored layer format to USDA', async () => {
   const { dom, container, root } = createComponentRoot();
-  let exportedConfig: ExportDialogConfig | null = null;
+  let exportedConfig: ExportDialogConfig | null = null as ExportDialogConfig | null;
 
   try {
     await renderExportDialog(root, (config) => {
@@ -242,7 +242,7 @@ test('USD export lets the user switch authored layer format to USDA', async () =
 
 test('USD export defaults to max mesh fidelity when the user exports without touching compression settings', async () => {
   const { dom, container, root } = createComponentRoot();
-  let exportedConfig: ExportDialogConfig | null = null;
+  let exportedConfig: ExportDialogConfig | null = null as ExportDialogConfig | null;
 
   try {
     await renderExportDialog(root, (config) => {
@@ -305,7 +305,7 @@ test('USD layer format row keeps label and segmented buttons vertically centered
 
 test('custom compression keeps the slider visible and exports the selected MJCF quality', async () => {
   const { dom, container, root } = createComponentRoot();
-  let exportedConfig: ExportDialogConfig | null = null;
+  let exportedConfig: ExportDialogConfig | null = null as ExportDialogConfig | null;
 
   try {
     await renderExportDialog(root, (config) => {

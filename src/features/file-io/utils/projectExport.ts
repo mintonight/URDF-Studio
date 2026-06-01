@@ -1,13 +1,5 @@
-import {
-  AssemblyState,
-  BridgeJoint,
-  GeometryType,
-  JointType,
-  RobotData,
-  RobotFile,
-  UsdPreparedExportCache,
-  UrdfLink,
-} from '@/types';
+import { GeometryType, JointType } from '@/types';
+import type { AssemblyState, BridgeJoint, RobotData, RobotFile, UrdfLink } from '@/types';
 import { generateMujocoXML, generateURDF } from '@/core/parsers';
 import { normalizeMeshPathForExport, resolveMeshAssetUrl } from '@/core/parsers/meshPathUtils';
 import { generateBOM } from './bomGenerator';
@@ -38,6 +30,26 @@ import {
 import { isAssetLibraryOnlyFormat } from '@/shared/utils/robotFileSupport';
 import { getVisualGeometryEntries } from '@/core/robot';
 import { buildExportableAssemblyRobotData } from '@/core/robot/assemblyTransforms';
+import type {
+  ExportProjectParams,
+  ExportProjectResult,
+  ProjectActivityEntry,
+  ProjectAssetEntry,
+  ProjectExportProgressPhase,
+  ProjectExportWarning,
+  ProjectHistorySnapshot,
+  ProjectManifest,
+} from './projectExportTypes';
+
+export type {
+  ExportProjectParams,
+  ExportProjectResult,
+  ProjectExportProgress,
+  ProjectExportProgressPhase,
+  ProjectExportWarning,
+  ProjectExportWarningCode,
+  ProjectManifest,
+} from './projectExportTypes';
 
 const AXIS_EXPORT_TYPES = new Set<JointType>([
   JointType.REVOLUTE,
@@ -103,19 +115,6 @@ const COMPONENT_README_ZH = `# URDF Studio 组件格式说明
 - meshes/: 组件专用的 3D 资源。
 `;
 
-type ProjectActivityEntry = {
-  id: string;
-  timestamp: string;
-  label: string;
-};
-
-type ProjectHistorySnapshot<T> = {
-  present: T;
-  past: T[];
-  future: T[];
-  activity: ProjectActivityEntry[];
-};
-
 const MAX_HISTORY = 50;
 const MAX_ACTIVITY_LOG = 200;
 
@@ -123,11 +122,6 @@ const clampHistoryEntries = <T>(entries: T[] | undefined): T[] =>
   (entries ?? []).slice(-MAX_HISTORY);
 const clampFutureEntries = <T>(entries: T[] | undefined): T[] =>
   (entries ?? []).slice(0, MAX_HISTORY);
-
-type ProjectAssetEntry = {
-  logicalPath: string;
-  archivePath: string;
-};
 
 type ProjectArchiveEntries = Map<string, ProjectArchiveEntryData>;
 
@@ -138,80 +132,11 @@ const STRICT_PROJECT_LIBRARY_SOURCE_FORMATS = new Set<RobotFile['format']>([
   'sdf',
 ]);
 
-export type ProjectExportWarningCode =
-  | 'project_mesh_asset_missing'
-  | 'project_mesh_package_failed'
-  | 'project_asset_pack_failed'
-  | 'project_component_mesh_asset_missing'
-  | 'project_component_mesh_package_failed';
-
-export interface ProjectExportWarning {
-  code: ProjectExportWarningCode;
-  message: string;
-  context?: Record<string, string>;
-}
-
-export type ProjectExportProgressPhase =
-  | 'assets'
-  | 'metadata'
-  | 'components'
-  | 'output'
-  | 'archive';
-
-export interface ProjectExportProgress {
-  phase: ProjectExportProgressPhase;
-  completed: number;
-  total: number;
-  label?: string;
-}
-
-export interface ExportProjectResult {
-  blob: Blob;
-  partial: boolean;
-  warnings: ProjectExportWarning[];
-}
-
 type ProjectPhaseProgressReporter = (progress: {
   completed: number;
   total: number;
   label?: string;
 }) => void;
-
-export interface ProjectManifest {
-  version: string;
-  name: string;
-  lastModified: string;
-  ui: Record<string, never>;
-  workspace?: {
-    selectedFile: string | null;
-  };
-  assets: {
-    availableFiles: { name: string; format: string }[];
-    originalFileFormat: 'urdf' | 'mjcf' | 'usd' | 'xacro' | 'sdf' | null;
-    assetEntries?: ProjectAssetEntry[];
-    allFileContentsFile?: string;
-    motorLibraryFile?: string;
-    originalUrdfContentFile?: string;
-  };
-  history?: {
-    robotFile?: string;
-    assemblyFile?: string;
-  };
-  assembly?: {
-    name: string;
-    transform?: AssemblyState['transform'];
-    components: Record<
-      string,
-      {
-        id: string;
-        name: string;
-        sourceFile: string;
-        transform?: AssemblyState['components'][string]['transform'];
-        visible: boolean;
-      }
-    >;
-  };
-}
 
 const normalizeActivityLog = (
   activity: Array<{ id?: string; timestamp?: string; label?: string }> | undefined,
@@ -530,36 +455,6 @@ const writePackedAssets = async (
     warnings,
   };
 };
-
-export interface ExportProjectParams {
-  name: string;
-  uiState: {
-    appMode: string;
-    lang: string;
-  };
-  assetsState: {
-    availableFiles: RobotFile[];
-    assets: Record<string, string>;
-    allFileContents: Record<string, string>;
-    motorLibrary: Record<string, unknown>;
-    selectedFileName: string | null;
-    originalUrdfContent: string;
-    originalFileFormat: 'urdf' | 'mjcf' | 'usd' | 'xacro' | 'sdf' | null;
-    usdPreparedExportCaches: Record<string, UsdPreparedExportCache>;
-  };
-  robotState: {
-    present: RobotData;
-    history: { past: RobotData[]; future: RobotData[] };
-    activity: Array<{ id?: string; timestamp?: string; label?: string }>;
-  };
-  assemblyState: {
-    present: AssemblyState | null;
-    history: { past: Array<AssemblyState | null>; future: Array<AssemblyState | null> };
-    activity: Array<{ id?: string; timestamp?: string; label?: string }>;
-  };
-  getMergedRobotData: () => RobotData | null;
-  onProgress?: (progress: ProjectExportProgress) => void;
-}
 
 async function buildProjectArchiveEntries(params: ExportProjectParams): Promise<{
   archiveEntries: ProjectArchiveEntries;
@@ -891,7 +786,7 @@ async function buildProjectArchiveEntries(params: ExportProjectParams): Promise<
         mergedRobot,
         assetsState.assets,
         undefined,
-        ({ completed, total, label }) => {
+        ({ completed, label }) => {
           emitPhaseProgress('components', 1 + completed, totalComponentTasks, label);
         },
       );

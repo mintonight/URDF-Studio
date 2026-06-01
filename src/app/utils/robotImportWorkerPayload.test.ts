@@ -205,6 +205,7 @@ test('buildEditableRobotSourceWorkerOptions keeps only source-relevant files for
     },
   });
 
+  assert.ok(result.availableFiles);
   assert.deepEqual(
     result.availableFiles.map((file) => ({ name: file.name, format: file.format })),
     [

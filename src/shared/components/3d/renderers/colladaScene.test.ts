@@ -54,7 +54,7 @@ test('cloneColladaScenePreservingRootTransform bakes b2w base_link root transfor
         return;
       }
 
-      resolve(result);
+      resolve(result!);
     });
   });
 
@@ -84,7 +84,7 @@ test('cloneColladaScenePreservingRootTransform applies shared coplanar shell fix
   );
 
   const { clone } = cloneColladaScenePreservingRootTransform(dae.scene);
-  let firstMesh: THREE.Mesh | null = null;
+  let firstMesh: THREE.Mesh | null = null as THREE.Mesh | null;
   clone.traverse((child) => {
     if (!firstMesh && (child as THREE.Mesh).isMesh) {
       firstMesh = child as THREE.Mesh;

@@ -50,9 +50,11 @@ class FakeColladaWorker {
       return;
     }
 
+    const assetUrl = request.assetUrl;
+    const requestId = request.requestId;
     void (async () => {
       try {
-        const response = await fetch(request.assetUrl);
+        const response = await fetch(assetUrl);
         if (!response.ok) {
           throw new Error(
             `Failed to fetch Collada asset: ${response.status} ${response.statusText}`,
@@ -61,11 +63,11 @@ class FakeColladaWorker {
 
         const colladaText = await response.text();
         const result = withSuppressedColladaConsole(() =>
-          parseColladaSceneData(colladaText, request.assetUrl),
+          parseColladaSceneData(colladaText, assetUrl),
         );
         this.emitMessage({
           type: 'parse-collada-result',
-          requestId: request.requestId,
+          requestId,
           result,
         });
       } catch (error) {

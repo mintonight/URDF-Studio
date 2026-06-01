@@ -58,6 +58,15 @@ async function analyzeMeshGeometry(
   return workerResults[analysisKey] ?? null;
 }
 
+function isMeshAnalysisWorkerUnavailable(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? `${error.message} ${error.cause instanceof Error ? error.cause.message : ''}`
+      : String(error);
+
+  return /(?:web worker is not available|mesh analysis worker is unavailable)/i.test(message);
+}
+
 export function useGeometryMeshAnalysis({
   assets,
   geometry,
@@ -143,6 +152,11 @@ export function useGeometryMeshAnalysis({
         if (meshAnalysisPromiseCacheRef.current[analysisKey] === analysisPromise) {
           delete meshAnalysisPromiseCacheRef.current[analysisKey];
         }
+        if (!controller.signal.aborted && isMeshAnalysisWorkerUnavailable(error)) {
+          meshAnalysisCacheRef.current[analysisKey] = null;
+          meshAnalysisRef.current = null;
+          return;
+        }
         if (!controller.signal.aborted) {
           scheduleFailFastInDev(
             'GeometryEditor:meshAnalysis',
@@ -176,7 +190,12 @@ export function useGeometryMeshAnalysis({
 
     const pendingAnalysis = meshAnalysisPromiseCacheRef.current[analysisKey];
     if (pendingAnalysis) {
-      const analysis = await pendingAnalysis;
+      const analysis = await pendingAnalysis.catch((error) => {
+        if (isMeshAnalysisWorkerUnavailable(error)) {
+          return null;
+        }
+        throw error;
+      });
       meshAnalysisCacheRef.current[analysisKey] = analysis;
       return analysis;
     }
@@ -184,7 +203,12 @@ export function useGeometryMeshAnalysis({
     const analysisPromise = analyzeMeshGeometry(targetGeometry, assets, sourceFilePath);
     meshAnalysisPromiseCacheRef.current[analysisKey] = analysisPromise;
     try {
-      const analysis = await analysisPromise;
+      const analysis = await analysisPromise.catch((error) => {
+        if (isMeshAnalysisWorkerUnavailable(error)) {
+          return null;
+        }
+        throw error;
+      });
       meshAnalysisCacheRef.current[analysisKey] = analysis;
 
       if (

@@ -8,9 +8,13 @@
 export type { STLMeshData, BoundingBox, CompressOptions, CompressResult } from './types.ts';
 export { parseSTL, serializeToBinarySTL } from './stlParser.ts';
 export { compressMesh } from './meshCompressor.ts';
+export {
+  compressSTLBlobWithWorker,
+  createStlCompressionWorkerClient,
+  disposeStlCompressionWorker,
+} from './stlCompressionWorkerBridge.ts';
 
-import { parseSTL, serializeToBinarySTL } from './stlParser.ts';
-import { compressMesh } from './meshCompressor.ts';
+import { compressSTLBlobInline } from './blobCompression.ts';
 import type { CompressOptions, CompressResult } from './types.ts';
 
 /**
@@ -29,32 +33,5 @@ export async function compressSTLBlob(
   filename: string,
   options: CompressOptions,
 ): Promise<CompressResult> {
-  const ext = filename.split('.').pop()?.toLowerCase();
-
-  if (ext !== 'stl') {
-    // Non-STL mesh: pass through unchanged
-    return {
-      blob,
-      originalTriangleCount: 0,
-      compressedTriangleCount: 0,
-      originalSize: blob.size,
-      compressedSize: blob.size,
-      compressionRatio: 0,
-    };
-  }
-
-  const arrayBuffer = await blob.arrayBuffer();
-  const meshData = parseSTL(arrayBuffer, filename);
-  const compressed = compressMesh(meshData, options.quality);
-  const outputBuffer = serializeToBinarySTL(compressed);
-  const outputBlob = new Blob([outputBuffer], { type: 'application/octet-stream' });
-
-  return {
-    blob: outputBlob,
-    originalTriangleCount: meshData.triangleCount,
-    compressedTriangleCount: compressed.triangleCount,
-    originalSize: blob.size,
-    compressedSize: outputBlob.size,
-    compressionRatio: compressed.compressionRatio ?? 0,
-  };
+  return await compressSTLBlobInline(blob, filename, options);
 }

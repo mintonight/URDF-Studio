@@ -16,7 +16,7 @@ function createResolution(): ViewerRobotDataResolution {
       name: 'robot',
       links: {},
       joints: {},
-      rootLinkId: null,
+      rootLinkId: '',
     },
     stageSourcePath: null,
     linkIdByPath: {

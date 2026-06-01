@@ -63,7 +63,7 @@ features/urdf-viewer/
 - `runtime/*` 是 vendored usd-viewer runtime，不要在 `core/parsers/usd/*` 重复实现 viewer runtime 职责
 - URDF Studio 应把 runtime 输出适配到 `ViewerRobotDataResolution` / `RobotData`
 - `public/usd/bindings/*` 必须保留在静态资源目录，供浏览器运行时 fetch
-- **WASM 构建系统**位于 `third_party/OpenUSD` 和 `scripts/wasm/`；重编命令与故障排查见 [wasm-build.md](wasm-build.md)
+- **WASM 构建系统**位于 `third_party/OpenUSD` 和 `scripts/build/`；重编命令与故障排查见 [wasm-build.md](wasm-build.md)
 
 ## 6. USD worker / metadata 链路约束
 

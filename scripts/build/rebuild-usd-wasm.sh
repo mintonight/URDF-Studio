@@ -6,7 +6,7 @@ usage() {
 Speed-first OpenUSD WASM rebuild for URDF Studio.
 
 Usage:
-  scripts/wasm/rebuild-usd-wasm.sh --usd-repo <path> --build-dir <path> [options]
+  scripts/build/rebuild-usd-wasm.sh --usd-repo <path> --build-dir <path> [options]
 
 Required:
   --usd-repo <path>     OpenUSD repo root (must contain build_scripts/build_usd.py)
@@ -33,7 +33,7 @@ Environment:
   WASM_OPT_LEVEL=-O3    wasm-opt optimization level (default: -O3)
 
 Example:
-  scripts/wasm/rebuild-usd-wasm.sh \
+  scripts/build/rebuild-usd-wasm.sh \
     --robot-trim \
     --emsdk-env ~/.localdeps/emsdk/emsdk_env.sh \
     --usd-repo ./third_party/OpenUSD \

@@ -153,33 +153,31 @@ function restoreWorkerImageGlobals(snapshot: WorkerImageGlobalSnapshot): void {
   if (snapshot.document) {
     globalThis.document = snapshot.document;
   } else {
-    delete (globalThis as typeof globalThis & { document?: Document }).document;
+    Reflect.deleteProperty(globalThis, 'document');
   }
 
   if (snapshot.HTMLImageElement) {
     globalThis.HTMLImageElement = snapshot.HTMLImageElement;
   } else {
-    delete (globalThis as typeof globalThis & { HTMLImageElement?: typeof HTMLImageElement })
-      .HTMLImageElement;
+    Reflect.deleteProperty(globalThis, 'HTMLImageElement');
   }
 
   if (snapshot.Image) {
     globalThis.Image = snapshot.Image;
   } else {
-    delete (globalThis as typeof globalThis & { Image?: typeof Image }).Image;
+    Reflect.deleteProperty(globalThis, 'Image');
   }
 
   if (snapshot.createImageBitmap) {
     globalThis.createImageBitmap = snapshot.createImageBitmap;
   } else {
-    delete (globalThis as typeof globalThis & { createImageBitmap?: typeof createImageBitmap })
-      .createImageBitmap;
+    Reflect.deleteProperty(globalThis, 'createImageBitmap');
   }
 
   if (snapshot.self) {
     (globalThis as typeof globalThis & { self?: typeof globalThis }).self = snapshot.self;
   } else {
-    delete (globalThis as typeof globalThis & { self?: typeof globalThis }).self;
+    Reflect.deleteProperty(globalThis, 'self');
   }
 }
 
@@ -191,12 +189,10 @@ test('buildUsdVisualSceneNode loads textured GLTF meshes in worker-like environm
   );
   const snapshot = captureWorkerImageGlobals();
 
-  delete (globalThis as typeof globalThis & { document?: Document }).document;
-  delete (globalThis as typeof globalThis & { HTMLImageElement?: typeof HTMLImageElement })
-    .HTMLImageElement;
-  delete (globalThis as typeof globalThis & { Image?: typeof Image }).Image;
-  delete (globalThis as typeof globalThis & { createImageBitmap?: typeof createImageBitmap })
-    .createImageBitmap;
+  Reflect.deleteProperty(globalThis, 'document');
+  Reflect.deleteProperty(globalThis, 'HTMLImageElement');
+  Reflect.deleteProperty(globalThis, 'Image');
+  Reflect.deleteProperty(globalThis, 'createImageBitmap');
   (globalThis as typeof globalThis & { self?: Window & typeof globalThis }).self =
     globalThis as unknown as Window & typeof globalThis;
 

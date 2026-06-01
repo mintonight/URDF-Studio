@@ -1591,8 +1591,8 @@ test('GeometryEditor shows the effective legacy link material color when the pri
     const link = createLink('#00ff00');
     link.visual = {
       ...link.visual,
-      color: undefined,
     };
+    Reflect.deleteProperty(link.visual, 'color');
 
     const robot = createRobot(link);
     robot.selection.objectIndex = 0;
@@ -1902,8 +1902,8 @@ test('GeometryEditor preserves the effective legacy link material color when pro
     const link = createLink('#00ff00');
     link.visual = {
       ...link.visual,
-      color: undefined,
     };
+    Reflect.deleteProperty(link.visual, 'color');
 
     const robot = createRobot(link);
     robot.selection.objectIndex = 0;

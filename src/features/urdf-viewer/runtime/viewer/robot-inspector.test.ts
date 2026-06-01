@@ -38,24 +38,28 @@ test('RobotInspectorController initialize/dispose manages global listeners exact
   const originalHeaderAdd = header.addEventListener.bind(header);
   const originalHeaderRemove = header.removeEventListener.bind(header);
 
-  dom.window.addEventListener = ((type, listener, options) => {
+  dom.window.addEventListener = ((...args: Parameters<typeof originalWindowAdd>) => {
+    const [type] = args;
     windowAdds.push(String(type));
-    return originalWindowAdd(type, listener, options);
+    return originalWindowAdd(...args);
   }) as typeof dom.window.addEventListener;
 
-  dom.window.removeEventListener = ((type, listener, options) => {
+  dom.window.removeEventListener = ((...args: Parameters<typeof originalWindowRemove>) => {
+    const [type] = args;
     windowRemoves.push(String(type));
-    return originalWindowRemove(type, listener, options);
+    return originalWindowRemove(...args);
   }) as typeof dom.window.removeEventListener;
 
-  header.addEventListener = ((type, listener, options) => {
+  header.addEventListener = ((...args: Parameters<typeof originalHeaderAdd>) => {
+    const [type] = args;
     headerAdds.push(String(type));
-    return originalHeaderAdd(type, listener, options);
+    return originalHeaderAdd(...args);
   }) as typeof header.addEventListener;
 
-  header.removeEventListener = ((type, listener, options) => {
+  header.removeEventListener = ((...args: Parameters<typeof originalHeaderRemove>) => {
+    const [type] = args;
     headerRemoves.push(String(type));
-    return originalHeaderRemove(type, listener, options);
+    return originalHeaderRemove(...args);
   }) as typeof header.removeEventListener;
 
   try {

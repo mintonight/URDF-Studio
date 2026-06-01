@@ -138,7 +138,7 @@ const createRobotFixture = (): RobotState => ({
       hardware: { armature: 0.03, motorType: 'servo', motorId: 'M1', motorDirection: 1 },
     },
   },
-  inspectionContext: null,
+  inspectionContext: undefined,
   selection: { type: 'link', id: 'base_link' },
 });
 

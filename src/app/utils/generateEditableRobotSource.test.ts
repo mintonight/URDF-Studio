@@ -50,6 +50,7 @@ const demoUrdfSource = `<?xml version="1.0"?>
 
 function createRobotState(): RobotState {
   const parsed = parseURDF(demoUrdfSource);
+  assert.ok(parsed, 'expected demo URDF to parse');
 
   return {
     ...parsed,
@@ -79,7 +80,9 @@ function assertRoundTrip(
   assert.ok(parsed?.links.base_link);
   assert.ok(parsed?.links.tool_link);
   assert.ok(parsed?.joints.tool_joint);
-  assert.equal(parsed?.joints.tool_joint.axis.z, 1);
+  const toolJoint = parsed.joints.tool_joint;
+  assert.ok(toolJoint.axis);
+  assert.equal(toolJoint.axis.z, 1);
 }
 
 test('generateEditableRobotSource round-trips URDF output', () => {

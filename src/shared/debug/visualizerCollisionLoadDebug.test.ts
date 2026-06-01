@@ -57,7 +57,7 @@ test('visualizer collision load debug records and filters session history by sig
     );
   } finally {
     if (originalWindow === undefined) {
-      delete globalScope.window;
+      Reflect.deleteProperty(globalScope, 'window');
     } else {
       globalScope.window = originalWindow;
     }

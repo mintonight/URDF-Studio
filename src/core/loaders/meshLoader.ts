@@ -30,7 +30,8 @@ import {
 import { MATERIAL_CONFIG } from '@/core/utils/materialFactory';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
 import { ensureWorkerXmlDomApis } from '@/core/utils/ensureWorkerXmlDomApis';
-import { createGeometryFromSerializedMshData, parseMshGeometryData } from './mshGeometryData';
+import { createGeometryFromSerializedMshData } from './mshGeometryData';
+import { loadSerializedMshGeometryData } from './mshParseWorkerBridge';
 import {
   applyObjMaterialLibrariesToObject,
   cloneObjSceneWithOwnedResources,
@@ -1226,14 +1227,7 @@ export const createMeshLoader = (
       }
 
       if (ext === 'msh') {
-        const response = await fetch(assetUrl);
-        if (!response.ok) {
-          throw new Error(
-            `Failed to fetch legacy MSH asset: ${response.status} ${response.statusText}`,
-          );
-        }
-
-        const serializedGeometry = parseMshGeometryData(await response.arrayBuffer());
+        const serializedGeometry = await loadSerializedMshGeometryData(assetUrl);
         const geometry = createGeometryFromSerializedMshData(serializedGeometry);
         await yieldIfNeeded();
 

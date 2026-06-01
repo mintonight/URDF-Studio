@@ -263,6 +263,14 @@ test('editor mode renders link-only editing layout without embedded joint proper
   assert.match(markup, new RegExp(translations.en.physics));
 });
 
+test('root link origin reference omits redundant no-parent helper text', () => {
+  const markup = renderLinkProperties('editor', 'physics');
+
+  assert.match(markup, new RegExp(translations.en.originReferenceFrame));
+  assert.match(markup, new RegExp(translations.en.linkFrame));
+  assert.doesNotMatch(markup, /This link has no parent joint/);
+});
+
 test('tab buttons and rotation mode controls stay shrinkable for narrow property sidebars', async () => {
   const { dom, container, root } = createComponentRoot();
   try {
@@ -442,13 +450,13 @@ test('visual tab shows authored material summaries inside the embedded material 
       'visual tab should surface the embedded multi-material summary inside the material section',
     );
 
-    const authoredColorBadges = Array.from(container.querySelectorAll('span')).filter((node) =>
-      ['#112233', '#445566'].includes(node.textContent ?? ''),
+    const authoredColorInputs = Array.from(container.querySelectorAll('input[type="text"]')).filter(
+      (node) => ['#112233', '#445566'].includes((node as HTMLInputElement).value),
     );
     assert.equal(
-      authoredColorBadges.length,
+      authoredColorInputs.length,
       2,
-      'visual tab should render badges for authored material colors',
+      'visual tab should render editable authored material color fields',
     );
   } finally {
     await destroyComponentRoot(dom, root);
@@ -690,17 +698,19 @@ test('mass changes can remember and auto-apply uniform-density inertia re-estima
     const massInput = findInlineNumberInputByLabel(container, translations.en.mass);
 
     await act(async () => {
+      massInput.focus();
       dispatchReactChange(massInput, '2');
+      massInput.blur();
       dispatchReactBlur(massInput);
     });
 
     assert.match(
-      container.textContent ?? '',
+      dom.window.document.body.textContent ?? '',
       new RegExp(translations.en.massChangeInertiaDialogTitle),
       'mass changes should open a confirmation dialog before applying the new inertia behavior',
     );
 
-    const rememberCheckbox = container.querySelector(
+    const rememberCheckbox = dom.window.document.body.querySelector(
       'input[type="checkbox"]',
     ) as HTMLInputElement | null;
     assert.ok(rememberCheckbox, 'remember-choice checkbox should render');
@@ -709,7 +719,7 @@ test('mass changes can remember and auto-apply uniform-density inertia re-estima
       dispatchReactCheckboxChange(rememberCheckbox, true);
     });
 
-    const confirmButton = Array.from(container.querySelectorAll('button')).find(
+    const confirmButton = Array.from(dom.window.document.body.querySelectorAll('button')).find(
       (button) => button.textContent?.trim() === translations.en.confirm,
     ) as HTMLButtonElement | undefined;
     assert.ok(confirmButton, 'confirm button should render');
@@ -734,8 +744,9 @@ test('mass changes can remember and auto-apply uniform-density inertia re-estima
     const nextMassInput = findInlineNumberInputByLabel(container, translations.en.mass);
 
     await act(async () => {
+      nextMassInput.focus();
       dispatchReactChange(nextMassInput, '3');
-      dispatchReactBlur(nextMassInput);
+      nextMassInput.blur();
     });
 
     const secondUpdate = updates.at(-1);
@@ -745,7 +756,7 @@ test('mass changes can remember and auto-apply uniform-density inertia re-estima
     assert.equal(secondUpdate.inertial?.inertia.iyy, 3);
     assert.equal(secondUpdate.inertial?.inertia.izz, 3);
     assert.doesNotMatch(
-      container.textContent ?? '',
+      dom.window.document.body.textContent ?? '',
       new RegExp(translations.en.massChangeInertiaDialogTitle),
       'remembered behavior should skip the confirmation dialog on later changes',
     );
@@ -809,8 +820,17 @@ test('collision tab lists every collision geometry for the selected link', async
     );
     assert.match(
       container.querySelector('button[aria-label="Collision 1"]')?.textContent ?? '',
-      /Collision 1.*Box.*Visible/s,
-      'collision rows should summarize name, geometry type, and visibility inline',
+      /Collision 1.*Box/s,
+      'collision rows should summarize name and geometry type inline',
+    );
+    const primaryVisibilityButton = container.querySelector(
+      'button[aria-label="Hide Collision 1"]',
+    ) as HTMLButtonElement | null;
+    assert.ok(primaryVisibilityButton, 'primary collision entry should expose visibility control');
+    assert.equal(
+      primaryVisibilityButton.getAttribute('aria-pressed'),
+      'true',
+      'visible collision entries should expose pressed visibility state',
     );
     assert.ok(
       container.querySelector('button[aria-label="Collision 2"]'),

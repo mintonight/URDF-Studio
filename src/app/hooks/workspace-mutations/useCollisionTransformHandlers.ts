@@ -1,34 +1,24 @@
-import { startTransition, useCallback } from 'react';
+import { useCallback } from 'react';
 import { resolveLinkKey, updateCollisionGeometryByObjectIndex } from '@/core/robot';
-import type { AssemblyState, UpdateCommitMode, UrdfJoint, UrdfLink } from '@/types';
+import type { UrdfLink } from '@/types';
 import { useRobotStore } from '@/store';
+import type { PendingCollisionTransform } from '@/store/collisionTransformStore';
+import type { UpdateCommitMode, UpdateCommitOptions } from '@/types/viewer';
 
 interface CollisionTransformParams {
-  assemblyState: AssemblyState | null;
   robotLinks: Record<string, UrdfLink>;
-  setPendingCollisionTransform: (transform: {
-    linkId: string;
-    objectIndex: number;
-    position: { x: number; y: number; z: number };
-    rotation: { r: number; p: number; y: number };
-  }) => void;
+  setPendingCollisionTransform: (transform: PendingCollisionTransform) => void;
   clearPendingCollisionTransform: () => void;
   handleTransformPendingChange: (pending: boolean) => void;
   applyUpdate: (
-    type: 'link' | 'joint',
+    type: 'link',
     id: string,
-    data: UrdfLink | UrdfJoint,
-    options?: {
-      commitMode?: UpdateCommitMode;
-      historyKey?: string;
-      historyLabel?: string;
-      debounceMs?: number;
-    },
+    data: UrdfLink,
+    options?: UpdateCommitOptions,
   ) => void;
 }
 
 export function useCollisionTransformHandlers({
-  assemblyState,
   robotLinks,
   setPendingCollisionTransform,
   clearPendingCollisionTransform,
@@ -43,25 +33,7 @@ export function useCollisionTransformHandlers({
       commitMode: UpdateCommitMode,
       objectIndex?: number,
     ) => {
-      const latestAssemblyState = assemblyState;
-
-      const updateTransform = () => {
-        const resolvedLinkId = resolveLinkKey(useRobotStore.getState().links, linkId);
-        if (!resolvedLinkId) return;
-        const link = useRobotStore.getState().links[resolvedLinkId];
-        if (!link) return;
-        const updatedLink = updateCollisionGeometryByObjectIndex(link, objectIndex ?? 0, {
-          origin: {
-            xyz: position,
-            rpy: rotation,
-          },
-        });
-        applyUpdate('link', resolvedLinkId, updatedLink, {
-          historyKey: `collision-transform:${resolvedLinkId}:${objectIndex ?? 0}`,
-          historyLabel: 'Transform collision body',
-          commitMode,
-        });
-      };
+      const latestAssemblyState = useRobotStore.getState().assemblyState;
 
       if (latestAssemblyState) {
         for (const comp of Object.values(latestAssemblyState.components)) {
@@ -87,9 +59,27 @@ export function useCollisionTransformHandlers({
         return;
       }
 
-      updateTransform();
+      const latestLinks = useRobotStore.getState().links;
+      const resolvedLinkId = resolveLinkKey(latestLinks, linkId);
+      if (!resolvedLinkId) return;
+
+      const link = latestLinks[resolvedLinkId];
+      if (!link) return;
+
+      const updatedLink = updateCollisionGeometryByObjectIndex(link, objectIndex ?? 0, {
+        origin: {
+          xyz: position,
+          rpy: rotation,
+        },
+      });
+
+      applyUpdate('link', resolvedLinkId, updatedLink, {
+        historyKey: `collision-transform:${resolvedLinkId}:${objectIndex ?? 0}`,
+        historyLabel: 'Transform collision body',
+        commitMode,
+      });
     },
-    [assemblyState, applyUpdate],
+    [applyUpdate],
   );
 
   const handleCollisionTransformPreview = useCallback(

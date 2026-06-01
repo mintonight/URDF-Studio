@@ -45,12 +45,14 @@ export class ThreeRenderDelegateCore {
         this.loadCollisionPrims = safeConfig.loadCollisionPrims !== false;
         this.loadVisualPrims = safeConfig.loadVisualPrims !== false;
         this.enableXformOpFallbackFromLayerText = safeConfig.enableXformOpFallbackFromLayerText === true;
+        this.disableStageLayerTextFallbacks = safeConfig.disableStageLayerTextFallbacks === true;
         this.enableProtoBlobFastPath = safeConfig.enableProtoBlobFastPath !== false;
         this.preferProtoBlobOverHydraPayload = safeConfig.preferProtoBlobOverHydraPayload !== false;
         this.preferFinalStageOverrideBatchInProtoSync = safeConfig.preferFinalStageOverrideBatchInProtoSync !== false;
         // Strict one-shot loads must finish scene payload resolution before reveal.
         // Keep legacy per-mesh bridge fetches disabled until snapshot caches exist.
         this.strictOneShotSceneLoad = safeConfig.strictOneShotSceneLoad === true;
+        this.allowPostReadyDriverDelta = safeConfig.allowPostReadyDriverDelta === true;
         // Keep first visual frame fast: hidden collision proto meshes can defer
         // expensive sync until they become visible.
         this.deferHiddenCollisionProtoSyncInCommit = safeConfig.deferHiddenCollisionProtoSyncInCommit !== false;
@@ -112,17 +114,21 @@ export class ThreeRenderDelegateCore {
         this._stageLayerTextParseCacheByStageSource = new Map();
         this._openedGuideStages = new Map();
         this._protoDataBlobBatchCache = new Map();
+        this._protoDataBlobMissCache = new Set();
         this._protoDataBlobBatchPrimed = false;
         this._primTransformBatchPrimed = false;
         this._collisionProtoOverrideCache = new Map();
+        this._collisionProtoOverrideMissCache = new Set();
         this._collisionProtoOverrideBatchPrimed = false;
         this._visualProtoOverrideCache = new Map();
+        this._visualProtoOverrideMissCache = new Set();
         this._visualProtoOverrideBatchPrimed = false;
         this._finalStageOverrideBatchCache = new Map();
         this._finalStageOverrideBatchPrimed = false;
         this._finalStageOverrideBatchProtoMeshCount = 0;
         this._stageOverrideProtoMeshCache = null;
         this._primOverrideDataCache = new Map();
+        this._primOverrideDataMissCache = new Set();
         this._urdfTruthByStageSource = new Map();
         this._urdfTruthLoadPromisesByStageSource = new Map();
         this._urdfTruthLoadErrorByStageSource = new Map();
@@ -132,6 +138,7 @@ export class ThreeRenderDelegateCore {
         this._roundtripMaterialRecoveryByStageSource = new Map();
         this._robotMetadataSnapshotByStageSource = new Map();
         this._robotSceneSnapshotByStageSource = new Map();
+        this._fullLoadPayloadReadyByStageSource = new Set();
         this._robotMetadataBuildPromisesByStageSource = new Map();
         this._preferredVisualMaterialByLinkCache = new Map();
         this._resolvedDriverStage = null;
@@ -141,6 +148,16 @@ export class ThreeRenderDelegateCore {
         this._driverStageResolveError = null;
         this._driverStageResolveUpdatedAtMs = null;
         this._lastRobotSceneWarmupSummary = null;
+        this._driverFallbackCallCounts = {
+            fullLoadPayload: 0,
+            robotSceneSnapshotBlob: 0,
+            robotSceneSnapshot: 0,
+            protoDataBlob: 0,
+            collisionProtoOverride: 0,
+            visualProtoOverride: 0,
+            primOverrideData: 0,
+            rprimDeltaBatch: 0,
+        };
         this._decomposeScratchPosition = new Vector3();
         this._decomposeScratchQuaternion = new Quaternion();
         this._decomposeScratchScale = new Vector3();
@@ -270,6 +287,15 @@ export class ThreeRenderDelegateCore {
             this._stageVisualProtoOverridePromisesByStageSource,
             this._guideCollisionReferenceCache,
             this._stageLayerTextParseCacheByStageSource,
+            this._protoDataBlobBatchCache,
+            this._protoDataBlobMissCache,
+            this._collisionProtoOverrideCache,
+            this._collisionProtoOverrideMissCache,
+            this._visualProtoOverrideCache,
+            this._visualProtoOverrideMissCache,
+            this._finalStageOverrideBatchCache,
+            this._primOverrideDataCache,
+            this._primOverrideDataMissCache,
             this._urdfTruthByStageSource,
             this._urdfTruthLoadPromisesByStageSource,
             this._urdfTruthLoadErrorByStageSource,
@@ -279,6 +305,7 @@ export class ThreeRenderDelegateCore {
             this._roundtripMaterialRecoveryByStageSource,
             this._robotMetadataSnapshotByStageSource,
             this._robotSceneSnapshotByStageSource,
+            this._fullLoadPayloadReadyByStageSource,
             this._robotMetadataBuildPromisesByStageSource,
             this._preferredVisualMaterialByLinkCache,
         ];
@@ -503,6 +530,9 @@ export class ThreeRenderDelegateCore {
         return false;
     }
     getStageMetadataLayerTexts(stage, stageSourcePathOverride = null) {
+        if (this.disableStageLayerTextFallbacks === true && !stage) {
+            return [];
+        }
         const layerTexts = [];
         const seenTexts = new Set();
         const visitedLayerPaths = new Set();
@@ -1297,6 +1327,17 @@ export class ThreeRenderDelegateCore {
                 : [];
             for (const dynamicsRecord of driverLinkDynamicsRecords) {
                 addKnownLinkPath(dynamicsRecord?.linkPath);
+            }
+        }
+        if (hasDriverPhysicsAccess && metadataLayerTexts.length > 0) {
+            for (const layerText of metadataLayerTexts) {
+                for (const jointRecord of extractJointRecordsFromLayerText(layerText)) {
+                    addKnownLinkPath(jointRecord?.body0Path);
+                    addKnownLinkPath(jointRecord?.body1Path);
+                }
+                for (const linkPath of parseLinkDynamicsPatchesFromLayerText(layerText).keys()) {
+                    addKnownLinkPath(linkPath);
+                }
             }
         }
         if (truth && !hasDriverPhysicsAccess) {

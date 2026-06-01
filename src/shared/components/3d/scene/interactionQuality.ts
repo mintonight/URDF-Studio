@@ -3,9 +3,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 export const INTERACTION_RECOVERY_DELAY_MS = 180;
 export const RESTING_DPR_CAP = 1.75;
 export const MIN_RENDER_DPR = 1.5;
-// Dense assembly scenes can become fill-rate bound while orbiting. Drop the
-// interaction DPR temporarily, then restore the resting cap after controls end.
-export const INTERACTION_DPR_CAP = 1.25;
+// Keep interaction rendering as crisp as the resting viewport. Lower DPR during
+// orbit/drag is visually obvious because the model blurs until controls settle.
+export const INTERACTION_DPR_CAP = RESTING_DPR_CAP;
 
 const WorkspaceCanvasInteractionStateContext = React.createContext(false);
 

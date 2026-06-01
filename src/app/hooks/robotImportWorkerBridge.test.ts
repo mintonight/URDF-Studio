@@ -743,7 +743,7 @@ test('robot import worker client prunes unused resolve payload fields before pos
     name: 'cached-usd',
     links: {},
     joints: {},
-    rootLinkId: null,
+    rootLinkId: '',
   };
 
   void client

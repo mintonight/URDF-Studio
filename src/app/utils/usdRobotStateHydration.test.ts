@@ -321,6 +321,7 @@ test('startUsdRobotStateHydration resolves from worker-prepared cache without wa
 
   assert.ok(result, 'expected hydration to resolve without a scene-snapshot message');
   assert.equal(fallbackPrepareCallCount, 0);
+  assert.ok(result.preparedCache);
   assert.equal(result.preparedCache.stageSourcePath, preparedCache.stageSourcePath);
   assert.equal(result.robotData.links.base_link.visual.meshPath, 'base_link_visual_0.obj');
   assert.equal(result.bakedScene, sceneSnapshot);
@@ -407,7 +408,7 @@ test('startUsdRobotStateHydration cleanup shuts down a resolved hydration that i
       usdSceneSnapshot: sceneSnapshot,
     },
     preparedCache: serializedPreparedCache.payload,
-  } as UsdOffscreenViewerWorkerResponse);
+  } as unknown as UsdOffscreenViewerWorkerResponse);
 
   await hydration.promise;
   assert.equal(client.shutdownCalls, 0);
@@ -480,7 +481,7 @@ test('startUsdRobotStateHydration can resolve RobotData before the prepared expo
       durationMs: null,
       detail: null,
     },
-  } as UsdOffscreenViewerWorkerResponse);
+  } as unknown as UsdOffscreenViewerWorkerResponse);
   assert.equal(postResolveEvents.length, eventCountAtResolve + 1);
   assert.equal(postResolveEvents.at(-1)?.type, 'load-debug');
 
@@ -547,5 +548,76 @@ test('startUsdRobotStateHydration waits for worker prepared cache when early res
   assert.equal(result.preparedCache?.stageSourcePath, preparedCache.stageSourcePath);
   assert.deepEqual(Object.keys(result.preparedCache?.meshFiles || {}), ['base_link_visual_0.obj']);
   assert.equal(fallbackPrepareCallCount, 0);
+  assert.equal(client.shutdownCalls, 1);
+});
+
+test('startUsdRobotStateHydration complete mode waits for worker cache and scene snapshot', async () => {
+  const worker = new FakeHydrationWorker();
+  const client = createFakeHydrationClient(worker);
+  const serializedPreparedCache = await serializePreparedUsdExportCacheForWorker(preparedCache);
+  const deferredSnapshots: UsdSceneSnapshot[] = [];
+
+  const hydration = startUsdRobotStateHydration({
+    sourceFile,
+    availableFiles,
+    assets: {},
+    createCanvas: fakeCanvas,
+    workerClient: client,
+    completionMode: 'complete',
+    resolveBeforePreparedCache: true,
+    prepareExportCache: async () => {
+      throw new Error('complete mode should use the worker prepared cache in this test');
+    },
+    onDeferredSceneSnapshot: (snapshot) => {
+      deferredSnapshots.push(snapshot);
+    },
+  });
+
+  assert.equal(worker.postedMessages[0].message.type, 'init');
+  assert.equal(worker.postedMessages[0].message.completionMode, 'complete');
+
+  worker.emitMessage({
+    type: 'robot-data',
+    resolution: {
+      ...workerResolution,
+      usdSceneSnapshot: sceneSnapshot,
+    },
+    robotData: preparedRobotData,
+    preparedCachePending: true,
+    deferredSceneSnapshotPending: true,
+  } as UsdOffscreenViewerWorkerResponse);
+
+  let pendingResult = await Promise.race([
+    hydration.promise,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 0)),
+  ]);
+
+  assert.equal(pendingResult, null);
+
+  worker.emitMessage({
+    type: 'prepared-cache',
+    stageSourcePath: '/robots/demo/demo.usda',
+    preparedCache: serializedPreparedCache.payload,
+  } as UsdOffscreenViewerWorkerResponse);
+
+  pendingResult = await Promise.race([
+    hydration.promise,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 0)),
+  ]);
+
+  assert.equal(pendingResult, null);
+  assert.deepEqual(deferredSnapshots, []);
+
+  worker.emitMessage({
+    type: 'scene-snapshot',
+    stageSourcePath: '/robots/demo/demo.usda',
+    snapshot: sceneSnapshot,
+  });
+
+  const result = await hydration.promise;
+  assert.equal(result.preparedCache?.stageSourcePath, preparedCache.stageSourcePath);
+  assert.equal(result.bakedScene, sceneSnapshot);
+  assert.equal(result.sceneSnapshot, sceneSnapshot);
+  assert.deepEqual(deferredSnapshots, [sceneSnapshot]);
   assert.equal(client.shutdownCalls, 1);
 });
