@@ -123,7 +123,8 @@
     "test:e2e:import-export": "node scripts/test/e2e/test_import_export.mjs",
     "test:e2e:editor": "node scripts/test/e2e/test_editor_operations.mjs",
     "test:e2e:all": "npm run test:e2e:assembly && npm run test:e2e:import-export && npm run test:e2e:editor",
-    "dev:with-generate": "npm run generate && npm run dev"
+    "dev:with-generate": "npm run generate && npm run dev",
+    "postinstall": "patch-package"
   },
   "license": "Apache-2.0",
   "dependencies": {
@@ -168,11 +169,11 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.4.0",
+    "patch-package": "^8.0.1",
     "playwright": "^1.60.0",
     "postcss": "^8.5.6",
     "prettier": "^3.8.1",
     "puppeteer": "^24.36.1",
-    "react-devtools": "^7.0.1",
     "stylelint": "^17.6.0",
     "stylelint-config-standard": "^40.0.0",
     "tailwindcss": "^4.1.18",
@@ -183,5 +184,8 @@
   },
   "workspaces": [
     "packages/*"
-  ]
+  ],
+  "overrides": {
+    "dompurify": "^3.4.7"
+  }
 }
