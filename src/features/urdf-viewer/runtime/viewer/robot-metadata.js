@@ -156,6 +156,9 @@ export function normalizeRenderRobotMetadataSnapshot(raw) {
         const driveDamping = toFiniteNumber(entry?.driveDamping);
         const driveMaxForce = toFiniteNumber(entry?.driveMaxForce);
         const localPivotSource = entry?.localPivotInLink;
+        const localPos1Source = entry?.localPos1 || localPivotSource;
+        const localRot0WxyzSource = entry?.localRot0Wxyz || entry?.localRot0;
+        const localRot1WxyzSource = entry?.localRot1Wxyz || entry?.localRot1;
         const originXyzSource = entry?.originXyz;
         const originQuatWxyzSource = entry?.originQuatWxyz;
         normalizedJointCatalogEntries.push({
@@ -172,8 +175,20 @@ export function normalizeRenderRobotMetadataSnapshot(raw) {
             angleDeg: angleDeg ?? null,
             driveDamping: driveDamping ?? null,
             driveMaxForce: driveMaxForce ?? null,
-            localPivotInLink: Array.isArray(localPivotSource)
+            localPos0: entry?.localPos0 && typeof entry.localPos0.length === "number"
+                ? toVector3Tuple(entry.localPos0, [0, 0, 0])
+                : null,
+            localRot0Wxyz: localRot0WxyzSource && typeof localRot0WxyzSource.length === "number"
+                ? toQuaternionWxyzTuple(localRot0WxyzSource, [1, 0, 0, 0])
+                : null,
+            localPivotInLink: localPivotSource && typeof localPivotSource.length === "number"
                 ? toVector3Tuple(localPivotSource, [0, 0, 0])
+                : null,
+            localPos1: localPos1Source && typeof localPos1Source.length === "number"
+                ? toVector3Tuple(localPos1Source, [0, 0, 0])
+                : null,
+            localRot1Wxyz: localRot1WxyzSource && typeof localRot1WxyzSource.length === "number"
+                ? toQuaternionWxyzTuple(localRot1WxyzSource, [1, 0, 0, 0])
                 : null,
             originXyz: originXyzSource && typeof originXyzSource.length === "number"
                 ? toVector3Tuple(originXyzSource, [0, 0, 0])

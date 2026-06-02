@@ -423,6 +423,7 @@ public:
             }
 
             double mass = 0.0;
+            const bool hasPhysicsMassApi = _PrimHasAppliedApiSchema(prim, "PhysicsMassAPI");
             const bool hasMass = _TryReadDoubleAttr(prim, "physics:mass", timeCode, &mass);
 
             std::array<double, 3> centerOfMassLocal = {0.0, 0.0, 0.0};
@@ -446,6 +447,7 @@ public:
             if (!_HasMeaningfulPhysicsDynamics(
                     hasMass,
                     mass,
+                    hasPhysicsMassApi,
                     hasCenterOfMass,
                     centerOfMassLocal,
                     hasDiagonalInertia,
@@ -463,7 +465,9 @@ public:
                 : _Vec3ToJsArray(std::array<double, 3>{0.0, 0.0, 0.0}));
             record.set("diagonalInertia", hasDiagonalInertia
                 ? _Vec3ToJsArray(diagonalInertia)
-                : emscripten::val::null());
+                : (hasPhysicsMassApi
+                    ? _Vec3ToJsArray(std::array<double, 3>{0.0, 0.0, 0.0})
+                    : emscripten::val::null()));
             record.set("principalAxesLocalWxyz", hasPrincipalAxes
                 ? _Vec4ToJsArray(principalAxesLocalWxyz)
                 : _Vec4ToJsArray(std::array<double, 4>{1.0, 0.0, 0.0, 0.0}));
@@ -2030,6 +2034,7 @@ private:
             }
 
             double mass = 0.0;
+            const bool hasPhysicsMassApi = _PrimHasAppliedApiSchema(prim, "PhysicsMassAPI");
             const bool hasMass =
                 _TryReadDoubleAttr(prim, "physics:mass", discoveryTimeCode, &mass);
             std::array<double, 3> centerOfMassLocal = {0.0, 0.0, 0.0};
@@ -2052,6 +2057,7 @@ private:
             if (_HasMeaningfulPhysicsDynamics(
                     hasMass,
                     mass,
+                    hasPhysicsMassApi,
                     hasCenterOfMass,
                     centerOfMassLocal,
                     hasDiagonalInertia,
@@ -2176,8 +2182,14 @@ private:
             std::string parentLinkPath;
             std::string axisToken;
             std::array<double, 3> axisLocal = {1.0, 0.0, 0.0};
+            std::array<double, 3> localPos0 = {0.0, 0.0, 0.0};
+            bool hasLocalPos0 = false;
+            std::array<double, 4> localRot0Wxyz = {1.0, 0.0, 0.0, 0.0};
+            bool hasLocalRot0Wxyz = false;
             std::array<double, 3> localPivotInLink = {0.0, 0.0, 0.0};
             bool hasLocalPivotInLink = false;
+            std::array<double, 4> localRot1Wxyz = {1.0, 0.0, 0.0, 0.0};
+            bool hasLocalRot1Wxyz = false;
             double lowerLimitDeg = -180.0;
             double upperLimitDeg = 180.0;
         };
@@ -2220,11 +2232,24 @@ private:
 
             std::string axisToken = "x";
             axisToken = _ReadAxisToken(prim, timeCode);
+            std::array<double, 3> localPos0 = {0.0, 0.0, 0.0};
+            const bool hasLocalPos0 =
+                _TryReadVec3Attr(
+                    prim.GetAttribute(TfToken("physics:localPos0")),
+                    timeCode,
+                    &localPos0);
+            std::array<double, 4> localRot0Wxyz = {1.0, 0.0, 0.0, 0.0};
+            const bool hasLocalRot0 =
+                _TryReadQuatWxyzAttr(
+                    prim.GetAttribute(TfToken("physics:localRot0")),
+                    timeCode,
+                    &localRot0Wxyz);
             std::array<double, 4> localRot1Wxyz = {1.0, 0.0, 0.0, 0.0};
-            _TryReadQuatWxyzAttr(
-                prim.GetAttribute(TfToken("physics:localRot1")),
-                timeCode,
-                &localRot1Wxyz);
+            const bool hasLocalRot1 =
+                _TryReadQuatWxyzAttr(
+                    prim.GetAttribute(TfToken("physics:localRot1")),
+                    timeCode,
+                    &localRot1Wxyz);
             const std::array<double, 3> axisLocal =
                 rotateAxisByQuaternionWxyz(axisToken, localRot1Wxyz);
             std::array<double, 3> localPos1 = {0.0, 0.0, 0.0};
@@ -2267,8 +2292,14 @@ private:
                     parentMatches.empty() ? std::string() : parentMatches.front();
                 record.axisToken = axisToken;
                 record.axisLocal = axisLocal;
+                record.localPos0 = localPos0;
+                record.hasLocalPos0 = hasLocalPos0;
+                record.localRot0Wxyz = localRot0Wxyz;
+                record.hasLocalRot0Wxyz = hasLocalRot0;
                 record.localPivotInLink = localPos1;
                 record.hasLocalPivotInLink = hasLocalPivot;
+                record.localRot1Wxyz = localRot1Wxyz;
+                record.hasLocalRot1Wxyz = hasLocalRot1;
                 record.lowerLimitDeg = lowerLimitDeg;
                 record.upperLimitDeg = upperLimitDeg;
                 stageJointRecordByChildLinkPath[childLinkPath] = record;
@@ -2296,9 +2327,29 @@ private:
             entry.set("axisToken", record.axisToken);
             entry.set("axisLocal", _Vec3ToJsArray(record.axisLocal));
             entry.set(
+                "localPos0",
+                record.hasLocalPos0
+                    ? _Vec3ToJsArray(record.localPos0)
+                    : emscripten::val::null());
+            entry.set(
+                "localRot0Wxyz",
+                record.hasLocalRot0Wxyz
+                    ? _Vec4ToJsArray(record.localRot0Wxyz)
+                    : emscripten::val::null());
+            entry.set(
                 "localPivotInLink",
                 record.hasLocalPivotInLink
                     ? _Vec3ToJsArray(record.localPivotInLink)
+                    : emscripten::val::null());
+            entry.set(
+                "localPos1",
+                record.hasLocalPivotInLink
+                    ? _Vec3ToJsArray(record.localPivotInLink)
+                    : emscripten::val::null());
+            entry.set(
+                "localRot1Wxyz",
+                record.hasLocalRot1Wxyz
+                    ? _Vec4ToJsArray(record.localRot1Wxyz)
                     : emscripten::val::null());
             entry.set("lowerLimitDeg", record.lowerLimitDeg);
             entry.set("upperLimitDeg", record.upperLimitDeg);
@@ -2314,6 +2365,7 @@ private:
             if (!linkPrim) continue;
 
             double mass = 0.0;
+            const bool hasPhysicsMassApi = _PrimHasAppliedApiSchema(linkPrim, "PhysicsMassAPI");
             const bool hasMass =
                 _TryReadDoubleAttr(linkPrim, "physics:mass", timeCode, &mass);
             std::array<double, 3> centerOfMassLocal = {0.0, 0.0, 0.0};
@@ -2336,6 +2388,7 @@ private:
             if (!_HasMeaningfulPhysicsDynamics(
                     hasMass,
                     mass,
+                    hasPhysicsMassApi,
                     hasCenterOfMass,
                     centerOfMassLocal,
                     hasDiagonalInertia,
@@ -2359,7 +2412,9 @@ private:
                 "diagonalInertia",
                 hasDiagonalInertia
                     ? _Vec3ToJsArray(diagonalInertia)
-                    : emscripten::val::null());
+                    : (hasPhysicsMassApi
+                        ? _Vec3ToJsArray(std::array<double, 3>{0.0, 0.0, 0.0})
+                        : emscripten::val::null()));
             entry.set(
                 "principalAxesLocalWxyz",
                 hasPrincipalAxes
@@ -4581,16 +4636,36 @@ private:
     static bool _HasMeaningfulPhysicsDynamics(
         bool hasMass,
         double mass,
+        bool hasPhysicsMassApi,
         bool hasCenterOfMass,
         std::array<double, 3> const& centerOfMassLocal,
         bool hasDiagonalInertia,
         std::array<double, 3> const& diagonalInertia,
         bool hasPrincipalAxes,
         std::array<double, 4> const& principalAxesLocalWxyz) {
-        return (hasMass && _HasSignificantDouble(mass))
+        return hasPhysicsMassApi
+            || (hasMass && _HasSignificantDouble(mass))
             || (hasCenterOfMass && _HasSignificantVec3(centerOfMassLocal))
             || (hasDiagonalInertia && _HasSignificantVec3(diagonalInertia))
             || (hasPrincipalAxes && _HasNonIdentityQuatWxyz(principalAxesLocalWxyz));
+    }
+
+    static bool _PrimHasAppliedApiSchema(UsdPrim const& prim, char const* schemaName) {
+        if (!prim || !schemaName || schemaName[0] == '\0') {
+            return false;
+        }
+
+        TfTokenVector const appliedSchemas = prim.GetAppliedSchemas();
+        for (TfToken const& schemaToken : appliedSchemas) {
+            const std::string schema = schemaToken.GetString();
+            if (schema == schemaName) {
+                return true;
+            }
+            if (schema.rfind(std::string(schemaName) + ":", 0) == 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static emscripten::val _GeomSubsetSectionsToJsArray(

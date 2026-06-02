@@ -1588,12 +1588,20 @@ export class ThreeRenderDelegateCore {
                 const jointTypeName = String(jointRecord?.jointTypeName || jointRecord?.jointType || '').trim();
                 const jointType = normalizeStageJointType(jointTypeName);
                 const axisToken = normalizeAxisToken(jointRecord?.axisToken || jointRecord?.axis || 'X');
+                const localPos0 = jointRecord?.localPos0 && typeof jointRecord.localPos0.length === 'number'
+                    ? normalizeVector3(jointRecord.localPos0, [0, 0, 0])
+                    : null;
+                const localRot0Wxyz = ((jointRecord?.localRot0Wxyz && typeof jointRecord.localRot0Wxyz.length === 'number')
+                    ? normalizeQuaternionWxyz(jointRecord.localRot0Wxyz, [1, 0, 0, 0])
+                    : (jointRecord?.localRot0 && typeof jointRecord.localRot0.length === 'number')
+                        ? normalizeQuaternionWxyz(jointRecord.localRot0, [1, 0, 0, 0])
+                        : null);
                 const localPos1 = normalizeVector3(jointRecord?.localPos1 || [0, 0, 0], [0, 0, 0]);
                 const localRot1Wxyz = normalizeQuaternionWxyz(jointRecord?.localRot1Wxyz || jointRecord?.localRot1 || [1, 0, 0, 0], [1, 0, 0, 0]);
                 const originXyz = ((jointRecord?.originXyz && typeof jointRecord.originXyz.length === 'number')
                     ? jointRecord.originXyz
-                    : (jointRecord?.localPos0 && typeof jointRecord.localPos0.length === 'number')
-                        ? jointRecord.localPos0
+                    : localPos0
+                        ? localPos0
                         : null);
                 const originQuatWxyz = deriveJointOriginQuatWxyz(jointRecord);
                 const normalizedOriginXyz = originXyz
@@ -1652,6 +1660,26 @@ export class ThreeRenderDelegateCore {
                             existingEntry.originQuatWxyz = normalizedOriginQuatWxyz;
                             mutated = true;
                         }
+                        if ((!existingEntry.localPos0 || typeof existingEntry.localPos0.length !== 'number') && localPos0) {
+                            existingEntry.localPos0 = localPos0;
+                            mutated = true;
+                        }
+                        if ((!existingEntry.localRot0Wxyz || typeof existingEntry.localRot0Wxyz.length !== 'number') && localRot0Wxyz) {
+                            existingEntry.localRot0Wxyz = localRot0Wxyz;
+                            mutated = true;
+                        }
+                        if ((!existingEntry.localPos1 || typeof existingEntry.localPos1.length !== 'number') && localPos1) {
+                            existingEntry.localPos1 = localPos1;
+                            mutated = true;
+                        }
+                        if ((!existingEntry.localRot1Wxyz || typeof existingEntry.localRot1Wxyz.length !== 'number') && localRot1Wxyz) {
+                            existingEntry.localRot1Wxyz = localRot1Wxyz;
+                            mutated = true;
+                        }
+                        if ((!existingEntry.localPivotInLink || typeof existingEntry.localPivotInLink.length !== 'number') && localPos1) {
+                            existingEntry.localPivotInLink = localPos1;
+                            mutated = true;
+                        }
                         if ((!existingEntry.axisLocal || typeof existingEntry.axisLocal.length !== 'number') && axisLocal) {
                             existingEntry.axisLocal = axisLocal;
                             mutated = true;
@@ -1708,7 +1736,11 @@ export class ThreeRenderDelegateCore {
                         angleDeg: angleDeg ?? null,
                         driveDamping: driveDamping ?? null,
                         driveMaxForce: driveMaxForce ?? null,
+                        localPos0,
+                        localRot0Wxyz,
                         localPivotInLink: localPos1,
+                        localPos1,
+                        localRot1Wxyz,
                         originXyz: normalizedOriginXyz,
                         originQuatWxyz: normalizedOriginQuatWxyz,
                     };
@@ -1895,12 +1927,20 @@ export class ThreeRenderDelegateCore {
                 const jointType = normalizeStageJointType(jointTypeName);
                 const axisToken = normalizeAxisToken(jointRecord?.axisToken || jointRecord?.axis || 'X');
                 const limits = normalizeStageJointLimits(jointTypeName || jointType, Number(jointRecord?.lowerLimitDeg), Number(jointRecord?.upperLimitDeg));
+                const localPos0 = jointRecord?.localPos0 && typeof jointRecord.localPos0.length === 'number'
+                    ? normalizeVector3(jointRecord.localPos0, [0, 0, 0])
+                    : null;
+                const localRot0Wxyz = ((jointRecord?.localRot0Wxyz && typeof jointRecord.localRot0Wxyz.length === 'number')
+                    ? normalizeQuaternionWxyz(jointRecord.localRot0Wxyz, [1, 0, 0, 0])
+                    : (jointRecord?.localRot0 && typeof jointRecord.localRot0.length === 'number')
+                        ? normalizeQuaternionWxyz(jointRecord.localRot0, [1, 0, 0, 0])
+                        : null);
                 const localPos1 = normalizeVector3(jointRecord?.localPos1 || [0, 0, 0], [0, 0, 0]);
                 const localRot1Wxyz = normalizeQuaternionWxyz(jointRecord?.localRot1Wxyz || jointRecord?.localRot1 || [1, 0, 0, 0], [1, 0, 0, 0]);
                 const originXyz = ((jointRecord?.originXyz && typeof jointRecord.originXyz.length === 'number')
                     ? jointRecord.originXyz
-                    : (jointRecord?.localPos0 && typeof jointRecord.localPos0.length === 'number')
-                        ? jointRecord.localPos0
+                    : localPos0
+                        ? localPos0
                         : null);
                 const originQuatWxyz = deriveJointOriginQuatWxyz(jointRecord);
                 const normalizedOriginXyz = originXyz
@@ -1972,6 +2012,8 @@ export class ThreeRenderDelegateCore {
                         driveMaxForce: driveMaxForce ?? null,
                         originXyz: normalizedOriginXyz,
                         originQuatWxyz: normalizedOriginQuatWxyz,
+                        localPos0,
+                        localRot0Wxyz,
                         localPos1,
                         localRot1Wxyz,
                         parentLinkPath,
@@ -2124,6 +2166,15 @@ export class ThreeRenderDelegateCore {
                 const localPivotInLink = jointEntry.localPos1 && typeof jointEntry.localPos1.length === 'number'
                     ? normalizeVector3(jointEntry.localPos1, [0, 0, 0])
                     : null;
+                const localPos0 = jointEntry.localPos0 && typeof jointEntry.localPos0.length === 'number'
+                    ? normalizeVector3(jointEntry.localPos0, [0, 0, 0])
+                    : null;
+                const localRot0Wxyz = jointEntry.localRot0Wxyz && typeof jointEntry.localRot0Wxyz.length === 'number'
+                    ? normalizeQuaternionWxyz(jointEntry.localRot0Wxyz, [1, 0, 0, 0])
+                    : null;
+                const localRot1Wxyz = jointEntry.localRot1Wxyz && typeof jointEntry.localRot1Wxyz.length === 'number'
+                    ? normalizeQuaternionWxyz(jointEntry.localRot1Wxyz, [1, 0, 0, 0])
+                    : null;
                 const originXyz = jointEntry.originXyz && typeof jointEntry.originXyz.length === 'number'
                     ? normalizeVector3(jointEntry.originXyz, [0, 0, 0])
                     : null;
@@ -2147,7 +2198,11 @@ export class ThreeRenderDelegateCore {
                     angleDeg: angleDeg ?? null,
                     driveDamping: driveDamping ?? null,
                     driveMaxForce: driveMaxForce ?? null,
+                    localPos0,
+                    localRot0Wxyz,
                     localPivotInLink,
+                    localPos1: localPivotInLink,
+                    localRot1Wxyz,
                     originXyz,
                     originQuatWxyz,
                 });

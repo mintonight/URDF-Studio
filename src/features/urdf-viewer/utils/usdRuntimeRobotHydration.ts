@@ -133,6 +133,30 @@ function matrixToOrigin(matrix: THREE.Matrix4): NonNullable<UrdfVisual['origin']
   };
 }
 
+function hasAuthoredUsdPhysicsParentFrame(joint: {
+  usdPhysics?: { localPos0?: unknown; localRot0Wxyz?: unknown };
+}): boolean {
+  const frame = joint.usdPhysics;
+  return !!(frame?.localPos0 || frame?.localRot0Wxyz);
+}
+
+function backfillUsdPhysicsParentFrameFromOrigin(joint: {
+  origin?: UrdfVisual['origin'];
+  usdPhysics?: { axisToken?: unknown; localPos0?: unknown };
+}): void {
+  const frame = joint.usdPhysics;
+  const origin = joint.origin;
+  if (!frame || frame.localPos0 || !frame.axisToken || !origin?.xyz) {
+    return;
+  }
+
+  frame.localPos0 = {
+    x: origin.xyz.x,
+    y: origin.xyz.y,
+    z: origin.xyz.z,
+  };
+}
+
 function resolveLinkWorldMatrix(
   runtime: UsdRuntimeTransformInterface,
   resolution: ViewerRobotDataResolution,
@@ -521,6 +545,10 @@ export function hydrateUsdViewerRobotResolutionFromRuntime(
       return;
     }
 
+    if (hasAuthoredUsdPhysicsParentFrame(joint)) {
+      return;
+    }
+
     const childWorldMatrix = resolveLinkWorldMatrix(
       runtime,
       nextResolution,
@@ -539,6 +567,7 @@ export function hydrateUsdViewerRobotResolutionFromRuntime(
 
     const jointLocalMatrix = parentWorldMatrix.clone().invert().multiply(childWorldMatrix);
     joint.origin = matrixToOrigin(jointLocalMatrix);
+    backfillUsdPhysicsParentFrameFromOrigin(joint);
   });
 
   createSyntheticWorldRootIfNeeded(

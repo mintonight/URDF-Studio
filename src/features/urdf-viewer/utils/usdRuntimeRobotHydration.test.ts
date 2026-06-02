@@ -242,6 +242,156 @@ test('hydrateUsdViewerRobotResolutionFromRuntime syncs runtime link and mesh tra
   );
 });
 
+test('hydrateUsdViewerRobotResolutionFromRuntime preserves authored USD Physics joint frames when runtime link frames disagree', () => {
+  const torsoWorld = composeMatrix({ x: -0.0039635, y: 0, z: 0.044 });
+  const runtimeHeadWorld = torsoWorld.clone();
+  const authoredHeadOrigin = {
+    xyz: { x: 0.0039635, y: 0, z: -0.044 },
+    rpy: { r: 0, p: 0, y: 0 },
+  };
+
+  const resolution: ViewerRobotDataResolution = {
+    stageSourcePath: '/unitree_ros/g1_description/g1_29dof_rev_1_0.usda',
+    linkIdByPath: {
+      '/g1_29dof_rev_1_0/torso_link': 'torso_link',
+      '/g1_29dof_rev_1_0/head_link': 'head_link',
+    },
+    linkPathById: {
+      torso_link: '/g1_29dof_rev_1_0/torso_link',
+      head_link: '/g1_29dof_rev_1_0/head_link',
+    },
+    jointPathById: {
+      head_joint: '/g1_29dof_rev_1_0/joints/head_joint',
+    },
+    childLinkPathByJointId: {
+      head_joint: '/g1_29dof_rev_1_0/head_link',
+    },
+    parentLinkPathByJointId: {
+      head_joint: '/g1_29dof_rev_1_0/torso_link',
+    },
+    robotData: {
+      name: 'g1_29dof_rev_1_0',
+      rootLinkId: 'torso_link',
+      links: {
+        torso_link: {
+          ...DEFAULT_LINK,
+          id: 'torso_link',
+          name: 'torso_link',
+        },
+        head_link: {
+          ...DEFAULT_LINK,
+          id: 'head_link',
+          name: 'head_link',
+        },
+      },
+      joints: {
+        head_joint: {
+          ...DEFAULT_JOINT,
+          id: 'head_joint',
+          name: 'head_joint',
+          type: JointType.FIXED,
+          parentLinkId: 'torso_link',
+          childLinkId: 'head_link',
+          origin: authoredHeadOrigin,
+          usdPhysics: {
+            axisToken: 'X',
+            localPos0: { x: 0.0039635, y: 0, z: -0.044 },
+            localRot0Wxyz: [1, 0, 0, 0],
+            localPos1: { x: 0, y: 0, z: 0 },
+            localRot1Wxyz: [1, 0, 0, 0],
+          },
+        },
+      },
+    },
+  };
+
+  const hydrated = hydrateUsdViewerRobotResolutionFromRuntime(resolution, null, {
+    getPreferredLinkWorldTransform: (linkPath: string) => {
+      if (linkPath === '/g1_29dof_rev_1_0/torso_link') return torsoWorld.clone();
+      if (linkPath === '/g1_29dof_rev_1_0/head_link') return runtimeHeadWorld.clone();
+      return null;
+    },
+    getWorldTransformForPrimPath: () => null,
+  });
+
+  assert.deepEqual(hydrated.robotData.joints.head_joint?.origin, authoredHeadOrigin);
+});
+
+test('hydrateUsdViewerRobotResolutionFromRuntime backfills missing USD Physics localPos0 from the derived joint origin', () => {
+  const baseWorld = composeMatrix({ x: 0, y: 0, z: 0 });
+  const childWorld = composeMatrix({ x: 0.0039635, y: 0, z: -0.044 });
+
+  const resolution: ViewerRobotDataResolution = {
+    stageSourcePath: '/unitree_ros/g1_description/g1_29dof_rev_1_0.usda',
+    linkIdByPath: {
+      '/g1_29dof_rev_1_0/torso_link': 'torso_link',
+      '/g1_29dof_rev_1_0/head_link': 'head_link',
+    },
+    linkPathById: {
+      torso_link: '/g1_29dof_rev_1_0/torso_link',
+      head_link: '/g1_29dof_rev_1_0/head_link',
+    },
+    jointPathById: {
+      head_joint: '/g1_29dof_rev_1_0/joints/head_joint',
+    },
+    childLinkPathByJointId: {
+      head_joint: '/g1_29dof_rev_1_0/head_link',
+    },
+    parentLinkPathByJointId: {
+      head_joint: '/g1_29dof_rev_1_0/torso_link',
+    },
+    robotData: {
+      name: 'g1_29dof_rev_1_0',
+      rootLinkId: 'torso_link',
+      links: {
+        torso_link: {
+          ...DEFAULT_LINK,
+          id: 'torso_link',
+          name: 'torso_link',
+        },
+        head_link: {
+          ...DEFAULT_LINK,
+          id: 'head_link',
+          name: 'head_link',
+        },
+      },
+      joints: {
+        head_joint: {
+          ...DEFAULT_JOINT,
+          id: 'head_joint',
+          name: 'head_joint',
+          type: JointType.FIXED,
+          parentLinkId: 'torso_link',
+          childLinkId: 'head_link',
+          usdPhysics: {
+            axisToken: 'X',
+          },
+        },
+      },
+    },
+  };
+
+  const hydrated = hydrateUsdViewerRobotResolutionFromRuntime(resolution, null, {
+    getPreferredLinkWorldTransform: (linkPath: string) => {
+      if (linkPath === '/g1_29dof_rev_1_0/torso_link') return baseWorld.clone();
+      if (linkPath === '/g1_29dof_rev_1_0/head_link') return childWorld.clone();
+      return null;
+    },
+    getWorldTransformForPrimPath: () => null,
+  });
+
+  assert.deepEqual(hydrated.robotData.joints.head_joint?.origin.xyz, {
+    x: 0.0039635,
+    y: 0,
+    z: -0.044,
+  });
+  assert.deepEqual(hydrated.robotData.joints.head_joint?.usdPhysics?.localPos0, {
+    x: 0.0039635,
+    y: 0,
+    z: -0.044,
+  });
+});
+
 test('hydrateUsdViewerRobotResolutionFromRuntime preserves USD link-local inertial origin when the runtime link frame moves', () => {
   const baseWorld = composeMatrix({ x: 0, y: 0, z: 0 });
   const previousJointOrigin = {

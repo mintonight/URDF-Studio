@@ -163,6 +163,10 @@ async function main() {
     (total, entry) => total + Object.keys(entry?.rigidBodies || {}).length,
     0,
   );
+  const jointCount = Object.values(truth).reduce(
+    (total, entry) => total + Object.keys(entry?.joints || entry?.physicsJoints || {}).length,
+    0,
+  );
 
   console.log(
     JSON.stringify(
@@ -171,6 +175,7 @@ async function main() {
         stageCount: stagePaths.length,
         openedCount,
         rigidBodyCount: bodyCount,
+        jointCount,
       },
       null,
       2,

@@ -16,6 +16,11 @@ export const DEFAULT_OUTPUT_PATH = path.resolve(
 );
 export const DEFAULT_MASS_TOLERANCE = 1e-6;
 export const DEFAULT_COM_TOLERANCE = 1e-6;
+export const DEFAULT_INERTIA_TOLERANCE = 1e-6;
+export const DEFAULT_PRINCIPAL_AXES_TOLERANCE = 1e-6;
+export const DEFAULT_JOINT_FRAME_TOLERANCE = 1e-6;
+export const DEFAULT_LINK_POSITION_TOLERANCE = 1e-5;
+export const DEFAULT_LINK_ORIENTATION_TOLERANCE = 2e-4;
 
 const UNITREE_USDA_PREFIX = 'test/unitree_ros_usda/';
 
@@ -62,8 +67,80 @@ function vector3OrZero(value) {
   return [0, 0, 0];
 }
 
+function quaternionWxyzOrIdentity(value) {
+  let quaternion = null;
+
+  if (Array.isArray(value)) {
+    quaternion = [
+      finiteNumberOrZero(value[0]),
+      finiteNumberOrZero(value[1]),
+      finiteNumberOrZero(value[2]),
+      finiteNumberOrZero(value[3]),
+    ];
+  } else if (value && typeof value === 'object') {
+    quaternion = [
+      finiteNumberOrZero(value.w),
+      finiteNumberOrZero(value.x),
+      finiteNumberOrZero(value.y),
+      finiteNumberOrZero(value.z),
+    ];
+  }
+
+  if (!quaternion) {
+    return [1, 0, 0, 0];
+  }
+
+  const norm = Math.hypot(quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
+  if (norm <= 1e-12) {
+    return [1, 0, 0, 0];
+  }
+
+  return quaternion.map((entry) => entry / norm);
+}
+
 function vectorDistance(left, right) {
   return Math.hypot(left[0] - right[0], left[1] - right[1], left[2] - right[2]);
+}
+
+function quaternionDistanceWxyz(left, right) {
+  const direct = Math.hypot(
+    left[0] - right[0],
+    left[1] - right[1],
+    left[2] - right[2],
+    left[3] - right[3],
+  );
+  const negated = Math.hypot(
+    left[0] + right[0],
+    left[1] + right[1],
+    left[2] + right[2],
+    left[3] + right[3],
+  );
+  return Math.min(direct, negated);
+}
+
+function quaternionWxyzFromXyzwOrIdentity(value) {
+  if (!Array.isArray(value)) {
+    return [1, 0, 0, 0];
+  }
+  return quaternionWxyzOrIdentity([value[3], value[0], value[1], value[2]]);
+}
+
+function eulerZyxToQuaternionWxyz(rpy) {
+  const x = finiteNumberOrZero(rpy?.r);
+  const y = finiteNumberOrZero(rpy?.p);
+  const z = finiteNumberOrZero(rpy?.y);
+  const c1 = Math.cos(x / 2);
+  const c2 = Math.cos(y / 2);
+  const c3 = Math.cos(z / 2);
+  const s1 = Math.sin(x / 2);
+  const s2 = Math.sin(y / 2);
+  const s3 = Math.sin(z / 2);
+  return [
+    c1 * c2 * c3 + s1 * s2 * s3,
+    s1 * c2 * c3 - c1 * s2 * s3,
+    c1 * s2 * c3 + s1 * c2 * s3,
+    c1 * c2 * s3 - s1 * s2 * c3,
+  ];
 }
 
 function getBrowserLinkName(link) {
@@ -74,12 +151,154 @@ function getBrowserLinkCenterOfMass(link) {
   return vector3OrZero(link?.centerOfMass?.xyz);
 }
 
+function getBrowserLinkDiagonalInertia(link) {
+  return [
+    finiteNumberOrZero(link?.inertia?.ixx),
+    finiteNumberOrZero(link?.inertia?.iyy),
+    finiteNumberOrZero(link?.inertia?.izz),
+  ];
+}
+
+function getBrowserLinkPrincipalAxes(link) {
+  return eulerZyxToQuaternionWxyz(link?.centerOfMass?.rpy);
+}
+
+function getBrowserLinkPoseName(linkPose) {
+  return String(linkPose?.linkName ?? linkPose?.linkId ?? '');
+}
+
+function getBrowserLinkWorldPose(linkPose) {
+  return {
+    position: vector3OrZero(linkPose?.position),
+    orientationWxyz: quaternionWxyzFromXyzwOrIdentity(linkPose?.quaternion),
+  };
+}
+
+function getBrowserJointName(joint) {
+  return String(joint?.name ?? joint?.id ?? '');
+}
+
+function getNativeJointName(joint) {
+  return String(joint?.jointName || lastPathSegment(joint?.jointPath) || '');
+}
+
+function getTruthJointName(joint) {
+  return (
+    String(joint?.name || '').trim() ||
+    lastPathSegment(joint?.fullPath) ||
+    lastPathSegment(joint?.path) ||
+    lastPathSegment(joint?.jointPath)
+  );
+}
+
+function getBrowserJointFrame(joint) {
+  return {
+    localPos0: vector3OrZero(joint?.usdPhysics?.localPos0),
+    localRot0Wxyz: quaternionWxyzOrIdentity(joint?.usdPhysics?.localRot0Wxyz),
+    localPos1: vector3OrZero(joint?.usdPhysics?.localPos1),
+    localRot1Wxyz: quaternionWxyzOrIdentity(joint?.usdPhysics?.localRot1Wxyz),
+  };
+}
+
+function getNativeJointFrame(joint) {
+  return {
+    localPos0: vector3OrZero(joint?.localPos0),
+    localRot0Wxyz: quaternionWxyzOrIdentity(joint?.localRot0Wxyz),
+    localPos1: vector3OrZero(joint?.localPos1),
+    localRot1Wxyz: quaternionWxyzOrIdentity(joint?.localRot1Wxyz),
+  };
+}
+
+function getTruthJointFrame(joint) {
+  return {
+    localPos0: vector3OrZero(joint?.localPos0),
+    localRot0Wxyz: quaternionWxyzOrIdentity(joint?.localRot0 ?? joint?.localRot0Wxyz),
+    localPos1: vector3OrZero(joint?.localPos1),
+    localRot1Wxyz: quaternionWxyzOrIdentity(joint?.localRot1 ?? joint?.localRot1Wxyz),
+  };
+}
+
+function compareJointFrame({
+  addFailure,
+  modelKey,
+  modelStats,
+  jointName,
+  observedFrame,
+  truthFrame,
+  tolerance,
+  sourceLabel,
+  mismatchCounterKey,
+  maxErrKey,
+  worstKey,
+}) {
+  const prefix = sourceLabel === 'native' ? 'native-joint' : 'joint';
+  const fields = [
+    {
+      name: 'localPos0',
+      observed: observedFrame.localPos0,
+      truth: truthFrame.localPos0,
+      err: vectorDistance(observedFrame.localPos0, truthFrame.localPos0),
+    },
+    {
+      name: 'localRot0Wxyz',
+      observed: observedFrame.localRot0Wxyz,
+      truth: truthFrame.localRot0Wxyz,
+      err: quaternionDistanceWxyz(observedFrame.localRot0Wxyz, truthFrame.localRot0Wxyz),
+    },
+    {
+      name: 'localPos1',
+      observed: observedFrame.localPos1,
+      truth: truthFrame.localPos1,
+      err: vectorDistance(observedFrame.localPos1, truthFrame.localPos1),
+    },
+    {
+      name: 'localRot1Wxyz',
+      observed: observedFrame.localRot1Wxyz,
+      truth: truthFrame.localRot1Wxyz,
+      err: quaternionDistanceWxyz(observedFrame.localRot1Wxyz, truthFrame.localRot1Wxyz),
+    },
+  ];
+
+  for (const field of fields) {
+    if (field.err > modelStats[maxErrKey]) {
+      modelStats[maxErrKey] = field.err;
+      modelStats[worstKey] = {
+        joint: jointName,
+        field: field.name,
+        observed: field.observed,
+        truth: field.truth,
+        err: field.err,
+      };
+    }
+    if (field.err > tolerance) {
+      modelStats[mismatchCounterKey] += 1;
+      addFailure({
+        type: `${prefix}-${field.name}-mismatch`,
+        model: modelKey,
+        joint: jointName,
+        observed: field.observed,
+        truth: field.truth,
+        err: field.err,
+        tolerance,
+      });
+    }
+  }
+}
+
 function getTruthBodyName(body) {
   return (
+    String(body?.name || '').trim() ||
     lastPathSegment(body?.fullPath) ||
     lastPathSegment(body?.path) ||
     lastPathSegment(body?.linkPath)
   );
+}
+
+function getTruthBodyWorldPose(body) {
+  return {
+    position: vector3OrZero(body?.worldPose?.position),
+    orientationWxyz: quaternionWxyzOrIdentity(body?.worldPose?.orientationWxyz),
+  };
 }
 
 function getResultModelKey(result) {
@@ -157,6 +376,11 @@ export function compareUnitreeRosUsdaBrowserPhysics({
   truthReport,
   massTolerance = DEFAULT_MASS_TOLERANCE,
   comTolerance = DEFAULT_COM_TOLERANCE,
+  inertiaTolerance = DEFAULT_INERTIA_TOLERANCE,
+  principalAxesTolerance = DEFAULT_PRINCIPAL_AXES_TOLERANCE,
+  jointFrameTolerance = DEFAULT_JOINT_FRAME_TOLERANCE,
+  linkPositionTolerance = DEFAULT_LINK_POSITION_TOLERANCE,
+  linkOrientationTolerance = DEFAULT_LINK_ORIENTATION_TOLERANCE,
   modelFilters = [],
   maxFailureSamples = 32,
 } = {}) {
@@ -170,17 +394,48 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     matchedLinks: 0,
     browserLinks: 0,
     truthBodies: 0,
+    browserJoints: 0,
+    nativeJoints: 0,
+    truthJoints: 0,
+    matchedJoints: 0,
+    browserLinkPoses: 0,
+    matchedLinkPoses: 0,
     maxMassErr: 0,
     maxComErr: 0,
+    maxInertiaErr: 0,
+    maxPrincipalAxesErr: 0,
+    maxJointFrameErr: 0,
+    maxNativeJointFrameErr: 0,
+    maxLinkPositionErr: 0,
+    maxLinkOrientationErr: 0,
     missingLinks: 0,
     extraLinks: 0,
+    missingBrowserLinkPoses: 0,
+    missingBrowserJoints: 0,
+    missingNativeJoints: 0,
     massMismatches: 0,
     comMismatches: 0,
+    inertiaMismatches: 0,
+    principalAxesMismatches: 0,
+    linkPositionMismatches: 0,
+    linkOrientationMismatches: 0,
+    jointFrameMismatches: 0,
+    nativeJointFrameMismatches: 0,
     duplicateBrowserNames: 0,
+    duplicateBrowserLinkPoseNames: 0,
     duplicateTruthNames: 0,
+    duplicateBrowserJointNames: 0,
+    duplicateNativeJointNames: 0,
+    duplicateTruthJointNames: 0,
     missingTruthStages: 0,
     worstMass: null,
     worstCom: null,
+    worstInertia: null,
+    worstPrincipalAxes: null,
+    worstLinkPosition: null,
+    worstLinkOrientation: null,
+    worstJointFrame: null,
+    worstNativeJointFrame: null,
   };
 
   const addFailure = (failure) => {
@@ -212,10 +467,25 @@ export function compareUnitreeRosUsdaBrowserPhysics({
         browserLinks: Number(result?.snapshot?.store?.linkCount ?? 0),
         truthBodies: 0,
         matchedLinks: 0,
+        browserJoints: Number(result?.snapshot?.store?.jointCount ?? 0),
+        nativeJoints: 0,
+        truthJoints: 0,
+        matchedJoints: 0,
+        browserLinkPoses: 0,
+        matchedLinkPoses: 0,
         missingLinks: 0,
         extraLinks: 0,
+        missingBrowserLinkPoses: 0,
+        missingBrowserJoints: 0,
+        missingNativeJoints: 0,
         maxMassErr: 0,
         maxComErr: 0,
+        maxInertiaErr: 0,
+        maxPrincipalAxesErr: 0,
+        maxJointFrameErr: 0,
+        maxNativeJointFrameErr: 0,
+        maxLinkPositionErr: 0,
+        maxLinkOrientationErr: 0,
       });
       continue;
     }
@@ -232,33 +502,90 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     const browserLinks = Array.isArray(result?.snapshot?.store?.links)
       ? result.snapshot.store.links
       : [];
+    const browserJoints = Array.isArray(result?.snapshot?.store?.joints)
+      ? result.snapshot.store.joints
+      : [];
+    const nativeJoints = Array.isArray(result?.selectedUsdSceneSummary?.robotMetadata?.joints)
+      ? result.selectedUsdSceneSummary.robotMetadata.joints
+      : [];
+    const browserLinkPoses = Array.isArray(result?.selectedUsdSceneSummary?.linkPoses?.storeLinks)
+      ? result.selectedUsdSceneSummary.linkPoses.storeLinks
+      : [];
     const truthBodies = Object.values(truthStage.rigidBodies || {});
+    const truthJoints = Object.values(truthStage.joints || truthStage.physicsJoints || {});
     const browserNameMap = buildUniqueNameMap(browserLinks, getBrowserLinkName);
+    const browserLinkPoseNameMap = buildUniqueNameMap(browserLinkPoses, getBrowserLinkPoseName);
     const truthNameMap = buildUniqueNameMap(truthBodies, getTruthBodyName);
+    const browserJointNameMap = buildUniqueNameMap(browserJoints, getBrowserJointName);
+    const nativeJointNameMap = buildUniqueNameMap(nativeJoints, getNativeJointName);
+    const truthJointNameMap = buildUniqueNameMap(truthJoints, getTruthJointName);
     const modelStats = {
       model: modelKey,
       truthKey: truthEntry.key,
       pass: true,
       browserLinks: browserLinks.length,
       truthBodies: truthBodies.length,
+      browserJoints: browserJoints.length,
+      nativeJoints: nativeJoints.length,
+      truthJoints: truthJoints.length,
+      browserLinkPoses: browserLinkPoses.length,
       matchedLinks: 0,
+      matchedJoints: 0,
+      matchedLinkPoses: 0,
       missingLinks: 0,
       extraLinks: 0,
+      missingBrowserLinkPoses: 0,
+      missingBrowserJoints: 0,
+      missingNativeJoints: 0,
       massMismatches: 0,
       comMismatches: 0,
+      inertiaMismatches: 0,
+      principalAxesMismatches: 0,
+      linkPositionMismatches: 0,
+      linkOrientationMismatches: 0,
+      jointFrameMismatches: 0,
+      nativeJointFrameMismatches: 0,
       duplicateBrowserNames: browserNameMap.duplicates.length,
+      duplicateBrowserLinkPoseNames: browserLinkPoseNameMap.duplicates.length,
       duplicateTruthNames: truthNameMap.duplicates.length,
+      duplicateBrowserJointNames: browserJointNameMap.duplicates.length,
+      duplicateNativeJointNames: nativeJointNameMap.duplicates.length,
+      duplicateTruthJointNames: truthJointNameMap.duplicates.length,
       maxMassErr: 0,
       maxComErr: 0,
+      maxInertiaErr: 0,
+      maxPrincipalAxesErr: 0,
+      maxJointFrameErr: 0,
+      maxNativeJointFrameErr: 0,
+      maxLinkPositionErr: 0,
+      maxLinkOrientationErr: 0,
       worstMass: null,
       worstCom: null,
+      worstInertia: null,
+      worstPrincipalAxes: null,
+      worstLinkPosition: null,
+      worstLinkOrientation: null,
+      worstJointFrame: null,
+      worstNativeJointFrame: null,
     };
 
     for (const duplicateName of browserNameMap.duplicates) {
       addFailure({ type: 'duplicate-browser-link-name', model: modelKey, link: duplicateName });
     }
+    for (const duplicateName of browserLinkPoseNameMap.duplicates) {
+      addFailure({ type: 'duplicate-browser-link-pose-name', model: modelKey, link: duplicateName });
+    }
     for (const duplicateName of truthNameMap.duplicates) {
       addFailure({ type: 'duplicate-truth-body-name', model: modelKey, link: duplicateName });
+    }
+    for (const duplicateName of browserJointNameMap.duplicates) {
+      addFailure({ type: 'duplicate-browser-joint-name', model: modelKey, joint: duplicateName });
+    }
+    for (const duplicateName of nativeJointNameMap.duplicates) {
+      addFailure({ type: 'duplicate-native-joint-name', model: modelKey, joint: duplicateName });
+    }
+    for (const duplicateName of truthJointNameMap.duplicates) {
+      addFailure({ type: 'duplicate-truth-joint-name', model: modelKey, joint: duplicateName });
     }
 
     for (const truthBody of truthBodies) {
@@ -278,6 +605,70 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       }
 
       modelStats.matchedLinks += 1;
+      const browserLinkPose = browserLinkPoseNameMap.map.get(linkName);
+      const truthWorldPose = getTruthBodyWorldPose(truthBody);
+      if (!browserLinkPose) {
+        modelStats.missingBrowserLinkPoses += 1;
+        addFailure({
+          type: 'missing-browser-link-pose',
+          model: modelKey,
+          link: linkName,
+          truthFullPath: truthBody.fullPath ?? null,
+          truthWorldPose,
+        });
+      } else {
+        modelStats.matchedLinkPoses += 1;
+        const browserWorldPose = getBrowserLinkWorldPose(browserLinkPose);
+        const linkPositionErr = vectorDistance(browserWorldPose.position, truthWorldPose.position);
+        if (linkPositionErr > modelStats.maxLinkPositionErr) {
+          modelStats.maxLinkPositionErr = linkPositionErr;
+          modelStats.worstLinkPosition = {
+            link: linkName,
+            browserPosition: browserWorldPose.position,
+            truthPosition: truthWorldPose.position,
+            linkPositionErr,
+          };
+        }
+        if (linkPositionErr > linkPositionTolerance) {
+          modelStats.linkPositionMismatches += 1;
+          addFailure({
+            type: 'link-position-mismatch',
+            model: modelKey,
+            link: linkName,
+            browserPosition: browserWorldPose.position,
+            truthPosition: truthWorldPose.position,
+            linkPositionErr,
+            tolerance: linkPositionTolerance,
+          });
+        }
+
+        const linkOrientationErr = quaternionDistanceWxyz(
+          browserWorldPose.orientationWxyz,
+          truthWorldPose.orientationWxyz,
+        );
+        if (linkOrientationErr > modelStats.maxLinkOrientationErr) {
+          modelStats.maxLinkOrientationErr = linkOrientationErr;
+          modelStats.worstLinkOrientation = {
+            link: linkName,
+            browserOrientationWxyz: browserWorldPose.orientationWxyz,
+            truthOrientationWxyz: truthWorldPose.orientationWxyz,
+            linkOrientationErr,
+          };
+        }
+        if (linkOrientationErr > linkOrientationTolerance) {
+          modelStats.linkOrientationMismatches += 1;
+          addFailure({
+            type: 'link-orientation-mismatch',
+            model: modelKey,
+            link: linkName,
+            browserOrientationWxyz: browserWorldPose.orientationWxyz,
+            truthOrientationWxyz: truthWorldPose.orientationWxyz,
+            linkOrientationErr,
+            tolerance: linkOrientationTolerance,
+          });
+        }
+      }
+
       const browserMass = finiteNumberOrZero(browserLink.mass);
       const truthMass = finiteNumberOrZero(truthBody.mass);
       const massErr = Math.abs(browserMass - truthMass);
@@ -327,6 +718,56 @@ export function compareUnitreeRosUsdaBrowserPhysics({
           tolerance: comTolerance,
         });
       }
+
+      const browserDiagonalInertia = getBrowserLinkDiagonalInertia(browserLink);
+      const truthDiagonalInertia = vector3OrZero(truthBody.diagonalInertia);
+      const inertiaErr = vectorDistance(browserDiagonalInertia, truthDiagonalInertia);
+      if (inertiaErr > modelStats.maxInertiaErr) {
+        modelStats.maxInertiaErr = inertiaErr;
+        modelStats.worstInertia = {
+          link: linkName,
+          browserDiagonalInertia,
+          truthDiagonalInertia,
+          inertiaErr,
+        };
+      }
+      if (inertiaErr > inertiaTolerance) {
+        modelStats.inertiaMismatches += 1;
+        addFailure({
+          type: 'diagonal-inertia-mismatch',
+          model: modelKey,
+          link: linkName,
+          browserDiagonalInertia,
+          truthDiagonalInertia,
+          inertiaErr,
+          tolerance: inertiaTolerance,
+        });
+      }
+
+      const browserPrincipalAxes = getBrowserLinkPrincipalAxes(browserLink);
+      const truthPrincipalAxes = quaternionWxyzOrIdentity(truthBody.principalAxes);
+      const principalAxesErr = quaternionDistanceWxyz(browserPrincipalAxes, truthPrincipalAxes);
+      if (principalAxesErr > modelStats.maxPrincipalAxesErr) {
+        modelStats.maxPrincipalAxesErr = principalAxesErr;
+        modelStats.worstPrincipalAxes = {
+          link: linkName,
+          browserPrincipalAxes,
+          truthPrincipalAxes,
+          principalAxesErr,
+        };
+      }
+      if (principalAxesErr > principalAxesTolerance) {
+        modelStats.principalAxesMismatches += 1;
+        addFailure({
+          type: 'principal-axes-mismatch',
+          model: modelKey,
+          link: linkName,
+          browserPrincipalAxes,
+          truthPrincipalAxes,
+          principalAxesErr,
+          tolerance: principalAxesTolerance,
+        });
+      }
     }
 
     for (const browserLink of browserLinks) {
@@ -343,24 +784,118 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       }
     }
 
+    for (const truthJoint of truthJoints) {
+      const jointName = getTruthJointName(truthJoint);
+      if (!jointName) {
+        continue;
+      }
+
+      const browserJoint = browserJointNameMap.map.get(jointName);
+      const nativeJoint = nativeJointNameMap.map.get(jointName);
+      const truthFrame = getTruthJointFrame(truthJoint);
+
+      if (!browserJoint) {
+        modelStats.missingBrowserJoints += 1;
+        addFailure({
+          type: 'missing-browser-joint',
+          model: modelKey,
+          joint: jointName,
+          truthFullPath: truthJoint.fullPath ?? null,
+          truthFrame,
+        });
+      } else {
+        modelStats.matchedJoints += 1;
+        compareJointFrame({
+          addFailure,
+          modelKey,
+          modelStats,
+          jointName,
+          observedFrame: getBrowserJointFrame(browserJoint),
+          truthFrame,
+          tolerance: jointFrameTolerance,
+          sourceLabel: 'store',
+          mismatchCounterKey: 'jointFrameMismatches',
+          maxErrKey: 'maxJointFrameErr',
+          worstKey: 'worstJointFrame',
+        });
+      }
+
+      if (!nativeJoint) {
+        modelStats.missingNativeJoints += 1;
+        addFailure({
+          type: 'missing-native-joint',
+          model: modelKey,
+          joint: jointName,
+          truthFullPath: truthJoint.fullPath ?? null,
+          truthFrame,
+        });
+      } else {
+        compareJointFrame({
+          addFailure,
+          modelKey,
+          modelStats,
+          jointName,
+          observedFrame: getNativeJointFrame(nativeJoint),
+          truthFrame,
+          tolerance: jointFrameTolerance,
+          sourceLabel: 'native',
+          mismatchCounterKey: 'nativeJointFrameMismatches',
+          maxErrKey: 'maxNativeJointFrameErr',
+          worstKey: 'worstNativeJointFrame',
+        });
+      }
+    }
+
     modelStats.pass =
       modelStats.missingLinks === 0 &&
       modelStats.extraLinks === 0 &&
+      modelStats.missingBrowserLinkPoses === 0 &&
+      modelStats.missingBrowserJoints === 0 &&
+      modelStats.missingNativeJoints === 0 &&
       modelStats.massMismatches === 0 &&
       modelStats.comMismatches === 0 &&
+      modelStats.inertiaMismatches === 0 &&
+      modelStats.principalAxesMismatches === 0 &&
+      modelStats.linkPositionMismatches === 0 &&
+      modelStats.linkOrientationMismatches === 0 &&
+      modelStats.jointFrameMismatches === 0 &&
+      modelStats.nativeJointFrameMismatches === 0 &&
       modelStats.duplicateBrowserNames === 0 &&
+      modelStats.duplicateBrowserLinkPoseNames === 0 &&
       modelStats.duplicateTruthNames === 0 &&
+      modelStats.duplicateBrowserJointNames === 0 &&
+      modelStats.duplicateNativeJointNames === 0 &&
+      modelStats.duplicateTruthJointNames === 0 &&
       truthStage.open_ok !== false;
 
     summary.matchedLinks += modelStats.matchedLinks;
     summary.browserLinks += modelStats.browserLinks;
     summary.truthBodies += modelStats.truthBodies;
+    summary.browserLinkPoses += modelStats.browserLinkPoses;
+    summary.matchedLinkPoses += modelStats.matchedLinkPoses;
+    summary.browserJoints += modelStats.browserJoints;
+    summary.nativeJoints += modelStats.nativeJoints;
+    summary.truthJoints += modelStats.truthJoints;
+    summary.matchedJoints += modelStats.matchedJoints;
     summary.missingLinks += modelStats.missingLinks;
     summary.extraLinks += modelStats.extraLinks;
+    summary.missingBrowserLinkPoses += modelStats.missingBrowserLinkPoses;
+    summary.missingBrowserJoints += modelStats.missingBrowserJoints;
+    summary.missingNativeJoints += modelStats.missingNativeJoints;
     summary.massMismatches += modelStats.massMismatches;
     summary.comMismatches += modelStats.comMismatches;
+    summary.inertiaMismatches += modelStats.inertiaMismatches;
+    summary.principalAxesMismatches += modelStats.principalAxesMismatches;
+    summary.linkPositionMismatches += modelStats.linkPositionMismatches;
+    summary.linkOrientationMismatches += modelStats.linkOrientationMismatches;
+    summary.jointFrameMismatches += modelStats.jointFrameMismatches;
+    summary.nativeJointFrameMismatches += modelStats.nativeJointFrameMismatches;
     summary.duplicateBrowserNames += modelStats.duplicateBrowserNames;
+    summary.duplicateBrowserLinkPoseNames += modelStats.duplicateBrowserLinkPoseNames;
     summary.duplicateTruthNames += modelStats.duplicateTruthNames;
+    summary.duplicateBrowserJointNames += modelStats.duplicateBrowserJointNames;
+    summary.duplicateNativeJointNames += modelStats.duplicateNativeJointNames;
+    summary.duplicateTruthJointNames += modelStats.duplicateTruthJointNames;
     if (modelStats.maxMassErr > summary.maxMassErr) {
       summary.maxMassErr = modelStats.maxMassErr;
       summary.worstMass = modelStats.worstMass
@@ -370,6 +905,42 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     if (modelStats.maxComErr > summary.maxComErr) {
       summary.maxComErr = modelStats.maxComErr;
       summary.worstCom = modelStats.worstCom ? { model: modelKey, ...modelStats.worstCom } : null;
+    }
+    if (modelStats.maxInertiaErr > summary.maxInertiaErr) {
+      summary.maxInertiaErr = modelStats.maxInertiaErr;
+      summary.worstInertia = modelStats.worstInertia
+        ? { model: modelKey, ...modelStats.worstInertia }
+        : null;
+    }
+    if (modelStats.maxPrincipalAxesErr > summary.maxPrincipalAxesErr) {
+      summary.maxPrincipalAxesErr = modelStats.maxPrincipalAxesErr;
+      summary.worstPrincipalAxes = modelStats.worstPrincipalAxes
+        ? { model: modelKey, ...modelStats.worstPrincipalAxes }
+        : null;
+    }
+    if (modelStats.maxLinkPositionErr > summary.maxLinkPositionErr) {
+      summary.maxLinkPositionErr = modelStats.maxLinkPositionErr;
+      summary.worstLinkPosition = modelStats.worstLinkPosition
+        ? { model: modelKey, ...modelStats.worstLinkPosition }
+        : null;
+    }
+    if (modelStats.maxLinkOrientationErr > summary.maxLinkOrientationErr) {
+      summary.maxLinkOrientationErr = modelStats.maxLinkOrientationErr;
+      summary.worstLinkOrientation = modelStats.worstLinkOrientation
+        ? { model: modelKey, ...modelStats.worstLinkOrientation }
+        : null;
+    }
+    if (modelStats.maxJointFrameErr > summary.maxJointFrameErr) {
+      summary.maxJointFrameErr = modelStats.maxJointFrameErr;
+      summary.worstJointFrame = modelStats.worstJointFrame
+        ? { model: modelKey, ...modelStats.worstJointFrame }
+        : null;
+    }
+    if (modelStats.maxNativeJointFrameErr > summary.maxNativeJointFrameErr) {
+      summary.maxNativeJointFrameErr = modelStats.maxNativeJointFrameErr;
+      summary.worstNativeJointFrame = modelStats.worstNativeJointFrame
+        ? { model: modelKey, ...modelStats.worstNativeJointFrame }
+        : null;
     }
 
     perModel.push(modelStats);
@@ -391,6 +962,11 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       failureCount: failures.length,
       massTolerance,
       comTolerance,
+      inertiaTolerance,
+      principalAxesTolerance,
+      jointFrameTolerance,
+      linkPositionTolerance,
+      linkOrientationTolerance,
     },
     perModel,
     failures: failures.slice(0, maxFailureSamples),
@@ -409,6 +985,15 @@ Options:
   --model <filter>         Restrict to a model path. Repeatable.
   --mass-tolerance <n>     Absolute mass tolerance. Default: ${DEFAULT_MASS_TOLERANCE}
   --com-tolerance <n>      Euclidean COM tolerance. Default: ${DEFAULT_COM_TOLERANCE}
+  --inertia-tolerance <n>  Euclidean diagonal inertia tolerance. Default: ${DEFAULT_INERTIA_TOLERANCE}
+  --principal-axes-tolerance <n>
+                           Quaternion principal axes tolerance. Default: ${DEFAULT_PRINCIPAL_AXES_TOLERANCE}
+  --joint-frame-tolerance <n>
+                           Joint local frame tolerance. Default: ${DEFAULT_JOINT_FRAME_TOLERANCE}
+  --link-position-tolerance <n>
+                           Store link world-position tolerance. Default: ${DEFAULT_LINK_POSITION_TOLERANCE}
+  --link-orientation-tolerance <n>
+                           Store link world-orientation quaternion tolerance. Default: ${DEFAULT_LINK_ORIENTATION_TOLERANCE}
   --max-failures <n>       Failure samples to include in output. Default: 32
   --help                   Show this help message.
 `);
@@ -421,6 +1006,11 @@ function parseArgs(argv) {
     outputPath: DEFAULT_OUTPUT_PATH,
     massTolerance: DEFAULT_MASS_TOLERANCE,
     comTolerance: DEFAULT_COM_TOLERANCE,
+    inertiaTolerance: DEFAULT_INERTIA_TOLERANCE,
+    principalAxesTolerance: DEFAULT_PRINCIPAL_AXES_TOLERANCE,
+    jointFrameTolerance: DEFAULT_JOINT_FRAME_TOLERANCE,
+    linkPositionTolerance: DEFAULT_LINK_POSITION_TOLERANCE,
+    linkOrientationTolerance: DEFAULT_LINK_ORIENTATION_TOLERANCE,
     maxFailureSamples: 32,
     modelFilters: [],
     help: false,
@@ -455,6 +1045,21 @@ function parseArgs(argv) {
       case '--com-tolerance':
         options.comTolerance = Number(next());
         break;
+      case '--inertia-tolerance':
+        options.inertiaTolerance = Number(next());
+        break;
+      case '--principal-axes-tolerance':
+        options.principalAxesTolerance = Number(next());
+        break;
+      case '--joint-frame-tolerance':
+        options.jointFrameTolerance = Number(next());
+        break;
+      case '--link-position-tolerance':
+        options.linkPositionTolerance = Number(next());
+        break;
+      case '--link-orientation-tolerance':
+        options.linkOrientationTolerance = Number(next());
+        break;
       case '--max-failures':
         options.maxFailureSamples = Number.parseInt(next(), 10);
         break;
@@ -472,6 +1077,21 @@ function parseArgs(argv) {
   }
   if (!Number.isFinite(options.comTolerance) || options.comTolerance < 0) {
     throw new Error(`Invalid --com-tolerance: ${options.comTolerance}`);
+  }
+  if (!Number.isFinite(options.inertiaTolerance) || options.inertiaTolerance < 0) {
+    throw new Error(`Invalid --inertia-tolerance: ${options.inertiaTolerance}`);
+  }
+  if (!Number.isFinite(options.principalAxesTolerance) || options.principalAxesTolerance < 0) {
+    throw new Error(`Invalid --principal-axes-tolerance: ${options.principalAxesTolerance}`);
+  }
+  if (!Number.isFinite(options.jointFrameTolerance) || options.jointFrameTolerance < 0) {
+    throw new Error(`Invalid --joint-frame-tolerance: ${options.jointFrameTolerance}`);
+  }
+  if (!Number.isFinite(options.linkPositionTolerance) || options.linkPositionTolerance < 0) {
+    throw new Error(`Invalid --link-position-tolerance: ${options.linkPositionTolerance}`);
+  }
+  if (!Number.isFinite(options.linkOrientationTolerance) || options.linkOrientationTolerance < 0) {
+    throw new Error(`Invalid --link-orientation-tolerance: ${options.linkOrientationTolerance}`);
   }
   if (!Number.isInteger(options.maxFailureSamples) || options.maxFailureSamples < 1) {
     throw new Error(`Invalid --max-failures: ${options.maxFailureSamples}`);
@@ -500,6 +1120,11 @@ async function main() {
     truthReport,
     massTolerance: options.massTolerance,
     comTolerance: options.comTolerance,
+    inertiaTolerance: options.inertiaTolerance,
+    principalAxesTolerance: options.principalAxesTolerance,
+    jointFrameTolerance: options.jointFrameTolerance,
+    linkPositionTolerance: options.linkPositionTolerance,
+    linkOrientationTolerance: options.linkOrientationTolerance,
     modelFilters: options.modelFilters,
     maxFailureSamples: options.maxFailureSamples,
   });

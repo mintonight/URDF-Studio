@@ -399,8 +399,9 @@ export function extractJointRecordsFromLayerText(layerText) {
         const closedLoopId = String(body.match(/urdf:closedLoopId\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
         const closedLoopType = String(body.match(/urdf:closedLoopType\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
         const urdfJointType = String(body.match(/urdf:jointType\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
+        const localPos0 = parseVector3FromTupleLiteral(body.match(/physics:localPos0\s*=\s*\(([^)]+)\)/i)?.[1] || "");
         const originXyz = parseVector3FromTupleLiteral((body.match(/urdf:originXyz\s*=\s*\(([^)]+)\)/i)?.[1]
-            || body.match(/physics:localPos0\s*=\s*\(([^)]+)\)/i)?.[1]
+            || (localPos0 ? localPos0.join(", ") : "")
             || ""));
         const authoredOriginQuatWxyz = parseQuaternionWxyzFromTupleLiteral(body.match(/urdf:originQuatWxyz\s*=\s*\(([^)]+)\)/i)?.[1] || "");
         const localRot0Wxyz = parseQuaternionWxyzFromTupleLiteral(body.match(/physics:localRot0\s*=\s*\(([^)]+)\)/i)?.[1] || "");
@@ -422,6 +423,7 @@ export function extractJointRecordsFromLayerText(layerText) {
             closedLoopType: closedLoopType || null,
             originXyz,
             originQuatWxyz,
+            localPos0,
             localRot0Wxyz,
             localPos1,
             localRot1Wxyz,

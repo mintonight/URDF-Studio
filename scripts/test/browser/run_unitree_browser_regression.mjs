@@ -1095,6 +1095,47 @@ function sanitizeSelectedUsdSceneSummary(sceneSummary) {
           scale: Array.isArray(transform.scale) ? transform.scale.slice(0, 3) : null,
         }
       : null;
+  const sanitizeLinkPoseSummary = (linkPoses) => {
+    const storeLinks = Array.isArray(linkPoses?.storeLinks)
+      ? linkPoses.storeLinks.map((entry) => ({
+          linkId: entry?.linkId ?? null,
+          linkName: entry?.linkName ?? null,
+          ...sanitizeTransform(entry),
+        }))
+      : [];
+    return {
+      source: linkPoses?.source ?? null,
+      storeLinkCount: Number(linkPoses?.storeLinkCount ?? storeLinks.length),
+      storeLinks,
+    };
+  };
+  const sanitizeVector3Array = (value) => (Array.isArray(value) ? value.slice(0, 3).map(Number) : null);
+  const sanitizeQuaternionArray = (value) =>
+    Array.isArray(value) ? value.slice(0, 4).map(Number) : null;
+  const sanitizeRobotMetadataSummary = (robotMetadata) =>
+    robotMetadata
+      ? {
+          source: robotMetadata.source ?? null,
+          jointCount: Number(robotMetadata.jointCount ?? 0),
+          dynamicsCount: Number(robotMetadata.dynamicsCount ?? 0),
+          joints: Array.isArray(robotMetadata.joints)
+            ? robotMetadata.joints.map((joint) => ({
+                jointPath: joint?.jointPath ?? null,
+                jointName: joint?.jointName ?? null,
+                jointType: joint?.jointType ?? null,
+                childLinkPath: joint?.childLinkPath ?? null,
+                parentLinkPath: joint?.parentLinkPath ?? null,
+                axisToken: joint?.axisToken ?? null,
+                localPos0: sanitizeVector3Array(joint?.localPos0),
+                localRot0Wxyz: sanitizeQuaternionArray(joint?.localRot0Wxyz),
+                localPos1: sanitizeVector3Array(joint?.localPos1),
+                localRot1Wxyz: sanitizeQuaternionArray(joint?.localRot1Wxyz),
+                originXyz: sanitizeVector3Array(joint?.originXyz),
+                originQuatWxyz: sanitizeQuaternionArray(joint?.originQuatWxyz),
+              }))
+            : [],
+        }
+      : null;
   const sanitizeNormalDiagnostics = (entry) => {
     const source = entry?.normalDiagnostics ?? entry?.normalDiagnostic ?? entry;
     const normalRepairCount = source?.normalRepairCount;
@@ -1140,6 +1181,8 @@ function sanitizeSelectedUsdSceneSummary(sceneSummary) {
           meshRangeCount: Number(sceneSummary.bufferSummary.meshRangeCount ?? 0),
         }
       : null,
+    robotMetadata: sanitizeRobotMetadataSummary(sceneSummary.robotMetadata),
+    linkPoses: sanitizeLinkPoseSummary(sceneSummary.linkPoses),
     bindingSummary: sanitizeBindingSummary(sceneSummary.bindingSummary),
     baseLink: sceneSummary.baseLink
       ? {
@@ -1456,7 +1499,65 @@ async function collectLoadEvaluation(page) {
             },
           }
         : null,
+      inertia: link?.inertia
+        ? {
+            ixx: Number(link.inertia.ixx ?? 0),
+            ixy: Number(link.inertia.ixy ?? 0),
+            ixz: Number(link.inertia.ixz ?? 0),
+            iyy: Number(link.inertia.iyy ?? 0),
+            iyz: Number(link.inertia.iyz ?? 0),
+            izz: Number(link.inertia.izz ?? 0),
+          }
+        : null,
     });
+    const summarizeVector3 = (value) =>
+      value
+        ? {
+            x: Number(value.x ?? 0),
+            y: Number(value.y ?? 0),
+            z: Number(value.z ?? 0),
+          }
+        : null;
+    const summarizeOrigin = (origin) =>
+      origin
+        ? {
+            xyz: summarizeVector3(origin.xyz),
+            rpy: origin.rpy
+              ? {
+                  r: Number(origin.rpy.r ?? 0),
+                  p: Number(origin.rpy.p ?? 0),
+                  y: Number(origin.rpy.y ?? 0),
+                }
+              : null,
+          }
+        : null;
+    const summarizeStoreJoint = (joint) => ({
+      id: joint?.id ?? null,
+      name: joint?.name ?? joint?.id ?? null,
+      type: joint?.type ?? null,
+      parentLinkId: joint?.parentLinkId ?? null,
+      childLinkId: joint?.childLinkId ?? null,
+      origin: summarizeOrigin(joint?.origin),
+      axis: summarizeVector3(joint?.axis),
+      usdPhysics: joint?.usdPhysics
+        ? {
+            axisToken: joint.usdPhysics.axisToken ?? null,
+            localPos0: summarizeVector3(joint.usdPhysics.localPos0),
+            localRot0Wxyz: Array.isArray(joint.usdPhysics.localRot0Wxyz)
+              ? joint.usdPhysics.localRot0Wxyz.map(Number)
+              : null,
+            localPos1: summarizeVector3(joint.usdPhysics.localPos1),
+            localRot1Wxyz: Array.isArray(joint.usdPhysics.localRot1Wxyz)
+              ? joint.usdPhysics.localRot1Wxyz.map(Number)
+              : null,
+          }
+        : null,
+    });
+    const storeJointList = Array.isArray(snapshot?.store?.joints)
+      ? snapshot.store.joints
+      : snapshot?.store?.joints && typeof snapshot.store.joints === 'object'
+        ? Object.values(snapshot.store.joints)
+        : [];
     const summarizedSnapshot = snapshot
       ? {
           timestamp: snapshot.timestamp ?? null,
@@ -1478,6 +1579,7 @@ async function collectLoadEvaluation(page) {
                 links: Array.isArray(snapshot.store.links)
                   ? snapshot.store.links.map(summarizeStoreLinkPhysics)
                   : [],
+                joints: storeJointList.map(summarizeStoreJoint),
               }
             : null,
           viewer: snapshot.viewer

@@ -544,11 +544,13 @@ export function extractJointRecordsFromLayerText(layerText) {
         const closedLoopId = String(body.match(/urdf:closedLoopId\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
         const closedLoopType = String(body.match(/urdf:closedLoopType\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
         const axisLocal = parseVector3FromTupleLiteral(String(body.match(/urdf:axisLocal\s*=\s*\(([^)]+)\)/i)?.[1] || ""));
+        const localPos0 = parseVector3FromTupleLiteral(String(body.match(/physics:localPos0\s*=\s*\(([^)]+)\)/i)?.[1] || ""));
         const originXyz = parseVector3FromTupleLiteral(String(body.match(/urdf:originXyz\s*=\s*\(([^)]+)\)/i)?.[1]
-            || body.match(/physics:localPos0\s*=\s*\(([^)]+)\)/i)?.[1]
+            || (localPos0 ? localPos0.join(", ") : "")
             || ""));
+        const localRot0Wxyz = parseQuaternionFromTupleLiteral(String(body.match(/physics:localRot0\s*=\s*\(([^)]+)\)/i)?.[1] || ""));
         const originQuatWxyz = parseQuaternionFromTupleLiteral(String(body.match(/urdf:originQuatWxyz\s*=\s*\(([^)]+)\)/i)?.[1]
-            || body.match(/physics:localRot0\s*=\s*\(([^)]+)\)/i)?.[1]
+            || (localRot0Wxyz ? localRot0Wxyz.join(", ") : "")
             || ""));
         const localPos1 = parseVector3FromTupleLiteral(String(body.match(/physics:localPos1\s*=\s*\(([^)]+)\)/i)?.[1] || ""));
         const localRot1 = parseQuaternionFromTupleLiteral(String(body.match(/physics:localRot1\s*=\s*\(([^)]+)\)/i)?.[1] || ""));
@@ -565,6 +567,8 @@ export function extractJointRecordsFromLayerText(layerText) {
             closedLoopType: closedLoopType || null,
             originXyz,
             originQuatWxyz,
+            localPos0,
+            localRot0Wxyz,
             localPos1,
             localRot1,
         });

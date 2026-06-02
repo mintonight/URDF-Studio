@@ -30,6 +30,40 @@ test('normalizeRenderRobotMetadataSnapshot preserves explicit stale metadata ann
     assert.equal(snapshot.truthLoadError, 'urdf-truth-fetch-http-404');
 });
 
+test('normalizeRenderRobotMetadataSnapshot preserves USD physics joint frames from native metadata', () => {
+    const snapshot = normalizeRenderRobotMetadataSnapshot({
+        stageSourcePath: '/robots/g1_29dof_rev_1_0.usda',
+        generatedAtMs: 123,
+        source: 'usd-stage-cpp',
+        linkParentPairs: [['/g1_29dof_rev_1_0/head_link', '/g1_29dof_rev_1_0/torso_link']],
+        jointCatalogEntries: [
+            {
+                linkPath: '/g1_29dof_rev_1_0/head_link',
+                jointPath: '/g1_29dof_rev_1_0/joints/head_joint',
+                jointName: 'head_joint',
+                jointType: 'fixed',
+                parentLinkPath: '/g1_29dof_rev_1_0/torso_link',
+                axisToken: 'X',
+                axisLocal: [1, 0, 0],
+                localPos0: [0.0039635, 0, -0.044],
+                localRot0Wxyz: [1, 0, 0, 0],
+                localPivotInLink: [0, 0, 0],
+                localPos1: [0, 0, 0],
+                localRot1Wxyz: [1, 0, 0, 0],
+            },
+        ],
+        linkDynamicsEntries: [],
+        meshCountsByLinkPath: {},
+    });
+
+    assert.ok(snapshot);
+    const joint = snapshot.jointCatalogEntries[0];
+    assert.deepEqual(joint.localPos0, [0.0039635, 0, -0.044]);
+    assert.deepEqual(joint.localRot0Wxyz, [1, 0, 0, 0]);
+    assert.deepEqual(joint.localPos1, [0, 0, 0]);
+    assert.deepEqual(joint.localRot1Wxyz, [1, 0, 0, 0]);
+});
+
 test('getRenderRobotMetadataSnapshot drops cached stale metadata snapshots', () => {
     const renderInterface = {
         getCachedRobotMetadataSnapshot() {

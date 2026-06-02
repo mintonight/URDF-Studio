@@ -29,6 +29,8 @@ import {
   type MeshCountsEntry,
 } from './usdAdapterConversions';
 
+const ZERO_INERTIA = { ixx: 0, ixy: 0, ixz: 0, iyy: 0, iyz: 0, izz: 0 } as const;
+
 export function buildMeshOnlyHierarchyFallback({
   defaultPrimPath,
   linkPaths,
@@ -177,7 +179,7 @@ export function createLinkFromViewerMetadata(
               iyz: 0,
               izz: Number(dynamicsEntry?.diagonalInertia?.[2]) || 0,
             }
-          : { ...DEFAULT_LINK.inertial.inertia },
+          : { ...ZERO_INERTIA },
     },
   };
 }
@@ -214,11 +216,15 @@ export function createJointFromViewerEntry(
   const originXyz =
     entry.originXyz && typeof entry.originXyz.length === 'number'
       ? toVector3(entry.originXyz)
-      : toVector3(entry.localPivotInLink);
+      : entry.localPos0 && typeof entry.localPos0.length === 'number'
+        ? toVector3(entry.localPos0)
+        : toVector3(entry.localPivotInLink);
   const originQuatWxyz =
     entry.originQuatWxyz && typeof entry.originQuatWxyz.length === 'number'
       ? Array.from(entry.originQuatWxyz).slice(0, 4)
-      : null;
+      : entry.localRot0Wxyz && typeof entry.localRot0Wxyz.length === 'number'
+        ? Array.from(entry.localRot0Wxyz).slice(0, 4)
+        : null;
   const usdPhysics = resolveUsdPhysicsFrameFromViewerEntry(entry);
 
   return {

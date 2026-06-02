@@ -53,6 +53,14 @@ def _round_vec3(value: object) -> list[float] | None:
     return [float(entry) for entry in result]
 
 
+def _normalize_quat_wxyz(values: list[float]) -> list[float]:
+    norm = math.sqrt(sum(entry * entry for entry in values))
+    if norm <= 1e-12:
+        return [1.0, 0.0, 0.0, 0.0]
+
+    return [round(entry / norm, 8) for entry in values]
+
+
 def _round_quat_wxyz(value: object) -> list[float] | None:
     if value is None:
         return None
@@ -64,7 +72,7 @@ def _round_quat_wxyz(value: object) -> list[float] | None:
         imag = _round_vec3(get_imaginary())
         if real is None or imag is None:
             return None
-        return [real, imag[0], imag[1], imag[2]]
+        return _normalize_quat_wxyz([real, imag[0], imag[1], imag[2]])
 
     try:
         values = list(value)
@@ -78,7 +86,47 @@ def _round_quat_wxyz(value: object) -> list[float] | None:
     if any(entry is None for entry in result):
         return None
 
-    return [float(entry) for entry in result]
+    return _normalize_quat_wxyz([float(entry) for entry in result])
+
+
+def _round_matrix_pose(matrix: object) -> dict[str, list[float]] | None:
+    if matrix is None:
+        return None
+
+    extract_translation = getattr(matrix, "ExtractTranslation", None)
+    extract_rotation_quat = getattr(matrix, "ExtractRotationQuat", None)
+    if not callable(extract_translation) or not callable(extract_rotation_quat):
+        return None
+
+    position = _round_vec3(extract_translation())
+    orientation = _round_quat_wxyz(extract_rotation_quat())
+    if position is None or orientation is None:
+        return None
+
+    return {
+        "position": position,
+        "orientationWxyz": orientation,
+    }
+
+
+def _local_xform_pose(prim) -> dict[str, list[float]] | None:
+    from pxr import UsdGeom
+
+    xformable = UsdGeom.Xformable(prim)
+    if not xformable:
+        return None
+
+    try:
+        local_transform_result = xformable.GetLocalTransformation()
+    except Exception:
+        return None
+
+    if isinstance(local_transform_result, tuple):
+        local_transform = local_transform_result[0] if local_transform_result else None
+    else:
+        local_transform = local_transform_result
+
+    return _round_matrix_pose(local_transform)
 
 
 def _normalized_default_path(stage) -> str | None:
@@ -109,6 +157,34 @@ def _owner_rigid_body_path(prim) -> str | None:
     return None
 
 
+def _first_relationship_target_path(prim, name: str) -> str | None:
+    relationship = prim.GetRelationship(name)
+    if not relationship or not relationship.IsValid():
+        return None
+
+    try:
+        targets = relationship.GetTargets()
+    except TypeError:
+        targets = []
+        relationship.GetTargets(targets)
+
+    if not targets:
+        return None
+    return targets[0].pathString
+
+
+def _attr_value(prim, name: str) -> object | None:
+    attr = prim.GetAttribute(name)
+    if not attr or not attr.IsValid():
+        return None
+    return attr.Get()
+
+
+def _is_physics_joint_prim(prim) -> bool:
+    type_name = str(prim.GetTypeName() or "")
+    return type_name.startswith("Physics") and type_name.endswith("Joint")
+
+
 def summarize_stage(path: str) -> dict[str, object]:
     from pxr import Usd, UsdGeom, UsdPhysics
 
@@ -121,6 +197,8 @@ def summarize_stage(path: str) -> dict[str, object]:
 
     default_path = _normalized_default_path(stage)
     rigid_bodies: dict[str, dict[str, object]] = {}
+    joints: dict[str, dict[str, object]] = {}
+    xform_cache = UsdGeom.XformCache()
 
     for prim in stage.Traverse():
         if not prim.HasAPI(UsdPhysics.RigidBodyAPI):
@@ -133,12 +211,39 @@ def summarize_stage(path: str) -> dict[str, object]:
         rigid_bodies[full_path] = {
             "path": relative_body_path,
             "fullPath": full_path,
+            "name": prim.GetName(),
             "type": prim.GetTypeName(),
+            "worldPose": _round_matrix_pose(xform_cache.GetLocalToWorldTransform(prim)),
+            "localPose": _local_xform_pose(prim),
             "mass": _round_scalar(mass_api.GetMassAttr().Get()),
             "centerOfMass": _round_vec3(mass_api.GetCenterOfMassAttr().Get()),
             "diagonalInertia": _round_vec3(mass_api.GetDiagonalInertiaAttr().Get()),
             "principalAxes": _round_quat_wxyz(mass_api.GetPrincipalAxesAttr().Get()),
             "collisions": [],
+        }
+
+    for prim in stage.Traverse():
+        if not _is_physics_joint_prim(prim):
+            continue
+
+        full_path = prim.GetPath().pathString
+        body0_path = _first_relationship_target_path(prim, "physics:body0")
+        body1_path = _first_relationship_target_path(prim, "physics:body1")
+        relative_joint_path = _relative_path(full_path, default_path)
+        joints[relative_joint_path] = {
+            "path": relative_joint_path,
+            "fullPath": full_path,
+            "name": prim.GetName(),
+            "type": prim.GetTypeName(),
+            "body0Path": _relative_path(body0_path, default_path) if body0_path else None,
+            "body0FullPath": body0_path,
+            "body1Path": _relative_path(body1_path, default_path) if body1_path else None,
+            "body1FullPath": body1_path,
+            "axis": str(_attr_value(prim, "physics:axis") or ""),
+            "localPos0": _round_vec3(_attr_value(prim, "physics:localPos0")),
+            "localRot0": _round_quat_wxyz(_attr_value(prim, "physics:localRot0")),
+            "localPos1": _round_vec3(_attr_value(prim, "physics:localPos1")),
+            "localRot1": _round_quat_wxyz(_attr_value(prim, "physics:localRot1")),
         }
 
     collision_without_body: list[dict[str, object]] = []
@@ -192,7 +297,10 @@ def summarize_stage(path: str) -> dict[str, object]:
 
         summarized_bodies[str(body["path"])] = {
             "fullPath": body["fullPath"],
+            "name": body["name"],
             "type": body["type"],
+            "worldPose": body["worldPose"],
+            "localPose": body["localPose"],
             "mass": body["mass"],
             "centerOfMass": body["centerOfMass"],
             "diagonalInertia": body["diagonalInertia"],
@@ -207,8 +315,10 @@ def summarize_stage(path: str) -> dict[str, object]:
         "open_ok": True,
         "defaultPrimPath": default_path,
         "rigidBodyCount": len(summarized_bodies),
+        "jointCount": len(joints),
         "collisionCount": total_collision_count,
         "rigidBodies": summarized_bodies,
+        "joints": dict(sorted(joints.items())),
         "collisionWithoutBodyCount": len(collision_without_body),
         "collisionWithoutBodySample": collision_without_body[:16],
     }

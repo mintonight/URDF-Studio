@@ -330,11 +330,15 @@ export function toQuaternionWxyz(
 export function resolveUsdPhysicsFrameFromViewerEntry(
   entry: JointCatalogEntry,
 ): UrdfJointUsdPhysicsFrame | undefined {
-  const localPos0 = toOptionalVector3(entry.localPos0);
+  const jointTypeName = String(entry.jointTypeName || entry.jointType || '').trim();
+  const isUsdPhysicsJointEntry = /Physics[A-Za-z]*Joint/i.test(jointTypeName);
+  const axisToken = String(entry.axisToken || '').trim();
+  const localPos0 =
+    toOptionalVector3(entry.localPos0) ??
+    (isUsdPhysicsJointEntry || axisToken ? toOptionalVector3(entry.originXyz) : undefined);
   const localRot0Wxyz = toQuaternionWxyz(entry.localRot0Wxyz);
   const localPos1 = toOptionalVector3(entry.localPos1);
   const localRot1Wxyz = toQuaternionWxyz(entry.localRot1Wxyz);
-  const axisToken = String(entry.axisToken || '').trim();
 
   if (!localPos0 && !localRot0Wxyz && !localPos1 && !localRot1Wxyz && !axisToken) {
     return undefined;

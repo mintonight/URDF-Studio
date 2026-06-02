@@ -117,6 +117,7 @@ test('adapts usd-viewer robot scene snapshot into URDF Studio RobotData', () => 
   const link1 = result.robotData.links.link1;
   assert.ok(baseLink);
   assert.ok(link1);
+  assert.ok(baseLink.inertial);
 
   assert.equal(baseLink.visual.type, GeometryType.MESH);
   assert.equal(baseLink.visual.meshPath, undefined);
@@ -126,6 +127,11 @@ test('adapts usd-viewer robot scene snapshot into URDF Studio RobotData', () => 
     baseLink.inertial.mass,
     0,
     'USD links without authored MassAPI should not inherit the editor default mass',
+  );
+  assert.deepEqual(
+    baseLink.inertial.inertia,
+    { ixx: 0, ixy: 0, ixz: 0, iyy: 0, iyz: 0, izz: 0 },
+    'USD links without dynamics metadata should not inherit the editor default inertia',
   );
   assert.equal(link1.collision.type, GeometryType.CAPSULE);
   assert.deepEqual(link1.collision.dimensions, { x: 0.1, y: 0.8, z: 0 });
@@ -339,6 +345,7 @@ test('preserves USD physics child joint frame rotations for IsaacSim-authored fi
             axisLocal: [1, 0, 0],
             originXyz: [0, 0, -0.213],
             originQuatWxyz: [1, 0, 0, 0],
+            localPos0: [0, 0, -0.213],
             localRot0Wxyz: childFrame,
             localPos1: [0, 0, 0],
             localRot1Wxyz: childFrame,
@@ -368,9 +375,110 @@ test('preserves USD physics child joint frame rotations for IsaacSim-authored fi
     (candidate) => candidate.name === 'FL_foot_joint',
   );
   assert.ok(joint);
+  assert.deepEqual(joint.usdPhysics?.localPos0, { x: 0, y: 0, z: -0.213 });
   assert.deepEqual(joint.usdPhysics?.localRot1Wxyz, childFrame);
   assert.deepEqual(joint.usdPhysics?.localRot0Wxyz, childFrame);
   assert.deepEqual(joint.usdPhysics?.localPos1, { x: 0, y: 0, z: 0 });
+});
+
+test('uses USD Physics originXyz as localPos0 when native metadata omits the raw parent frame', () => {
+  const result = adaptUsdViewerSnapshotToRobotData(
+    {
+      stageSourcePath: '/robots/unitree/g1_29dof_rev_1_0.usda',
+      stage: {
+        defaultPrimPath: '/g1_29dof_rev_1_0',
+      },
+      robotTree: {
+        linkParentPairs: [
+          ['/g1_29dof_rev_1_0/torso_link', null],
+          ['/g1_29dof_rev_1_0/head_link', '/g1_29dof_rev_1_0/torso_link'],
+        ],
+        rootLinkPaths: ['/g1_29dof_rev_1_0/torso_link'],
+      },
+      robotMetadataSnapshot: {
+        stageSourcePath: '/robots/unitree/g1_29dof_rev_1_0.usda',
+        linkParentPairs: [
+          ['/g1_29dof_rev_1_0/torso_link', null],
+          ['/g1_29dof_rev_1_0/head_link', '/g1_29dof_rev_1_0/torso_link'],
+        ],
+        jointCatalogEntries: [
+          {
+            linkPath: '/g1_29dof_rev_1_0/head_link',
+            parentLinkPath: '/g1_29dof_rev_1_0/torso_link',
+            jointName: 'head_joint',
+            jointTypeName: 'PhysicsFixedJoint',
+            axisToken: 'X',
+            axisLocal: [1, 0, 0],
+            originXyz: [0.0039635, 0, -0.044],
+            originQuatWxyz: [1, 0, 0, 0],
+          },
+        ],
+        meshCountsByLinkPath: {},
+      },
+    },
+    {
+      fileName: 'g1_29dof_rev_1_0.usda',
+    },
+  );
+
+  assert.ok(result);
+  const joint = Object.values(result.robotData.joints).find(
+    (candidate) => candidate.name === 'head_joint',
+  );
+  assert.ok(joint);
+  assert.deepEqual(joint.origin.xyz, { x: 0.0039635, y: 0, z: -0.044 });
+  assert.deepEqual(joint.usdPhysics?.localPos0, { x: 0.0039635, y: 0, z: -0.044 });
+});
+
+test('uses native USD Physics localPos0 as the joint origin when originXyz is absent', () => {
+  const result = adaptUsdViewerSnapshotToRobotData(
+    {
+      stageSourcePath: '/robots/unitree/g1_29dof_rev_1_0.usda',
+      stage: {
+        defaultPrimPath: '/g1_29dof_rev_1_0',
+      },
+      robotTree: {
+        linkParentPairs: [
+          ['/g1_29dof_rev_1_0/torso_link', null],
+          ['/g1_29dof_rev_1_0/head_link', '/g1_29dof_rev_1_0/torso_link'],
+        ],
+        rootLinkPaths: ['/g1_29dof_rev_1_0/torso_link'],
+      },
+      robotMetadataSnapshot: {
+        stageSourcePath: '/robots/unitree/g1_29dof_rev_1_0.usda',
+        linkParentPairs: [
+          ['/g1_29dof_rev_1_0/torso_link', null],
+          ['/g1_29dof_rev_1_0/head_link', '/g1_29dof_rev_1_0/torso_link'],
+        ],
+        jointCatalogEntries: [
+          {
+            linkPath: '/g1_29dof_rev_1_0/head_link',
+            parentLinkPath: '/g1_29dof_rev_1_0/torso_link',
+            jointName: 'head_joint',
+            jointTypeName: 'PhysicsFixedJoint',
+            axisToken: 'X',
+            axisLocal: [1, 0, 0],
+            localPos0: [0.0039635, 0, -0.044],
+            localRot0Wxyz: [1, 0, 0, 0],
+            localPos1: [0, 0, 0],
+            localRot1Wxyz: [1, 0, 0, 0],
+          },
+        ],
+        meshCountsByLinkPath: {},
+      },
+    },
+    {
+      fileName: 'g1_29dof_rev_1_0.usda',
+    },
+  );
+
+  assert.ok(result);
+  const joint = Object.values(result.robotData.joints).find(
+    (candidate) => candidate.name === 'head_joint',
+  );
+  assert.ok(joint);
+  assert.deepEqual(joint.origin.xyz, { x: 0.0039635, y: 0, z: -0.044 });
+  assert.deepEqual(joint.usdPhysics?.localPos0, { x: 0.0039635, y: 0, z: -0.044 });
 });
 
 test('ignores USDA internal mesh libraries when robot link metadata is present', () => {

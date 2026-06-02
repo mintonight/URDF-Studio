@@ -9,7 +9,12 @@ import { setTimeout as delay } from 'node:timers/promises';
 import {
   compareUnitreeRosUsdaBrowserPhysics,
   DEFAULT_COM_TOLERANCE,
+  DEFAULT_INERTIA_TOLERANCE,
+  DEFAULT_JOINT_FRAME_TOLERANCE,
+  DEFAULT_LINK_ORIENTATION_TOLERANCE,
+  DEFAULT_LINK_POSITION_TOLERANCE,
   DEFAULT_MASS_TOLERANCE,
+  DEFAULT_PRINCIPAL_AXES_TOLERANCE,
 } from '../truth/compare_unitree_ros_usda_browser_physics.mjs';
 
 const OUTPUT_PATH = path.resolve('tmp/regression/unitree-ros-usda-selected.json');
@@ -23,6 +28,7 @@ const SITE_TIMEOUT_MS = 120_000;
 const MODEL_TIMEOUT_MS = 600_000;
 const URDF_FIXTURE_ROOT = path.resolve('test/unitree_ros/robots');
 const USDA_FIXTURE_ROOT = path.resolve('test/unitree_ros_usda');
+const EXPORT_MANIFEST_PATH = path.resolve('test/unitree_ros_usda/export-manifest.json');
 
 function runCommand(command, args) {
   return new Promise((resolve, reject) => {
@@ -64,6 +70,16 @@ Options:
   --physics-output <path>    Physics comparison JSON output. Default: ${PHYSICS_COMPARE_OUTPUT_PATH}
   --mass-tolerance <n>       Absolute mass tolerance. Default: ${DEFAULT_MASS_TOLERANCE}
   --com-tolerance <n>        Euclidean COM tolerance. Default: ${DEFAULT_COM_TOLERANCE}
+  --inertia-tolerance <n>    Euclidean diagonal inertia tolerance. Default: ${DEFAULT_INERTIA_TOLERANCE}
+  --principal-axes-tolerance <n>
+                             Quaternion principal axes tolerance. Default: ${DEFAULT_PRINCIPAL_AXES_TOLERANCE}
+  --joint-frame-tolerance <n>
+                             Joint local frame tolerance. Default: ${DEFAULT_JOINT_FRAME_TOLERANCE}
+  --link-position-tolerance <n>
+                             Store link world-position tolerance. Default: ${DEFAULT_LINK_POSITION_TOLERANCE}
+  --link-orientation-tolerance <n>
+                             Store link world-orientation quaternion tolerance. Default: ${DEFAULT_LINK_ORIENTATION_TOLERANCE}
+  --model <filter>           Restrict discovered USDA model paths by substring. Repeatable.
   --skip-physics-compare     Disable physics comparison even when UNITREE_ROS_USDA_PHYSICS_TRUTH is set.
   --help                     Show this help message.
 `);
@@ -78,6 +94,12 @@ function parseArgs(argv) {
     physicsOutputPath: PHYSICS_COMPARE_OUTPUT_PATH,
     massTolerance: DEFAULT_MASS_TOLERANCE,
     comTolerance: DEFAULT_COM_TOLERANCE,
+    inertiaTolerance: DEFAULT_INERTIA_TOLERANCE,
+    principalAxesTolerance: DEFAULT_PRINCIPAL_AXES_TOLERANCE,
+    jointFrameTolerance: DEFAULT_JOINT_FRAME_TOLERANCE,
+    linkPositionTolerance: DEFAULT_LINK_POSITION_TOLERANCE,
+    linkOrientationTolerance: DEFAULT_LINK_ORIENTATION_TOLERANCE,
+    modelFilters: [],
     skipPhysicsCompare: false,
   };
 
@@ -104,6 +126,24 @@ function parseArgs(argv) {
       case '--com-tolerance':
         options.comTolerance = Number(next());
         break;
+      case '--inertia-tolerance':
+        options.inertiaTolerance = Number(next());
+        break;
+      case '--principal-axes-tolerance':
+        options.principalAxesTolerance = Number(next());
+        break;
+      case '--joint-frame-tolerance':
+        options.jointFrameTolerance = Number(next());
+        break;
+      case '--link-position-tolerance':
+        options.linkPositionTolerance = Number(next());
+        break;
+      case '--link-orientation-tolerance':
+        options.linkOrientationTolerance = Number(next());
+        break;
+      case '--model':
+        options.modelFilters.push(String(next()).replace(/\\/g, '/'));
+        break;
       case '--skip-physics-compare':
         options.skipPhysicsCompare = true;
         break;
@@ -121,6 +161,21 @@ function parseArgs(argv) {
   }
   if (!Number.isFinite(options.comTolerance) || options.comTolerance < 0) {
     throw new Error(`Invalid --com-tolerance: ${options.comTolerance}`);
+  }
+  if (!Number.isFinite(options.inertiaTolerance) || options.inertiaTolerance < 0) {
+    throw new Error(`Invalid --inertia-tolerance: ${options.inertiaTolerance}`);
+  }
+  if (!Number.isFinite(options.principalAxesTolerance) || options.principalAxesTolerance < 0) {
+    throw new Error(`Invalid --principal-axes-tolerance: ${options.principalAxesTolerance}`);
+  }
+  if (!Number.isFinite(options.jointFrameTolerance) || options.jointFrameTolerance < 0) {
+    throw new Error(`Invalid --joint-frame-tolerance: ${options.jointFrameTolerance}`);
+  }
+  if (!Number.isFinite(options.linkPositionTolerance) || options.linkPositionTolerance < 0) {
+    throw new Error(`Invalid --link-position-tolerance: ${options.linkPositionTolerance}`);
+  }
+  if (!Number.isFinite(options.linkOrientationTolerance) || options.linkOrientationTolerance < 0) {
+    throw new Error(`Invalid --link-orientation-tolerance: ${options.linkOrientationTolerance}`);
   }
 
   return options;
@@ -148,9 +203,34 @@ async function collectUrdfFiles(rootDir) {
   return files;
 }
 
+async function discoverManifestModels() {
+  if (!(await pathExists(EXPORT_MANIFEST_PATH))) {
+    return [];
+  }
+
+  const manifest = await readJson(EXPORT_MANIFEST_PATH);
+  const models = [];
+  for (const record of manifest.records || []) {
+    if (record?.status && record.status !== 'ok') {
+      continue;
+    }
+    const outputUsda = String(record?.output_usda || '').replace(/\\/g, '/');
+    if (!outputUsda.toLowerCase().endsWith('.usda')) {
+      continue;
+    }
+    const relativePath = outputUsda.startsWith('test/unitree_ros_usda/')
+      ? outputUsda.slice('test/unitree_ros_usda/'.length)
+      : outputUsda;
+    if (await pathExists(path.join(USDA_FIXTURE_ROOT, relativePath))) {
+      models.push(relativePath);
+    }
+  }
+  return models;
+}
+
 async function discoverModels() {
   const urdfFiles = await collectUrdfFiles(URDF_FIXTURE_ROOT);
-  const discoveredModels = [];
+  const discoveredModels = await discoverManifestModels();
 
   for (const absoluteUrdfPath of urdfFiles) {
     const relativeUrdfPath = path.relative(URDF_FIXTURE_ROOT, absoluteUrdfPath).replace(/\\/g, '/');
@@ -426,6 +506,11 @@ async function runPhysicsComparisonIfConfigured(report, options) {
     truthReport,
     massTolerance: options.massTolerance,
     comTolerance: options.comTolerance,
+    inertiaTolerance: options.inertiaTolerance,
+    principalAxesTolerance: options.principalAxesTolerance,
+    jointFrameTolerance: options.jointFrameTolerance,
+    linkPositionTolerance: options.linkPositionTolerance,
+    linkOrientationTolerance: options.linkOrientationTolerance,
   });
 
   await mkdir(path.dirname(options.physicsOutputPath), { recursive: true });
@@ -512,7 +597,12 @@ async function main() {
     );
   }
 
-  const models = await discoverModels();
+  let models = await discoverModels();
+  if (options.modelFilters.length > 0) {
+    models = models.filter((model) =>
+      options.modelFilters.some((filter) => model.replace(/\\/g, '/').includes(filter)),
+    );
+  }
   if (models.length === 0) {
     throw new Error(`No Unitree ROS USDA fixtures were discovered under ${USDA_FIXTURE_ROOT}`);
   }

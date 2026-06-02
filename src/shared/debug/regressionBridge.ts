@@ -1,4 +1,5 @@
 import { Color, Matrix4, Quaternion, SRGBColorSpace, Vector3 } from 'three';
+import { computeLinkWorldMatrices } from '@/core/robot/kinematics';
 import type {
   InteractionHelperKind,
   InteractionSelection,
@@ -206,6 +207,39 @@ interface RegressionUsdTransformSummary {
   scale: [number, number, number] | null;
 }
 
+interface RegressionUsdLinkPoseSummary extends RegressionUsdTransformSummary {
+  linkId: string | null;
+  linkName: string | null;
+}
+
+interface RegressionUsdLinkPoseCollectionSummary {
+  source: 'store-kinematics';
+  storeLinkCount: number;
+  storeLinks: RegressionUsdLinkPoseSummary[];
+}
+
+interface RegressionUsdRobotMetadataJointSummary {
+  jointPath: string | null;
+  jointName: string | null;
+  jointType: string | null;
+  childLinkPath: string | null;
+  parentLinkPath: string | null;
+  axisToken: string | null;
+  localPos0: [number, number, number] | null;
+  localRot0Wxyz: [number, number, number, number] | null;
+  localPos1: [number, number, number] | null;
+  localRot1Wxyz: [number, number, number, number] | null;
+  originXyz: [number, number, number] | null;
+  originQuatWxyz: [number, number, number, number] | null;
+}
+
+interface RegressionUsdRobotMetadataSummary {
+  source: string | null;
+  jointCount: number;
+  dynamicsCount: number;
+  joints: RegressionUsdRobotMetadataJointSummary[];
+}
+
 interface RegressionUsdBaseLinkDescriptorSummary {
   meshId: string | null;
   resolvedPrimPath: string | null;
@@ -263,6 +297,8 @@ export interface RegressionSelectedUsdSceneSummary {
     transformCount: number;
     meshRangeCount: number;
   };
+  robotMetadata?: RegressionUsdRobotMetadataSummary;
+  linkPoses: RegressionUsdLinkPoseCollectionSummary;
   bindingSummary: RegressionUsdBindingSummary;
   baseLink: {
     found: boolean;
@@ -372,6 +408,24 @@ function toFixedArray(
   }
 
   return [Number(value.x ?? 0), Number(value.y ?? 0), Number(value.z ?? 0)];
+}
+
+function toFixedQuaternionWxyz(value: ArrayLike<number> | undefined | null): [
+  number,
+  number,
+  number,
+  number,
+] | null {
+  if (!value || typeof value.length !== 'number' || value.length < 4) {
+    return null;
+  }
+
+  return [
+    Number(value[0] ?? 1),
+    Number(value[1] ?? 0),
+    Number(value[2] ?? 0),
+    Number(value[3] ?? 0),
+  ];
 }
 
 function normalizeUsdDebugPath(value: string | null | undefined): string {
@@ -917,6 +971,92 @@ function buildRuntimeTransformSummary(
   };
 }
 
+function buildMatrixTransformSummary(matrix: Matrix4): RegressionUsdTransformSummary {
+  const position = new Vector3();
+  const quaternion = new Quaternion();
+  const scale = new Vector3();
+  matrix.decompose(position, quaternion, scale);
+  return {
+    position: [
+      Number(position.x.toFixed(6)),
+      Number(position.y.toFixed(6)),
+      Number(position.z.toFixed(6)),
+    ],
+    quaternion: [
+      Number(quaternion.x.toFixed(6)),
+      Number(quaternion.y.toFixed(6)),
+      Number(quaternion.z.toFixed(6)),
+      Number(quaternion.w.toFixed(6)),
+    ],
+    scale: [Number(scale.x.toFixed(6)), Number(scale.y.toFixed(6)), Number(scale.z.toFixed(6))],
+  };
+}
+
+function summarizeStoreLinkPoses(
+  robotState: Pick<RobotState, 'links' | 'joints' | 'rootLinkId'> | null | undefined,
+): RegressionUsdLinkPoseCollectionSummary {
+  if (!robotState) {
+    return {
+      source: 'store-kinematics',
+      storeLinkCount: 0,
+      storeLinks: [],
+    };
+  }
+
+  const linkWorldMatrices = computeLinkWorldMatrices(robotState);
+  const storeLinks = Object.entries(robotState.links)
+    .map(([linkId, link]) => {
+      const matrix = linkWorldMatrices[linkId];
+      const transform = matrix ? buildMatrixTransformSummary(matrix) : {
+        position: null,
+        quaternion: null,
+        scale: null,
+      };
+      return {
+        linkId,
+        linkName: String((link as UrdfLink | undefined)?.name || linkId || '').trim() || null,
+        ...transform,
+      } satisfies RegressionUsdLinkPoseSummary;
+    })
+    .sort((left, right) =>
+      String(left.linkName || left.linkId || '').localeCompare(String(right.linkName || right.linkId || '')),
+    );
+
+  return {
+    source: 'store-kinematics',
+    storeLinkCount: storeLinks.length,
+    storeLinks,
+  };
+}
+
+function summarizeUsdRobotMetadata(
+  snapshot: UsdSceneSnapshot,
+): RegressionUsdRobotMetadataSummary {
+  const robotMetadata = snapshot.robotMetadataSnapshot ?? null;
+  const jointEntries = Array.from(robotMetadata?.jointCatalogEntries || []);
+  const dynamicsEntries = Array.from(robotMetadata?.linkDynamicsEntries || []);
+  return {
+    source: robotMetadata?.source ? String(robotMetadata.source) : null,
+    jointCount: jointEntries.length,
+    dynamicsCount: dynamicsEntries.length,
+    joints: jointEntries.map((entry: any) => ({
+      jointPath: normalizeUsdDebugPathWithLeadingSlash(entry?.jointPath) || null,
+      jointName: String(entry?.jointName || '').trim() || null,
+      jointType: String(entry?.jointTypeName || entry?.jointType || '').trim() || null,
+      childLinkPath:
+        normalizeUsdDebugPathWithLeadingSlash(entry?.childLinkPath || entry?.linkPath) || null,
+      parentLinkPath: normalizeUsdDebugPathWithLeadingSlash(entry?.parentLinkPath) || null,
+      axisToken: String(entry?.axisToken || '').trim() || null,
+      localPos0: toFixedArray(entry?.localPos0),
+      localRot0Wxyz: toFixedQuaternionWxyz(entry?.localRot0Wxyz),
+      localPos1: toFixedArray(entry?.localPos1 || entry?.localPivotInLink),
+      localRot1Wxyz: toFixedQuaternionWxyz(entry?.localRot1Wxyz),
+      originXyz: toFixedArray(entry?.originXyz),
+      originQuatWxyz: toFixedQuaternionWxyz(entry?.originQuatWxyz),
+    })),
+  };
+}
+
 function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
   const selectedFile = regressionDebugState.appHandlers?.getSelectedFile() ?? null;
   if (!selectedFile || selectedFile.format !== 'usd') {
@@ -924,6 +1064,7 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
   }
 
   const snapshot = regressionDebugState.appHandlers?.getUsdSceneSnapshot(selectedFile.name) ?? null;
+  const robotState = regressionDebugState.appHandlers?.getRobotState() ?? null;
   if (!snapshot) {
     return {
       available: false,
@@ -933,6 +1074,7 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
       rootLinkId: regressionDebugState.appHandlers?.getRobotState()?.rootLinkId ?? null,
       meshDescriptorCount: 0,
       materialCount: 0,
+      linkPoses: summarizeStoreLinkPoses(robotState),
       bindingSummary: summarizeUsdDescriptorBindings([]),
       baseLink: {
         found: false,
@@ -955,6 +1097,7 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
   }
 
   const rootLinkId = regressionDebugState.appHandlers?.getRobotState()?.rootLinkId ?? null;
+  const linkPoses = summarizeStoreLinkPoses(robotState);
   const descriptors = Array.from(snapshot.render?.meshDescriptors || []);
   const bufferSummary = {
     positionCount: getUsdBufferLength(snapshot.buffers?.positions),
@@ -1064,6 +1207,8 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
     meshDescriptorCount: descriptors.length,
     materialCount: Array.from(snapshot.render?.materials || []).length,
     bufferSummary,
+    robotMetadata: summarizeUsdRobotMetadata(snapshot),
+    linkPoses,
     bindingSummary: allBindingSummary,
     baseLink: {
       found:
@@ -1323,6 +1468,27 @@ function summarizeLink(link: UrdfLink) {
   };
 }
 
+function summarizeJointVector3(value: { x?: unknown; y?: unknown; z?: unknown } | null | undefined) {
+  return value
+    ? {
+        x: Number(value.x ?? 0),
+        y: Number(value.y ?? 0),
+        z: Number(value.z ?? 0),
+      }
+    : null;
+}
+
+function summarizeJointQuaternionWxyz(value: ArrayLike<number> | null | undefined) {
+  return value && typeof value.length === 'number' && value.length >= 4
+    ? [
+        Number(value[0] ?? 1),
+        Number(value[1] ?? 0),
+        Number(value[2] ?? 0),
+        Number(value[3] ?? 0),
+      ]
+    : null;
+}
+
 function summarizeJoint(joint: UrdfJoint) {
   return {
     id: joint.id,
@@ -1330,19 +1496,9 @@ function summarizeJoint(joint: UrdfJoint) {
     type: joint.type,
     parentLinkId: joint.parentLinkId,
     childLinkId: joint.childLinkId,
-    axis: joint.axis
-      ? {
-          x: Number(joint.axis.x ?? 0),
-          y: Number(joint.axis.y ?? 0),
-          z: Number(joint.axis.z ?? 0),
-        }
-      : null,
+    axis: summarizeJointVector3(joint.axis),
     origin: {
-      xyz: {
-        x: Number(joint.origin.xyz.x ?? 0),
-        y: Number(joint.origin.xyz.y ?? 0),
-        z: Number(joint.origin.xyz.z ?? 0),
-      },
+      xyz: summarizeJointVector3(joint.origin.xyz),
       rpy: {
         r: Number(joint.origin.rpy.r ?? 0),
         p: Number(joint.origin.rpy.p ?? 0),
@@ -1363,9 +1519,18 @@ function summarizeJoint(joint: UrdfJoint) {
           friction: Number(joint.dynamics.friction ?? 0),
           stiffness:
             joint.dynamics.stiffness == null ? null : Number(joint.dynamics.stiffness),
-        }
+      }
       : null,
     hardware: joint.hardware ?? null,
+    usdPhysics: joint.usdPhysics
+      ? {
+          axisToken: joint.usdPhysics.axisToken ?? null,
+          localPos0: summarizeJointVector3(joint.usdPhysics.localPos0),
+          localRot0Wxyz: summarizeJointQuaternionWxyz(joint.usdPhysics.localRot0Wxyz),
+          localPos1: summarizeJointVector3(joint.usdPhysics.localPos1),
+          localRot1Wxyz: summarizeJointQuaternionWxyz(joint.usdPhysics.localRot1Wxyz),
+        }
+      : null,
   };
 }
 
