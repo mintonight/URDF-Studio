@@ -1323,6 +1323,32 @@ function sanitizeSelectedUsdNormalDiagnostics(summary) {
   };
 }
 
+function sanitizeRuntimeSceneTransforms(summary) {
+  if (!summary || typeof summary !== 'object') {
+    return null;
+  }
+
+  const sanitizeTransformEntry = (entry) => ({
+    name: entry?.name ?? null,
+    link: entry?.link ?? null,
+    type: entry?.type ?? null,
+    position: Array.isArray(entry?.position) ? entry.position.slice(0, 3).map(Number) : null,
+    quaternion: Array.isArray(entry?.quaternion)
+      ? entry.quaternion.slice(0, 4).map(Number)
+      : null,
+    scale: Array.isArray(entry?.scale) ? entry.scale.slice(0, 3).map(Number) : null,
+    axis: Array.isArray(entry?.axis) ? entry.axis.slice(0, 3).map(Number) : null,
+  });
+
+  return {
+    links: Array.isArray(summary.links) ? summary.links.map(sanitizeTransformEntry) : [],
+    joints: Array.isArray(summary.joints) ? summary.joints.map(sanitizeTransformEntry) : [],
+    visualMeshes: Array.isArray(summary.visualMeshes)
+      ? summary.visualMeshes.map(sanitizeTransformEntry)
+      : [],
+  };
+}
+
 function compareCanvasLumaSamples(beforeSample, afterSample) {
   if (
     !beforeSample ||
@@ -1414,6 +1440,9 @@ function buildResult(
     ),
     selectedUsdNormalDiagnostics: sanitizeSelectedUsdNormalDiagnostics(
       evaluation?.selectedUsdNormalDiagnostics ?? null,
+    ),
+    runtimeSceneTransforms: sanitizeRuntimeSceneTransforms(
+      evaluation?.runtimeSceneTransforms ?? null,
     ),
     orbitInteraction: orbitInteraction ?? null,
     snapshot,
@@ -1607,6 +1636,7 @@ async function collectLoadEvaluation(page) {
     const selectedUsdSceneSummary = api.getSelectedUsdSceneSummary?.() ?? null;
     const selectedUsdVisualMaterialSummary = api.getSelectedUsdVisualMaterialSummary?.() ?? null;
     const selectedUsdNormalDiagnostics = api.getSelectedUsdNormalDiagnostics?.() ?? null;
+    const runtimeSceneTransforms = api.getRuntimeSceneTransforms?.() ?? null;
     const sanitizeUsdLoadProfile = (profile) => {
       if (!profile || typeof profile !== 'object') {
         return null;
@@ -1742,6 +1772,7 @@ async function collectLoadEvaluation(page) {
       selectedUsdSceneSummary,
       selectedUsdVisualMaterialSummary,
       selectedUsdNormalDiagnostics,
+      runtimeSceneTransforms,
       usdLoadProfile: sanitizeUsdLoadProfile(window.__usdLoadProfile),
       usdStageLoadDebugHistory: summarizedUsdStageLoadDebugHistory,
     };

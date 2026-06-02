@@ -86,7 +86,6 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const nameInputId = React.useId();
   const jointTypeSelectId = React.useId();
   const defaultWindowSize = useMemo(() => ({ width: 600, height: 360 }), []);
-  const [activeTab, setActiveTab] = useState<'relation' | 'transform'>('relation');
   const comps = Object.values(assemblyState.components);
   const defaultPosition = useMemo(() => {
     if (typeof window === 'undefined') {
@@ -114,7 +113,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     },
   });
   const usesInlineIdentityRow = windowState.size.width >= 320;
-  const usesCadInspectorLayout = windowState.size.width >= 580;
+  const usesCadInspectorLayout = windowState.size.width >= 640;
   const topFieldGridClassName = usesInlineIdentityRow
     ? `grid items-center gap-x-1.5 gap-y-1 ${
         lang === 'zh'
@@ -794,158 +793,141 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
             </div>
           ) : null}
 
-          {/* Tab switcher */}
-          <SegmentedControl
-            options={[
-              { value: 'relation' as const, label: t.bridgeTabRelation },
-              { value: 'transform' as const, label: t.bridgeTabTransform },
-            ]}
-            value={activeTab}
-            onChange={(value) => setActiveTab(value as 'relation' | 'transform')}
-            size="xs"
-            className="w-full [&>button]:min-h-6 [&>button]:flex-1 [&>button]:!gap-0.5 [&>button]:!px-1.5 [&>button]:!py-0 [&>button]:!text-[9px]"
-          />
-
-          {/* Tab: Relation */}
-          {activeTab === 'relation' ? (
-            <div data-bridge-section-panel="relation" className="space-y-2">
-              <BridgeSection title={relationSectionTitle}>
-                {usesCadInspectorLayout ? (
-                  <BridgeCompactRelationRow
-                    parentPickLabel={t.bridgePickParent}
-                    childPickLabel={t.bridgePickChild}
-                    parentIsActive={pickTarget === 'parent'}
-                    childIsActive={pickTarget === 'child'}
-                    parentComponentValue={parentCompId}
-                    parentLinkValue={parentLinkId}
-                    childComponentValue={childCompId}
-                    childLinkValue={childLinkId}
-                    parentComponentOptions={parentComponentSelectOptions}
-                    parentLinkOptions={parentLinkSelectOptions}
-                    childComponentOptions={childComponentSelectOptions}
-                    childLinkOptions={childLinkSelectOptions}
-                    parentComponentLabel={t.parentComponent}
-                    parentLinkLabel={t.parentLink}
-                    childComponentLabel={t.childComponent}
-                    childLinkLabel={t.childLink}
-                    onParentActivate={() => setPickTarget('parent')}
-                    onChildActivate={() => setPickTarget('child')}
-                    onParentComponentChange={(value) => {
+          <div data-bridge-section-panel="relation" className="space-y-2">
+            <BridgeSection title={relationSectionTitle}>
+              {usesCadInspectorLayout ? (
+                <BridgeCompactRelationRow
+                  parentPickLabel={t.bridgePickParent}
+                  childPickLabel={t.bridgePickChild}
+                  parentIsActive={pickTarget === 'parent'}
+                  childIsActive={pickTarget === 'child'}
+                  parentComponentValue={parentCompId}
+                  parentLinkValue={parentLinkId}
+                  childComponentValue={childCompId}
+                  childLinkValue={childLinkId}
+                  parentComponentOptions={parentComponentSelectOptions}
+                  parentLinkOptions={parentLinkSelectOptions}
+                  childComponentOptions={childComponentSelectOptions}
+                  childLinkOptions={childLinkSelectOptions}
+                  parentComponentLabel={t.parentComponent}
+                  parentLinkLabel={t.parentLink}
+                  childComponentLabel={t.childComponent}
+                  childLinkLabel={t.childLink}
+                  onParentActivate={() => setPickTarget('parent')}
+                  onChildActivate={() => setPickTarget('child')}
+                  onParentComponentChange={(value) => {
+                    setPickTarget('parent');
+                    setParentCompId(value);
+                    setParentLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
+                  }}
+                  onParentLinkChange={(value) => {
+                    setPickTarget('parent');
+                    setParentLinkId(value);
+                  }}
+                  onChildComponentChange={(value) => {
+                    setPickTarget('child');
+                    setChildCompId(value);
+                    setChildLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
+                  }}
+                  onChildLinkChange={(value) => {
+                    setPickTarget('child');
+                    setChildLinkId(value);
+                  }}
+                />
+              ) : (
+                <div className={relationGridClassName}>
+                  <BridgeSideCard
+                    side="parent"
+                    isActive={pickTarget === 'parent'}
+                    title={sideCardTitle.parent}
+                    pickLabel={t.bridgePickParent}
+                    componentLabel={t.parentComponent}
+                    linkLabel={t.parentLink}
+                    componentValue={parentCompId}
+                    linkValue={parentLinkId}
+                    componentSummary={parentSummary}
+                    linkSummary={parentLinkSummary}
+                    onActivate={() => setPickTarget('parent')}
+                    onComponentChange={(value) => {
                       setPickTarget('parent');
                       setParentCompId(value);
                       setParentLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
                     }}
-                    onParentLinkChange={(value) => {
+                    onLinkChange={(value) => {
                       setPickTarget('parent');
                       setParentLinkId(value);
                     }}
-                    onChildComponentChange={(value) => {
+                    componentOptions={parentComponentSelectOptions}
+                    linkOptions={parentLinkSelectOptions}
+                  />
+
+                  <BridgeRelationConnector orientation="horizontal" />
+
+                  <BridgeSideCard
+                    side="child"
+                    isActive={pickTarget === 'child'}
+                    title={sideCardTitle.child}
+                    pickLabel={t.bridgePickChild}
+                    componentLabel={t.childComponent}
+                    linkLabel={t.childLink}
+                    componentValue={childCompId}
+                    linkValue={childLinkId}
+                    componentSummary={childSummary}
+                    linkSummary={childLinkSummary}
+                    onActivate={() => setPickTarget('child')}
+                    onComponentChange={(value) => {
                       setPickTarget('child');
                       setChildCompId(value);
                       setChildLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
                     }}
-                    onChildLinkChange={(value) => {
+                    onLinkChange={(value) => {
                       setPickTarget('child');
                       setChildLinkId(value);
                     }}
+                    componentOptions={childComponentSelectOptions}
+                    linkOptions={childLinkSelectOptions}
                   />
-                ) : (
-                  <div className={relationGridClassName}>
-                    <BridgeSideCard
-                      side="parent"
-                      isActive={pickTarget === 'parent'}
-                      title={sideCardTitle.parent}
-                      pickLabel={t.bridgePickParent}
-                      componentLabel={t.parentComponent}
-                      linkLabel={t.parentLink}
-                      componentValue={parentCompId}
-                      linkValue={parentLinkId}
-                      componentSummary={parentSummary}
-                      linkSummary={parentLinkSummary}
-                      onActivate={() => setPickTarget('parent')}
-                      onComponentChange={(value) => {
-                        setPickTarget('parent');
-                        setParentCompId(value);
-                        setParentLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
-                      }}
-                      onLinkChange={(value) => {
-                        setPickTarget('parent');
-                        setParentLinkId(value);
-                      }}
-                      componentOptions={parentComponentSelectOptions}
-                      linkOptions={parentLinkSelectOptions}
-                    />
+                </div>
+              )}
+            </BridgeSection>
+          </div>
 
-                    <BridgeRelationConnector orientation="horizontal" />
-
-                    <BridgeSideCard
-                      side="child"
-                      isActive={pickTarget === 'child'}
-                      title={sideCardTitle.child}
-                      pickLabel={t.bridgePickChild}
-                      componentLabel={t.childComponent}
-                      linkLabel={t.childLink}
-                      componentValue={childCompId}
-                      linkValue={childLinkId}
-                      componentSummary={childSummary}
-                      linkSummary={childLinkSummary}
-                      onActivate={() => setPickTarget('child')}
-                      onComponentChange={(value) => {
-                        setPickTarget('child');
-                        setChildCompId(value);
-                        setChildLinkId(resolveBridgeComponentDefaultLinkId(assemblyState, value));
-                      }}
-                      onLinkChange={(value) => {
-                        setPickTarget('child');
-                        setChildLinkId(value);
-                      }}
-                      componentOptions={childComponentSelectOptions}
-                      linkOptions={childLinkSelectOptions}
-                    />
-                  </div>
-                )}
+          <div className="min-h-0 space-y-2" data-bridge-section-content>
+            <div data-bridge-section-panel="transform" className={transformPanelClassName}>
+              <BridgeSection title={t.originRelativeParent}>
+                <div data-bridge-row="origin" className={xyzStackClassName}>
+                  <BridgeAxisSpinnerField
+                    axis="x"
+                    fieldKey="origin-x"
+                    label="X"
+                    value={originX}
+                    step={0.01}
+                    precision={4}
+                    onChange={handleOriginXChange}
+                    className="min-w-0"
+                  />
+                  <BridgeAxisSpinnerField
+                    axis="y"
+                    fieldKey="origin-y"
+                    label="Y"
+                    value={originY}
+                    step={0.01}
+                    precision={4}
+                    onChange={handleOriginYChange}
+                    className="min-w-0"
+                  />
+                  <BridgeAxisSpinnerField
+                    axis="z"
+                    fieldKey="origin-z"
+                    label="Z"
+                    value={originZ}
+                    step={0.01}
+                    precision={4}
+                    onChange={handleOriginZChange}
+                    className="min-w-0"
+                  />
+                </div>
               </BridgeSection>
-            </div>
-          ) : null}
-
-          {/* Tab: Transform */}
-          {activeTab === 'transform' ? (
-            <div className="min-h-0 space-y-2" data-bridge-section-content>
-              <div data-bridge-section-panel="transform" className={transformPanelClassName}>
-                <BridgeSection title={t.originRelativeParent}>
-                  <div data-bridge-row="origin" className={xyzStackClassName}>
-                    <BridgeAxisSpinnerField
-                      axis="x"
-                      fieldKey="origin-x"
-                      label="X"
-                      value={originX}
-                      step={0.01}
-                      precision={4}
-                      onChange={handleOriginXChange}
-                      className="min-w-0"
-                    />
-                    <BridgeAxisSpinnerField
-                      axis="y"
-                      fieldKey="origin-y"
-                      label="Y"
-                      value={originY}
-                      step={0.01}
-                      precision={4}
-                      onChange={handleOriginYChange}
-                      className="min-w-0"
-                    />
-                    <BridgeAxisSpinnerField
-                      axis="z"
-                      fieldKey="origin-z"
-                      label="Z"
-                      value={originZ}
-                      step={0.01}
-                      precision={4}
-                      onChange={handleOriginZChange}
-                      className="min-w-0"
-                    />
-                  </div>
-                </BridgeSection>
 
                 <BridgeSection title={t.rotation}>
                   <SegmentedControl
@@ -1070,7 +1052,6 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                   <BridgeSection
                     title={t.axisRotation}
                     collapsible
-                    defaultCollapsed
                     collapsedSummary={`(${axisX}, ${axisY}, ${axisZ})`}
                   >
                     <div data-bridge-row="axis" className={xyzStackClassName}>
@@ -1113,7 +1094,6 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                   <BridgeSection
                     title={t.limits}
                     collapsible
-                    defaultCollapsed
                     collapsedSummary={
                       jointSupportsPositionLimits
                         ? `[${limitLower}, ${limitUpper}]`
@@ -1220,7 +1200,6 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                 </div>
               ) : null}
             </div>
-          ) : null}
         </div>
       </div>
 

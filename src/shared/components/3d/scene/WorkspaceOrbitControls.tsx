@@ -20,7 +20,11 @@ const WORKSPACE_ORBIT_CONTROL_TUNING = {
   dampingFactor: 0.08,
   rotateSpeed: 0.85,
   panSpeed: 0.9,
-  zoomSpeed: 1.15,
+  // Calmer baseline wheel-zoom, closer to large 3D software (Blender / Maya).
+  // OrbitControls dollies by Math.pow(0.95, zoomSpeed) per notch, so 0.8 ≈ 3.5%
+  // per notch vs the previous 1.15 ≈ 5.9%. Users can further tune via the
+  // Navigation sensitivity slider (zoomSensitivity multiplier).
+  zoomSpeed: 0.8,
   zoomToCursor: true,
   enableDamping: true,
   ...DEFAULT_WORKSPACE_ORBIT_CLIPPING,
@@ -35,6 +39,10 @@ export interface WorkspaceOrbitControlsProps {
   rotateSpeed?: number;
   panSpeed?: number;
   zoomSpeed?: number;
+  /** User-facing navigation sensitivity multipliers (1 = 100% = base tuning). */
+  zoomSensitivity?: number;
+  rotateSensitivity?: number;
+  panSensitivity?: number;
   zoomToCursor?: boolean;
   minDistance?: number;
   maxDistance?: number;
@@ -50,6 +58,9 @@ export function WorkspaceOrbitControls({
   rotateSpeed = WORKSPACE_ORBIT_CONTROL_TUNING.rotateSpeed,
   panSpeed = WORKSPACE_ORBIT_CONTROL_TUNING.panSpeed,
   zoomSpeed = WORKSPACE_ORBIT_CONTROL_TUNING.zoomSpeed,
+  zoomSensitivity = 1,
+  rotateSensitivity = 1,
+  panSensitivity = 1,
   zoomToCursor = WORKSPACE_ORBIT_CONTROL_TUNING.zoomToCursor,
   minDistance = WORKSPACE_ORBIT_CONTROL_TUNING.minDistance,
   maxDistance,
@@ -58,6 +69,13 @@ export function WorkspaceOrbitControls({
   const camera = useThree((state) => state.camera);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const { getClipBounds, getPanBounds, invalidate: invalidateSceneBounds } = useSceneBoundsCache();
+
+  // Fold the user sensitivity multiplier into the base tuning so the adaptive
+  // pan/zoom resolvers and the OrbitControls props all share one effective
+  // speed. Rotate has no distance-based resolver, so it is applied directly.
+  const effectiveRotateSpeed = rotateSpeed * rotateSensitivity;
+  const effectivePanSpeed = panSpeed * panSensitivity;
+  const effectiveZoomSpeed = zoomSpeed * zoomSensitivity;
 
   useEffect(() => {
     if (!controlsRef.current) {
@@ -93,7 +111,7 @@ export function WorkspaceOrbitControls({
       });
 
       const resolvedPanSpeed = resolveWorkspaceOrbitPanSpeed({
-        basePanSpeed: panSpeed,
+        basePanSpeed: effectivePanSpeed,
         camera,
         target: controls.target,
         sceneBounds: panBounds,
@@ -104,7 +122,7 @@ export function WorkspaceOrbitControls({
       }
 
       const resolvedZoomSpeed = resolveWorkspaceOrbitZoomSpeed({
-        baseZoomSpeed: zoomSpeed,
+        baseZoomSpeed: effectiveZoomSpeed,
         camera,
         target: controls.target,
         sceneBounds: panBounds,
@@ -123,7 +141,7 @@ export function WorkspaceOrbitControls({
     return () => {
       controls.removeEventListener('change', syncControls);
     };
-  }, [camera, getClipBounds, getPanBounds, minDistance, panSpeed, zoomSpeed]);
+  }, [camera, getClipBounds, getPanBounds, minDistance, effectivePanSpeed, effectiveZoomSpeed]);
 
   return (
     <OrbitControls
@@ -132,9 +150,9 @@ export function WorkspaceOrbitControls({
       enabled={enabled}
       enableDamping={enableDamping}
       dampingFactor={dampingFactor}
-      rotateSpeed={rotateSpeed}
-      panSpeed={panSpeed}
-      zoomSpeed={zoomSpeed}
+      rotateSpeed={effectiveRotateSpeed}
+      panSpeed={effectivePanSpeed}
+      zoomSpeed={effectiveZoomSpeed}
       zoomToCursor={zoomToCursor}
       minDistance={minDistance}
       maxDistance={maxDistance}

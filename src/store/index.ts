@@ -4,11 +4,16 @@
  */
 
 // UI Store - app mode, theme, language, view options, panels, etc.
-export { useUIStore } from './uiStore';
+export {
+  useUIStore,
+  NAVIGATION_SENSITIVITY_MIN,
+  NAVIGATION_SENSITIVITY_MAX,
+} from './uiStore';
 export type {
   Language,
   ViewConfig,
   ViewOptions,
+  NavigationSensitivity,
   PanelsState,
   SidebarState,
   GlobalFontSize,

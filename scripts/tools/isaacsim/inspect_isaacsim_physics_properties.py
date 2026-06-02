@@ -129,6 +129,15 @@ def _local_xform_pose(prim) -> dict[str, list[float]] | None:
     return _round_matrix_pose(local_transform)
 
 
+def _world_position(xform_cache, prim) -> list[float] | None:
+    try:
+        world_matrix = xform_cache.GetLocalToWorldTransform(prim)
+    except Exception:
+        return None
+
+    return _round_vec3(world_matrix.ExtractTranslation())
+
+
 def _normalized_default_path(stage) -> str | None:
     default_prim = stage.GetDefaultPrim()
     if not default_prim or not default_prim.IsValid():
@@ -215,6 +224,7 @@ def summarize_stage(path: str) -> dict[str, object]:
             "type": prim.GetTypeName(),
             "worldPose": _round_matrix_pose(xform_cache.GetLocalToWorldTransform(prim)),
             "localPose": _local_xform_pose(prim),
+            "worldPosition": _world_position(xform_cache, prim),
             "mass": _round_scalar(mass_api.GetMassAttr().Get()),
             "centerOfMass": _round_vec3(mass_api.GetCenterOfMassAttr().Get()),
             "diagonalInertia": _round_vec3(mass_api.GetDiagonalInertiaAttr().Get()),
@@ -301,6 +311,7 @@ def summarize_stage(path: str) -> dict[str, object]:
             "type": body["type"],
             "worldPose": body["worldPose"],
             "localPose": body["localPose"],
+            "worldPosition": body["worldPosition"],
             "mass": body["mass"],
             "centerOfMass": body["centerOfMass"],
             "diagonalInertia": body["diagonalInertia"],

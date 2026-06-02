@@ -36,6 +36,16 @@ export interface ViewOptions {
   modelOpacity: number;
 }
 
+// Camera navigation sensitivity multipliers (1 = 100% = default feel).
+// Applied on top of the built-in WorkspaceOrbitControls tuning + the
+// model-size adaptive scaling, so the slider behaves like the "Navigation"
+// sensitivity preferences in large 3D software (Blender / Maya).
+export interface NavigationSensitivity {
+  zoom: number;
+  rotate: number;
+  pan: number;
+}
+
 // Panel visibility state
 export interface PanelsState {
   codeEditor: boolean;
@@ -80,6 +90,10 @@ interface UIState {
   // Ground plane offset (Z position)
   groundPlaneOffset: number;
   setGroundPlaneOffset: (offset: number) => void;
+
+  // Camera navigation sensitivity (zoom / rotate / pan multipliers)
+  navigationSensitivity: NavigationSensitivity;
+  setNavigationSensitivity: (partial: Partial<NavigationSensitivity>) => void;
 
   // Panel visibility
   panels: PanelsState;
@@ -162,6 +176,32 @@ const defaultViewOptions: ViewOptions = {
   showCenterOfMass: false,
   showCollision: false,
   modelOpacity: 1,
+};
+
+export const NAVIGATION_SENSITIVITY_MIN = 0.25;
+export const NAVIGATION_SENSITIVITY_MAX = 2;
+
+const defaultNavigationSensitivity: NavigationSensitivity = {
+  zoom: 1,
+  rotate: 1,
+  pan: 1,
+};
+
+const clampNavigationSensitivityValue = (value: unknown): number => {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 1;
+  }
+  return Math.min(Math.max(numeric, NAVIGATION_SENSITIVITY_MIN), NAVIGATION_SENSITIVITY_MAX);
+};
+
+const normalizeNavigationSensitivity = (value: unknown): NavigationSensitivity => {
+  const source = (value ?? {}) as Partial<NavigationSensitivity>;
+  return {
+    zoom: clampNavigationSensitivityValue(source.zoom ?? defaultNavigationSensitivity.zoom),
+    rotate: clampNavigationSensitivityValue(source.rotate ?? defaultNavigationSensitivity.rotate),
+    pan: clampNavigationSensitivityValue(source.pan ?? defaultNavigationSensitivity.pan),
+  };
 };
 
 const defaultPanels: PanelsState = {
@@ -355,6 +395,16 @@ export const useUIStore = create<UIState>()(
       groundPlaneOffset: 0,
       setGroundPlaneOffset: (offset) => set({ groundPlaneOffset: offset }),
 
+      // Camera navigation sensitivity
+      navigationSensitivity: defaultNavigationSensitivity,
+      setNavigationSensitivity: (partial) =>
+        set((state) => ({
+          navigationSensitivity: normalizeNavigationSensitivity({
+            ...state.navigationSensitivity,
+            ...partial,
+          }),
+        })),
+
       // Panels
       panels: defaultPanels,
       togglePanel: (panel) =>
@@ -484,7 +534,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'urdf-studio-ui',
-      version: 19,
+      version: 20,
       migrate: (persistedState: unknown, persistedVersion) => {
         if (!persistedState || typeof persistedState !== 'object') {
           return persistedState;
@@ -498,6 +548,7 @@ export const useUIStore = create<UIState>()(
           codeEditorFontFamily?: unknown;
           codeEditorFontSize?: unknown;
           massInertiaChangeBehavior?: unknown;
+          navigationSensitivity?: unknown;
         };
         const persistedPanelLayout = state.panelLayout ?? {};
         const hasLegacyCustomTreeHeights =
@@ -563,6 +614,7 @@ export const useUIStore = create<UIState>()(
             state.massInertiaChangeBehavior,
           ),
           detailLinkTab: normalizeDetailLinkTab(state.detailLinkTab),
+          navigationSensitivity: normalizeNavigationSensitivity(state.navigationSensitivity),
         };
       },
       partialize: (state) => ({
@@ -581,6 +633,7 @@ export const useUIStore = create<UIState>()(
         massInertiaChangeBehavior: state.massInertiaChangeBehavior,
         detailLinkTab: state.detailLinkTab,
         structureTreeShowGeometryDetails: state.structureTreeShowGeometryDetails,
+        navigationSensitivity: state.navigationSensitivity,
       }),
       onRehydrateStorage: () => (state) => {
         // Re-apply theme and font size on hydration

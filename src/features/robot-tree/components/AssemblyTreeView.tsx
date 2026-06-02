@@ -466,17 +466,8 @@ export const AssemblyTreeView = memo(
                 return;
               }
 
-              // Selecting the robot/component name should arm the move
-              // gizmo for the whole component (its root joint drives the
-              // entire chain), so the user does not have to drill into
-              // the "base" link first. Mirror the link-selection path
-              // that already makes "base" transformable.
               selectComponent(component.id);
-              if (componentHoverLinkId) {
-                onSelect('link', componentHoverLinkId);
-              } else {
-                setSelection({ type: null, id: null });
-              }
+              setSelection({ type: null, id: null });
             };
 
             return (

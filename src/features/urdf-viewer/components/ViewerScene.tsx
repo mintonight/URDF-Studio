@@ -262,6 +262,7 @@ export const ViewerScene = ({
           focusTarget={focusTarget}
           transformMode={controller.transformMode}
           toolMode={toolMode}
+          measureMode={controller.measureState.mode}
           ikDragActive={ikDragActive}
           onCollisionTransformPreview={onCollisionTransformPreview}
           onCollisionTransformEnd={onCollisionTransform}

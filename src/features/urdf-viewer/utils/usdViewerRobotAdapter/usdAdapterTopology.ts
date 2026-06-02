@@ -265,14 +265,30 @@ export function createClosedLoopConstraintFromUsdEntry(
   entry: ClosedLoopConstraintEntry,
   linkIdByPath: Map<string, string>,
 ): RobotClosedLoopConstraint | null {
+  const resolveClosedLoopLinkId = (linkPath: string): string | null => {
+    const exactLinkId = linkIdByPath.get(linkPath) || null;
+    const linkName = getPathBasename(linkPath);
+    if (!linkName) {
+      return exactLinkId;
+    }
+
+    for (const [candidatePath, candidateLinkId] of linkIdByPath.entries()) {
+      if (candidateLinkId === linkName && getPathBasename(candidatePath) === linkName) {
+        return candidateLinkId;
+      }
+    }
+
+    return exactLinkId;
+  };
+
   const linkAPath = normalizeUsdPath(entry.linkAPath);
   const linkBPath = normalizeUsdPath(entry.linkBPath);
   if (!linkAPath || !linkBPath) {
     return null;
   }
 
-  const linkAId = linkIdByPath.get(linkAPath);
-  const linkBId = linkIdByPath.get(linkBPath);
+  const linkAId = resolveClosedLoopLinkId(linkAPath);
+  const linkBId = resolveClosedLoopLinkId(linkBPath);
   if (!linkAId || !linkBId) {
     return null;
   }
@@ -284,7 +300,11 @@ export function createClosedLoopConstraintFromUsdEntry(
     return null;
   }
 
-  return {
+  const hasAuthoredAnchorWorld =
+    entry.anchorWorld &&
+    typeof entry.anchorWorld.length === 'number' &&
+    entry.anchorWorld.length >= 3;
+  const constraint: RobotClosedLoopConstraint = {
     id:
       String(entry.id || `${linkAId}_${linkBId}_closed_loop`).trim() ||
       `${linkAId}_${linkBId}_closed_loop`,
@@ -293,8 +313,11 @@ export function createClosedLoopConstraintFromUsdEntry(
     linkBId,
     anchorLocalA: toVector3(entry.anchorLocalA),
     anchorLocalB: toVector3(entry.anchorLocalB),
-    anchorWorld: { x: 0, y: 0, z: 0 },
+    anchorWorld: hasAuthoredAnchorWorld ? toVector3(entry.anchorWorld) : { x: 0, y: 0, z: 0 },
   };
+  return hasAuthoredAnchorWorld
+    ? ({ ...constraint, __usdAuthoredAnchorWorld: true } as RobotClosedLoopConstraint)
+    : constraint;
 }
 
 export function populateClosedLoopConstraintWorldAnchors(
@@ -309,6 +332,12 @@ export function populateClosedLoopConstraintWorldAnchors(
 
   const linkWorldMatrices = computeLinkWorldMatrices({ links, joints, rootLinkId });
   return constraints.map((constraint) => {
+    if ((constraint as RobotClosedLoopConstraint & { __usdAuthoredAnchorWorld?: true }).__usdAuthoredAnchorWorld) {
+      const { __usdAuthoredAnchorWorld: _authoredAnchorWorld, ...nextConstraint } =
+        constraint as RobotClosedLoopConstraint & { __usdAuthoredAnchorWorld?: true };
+      return nextConstraint;
+    }
+
     const linkAMatrix = linkWorldMatrices[constraint.linkAId];
     if (!linkAMatrix) {
       return constraint;

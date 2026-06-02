@@ -255,6 +255,11 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   showIkHandles: string;
   hideUsageGuide: string;
   showUsageGuide: string;
+  viewerNavigation: string;
+  zoomSensitivity: string;
+  rotateSensitivity: string;
+  panSensitivity: string;
+  resetNavigationSensitivity: string;
   clickToSelect: string;
   enableLabels: string;
   clickLabels: string;
@@ -652,6 +657,10 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
 
   // Measure Tool
   measureTool: string;
+  measureModeObject: string;
+  measureModePoint: string;
+  measurePointSlotEmpty: string;
+  measurePointInstruction: string;
   measureInstruction1: string;
   measureInstruction2: string;
   measureInstruction3: string;

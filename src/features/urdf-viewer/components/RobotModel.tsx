@@ -197,6 +197,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     focusTarget,
     transformMode = 'select',
     toolMode = 'select',
+    measureMode,
     ikDragActive = false,
     onCollisionTransformPreview,
     onCollisionTransformEnd,
@@ -673,6 +674,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
             baseMaterial,
             materialNamePrefix: `paint_${linkId}_${objectIndex}`,
           }),
+          color: undefined,
         });
         if (onUpdate) {
           onUpdate('link', link.id, nextLink);
@@ -706,6 +708,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         robot,
         robotVersion,
         toolMode,
+        measureMode,
         mode,
         showCollision,
         showVisual,

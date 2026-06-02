@@ -4,6 +4,7 @@ import * as THREE from 'three';
 
 import {
   addMeasureGroup,
+  appendMeasurePoint,
   applyMeasurePick,
   clearActiveMeasureGroup,
   clearMeasureState,
@@ -19,6 +20,8 @@ import {
   getMeasurementMetrics,
   removeMeasureGroup,
   setActiveMeasureGroup,
+  setMeasureMode,
+  undoMeasureState,
 } from './measurements.ts';
 
 test('creates a single measurement for the active group and keeps both slots selected', () => {
@@ -428,4 +431,116 @@ test('uses the selected direct visual body center when a link has multiple visua
   const center = getLinkMeasureCenter(link, 'visual', 1);
 
   assert.deepEqual(center.toArray(), [8, 0, 0]);
+});
+
+test('defaults to object mode and resets state when switching modes', () => {
+  const empty = createEmptyMeasureState();
+  assert.equal(empty.mode, 'object');
+
+  const withPick = applyMeasurePick(
+    empty,
+    createMeasureTarget({
+      linkName: 'base_link',
+      objectType: 'visual',
+      objectIndex: 0,
+      point: new THREE.Vector3(0, 0, 0),
+    }),
+  );
+
+  const pointState = setMeasureMode(withPick, 'point');
+  assert.equal(pointState.mode, 'point');
+  assert.equal(pointState.groups.length, 1);
+  assert.equal(pointState.groups[0].first, null);
+  assert.equal(pointState.groups[0].second, null);
+
+  // Switching to the same mode is a no-op (preserves the existing state reference).
+  assert.equal(setMeasureMode(pointState, 'point'), pointState);
+
+  const backToObject = setMeasureMode(pointState, 'object');
+  assert.equal(backToObject.mode, 'object');
+});
+
+test('appendMeasurePoint fills both slots with unique, pose-less point targets', () => {
+  const afterFirst = appendMeasurePoint(
+    createEmptyMeasureState('point'),
+    new THREE.Vector3(0, 0, 0),
+  );
+  const firstGroup = getActiveMeasureGroup(afterFirst);
+  assert.ok(firstGroup.first);
+  assert.equal(firstGroup.second, null);
+  assert.equal(firstGroup.activeSlot, 'second');
+  assert.equal(firstGroup.first?.poseWorldMatrix, null);
+  assert.equal(getMeasureStateMeasurements(afterFirst).length, 0);
+
+  const completed = appendMeasurePoint(afterFirst, new THREE.Vector3(3, 4, 12));
+  const measurement = getActiveMeasureMeasurement(completed);
+  assert.ok(measurement);
+  assert.equal(measurement.distance, 13);
+  assert.deepEqual(measurement.delta, { x: 3, y: 4, z: 12 });
+  // Free points carry no orientation, so no relative pose is derived.
+  assert.equal(measurement.relativePose, null);
+  // Each point gets a distinct key so endpoints never collapse together.
+  assert.notEqual(measurement.first.key, measurement.second.key);
+});
+
+test('appendMeasurePoint starts a new group once the active pair is complete', () => {
+  const completed = appendMeasurePoint(
+    appendMeasurePoint(createEmptyMeasureState('point'), new THREE.Vector3(0, 0, 0)),
+    new THREE.Vector3(1, 0, 0),
+  );
+  assert.equal(completed.groups.length, 1);
+
+  const afterThirdClick = appendMeasurePoint(completed, new THREE.Vector3(5, 0, 0));
+  assert.equal(afterThirdClick.groups.length, 2);
+  const activeGroup = getActiveMeasureGroup(afterThirdClick);
+  assert.ok(activeGroup.first);
+  assert.equal(activeGroup.second, null);
+  assert.equal(getMeasureStateMeasurements(afterThirdClick).length, 1);
+});
+
+test('undoMeasureState clears the in-progress point before removing completed groups', () => {
+  const inProgress = appendMeasurePoint(createEmptyMeasureState('point'), new THREE.Vector3(0, 0, 0));
+  const afterUndo = undoMeasureState(inProgress);
+  const undoneGroup = getActiveMeasureGroup(afterUndo);
+  assert.equal(undoneGroup.first, null);
+  assert.equal(undoneGroup.second, null);
+  assert.equal(afterUndo.mode, 'point');
+});
+
+test('clearMeasureState, addMeasureGroup and removeMeasureGroup preserve the active mode', () => {
+  const pointState = appendMeasurePoint(
+    createEmptyMeasureState('point'),
+    new THREE.Vector3(0, 0, 0),
+  );
+
+  assert.equal(clearMeasureState('point').mode, 'point');
+  assert.equal(addMeasureGroup(pointState).mode, 'point');
+
+  // Removing the only group recreates an empty state but keeps the mode.
+  const onlyGroupId = pointState.groups[0].id;
+  const afterRemove = removeMeasureGroup(pointState, onlyGroupId);
+  assert.equal(afterRemove.groups.length, 1);
+  assert.equal(afterRemove.mode, 'point');
+});
+
+test('createMeasureTarget honours key/label overrides and falls back to link defaults', () => {
+  const overridden = createMeasureTarget({
+    linkName: '',
+    objectType: 'visual',
+    objectIndex: 0,
+    point: new THREE.Vector3(1, 2, 3),
+    key: 'point:custom',
+    label: 'P1',
+  });
+  assert.equal(overridden.key, 'point:custom');
+  assert.equal(overridden.label, 'P1');
+
+  const defaulted = createMeasureTarget({
+    linkName: 'base_link',
+    objectType: 'visual',
+    objectIndex: 0,
+    point: new THREE.Vector3(0, 0, 0),
+  });
+  assert.equal(defaulted.key, 'link:base_link');
+  assert.equal(defaulted.label, 'base_link');
 });

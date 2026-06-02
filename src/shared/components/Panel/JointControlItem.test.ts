@@ -374,17 +374,19 @@ test('advanced limit commit does not leak non-serializable runtime joint fields 
     },
   });
 
+  const runtimeJoint = {
+    id: 'runtime_fl_hip_joint',
+    name: 'FL_hip_joint',
+    jointType: 'revolute',
+    limit: { lower: -1.57, upper: 3.49, effort: 1, velocity: 1 },
+    runtimeOnly: dom.window,
+    onRotationChange: () => {},
+  };
+
   await renderJointControlItem(root, {
     isAdvanced: true,
     name: 'FL_hip_joint',
-    joint: {
-      id: 'runtime_fl_hip_joint',
-      name: 'FL_hip_joint',
-      jointType: 'revolute',
-      limit: { lower: -1.57, upper: 3.49, effort: 1, velocity: 1 },
-      runtimeOnly: dom.window,
-      onRotationChange: () => {},
-    },
+    joint: runtimeJoint,
     onUpdate: (type, id, data) => {
       updates.push({
         type,

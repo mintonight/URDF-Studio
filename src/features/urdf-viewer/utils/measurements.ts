@@ -5,6 +5,7 @@ export type MeasureSlot = 'first' | 'second';
 export type MeasureObjectType = 'visual' | 'collision';
 export type MeasureAnchorMode = 'frame' | 'centerOfMass' | 'geometry';
 export type MeasurePoseRepresentation = 'matrix' | 'rpy' | 'quat' | 'axisAngle';
+export type MeasureMode = 'object' | 'point';
 
 export interface MeasureRelativePose {
   matrix: THREE.Matrix4;
@@ -40,6 +41,10 @@ export interface MeasureTargetInput {
   objectIndex: number;
   point: THREE.Vector3;
   poseWorldMatrix?: THREE.Matrix4 | null;
+  /** Override the auto-derived `link:<name>` key (used by free-point mode for unique keys). */
+  key?: string;
+  /** Override the display label (defaults to `linkName`). */
+  label?: string;
 }
 
 export interface MeasureTarget {
@@ -86,6 +91,7 @@ export interface MeasureGroup {
 }
 
 export interface MeasureState {
+  mode: MeasureMode;
   groups: MeasureGroup[];
   activeGroupId: string;
   hoverTarget: MeasureTarget | null;
@@ -468,9 +474,10 @@ function updateMeasureGroup(
   return changed ? { ...state, groups } : state;
 }
 
-export function createEmptyMeasureState(): MeasureState {
+export function createEmptyMeasureState(mode: MeasureMode = 'object'): MeasureState {
   const initialGroup = createMeasureGroup();
   return {
+    mode,
     groups: [initialGroup],
     activeGroupId: initialGroup.id,
     hoverTarget: null,
@@ -483,10 +490,12 @@ export function createMeasureTarget({
   objectIndex,
   point,
   poseWorldMatrix = null,
+  key,
+  label,
 }: MeasureTargetInput): MeasureTarget {
   return {
-    key: `link:${linkName}`,
-    label: linkName,
+    key: key ?? `link:${linkName}`,
+    label: label ?? linkName,
     linkName,
     objectType,
     objectIndex,
@@ -573,7 +582,7 @@ export function removeMeasureGroup(state: MeasureState, groupId: string): Measur
 
   const remainingGroups = state.groups.filter((group) => group.id !== groupId);
   if (remainingGroups.length === 0) {
-    return createEmptyMeasureState();
+    return createEmptyMeasureState(state.mode);
   }
 
   const nextActiveGroupId =
@@ -691,6 +700,55 @@ export function undoMeasureState(state: MeasureState): MeasureState {
   return state;
 }
 
-export function clearMeasureState(): MeasureState {
-  return createEmptyMeasureState();
+export function clearMeasureState(mode: MeasureMode = 'object'): MeasureState {
+  return createEmptyMeasureState(mode);
+}
+
+export function setMeasureMode(state: MeasureState, mode: MeasureMode): MeasureState {
+  if (state.mode === mode) {
+    return state;
+  }
+
+  // Object and free-point groups must never share a list: their slots carry
+  // different semantics (resolved link vs. raw surface point), which would make
+  // undo/labels ambiguous. Switching mode starts from a clean state.
+  return createEmptyMeasureState(mode);
+}
+
+function createMeasurePointKey(): string {
+  const randomUuid = globalThis.crypto?.randomUUID?.bind(globalThis.crypto);
+  if (randomUuid) {
+    return `point:${randomUuid()}`;
+  }
+
+  return `point:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Free-point picking: append a raw surface hit point to the active group's
+ * current slot, reusing the same slot auto-advance / grouping semantics as
+ * object picking. Point targets carry no link/pose, so relative-pose math
+ * resolves to null (free points have no orientation).
+ */
+export function appendMeasurePoint(state: MeasureState, point: THREE.Vector3): MeasureState {
+  // Once the active group has both points, the next click starts a fresh pair —
+  // matching the classic point-to-point flow where every two clicks draw a new line.
+  const baseState = (() => {
+    const activeGroup = getActiveMeasureGroup(state);
+    return activeGroup.first && activeGroup.second ? addMeasureGroup(state) : state;
+  })();
+
+  const activeGroup = getActiveMeasureGroup(baseState);
+  const slotLabel = activeGroup.activeSlot === 'second' ? 'P2' : 'P1';
+  const target = createMeasureTarget({
+    linkName: '',
+    objectType: 'visual',
+    objectIndex: 0,
+    point,
+    poseWorldMatrix: null,
+    key: createMeasurePointKey(),
+    label: slotLabel,
+  });
+
+  return applyMeasurePick(baseState, target);
 }

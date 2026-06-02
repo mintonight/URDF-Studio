@@ -934,7 +934,8 @@ export class ThreeRenderDelegateCore {
                 return cachedSnapshot;
             }
         }
-        const shouldReadStageDataInJs = false;
+        const shouldReadStageDataInJs = truth
+            || (!hasDriverPhysicsAccess && this.disableStageLayerTextFallbacks !== true);
         let resolvedStage = null;
         let resolvedStageInitialized = false;
         const getStageForMetadataFallback = () => {
@@ -944,6 +945,36 @@ export class ThreeRenderDelegateCore {
             resolvedStageInitialized = true;
             resolvedStage = shouldReadStageDataInJs ? (this.getStage?.() || null) : null;
             return resolvedStage;
+        };
+        const metadataErrorFlags = new Set();
+        const registerMetadataErrorFlag = (value) => {
+            const normalized = String(value || '').trim();
+            if (normalized) {
+                metadataErrorFlags.add(normalized);
+            }
+        };
+        const shouldRecoverStageMetadataFromLayerText = (rootLayerText) => {
+            const text = String(rootLayerText || '');
+            if (!text.trim())
+                return false;
+            if (text.includes('urdfStudio:roundtripMetadata'))
+                return true;
+            if (/\.viewer_roundtrip\.usd[a-z]?$/i.test(String(normalizedStagePath || '')))
+                return true;
+            return /variantSet\s+"Physics"/.test(text)
+                && /variantSet\s+"Sensor"/.test(text)
+                && (/_description\b/.test(text) || /_description(?:\.usd[a-z]?|\/)/i.test(String(normalizedStagePath || '')));
+        };
+        const hasRecoverableRobotMetadataLayerText = (layerTexts) => {
+            if (!Array.isArray(layerTexts) || layerTexts.length <= 0)
+                return false;
+            return layerTexts.some((layerText) => {
+                const text = String(layerText || '');
+                return /def\s+Physics(?:Fixed|Revolute|Prismatic|Spherical|D6)Joint\b/.test(text)
+                    || /rel\s+physics:body[01]\s*=/.test(text)
+                    || /\burdf:(?:jointType|originXyz|originQuatWxyz|axisLocal|closedLoopType)\b/.test(text)
+                    || /\bphysics:(?:mass|centerOfMass|diagonalInertia|principalAxes)\b/.test(text);
+            });
         };
         let metadataLayerTexts = [];
         if (activeDriver && typeof activeDriver.GetRootLayerText === 'function') {
@@ -956,22 +987,68 @@ export class ThreeRenderDelegateCore {
                 registerMetadataErrorFlag('root-layer-text-unavailable');
             }
         }
+        if (!truth && !hasDriverPhysicsAccess && shouldReadStageDataInJs) {
+            const stage = getStageForMetadataFallback();
+            let rootLayerText = '';
+            try {
+                rootLayerText = this.safeExportLayerText?.(stage?.GetRootLayer?.()) || '';
+            }
+            catch {
+                registerMetadataErrorFlag('root-layer-text-unavailable');
+            }
+            if (shouldRecoverStageMetadataFromLayerText(rootLayerText)) {
+                try {
+                    const stageLayerTexts = this.getStageMetadataLayerTexts?.(stage, normalizedStagePath) || [];
+                    if (Array.isArray(stageLayerTexts) && stageLayerTexts.length > 0) {
+                        const seenTexts = new Set(metadataLayerTexts);
+                        metadataLayerTexts = metadataLayerTexts.slice();
+                        for (const layerText of stageLayerTexts) {
+                            const text = String(layerText || '').trim();
+                            if (!text || seenTexts.has(text))
+                                continue;
+                            seenTexts.add(text);
+                            metadataLayerTexts.push(text);
+                        }
+                    }
+                }
+                catch {
+                    registerMetadataErrorFlag('stage-layer-text-unavailable');
+                }
+            }
+        }
         const meshCountsByLinkPath = {};
         const linkPathSet = new Set();
         const syntheticSemanticChildParentPathByChildLinkPath = new Map();
-        const metadataErrorFlags = new Set();
-        const registerMetadataErrorFlag = (value) => {
-            const normalized = String(value || '').trim();
-            if (normalized) {
-                metadataErrorFlags.add(normalized);
-            }
-        };
         const addKnownLinkPath = (value) => {
             const normalizedPath = normalizeUsdPathToken(String(value || ''));
             if (!normalizedPath || !normalizedPath.startsWith('/'))
                 return null;
             linkPathSet.add(normalizedPath);
             return normalizedPath;
+        };
+        const normalizeLinkNameLookupKey = (value) => String(value || '').trim().replace(/[^\w]+/g, '_').toLowerCase();
+        const getLinkNameLookupKeys = (value) => {
+            const raw = String(value || '').trim();
+            const normalized = normalizeLinkNameLookupKey(raw);
+            return Array.from(new Set([raw, normalized].filter(Boolean)));
+        };
+        const resolveKnownLinkPathByEquivalentBasename = (value) => {
+            const normalizedPath = normalizeUsdPathToken(String(value || ''));
+            const sourceNameKey = normalizeLinkNameLookupKey(getPathBasename(normalizedPath));
+            if (!sourceNameKey)
+                return null;
+            for (const knownPath of linkPathSet) {
+                if (knownPath === normalizedPath)
+                    return knownPath;
+                if (normalizeLinkNameLookupKey(getPathBasename(knownPath)) === sourceNameKey) {
+                    return knownPath;
+                }
+            }
+            return null;
+        };
+        const addKnownStageMetadataLinkPath = (value) => {
+            const remappedPath = resolveKnownLinkPathByEquivalentBasename(value);
+            return addKnownLinkPath(remappedPath || value);
         };
         const addTruthLinkNames = (targetSet, source) => {
             if (!(targetSet instanceof Set) || !source)
@@ -1329,14 +1406,17 @@ export class ThreeRenderDelegateCore {
                 addKnownLinkPath(dynamicsRecord?.linkPath);
             }
         }
-        if (hasDriverPhysicsAccess && metadataLayerTexts.length > 0) {
+        if (
+            metadataLayerTexts.length > 0 &&
+            (hasDriverPhysicsAccess || hasRecoverableRobotMetadataLayerText(metadataLayerTexts))
+        ) {
             for (const layerText of metadataLayerTexts) {
                 for (const jointRecord of extractJointRecordsFromLayerText(layerText)) {
-                    addKnownLinkPath(jointRecord?.body0Path);
-                    addKnownLinkPath(jointRecord?.body1Path);
+                    addKnownStageMetadataLinkPath(jointRecord?.body0Path);
+                    addKnownStageMetadataLinkPath(jointRecord?.body1Path);
                 }
                 for (const linkPath of parseLinkDynamicsPatchesFromLayerText(layerText).keys()) {
-                    addKnownLinkPath(linkPath);
+                    addKnownStageMetadataLinkPath(linkPath);
                 }
             }
         }
@@ -1481,9 +1561,11 @@ export class ThreeRenderDelegateCore {
             for (const linkPath of sortedLinkPaths) {
                 const linkName = getPathBasename(linkPath);
                 if (linkName) {
-                    const existing = runtimeLinkPathsByNameForMerge.get(linkName) || [];
-                    existing.push(linkPath);
-                    runtimeLinkPathsByNameForMerge.set(linkName, existing);
+                    for (const lookupKey of getLinkNameLookupKeys(linkName)) {
+                        const existing = runtimeLinkPathsByNameForMerge.get(lookupKey) || [];
+                        existing.push(linkPath);
+                        runtimeLinkPathsByNameForMerge.set(lookupKey, existing);
+                    }
                 }
                 const rootPath = getRootPathFromPrimPath(linkPath);
                 if (rootPath && !rootPathSetForMerge.has(rootPath)) {
@@ -1523,8 +1605,10 @@ export class ThreeRenderDelegateCore {
                 addMatch(normalizedSourcePath);
                 const linkName = getPathBasename(normalizedSourcePath || source.replace(/[<>]/g, ''));
                 if (linkName) {
-                    for (const candidatePath of runtimeLinkPathsByNameForMerge.get(linkName) || []) {
-                        addMatch(candidatePath);
+                    for (const lookupKey of getLinkNameLookupKeys(linkName)) {
+                        for (const candidatePath of runtimeLinkPathsByNameForMerge.get(lookupKey) || []) {
+                            addMatch(candidatePath);
+                        }
                     }
                 }
                 if (normalizedSourcePath) {
@@ -1789,24 +1873,26 @@ export class ThreeRenderDelegateCore {
                     });
                 }
             }
-            annotationErrorFlags.push('usd-driver-metadata-missing');
-            const meshOnlySnapshot = this.applyRobotMetadataErrorAnnotations({
-                stageSourcePath: normalizedStagePath,
-                generatedAtMs: this._nowPerfMs(),
-                source: 'mesh-only',
-                linkParentPairs: [],
-                jointCatalogEntries: [],
-                linkDynamicsEntries: [],
-                closedLoopConstraintEntries: [],
-                meshCountsByLinkPath,
-            }, {
-                errorFlags: annotationErrorFlags,
-                truthLoadError,
-            });
-            if (normalizedStagePath && this._robotMetadataSnapshotByStageSource?.set) {
-                this._robotMetadataSnapshotByStageSource.set(normalizedStagePath, meshOnlySnapshot);
+            if (!hasRecoverableRobotMetadataLayerText(metadataLayerTexts)) {
+                annotationErrorFlags.push('usd-driver-metadata-missing');
+                const meshOnlySnapshot = this.applyRobotMetadataErrorAnnotations({
+                    stageSourcePath: normalizedStagePath,
+                    generatedAtMs: this._nowPerfMs(),
+                    source: 'mesh-only',
+                    linkParentPairs: [],
+                    jointCatalogEntries: [],
+                    linkDynamicsEntries: [],
+                    closedLoopConstraintEntries: [],
+                    meshCountsByLinkPath,
+                }, {
+                    errorFlags: annotationErrorFlags,
+                    truthLoadError,
+                });
+                if (normalizedStagePath && this._robotMetadataSnapshotByStageSource?.set) {
+                    this._robotMetadataSnapshotByStageSource.set(normalizedStagePath, meshOnlySnapshot);
+                }
+                return meshOnlySnapshot;
             }
-            return meshOnlySnapshot;
         }
         const jointCatalogEntries = [];
         const linkDynamicsEntries = [];
@@ -1818,9 +1904,11 @@ export class ThreeRenderDelegateCore {
             const linkName = getPathBasename(linkPath);
             if (!linkName)
                 continue;
-            const existing = runtimeLinkPathsByName.get(linkName) || [];
-            existing.push(linkPath);
-            runtimeLinkPathsByName.set(linkName, existing);
+            for (const lookupKey of getLinkNameLookupKeys(linkName)) {
+                const existing = runtimeLinkPathsByName.get(lookupKey) || [];
+                existing.push(linkPath);
+                runtimeLinkPathsByName.set(lookupKey, existing);
+            }
         }
         const sortByPreferredRoot = (paths, preferredRootPath = null) => {
             const deduped = Array.from(new Set(paths.filter(Boolean)));
@@ -1853,8 +1941,10 @@ export class ThreeRenderDelegateCore {
             addMatch(normalizedSourcePath);
             const linkName = getPathBasename(normalizedSourcePath || source.replace(/[<>]/g, ''));
             if (linkName) {
-                for (const candidatePath of runtimeLinkPathsByName.get(linkName) || []) {
-                    addMatch(candidatePath);
+                for (const lookupKey of getLinkNameLookupKeys(linkName)) {
+                    for (const candidatePath of runtimeLinkPathsByName.get(lookupKey) || []) {
+                        addMatch(candidatePath);
+                    }
                 }
             }
             if (normalizedSourcePath) {
@@ -1956,28 +2046,30 @@ export class ThreeRenderDelegateCore {
                 const driveDamping = toFiniteNumber(jointRecord?.driveDamping);
                 const driveMaxForce = toFiniteNumber(jointRecord?.driveMaxForce);
                 if (closedLoopType) {
-                    const childLinkPaths = resolveRuntimeLinkPathsFromSourcePath(body1Path);
-                    for (const childLinkPath of childLinkPaths) {
-                        if (!childLinkPath)
-                            continue;
-                        const preferredRootPath = getRootPathFromPrimPath(childLinkPath);
-                        const parentCandidates = resolveRuntimeLinkPathsFromSourcePath(body0Path, preferredRootPath);
-                        const parentLinkPath = parentCandidates[0] || null;
-                        if (!parentLinkPath)
-                            continue;
-                        const entryKey = `${closedLoopId || jointName || ''}|${parentLinkPath}|${childLinkPath}|${closedLoopType}`;
-                        if (closedLoopConstraintKeySet.has(entryKey))
-                            continue;
-                        closedLoopConstraintKeySet.add(entryKey);
-                        closedLoopConstraintEntries.push({
-                            id: closedLoopId || jointName || null,
-                            constraintType: closedLoopType,
-                            linkAPath: parentLinkPath,
-                            linkBPath: childLinkPath,
-                            anchorLocalA: normalizedOriginXyz || [0, 0, 0],
-                            anchorLocalB: localPos1,
-                        });
-                    }
+                    const childCandidates = resolveRuntimeLinkPathsFromSourcePath(body1Path);
+                    const exactChildPath = body1Path && linkPathSet.has(body1Path) ? body1Path : null;
+                    const childLinkPath = exactChildPath || childCandidates[0] || null;
+                    if (!childLinkPath)
+                        continue;
+                    const preferredRootPath = getRootPathFromPrimPath(childLinkPath);
+                    const parentCandidates = resolveRuntimeLinkPathsFromSourcePath(body0Path, preferredRootPath);
+                    const exactParentPath = body0Path && linkPathSet.has(body0Path) ? body0Path : null;
+                    const parentLinkPath = exactParentPath || parentCandidates[0] || null;
+                    if (!parentLinkPath)
+                        continue;
+                    const entryKey = `${closedLoopId || jointName || jointPath || ''}|${closedLoopType}`;
+                    if (closedLoopConstraintKeySet.has(entryKey))
+                        continue;
+                    closedLoopConstraintKeySet.add(entryKey);
+                    closedLoopConstraintEntries.push({
+                        id: closedLoopId || jointName || null,
+                        constraintType: closedLoopType,
+                        linkAPath: parentLinkPath,
+                        linkBPath: childLinkPath,
+                        anchorWorld: jointRecord?.anchorWorld || null,
+                        anchorLocalA: normalizedOriginXyz || [0, 0, 0],
+                        anchorLocalB: localPos1,
+                    });
                     continue;
                 }
                 const key = `${jointName}|${body0Path || ''}|${body1Path}`;

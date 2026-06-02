@@ -125,7 +125,7 @@ test('usdExport worker client rejects immediately when Worker is unavailable', a
         exportName: 'worker_bot',
         assets: {},
       }),
-      /Web Worker is not available in this environment/i,
+      /USD export worker is not available in this environment/i,
     );
   } finally {
     Object.defineProperty(globalThis, 'Worker', {

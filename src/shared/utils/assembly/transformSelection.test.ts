@@ -95,7 +95,7 @@ test('resolveAssemblyRootComponentSelection only accepts a component root link p
   );
 });
 
-test('isAssemblyTransformSelectionArmed only arms component transforms for a root link selection', () => {
+test('isAssemblyTransformSelectionArmed arms component transforms from component or root-link selection', () => {
   const assemblyState = createAssemblyState();
 
   assert.equal(
@@ -122,7 +122,7 @@ test('isAssemblyTransformSelectionArmed only arms component transforms for a roo
       { type: 'component', id: 'component_a' },
       { type: null, id: null },
     ),
-    false,
+    true,
   );
 
   assert.equal(

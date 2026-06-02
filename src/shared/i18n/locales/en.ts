@@ -280,6 +280,11 @@ export const en: TranslationKeys = {
   showIkHandles: 'Enable IK Drag',
   hideUsageGuide: 'Hide controls hint',
   showUsageGuide: 'Show controls hint',
+  viewerNavigation: 'Navigation',
+  zoomSensitivity: 'Zoom Sensitivity',
+  rotateSensitivity: 'Rotate Sensitivity',
+  panSensitivity: 'Pan Sensitivity',
+  resetNavigationSensitivity: 'Reset',
   clickToSelect: 'Click objects to select.',
   enableLabels: 'Enable labels to select.',
   clickLabels: 'Click labels to select.',
@@ -719,6 +724,10 @@ export const en: TranslationKeys = {
 
   // Measure Tool
   measureTool: 'Measure Tool',
+  measureModeObject: 'Object',
+  measureModePoint: 'Point',
+  measurePointSlotEmpty: 'Click a surface point in the viewport',
+  measurePointInstruction: 'Click two surface points to measure their distance',
   measureInstruction1:
     'Choose whether the measurement snaps to the link frame / TF origin, center of mass, or geometry center',
   measureInstruction2: 'Esc to clear the current link selection',

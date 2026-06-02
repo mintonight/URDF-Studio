@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
 type UIStoreModule = typeof import('./uiStore.ts');
-const UI_STORE_PERSIST_VERSION = 19;
+const UI_STORE_PERSIST_VERSION = 20;
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -248,6 +248,46 @@ test('migration resets legacy IK handle visibility to the hidden default', async
 
   assert.equal(persisted.version, UI_STORE_PERSIST_VERSION);
   assert.equal(persisted.state?.viewOptions?.showIkHandles, false);
+
+  dom.window.close();
+});
+
+test('navigation sensitivity defaults to 100% for fresh sessions', async () => {
+  const { dom, useUIStore } = await loadUIStore();
+
+  const state = useUIStore.getState();
+  assert.deepEqual(state.navigationSensitivity, { zoom: 1, rotate: 1, pan: 1 });
+
+  dom.window.close();
+});
+
+test('legacy sessions without navigation sensitivity migrate to defaults', async () => {
+  const { dom, useUIStore } = await loadUIStore({}, 14);
+
+  const state = useUIStore.getState();
+  assert.deepEqual(state.navigationSensitivity, { zoom: 1, rotate: 1, pan: 1 });
+
+  dom.window.close();
+});
+
+test('navigation sensitivity restores persisted values and clamps via the setter', async () => {
+  const { dom, useUIStore } = await loadUIStore({
+    navigationSensitivity: { zoom: 0.5, rotate: 1.5, pan: 2 },
+  });
+
+  assert.deepEqual(useUIStore.getState().navigationSensitivity, {
+    zoom: 0.5,
+    rotate: 1.5,
+    pan: 2,
+  });
+
+  // Out-of-range input is clamped to the [0.25, 2] envelope.
+  useUIStore.getState().setNavigationSensitivity({ zoom: 9 });
+  assert.equal(useUIStore.getState().navigationSensitivity.zoom, 2);
+  useUIStore.getState().setNavigationSensitivity({ rotate: 0 });
+  assert.equal(useUIStore.getState().navigationSensitivity.rotate, 0.25);
+  // Untouched axes are preserved.
+  assert.equal(useUIStore.getState().navigationSensitivity.pan, 2);
 
   dom.window.close();
 });

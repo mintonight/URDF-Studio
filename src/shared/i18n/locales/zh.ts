@@ -265,6 +265,11 @@ export const zh: TranslationKeys = {
   showIkHandles: '启用 IK 拖动',
   hideUsageGuide: '隐藏操作提示',
   showUsageGuide: '显示操作提示',
+  viewerNavigation: '视角导航',
+  zoomSensitivity: '缩放灵敏度',
+  rotateSensitivity: '旋转灵敏度',
+  panSensitivity: '平移灵敏度',
+  resetNavigationSensitivity: '重置',
   clickToSelect: '点击物体进行选择。',
   enableLabels: '启用标签以进行选择。',
   clickLabels: '点击标签进行选择。',
@@ -688,6 +693,10 @@ export const zh: TranslationKeys = {
 
   // Measure Tool
   measureTool: '测量工具',
+  measureModeObject: '对象测量',
+  measureModePoint: '点到点',
+  measurePointSlotEmpty: '在视图中点击一个曲面点',
+  measurePointInstruction: '点击两个曲面点测量它们之间的距离',
   measureInstruction1: '可选择吸附到 link frame / TF 原点、质心，或几何中心来测量距离',
   measureInstruction2: 'Esc 清空当前 link 选择',
   measureInstruction3: 'Delete 撤销当前选择或上一条测量',

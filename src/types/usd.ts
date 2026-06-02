@@ -171,6 +171,7 @@ export interface UsdClosedLoopConstraintEntry {
   constraintType?: string | null;
   linkAPath?: string | null;
   linkBPath?: string | null;
+  anchorWorld?: ArrayLike<number> | null;
   anchorLocalA?: ArrayLike<number> | null;
   anchorLocalB?: ArrayLike<number> | null;
 }

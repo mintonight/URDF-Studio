@@ -10,8 +10,15 @@ const TREE_FILE_BROWSER_MAX_HEIGHT = 1200;
 const TREE_JOINT_PANEL_MIN_HEIGHT = 40;
 const TREE_JOINT_PANEL_MAX_HEIGHT = 1200;
 const TREE_BALANCED_PANEL_FALLBACK_HEIGHT = 240;
+// Keep the structure-tree section (its header/tab + a little content) on screen no matter how far
+// the file browser / joint panels are dragged or how short the sidebar becomes.
+const TREE_STRUCTURE_MIN_HEIGHT = 96;
+// Approximate height a collapsed, header-only section occupies. Reserved so a collapsed section's
+// toggle stays visible.
+const TREE_COLLAPSED_SECTION_HEIGHT = 36;
 const TREE_EDITOR_FILE_BROWSER_SECTION_KEY = 'tree_editor_file_browser';
 const TREE_EDITOR_STRUCTURE_SECTION_KEY = 'tree_editor_structure';
+const TREE_EDITOR_JOINT_SECTION_KEY = 'tree_editor_joint_panel';
 
 function applyTreeSidebarWidth(node: HTMLDivElement | null, width: number) {
   if (!node) {
@@ -77,15 +84,59 @@ export function useTreeEditorLayout({
   const setPanelSection = useUIStore((state) => state.setPanelSection);
   const isFileBrowserOpen = !(panelSections[TREE_EDITOR_FILE_BROWSER_SECTION_KEY] ?? false);
   const isStructureOpen = !(panelSections[TREE_EDITOR_STRUCTURE_SECTION_KEY] ?? false);
+  const isJointPanelCollapsed = panelSections[TREE_EDITOR_JOINT_SECTION_KEY] ?? false;
   const balancedPanelHeight = useMemo(
     () => resolveBalancedTreePanelHeight(contentHeight, hasJointPanel ? 3 : 2),
     [contentHeight, hasJointPanel],
   );
   const usesBalancedPanelHeights = treePanelHeightMode === 'balanced';
-  const fileBrowserHeight = usesBalancedPanelHeights
+  const rawFileBrowserHeight = usesBalancedPanelHeights
     ? balancedPanelHeight
     : storedFileBrowserHeight;
-  const jointPanelHeight = usesBalancedPanelHeights ? balancedPanelHeight : storedJointPanelHeight;
+  const rawJointPanelHeight = usesBalancedPanelHeights
+    ? balancedPanelHeight
+    : storedJointPanelHeight;
+
+  // The file browser and joint panels are fixed-height (shrink-0) while the structure tree absorbs
+  // the remaining space. Without bounding the fixed panels against the available content height,
+  // dragging them long enough pushes the structure-tree section — and its header/tab — off screen.
+  // Bound each panel so the structure section always keeps at least `structureReserve` px.
+  const hasMeasuredContentHeight =
+    typeof contentHeight === 'number' && Number.isFinite(contentHeight) && contentHeight > 0;
+  const structureReserve = isStructureOpen
+    ? TREE_STRUCTURE_MIN_HEIGHT
+    : TREE_COLLAPSED_SECTION_HEIGHT;
+  const jointContribution = !hasJointPanel
+    ? 0
+    : isJointPanelCollapsed
+      ? TREE_COLLAPSED_SECTION_HEIGHT
+      : rawJointPanelHeight;
+
+  const fileBrowserMax = hasMeasuredContentHeight
+    ? Math.max(
+        TREE_FILE_BROWSER_MIN_HEIGHT,
+        Math.min(
+          TREE_FILE_BROWSER_MAX_HEIGHT,
+          (contentHeight as number) - structureReserve - jointContribution,
+        ),
+      )
+    : TREE_FILE_BROWSER_MAX_HEIGHT;
+  const fileBrowserHeight = Math.min(rawFileBrowserHeight, fileBrowserMax);
+
+  // Joints sit below the file browser, so bound them against the file browser's clamped height too.
+  const fileBrowserContribution = isFileBrowserOpen
+    ? fileBrowserHeight
+    : TREE_COLLAPSED_SECTION_HEIGHT;
+  const jointPanelMax = hasMeasuredContentHeight
+    ? Math.max(
+        TREE_JOINT_PANEL_MIN_HEIGHT,
+        Math.min(
+          TREE_JOINT_PANEL_MAX_HEIGHT,
+          (contentHeight as number) - structureReserve - fileBrowserContribution,
+        ),
+      )
+    : TREE_JOINT_PANEL_MAX_HEIGHT;
+  const jointPanelHeight = Math.min(rawJointPanelHeight, jointPanelMax);
 
   const updateContentHeight = useCallback((height: number) => {
     if (!Number.isFinite(height) || height <= 0) {
@@ -173,7 +224,7 @@ export function useTreeEditorLayout({
     axis: 'y',
     cursor: 'row-resize',
     min: TREE_FILE_BROWSER_MIN_HEIGHT,
-    max: TREE_FILE_BROWSER_MAX_HEIGHT,
+    max: fileBrowserMax,
     value: fileBrowserHeight,
     onChange: (nextHeight) => setPanelLayout('treeFileBrowserHeight', nextHeight),
   });
@@ -182,7 +233,7 @@ export function useTreeEditorLayout({
     axis: 'y',
     cursor: 'row-resize',
     min: TREE_JOINT_PANEL_MIN_HEIGHT,
-    max: TREE_JOINT_PANEL_MAX_HEIGHT,
+    max: jointPanelMax,
     value: jointPanelHeight,
     onChange: (nextHeight) => setPanelLayout('treeJointPanelHeight', nextHeight),
   });

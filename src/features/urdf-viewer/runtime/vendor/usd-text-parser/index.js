@@ -400,6 +400,7 @@ export function extractJointRecordsFromLayerText(layerText) {
         const closedLoopType = String(body.match(/urdf:closedLoopType\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
         const urdfJointType = String(body.match(/urdf:jointType\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
         const localPos0 = parseVector3FromTupleLiteral(body.match(/physics:localPos0\s*=\s*\(([^)]+)\)/i)?.[1] || "");
+        const anchorWorld = parseVector3FromTupleLiteral(body.match(/urdf:anchorWorld\s*=\s*\(([^)]+)\)/i)?.[1] || "");
         const originXyz = parseVector3FromTupleLiteral((body.match(/urdf:originXyz\s*=\s*\(([^)]+)\)/i)?.[1]
             || (localPos0 ? localPos0.join(", ") : "")
             || ""));
@@ -421,6 +422,7 @@ export function extractJointRecordsFromLayerText(layerText) {
             driveMaxForce: driveMaxForce === undefined ? null : driveMaxForce,
             closedLoopId: closedLoopId || null,
             closedLoopType: closedLoopType || null,
+            anchorWorld,
             originXyz,
             originQuatWxyz,
             localPos0,

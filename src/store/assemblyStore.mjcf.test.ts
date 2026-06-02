@@ -122,6 +122,8 @@ function buildT1PiperAssemblyExportRobot() {
 
   return {
     assemblyState,
+    t1Component,
+    piperComponent,
     exportRobot: {
       ...buildExportableAssemblyRobotData(assemblyState),
       selection: { type: null, id: null as string | null },
@@ -178,6 +180,8 @@ function buildT1PiperLink5AssemblyExportRobot() {
 
   return {
     assemblyState,
+    t1Component,
+    piperComponent,
     exportRobot: {
       ...buildExportableAssemblyRobotData(assemblyState),
       selection: { type: null, id: null as string | null },
@@ -239,26 +243,31 @@ test('MJCF assembly merge re-roots the merged graph after bridge joints change t
 });
 
 test('MJCF assembly export keeps PiPER mimic joints valid after bridge creation', () => {
-  const { exportRobot } = buildT1PiperAssemblyExportRobot();
+  const { exportRobot, piperComponent } = buildT1PiperAssemblyExportRobot();
   const merged = useRobotStore.getState().getMergedRobotData();
   assert.ok(merged, 'expected merged robot data after adding the bridge');
 
-  const piperJoint8 = Object.values(merged.joints).find((joint) => joint.name === 'piper_joint8');
-  assert.equal(piperJoint8?.mimic?.joint, 'comp_piper_joint7');
+  const piperJoint7Id = `${piperComponent.id}_joint7`;
+  const piperJoint8Name = `${piperComponent.name}_joint8`;
+  const piperJoint7Name = `${piperComponent.name}_joint7`;
+  const piperJoint8 = Object.values(merged.joints).find((joint) => joint.name === piperJoint8Name);
+  assert.equal(piperJoint8?.mimic?.joint, piperJoint7Id);
 
   const generated = generateMujocoXML(exportRobot, { includeSceneHelpers: false });
   assert.match(
     generated,
-    /<joint name="piper_joint8_mimic" joint1="piper_joint8" joint2="piper_joint7" polycoef="0 -1 0 0 0" \/>/,
+    new RegExp(
+      `<joint name="${piperJoint8Name}_mimic" joint1="${piperJoint8Name}" joint2="${piperJoint7Name}" polycoef="0 -1 0 0 0" \\/>`,
+    ),
   );
 });
 
 test('T1 plus PiPER assembly viewer load key stays stable during joint motion', () => {
-  buildT1PiperAssemblyExportRobot();
+  const { piperComponent } = buildT1PiperAssemblyExportRobot();
   const merged = useRobotStore.getState().getMergedRobotData();
   assert.ok(merged, 'expected merged robot data after adding the bridge');
 
-  const piperJoint2Key = resolveJointKey(merged.joints, 'piper_joint2');
+  const piperJoint2Key = resolveJointKey(merged.joints, `${piperComponent.name}_joint2`);
   assert.ok(piperJoint2Key, 'expected merged PiPER joint2');
 
   const sourceFile: RobotFile = {
@@ -298,28 +307,28 @@ test('T1 plus PiPER assembly viewer load key stays stable during joint motion', 
 });
 
 test('URDF assembly export keeps PiPER mimic joints resolvable after bridge creation', () => {
-  const { exportRobot } = buildT1PiperAssemblyExportRobot();
+  const { exportRobot, piperComponent } = buildT1PiperAssemblyExportRobot();
 
   const urdf = generateURDF(exportRobot);
   const reparsed = parseURDF(urdf);
 
   const followerJoint = Object.values(reparsed?.joints ?? {}).find(
-    (joint) => joint.name === 'piper_joint8',
+    (joint) => joint.name === `${piperComponent.name}_joint8`,
   );
   assert.ok(followerJoint?.mimic, 'expected URDF roundtrip to preserve the PiPER mimic joint');
   assert.equal(
     resolveJointKey(reparsed?.joints ?? {}, followerJoint?.mimic?.joint),
-    'piper_joint7',
+    `${piperComponent.name}_joint7`,
   );
 });
 
 test('URDF assembly export preserves PiPER joint ranges when link5 is bridged to the T1 head', () => {
-  const { exportRobot } = buildT1PiperLink5AssemblyExportRobot();
+  const { exportRobot, t1Component, piperComponent } = buildT1PiperLink5AssemblyExportRobot();
   const urdf = generateURDF(exportRobot);
   const reparsed = parseURDF(urdf);
 
   assert.ok(reparsed, 'expected generated link5 bridge URDF to parse');
-  assert.equal(reparsed?.rootLinkId, 't1');
+  assert.equal(reparsed?.rootLinkId, 'world');
 
   const childLinkIds = new Set(
     Object.values(reparsed?.joints ?? {}).map((joint) => joint.childLinkId),
@@ -327,19 +336,19 @@ test('URDF assembly export preserves PiPER joint ranges when link5 is bridged to
   const graphRoots = Object.keys(reparsed?.links ?? {}).filter(
     (linkId) => !childLinkIds.has(linkId),
   );
-  assert.deepEqual(graphRoots, ['t1']);
+  assert.deepEqual(graphRoots, ['world']);
 
   const attachJoint = Object.values(reparsed?.joints ?? {}).find(
     (joint) => joint.name === 'attach_piper_link5_to_t1_head',
   );
-  assert.equal(attachJoint?.parentLinkId, 't1_H2');
-  assert.equal(attachJoint?.childLinkId, 'piper_link5');
+  assert.equal(attachJoint?.parentLinkId, `${t1Component.name}_H2`);
+  assert.equal(attachJoint?.childLinkId, `${piperComponent.name}_link5`);
 
   const piperJoint2 = Object.values(reparsed?.joints ?? {}).find(
-    (joint) => joint.name === 'piper_joint2',
+    (joint) => joint.name === `${piperComponent.name}_joint2`,
   );
   const piperJoint3 = Object.values(reparsed?.joints ?? {}).find(
-    (joint) => joint.name === 'piper_joint3',
+    (joint) => joint.name === `${piperComponent.name}_joint3`,
   );
 
   assert.equal(piperJoint2?.limit?.lower, 0);
@@ -349,18 +358,18 @@ test('URDF assembly export preserves PiPER joint ranges when link5 is bridged to
 });
 
 test('SDF assembly export keeps PiPER mimic joints resolvable after bridge creation', () => {
-  const { exportRobot } = buildT1PiperAssemblyExportRobot();
+  const { exportRobot, piperComponent } = buildT1PiperAssemblyExportRobot();
 
   const sdf = generateSDF(exportRobot, { packageName: 't1_piper_export' });
   const reparsed = parseSDF(sdf, { sourcePath: 't1_piper_export/model.sdf' });
 
   const followerJoint = Object.values(reparsed?.joints ?? {}).find(
-    (joint) => joint.name === 'piper_joint8',
+    (joint) => joint.name === `${piperComponent.name}_joint8`,
   );
   assert.ok(followerJoint?.mimic, 'expected SDF roundtrip to preserve the PiPER mimic joint');
   assert.equal(
     resolveJointKey(reparsed?.joints ?? {}, followerJoint?.mimic?.joint),
-    'piper_joint7',
+    `${piperComponent.name}_joint7`,
   );
 });
 

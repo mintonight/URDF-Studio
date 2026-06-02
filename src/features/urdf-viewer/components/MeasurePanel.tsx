@@ -1,7 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import * as THREE from 'three';
-import { MeasureAnchorMode, MeasurePoseRepresentation, MeasureState, ToolMode } from '../types';
+import {
+  MeasureAnchorMode,
+  MeasureMode,
+  MeasurePoseRepresentation,
+  MeasureState,
+  MeasureTarget,
+  ToolMode,
+} from '../types';
 import {
   addMeasureGroup,
   clearMeasureState,
@@ -15,8 +22,12 @@ import {
 } from '../utils/measurements';
 import { Language, translations } from '@/shared/i18n';
 import { WORKSPACE_OVERLAY_RIGHT_EDGE_GAP } from '@/shared/components/3d/scene';
-import { OptionsPanel } from '@/shared/components/Panel/OptionsPanel';
-import { CompactSwitch, PanelSelect } from '@/shared/components/ui';
+import {
+  CollapsibleSection,
+  OptionsPanel,
+  SectionDivider,
+} from '@/shared/components/Panel/OptionsPanel';
+import { CompactSwitch, PanelSegmentedControl, PanelSelect } from '@/shared/components/ui';
 import { useSelectionStore } from '@/store/selectionStore';
 
 interface MeasurePanelProps {
@@ -27,6 +38,8 @@ interface MeasurePanelProps {
   onClose: () => void;
   measureState: MeasureState;
   setMeasureState: React.Dispatch<React.SetStateAction<MeasureState>>;
+  measureMode: MeasureMode;
+  setMeasureMode: (mode: MeasureMode) => void;
   measureAnchorMode: MeasureAnchorMode;
   setMeasureAnchorMode: React.Dispatch<React.SetStateAction<MeasureAnchorMode>>;
   showMeasureDecomposition: boolean;
@@ -36,15 +49,20 @@ interface MeasurePanelProps {
   lang: Language;
 }
 
-function formatMeasureTarget(
-  target: ReturnType<typeof getActiveMeasureGroup>['first'],
+function formatPointCoords(point: THREE.Vector3): string {
+  return `(${point.x.toFixed(3)}, ${point.y.toFixed(3)}, ${point.z.toFixed(3)})`;
+}
+
+function formatMeasureSlotLabel(
+  target: MeasureTarget | null,
+  mode: MeasureMode,
   t: (typeof translations)['en'],
 ): string {
   if (!target) {
-    return t.measureSlotEmpty;
+    return mode === 'point' ? t.measurePointSlotEmpty : t.measureSlotEmpty;
   }
 
-  return target.linkName;
+  return mode === 'point' ? formatPointCoords(target.point) : target.linkName;
 }
 
 function formatMeasureDistance(value: number, signed = false): string {
@@ -73,16 +91,18 @@ function formatMatrixRows(matrix: THREE.Matrix4): string[] {
 
 function MeasureSlotChip({
   indexLabel,
-  title,
-  target,
+  label,
+  isMono,
+  hasTarget,
   isActive,
   onActivate,
   onClear,
   clearLabel,
 }: {
   indexLabel: '1' | '2';
-  title: string;
-  target: ReturnType<typeof getActiveMeasureGroup>['first'];
+  label: string;
+  isMono: boolean;
+  hasTarget: boolean;
   isActive: boolean;
   onActivate: () => void;
   onClear: () => void;
@@ -99,10 +119,10 @@ function MeasureSlotChip({
           onActivate();
         }
       }}
-      className={`flex w-full items-center gap-1.5 rounded-[8px] border px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
+      className={`flex w-full items-center gap-1.5 rounded-[7px] border px-1.5 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
         isActive
           ? 'border-system-blue/75 bg-system-blue/10 shadow-[inset_0_0_0_1px_rgba(0,122,255,0.06)]'
-          : target
+          : hasTarget
             ? 'border-system-blue/25 bg-system-blue/5 hover:border-system-blue/40 hover:bg-system-blue/8'
             : 'border-border-black/60 bg-panel-bg hover:bg-element-hover'
       }`}
@@ -118,18 +138,18 @@ function MeasureSlotChip({
       </span>
 
       <span
-        className={`min-w-0 flex-1 truncate text-[10px] leading-[1.2] ${
-          target
+        className={`min-w-0 flex-1 truncate text-[11px] leading-[1.2] ${isMono ? 'font-mono' : ''} ${
+          hasTarget
             ? 'font-medium text-text-primary'
             : isActive
               ? 'text-system-blue'
               : 'text-text-secondary'
         }`}
       >
-        {target ? target.linkName : title}
+        {label}
       </span>
 
-      {target && (
+      {hasTarget && (
         <button
           type="button"
           className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[6px] text-text-tertiary transition-colors hover:bg-element-hover hover:text-text-primary"
@@ -161,6 +181,8 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
   onClose,
   measureState,
   setMeasureState,
+  measureMode,
+  setMeasureMode,
   measureAnchorMode,
   setMeasureAnchorMode,
   showMeasureDecomposition,
@@ -173,6 +195,7 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const setSelection = useSelectionStore((state) => state.setSelection);
   const setHoveredSelection = useSelectionStore((state) => state.setHoveredSelection);
+  const isPointMode = measureMode === 'point';
 
   const activeGroup = useMemo(() => getActiveMeasureGroup(measureState), [measureState]);
   const activeMeasurement = useMemo(
@@ -188,6 +211,14 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
       measureState.groups.length > 1 ||
       measureState.groups.some((group) => group.first || group.second),
     [measureState],
+  );
+  const measureModeOptions = useMemo(
+    () =>
+      [
+        { label: t.measureModePoint, value: 'point' },
+        { label: t.measureModeObject, value: 'object' },
+      ] as const,
+    [t.measureModeObject, t.measureModePoint],
   );
   const measureAnchorOptions = useMemo(
     () =>
@@ -228,17 +259,27 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
       onToggleCollapse={() => setIsCollapsed((prev) => !prev)}
       onClose={onClose}
       onMouseDown={onMouseDown}
-      width="13rem"
-      maxHeight={420}
+      width="15rem"
+      maxHeight={460}
       zIndex={50}
       panelClassName="measure-panel"
       expandText={t.expand}
       collapseText={t.collapse}
       closeText={t.close}
     >
-      <div className="space-y-[5px] p-[5px]">
-        <div className="rounded-md border border-border-black/60 bg-panel-bg p-1">
-          <div className="mb-1 flex items-center justify-between">
+      <div className="space-y-1.5 p-[6px]">
+        {/* Mode switch */}
+        <PanelSegmentedControl
+          options={measureModeOptions}
+          value={measureMode}
+          onChange={(value) => setMeasureMode(value)}
+          stretch
+          className="w-full"
+        />
+
+        {/* Groups */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold tracking-[0.02em] text-text-tertiary">
               {t.measureGroups}
             </span>
@@ -247,7 +288,7 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
                 type="button"
                 className="rounded-md border border-border-black/60 bg-element-bg px-1.5 py-px text-[9px] font-medium text-text-secondary transition-colors hover:border-danger-border hover:bg-danger-soft hover:text-danger-hover disabled:border-transparent disabled:bg-transparent disabled:text-text-tertiary disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => {
-                  setMeasureState(clearMeasureState);
+                  setMeasureState((prev) => clearMeasureState(prev.mode));
                   resetViewportSelection();
                 }}
                 disabled={!canClearAll}
@@ -320,11 +361,13 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
           </div>
         </div>
 
+        {/* Slots */}
         <div className="space-y-1">
           <MeasureSlotChip
             indexLabel="1"
-            title={formatMeasureTarget(activeGroup.first, t)}
-            target={activeGroup.first}
+            label={formatMeasureSlotLabel(activeGroup.first, measureMode, t)}
+            isMono={isPointMode && Boolean(activeGroup.first)}
+            hasTarget={Boolean(activeGroup.first)}
             isActive={activeGroup.activeSlot === 'first'}
             onActivate={() => setMeasureState((prev) => setActiveMeasureSlot(prev, 'first'))}
             onClear={() => {
@@ -335,8 +378,9 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
           />
           <MeasureSlotChip
             indexLabel="2"
-            title={formatMeasureTarget(activeGroup.second, t)}
-            target={activeGroup.second}
+            label={formatMeasureSlotLabel(activeGroup.second, measureMode, t)}
+            isMono={isPointMode && Boolean(activeGroup.second)}
+            hasTarget={Boolean(activeGroup.second)}
             isActive={activeGroup.activeSlot === 'second'}
             onActivate={() => setMeasureState((prev) => setActiveMeasureSlot(prev, 'second'))}
             onClear={() => {
@@ -347,28 +391,68 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
           />
         </div>
 
-        <div className="flex items-center justify-between rounded-md bg-element-bg px-1.5 py-[3px] text-[9px] text-text-secondary">
+        {/* Count + shortcut hint */}
+        <div className="flex items-center justify-between px-0.5 text-[9px] text-text-tertiary">
           <span>{t.measuredCount.replace('{count}', String(completedMeasurements.length))}</span>
-          <span className="font-mono text-text-tertiary">Esc / Del</span>
+          <span className="font-mono">Esc / Del</span>
         </div>
 
-        <div className="flex items-center gap-1.5 rounded-md border border-border-black/60 bg-element-bg px-1.5 py-1">
-          <span className="shrink-0 text-[10px] font-semibold tracking-[0.02em] text-text-tertiary">
-            {t.measureAnchorMode}
-          </span>
-          <div className="min-w-0 flex-1">
-            <PanelSelect
-              variant="dense"
-              aria-label={t.measureAnchorMode}
-              options={measureAnchorOptions}
-              value={measureAnchorMode}
-              onChange={(event) => setMeasureAnchorMode(event.target.value as MeasureAnchorMode)}
-              className="w-full min-w-0"
-            />
+        <SectionDivider />
+
+        {/* Core result */}
+        <div className="rounded-md bg-element-bg px-1.5 py-[5px]">
+          <div className="mb-1 text-[10px] font-semibold tracking-[0.02em] text-text-tertiary">
+            {t.measureResult}
           </div>
+
+          {activeMeasurement ? (
+            <div className="space-y-1 text-[11px]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-text-secondary">{t.measureTotalDistance}</span>
+                <span className="font-mono text-text-primary">
+                  {formatMeasureDistance(activeMeasurement.distance)}
+                </span>
+              </div>
+              {!isPointMode && (
+                <div className="truncate font-mono text-[9px] text-text-tertiary">
+                  {`${activeMeasurement.first.linkName} → ${activeMeasurement.second.linkName}`}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-[10px] text-text-secondary">
+              {isPointMode ? t.measurePointInstruction : t.measureNoMeasurement}
+            </div>
+          )}
         </div>
 
-        <div className="rounded-md border border-border-black/60 bg-panel-bg p-1">
+        {/* Advanced */}
+        <CollapsibleSection
+          title={t.advanced}
+          defaultOpen={false}
+          storageKey="measureAdvanced"
+          contentInnerClassName="space-y-1.5 px-0"
+        >
+          {!isPointMode && (
+            <div className="flex items-center gap-1.5">
+              <span className="shrink-0 text-[10px] font-semibold tracking-[0.02em] text-text-tertiary">
+                {t.measureAnchorMode}
+              </span>
+              <div className="min-w-0 flex-1">
+                <PanelSelect
+                  variant="dense"
+                  aria-label={t.measureAnchorMode}
+                  options={measureAnchorOptions}
+                  value={measureAnchorMode}
+                  onChange={(event) =>
+                    setMeasureAnchorMode(event.target.value as MeasureAnchorMode)
+                  }
+                  className="w-full min-w-0"
+                />
+              </div>
+            </div>
+          )}
+
           <CompactSwitch
             checked={showMeasureDecomposition}
             onChange={setShowMeasureDecomposition}
@@ -376,150 +460,123 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
             labelClassName="text-[10px] leading-none"
           />
 
-          <div className="mt-1 rounded-md bg-element-bg px-1.5 py-[5px]">
-            <div className="mb-1 text-[10px] font-semibold tracking-[0.02em] text-text-tertiary">
-              {t.measureResult}
+          {activeMeasurement && showMeasureDecomposition && (
+            <div className="space-y-1 rounded-md bg-element-bg px-1.5 py-[5px] text-[11px]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-orange-400">{t.measureDeltaX}</span>
+                <span className="font-mono text-orange-300">
+                  {formatMeasureDistance(activeMeasurement.delta.x, true)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-green-400">{t.measureDeltaY}</span>
+                <span className="font-mono text-green-300">
+                  {formatMeasureDistance(activeMeasurement.delta.y, true)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-blue-400">{t.measureDeltaZ}</span>
+                <span className="font-mono text-blue-300">
+                  {formatMeasureDistance(activeMeasurement.delta.z, true)}
+                </span>
+              </div>
             </div>
+          )}
 
-            {activeMeasurement ? (
-              <div className="space-y-1 text-[10px]">
-                <div className="mb-1 text-[10px] text-text-tertiary">
-                  {t.measureGroupLabel.replace('{index}', String(activeMeasurement.groupIndex))}
-                </div>
-                <div className="font-mono text-[9px] text-text-tertiary">
-                  {`${activeMeasurement.first.linkName} -> ${activeMeasurement.second.linkName}`}
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-text-secondary">{t.measureTotalDistance}</span>
-                  <span className="font-mono text-text-primary">
-                    {formatMeasureDistance(activeMeasurement.distance)}
-                  </span>
-                </div>
+          {!isPointMode && (
+            <div className="rounded-md border border-border-black/60 bg-panel-bg/75 p-1">
+              <div className="mb-1 text-[10px] font-semibold tracking-[0.02em] text-text-tertiary">
+                {t.measureRelativeTransform}
+              </div>
 
-                {showMeasureDecomposition && (
-                  <>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-orange-400">{t.measureDeltaX}</span>
-                      <span className="font-mono text-orange-300">
-                        {formatMeasureDistance(activeMeasurement.delta.x, true)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-green-400">{t.measureDeltaY}</span>
-                      <span className="font-mono text-green-300">
-                        {formatMeasureDistance(activeMeasurement.delta.y, true)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-blue-400">{t.measureDeltaZ}</span>
-                      <span className="font-mono text-blue-300">
-                        {formatMeasureDistance(activeMeasurement.delta.z, true)}
-                      </span>
-                    </div>
-                  </>
-                )}
-
-                <div className="mt-1.5 rounded-md border border-border-black/60 bg-panel-bg/75 p-1">
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-semibold tracking-[0.02em] text-text-tertiary">
-                      {t.measureRelativeTransform}
+              {activeMeasurement && activeRelativePose ? (
+                <div className="space-y-1 text-[11px]">
+                  <PanelSelect
+                    variant="dense"
+                    aria-label={t.measureRelativeTransform}
+                    options={measurePoseOptions}
+                    value={measurePoseRepresentation}
+                    onChange={(event) =>
+                      setMeasurePoseRepresentation(event.target.value as MeasurePoseRepresentation)
+                    }
+                    className="w-full min-w-0"
+                    containerClassName="mb-1"
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-text-secondary">{t.measureRelativeTranslation}</span>
+                    <span className="font-mono text-text-primary">
+                      {formatPoseTuple([
+                        ['x', activeRelativePose.translation.x],
+                        ['y', activeRelativePose.translation.y],
+                        ['z', activeRelativePose.translation.z],
+                      ])}
                     </span>
                   </div>
 
-                  {activeRelativePose ? (
-                    <div className="space-y-1">
-                      <PanelSelect
-                        variant="dense"
-                        aria-label={t.measureRelativeTransform}
-                        options={measurePoseOptions}
-                        value={measurePoseRepresentation}
-                        onChange={(event) =>
-                          setMeasurePoseRepresentation(
-                            event.target.value as MeasurePoseRepresentation,
-                          )
-                        }
-                        className="w-full min-w-0"
-                        containerClassName="mb-1"
-                      />
+                  {measurePoseRepresentation === 'matrix' ? (
+                    <div className="overflow-x-auto rounded-md bg-element-bg px-1 py-1">
+                      <pre className="min-w-max font-mono text-[9px] leading-[1.35] text-text-primary">
+                        {formatMatrixRows(activeRelativePose.matrix).join('\n')}
+                      </pre>
+                    </div>
+                  ) : null}
+
+                  {measurePoseRepresentation === 'rpy' ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-text-secondary">{t.measurePoseRpy}</span>
+                      <span className="font-mono text-text-primary">
+                        {formatPoseTuple([
+                          ['r', activeRelativePose.rpy.r],
+                          ['p', activeRelativePose.rpy.p],
+                          ['y', activeRelativePose.rpy.y],
+                        ])}
+                      </span>
+                    </div>
+                  ) : null}
+
+                  {measurePoseRepresentation === 'quat' ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-text-secondary">{t.measurePoseQuat}</span>
+                      <span className="font-mono text-text-primary">
+                        {formatPoseTuple([
+                          ['x', activeRelativePose.quaternion.x],
+                          ['y', activeRelativePose.quaternion.y],
+                          ['z', activeRelativePose.quaternion.z],
+                          ['w', activeRelativePose.quaternion.w],
+                        ])}
+                      </span>
+                    </div>
+                  ) : null}
+
+                  {measurePoseRepresentation === 'axisAngle' ? (
+                    <>
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-text-secondary">{t.measureRelativeTranslation}</span>
+                        <span className="text-text-secondary">{t.measurePoseAxis}</span>
                         <span className="font-mono text-text-primary">
                           {formatPoseTuple([
-                            ['x', activeRelativePose.translation.x],
-                            ['y', activeRelativePose.translation.y],
-                            ['z', activeRelativePose.translation.z],
+                            ['x', activeRelativePose.axisAngle.axis.x],
+                            ['y', activeRelativePose.axisAngle.axis.y],
+                            ['z', activeRelativePose.axisAngle.axis.z],
                           ])}
                         </span>
                       </div>
-
-                      {measurePoseRepresentation === 'matrix' ? (
-                        <div className="overflow-x-auto rounded-md bg-element-bg px-1 py-1">
-                          <pre className="min-w-max font-mono text-[9px] leading-[1.35] text-text-primary">
-                            {formatMatrixRows(activeRelativePose.matrix).join('\n')}
-                          </pre>
-                        </div>
-                      ) : null}
-
-                      {measurePoseRepresentation === 'rpy' ? (
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-text-secondary">{t.measurePoseRpy}</span>
-                          <span className="font-mono text-text-primary">
-                            {formatPoseTuple([
-                              ['r', activeRelativePose.rpy.r],
-                              ['p', activeRelativePose.rpy.p],
-                              ['y', activeRelativePose.rpy.y],
-                            ])}
-                          </span>
-                        </div>
-                      ) : null}
-
-                      {measurePoseRepresentation === 'quat' ? (
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-text-secondary">{t.measurePoseQuat}</span>
-                          <span className="font-mono text-text-primary">
-                            {formatPoseTuple([
-                              ['x', activeRelativePose.quaternion.x],
-                              ['y', activeRelativePose.quaternion.y],
-                              ['z', activeRelativePose.quaternion.z],
-                              ['w', activeRelativePose.quaternion.w],
-                            ])}
-                          </span>
-                        </div>
-                      ) : null}
-
-                      {measurePoseRepresentation === 'axisAngle' ? (
-                        <>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-text-secondary">{t.measurePoseAxis}</span>
-                            <span className="font-mono text-text-primary">
-                              {formatPoseTuple([
-                                ['x', activeRelativePose.axisAngle.axis.x],
-                                ['y', activeRelativePose.axisAngle.axis.y],
-                                ['z', activeRelativePose.axisAngle.axis.z],
-                              ])}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-text-secondary">{t.measurePoseAngle}</span>
-                            <span className="font-mono text-text-primary">
-                              {formatPoseScalar(activeRelativePose.axisAngle.angle, true)}
-                            </span>
-                          </div>
-                        </>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="text-[10px] text-text-secondary">
-                      {t.measureRelativePoseUnavailable}
-                    </div>
-                  )}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-text-secondary">{t.measurePoseAngle}</span>
+                        <span className="font-mono text-text-primary">
+                          {formatPoseScalar(activeRelativePose.axisAngle.angle, true)}
+                        </span>
+                      </div>
+                    </>
+                  ) : null}
                 </div>
-              </div>
-            ) : (
-              <div className="text-[10px] text-text-secondary">{t.measureNoMeasurement}</div>
-            )}
-          </div>
-        </div>
+              ) : (
+                <div className="text-[10px] text-text-secondary">
+                  {t.measureRelativePoseUnavailable}
+                </div>
+              )}
+            </div>
+          )}
+        </CollapsibleSection>
       </div>
     </OptionsPanel>
   );

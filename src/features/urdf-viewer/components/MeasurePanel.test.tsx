@@ -84,7 +84,11 @@ function createCompletedMeasureState() {
   );
 }
 
-async function renderPanel(root: Root, measureState = clearMeasureState()) {
+async function renderPanel(
+  root: Root,
+  measureState = clearMeasureState(),
+  measureMode: 'object' | 'point' = 'object',
+) {
   await act(async () => {
     root.render(
       React.createElement(MeasurePanel, {
@@ -95,6 +99,8 @@ async function renderPanel(root: Root, measureState = clearMeasureState()) {
         onClose: () => {},
         measureState,
         setMeasureState: () => {},
+        measureMode,
+        setMeasureMode: () => {},
         measureAnchorMode: 'frame',
         setMeasureAnchorMode: () => {},
         showMeasureDecomposition: false,
@@ -133,13 +139,13 @@ test('MeasurePanel keeps the snap selector compact and drops the verbose helper 
   );
   assert.match(
     anchorCombobox.className,
-    /h-\[25px\]/,
-    'anchor selector should use the shared compact panel select height',
+    /h-\[21px\]/,
+    'anchor selector should use the shared dense panel select height',
   );
   assert.match(
     anchorCombobox.className,
-    /!text-\[11px\]/,
-    'anchor selector should inherit the shared compact panel select typography',
+    /text-\[10px\]/,
+    'anchor selector should inherit the shared dense panel select typography',
   );
 
   await act(async () => {
@@ -154,7 +160,7 @@ test('MeasurePanel renders relative transform representation options for complet
   await renderPanel(root, createCompletedMeasureState());
 
   assert.equal(container.textContent?.includes('相对位姿'), true);
-  assert.equal(container.textContent?.includes('base_link -> tool_link'), true);
+  assert.equal(container.textContent?.includes('base_link → tool_link'), true);
   const poseSelect = container.querySelector(
     'select[aria-label="相对位姿"]',
   ) as HTMLSelectElement | null;
@@ -170,10 +176,40 @@ test('MeasurePanel renders relative transform representation options for complet
   assert.ok(poseCombobox, 'relative transform section should use the shared panel select trigger');
   assert.match(
     poseCombobox.className,
-    /!text-\[11px\]/,
-    'relative transform selector should inherit the shared compact panel select typography',
+    /text-\[10px\]/,
+    'relative transform selector should inherit the shared dense panel select typography',
   );
   assert.equal(container.textContent?.includes('相对平移'), true);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('MeasurePanel hides object-only controls in point mode and offers a mode switch', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderPanel(root, clearMeasureState('point'), 'point');
+
+  // Mode switch renders both options.
+  assert.equal(container.textContent?.includes('点到点'), true);
+  assert.equal(container.textContent?.includes('对象测量'), true);
+
+  // Anchor mode and relative transform are object-only concepts.
+  assert.equal(
+    container.querySelector('select[aria-label="锚点"]'),
+    null,
+    'point mode should not render the anchor selector',
+  );
+  assert.equal(
+    container.textContent?.includes('相对位姿'),
+    false,
+    'point mode should not render the relative transform section',
+  );
+
+  // Empty point slots prompt for a viewport surface click.
+  assert.equal(container.textContent?.includes('在视图中点击一个曲面点'), true);
 
   await act(async () => {
     root.unmount();

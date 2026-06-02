@@ -1,10 +1,13 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useThree } from '@react-three/fiber';
 import { Html, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import type { MeasureToolProps, ViewerProps } from '../types';
 import {
+  appendMeasurePoint,
   applyMeasurePick,
   clearActiveMeasureGroup,
+  createMeasureTarget,
   getActiveMeasureGroup,
   getMeasurementMetrics,
   getMeasureStateMeasurements,
@@ -14,6 +17,21 @@ import {
 } from '../utils/measurements';
 import { resolveRobotMeasureTargetFromSelection } from '../utils/measureTargetResolvers';
 import { useSelectionStore } from '@/store/selectionStore';
+import { throttle } from '@/shared/utils';
+
+// Point-mode pointer tuning (mirrors the classic free-point measure tool).
+const MEASURE_POINT_THROTTLE_MS = 33;
+const MEASURE_POINT_MOVE_THRESHOLD_PX = 2;
+// A press that travels further than this between down and up is an orbit drag, not a placement click.
+const MEASURE_POINT_CLICK_DRAG_THRESHOLD_PX = 5;
+// Click targets inside these containers must not place a measurement point.
+const MEASURE_POINTER_IGNORE_SELECTORS = [
+  '.urdf-toolbar',
+  '.urdf-options-panel',
+  '.urdf-joint-panel',
+  '.measure-context-menu',
+  '.measure-panel',
+];
 
 const MEASURE_LINE_COLOR = '#ef4444';
 const MEASURE_AXIS_COLORS = {
@@ -434,12 +452,19 @@ export const MeasureTool: React.FC<MeasureToolProps> = ({
   deleteTooltip = 'Click to delete this measurement',
   measureTargetResolverRef,
 }) => {
+  const { camera, gl } = useThree();
   const selection = useSelectionStore((state) => state.selection);
   const hoveredSelection = useSelectionStore((state) => state.hoveredSelection);
   const [hoveredMeasurementId, setHoveredMeasurementId] = useState<string | null>(null);
   const lastSelectionSignatureRef = useRef('none');
   const lastHoverSignatureRef = useRef('none');
   const wasActiveRef = useRef(active);
+  const isPointMode = measureState.mode === 'point';
+  // Latest measure state for the throttled point-mode pointer handlers (avoids stale closures).
+  const measureStateRef = useRef(measureState);
+  useEffect(() => {
+    measureStateRef.current = measureState;
+  }, [measureState]);
   const resolveMeasureTarget = useCallback(
     (nextSelection = selection, fallbackSelection = hoveredSelection) =>
       measureTargetResolverRef?.current?.(nextSelection, fallbackSelection, measureAnchorMode) ??
@@ -482,6 +507,11 @@ export const MeasureTool: React.FC<MeasureToolProps> = ({
     lastSelectionSignatureRef.current = getSelectionSignature(selection);
     lastHoverSignatureRef.current = getSelectionSignature(hoveredSelection);
 
+    // Point mode seeds its hover target from raw raycasts, not the selection store.
+    if (measureState.mode !== 'object') {
+      return;
+    }
+
     const target = resolveMeasureTarget(hoveredSelection, hoveredSelection);
     setMeasureState((prev) => {
       if (!target && !prev.hoverTarget) {
@@ -490,7 +520,7 @@ export const MeasureTool: React.FC<MeasureToolProps> = ({
 
       return setMeasureHoverTarget(prev, target);
     });
-  }, [active, hoveredSelection, resolveMeasureTarget, selection, setMeasureState]);
+  }, [active, hoveredSelection, measureState.mode, resolveMeasureTarget, selection, setMeasureState]);
 
   useEffect(() => {
     if (!active) {
@@ -504,6 +534,12 @@ export const MeasureTool: React.FC<MeasureToolProps> = ({
 
     lastSelectionSignatureRef.current = currentSelectionSignature;
 
+    // Free-point mode never picks from the selection store; keep the signature
+    // ref synced (above) so switching back to object mode does not replay a stale pick.
+    if (measureState.mode !== 'object') {
+      return;
+    }
+
     const target = resolveMeasureTarget(selection, hoveredSelection);
     if (!target) {
       return;
@@ -513,6 +549,7 @@ export const MeasureTool: React.FC<MeasureToolProps> = ({
   }, [
     active,
     robot,
+    measureState.mode,
     selection,
     selection?.id,
     selection?.objectIndex,
@@ -540,6 +577,11 @@ export const MeasureTool: React.FC<MeasureToolProps> = ({
     }
 
     lastHoverSignatureRef.current = currentHoverSignature;
+
+    if (measureState.mode !== 'object') {
+      return;
+    }
+
     const target = resolveMeasureTarget(hoveredSelection, hoveredSelection);
 
     setMeasureState((prev) => {
@@ -551,6 +593,7 @@ export const MeasureTool: React.FC<MeasureToolProps> = ({
     });
   }, [
     active,
+    measureState.mode,
     hoveredSelection,
     hoveredSelection?.id,
     hoveredSelection?.objectIndex,
@@ -578,6 +621,122 @@ export const MeasureTool: React.FC<MeasureToolProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [active, setMeasureState]);
+
+  // Free-point mode: place raw surface points straight from the canvas, decoupled
+  // from the selection pipeline (which is short-circuited for point mode upstream).
+  useEffect(() => {
+    if (!active || !isPointMode || !robot) {
+      return;
+    }
+
+    const domElement = gl.domElement;
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    let lastClientX = 0;
+    let lastClientY = 0;
+    let downClientX = 0;
+    let downClientY = 0;
+
+    const updatePointerFromEvent = (event: MouseEvent): boolean => {
+      const rect = domElement.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) {
+        return false;
+      }
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      return true;
+    };
+
+    const raycastRobotPoint = (): THREE.Vector3 | null => {
+      raycaster.setFromCamera(pointer, camera);
+      const hit = raycaster.intersectObject(robot, true)[0];
+      return hit ? hit.point.clone() : null;
+    };
+
+    const buildHoverTarget = (point: THREE.Vector3) =>
+      createMeasureTarget({
+        linkName: '',
+        objectType: 'visual',
+        objectIndex: 0,
+        point,
+        poseWorldMatrix: null,
+        key: 'point:hover',
+        label: 'P',
+      });
+
+    const handleMouseMoveCore = (event: MouseEvent) => {
+      const dx = event.clientX - lastClientX;
+      const dy = event.clientY - lastClientY;
+      if (dx * dx + dy * dy < MEASURE_POINT_MOVE_THRESHOLD_PX * MEASURE_POINT_MOVE_THRESHOLD_PX) {
+        return;
+      }
+      lastClientX = event.clientX;
+      lastClientY = event.clientY;
+
+      const activeGroup = getActiveMeasureGroup(measureStateRef.current);
+      const hasExactlyOnePoint = Boolean(activeGroup.first) !== Boolean(activeGroup.second);
+      if (!hasExactlyOnePoint) {
+        // No in-progress pair → nothing to preview against.
+        setMeasureState((prev) => (prev.hoverTarget ? setMeasureHoverTarget(prev, null) : prev));
+        return;
+      }
+
+      const point = updatePointerFromEvent(event) ? raycastRobotPoint() : null;
+      setMeasureState((prev) => {
+        if (!point) {
+          return prev.hoverTarget ? setMeasureHoverTarget(prev, null) : prev;
+        }
+        return setMeasureHoverTarget(prev, buildHoverTarget(point));
+      });
+    };
+
+    const throttledMouseMove = throttle(handleMouseMoveCore, MEASURE_POINT_THROTTLE_MS);
+
+    const handleMouseDown = (event: MouseEvent) => {
+      downClientX = event.clientX;
+      downClientY = event.clientY;
+    };
+
+    const handleClick = (event: MouseEvent) => {
+      if (event.button !== 0) {
+        return;
+      }
+      const targetEl = event.target as HTMLElement | null;
+      if (targetEl && MEASURE_POINTER_IGNORE_SELECTORS.some((selector) => targetEl.closest(selector))) {
+        return;
+      }
+      // Ignore the click that ends an orbit drag.
+      const ddx = event.clientX - downClientX;
+      const ddy = event.clientY - downClientY;
+      if (
+        ddx * ddx + ddy * ddy >
+        MEASURE_POINT_CLICK_DRAG_THRESHOLD_PX * MEASURE_POINT_CLICK_DRAG_THRESHOLD_PX
+      ) {
+        return;
+      }
+      if (!updatePointerFromEvent(event)) {
+        return;
+      }
+      const point = raycastRobotPoint();
+      if (!point) {
+        return;
+      }
+      setMeasureState((prev) => appendMeasurePoint(prev, point));
+    };
+
+    domElement.addEventListener('mousemove', throttledMouseMove);
+    domElement.addEventListener('mousedown', handleMouseDown);
+    domElement.addEventListener('click', handleClick);
+
+    return () => {
+      throttledMouseMove.cancel();
+      domElement.removeEventListener('mousemove', throttledMouseMove);
+      domElement.removeEventListener('mousedown', handleMouseDown);
+      domElement.removeEventListener('click', handleClick);
+      // Drop any lingering point-mode preview when the handler tears down.
+      setMeasureState((prev) => (prev.hoverTarget ? setMeasureHoverTarget(prev, null) : prev));
+    };
+  }, [active, isPointMode, robot, camera, gl, setMeasureState]);
 
   const handleDeleteMeasurement = useCallback(
     (measurementId: string) => {

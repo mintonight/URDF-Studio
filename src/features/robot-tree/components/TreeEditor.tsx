@@ -568,7 +568,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
             toggleFolder={toggleFolder}
           />
 
-          {isFileBrowserOpen && isStructureOpen && (
+          {isFileBrowserOpen && (
             <button
               type="button"
               data-testid="tree-editor-file-browser-resize-handle"

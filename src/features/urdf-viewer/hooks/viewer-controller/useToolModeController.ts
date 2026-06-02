@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type {
   MeasureAnchorMode,
+  MeasureMode,
   MeasurePoseRepresentation,
   MeasureState,
   ToolMode,
@@ -8,7 +9,7 @@ import type {
   ViewerPaintSelectionScope,
   ViewerPaintStatus,
 } from '../../types';
-import { createEmptyMeasureState } from '../../utils/measurements';
+import { createEmptyMeasureState, setMeasureMode as applyMeasureMode } from '../../utils/measurements';
 import { createScopedToolModeState, resolveScopedToolModeState } from '../../utils/scopedToolMode';
 
 interface UseToolModeControllerParams {
@@ -30,6 +31,10 @@ export function useToolModeController({
   );
   const toolMode = resolvedToolModeState.mode;
   const [measureState, setMeasureState] = useState<MeasureState>(createEmptyMeasureState);
+  const setMeasureMode = useCallback(
+    (mode: MeasureMode) => setMeasureState((prev) => applyMeasureMode(prev, mode)),
+    [],
+  );
   const [measureAnchorMode, setMeasureAnchorMode] = useState<MeasureAnchorMode>('frame');
   const [showMeasureDecomposition, setShowMeasureDecomposition] = useState(false);
   const [measurePoseRepresentation, setMeasurePoseRepresentation] =
@@ -52,6 +57,7 @@ export function useToolModeController({
     transformMode,
     measureState,
     setMeasureState,
+    setMeasureMode,
     measureAnchorMode,
     setMeasureAnchorMode,
     showMeasureDecomposition,

@@ -8,6 +8,7 @@ import type { JointPanelActiveJointOptions } from '@/shared/utils/jointPanelStor
 import { JointType, type InteractionSelection, type UrdfJoint, type UrdfLink } from '@/types';
 import { THROTTLE_INTERVAL } from '../constants';
 import type {
+  MeasureMode,
   ToolMode,
   ViewerInteractiveLayer,
   ViewerPaintFaceHit,
@@ -86,6 +87,8 @@ export interface UseMouseInteractionOptions {
   robot: THREE.Object3D | null;
   robotVersion: number;
   toolMode: ToolMode;
+  /** Measure sub-mode; `point` routes free-surface picking through MeasureTool, bypassing selection. */
+  measureMode?: MeasureMode;
   mode?: ViewerSceneMode;
   showCollision: boolean;
   showVisual: boolean;
@@ -150,6 +153,7 @@ export function useMouseInteraction({
   robot,
   robotVersion,
   toolMode,
+  measureMode,
   mode,
   showCollision,
   showVisual,
@@ -857,6 +861,12 @@ export function useMouseInteraction({
       lastMousePosRef.current.x = e.clientX;
       lastMousePosRef.current.y = e.clientY;
 
+      // Point mode resolves its own hover preview inside MeasureTool; skip the
+      // selection-store hover raycast so no object highlight appears.
+      if (toolMode === 'measure' && measureMode === 'point') {
+        return;
+      }
+
       if (!updatePointerFromLocalPoint(e.offsetX, e.offsetY)) {
         return;
       }
@@ -932,6 +942,10 @@ export function useMouseInteraction({
       ].includes(toolMode || 'select');
 
       if (!isPointerResolvableMode) return;
+
+      // Free-point measuring captures raw surface points inside MeasureTool; never
+      // resolve a selection / highlight / joint-drag from these clicks.
+      if (toolMode === 'measure' && measureMode === 'point') return;
 
       clearPendingPointerSelection();
 
@@ -1440,6 +1454,7 @@ export function useMouseInteraction({
     onPaintFace,
     highlightGeometry,
     toolMode,
+    measureMode,
     mode,
     justSelectedRef,
     isOrbitDragging,

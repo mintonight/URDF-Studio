@@ -43,6 +43,23 @@ test('createOriginAxes defaults to participating in depth occlusion', () => {
   });
 });
 
+test('createOriginAxes renders rod-style axes without arrow heads', () => {
+  const originAxes = createOriginAxes(0.1);
+  const meshes: Mesh[] = [];
+  originAxes.traverse((child) => {
+    if ((child as Mesh).isMesh) meshes.push(child as Mesh);
+  });
+
+  assert.equal(meshes.length, 3, 'origin axes should render exactly three rods (X/Y/Z)');
+  meshes.forEach((mesh) => {
+    assert.equal(
+      (mesh.geometry as THREE.BufferGeometry).type,
+      'CylinderGeometry',
+      'each axis should be a plain rod (no ConeGeometry arrow head)',
+    );
+  });
+});
+
 test('createInertiaBox uses the fill surface for hover and keeps the outline decorative', () => {
   const inertiaBox = createInertiaBox(1, 2, 3, new THREE.Quaternion());
   const fillMesh = inertiaBox.children.find((child) => (child as Mesh).isMesh) as Mesh | undefined;

@@ -45,11 +45,23 @@ export function isAssemblyTransformSelectionArmed(
     return false;
   }
 
+  if (!assemblyState) {
+    return false;
+  }
+
   if (selection?.helperKind) {
     return false;
   }
 
   if (assemblySelection.type === 'assembly') {
+    return true;
+  }
+
+  if (!assemblyState.components[assemblySelection.id]) {
+    return false;
+  }
+
+  if (!selection?.type || !selection.id) {
     return true;
   }
 

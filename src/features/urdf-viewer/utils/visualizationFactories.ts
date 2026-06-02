@@ -324,7 +324,11 @@ export function createMjcfTendonVisualization(tendon: MjcfTendonVisualizationDat
 }
 
 /**
- * Create origin axes visualization (RGB = XYZ) for a link
+ * Create origin axes visualization (RGB = XYZ) for a link.
+ *
+ * Rod-style (no arrow heads) to match the frame display in RViz / MuJoCo and
+ * to visually distinguish link frames from the arrow-tipped joint axis viz.
+ * Each rod extends from the origin toward its positive axis direction.
  */
 export function createOriginAxes(size: number): THREE.Group {
   const originAxes = new THREE.Group();
@@ -334,8 +338,6 @@ export function createOriginAxes(size: number): THREE.Group {
   });
 
   const thickness = size * 0.04;
-  const headSize = size * 0.2;
-  const headRadius = thickness * 2.5;
 
   // X Axis - Red
   const xAxisGeom = new THREE.CylinderGeometry(thickness, thickness, size, 12);
@@ -347,14 +349,6 @@ export function createOriginAxes(size: number): THREE.Group {
   xAxis.renderOrder = HELPER_RENDER_ORDER;
   originAxes.add(xAxis);
 
-  const xConeGeom = new THREE.ConeGeometry(headRadius, headSize, 12);
-  const xCone = new THREE.Mesh(xConeGeom, xAxisMat);
-  xCone.rotation.set(0, 0, -Math.PI / 2);
-  xCone.position.set(size, 0, 0);
-  xCone.userData = createSelectableHelperUserData();
-  xCone.renderOrder = HELPER_RENDER_ORDER;
-  originAxes.add(xCone);
-
   // Y Axis - Green
   const yAxisGeom = new THREE.CylinderGeometry(thickness, thickness, size, 12);
   const yAxisMat = new THREE.MeshBasicMaterial({ color: 0x22c55e });
@@ -363,13 +357,6 @@ export function createOriginAxes(size: number): THREE.Group {
   yAxis.userData = createSelectableHelperUserData();
   yAxis.renderOrder = HELPER_RENDER_ORDER;
   originAxes.add(yAxis);
-
-  const yConeGeom = new THREE.ConeGeometry(headRadius, headSize, 12);
-  const yCone = new THREE.Mesh(yConeGeom, yAxisMat);
-  yCone.position.set(0, size, 0);
-  yCone.userData = createSelectableHelperUserData();
-  yCone.renderOrder = HELPER_RENDER_ORDER;
-  originAxes.add(yCone);
 
   // Z Axis - Blue
   const zAxisGeom = new THREE.CylinderGeometry(thickness, thickness, size, 12);
@@ -380,14 +367,6 @@ export function createOriginAxes(size: number): THREE.Group {
   zAxis.userData = createSelectableHelperUserData();
   zAxis.renderOrder = HELPER_RENDER_ORDER;
   originAxes.add(zAxis);
-
-  const zConeGeom = new THREE.ConeGeometry(headRadius, headSize, 12);
-  const zCone = new THREE.Mesh(zConeGeom, zAxisMat);
-  zCone.rotation.set(Math.PI / 2, 0, 0);
-  zCone.position.set(0, 0, size);
-  zCone.userData = createSelectableHelperUserData();
-  zCone.renderOrder = HELPER_RENDER_ORDER;
-  originAxes.add(zCone);
 
   return originAxes;
 }

@@ -162,10 +162,27 @@ export function syncRobotVisualColorsFromMaterials<
       const materialColor = normalizeMaterialValue(
         robot.materials?.[link.id]?.color || robot.materials?.[link.name]?.color,
       );
+      if (link.visual.type !== GeometryType.NONE && hasMultipleAuthoredMaterials(link.visual)) {
+        if (link.visual.color === undefined) {
+          return [linkId, link];
+        }
+
+        linksChanged = true;
+        return [
+          linkId,
+          {
+            ...link,
+            visual: {
+              ...link.visual,
+              color: undefined,
+            },
+          },
+        ];
+      }
+
       if (
         !materialColor ||
         link.visual.type === GeometryType.NONE ||
-        hasMultipleAuthoredMaterials(link.visual) ||
         materialValuesEqual(link.visual.color, materialColor)
       ) {
         return [linkId, link];

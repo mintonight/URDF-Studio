@@ -182,7 +182,7 @@ const FileTreeNodeComponentBase: React.FC<FileTreeNodeComponentProps> = ({
 
         {showAddButton && !isEditingFolder && (
           <div
-            className={`ml-auto flex shrink-0 items-center gap-1 transition-opacity ${
+            className={`ml-auto sticky right-0 z-[1] flex shrink-0 items-center gap-1 bg-element-bg pl-2 transition-opacity dark:bg-element-hover ${
               isSelectedFile
                 ? 'opacity-100'
                 : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'

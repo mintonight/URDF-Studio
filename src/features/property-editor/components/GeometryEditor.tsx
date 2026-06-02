@@ -164,10 +164,34 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
     geomData.type === GeometryType.MESH &&
     (!geomData.color || hasGeometryMeshMaterialGroups(geomData)) &&
     authoredMaterialColors.length > 0;
+
+  // For painted meshes, show the painted colors (excluding base material) more prominently
+  const getPaintedColorLabel = () => {
+    if (!hasGeometryMeshMaterialGroups(geomData)) {
+      return null;
+    }
+    const materials = geomData.authoredMaterials || [];
+    if (materials.length <= 1) {
+      return null;
+    }
+    // Get non-base materials (indices 1+) which are the painted colors
+    const paintedMaterials = materials.slice(1);
+    const paintedColors = getUniqueAuthoredMaterialColors(paintedMaterials);
+    if (paintedColors.length === 0) {
+      return null;
+    }
+    if (paintedColors.length === 1) {
+      return paintedColors[0];
+    }
+    // Show multiple painted colors
+    return paintedColors.join(', ');
+  };
+
+  const paintedColorLabel = getPaintedColorLabel();
   const authoredMaterialDisplayLabel = hasReadonlyAuthoredMaterialDisplay
-    ? authoredMaterialColors.length === 1
+    ? paintedColorLabel || (authoredMaterialColors.length === 1
       ? authoredMaterialColors[0]
-      : `${t.multipleMaterials} (${geomData.authoredMaterials?.length ?? authoredMaterialColors.length})`
+      : `${t.multipleMaterials} (${geomData.authoredMaterials?.length ?? authoredMaterialColors.length})`)
     : null;
   const isPrimaryVisualSelection =
     category === 'visual'

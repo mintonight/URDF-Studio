@@ -21,6 +21,7 @@ export const DEFAULT_PRINCIPAL_AXES_TOLERANCE = 1e-6;
 export const DEFAULT_JOINT_FRAME_TOLERANCE = 1e-6;
 export const DEFAULT_LINK_POSITION_TOLERANCE = 1e-5;
 export const DEFAULT_LINK_ORIENTATION_TOLERANCE = 2e-4;
+export const DEFAULT_WORLD_POSITION_TOLERANCE = DEFAULT_LINK_POSITION_TOLERANCE;
 
 const UNITREE_USDA_PREFIX = 'test/unitree_ros_usda/';
 
@@ -65,6 +66,20 @@ function vector3OrZero(value) {
   }
 
   return [0, 0, 0];
+}
+
+function vector3OrNull(value) {
+  if (Array.isArray(value) && value.length >= 3) {
+    const result = [Number(value[0]), Number(value[1]), Number(value[2])];
+    return result.every(Number.isFinite) ? result : null;
+  }
+
+  if (value && typeof value === 'object') {
+    const result = [Number(value.x), Number(value.y), Number(value.z)];
+    return result.every(Number.isFinite) ? result : null;
+  }
+
+  return null;
 }
 
 function quaternionWxyzOrIdentity(value) {
@@ -172,6 +187,14 @@ function getBrowserLinkWorldPose(linkPose) {
     position: vector3OrZero(linkPose?.position),
     orientationWxyz: quaternionWxyzFromXyzwOrIdentity(linkPose?.quaternion),
   };
+}
+
+function getBrowserRuntimeLinkName(link) {
+  return String(link?.name ?? link?.linkName ?? link?.id ?? '');
+}
+
+function getBrowserRuntimeLinkWorldPosition(runtimeLink) {
+  return vector3OrNull(runtimeLink?.position);
 }
 
 function getBrowserJointName(joint) {
@@ -301,6 +324,10 @@ function getTruthBodyWorldPose(body) {
   };
 }
 
+function getTruthBodyWorldPosition(body) {
+  return vector3OrNull(body?.worldPosition) ?? vector3OrNull(body?.worldPose?.position);
+}
+
 function getResultModelKey(result) {
   return String(result?.modelKey || result?.targetFileName || result?.selectedFileName || '');
 }
@@ -381,9 +408,11 @@ export function compareUnitreeRosUsdaBrowserPhysics({
   jointFrameTolerance = DEFAULT_JOINT_FRAME_TOLERANCE,
   linkPositionTolerance = DEFAULT_LINK_POSITION_TOLERANCE,
   linkOrientationTolerance = DEFAULT_LINK_ORIENTATION_TOLERANCE,
+  worldPositionTolerance,
   modelFilters = [],
   maxFailureSamples = 32,
 } = {}) {
+  const resolvedWorldPositionTolerance = worldPositionTolerance ?? linkPositionTolerance;
   const results = Array.isArray(browserReport?.results) ? browserReport.results : [];
   const truthIndex = buildTruthStageIndex(truthReport);
   const modelFilterSet = normalizeModelFilters(modelFilters);
@@ -400,6 +429,8 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     matchedJoints: 0,
     browserLinkPoses: 0,
     matchedLinkPoses: 0,
+    browserRuntimeLinks: 0,
+    matchedRuntimeLinkPositions: 0,
     maxMassErr: 0,
     maxComErr: 0,
     maxInertiaErr: 0,
@@ -408,9 +439,12 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     maxNativeJointFrameErr: 0,
     maxLinkPositionErr: 0,
     maxLinkOrientationErr: 0,
+    maxWorldPositionErr: 0,
     missingLinks: 0,
     extraLinks: 0,
     missingBrowserLinkPoses: 0,
+    missingBrowserWorldPositions: 0,
+    missingTruthWorldPositions: 0,
     missingBrowserJoints: 0,
     missingNativeJoints: 0,
     massMismatches: 0,
@@ -419,10 +453,12 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     principalAxesMismatches: 0,
     linkPositionMismatches: 0,
     linkOrientationMismatches: 0,
+    worldPositionMismatches: 0,
     jointFrameMismatches: 0,
     nativeJointFrameMismatches: 0,
     duplicateBrowserNames: 0,
     duplicateBrowserLinkPoseNames: 0,
+    duplicateBrowserWorldTransformNames: 0,
     duplicateTruthNames: 0,
     duplicateBrowserJointNames: 0,
     duplicateNativeJointNames: 0,
@@ -434,6 +470,7 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     worstPrincipalAxes: null,
     worstLinkPosition: null,
     worstLinkOrientation: null,
+    worstWorldPosition: null,
     worstJointFrame: null,
     worstNativeJointFrame: null,
   };
@@ -473,9 +510,13 @@ export function compareUnitreeRosUsdaBrowserPhysics({
         matchedJoints: 0,
         browserLinkPoses: 0,
         matchedLinkPoses: 0,
+        browserRuntimeLinks: 0,
+        matchedRuntimeLinkPositions: 0,
         missingLinks: 0,
         extraLinks: 0,
         missingBrowserLinkPoses: 0,
+        missingBrowserWorldPositions: 0,
+        missingTruthWorldPositions: 0,
         missingBrowserJoints: 0,
         missingNativeJoints: 0,
         maxMassErr: 0,
@@ -486,6 +527,7 @@ export function compareUnitreeRosUsdaBrowserPhysics({
         maxNativeJointFrameErr: 0,
         maxLinkPositionErr: 0,
         maxLinkOrientationErr: 0,
+        maxWorldPositionErr: 0,
       });
       continue;
     }
@@ -511,10 +553,17 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     const browserLinkPoses = Array.isArray(result?.selectedUsdSceneSummary?.linkPoses?.storeLinks)
       ? result.selectedUsdSceneSummary.linkPoses.storeLinks
       : [];
+    const browserRuntimeLinks = Array.isArray(result?.runtimeSceneTransforms?.links)
+      ? result.runtimeSceneTransforms.links
+      : [];
     const truthBodies = Object.values(truthStage.rigidBodies || {});
     const truthJoints = Object.values(truthStage.joints || truthStage.physicsJoints || {});
     const browserNameMap = buildUniqueNameMap(browserLinks, getBrowserLinkName);
     const browserLinkPoseNameMap = buildUniqueNameMap(browserLinkPoses, getBrowserLinkPoseName);
+    const browserRuntimeNameMap = buildUniqueNameMap(
+      browserRuntimeLinks,
+      getBrowserRuntimeLinkName,
+    );
     const truthNameMap = buildUniqueNameMap(truthBodies, getTruthBodyName);
     const browserJointNameMap = buildUniqueNameMap(browserJoints, getBrowserJointName);
     const nativeJointNameMap = buildUniqueNameMap(nativeJoints, getNativeJointName);
@@ -529,12 +578,16 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       nativeJoints: nativeJoints.length,
       truthJoints: truthJoints.length,
       browserLinkPoses: browserLinkPoses.length,
+      browserRuntimeLinks: browserRuntimeLinks.length,
       matchedLinks: 0,
       matchedJoints: 0,
       matchedLinkPoses: 0,
+      matchedRuntimeLinkPositions: 0,
       missingLinks: 0,
       extraLinks: 0,
       missingBrowserLinkPoses: 0,
+      missingBrowserWorldPositions: 0,
+      missingTruthWorldPositions: 0,
       missingBrowserJoints: 0,
       missingNativeJoints: 0,
       massMismatches: 0,
@@ -543,10 +596,12 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       principalAxesMismatches: 0,
       linkPositionMismatches: 0,
       linkOrientationMismatches: 0,
+      worldPositionMismatches: 0,
       jointFrameMismatches: 0,
       nativeJointFrameMismatches: 0,
       duplicateBrowserNames: browserNameMap.duplicates.length,
       duplicateBrowserLinkPoseNames: browserLinkPoseNameMap.duplicates.length,
+      duplicateBrowserWorldTransformNames: browserRuntimeNameMap.duplicates.length,
       duplicateTruthNames: truthNameMap.duplicates.length,
       duplicateBrowserJointNames: browserJointNameMap.duplicates.length,
       duplicateNativeJointNames: nativeJointNameMap.duplicates.length,
@@ -559,12 +614,14 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       maxNativeJointFrameErr: 0,
       maxLinkPositionErr: 0,
       maxLinkOrientationErr: 0,
+      maxWorldPositionErr: 0,
       worstMass: null,
       worstCom: null,
       worstInertia: null,
       worstPrincipalAxes: null,
       worstLinkPosition: null,
       worstLinkOrientation: null,
+      worstWorldPosition: null,
       worstJointFrame: null,
       worstNativeJointFrame: null,
     };
@@ -574,6 +631,13 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     }
     for (const duplicateName of browserLinkPoseNameMap.duplicates) {
       addFailure({ type: 'duplicate-browser-link-pose-name', model: modelKey, link: duplicateName });
+    }
+    for (const duplicateName of browserRuntimeNameMap.duplicates) {
+      addFailure({
+        type: 'duplicate-browser-world-transform-link-name',
+        model: modelKey,
+        link: duplicateName,
+      });
     }
     for (const duplicateName of truthNameMap.duplicates) {
       addFailure({ type: 'duplicate-truth-body-name', model: modelKey, link: duplicateName });
@@ -666,6 +730,66 @@ export function compareUnitreeRosUsdaBrowserPhysics({
             linkOrientationErr,
             tolerance: linkOrientationTolerance,
           });
+        }
+      }
+
+      if (browserRuntimeLinks.length > 0) {
+        const browserRuntimeLink = browserRuntimeNameMap.map.get(linkName);
+        const truthWorldPosition = getTruthBodyWorldPosition(truthBody);
+        if (!browserRuntimeLink) {
+          modelStats.missingBrowserWorldPositions += 1;
+          addFailure({
+            type: 'missing-browser-world-position',
+            model: modelKey,
+            link: linkName,
+            truthFullPath: truthBody.fullPath ?? null,
+          });
+        } else {
+          const browserWorldPosition = getBrowserRuntimeLinkWorldPosition(browserRuntimeLink);
+          if (!browserWorldPosition) {
+            modelStats.missingBrowserWorldPositions += 1;
+            addFailure({
+              type: 'missing-browser-world-position',
+              model: modelKey,
+              link: linkName,
+              truthFullPath: truthBody.fullPath ?? null,
+            });
+          } else if (!truthWorldPosition) {
+            modelStats.missingTruthWorldPositions += 1;
+            addFailure({
+              type: 'missing-truth-world-position',
+              model: modelKey,
+              link: linkName,
+              truthFullPath: truthBody.fullPath ?? null,
+            });
+          } else {
+            modelStats.matchedRuntimeLinkPositions += 1;
+            const worldPositionErr = vectorDistance(browserWorldPosition, truthWorldPosition);
+            if (worldPositionErr > modelStats.maxWorldPositionErr) {
+              modelStats.maxWorldPositionErr = worldPositionErr;
+              modelStats.worstWorldPosition = {
+                link: linkName,
+                browserWorldPosition,
+                truthWorldPosition,
+                worldPositionErr,
+              };
+            }
+            if (worldPositionErr > resolvedWorldPositionTolerance) {
+              modelStats.worldPositionMismatches += 1;
+              addFailure({
+                type: 'world-position-mismatch',
+                model: modelKey,
+                link: linkName,
+                browserWorldPosition,
+                truthWorldPosition,
+                worldPositionErr,
+                browserHeight: browserWorldPosition[2],
+                truthHeight: truthWorldPosition[2],
+                heightErr: Math.abs(browserWorldPosition[2] - truthWorldPosition[2]),
+                tolerance: resolvedWorldPositionTolerance,
+              });
+            }
+          }
         }
       }
 
@@ -858,10 +982,14 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       modelStats.principalAxesMismatches === 0 &&
       modelStats.linkPositionMismatches === 0 &&
       modelStats.linkOrientationMismatches === 0 &&
+      modelStats.worldPositionMismatches === 0 &&
+      modelStats.missingBrowserWorldPositions === 0 &&
+      modelStats.missingTruthWorldPositions === 0 &&
       modelStats.jointFrameMismatches === 0 &&
       modelStats.nativeJointFrameMismatches === 0 &&
       modelStats.duplicateBrowserNames === 0 &&
       modelStats.duplicateBrowserLinkPoseNames === 0 &&
+      modelStats.duplicateBrowserWorldTransformNames === 0 &&
       modelStats.duplicateTruthNames === 0 &&
       modelStats.duplicateBrowserJointNames === 0 &&
       modelStats.duplicateNativeJointNames === 0 &&
@@ -873,6 +1001,8 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     summary.truthBodies += modelStats.truthBodies;
     summary.browserLinkPoses += modelStats.browserLinkPoses;
     summary.matchedLinkPoses += modelStats.matchedLinkPoses;
+    summary.browserRuntimeLinks += modelStats.browserRuntimeLinks;
+    summary.matchedRuntimeLinkPositions += modelStats.matchedRuntimeLinkPositions;
     summary.browserJoints += modelStats.browserJoints;
     summary.nativeJoints += modelStats.nativeJoints;
     summary.truthJoints += modelStats.truthJoints;
@@ -880,6 +1010,8 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     summary.missingLinks += modelStats.missingLinks;
     summary.extraLinks += modelStats.extraLinks;
     summary.missingBrowserLinkPoses += modelStats.missingBrowserLinkPoses;
+    summary.missingBrowserWorldPositions += modelStats.missingBrowserWorldPositions;
+    summary.missingTruthWorldPositions += modelStats.missingTruthWorldPositions;
     summary.missingBrowserJoints += modelStats.missingBrowserJoints;
     summary.missingNativeJoints += modelStats.missingNativeJoints;
     summary.massMismatches += modelStats.massMismatches;
@@ -888,10 +1020,12 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     summary.principalAxesMismatches += modelStats.principalAxesMismatches;
     summary.linkPositionMismatches += modelStats.linkPositionMismatches;
     summary.linkOrientationMismatches += modelStats.linkOrientationMismatches;
+    summary.worldPositionMismatches += modelStats.worldPositionMismatches;
     summary.jointFrameMismatches += modelStats.jointFrameMismatches;
     summary.nativeJointFrameMismatches += modelStats.nativeJointFrameMismatches;
     summary.duplicateBrowserNames += modelStats.duplicateBrowserNames;
     summary.duplicateBrowserLinkPoseNames += modelStats.duplicateBrowserLinkPoseNames;
+    summary.duplicateBrowserWorldTransformNames += modelStats.duplicateBrowserWorldTransformNames;
     summary.duplicateTruthNames += modelStats.duplicateTruthNames;
     summary.duplicateBrowserJointNames += modelStats.duplicateBrowserJointNames;
     summary.duplicateNativeJointNames += modelStats.duplicateNativeJointNames;
@@ -928,6 +1062,12 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       summary.maxLinkOrientationErr = modelStats.maxLinkOrientationErr;
       summary.worstLinkOrientation = modelStats.worstLinkOrientation
         ? { model: modelKey, ...modelStats.worstLinkOrientation }
+        : null;
+    }
+    if (modelStats.maxWorldPositionErr > summary.maxWorldPositionErr) {
+      summary.maxWorldPositionErr = modelStats.maxWorldPositionErr;
+      summary.worstWorldPosition = modelStats.worstWorldPosition
+        ? { model: modelKey, ...modelStats.worstWorldPosition }
         : null;
     }
     if (modelStats.maxJointFrameErr > summary.maxJointFrameErr) {
@@ -967,6 +1107,7 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       jointFrameTolerance,
       linkPositionTolerance,
       linkOrientationTolerance,
+      worldPositionTolerance: resolvedWorldPositionTolerance,
     },
     perModel,
     failures: failures.slice(0, maxFailureSamples),
@@ -994,6 +1135,8 @@ Options:
                            Store link world-position tolerance. Default: ${DEFAULT_LINK_POSITION_TOLERANCE}
   --link-orientation-tolerance <n>
                            Store link world-orientation quaternion tolerance. Default: ${DEFAULT_LINK_ORIENTATION_TOLERANCE}
+  --world-position-tolerance <n>
+                           Runtime link world-position tolerance. Default: ${DEFAULT_WORLD_POSITION_TOLERANCE}
   --max-failures <n>       Failure samples to include in output. Default: 32
   --help                   Show this help message.
 `);
@@ -1011,6 +1154,7 @@ function parseArgs(argv) {
     jointFrameTolerance: DEFAULT_JOINT_FRAME_TOLERANCE,
     linkPositionTolerance: DEFAULT_LINK_POSITION_TOLERANCE,
     linkOrientationTolerance: DEFAULT_LINK_ORIENTATION_TOLERANCE,
+    worldPositionTolerance: DEFAULT_WORLD_POSITION_TOLERANCE,
     maxFailureSamples: 32,
     modelFilters: [],
     help: false,
@@ -1060,6 +1204,9 @@ function parseArgs(argv) {
       case '--link-orientation-tolerance':
         options.linkOrientationTolerance = Number(next());
         break;
+      case '--world-position-tolerance':
+        options.worldPositionTolerance = Number(next());
+        break;
       case '--max-failures':
         options.maxFailureSamples = Number.parseInt(next(), 10);
         break;
@@ -1093,6 +1240,9 @@ function parseArgs(argv) {
   if (!Number.isFinite(options.linkOrientationTolerance) || options.linkOrientationTolerance < 0) {
     throw new Error(`Invalid --link-orientation-tolerance: ${options.linkOrientationTolerance}`);
   }
+  if (!Number.isFinite(options.worldPositionTolerance) || options.worldPositionTolerance < 0) {
+    throw new Error(`Invalid --world-position-tolerance: ${options.worldPositionTolerance}`);
+  }
   if (!Number.isInteger(options.maxFailureSamples) || options.maxFailureSamples < 1) {
     throw new Error(`Invalid --max-failures: ${options.maxFailureSamples}`);
   }
@@ -1125,6 +1275,7 @@ async function main() {
     jointFrameTolerance: options.jointFrameTolerance,
     linkPositionTolerance: options.linkPositionTolerance,
     linkOrientationTolerance: options.linkOrientationTolerance,
+    worldPositionTolerance: options.worldPositionTolerance,
     modelFilters: options.modelFilters,
     maxFailureSamples: options.maxFailureSamples,
   });

@@ -141,6 +141,21 @@ test('dev server accepts a comma-separated preview host allow-list', async () =>
   assert.deepEqual(config.server?.allowedHosts, ['preview.example.test', '.tunnel.example.test']);
 });
 
+test('dev server ignores root virtualenv files during watch', async () => {
+  const config = await loadViteConfigWithDevServerEnv({
+    URDF_STUDIO_DEV_HOST: undefined,
+    URDF_STUDIO_DEV_ALLOWED_HOSTS: undefined,
+  });
+  const ignored = config.server?.watch?.ignored;
+
+  assert.equal(typeof ignored, 'function');
+  assert.equal(
+    ignored(path.resolve('.venv/genesis-truth/lib/python3.11/site-packages/pkg/module.py')),
+    true,
+  );
+  assert.equal(ignored(path.resolve('src/app/App.tsx')), false);
+});
+
 test('dev server only sends isolation headers to trustworthy local origins', async () => {
   const loaded = await loadConfigFromFile(
     {

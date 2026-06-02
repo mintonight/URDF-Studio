@@ -421,6 +421,7 @@ export const UnifiedViewer = React.memo(
       : STUDIO_ENVIRONMENT_INTENSITY.workspace[resolvedTheme];
     const showWorldOriginAxesPreference = useUIStore((state) => state.viewOptions.showAxes);
     const showUsageGuidePreference = useUIStore((state) => state.viewOptions.showUsageGuide);
+    const navigationSensitivity = useUIStore((state) => state.navigationSensitivity);
     const showWorldOriginAxes = showWorldOriginAxesPreference && !viewerController.showOrigins;
     const effectiveShowUsageGuide = resolveUnifiedViewerUsageGuideVisibility(
       showUsageGuidePreference,
@@ -606,6 +607,9 @@ export const UnifiedViewer = React.memo(
           minDistance: 0.05,
           maxDistance: 2000,
           enabled: !viewerController.isDragging,
+          zoomSensitivity: navigationSensitivity.zoom,
+          rotateSensitivity: navigationSensitivity.rotate,
+          panSensitivity: navigationSensitivity.pan,
           onStart: () => {
             viewerController.isOrbitDragging.current = true;
           },

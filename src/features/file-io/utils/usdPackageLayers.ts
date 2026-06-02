@@ -511,6 +511,13 @@ const serializeClosedLoopConstraintDefinition = (
     `${childIndent}custom string urdf:closedLoopType = "${escapeUsdString(constraint.type)}"`,
   );
   lines.push(
+    `${childIndent}custom point3f urdf:anchorWorld = ${formatUsdTuple([
+      constraint.anchorWorld.x,
+      constraint.anchorWorld.y,
+      constraint.anchorWorld.z,
+    ])}`,
+  );
+  lines.push(
     `${childIndent}point3f physics:localPos0 = ${formatUsdTuple([
       constraint.anchorLocalA.x,
       constraint.anchorLocalA.y,
@@ -807,6 +814,9 @@ export const buildUsdRootLayerContent = (
     return [
       '#usda 1.0',
       '(',
+      '    customLayerData = {',
+      '        string urdfStudio:roundtripMetadata = "1"',
+      '    }',
       `    defaultPrim = "${rootPrimName}"`,
       '    metersPerUnit = 1',
       '    upAxis = "Z"',
@@ -866,6 +876,9 @@ export const buildUsdRootLayerContent = (
   return [
     '#usda 1.0',
     '(',
+    '    customLayerData = {',
+    '        string urdfStudio:roundtripMetadata = "1"',
+    '    }',
     `    defaultPrim = "${rootPrimName}"`,
     '    upAxis = "Z"',
     '    metersPerUnit = 1',

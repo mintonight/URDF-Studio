@@ -71,9 +71,9 @@ test('addComponent applies USD RobotData provided through context', () => {
   });
 
   assert.ok(component, 'USD component creation should not return null');
-  assert.equal(component?.name, 'simple');
-  assert.ok(component?.robot.links.comp_simple_usd_root);
-  assert.equal(component?.robot.rootLinkId, 'comp_simple_usd_root');
+  assert.equal(component?.name, 'usd_robot');
+  assert.ok(component?.robot.links.comp_usd_robot_usd_root);
+  assert.equal(component?.robot.rootLinkId, 'comp_usd_robot_usd_root');
 
   const stored = useRobotStore.getState().assemblyState?.components[component!.id];
   assert.ok(stored, 'Assembly state should hold the new component');
@@ -250,6 +250,6 @@ test('addComponent rewrites USD prepared mesh paths into source-relative library
 
   assert.ok(component, 'USD component creation should not return null');
 
-  const rewrittenMeshPath = component?.robot.links.comp_go2_base_link.visual.meshPath;
+  const rewrittenMeshPath = component?.robot.links.comp_usd_robot_base_link.visual.meshPath;
   assert.equal(rewrittenMeshPath, 'robots/go2/usd/base_link_visual_0.obj');
 });

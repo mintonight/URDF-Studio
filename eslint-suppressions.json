@@ -19,11 +19,6 @@
       "count": 1
     }
   },
-  "scripts/test/browser/test_measure_tool.mjs": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "scripts/test/browser/test_mjcf_export.mjs": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1

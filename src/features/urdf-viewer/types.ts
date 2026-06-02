@@ -21,6 +21,7 @@ import type {
   MeasureAnchorMode,
   MeasureGroup,
   MeasureMeasurement,
+  MeasureMode,
   MeasureObjectType,
   MeasurePoseRepresentation,
   MeasureSlot,
@@ -59,6 +60,7 @@ export type {
   MeasureAnchorMode,
   MeasureGroup,
   MeasureMeasurement,
+  MeasureMode,
   MeasureObjectType,
   MeasurePoseRepresentation,
   MeasureSlot,
@@ -274,6 +276,7 @@ export interface RobotModelProps {
   focusTarget?: string | null;
   transformMode?: 'select' | 'translate' | 'rotate' | 'universal';
   toolMode?: ToolMode;
+  measureMode?: MeasureMode;
   ikDragActive?: boolean;
   onCollisionTransformPreview?: (
     linkName: string,

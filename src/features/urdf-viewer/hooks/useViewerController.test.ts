@@ -22,6 +22,7 @@ import {
   useSelectionStore,
 } from '@/store';
 import { disposeClosedLoopMotionPreviewWorker } from '@/shared/utils/robot/closedLoopMotionPreviewWorkerBridge';
+import type { RuntimeRobotObject } from '@/shared/components/3d/runtimeRobotTypes';
 
 import { useViewerController } from './useViewerController.ts';
 
@@ -464,7 +465,11 @@ type RuntimeJoint = RobotState['joints'][string] & {
   setJointQuaternion: (quaternion: JointQuaternion) => void;
 };
 
-function createRuntimeRobotFixture(robot: RobotState) {
+type RuntimeRobotFixture = RuntimeRobotObject & {
+  joints: Record<string, RuntimeJoint>;
+};
+
+function createRuntimeRobotFixture(robot: RobotState): RuntimeRobotFixture {
   const runtimeJoints = Object.fromEntries(
     Object.entries(robot.joints).map(([jointId, joint]) => {
       const runtimeJoint: RuntimeJoint = {
@@ -482,12 +487,11 @@ function createRuntimeRobotFixture(robot: RobotState) {
 
       return [jointId, runtimeJoint];
     }),
-  );
+  ) as Record<string, RuntimeJoint>;
 
-  return {
-    ...robot,
+  return Object.assign(new THREE.Object3D(), robot, {
     joints: runtimeJoints,
-  };
+  }) as unknown as RuntimeRobotFixture;
 }
 
 async function mountController(closedLoopRobotState: RobotState) {
@@ -764,7 +768,7 @@ test('handleRobotLoaded sanitizes runtime Three.js quaternions before closed-loo
     0.5,
     0,
     0.8660254,
-  ) as unknown as JointQuaternion;
+  );
   const { dom, root, getHook } = await mountController(closedLoopRobotState);
 
   try {
@@ -797,13 +801,13 @@ test('handleRobotLoaded stores runtime ball joint motion quaternion in RobotStat
     0.5,
     0,
     0.8660254,
-  ) as unknown as JointQuaternion;
+  );
   runtimeRobot.joints.joint_a.quaternion = new THREE.Quaternion(
     0.1,
     0.6,
     0.2,
     0.7,
-  ) as unknown as JointQuaternion;
+  );
   const { dom, root, getHook } = await mountController(closedLoopRobotState);
 
   try {

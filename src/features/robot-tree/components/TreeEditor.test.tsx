@@ -597,9 +597,9 @@ test('TreeEditor opens a clickable structure graph from the structure tree heade
       graphLayer.getAttribute('transform')?.match(/scale\(([-\d.]+)\)/)?.[1] ?? '0',
     );
     assert.equal(
-      zoomedScale > initialScale && zoomedScale / initialScale < 1.1,
+      zoomedScale > initialScale * 1.45,
       true,
-      'mouse wheel zoom should stay below the old per-notch jump',
+      'mouse wheel zoom should stay responsive inside the graph canvas',
     );
 
     const childLinkNode = dialog.querySelector('[role="button"][aria-label="Link child_link"]');

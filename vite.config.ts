@@ -115,6 +115,7 @@ function shouldSkipInitialHtmlModulePreload(dependency: string): boolean {
 }
 
 const GENERATED_ARTIFACT_WATCH_IGNORE_ROOTS = [
+  path.resolve(__dirname, '.venv'),
   path.resolve(__dirname, '.omx'),
   path.resolve(__dirname, 'tmp'),
   path.resolve(__dirname, '.tmp'),

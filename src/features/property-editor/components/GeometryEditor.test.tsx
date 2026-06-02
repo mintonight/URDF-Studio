@@ -1631,7 +1631,7 @@ test('GeometryEditor surfaces paint material groups even when the mesh keeps its
 
     await renderGeometryEditor(root, link, () => {}, robot);
 
-    assert.ok(container.textContent?.includes('Multiple Materials'));
+    assert.ok(container.textContent?.includes('#007aff'));
     const inputValues = Array.from(container.querySelectorAll('input')).map((input) =>
       (input as HTMLInputElement).value.trim().toLowerCase(),
     );

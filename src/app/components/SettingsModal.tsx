@@ -10,6 +10,7 @@ import {
   Minus,
   Monitor,
   Moon,
+  Move3d,
   RotateCcw,
   Settings,
   Sun,
@@ -26,9 +27,16 @@ import {
   IconButton,
   PanelSegmentedControl,
   PanelSelect,
+  Slider,
 } from '@/shared/components/ui';
 import { translations } from '@/shared/i18n';
-import { useUIStore, type CodeEditorFontFamily } from '@/store';
+import {
+  useUIStore,
+  NAVIGATION_SENSITIVITY_MIN,
+  NAVIGATION_SENSITIVITY_MAX,
+  type CodeEditorFontFamily,
+  type NavigationSensitivity,
+} from '@/store';
 import { SettingsAboutPane } from './settings/SettingsAboutPane';
 
 const DEFAULT_SETTINGS_WIDTH = 620;
@@ -45,6 +53,19 @@ const SETTINGS_INLINE_BUTTON_CLASSNAME =
   'h-7 rounded-[6px] border-border-black px-2.5 text-[11px] font-medium shadow-none';
 const SETTINGS_TEXT_ACTION_CLASSNAME =
   'h-7 rounded-[6px] px-2.5 text-[11px] font-medium text-text-secondary shadow-none hover:bg-settings-muted hover:text-text-primary active:bg-settings-muted';
+
+const NAVIGATION_SENSITIVITY_MARKS = [
+  { value: 0.5, label: '50%' },
+  { value: 1, label: '100%' },
+  { value: 2, label: '200%' },
+];
+
+const formatSensitivityPercent = (value: number) => `${Math.round(value * 100)}%`;
+
+const parseSensitivityPercent = (input: string): number | null => {
+  const numeric = Number.parseFloat(input.replace(/[^0-9.+-]/g, ''));
+  return Number.isFinite(numeric) ? numeric / 100 : null;
+};
 
 type SettingsPage = 'general' | 'sourceCode' | 'view' | 'about';
 
@@ -351,6 +372,8 @@ export function SettingsModal() {
     setCodeEditorFontFamily,
     codeEditorFontSize,
     setCodeEditorFontSize,
+    navigationSensitivity,
+    setNavigationSensitivity,
   } = useUIStore(
     useShallow((state) => ({
       isSettingsOpen: state.isSettingsOpen,
@@ -375,6 +398,8 @@ export function SettingsModal() {
       setCodeEditorFontFamily: state.setCodeEditorFontFamily,
       codeEditorFontSize: state.codeEditorFontSize,
       setCodeEditorFontSize: state.setCodeEditorFontSize,
+      navigationSensitivity: state.navigationSensitivity,
+      setNavigationSensitivity: state.setNavigationSensitivity,
     })),
   );
 
@@ -648,6 +673,73 @@ export function SettingsModal() {
                 checked={showUsageGuide}
                 onChange={(checked) => setViewOption('showUsageGuide', checked)}
               />
+            </SettingsSection>
+            <SettingsSection
+              icon={<Move3d className="h-4 w-4" strokeWidth={SETTINGS_ICON_STROKE_WIDTH} />}
+              title={t.viewerNavigation}
+              actions={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    setNavigationSensitivity({ zoom: 1, rotate: 1, pan: 1 })
+                  }
+                  disabled={
+                    navigationSensitivity.zoom === 1 &&
+                    navigationSensitivity.rotate === 1 &&
+                    navigationSensitivity.pan === 1
+                  }
+                  className={SETTINGS_TEXT_ACTION_CLASSNAME}
+                  icon={
+                    <RotateCcw className="h-3.5 w-3.5" strokeWidth={SETTINGS_ICON_STROKE_WIDTH} />
+                  }
+                >
+                  {t.resetNavigationSensitivity}
+                </Button>
+              }
+            >
+              {(
+                [
+                  {
+                    key: 'zoom',
+                    label: t.zoomSensitivity,
+                    testId: 'settings-zoom-sensitivity',
+                    onChange: (value: number) => setNavigationSensitivity({ zoom: value }),
+                  },
+                  {
+                    key: 'rotate',
+                    label: t.rotateSensitivity,
+                    testId: 'settings-rotate-sensitivity',
+                    onChange: (value: number) => setNavigationSensitivity({ rotate: value }),
+                  },
+                  {
+                    key: 'pan',
+                    label: t.panSensitivity,
+                    testId: 'settings-pan-sensitivity',
+                    onChange: (value: number) => setNavigationSensitivity({ pan: value }),
+                  },
+                ] satisfies Array<{
+                  key: keyof NavigationSensitivity;
+                  label: string;
+                  testId: string;
+                  onChange: (value: number) => void;
+                }>
+              ).map((control) => (
+                <SettingsRow key={control.key} stacked label={control.label}>
+                  <div data-testid={control.testId}>
+                    <Slider
+                      value={navigationSensitivity[control.key]}
+                      min={NAVIGATION_SENSITIVITY_MIN}
+                      max={NAVIGATION_SENSITIVITY_MAX}
+                      step={0.05}
+                      marks={NAVIGATION_SENSITIVITY_MARKS}
+                      formatValue={formatSensitivityPercent}
+                      parseValue={parseSensitivityPercent}
+                      onChange={control.onChange}
+                    />
+                  </div>
+                </SettingsRow>
+              ))}
             </SettingsSection>
           </div>
         );
