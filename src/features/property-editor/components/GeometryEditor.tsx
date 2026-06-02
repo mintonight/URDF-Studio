@@ -161,37 +161,14 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
   }, [geomData.authoredMaterials]);
   const hasReadonlyAuthoredMaterialDisplay =
     category === 'visual' &&
-    geomData.type === GeometryType.MESH &&
-    (!geomData.color || hasGeometryMeshMaterialGroups(geomData)) &&
+    (!geomData.color ||
+      hasGeometryMeshMaterialGroups(geomData) ||
+      authoredMaterialColors.length > 1) &&
     authoredMaterialColors.length > 0;
-
-  // For painted meshes, show the painted colors (excluding base material) more prominently
-  const getPaintedColorLabel = () => {
-    if (!hasGeometryMeshMaterialGroups(geomData)) {
-      return null;
-    }
-    const materials = geomData.authoredMaterials || [];
-    if (materials.length <= 1) {
-      return null;
-    }
-    // Get non-base materials (indices 1+) which are the painted colors
-    const paintedMaterials = materials.slice(1);
-    const paintedColors = getUniqueAuthoredMaterialColors(paintedMaterials);
-    if (paintedColors.length === 0) {
-      return null;
-    }
-    if (paintedColors.length === 1) {
-      return paintedColors[0];
-    }
-    // Show multiple painted colors
-    return paintedColors.join(', ');
-  };
-
-  const paintedColorLabel = getPaintedColorLabel();
   const authoredMaterialDisplayLabel = hasReadonlyAuthoredMaterialDisplay
-    ? paintedColorLabel || (authoredMaterialColors.length === 1
+    ? authoredMaterialColors.length === 1
       ? authoredMaterialColors[0]
-      : `${t.multipleMaterials} (${geomData.authoredMaterials?.length ?? authoredMaterialColors.length})`)
+      : `${t.multipleMaterials}: ${authoredMaterialColors.join(', ')}`
     : null;
   const isPrimaryVisualSelection =
     category === 'visual'

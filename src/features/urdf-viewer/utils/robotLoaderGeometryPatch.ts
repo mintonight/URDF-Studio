@@ -47,6 +47,16 @@ import {
 import { applyURDFMaterials, collectURDFMaterialsFromVisualGeometry } from './urdfMaterials';
 import { getSyntheticGeomParentName, resolveRuntimeGeometryRoot } from './runtimeGeometrySelection';
 
+const PATCHABLE_VISUAL_MATERIAL_GROUP_GEOMETRY_TYPES = new Set<GeometryType>([
+  GeometryType.MESH,
+  GeometryType.BOX,
+  GeometryType.PLANE,
+  GeometryType.SPHERE,
+  GeometryType.ELLIPSOID,
+  GeometryType.CYLINDER,
+  GeometryType.CAPSULE,
+]);
+
 interface PatchCategoryOptions {
   robotModel: THREE.Object3D;
   linkObject: THREE.Object3D;
@@ -659,12 +669,18 @@ function canPatchGeometryInPlace(
   const meshMaterialGroupsChanged =
     category === 'visual' &&
     getMeshMaterialGroupSignature(previousGeometry) !== getMeshMaterialGroupSignature(geometry);
+  const canPatchVisualMaterialGroups =
+    category === 'visual' &&
+    (geometry.type === GeometryType.MESH ||
+      (PATCHABLE_VISUAL_MATERIAL_GROUP_GEOMETRY_TYPES.has(geometry.type) &&
+        (hasGeometryMeshMaterialGroups(previousGeometry) ||
+          hasGeometryMeshMaterialGroups(geometry))));
 
   if (dimensionsChanged && geometry.type === GeometryType.MESH) return false;
   if (colorChanged && category === 'collision') return false;
-  if (authoredMaterialSlotsChanged && geometry.type !== GeometryType.MESH) return false;
-  if (authoredMaterialsChanged && geometry.type !== GeometryType.MESH) return false;
-  if (meshMaterialGroupsChanged && geometry.type !== GeometryType.MESH) return false;
+  if (authoredMaterialSlotsChanged && !canPatchVisualMaterialGroups) return false;
+  if (authoredMaterialsChanged && !canPatchVisualMaterialGroups) return false;
+  if (meshMaterialGroupsChanged && !canPatchVisualMaterialGroups) return false;
 
   return true;
 }

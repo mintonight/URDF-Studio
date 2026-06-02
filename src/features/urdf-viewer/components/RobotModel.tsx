@@ -60,6 +60,15 @@ import { shouldEnableViewerSceneCompileWarmup } from '../utils/sceneCompileWarmu
 
 const EMPTY_ROBOT_FILES: RobotFile[] = [];
 const RUNTIME_IK_ANCHOR_EPSILON_SQ = 1e-12;
+const PAINTABLE_VISUAL_GEOMETRY_TYPES = new Set<GeometryType>([
+  GeometryType.MESH,
+  GeometryType.BOX,
+  GeometryType.PLANE,
+  GeometryType.SPHERE,
+  GeometryType.ELLIPSOID,
+  GeometryType.CYLINDER,
+  GeometryType.CAPSULE,
+]);
 
 function resolveRuntimeLinkBoundsAnchorLocal(
   linkObject: Object3D | null,
@@ -605,7 +614,11 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         const visualGeometry = link
           ? getVisualGeometryByObjectIndex(link, objectIndex)?.geometry
           : null;
-        if (!link || !visualGeometry || visualGeometry.type !== GeometryType.MESH) {
+        if (
+          !link ||
+          !visualGeometry ||
+          !PAINTABLE_VISUAL_GEOMETRY_TYPES.has(visualGeometry.type)
+        ) {
           onPaintStatusChange?.({
             tone: 'error',
             message: t.paintErrorVisualMeshOnly,

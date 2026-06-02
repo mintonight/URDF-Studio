@@ -151,18 +151,28 @@ export function buildRobotSnapshotForAssemblySnapshot(
   currentState: RobotData,
   snapshot: AssemblyState | null,
 ): RobotSnapshot {
-  const currentSnapshot = createRobotSnapshotFromState(currentState);
   const nextAssemblyState = cloneAssemblySnapshot(snapshot);
-  currentSnapshot.assemblyState = nextAssemblyState;
-  currentSnapshot.components = structuredClone(nextAssemblyState?.components ?? {});
-  currentSnapshot.bridges = structuredClone(nextAssemblyState?.bridges ?? {});
-  currentSnapshot.workspaceTransform = cloneAssemblyTransform(
+  const nextComponents = structuredClone(nextAssemblyState?.components ?? {});
+  const nextBridges = structuredClone(nextAssemblyState?.bridges ?? {});
+  const nextWorkspaceTransform = cloneAssemblyTransform(
     nextAssemblyState?.transform ?? IDENTITY_ASSEMBLY_TRANSFORM,
   );
-  if (nextAssemblyState) {
-    currentSnapshot.name = nextAssemblyState.name || currentSnapshot.name;
-  }
-  return currentSnapshot;
+
+  return cloneRobotData({
+    name: nextAssemblyState?.name || currentState.name,
+    version: currentState.version,
+    links: currentState.links,
+    joints: currentState.joints,
+    rootLinkId: currentState.rootLinkId,
+    components: nextComponents,
+    bridges: nextBridges,
+    workspaceTransform: nextWorkspaceTransform,
+    activeComponentId: nextAssemblyState ? currentState.activeComponentId : null,
+    assemblyState: nextAssemblyState,
+    materials: currentState.materials,
+    closedLoopConstraints: currentState.closedLoopConstraints,
+    inspectionContext: currentState.inspectionContext,
+  });
 }
 
 export function shouldProjectAssemblyToTopLevel(

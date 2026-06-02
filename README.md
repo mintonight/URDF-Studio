@@ -13,7 +13,7 @@ Professional URDF design and visualization workstation. Supports rapid editing, 
 
 **Live demo:** [urdf.d-robotics.cc](https://urdf.d-robotics.cc/)
 
-[English](./README.md) | [中文](./docs/README_CN.md)
+[English](./README.md) | [中文](./README_CN.md)
 
 </div>
 
@@ -159,6 +159,9 @@ The app can run without AI credentials. If you want AI generation / inspection e
 OPENAI_API_KEY=your_api_key
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4.1-mini
+
+# GEMINI_API_KEY is accepted as a fallback key when OPENAI_API_KEY is unset
+GEMINI_API_KEY=
 ```
 
 You can place them in `.env.local`.
@@ -288,16 +291,15 @@ Validation is typically done through:
 
 ## Documentation
 
-- [Changelog](./CHANGELOG.md)
-- [Release Process](./RELEASING.md)
 - [Architecture Guide](./docs/architecture.md)
 - [Viewer & Editor Guide](./docs/viewer.md)
 - [File I/O & Export Guide](./docs/file-io.md)
 - [Style Guide](./docs/style-guide.md)
 - [AI Features Guide](./docs/ai-features.md)
+- [Testing Guide](./docs/testing.md)
+- [WASM Build Guide](./docs/wasm-build.md)
 - [Update Rules & Verification](./docs/update-rules.md)
 - [Robot Canvas Library](./docs/robot-canvas-lib.md)
-- [Runtime Fallback Audit](./docs/runtime-fallback-audit.md)
 - [Documentation Catalog](./docs/CATALOG.md)
 - [Agent Instructions](./AGENTS.md)
 

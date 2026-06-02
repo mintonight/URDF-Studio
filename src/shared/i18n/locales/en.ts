@@ -263,11 +263,11 @@ export const en: TranslationKeys = {
   urdfFrame: 'URDF',
   showGeometry: 'Show Geometry',
   showLabels: 'Show Labels',
-  showJointAxes: 'Show Joint Axes',
+  showJointAxes: 'Show Joint Axis',
   jointAxisSize: 'Joint Axis Size',
   frameSize: 'Coordinate Frame Size',
   labelScale: 'Label Scale',
-  showOrigin: 'Show Origin',
+  showOrigin: 'Show Axes',
   showCollision: 'Show Collision',
   instruction: 'Left Click: Rotate | Right Click: Pan | Scroll: Zoom',
   instructionWin: 'Left Click: Rotate | Right Click: Pan | Scroll: Zoom',
@@ -769,7 +769,7 @@ export const en: TranslationKeys = {
   paintTool: 'Paint',
   paintColor: 'Paint Color',
   paintToolHint:
-    'Paint always edits mesh faces through the same face or face-island material workflow.',
+    'Paint edits visual surfaces through the same face or face-island material workflow.',
   paintSelectionScope: 'Selection Scope',
   paintSelectionFace: 'Face',
   paintSelectionIsland: 'Island',
@@ -778,14 +778,14 @@ export const en: TranslationKeys = {
   paintOperationErase: 'Erase',
   paintUnsupportedRobotOnly:
     'Paint mode currently only works on the RobotModel mesh canvas in Editor. USD and offscreen stages are not supported.',
-  paintStatusReady: 'Ready to paint the clicked mesh face.',
-  paintStatusApplied: 'Paint applied to the selected mesh face.',
-  paintStatusRemoved: 'Paint removed from the selected mesh faces.',
-  paintErrorVisualMeshOnly: 'Paint only supports visual mesh geometry.',
+  paintStatusReady: 'Ready to paint the clicked visual surface.',
+  paintStatusApplied: 'Paint applied to the selected visual surface.',
+  paintStatusRemoved: 'Paint removed from the selected visual surfaces.',
+  paintErrorVisualMeshOnly: 'Paint only supports visual geometry with selectable faces.',
   paintErrorMultiMaterial:
     'Paint does not yet support editing built-in multi-material targets that were not authored by the paint tool.',
-  paintErrorFaceUnavailable: 'Could not resolve the clicked mesh face.',
-  paintErrorSelectionUnavailable: 'Could not resolve a valid face selection from the clicked mesh.',
+  paintErrorFaceUnavailable: 'Could not resolve the clicked visual face.',
+  paintErrorSelectionUnavailable: 'Could not resolve a valid face selection from the clicked visual.',
 
   // Performance
   performance: 'Performance',

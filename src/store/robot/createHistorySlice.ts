@@ -44,10 +44,11 @@ export function createHistorySlice(
   get: RobotStoreGet,
 ): CreateHistorySliceResult {
   const appendHistorySnapshot = (snapshot: RobotData | AssemblyState | null, label: string) => {
+    const robotSnapshot = isAssemblySnapshot(snapshot)
+      ? buildRobotSnapshotForAssemblySnapshot(get(), snapshot)
+      : cloneRobotData(snapshot);
+
     set((state) => {
-      const robotSnapshot = isAssemblySnapshot(snapshot)
-        ? buildRobotSnapshotForAssemblySnapshot(state, snapshot)
-        : cloneRobotData(snapshot);
       state._history.past = [...state._history.past, robotSnapshot].slice(-MAX_HISTORY);
       state._history.future = [];
       state._activity = [...state._activity, createChangeLogEntry(label)].slice(
