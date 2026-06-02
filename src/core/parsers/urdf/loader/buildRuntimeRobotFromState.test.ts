@@ -778,6 +778,68 @@ test('buildRuntimeRobotFromState applies visual material alpha from colorRgba', 
   assert.equal(material.transparent, true);
 });
 
+test('buildRuntimeRobotFromState applies paint material groups to primitive box visuals', async () => {
+  const robot = await buildRuntimeRobotFromState({
+    robotName: 'painted_primitive_robot',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#808080',
+          authoredMaterials: [
+            { name: 'base', color: '#808080' },
+            { name: 'paint_base_link_0_1', color: '#3366ff' },
+          ],
+          meshMaterialGroups: [
+            { meshKey: '0', start: 0, count: 6, materialIndex: 1 },
+            { meshKey: '0', start: 6, count: 30, materialIndex: 0 },
+          ],
+        },
+        collision: {
+          ...DEFAULT_LINK.collision,
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+        },
+      },
+    },
+    joints: {},
+    manager: new THREE.LoadingManager(),
+    loadMeshCb: createNoopMeshLoadCb(),
+  });
+
+  const visualGroup = robot.links.base_link.children.find((child: any) => child.isURDFVisual) as
+    | THREE.Object3D
+    | undefined;
+  assert.ok(visualGroup, 'expected visual group');
+
+  const mesh = visualGroup.children[0] as THREE.Mesh;
+  assert.ok(mesh.isMesh, 'expected primitive visual mesh');
+  assert.ok(Array.isArray(mesh.material), 'painted primitive should use material slots');
+  if (!Array.isArray(mesh.material)) {
+    assert.fail('painted primitive should use material slots');
+  }
+
+  assert.equal(mesh.material.length, 2);
+  assert.equal((mesh.material[0] as THREE.MeshStandardMaterial).color.getHexString(), '808080');
+  assert.equal((mesh.material[1] as THREE.MeshStandardMaterial).color.getHexString(), '3366ff');
+  assert.deepEqual(
+    mesh.geometry.groups.map(({ start, count, materialIndex }) => ({
+      start,
+      count,
+      materialIndex,
+    })),
+    [
+      { start: 0, count: 6, materialIndex: 1 },
+      { start: 6, count: 30, materialIndex: 0 },
+    ],
+  );
+});
+
 test('buildRuntimeRobotFromState applies double-sided rendering to marked visual meshes', async () => {
   const manager = new THREE.LoadingManager();
   const robotState = {

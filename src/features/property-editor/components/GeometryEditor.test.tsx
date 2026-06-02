@@ -1611,13 +1611,13 @@ test('GeometryEditor shows the effective legacy link material color when the pri
   }
 });
 
-test('GeometryEditor surfaces paint material groups even when the mesh keeps its legacy color', async () => {
+test('GeometryEditor surfaces all paint material colors for primitive visuals', async () => {
   const { dom, container, root } = createComponentRoot();
   try {
     const link = createLink('#808080');
     link.visual = {
       ...link.visual,
-      type: GeometryType.MESH,
+      type: GeometryType.BOX,
       dimensions: { x: 1, y: 1, z: 1 },
       color: '#808080',
       authoredMaterials: [
@@ -1631,10 +1631,12 @@ test('GeometryEditor surfaces paint material groups even when the mesh keeps its
 
     await renderGeometryEditor(root, link, () => {}, robot);
 
+    assert.ok(container.textContent?.includes('#808080'));
     assert.ok(container.textContent?.includes('#007aff'));
     const inputValues = Array.from(container.querySelectorAll('input')).map((input) =>
       (input as HTMLInputElement).value.trim().toLowerCase(),
     );
+    assert.ok(inputValues.includes('#808080'));
     assert.ok(inputValues.includes('#007aff'));
     assert.equal(container.querySelector('input[type="color"][aria-label="Color"]'), null);
   } finally {

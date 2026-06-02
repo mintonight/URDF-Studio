@@ -874,6 +874,9 @@ export async function buildRuntimeRobotFromState({
             visualMaterialOverrideCache,
           );
         }
+        if (!isCollision && hasGeometryMeshMaterialGroups(geometry)) {
+          applyVisualMeshMaterialGroupsToObject(primitiveMesh, geometry, { manager });
+        }
         group.add(primitiveMesh);
       }
 

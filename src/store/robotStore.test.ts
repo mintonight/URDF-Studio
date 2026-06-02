@@ -114,6 +114,31 @@ test('setRobot can reset undo history for a fresh USD file load', () => {
   assert.equal(nextState._activity.at(-1)?.label, 'Load USD stage');
 });
 
+test('pushHistorySnapshot can clear assembly history without cloning current runtime assembly', () => {
+  resetRobotStore();
+
+  useRobotStore.setState({
+    assemblyState: {
+      name: 'runtime_assembly',
+      transform: {
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { r: 0, p: 0, y: 0 },
+      },
+      components: {
+        runtime_component: {
+          uncloneableRuntimeHandle: () => null,
+        },
+      },
+      bridges: {},
+    } as any,
+  });
+
+  assert.doesNotThrow(() => {
+    useRobotStore.getState().pushHistorySnapshot(null, 'Clear assembly');
+  });
+  assert.equal(useRobotStore.getState()._history.past.at(-1)?.assemblyState, null);
+});
+
 test('setJointAngle skips store notifications when solved joint motion is unchanged', () => {
   resetRobotStore();
 
