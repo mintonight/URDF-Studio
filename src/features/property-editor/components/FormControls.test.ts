@@ -415,9 +415,9 @@ test('TransformFields renders per-axis rotation rows with compact +/-90 shortcut
     assert.ok(rollInput);
     assert.ok(pitchInput);
     assert.ok(yawInput);
-    assert.equal(rollInput.value, '05.73');
-    assert.equal(pitchInput.value, '11.46');
-    assert.equal(yawInput.value, '17.19');
+    assert.equal(rollInput.value, '5.729578');
+    assert.equal(pitchInput.value, '11.459156');
+    assert.equal(yawInput.value, '17.188734');
     assert.equal(container.textContent?.includes('-90'), true);
     assert.equal(container.textContent?.includes('+90'), true);
   } finally {

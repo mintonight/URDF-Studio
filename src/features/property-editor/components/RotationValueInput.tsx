@@ -23,7 +23,8 @@ import {
 } from '../utils/rotationFormat';
 
 const DEGREE_STEP = 1;
-const DEGREE_PRECISION = 2;
+// 度数最多保留 6 位小数(与长宽高/位置一致):显示与提交均支持 6 位精度并去掉尾随 0
+const DEGREE_PRECISION = 6;
 const RADIAN_STEP = 0.1;
 const RADIAN_PRECISION = 4;
 const QUATERNION_STEP = 0.001;
@@ -326,8 +327,7 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
                   commitPrecision={
                     rotationDisplayMode === 'euler_rad' ? MAX_PROPERTY_DECIMALS : undefined
                   }
-                  trimTrailingZeros={rotationDisplayMode === 'euler_rad'}
-                  minimumIntegerDigits={rotationDisplayMode === 'euler_rad' ? undefined : 2}
+                  trimTrailingZeros
                   formatDisplayValue={
                     rotationDisplayMode === 'euler_rad' ? formatRadiansForDisplay : undefined
                   }
@@ -368,8 +368,6 @@ export const RotationValueInput: React.FC<RotationValueInputProps> = ({
           labelPlacement={axisLabelPlacement}
           step={DEGREE_STEP}
           precision={DEGREE_PRECISION}
-          trimTrailingZeros={false}
-          minimumIntegerDigits={2}
           repeatIntervalMs={holdRepeatIntervalMs}
         />
       ) : rotationDisplayMode === 'euler_rad' ? (
