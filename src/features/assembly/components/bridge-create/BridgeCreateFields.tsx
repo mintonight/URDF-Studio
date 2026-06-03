@@ -527,7 +527,7 @@ export function BridgeRelationConnector({
       }
     >
       <div className={lineClassName} />
-      <div className="flex h-8 w-8 items-center justify-center rounded-full border border-system-blue/25 bg-element-bg text-system-blue shadow-[0_8px_18px_rgba(0,0,0,0.12),inset_0_0_0_1px_color-mix(in_srgb,var(--color-system-blue)_12%,transparent)]">
+      <div className="flex h-8 w-8 items-center justify-center rounded-full border border-system-blue/25 bg-element-bg text-system-blue shadow-sm">
         <Link2 className="h-3.5 w-3.5" />
       </div>
       <div className={lineClassName} />
@@ -558,10 +558,10 @@ export function BridgeSideCard({
       data-bridge-component-summary={componentSummary}
       data-bridge-link-summary={linkSummary}
       onFocusCapture={onActivate}
-      className={`flex h-full flex-col rounded-xl border p-2 transition-[border-color,background-color,box-shadow] ${
+      className={`flex h-full flex-col rounded-lg border p-2 transition-[border-color,background-color,box-shadow] ${
         isActive
-          ? 'border-system-blue/45 bg-system-blue/8 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-system-blue)_18%,transparent),0_12px_28px_rgba(0,0,0,0.12)] ring-1 ring-system-blue/20'
-          : 'border-border-black bg-element-bg/55 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_22%,transparent)]'
+          ? 'border-system-blue/45 bg-system-blue/5 ring-1 ring-system-blue/20'
+          : 'border-border-black/70 bg-element-bg/40'
       }`}
     >
       <div data-bridge-side-header={side} className={BRIDGE_SIDE_CARD_HEADER_ROW_CLASS}>
@@ -598,10 +598,10 @@ export function BridgeSideCard({
         </div>
       </div>
 
-      <div data-bridge-side-fields={side} className="mt-2 grid gap-1.5">
+      <div data-bridge-side-fields={side} className="mt-2 grid grid-cols-2 gap-1.5">
         <div
           data-bridge-field={`${side}-component`}
-          className="min-w-0 rounded-lg border border-border-black/80 bg-panel-bg/85 p-1.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_18%,transparent)]"
+          className="min-w-0"
         >
           <PanelSelect
             variant="property"
@@ -616,7 +616,7 @@ export function BridgeSideCard({
 
         <div
           data-bridge-field={`${side}-link`}
-          className="min-w-0 rounded-lg border border-border-black/80 bg-panel-bg/85 p-1.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_18%,transparent)]"
+          className="min-w-0"
         >
           <PanelSelect
             variant="property"

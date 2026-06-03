@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { OptionsPanel } from '@/shared/components/Panel/OptionsPanel';
+import { Select, type SelectOption } from '@/shared/components/ui/Select';
 import type { TranslationKeys } from '@/shared/i18n/types';
 
 import type { IkToolSelectionStatus } from '../utils/ikToolSelectionState';
@@ -106,22 +107,50 @@ function useIkToolPanelDrag(show: boolean) {
 interface IkToolPanelProps {
   show: boolean;
   t: TranslationKeys;
+  linkOptions: readonly SelectOption[];
+  selectedLinkId: string | null;
   currentLinkLabel: string | null;
   selectedLinkLabel: string | null;
   selectionStatus: IkToolSelectionStatus;
+  onSelectLink: (linkId: string) => void;
   onClose: () => void;
 }
 
 export const IkToolPanel: React.FC<IkToolPanelProps> = ({
   show,
   t,
+  linkOptions,
+  selectedLinkId,
   currentLinkLabel,
   selectedLinkLabel,
   selectionStatus,
+  onSelectLink,
   onClose,
 }) => {
   const [isCollapsed, setIsCollapsed] = React.useState(false);
   const { panelRef, position, handleMouseDown } = useIkToolPanelDrag(show);
+  const hasLinkOptions = linkOptions.length > 0;
+  const selectOptions = React.useMemo(
+    () => [
+      {
+        value: '',
+        label: t.ikToolSelectPlaceholder,
+      },
+      ...linkOptions,
+    ],
+    [linkOptions, t.ikToolSelectPlaceholder],
+  );
+  const handleSelectLink = React.useCallback(
+    (event: React.ChangeEvent<HTMLSelectElement>) => {
+      const nextLinkId = event.currentTarget.value;
+      if (!nextLinkId) {
+        return;
+      }
+
+      onSelectLink(nextLinkId);
+    },
+    [onSelectLink],
+  );
 
   const selectionLabel =
     selectedLinkLabel ??
@@ -155,6 +184,18 @@ export const IkToolPanel: React.FC<IkToolPanelProps> = ({
     >
       <div className="space-y-2 p-2">
         <p className="text-[11px] leading-relaxed text-text-secondary">{t.ikToolboxDesc}</p>
+        <Select
+          label={t.ikToolSelectLink}
+          options={selectOptions}
+          value={selectedLinkId ?? ''}
+          onChange={handleSelectLink}
+          disabled={!hasLinkOptions}
+          containerClassName="space-y-1"
+          labelClassName="text-[10px] font-medium uppercase tracking-[0.08em] text-text-muted"
+          className="w-full text-[11px]"
+          optionClassName="text-xs"
+          optionButtonClassName="rounded-md px-2 py-1.5"
+        />
         <div className="rounded-md border border-border-black/70 bg-panel-bg px-2 py-1.5">
           <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-muted">
             {t.ikToolSelectedLink}

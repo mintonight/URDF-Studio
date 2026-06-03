@@ -77,9 +77,12 @@ export interface AppLayoutViewProps {
   handlePrefetchCodeViewer: HeaderProps['onPrefetchCodeViewer'];
   handleSnapshot: HeaderProps['onSnapshot'];
   isIkToolPanelOpen: boolean;
+  ikLinkOptions: IkToolPanelProps['linkOptions'];
+  selectedIkLinkId: IkToolPanelProps['selectedLinkId'];
   selectedIkLinkLabel: IkToolPanelProps['selectedLinkLabel'];
   currentIkLinkLabel: IkToolPanelProps['currentLinkLabel'];
   ikToolSelectionStatus: IkToolPanelProps['selectionStatus'];
+  onSelectIkLink: IkToolPanelProps['onSelectLink'];
   onIkToolClose: () => void;
   workspaceLayoutClassNames: WorkspaceLayoutClassNames;
   workspaceOverlaySafeAreaStyle: CSSProperties | undefined;
@@ -208,9 +211,12 @@ export function AppLayoutView({
   handlePrefetchCodeViewer,
   handleSnapshot,
   isIkToolPanelOpen,
+  ikLinkOptions,
+  selectedIkLinkId,
   selectedIkLinkLabel,
   currentIkLinkLabel,
   ikToolSelectionStatus,
+  onSelectIkLink,
   onIkToolClose,
   workspaceLayoutClassNames,
   workspaceOverlaySafeAreaStyle,
@@ -359,9 +365,12 @@ export function AppLayoutView({
       <IkToolPanel
         show={isIkToolPanelOpen}
         t={t}
+        linkOptions={ikLinkOptions}
+        selectedLinkId={selectedIkLinkId}
         selectedLinkLabel={selectedIkLinkLabel}
         currentLinkLabel={currentIkLinkLabel}
         selectionStatus={ikToolSelectionStatus}
+        onSelectLink={onSelectIkLink}
         onClose={onIkToolClose}
       />
 

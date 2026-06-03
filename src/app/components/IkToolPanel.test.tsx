@@ -83,9 +83,12 @@ async function renderIkPanel(
       <IkToolPanel
         show
         t={translations.en}
+        linkOptions={[{ value: 'tool_link', label: 'tool_link' }]}
+        selectedLinkId={null}
         currentLinkLabel={null}
         selectedLinkLabel={null}
         selectionStatus="idle"
+        onSelectLink={() => {}}
         onClose={() => {}}
         {...overrides}
       />,
@@ -93,7 +96,7 @@ async function renderIkPanel(
   });
 }
 
-test('IkToolPanel renders the selected-link status and help text without a toggle', async () => {
+test('IkToolPanel renders the selected-link status, help text, and Link selector without a toggle', async () => {
   const { dom, container, root } = createComponentRoot();
 
   await renderIkPanel(root);
@@ -101,9 +104,54 @@ test('IkToolPanel renders the selected-link status and help text without a toggl
   const toggle = container.querySelector('button[role="switch"]');
   assert.equal(toggle, null, 'IK drag toggle should not render');
   assert.equal(container.textContent?.includes(translations.en.ikToolboxDesc), true);
+  assert.equal(container.textContent?.includes(translations.en.ikToolSelectLink), true);
   assert.equal(container.textContent?.includes(translations.en.ikToolSelectedLink), true);
   assert.equal(container.textContent?.includes(translations.en.ikToolNoSelection), true);
-  assert.equal(container.querySelector('select'), null, 'link selector should not render');
+  assert.ok(container.querySelector('select'), 'link selector should render');
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('IkToolPanel emits selected Link changes from the selector', async () => {
+  const { dom, container, root } = createComponentRoot();
+  let selectedLinkId: string | null = null;
+
+  await renderIkPanel(root, {
+    onSelectLink: (linkId) => {
+      selectedLinkId = linkId;
+    },
+  });
+
+  const linkSelect = container.querySelector('select') as HTMLSelectElement | null;
+  assert.ok(linkSelect, 'link selector should render');
+
+  await act(async () => {
+    linkSelect.value = 'tool_link';
+    linkSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  });
+
+  assert.equal(selectedLinkId, 'tool_link');
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('IkToolPanel disables the Link selector when no IK-draggable links exist', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  await renderIkPanel(root, {
+    linkOptions: [],
+  });
+
+  const linkSelect = container.querySelector('select') as HTMLSelectElement | null;
+  assert.ok(linkSelect, 'link selector should render');
+  assert.equal(linkSelect.disabled, true);
+  assert.equal(container.textContent?.includes(translations.en.ikToolSelectPlaceholder), true);
 
   await act(async () => {
     root.unmount();
@@ -115,6 +163,7 @@ test('IkToolPanel shows the current IK link label when one is selected', async (
   const { dom, container, root } = createComponentRoot();
 
   await renderIkPanel(root, {
+    selectedLinkId: 'tool_link',
     selectedLinkLabel: 'tool_tip_link',
     selectionStatus: 'selected',
   });

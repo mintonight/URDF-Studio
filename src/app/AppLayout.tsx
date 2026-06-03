@@ -396,13 +396,21 @@ export function AppLayout({
   // through AppLayout forces the tree and property sidebars into high-frequency re-render.
   const previewContextRobot = robot;
   const isPreviewingWorkspaceSource = false;
-  const { ikToolSelectionState, selectedIkLinkLabel, currentIkLinkLabel } = useIkToolController({
+  const {
+    ikToolSelectionState,
+    ikLinkOptions,
+    selectedIkLinkId,
+    selectedIkLinkLabel,
+    currentIkLinkLabel,
+    selectIkLink,
+  } = useIkToolController({
     ikDragActive,
     previewContextRobot,
     robotLinks,
     robotJoints,
     rootLinkId,
     selection,
+    setSelection,
   });
   const {
     propertyEditorSelectionContext,
@@ -869,9 +877,12 @@ export function AppLayout({
       handlePrefetchCodeViewer={handlePrefetchCodeViewer}
       handleSnapshot={handleSnapshot}
       isIkToolPanelOpen={isIkToolPanelOpen}
+      ikLinkOptions={ikLinkOptions}
+      selectedIkLinkId={selectedIkLinkId}
       selectedIkLinkLabel={selectedIkLinkLabel}
       currentIkLinkLabel={currentIkLinkLabel}
       ikToolSelectionStatus={ikToolSelectionState.status}
+      onSelectIkLink={selectIkLink}
       onIkToolClose={() => handleIkDragActiveChange(false)}
       workspaceLayoutClassNames={workspaceLayoutClassNames}
       workspaceOverlaySafeAreaStyle={workspaceOverlaySafeAreaStyle}

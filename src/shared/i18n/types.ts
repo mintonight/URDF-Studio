@@ -394,6 +394,8 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   aiConversationDesc: string;
   measureToolboxDesc: string;
   ikToolboxDesc: string;
+  ikToolSelectLink: string;
+  ikToolSelectPlaceholder: string;
   ikToolSelectedLink: string;
   ikToolNoSelection: string;
   ikToolRootLinkNotDraggable: string;
