@@ -442,6 +442,10 @@ export default defineConfig(({ mode }) => {
       // application source and R3F use, otherwise optimized deps can pull in
       // a second copy from a different workspace path.
       include: OPTIMIZE_DEPS_INCLUDE,
+      // The oxipng codec ships a `.wasm?url` import that esbuild's dependency
+      // pre-bundling can't resolve; let Vite's asset pipeline handle it inside
+      // the PNG optimization worker instead.
+      exclude: ['@jsquash/oxipng'],
     },
     resolve: {
       dedupe: ['three', '@react-three/fiber', '@react-three/drei'],

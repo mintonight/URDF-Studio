@@ -15,6 +15,8 @@ import {
   type SnapshotPreviewAction,
 } from './snapshotConfig';
 import { resolveSnapshotPreviewCaptureOptions } from './snapshotPreviewConfig';
+import { optimizePngBuffer } from '@/core/image-compressor';
+import { logRegressionError } from '@/shared/debug/consoleDiagnostics';
 import {
   applySnapshotBackgroundStyle,
   applySnapshotLightingPreset,
@@ -196,6 +198,27 @@ export const SnapshotManager = ({
       return response.blob();
     };
 
+    // Losslessly re-compress PNG exports with oxipng (in a worker). Canvas-encoded
+    // PNGs are not well optimized, so this typically trims a meaningful chunk of
+    // bytes. Only runs for the downloaded export — the live preview stays fast and
+    // unoptimized. Any failure degrades gracefully to the original PNG.
+    const optimizePngBlobForExport = async (blob: Blob, options: SnapshotCaptureOptions) => {
+      if (options.imageFormat !== 'png') {
+        return blob;
+      }
+
+      try {
+        const sourceBuffer = await blob.arrayBuffer();
+        const optimizedBuffer = await optimizePngBuffer(sourceBuffer, {
+          level: options.pngOptimizeLevel,
+        });
+        return new Blob([optimizedBuffer], { type: 'image/png' });
+      } catch (error) {
+        logRegressionError('[Snapshot] PNG optimization failed; exporting unoptimized PNG.', error);
+        return blob;
+      }
+    };
+
     const downloadCanvas = async (canvas: HTMLCanvasElement, options: SnapshotCaptureOptions) => {
       const safeRobotName = (robotName || 'robot').replace(/[\\/:*?"<>|]/g, '_');
       const now = new Date();
@@ -219,7 +242,7 @@ export const SnapshotManager = ({
         document.body.removeChild(link);
       };
 
-      const blob = await canvasToBlob(canvas, options);
+      const blob = await optimizePngBlobForExport(await canvasToBlob(canvas, options), options);
       const url = URL.createObjectURL(blob);
       triggerDownload(url);
       URL.revokeObjectURL(url);

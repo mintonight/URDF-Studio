@@ -119,3 +119,76 @@ test('DraggableWindow freezes shared hover while hovered and releases the block 
     dom.window.close();
   }
 });
+
+test('DraggableWindow renders thin visual resize affordances inside wider hit targets', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const windowRef = createRef<HTMLDivElement>();
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(DraggableWindow, {
+          window: {
+            isMaximized: false,
+            isMinimized: false,
+            isDragging: false,
+            isResizing: false,
+            containerRef: windowRef,
+            handleDragStart: () => {},
+            handleResizeStart: () => {},
+            toggleMaximize: () => {},
+            toggleMinimize: () => {},
+            windowStyle: {},
+          },
+          onClose: () => {},
+          title: 'Export',
+          children: React.createElement('div', null, 'content'),
+        }),
+      );
+    });
+
+    const resizeHandles = container.querySelectorAll<HTMLButtonElement>(
+      'button[aria-label="Resize"]',
+    );
+    assert.equal(resizeHandles.length, 4);
+
+    const rightHandleClassName = resizeHandles[1]?.className ?? '';
+    const bottomHandleClassName = resizeHandles[2]?.className ?? '';
+    const cornerHandleClassName = resizeHandles[3]?.className ?? '';
+    const rightHandleClasses = rightHandleClassName.split(/\s+/);
+    const bottomHandleClasses = bottomHandleClassName.split(/\s+/);
+
+    assert.match(rightHandleClassName, /\bw-2\b/);
+    assert.equal(rightHandleClassName.includes('resize-edge-right'), true);
+    assert.equal(rightHandleClassName.includes('resize-edge-visual-right'), true);
+    assert.equal(rightHandleClasses.includes('right-0'), false);
+    assert.match(rightHandleClassName, /\bafter:w-px\b/);
+    assert.match(rightHandleClassName, /\bhover:after:bg-system-blue/);
+    assert.doesNotMatch(rightHandleClassName, /\bhover:bg-system-blue/);
+
+    assert.match(bottomHandleClassName, /\bh-2\b/);
+    assert.equal(bottomHandleClassName.includes('resize-edge-bottom'), true);
+    assert.equal(bottomHandleClassName.includes('resize-edge-visual-bottom'), true);
+    assert.equal(bottomHandleClasses.includes('bottom-0'), false);
+    assert.match(bottomHandleClassName, /\bafter:h-px\b/);
+    assert.match(bottomHandleClassName, /\bhover:after:bg-system-blue/);
+    assert.doesNotMatch(bottomHandleClassName, /\bhover:bg-system-blue/);
+
+    assert.match(cornerHandleClassName, /\bgroup\b/);
+    assert.doesNotMatch(cornerHandleClassName, /\bhover:bg-system-blue/);
+    assert.ok(
+      resizeHandles[3]?.querySelector('.border-b.border-r'),
+      'corner handle should render a thin corner mark instead of a hover block',
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+  } finally {
+    dom.window.close();
+  }
+});

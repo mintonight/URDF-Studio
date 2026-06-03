@@ -69,13 +69,16 @@ const DEFAULT_CONTROL_BUTTON_CLASS = 'p-1.5 hover:bg-element-hover rounded-md tr
 const DEFAULT_CLOSE_BUTTON_CLASS =
   'p-1.5 text-text-tertiary hover:bg-red-500 hover:text-white rounded-md transition-colors';
 const DEFAULT_LEFT_RESIZE_CLASS =
-  'absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-system-blue/20 active:bg-system-blue/30 transition-colors z-20';
+  "absolute resize-edge-left resize-edge-visual-left top-0 bottom-0 w-2 cursor-ew-resize z-20 after:absolute after:left-0 after:top-0 after:bottom-0 after:w-px after:bg-transparent after:content-[''] after:transition-colors hover:after:bg-system-blue/50 active:after:bg-system-blue/70";
 const DEFAULT_RIGHT_RESIZE_CLASS =
-  'absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-system-blue/20 active:bg-system-blue/30 transition-colors z-20';
+  "absolute resize-edge-right resize-edge-visual-right top-0 bottom-0 w-2 cursor-ew-resize z-20 after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:bg-transparent after:content-[''] after:transition-colors hover:after:bg-system-blue/50 active:after:bg-system-blue/70";
 const DEFAULT_BOTTOM_RESIZE_CLASS =
-  'absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-system-blue/20 active:bg-system-blue/30 transition-colors z-20';
+  "absolute resize-edge-bottom resize-edge-visual-bottom left-0 right-0 h-2 cursor-ns-resize z-20 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-transparent after:content-[''] after:transition-colors hover:after:bg-system-blue/50 active:after:bg-system-blue/70";
 const DEFAULT_CORNER_RESIZE_CLASS =
-  'absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize hover:bg-system-blue/30 active:bg-system-blue/40 transition-colors z-30';
+  'absolute resize-edge-bottom resize-edge-right w-5 h-5 cursor-nwse-resize z-30';
+const DEFAULT_CORNER_RESIZE_HANDLE = (
+  <span className="pointer-events-none absolute bottom-1 right-1 h-2 w-2 border-b border-r border-border-strong/80 opacity-70 transition-colors group-hover:border-system-blue/60 group-active:border-system-blue/80" />
+);
 
 const joinClassNames = (...classes: Array<string | undefined | false>) =>
   classes.filter(Boolean).join(' ');
@@ -117,7 +120,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   rightResizeDirection = 'right',
   bottomResizeDirection = 'bottom',
   cornerResizeDirection = 'corner',
-  cornerResizeHandle,
+  cornerResizeHandle = DEFAULT_CORNER_RESIZE_HANDLE,
   controlIcons,
   role,
   ariaLabel,
@@ -220,7 +223,10 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
           <button
             type="button"
             aria-label="Resize"
-            className={joinClassNames(cornerResizeHandleClassName, 'border-0 bg-transparent p-0')}
+            className={joinClassNames(
+              cornerResizeHandleClassName,
+              'group border-0 bg-transparent p-0',
+            )}
             onMouseDown={(e) => handleResizeStart(e, cornerResizeDirection)}
           >
             {cornerResizeHandle}

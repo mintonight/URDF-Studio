@@ -33,7 +33,7 @@ const FIELD_ROW_CLASS_NAME = 'grid grid-cols-[78px_minmax(0,1fr)] items-center g
 const FIELD_LABEL_CLASS_NAME =
   'truncate text-[10px] font-medium tracking-[0.01em] text-text-secondary';
 const SNAPSHOT_DIALOG_DEFAULT_SIZE = {
-  width: 560,
+  width: 600,
   height: 690,
 } as const;
 const SNAPSHOT_DIALOG_MIN_SIZE = {
@@ -45,10 +45,14 @@ const SNAPSHOT_DIALOG_VIEWPORT_MARGIN = 24;
 const SNAPSHOT_DIALOG_VIEWPORT_MIN_HEIGHT = 320;
 const SNAPSHOT_DIALOG_COMPACT_LAYOUT_WIDTH = 520;
 const SNAPSHOT_PREVIEW_MIN_WIDTH = 220;
-const SNAPSHOT_PREVIEW_REGULAR_MAX_WIDTH = 360;
-const SNAPSHOT_PREVIEW_COMPACT_MAX_WIDTH = 300;
-const SNAPSHOT_PREVIEW_REGULAR_WIDTH_GUTTER = 180;
-const SNAPSHOT_PREVIEW_COMPACT_WIDTH_GUTTER = 96;
+// Horizontal chrome around the preview frame (scroll body padding + preview card
+// padding + scrollbar slack). The frame fills the remaining card width instead of
+// being capped at a fixed max, so the preview reads as the hero element.
+const SNAPSHOT_PREVIEW_WIDTH_GUTTER = 56;
+// Upper bound on the preview height so portrait/tall aspect ratios don't push the
+// dialog past the viewport; landscape previews stay width-driven and fill the card.
+const SNAPSHOT_PREVIEW_MAX_HEIGHT = 460;
+const SNAPSHOT_PREVIEW_VIEWPORT_HEIGHT_RATIO = 0.42;
 
 const clamp = (value: number, min: number, max: number) => {
   if (max < min) {
@@ -133,6 +137,9 @@ export function SnapshotDialog({
     DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.backgroundStyle,
   );
   const [hideGrid, setHideGrid] = useState(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.hideGrid);
+  const [pngOptimizeLevel, setPngOptimizeLevel] = useState(
+    DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.pngOptimizeLevel,
+  );
   const [internalPreviewState, setInternalPreviewState] = useState<SnapshotDialogPreviewState>({
     status: 'idle',
     imageUrl: null,
@@ -172,6 +179,7 @@ export function SnapshotDialog({
     setDofMode(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.dofMode);
     setBackgroundStyle(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.backgroundStyle);
     setHideGrid(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.hideGrid);
+    setPngOptimizeLevel(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.pngOptimizeLevel);
     setInternalPreviewState({
       status: 'idle',
       imageUrl: null,
@@ -237,6 +245,7 @@ export function SnapshotDialog({
       dofMode,
       backgroundStyle,
       hideGrid,
+      pngOptimizeLevel,
     }),
     [
       backgroundStyle,
@@ -247,6 +256,7 @@ export function SnapshotDialog({
       hideGrid,
       imageFormat,
       imageQuality,
+      pngOptimizeLevel,
       resolutionPreset,
       shadowStyle,
     ],
@@ -330,7 +340,7 @@ export function SnapshotDialog({
     ],
     [],
   );
-  const compressionOptions = useMemo<ReadonlyArray<SegmentedControlOption<number | 'lossless'>>>(
+  const compressionOptions = useMemo<ReadonlyArray<SegmentedControlOption<number>>>(
     () =>
       supportsLossyCompression
         ? [
@@ -338,7 +348,12 @@ export function SnapshotDialog({
             { value: 80, label: t.compressionLevelBalanced },
             { value: 96, label: t.compressionLevelPreserve },
           ]
-        : [{ value: 'lossless', label: t.snapshotCompressionLossless, disabled: true }],
+        : [
+            // PNG stays lossless; these tiers select oxipng optimization effort.
+            { value: 1, label: t.snapshotPngOptimizeFast },
+            { value: 2, label: t.snapshotPngOptimizeBalanced },
+            { value: 3, label: t.snapshotPngOptimizeSmallest },
+          ],
     [supportsLossyCompression, t],
   );
   const compactLabels = useMemo(
@@ -368,20 +383,17 @@ export function SnapshotDialog({
     imageFormat.toUpperCase(),
     selectedAntialiasOption.label,
   ].join(' · ');
-  const compressionPreset = supportsLossyCompression
-    ? imageQuality >= 90
-      ? 96
-      : imageQuality >= 70
-        ? 80
-        : 60
-    : 'lossless';
+  const compressionPreset = imageQuality >= 90 ? 96 : imageQuality >= 70 ? 80 : 60;
+  // The same segmented control drives lossy quality (JPEG/WebP) and lossless
+  // oxipng effort (PNG), so resolve the active numeric value per format.
+  const compressionControlValue = supportsLossyCompression ? compressionPreset : pngOptimizeLevel;
   const effectivePreviewState = previewState ?? internalPreviewState;
   const isCompactLayout = windowState.size.width <= SNAPSHOT_DIALOG_COMPACT_LAYOUT_WIDTH;
   const settingsGridClassName = isCompactLayout
     ? 'grid grid-cols-1 gap-y-1.5'
     : 'grid grid-cols-2 gap-x-3 gap-y-1.5';
   const previewCardClassName = `rounded-xl border border-border-black bg-element-bg px-3 py-2 shadow-sm ${
-    isCompactLayout ? 'flex min-h-[220px] flex-col' : 'flex min-h-[260px] flex-1 flex-col'
+    isCompactLayout ? 'flex min-h-[220px] shrink-0 flex-col' : 'flex min-h-[260px] shrink-0 flex-col'
   }`;
   const previewStatusText =
     effectivePreviewState.status === 'loading' || effectivePreviewState.status === 'idle'
@@ -393,13 +405,24 @@ export function SnapshotDialog({
           : t.snapshotPreviewReady;
   const previewAspectRatio =
     effectivePreviewState.aspectRatio > 0 ? effectivePreviewState.aspectRatio : 16 / 9;
-  const previewFrameMaxWidth = clamp(
-    windowState.size.width -
-      (isCompactLayout
-        ? SNAPSHOT_PREVIEW_COMPACT_WIDTH_GUTTER
-        : SNAPSHOT_PREVIEW_REGULAR_WIDTH_GUTTER),
+  const previewAvailableWidth = Math.max(
     SNAPSHOT_PREVIEW_MIN_WIDTH,
-    isCompactLayout ? SNAPSHOT_PREVIEW_COMPACT_MAX_WIDTH : SNAPSHOT_PREVIEW_REGULAR_MAX_WIDTH,
+    windowState.size.width - SNAPSHOT_PREVIEW_WIDTH_GUTTER,
+  );
+  const previewMaxHeight =
+    typeof window !== 'undefined'
+      ? clamp(
+          window.innerHeight * SNAPSHOT_PREVIEW_VIEWPORT_HEIGHT_RATIO,
+          200,
+          SNAPSHOT_PREVIEW_MAX_HEIGHT,
+        )
+      : SNAPSHOT_PREVIEW_MAX_HEIGHT;
+  // Fill the available card width, but never let a tall aspect ratio exceed the
+  // height ceiling — derive the width back from that ceiling when it would.
+  const previewFrameMaxWidth = clamp(
+    Math.min(previewAvailableWidth, previewMaxHeight * previewAspectRatio),
+    SNAPSHOT_PREVIEW_MIN_WIDTH,
+    previewAvailableWidth,
   );
 
   if (!isOpen) {
@@ -434,11 +457,11 @@ export function SnapshotDialog({
       showMaximizeButton={false}
       showResizeHandles
       leftResizeHandleClassName="hidden"
-      rightResizeHandleClassName="absolute right-0 top-0 bottom-3 w-2 cursor-ew-resize transition-colors hover:bg-system-blue/15 active:bg-system-blue/20 z-20"
-      bottomResizeHandleClassName="absolute bottom-0 left-0 right-3 h-2 cursor-ns-resize transition-colors hover:bg-system-blue/15 active:bg-system-blue/20 z-20"
-      cornerResizeHandleClassName="absolute bottom-0 right-0 h-3 w-3 cursor-nwse-resize transition-colors hover:bg-system-blue/20 active:bg-system-blue/25 z-30"
+      rightResizeHandleClassName="absolute resize-edge-right resize-edge-visual-right top-0 bottom-3 z-20 w-2 cursor-ew-resize after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:bg-transparent after:content-[''] after:transition-colors hover:after:bg-system-blue/50 active:after:bg-system-blue/70"
+      bottomResizeHandleClassName="absolute resize-edge-bottom resize-edge-visual-bottom left-0 right-3 z-20 h-2 cursor-ns-resize after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-transparent after:content-[''] after:transition-colors hover:after:bg-system-blue/50 active:after:bg-system-blue/70"
+      cornerResizeHandleClassName="absolute resize-edge-bottom resize-edge-right z-30 h-3 w-3 cursor-nwse-resize"
       cornerResizeHandle={
-        <div className="absolute bottom-0 right-0 h-2.5 w-2.5 border-b-2 border-r-2 border-border-strong/80" />
+        <div className="absolute bottom-0 right-0 h-2.5 w-2.5 border-b border-r border-border-strong/80" />
       }
       closeTitle={t.close}
     >
@@ -483,14 +506,19 @@ export function SnapshotDialog({
               </SnapshotField>
               <SnapshotField label={compactLabels.quality}>
                 <PanelSegmentedControl
-                  value={compressionPreset}
+                  value={compressionControlValue}
                   options={compressionOptions}
-                  disabled={isCapturing || !supportsLossyCompression}
+                  disabled={isCapturing}
                   className="w-full"
                   stretch
                   onChange={(value) => {
-                    if (typeof value === 'number') {
+                    if (typeof value !== 'number') {
+                      return;
+                    }
+                    if (supportsLossyCompression) {
                       setImageQuality(value);
+                    } else {
+                      setPngOptimizeLevel(value as SnapshotCaptureOptions['pngOptimizeLevel']);
                     }
                   }}
                 />
@@ -585,7 +613,13 @@ export function SnapshotDialog({
               </div>
             </div>
 
-            <div className="flex min-h-[160px] flex-1 items-center justify-center">
+            {/* shrink-0 is essential: the frame's height is aspect-ratio driven, so
+                the wrapper must keep that exact height. Without it the default
+                flex-shrink:1 compresses this row below the frame, and items-center
+                then centers the oversized frame so it overflows onto the title and
+                summary rows. Keeping the real height also lets the dialog's
+                scrollHeight auto-sizing grow to fit instead of under-sizing. */}
+            <div className="flex min-h-[160px] shrink-0 items-center justify-center">
               <div
                 data-testid="snapshot-preview-frame-shell"
                 className="w-full"
@@ -597,21 +631,15 @@ export function SnapshotDialog({
                   style={{ aspectRatio: String(previewAspectRatio) }}
                 >
                   {effectivePreviewState.imageUrl ? (
-                    <div className="relative h-full w-full">
-                      <img
-                        src={effectivePreviewState.imageUrl}
-                        alt={t.snapshotPreviewAlt}
-                        draggable={false}
-                        className="h-full w-full object-contain"
-                      />
-                      {effectivePreviewState.status === 'refreshing' ? (
-                        <div className="absolute inset-0 flex items-end justify-start bg-panel-bg/18 p-2">
-                          <div className="rounded-md border border-border-black bg-element-bg/92 px-1.5 py-1 text-[10px] font-medium text-text-primary shadow-sm">
-                            {t.snapshotPreviewRefreshing}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
+                    // The previous render stays visible while a new one is computed;
+                    // the top-right status chip already signals "refreshing", so no
+                    // on-image overlay is needed (it just clutters the preview).
+                    <img
+                      src={effectivePreviewState.imageUrl}
+                      alt={t.snapshotPreviewAlt}
+                      draggable={false}
+                      className="h-full w-full object-contain"
+                    />
                   ) : (
                     <div className="flex h-full min-h-[120px] items-center justify-center px-4 text-center text-[11px] text-text-secondary">
                       {effectivePreviewState.status === 'error'

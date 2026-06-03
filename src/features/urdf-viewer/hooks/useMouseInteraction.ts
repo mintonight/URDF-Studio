@@ -509,7 +509,7 @@ export function useMouseInteraction({
         'paint',
       ].includes(toolMode || 'select');
       if (!isStandardSelectionMode) return false;
-      if (!shouldBlockOrbitForGeometryHit(toolMode || 'select')) {
+      if (!shouldBlockOrbitForGeometryHit(toolMode || 'select', measureMode)) {
         return false;
       }
 

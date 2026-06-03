@@ -51,6 +51,7 @@ const MEASURE_SELECTION_COLORS = {
   second: '#10b981',
   hover: '#f59e0b',
 } as const;
+const MEASURE_POINT_ENDPOINT_COLOR = MEASURE_LINE_COLOR;
 const MEASURE_MARKER_Z_INDEX_RANGE: [number, number] = [132, 0];
 const MEASURE_PREVIEW_LINE_COLOR = '#f59e0b';
 const MEASURE_PREVIEW_LABEL_DISTANCE_FACTOR = 0.95;
@@ -226,6 +227,7 @@ const MeasureTargetMarker = memo(
     const outerRadius = badge === '2' ? 0.0032 : badge === '1' ? 0.0026 : 0.0024;
     const innerRadius = outerRadius * 0.45;
     const ringOpacity = badge === '2' ? 0.24 : 0.18;
+    const dotSize = badge === '2' ? 11 : badge === '1' ? 10 : 9;
 
     return (
       <group>
@@ -249,10 +251,42 @@ const MeasureTargetMarker = memo(
             opacity={0.96}
           />
         </mesh>
+        <Html
+          center
+          position={target.point}
+          className="pointer-events-none select-none"
+          zIndexRange={MEASURE_MARKER_Z_INDEX_RANGE}
+        >
+          <span
+            aria-hidden="true"
+            className="block rounded-full border-2 border-white/95 shadow-[0_1px_8px_rgba(15,23,42,0.36)]"
+            style={{
+              width: dotSize,
+              height: dotSize,
+              backgroundColor: tone,
+              boxShadow: `0 0 0 2px ${tone}38, 0 1px 8px rgba(15, 23, 42, 0.36)`,
+            }}
+          />
+        </Html>
       </group>
     );
   },
 );
+
+const MeasureEndpointMarker = memo(({ point }: { point: THREE.Vector3 }) => (
+  <Html
+    center
+    position={point}
+    className="pointer-events-none select-none"
+    zIndexRange={MEASURE_MARKER_Z_INDEX_RANGE}
+  >
+    <span
+      aria-hidden="true"
+      className="block h-[11px] w-[11px] rounded-full border-2 border-white/95 shadow-[0_0_0_2px_rgba(239,68,68,0.25),0_1px_8px_rgba(15,23,42,0.36)]"
+      style={{ backgroundColor: MEASURE_POINT_ENDPOINT_COLOR }}
+    />
+  </Html>
+));
 
 const MeasurementItem = memo(
   ({
@@ -289,10 +323,6 @@ const MeasurementItem = memo(
       () => buildDecompositionSegments(measurement),
       [measurement],
     );
-    const endpointRadius = useMemo(
-      () => clamp(measurement.distance * 0.0065, 0.0018, 0.0052),
-      [measurement.distance],
-    );
     const labelLift = useMemo(
       () => clamp(measurement.distance * 0.07, 0.028, 0.05),
       [measurement.distance],
@@ -328,26 +358,8 @@ const MeasurementItem = memo(
 
     return (
       <group>
-        <mesh position={measurement.first.point} renderOrder={MEASURE_RENDER_ORDER + 2}>
-          <sphereGeometry args={[endpointRadius, 16, 16]} />
-          <meshBasicMaterial
-            color={MEASURE_LINE_COLOR}
-            depthTest={false}
-            depthWrite={false}
-            transparent
-            opacity={0.92}
-          />
-        </mesh>
-        <mesh position={measurement.second.point} renderOrder={MEASURE_RENDER_ORDER + 2}>
-          <sphereGeometry args={[endpointRadius, 16, 16]} />
-          <meshBasicMaterial
-            color={MEASURE_LINE_COLOR}
-            depthTest={false}
-            depthWrite={false}
-            transparent
-            opacity={0.92}
-          />
-        </mesh>
+        <MeasureEndpointMarker point={measurement.first.point} />
+        <MeasureEndpointMarker point={measurement.second.point} />
         <Line
           points={[measurement.first.point, measurement.second.point]}
           color={MEASURE_LINE_COLOR}
@@ -758,6 +770,12 @@ export const MeasureTool: React.FC<MeasureToolProps> = ({
   const measurements = useMemo(() => getMeasureStateMeasurements(measureState), [measureState]);
   const activeGroup = useMemo(() => getActiveMeasureGroup(measureState), [measureState]);
   const hoverBadge = activeGroup.activeSlot === 'second' ? '2' : '1';
+  const firstMarkerTone = isPointMode
+    ? MEASURE_POINT_ENDPOINT_COLOR
+    : MEASURE_SELECTION_COLORS.first;
+  const secondMarkerTone = isPointMode
+    ? MEASURE_POINT_ENDPOINT_COLOR
+    : MEASURE_SELECTION_COLORS.second;
   const shouldShowHoverMarker = Boolean(
     active &&
     measureState.hoverTarget &&
@@ -801,14 +819,14 @@ export const MeasureTool: React.FC<MeasureToolProps> = ({
       {shouldShowFirstMarker && activeGroup.first ? (
         <MeasureTargetMarker
           target={activeGroup.first}
-          tone={MEASURE_SELECTION_COLORS.first}
+          tone={firstMarkerTone}
           badge="1"
         />
       ) : null}
       {shouldShowSecondMarker && activeGroup.second ? (
         <MeasureTargetMarker
           target={activeGroup.second}
-          tone={MEASURE_SELECTION_COLORS.second}
+          tone={secondMarkerTone}
           badge="2"
         />
       ) : null}

@@ -1,5 +1,6 @@
 import { SNAPSHOT_MIN_LONG_EDGE } from './snapshotResolution';
 import type { WorkspaceCameraSnapshot } from '../workspace/workspaceCameraSnapshot';
+import type { PngOptimizeLevel } from '@/core/image-compressor';
 
 export const SNAPSHOT_MAX_LONG_EDGE_INPUT = 16384;
 export const SNAPSHOT_LONG_EDGE_INPUT_STEP = 64;
@@ -14,6 +15,13 @@ export const SNAPSHOT_DEFAULT_IMAGE_QUALITY = 96;
 
 export const SNAPSHOT_DETAIL_LEVELS = ['viewport', 'high', 'ultra'] as const;
 export type SnapshotDetailLevel = (typeof SNAPSHOT_DETAIL_LEVELS)[number];
+
+// oxipng effort tiers exposed for PNG exports. All tiers are lossless; higher
+// levels trade markedly longer encode time for diminishing size gains, so the
+// ceiling is kept at 3 (levels 4–6 add exhaustive/zopfli passes that can be
+// pathologically slow on multi-megapixel renders without shrinking further).
+export const SNAPSHOT_PNG_OPTIMIZE_LEVELS = [1, 2, 3] as const;
+export const SNAPSHOT_DEFAULT_PNG_OPTIMIZE_LEVEL: PngOptimizeLevel = 2;
 
 export const SNAPSHOT_ENVIRONMENT_PRESETS = ['viewport', 'studio', 'city', 'contrast'] as const;
 export type SnapshotEnvironmentPreset = (typeof SNAPSHOT_ENVIRONMENT_PRESETS)[number];
@@ -47,6 +55,8 @@ export interface SnapshotCaptureOptions {
   dofMode: SnapshotDofMode;
   backgroundStyle: SnapshotBackgroundStyle;
   hideGrid: boolean;
+  /** oxipng effort tier applied to PNG exports (lossless). Ignored for JPEG/WebP. */
+  pngOptimizeLevel: PngOptimizeLevel;
   cameraSnapshot?: WorkspaceCameraSnapshot | null;
 }
 
@@ -73,6 +83,7 @@ export const DEFAULT_SNAPSHOT_CAPTURE_OPTIONS: SnapshotCaptureOptions = {
   dofMode: 'off',
   backgroundStyle: 'studio',
   hideGrid: false,
+  pngOptimizeLevel: SNAPSHOT_DEFAULT_PNG_OPTIMIZE_LEVEL,
 };
 
 export const SNAPSHOT_DETAIL_SHADOW_MAP_SIZE: Record<SnapshotDetailLevel, number | null> = {
@@ -112,6 +123,20 @@ export function normalizeSnapshotImageQuality(value: number | null | undefined) 
     SNAPSHOT_IMAGE_QUALITY_MAX,
     Math.max(SNAPSHOT_IMAGE_QUALITY_MIN, clampPositiveInteger(value, fallback)),
   );
+}
+
+export function normalizeSnapshotPngOptimizeLevel(
+  value: number | null | undefined,
+): PngOptimizeLevel {
+  const fallback = SNAPSHOT_DEFAULT_PNG_OPTIMIZE_LEVEL;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  const rounded = Math.round(value);
+  return (SNAPSHOT_PNG_OPTIMIZE_LEVELS as readonly number[]).includes(rounded)
+    ? (rounded as PngOptimizeLevel)
+    : fallback;
 }
 
 export function normalizeSnapshotCaptureOptions(
@@ -169,6 +194,7 @@ export function normalizeSnapshotCaptureOptions(
     dofMode,
     backgroundStyle,
     hideGrid: options?.hideGrid ?? DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.hideGrid,
+    pngOptimizeLevel: normalizeSnapshotPngOptimizeLevel(options?.pngOptimizeLevel),
     cameraSnapshot: options?.cameraSnapshot ?? null,
   };
 }
