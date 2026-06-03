@@ -525,6 +525,38 @@ label,
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 30%, transparent);
 }
 
+.resize-edge-left {
+  left: -1px;
+}
+
+.resize-edge-right {
+  right: -1px;
+}
+
+.resize-edge-bottom {
+  bottom: -1px;
+}
+
+.resize-edge-line-right {
+  right: -1px;
+}
+
+.resize-edge-line-bottom {
+  bottom: -1px;
+}
+
+.resize-edge-visual-left::after {
+  left: -1px;
+}
+
+.resize-edge-visual-right::after {
+  right: -1px;
+}
+
+.resize-edge-visual-bottom::after {
+  bottom: -1px;
+}
+
 /* Apply font scale to body base size */
 body {
   font-size: calc(1rem * var(--font-effective-scale));

@@ -330,13 +330,43 @@ test('ViewerOptionsPanel keeps the same right-edge resize affordance as the join
 
   await renderPanel(root, false);
 
-  assert.ok(
-    container.querySelector('[data-testid="ui-options-panel-resize-right"]'),
-    'view options panel should render a right-edge resize handle',
+  const rightResizeHandle = container.querySelector<HTMLElement>(
+    '[data-testid="ui-options-panel-resize-right"]',
   );
-  assert.ok(
-    container.querySelector('[data-testid="ui-options-panel-resize-bottom"]'),
-    'view options panel should keep the bottom resize handle',
+  assert.ok(rightResizeHandle, 'view options panel should render a right-edge resize handle');
+  const rightResizeHandleClasses = rightResizeHandle.className.split(/\s+/);
+  assert.equal(rightResizeHandle.className.includes('resize-edge-right'), true);
+  assert.equal(rightResizeHandleClasses.includes('right-0'), false);
+  assert.equal(rightResizeHandleClasses.includes('right-0.5'), false);
+  assert.match(rightResizeHandle.className, /\bw-2\b/);
+  assert.doesNotMatch(rightResizeHandle.className, /\bhover:bg-system-blue/);
+  assert.match(
+    rightResizeHandle.querySelector('span')?.className ?? '',
+    /\bw-px\b/,
+    'right-edge resize hover affordance should render as a thin inner line',
+  );
+  assert.equal(
+    rightResizeHandle.querySelector('span')?.className.includes('resize-edge-line-right'),
+    true,
+  );
+
+  const bottomResizeHandle = container.querySelector<HTMLElement>(
+    '[data-testid="ui-options-panel-resize-bottom"]',
+  );
+  assert.ok(bottomResizeHandle, 'view options panel should keep the bottom resize handle');
+  const bottomResizeHandleClasses = bottomResizeHandle.className.split(/\s+/);
+  assert.equal(bottomResizeHandle.className.includes('resize-edge-bottom'), true);
+  assert.equal(bottomResizeHandleClasses.includes('bottom-0'), false);
+  assert.match(bottomResizeHandle.className, /\bh-1\.5\b/);
+  assert.doesNotMatch(bottomResizeHandle.className, /\bhover:bg-system-blue/);
+  assert.match(
+    bottomResizeHandle.querySelector('span')?.className ?? '',
+    /\bh-px\b/,
+    'bottom resize hover affordance should render as a thin inner line',
+  );
+  assert.equal(
+    bottomResizeHandle.querySelector('span')?.className.includes('resize-edge-line-bottom'),
+    true,
   );
   assert.ok(
     container.querySelector('[data-testid="ui-options-panel-resize-corner"]'),

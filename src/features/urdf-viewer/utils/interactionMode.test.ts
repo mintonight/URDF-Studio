@@ -168,8 +168,13 @@ test('transform-like modes still capture geometry hits for direct manipulation',
 
 test('measure mode blocks orbit on geometry hits without starting joint drag', () => {
   assert.equal(shouldBlockOrbitForGeometryHit('measure'), true);
+  assert.equal(shouldBlockOrbitForGeometryHit('measure', 'object'), true);
   assert.equal(shouldStartJointDragFromGeometryHit('measure'), false);
   assert.equal(shouldDisableOrbitForDirectJointDrag('measure', true), false);
+});
+
+test('point measure mode keeps orbit controls available for surface picking', () => {
+  assert.equal(shouldBlockOrbitForGeometryHit('measure', 'point'), false);
 });
 
 test('measure mode never enables direct joint drag', () => {

@@ -1,4 +1,5 @@
 import type { ToolMode } from '../types';
+import type { MeasureMode } from './measurements';
 
 export type ViewerHighlightMode = 'link' | 'collision';
 export type InteractiveGeometrySubType = 'visual' | 'collision';
@@ -18,13 +19,19 @@ export interface TopLayerInteractionSubTypeFromHitsOptions extends TopLayerInter
   hits: ReadonlyArray<{ isCollision: boolean }>;
 }
 
-export function shouldBlockOrbitForGeometryHit(toolMode: ToolMode): boolean {
+export function shouldBlockOrbitForGeometryHit(
+  toolMode: ToolMode,
+  measureMode?: MeasureMode,
+): boolean {
+  if (toolMode === 'measure') {
+    return measureMode !== 'point';
+  }
+
   return (
     toolMode === 'select' ||
     toolMode === 'translate' ||
     toolMode === 'rotate' ||
     toolMode === 'universal' ||
-    toolMode === 'measure' ||
     toolMode === 'paint'
   );
 }

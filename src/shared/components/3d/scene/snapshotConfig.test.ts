@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normalizeSnapshotCaptureOptions } from './snapshotConfig.ts';
+import {
+  normalizeSnapshotCaptureOptions,
+  normalizeSnapshotPngOptimizeLevel,
+} from './snapshotConfig.ts';
 import type { WorkspaceCameraSnapshot } from '../workspace/workspaceCameraSnapshot';
 
 test('normalizeSnapshotCaptureOptions defaults the export background to studio', () => {
@@ -58,6 +61,22 @@ test('normalizeSnapshotCaptureOptions clamps lossy image quality into the suppor
 
   assert.equal(tooLow.imageQuality, 60);
   assert.equal(tooHigh.imageQuality, 100);
+});
+
+test('normalizeSnapshotCaptureOptions defaults and clamps the PNG optimize level', () => {
+  assert.equal(normalizeSnapshotCaptureOptions().pngOptimizeLevel, 2);
+  assert.equal(normalizeSnapshotCaptureOptions({ pngOptimizeLevel: 1 }).pngOptimizeLevel, 1);
+  // Out-of-range / non-finite values fall back to the default tier.
+  assert.equal(normalizeSnapshotCaptureOptions({ pngOptimizeLevel: 6 }).pngOptimizeLevel, 2);
+  assert.equal(normalizeSnapshotCaptureOptions({ pngOptimizeLevel: 0 }).pngOptimizeLevel, 2);
+});
+
+test('normalizeSnapshotPngOptimizeLevel rounds into the exposed tiers', () => {
+  assert.equal(normalizeSnapshotPngOptimizeLevel(undefined), 2);
+  assert.equal(normalizeSnapshotPngOptimizeLevel(3), 3);
+  assert.equal(normalizeSnapshotPngOptimizeLevel(2.4), 2);
+  assert.equal(normalizeSnapshotPngOptimizeLevel(Number.NaN), 2);
+  assert.equal(normalizeSnapshotPngOptimizeLevel(99), 2);
 });
 
 test('normalizeSnapshotCaptureOptions preserves a frozen camera snapshot for export', () => {

@@ -710,11 +710,11 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
       showMaximizeButton={false}
       showResizeHandles
       leftResizeHandleClassName="pointer-events-none absolute left-0 top-0 bottom-0 w-0"
-      rightResizeHandleClassName="absolute right-0 top-0 bottom-0 z-20 w-2 cursor-ew-resize transition-colors hover:bg-system-blue/15 active:bg-system-blue/25"
-      bottomResizeHandleClassName="absolute bottom-0 left-0 right-0 z-20 h-2 cursor-ns-resize transition-colors hover:bg-system-blue/15 active:bg-system-blue/25"
-      cornerResizeHandleClassName="absolute bottom-0 right-0 z-30 flex h-6 w-6 cursor-nwse-resize items-end justify-end transition-colors hover:bg-system-blue/20 active:bg-system-blue/30"
+      rightResizeHandleClassName="absolute resize-edge-right resize-edge-visual-right top-0 bottom-0 z-20 w-2 cursor-ew-resize after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:bg-transparent after:content-[''] after:transition-colors hover:after:bg-system-blue/50 active:after:bg-system-blue/70"
+      bottomResizeHandleClassName="absolute resize-edge-bottom resize-edge-visual-bottom left-0 right-0 z-20 h-2 cursor-ns-resize after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-transparent after:content-[''] after:transition-colors hover:after:bg-system-blue/50 active:after:bg-system-blue/70"
+      cornerResizeHandleClassName="absolute resize-edge-bottom resize-edge-right z-30 flex h-6 w-6 cursor-nwse-resize items-end justify-end"
       cornerResizeHandle={
-        <div className="mb-1 mr-1 h-2 w-2 border-b-2 border-r-2 border-border-strong" />
+        <div className="mb-1 mr-1 h-2 w-2 border-b border-r border-border-strong" />
       }
       closeTitle={t.close}
       controlButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-element-hover"

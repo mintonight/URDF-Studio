@@ -1091,11 +1091,11 @@ export function TreeStructureGraphDialog({
       maximizeTitle={t.maximize}
       restoreTitle={t.restore}
       leftResizeHandleClassName="hidden"
-      rightResizeHandleClassName="absolute right-0 top-0 bottom-3 w-2 cursor-ew-resize transition-colors hover:bg-system-blue/15 active:bg-system-blue/20 z-20"
-      bottomResizeHandleClassName="absolute bottom-0 left-0 right-3 h-2 cursor-ns-resize transition-colors hover:bg-system-blue/15 active:bg-system-blue/20 z-20"
-      cornerResizeHandleClassName="absolute bottom-0 right-0 h-3 w-3 cursor-nwse-resize transition-colors hover:bg-system-blue/20 active:bg-system-blue/25 z-30"
+      rightResizeHandleClassName="absolute resize-edge-right resize-edge-visual-right top-0 bottom-3 z-20 w-2 cursor-ew-resize after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:bg-transparent after:content-[''] after:transition-colors hover:after:bg-system-blue/50 active:after:bg-system-blue/70"
+      bottomResizeHandleClassName="absolute resize-edge-bottom resize-edge-visual-bottom left-0 right-3 z-20 h-2 cursor-ns-resize after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-transparent after:content-[''] after:transition-colors hover:after:bg-system-blue/50 active:after:bg-system-blue/70"
+      cornerResizeHandleClassName="absolute resize-edge-bottom resize-edge-right z-30 h-3 w-3 cursor-nwse-resize"
       cornerResizeHandle={
-        <div className="absolute bottom-0 right-0 h-2.5 w-2.5 border-b-2 border-r-2 border-border-strong/80" />
+        <div className="absolute bottom-0 right-0 h-2.5 w-2.5 border-b border-r border-border-strong/80" />
       }
       closeTitle={t.close}
     >

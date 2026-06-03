@@ -703,30 +703,34 @@ export const OptionsPanelContainer: React.FC<OptionsPanelContainerProps> = ({
               type="button"
               data-testid="ui-options-panel-resize-right"
               aria-label={resizeTitle}
-              className="absolute right-0.5 top-10 bottom-4 w-2 cursor-ew-resize rounded-full z-40 border-0 bg-transparent p-0 hover:bg-system-blue/20 transition-colors"
+              className="group absolute resize-edge-right top-10 bottom-4 z-40 w-2 cursor-ew-resize border-0 bg-transparent p-0"
               onPointerDown={(e) => handleResizeStart(e, 'right')}
-            />
+            >
+              <span className="pointer-events-none absolute resize-edge-line-right top-0 bottom-0 w-px bg-transparent transition-colors group-hover:bg-system-blue/50 group-active:bg-system-blue/70" />
+            </button>
           ) : null}
           {/* Bottom Handle */}
           <button
             type="button"
             data-testid="ui-options-panel-resize-bottom"
             aria-label={resizeTitle}
-            className="absolute bottom-0 left-0 w-full h-1.5 cursor-ns-resize z-40 border-0 bg-transparent p-0 hover:bg-system-blue/20 transition-colors"
+            className="group absolute resize-edge-bottom left-0 z-40 h-1.5 w-full cursor-ns-resize border-0 bg-transparent p-0"
             onPointerDown={(e) => handleResizeStart(e, 'bottom')}
-          />
+          >
+            <span className="pointer-events-none absolute resize-edge-line-bottom left-0 right-0 h-px bg-transparent transition-colors group-hover:bg-system-blue/50 group-active:bg-system-blue/70" />
+          </button>
           {/* Corner Handle */}
           <button
             type="button"
             data-testid="ui-options-panel-resize-corner"
             aria-label={resizeTitle}
-            className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-50 flex items-center justify-center border-0 bg-transparent p-0 opacity-0 hover:opacity-100 transition-opacity"
+            className="group absolute resize-edge-bottom resize-edge-right z-50 flex h-4 w-4 cursor-nwse-resize items-center justify-center border-0 bg-transparent p-0"
             onPointerDown={(e) => handleResizeStart(e, 'corner')}
             title={resizeTitle}
           >
             <svg
               viewBox="0 0 6 6"
-              className="w-2 h-2 text-text-tertiary fill-current transform rotate-45 pointer-events-none"
+              className="pointer-events-none h-2 w-2 rotate-45 transform fill-current text-text-tertiary opacity-0 transition-all group-hover:text-system-blue group-hover:opacity-100 group-active:text-system-blue"
             >
               <path d="M4 4 L6 6 M2 2 L6 2 L6 6 L2 6 Z" />
             </svg>

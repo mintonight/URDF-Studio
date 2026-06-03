@@ -628,6 +628,9 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   snapshotFormatWebp: string;
   snapshotCompressionQuality: string;
   snapshotCompressionLossless: string;
+  snapshotPngOptimizeFast: string;
+  snapshotPngOptimizeBalanced: string;
+  snapshotPngOptimizeSmallest: string;
   snapshotHideGrid: string;
   snapshotAAMode: string;
   snapshotAdvancedLook: string;
