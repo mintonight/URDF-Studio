@@ -25,6 +25,10 @@ scripts/*
 !scripts/release/
 !scripts/release/**
 .github/
+!.github/
+.github/*
+!.github/workflows/
+!.github/workflows/**
 output/
 tmp/
 log/

@@ -1,0 +1,52 @@
+name: CI
+
+# Fast-lane quality gate. Heavy fixture / browser / benchmark suites are intentionally
+# NOT run here — they map to `npm run verify:fixtures` / verify:full and are gated
+# separately (see CLAUDE.md「测试分层」). This job mirrors `npm run verify:fast`.
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Fast-lane quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: ESLint
+        run: npm run lint:eslint
+
+      - name: Stylelint
+        run: npm run lint:style
+
+      - name: Google style + size/complexity budgets
+        run: npm run google-style:check
+
+      - name: Dependency boundaries + import cycles
+        run: npm run deps:check
+
+      - name: Typecheck (runtime code)
+        run: npm run typecheck:quality
+
+      - name: Unit tests (fast lane)
+        run: npm test
+
+      - name: Build
+        run: npm run build

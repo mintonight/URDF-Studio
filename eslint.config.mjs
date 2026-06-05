@@ -13,6 +13,7 @@ const globalIgnores = [
   '**/.venv/**',
   '**/output/**',
   '**/*.min.js',
+  '**/*.generated.*', // 生成文件不参与 lint（与 google_style_audit.mjs 的 *.generated.* 跳过对齐，防止污染尺寸/命名门禁基线）
   'third_party/**',
   '**/.playwright-mcp/**',
   '**/.worktrees/**',
