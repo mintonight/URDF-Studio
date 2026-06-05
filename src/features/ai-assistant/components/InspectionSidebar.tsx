@@ -9,6 +9,7 @@ import {
 import {
   buildInspectionLayerSummaries,
   buildInspectionProfileScopeSummaries,
+  buildInspectionSelectionDeviation,
 } from '../utils/inspectionAdvancedScopeViewModel';
 import type { SelectedInspectionProfiles } from '../utils/inspectionProfileSelection';
 
@@ -89,6 +90,21 @@ export function InspectionSidebar({
       summary,
     ]),
   );
+  const profileDeltaCounts = new Map<string, { added: number; removed: number }>();
+  const selectionDeviation = buildInspectionSelectionDeviation(
+    selectedProfiles,
+    recommendedProfiles,
+  );
+  selectionDeviation.addedItems.forEach(({ profileId }) => {
+    const current = profileDeltaCounts.get(profileId) ?? { added: 0, removed: 0 };
+    current.added += 1;
+    profileDeltaCounts.set(profileId, current);
+  });
+  selectionDeviation.removedItems.forEach(({ profileId }) => {
+    const current = profileDeltaCounts.get(profileId) ?? { added: 0, removed: 0 };
+    current.removed += 1;
+    profileDeltaCounts.set(profileId, current);
+  });
 
   const toggleProfileSelection = (profileId: string) => {
     setSelectedProfiles((prev) => {
@@ -235,6 +251,18 @@ export function InspectionSidebar({
                     readOnly && selectedCount > 0 && Boolean(onNavigateToProfile);
                   const ProfileIcon = getProfileIcon(profile.layer);
                   const profileSummary = profileSummaries.get(profile.id);
+                  const profileDelta = profileDeltaCounts.get(profile.id);
+                  const hasProfileDelta =
+                    !readOnly &&
+                    Boolean(profileDelta && (profileDelta.added > 0 || profileDelta.removed > 0));
+                  const profileDeltaText = profileDelta
+                    ? [
+                        profileDelta.added > 0 ? `+${profileDelta.added}` : null,
+                        profileDelta.removed > 0 ? `-${profileDelta.removed}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join('/')
+                    : '';
 
                   return (
                     <div
@@ -303,6 +331,22 @@ export function InspectionSidebar({
                                 <span>
                                   {selectedCount}/{profile.items.length}
                                 </span>
+                                {hasProfileDelta && (
+                                  <>
+                                    <span aria-hidden="true">•</span>
+                                    <span
+                                      data-inspection-profile-delta={profile.id}
+                                      title={`${t.inspectionUserAddedToRecommendation}: ${
+                                        profileDelta?.added ?? 0
+                                      }; ${t.inspectionUserRemovedFromRecommendation}: ${
+                                        profileDelta?.removed ?? 0
+                                      }`}
+                                      className="rounded border border-border-black bg-element-bg px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-text-secondary"
+                                    >
+                                      {profileDeltaText}
+                                    </span>
+                                  </>
+                                )}
                                 {profileSummary && profileSummary.recommendedItemCount > 0 && (
                                   <>
                                     <span aria-hidden="true">•</span>
@@ -328,6 +372,22 @@ export function InspectionSidebar({
                                 <span>
                                   {selectedCount}/{profile.items.length}
                                 </span>
+                                {hasProfileDelta && (
+                                  <>
+                                    <span aria-hidden="true">•</span>
+                                    <span
+                                      data-inspection-profile-delta={profile.id}
+                                      title={`${t.inspectionUserAddedToRecommendation}: ${
+                                        profileDelta?.added ?? 0
+                                      }; ${t.inspectionUserRemovedFromRecommendation}: ${
+                                        profileDelta?.removed ?? 0
+                                      }`}
+                                      className="rounded border border-border-black bg-element-bg px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-text-secondary"
+                                    >
+                                      {profileDeltaText}
+                                    </span>
+                                  </>
+                                )}
                                 {profileSummary && profileSummary.recommendedItemCount > 0 && (
                                   <>
                                     <span aria-hidden="true">•</span>

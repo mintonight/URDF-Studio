@@ -707,9 +707,10 @@ export function InspectionReportView({
                         key={`${section.profileId}-${itemGroup.key}`}
                         id={itemGroup.anchorId ?? undefined}
                         data-inspection-anchor-id={itemGroup.anchorId ?? undefined}
-                        className="scroll-mt-4 overflow-hidden rounded-xl border border-border-black bg-element-bg"
+                        data-inspection-report-item-row
+                        className="scroll-mt-4 overflow-hidden rounded-lg border border-border-black bg-panel-bg"
                       >
-                        <div className="border-b border-border-black/80 px-4 py-3">
+                        <div className="border-b border-border-black/80 bg-element-bg px-4 py-3">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <div className="flex items-center gap-2">
@@ -762,7 +763,7 @@ export function InspectionReportView({
                           </div>
                         </div>
 
-                        <div className="space-y-3 p-3">
+                        <div className="divide-y divide-border-black/70">
                           {itemGroup.issues.map((issue, idx) => {
                             const issueScore = issue.score ?? 10;
                             const relatedEntities = resolveInspectionIssueRelatedEntities(
@@ -776,90 +777,91 @@ export function InspectionReportView({
                             return (
                               <div
                                 key={`${issue.profileId}-${issue.itemId}-${idx}`}
-                                className={`rounded-lg border bg-white transition-colors dark:bg-panel-bg ${meta.rowClass}`}
+                                data-inspection-report-issue-row
+                                className={`bg-panel-bg transition-colors dark:bg-panel-bg ${meta.rowClass}`}
                               >
-                                <div className={`h-0.5 ${meta.stripeClass}`} />
-                                <div className="p-4">
-                                  <div className="flex gap-3">
-                                    <div
-                                      className={`shrink-0 rounded-lg border p-2 ${meta.iconClass}`}
-                                    >
-                                      <Icon className="h-4 w-4" />
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                      <div className="mb-1 flex items-start justify-between gap-4">
-                                        <div className="min-w-0">
-                                          <div className="flex min-w-0 items-center gap-2">
-                                            <h5 className="truncate text-sm font-semibold text-text-primary">
-                                              {issue.title}
-                                            </h5>
-                                            <span
-                                              className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${meta.badgeClass}`}
-                                            >
-                                              {meta.label}
-                                            </span>
-                                            {profileLabel && (
-                                              <span className="shrink-0 rounded border border-system-blue/20 bg-system-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-system-blue">
-                                                {profileLabel}
-                                              </span>
-                                            )}
-                                            {issue.evidenceLevel && (
-                                              <span className="shrink-0 rounded border border-emerald-200/80 bg-emerald-50/80 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/50 dark:text-emerald-300">
-                                                {issue.evidenceLevel}
-                                              </span>
-                                            )}
-                                          </div>
-                                        </div>
-                                        <div className="flex shrink-0 items-center gap-2">
-                                          <div
-                                            className={`text-xs font-semibold ${getScoreColor(issueScore)}`}
-                                          >
-                                            {issueScore.toFixed(1)}
-                                          </div>
-                                          {issue.type !== 'pass' && (
-                                            <button
-                                              type="button"
-                                              onClick={() => onAskAboutIssue(issue)}
-                                              className="rounded-lg border border-border-black bg-element-bg p-1.5 transition-colors hover:bg-element-hover hover:text-system-blue"
-                                              title={t.askAboutThisIssue}
-                                            >
-                                              <MessageCircle className="h-3.5 w-3.5" />
-                                            </button>
-                                          )}
-                                        </div>
+                                <div className="flex">
+                                  <div className={`w-0.5 shrink-0 ${meta.stripeClass}`} />
+                                  <div className="min-w-0 flex-1 p-4">
+                                    <div className="flex gap-3">
+                                      <div
+                                        className={`shrink-0 rounded-lg border p-2 ${meta.iconClass}`}
+                                      >
+                                        <Icon className="h-4 w-4" />
                                       </div>
-                                      <p className="mb-3 text-xs font-medium leading-relaxed text-text-secondary">
-                                        {issue.description}
-                                      </p>
-
-                                      {relatedEntities.length > 0 && (
-                                        <div className="flex flex-wrap gap-1.5">
-                                          {relatedEntities.map((entity) =>
-                                            entity.target ? (
-                                              <button
-                                                key={`${entity.target.type}:${entity.id}`}
-                                                type="button"
-                                                onClick={() => {
-                                                  onSelectItem(
-                                                    entity.target.type,
-                                                    entity.target.id,
-                                                  );
-                                                }}
-                                                className="rounded-md border border-border-black bg-element-bg px-2 py-1 text-[10px] font-medium text-text-secondary transition-colors hover:bg-element-hover hover:text-system-blue"
-                                              >
-                                                {entity.name}
-                                              </button>
-                                            ) : (
+                                      <div className="min-w-0 flex-1">
+                                        <div className="mb-1 flex items-start justify-between gap-4">
+                                          <div className="min-w-0">
+                                            <div className="flex min-w-0 items-center gap-2">
+                                              <h5 className="truncate text-sm font-semibold text-text-primary">
+                                                {issue.title}
+                                              </h5>
                                               <span
-                                                key={entity.id}
-                                                className="rounded-md border border-border-black bg-element-bg px-2 py-1 text-[10px] font-medium text-text-secondary"
+                                                className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${meta.badgeClass}`}
                                               >
-                                                {entity.name}
+                                                {meta.label}
                                               </span>
-                                            ),
-                                          )}
+                                              {profileLabel && (
+                                                <span className="shrink-0 rounded border border-system-blue/20 bg-system-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-system-blue">
+                                                  {profileLabel}
+                                                </span>
+                                              )}
+                                              {issue.evidenceLevel && (
+                                                <span className="shrink-0 rounded border border-emerald-200/80 bg-emerald-50/80 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/50 dark:text-emerald-300">
+                                                  {issue.evidenceLevel}
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <div className="flex shrink-0 items-center gap-2">
+                                            <div
+                                              className={`text-xs font-semibold ${getScoreColor(issueScore)}`}
+                                            >
+                                              {issueScore.toFixed(1)}
+                                            </div>
+                                            {issue.type !== 'pass' && (
+                                              <button
+                                                type="button"
+                                                onClick={() => onAskAboutIssue(issue)}
+                                                className="rounded-lg border border-border-black bg-element-bg p-1.5 transition-colors hover:bg-element-hover hover:text-system-blue"
+                                                title={t.askAboutThisIssue}
+                                              >
+                                                <MessageCircle className="h-3.5 w-3.5" />
+                                              </button>
+                                            )}
+                                          </div>
                                         </div>
-                                      )}
+                                        <p className="mb-3 text-xs font-medium leading-relaxed text-text-secondary">
+                                          {issue.description}
+                                        </p>
+
+                                        {relatedEntities.length > 0 && (
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {relatedEntities.map((entity) => {
+                                              const target = entity.target;
+                                              return target ? (
+                                                <button
+                                                  key={`${target.type}:${entity.id}`}
+                                                  type="button"
+                                                  onClick={() => {
+                                                    onSelectItem(target.type, target.id);
+                                                  }}
+                                                  className="rounded-md border border-border-black bg-element-bg px-2 py-1 text-[10px] font-medium text-text-secondary transition-colors hover:bg-element-hover hover:text-system-blue"
+                                                >
+                                                  {entity.name}
+                                                </button>
+                                              ) : (
+                                                <span
+                                                  key={entity.id}
+                                                  className="rounded-md border border-border-black bg-element-bg px-2 py-1 text-[10px] font-medium text-text-secondary"
+                                                >
+                                                  {entity.name}
+                                                </span>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
                                 </div>

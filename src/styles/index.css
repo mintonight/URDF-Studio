@@ -456,6 +456,140 @@ html.theme-switching *::after {
   will-change: opacity, transform, box-shadow;
 }
 
+@keyframes inspection-running-sweep {
+  0% {
+    opacity: 0;
+    transform: translateX(-80%);
+  }
+
+  28% {
+    opacity: 0.58;
+  }
+
+  64% {
+    opacity: 0.2;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(260%);
+  }
+}
+
+@keyframes inspection-running-ring {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: scale(0.96);
+  }
+
+  50% {
+    opacity: 0.86;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes inspection-running-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.inspection-running-console::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--ui-accent-solid) 9%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--ui-accent-solid) 7%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 32px 32px;
+  opacity: 0.32;
+}
+
+.inspection-running-sweep {
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--ui-accent-solid) 16%, transparent),
+    transparent
+  );
+  animation: inspection-running-sweep 3.6s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
+.inspection-running-orbit::before {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  content: '';
+  background: conic-gradient(
+    from 0deg,
+    transparent,
+    color-mix(in srgb, var(--ui-accent-solid) 42%, transparent),
+    transparent 34%
+  );
+  mask: radial-gradient(circle, transparent 62%, black 64%);
+  animation: inspection-running-orbit 5.6s linear infinite;
+  will-change: transform;
+}
+
+.inspection-running-ring {
+  animation: inspection-running-ring 2.8s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
+.inspection-running-ring-delayed {
+  animation-delay: 0.7s;
+}
+
+.inspection-running-carousel {
+  transition: height 180ms ease;
+}
+
+.inspection-running-carousel-slide {
+  position: absolute;
+  inset: 0;
+  padding: 0.75rem 1rem;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+  will-change: opacity, transform;
+}
+
+.inspection-running-carousel-slide[data-inspection-running-carousel-slide-active='true'] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inspection-running-sweep,
+  .inspection-running-orbit::before,
+  .inspection-running-ring {
+    animation: none;
+  }
+
+  .inspection-running-carousel-slide {
+    transition: none;
+  }
+}
+
 @theme {
   --color-app-bg: var(--ui-bg);
   --color-panel-bg: var(--ui-panel-bg);

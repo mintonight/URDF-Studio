@@ -244,8 +244,11 @@ export function mergeInspectionEvidenceIntoReport(
   report: InspectionReport,
   evidenceEntries: InspectionEvidence[],
   lang: 'en' | 'zh',
+  selectedProfiles?: SelectedInspectionProfileMap,
 ): InspectionReport {
-  const failedEntries = evidenceEntries.filter((entry) => entry.status === 'fail')
+  const failedEntries = evidenceEntries.filter(
+    (entry) => entry.status === 'fail' && evidenceMatchesSelection(entry, selectedProfiles),
+  )
   if (failedEntries.length === 0) {
     return report
   }

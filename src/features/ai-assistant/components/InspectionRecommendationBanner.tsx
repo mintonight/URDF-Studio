@@ -79,7 +79,10 @@ export function InspectionRecommendationBanner({
                   {selectedCount}/{totalItemCount}
                 </span>
                 {deviation.totalChangedItemCount > 0 && (
-                  <span className="rounded-md border border-warning-border bg-warning-soft px-2 py-0.5 text-[10px] font-semibold text-warning">
+                  <span
+                    data-inspection-recommendation-custom-state="true"
+                    className="rounded-md border border-warning-border bg-warning-soft px-2 py-0.5 text-[10px] font-semibold text-warning"
+                  >
                     {deviationSummary}
                   </span>
                 )}
@@ -90,20 +93,22 @@ export function InspectionRecommendationBanner({
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIsReasonExpanded((current) => !current)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border-black bg-panel-bg px-3 text-[11px] font-medium text-text-secondary transition-colors hover:bg-element-hover hover:text-system-blue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
-          >
-            {isReasonExpanded ? (
-              <ChevronDown className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5" />
-            )}
-            {isReasonExpanded
-              ? t.inspectionHideRecommendationReasons
-              : t.inspectionRecommendationReasons}
-          </button>
+          {reasons.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsReasonExpanded((current) => !current)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border-black bg-panel-bg px-3 text-[11px] font-medium text-text-secondary transition-colors hover:bg-element-hover hover:text-system-blue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+            >
+              {isReasonExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5" />
+              )}
+              {isReasonExpanded
+                ? t.inspectionHideRecommendationReasons
+                : t.inspectionRecommendationReasons}
+            </button>
+          )}
           <button
             type="button"
             onClick={onRestoreRecommendation}
@@ -115,18 +120,16 @@ export function InspectionRecommendationBanner({
         </div>
       </div>
 
-      {isReasonExpanded && (
+      {isReasonExpanded && reasons.length > 0 && (
         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          {(reasons.length > 0 ? reasons : [t.inspectionRecommendedPlanDescription]).map(
-            (reason) => (
-              <div
-                key={reason}
-                className="rounded-lg border border-border-black bg-panel-bg px-3 py-2 text-[11px] font-medium text-text-secondary"
-              >
-                {reason}
-              </div>
-            ),
-          )}
+          {reasons.map((reason) => (
+            <div
+              key={reason}
+              className="rounded-lg border border-border-black bg-panel-bg px-3 py-2 text-[11px] font-medium text-text-secondary"
+            >
+              {reason}
+            </div>
+          ))}
         </div>
       )}
     </section>

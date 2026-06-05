@@ -38,8 +38,26 @@ function installDom() {
   return dom;
 }
 
-test('running inspection progress view places the transient status tray above the current stage card', async () => {
+function mockCarouselSlideHeights(dom: JSDOM) {
+  Object.defineProperty(dom.window.HTMLElement.prototype, 'scrollHeight', {
+    configurable: true,
+    get() {
+      if (this.getAttribute('data-inspection-running-carousel-slide-content') === 'stage') {
+        return 84;
+      }
+
+      if (this.getAttribute('data-inspection-running-carousel-slide-content') === 'profiles') {
+        return 132;
+      }
+
+      return 0;
+    },
+  });
+}
+
+test('running inspection progress view renders a single cinematic console with truthful carousel content', async () => {
   const dom = installDom();
+  mockCarouselSlideHeights(dom);
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
 
@@ -72,6 +90,30 @@ test('running inspection progress view places the transient status tray above th
                 selectedCount: 3,
                 totalCount: 5,
               },
+              {
+                id: 'physics',
+                name: 'Physics',
+                selectedCount: 2,
+                totalCount: 5,
+              },
+              {
+                id: 'simulation',
+                name: 'Simulation',
+                selectedCount: 4,
+                totalCount: 5,
+              },
+              {
+                id: 'maintenance',
+                name: 'Maintenance',
+                selectedCount: 1,
+                totalCount: 5,
+              },
+              {
+                id: 'urdf',
+                name: 'URDF Source',
+                selectedCount: 5,
+                totalCount: 5,
+              },
             ],
             evidenceSummary: null,
           }}
@@ -85,16 +127,98 @@ test('running inspection progress view places the transient status tray above th
       new RegExp(translations.zh.inspectionRequestingModel),
       'expected the active stage content to remain visible during a running inspection',
     );
-    const statusTray = container.querySelector('[data-inspection-status-tray="true"]');
-    assert.ok(statusTray, 'expected the status tray to render above the current stage card');
-    const runningBadge = container.querySelector('[data-inspection-running-badge="true"]');
+    const runningShell = container.querySelector('[data-inspection-running-shell="true"]');
+    assert.ok(runningShell, 'expected the simplified running shell to render');
+    const runningConsole = container.querySelector(
+      '[data-inspection-running-console="true"]',
+    ) as HTMLElement | null;
+    assert.ok(runningConsole, 'expected the running view to collapse into a single console panel');
+    assert.ok(
+      container.querySelector('[data-inspection-running-scan-core="true"]'),
+      'expected the console to include a scanner-style live visual',
+    );
+    assert.ok(
+      container.querySelector('[data-inspection-running-carousel="true"]'),
+      'expected the console to rotate truthful context snippets in a carousel',
+    );
+    const carousel = container.querySelector(
+      '[data-inspection-running-carousel="true"]',
+    ) as HTMLElement | null;
+    assert.ok(carousel, 'expected the running carousel to render');
     assert.equal(
-      runningBadge,
+      carousel.classList.contains('min-h-[140px]'),
+      false,
+      'expected the carousel not to use a fixed tall height for every slide',
+    );
+    assert.equal(
+      carousel.style.height,
+      '96px',
+      'expected the carousel height to adapt to the active slide content with a small clipping buffer',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-running-carousel-slide-active="true"]')
+        ?.getAttribute('data-inspection-running-carousel-slide'),
+      'stage',
+      'expected the active carousel slide to be marked for measurement and visibility',
+    );
+    assert.equal(
+      container
+        .querySelector('[data-inspection-running-carousel-slide-content="stage"]')
+        ?.parentElement?.getAttribute('data-inspection-running-carousel-slide-active'),
+      'true',
+      'expected carousel height measurement to use the active slide content instead of the stretched slide shell',
+    );
+    assert.equal(
+      container.querySelectorAll('[data-inspection-running-carousel-slide]').length,
+      2,
+      'expected the carousel to include only stage and profile coverage slides',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-running-carousel-slide="scope"]'),
       null,
-      'expected the running badge to be removed from the running inspection status tray',
+      'expected the carousel not to include the inspection scope slide',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-running-status-bar="true"]'),
+      null,
+      'expected the separate running status bar to be removed',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-status-tray="true"]'),
+      null,
+      'expected the old stacked status tray to be removed from the running view',
+    );
+    assert.equal(
+      runningConsole.textContent?.includes(translations.zh.aiInspection),
+      false,
+      'expected the running console not to repeat the AI inspection label above the title',
+    );
+    assert.equal(
+      runningConsole.textContent?.includes(translations.zh.inspectionStageInProgress),
+      false,
+      'expected the running console not to show the redundant in-progress badge text',
+    );
+    assert.match(
+      runningConsole.textContent ?? '',
+      /6/,
+      'expected the console to include the selected check count',
+    );
+    assert.match(
+      runningConsole.textContent ?? '',
+      /2/,
+      'expected the console to include the selected profile count',
     );
     const elapsedBadge = container.querySelector('[data-inspection-elapsed-badge="true"]');
-    assert.ok(elapsedBadge, 'expected the elapsed badge to render in the status tray');
+    assert.ok(elapsedBadge, 'expected elapsed time to render beside the active stage title');
+    assert.ok(
+      container.querySelector('[data-inspection-running-title-row="true"]')?.contains(elapsedBadge),
+      'expected elapsed time to sit in the title row after the active stage name',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-running-meta="true"]'),
+      null,
+      'expected the running view not to render a separate metadata row above the title',
+    );
     assert.match(
       elapsedBadge.textContent ?? '',
       new RegExp(translations.zh.inspectionElapsedTime),
@@ -105,91 +229,81 @@ test('running inspection progress view places the transient status tray above th
       true,
       'expected the elapsed badge to show the current elapsed duration',
     );
-    const estimatedBadge = container.querySelector('[data-inspection-estimated-badge="true"]');
-    assert.ok(estimatedBadge, 'expected the estimated duration badge to render in the status tray');
-    assert.match(
-      estimatedBadge.textContent ?? '',
-      new RegExp(translations.zh.inspectionEstimatedDuration),
-      'expected the estimated badge to use the localized estimated duration label',
+    assert.equal(
+      container.querySelector('[data-inspection-estimated-badge="true"]'),
+      null,
+      'expected the running view not to show estimated duration because it is not live evidence',
     );
     assert.equal(
-      estimatedBadge.textContent?.includes('10-20s') ?? false,
-      true,
-      'expected the estimated badge to show the run context estimate',
+      container.textContent?.includes(translations.zh.inspectionEstimatedDuration),
+      false,
+      'expected the running view not to show any estimated duration copy',
+    );
+    assert.equal(
+      container.textContent?.includes('10-20s'),
+      false,
+      'expected the running view not to show a static duration estimate',
     );
     const currentStageCard = container.querySelector(
       '[data-inspection-current-stage-card="true"]',
     ) as HTMLElement | null;
-    assert.ok(currentStageCard, 'expected the current stage card to render');
-    const currentStageHeader = currentStageCard.querySelector(
-      '[data-inspection-current-stage-header="true"]',
-    ) as HTMLElement | null;
-    assert.ok(currentStageHeader, 'expected the current stage header row to render');
-    const currentStageTitle = currentStageHeader.querySelector('h2');
-    assert.ok(currentStageTitle, 'expected the active stage title to render in the header row');
-    const currentStageBadge = currentStageHeader.querySelector(
-      '[data-inspection-current-stage-badge="true"]',
-    ) as HTMLElement | null;
-    assert.ok(
-      currentStageBadge,
-      'expected the current stage badge to render beside the stage title',
-    );
     assert.equal(
-      currentStageTitle.nextElementSibling === currentStageBadge,
-      true,
-      'expected the current stage badge to follow the active stage title in the same header row',
-    );
-    assert.equal(
-      currentStageCard.previousElementSibling === statusTray,
-      true,
-      'expected the transient status tray to sit directly above the current stage card',
-    );
-    const statusRow = container.querySelector(
-      '[data-inspection-status-row="true"]',
-    ) as HTMLElement | null;
-    assert.ok(statusRow, 'expected the status row to render in the status tray');
-    assert.equal(
-      statusRow.classList.contains('items-stretch'),
-      true,
-      'status tray bubbles should stretch to a coordinated height instead of floating at mixed sizes',
-    );
-    assert.equal(
-      elapsedBadge.classList.contains('min-h-11'),
-      true,
-      'elapsed bubble should align to the coordinated tray bubble height',
-    );
-    assert.equal(
-      estimatedBadge.classList.contains('min-h-11'),
-      true,
-      'estimated bubble should align to the coordinated tray bubble height',
-    );
-    assert.equal(
-      elapsedBadge.classList.contains('basis-72'),
-      true,
-      'elapsed bubble should use the shared equal-width basis in the status tray',
-    );
-    assert.equal(
-      estimatedBadge.classList.contains('basis-72'),
-      true,
-      'estimated bubble should use the shared equal-width basis in the status tray',
-    );
-    assert.equal(
-      elapsedBadge.classList.contains('flex-1'),
-      true,
-      'elapsed bubble should use the shared equal-width flex rule in the status tray',
-    );
-    assert.equal(
-      estimatedBadge.classList.contains('flex-1'),
-      true,
-      'estimated bubble should use the shared equal-width flex rule in the status tray',
-    );
-    const stageStatusBadge = container.querySelector(
-      '[data-inspection-stage-status-badge="true"]',
-    ) as HTMLElement | null;
-    assert.equal(
-      stageStatusBadge,
+      currentStageCard,
       null,
-      'expected the stage status bubble to be removed from the running inspection status tray',
+      'expected the separate current stage card to be folded into the console',
+    );
+    assert.match(
+      runningConsole.textContent ?? '',
+      new RegExp(translations.zh.inspectionRequestingModelDescription),
+      'expected the active stage description to remain visible',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-stage-timeline="true"]'),
+      null,
+      'expected the running view not to show staged cards that do not advance with real progress',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-running-progress-line="true"]'),
+      null,
+      'expected the running view not to show a pseudo progress bar',
+    );
+    const scopeSummary = container.querySelector(
+      '[data-inspection-running-scope="true"]',
+    ) as HTMLElement | null;
+    assert.equal(
+      scopeSummary,
+      null,
+      'expected the standalone scope card to be removed',
+    );
+    assert.equal(
+      runningConsole.textContent?.includes(translations.zh.inspectionRunScope),
+      false,
+      'expected the running console not to show inspection scope copy',
+    );
+    assert.match(
+      runningConsole.textContent ?? '',
+      /Kinematics 3\/5/,
+      'expected the carousel to include selected profile chips',
+    );
+    assert.match(runningConsole.textContent ?? '', /Physics 2\/5/);
+    assert.match(runningConsole.textContent ?? '', /Simulation 4\/5/);
+    assert.match(runningConsole.textContent ?? '', /Maintenance 1\/5/);
+    assert.match(runningConsole.textContent ?? '', /URDF Source 5\/5/);
+    const profileChips = container.querySelectorAll(
+      '[data-inspection-running-profile-chip="true"]',
+    );
+    assert.equal(profileChips.length, 5, 'expected every selected profile to render as a chip');
+    profileChips.forEach((chip) => {
+      assert.equal(
+        (chip as HTMLElement).classList.contains('whitespace-nowrap'),
+        true,
+        'profile chips should keep labels intact while wrapping as whole chips across rows',
+      );
+    });
+    assert.equal(
+      runningConsole.textContent?.includes('+1'),
+      false,
+      'expected profile coverage to show every selected profile instead of collapsing with a +N chip',
     );
   } finally {
     await act(async () => {
@@ -199,7 +313,7 @@ test('running inspection progress view places the transient status tray above th
   }
 });
 
-test('delayed inspection status renders the delay hint inside the elapsed bubble', async () => {
+test('running inspection status does not render delay hints derived from estimates', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -241,54 +355,25 @@ test('delayed inspection status renders the delay hint inside the elapsed bubble
       );
     });
 
-    const statusTray = container.querySelector(
-      '[data-inspection-status-tray="true"]',
+    const runningConsole = container.querySelector(
+      '[data-inspection-running-console="true"]',
     ) as HTMLElement | null;
-    assert.ok(statusTray, 'expected the status tray to render for delayed inspections');
-    assert.equal(
-      statusTray.childElementCount,
-      1,
-      'delayed inspections should keep a single status row instead of rendering a second delayed bubble row',
-    );
+    assert.ok(runningConsole, 'expected the running console to render for long-running inspections');
 
     const elapsedBadge = container.querySelector(
       '[data-inspection-elapsed-badge="true"]',
     ) as HTMLElement | null;
     assert.ok(elapsedBadge, 'expected the elapsed badge to remain visible for delayed inspections');
 
-    const delayedIndicator = container.querySelector(
-      '[data-inspection-delayed-indicator="true"]',
-    ) as HTMLElement | null;
-    assert.ok(
-      delayedIndicator,
-      'expected delayed inspections to render an inline delay indicator inside the elapsed badge',
+    assert.equal(
+      container.querySelector('[data-inspection-delayed-indicator="true"]'),
+      null,
+      'expected the running view not to infer delayed status from an estimated duration',
     );
     assert.equal(
-      elapsedBadge.contains(delayedIndicator),
-      true,
-      'delay indicator should be grouped inside the elapsed badge instead of standing alone below the tray',
-    );
-    const elapsedPrimaryRow = elapsedBadge.querySelector(
-      '[data-inspection-info-bubble-primary-row="true"]',
-    ) as HTMLElement | null;
-    assert.ok(
-      elapsedPrimaryRow,
-      'expected the elapsed badge to keep a dedicated primary row for the timer value and inline delay hint',
-    );
-    assert.equal(
-      elapsedPrimaryRow.contains(delayedIndicator),
-      true,
-      'delay indicator should share the elapsed value row so it follows the elapsed copy inline',
-    );
-    assert.equal(
-      delayedIndicator.classList.contains('inline-flex'),
-      true,
-      'delay indicator should render as an inline badge instead of a full-width block below the elapsed value',
-    );
-    assert.match(
-      delayedIndicator.textContent ?? '',
-      new RegExp(translations.zh.inspectionRunDelayed),
-      'expected the inline delay indicator to use the localized delayed copy',
+      container.textContent?.includes(translations.zh.inspectionRunDelayed),
+      false,
+      'expected the running view not to show delayed copy derived from static estimates',
     );
   } finally {
     await act(async () => {

@@ -115,3 +115,39 @@ test('processInspectionResults reports total awarded score against selected max 
     'base.simulation_readiness': 8.5,
   })
 })
+
+test('processInspectionResults ignores valid issues outside the selected inspection scope', () => {
+  const report = processInspectionResults(
+    {
+      summary: 'Inspection summary',
+      issues: [
+        {
+          type: 'warning',
+          title: 'Selected joint limit issue',
+          description: 'The selected joint limit item should remain in the report.',
+          profileId: 'base.simulation_readiness',
+          itemId: 'joint_limits_valid',
+          score: 6,
+        },
+        {
+          type: 'error',
+          title: 'Unselected mass issue',
+          description: 'This item was not selected by the user and should be ignored.',
+          profileId: 'base.physical_plausibility',
+          itemId: 'mass_positive',
+          score: 0,
+        },
+      ],
+    },
+    {
+      'base.simulation_readiness': ['joint_limits_valid'],
+    },
+    'en',
+  )
+
+  assert.equal(report.issues.length, 1)
+  assert.equal(report.issues[0]?.profileId, 'base.simulation_readiness')
+  assert.equal(report.issues[0]?.itemId, 'joint_limits_valid')
+  assert.equal(report.overallScore, 6)
+  assert.equal(report.maxScore, 10)
+})

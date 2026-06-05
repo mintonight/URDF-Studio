@@ -122,3 +122,38 @@ test('mergeInspectionEvidenceIntoReport promotes local evidence into report issu
     ),
   )
 })
+
+test('mergeInspectionEvidenceIntoReport only promotes local evidence for selected inspection items', () => {
+  const baseReport: InspectionReport = {
+    summary: 'AI report',
+    issues: [
+      {
+        type: 'pass',
+        title: 'Selected item passed',
+        description: 'The selected item stayed clean.',
+        profileId: 'base.maintainability',
+        itemId: 'naming_unique',
+        score: 10,
+      },
+    ],
+    overallScore: 10,
+    profileScores: { 'base.maintainability': 10 },
+    maxScore: 10,
+  }
+
+  const merged = mergeInspectionEvidenceIntoReport(
+    baseReport,
+    buildInspectionEvidence(createRobot()),
+    'en',
+    {
+      'base.maintainability': ['naming_unique'],
+    },
+  )
+
+  assert.deepEqual(
+    merged.issues.map((issue) => `${issue.profileId}:${issue.itemId}`),
+    ['base.maintainability:naming_unique'],
+  )
+  assert.equal(merged.overallScore, 10)
+  assert.equal(merged.maxScore, 10)
+})

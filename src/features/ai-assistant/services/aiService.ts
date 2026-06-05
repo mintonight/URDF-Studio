@@ -30,6 +30,7 @@ export type RobotInspectionStage =
 
 interface RunRobotInspectionOptions {
   onStageChange?: (stage: RobotInspectionStage) => void
+  signal?: AbortSignal
 }
 
 const getAiServiceTexts = (lang: Language) => {
@@ -70,12 +71,22 @@ const getAiServiceTexts = (lang: Language) => {
 /**
  * Create OpenAI client instance
  */
+let openAIClientFactoryForTests: (() => OpenAI) | null = null
+
 const createOpenAIClient = (): OpenAI => {
+  if (openAIClientFactoryForTests) {
+    return openAIClientFactoryForTests()
+  }
+
   return new OpenAI({
     apiKey: process.env.API_KEY,
     baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
     dangerouslyAllowBrowser: true,
   })
+}
+
+export function __setInspectionOpenAIClientFactoryForTests(factory: (() => OpenAI) | null): void {
+  openAIClientFactoryForTests = factory
 }
 
 /**
@@ -400,17 +411,22 @@ export const runRobotInspection = async (
 
   try {
     options.onStageChange?.('requesting-model')
-    const response = await openai.chat.completions.create({
-      model: modelName,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Inspect this robot structure:\n${JSON.stringify(contextRobot)}` }
-      ],
-      response_format: {
-        type: 'json_object'
+    const response = await openai.chat.completions.create(
+      {
+        model: modelName,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Inspect this robot structure:\n${JSON.stringify(contextRobot)}` }
+        ],
+        response_format: {
+          type: 'json_object'
+        },
+        temperature: 0.7
       },
-      temperature: 0.7
-    })
+      {
+        signal: options.signal,
+      },
+    )
 
     const content = response.choices[0]?.message?.content
     if (!content) {
@@ -452,8 +468,17 @@ export const runRobotInspection = async (
       processInspectionResults(result, selectedItems, lang),
       localEvidence,
       lang,
+      selectedItems,
     )
   } catch (e: unknown) {
+    if (
+      options.signal?.aborted ||
+      e instanceof OpenAI.APIUserAbortError ||
+      (e instanceof Error && e.name === 'AbortError')
+    ) {
+      return null
+    }
+
     const error = e as { message?: string }
     logRegressionError('Inspection failed', e)
     return {

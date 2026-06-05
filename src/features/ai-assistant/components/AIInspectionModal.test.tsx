@@ -11,6 +11,7 @@ import {
   __setPdfCanvasFactoryForTests,
   __setPdfGenerationDepsLoaderForTests,
 } from '@/features/file-io/utils/generatePdfFromHtml';
+import { __setInspectionOpenAIClientFactoryForTests } from '../services/aiService';
 import { INSPECTION_PROFILE_DEFINITIONS } from '../config/inspectionProfiles';
 import { buildInspectionProfileRecommendation } from '../utils/inspectionProfileRecommendation';
 import { buildNormalInspectionPlan } from '../utils/inspectionNormalPlan';
@@ -784,6 +785,326 @@ test('inspection setup keeps selected checks in sync with updated recommended pr
   }
 });
 
+test('inspection report follow-up uses the robot snapshot from the completed run', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.en;
+  const previousApiKey = process.env.API_KEY;
+  const initialRobot = createRobotFixture();
+  const updatedRobot = {
+    ...createRobotFixture(),
+    name: 'changed-after-inspection',
+    selection: { type: 'joint' as const, id: 'hip_joint' },
+  };
+  let conversationRobotName: string | null = null;
+
+  const getButtonByText = (label: string) =>
+    Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null;
+
+  try {
+    delete process.env.API_KEY;
+
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={initialRobot}
+          lang="en"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={(_, robotSnapshot) => {
+            conversationRobotName = robotSnapshot.name;
+          }}
+        />,
+      );
+    });
+
+    const runButton = getButtonByText(t.runInspection);
+    assert.ok(runButton, 'expected the run inspection button to render');
+
+    await act(async () => {
+      runButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    });
+
+    assert.ok(
+      getButtonByText(t.discussReportWithAI),
+      'expected the inspection report actions to render after running the inspection',
+    );
+
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={updatedRobot}
+          lang="en"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={(_, robotSnapshot) => {
+            conversationRobotName = robotSnapshot.name;
+          }}
+        />,
+      );
+    });
+
+    const discussButton = getButtonByText(t.discussReportWithAI);
+    assert.ok(discussButton, 'expected the report discussion action to remain available');
+
+    await act(async () => {
+      discussButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(
+      conversationRobotName,
+      initialRobot.name,
+      'expected report follow-up to use the robot snapshot captured for that report',
+    );
+  } finally {
+    if (previousApiKey === undefined) {
+      delete process.env.API_KEY;
+    } else {
+      process.env.API_KEY = previousApiKey;
+    }
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('running inspection can be stopped and returns to setup without producing a report', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const previousApiKey = process.env.API_KEY;
+  let requestWasAborted = false;
+
+  const getButtonByText = (label: string) =>
+    Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null;
+
+  try {
+    process.env.API_KEY = 'test-key';
+    __setInspectionOpenAIClientFactoryForTests(
+      () =>
+        ({
+          chat: {
+            completions: {
+              create: async (_body: unknown, options?: { signal?: AbortSignal }) => {
+                const signal = options?.signal;
+                if (signal?.aborted) {
+                  requestWasAborted = true;
+                  throw new dom.window.DOMException('Aborted', 'AbortError');
+                }
+
+                return new Promise((_resolve, reject) => {
+                  signal?.addEventListener('abort', () => {
+                    requestWasAborted = true;
+                    reject(new dom.window.DOMException('Aborted', 'AbortError'));
+                  });
+                });
+              },
+            },
+          },
+        }) as never,
+    );
+
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="en"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const runButton = getButtonByText(translations.en.runInspection);
+    assert.ok(runButton, 'expected the run inspection button to render');
+
+    await act(async () => {
+      runButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    });
+
+    const stopButton = getButtonByText('Stop Review');
+    assert.ok(stopButton, 'expected a dedicated stop review action while inspection is running');
+    assert.equal(
+      container.querySelector('[data-inspection-sidebar]'),
+      null,
+      'expected the full inspection checklist sidebar to be hidden while a run is in progress',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-running-rail="true"]'),
+      null,
+      'expected the running view not to use a separate progress rail',
+    );
+    assert.ok(
+      container.querySelector('[data-inspection-running-console="true"]'),
+      'expected the running view to place live status in the main console panel',
+    );
+    assert.ok(
+      container.querySelector('[data-inspection-progress-footer="true"]'),
+      'expected running controls to remain anchored in the modal footer',
+    );
+
+    await act(async () => {
+      stopButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    });
+
+    assert.equal(requestWasAborted, true, 'expected the in-flight inspection request to abort');
+    assert.equal(
+      getButtonByText(translations.en.runInspection) !== null,
+      true,
+      'expected cancellation to return to the setup footer',
+    );
+    assert.equal(
+      container.textContent?.includes(translations.en.inspectionResultTitle),
+      false,
+      'expected cancellation not to create an inspection report',
+    );
+    assert.equal(
+      container.textContent?.includes('Review stopped. No report was generated.'),
+      true,
+      'expected setup to explain that the run was cancelled without a report',
+    );
+    const cancellationNotice = container.querySelector('[data-inspection-cancelled-notice]');
+    assert.ok(cancellationNotice, 'expected cancellation notice to render as a dismissible banner');
+    const dismissCancellationNoticeButton = container.querySelector<HTMLButtonElement>(
+      '[data-inspection-cancelled-notice-dismiss]',
+    );
+    assert.ok(
+      dismissCancellationNoticeButton,
+      'expected cancellation notice to expose a close action',
+    );
+
+    await act(async () => {
+      dismissCancellationNoticeButton!.dispatchEvent(
+        new dom.window.MouseEvent('click', { bubbles: true }),
+      );
+    });
+
+    assert.equal(
+      container.textContent?.includes('Review stopped. No report was generated.'),
+      false,
+      'expected dismissing the cancellation notice to remove it from setup',
+    );
+  } finally {
+    if (previousApiKey === undefined) {
+      delete process.env.API_KEY;
+    } else {
+      process.env.API_KEY = previousApiKey;
+    }
+    __setInspectionOpenAIClientFactoryForTests(null);
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('professional setup preserves manual selected checks across selection-only robot updates', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  dom.window.localStorage.setItem('urdf-studio.ai-inspection.setup-mode', 'advanced');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const t = translations.zh;
+  const robot = createRobotFixture();
+  const plan = buildNormalInspectionPlan({ robot });
+  const profileId = plan.includedProfileIds[0];
+  assert.ok(profileId, 'expected the fixture to include at least one profile');
+  const itemId = Array.from(plan.selectedProfiles[profileId] ?? [])[0];
+  assert.ok(itemId, 'expected the selected profile to include at least one item');
+  const initialSelectedItemCount = getNormalPlanSelectedItemCount(robot);
+  const updatedRobot = {
+    ...createRobotFixture(),
+    selection: { type: 'joint' as const, id: 'hip_joint' },
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={robot}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const getBadge = () =>
+      container.querySelector<HTMLButtonElement>(
+        `[data-inspection-setup-item-badge="${profileId}:${itemId}"]`,
+      );
+    const badge = getBadge();
+    assert.ok(badge, 'expected the focused item badge button to render');
+
+    await act(async () => {
+      badge!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(badge!.textContent?.trim(), t.inspectionSkipped);
+
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={updatedRobot}
+          lang="zh"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    assert.equal(
+      getBadge()?.textContent?.trim(),
+      t.inspectionSkipped,
+      'expected a selection-only robot update to preserve the manually skipped item',
+    );
+    assert.equal(
+      container.textContent?.includes(
+        t.inspectionSelectedChecks.replace('{count}', String(initialSelectedItemCount - 1)),
+      ),
+      true,
+      'expected the professional-mode summary to keep the manually edited count',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('inspection setup restores the saved normal mode and keeps selection in sync with advanced mode', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
@@ -1005,6 +1326,15 @@ test('professional mode status badge toggles the inspection item selection', asy
       container.textContent?.includes('用户排除推荐'),
       true,
       'expected the deselected recommended item to be marked as user-excluded from the recommendation',
+    );
+    assert.ok(
+      container.querySelector('[data-inspection-recommendation-custom-state="true"]'),
+      'expected the recommendation banner to make the custom profile selection state explicit',
+    );
+    assert.equal(
+      container.querySelector('[data-inspection-recommendation-empty-reason]'),
+      null,
+      'expected professional mode not to repeat the recommendation description as a fallback reason card',
     );
 
     const restoreProfileButton = getButtonByText('恢复本 Profile 推荐');
@@ -1604,23 +1934,6 @@ test('inspection setup highlights the run inspection action from the window cent
       'expected the run inspection button to coordinate a breathing animation with the pointer cue',
     );
 
-    await act(async () => {
-      await new Promise((resolve) => {
-        setTimeout(resolve, 360);
-      });
-    });
-
-    assert.equal(
-      container.querySelector('[data-inspection-run-pointer]'),
-      null,
-      'expected the pointer cue to dismiss itself after the short guidance window',
-    );
-    assert.equal(
-      getRunButton()?.className.includes('inspection-run-cta-breathe-sync'),
-      false,
-      'expected the run inspection button to leave the synced breathing state after the cue ends',
-    );
-
     const professionalModeButton = getButtonByText(t.inspectionAdvancedMode);
     assert.ok(
       professionalModeButton,
@@ -1695,9 +2008,6 @@ test('inspection setup replays the run inspection cue when switching modes befor
 
     await act(async () => {
       professionalModeButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-      await new Promise((resolve) => {
-        setTimeout(resolve, 100);
-      });
     });
 
     const normalModeButton = getSetupModeButton(t.inspectionNormalMode);

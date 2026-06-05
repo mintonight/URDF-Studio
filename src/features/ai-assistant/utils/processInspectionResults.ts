@@ -120,6 +120,17 @@ const normalizeIssue = (
   }
 }
 
+const issueMatchesSelectedScope = (
+  issue: InspectionReport['issues'][number],
+  selectedProfiles?: SelectedInspectionProfileMap,
+) => {
+  if (!selectedProfiles || issue.profileId === 'unmapped' || issue.itemId === 'unmapped') {
+    return true
+  }
+
+  return selectedProfiles[issue.profileId]?.includes(issue.itemId) ?? false
+}
+
 export function processInspectionResults(
   rawResults: unknown,
   selectedProfiles?: SelectedInspectionProfileMap,
@@ -127,9 +138,9 @@ export function processInspectionResults(
 ): InspectionReport {
   const t = translations[lang]
   const parsedResult = (rawResults || {}) as ParsedInspectionResult
-  const issues = ((parsedResult.issues || []) as RawInspectionIssue[]).map((rawIssue) =>
-    normalizeIssue({ ...rawIssue }, lang),
-  )
+  const issues = ((parsedResult.issues || []) as RawInspectionIssue[])
+    .map((rawIssue) => normalizeIssue({ ...rawIssue }, lang))
+    .filter((issue) => issueMatchesSelectedScope(issue, selectedProfiles))
   const allIssues: InspectionReport['issues'] = [...issues]
   const reportedItems = new Set(issues.map((issue) => `${issue.profileId}:${issue.itemId}`))
 

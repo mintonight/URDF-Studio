@@ -254,6 +254,58 @@ test('setup inspection sidebar item labels navigate without toggling selection',
   }
 });
 
+test('professional setup sidebar shows per-profile recommendation delta badges', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const selectedProfiles = {
+    'base.robot_model': new Set(['model_identity']),
+    'format.urdf': new Set(['urdf_robot_root']),
+  };
+  const recommendedProfiles = {
+    'base.robot_model': new Set(['model_identity', 'tree_connectivity']),
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        <InspectionSidebar
+          lang="en"
+          t={translations.en}
+          isGeneratingAI={false}
+          readOnly={false}
+          focusedProfileId="base.robot_model"
+          expandedProfiles={new Set(['base.robot_model', 'format.urdf'])}
+          selectedProfiles={selectedProfiles}
+          recommendedProfiles={recommendedProfiles}
+          setExpandedProfiles={() => {}}
+          setSelectedProfiles={() => {}}
+          onFocusProfile={() => {}}
+        />,
+      );
+    });
+
+    const baseDelta = container.querySelector<HTMLElement>(
+      '[data-inspection-profile-delta="base.robot_model"]',
+    );
+    const formatDelta = container.querySelector<HTMLElement>(
+      '[data-inspection-profile-delta="format.urdf"]',
+    );
+
+    assert.ok(baseDelta, 'expected a removed-item delta badge on the partially excluded profile');
+    assert.equal(baseDelta.textContent?.trim(), '-1');
+    assert.ok(formatDelta, 'expected an added-item delta badge on the user-added profile');
+    assert.equal(formatDelta.textContent?.trim(), '+1');
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('running inspection sidebar keeps scroll container interactive without rendering the checking badge', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');

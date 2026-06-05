@@ -324,6 +324,8 @@ export const en: TranslationKeys = {
   cancel: 'Close',
   send: 'Ask AI',
   runInspection: 'Run Inspection',
+  inspectionStopReview: 'Stop Review',
+  inspectionCancelledNoReport: 'Review stopped. No report was generated.',
   thinking: 'Analyzing...',
   inspectorSummary: 'Inspector Summary',
   overallScore: 'Overall Score',

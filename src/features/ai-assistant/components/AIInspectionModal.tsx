@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { MessageCircle, PanelLeftClose, PanelLeftOpen, ScanSearch } from 'lucide-react';
+import { MessageCircle, PanelLeftClose, PanelLeftOpen, ScanSearch, Square, X } from 'lucide-react';
 import type { InspectionReport, RobotState } from '@/types';
-import type { Language } from '@/shared/i18n';
+import type { Language, TranslationKeys } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
 import { useAssemblyStore } from '@/store';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
@@ -76,58 +76,57 @@ interface AIInspectionModalProps {
   ) => void;
 }
 
-interface RetestingItemState {
-  profileId: string;
-  itemId: string;
-}
-
-interface ReportScrollTarget {
-  anchorId: string;
-}
-
-interface SetupItemScrollTarget {
-  profileId: string;
-  itemId: string;
-}
-
-interface InspectionRunPointerLayout {
-  deltaX: number;
-  deltaY: number;
-  targetX: number;
-  targetY: number;
-}
-
-type InspectionSetupMode = 'normal' | 'advanced';
-
-const INSPECTION_SETUP_MODE_STORAGE_KEY = 'urdf-studio.ai-inspection.setup-mode';
-const TOTAL_INSPECTION_ITEM_COUNT = getAllInspectionProfileItemCount();
-const RUN_INSPECTION_POINTER_DURATION_MS =
-  typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent) ? 300 : 2400;
-
-function readStoredInspectionSetupMode(): InspectionSetupMode {
-  if (typeof window === 'undefined') {
-    return 'normal';
+const cloneInspectionRobotSnapshot = (robot: RobotState): RobotState => {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(robot);
   }
 
-  try {
-    const storedMode = window.localStorage.getItem(INSPECTION_SETUP_MODE_STORAGE_KEY);
-    return storedMode === 'normal' || storedMode === 'advanced' ? storedMode : 'normal';
-  } catch {
-    return 'normal';
-  }
-}
+  return JSON.parse(JSON.stringify(robot)) as RobotState;
+};
 
-function recalculateReportMetrics(
-  issues: InspectionReport['issues'],
-  fallbackMaxScore: number | undefined,
-): Pick<InspectionReport, 'overallScore' | 'profileScores' | 'maxScore'> {
-  const metrics = createProfileScoreMetrics(issues);
-  return {
-    ...metrics,
-    maxScore: issues.some((issue) => issue.score !== undefined)
-      ? metrics.maxScore
-      : (fallbackMaxScore ?? metrics.maxScore),
-  };
+const getInspectionProgressStageLabel = (
+  stage: InspectionProgressState['stage'],
+  t: TranslationKeys,
+) => {
+  switch (stage) {
+    case 'preparing-context':
+      return t.inspectionPreparingContext;
+    case 'requesting-model':
+      return t.inspectionRequestingModel;
+    case 'processing-response':
+      return t.inspectionProcessingResponse;
+    case 'finalizing-report':
+      return t.inspectionFinalizingReport;
+  }
+};
+
+function DismissibleInspectionCancellationNotice({
+  notice,
+  t,
+  onDismiss,
+}: {
+  notice: string;
+  t: TranslationKeys;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      data-inspection-cancelled-notice
+      className="flex items-start gap-3 rounded-lg border border-warning-border bg-warning-soft px-3 py-2 text-xs font-medium text-warning"
+    >
+      <span className="min-w-0 flex-1 leading-5">{notice}</span>
+      <button
+        type="button"
+        data-inspection-cancelled-notice-dismiss
+        aria-label={t.close}
+        title={t.close}
+        onClick={onDismiss}
+        className="-mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-warning transition-colors hover:bg-warning/10 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
 }
 
 export function AIInspectionModal({
@@ -184,6 +183,16 @@ export function AIInspectionModal({
         .join('\u0000'),
     [normalInspectionPlan],
   );
+  const normalInspectionPlanSelectionKey = useMemo(
+    () =>
+      normalInspectionPlan.includedProfileIds
+        .map((profileId) => {
+          const itemIds = Array.from(normalInspectionPlan.selectedProfiles[profileId] ?? []).sort();
+          return `${profileId}:${itemIds.join(',')}`;
+        })
+        .join('\u0000'),
+    [normalInspectionPlan],
+  );
   const windowState = useDraggableWindow({
     isOpen,
     defaultSize: { width: 1080, height: 720 },
@@ -194,8 +203,12 @@ export function AIInspectionModal({
   const { isMinimized, size, isResizing } = windowState;
 
   const [inspectionReport, setInspectionReport] = useState<InspectionReport | null>(null);
+  const [inspectionRobotSnapshot, setInspectionRobotSnapshot] = useState<RobotState | null>(null);
   const [isInspecting, setIsInspecting] = useState(false);
   const [inspectionProgress, setInspectionProgress] = useState<InspectionProgressState | null>(
+    null,
+  );
+  const [inspectionCancellationNotice, setInspectionCancellationNotice] = useState<string | null>(
     null,
   );
   const [inspectionElapsedSeconds, setInspectionElapsedSeconds] = useState(0);
@@ -233,11 +246,13 @@ export function AIInspectionModal({
 
   const isMountedRef = useRef(false);
   const inspectionRunIdRef = useRef(0);
+  const inspectionAbortControllerRef = useRef<AbortController | null>(null);
   const retestRequestIdRef = useRef(0);
   const reportScrollViewportRef = useRef<HTMLDivElement | null>(null);
   const inspectionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const runInspectionPointerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runInspectionPointerTimerRef = useRef<number | null>(null);
   const lastRunInspectionPointerKeyRef = useRef<string | null>(null);
+  const lastInspectionSetupSelectionSyncKeyRef = useRef<string | null>(null);
   const runInspectionButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const totalSelectedCount = countSelectedInspectionProfileItems(selectedProfiles);
@@ -246,6 +261,7 @@ export function AIInspectionModal({
     (selectedProfileCount / Math.max(INSPECTION_PROFILE_DEFINITIONS.length, 1)) * 100,
   );
   const maxPossibleScore = totalSelectedCount * 10;
+  const reportRobot = inspectionRobotSnapshot ?? robot;
 
   const clearInspectionTimer = useCallback(() => {
     if (inspectionTimerRef.current !== null) {
@@ -256,7 +272,7 @@ export function AIInspectionModal({
 
   const clearRunInspectionPointerTimer = useCallback(() => {
     if (runInspectionPointerTimerRef.current !== null) {
-      clearTimeout(runInspectionPointerTimerRef.current);
+      window.clearTimeout(runInspectionPointerTimerRef.current);
       runInspectionPointerTimerRef.current = null;
     }
   }, []);
@@ -270,6 +286,13 @@ export function AIInspectionModal({
   }, [inspectionSetupMode]);
 
   useEffect(() => {
+    const selectionSyncKey = `${inspectionSetupMode}:${normalInspectionPlanSelectionKey}`;
+    if (lastInspectionSetupSelectionSyncKeyRef.current === selectionSyncKey) {
+      return;
+    }
+
+    lastInspectionSetupSelectionSyncKeyRef.current = selectionSyncKey;
+
     if (inspectionSetupMode === 'normal') {
       setExpandedProfiles(new Set(normalInspectionPlan.includedProfileIds));
       setSelectedProfiles(cloneSelectedInspectionProfiles(normalInspectionPlan.selectedProfiles));
@@ -296,6 +319,7 @@ export function AIInspectionModal({
     normalInspectionPlan.includedProfileIds,
     normalInspectionPlan.selectedProfiles,
     normalInspectionPlanKey,
+    normalInspectionPlanSelectionKey,
     recommendedProfileIds,
   ]);
 
@@ -305,6 +329,8 @@ export function AIInspectionModal({
     return () => {
       isMountedRef.current = false;
       inspectionRunIdRef.current += 1;
+      inspectionAbortControllerRef.current?.abort();
+      inspectionAbortControllerRef.current = null;
       retestRequestIdRef.current += 1;
       clearInspectionTimer();
       clearRunInspectionPointerTimer();
@@ -326,12 +352,17 @@ export function AIInspectionModal({
     inspectionRunIdRef.current += 1;
     const runId = inspectionRunIdRef.current;
     const isRunActive = () => isMountedRef.current && inspectionRunIdRef.current === runId;
+    const robotSnapshot = cloneInspectionRobotSnapshot(robot);
+    const abortController = new AbortController();
+    inspectionAbortControllerRef.current = abortController;
 
     clearInspectionTimer();
     setIsInspecting(true);
+    setInspectionCancellationNotice(null);
     setIsRegenerateConfirmOpen(false);
     setIsSavingReportBeforeRegenerate(false);
     setInspectionReport(null);
+    setInspectionRobotSnapshot(null);
     setPendingReportScrollTarget(null);
     setRetestingItem(null);
     setInspectionElapsedSeconds(0);
@@ -340,6 +371,9 @@ export function AIInspectionModal({
     const selectedItemsMap = toSelectedInspectionProfileMap(selectedProfiles);
 
     if (totalItems === 0) {
+      if (inspectionAbortControllerRef.current === abortController) {
+        inspectionAbortControllerRef.current = null;
+      }
       setInspectionProgress(null);
       setInspectionRunContext(null);
       setIsInspecting(false);
@@ -348,7 +382,7 @@ export function AIInspectionModal({
 
     setExpandedProfiles(new Set(Object.keys(selectedItemsMap)));
     setInspectionRunContext(
-      buildInspectionRunContext(robot, selectedProfiles, lang, t.inspectionNormalizedModel),
+      buildInspectionRunContext(robotSnapshot, selectedProfiles, lang, t.inspectionNormalizedModel),
     );
     setInspectionProgress({
       stage: 'preparing-context',
@@ -364,7 +398,8 @@ export function AIInspectionModal({
     }, 1000);
 
     try {
-      const report = await runRobotInspection(robot, selectedItemsMap, lang, {
+      const report = await runRobotInspection(robotSnapshot, selectedItemsMap, lang, {
+        signal: abortController.signal,
         onStageChange: (stage) => {
           if (!isRunActive()) {
             return;
@@ -381,11 +416,15 @@ export function AIInspectionModal({
         return;
       }
 
+      setInspectionRobotSnapshot(report ? robotSnapshot : null);
       setInspectionReport(report);
     } catch (error) {
       console.error('Inspection Error', error);
     } finally {
       if (isRunActive()) {
+        if (inspectionAbortControllerRef.current === abortController) {
+          inspectionAbortControllerRef.current = null;
+        }
         clearInspectionTimer();
         setInspectionProgress(null);
         setInspectionElapsedSeconds(0);
@@ -393,6 +432,28 @@ export function AIInspectionModal({
       }
     }
   };
+
+  const handleStopInspection = useCallback(() => {
+    inspectionRunIdRef.current += 1;
+    inspectionAbortControllerRef.current?.abort();
+    inspectionAbortControllerRef.current = null;
+    clearInspectionTimer();
+    setInspectionProgress(null);
+    setInspectionRunContext(null);
+    setInspectionElapsedSeconds(0);
+    setInspectionReport(null);
+    setInspectionRobotSnapshot(null);
+    setPendingReportScrollTarget(null);
+    setRetestingItem(null);
+    setIsRegenerateConfirmOpen(false);
+    setIsSavingReportBeforeRegenerate(false);
+    setIsInspecting(false);
+    setInspectionCancellationNotice(t.inspectionCancelledNoReport);
+  }, [clearInspectionTimer, t.inspectionCancelledNoReport]);
+
+  const handleDismissInspectionCancellationNotice = useCallback(() => {
+    setInspectionCancellationNotice(null);
+  }, []);
 
   const handleRetestItem = async (profileId: string, itemId: string) => {
     const requestId = retestRequestIdRef.current + 1;
@@ -405,7 +466,7 @@ export function AIInspectionModal({
       const selectedItemsMap: Record<string, string[]> = {
         [profileId]: [itemId],
       };
-      const report = await runRobotInspection(robot, selectedItemsMap, lang);
+      const report = await runRobotInspection(reportRobot, selectedItemsMap, lang);
       if (!isRequestActive() || !report || !inspectionReport) {
         return;
       }
@@ -560,9 +621,9 @@ export function AIInspectionModal({
   const handleDownloadPDF = () => {
     return exportInspectionReportPdf({
       inspectionReport,
-      robotName: robot.name,
+      robotName: reportRobot.name,
       lang,
-      inspectionContext: robot.inspectionContext,
+      inspectionContext: reportRobot.inspectionContext,
     });
   };
 
@@ -585,6 +646,9 @@ export function AIInspectionModal({
   };
 
   const handleReturnToSetupFromRegenerate = useCallback(() => {
+    inspectionAbortControllerRef.current?.abort();
+    inspectionAbortControllerRef.current = null;
+    inspectionRunIdRef.current += 1;
     clearInspectionTimer();
     setIsRegenerateConfirmOpen(false);
     setIsSavingReportBeforeRegenerate(false);
@@ -592,9 +656,11 @@ export function AIInspectionModal({
     setInspectionRunContext(null);
     setInspectionElapsedSeconds(0);
     setInspectionReport(null);
+    setInspectionRobotSnapshot(null);
     setPendingReportScrollTarget(null);
     setRetestingItem(null);
     setIsInspecting(false);
+    setInspectionCancellationNotice(null);
   }, [clearInspectionTimer]);
 
   const handleToggleSelectedItem = useCallback((profileId: string, itemId: string) => {
@@ -639,12 +705,12 @@ export function AIInspectionModal({
         return;
       }
 
-      onOpenConversationWithReport(inspectionReport, robot, {
+      onOpenConversationWithReport(inspectionReport, reportRobot, {
         focusedIssue: issue,
-        selectedEntity: resolveInspectionIssueSelectionTarget(robot, issue),
+        selectedEntity: resolveInspectionIssueSelectionTarget(reportRobot, issue),
       });
     },
-    [inspectionReport, onOpenConversationWithReport, robot],
+    [inspectionReport, onOpenConversationWithReport, reportRobot],
   );
 
   const isSetupView = !inspectionProgress && !inspectionReport;
@@ -681,12 +747,11 @@ export function AIInspectionModal({
     setRunInspectionPointerReplayToken((current) => current + 1);
     clearRunInspectionPointerTimer();
 
-    runInspectionPointerTimerRef.current = setTimeout(() => {
+    runInspectionPointerTimerRef.current = window.setTimeout(() => {
       if (isMountedRef.current) {
         setShowRunInspectionPointer(false);
       }
     }, RUN_INSPECTION_POINTER_DURATION_MS);
-    runInspectionPointerTimerRef.current.unref?.();
 
     return () => {
       clearRunInspectionPointerTimer();
@@ -898,6 +963,13 @@ export function AIInspectionModal({
                     className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-app-bg dark:bg-panel-bg"
                   >
                     <div className="flex flex-1 flex-col gap-4 p-6">
+                      {inspectionCancellationNotice && (
+                        <DismissibleInspectionCancellationNotice
+                          notice={inspectionCancellationNotice}
+                          t={t}
+                          onDismiss={handleDismissInspectionCancellationNotice}
+                        />
+                      )}
                       <InspectionRecommendationBanner
                         t={t}
                         plan={normalInspectionPlan}
@@ -925,6 +997,15 @@ export function AIInspectionModal({
                   className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-app-bg dark:bg-panel-bg"
                 >
                   <div className="flex flex-1 flex-col p-6">
+                    {inspectionCancellationNotice && (
+                      <div className="mb-4">
+                        <DismissibleInspectionCancellationNotice
+                          notice={inspectionCancellationNotice}
+                          t={t}
+                          onDismiss={handleDismissInspectionCancellationNotice}
+                        />
+                      </div>
+                    )}
                     <InspectionSetupNormalView
                       lang={lang}
                       t={t}
@@ -937,23 +1018,25 @@ export function AIInspectionModal({
               )
             ) : (
               <>
-                <InspectionSidebar
-                  lang={lang}
-                  t={t}
-                  isGeneratingAI={isInspecting}
-                  readOnly={inspectionSidebarReadOnly}
-                  focusedProfileId={focusedProfileId}
-                  expandedProfiles={expandedProfiles}
-                  selectedProfiles={selectedProfiles}
-                  recommendedProfiles={recommendedProfiles}
-                  setExpandedProfiles={setExpandedProfiles}
-                  setSelectedProfiles={setSelectedProfiles}
-                  onFocusProfile={setFocusedProfileId}
-                  onNavigateToProfile={
-                    inspectionReport ? handleNavigateToReportProfile : undefined
-                  }
-                  onNavigateToItem={inspectionReport ? handleNavigateToReportItem : undefined}
-                />
+                {inspectionProgress ? null : (
+                  <InspectionSidebar
+                    lang={lang}
+                    t={t}
+                    isGeneratingAI={isInspecting}
+                    readOnly={inspectionSidebarReadOnly}
+                    focusedProfileId={focusedProfileId}
+                    expandedProfiles={expandedProfiles}
+                    selectedProfiles={selectedProfiles}
+                    recommendedProfiles={recommendedProfiles}
+                    setExpandedProfiles={setExpandedProfiles}
+                    setSelectedProfiles={setSelectedProfiles}
+                    onFocusProfile={setFocusedProfileId}
+                    onNavigateToProfile={
+                      inspectionReport ? handleNavigateToReportProfile : undefined
+                    }
+                    onNavigateToItem={inspectionReport ? handleNavigateToReportItem : undefined}
+                  />
+                )}
 
                 <div
                   ref={reportScrollViewportRef}
@@ -972,7 +1055,7 @@ export function AIInspectionModal({
                         <div className="space-y-6 pb-20">
                           <InspectionReportView
                             report={inspectionReport}
-                            robot={robot}
+                            robot={reportRobot}
                             lang={lang}
                             t={t}
                             expandedProfiles={expandedProfiles}
@@ -987,7 +1070,9 @@ export function AIInspectionModal({
 
                           <div className="flex justify-center">
                             <button
-                              onClick={() => onOpenConversationWithReport(inspectionReport, robot)}
+                              onClick={() =>
+                                onOpenConversationWithReport(inspectionReport, reportRobot)
+                              }
                               className="h-8 rounded-lg border border-border-black bg-panel-bg px-4 text-xs font-medium text-system-blue shadow-sm transition-colors hover:bg-element-bg dark:bg-element-bg"
                             >
                               <span className="flex items-center gap-2">
@@ -1006,92 +1091,113 @@ export function AIInspectionModal({
           </div>
         )}
 
-        {!inspectionProgress && (
-          <div className="flex min-h-14 items-center justify-between gap-3 border-t border-border-black bg-element-bg px-4 py-2 shrink-0">
-            {inspectionReport ? (
-              <>
-                <div className="flex min-w-0 items-center gap-2" />
+        <div
+          data-inspection-progress-footer={inspectionProgress ? 'true' : undefined}
+          className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-t border-border-black bg-element-bg px-4 py-2"
+        >
+          {inspectionProgress ? (
+            <>
+              <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-text-secondary">
+                <span
+                  aria-hidden="true"
+                  className="h-2 w-2 shrink-0 rounded-full bg-system-blue"
+                />
+                <span className="truncate">
+                  {getInspectionProgressStageLabel(inspectionProgress.stage, t)}
+                </span>
+              </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsRegenerateConfirmOpen(true)}
-                    disabled={isSavingReportBeforeRegenerate}
-                    className="h-8 rounded-lg bg-system-blue-solid px-5 text-xs font-semibold text-white transition-colors hover:bg-system-blue-hover disabled:opacity-30"
+              <button
+                type="button"
+                onClick={handleStopInspection}
+                className="inline-flex h-8 items-center gap-2 rounded-lg border border-border-black bg-panel-bg px-4 text-xs font-semibold text-text-secondary shadow-sm transition-colors hover:bg-element-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 dark:bg-element-bg"
+              >
+                <Square className="h-3.5 w-3.5" />
+                {t.inspectionStopReview}
+              </button>
+            </>
+          ) : inspectionReport ? (
+            <>
+              <div className="flex min-w-0 items-center gap-2" />
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRegenerateConfirmOpen(true)}
+                  disabled={isSavingReportBeforeRegenerate}
+                  className="h-8 rounded-lg bg-system-blue-solid px-5 text-xs font-semibold text-white transition-colors hover:bg-system-blue-hover disabled:opacity-30"
+                >
+                  {t.retryLastResponse}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="min-w-0 flex-1">
+                {inspectionSetupMode === 'normal' ? (
+                  <div
+                    data-inspection-normal-footer-summary
+                    className="inline-flex items-center gap-3 rounded-xl border border-border-black bg-panel-bg px-3 py-2 shadow-sm"
                   >
-                    {t.retryLastResponse}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="min-w-0 flex-1">
-                  {inspectionSetupMode === 'normal' ? (
-                    <div
-                      data-inspection-normal-footer-summary
-                      className="inline-flex items-center gap-3 rounded-xl border border-border-black bg-panel-bg px-3 py-2 shadow-sm"
-                    >
-                      <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
-                        {t.inspectionSelectedChecksLabel}
+                    <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
+                      {t.inspectionSelectedChecksLabel}
+                    </span>
+                    <div className="flex items-baseline gap-1.5">
+                      <span
+                        data-inspection-normal-footer-primary-count
+                        className="text-2xl font-semibold leading-none tabular-nums text-text-primary"
+                      >
+                        {totalSelectedCount}
                       </span>
-                      <div className="flex items-baseline gap-1.5">
-                        <span
-                          data-inspection-normal-footer-primary-count
-                          className="text-2xl font-semibold leading-none tabular-nums text-text-primary"
-                        >
-                          {totalSelectedCount}
-                        </span>
-                        <span className="text-xs font-medium text-text-tertiary">/</span>
-                        <span
-                          data-inspection-normal-footer-total-count
-                          className="text-sm font-semibold tabular-nums text-text-secondary"
-                        >
-                          {TOTAL_INSPECTION_ITEM_COUNT}
-                        </span>
-                      </div>
+                      <span className="text-xs font-medium text-text-tertiary">/</span>
+                      <span
+                        data-inspection-normal-footer-total-count
+                        className="text-sm font-semibold tabular-nums text-text-secondary"
+                      >
+                        {TOTAL_INSPECTION_ITEM_COUNT}
+                      </span>
                     </div>
-                  ) : (
-                    <div
-                      data-inspection-setup-summary
-                      className="inline-flex w-fit max-w-full flex-wrap items-center rounded-lg border border-border-black bg-panel-bg px-3 py-2 text-[11px] leading-5 text-text-secondary shadow-sm"
-                    >
-                      {inspectionSetupSummary}
-                    </div>
-                  )}
-                </div>
-
-                <div className="relative flex items-center gap-2">
-                  <button
-                    onClick={handleClose}
-                    className="h-8 rounded-lg px-4 text-xs font-medium text-text-secondary transition-colors hover:bg-element-hover hover:text-text-primary"
+                  </div>
+                ) : (
+                  <div
+                    data-inspection-setup-summary
+                    className="inline-flex w-fit max-w-full flex-wrap items-center rounded-lg border border-border-black bg-panel-bg px-3 py-2 text-[11px] leading-5 text-text-secondary shadow-sm"
                   >
-                    {t.cancel}
-                  </button>
-                  <button
-                    key={
-                      shouldShowRunInspectionPointer
-                        ? `run-inspection-cue-${runInspectionPointerReplayToken}`
-                        : 'run-inspection'
-                    }
-                    ref={runInspectionButtonRef}
-                    data-inspection-run-button
-                    onClick={handleRunInspection}
-                    disabled={isInspecting || totalSelectedCount === 0}
-                    className={`h-8 rounded-lg bg-system-blue-solid px-5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-system-blue-hover disabled:opacity-30 ${
-                      shouldShowRunInspectionPointer
-                        ? 'inspection-run-cta-pulse inspection-run-cta-breathe-sync'
-                        : ''
-                    }`}
-                    title={totalSelectedCount === 0 ? t.inspectionNoChecksSelected : undefined}
-                  >
-                    {isInspecting ? t.thinking : t.runInspection}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
+                    {inspectionSetupSummary}
+                  </div>
+                )}
+              </div>
 
+              <div className="relative flex items-center gap-2">
+                <button
+                  onClick={handleClose}
+                  className="h-8 rounded-lg px-4 text-xs font-medium text-text-secondary transition-colors hover:bg-element-hover hover:text-text-primary"
+                >
+                  {t.cancel}
+                </button>
+                <button
+                  key={
+                    shouldShowRunInspectionPointer
+                      ? `run-inspection-cue-${runInspectionPointerReplayToken}`
+                      : 'run-inspection'
+                  }
+                  ref={runInspectionButtonRef}
+                  data-inspection-run-button
+                  onClick={handleRunInspection}
+                  disabled={isInspecting || totalSelectedCount === 0}
+                  className={`h-8 rounded-lg bg-system-blue-solid px-5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-system-blue-hover disabled:opacity-30 ${
+                    shouldShowRunInspectionPointer
+                      ? 'inspection-run-cta-pulse inspection-run-cta-breathe-sync'
+                      : ''
+                  }`}
+                  title={totalSelectedCount === 0 ? t.inspectionNoChecksSelected : undefined}
+                >
+                  {isInspecting ? t.thinking : t.runInspection}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
         {isResizing && (
           <div className="absolute bottom-2 right-12 z-50 rounded-lg bg-system-blue-solid px-2 py-1 text-[10px] font-medium text-white shadow-sm">
             {size.width} × {size.height}

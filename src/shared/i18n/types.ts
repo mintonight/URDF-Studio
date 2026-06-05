@@ -294,6 +294,8 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   cancel: string;
   send: string;
   runInspection: string;
+  inspectionStopReview: string;
+  inspectionCancelledNoReport: string;
   thinking: string;
   inspectorSummary: string;
   overallScore: string;
