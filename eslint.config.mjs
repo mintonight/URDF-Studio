@@ -20,7 +20,7 @@ const globalIgnores = [
   'log/**',
   'public/**',
   'public/usd/bindings/**',
-  'test/usd-viewer/**',
+  'test/**', // 大型 fixture / 回归语料（gitignored、非源码；曾含会让 ESLint 遍历崩溃的损坏条目）
   'src/features/urdf-viewer/runtime/**',
 ];
 

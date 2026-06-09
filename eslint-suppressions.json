@@ -230,11 +230,6 @@
       "count": 6
     }
   },
-  "src/core/loaders/colladaParseWorkerBridge.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/core/loaders/meshLoader.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -258,11 +253,6 @@
   "src/core/loaders/objMaterialUtils.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 3
-    }
-  },
-  "src/core/loaders/objParseWorkerBridge.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
     }
   },
   "src/core/loaders/stlParseWorkerBridge.ts": {
