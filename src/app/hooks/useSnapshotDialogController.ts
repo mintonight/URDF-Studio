@@ -67,12 +67,15 @@ export function useSnapshotDialogController({
         const { captureWorkspaceCameraSnapshot } = await import(
           '@/shared/components/3d/workspace/workspaceCameraSnapshot'
         );
-        cameraSnapshot = captureWorkspaceCameraSnapshot(viewerCanvasState);
+        const viewportElement =
+          viewerCanvasState.gl.domElement.parentElement ?? viewerCanvasState.gl.domElement;
+        cameraSnapshot = captureWorkspaceCameraSnapshot(viewerCanvasState, viewportElement);
       } catch (error) {
         logRegressionError('[AppLayout] Failed to capture workspace camera snapshot:', error);
       }
     }
     const viewportAspectRatio =
+      cameraSnapshot?.visibleViewport?.aspectRatio ??
       cameraSnapshot?.aspectRatio ??
       (viewerCanvasState?.size.width && viewerCanvasState.size.height
         ? viewerCanvasState.size.width / viewerCanvasState.size.height

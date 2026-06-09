@@ -105,12 +105,18 @@ export { WorkspaceCanvas } from './workspace';
 export {
   applyWorkspaceCameraSnapshot,
   captureWorkspaceCameraSnapshot,
+  resolveWorkspaceCameraRenderViewOffset,
   resolveSnapshotPreviewSurfaceSize,
+  resolveWorkspaceVisibleViewportRect,
   resolveWorkspaceCanvasEnvironmentIntensity,
   useWorkspaceCanvasTheme,
 } from './workspace';
 export type { WorkspaceCanvasEnvironmentIntensityByTheme } from './workspace';
-export type { WorkspaceCameraSnapshot } from './workspace';
+export type {
+  WorkspaceCameraRenderViewOffset,
+  WorkspaceCameraSnapshot,
+  WorkspaceCameraVisibleViewport,
+} from './workspace';
 
 export { UsageGuide } from './UsageGuide';
 export { ViewModeBadge } from './ViewModeBadge';

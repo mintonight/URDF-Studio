@@ -7,6 +7,10 @@ export {
 export {
   applyWorkspaceCameraSnapshot,
   captureWorkspaceCameraSnapshot,
+  resolveWorkspaceCameraRenderViewOffset,
   resolveSnapshotPreviewSurfaceSize,
+  resolveWorkspaceVisibleViewportRect,
+  type WorkspaceCameraRenderViewOffset,
   type WorkspaceCameraSnapshot,
+  type WorkspaceCameraVisibleViewport,
 } from './workspaceCameraSnapshot';

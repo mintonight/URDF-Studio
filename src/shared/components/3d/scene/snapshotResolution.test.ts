@@ -6,6 +6,7 @@ import {
   clampSnapshotRenderPlanToPixelBudget,
   resolveSnapshotRenderTargetSamples,
   resolveSnapshotRenderPlan,
+  resolveSnapshotTiledRenderPlan,
 } from './snapshotResolution.ts';
 
 test('resolveSnapshotRenderPlan keeps native size when the drawing buffer already meets the target', () => {
@@ -116,4 +117,43 @@ test('resolveSnapshotRenderTargetSamples keeps moderate MSAA on medium-size rend
     }),
     4,
   );
+});
+
+test('resolveSnapshotTiledRenderPlan preserves full supersampled coverage within tile budgets', () => {
+  const plan = resolveSnapshotTiledRenderPlan({
+    outputWidth: 7680,
+    outputHeight: 4320,
+    supersampleScale: 4,
+    maxRenderbufferSize: 16384,
+    maxTextureSize: 16384,
+    tileInternalPixelBudget: 10_000_000,
+  });
+
+  assert.equal(plan.fullRenderWidth, 30_720);
+  assert.equal(plan.fullRenderHeight, 17_280);
+  assert.ok(plan.tiles.length > 1);
+  assert.equal(plan.tiles[0]?.outputX, 0);
+  assert.equal(plan.tiles[0]?.outputY, 0);
+  assert.equal(plan.tiles.at(-1)?.outputX + plan.tiles.at(-1)!.outputWidth, 7680);
+  assert.equal(plan.tiles.at(-1)?.outputY + plan.tiles.at(-1)!.outputHeight, 4320);
+  assert.equal(plan.tiles.at(-1)?.renderX + plan.tiles.at(-1)!.renderWidth, 30_720);
+  assert.equal(plan.tiles.at(-1)?.renderY + plan.tiles.at(-1)!.renderHeight, 17_280);
+  assert.ok(
+    plan.tiles.every((tile) => tile.renderWidth * tile.renderHeight <= 10_000_000),
+  );
+});
+
+test('resolveSnapshotTiledRenderPlan respects small render target caps', () => {
+  const plan = resolveSnapshotTiledRenderPlan({
+    outputWidth: 3840,
+    outputHeight: 2160,
+    supersampleScale: 4,
+    maxRenderbufferSize: 2048,
+    maxTextureSize: 4096,
+    tileInternalPixelBudget: 10_000_000,
+  });
+
+  assert.ok(plan.tiles.length > 1);
+  assert.ok(plan.tiles.every((tile) => tile.renderWidth <= 2048));
+  assert.ok(plan.tiles.every((tile) => tile.renderHeight <= 2048));
 });
