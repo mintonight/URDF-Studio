@@ -17,9 +17,6 @@ import {
 } from '@/types';
 import {
   computeLinkWorldMatrices,
-  createRobotClosedLoopConstraint,
-  createRobotDistanceClosedLoopConstraint,
-  resolveLinkKey,
   solveClosedLoopMotionCompensation,
 } from '@/core/robot';
 import {
@@ -32,6 +29,7 @@ import {
 } from './mjcfUtils';
 import { assignMJCFBodyGeomRoles, classifyMJCFGeom } from './mjcfGeomClassification';
 import { buildMjcfCubeAuthoredMaterials, getMjcfCubeTextureFaceRecord } from './mjcfCubeTextures';
+import { buildClosedLoopConstraints } from './mjcfClosedLoops';
 import { createEmptyLinkInertial, deriveGeomMassInertial } from './mjcfInertial';
 import { applyInitialPoseKeyframe } from './mjcfKeyframePose';
 import {
@@ -46,7 +44,6 @@ import {
   clearParsedMJCFModelCache,
   normalizeMultiJointBodies,
   parseMJCFModel,
-  type MJCFModelConnectConstraint,
   type MJCFModelJointEqualityConstraint,
   type MJCFModelTendonAttachment,
   type ParsedMJCFModel,
@@ -62,20 +59,6 @@ interface MJCFBody {
   joints: MJCFJointDef[];
   inertial?: MJCFInertial;
   children: MJCFBody[];
-}
-
-const FIXED_TENDON_RANGE_EPSILON = 1e-5;
-
-interface MJCFSiteConstraintBinding {
-  bodyName: string;
-  anchorLocal: { x: number; y: number; z: number };
-}
-
-function resolveBodyLinkFrameOffsetLocal(
-  body: ParsedMJCFModel['worldBody'],
-): { x: number; y: number; z: number } | null {
-  const jointOffset = toPositionObject(body.joints?.[0]?.pos);
-  return isNonZeroPosition(jointOffset) ? jointOffset : null;
 }
 
 interface MJCFGeom {
@@ -574,210 +557,6 @@ function toParserActuatorMap(
   });
 
   return actuatorMap;
-}
-
-function collectSiteConstraintBindings(
-  body: ParsedMJCFModel['worldBody'],
-  bindings = new Map<string, MJCFSiteConstraintBinding>(),
-): Map<string, MJCFSiteConstraintBinding> {
-  const linkFrameOffsetLocal = resolveBodyLinkFrameOffsetLocal(body);
-
-  (body.sites || []).forEach((site) => {
-    const binding: MJCFSiteConstraintBinding = {
-      bodyName: body.name,
-      // MJCF sites live in the raw body frame; imported links are rebased to the
-      // joint pivot when joint.pos is non-zero, so tendon anchors must follow that shift.
-      anchorLocal: subtractLocalOffset(toPositionObject(site.pos), linkFrameOffsetLocal) ?? {
-        x: 0,
-        y: 0,
-        z: 0,
-      },
-    };
-
-    bindings.set(site.name, binding);
-    if (site.sourceName) {
-      bindings.set(site.sourceName, binding);
-    }
-  });
-
-  (body.children || []).forEach((child) => collectSiteConstraintBindings(child, bindings));
-  return bindings;
-}
-
-function collectBodyLinkFrameOffsets(
-  body: ParsedMJCFModel['worldBody'],
-  bindings = new Map<
-    string,
-    { linkFrameOffsetLocal: { x: number; y: number; z: number } | null }
-  >(),
-): Map<string, { linkFrameOffsetLocal: { x: number; y: number; z: number } | null }> {
-  bindings.set(body.name, {
-    linkFrameOffsetLocal: resolveBodyLinkFrameOffsetLocal(body),
-  });
-
-  (body.children || []).forEach((child) => collectBodyLinkFrameOffsets(child, bindings));
-  return bindings;
-}
-
-function isFixedSpatialTendonRange(range: [number, number] | undefined): range is [number, number] {
-  return !!range && Math.abs(range[1] - range[0]) <= FIXED_TENDON_RANGE_EPSILON;
-}
-
-function buildTendonDistanceClosedLoopConstraints(
-  robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId'>,
-  tendonMap: ParsedMJCFModel['tendonMap'],
-  worldBody: ParsedMJCFModel['worldBody'],
-): RobotState['closedLoopConstraints'] {
-  if (tendonMap.size === 0) {
-    return undefined;
-  }
-
-  const siteBindings = collectSiteConstraintBindings(worldBody);
-  if (siteBindings.size === 0) {
-    return undefined;
-  }
-
-  const linkWorldMatrices = computeLinkWorldMatrices(robot);
-  const closedLoopConstraints = Array.from(tendonMap.values()).flatMap((tendon) => {
-    if (
-      tendon.type !== 'spatial' ||
-      tendon.attachments.length !== 2 ||
-      !isFixedSpatialTendonRange(tendon.range)
-    ) {
-      return [];
-    }
-
-    const [attachmentA, attachmentB] = tendon.attachments;
-    if (
-      attachmentA?.type !== 'site' ||
-      attachmentB?.type !== 'site' ||
-      !attachmentA.ref ||
-      !attachmentB.ref
-    ) {
-      return [];
-    }
-
-    const bindingA = siteBindings.get(attachmentA.ref);
-    const bindingB = siteBindings.get(attachmentB.ref);
-    if (!bindingA || !bindingB) {
-      return [];
-    }
-
-    const linkAId = resolveLinkKey(robot.links, bindingA.bodyName);
-    const linkBId = resolveLinkKey(robot.links, bindingB.bodyName);
-    if (!linkAId || !linkBId) {
-      return [];
-    }
-
-    const linkAMatrix = linkWorldMatrices[linkAId];
-    if (!linkAMatrix) {
-      return [];
-    }
-
-    const anchorWorldVector = new THREE.Vector3(
-      bindingA.anchorLocal.x,
-      bindingA.anchorLocal.y,
-      bindingA.anchorLocal.z,
-    ).applyMatrix4(linkAMatrix);
-
-    return [
-      createRobotDistanceClosedLoopConstraint(
-        `mjcf-distance-${tendon.name}`,
-        linkAId,
-        linkBId,
-        bindingA.anchorLocal,
-        bindingB.anchorLocal,
-        {
-          x: anchorWorldVector.x,
-          y: anchorWorldVector.y,
-          z: anchorWorldVector.z,
-        },
-        tendon.range[0],
-        {
-          format: 'mjcf',
-          body1Name: bindingA.bodyName,
-          body2Name: bindingB.bodyName,
-        },
-      ),
-    ];
-  });
-
-  return closedLoopConstraints.length > 0 ? closedLoopConstraints : undefined;
-}
-
-function buildClosedLoopConstraints(
-  robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId'>,
-  connectConstraints: MJCFModelConnectConstraint[],
-  tendonMap: ParsedMJCFModel['tendonMap'],
-  worldBody: ParsedMJCFModel['worldBody'],
-): RobotState['closedLoopConstraints'] {
-  if (connectConstraints.length === 0 && tendonMap.size === 0) {
-    return undefined;
-  }
-
-  const linkWorldMatrices = computeLinkWorldMatrices(robot);
-  const bodyBindings = collectBodyLinkFrameOffsets(worldBody);
-  const connectClosedLoopConstraints = connectConstraints.flatMap((constraint) => {
-    const linkAId = resolveLinkKey(robot.links, constraint.body1);
-    const linkBId = resolveLinkKey(robot.links, constraint.body2);
-
-    if (!linkAId || !linkBId) {
-      return [];
-    }
-
-    const linkAMatrix = linkWorldMatrices[linkAId];
-    const linkBMatrix = linkWorldMatrices[linkBId];
-    if (!linkAMatrix || !linkBMatrix) {
-      return [];
-    }
-
-    const rawAnchorLocalA = {
-      x: constraint.anchor[0] ?? 0,
-      y: constraint.anchor[1] ?? 0,
-      z: constraint.anchor[2] ?? 0,
-    };
-    const anchorLocalA =
-      subtractLocalOffset(
-        rawAnchorLocalA,
-        bodyBindings.get(constraint.body1)?.linkFrameOffsetLocal ?? null,
-      ) ?? rawAnchorLocalA;
-    const anchorWorldVector = new THREE.Vector3(
-      anchorLocalA.x,
-      anchorLocalA.y,
-      anchorLocalA.z,
-    ).applyMatrix4(linkAMatrix);
-    const anchorLocalBVector = anchorWorldVector.clone().applyMatrix4(linkBMatrix.clone().invert());
-
-    return [
-      createRobotClosedLoopConstraint(
-        constraint.name || `mjcf-connect-${constraint.body1}-${constraint.body2}`,
-        linkAId,
-        linkBId,
-        anchorLocalA,
-        {
-          x: anchorLocalBVector.x,
-          y: anchorLocalBVector.y,
-          z: anchorLocalBVector.z,
-        },
-        {
-          x: anchorWorldVector.x,
-          y: anchorWorldVector.y,
-          z: anchorWorldVector.z,
-        },
-        {
-          format: 'mjcf',
-          body1Name: constraint.body1,
-          body2Name: constraint.body2,
-        },
-      ),
-    ];
-  });
-
-  const tendonClosedLoopConstraints =
-    buildTendonDistanceClosedLoopConstraints(robot, tendonMap, worldBody) ?? [];
-  const closedLoopConstraints = [...connectClosedLoopConstraints, ...tendonClosedLoopConstraints];
-
-  return closedLoopConstraints.length > 0 ? closedLoopConstraints : undefined;
 }
 
 function applyJointEqualityMimics(
