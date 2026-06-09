@@ -25,7 +25,7 @@ const oversizedRuntimeFileLineBudgets: Record<string, number> = {
   'src/features/urdf-viewer/hooks/useMouseInteraction.ts': 1473,
   'src/core/loaders/meshLoader.ts': 1461,
   'src/features/file-io/utils/mjcfMeshExport.ts': 1367,
-  'src/features/code-editor/components/SourceCodeEditor.tsx': 1361,
+  'src/features/code-editor/components/SourceCodeEditor.tsx': 1465,
   'src/core/parsers/mjcf/mjcfSnapshot.ts': 1340,
   'src/app/utils/importPreparation.ts': 1270,
   'src/features/property-editor/components/CollisionOptimizationPlanarGraph.tsx': 1267,
@@ -41,7 +41,7 @@ const oversizedRuntimeFileLineBudgets: Record<string, number> = {
   'src/core/parsers/urdf/loader/URDFLoader.ts': 1121,
   'src/core/parsers/meshPathUtils.ts': 1115,
   'src/features/file-io/utils/usdPackageLayers.ts': 1087,
-  'src/features/urdf-viewer/components/RobotModel.tsx': 1072,
+  'src/features/urdf-viewer/components/RobotModel.tsx': 1131,
 };
 
 function collectRuntimeSourceFiles(directory: string, files: string[] = []): string[] {

@@ -361,11 +361,6 @@
       "count": 5
     }
   },
-  "src/core/parsers/urdf/loader/buildRuntimeRobotFromState.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 8
-    }
-  },
   "src/core/parsers/urdf/parser/geometry.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
@@ -567,11 +562,6 @@
   },
   "src/features/urdf-viewer/components/JointInteraction.tsx": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "src/features/urdf-viewer/components/MeasureTool.tsx": {
-    "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
@@ -878,7 +868,7 @@
   },
   "src/shared/components/3d/UnifiedTransformControls.tsx": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 10
+      "count": 9
     }
   },
   "src/shared/components/3d/helpers/CoordinateAxes.tsx": {
@@ -1013,9 +1003,6 @@
     }
   },
   "src/shared/debug/regressionBridge.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 13
-    },
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
@@ -1048,11 +1035,6 @@
   "src/store/assemblyStore.import.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
-    }
-  },
-  "src/store/robotStore.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
     }
   },
   "vite.config.ts": {

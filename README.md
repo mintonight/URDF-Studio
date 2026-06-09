@@ -220,7 +220,9 @@ npm run build                  # Build the app
 npm run preview                # Preview production build
 
 # Quality & Verification
-npm run lint                   # Run ESLint and stylelint
+npm run lint                   # Run ESLint, stylelint, and Google style baseline checks
+npm run google-style:audit     # Report Google JS/TS + HTML/CSS style debt
+npm run google-style:check     # Fail if Google style debt exceeds the baseline
 npm run typecheck              # Full TypeScript debt check, including tests
 npm run typecheck:quality      # TypeScript check excluding test/spec files
 npm run check                  # Run verify:fast (format, lint, runtime typecheck, test, build)
@@ -269,10 +271,13 @@ This repository exposes root quality commands for formatting, linting, and local
 - `npm run format`
 - `npm run format:check`
 - `npm run lint`
+- `npm run google-style:audit`
 - `npm run typecheck:quality`
 - `npm run check`
 
 `npm run typecheck` remains available as the full-repo TypeScript debt check. `npm run check` uses `npm run typecheck:quality`, which currently excludes test/spec files so runtime compilation can stay green while test fixtures are still being updated.
+
+`npm run google-style:audit` is a non-blocking Google JavaScript/TypeScript and HTML/CSS style debt report. `npm run google-style:check` compares the same audit against `scripts/tools/google_style_baseline.json` so new debt fails while historical naming and CSS ordering debt can be paid down incrementally.
 
 Git hooks and hosted CI configuration are intentionally not required; run the quality commands manually before sharing changes.
 
