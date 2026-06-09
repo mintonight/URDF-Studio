@@ -1,4 +1,8 @@
-import { Color, Matrix4, Quaternion, SRGBColorSpace, Vector3 } from 'three';
+import { Color, Matrix4, Quaternion, SRGBColorSpace, Vector3, type Material } from 'three';
+import {
+  getMeshLoadPerformanceHistory,
+  type MeshLoadPerformanceEntry,
+} from '@/core/loaders/meshLoadPerformance';
 import { computeLinkWorldMatrices } from '@/core/robot/kinematics';
 import type {
   InteractionHelperKind,
@@ -11,6 +15,10 @@ import type {
   UsdSceneMaterialRecord,
   UsdSceneSnapshot,
 } from '@/types';
+import type {
+  RuntimeObject3D,
+  RuntimeRobotObject,
+} from '@/shared/components/3d/runtimeRobotTypes';
 import { getLatestUsdStageLoadDebugEntry } from './usdStageLoadDebug';
 import { regressionDebugState } from './regressionState';
 import { setRegressionBeforeUnloadPromptSuppressed } from './regressionPromptSuppression';
@@ -21,6 +29,43 @@ export {
 } from './regressionPromptSuppression';
 
 type HighlightMode = 'link' | 'collision';
+type DebugVectorInput = { x?: number; y?: number; z?: number } | ArrayLike<number>;
+
+interface RuntimeJointProxy {
+  name?: string;
+  type?: string;
+  jointType?: string;
+  angle?: number;
+  jointValue?: number;
+  axis?: DebugVectorInput;
+  limit?: {
+    lower?: number;
+    upper?: number;
+  };
+}
+
+interface RuntimeDebugMaterial extends Material {
+  map?: unknown;
+  color?: {
+    isColor?: boolean;
+    getHexString: () => string;
+  };
+}
+
+interface RuntimeDebugObject extends RuntimeObject3D {
+  isMesh?: boolean;
+  material?: RuntimeDebugMaterial | RuntimeDebugMaterial[];
+  axis?: DebugVectorInput;
+  jointType?: string;
+}
+
+interface RuntimeRobotProxy {
+  name?: string;
+  links?: Record<string, unknown>;
+  joints?: Record<string, RuntimeJointProxy>;
+}
+
+type RegressionRuntimeRobot = RuntimeRobotObject | RuntimeRobotProxy;
 
 export interface RegressionViewerFlags {
   showCollision?: boolean;
@@ -351,6 +396,8 @@ export interface RegressionDebugApi {
   getSelectedUsdSceneSummary: () => RegressionSelectedUsdSceneSummary | null;
   getSelectedUsdVisualMaterialSummary: () => RegressionSelectedUsdVisualMaterialSummary | null;
   getSelectedUsdNormalDiagnostics: () => RegressionSelectedUsdNormalDiagnosticsSummary | null;
+  getLastEditableSourceApplyResult: () => typeof regressionDebugState.lastEditableSourceApplyResult;
+  getMeshLoadPerformanceHistory: () => MeshLoadPerformanceEntry[];
   getRuntimeSceneTransforms: () => ReturnType<typeof summarizeRuntimeSceneTransforms> | null;
   setBeforeUnloadPromptEnabled: (enabled: boolean) => { ok: boolean; enabled: boolean };
   resetFixtureFiles: () => { ok: boolean; availableFileCount: number };
@@ -396,14 +443,16 @@ const DEFAULT_FLAGS: Required<RegressionViewerFlags> = {
   modelOpacity: 1,
 };
 
-function toFixedArray(
-  value: { x?: number; y?: number; z?: number } | [number, number, number] | undefined | null,
-): [number, number, number] | null {
+function isArrayLikeVector(value: DebugVectorInput): value is ArrayLike<number> {
+  return 'length' in value && typeof value.length === 'number';
+}
+
+function toFixedArray(value: DebugVectorInput | undefined | null): [number, number, number] | null {
   if (!value) {
     return null;
   }
 
-  if (Array.isArray(value)) {
+  if (isArrayLikeVector(value)) {
     return [Number(value[0] ?? 0), Number(value[1] ?? 0), Number(value[2] ?? 0)];
   }
 
@@ -1039,7 +1088,7 @@ function summarizeUsdRobotMetadata(
     source: robotMetadata?.source ? String(robotMetadata.source) : null,
     jointCount: jointEntries.length,
     dynamicsCount: dynamicsEntries.length,
-    joints: jointEntries.map((entry: any) => ({
+    joints: jointEntries.map((entry) => ({
       jointPath: normalizeUsdDebugPathWithLeadingSlash(entry?.jointPath) || null,
       jointName: String(entry?.jointName || '').trim() || null,
       jointType: String(entry?.jointTypeName || entry?.jointType || '').trim() || null,
@@ -1558,7 +1607,7 @@ function summarizeInteractionSelection(selection: InteractionSelection | null | 
   };
 }
 
-function resolveRuntimeLinkName(object: any): string | null {
+function resolveRuntimeLinkName(object: RuntimeObject3D | null | undefined): string | null {
   if (!object) {
     return null;
   }
@@ -1567,7 +1616,7 @@ function resolveRuntimeLinkName(object: any): string | null {
     return object.userData.parentLinkName;
   }
 
-  let current = object;
+  let current: RuntimeObject3D | null = object;
   while (current) {
     if (current.isURDFLink && typeof current.name === 'string' && current.name) {
       return current.name;
@@ -1578,8 +1627,8 @@ function resolveRuntimeLinkName(object: any): string | null {
   return null;
 }
 
-function isEffectivelyVisible(object: any): boolean {
-  let current = object;
+function isEffectivelyVisible(object: RuntimeObject3D): boolean {
+  let current: RuntimeObject3D | null = object;
   while (current) {
     if (current.visible === false) {
       return false;
@@ -1590,14 +1639,22 @@ function isEffectivelyVisible(object: any): boolean {
   return true;
 }
 
-function summarizeRuntimeRobot(robot: any) {
+function getRuntimeJointValues(robot: RegressionRuntimeRobot): RuntimeJointProxy[] {
+  return robot.joints ? (Object.values(robot.joints) as RuntimeJointProxy[]) : [];
+}
+
+function hasRuntimeTraverse(robot: RegressionRuntimeRobot): robot is RuntimeRobotObject {
+  return typeof (robot as { traverse?: unknown }).traverse === 'function';
+}
+
+function summarizeRuntimeRobot(robot: RegressionRuntimeRobot | null) {
   if (!robot) {
     return null;
   }
 
-  const joints = robot.joints ? Object.values(robot.joints as Record<string, any>) : [];
+  const joints = getRuntimeJointValues(robot);
   const runtimeJoints: RuntimeJointSummary[] = [];
-  joints.forEach((joint: any) => {
+  joints.forEach((joint) => {
     runtimeJoints.push({
       name: typeof joint?.name === 'string' ? joint.name : '',
       type:
@@ -1622,7 +1679,7 @@ function summarizeRuntimeRobot(robot: any) {
     });
   });
 
-  if (typeof robot?.traverse !== 'function') {
+  if (!hasRuntimeTraverse(robot)) {
     return {
       name: typeof robot?.name === 'string' ? robot.name : null,
       linkCount: 0,
@@ -1691,7 +1748,7 @@ function summarizeRuntimeRobot(robot: any) {
     return created;
   };
 
-  const summarizeRuntimeMaterial = (material: any): RuntimeMaterialSummary => {
+  const summarizeRuntimeMaterial = (material: RuntimeDebugMaterial): RuntimeMaterialSummary => {
     const hasTexture = Boolean(material?.map);
     const color = material?.color?.isColor ? `#${material.color.getHexString()}` : null;
 
@@ -1705,25 +1762,26 @@ function summarizeRuntimeRobot(robot: any) {
     };
   };
 
-  if (typeof robot.traverse === 'function') {
-    robot.traverse((child: any) => {
-      if (child.name === '__com_visual__') helperCounts.centerOfMass += 1;
-      if (child.name === '__inertia_box__') helperCounts.inertiaBox += 1;
-      if (child.name === '__origin_axes__') helperCounts.originAxes += 1;
-      if (child.name === '__joint_axis__' || child.name === '__joint_axis_helper__')
+  if (hasRuntimeTraverse(robot)) {
+    robot.traverse((child) => {
+      const runtimeChild = child as RuntimeDebugObject;
+      if (runtimeChild.name === '__com_visual__') helperCounts.centerOfMass += 1;
+      if (runtimeChild.name === '__inertia_box__') helperCounts.inertiaBox += 1;
+      if (runtimeChild.name === '__origin_axes__') helperCounts.originAxes += 1;
+      if (runtimeChild.name === '__joint_axis__' || runtimeChild.name === '__joint_axis_helper__')
         helperCounts.jointAxis += 1;
 
-      const linkName = resolveRuntimeLinkName(child);
+      const linkName = resolveRuntimeLinkName(runtimeChild);
       if (linkName) {
         const entry = getOrCreateLinkSummary(linkName);
-        const isMesh = child.isMesh === true;
-        const isVisualMesh = isMesh && child.userData?.isVisualMesh === true;
-        const isCollisionMesh = isMesh && child.userData?.isCollisionMesh === true;
-        const isPlaceholder = isMesh && child.userData?.isPlaceholder === true;
-        const effectiveVisible = isMesh ? isEffectivelyVisible(child) : false;
+        const isMesh = runtimeChild.isMesh === true;
+        const isVisualMesh = isMesh && runtimeChild.userData?.isVisualMesh === true;
+        const isCollisionMesh = isMesh && runtimeChild.userData?.isCollisionMesh === true;
+        const isPlaceholder = isMesh && runtimeChild.userData?.isPlaceholder === true;
+        const effectiveVisible = isMesh ? isEffectivelyVisible(runtimeChild) : false;
 
-        if (child.userData?.isVisualGroup) entry.visualGroupCount += 1;
-        if (child.userData?.isCollisionGroup || child.isURDFCollider)
+        if (runtimeChild.userData?.isVisualGroup) entry.visualGroupCount += 1;
+        if (runtimeChild.userData?.isCollisionGroup || runtimeChild.isURDFCollider)
           entry.collisionGroupCount += 1;
         if (isVisualMesh) entry.visualMeshCount += 1;
         if (isCollisionMesh) entry.collisionMeshCount += 1;
@@ -1747,7 +1805,11 @@ function summarizeRuntimeRobot(robot: any) {
         }
 
         if (isVisualMesh) {
-          const materials = Array.isArray(child.material) ? child.material : [child.material];
+          const materials = Array.isArray(runtimeChild.material)
+            ? runtimeChild.material
+            : runtimeChild.material
+              ? [runtimeChild.material]
+              : [];
           const summarizedMaterials: RuntimeMaterialSummary[] = materials.map(summarizeRuntimeMaterial);
           if (summarizedMaterials.some(({ hasTexture }) => hasTexture)) {
             entry.texturedVisualMeshCount += 1;
@@ -1755,13 +1817,13 @@ function summarizeRuntimeRobot(robot: any) {
 
           const visualMeshSummary: RuntimeVisualMeshSummary = {
             link: linkName,
-            name: typeof child.name === 'string' ? child.name : '',
-            visible: child.visible !== false,
+            name: typeof runtimeChild.name === 'string' ? runtimeChild.name : '',
+            visible: runtimeChild.visible !== false,
             effectiveVisible,
             isPlaceholder,
             missingMeshPath:
-              typeof child.userData?.missingMeshPath === 'string'
-                ? child.userData.missingMeshPath
+              typeof runtimeChild.userData?.missingMeshPath === 'string'
+                ? runtimeChild.userData.missingMeshPath
                 : null,
             materials: summarizedMaterials,
           };
@@ -1841,13 +1903,13 @@ function summarizeRuntimeRobot(robot: any) {
   };
 }
 
-function summarizeRuntimeSceneTransforms(robot: any) {
+function summarizeRuntimeSceneTransforms(robot: RegressionRuntimeRobot | null) {
   if (!robot) {
     return null;
   }
 
-  if (typeof robot?.traverse !== 'function') {
-    const joints = Object.values(robot?.joints ?? {}).map((joint: any) => ({
+  if (!hasRuntimeTraverse(robot)) {
+    const joints = getRuntimeJointValues(robot).map((joint) => ({
       name: typeof joint?.name === 'string' ? joint.name : '',
       type:
         typeof joint?.jointType === 'string'
@@ -1893,16 +1955,17 @@ function summarizeRuntimeSceneTransforms(robot: any) {
     scale: [number, number, number] | null;
   }> = [];
 
-  if (typeof robot.traverse === 'function') {
+  if (hasRuntimeTraverse(robot)) {
     robot.updateMatrixWorld?.(true);
 
-    robot.traverse((child: any) => {
-      if (child?.isURDFLink) {
+    robot.traverse((child) => {
+      const runtimeChild = child as RuntimeDebugObject;
+      if (runtimeChild?.isURDFLink) {
         links.push({
-          name: typeof child.name === 'string' ? child.name : '',
-          position: toFixedArray(child.getWorldPosition?.(new Vector3())),
-          quaternion: child.getWorldQuaternion
-            ? (child
+          name: typeof runtimeChild.name === 'string' ? runtimeChild.name : '',
+          position: toFixedArray(runtimeChild.getWorldPosition?.(new Vector3())),
+          quaternion: runtimeChild.getWorldQuaternion
+            ? (runtimeChild
                 .getWorldQuaternion(new Quaternion())
                 .toArray()
                 .map((value: number) => Number(value.toFixed(6))) as [
@@ -1912,30 +1975,30 @@ function summarizeRuntimeSceneTransforms(robot: any) {
                 number,
               ])
             : null,
-          scale: toFixedArray(child.getWorldScale?.(new Vector3())),
+          scale: toFixedArray(runtimeChild.getWorldScale?.(new Vector3())),
         });
         return;
       }
 
-      if (child?.isURDFJoint) {
+      if (runtimeChild?.isURDFJoint) {
         const mjcfJointStiffness =
-          typeof child.userData?.mjcfJointStiffness === 'number'
-            ? child.userData.mjcfJointStiffness
+          typeof runtimeChild.userData?.mjcfJointStiffness === 'number'
+            ? runtimeChild.userData.mjcfJointStiffness
             : undefined;
         const mjcfPassiveSpringJoint =
-          typeof child.userData?.mjcfPassiveSpringJoint === 'boolean'
-            ? child.userData.mjcfPassiveSpringJoint
+          typeof runtimeChild.userData?.mjcfPassiveSpringJoint === 'boolean'
+            ? runtimeChild.userData.mjcfPassiveSpringJoint
             : undefined;
         const mjcfHardPassiveSpringJoint =
-          typeof child.userData?.mjcfHardPassiveSpringJoint === 'boolean'
-            ? child.userData.mjcfHardPassiveSpringJoint
+          typeof runtimeChild.userData?.mjcfHardPassiveSpringJoint === 'boolean'
+            ? runtimeChild.userData.mjcfHardPassiveSpringJoint
             : undefined;
         joints.push({
-          name: typeof child.name === 'string' ? child.name : '',
-          type: typeof child?.jointType === 'string' ? child.jointType : null,
-          position: toFixedArray(child.getWorldPosition?.(new Vector3())),
-          quaternion: child.getWorldQuaternion
-            ? (child
+          name: typeof runtimeChild.name === 'string' ? runtimeChild.name : '',
+          type: typeof runtimeChild?.jointType === 'string' ? runtimeChild.jointType : null,
+          position: toFixedArray(runtimeChild.getWorldPosition?.(new Vector3())),
+          quaternion: runtimeChild.getWorldQuaternion
+            ? (runtimeChild
                 .getWorldQuaternion(new Quaternion())
                 .toArray()
                 .map((value: number) => Number(value.toFixed(6))) as [
@@ -1945,8 +2008,8 @@ function summarizeRuntimeSceneTransforms(robot: any) {
                 number,
               ])
             : null,
-          scale: toFixedArray(child.getWorldScale?.(new Vector3())),
-          axis: toFixedArray(child.axis),
+          scale: toFixedArray(runtimeChild.getWorldScale?.(new Vector3())),
+          axis: toFixedArray(runtimeChild.axis),
           ...(typeof mjcfJointStiffness === 'number' ? { mjcfJointStiffness } : {}),
           ...(typeof mjcfPassiveSpringJoint === 'boolean' ? { mjcfPassiveSpringJoint } : {}),
           ...(typeof mjcfHardPassiveSpringJoint === 'boolean'
@@ -1956,18 +2019,18 @@ function summarizeRuntimeSceneTransforms(robot: any) {
         return;
       }
 
-      if (child?.isMesh && child?.userData?.isVisualMesh) {
-        const linkName = resolveRuntimeLinkName(child);
+      if (runtimeChild?.isMesh && runtimeChild?.userData?.isVisualMesh) {
+        const linkName = resolveRuntimeLinkName(runtimeChild);
         if (!linkName) {
           return;
         }
 
         visualMeshes.push({
           link: linkName,
-          name: typeof child.name === 'string' ? child.name : '',
-          position: toFixedArray(child.getWorldPosition?.(new Vector3())),
-          quaternion: child.getWorldQuaternion
-            ? (child
+          name: typeof runtimeChild.name === 'string' ? runtimeChild.name : '',
+          position: toFixedArray(runtimeChild.getWorldPosition?.(new Vector3())),
+          quaternion: runtimeChild.getWorldQuaternion
+            ? (runtimeChild
                 .getWorldQuaternion(new Quaternion())
                 .toArray()
                 .map((value: number) => Number(value.toFixed(6))) as [
@@ -1977,14 +2040,14 @@ function summarizeRuntimeSceneTransforms(robot: any) {
                 number,
               ])
             : null,
-          scale: toFixedArray(child.getWorldScale?.(new Vector3())),
+          scale: toFixedArray(runtimeChild.getWorldScale?.(new Vector3())),
         });
       }
     });
   }
 
   if (joints.length === 0 && robot.joints) {
-    Object.values(robot.joints as Record<string, any>).forEach((joint: any) => {
+    getRuntimeJointValues(robot).forEach((joint) => {
       joints.push({
         name: typeof joint?.name === 'string' ? joint.name : '',
         type:
@@ -2035,8 +2098,8 @@ export function setRegressionViewerResourceScope(
   regressionDebugState.viewerResourceScopeState = scope;
 }
 
-export function setRegressionRuntimeRobot(robot: any | null): void {
-  regressionDebugState.runtimeRobot = robot;
+export function setRegressionRuntimeRobot(robot: RegressionRuntimeRobot | null): void {
+  regressionDebugState.runtimeRobot = robot as RuntimeRobotObject | null;
   regressionDebugState.runtimeRevision += 1;
 }
 
@@ -2191,6 +2254,8 @@ export function installRegressionDebugApi(targetWindow: Window): void {
     getSelectedUsdSceneSummary: () => summarizeSelectedUsdScene(),
     getSelectedUsdVisualMaterialSummary: () => summarizeSelectedUsdVisualMaterials(),
     getSelectedUsdNormalDiagnostics: () => summarizeSelectedUsdNormalDiagnostics(),
+    getLastEditableSourceApplyResult: () => regressionDebugState.lastEditableSourceApplyResult,
+    getMeshLoadPerformanceHistory: () => getMeshLoadPerformanceHistory(targetWindow),
     getRuntimeSceneTransforms: () => summarizeRuntimeSceneTransforms(regressionDebugState.runtimeRobot),
     setBeforeUnloadPromptEnabled: (enabled: boolean) => {
       setRegressionBeforeUnloadPromptSuppressed(!enabled);
