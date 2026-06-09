@@ -2,7 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { useRobotStore } from './robotStore.ts';
-import { DEFAULT_VISUAL_COLOR, GeometryType, JointType } from '@/types';
+import {
+  DEFAULT_VISUAL_COLOR,
+  GeometryType,
+  JointType,
+  type AssemblyState,
+} from '@/types';
 import { updateCollisionGeometryByObjectIndex } from '@/core/robot';
 
 function resetRobotStore() {
@@ -15,13 +20,13 @@ function resetRobotStore() {
         name: 'base_link',
         visible: true,
         visual: {
-          type: 'none' as any,
+          type: GeometryType.NONE,
           dimensions: { x: 0, y: 0, z: 0 },
           color: '#808080',
           origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
         },
         collision: {
-          type: 'none' as any,
+          type: GeometryType.NONE,
           dimensions: { x: 0, y: 0, z: 0 },
           color: '#ef4444',
           origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
@@ -130,7 +135,7 @@ test('pushHistorySnapshot can clear assembly history without cloning current run
         },
       },
       bridges: {},
-    } as any,
+    } as AssemblyState,
   });
 
   assert.doesNotThrow(() => {

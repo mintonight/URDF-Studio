@@ -5,7 +5,7 @@
  * a consistent interface for loading and rendering robots across all formats.
  */
 
-import { useCallback, useMemo, useState, useRef, useEffect } from 'react';
+import { startTransition, useCallback, useMemo, useState, useRef, useEffect } from 'react';
 import { useThree } from '@react-three/fiber';
 import type * as THREE from 'three';
 import {
@@ -29,6 +29,10 @@ import {
 } from '../utils/robotLoaderDiff';
 import { applyGeometryPatchInPlace } from '../utils/robotLoaderGeometryPatch';
 import { patchJointsInPlace } from '../utils/robotLoaderJointPatch';
+import {
+  isSceneCompileWarmupBlocked,
+  warmupSceneCompile,
+} from '@/shared/components/3d/scene/SceneCompileWarmup';
 
 export interface UseRendererBackendOptions extends RendererSceneProps {
   /** Reload token to force re-loading */
@@ -68,6 +72,16 @@ type RuntimeCollisionHost = RuntimeRobotObject & {
   colliders?: Record<string, unknown>;
 };
 
+function waitForAnimationFrame(): Promise<void> {
+  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
 function hasRuntimeCollisionGroups(robotObject: RuntimeRobotObject | null): boolean {
   if (!robotObject) {
     return false;
@@ -91,7 +105,7 @@ export function useRendererBackend(
   options: UseRendererBackendOptions,
 ): UseRendererBackendResult {
   const threeState = useThree();
-  const { invalidate, camera, scene } = threeState;
+  const { gl, invalidate, camera, scene } = threeState;
   const controls = (threeState as typeof threeState & { controls?: unknown }).controls;
   const {
     sourceFile,
@@ -239,6 +253,28 @@ export function useRendererBackend(
     invalidate,
     onDocumentLoadEvent: emitDocumentLoadEvent,
   };
+
+  const prepareRobotHandoff = useCallback(
+    async (nextRobot: RuntimeRobotObject) => {
+      nextRobot.updateMatrixWorld(true);
+
+      if (sourceFile.format !== 'mjcf' && !isSceneCompileWarmupBlocked(gl)) {
+        try {
+          await warmupSceneCompile(gl, nextRobot, camera);
+        } catch (compileError) {
+          if (import.meta.env.DEV) {
+            console.warn(
+              '[useRendererBackend] Failed to precompile robot before handoff:',
+              compileError,
+            );
+          }
+        }
+      }
+
+      await waitForAnimationFrame();
+    },
+    [camera, gl, sourceFile.format],
+  );
 
   // Keep refs in sync
   useEffect(() => {
@@ -460,6 +496,21 @@ export function useRendererBackend(
 
         // Load robot
         const sceneGraph = await backend.load(sceneProps);
+        const nextRobot = sceneGraph.root;
+
+        if (!nextRobot) {
+          throw new Error('Renderer backend returned no robot root');
+        }
+
+        if (!isMountedRef.current || loadIdRef.current !== loadId) {
+          if (inFlightBackendRef.current === backend) {
+            inFlightBackendRef.current = null;
+          }
+          backend.dispose();
+          return;
+        }
+
+        await prepareRobotHandoff(nextRobot);
 
         if (!isMountedRef.current || loadIdRef.current !== loadId) {
           if (inFlightBackendRef.current === backend) {
@@ -477,24 +528,26 @@ export function useRendererBackend(
           inFlightBackendRef.current = null;
         }
 
-        // Update state
-        robotRef.current = sceneGraph.root;
-        mountedRobotHasCollisionGroupsRef.current = hasRuntimeCollisionGroups(sceneGraph.root);
-        setRobot(sceneGraph.root);
-        linkMeshMapRef.current = sceneGraph.linkMeshMap;
-        setResolvedRobotLinks(sceneGraph.robotLinks);
-        setResolvedRobotJoints(sceneGraph.robotJoints);
-        setResolvedRootLinkId(sceneGraph.rootLinkId);
-        previousPatchRobotLinksRef.current = sceneGraph.robotLinks;
-        previousPatchRobotJointsRef.current = sceneGraph.robotJoints;
-        setRobotVersion((v) => v + 1);
-        setIsLoading(false);
-        setLoadingProgress(null);
+        // Update state in one transition so the old runtime scene remains mounted
+        // until the prepared scene graph is ready to replace it.
+        robotRef.current = nextRobot;
+        mountedRobotHasCollisionGroupsRef.current = hasRuntimeCollisionGroups(nextRobot);
+        startTransition(() => {
+          setRobot(nextRobot);
+          linkMeshMapRef.current = sceneGraph.linkMeshMap;
+          setResolvedRobotLinks(sceneGraph.robotLinks);
+          setResolvedRobotJoints(sceneGraph.robotJoints);
+          setResolvedRootLinkId(sceneGraph.rootLinkId);
+          previousPatchRobotLinksRef.current = sceneGraph.robotLinks;
+          previousPatchRobotJointsRef.current = sceneGraph.robotJoints;
+          setRobotVersion((v) => v + 1);
+          setIsLoading(false);
+          setLoadingProgress(null);
+        });
 
         // Notify callbacks
-        if (sceneGraph.root) {
-          onRobotLoadedRef.current?.(sceneGraph.root);
-        }
+        onRobotLoadedRef.current?.(nextRobot);
+        onRuntimeRobotLoadedRef.current?.(nextRobot);
         if (previousBackend && previousBackend !== backend) {
           scheduleBackendDispose(previousBackend);
         }
@@ -555,7 +608,7 @@ export function useRendererBackend(
         backend.dispose();
       }
     };
-  }, [baseLoadScopeKey, invalidate, loadScopeKey, scheduleBackendDispose]);
+  }, [baseLoadScopeKey, invalidate, loadScopeKey, prepareRobotHandoff, scheduleBackendDispose]);
 
   return {
     robot,

@@ -68,6 +68,8 @@ export const ViewerScene = ({
   const readyNotificationFrameARef = useRef<number | null>(null);
   const readyNotificationFrameBRef = useRef<number | null>(null);
   const regressionRuntimeEnabled = isRegressionDebugEnabled();
+  const regressionRuntimeScopeKey =
+    regressionRuntimeEnabled && sourceFile ? `${sourceFile.format}:${sourceFile.name}` : null;
 
   const runtimeBridge = useMemo<ViewerRuntimeStageBridge>(
     () => ({
@@ -128,18 +130,17 @@ export const ViewerScene = ({
   );
 
   useEffect(() => {
-    if (!regressionRuntimeEnabled) {
+    if (!regressionRuntimeScopeKey) {
       return;
     }
 
-    setRegressionRuntimeRobot(null);
     return () => {
       setRegressionRuntimeRobot(null);
     };
-  }, [regressionRuntimeEnabled, sourceFile]);
+  }, [regressionRuntimeScopeKey]);
 
   useEffect(() => {
-    if (!regressionRuntimeEnabled || !sourceFile) {
+    if (!regressionRuntimeScopeKey) {
       return;
     }
 
@@ -153,10 +154,7 @@ export const ViewerScene = ({
     }
 
     setRegressionRuntimeRobot(runtimeRobot);
-    return () => {
-      setRegressionRuntimeRobot(null);
-    };
-  }, [controller.jointPanelRobot, controller.robot, regressionRuntimeEnabled, sourceFile]);
+  }, [controller.jointPanelRobot, controller.robot, regressionRuntimeScopeKey]);
 
   const handleRobotLoaded = useCallback(
     (robot: Parameters<NonNullable<RobotModelProps['onRobotLoaded']>>[0]) => {

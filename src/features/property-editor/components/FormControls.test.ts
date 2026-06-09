@@ -97,11 +97,13 @@ function NumberInputHarness({
   label,
   min,
   step = 0.1,
+  commitOnBlurOnly = false,
 }: {
   initialValue: number;
   label: string;
   min?: number;
   step?: number;
+  commitOnBlurOnly?: boolean;
 }) {
   const [value, setValue] = React.useState(initialValue);
 
@@ -114,8 +116,50 @@ function NumberInputHarness({
       label,
       min,
       step,
+      commitOnBlurOnly,
     }),
     React.createElement('output', { 'data-testid': 'committed-value' }, String(value)),
+  );
+}
+
+function DeferredCommitNumberInputHarness() {
+  const [value, setValue] = React.useState(0.001);
+  const [pendingValue, setPendingValue] = React.useState<number | null>(null);
+  const [, forceStaleRender] = React.useState(0);
+
+  return React.createElement(
+    'div',
+    null,
+    React.createElement(NumberInput, {
+      value,
+      onChange: (nextValue: number) => {
+        setPendingValue(nextValue);
+        forceStaleRender((renderCount) => renderCount + 1);
+      },
+      label: 'Scale X',
+      commitOnBlurOnly: true,
+      precision: 6,
+    }),
+    React.createElement('output', { 'data-testid': 'committed-value' }, String(value)),
+    React.createElement(
+      'output',
+      { 'data-testid': 'pending-value' },
+      pendingValue === null ? '' : String(pendingValue),
+    ),
+    React.createElement(
+      'button',
+      {
+        type: 'button',
+        'data-testid': 'apply-pending',
+        onClick: () => {
+          if (pendingValue !== null) {
+            setValue(pendingValue);
+            setPendingValue(null);
+          }
+        },
+      },
+      'Apply pending',
+    ),
   );
 }
 
@@ -216,6 +260,47 @@ function dispatchReactChange(input: HTMLInputElement, value: string) {
   });
 }
 
+function dispatchReactFocus(input: HTMLInputElement) {
+  input.focus();
+  const reactProps = getReactProps(input);
+  const onFocus = reactProps.onFocus;
+  assert.equal(typeof onFocus, 'function', 'React onFocus handler should exist');
+
+  (onFocus as (event: { target: HTMLInputElement; currentTarget: HTMLInputElement }) => void)({
+    target: input,
+    currentTarget: input,
+  });
+}
+
+function dispatchReactBlur(input: HTMLInputElement) {
+  const reactProps = getReactProps(input);
+  const onBlur = reactProps.onBlur;
+  assert.equal(typeof onBlur, 'function', 'React onBlur handler should exist');
+
+  (onBlur as (event: { target: HTMLInputElement; currentTarget: HTMLInputElement }) => void)({
+    target: input,
+    currentTarget: input,
+  });
+}
+
+function dispatchReactKeyDown(input: HTMLInputElement, key: string) {
+  const reactProps = getReactProps(input);
+  const onKeyDown = reactProps.onKeyDown;
+  assert.equal(typeof onKeyDown, 'function', 'React onKeyDown handler should exist');
+
+  (onKeyDown as (event: {
+    key: string;
+    target: HTMLInputElement;
+    currentTarget: HTMLInputElement;
+    preventDefault: () => void;
+  }) => void)({
+    key,
+    target: input,
+    currentTarget: input,
+    preventDefault: () => {},
+  });
+}
+
 test('pointer down applies the first step immediately before pointer up', async () => {
   const { dom, container, root } = createComponentRoot();
   try {
@@ -258,6 +343,54 @@ test('typing a parseable value updates the committed value before blur', async (
     });
 
     assert.equal(getCommittedValue(container), '2.5');
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('commit-on-blur inputs keep the entered value while a parent prop update catches up', async () => {
+  const { dom, container, root } = createComponentRoot();
+  try {
+    await act(async () => {
+      root.render(React.createElement(DeferredCommitNumberInputHarness));
+    });
+
+    const input = getTextInput(container);
+
+    await act(async () => {
+      dispatchReactFocus(input);
+      dispatchReactChange(input, '0.0001');
+    });
+
+    assert.equal(input.value, '0.0001');
+    assert.equal(getCommittedValue(container), '0.001');
+
+    await act(async () => {
+      dispatchReactKeyDown(input, 'Enter');
+      dispatchReactBlur(input);
+    });
+
+    assert.equal(
+      input.value,
+      '0.0001',
+      'the input should not flash back to the previous prop value after Enter commits',
+    );
+    assert.equal(getCommittedValue(container), '0.001');
+
+    const pendingOutput = container.querySelector('[data-testid="pending-value"]');
+    assert.equal(pendingOutput?.textContent, '0.0001');
+
+    const applyButton = container.querySelector(
+      '[data-testid="apply-pending"]',
+    ) as HTMLButtonElement | null;
+    assert.ok(applyButton, 'apply pending button should exist');
+
+    await act(async () => {
+      applyButton.click();
+    });
+
+    assert.equal(getCommittedValue(container), '0.0001');
+    assert.equal(input.value, '0.0001');
   } finally {
     await destroyComponentRoot(dom, root);
   }

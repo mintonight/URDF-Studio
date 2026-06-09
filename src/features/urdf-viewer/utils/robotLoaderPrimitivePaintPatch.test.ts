@@ -47,9 +47,9 @@ test('applyGeometryPatchInPlace applies paint material groups to primitive box v
   const robotModel = new THREE.Group() as THREE.Group & {
     links?: Record<string, THREE.Object3D>;
   };
-  const linkObject = new THREE.Group();
+  const linkObject = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
   linkObject.name = 'base_link';
-  (linkObject as any).isURDFLink = true;
+  linkObject.isURDFLink = true;
 
   const visualGroup = new URDFVisual();
   const visualMesh = new THREE.Mesh(

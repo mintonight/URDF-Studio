@@ -8,6 +8,11 @@ import {
   loadSerializedObjModelData,
 } from '@/core/loaders/objParseWorkerBridge';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
+import {
+  addMainThreadMaterialPerformance,
+  durationMs,
+  readHighResolutionEpochMs,
+} from '@/core/loaders/meshLoadPerformance';
 import { applyVisualMeshShadowPolicyToObject } from '@/core/utils/visualMeshShadowPolicy';
 import { disposeMaterial, disposeObject3D } from '@/shared/utils/three/dispose';
 
@@ -160,6 +165,7 @@ export async function loadObjPreviewScene(
     yieldIfNeeded,
   });
 
+  const materialStartedAt = readHighResolutionEpochMs();
   await applyObjMaterialLibrariesToObject(
     object,
     serializedObject.materialLibraries,
@@ -167,6 +173,13 @@ export async function loadObjPreviewScene(
     sourcePath,
     { yieldIfNeeded },
   );
+  addMainThreadMaterialPerformance(serializedObject.loadPerformance, durationMs(materialStartedAt));
+  if (serializedObject.loadPerformance) {
+    object.userData = {
+      ...(object.userData ?? {}),
+      meshLoadPerformance: serializedObject.loadPerformance,
+    };
+  }
 
   return object;
 }
