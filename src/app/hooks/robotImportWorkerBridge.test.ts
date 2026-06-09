@@ -335,6 +335,14 @@ test('robot import worker client resolves editable source change patch responses
         previousLinkName: 'base_link',
         nextLink,
       },
+      diagnostics: {
+        attempted: true,
+        dirtyRangeCount: 1,
+        dirtySpanBytes: 9,
+        dirtySpanLimitBytes: 32,
+        patchKind: 'urdf-link-fragment-update',
+        skipReason: null,
+      },
     },
   });
 

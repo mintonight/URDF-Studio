@@ -5,7 +5,10 @@ import { JSDOM } from 'jsdom';
 import { parseMJCF, parseURDF } from '@/core/parsers';
 
 import { applyEditableSourceIncrementalPatch } from './editableSourceIncrementalPatch';
-import { detectEditableSourceIncrementalPatch } from './editableSourceIncrementalPatchDetection';
+import {
+  detectEditableSourceIncrementalPatch,
+  detectEditableSourceIncrementalPatchWithDiagnostics,
+} from './editableSourceIncrementalPatchDetection';
 
 const { window } = new JSDOM();
 
@@ -219,6 +222,64 @@ test('detectEditableSourceIncrementalPatch returns null when dirty ranges span m
   assert.equal(patch, null);
 });
 
+test('detectEditableSourceIncrementalPatchWithDiagnostics explains large source edits as full-parse work', () => {
+  const injectedLinks = Array.from({ length: 8 }, (_, index) => {
+    const linkName = `extra_link_${index}`;
+    return `<link name="${linkName}"><visual><geometry><box size="1 1 1" /></geometry></visual></link>`;
+  }).join('\n  ');
+  const nextContent = URDF_JOINT_FIXTURE.replace(
+    '</robot>',
+    `  ${injectedLinks}\n</robot>`,
+  );
+  const dirtyStart = nextContent.indexOf('<link name="extra_link_0"');
+  assert.notEqual(dirtyStart, -1);
+
+  const result = detectEditableSourceIncrementalPatchWithDiagnostics({
+    file: { name: 'robot.urdf', format: 'urdf' },
+    previousContent: URDF_JOINT_FIXTURE,
+    nextContent,
+    dirtyRanges: [{ startOffset: dirtyStart, endOffset: nextContent.indexOf('</robot>') }],
+  });
+
+  assert.equal(result.patch, null);
+  assert.equal(result.diagnostics.skipReason, 'dirty-span-too-large');
+  assert.equal(result.diagnostics.patchKind, null);
+  assert.equal(result.diagnostics.dirtyRangeCount, 1);
+  assert.ok(result.diagnostics.dirtySpanBytes > result.diagnostics.dirtySpanLimitBytes);
+});
+
+test('detectEditableSourceIncrementalPatchWithDiagnostics skips scattered small edits', () => {
+  const nextContent = URDF_JOINT_FIXTURE
+    .replace('name="base_link"', 'name="base_root"')
+    .replace('name="arm_link"', 'name="arm_tip"')
+    .replace('lower="-1.57"', 'lower="-1.56"')
+    .replace('upper="1.57"', 'upper="1.56"')
+    .replace('velocity="10"', 'velocity="11"');
+
+  const dirtyRanges = [
+    'name="base_root"',
+    'name="arm_tip"',
+    'lower="-1.56"',
+    'upper="1.56"',
+    'velocity="11"',
+  ].map((token) => {
+    const startOffset = nextContent.indexOf(token);
+    assert.notEqual(startOffset, -1);
+    return { startOffset, endOffset: startOffset + token.length };
+  });
+
+  const result = detectEditableSourceIncrementalPatchWithDiagnostics({
+    file: { name: 'robot.urdf', format: 'urdf' },
+    previousContent: URDF_JOINT_FIXTURE,
+    nextContent,
+    dirtyRanges,
+  });
+
+  assert.equal(result.patch, null);
+  assert.equal(result.diagnostics.skipReason, 'too-many-dirty-ranges');
+  assert.equal(result.diagnostics.dirtyRangeCount, 5);
+});
+
 test('detectEditableSourceIncrementalPatch skips MJCF patches when requested', () => {
   const nextContent = MJCF_FIXTURE.replace('size="0.0165"', 'size="0.03"');
   const dirtyStart = nextContent.indexOf('size="0.03"');
@@ -233,6 +294,28 @@ test('detectEditableSourceIncrementalPatch skips MJCF patches when requested', (
   });
 
   assert.equal(patch, null);
+});
+
+test('detectEditableSourceIncrementalPatchWithDiagnostics rejects MJCF include edits', () => {
+  const previousContent = `<mujoco model="include_demo">
+  <include file="shared.xml"/>
+  <worldbody>
+    <body name="base"><geom type="sphere" size="0.01"/></body>
+  </worldbody>
+</mujoco>`;
+  const nextContent = previousContent.replace('size="0.01"', 'size="0.02"');
+  const dirtyStart = nextContent.indexOf('size="0.02"');
+  assert.notEqual(dirtyStart, -1);
+
+  const result = detectEditableSourceIncrementalPatchWithDiagnostics({
+    file: { name: 'robot.xml', format: 'mjcf' },
+    previousContent,
+    nextContent,
+    dirtyRanges: [{ startOffset: dirtyStart, endOffset: dirtyStart + 'size="0.02"'.length }],
+  });
+
+  assert.equal(result.patch, null);
+  assert.equal(result.diagnostics.skipReason, 'mjcf-include');
 });
 
 test('applyEditableSourceIncrementalPatch returns null when the current state no longer matches the patch', () => {

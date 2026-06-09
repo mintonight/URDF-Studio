@@ -14,6 +14,20 @@ export interface DetectEditableSourceIncrementalPatchOptions {
   skipMjcfPatch?: boolean;
 }
 
+export interface EditableSourceIncrementalPatchDiagnostics {
+  attempted: boolean;
+  dirtyRangeCount: number;
+  dirtySpanBytes: number;
+  dirtySpanLimitBytes: number;
+  patchKind: EditableSourceIncrementalPatch['kind'] | null;
+  skipReason: string | null;
+}
+
+export interface EditableSourceIncrementalPatchDetectionResult {
+  patch: EditableSourceIncrementalPatch | null;
+  diagnostics: EditableSourceIncrementalPatchDiagnostics;
+}
+
 interface XmlElementBounds {
   tagName: string;
   startOffset: number;
@@ -29,6 +43,152 @@ interface UrdfParseContext {
 const XML_TOKEN_RE =
   /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[[\s\S]*?\]\]>|<\/?([A-Za-z_][\w:.-]*)\b[^>]*?>/g;
 const MJCF_PATCH_ROOT_NAME = '__editable_source_patch_root__';
+const MAX_INCREMENTAL_DIRTY_RANGE_COUNT = 4;
+const MAX_INCREMENTAL_DIRTY_SPAN_BYTES = 4096;
+const MAX_INCREMENTAL_DIRTY_SPAN_RATIO = 0.05;
+
+function normalizeDirtyRange(range: SourceCodeDirtyRange): SourceCodeDirtyRange {
+  const startOffset = Math.max(0, Math.min(range.startOffset, range.endOffset));
+  const endOffset = Math.max(startOffset, Math.max(range.startOffset, range.endOffset));
+  return { startOffset, endOffset };
+}
+
+function mergeDirtyRanges(ranges: SourceCodeDirtyRange[]): SourceCodeDirtyRange[] {
+  if (ranges.length === 0) {
+    return [];
+  }
+
+  const sortedRanges = ranges
+    .map(normalizeDirtyRange)
+    .sort((left, right) => left.startOffset - right.startOffset);
+  const mergedRanges: SourceCodeDirtyRange[] = [sortedRanges[0]];
+
+  for (let index = 1; index < sortedRanges.length; index += 1) {
+    const nextRange = sortedRanges[index];
+    const currentRange = mergedRanges[mergedRanges.length - 1];
+
+    if (nextRange.startOffset <= currentRange.endOffset) {
+      currentRange.endOffset = Math.max(currentRange.endOffset, nextRange.endOffset);
+      continue;
+    }
+
+    mergedRanges.push(nextRange);
+  }
+
+  return mergedRanges;
+}
+
+function computeDirtySpanLimitBytes(nextContentLength: number): number {
+  return Math.max(
+    1,
+    Math.ceil(
+      Math.min(
+        MAX_INCREMENTAL_DIRTY_SPAN_BYTES,
+        Math.max(1, nextContentLength) * MAX_INCREMENTAL_DIRTY_SPAN_RATIO,
+      ),
+    ),
+  );
+}
+
+export function buildEditableSourceIncrementalPatchDiagnostics(
+  options: Pick<
+    DetectEditableSourceIncrementalPatchOptions,
+    'previousContent' | 'nextContent' | 'dirtyRanges'
+  > & {
+    attempted?: boolean;
+    patchKind?: EditableSourceIncrementalPatch['kind'] | null;
+    skipReason?: string | null;
+  },
+): EditableSourceIncrementalPatchDiagnostics {
+  const mergedDirtyRanges = mergeDirtyRanges(options.dirtyRanges);
+  const nextDirtySpanBytes = mergedDirtyRanges.reduce(
+    (total, range) => total + Math.max(0, range.endOffset - range.startOffset),
+    0,
+  );
+  const contentLengthDelta = Math.abs(options.nextContent.length - options.previousContent.length);
+
+  return {
+    attempted: options.attempted ?? false,
+    dirtyRangeCount: mergedDirtyRanges.length,
+    dirtySpanBytes: Math.max(nextDirtySpanBytes, contentLengthDelta),
+    dirtySpanLimitBytes: computeDirtySpanLimitBytes(options.nextContent.length),
+    patchKind: options.patchKind ?? null,
+    skipReason: options.skipReason ?? null,
+  };
+}
+
+function buildPatchResult(
+  patch: EditableSourceIncrementalPatch,
+  diagnostics: EditableSourceIncrementalPatchDiagnostics,
+): EditableSourceIncrementalPatchDetectionResult {
+  return {
+    patch,
+    diagnostics: {
+      ...diagnostics,
+      attempted: true,
+      patchKind: patch.kind,
+      skipReason: null,
+    },
+  };
+}
+
+function buildSkipResult(
+  diagnostics: EditableSourceIncrementalPatchDiagnostics,
+  skipReason: string,
+): EditableSourceIncrementalPatchDetectionResult {
+  return {
+    patch: null,
+    diagnostics: {
+      ...diagnostics,
+      attempted: true,
+      patchKind: null,
+      skipReason,
+    },
+  };
+}
+
+function evaluateIncrementalPatchEligibility(
+  options: DetectEditableSourceIncrementalPatchOptions,
+): EditableSourceIncrementalPatchDetectionResult | null {
+  const diagnostics = buildEditableSourceIncrementalPatchDiagnostics({
+    previousContent: options.previousContent,
+    nextContent: options.nextContent,
+    dirtyRanges: options.dirtyRanges,
+    attempted: true,
+  });
+
+  if (!options.file) {
+    return buildSkipResult(diagnostics, 'missing-file');
+  }
+
+  if (diagnostics.dirtyRangeCount === 0) {
+    return buildSkipResult(diagnostics, 'no-dirty-ranges');
+  }
+
+  if (diagnostics.dirtyRangeCount > MAX_INCREMENTAL_DIRTY_RANGE_COUNT) {
+    return buildSkipResult(diagnostics, 'too-many-dirty-ranges');
+  }
+
+  if (options.file.format === 'mjcf') {
+    if (options.skipMjcfPatch) {
+      return buildSkipResult(diagnostics, 'mjcf-patch-skipped');
+    }
+
+    if (/<include\b/i.test(options.previousContent) || /<include\b/i.test(options.nextContent)) {
+      return buildSkipResult(diagnostics, 'mjcf-include');
+    }
+  }
+
+  if (diagnostics.dirtySpanBytes > diagnostics.dirtySpanLimitBytes) {
+    return buildSkipResult(diagnostics, 'dirty-span-too-large');
+  }
+
+  if (options.file.format !== 'urdf' && options.file.format !== 'mjcf') {
+    return buildSkipResult(diagnostics, 'unsupported-format');
+  }
+
+  return null;
+}
 
 function parseXmlRootElement(xml: string, rootTagName: string): Element | null {
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
@@ -336,11 +496,12 @@ function parseMjcfBodyPatchState(xml: string, bodyFragment: string): RobotState 
 
 function detectUrdfPatch(
   options: DetectEditableSourceIncrementalPatchOptions,
-): EditableSourceIncrementalPatch | null {
+  diagnostics: EditableSourceIncrementalPatchDiagnostics,
+): EditableSourceIncrementalPatchDetectionResult {
   const nextContext = buildUrdfParseContext(options.nextContent);
   const previousContext = buildUrdfParseContext(options.previousContent);
   if (!nextContext || !previousContext) {
-    return null;
+    return buildSkipResult(diagnostics, 'urdf-document-parse-failed');
   }
 
   const nextChangedElement = findChangedUrdfTopLevelElement(
@@ -348,7 +509,7 @@ function detectUrdfPatch(
     options.dirtyRanges,
   );
   if (!nextChangedElement) {
-    return null;
+    return buildSkipResult(diagnostics, 'urdf-range-outside-single-top-level-element');
   }
 
   const previousChangedElement = resolvePreviousUrdfTopLevelElement(
@@ -357,7 +518,7 @@ function detectUrdfPatch(
     nextChangedElement.indexByTag,
   );
   if (!previousChangedElement) {
-    return null;
+    return buildSkipResult(diagnostics, 'urdf-previous-element-not-found');
   }
 
   const nextFragment = options.nextContent.slice(
@@ -373,47 +534,46 @@ function detectUrdfPatch(
     const previousLink = parseSingleUrdfLinkFragment(previousFragment, previousContext);
     const nextLink = parseSingleUrdfLinkFragment(nextFragment, nextContext);
     if (!previousLink || !nextLink) {
-      return null;
+      return buildSkipResult(diagnostics, 'urdf-link-fragment-parse-failed');
     }
 
-    return {
-      kind: 'urdf-link-fragment-update',
-      previousLinkId: previousLink.id,
-      previousLinkName: previousLink.name,
-      nextLink,
-    };
+    return buildPatchResult(
+      {
+        kind: 'urdf-link-fragment-update',
+        previousLinkId: previousLink.id,
+        previousLinkName: previousLink.name,
+        nextLink,
+      },
+      diagnostics,
+    );
   }
 
   const previousJoint = parseSingleUrdfJointFragment(previousFragment);
   const nextJoint = parseSingleUrdfJointFragment(nextFragment);
   if (!previousJoint || !nextJoint) {
-    return null;
+    return buildSkipResult(diagnostics, 'urdf-joint-fragment-parse-failed');
   }
 
-  return {
-    kind: 'urdf-joint-fragment-update',
-    previousJointId: previousJoint.id,
-    previousJointName: previousJoint.name,
-    previousParentLinkId: previousJoint.parentLinkId,
-    previousChildLinkId: previousJoint.childLinkId,
-    nextJoint,
-  };
+  return buildPatchResult(
+    {
+      kind: 'urdf-joint-fragment-update',
+      previousJointId: previousJoint.id,
+      previousJointName: previousJoint.name,
+      previousParentLinkId: previousJoint.parentLinkId,
+      previousChildLinkId: previousJoint.childLinkId,
+      nextJoint,
+    },
+    diagnostics,
+  );
 }
 
 function detectMjcfPatch(
   options: DetectEditableSourceIncrementalPatchOptions,
-): EditableSourceIncrementalPatch | null {
-  if (
-    options.skipMjcfPatch ||
-    /<include\b/i.test(options.previousContent) ||
-    /<include\b/i.test(options.nextContent)
-  ) {
-    return null;
-  }
-
+  diagnostics: EditableSourceIncrementalPatchDiagnostics,
+): EditableSourceIncrementalPatchDetectionResult {
   const nextChangedBody = findChangedMjcfBodyElement(options.nextContent, options.dirtyRanges);
   if (!nextChangedBody) {
-    return null;
+    return buildSkipResult(diagnostics, 'mjcf-range-outside-single-body');
   }
 
   const previousChangedBody = resolvePreviousMjcfBodyElement(
@@ -421,7 +581,7 @@ function detectMjcfPatch(
     nextChangedBody.bodyIndex,
   );
   if (!previousChangedBody) {
-    return null;
+    return buildSkipResult(diagnostics, 'mjcf-previous-body-not-found');
   }
 
   const nextFragment = options.nextContent.slice(
@@ -436,17 +596,17 @@ function detectMjcfPatch(
   const previousBodyName = parseSingleMjcfBodyName(previousFragment);
   const nextBodyName = parseSingleMjcfBodyName(nextFragment);
   if (!previousBodyName || !nextBodyName || previousBodyName !== nextBodyName) {
-    return null;
+    return buildSkipResult(diagnostics, 'mjcf-body-renamed');
   }
 
   if (/<site\b/i.test(previousFragment) || /<site\b/i.test(nextFragment)) {
-    return null;
+    return buildSkipResult(diagnostics, 'mjcf-site');
   }
 
   const previousPatchState = parseMjcfBodyPatchState(options.previousContent, previousFragment);
   const nextPatchState = parseMjcfBodyPatchState(options.nextContent, nextFragment);
   if (!previousPatchState || !nextPatchState) {
-    return null;
+    return buildSkipResult(diagnostics, 'mjcf-body-patch-parse-failed');
   }
 
   const previousLinks = Object.entries(previousPatchState.links).filter(
@@ -466,7 +626,7 @@ function detectMjcfPatch(
     !sameSortedStrings(previousLinkNames, nextLinkNames) ||
     !sameSortedStrings(previousJointNames, nextJointNames)
   ) {
-    return null;
+    return buildSkipResult(diagnostics, 'mjcf-structural-subtree-change');
   }
 
   const nextLinksByName: Record<string, UrdfLink> = {};
@@ -491,30 +651,57 @@ function detectMjcfPatch(
     };
   }
 
-  return {
-    kind: 'mjcf-body-subtree-update',
-    stableLinkNames: sortedStrings(previousLinkNames),
-    stableJointNames: sortedStrings(previousJointNames),
-    previousJointEndpointsByName,
-    nextLinksByName,
-    nextJointsByName,
-  };
+  return buildPatchResult(
+    {
+      kind: 'mjcf-body-subtree-update',
+      stableLinkNames: sortedStrings(previousLinkNames),
+      stableJointNames: sortedStrings(previousJointNames),
+      previousJointEndpointsByName,
+      nextLinksByName,
+      nextJointsByName,
+    },
+    diagnostics,
+  );
+}
+
+export function detectEditableSourceIncrementalPatchWithDiagnostics(
+  options: DetectEditableSourceIncrementalPatchOptions,
+): EditableSourceIncrementalPatchDetectionResult {
+  const ineligibleResult = evaluateIncrementalPatchEligibility(options);
+  if (ineligibleResult) {
+    return ineligibleResult;
+  }
+  const file = options.file;
+  if (!file) {
+    const diagnostics = buildEditableSourceIncrementalPatchDiagnostics({
+      previousContent: options.previousContent,
+      nextContent: options.nextContent,
+      dirtyRanges: options.dirtyRanges,
+      attempted: true,
+    });
+    return buildSkipResult(diagnostics, 'missing-file');
+  }
+
+  const diagnostics = buildEditableSourceIncrementalPatchDiagnostics({
+    previousContent: options.previousContent,
+    nextContent: options.nextContent,
+    dirtyRanges: options.dirtyRanges,
+    attempted: true,
+  });
+
+  if (file.format === 'urdf') {
+    return detectUrdfPatch(options, diagnostics);
+  }
+
+  if (file.format === 'mjcf') {
+    return detectMjcfPatch(options, diagnostics);
+  }
+
+  return buildSkipResult(diagnostics, 'unsupported-format');
 }
 
 export function detectEditableSourceIncrementalPatch(
   options: DetectEditableSourceIncrementalPatchOptions,
 ): EditableSourceIncrementalPatch | null {
-  if (!options.file || options.dirtyRanges.length === 0) {
-    return null;
-  }
-
-  if (options.file.format === 'urdf') {
-    return detectUrdfPatch(options);
-  }
-
-  if (options.file.format === 'mjcf') {
-    return detectMjcfPatch(options);
-  }
-
-  return null;
+  return detectEditableSourceIncrementalPatchWithDiagnostics(options).patch;
 }

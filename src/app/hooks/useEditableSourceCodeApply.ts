@@ -6,11 +6,13 @@ import type { RobotData, RobotFile, RobotState } from '@/types';
 import type { SourceCodeEditorApplyRequest } from '@/features/code-editor/utils/sourceCodeEditorSession';
 import { useAssetsStore, useRobotStore } from '@/store';
 import { applyEditableSourceIncrementalPatch } from '@/app/utils/editableSourceIncrementalPatch';
+import type { EditableSourceIncrementalPatchDiagnostics } from '@/app/utils/editableSourceIncrementalPatchDetection';
 import {
   applyEditableSourceChangeWithWorker,
   parseEditableRobotSourceWithWorker,
 } from './robotImportWorkerBridge';
 import type { SourceCodeDocumentChangeTarget } from '@/app/utils/sourceCodeDocuments';
+import { setRegressionEditableSourceApplyResult } from '@/shared/debug/regressionState';
 
 interface UseEditableSourceCodeApplyOptions {
   allFileContents: Record<string, string>;
@@ -98,6 +100,21 @@ function snapshotRobotStoreState(): Pick<
     closedLoopConstraints: state.closedLoopConstraints,
     inspectionContext: state.inspectionContext,
   };
+}
+
+function recordEditableSourceApplyResult(
+  mode: 'incremental-patch' | 'full-parse',
+  diagnostics: EditableSourceIncrementalPatchDiagnostics,
+  skipReason = diagnostics.skipReason,
+): void {
+  setRegressionEditableSourceApplyResult({
+    mode,
+    dirtyRangeCount: diagnostics.dirtyRangeCount,
+    dirtySpanBytes: diagnostics.dirtySpanBytes,
+    dirtySpanLimitBytes: diagnostics.dirtySpanLimitBytes,
+    patchKind: mode === 'incremental-patch' ? diagnostics.patchKind : null,
+    skipReason,
+  });
 }
 
 export function shouldAttemptEditableSourceIncrementalPatch({
@@ -235,6 +252,8 @@ export function useEditableSourceCodeApply({
           return false;
         }
 
+        let finalApplyMode: 'incremental-patch' | 'full-parse' = applyResult.mode;
+        let finalDiagnostics = applyResult.diagnostics;
         let nextState =
           applyResult.mode === 'incremental-patch'
             ? applyEditableSourceIncrementalPatch({
@@ -246,6 +265,12 @@ export function useEditableSourceCodeApply({
               : null;
 
         if (!nextState && applyResult.mode === 'incremental-patch') {
+          finalApplyMode = 'full-parse';
+          finalDiagnostics = {
+            ...applyResult.diagnostics,
+            patchKind: null,
+            skipReason: 'incremental-patch-apply-failed',
+          };
           const parsedState = await parseEditableRobotSourceWithWorker({
             file: sourceFile,
             content: nextSourceContent,
@@ -268,9 +293,15 @@ export function useEditableSourceCodeApply({
         }
 
         if (!nextState) {
+          recordEditableSourceApplyResult(
+            finalApplyMode,
+            finalDiagnostics,
+            finalDiagnostics.skipReason ?? 'editable-source-parse-returned-null',
+          );
           return false;
         }
 
+        recordEditableSourceApplyResult(finalApplyMode, finalDiagnostics);
         commitEditableSourceApply({
           newCode,
           sourceFile,

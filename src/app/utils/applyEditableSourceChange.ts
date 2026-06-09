@@ -1,7 +1,11 @@
 import type { SourceCodeDirtyRange } from '@/features/code-editor/utils/sourceCodeEditorSession';
 import type { RobotState } from '@/types';
 import type { EditableSourceIncrementalPatch } from './editableSourceIncrementalPatch';
-import { detectEditableSourceIncrementalPatch } from './editableSourceIncrementalPatchDetection';
+import {
+  buildEditableSourceIncrementalPatchDiagnostics,
+  detectEditableSourceIncrementalPatchWithDiagnostics,
+  type EditableSourceIncrementalPatchDiagnostics,
+} from './editableSourceIncrementalPatchDetection';
 import {
   parseEditableRobotSource,
   type ParseEditableRobotSourceOptions,
@@ -18,33 +22,52 @@ export type ApplyEditableSourceChangeResult =
   | {
       mode: 'incremental-patch';
       patch: EditableSourceIncrementalPatch;
+      diagnostics: EditableSourceIncrementalPatchDiagnostics;
     }
   | {
       mode: 'full-parse';
       state: RobotState | null;
+      diagnostics: EditableSourceIncrementalPatchDiagnostics;
     };
 
 export function applyEditableSourceChange(
   options: ApplyEditableSourceChangeOptions,
 ): ApplyEditableSourceChangeResult {
+  const defaultDiagnostics = buildEditableSourceIncrementalPatchDiagnostics({
+    previousContent: options.previousContent,
+    nextContent: options.content,
+    dirtyRanges: options.dirtyRanges ?? [],
+    attempted: false,
+    skipReason: options.attemptIncrementalPatch ? null : 'incremental-patch-not-requested',
+  });
+
   if (options.attemptIncrementalPatch) {
-    const patch = detectEditableSourceIncrementalPatch({
+    const detectionResult = detectEditableSourceIncrementalPatchWithDiagnostics({
       file: options.file,
       previousContent: options.previousContent,
       nextContent: options.content,
       dirtyRanges: options.dirtyRanges ?? [],
       skipMjcfPatch: options.skipMjcfIncrementalPatch,
     });
+    const { patch } = detectionResult;
     if (patch) {
       return {
         mode: 'incremental-patch',
         patch,
+        diagnostics: detectionResult.diagnostics,
       };
     }
+
+    return {
+      mode: 'full-parse',
+      state: parseEditableRobotSource(options),
+      diagnostics: detectionResult.diagnostics,
+    };
   }
 
   return {
     mode: 'full-parse',
     state: parseEditableRobotSource(options),
+    diagnostics: defaultDiagnostics,
   };
 }
