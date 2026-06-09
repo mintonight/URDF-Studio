@@ -29,6 +29,7 @@ scripts/*
 .github/*
 !.github/workflows/
 !.github/workflows/**
+!.github/CODEOWNERS
 output/
 tmp/
 log/
