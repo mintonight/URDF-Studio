@@ -31,7 +31,7 @@ function installLocationSearch(search: string): () => void {
       return;
     }
 
-    delete (globalThis as MeshLoadPerformanceTestGlobal).location;
+    delete (globalThis as Partial<MeshLoadPerformanceTestGlobal>).location;
   };
 }
 

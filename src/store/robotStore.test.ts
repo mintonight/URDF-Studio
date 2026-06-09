@@ -135,7 +135,7 @@ test('pushHistorySnapshot can clear assembly history without cloning current run
         },
       },
       bridges: {},
-    } as AssemblyState,
+    } as unknown as AssemblyState,
   });
 
   assert.doesNotThrow(() => {

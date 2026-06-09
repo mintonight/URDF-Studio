@@ -134,10 +134,10 @@ test('resolveSnapshotTiledRenderPlan preserves full supersampled coverage within
   assert.ok(plan.tiles.length > 1);
   assert.equal(plan.tiles[0]?.outputX, 0);
   assert.equal(plan.tiles[0]?.outputY, 0);
-  assert.equal(plan.tiles.at(-1)?.outputX + plan.tiles.at(-1)!.outputWidth, 7680);
-  assert.equal(plan.tiles.at(-1)?.outputY + plan.tiles.at(-1)!.outputHeight, 4320);
-  assert.equal(plan.tiles.at(-1)?.renderX + plan.tiles.at(-1)!.renderWidth, 30_720);
-  assert.equal(plan.tiles.at(-1)?.renderY + plan.tiles.at(-1)!.renderHeight, 17_280);
+  assert.equal(plan.tiles.at(-1)!.outputX + plan.tiles.at(-1)!.outputWidth, 7680);
+  assert.equal(plan.tiles.at(-1)!.outputY + plan.tiles.at(-1)!.outputHeight, 4320);
+  assert.equal(plan.tiles.at(-1)!.renderX + plan.tiles.at(-1)!.renderWidth, 30_720);
+  assert.equal(plan.tiles.at(-1)!.renderY + plan.tiles.at(-1)!.renderHeight, 17_280);
   assert.ok(
     plan.tiles.every((tile) => tile.renderWidth * tile.renderHeight <= 10_000_000),
   );
