@@ -65,6 +65,8 @@ export interface WorkerPoolClient<Result> {
   clearCache(): void;
   /** Current pending request count (for diagnostics) */
   readonly pendingCount: number;
+  /** Current number of initialized workers */
+  readonly workerCount: number;
   /** Whether the worker pool has crashed and is unavailable */
   readonly unavailable: boolean;
   /** Whether workers can be used in this environment */
@@ -297,6 +299,9 @@ export function createWorkerPoolClient<Response, Result, Progress = unknown>(
     clearCache: () => resolvedCache?.clear(),
     get pendingCount() {
       return pendingRequests.size;
+    },
+    get workerCount() {
+      return workerPool.length;
     },
     get unavailable() {
       return workerUnavailable;

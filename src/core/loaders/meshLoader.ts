@@ -37,6 +37,11 @@ import {
   cloneObjSceneWithOwnedResources,
 } from './objMaterialUtils';
 import {
+  addMainThreadMaterialPerformance,
+  durationMs,
+  readHighResolutionEpochMs,
+} from './meshLoadPerformance';
+import {
   createObjectFromSerializedObjDataAsync,
   loadSerializedObjModelData,
 } from './objParseWorkerBridge';
@@ -1298,6 +1303,7 @@ export const createMeshLoader = (
 
           throw new Error(`Optional OBJ material asset not found: ${url}`);
         });
+        const materialStartedAt = readHighResolutionEpochMs();
         await applyObjMaterialLibrariesToObject(
           object,
           serializedObject.materialLibraries,
@@ -1305,6 +1311,16 @@ export const createMeshLoader = (
           sourcePath,
           { yieldIfNeeded },
         );
+        addMainThreadMaterialPerformance(
+          serializedObject.loadPerformance,
+          durationMs(materialStartedAt),
+        );
+        if (serializedObject.loadPerformance) {
+          object.userData = {
+            ...(object.userData ?? {}),
+            meshLoadPerformance: serializedObject.loadPerformance,
+          };
+        }
         await yieldIfNeeded();
 
         return {

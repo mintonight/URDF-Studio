@@ -17,6 +17,7 @@ import {
   resetColladaWasmParserForTests,
   setColladaWasmParserModuleUrlForTests,
 } from './colladaWasmParser.ts';
+import type { MeshLoadPerformanceEntry } from './meshLoadPerformance.ts';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
@@ -143,6 +144,37 @@ test('compiled Collada mesh WASM parser rejects unsupported controller scenes', 
       ),
       /controller|unsupported/i,
     );
+  } finally {
+    resetColladaWasmParserForTests();
+  }
+});
+
+test('compiled Collada mesh WASM parser records internal timing breakdowns', async () => {
+  setupCompiledColladaParser();
+
+  try {
+    const text = [
+      '<COLLADA version="1.4.1">',
+      '<library_geometries><geometry id="geom"><mesh>',
+      '<source id="pos"><float_array id="pos-array" count="9">0 0 0 1 0 0 0 1 0</float_array>',
+      '<technique_common><accessor source="#pos-array" count="3" stride="3"/></technique_common></source>',
+      '<vertices id="verts"><input semantic="POSITION" source="#pos"/></vertices>',
+      '<triangles count="1"><input semantic="VERTEX" source="#verts" offset="0"/><p>0 1 2</p></triangles>',
+      '</mesh></geometry></library_geometries>',
+      '<library_visual_scenes><visual_scene id="Scene"><node id="node"><instance_geometry url="#geom"/></node></visual_scene></library_visual_scenes>',
+      '<scene><instance_visual_scene url="#Scene"/></scene></COLLADA>',
+    ].join('');
+    const loadPerformance: MeshLoadPerformanceEntry = {
+      assetUrl: 'timed.dae',
+      format: 'collada',
+    };
+
+    await parseColladaMeshDataWithWasm(new TextEncoder().encode(text), '', loadPerformance);
+
+    assert.ok((loadPerformance.colladaWasmFeatureCheckMs ?? -1) >= 0);
+    assert.ok((loadPerformance.colladaWasmGeometriesMs ?? -1) >= 0);
+    assert.ok((loadPerformance.colladaWasmVisualSceneMs ?? -1) >= 0);
+    assert.ok((loadPerformance.colladaWasmWriteResultMs ?? -1) >= 0);
   } finally {
     resetColladaWasmParserForTests();
   }

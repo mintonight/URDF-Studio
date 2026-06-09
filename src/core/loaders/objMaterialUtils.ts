@@ -2,6 +2,11 @@ import * as THREE from 'three';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 
 import { createObjectFromSerializedObjData } from './objModelData';
+import {
+  addMainThreadMaterialPerformance,
+  durationMs,
+  readHighResolutionEpochMs,
+} from './meshLoadPerformance';
 import { parseObjModelDataFromBytes } from './objWasmParser';
 import { getSourceFileDirectory, resolveImportedAssetPath } from '@/core/parsers/meshPathUtils';
 import type { UrdfVisualMaterial } from '@/types';
@@ -599,12 +604,20 @@ export async function loadObjScene(
   const requestUrl = manager.resolveURL(assetUrl);
   const serializedObject = await parseObjModelDataFromBytes(await fetchArrayBuffer(requestUrl));
   const object = createObjectFromSerializedObjData(serializedObject);
+  const materialStartedAt = readHighResolutionEpochMs();
   await applyObjMaterialLibrariesToObject(
     object,
     serializedObject.materialLibraries,
     manager,
     sourcePath,
   );
+  addMainThreadMaterialPerformance(serializedObject.loadPerformance, durationMs(materialStartedAt));
+  if (serializedObject.loadPerformance) {
+    object.userData = {
+      ...(object.userData ?? {}),
+      meshLoadPerformance: serializedObject.loadPerformance,
+    };
+  }
   return object;
 }
 

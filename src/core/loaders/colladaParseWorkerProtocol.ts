@@ -2,6 +2,7 @@ import type { SerializedColladaSceneData } from './colladaWorkerSceneData';
 
 export interface ParseColladaWorkerRequest {
   assetUrl: string;
+  dispatchedAtEpochMs?: number;
   requestId: number;
   type: 'parse-collada';
 }

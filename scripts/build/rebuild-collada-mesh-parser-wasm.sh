@@ -103,7 +103,7 @@ COMMON_FLAGS=(
   -s FILESYSTEM=0
   -s ALLOW_MEMORY_GROWTH=1
   -s MALLOC=emmalloc
-  -s EXPORTED_FUNCTIONS='["_malloc","_free","_parse_collada_mesh","_collada_mesh_parser_get_result_ptr","_collada_mesh_parser_get_result_size","_collada_mesh_parser_get_error_ptr","_collada_mesh_parser_get_error_size","_collada_mesh_parser_free_result"]'
+  -s EXPORTED_FUNCTIONS='["_malloc","_free","_parse_collada_mesh","_collada_mesh_parser_get_result_ptr","_collada_mesh_parser_get_result_size","_collada_mesh_parser_get_error_ptr","_collada_mesh_parser_get_error_size","_collada_mesh_parser_get_last_timing_ms","_collada_mesh_parser_free_result"]'
   -s EXPORTED_RUNTIME_METHODS='["HEAPU8"]'
   -o "${DEST_DIR}/colladaMeshParser.js"
 )

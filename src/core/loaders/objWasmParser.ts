@@ -1,4 +1,9 @@
 import type { SerializedObjModelData } from './objModelData';
+import {
+  durationMs,
+  type MeshLoadPerformanceEntry,
+  readHighResolutionEpochMs,
+} from './meshLoadPerformance';
 
 interface ObjParserWasmModule {
   HEAPU8: Uint8Array;
@@ -227,17 +232,31 @@ export function decodeSerializedObjWasmPayload(buffer: ArrayBuffer): SerializedO
 
 export async function parseObjModelDataWithWasm(
   data: ArrayBuffer | Uint8Array,
+  loadPerformance?: MeshLoadPerformanceEntry,
 ): Promise<SerializedObjModelData> {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  const wasmStartedAt = readHighResolutionEpochMs();
+  const moduleStartedAt = readHighResolutionEpochMs();
   const module = await loadObjParserModule();
+  if (loadPerformance) {
+    loadPerformance.wasmModuleMs = durationMs(moduleStartedAt);
+  }
   const inputPtr = module._malloc(bytes.byteLength);
   if (!inputPtr) {
     throw new Error('Failed to allocate OBJ parser input buffer.');
   }
 
   try {
+    const inputCopyStartedAt = readHighResolutionEpochMs();
     module.HEAPU8.set(bytes, inputPtr);
+    if (loadPerformance) {
+      loadPerformance.wasmInputCopyMs = durationMs(inputCopyStartedAt);
+    }
+    const parseStartedAt = readHighResolutionEpochMs();
     const ok = module._parse_obj(inputPtr, bytes.byteLength);
+    if (loadPerformance) {
+      loadPerformance.wasmParseMs = durationMs(parseStartedAt);
+    }
     if (!ok) {
       const errorPtr = module._obj_parser_get_error_ptr();
       const errorSize = module._obj_parser_get_error_size();
@@ -254,8 +273,19 @@ export async function parseObjModelDataWithWasm(
       throw new Error('OBJ parser WASM returned an empty result buffer.');
     }
 
+    const resultCopyStartedAt = readHighResolutionEpochMs();
     const resultBytes = module.HEAPU8.slice(resultPtr, resultPtr + resultSize);
-    return decodeSerializedObjWasmPayload(resultBytes.buffer);
+    if (loadPerformance) {
+      loadPerformance.wasmResultCopyMs = durationMs(resultCopyStartedAt);
+    }
+    const decodeStartedAt = readHighResolutionEpochMs();
+    const result = decodeSerializedObjWasmPayload(resultBytes.buffer);
+    if (loadPerformance) {
+      loadPerformance.wasmDecodeMs = durationMs(decodeStartedAt);
+      loadPerformance.wasmTotalMs = durationMs(wasmStartedAt);
+      result.loadPerformance = loadPerformance;
+    }
+    return result;
   } finally {
     module._free(inputPtr);
     module._obj_parser_free_result();
@@ -264,8 +294,9 @@ export async function parseObjModelDataWithWasm(
 
 export async function parseObjModelDataFromBytes(
   data: ArrayBuffer | Uint8Array,
+  loadPerformance?: MeshLoadPerformanceEntry,
 ): Promise<SerializedObjModelData> {
-  return await parseObjModelDataWithWasm(data);
+  return await parseObjModelDataWithWasm(data, loadPerformance);
 }
 
 export function parseObjModelDataFromTextBytes(text: string): Promise<SerializedObjModelData> {
