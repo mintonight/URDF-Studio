@@ -685,7 +685,7 @@ export const zh: TranslationKeys = {
   // About Modal
   aboutDescription:
     '专业的机器人 URDF 设计与可视化工作站，支持快速编辑，碰撞优化，参数配置，AI审阅和实用工具。',
-  aboutCopyright: '© 2025-2026 OpenLegged.',
+  aboutCopyright: '© 2025-2026 enkeebot.',
   aboutOpenSource: '基于 Apache License 2.0 协议开源。',
   aboutMotphysTagline: '超越物理，进化不止',
   aboutDRoboticsName: '地瓜机器人',

@@ -86,10 +86,10 @@ export function SettingsAboutPane({ t }: SettingsAboutPaneProps) {
         </div>
         <div className="space-y-1.5">
           <AboutLinkCard
-            href="https://github.com/OpenLegged/URDF-Studio"
+            href="https://github.com/enkeebot/URDF-Studio"
             icon={<GitHubMark className="h-4.5 w-4.5" />}
             title="GitHub"
-            description="OpenLegged/URDF-Studio"
+            description="enkeebot/URDF-Studio"
           />
           <AboutLinkCard
             href="https://www.motphys.com/"

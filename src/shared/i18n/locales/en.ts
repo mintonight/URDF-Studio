@@ -715,7 +715,7 @@ export const en: TranslationKeys = {
   // About Modal
   aboutDescription:
     'Professional robot URDF design and visualization workstation, supporting fast editing, collision optimization, parameter configuration, AI review and utility tools.',
-  aboutCopyright: '© 2025-2026 OpenLegged.',
+  aboutCopyright: '© 2025-2026 enkeebot.',
   aboutOpenSource: 'Open sourced under Apache License 2.0.',
   aboutMotphysTagline: 'Evolution Beyond Physics',
   aboutDRoboticsName: 'D-Robotics',
