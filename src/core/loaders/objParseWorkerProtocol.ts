@@ -2,6 +2,7 @@ import type { SerializedObjModelData } from './objModelData';
 
 export interface ParseObjWorkerRequest {
     assetUrl: string;
+    dispatchedAtEpochMs?: number;
     requestId: number;
     type: 'parse-obj';
 }

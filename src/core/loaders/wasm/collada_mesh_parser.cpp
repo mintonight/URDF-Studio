@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -15,6 +16,25 @@ struct Input {
   std::string source;
   uint32_t offset = 0;
   uint32_t set = 0;
+};
+
+struct Source;
+
+enum class ResolvedInputKind : uint8_t {
+  Position,
+  Normal,
+  Texcoord0,
+  Texcoord1,
+  Color,
+  Vertex,
+};
+
+struct ResolvedInput {
+  ResolvedInputKind kind = ResolvedInputKind::Position;
+  uint32_t offset = 0;
+  uint32_t itemSize = 0;
+  const Source* source = nullptr;
+  std::vector<ResolvedInput> vertexInputs;
 };
 
 struct Source {
@@ -220,6 +240,25 @@ struct BinaryWriter {
 
 uint8_t* resultPtr = nullptr;
 uint32_t resultSize = 0;
+
+struct ColladaParserTimings {
+  double featureCheckMs = 0.0;
+  double upAxisMs = 0.0;
+  double unitScaleMs = 0.0;
+  double imagesMs = 0.0;
+  double materialsMs = 0.0;
+  double geometriesMs = 0.0;
+  double libraryNodesMs = 0.0;
+  double visualSceneMs = 0.0;
+  double writeResultMs = 0.0;
+};
+
+ColladaParserTimings lastParseTimings;
+
+double monotonicNowMs() {
+  const auto now = std::chrono::steady_clock::now().time_since_epoch();
+  return std::chrono::duration<double, std::milli>(now).count();
+}
 
 const char* skipWhitespace(const char* cursor, const char* end) {
   while (cursor < end && (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r')) {
@@ -572,19 +611,101 @@ bool parseFirstColorElement(
 }
 
 bool hasUnsupportedColladaFeature(const char* start, const char* end) {
-  const char* unsupported[] = {
-    "<controller", "<instance_controller", "<skin", "<morph",
-  };
-  for (const char* token : unsupported) {
-    if (findText(start, end, token)) {
+  const char* cursor = start;
+  while (cursor < end) {
+    if (*cursor != '<') {
+      ++cursor;
+      continue;
+    }
+
+    const char* afterSkip = skipXmlCommentOrCdata(cursor, end);
+    if (afterSkip != cursor) {
+      cursor = afterSkip;
+      continue;
+    }
+
+    const char* token = nullptr;
+    if (startsWith(cursor, end, "<controller")) {
+      token = "<controller";
+    } else if (startsWith(cursor, end, "<instance_controller")) {
+      token = "<instance_controller";
+    } else if (startsWith(cursor, end, "<skin")) {
+      token = "<skin";
+    } else if (startsWith(cursor, end, "<morph")) {
+      token = "<morph";
+    }
+
+    if (token) {
       errorMessage = std::string("Unsupported Collada feature for fast WASM parser: ") + token;
       return true;
     }
+
+    ++cursor;
   }
   return false;
 }
 
-bool parseFloatList(const char* start, const char* end, std::vector<float>& out) {
+size_t readPositiveSizeAttribute(const char* tagStart, const char* tagEnd, const char* name) {
+  const std::string text = readAttribute(tagStart, tagEnd, name);
+  if (text.empty()) {
+    return 0;
+  }
+
+  const char* cursor = text.data();
+  const char* end = cursor + text.size();
+  int value = 0;
+  if (!parseInt(cursor, end, value) || value <= 0) {
+    return 0;
+  }
+
+  return static_cast<size_t>(value);
+}
+
+bool findOptionalElementContentBlock(
+  const char* start,
+  const char* end,
+  const char* openPattern,
+  const char* closePattern,
+  const char* elementName,
+  XmlBlock& out
+) {
+  out = {};
+  const char* elementStart = findText(start, end, openPattern);
+  if (!elementStart) {
+    return true;
+  }
+
+  const char* tagEnd = findChar(elementStart, end, '>');
+  if (!tagEnd) {
+    errorMessage = std::string("Malformed Collada ") + elementName + " tag.";
+    return false;
+  }
+
+  if (isSelfClosingXmlTag(elementStart, tagEnd)) {
+    out = {tagEnd, tagEnd};
+    return true;
+  }
+
+  const char* elementEnd = findText(tagEnd + 1, end, closePattern);
+  if (!elementEnd) {
+    errorMessage = std::string("Malformed Collada ") + elementName + " block.";
+    return false;
+  }
+
+  out = {tagEnd + 1, elementEnd};
+  return true;
+}
+
+bool parseFloatList(
+  const char* start,
+  const char* end,
+  std::vector<float>& out,
+  size_t expectedCount = 0
+) {
+  if (expectedCount > 0) {
+    out.reserve(out.size() + expectedCount);
+  }
+
   const char* cursor = start;
   while (true) {
     cursor = skipWhitespace(cursor, end);
@@ -600,7 +721,16 @@ bool parseFloatList(const char* start, const char* end, std::vector<float>& out)
   }
 }
 
-bool parseIntList(const char* start, const char* end, std::vector<int>& out) {
+bool parseIntList(
+  const char* start,
+  const char* end,
+  std::vector<int>& out,
+  size_t expectedCount = 0
+) {
+  if (expectedCount > 0) {
+    out.reserve(out.size() + expectedCount);
+  }
+
   const char* cursor = start;
   while (true) {
     cursor = skipWhitespace(cursor, end);
@@ -969,15 +1099,29 @@ bool parseTransparency(const char* techniqueStart, const char* techniqueEnd, Mat
 
 bool parseEffectsAndMaterials(const char* start, const char* end, ParseState& state) {
   std::unordered_map<std::string, Material> materialsByEffectId;
-  const char* cursor = start;
-  while ((cursor = findText(cursor, end, "<effect")) != nullptr) {
-    const char* tagEnd = findChar(cursor, end, '>');
+  XmlBlock effectsBlock;
+  if (!findOptionalElementContentBlock(
+        start,
+        end,
+        "<library_effects",
+        "</library_effects>",
+        "library_effects",
+        effectsBlock
+      )) {
+    return false;
+  }
+
+  const char* effectsStart = effectsBlock.start ? effectsBlock.start : start;
+  const char* effectsEnd = effectsBlock.end ? effectsBlock.end : end;
+  const char* cursor = effectsStart;
+  while ((cursor = findText(cursor, effectsEnd, "<effect")) != nullptr) {
+    const char* tagEnd = findChar(cursor, effectsEnd, '>');
     if (!tagEnd) {
       errorMessage = "Malformed Collada effect tag.";
       return false;
     }
     const std::string effectId = readAttribute(cursor, tagEnd, "id");
-    const char* effectEnd = findText(tagEnd, end, "</effect>");
+    const char* effectEnd = findText(tagEnd, effectsEnd, "</effect>");
     if (!effectEnd) {
       errorMessage = "Malformed Collada effect block.";
       return false;
@@ -1149,16 +1293,30 @@ bool parseEffectsAndMaterials(const char* start, const char* end, ParseState& st
     cursor = effectEnd + 9;
   }
 
-  cursor = start;
-  while ((cursor = findText(cursor, end, "<material")) != nullptr) {
-    const char* tagEnd = findChar(cursor, end, '>');
+  XmlBlock materialsBlock;
+  if (!findOptionalElementContentBlock(
+        start,
+        end,
+        "<library_materials",
+        "</library_materials>",
+        "library_materials",
+        materialsBlock
+      )) {
+    return false;
+  }
+
+  const char* materialsStart = materialsBlock.start ? materialsBlock.start : start;
+  const char* materialsEnd = materialsBlock.end ? materialsBlock.end : end;
+  cursor = materialsStart;
+  while ((cursor = findText(cursor, materialsEnd, "<material")) != nullptr) {
+    const char* tagEnd = findChar(cursor, materialsEnd, '>');
     if (!tagEnd) {
       errorMessage = "Malformed Collada material tag.";
       return false;
     }
     const std::string materialId = readAttribute(cursor, tagEnd, "id");
     const std::string materialName = readAttribute(cursor, tagEnd, "name");
-    const char* materialEnd = findText(tagEnd, end, "</material>");
+    const char* materialEnd = findText(tagEnd, materialsEnd, "</material>");
     if (!materialEnd) {
       errorMessage = "Malformed Collada material block.";
       return false;
@@ -1221,12 +1379,15 @@ bool parseSourcesAndVertices(
     const char* floatArrayTagEnd = findChar(floatArray, sourceEnd, '>');
     const bool selfClosingFloatArray = floatArrayTagEnd && isSelfClosingXmlTag(floatArray, floatArrayTagEnd);
     const char* floatArrayEnd = floatArrayTagEnd && !selfClosingFloatArray ? findText(floatArrayTagEnd, sourceEnd, "</float_array>") : nullptr;
+    const size_t floatArrayCount = floatArrayTagEnd
+      ? readPositiveSizeAttribute(floatArray, floatArrayTagEnd, "count")
+      : 0;
     if (!floatArrayEnd) {
       if (!selfClosingFloatArray) {
         errorMessage = "Malformed Collada float_array block.";
         return false;
       }
-    } else if (!parseFloatList(floatArrayTagEnd + 1, floatArrayEnd, source.values)) {
+    } else if (!parseFloatList(floatArrayTagEnd + 1, floatArrayEnd, source.values, floatArrayCount)) {
       return false;
     }
     if (selfClosingFloatArray) {
@@ -1331,6 +1492,26 @@ void ensureGroup(Geometry& geometry, uint32_t materialIndex) {
   geometry.groups.push_back({start, 0, materialIndex});
 }
 
+void reserveGeometryVertices(Geometry& geometry, size_t additionalVertexCount) {
+  if (additionalVertexCount == 0) {
+    return;
+  }
+
+  geometry.positions.reserve(geometry.positions.size() + additionalVertexCount * 3u);
+  if (geometry.hasNormals) {
+    geometry.normals.reserve(geometry.normals.size() + additionalVertexCount * 3u);
+  }
+  if (geometry.hasUvs) {
+    geometry.uvs.reserve(geometry.uvs.size() + additionalVertexCount * geometry.uvItemSize);
+  }
+  if (geometry.hasUv1s) {
+    geometry.uv1s.reserve(geometry.uv1s.size() + additionalVertexCount * geometry.uv1ItemSize);
+  }
+  if (geometry.hasColors) {
+    geometry.colors.reserve(geometry.colors.size() + additionalVertexCount * geometry.colorItemSize);
+  }
+}
+
 float srgbChannelToLinear(float value) {
   if (value <= 0.04045f) {
     return value * 0.0773993808f;
@@ -1345,6 +1526,118 @@ const Source* resolveInputSource(
   std::string sourceId = stripFragment(input.source);
   auto source = sources.find(sourceId);
   return source == sources.end() ? nullptr : &source->second;
+}
+
+const Source* resolveInputSourceReference(
+  const std::string& sourceReference,
+  const std::unordered_map<std::string, Source>& sources
+) {
+  std::string sourceId = stripFragment(sourceReference);
+  auto source = sources.find(sourceId);
+  return source == sources.end() ? nullptr : &source->second;
+}
+
+const std::vector<Input>* resolveVertexInputs(
+  const Input& input,
+  const std::unordered_map<std::string, std::vector<Input>>& vertexInputsById
+) {
+  const std::string verticesId = stripFragment(input.source);
+  auto vertexInputs = vertexInputsById.find(verticesId);
+  if (vertexInputs != vertexInputsById.end()) {
+    return &vertexInputs->second;
+  }
+
+  const size_t slash = verticesId.find_last_of('/');
+  if (slash != std::string::npos && slash + 1 < verticesId.size()) {
+    vertexInputs = vertexInputsById.find(verticesId.substr(slash + 1));
+    if (vertexInputs != vertexInputsById.end()) {
+      return &vertexInputs->second;
+    }
+  }
+
+  return nullptr;
+}
+
+bool resolveAttributeInput(
+  const Input& input,
+  const std::unordered_map<std::string, Source>& sources,
+  ResolvedInput& out
+) {
+  out.offset = input.offset;
+  out.source = resolveInputSourceReference(input.source, sources);
+  if (!out.source) {
+    errorMessage = "Collada primitive input references an unknown source.";
+    return false;
+  }
+
+  if (input.semantic == "POSITION") {
+    out.kind = ResolvedInputKind::Position;
+    out.itemSize = 3;
+    return true;
+  }
+
+  if (input.semantic == "NORMAL") {
+    out.kind = ResolvedInputKind::Normal;
+    out.itemSize = 3;
+    return true;
+  }
+
+  if (input.semantic == "TEXCOORD") {
+    out.kind = input.set == 0 ? ResolvedInputKind::Texcoord0 : ResolvedInputKind::Texcoord1;
+    out.itemSize = out.source->stride > 0 ? out.source->stride : 2;
+    return true;
+  }
+
+  if (input.semantic == "COLOR") {
+    out.kind = ResolvedInputKind::Color;
+    out.itemSize = out.source->stride > 0 ? out.source->stride : 3;
+    return true;
+  }
+
+  errorMessage = "Collada primitive input has an unsupported semantic.";
+  return false;
+}
+
+bool resolvePrimitiveInputs(
+  const std::vector<Input>& inputs,
+  const std::unordered_map<std::string, Source>& sources,
+  const std::unordered_map<std::string, std::vector<Input>>& vertexInputsById,
+  std::vector<ResolvedInput>& out
+) {
+  out.clear();
+  out.reserve(inputs.size());
+
+  for (const Input& input : inputs) {
+    ResolvedInput resolved;
+    resolved.offset = input.offset;
+
+    if (input.semantic == "VERTEX") {
+      const std::vector<Input>* vertexInputs = resolveVertexInputs(input, vertexInputsById);
+      if (!vertexInputs) {
+        errorMessage = "Collada vertices input references an unknown source.";
+        return false;
+      }
+
+      resolved.kind = ResolvedInputKind::Vertex;
+      resolved.vertexInputs.reserve(vertexInputs->size());
+      for (const Input& vertexInput : *vertexInputs) {
+        ResolvedInput resolvedVertexInput;
+        if (!resolveAttributeInput(vertexInput, sources, resolvedVertexInput)) {
+          return false;
+        }
+        resolved.vertexInputs.push_back(std::move(resolvedVertexInput));
+      }
+      out.push_back(std::move(resolved));
+      continue;
+    }
+
+    if (!resolveAttributeInput(input, sources, resolved)) {
+      return false;
+    }
+    out.push_back(std::move(resolved));
+  }
+
+  return true;
 }
 
 bool appendAttribute(
@@ -1417,6 +1710,148 @@ bool appendResolvedInputAttribute(
     }
     geometry.hasColors = true;
     wroteColor = true;
+  }
+  return true;
+}
+
+bool appendResolvedAttribute(
+  Geometry& geometry,
+  const ResolvedInput& input,
+  int sourceIndex
+) {
+  if (!input.source) {
+    errorMessage = "Collada primitive input references an unknown source.";
+    return false;
+  }
+
+  const Source& source = *input.source;
+  if (sourceIndex < 0) {
+    errorMessage = "Collada primitive contains a negative source index.";
+    return false;
+  }
+  const auto start = static_cast<size_t>(sourceIndex) * source.stride;
+  if (start + input.itemSize > source.values.size()) {
+    errorMessage = "Collada primitive references a source index outside the available range.";
+    return false;
+  }
+
+  std::vector<float>* target = nullptr;
+  bool convertSrgbToLinear = false;
+  switch (input.kind) {
+    case ResolvedInputKind::Position:
+      target = &geometry.positions;
+      break;
+    case ResolvedInputKind::Normal:
+      target = &geometry.normals;
+      geometry.hasNormals = true;
+      break;
+    case ResolvedInputKind::Texcoord0:
+      target = &geometry.uvs;
+      geometry.uvItemSize = input.itemSize;
+      geometry.hasUvs = true;
+      break;
+    case ResolvedInputKind::Texcoord1:
+      target = &geometry.uv1s;
+      geometry.uv1ItemSize = input.itemSize;
+      geometry.hasUv1s = true;
+      break;
+    case ResolvedInputKind::Color:
+      target = &geometry.colors;
+      geometry.colorItemSize = input.itemSize;
+      geometry.hasColors = true;
+      convertSrgbToLinear = true;
+      break;
+    case ResolvedInputKind::Vertex:
+      errorMessage = "Collada vertex input must be expanded before appending attributes.";
+      return false;
+  }
+
+  for (uint32_t index = 0; index < input.itemSize; ++index) {
+    const float value = source.values[start + index];
+    target->push_back(convertSrgbToLinear && index < 3 ? srgbChannelToLinear(value) : value);
+  }
+  return true;
+}
+
+bool appendResolvedPrimitiveVertex(
+  Geometry& geometry,
+  const std::vector<ResolvedInput>& inputs,
+  const std::vector<int>& indices,
+  size_t tupleStart,
+  uint32_t tupleStride
+) {
+  bool wrotePosition = false;
+  bool wroteNormal = false;
+  bool wroteUv = false;
+  bool wroteUv1 = false;
+  bool wroteColor = false;
+
+  for (const ResolvedInput& input : inputs) {
+    if (input.offset >= tupleStride) {
+      errorMessage = "Collada primitive input offset exceeds tuple stride.";
+      return false;
+    }
+
+    const int sourceIndex = indices[tupleStart + input.offset];
+    if (input.kind == ResolvedInputKind::Vertex) {
+      for (const ResolvedInput& vertexInput : input.vertexInputs) {
+        if (!appendResolvedAttribute(geometry, vertexInput, sourceIndex)) {
+          return false;
+        }
+        if (vertexInput.kind == ResolvedInputKind::Position) {
+          wrotePosition = true;
+        } else if (vertexInput.kind == ResolvedInputKind::Normal) {
+          wroteNormal = true;
+        } else if (vertexInput.kind == ResolvedInputKind::Texcoord0) {
+          wroteUv = true;
+        } else if (vertexInput.kind == ResolvedInputKind::Texcoord1) {
+          wroteUv1 = true;
+        } else if (vertexInput.kind == ResolvedInputKind::Color) {
+          wroteColor = true;
+        }
+      }
+      continue;
+    }
+
+    if (!appendResolvedAttribute(geometry, input, sourceIndex)) {
+      return false;
+    }
+    if (input.kind == ResolvedInputKind::Position) {
+      wrotePosition = true;
+    } else if (input.kind == ResolvedInputKind::Normal) {
+      wroteNormal = true;
+    } else if (input.kind == ResolvedInputKind::Texcoord0) {
+      wroteUv = true;
+    } else if (input.kind == ResolvedInputKind::Texcoord1) {
+      wroteUv1 = true;
+    } else if (input.kind == ResolvedInputKind::Color) {
+      wroteColor = true;
+    }
+  }
+
+  if (!wrotePosition) {
+    errorMessage = "Collada primitive vertex is missing position data.";
+    return false;
+  }
+  if (geometry.hasNormals && !wroteNormal) {
+    geometry.normals.push_back(0.0f);
+    geometry.normals.push_back(0.0f);
+    geometry.normals.push_back(1.0f);
+  }
+  if (geometry.hasUvs && !wroteUv) {
+    for (uint32_t index = 0; index < geometry.uvItemSize; ++index) {
+      geometry.uvs.push_back(0.0f);
+    }
+  }
+  if (geometry.hasUv1s && !wroteUv1) {
+    for (uint32_t index = 0; index < geometry.uv1ItemSize; ++index) {
+      geometry.uv1s.push_back(0.0f);
+    }
+  }
+  if (geometry.hasColors && !wroteColor) {
+    for (uint32_t index = 0; index < geometry.colorItemSize; ++index) {
+      geometry.colors.push_back(index == 3 ? 1.0f : 0.0f);
+    }
   }
   return true;
 }
@@ -1526,9 +1961,7 @@ bool appendPrimitiveVertex(
 
 bool appendTriangleFromPolygon(
   Geometry& geometry,
-  const std::vector<Input>& inputs,
-  const std::unordered_map<std::string, Source>& sources,
-  const std::unordered_map<std::string, std::vector<Input>>& vertexInputsById,
+  const std::vector<ResolvedInput>& inputs,
   const std::vector<int>& indices,
   size_t polygonStart,
   uint32_t tupleStride,
@@ -1539,9 +1972,9 @@ bool appendTriangleFromPolygon(
   const size_t tupleA = polygonStart + static_cast<size_t>(a) * tupleStride;
   const size_t tupleB = polygonStart + static_cast<size_t>(b) * tupleStride;
   const size_t tupleC = polygonStart + static_cast<size_t>(c) * tupleStride;
-  return appendPrimitiveVertex(geometry, inputs, sources, vertexInputsById, indices, tupleA, tupleStride) &&
-         appendPrimitiveVertex(geometry, inputs, sources, vertexInputsById, indices, tupleB, tupleStride) &&
-         appendPrimitiveVertex(geometry, inputs, sources, vertexInputsById, indices, tupleC, tupleStride);
+  return appendResolvedPrimitiveVertex(geometry, inputs, indices, tupleA, tupleStride) &&
+         appendResolvedPrimitiveVertex(geometry, inputs, indices, tupleB, tupleStride) &&
+         appendResolvedPrimitiveVertex(geometry, inputs, indices, tupleC, tupleStride);
 }
 
 bool parsePrimitiveInputs(
@@ -1617,6 +2050,10 @@ bool parsePrimitive(
   if (!parsePrimitiveInputs(primitiveStart, primitiveEnd, inputs, tupleStride)) {
     return false;
   }
+  std::vector<ResolvedInput> resolvedInputs;
+  if (!resolvePrimitiveInputs(inputs, sources, vertexInputsById, resolvedInputs)) {
+    return false;
+  }
 
   bool primitiveHasNormals = false;
   bool primitiveHasUvs = false;
@@ -1625,24 +2062,40 @@ bool parsePrimitive(
   uint32_t primitiveUvItemSize = geometry.uvItemSize;
   uint32_t primitiveUv1ItemSize = geometry.uv1ItemSize;
   uint32_t primitiveColorItemSize = geometry.colorItemSize;
-  for (const Input& input : inputs) {
-    if (input.semantic == "NORMAL") {
-      primitiveHasNormals = true;
-    } else if (input.semantic == "TEXCOORD") {
-      const Source* source = resolveInputSource(input, sources);
-      const uint32_t itemSize = source && source->stride > 0 ? source->stride : 2;
-      if (input.set == 0) {
-        primitiveHasUvs = true;
-        primitiveUvItemSize = itemSize;
-      } else if (input.set == 1) {
-        primitiveHasUv1s = true;
-        primitiveUv1ItemSize = itemSize;
+  const auto inspectResolvedInput = [&](const ResolvedInput& input) {
+    if (input.kind == ResolvedInputKind::Vertex) {
+      for (const ResolvedInput& vertexInput : input.vertexInputs) {
+        if (vertexInput.kind == ResolvedInputKind::Normal) {
+          primitiveHasNormals = true;
+        } else if (vertexInput.kind == ResolvedInputKind::Texcoord0) {
+          primitiveHasUvs = true;
+          primitiveUvItemSize = vertexInput.itemSize;
+        } else if (vertexInput.kind == ResolvedInputKind::Texcoord1) {
+          primitiveHasUv1s = true;
+          primitiveUv1ItemSize = vertexInput.itemSize;
+        } else if (vertexInput.kind == ResolvedInputKind::Color) {
+          primitiveHasColors = true;
+          primitiveColorItemSize = vertexInput.itemSize;
+        }
       }
-    } else if (input.semantic == "COLOR") {
-      const Source* source = resolveInputSource(input, sources);
-      primitiveHasColors = true;
-      primitiveColorItemSize = source && source->stride > 0 ? source->stride : 3;
+      return;
     }
+
+    if (input.kind == ResolvedInputKind::Normal) {
+      primitiveHasNormals = true;
+    } else if (input.kind == ResolvedInputKind::Texcoord0) {
+      primitiveHasUvs = true;
+      primitiveUvItemSize = input.itemSize;
+    } else if (input.kind == ResolvedInputKind::Texcoord1) {
+      primitiveHasUv1s = true;
+      primitiveUv1ItemSize = input.itemSize;
+    } else if (input.kind == ResolvedInputKind::Color) {
+      primitiveHasColors = true;
+      primitiveColorItemSize = input.itemSize;
+    }
+  };
+  for (const ResolvedInput& input : resolvedInputs) {
+    inspectResolvedInput(input);
   }
 
   const uint32_t existingVertexCount = static_cast<uint32_t>(geometry.positions.size() / 3);
@@ -1695,25 +2148,40 @@ bool parsePrimitive(
     errorMessage = "Collada primitive is missing index list.";
     return false;
   }
+
+  uint32_t appendedVertices = 0;
   std::vector<int> indices;
-  if (!parseIntList(pStart + 3, pEnd, indices)) {
+  size_t expectedIndexCount = 0;
+  if (declaredCount > 0 && tupleStride > 0) {
+    if (std::strcmp(primitiveName, "triangles") == 0) {
+      expectedIndexCount = static_cast<size_t>(declaredCount) * 3u * tupleStride;
+    } else if (std::strcmp(primitiveName, "lines") == 0) {
+      expectedIndexCount = static_cast<size_t>(declaredCount) * 2u * tupleStride;
+    }
+  }
+  if (!parseIntList(pStart + 3, pEnd, indices, expectedIndexCount)) {
     return false;
   }
 
-  uint32_t appendedVertices = 0;
   if (std::strcmp(primitiveName, "triangles") == 0) {
-    if (indices.size() % (tupleStride * 3u) != 0) {
-      errorMessage = "Collada triangles index list length is not divisible by triangle stride.";
+    if (indices.size() % tupleStride != 0) {
+      errorMessage = "Collada triangles index list length is not divisible by tuple stride.";
       return false;
     }
-    const size_t triangleCount = indices.size() / (tupleStride * 3u);
+    const size_t vertexCount = indices.size() / tupleStride;
+    if (vertexCount % 3u != 0) {
+      errorMessage = "Collada triangles vertex count is not divisible by three.";
+      return false;
+    }
+    const size_t triangleCount = vertexCount / 3u;
     if (declaredCount >= 0 && triangleCount != static_cast<size_t>(declaredCount)) {
       errorMessage = "Collada triangles count does not match index data.";
       return false;
     }
+    reserveGeometryVertices(geometry, vertexCount);
     for (size_t triangle = 0; triangle < triangleCount; ++triangle) {
-      const size_t polygonStart = triangle * tupleStride * 3u;
-      if (!appendTriangleFromPolygon(geometry, inputs, sources, vertexInputsById, indices, polygonStart, tupleStride, 0, 1, 2)) {
+      const size_t polygonStart = triangle * 3u * tupleStride;
+      if (!appendTriangleFromPolygon(geometry, resolvedInputs, indices, polygonStart, tupleStride, 0, 1, 2)) {
         return false;
       }
       appendedVertices += 3;
@@ -1735,8 +2203,9 @@ bool parsePrimitive(
         return false;
       }
     }
+    reserveGeometryVertices(geometry, vertexCount);
     for (size_t vertex = 0; vertex < vertexCount; ++vertex) {
-      if (!appendPrimitiveVertex(geometry, inputs, sources, vertexInputsById, indices, vertex * tupleStride, tupleStride)) {
+      if (!appendResolvedPrimitiveVertex(geometry, resolvedInputs, indices, vertex * tupleStride, tupleStride)) {
         return false;
       }
       appendedVertices += 1;
@@ -1751,7 +2220,7 @@ bool parsePrimitive(
         return false;
       }
       std::vector<int> polygonIndices;
-      if (!parseIntList(polygonCursor + 3, polygonEnd, polygonIndices)) {
+      if (!parseIntList(polygonCursor + 3, polygonEnd, polygonIndices, tupleStride * 4u)) {
         return false;
       }
       if (polygonIndices.size() % tupleStride != 0) {
@@ -1764,14 +2233,14 @@ bool parsePrimitive(
         return false;
       }
       if (vcount == 4) {
-        if (!appendTriangleFromPolygon(geometry, inputs, sources, vertexInputsById, polygonIndices, 0, tupleStride, 0, 1, 3) ||
-            !appendTriangleFromPolygon(geometry, inputs, sources, vertexInputsById, polygonIndices, 0, tupleStride, 1, 2, 3)) {
+        if (!appendTriangleFromPolygon(geometry, resolvedInputs, polygonIndices, 0, tupleStride, 0, 1, 3) ||
+            !appendTriangleFromPolygon(geometry, resolvedInputs, polygonIndices, 0, tupleStride, 1, 2, 3)) {
           return false;
         }
         appendedVertices += 6;
       } else {
         for (uint32_t index = 1; index + 1 < vcount; ++index) {
-          if (!appendTriangleFromPolygon(geometry, inputs, sources, vertexInputsById, polygonIndices, 0, tupleStride, 0, index, index + 1)) {
+          if (!appendTriangleFromPolygon(geometry, resolvedInputs, polygonIndices, 0, tupleStride, 0, index, index + 1)) {
             return false;
           }
           appendedVertices += 3;
@@ -1792,13 +2261,26 @@ bool parsePrimitive(
       return false;
     }
     std::vector<int> vcounts;
-    if (!parseIntList(vcountStart + 8, vcountEnd, vcounts)) {
+    if (!parseIntList(
+          vcountStart + 8,
+          vcountEnd,
+          vcounts,
+          declaredCount > 0 ? static_cast<size_t>(declaredCount) : 0
+        )) {
       return false;
     }
     if (declaredCount >= 0 && vcounts.size() != static_cast<size_t>(declaredCount)) {
       errorMessage = "Collada polylist count does not match vcount data.";
       return false;
     }
+
+    size_t triangulatedVertexCount = 0;
+    for (int vcount : vcounts) {
+      if (vcount >= 3) {
+        triangulatedVertexCount += static_cast<size_t>(vcount == 4 ? 6 : (vcount - 2) * 3);
+      }
+    }
+    reserveGeometryVertices(geometry, triangulatedVertexCount);
 
     size_t polygonStart = 0;
     for (int vcount : vcounts) {
@@ -1811,14 +2293,14 @@ bool parsePrimitive(
         return false;
       }
       if (vcount == 4) {
-        if (!appendTriangleFromPolygon(geometry, inputs, sources, vertexInputsById, indices, polygonStart, tupleStride, 0, 1, 3) ||
-            !appendTriangleFromPolygon(geometry, inputs, sources, vertexInputsById, indices, polygonStart, tupleStride, 1, 2, 3)) {
+        if (!appendTriangleFromPolygon(geometry, resolvedInputs, indices, polygonStart, tupleStride, 0, 1, 3) ||
+            !appendTriangleFromPolygon(geometry, resolvedInputs, indices, polygonStart, tupleStride, 1, 2, 3)) {
           return false;
         }
         appendedVertices += 6;
       } else {
         for (uint32_t index = 1; index + 1 < static_cast<uint32_t>(vcount); ++index) {
-          if (!appendTriangleFromPolygon(geometry, inputs, sources, vertexInputsById, indices, polygonStart, tupleStride, 0, index, index + 1)) {
+          if (!appendTriangleFromPolygon(geometry, resolvedInputs, indices, polygonStart, tupleStride, 0, index, index + 1)) {
             return false;
           }
           appendedVertices += 3;
@@ -2503,19 +2985,78 @@ bool parseCollada(const uint8_t* data, uint32_t length, BinaryWriter& writer) {
   const char* start = reinterpret_cast<const char*>(data);
   const char* end = start + length;
 
-  if (hasUnsupportedColladaFeature(start, end)) {
-    return false;
-  }
-
   ParseState state;
-  return validateSupportedUpAxis(start, end) &&
-         parseUnitScale(start, end, state) &&
-         parseImages(start, end, state) &&
-         parseEffectsAndMaterials(start, end, state) &&
-         parseGeometries(start, end, state) &&
-         parseLibraryNodes(start, end, state) &&
-         parseVisualSceneNodes(start, end, state) &&
-         writeResult(state, writer);
+  lastParseTimings = {};
+
+  const auto measure = [](double& target, const auto& run) -> bool {
+    const double started = monotonicNowMs();
+    const bool ok = run();
+    target = monotonicNowMs() - started;
+    return ok;
+  };
+
+  return measure(lastParseTimings.featureCheckMs, [&]() {
+           return !hasUnsupportedColladaFeature(start, end);
+         }) &&
+         measure(lastParseTimings.upAxisMs, [&]() {
+           return validateSupportedUpAxis(start, end);
+         }) &&
+         measure(lastParseTimings.unitScaleMs, [&]() {
+           return parseUnitScale(start, end, state);
+         }) &&
+         measure(lastParseTimings.imagesMs, [&]() {
+           XmlBlock block;
+           if (!findOptionalElementContentBlock(
+                 start,
+                 end,
+                 "<library_images",
+                 "</library_images>",
+                 "library_images",
+                 block
+               )) {
+             return false;
+           }
+           return block.start ? parseImages(block.start, block.end, state) : parseImages(start, end, state);
+         }) &&
+         measure(lastParseTimings.materialsMs, [&]() {
+           return parseEffectsAndMaterials(start, end, state);
+         }) &&
+         measure(lastParseTimings.geometriesMs, [&]() {
+           XmlBlock block;
+           if (!findOptionalElementContentBlock(
+                 start,
+                 end,
+                 "<library_geometries",
+                 "</library_geometries>",
+                 "library_geometries",
+                 block
+               )) {
+             return false;
+           }
+           return block.start ? parseGeometries(block.start, block.end, state) : parseGeometries(start, end, state);
+         }) &&
+         measure(lastParseTimings.libraryNodesMs, [&]() {
+           return parseLibraryNodes(start, end, state);
+         }) &&
+         measure(lastParseTimings.visualSceneMs, [&]() {
+           XmlBlock block;
+           if (!findOptionalElementContentBlock(
+                 start,
+                 end,
+                 "<library_visual_scenes",
+                 "</library_visual_scenes>",
+                 "library_visual_scenes",
+                 block
+               )) {
+             return false;
+           }
+           return block.start
+             ? parseVisualSceneNodes(block.start, block.end, state)
+             : parseVisualSceneNodes(start, end, state);
+         }) &&
+         measure(lastParseTimings.writeResultMs, [&]() {
+           return writeResult(state, writer);
+         });
 }
 
 } // namespace
@@ -2559,6 +3100,31 @@ uintptr_t collada_mesh_parser_get_error_ptr() {
 
 uint32_t collada_mesh_parser_get_error_size() {
   return static_cast<uint32_t>(errorMessage.size());
+}
+
+double collada_mesh_parser_get_last_timing_ms(uint32_t metricIndex) {
+  switch (metricIndex) {
+    case 0:
+      return lastParseTimings.featureCheckMs;
+    case 1:
+      return lastParseTimings.upAxisMs;
+    case 2:
+      return lastParseTimings.unitScaleMs;
+    case 3:
+      return lastParseTimings.imagesMs;
+    case 4:
+      return lastParseTimings.materialsMs;
+    case 5:
+      return lastParseTimings.geometriesMs;
+    case 6:
+      return lastParseTimings.libraryNodesMs;
+    case 7:
+      return lastParseTimings.visualSceneMs;
+    case 8:
+      return lastParseTimings.writeResultMs;
+    default:
+      return 0.0;
+  }
 }
 
 void collada_mesh_parser_free_result() {

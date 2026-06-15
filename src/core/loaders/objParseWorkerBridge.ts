@@ -3,24 +3,29 @@ import {
   createObjectFromSerializedObjDataAsync,
   type SerializedObjModelData,
 } from './objModelData';
-import type { ObjParseWorkerResponse, ParseObjWorkerRequest } from './objParseWorkerProtocol';
 import { parseObjModelDataFromBytes } from './objWasmParser';
 import {
-  createWorkerPoolClient,
-  resolveDefaultWorkerCount,
-  type WorkerLike,
-} from '@/core/workers/workerPoolClient';
+  createDefaultMeshParseWorker,
+  createMeshParseWorkerPoolClient,
+  resolveDefaultMeshParseWorkerCount,
+  sharedMeshParseWorkerPoolClient,
+  type MeshParseWorkerPoolClient,
+  type MeshParseWorkerPoolDiagnostics,
+} from './meshParseWorkerBridge';
+import { type WorkerLike } from '@/core/workers/workerPoolClient';
 
 interface CreateObjParseWorkerPoolClientOptions {
   cacheLimit?: number;
   canUseWorker?: () => boolean;
   createWorker?: () => WorkerLike;
   getWorkerCount?: () => number;
+  meshClient?: MeshParseWorkerPoolClient;
 }
 
 interface ObjParseWorkerPoolClient {
   clearCache: () => void;
   dispose: (rejectPendingWith?: unknown) => void;
+  getDiagnostics: () => MeshParseWorkerPoolDiagnostics;
   load: (assetUrl: string) => Promise<SerializedObjModelData>;
 }
 
@@ -39,24 +44,37 @@ async function loadSerializedObjModelDataInline(assetUrl: string): Promise<Seria
 export function createObjParseWorkerPoolClient({
   cacheLimit = DEFAULT_CACHE_LIMIT,
   canUseWorker = () => typeof Worker !== 'undefined',
-  createWorker = () =>
-    new Worker(new URL('./workers/objParse.worker.ts', import.meta.url), { type: 'module' }),
-  getWorkerCount = resolveDefaultWorkerCount,
-}: CreateObjParseWorkerPoolClientOptions = {}): ObjParseWorkerPoolClient {
-  const client = createWorkerPoolClient<ObjParseWorkerResponse, SerializedObjModelData>({
+  createWorker = createDefaultMeshParseWorker,
+  getWorkerCount = resolveDefaultMeshParseWorkerCount,
+  meshClient = createMeshParseWorkerPoolClient({
     label: 'OBJ parse',
-    createWorker,
     canUseWorker,
-    poolSize: getWorkerCount,
-    cacheLimit,
-    getRequestId: (response) => response.requestId,
-    isError: (response) => response.type === 'parse-obj-error',
-    getError: (response) => (response as { error?: string }).error || 'OBJ parse worker failed',
-    getResult: (response) => (response as { result: SerializedObjModelData }).result,
-  });
-
+    createWorker,
+    getWorkerCount,
+  }),
+}: CreateObjParseWorkerPoolClientOptions = {}): ObjParseWorkerPoolClient {
   const pendingLoads = new Map<string, Promise<SerializedObjModelData>>();
   const failureCache = new Map<string, unknown>();
+  const resolvedCache = cacheLimit > 0 ? new Map<string, SerializedObjModelData>() : null;
+
+  const getCached = (assetUrl: string): SerializedObjModelData | undefined => {
+    return resolvedCache?.get(assetUrl);
+  };
+
+  const setCached = (assetUrl: string, result: SerializedObjModelData): void => {
+    if (!resolvedCache) return;
+
+    if (resolvedCache.has(assetUrl)) {
+      resolvedCache.delete(assetUrl);
+    }
+    resolvedCache.set(assetUrl, result);
+
+    while (resolvedCache.size > cacheLimit) {
+      const oldestKey = resolvedCache.keys().next().value;
+      if (oldestKey === undefined) return;
+      resolvedCache.delete(oldestKey);
+    }
+  };
 
   const rememberFailure = (assetUrl: string, error: unknown): void => {
     if (failureCache.size >= FAILURE_CACHE_LIMIT) {
@@ -67,7 +85,7 @@ export function createObjParseWorkerPoolClient({
   };
 
   const load = async (assetUrl: string): Promise<SerializedObjModelData> => {
-    const cachedResult = client.getCached(assetUrl);
+    const cachedResult = getCached(assetUrl);
     if (cachedResult) {
       return cachedResult;
     }
@@ -82,12 +100,12 @@ export function createObjParseWorkerPoolClient({
     }
 
     const nextLoad = (
-      client.canUseWorker
-        ? client.dispatch({ type: 'parse-obj', assetUrl })
+      meshClient.canUseWorker
+        ? meshClient.dispatchObj(assetUrl)
         : loadSerializedObjModelDataInline(assetUrl)
     )
       .then((result) => {
-        client.setCached(assetUrl, result);
+        setCached(assetUrl, result);
         return result;
       })
       .catch((error) => {
@@ -104,15 +122,18 @@ export function createObjParseWorkerPoolClient({
 
   return {
     clearCache: () => {
-      client.clearCache();
+      resolvedCache?.clear();
       failureCache.clear();
     },
-    dispose: (rejectPendingWith) => client.dispose(rejectPendingWith),
+    dispose: (rejectPendingWith) => meshClient.dispose(rejectPendingWith),
+    getDiagnostics: () => meshClient.getDiagnostics(),
     load,
   };
 }
 
-const sharedObjParseWorkerPoolClient = createObjParseWorkerPoolClient();
+const sharedObjParseWorkerPoolClient = createObjParseWorkerPoolClient({
+  meshClient: sharedMeshParseWorkerPoolClient,
+});
 
 export async function loadSerializedObjModelData(
   assetUrl: string,

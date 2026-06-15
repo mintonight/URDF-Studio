@@ -23,7 +23,7 @@ import {
   isModelOpacitySyncActive,
   shouldRunVisualizationSync,
 } from '../utils/visualizationSyncActivity';
-import type { UrdfJoint, UrdfLink } from '@/types';
+import type { RobotData, UrdfJoint, UrdfLink } from '@/types';
 import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
 import type { ViewerProps } from '../types';
 import type { HighlightedMeshSnapshot } from './useHighlightManager';
@@ -54,6 +54,7 @@ export interface UseVisualizationEffectsOptions {
   sourceFormat: ViewerRobotSourceFormat;
   showMjcfWorldLink: boolean;
   robotLinks?: Record<string, UrdfLink>;
+  robotMaterials?: RobotData['materials'];
   robotJoints?: Record<string, UrdfJoint>;
   selection?: ViewerProps['selection'];
   highlightGeometry: (
@@ -144,6 +145,7 @@ export function useVisualizationEffects({
   sourceFormat,
   showMjcfWorldLink,
   robotLinks,
+  robotMaterials,
   robotJoints,
   selection,
   highlightGeometry,
@@ -497,12 +499,12 @@ export function useVisualizationEffects({
   useEffect(() => {
     if (!robot || !robotLinks) return;
 
-    const didMutate = syncLinkVisualColors({ robot, robotLinks });
+    const didMutate = syncLinkVisualColors({ robot, robotLinks, robotMaterials });
 
     if (didMutate) {
       invalidate();
     }
-  }, [robot, robotLinks, invalidate]);
+  }, [robot, robotLinks, robotMaterials, invalidate]);
 
   // Update helper visibility for legacy __link_axes_helper__ objects
   useEffect(() => {

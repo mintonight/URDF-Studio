@@ -361,14 +361,10 @@ function findFlexSectionRootByLabel(container: HTMLElement, label: string) {
 function renderTreeEditor(options: {
   root: Root;
   availableFiles: RobotFile[];
-  onRequestLoadRobot: (
-    file: RobotFile,
-    intent: 'direct' | 'preview' | 'discard',
-  ) =>
-    | Promise<'loaded' | 'needs-preview-or-discard-confirm' | 'blocked'>
-    | 'loaded'
-    | 'needs-preview-or-discard-confirm'
-    | 'blocked';
+  onRequestLoadRobot: NonNullable<React.ComponentProps<typeof TreeEditor>['onRequestLoadRobot']>;
+  onDeleteLibraryFile?: React.ComponentProps<typeof TreeEditor>['onDeleteLibraryFile'];
+  onDeleteLibraryFolder?: React.ComponentProps<typeof TreeEditor>['onDeleteLibraryFolder'];
+  onDeleteAllLibraryFiles?: React.ComponentProps<typeof TreeEditor>['onDeleteAllLibraryFiles'];
 }) {
   return act(async () => {
     options.root.render(
@@ -389,6 +385,9 @@ function renderTreeEditor(options: {
         onToggle={() => {}}
         availableFiles={options.availableFiles}
         onRequestLoadRobot={options.onRequestLoadRobot}
+        onDeleteLibraryFile={options.onDeleteLibraryFile}
+        onDeleteLibraryFolder={options.onDeleteLibraryFolder}
+        onDeleteAllLibraryFiles={options.onDeleteAllLibraryFiles}
       />,
     );
   });
@@ -430,6 +429,91 @@ test('TreeEditor asks whether to preview or discard before opening another libra
       { fileName: 'robots/arm_b.urdf', intent: 'direct' },
       { fileName: 'robots/arm_b.urdf', intent: 'discard' },
     ]);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('TreeEditor exposes asset library delete buttons for files, folders, and bulk deletion', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+  const root = createRoot(container);
+
+  useSelectionStore.setState({ selection: { type: null, id: null } });
+
+  const targetFile = createRobotFile('robots/delete_me.urdf');
+  const deletedFiles: string[] = [];
+  const deletedFolders: string[] = [];
+  let deleteAllCount = 0;
+
+  const findLibraryRow = (label: string) => {
+    const labelElement = Array.from(container.querySelectorAll<HTMLElement>('span')).find(
+      (element) => element.textContent?.trim() === label,
+    );
+    assert.ok(labelElement, `expected library row label "${label}"`);
+    const row = labelElement.closest<HTMLElement>('[role="button"]');
+    assert.ok(row, `expected library row for "${label}"`);
+    return row;
+  };
+
+  const findRemoveButton = (row: HTMLElement, label: string) => {
+    const button = Array.from(row.querySelectorAll<HTMLButtonElement>('button')).find(
+      (element) => element.getAttribute('title') === 'Remove from Library',
+    );
+    assert.ok(button, `expected remove button for "${label}"`);
+    return button;
+  };
+
+  try {
+    await renderTreeEditor({
+      root,
+      availableFiles: [targetFile],
+      onRequestLoadRobot: () => 'loaded',
+      onDeleteLibraryFile: (file) => {
+        deletedFiles.push(file.name);
+      },
+      onDeleteLibraryFolder: (folderPath) => {
+        deletedFolders.push(folderPath);
+      },
+      onDeleteAllLibraryFiles: () => {
+        deleteAllCount += 1;
+      },
+    });
+
+    await act(async () => {
+      findRemoveButton(findLibraryRow('delete_me.urdf'), 'delete_me.urdf').dispatchEvent(
+        new dom.window.MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    assert.deepEqual(deletedFiles, ['robots/delete_me.urdf']);
+
+    await act(async () => {
+      findRemoveButton(findLibraryRow('robots'), 'robots').dispatchEvent(
+        new dom.window.MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    assert.deepEqual(deletedFolders, ['robots']);
+
+    await clickButtonByTitle(dom, 'Delete All');
+    assert.match(
+      dom.window.document.body.textContent ?? '',
+      /Delete all files in the asset library/,
+    );
+    await clickByText(dom, container, 'Confirm');
+
+    assert.equal(deleteAllCount, 1);
   } finally {
     await act(async () => {
       root.unmount();

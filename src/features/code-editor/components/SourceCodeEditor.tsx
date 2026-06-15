@@ -142,6 +142,18 @@ interface MonacoEditorLike {
   layout: () => void;
 }
 
+interface RegressionSourceEditorDebugApi {
+  getValue: () => string;
+  replaceFirst: (fromText: string, toText: string) => { ok: boolean; error?: string };
+  setValue: (value: string) => { ok: boolean };
+}
+
+type RegressionSourceEditorWindow = Window & {
+  __URDF_STUDIO_DEBUG__?: {
+    __sourceEditor?: RegressionSourceEditorDebugApi;
+  };
+};
+
 const editorTexts = {
   en: {
     save: 'Save',
@@ -153,6 +165,8 @@ const editorTexts = {
     copyTooltip: 'Copy to clipboard',
     copied: 'Copied',
     modified: 'Modified',
+    applyFailed: 'Save failed',
+    applyFailedMessage: 'Could not apply the source changes. Fix the source and try again.',
     readOnly: 'Read-only',
     readOnlyView: 'Read-only view',
     generated: 'Generated',
@@ -212,6 +226,8 @@ const editorTexts = {
     copyTooltip: '复制到剪贴板',
     copied: '已复制',
     modified: '已修改',
+    applyFailed: '保存失败',
+    applyFailedMessage: '无法应用源代码修改。请修正源码后重试。',
     readOnly: '只读',
     readOnlyView: '只读视图',
     generated: '生成内容',
@@ -513,6 +529,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
   const [isValidationPending, setIsValidationPending] = useState(validationEnabled);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [isApplying, setIsApplying] = useState(false);
+  const [applyErrorMessage, setApplyErrorMessage] = useState<string | null>(null);
   const [autoApplyBlockedCode, setAutoApplyBlockedCode] = useState<string | null>(null);
   const [loadedDocumentCodes, setLoadedDocumentCodes] = useState<
     Record<string, { contentUrl: string; code: string }>
@@ -643,6 +660,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
     setValidationErrors([]);
     setIsValidationPending(validationEnabled);
     setIsApplying(false);
+    setApplyErrorMessage(null);
     setIsEditorReady(false);
     setCopied(false);
     if (copyTimerRef.current) {
@@ -675,6 +693,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
       suppressDirtyTrackingRef.current = Math.max(0, suppressDirtyTrackingRef.current - 1);
       setCurrentCode(activeDocumentCode);
       dirtyRangesRef.current = [];
+      setApplyErrorMessage(null);
       setAutoApplyBlockedCode(null);
       return;
     }
@@ -875,10 +894,12 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
           pendingAppliedBaseCodeRef.current = activeDocumentCode;
           dirtyRangesRef.current = [];
           setIsDirty(false);
+          setApplyErrorMessage(null);
           setAutoApplyBlockedCode(null);
           return true;
         }
 
+        setApplyErrorMessage(t.applyFailedMessage);
         if (trigger === 'auto') {
           setAutoApplyBlockedCode(value);
         }
@@ -887,6 +908,11 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
         if (trigger === 'auto') {
           setAutoApplyBlockedCode(value);
         }
+        setApplyErrorMessage(
+          error instanceof Error && error.message
+            ? `${t.applyFailedMessage} ${error.message}`
+            : t.applyFailedMessage,
+        );
         console.error('Failed to apply source code changes:', error);
         return false;
       } finally {
@@ -912,11 +938,14 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
 
       setCurrentCode(value);
       setIsDirty(isReadOnly ? false : value !== activeDocumentCode);
+      if (applyErrorMessage) {
+        setApplyErrorMessage(null);
+      }
       if (autoApplyBlockedCode && autoApplyBlockedCode !== value) {
         setAutoApplyBlockedCode(null);
       }
     },
-    [activeDocumentCode, autoApplyBlockedCode, isReadOnly],
+    [activeDocumentCode, applyErrorMessage, autoApplyBlockedCode, isReadOnly],
   );
 
   const handleCopy = useCallback(() => {
@@ -1008,6 +1037,68 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
 
     return attachFindWidgetTooltipSuppression(editorRef.current);
   }, [isEditorReady]);
+
+  useEffect(() => {
+    if (!isEditorReady || !editorRef.current || !monacoInstance || typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const debugApi = (window as RegressionSourceEditorWindow).__URDF_STUDIO_DEBUG__;
+    if (!debugApi) {
+      return undefined;
+    }
+
+    const editor = editorRef.current as MonacoEditorLike;
+    const sourceEditorDebug: RegressionSourceEditorDebugApi = {
+      getValue: () => editor.getValue(),
+      replaceFirst: (fromText, toText) => {
+        const model = editor.getModel?.();
+        if (!model || typeof fromText !== 'string') {
+          return { ok: false, error: 'source editor model is unavailable' };
+        }
+
+        const value = editor.getValue();
+        const offset = value.indexOf(fromText);
+        if (offset < 0) {
+          return { ok: false, error: `source text not found: ${fromText}` };
+        }
+
+        const modelWithEdits = model as MonacoTextModelLike & {
+          applyEdits?: (edits: Array<{ range: unknown; text: string }>) => void;
+          getPositionAt?: (offset: number) => { lineNumber: number; column: number };
+        };
+        const start = modelWithEdits.getPositionAt?.(offset);
+        const end = modelWithEdits.getPositionAt?.(offset + fromText.length);
+        if (!start || !end || typeof modelWithEdits.applyEdits !== 'function') {
+          return { ok: false, error: 'source editor edit API is unavailable' };
+        }
+
+        modelWithEdits.applyEdits([
+          {
+            range: new monacoInstance.Range(
+              start.lineNumber,
+              start.column,
+              end.lineNumber,
+              end.column,
+            ),
+            text: toText,
+          },
+        ]);
+        return { ok: true };
+      },
+      setValue: (value) => {
+        editor.setValue(value);
+        return { ok: true };
+      },
+    };
+
+    debugApi.__sourceEditor = sourceEditorDebug;
+    return () => {
+      if (debugApi.__sourceEditor === sourceEditorDebug) {
+        delete debugApi.__sourceEditor;
+      }
+    };
+  }, [activeDocument.id, isEditorReady, monacoInstance]);
 
   const handleEditorMount = useCallback(
     (editor: unknown, monaco: MonacoInstance) => {
@@ -1290,8 +1381,8 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
         </Suspense>
       </div>
 
-      <div className="flex h-7 shrink-0 items-center justify-between border-t border-border-black bg-element-bg px-3 text-[10px] select-none">
-        <div className="flex items-center gap-3">
+      <div className="flex h-7 shrink-0 items-center justify-between gap-3 border-t border-border-black bg-element-bg px-3 text-[10px] select-none">
+        <div className="flex min-w-0 items-center gap-3">
           {validationEnabled ? (
             validationErrors.length > 0 ? (
               <Tooltip content={t.jumpToProblem} side="bottom">
@@ -1336,6 +1427,19 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
               <div className="h-3 w-px bg-border-black" />
               <div className="flex items-center gap-1.5 text-text-secondary">
                 <span>{t.readOnly}</span>
+              </div>
+            </>
+          ) : null}
+
+          {!isReadOnly && applyErrorMessage ? (
+            <>
+              <div className="h-3 w-px bg-border-black" />
+              <div
+                className="flex min-w-0 items-center gap-1.5 text-danger"
+                title={applyErrorMessage}
+              >
+                <AlertCircle className="h-3 w-3 shrink-0" />
+                <span className="truncate">{t.applyFailed}</span>
               </div>
             </>
           ) : null}

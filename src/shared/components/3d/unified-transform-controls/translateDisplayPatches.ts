@@ -56,13 +56,21 @@ const createAxisAlignedCylinderGeometry = (
   return geometry;
 };
 
-const createAxisAlignedArrowGeometry = (
-  axis: 'X' | 'Y' | 'Z',
-  direction: 1 | -1,
-  startOffset: number,
-  length: number,
-  radius: number,
-) => {
+interface AxisAlignedArrowGeometryOptions {
+  axis: 'X' | 'Y' | 'Z';
+  direction: 1 | -1;
+  startOffset: number;
+  length: number;
+  radius: number;
+}
+
+const createAxisAlignedArrowGeometry = ({
+  axis,
+  direction,
+  startOffset,
+  length,
+  radius,
+}: AxisAlignedArrowGeometryOptions) => {
   const geometry = new THREE.CylinderGeometry(0, radius, length, AXIS_GEOMETRY_RADIAL_SEGMENTS);
   const segmentCenter = direction * (startOffset + length * 0.5);
 
@@ -275,13 +283,13 @@ const addTranslateArrowMeshes = (group: THREE.Object3D | undefined) => {
   for (const axis of ['X', 'Y', 'Z'] as const) {
     for (const direction of [1, -1] as const) {
       const tip = new THREE.Mesh(
-        createAxisAlignedArrowGeometry(
+        createAxisAlignedArrowGeometry({
           axis,
           direction,
-          TRANSLATE_ARROW_HANDLE_OFFSET,
-          TRANSLATE_ARROW_LENGTH,
-          TRANSLATE_ARROW_BASE_RADIUS,
-        ),
+          startOffset: TRANSLATE_ARROW_HANDLE_OFFSET,
+          length: TRANSLATE_ARROW_LENGTH,
+          radius: TRANSLATE_ARROW_BASE_RADIUS,
+        }),
         cloneAxisColorMaterial(axisMaterials.get(axis) ?? null),
       );
       tip.name = createTranslateDisplayName('tip', axis);

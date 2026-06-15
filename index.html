@@ -1,76 +1,31 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" translate="no">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <!-- Primary Meta Tags -->
     <title>URDF Studio - Professional Robot Design & Visualization Platform | 机器人可视化设计平台</title>
-    <meta name="title" content="URDF Studio - Professional Robot Design & Visualization Platform | 机器人可视化设计平台" />
-    <meta name="description" content="URDF Studio is a professional URDF design and visualization workstation. Supports rapid editing, collision optimization, modular assembly, parameter configuration, and AI review. URDF Studio 是专业的机器人 URDF 设计与可视化工作站，支持快速编辑、碰撞优化、模块组装、参数配置与 AI 审阅。" />
-    <meta name="keywords" content="URDF Editor, Robot Assembly, Kinematic Modeling, Collision Geometry Editor, Modular Robotics, End-Effector Integration, ROS Visualization, WebGL Robotics, Online URDF Tool, Robot Simulation, Multi-body Dynamics, Unitree, MJCF Converter, USD Robotics, Digital Twin, 机器人仿真, URDF编辑器, 模块化组装, 碰撞体优化, 运动学仿真, 机器人可视化, ROS开发工具" />
-    <meta name="author" content="Openlegged" />
-    <link rel="canonical" href="https://urdf.d-robotics.cc/" />
+    <meta name="title" content="URDF Studio - Professional Robot Design & Visualization Platform | 机器人可视化设计平台">
+    <meta name="description" content="URDF Studio is a professional URDF design and visualization workstation. Supports rapid editing, collision optimization, modular assembly, parameter configuration, and AI review. URDF Studio 是专业的机器人 URDF 设计与可视化工作站，支持快速编辑、碰撞优化、模块组装、参数配置与 AI 审阅。">
+    <meta name="keywords" content="URDF Editor, Robot Assembly, Kinematic Modeling, Collision Geometry Editor, Modular Robotics, End-Effector Integration, ROS Visualization, WebGL Robotics, Online URDF Tool, Robot Simulation, Multi-body Dynamics, Unitree, MJCF Converter, USD Robotics, Digital Twin, 机器人仿真, URDF编辑器, 模块化组装, 碰撞体优化, 运动学仿真, 机器人可视化, ROS开发工具">
+    <meta name="author" content="Openlegged">
+    <link rel="canonical" href="https://urdf.d-robotics.cc/">
 
-    <link rel="icon" type="image/png" href="/logos/logo.png" />
-    
+    <link rel="icon" type="image/png" href="/logos/logo.png">
+    <link rel="stylesheet" href="/src/styles/boot.css">
+
     <!-- Disable browser translation -->
-    <meta name="google" content="notranslate" />
-    <meta name="robots" content="notranslate" />
+    <meta name="google" content="notranslate">
+    <meta name="robots" content="notranslate">
 
-    <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://urdf.d-robotics.cc/" />
-    <meta property="og:title" content="URDF Studio - Professional Robot Design Platform | 机器人可视化设计平台" />
-    <meta property="og:description" content="Professional URDF design and visualization workstation. Supports rapid editing, collision optimization, modular assembly, and AI review. 专业的机器人 URDF 设计与可视化工作站，支持快速编辑、碰撞优化、模块组装及 AI 审阅。" />
-    <meta property="og:image" content="https://urdf.d-robotics.cc/logos/logo.png" />
-    <meta property="og:locale" content="en_US" />
-    <meta property="og:locale:alternate" content="zh_CN" />
-    <style>
-      :root {
-        color-scheme: light dark;
-        --boot-bg: #f5f7fb;
-        --boot-track: rgba(100, 116, 139, 0.22);
-        --boot-accent: #2563eb;
-      }
-
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --boot-bg: #0f172a;
-          --boot-track: rgba(148, 163, 184, 0.22);
-          --boot-accent: #60a5fa;
-        }
-      }
-
-      html,
-      body,
-      #root {
-        min-height: 100%;
-        margin: 0;
-        background: var(--boot-bg);
-      }
-
-      .boot-loading {
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: var(--boot-bg);
-      }
-
-      .boot-spinner {
-        width: 32px;
-        height: 32px;
-        border: 3px solid var(--boot-track);
-        border-top-color: var(--boot-accent);
-        border-radius: 50%;
-        animation: boot-spin 800ms linear infinite;
-      }
-
-      @keyframes boot-spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-    </style>
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://urdf.d-robotics.cc/">
+    <meta property="og:title" content="URDF Studio - Professional Robot Design Platform | 机器人可视化设计平台">
+    <meta property="og:description" content="Professional URDF design and visualization workstation. Supports rapid editing, collision optimization, modular assembly, and AI review. 专业的机器人 URDF 设计与可视化工作站，支持快速编辑、碰撞优化、模块组装及 AI 审阅。">
+    <meta property="og:image" content="https://urdf.d-robotics.cc/logos/logo.png">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:locale:alternate" content="zh_CN">
   </head>
   <body>
     <div id="root">

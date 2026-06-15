@@ -13,13 +13,14 @@ const globalIgnores = [
   '**/.venv/**',
   '**/output/**',
   '**/*.min.js',
+  '**/*.generated.*', // 生成文件不参与 lint（与 google_style_audit.mjs 的 *.generated.* 跳过对齐，防止污染尺寸/命名门禁基线）
   'third_party/**',
   '**/.playwright-mcp/**',
   '**/.worktrees/**',
   'log/**',
   'public/**',
   'public/usd/bindings/**',
-  'test/usd-viewer/**',
+  'test/**', // 大型 fixture / 回归语料（gitignored、非源码；曾含会让 ESLint 遍历崩溃的损坏条目）
   'src/features/urdf-viewer/runtime/**',
 ];
 

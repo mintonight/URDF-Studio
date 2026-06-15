@@ -11,6 +11,11 @@ import { parseMJCF } from '@/core/parsers/mjcf/mjcfParser.ts';
 import { parseURDF } from '@/core/parsers/urdf/parser';
 import { buildRuntimeRobotFromState } from './buildRuntimeRobotFromState';
 
+type RuntimeUrdfGroup = THREE.Object3D & {
+  isURDFCollider?: boolean;
+  isURDFVisual?: boolean;
+};
+
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
 globalThis.Document = dom.window.Document as typeof Document;
@@ -19,6 +24,14 @@ globalThis.Element = dom.window.Element as typeof Element;
 function createNoopMeshLoadCb() {
   return (_path: string, _manager: THREE.LoadingManager, done: (object: THREE.Object3D | null) => void) =>
     done(null);
+}
+
+function isUrdfColliderGroup(child: THREE.Object3D): child is RuntimeUrdfGroup {
+  return (child as RuntimeUrdfGroup).isURDFCollider === true;
+}
+
+function isUrdfVisualGroup(child: THREE.Object3D): child is RuntimeUrdfGroup {
+  return (child as RuntimeUrdfGroup).isURDFVisual === true;
 }
 
 function toFixedColorArray(color: THREE.Color, digits = 4): number[] {
@@ -641,9 +654,7 @@ test('buildRuntimeRobotFromState renders collision boxes as boxes', async () => 
   const baseLink = robot.links.base_link as THREE.Object3D | undefined;
   assert.ok(baseLink, 'expected base link');
 
-  const collisionGroup = baseLink.children.find((child: any) => child.isURDFCollider) as
-    | THREE.Object3D
-    | undefined;
+  const collisionGroup = baseLink.children.find(isUrdfColliderGroup);
   assert.ok(collisionGroup, 'expected collision group');
   assert.equal(collisionGroup.children.length, 1);
 
@@ -716,9 +727,7 @@ test('buildRuntimeRobotFromState applies mesh scale and visual color overrides o
   const baseLink = robot?.links.base_link;
   assert.ok(baseLink, 'expected base link');
 
-  const visualGroup = baseLink.children.find((child: any) => child.isURDFVisual) as
-    | THREE.Object3D
-    | undefined;
+  const visualGroup = baseLink.children.find(isUrdfVisualGroup);
   assert.ok(visualGroup, 'expected visual group');
   assert.deepEqual(visualGroup.scale.toArray(), [2, 3, 4]);
   assert.equal(visualGroup.children.length, 1);
@@ -766,9 +775,7 @@ test('buildRuntimeRobotFromState applies visual material alpha from colorRgba', 
   });
 
   const baseLink = robot.links.base_link;
-  const visualGroup = baseLink.children.find((child: any) => child.isURDFVisual) as
-    | THREE.Object3D
-    | undefined;
+  const visualGroup = baseLink.children.find(isUrdfVisualGroup);
   assert.ok(visualGroup, 'expected visual group');
   const mesh = visualGroup.children[0] as THREE.Mesh;
   assert.ok(mesh.isMesh, 'expected primitive visual mesh');
@@ -812,9 +819,7 @@ test('buildRuntimeRobotFromState applies paint material groups to primitive box 
     loadMeshCb: createNoopMeshLoadCb(),
   });
 
-  const visualGroup = robot.links.base_link.children.find((child: any) => child.isURDFVisual) as
-    | THREE.Object3D
-    | undefined;
+  const visualGroup = robot.links.base_link.children.find(isUrdfVisualGroup);
   assert.ok(visualGroup, 'expected visual group');
 
   const mesh = visualGroup.children[0] as THREE.Mesh;
@@ -895,9 +900,7 @@ test('buildRuntimeRobotFromState applies double-sided rendering to marked visual
 
   await ready;
 
-  const visualGroup = robot?.links.base_link.children.find((child: any) => child.isURDFVisual) as
-    | THREE.Object3D
-    | undefined;
+  const visualGroup = robot?.links.base_link.children.find(isUrdfVisualGroup);
   assert.ok(visualGroup, 'expected visual group');
 
   const mesh = visualGroup.children[0] as THREE.Mesh;
@@ -980,9 +983,7 @@ test('buildRuntimeRobotFromState applies authored texture overrides onto loaded 
     const baseLink = robot?.links.base_link;
     assert.ok(baseLink, 'expected textured base link');
 
-    const visualGroup = baseLink.children.find((child: any) => child.isURDFVisual) as
-      | THREE.Object3D
-      | undefined;
+    const visualGroup = baseLink.children.find(isUrdfVisualGroup);
     assert.ok(visualGroup, 'expected visual group');
     assert.equal(visualGroup.children.length, 1);
 
@@ -1077,9 +1078,7 @@ test('buildRuntimeRobotFromState applies link-level RobotData materials to state
 
     await ready;
 
-    const visualGroup = robot?.links.base_link.children.find((child: any) => child.isURDFVisual) as
-      | THREE.Object3D
-      | undefined;
+    const visualGroup = robot?.links.base_link.children.find(isUrdfVisualGroup);
     assert.ok(visualGroup, 'expected visual group');
 
     const mesh = visualGroup.children[0] as THREE.Mesh;
@@ -1239,9 +1238,7 @@ test('buildRuntimeRobotFromState preserves embedded multi-material mesh slots fo
   const baseLink = robot?.links.base_link;
   assert.ok(baseLink, 'expected multi-material base link');
 
-  const visualGroup = baseLink.children.find((child: any) => child.isURDFVisual) as
-    | THREE.Object3D
-    | undefined;
+  const visualGroup = baseLink.children.find(isUrdfVisualGroup);
   assert.ok(visualGroup, 'expected visual group');
   assert.equal(visualGroup.children.length, 1);
 
@@ -1291,9 +1288,7 @@ test('buildRuntimeRobotFromState keeps placeholder meshes for missing visual ass
   const baseLink = robot.links.base_link as THREE.Object3D | undefined;
   assert.ok(baseLink);
 
-  const visualGroup = baseLink.children.find((child: any) => child.isURDFVisual) as
-    | THREE.Object3D
-    | undefined;
+  const visualGroup = baseLink.children.find(isUrdfVisualGroup);
   assert.ok(visualGroup);
 
   let placeholderMesh: THREE.Mesh | null = null as THREE.Mesh | null;

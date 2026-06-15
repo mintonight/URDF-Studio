@@ -184,6 +184,7 @@ interface AssetsState {
   setAssets: (assets: Record<string, string>) => void;
   addAsset: (path: string, url: string) => void;
   addAssets: (newAssets: Record<string, string>) => void;
+  removeAsset: (path: string) => void;
   getAsset: (path: string) => string | undefined;
   clearAssets: () => void;
 
@@ -263,6 +264,18 @@ export const useAssetsStore = create<AssetsState>()((set, get) => ({
     set((state) => {
       const nextAssets = { ...state.assets, ...newAssets };
       revokeReplacedBlobUrls(state.assets, nextAssets, Object.keys(newAssets));
+      return { assets: nextAssets };
+    }),
+  removeAsset: (path) =>
+    set((state) => {
+      const removedUrl = state.assets[path];
+      if (!removedUrl) {
+        return state;
+      }
+
+      const nextAssets = { ...state.assets };
+      delete nextAssets[path];
+      revokeReplacedBlobUrls(state.assets, nextAssets, [path]);
       return { assets: nextAssets };
     }),
   getAsset: (path) => get().assets[path],

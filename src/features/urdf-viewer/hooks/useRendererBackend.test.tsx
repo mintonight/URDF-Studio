@@ -140,7 +140,39 @@ function createJointOriginRobotData(jointZ: number): RobotData {
   };
 }
 
+function createCollisionOriginRobotData(collisionX: number): RobotData {
+  return {
+    name: 'mjcf_collision_origin_demo',
+    rootLinkId: 'base',
+    links: {
+      base: {
+        ...structuredClone(DEFAULT_LINK),
+        id: 'base',
+        name: 'base',
+        collision: {
+          type: GeometryType.BOX,
+          dimensions: { x: 0.2, y: 0.2, z: 0.2 },
+          origin: {
+            xyz: { x: collisionX, y: 0, z: 0 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+        },
+      },
+    },
+    joints: {},
+    materials: {},
+  };
+}
+
 const useR3fStore = create(() => ({
+  gl: {
+    getContext: () => ({
+      isContextLost: () => false,
+      getExtension: () => null,
+      getParameter: () => '',
+    }),
+    compile: () => {},
+  },
   invalidate: () => {},
   camera: new THREE.PerspectiveCamera(),
   scene: new THREE.Scene(),
@@ -161,6 +193,17 @@ function findFirstMesh(root: THREE.Object3D): THREE.Mesh {
   return found;
 }
 
+function findFirstColliderGroup(root: THREE.Object3D): THREE.Object3D {
+  let found: THREE.Object3D | null = null;
+  root.traverse((child) => {
+    if (!found && (child as { isURDFCollider?: boolean }).isURDFCollider === true) {
+      found = child;
+    }
+  });
+  assert.ok(found, 'expected rendered robot to contain a collision group');
+  return found;
+}
+
 function getMeshHexColor(mesh: THREE.Mesh): string {
   const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
   assert.ok(material && 'color' in material && material.color instanceof THREE.Color);
@@ -170,15 +213,24 @@ function getMeshHexColor(mesh: THREE.Mesh): string {
 function Probe({
   robotData,
   onRobotLoaded,
+  sourceFile: probeSourceFile = sourceFile,
+  availableFiles,
+  showVisual = true,
+  showCollision = false,
 }: {
   robotData: RobotData;
   onRobotLoaded: (robot: THREE.Object3D) => void;
+  sourceFile?: RobotFile;
+  availableFiles?: RobotFile[];
+  showVisual?: boolean;
+  showCollision?: boolean;
 }) {
   useRendererBackend({
-    sourceFile,
+    sourceFile: probeSourceFile,
+    availableFiles,
     assets: EMPTY_ASSETS,
-    showVisual: true,
-    showCollision: false,
+    showVisual,
+    showCollision,
     showCollisionAlwaysOnTop: true,
     allowUrdfXmlFallback: false,
     robotData,
@@ -192,12 +244,18 @@ function renderProbe(
   root: Root,
   robotData: RobotData,
   onRobotLoaded: (robot: THREE.Object3D) => void,
+  options: {
+    sourceFile?: RobotFile;
+    availableFiles?: RobotFile[];
+    showVisual?: boolean;
+    showCollision?: boolean;
+  } = {},
 ) {
   return root.render(
     React.createElement(
       r3fContext.Provider,
       { value: useR3fStore as unknown as React.ContextType<typeof r3fContext> },
-      React.createElement(Probe, { robotData, onRobotLoaded }),
+      React.createElement(Probe, { robotData, onRobotLoaded, ...options }),
     ),
   );
 }
@@ -290,6 +348,360 @@ test('useRendererBackend patches a joint origin edit without reloading the backe
     await waitForCondition(
       () => Math.abs(runtimeJoint.position.z - 1.25) < 1e-6,
       'expected joint origin patch to update the existing runtime joint',
+    );
+
+    assert.equal(loadedRobots.length, 1);
+    assert.equal(runtimeRobot.joints?.lift_joint, runtimeJoint);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('useRendererBackend patches a MJCF collision origin source edit without reloading the backend scene', async () => {
+  const { dom, root } = createComponentRoot();
+  const loadedRobots: THREE.Object3D[] = [];
+  const mjcfSourceFile: RobotFile = {
+    name: 'robot.xml',
+    format: 'mjcf',
+    content: '<mujoco><worldbody><body name="base"><geom pos="0.1 0 0" /></body></worldbody></mujoco>',
+  };
+
+  try {
+    await act(async () => {
+      renderProbe(
+        root,
+        createCollisionOriginRobotData(0.1),
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        {
+          sourceFile: mjcfSourceFile,
+          availableFiles: [mjcfSourceFile],
+          showVisual: false,
+          showCollision: true,
+        },
+      );
+    });
+    await waitForCondition(
+      () => loadedRobots.length === 1,
+      'expected initial robot load to complete',
+    );
+
+    const runtimeRobot = loadedRobots[0];
+    const colliderGroup = findFirstColliderGroup(runtimeRobot);
+    assert.equal(colliderGroup.position.x, 0.1);
+
+    const patchedMjcfSourceFile: RobotFile = {
+      ...mjcfSourceFile,
+      content: '<mujoco><worldbody><body name="base"><geom pos="0.2 0 0" /></body></worldbody></mujoco>',
+    };
+    await act(async () => {
+      renderProbe(
+        root,
+        createCollisionOriginRobotData(0.2),
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        {
+          sourceFile: patchedMjcfSourceFile,
+          availableFiles: [patchedMjcfSourceFile],
+          showVisual: false,
+          showCollision: true,
+        },
+      );
+    });
+    await waitForCondition(
+      () => Math.abs(colliderGroup.position.x - 0.2) < 1e-6,
+      'expected collision origin patch to update the existing collider group',
+    );
+
+    assert.equal(loadedRobots.length, 1);
+    assert.equal(findFirstColliderGroup(runtimeRobot), colliderGroup);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('useRendererBackend patches a MJCF visual dimension source edit without reloading the backend scene', async () => {
+  const { dom, root } = createComponentRoot();
+  const loadedRobots: THREE.Object3D[] = [];
+  const mjcfSourceFile: RobotFile = {
+    name: 'robot.xml',
+    format: 'mjcf',
+    content: '<mujoco><worldbody><body name="base"><geom type="box" size="0.5 0.5 0.5" /></body></worldbody></mujoco>',
+  };
+
+  try {
+    await act(async () => {
+      renderProbe(
+        root,
+        createRobotData('#808080'),
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        {
+          sourceFile: mjcfSourceFile,
+          availableFiles: [mjcfSourceFile],
+        },
+      );
+    });
+    await waitForCondition(
+      () => loadedRobots.length === 1,
+      'expected initial robot load to complete',
+    );
+
+    const runtimeRobot = loadedRobots[0];
+    const mesh = findFirstMesh(runtimeRobot);
+    assert.equal(mesh.scale.x, 1);
+
+    const patchedRobotData = createRobotData('#808080');
+    patchedRobotData.links.base.visual.dimensions = { x: 2, y: 1, z: 1 };
+    const patchedMjcfSourceFile: RobotFile = {
+      ...mjcfSourceFile,
+      content: '<mujoco><worldbody><body name="base"><geom type="box" size="1 0.5 0.5" /></body></worldbody></mujoco>',
+    };
+    await act(async () => {
+      renderProbe(
+        root,
+        patchedRobotData,
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        {
+          sourceFile: patchedMjcfSourceFile,
+          availableFiles: [patchedMjcfSourceFile],
+        },
+      );
+    });
+    await waitForCondition(
+      () => Math.abs(mesh.scale.x - 2) < 1e-6,
+      'expected visual dimensions patch to update the existing mesh',
+    );
+
+    assert.equal(loadedRobots.length, 1);
+    assert.equal(findFirstMesh(runtimeRobot), mesh);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('useRendererBackend accepts a MJCF inertial source edit without reloading the backend scene', async () => {
+  const { dom, root } = createComponentRoot();
+  const loadedRobots: THREE.Object3D[] = [];
+  const mjcfSourceFile: RobotFile = {
+    name: 'robot.xml',
+    format: 'mjcf',
+    content: '<mujoco><worldbody><body name="base" mass="1" /></worldbody></mujoco>',
+  };
+  const initialRobotData = createRobotData('#808080');
+  initialRobotData.links.base.inertial!.mass = 1;
+
+  try {
+    await act(async () => {
+      renderProbe(
+        root,
+        initialRobotData,
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        {
+          sourceFile: mjcfSourceFile,
+          availableFiles: [mjcfSourceFile],
+        },
+      );
+    });
+    await waitForCondition(
+      () => loadedRobots.length === 1,
+      'expected initial robot load to complete',
+    );
+
+    const runtimeRobot = loadedRobots[0];
+    const patchedRobotData = structuredClone(initialRobotData);
+    patchedRobotData.links.base.inertial!.mass = 2;
+    const patchedMjcfSourceFile: RobotFile = {
+      ...mjcfSourceFile,
+      content: '<mujoco><worldbody><body name="base" mass="2" /></worldbody></mujoco>',
+    };
+    await act(async () => {
+      renderProbe(
+        root,
+        patchedRobotData,
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        {
+          sourceFile: patchedMjcfSourceFile,
+          availableFiles: [patchedMjcfSourceFile],
+        },
+      );
+    });
+    await waitForCondition(
+      () => loadedRobots.length === 1,
+      'expected inertial edit to avoid a second backend scene load',
+    );
+
+    assert.equal(loadedRobots[0], runtimeRobot);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('useRendererBackend patches a MJCF joint limit source edit without reloading the backend scene', async () => {
+  const { dom, root } = createComponentRoot();
+  const loadedRobots: THREE.Object3D[] = [];
+  const mjcfSourceFile: RobotFile = {
+    name: 'robot.xml',
+    format: 'mjcf',
+    content: '<mujoco><worldbody><body name="payload"><joint name="lift_joint" range="-1 1" /></body></worldbody></mujoco>',
+  };
+  const initialRobotData = createJointOriginRobotData(0);
+  initialRobotData.joints.lift_joint.type = JointType.REVOLUTE;
+  initialRobotData.joints.lift_joint.axis = { x: 0, y: 0, z: 1 };
+  initialRobotData.joints.lift_joint.limit = {
+    lower: -1,
+    upper: 1,
+    effort: 10,
+    velocity: 5,
+  };
+
+  try {
+    await act(async () => {
+      renderProbe(
+        root,
+        initialRobotData,
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        {
+          sourceFile: mjcfSourceFile,
+          availableFiles: [mjcfSourceFile],
+        },
+      );
+    });
+    await waitForCondition(
+      () => loadedRobots.length === 1,
+      'expected initial robot load to complete',
+    );
+
+    const runtimeRobot = loadedRobots[0] as THREE.Object3D & {
+      joints?: Record<string, THREE.Object3D & { limit?: { lower: number; upper: number } }>;
+    };
+    const runtimeJoint = runtimeRobot.joints?.lift_joint;
+    assert.ok(runtimeJoint, 'expected runtime joint to exist');
+    assert.equal(runtimeJoint.limit?.upper, 1);
+
+    const patchedRobotData = structuredClone(initialRobotData);
+    patchedRobotData.joints.lift_joint.limit = {
+      lower: -2,
+      upper: 2,
+      effort: 10,
+      velocity: 5,
+    };
+    const patchedMjcfSourceFile: RobotFile = {
+      ...mjcfSourceFile,
+      content: '<mujoco><worldbody><body name="payload"><joint name="lift_joint" range="-2 2" /></body></worldbody></mujoco>',
+    };
+    await act(async () => {
+      renderProbe(
+        root,
+        patchedRobotData,
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        {
+          sourceFile: patchedMjcfSourceFile,
+          availableFiles: [patchedMjcfSourceFile],
+        },
+      );
+    });
+    await waitForCondition(
+      () => Math.abs((runtimeJoint.limit?.upper ?? 0) - 2) < 1e-6,
+      'expected joint limit patch to update the existing runtime joint',
+    );
+
+    assert.equal(loadedRobots.length, 1);
+    assert.equal(runtimeRobot.joints?.lift_joint, runtimeJoint);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('useRendererBackend patches a MJCF joint type source edit without reloading the backend scene', async () => {
+  const { dom, root } = createComponentRoot();
+  const loadedRobots: THREE.Object3D[] = [];
+  const mjcfSourceFile: RobotFile = {
+    name: 'robot.xml',
+    format: 'mjcf',
+    content: '<mujoco><worldbody><body name="payload"><joint name="lift_joint" type="hinge" /></body></worldbody></mujoco>',
+  };
+  const initialRobotData = createJointOriginRobotData(0);
+  initialRobotData.joints.lift_joint.type = JointType.REVOLUTE;
+  initialRobotData.joints.lift_joint.axis = { x: 0, y: 0, z: 1 };
+
+  try {
+    await act(async () => {
+      renderProbe(
+        root,
+        initialRobotData,
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        {
+          sourceFile: mjcfSourceFile,
+          availableFiles: [mjcfSourceFile],
+        },
+      );
+    });
+    await waitForCondition(
+      () => loadedRobots.length === 1,
+      'expected initial robot load to complete',
+    );
+
+    const runtimeRobot = loadedRobots[0] as THREE.Object3D & {
+      joints?: Record<string, THREE.Object3D & { jointType?: string }>;
+    };
+    const runtimeJoint = runtimeRobot.joints?.lift_joint;
+    assert.ok(runtimeJoint, 'expected runtime joint to exist');
+    assert.equal(runtimeJoint.jointType, JointType.REVOLUTE);
+
+    const patchedRobotData = structuredClone(initialRobotData);
+    patchedRobotData.joints.lift_joint.type = JointType.PRISMATIC;
+    patchedRobotData.joints.lift_joint.axis = { x: 1, y: 0, z: 0 };
+    const patchedMjcfSourceFile: RobotFile = {
+      ...mjcfSourceFile,
+      content: '<mujoco><worldbody><body name="payload"><joint name="lift_joint" type="slide" /></body></worldbody></mujoco>',
+    };
+    await act(async () => {
+      renderProbe(
+        root,
+        patchedRobotData,
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        {
+          sourceFile: patchedMjcfSourceFile,
+          availableFiles: [patchedMjcfSourceFile],
+        },
+      );
+    });
+    await waitForCondition(
+      () => runtimeJoint.jointType === JointType.PRISMATIC,
+      'expected joint type patch to update the existing runtime joint',
     );
 
     assert.equal(loadedRobots.length, 1);

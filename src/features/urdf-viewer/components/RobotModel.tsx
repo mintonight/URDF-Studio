@@ -36,7 +36,7 @@ import { JointInteraction } from './JointInteraction';
 import { OriginTransformControls } from './OriginTransformControls';
 import { AssemblyTransformControls } from './AssemblyTransformControls';
 import { ViewerLoadingHudOverlay } from './ViewerLoadingHudOverlay';
-import type { RobotModelProps, ViewerPaintFaceHit } from '../types';
+import type { RobotModelProps, ViewerDocumentLoadEvent, ViewerPaintFaceHit } from '../types';
 import { buildViewerLoadingHudState } from '../utils/viewerLoadingHud';
 import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
 import { useRobotStore, useSelectionStore, useUIStore } from '@/store';
@@ -57,6 +57,8 @@ import {
 import { resolveSelectedIkDragLinkId } from '../utils/selectedIkDragLink';
 import { resolveViewerRobotSourceFormat } from '@/shared/components/3d/renderers/sourceFormat';
 import { shouldEnableViewerSceneCompileWarmup } from '../utils/sceneCompileWarmupPolicy';
+import { isRegressionDebugEnabled } from '@/shared/debug/regressionDebugEnabled';
+import { setRegressionRuntimeRobot } from '@/shared/debug/regressionState';
 
 const EMPTY_ROBOT_FILES: RobotFile[] = [];
 const RUNTIME_IK_ANCHOR_EPSILON_SQ = 1e-12;
@@ -69,6 +71,16 @@ const PAINTABLE_VISUAL_GEOMETRY_TYPES = new Set<GeometryType>([
   GeometryType.CYLINDER,
   GeometryType.CAPSULE,
 ]);
+const VIEWER_READY_DOCUMENT_LOAD_EVENT = {
+  status: 'ready',
+  phase: 'ready',
+  progressMode: null,
+  progressPercent: 100,
+  loadedCount: null,
+  totalCount: null,
+  message: null,
+  error: null,
+} satisfies ViewerDocumentLoadEvent;
 
 function resolveRuntimeLinkBoundsAnchorLocal(
   linkObject: Object3D | null,
@@ -234,6 +246,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     const setHoverFrozen = useSelectionStore((state) => state.setHoverFrozen);
     const autoFrameScopeFallbackRef = useRef<string | null>(null);
     const [sourceSceneComponentRoot, setSourceSceneComponentRoot] = useState<Group | null>(null);
+    const hasRenderedRobotRef = useRef(Boolean(initialRobot));
     const resolvedSourceFormat = useMemo(
       () => resolveViewerRobotSourceFormat(urdfContent, sourceFormat),
       [sourceFormat, urdfContent],
@@ -258,6 +271,10 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         format: fallbackFormat,
       };
     }, [resolvedSourceFormat, sourceFile, sourceFilePath, sourceFormat, urdfContent]);
+    const regressionRuntimeScopeKey =
+      isRegressionDebugEnabled() && !isMeshPreview
+        ? `${sourceFileForBackend.format}:${sourceFileForBackend.name}`
+        : null;
     const runtimeSceneMetadataScopeKey = `${sourceFilePath ?? 'viewer-inline'}:${reloadToken}`;
     const runtimeSceneLinkMetadataRef = useRef(
       createRuntimeSceneLinkMetadataState({
@@ -369,6 +386,35 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       runtimeBridge,
       groundPlaneOffset,
     });
+    useEffect(() => {
+      if (!regressionRuntimeScopeKey) {
+        return;
+      }
+
+      return () => {
+        setRegressionRuntimeRobot(null);
+      };
+    }, [regressionRuntimeScopeKey]);
+
+    useEffect(() => {
+      if (!regressionRuntimeScopeKey || !robot) {
+        return;
+      }
+
+      setRegressionRuntimeRobot(robot);
+    }, [regressionRuntimeScopeKey, robot]);
+    useEffect(() => {
+      if (!robot || isLoading) {
+        return;
+      }
+
+      onDocumentLoadEvent?.(VIEWER_READY_DOCUMENT_LOAD_EVENT);
+    }, [isLoading, onDocumentLoadEvent, robot]);
+    useEffect(() => {
+      if (robot) {
+        hasRenderedRobotRef.current = true;
+      }
+    }, [robot]);
     const effectiveRobotLinks = useMemo(
       () => (Object.keys(loadedRobotLinks).length > 0 ? loadedRobotLinks : robotLinks),
       [loadedRobotLinks, robotLinks],
@@ -837,6 +883,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       jointAxisSize,
       modelOpacity,
       robotLinks: runtimeRobotLinks,
+      robotMaterials: backendRobotData?.materials,
       robotJoints: effectiveRobotJoints,
       selection,
       highlightGeometry,
@@ -946,6 +993,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     ].join('|');
     const sceneCompileWarmupEnabled = shouldEnableViewerSceneCompileWarmup(resolvedSourceFormat);
     const sourceSceneTransform = cloneAssemblyTransform(sourceSceneAssemblyComponentTransform);
+    const shouldShowLoadingHud = isLoading && !robot && !hasRenderedRobotRef.current;
     const handleSourceSceneComponentRootRef = useCallback((node: Group | null) => {
       setSourceSceneComponentRoot((current) => (current === node ? current : node));
     }, []);
@@ -977,7 +1025,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
         >
           {robot ? <primitive object={robot} /> : null}
         </group>
-        {isLoading ? (
+        {shouldShowLoadingHud ? (
           <ViewerLoadingHudOverlay
             title={t.loadingRobot}
             detail={loadingDetail}
@@ -985,6 +1033,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
             progressMode={loadingHudState.progressMode}
             statusLabel={loadingHudState.statusLabel}
             stageLabel={loadingStageLabel}
+            delayMs={0}
           />
         ) : null}
         {!snapshotRenderActive && robot && toolMode !== 'measure' && (

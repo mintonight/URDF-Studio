@@ -343,6 +343,44 @@ test('syncLinkVisualColors parses 8-digit hex colors without reusing the previou
   assert.equal((membraneMesh.material as THREE.MeshStandardMaterial).opacity, 0.4);
 });
 
+test('syncLinkVisualColors uses tracked robot material colors for the primary visual', () => {
+  const robot = new THREE.Group();
+
+  const link = new THREE.Group() as THREE.Group & { isURDFLink?: boolean };
+  link.isURDFLink = true;
+  link.name = 'base_link';
+
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: '#f2f0e8' }),
+  );
+  mesh.userData.isVisualMesh = true;
+  link.add(mesh);
+  robot.add(link);
+
+  const changed = syncLinkVisualColors({
+    robot,
+    robotLinks: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.BOX,
+          color: '#f2f0e8',
+        },
+      },
+    },
+    robotMaterials: {
+      base_link: { color: '#12ab34' },
+    },
+  });
+
+  assert.equal(changed, true);
+  assert.equal((mesh.material as THREE.MeshStandardMaterial).color.getHexString(), '12ab34');
+});
+
 test('syncLinkVisualColors applies visualBodies colors to their matching visual groups', () => {
   const robot = new THREE.Group();
 

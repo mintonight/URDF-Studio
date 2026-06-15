@@ -6,7 +6,9 @@ import * as THREE from 'three';
 import {
   applyWorkspaceCameraSnapshot,
   captureWorkspaceCameraSnapshot,
+  resolveWorkspaceCameraRenderViewOffset,
   resolveSnapshotPreviewSurfaceSize,
+  resolveWorkspaceVisibleViewportRect,
 } from './workspaceCameraSnapshot';
 
 test('captureWorkspaceCameraSnapshot reads the current camera and orbit target', () => {
@@ -36,6 +38,56 @@ test('captureWorkspaceCameraSnapshot reads the current camera and orbit target',
   assert.equal(snapshot?.zoom, 1.5);
   assert.equal(snapshot?.kind, 'perspective');
   assert.equal(snapshot?.fov, 52);
+});
+
+test('resolveWorkspaceVisibleViewportRect crops expanded workspace sidebars', () => {
+  const viewport = resolveWorkspaceVisibleViewportRect({
+    width: 1200,
+    height: 600,
+    leftInset: 264,
+    rightInset: 310,
+  });
+
+  assert.deepEqual(viewport, {
+    fullWidth: 1200,
+    fullHeight: 600,
+    x: 264,
+    y: 0,
+    width: 626,
+    height: 600,
+    aspectRatio: 626 / 600,
+  });
+});
+
+test('resolveWorkspaceVisibleViewportRect returns null when the full canvas is visible', () => {
+  assert.equal(
+    resolveWorkspaceVisibleViewportRect({
+      width: 1200,
+      height: 600,
+      leftInset: 0,
+      rightInset: 0,
+    }),
+    null,
+  );
+});
+
+test('resolveWorkspaceCameraRenderViewOffset scales the visible viewport to export pixels', () => {
+  const viewport = resolveWorkspaceVisibleViewportRect({
+    width: 1200,
+    height: 600,
+    leftInset: 264,
+    rightInset: 310,
+  });
+  const viewOffset = resolveWorkspaceCameraRenderViewOffset(viewport, 1252, 1200);
+
+  assert.deepEqual(viewOffset, {
+    fullWidth: 2400,
+    fullHeight: 1200,
+    offsetX: 528,
+    offsetY: 0,
+    width: 1252,
+    height: 1200,
+  });
 });
 
 test('captureWorkspaceCameraSnapshot reads the live controls target from the current R3F store state', () => {

@@ -431,7 +431,9 @@ export const en: TranslationKeys = {
   measureToolboxDesc:
     'Open the movable measurement panel and measure distances between selectable link anchors in the 3D viewport',
   ikToolboxDesc:
-    'Click a draggable non-root link in the viewport to attach the transform controls. Click another link to move the gizmo.',
+    'Choose a movable link from the panel or click one in the viewport, then drag the XYZ transform controller to move the IK target.',
+  ikToolSelectLink: 'IK target link',
+  ikToolSelectPlaceholder: 'Choose a movable link...',
   ikToolSelectedLink: 'Selected Link',
   ikToolNoSelection: 'No IK link selected yet.',
   ikToolRootLinkNotDraggable: 'Root and base links cannot be dragged with IK.',
@@ -713,7 +715,7 @@ export const en: TranslationKeys = {
   // About Modal
   aboutDescription:
     'Professional robot URDF design and visualization workstation, supporting fast editing, collision optimization, parameter configuration, AI review and utility tools.',
-  aboutCopyright: '© 2025-2026 OpenLegged.',
+  aboutCopyright: '© 2025-2026 enkeebot.',
   aboutOpenSource: 'Open sourced under Apache License 2.0.',
   aboutMotphysTagline: 'Evolution Beyond Physics',
   aboutDRoboticsName: 'D-Robotics',

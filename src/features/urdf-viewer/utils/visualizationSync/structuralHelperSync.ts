@@ -9,7 +9,7 @@ import {
 } from '@/core/robot';
 import { GIZMO_BASE_RENDER_ORDER } from '@/shared/components/3d/unified-transform-controls/gizmoCore.ts';
 import { MathUtils as SharedMathUtils } from '@/shared/utils';
-import { type UrdfJoint, type UrdfLink } from '@/types';
+import { type RobotData, type UrdfJoint, type UrdfLink } from '@/types';
 
 import { getRobotSceneNodeIndex } from '../robotSceneNodeIndex';
 import {
@@ -558,13 +558,22 @@ export function syncInertiaVisualizationForLinks({
 export function syncLinkVisualColors({
   robot,
   robotLinks,
+  robotMaterials,
 }: {
   robot: THREE.Object3D;
   robotLinks?: Record<string, UrdfLink>;
+  robotMaterials?: RobotData['materials'];
 }): boolean {
   if (!robotLinks) return false;
   let changed = false;
   const { links } = getRobotSceneNodeIndex(robot);
+
+  const resolveLinkMaterialColor = (linkData: UrdfLink): string | undefined => {
+    const materialColor =
+      robotMaterials?.[linkData.id]?.color ||
+      (linkData.name ? robotMaterials?.[linkData.name]?.color : undefined);
+    return materialColor?.trim() || undefined;
+  };
 
   const syncVisualRootColor = (visualRoot: THREE.Object3D, targetColor: string): void => {
     const parsedTargetColor = parseThreeColorWithOpacity(targetColor);
@@ -612,9 +621,11 @@ export function syncLinkVisualColors({
 
     const visualEntries = getVisualGeometryEntries(linkData);
     const visualGroups = link.children.filter((child: any) => child.isURDFVisual);
+    const linkMaterialColor = resolveLinkMaterialColor(linkData);
     if (visualGroups.length > 0) {
       visualEntries.forEach((entry, index) => {
-        const targetColor = entry.geometry.color;
+        const targetColor =
+          index === 0 ? linkMaterialColor || entry.geometry.color : entry.geometry.color;
         const visualGroup = visualGroups[index];
         if (!targetColor || !visualGroup) return;
         syncVisualRootColor(visualGroup, targetColor);
@@ -622,7 +633,7 @@ export function syncLinkVisualColors({
       return;
     }
 
-    const primaryTargetColor = visualEntries[0]?.geometry.color;
+    const primaryTargetColor = linkMaterialColor || visualEntries[0]?.geometry.color;
     if (!primaryTargetColor) return;
     syncVisualRootColor(link, primaryTargetColor);
   });

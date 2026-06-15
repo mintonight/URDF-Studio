@@ -4,9 +4,16 @@ import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
 import { ensureWorkerXmlDomApis } from '@/core/utils/ensureWorkerXmlDomApis';
 
 import { normalizeColladaUpAxis } from './colladaUpAxis';
+import {
+  durationMs,
+  markMainThreadBuildPerformance,
+  type MeshLoadPerformanceEntry,
+  readHighResolutionEpochMs,
+} from './meshLoadPerformance';
 
 export interface SerializedJsonColladaSceneData {
   kind?: 'object-json';
+  loadPerformance?: MeshLoadPerformanceEntry;
   resourcePath: string;
   sceneJson: Record<string, unknown>;
   unitScale?: number | null;
@@ -61,6 +68,7 @@ export interface SerializedFastColladaSceneData {
   kind: 'fast-mesh-v1';
   resourcePath: string;
   children: SerializedFastColladaNodeData[];
+  loadPerformance?: MeshLoadPerformanceEntry;
   unitScale?: number | null;
 }
 
@@ -681,24 +689,34 @@ export function createSceneFromSerializedColladaData(
   data: SerializedColladaSceneData,
   options: { manager?: THREE.LoadingManager } = {},
 ): THREE.Object3D {
+  const startedAt = readHighResolutionEpochMs();
+  let scene: THREE.Object3D;
   if (data.kind === 'fast-mesh-v1') {
-    return createFastColladaScene(data, options);
+    scene = createFastColladaScene(data, options);
+  } else {
+    ensureWorkerXmlDomApis();
+    const objectLoader = new THREE.ObjectLoader(options.manager);
+    objectLoader.setResourcePath(data.resourcePath);
+    const sceneJson = resolveSerializedColladaImageUrls(data, options.manager);
+    scene = objectLoader.parse(sceneJson);
+
+    if (data.unitScale && data.unitScale > 0 && data.unitScale !== 1) {
+      scene.scale.multiplyScalar(data.unitScale);
+    }
+
+    scene.userData = {
+      ...(scene.userData ?? {}),
+      colladaUnitScale: data.unitScale ?? null,
+    };
   }
 
-  ensureWorkerXmlDomApis();
-  const objectLoader = new THREE.ObjectLoader(options.manager);
-  objectLoader.setResourcePath(data.resourcePath);
-  const sceneJson = resolveSerializedColladaImageUrls(data, options.manager);
-  const scene = objectLoader.parse(sceneJson);
-
-  if (data.unitScale && data.unitScale > 0 && data.unitScale !== 1) {
-    scene.scale.multiplyScalar(data.unitScale);
+  markMainThreadBuildPerformance(data.loadPerformance, durationMs(startedAt));
+  if (data.loadPerformance) {
+    scene.userData = {
+      ...(scene.userData ?? {}),
+      meshLoadPerformance: data.loadPerformance,
+    };
   }
-
-  scene.userData = {
-    ...(scene.userData ?? {}),
-    colladaUnitScale: data.unitScale ?? null,
-  };
 
   return scene;
 }

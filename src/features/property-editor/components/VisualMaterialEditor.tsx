@@ -76,6 +76,7 @@ interface VisualMaterialEditorProps {
   onApplyVisualTexture: (texturePath: string | undefined) => void;
   onAuthoredMaterialColorChange: (index: number, newColor: string) => void;
   onAuthoredMaterialOpacityChange: (index: number, opacity: number) => void;
+  onDeleteTextureAsset: (filePath: string) => void;
   onPreviewTexturePathChange: (filePath: string | null) => void;
   onSingleMaterialColorChange: (newColor: string) => void;
   onSingleMaterialOpacityChange: (opacity: number) => void;
@@ -102,6 +103,7 @@ export const VisualMaterialEditor = ({
   onApplyVisualTexture,
   onAuthoredMaterialColorChange,
   onAuthoredMaterialOpacityChange,
+  onDeleteTextureAsset,
   onPreviewTexturePathChange,
   onSingleMaterialColorChange,
   onSingleMaterialOpacityChange,
@@ -409,56 +411,66 @@ export const VisualMaterialEditor = ({
                 const isPreviewing = previewTexturePath === filePath;
                 const { fileName, parentPath } = describeAssetPath(filePath);
 
+                const rowStateClassName = isApplied
+                  ? 'border-system-blue/35 bg-system-blue/10 text-system-blue dark:bg-system-blue/20'
+                  : isPreviewing
+                    ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                    : 'border-transparent bg-transparent text-text-secondary hover:border-border-black/50 hover:bg-element-hover';
+
                 return (
-                  <button
-                    type="button"
+                  <div
                     key={filePath}
-                    title={filePath}
-                    onClick={() => onPreviewTexturePathChange(filePath)}
-                    onDoubleClick={() => {
-                      onApplyVisualTexture(filePath);
-                      onPreviewTexturePathChange(null);
-                    }}
-                    className={`
-                      grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 rounded-md border px-1.5 py-1 text-left transition-colors
-                      ${
-                        isApplied
-                          ? 'border-system-blue/35 bg-system-blue/10 text-system-blue dark:bg-system-blue/20'
-                          : isPreviewing
-                            ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                            : 'border-transparent bg-transparent text-text-secondary hover:border-border-black/50 hover:bg-element-hover'
-                      }
-                    `}
+                    className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-stretch gap-1 rounded-md border transition-colors ${rowStateClassName}`}
                   >
-                    <span
-                      aria-hidden="true"
-                      className="h-3 w-3 shrink-0 rounded border border-border-black/70 bg-cover bg-center"
-                      style={
-                        assets[filePath]
-                          ? { backgroundImage: `url("${assets[filePath]}")` }
-                          : undefined
-                      }
-                    />
-                    <span className="min-w-0">
+                    <button
+                      type="button"
+                      title={filePath}
+                      onClick={() => onPreviewTexturePathChange(filePath)}
+                      onDoubleClick={() => {
+                        onApplyVisualTexture(filePath);
+                        onPreviewTexturePathChange(null);
+                      }}
+                      className="grid min-w-0 cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1.5 rounded-l-md px-1.5 py-1 text-left"
+                    >
                       <span
-                        className={`block truncate text-[10px] font-medium ${
-                          isApplied ? 'text-system-blue' : 'text-text-primary'
-                        }`}
-                      >
-                        {fileName}
-                      </span>
-                      {parentPath && (
-                        <span className="block truncate text-[9px] leading-4 text-text-tertiary">
-                          {parentPath}
+                        aria-hidden="true"
+                        className="h-3 w-3 shrink-0 rounded border border-border-black/70 bg-cover bg-center"
+                        style={
+                          assets[filePath]
+                            ? { backgroundImage: `url("${assets[filePath]}")` }
+                            : undefined
+                        }
+                      />
+                      <span className="min-w-0">
+                        <span
+                          className={`block truncate text-[10px] font-medium ${
+                            isApplied ? 'text-system-blue' : 'text-text-primary'
+                          }`}
+                        >
+                          {fileName}
                         </span>
-                      )}
-                    </span>
-                    {isApplied ? (
-                      <Check className="h-3 w-3 shrink-0" />
-                    ) : isPreviewing ? (
-                      <Eye className="h-3 w-3 shrink-0" />
-                    ) : null}
-                  </button>
+                        {parentPath && (
+                          <span className="block truncate text-[9px] leading-4 text-text-tertiary">
+                            {parentPath}
+                          </span>
+                        )}
+                      </span>
+                      {isApplied ? (
+                        <Check className="h-3 w-3 shrink-0" />
+                      ) : isPreviewing ? (
+                        <Eye className="h-3 w-3 shrink-0" />
+                      ) : null}
+                    </button>
+                    <button
+                      type="button"
+                      title={`${t.removeFromLibrary}: ${fileName}`}
+                      aria-label={`${t.removeFromLibrary}: ${fileName}`}
+                      onClick={() => onDeleteTextureAsset(filePath)}
+                      className="flex w-7 shrink-0 items-center justify-center rounded-r-md border-l border-border-black/50 text-text-tertiary hover:bg-danger-soft hover:text-danger-hover"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
                 );
               })}
             </div>

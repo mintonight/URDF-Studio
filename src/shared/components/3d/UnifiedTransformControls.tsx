@@ -20,6 +20,7 @@ import {
   type UnifiedTransformControlsProps,
   type UniversalOwner,
 } from './unified-transform-controls/helpers';
+import { FusionTransformControls } from './unified-transform-controls/FusionTransformControls';
 import { clearControlPointerState } from './unified-transform-controls/pointerState';
 
 export {
@@ -29,8 +30,8 @@ export {
   type UnifiedTransformMode,
 } from './unified-transform-controls/helpers';
 
-export const UnifiedTransformControls = forwardRef<any, UnifiedTransformControlsProps>(
-  function UnifiedTransformControls(
+const LegacyUnifiedTransformControls = forwardRef<unknown, UnifiedTransformControlsProps>(
+  function LegacyUnifiedTransformControls(
     {
       mode,
       object,
@@ -607,5 +608,15 @@ export const UnifiedTransformControls = forwardRef<any, UnifiedTransformControls
         )}
       </>
     );
+  },
+);
+
+export const UnifiedTransformControls = forwardRef<unknown, UnifiedTransformControlsProps>(
+  function UnifiedTransformControls(props, ref) {
+    if (props.displayStyle === 'thick-primary' && props.mode !== 'scale') {
+      return <FusionTransformControls ref={ref} {...props} />;
+    }
+
+    return <LegacyUnifiedTransformControls ref={ref} {...props} />;
   },
 );

@@ -1,10 +1,10 @@
 /**
  * BridgeCreateModal - Dialog to create a bridge joint between two components
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { Link2 } from 'lucide-react';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
-import { PanelSelect, SegmentedControl, type SelectOption } from '@/shared/components/ui';
+import { Button, PanelSelect, SegmentedControl, type SelectOption } from '@/shared/components/ui';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { resolveSuggestedBridgeOriginForVisualContact } from '@/core/robot/assemblyBridgeAlignment';
 import { wouldBridgeCreateUnsupportedAssemblyCycle } from '@/core/robot/assemblyBridgeTopology';
@@ -28,7 +28,6 @@ import {
 } from './BridgeCreateFields';
 import {
   BRIDGE_EMPTY_SELECT_OPTION,
-  BRIDGE_FOOTER_BUTTON_CLASS,
   BRIDGE_RELATION_GRID_CLASS,
   BRIDGE_ROTATION_SHORTCUT_DEGREES,
   BRIDGE_SELECT_CLASS,
@@ -83,9 +82,11 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const compactLabelWidthClassName = lang === 'zh' ? 'w-[30px]' : 'w-[44px]';
   const fullRowLabelClassName = 'w-auto whitespace-nowrap';
   const axisLabelWidthClassName = 'w-4 justify-center';
+  const compactPositionLimitLabelClassName = lang === 'zh' ? 'w-[52px]' : 'w-[128px]';
+  const compactLimitLabelClassName = lang === 'zh' ? 'w-[34px]' : 'w-[64px]';
   const nameInputId = React.useId();
   const jointTypeSelectId = React.useId();
-  const defaultWindowSize = useMemo(() => ({ width: 600, height: 360 }), []);
+  const defaultWindowSize = useMemo(() => ({ width: 600, height: 500 }), []);
   const comps = Object.values(assemblyState.components);
   const defaultPosition = useMemo(() => {
     if (typeof window === 'undefined') {
@@ -718,7 +719,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
       }
       closeTitle={t.close}
       controlButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-element-hover"
-      closeButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-red-500 hover:text-white"
+      closeButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-danger hover:text-white"
     >
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 custom-scrollbar">
         <div className="space-y-2">
@@ -783,10 +784,10 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
           {validationMessages.length > 0 ? (
             <div
               data-bridge-validation
-              className="space-y-1 rounded-lg border border-red-500/25 bg-red-500/8 px-2 py-1.5"
+              className="space-y-1 rounded-lg border border-danger-border bg-danger-soft px-2 py-1.5"
             >
               {validationMessages.map((message) => (
-                <p key={message} className="text-[9px] font-medium leading-4 text-red-500">
+                <p key={message} className="text-[9px] font-medium leading-4 text-danger">
                   {message}
                 </p>
               ))}
@@ -1132,7 +1133,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                             precision={4}
                             onChange={setLimitLower}
                             className="gap-1.5"
-                            labelClassName="w-[34px]"
+                            labelClassName={compactPositionLimitLabelClassName}
                           />
                           <BridgeSpinnerField
                             inline
@@ -1142,7 +1143,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                             precision={4}
                             onChange={setLimitUpper}
                             className="gap-1.5"
-                            labelClassName="w-[34px]"
+                            labelClassName={compactPositionLimitLabelClassName}
                           />
                         </>
                       ) : null}
@@ -1180,7 +1181,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                             min={0}
                             onChange={setLimitEffort}
                             className="gap-1.5"
-                            labelClassName="w-[34px]"
+                            labelClassName={compactLimitLabelClassName}
                           />
                           <BridgeSpinnerField
                             inline
@@ -1191,7 +1192,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                             min={0}
                             onChange={setLimitVelocity}
                             className="gap-1.5"
-                            labelClassName="w-[34px]"
+                            labelClassName={compactLimitLabelClassName}
                           />
                         </>
                       )}
@@ -1204,21 +1205,23 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
       </div>
 
       <div className="flex shrink-0 justify-end gap-2 border-t border-border-black bg-element-bg px-2 py-2">
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={handleClose}
-          className={`${BRIDGE_FOOTER_BUTTON_CLASS} text-text-secondary hover:bg-element-hover`}
           type="button"
         >
           {t.cancel}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
           onClick={handleSubmit}
           disabled={isConfirmActuallyDisabled}
-          className={`${BRIDGE_FOOTER_BUTTON_CLASS} bg-system-blue-solid text-white hover:bg-system-blue-hover disabled:cursor-not-allowed disabled:opacity-50`}
           type="button"
         >
           {t.confirm}
-        </button>
+        </Button>
       </div>
     </DraggableWindow>
   );

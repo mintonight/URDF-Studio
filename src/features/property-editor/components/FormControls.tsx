@@ -295,6 +295,9 @@ const clampNumberToBounds = (value: number, min?: number, max?: number): number 
   return nextValue;
 };
 
+const areNumberInputValuesEqual = (left: number, right: number, precision: number): boolean =>
+  roundToMaxDecimals(left, precision) === roundToMaxDecimals(right, precision);
+
 type NumberInputDisplayFormatter = (value: number) => string;
 type NumberInputDisplayParser = (value: string) => number | null;
 
@@ -372,10 +375,37 @@ const useNumberInputController = ({
   const valueRef = useRef<number>(value ?? 0);
   const latestCommittedValueRef = useRef<number>(value ?? 0);
   const draftValueRef = useRef<string>(formatValue(value ?? 0, false));
+  const pendingLocalCommitRef = useRef<{
+    previousValue: number;
+    normalizedValue: number;
+  } | null>(null);
 
   useEffect(() => {
     const boundedValue = clampNumberToBounds(value ?? 0, min, max);
     const formattedValue = formatValue(boundedValue, isFocused);
+    const pendingLocalCommit = pendingLocalCommitRef.current;
+
+    if (pendingLocalCommit) {
+      if (
+        areNumberInputValuesEqual(
+          boundedValue,
+          pendingLocalCommit.normalizedValue,
+          commitPrecision,
+        )
+      ) {
+        pendingLocalCommitRef.current = null;
+      } else if (
+        areNumberInputValuesEqual(
+          boundedValue,
+          pendingLocalCommit.previousValue,
+          commitPrecision,
+        )
+      ) {
+        return;
+      } else {
+        pendingLocalCommitRef.current = null;
+      }
+    }
 
     valueRef.current = boundedValue;
     latestCommittedValueRef.current = boundedValue;
@@ -384,10 +414,11 @@ const useNumberInputController = ({
       draftValueRef.current = formattedValue;
       setLocalValue(formattedValue);
     }
-  }, [formatValue, inputRef, max, min, value, isFocused]);
+  }, [commitPrecision, formatValue, inputRef, max, min, value, isFocused]);
 
   const commitValue = useCallback(
     (nextValue: number, options?: { preserveDraftDisplay?: boolean }) => {
+      const previousValue = valueRef.current;
       const roundedInput = roundToMaxDecimals(nextValue, commitPrecision);
       const normalizedValue = roundToMaxDecimals(
         clampNumberToBounds(roundedInput, min, max),
@@ -398,8 +429,12 @@ const useNumberInputController = ({
       latestCommittedValueRef.current = normalizedValue;
       draftValueRef.current = formattedValue;
 
-      if (normalizedValue !== valueRef.current) {
+      if (!areNumberInputValuesEqual(normalizedValue, previousValue, commitPrecision)) {
         valueRef.current = normalizedValue;
+        pendingLocalCommitRef.current = {
+          previousValue,
+          normalizedValue,
+        };
         onChange(normalizedValue);
       }
 

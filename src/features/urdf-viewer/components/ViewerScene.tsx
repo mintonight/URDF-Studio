@@ -5,6 +5,7 @@ import { setRegressionRuntimeRobot } from '@/shared/debug/regressionState';
 import { isRegressionDebugEnabled } from '@/shared/debug/regressionDebugEnabled';
 import { RobotModel } from './RobotModel';
 import type {
+  MeasureToolProps,
   MeasureTargetResolver,
   RobotModelProps,
   ViewerRuntimeStageBridge,
@@ -17,6 +18,40 @@ import { resolveRegressionRuntimeRobot } from '../utils/regressionRuntimeRobot';
 export interface ViewerSceneProps extends ViewerSceneBaseProps {
   t: RobotModelProps['t'];
 }
+
+interface MeasureToolLayerProps {
+  controller: ViewerSceneProps['controller'];
+  hidden: boolean;
+  measureTargetResolverRef: NonNullable<MeasureToolProps['measureTargetResolverRef']>;
+  robotLinks: MeasureToolProps['robotLinks'];
+  t: ViewerSceneProps['t'];
+}
+
+const MeasureToolLayer = ({
+  controller,
+  hidden,
+  measureTargetResolverRef,
+  robotLinks,
+  t,
+}: MeasureToolLayerProps) => {
+  if (hidden) {
+    return null;
+  }
+
+  return (
+    <MeasureTool
+      active={controller.toolMode === 'measure'}
+      robot={controller.robot}
+      robotLinks={robotLinks}
+      measureState={controller.measureState}
+      setMeasureState={controller.setMeasureState}
+      measureAnchorMode={controller.measureAnchorMode}
+      showDecomposition={controller.showMeasureDecomposition}
+      deleteTooltip={t.deleteMeasurement}
+      measureTargetResolverRef={measureTargetResolverRef}
+    />
+  );
+};
 
 export const ViewerScene = ({
   controller,
@@ -68,6 +103,8 @@ export const ViewerScene = ({
   const readyNotificationFrameARef = useRef<number | null>(null);
   const readyNotificationFrameBRef = useRef<number | null>(null);
   const regressionRuntimeEnabled = isRegressionDebugEnabled();
+  const regressionRuntimeScopeKey =
+    regressionRuntimeEnabled && sourceFile ? `${sourceFile.format}:${sourceFile.name}` : null;
 
   const runtimeBridge = useMemo<ViewerRuntimeStageBridge>(
     () => ({
@@ -128,18 +165,17 @@ export const ViewerScene = ({
   );
 
   useEffect(() => {
-    if (!regressionRuntimeEnabled) {
+    if (!regressionRuntimeScopeKey) {
       return;
     }
 
-    setRegressionRuntimeRobot(null);
     return () => {
       setRegressionRuntimeRobot(null);
     };
-  }, [regressionRuntimeEnabled, sourceFile]);
+  }, [regressionRuntimeScopeKey]);
 
   useEffect(() => {
-    if (!regressionRuntimeEnabled || !sourceFile) {
+    if (!regressionRuntimeScopeKey) {
       return;
     }
 
@@ -153,10 +189,7 @@ export const ViewerScene = ({
     }
 
     setRegressionRuntimeRobot(runtimeRobot);
-    return () => {
-      setRegressionRuntimeRobot(null);
-    };
-  }, [controller.jointPanelRobot, controller.robot, regressionRuntimeEnabled, sourceFile]);
+  }, [controller.jointPanelRobot, controller.robot, regressionRuntimeScopeKey]);
 
   const handleRobotLoaded = useCallback(
     (robot: Parameters<NonNullable<RobotModelProps['onRobotLoaded']>>[0]) => {
@@ -183,19 +216,13 @@ export const ViewerScene = ({
 
   return (
     <>
-      {!snapshotRenderActive && (
-        <MeasureTool
-          active={controller.toolMode === 'measure'}
-          robot={controller.robot}
-          robotLinks={robotLinks}
-          measureState={controller.measureState}
-          setMeasureState={controller.setMeasureState}
-          measureAnchorMode={controller.measureAnchorMode}
-          showDecomposition={controller.showMeasureDecomposition}
-          deleteTooltip={t.deleteMeasurement}
-          measureTargetResolverRef={measureTargetResolverRef}
-        />
-      )}
+      <MeasureToolLayer
+        controller={controller}
+        hidden={snapshotRenderActive}
+        measureTargetResolverRef={measureTargetResolverRef}
+        robotLinks={robotLinks}
+        t={t}
+      />
 
       <Suspense fallback={null}>
         <RobotModel

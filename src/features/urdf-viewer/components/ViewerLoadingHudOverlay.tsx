@@ -6,7 +6,7 @@ import { ViewerLoadingHud } from './ViewerLoadingHud';
 
 type ViewerLoadingHudOverlayProps = Pick<
   ComponentProps<typeof ViewerLoadingHud>,
-  'title' | 'detail' | 'progress' | 'progressMode' | 'statusLabel' | 'stageLabel'
+  'title' | 'detail' | 'progress' | 'progressMode' | 'statusLabel' | 'stageLabel' | 'delayMs'
 >;
 
 const calculateFullscreenHtmlPosition = (
@@ -22,7 +22,7 @@ export function ViewerLoadingHudOverlay(props: ViewerLoadingHudOverlayProps) {
       calculatePosition={calculateFullscreenHtmlPosition}
       className={VIEWER_CORNER_OVERLAY_CLASS_NAME}
     >
-      <ViewerLoadingHud {...props} delayMs={0} />
+      <ViewerLoadingHud {...props} />
     </Html>
   );
 }

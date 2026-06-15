@@ -4,7 +4,6 @@ import { useEnvironment } from '@react-three/drei';
 import * as THREE from 'three';
 import type { RefObject } from 'react';
 import type { Theme } from '@/types';
-import { resolveSnapshotRenderPlan } from './snapshotResolution';
 import {
   getSnapshotFileExtension,
   getSnapshotMimeType,
@@ -29,10 +28,17 @@ import { SnapshotExportLook } from './SnapshotExportLook';
 import { useSnapshotRenderContext } from './SnapshotRenderContext';
 import {
   clampSnapshotRenderPlanToPixelBudget,
+  resolveSnapshotRenderPlan,
   resolveSnapshotRenderTargetSamples,
+  resolveSnapshotTiledRenderPlan,
 } from './snapshotResolution';
 import { renderSceneWithDofToCanvas, resolveSnapshotDofSettings } from './snapshotPostprocessing';
-import { applyWorkspaceCameraSnapshot } from '../workspace/workspaceCameraSnapshot';
+import {
+  applyWorkspaceCameraSnapshot,
+  resolveWorkspaceCameraRenderViewOffset,
+  type WorkspaceCameraRenderViewOffset,
+  type WorkspaceCameraVisibleViewport,
+} from '../workspace/workspaceCameraSnapshot';
 
 const SNAPSHOT_RENDER_TARGET_SAMPLES = {
   viewport: 4,
@@ -47,10 +53,77 @@ const SNAPSHOT_INTERNAL_RENDER_PIXEL_BUDGET = {
 } as const;
 
 const SNAPSHOT_DOF_PIXEL_BUDGET_MULTIPLIER = 0.72;
+const SNAPSHOT_TILED_RENDER_SCALE_THRESHOLD = 0.95;
 
 const SNAPSHOT_HDR_PRELOAD_FILE = '/potsdamer_platz_1k.hdr';
 
 let snapshotHdrPreloadPromise: Promise<void> | null = null;
+
+type SnapshotTileCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera;
+type SnapshotCameraView = NonNullable<THREE.PerspectiveCamera['view']>;
+
+function isSnapshotTileCamera(camera: THREE.Camera): camera is SnapshotTileCamera {
+  return camera instanceof THREE.PerspectiveCamera || camera instanceof THREE.OrthographicCamera;
+}
+
+function cloneSnapshotCameraView(camera: SnapshotTileCamera): SnapshotCameraView | null {
+  return camera.view ? { ...camera.view } : null;
+}
+
+function restoreSnapshotCameraView(camera: SnapshotTileCamera, view: SnapshotCameraView | null) {
+  if (view?.enabled) {
+    camera.setViewOffset(
+      view.fullWidth,
+      view.fullHeight,
+      view.offsetX,
+      view.offsetY,
+      view.width,
+      view.height,
+    );
+  } else {
+    camera.clearViewOffset();
+  }
+  camera.updateProjectionMatrix();
+}
+
+function setSnapshotCameraViewOffset(
+  camera: SnapshotTileCamera,
+  viewOffset: WorkspaceCameraRenderViewOffset,
+) {
+  camera.setViewOffset(
+    viewOffset.fullWidth,
+    viewOffset.fullHeight,
+    viewOffset.offsetX,
+    viewOffset.offsetY,
+    viewOffset.width,
+    viewOffset.height,
+  );
+  camera.updateProjectionMatrix();
+}
+
+function applySnapshotCameraVisibleViewport(
+  camera: THREE.Camera,
+  visibleViewport: WorkspaceCameraVisibleViewport | null | undefined,
+  renderWidth: number,
+  renderHeight: number,
+) {
+  if (!isSnapshotTileCamera(camera)) {
+    return null;
+  }
+
+  const viewOffset = resolveWorkspaceCameraRenderViewOffset(
+    visibleViewport,
+    renderWidth,
+    renderHeight,
+  );
+  if (!viewOffset) {
+    return null;
+  }
+
+  const previousView = cloneSnapshotCameraView(camera);
+  setSnapshotCameraViewOffset(camera, viewOffset);
+  return () => restoreSnapshotCameraView(camera, previousView);
+}
 
 function ensureSnapshotHdrPreloaded(): Promise<void> {
   if (!snapshotHdrPreloadPromise) {
@@ -125,16 +198,24 @@ export const SnapshotManager = ({
       }
     };
 
-    const resolveSnapshotSize = (longEdgePx: number) => {
+    const resolveSnapshotSize = (
+      longEdgePx: number,
+      visibleViewport?: WorkspaceCameraVisibleViewport | null,
+    ) => {
       const drawingBufferSize = gl.getDrawingBufferSize(new THREE.Vector2());
-      const baseWidth = Math.max(1, Math.round(drawingBufferSize.x || 1));
-      const baseHeight = Math.max(1, Math.round(drawingBufferSize.y || 1));
+      const pixelRatio = gl.getPixelRatio();
+      const baseWidth = visibleViewport
+        ? Math.max(1, Math.round(visibleViewport.width * pixelRatio))
+        : Math.max(1, Math.round(drawingBufferSize.x || 1));
+      const baseHeight = visibleViewport
+        ? Math.max(1, Math.round(visibleViewport.height * pixelRatio))
+        : Math.max(1, Math.round(drawingBufferSize.y || 1));
       const context = gl.getContext();
 
       return resolveSnapshotRenderPlan({
         baseWidth,
         baseHeight,
-        basePixelRatio: gl.getPixelRatio(),
+        basePixelRatio: pixelRatio,
         targetLongEdge: longEdgePx,
         maxRenderbufferSize: context.getParameter(context.MAX_RENDERBUFFER_SIZE),
         maxTextureSize: context.getParameter(context.MAX_TEXTURE_SIZE),
@@ -326,6 +407,24 @@ export const SnapshotManager = ({
       }
     };
 
+    const fillCanvasBackground = (
+      ctx: CanvasRenderingContext2D,
+      targetWidth: number,
+      targetHeight: number,
+      backgroundFill: SnapshotBackgroundFill,
+    ) => {
+      if (backgroundFill.kind === 'solid' && backgroundFill.colors?.[0]) {
+        ctx.fillStyle = backgroundFill.colors[0];
+        ctx.fillRect(0, 0, targetWidth, targetHeight);
+      } else if (backgroundFill.kind === 'linear-gradient' && backgroundFill.colors) {
+        const gradient = ctx.createLinearGradient(0, 0, 0, targetHeight);
+        gradient.addColorStop(0, backgroundFill.colors[0]);
+        gradient.addColorStop(1, backgroundFill.colors[1]);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, targetWidth, targetHeight);
+      }
+    };
+
     const createExportCanvas = (
       sourceCanvas: HTMLCanvasElement,
       targetWidth: number,
@@ -347,16 +446,7 @@ export const SnapshotManager = ({
         return sourceCanvas;
       }
 
-      if (backgroundFill.kind === 'solid' && backgroundFill.colors?.[0]) {
-        ctx.fillStyle = backgroundFill.colors[0];
-        ctx.fillRect(0, 0, targetWidth, targetHeight);
-      } else if (backgroundFill.kind === 'linear-gradient' && backgroundFill.colors) {
-        const gradient = ctx.createLinearGradient(0, 0, 0, targetHeight);
-        gradient.addColorStop(0, backgroundFill.colors[0]);
-        gradient.addColorStop(1, backgroundFill.colors[1]);
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, targetWidth, targetHeight);
-      }
+      fillCanvasBackground(ctx, targetWidth, targetHeight, backgroundFill);
 
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
@@ -364,14 +454,103 @@ export const SnapshotManager = ({
       return exportCanvas;
     };
 
+    const renderSceneToTiledCanvas = ({
+      scene,
+      camera,
+      outputWidth,
+      outputHeight,
+      supersampleScale,
+      requestedSamples,
+      backgroundFill,
+      visibleViewport,
+    }: {
+      scene: THREE.Scene;
+      camera: SnapshotTileCamera;
+      outputWidth: number;
+      outputHeight: number;
+      supersampleScale: number;
+      requestedSamples: number;
+      backgroundFill: SnapshotBackgroundFill;
+      visibleViewport?: WorkspaceCameraVisibleViewport | null;
+    }) => {
+      const context = gl.getContext();
+      const tiledPlan = resolveSnapshotTiledRenderPlan({
+        outputWidth,
+        outputHeight,
+        supersampleScale,
+        maxRenderbufferSize: context.getParameter(context.MAX_RENDERBUFFER_SIZE),
+        maxTextureSize: context.getParameter(context.MAX_TEXTURE_SIZE),
+      });
+      const captureCanvas = document.createElement('canvas');
+      captureCanvas.width = tiledPlan.outputWidth;
+      captureCanvas.height = tiledPlan.outputHeight;
+      const ctx = captureCanvas.getContext('2d');
+
+      if (!ctx) {
+        return captureCanvas;
+      }
+
+      fillCanvasBackground(ctx, tiledPlan.outputWidth, tiledPlan.outputHeight, backgroundFill);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      const visibleViewOffset = resolveWorkspaceCameraRenderViewOffset(
+        visibleViewport,
+        tiledPlan.fullRenderWidth,
+        tiledPlan.fullRenderHeight,
+      );
+      const previousView = cloneSnapshotCameraView(camera);
+
+      try {
+        tiledPlan.tiles.forEach((tile) => {
+          camera.setViewOffset(
+            visibleViewOffset?.fullWidth ?? tiledPlan.fullRenderWidth,
+            visibleViewOffset?.fullHeight ?? tiledPlan.fullRenderHeight,
+            (visibleViewOffset?.offsetX ?? 0) + tile.renderX,
+            (visibleViewOffset?.offsetY ?? 0) + tile.renderY,
+            tile.renderWidth,
+            tile.renderHeight,
+          );
+          camera.updateProjectionMatrix();
+
+          const tileCanvas = renderSceneToCanvas({
+            scene,
+            camera,
+            width: tile.renderWidth,
+            height: tile.renderHeight,
+            requestedSamples,
+          });
+
+          ctx.drawImage(
+            tileCanvas,
+            0,
+            0,
+            tile.renderWidth,
+            tile.renderHeight,
+            tile.outputX,
+            tile.outputY,
+            tile.outputWidth,
+            tile.outputHeight,
+          );
+        });
+      } finally {
+        restoreSnapshotCameraView(camera, previousView);
+      }
+
+      return captureCanvas;
+    };
+
     const renderSnapshotCanvas = async (
       snapshotOptions: SnapshotCaptureOptions,
       frozenCamera?: THREE.Camera,
     ) => {
-      const outputPlan = resolveSnapshotSize(snapshotOptions.longEdgePx);
+      const visibleViewport = snapshotOptions.cameraSnapshot?.visibleViewport ?? null;
+      const outputPlan = resolveSnapshotSize(snapshotOptions.longEdgePx, visibleViewport);
       const supersampleScale = SNAPSHOT_DETAIL_SUPERSAMPLE_SCALE[snapshotOptions.detailLevel];
       const renderPlan = clampSnapshotRenderPlanToPixelBudget(
-        resolveSnapshotSize(Math.round(snapshotOptions.longEdgePx * supersampleScale)),
+        resolveSnapshotSize(
+          Math.round(snapshotOptions.longEdgePx * supersampleScale),
+          visibleViewport,
+        ),
         resolveSnapshotRenderPixelBudget(snapshotOptions),
       );
       let restoreSceneVisibility: (() => void) | null = null;
@@ -419,6 +598,8 @@ export const SnapshotManager = ({
         const originalScissor = gl.getScissor(new THREE.Vector4());
         const originalScissorTest = gl.getScissorTest();
         let capturedCanvas: HTMLCanvasElement;
+        let capturedAtOutputSize = false;
+        let restoreCameraViewOffset: (() => void) | null = null;
 
         try {
           const dofSettings = resolveSnapshotDofSettings(
@@ -426,8 +607,43 @@ export const SnapshotManager = ({
             captureCamera,
             snapshotOptions.dofMode,
           );
+          const desiredRenderWidth = Math.max(
+            1,
+            Math.round(outputPlan.targetWidth * supersampleScale),
+          );
+          const desiredRenderHeight = Math.max(
+            1,
+            Math.round(outputPlan.targetHeight * supersampleScale),
+          );
+          const effectiveSupersampleRatio = Math.min(
+            renderPlan.targetWidth / desiredRenderWidth,
+            renderPlan.targetHeight / desiredRenderHeight,
+          );
+          const shouldUseTiledSupersampling =
+            !dofSettings &&
+            supersampleScale > 1 &&
+            isSnapshotTileCamera(captureCamera) &&
+            effectiveSupersampleRatio < SNAPSHOT_TILED_RENDER_SCALE_THRESHOLD;
 
-          if (dofSettings) {
+          if (shouldUseTiledSupersampling) {
+            capturedCanvas = renderSceneToTiledCanvas({
+              scene: latestScene,
+              camera: captureCamera,
+              outputWidth: outputPlan.targetWidth,
+              outputHeight: outputPlan.targetHeight,
+              supersampleScale,
+              requestedSamples: SNAPSHOT_RENDER_TARGET_SAMPLES[snapshotOptions.detailLevel],
+              backgroundFill,
+              visibleViewport,
+            });
+            capturedAtOutputSize = true;
+          } else if (dofSettings) {
+            restoreCameraViewOffset = applySnapshotCameraVisibleViewport(
+              captureCamera,
+              visibleViewport,
+              renderPlan.targetWidth,
+              renderPlan.targetHeight,
+            );
             capturedCanvas = renderSceneWithDofToCanvas({
               gl,
               scene: latestScene,
@@ -441,6 +657,12 @@ export const SnapshotManager = ({
               settings: dofSettings,
             });
           } else {
+            restoreCameraViewOffset = applySnapshotCameraVisibleViewport(
+              captureCamera,
+              visibleViewport,
+              renderPlan.targetWidth,
+              renderPlan.targetHeight,
+            );
             capturedCanvas = renderSceneToCanvas({
               scene: latestScene,
               camera: captureCamera,
@@ -450,6 +672,7 @@ export const SnapshotManager = ({
             });
           }
         } finally {
+          restoreCameraViewOffset?.();
           gl.setRenderTarget(originalRenderTarget);
           gl.setViewport(originalViewport);
           gl.setScissor(originalScissor);
@@ -466,12 +689,14 @@ export const SnapshotManager = ({
         restoreSceneVisibility = null;
         restoreBackgroundStyle();
         restoreBackgroundStyle = null;
-        capturedCanvas = createExportCanvas(
-          capturedCanvas,
-          outputPlan.targetWidth,
-          outputPlan.targetHeight,
-          backgroundFill,
-        );
+        if (!capturedAtOutputSize) {
+          capturedCanvas = createExportCanvas(
+            capturedCanvas,
+            outputPlan.targetWidth,
+            outputPlan.targetHeight,
+            backgroundFill,
+          );
+        }
         invalidate();
         return {
           canvas: capturedCanvas,

@@ -1,0 +1,13 @@
+{
+  "generatedAt": "2026-06-05",
+  "note": "Grandfathered import cycles (2-node sibling/barrel cycles). Ratchet down only; remove a signature when its cycle is broken. New cycles fail dependency_boundaries.mjs --check.",
+  "knownCycles": [
+    "src/types/robot.ts|src/types/usd.ts",
+    "src/core/parsers/filePreview.ts|src/core/parsers/index.ts",
+    "src/features/property-editor/utils/collision-optimization/coaxialMergeCandidates.ts|src/features/property-editor/utils/collisionOptimization.ts",
+    "src/app/utils/importPreparation.ts|src/app/utils/preResolvedRobotImportCache.ts",
+    "src/shared/utils/robot/closedLoopMotionPreview.ts|src/shared/utils/robot/closedLoopMotionPreviewWorkerBridge.ts",
+    "src/app/utils/unifiedViewerMountState.ts|src/app/utils/unifiedViewerSceneMode.ts",
+    "src/app/utils/exportArchiveAssets.ts|src/app/utils/exportArchiveAssetsWorker.ts"
+  ]
+}

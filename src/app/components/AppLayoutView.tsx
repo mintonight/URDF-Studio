@@ -77,9 +77,12 @@ export interface AppLayoutViewProps {
   handlePrefetchCodeViewer: HeaderProps['onPrefetchCodeViewer'];
   handleSnapshot: HeaderProps['onSnapshot'];
   isIkToolPanelOpen: boolean;
+  ikLinkOptions: IkToolPanelProps['linkOptions'];
+  selectedIkLinkId: IkToolPanelProps['selectedLinkId'];
   selectedIkLinkLabel: IkToolPanelProps['selectedLinkLabel'];
   currentIkLinkLabel: IkToolPanelProps['currentLinkLabel'];
   ikToolSelectionStatus: IkToolPanelProps['selectionStatus'];
+  onSelectIkLink: IkToolPanelProps['onSelectLink'];
   onIkToolClose: () => void;
   workspaceLayoutClassNames: WorkspaceLayoutClassNames;
   workspaceOverlaySafeAreaStyle: CSSProperties | undefined;
@@ -208,9 +211,12 @@ export function AppLayoutView({
   handlePrefetchCodeViewer,
   handleSnapshot,
   isIkToolPanelOpen,
+  ikLinkOptions,
+  selectedIkLinkId,
   selectedIkLinkLabel,
   currentIkLinkLabel,
   ikToolSelectionStatus,
+  onSelectIkLink,
   onIkToolClose,
   workspaceLayoutClassNames,
   workspaceOverlaySafeAreaStyle,
@@ -312,6 +318,14 @@ export function AppLayoutView({
   handleCloseSnapshotDialog,
   handleCaptureSnapshot,
 }: AppLayoutViewProps) {
+  const hasDisplayableViewerRobot = Object.keys(viewerRobot.links ?? {}).length > 1;
+  const shouldSuppressDocumentLoadingOverlay =
+    shouldRenderAssembly ||
+    Boolean(assemblyComponentPreparationOverlay) ||
+    (hasDisplayableViewerRobot &&
+      documentLoadState.status === 'loading' &&
+      documentLoadState.fileName === selectedFile?.name);
+
   return (
     <div
       className="flex flex-col h-screen font-sans bg-google-light-bg dark:bg-app-bg text-slate-800 dark:text-slate-200"
@@ -359,9 +373,12 @@ export function AppLayoutView({
       <IkToolPanel
         show={isIkToolPanelOpen}
         t={t}
+        linkOptions={ikLinkOptions}
+        selectedLinkId={selectedIkLinkId}
         selectedLinkLabel={selectedIkLinkLabel}
         currentLinkLabel={currentIkLinkLabel}
         selectionStatus={ikToolSelectionStatus}
+        onSelectLink={onSelectIkLink}
         onClose={onIkToolClose}
       />
 
@@ -426,8 +443,7 @@ export function AppLayoutView({
           documentLoadingOverlayTargetFileName={resolveDocumentLoadingOverlayTargetFileName({
             previewFileName: null,
             selectedFileName: selectedFile?.name ?? null,
-            suppressDocumentLoadingOverlay:
-              shouldRenderAssembly || Boolean(assemblyComponentPreparationOverlay),
+            suppressDocumentLoadingOverlay: shouldSuppressDocumentLoadingOverlay,
             documentLoadState,
           })}
           importPreparationOverlay={importPreparationOverlay}

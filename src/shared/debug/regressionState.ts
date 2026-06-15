@@ -101,10 +101,20 @@ export interface RegressionViewerResourceScopeState {
   signature: string | null;
 }
 
+export interface RegressionEditableSourceApplyResult {
+  mode: 'incremental-patch' | 'full-parse';
+  dirtyRangeCount: number;
+  dirtySpanBytes: number;
+  dirtySpanLimitBytes: number;
+  patchKind: string | null;
+  skipReason: string | null;
+}
+
 export const regressionDebugState: {
   appHandlers: AppRegressionHandlers | null;
   viewerHandlers: ViewerRegressionHandlers | null;
   viewerResourceScopeState: RegressionViewerResourceScopeState | null;
+  lastEditableSourceApplyResult: RegressionEditableSourceApplyResult | null;
   runtimeRobot: RuntimeRobotObject | null;
   runtimeRevision: number;
   projectedInteractionTargetsProvider: (() => RegressionProjectedInteractionTarget[]) | null;
@@ -112,6 +122,7 @@ export const regressionDebugState: {
   appHandlers: null,
   viewerHandlers: null,
   viewerResourceScopeState: null,
+  lastEditableSourceApplyResult: null,
   runtimeRobot: null,
   runtimeRevision: 0,
   projectedInteractionTargetsProvider: null,
@@ -129,6 +140,12 @@ export function setRegressionViewerResourceScope(
   scope: RegressionViewerResourceScopeState | null,
 ): void {
   regressionDebugState.viewerResourceScopeState = scope;
+}
+
+export function setRegressionEditableSourceApplyResult(
+  result: RegressionEditableSourceApplyResult | null,
+): void {
+  regressionDebugState.lastEditableSourceApplyResult = result;
 }
 
 export function setRegressionRuntimeRobot(robot: RuntimeRobotObject | null): void {

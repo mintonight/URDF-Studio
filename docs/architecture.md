@@ -99,6 +99,15 @@
 
 ## 10. 依赖检查命令
 
+分层红线与 import 循环由 `scripts/tools/dependency_boundaries.mjs` 机器化把关（零依赖，复用 `@/* -> src/*` alias）：
+
+```bash
+npm run deps:audit   # 报告越层 import 与循环依赖
+npm run deps:check    # CI 阻断门（存量循环走 dependency_boundaries_baseline.json grandfather，仅挡净新增）
+```
+
+该脚本编码 §1 的方向（core 禁 React/越层、features 禁互相 import、shared/store/lib 禁向上），§3 的存量例外与 editor->urdf-viewer facade、lib RobotCanvas 包装关系已 allowlist。`npm run lint` 已串联 `deps:check`。下列 `rg` 命令仅作快速人工排查备用：
+
 ```bash
 # 检查潜在反向依赖（core/shared/store 对 features 的引用）
 rg -n "from ['\"]@/features/" src/core src/shared src/store
@@ -115,4 +124,14 @@ rg -n "#[0-9A-Fa-f]{3,8}" src
 # 检查 #0088FF 使用范围
 rg -n "#0088FF|#0088ff" src | rg -v "Slider.tsx|styles/index.css"
 ```
+
+## 11. 规模门禁与豁免（Size Budgets & Exemptions）
+
+单文件/函数长度、圈复杂度、参数数、嵌套深度由 `scripts/tools/google_style_audit.mjs` 的 count-based 规则把关，走 `google_style_baseline.json` ratchet（存量 grandfather、仅净新增违规 fail，与 `css-important`、`file-name-snake-case` 同机制）。当前阈值：file warn 500 / hard 800、function warn 150 / hard 200、complexity warn 15 / hard 20、params 4、depth 4（均 skipBlank+skipComments，仅作用 `src/**`，对 `**/*.test.*` / `**/*.spec.*` / `scripts/**` 关闭）。原则：**多数超长解析器/数值求解器是真实领域内聚，禁止为凑行数硬拆**；只对存在"可干净抽离附带膨胀"的文件做定向重构。
+
+以下文件/目录**有意豁免**所有 JS/TS 行长与复杂度门禁，不计入上述预算：
+
+- **手写 C-ABI emscripten 源**：`src/core/loaders/wasm/collada_mesh_parser.cpp`、`src/core/loaders/wasm/obj_parser.cpp`。它们是**单翻译单元（single TU）**设计——单 `.cpp` + `-flto` + 匿名 `namespace` 内部链接，所有 helper 文件本地。拆成多 TU/头文件**运行时零收益、只增 header 边界摩擦**，故有意保留单文件；要可读性用 section banner 注释而非物理拆分。注意：构建是 **C-ABI `EXPORTED_FUNCTIONS`** 模式（手动 `HEAPU8` marshalling via `*_get_result_ptr` / `*_get_result_size`），**不是 embind**（无 `emscripten/bind.h` / `EMSCRIPTEN_BINDINGS` / `--bind`）。.cpp 风格由 `.clang-format` 固定。
+- **生成产物**：`public/wasm/**`（emscripten JS glue + `.wasm` 二进制，由 `scripts/build/rebuild-*-wasm.sh` 生成，**勿手改**，改 `.cpp` 重跑脚本）、`**/*.generated.*`（ESLint 与 audit 一致跳过）。
+- **vendored 源**：`third_party/**`（魔改版 OpenUSD）、`src/features/urdf-viewer/runtime/**`（USD WASM runtime）。
 

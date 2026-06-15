@@ -1,0 +1,72 @@
+{
+  "generatedAt": "2026-06-05",
+  "rules": {
+    "file-name-snake-case": {
+      "max": 1431,
+      "note": "DEAD RULE — count equals every PascalCase component + camelCase module in src/** (the project's real convention), so it grows with the codebase. Bump to match HEAD when adding convention-following files; NEVER rename a file to satisfy it. Retired in Phase 5 in favor of @typescript-eslint/naming-convention."
+    },
+    "file-too-long": {
+      "max": 49,
+      "note": "src/** files over 800 code lines (blank/comment lines skipped). Ratchet down as Phase 3 splits land; never raise. 50->49 when meshLoader.ts shed its asset path-index engine to assetPathIndex.ts."
+    },
+    "function-too-long": {
+      "max": 115,
+      "note": "Function bodies over 200 code lines in src/**. Ratchet down only."
+    },
+    "function-too-complex": {
+      "max": 183,
+      "note": "Cyclomatic complexity over 20 in src/**. Parser/solver heavy; ratchet down only."
+    },
+    "too-many-params": {
+      "max": 126,
+      "note": "Functions with more than 4 params in src/**. Prefer an options object; ratchet down only."
+    },
+    "too-deep": {
+      "max": 9,
+      "note": "Block nesting deeper than 4 in src/**. Ratchet down only."
+    },
+    "nullable-undefined-type-alias": {
+      "max": 5,
+      "note": "Historical top-level type aliases with null or undefined unions."
+    },
+    "const-enum": {
+      "max": 0
+    },
+    "debugger-production": {
+      "max": 0
+    },
+    "dynamic-code-execution": {
+      "max": 5,
+      "note": "Historical browser test helper callbacks using new Function."
+    },
+    "html-inline-style": {
+      "max": 0
+    },
+    "html-void-element-slash": {
+      "max": 0
+    },
+    "html-id-hyphen": {
+      "max": 0
+    },
+    "html-class-name": {
+      "max": 0
+    },
+    "css-class-name": {
+      "max": 0
+    },
+    "css-id-selector": {
+      "max": 0
+    },
+    "css-zero-unit": {
+      "max": 0
+    },
+    "css-important": {
+      "max": 32,
+      "note": "Historical Tailwind utility font-size overrides and scrollbar styling."
+    },
+    "css-declaration-order": {
+      "max": 7,
+      "note": "Historical CSS declaration ordering differences; Google marks alphabetical order optional."
+    }
+  }
+}

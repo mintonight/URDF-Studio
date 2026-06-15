@@ -16,6 +16,8 @@ scripts/
 │   └── runner/       测试 runner（run-node-tests.mjs）
 ├── tools/          开发与外部工具
 │   ├── dts/          DTS 别名重写
+│   ├── google_style_audit.mjs  Google JS/TS + HTML/CSS style 债务审计
+│   ├── google_style_baseline.json  Google style 债务 baseline
 │   └── isaacsim/     IsaacSim 集成工具（碰撞提取、真值生成、USD 检查）
 └── release/        版本管理（bump / show）
 ```

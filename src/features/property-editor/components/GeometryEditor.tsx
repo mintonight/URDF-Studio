@@ -7,7 +7,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { UrdfVisual } from '@/types';
 import { GeometryType } from '@/types';
-import { useCollisionTransformStore, useSelectionStore } from '@/store';
+import { useAssetsStore, useCollisionTransformStore, useSelectionStore } from '@/store';
 import {
   canEditGeometryBaseTexture,
   getVisualGeometryByObjectIndex,
@@ -65,6 +65,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
   onUpdate,
   assets,
   onUploadAsset,
+  onDeleteAsset,
   t,
   lang,
   isTabbed = false,
@@ -80,6 +81,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
   const typeChangeRequestRef = useRef(0);
   const [geometryHeaderRowWidth, setGeometryHeaderRowWidth] = useState<number | null>(null);
   const setSelection = useSelectionStore((state) => state.setSelection);
+  const removeAsset = useAssetsStore((state) => state.removeAsset);
   const pendingCollisionTransform = useCollisionTransformStore(
     (state) => state.pendingCollisionTransform,
   );
@@ -380,6 +382,16 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
     onUploadAsset(file);
     setPreviewTexturePath(file.name);
     e.target.value = '';
+  };
+
+  const handleDeleteTextureAsset = (filePath: string) => {
+    if (previewTexturePath === filePath) {
+      setPreviewTexturePath(null);
+    }
+    if (effectiveTexturePath === filePath) {
+      applyVisualTexture(undefined);
+    }
+    (onDeleteAsset ?? removeAsset)(filePath);
   };
 
   // Handle editing individual authored material colors
@@ -715,6 +727,7 @@ export const GeometryEditor: React.FC<GeometryEditorProps> = ({
           onApplyVisualTexture={applyVisualTexture}
           onAuthoredMaterialColorChange={handleAuthoredMaterialColorChange}
           onAuthoredMaterialOpacityChange={handleAuthoredMaterialOpacityChange}
+          onDeleteTextureAsset={handleDeleteTextureAsset}
           onPreviewTexturePathChange={setPreviewTexturePath}
           onSingleMaterialColorChange={handleSingleMaterialColorChange}
           onSingleMaterialOpacityChange={handleSingleMaterialOpacityChange}

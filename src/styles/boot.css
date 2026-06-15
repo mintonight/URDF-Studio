@@ -1,0 +1,45 @@
+:root {
+  --boot-accent: #2563eb;
+  --boot-bg: #f5f7fb;
+  --boot-track: rgba(100, 116, 139, 0.22);
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --boot-accent: #60a5fa;
+    --boot-bg: #0f172a;
+    --boot-track: rgba(148, 163, 184, 0.22);
+  }
+}
+
+html,
+body,
+#root {
+  background: var(--boot-bg);
+  margin: 0;
+  min-height: 100%;
+}
+
+.boot-loading {
+  background: var(--boot-bg);
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+}
+
+.boot-spinner {
+  animation: boot-spin 800ms linear infinite;
+  border: 3px solid var(--boot-track);
+  border-radius: 50%;
+  border-top-color: var(--boot-accent);
+  height: 32px;
+  width: 32px;
+}
+
+@keyframes boot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

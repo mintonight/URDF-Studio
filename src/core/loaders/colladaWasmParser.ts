@@ -2,6 +2,11 @@ import type {
   SerializedColladaAttributeData,
   SerializedFastColladaSceneData,
 } from './colladaWorkerSceneData';
+import {
+  durationMs,
+  type MeshLoadPerformanceEntry,
+  readHighResolutionEpochMs,
+} from './meshLoadPerformance';
 
 interface ColladaMeshParserWasmModule {
   HEAPU8: Uint8Array;
@@ -10,10 +15,34 @@ interface ColladaMeshParserWasmModule {
   _collada_mesh_parser_free_result: () => void;
   _collada_mesh_parser_get_error_ptr: () => number;
   _collada_mesh_parser_get_error_size: () => number;
+  _collada_mesh_parser_get_last_timing_ms: (metricIndex: number) => number;
   _collada_mesh_parser_get_result_ptr: () => number;
   _collada_mesh_parser_get_result_size: () => number;
   _parse_collada_mesh: (ptr: number, length: number) => number;
 }
+
+type ColladaWasmInternalTimingField =
+  | 'colladaWasmFeatureCheckMs'
+  | 'colladaWasmUpAxisMs'
+  | 'colladaWasmUnitScaleMs'
+  | 'colladaWasmImagesMs'
+  | 'colladaWasmMaterialsMs'
+  | 'colladaWasmGeometriesMs'
+  | 'colladaWasmLibraryNodesMs'
+  | 'colladaWasmVisualSceneMs'
+  | 'colladaWasmWriteResultMs';
+
+const COLLADA_WASM_INTERNAL_TIMING_FIELDS: readonly ColladaWasmInternalTimingField[] = [
+  'colladaWasmFeatureCheckMs',
+  'colladaWasmUpAxisMs',
+  'colladaWasmUnitScaleMs',
+  'colladaWasmImagesMs',
+  'colladaWasmMaterialsMs',
+  'colladaWasmGeometriesMs',
+  'colladaWasmLibraryNodesMs',
+  'colladaWasmVisualSceneMs',
+  'colladaWasmWriteResultMs',
+];
 
 type ColladaMeshParserModuleFactory = (options?: {
   locateFile?: (path: string) => string;
@@ -74,6 +103,22 @@ async function loadColladaMeshParserModule(): Promise<ColladaMeshParserWasmModul
   }
 
   return await modulePromise;
+}
+
+function recordColladaWasmInternalTimings(
+  module: ColladaMeshParserWasmModule,
+  loadPerformance: MeshLoadPerformanceEntry | undefined,
+): void {
+  if (!loadPerformance) {
+    return;
+  }
+
+  COLLADA_WASM_INTERNAL_TIMING_FIELDS.forEach((field, metricIndex) => {
+    const value = module._collada_mesh_parser_get_last_timing_ms(metricIndex);
+    if (Number.isFinite(value) && value >= 0) {
+      loadPerformance[field] = value;
+    }
+  });
 }
 
 function readU8(view: DataView, offsetRef: { offset: number }): number {
@@ -255,17 +300,32 @@ export function decodeSerializedColladaMeshWasmPayload(
 export async function parseColladaMeshDataWithWasm(
   data: ArrayBuffer | Uint8Array,
   resourcePath: string,
+  loadPerformance?: MeshLoadPerformanceEntry,
 ): Promise<SerializedFastColladaSceneData> {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  const wasmStartedAt = readHighResolutionEpochMs();
+  const moduleStartedAt = readHighResolutionEpochMs();
   const module = await loadColladaMeshParserModule();
+  if (loadPerformance) {
+    loadPerformance.wasmModuleMs = durationMs(moduleStartedAt);
+  }
   const inputPtr = module._malloc(bytes.byteLength);
   if (!inputPtr) {
     throw new Error('Failed to allocate Collada parser input buffer.');
   }
 
   try {
+    const inputCopyStartedAt = readHighResolutionEpochMs();
     module.HEAPU8.set(bytes, inputPtr);
+    if (loadPerformance) {
+      loadPerformance.wasmInputCopyMs = durationMs(inputCopyStartedAt);
+    }
+    const parseStartedAt = readHighResolutionEpochMs();
     const ok = module._parse_collada_mesh(inputPtr, bytes.byteLength);
+    if (loadPerformance) {
+      loadPerformance.wasmParseMs = durationMs(parseStartedAt);
+    }
+    recordColladaWasmInternalTimings(module, loadPerformance);
     if (!ok) {
       const errorPtr = module._collada_mesh_parser_get_error_ptr();
       const errorSize = module._collada_mesh_parser_get_error_size();
@@ -282,8 +342,19 @@ export async function parseColladaMeshDataWithWasm(
       throw new Error('Collada mesh parser WASM returned an empty result buffer.');
     }
 
+    const resultCopyStartedAt = readHighResolutionEpochMs();
     const resultBytes = module.HEAPU8.slice(resultPtr, resultPtr + resultSize);
-    return decodeSerializedColladaMeshWasmPayload(resultBytes.buffer, resourcePath);
+    if (loadPerformance) {
+      loadPerformance.wasmResultCopyMs = durationMs(resultCopyStartedAt);
+    }
+    const decodeStartedAt = readHighResolutionEpochMs();
+    const result = decodeSerializedColladaMeshWasmPayload(resultBytes.buffer, resourcePath);
+    if (loadPerformance) {
+      loadPerformance.wasmDecodeMs = durationMs(decodeStartedAt);
+      loadPerformance.wasmTotalMs = durationMs(wasmStartedAt);
+      result.loadPerformance = loadPerformance;
+    }
+    return result;
   } finally {
     module._free(inputPtr);
     module._collada_mesh_parser_free_result();

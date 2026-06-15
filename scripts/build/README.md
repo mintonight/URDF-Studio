@@ -6,9 +6,11 @@
 
 ```
 scripts/build/
-├── rebuild-usd-wasm.sh        # 主编译脚本
-├── sync-openusd-source.sh     # 同步 OpenUSD 源码脚本
-└── README.md                  # 本文档
+├── rebuild-usd-wasm.sh                   # OpenUSD 主编译脚本
+├── sync-openusd-source.sh                # 同步 OpenUSD 源码脚本
+├── rebuild-collada-mesh-parser-wasm.sh   # Collada(.dae) mesh 解析器（独立 C-ABI 模块）
+├── rebuild-obj-parser-wasm.sh            # OBJ(.obj) mesh 解析器（独立 C-ABI 模块）
+└── README.md                             # 本文档
 ```
 
 相关目录：
@@ -133,6 +135,21 @@ sudo apt install binaryen
 brew install binaryen
 ```
 
+## Mesh 解析器构建（Collada / OBJ）
+
+`rebuild-collada-mesh-parser-wasm.sh` 与 `rebuild-obj-parser-wasm.sh` 编译两个**独立于 OpenUSD** 的手写 C-ABI mesh 解析模块（**非 embind**），与 USD 构建无依赖关系。
+
+```bash
+source ~/.localdeps/emsdk/emsdk_env.sh     # 或 --emsdk-env <path>
+bash scripts/build/rebuild-collada-mesh-parser-wasm.sh   # -> public/wasm/collada-mesh-parser/colladaMeshParser.{js,wasm}
+bash scripts/build/rebuild-obj-parser-wasm.sh            # -> public/wasm/obj-parser/objParser.{js,wasm}
+```
+
+- 源码：`src/core/loaders/wasm/collada_mesh_parser.cpp`、`obj_parser.cpp`（各为单翻译单元，有意保留不拆，见 [docs/architecture.md](../../docs/architecture.md) §11）。
+- 选项：`--debug`（`-O0 -g3 -s ASSERTIONS=2`）、`--source <path>`、`--dest-dir <path>`、`--emsdk-env <path>`；环境变量 `EMSCRIPTEN_OPT_LEVEL`（默认 `-O3`）、`EMSCRIPTEN_ENABLE_SIMD`（默认 `1`，加 `-msimd128`）。release 默认 `-std=c++17 -O3 -flto`。
+- **⚠️ 勿手改 `public/wasm/**` 下的 `.js`/`.wasm` 生成产物**——下次构建会静默覆盖；改逻辑改 `.cpp` 重跑脚本。
+- 详细说明见 [docs/wasm-build.md](../../docs/wasm-build.md) §Mesh 解析器 WASM 模块。
+
 ## 许可证
 
-OpenUSD 使用 Modified Apache 2.0 License，详见 `third_party/OpenUSD/LICENSE.txt`。
+OpenUSD 使用 Modified Apache 2.0 License，详见 `third_party/OpenUSD/LICENSE.txt`。手写 mesh 解析器（`src/core/loaders/wasm/*.cpp`）为本项目源码。

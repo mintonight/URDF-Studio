@@ -1,5 +1,7 @@
 type RegressionDebugWindow = Window & {
   __URDF_STUDIO_DEBUG__?: unknown;
+  __URDF_STUDIO_MESH_LOAD_PERFORMANCE__?: unknown;
+  __URDF_STUDIO_MESH_LOAD_PERFORMANCE_HISTORY__?: unknown;
   __usdStageLoadDebug?: unknown;
   __usdStageLoadDebugHistory?: unknown;
   __visualizerCollisionLoadDebug?: unknown;
@@ -28,6 +30,8 @@ export function isRegressionDebugEnabled(targetWindow?: Pick<Window, 'location'>
 export function clearRegressionDebugGlobals(targetWindow: Window): void {
   const runtimeWindow = targetWindow as RegressionDebugWindow;
   delete runtimeWindow.__URDF_STUDIO_DEBUG__;
+  delete runtimeWindow.__URDF_STUDIO_MESH_LOAD_PERFORMANCE__;
+  delete runtimeWindow.__URDF_STUDIO_MESH_LOAD_PERFORMANCE_HISTORY__;
   delete runtimeWindow.__usdStageLoadDebug;
   delete runtimeWindow.__usdStageLoadDebugHistory;
   delete runtimeWindow.__visualizerCollisionLoadDebug;

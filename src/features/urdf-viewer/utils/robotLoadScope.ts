@@ -34,21 +34,27 @@ function stripPatchableRuntimeStateFromGeometry<T extends UrdfLink['visual']>(ge
   return nextGeometry;
 }
 
-function stripPatchableRuntimeStateFromJoints(
+export function stripPatchableRuntimeStateFromJoints(
   joints: Record<string, UrdfJoint>,
-): Record<string, Omit<UrdfJoint, 'origin'>> {
-  // A joint `origin` change is applied incrementally by the in-place joint
-  // patch path (detectJointPatches -> patchJointsInPlace), so — exactly like
-  // patchable link geometry below — it must NOT contribute to the load-scope
-  // signature. Otherwise an origin-only edit (e.g. dragging a link/component
-  // origin, or the assembly viewer's synthetic root joints when a component is
-  // first placed) churns the scope key and forces a full async robot rebuild,
-  // flashing the pre-drag pose before snapping to the committed one. Structural
-  // fields (id/type/parent/child/axis/limit/...) stay in the signature so real
-  // topology changes still trigger a rebuild.
+): Record<string, Partial<UrdfJoint>> {
+  // These fields are applied incrementally by the in-place joint patch path
+  // (detectJointPatches -> patchJointsInPlace), so they must NOT contribute to
+  // the load-scope signature. Otherwise a property-panel single-field edit
+  // churns the scope key and forces a full async robot rebuild. Topology fields
+  // such as id/parent/child stay in the signature so real structural changes
+  // still trigger a rebuild.
   return Object.fromEntries(
     Object.entries(joints).map(([jointId, joint]) => {
-      const { origin: _origin, ...rest } = stripTransientJointMotionFromJoint(joint);
+      const {
+        name: _name,
+        type: _type,
+        origin: _origin,
+        axis: _axis,
+        limit: _limit,
+        dynamics: _dynamics,
+        hardware: _hardware,
+        ...rest
+      } = stripTransientJointMotionFromJoint(joint);
       return [jointId, rest];
     }),
   );

@@ -17,9 +17,6 @@ import {
 } from '@/types';
 import {
   computeLinkWorldMatrices,
-  createRobotClosedLoopConstraint,
-  createRobotDistanceClosedLoopConstraint,
-  resolveLinkKey,
   solveClosedLoopMotionCompensation,
 } from '@/core/robot';
 import {
@@ -32,12 +29,21 @@ import {
 } from './mjcfUtils';
 import { assignMJCFBodyGeomRoles, classifyMJCFGeom } from './mjcfGeomClassification';
 import { buildMjcfCubeAuthoredMaterials, getMjcfCubeTextureFaceRecord } from './mjcfCubeTextures';
+import { buildClosedLoopConstraints } from './mjcfClosedLoops';
+import { createEmptyLinkInertial, deriveGeomMassInertial } from './mjcfInertial';
+import { applyInitialPoseKeyframe } from './mjcfKeyframePose';
+import {
+  isNonZeroPosition,
+  rotateLocalOffsetToParentFrame,
+  subtractLocalOffset,
+  toPositionObject,
+  toQuatObject,
+  toRPYObjectFromQuat,
+} from './mjcfMath';
 import {
   clearParsedMJCFModelCache,
   normalizeMultiJointBodies,
   parseMJCFModel,
-  type MJCFModelConnectConstraint,
-  type MJCFModelKeyframe,
   type MJCFModelJointEqualityConstraint,
   type MJCFModelTendonAttachment,
   type ParsedMJCFModel,
@@ -53,20 +59,6 @@ interface MJCFBody {
   joints: MJCFJointDef[];
   inertial?: MJCFInertial;
   children: MJCFBody[];
-}
-
-const FIXED_TENDON_RANGE_EPSILON = 1e-5;
-
-interface MJCFSiteConstraintBinding {
-  bodyName: string;
-  anchorLocal: { x: number; y: number; z: number };
-}
-
-function resolveBodyLinkFrameOffsetLocal(
-  body: ParsedMJCFModel['worldBody'],
-): { x: number; y: number; z: number } | null {
-  const jointOffset = toPositionObject(body.joints?.[0]?.pos);
-  return isNonZeroPosition(jointOffset) ? jointOffset : null;
 }
 
 interface MJCFGeom {
@@ -193,9 +185,6 @@ function cloneMjcfMeshAsset(meshAsset: MJCFMesh): NonNullable<UrdfVisual['mjcfMe
       : {}),
   };
 }
-
-const tempRPYQuaternion = new THREE.Quaternion();
-const tempRPYEuler = new THREE.Euler(0, 0, 0, 'ZYX');
 
 function convertJointType(
   mjcfType: string,
@@ -409,30 +398,6 @@ function resolveJointInitialAngle(
   return undefined;
 }
 
-function createEmptyLinkInertial(): NonNullable<UrdfLink['inertial']> {
-  return {
-    mass: 0,
-    origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
-    inertia: { ixx: 0, ixy: 0, ixz: 0, iyy: 0, iyz: 0, izz: 0 },
-  };
-}
-
-function getGeomMassCenter(geom: MJCFGeom): { x: number; y: number; z: number } {
-  if (geom.pos) {
-    return geom.pos;
-  }
-
-  if (geom.fromto && geom.fromto.length >= 6) {
-    return {
-      x: ((geom.fromto[0] ?? 0) + (geom.fromto[3] ?? 0)) / 2,
-      y: ((geom.fromto[1] ?? 0) + (geom.fromto[4] ?? 0)) / 2,
-      z: ((geom.fromto[2] ?? 0) + (geom.fromto[5] ?? 0)) / 2,
-    };
-  }
-
-  return { x: 0, y: 0, z: 0 };
-}
-
 function rgbaToHexColor(rgba: number[]): string | null {
   if (rgba.length < 3) {
     return null;
@@ -472,113 +437,6 @@ function rgbaToColorRgbaTuple(
   return [clamp(r), clamp(g), clamp(b), clamp(a)];
 }
 
-function deriveGeomMassInertial(geoms: MJCFGeom[]): NonNullable<UrdfLink['inertial']> | null {
-  const massGeoms = geoms.filter(
-    (geom) => typeof geom.mass === 'number' && Number.isFinite(geom.mass) && (geom.mass ?? 0) > 0,
-  );
-
-  if (massGeoms.length === 0) {
-    return null;
-  }
-
-  const totalMass = massGeoms.reduce((sum, geom) => sum + (geom.mass ?? 0), 0);
-  if (!Number.isFinite(totalMass) || totalMass <= 0) {
-    return null;
-  }
-
-  const weightedCenter = massGeoms.reduce(
-    (sum, geom) => {
-      const mass = geom.mass ?? 0;
-      const center = getGeomMassCenter(geom);
-      return {
-        x: sum.x + center.x * mass,
-        y: sum.y + center.y * mass,
-        z: sum.z + center.z * mass,
-      };
-    },
-    { x: 0, y: 0, z: 0 },
-  );
-
-  const centerOfMass = {
-    x: weightedCenter.x / totalMass,
-    y: weightedCenter.y / totalMass,
-    z: weightedCenter.z / totalMass,
-  };
-
-  const inertia = massGeoms.reduce(
-    (sum, geom) => {
-      const mass = geom.mass ?? 0;
-      const center = getGeomMassCenter(geom);
-      const dx = center.x - centerOfMass.x;
-      const dy = center.y - centerOfMass.y;
-      const dz = center.z - centerOfMass.z;
-
-      return {
-        ixx: sum.ixx + mass * (dy * dy + dz * dz),
-        ixy: sum.ixy - mass * dx * dy,
-        ixz: sum.ixz - mass * dx * dz,
-        iyy: sum.iyy + mass * (dx * dx + dz * dz),
-        iyz: sum.iyz - mass * dy * dz,
-        izz: sum.izz + mass * (dx * dx + dy * dy),
-      };
-    },
-    { ixx: 0, ixy: 0, ixz: 0, iyy: 0, iyz: 0, izz: 0 },
-  );
-
-  return {
-    mass: totalMass,
-    origin: {
-      xyz: centerOfMass,
-      rpy: { r: 0, p: 0, y: 0 },
-    },
-    inertia,
-  };
-}
-
-function toPositionObject(tuple: [number, number, number] | undefined): {
-  x: number;
-  y: number;
-  z: number;
-} {
-  return {
-    x: tuple?.[0] ?? 0,
-    y: tuple?.[1] ?? 0,
-    z: tuple?.[2] ?? 0,
-  };
-}
-
-function toQuatObject(
-  tuple: [number, number, number, number] | undefined,
-): { w: number; x: number; y: number; z: number } | undefined {
-  if (!tuple) {
-    return undefined;
-  }
-
-  return {
-    w: tuple[0],
-    x: tuple[1],
-    y: tuple[2],
-    z: tuple[3],
-  };
-}
-
-function toRPYObjectFromQuat(
-  quat: { w: number; x: number; y: number; z: number } | undefined,
-): { r: number; p: number; y: number } | undefined {
-  if (!quat) {
-    return undefined;
-  }
-
-  tempRPYQuaternion.set(quat.x, quat.y, quat.z, quat.w).normalize();
-  tempRPYEuler.setFromQuaternion(tempRPYQuaternion, 'ZYX');
-
-  return {
-    r: tempRPYEuler.x,
-    p: tempRPYEuler.y,
-    y: tempRPYEuler.z,
-  };
-}
-
 function toRPYObjectFromEulerTuple(
   tuple: [number, number, number] | undefined,
   settings: MJCFCompilerSettings,
@@ -601,59 +459,6 @@ function toRPYObjectFromEulerTuple(
     y: quaternion.y,
     z: quaternion.z,
   });
-}
-
-function isNonZeroPosition(position: { x: number; y: number; z: number } | undefined): boolean {
-  if (!position) {
-    return false;
-  }
-
-  return Math.abs(position.x) > 1e-9 || Math.abs(position.y) > 1e-9 || Math.abs(position.z) > 1e-9;
-}
-
-function subtractLocalOffset(
-  position: { x: number; y: number; z: number } | undefined,
-  localOffset: { x: number; y: number; z: number } | null,
-): { x: number; y: number; z: number } | undefined {
-  if (!position) {
-    return undefined;
-  }
-
-  if (!localOffset) {
-    return position;
-  }
-
-  return {
-    x: position.x - localOffset.x,
-    y: position.y - localOffset.y,
-    z: position.z - localOffset.z,
-  };
-}
-
-function rotateLocalOffsetToParentFrame(
-  localOffset: { x: number; y: number; z: number } | null,
-  rotation: { r: number; p: number; y: number } | undefined,
-): { x: number; y: number; z: number } | null {
-  if (!localOffset) {
-    return null;
-  }
-
-  if (!rotation) {
-    return localOffset;
-  }
-
-  const quaternion = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(rotation.r, rotation.p, rotation.y, 'ZYX'),
-  );
-  const rotated = new THREE.Vector3(localOffset.x, localOffset.y, localOffset.z).applyQuaternion(
-    quaternion,
-  );
-
-  return {
-    x: rotated.x,
-    y: rotated.y,
-    z: rotated.z,
-  };
 }
 
 function toParserBody(sharedBody: any, settings: MJCFCompilerSettings): MJCFBody {
@@ -754,210 +559,6 @@ function toParserActuatorMap(
   return actuatorMap;
 }
 
-function collectSiteConstraintBindings(
-  body: ParsedMJCFModel['worldBody'],
-  bindings = new Map<string, MJCFSiteConstraintBinding>(),
-): Map<string, MJCFSiteConstraintBinding> {
-  const linkFrameOffsetLocal = resolveBodyLinkFrameOffsetLocal(body);
-
-  (body.sites || []).forEach((site) => {
-    const binding: MJCFSiteConstraintBinding = {
-      bodyName: body.name,
-      // MJCF sites live in the raw body frame; imported links are rebased to the
-      // joint pivot when joint.pos is non-zero, so tendon anchors must follow that shift.
-      anchorLocal: subtractLocalOffset(toPositionObject(site.pos), linkFrameOffsetLocal) ?? {
-        x: 0,
-        y: 0,
-        z: 0,
-      },
-    };
-
-    bindings.set(site.name, binding);
-    if (site.sourceName) {
-      bindings.set(site.sourceName, binding);
-    }
-  });
-
-  (body.children || []).forEach((child) => collectSiteConstraintBindings(child, bindings));
-  return bindings;
-}
-
-function collectBodyLinkFrameOffsets(
-  body: ParsedMJCFModel['worldBody'],
-  bindings = new Map<
-    string,
-    { linkFrameOffsetLocal: { x: number; y: number; z: number } | null }
-  >(),
-): Map<string, { linkFrameOffsetLocal: { x: number; y: number; z: number } | null }> {
-  bindings.set(body.name, {
-    linkFrameOffsetLocal: resolveBodyLinkFrameOffsetLocal(body),
-  });
-
-  (body.children || []).forEach((child) => collectBodyLinkFrameOffsets(child, bindings));
-  return bindings;
-}
-
-function isFixedSpatialTendonRange(range: [number, number] | undefined): range is [number, number] {
-  return !!range && Math.abs(range[1] - range[0]) <= FIXED_TENDON_RANGE_EPSILON;
-}
-
-function buildTendonDistanceClosedLoopConstraints(
-  robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId'>,
-  tendonMap: ParsedMJCFModel['tendonMap'],
-  worldBody: ParsedMJCFModel['worldBody'],
-): RobotState['closedLoopConstraints'] {
-  if (tendonMap.size === 0) {
-    return undefined;
-  }
-
-  const siteBindings = collectSiteConstraintBindings(worldBody);
-  if (siteBindings.size === 0) {
-    return undefined;
-  }
-
-  const linkWorldMatrices = computeLinkWorldMatrices(robot);
-  const closedLoopConstraints = Array.from(tendonMap.values()).flatMap((tendon) => {
-    if (
-      tendon.type !== 'spatial' ||
-      tendon.attachments.length !== 2 ||
-      !isFixedSpatialTendonRange(tendon.range)
-    ) {
-      return [];
-    }
-
-    const [attachmentA, attachmentB] = tendon.attachments;
-    if (
-      attachmentA?.type !== 'site' ||
-      attachmentB?.type !== 'site' ||
-      !attachmentA.ref ||
-      !attachmentB.ref
-    ) {
-      return [];
-    }
-
-    const bindingA = siteBindings.get(attachmentA.ref);
-    const bindingB = siteBindings.get(attachmentB.ref);
-    if (!bindingA || !bindingB) {
-      return [];
-    }
-
-    const linkAId = resolveLinkKey(robot.links, bindingA.bodyName);
-    const linkBId = resolveLinkKey(robot.links, bindingB.bodyName);
-    if (!linkAId || !linkBId) {
-      return [];
-    }
-
-    const linkAMatrix = linkWorldMatrices[linkAId];
-    if (!linkAMatrix) {
-      return [];
-    }
-
-    const anchorWorldVector = new THREE.Vector3(
-      bindingA.anchorLocal.x,
-      bindingA.anchorLocal.y,
-      bindingA.anchorLocal.z,
-    ).applyMatrix4(linkAMatrix);
-
-    return [
-      createRobotDistanceClosedLoopConstraint(
-        `mjcf-distance-${tendon.name}`,
-        linkAId,
-        linkBId,
-        bindingA.anchorLocal,
-        bindingB.anchorLocal,
-        {
-          x: anchorWorldVector.x,
-          y: anchorWorldVector.y,
-          z: anchorWorldVector.z,
-        },
-        tendon.range[0],
-        {
-          format: 'mjcf',
-          body1Name: bindingA.bodyName,
-          body2Name: bindingB.bodyName,
-        },
-      ),
-    ];
-  });
-
-  return closedLoopConstraints.length > 0 ? closedLoopConstraints : undefined;
-}
-
-function buildClosedLoopConstraints(
-  robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId'>,
-  connectConstraints: MJCFModelConnectConstraint[],
-  tendonMap: ParsedMJCFModel['tendonMap'],
-  worldBody: ParsedMJCFModel['worldBody'],
-): RobotState['closedLoopConstraints'] {
-  if (connectConstraints.length === 0 && tendonMap.size === 0) {
-    return undefined;
-  }
-
-  const linkWorldMatrices = computeLinkWorldMatrices(robot);
-  const bodyBindings = collectBodyLinkFrameOffsets(worldBody);
-  const connectClosedLoopConstraints = connectConstraints.flatMap((constraint) => {
-    const linkAId = resolveLinkKey(robot.links, constraint.body1);
-    const linkBId = resolveLinkKey(robot.links, constraint.body2);
-
-    if (!linkAId || !linkBId) {
-      return [];
-    }
-
-    const linkAMatrix = linkWorldMatrices[linkAId];
-    const linkBMatrix = linkWorldMatrices[linkBId];
-    if (!linkAMatrix || !linkBMatrix) {
-      return [];
-    }
-
-    const rawAnchorLocalA = {
-      x: constraint.anchor[0] ?? 0,
-      y: constraint.anchor[1] ?? 0,
-      z: constraint.anchor[2] ?? 0,
-    };
-    const anchorLocalA =
-      subtractLocalOffset(
-        rawAnchorLocalA,
-        bodyBindings.get(constraint.body1)?.linkFrameOffsetLocal ?? null,
-      ) ?? rawAnchorLocalA;
-    const anchorWorldVector = new THREE.Vector3(
-      anchorLocalA.x,
-      anchorLocalA.y,
-      anchorLocalA.z,
-    ).applyMatrix4(linkAMatrix);
-    const anchorLocalBVector = anchorWorldVector.clone().applyMatrix4(linkBMatrix.clone().invert());
-
-    return [
-      createRobotClosedLoopConstraint(
-        constraint.name || `mjcf-connect-${constraint.body1}-${constraint.body2}`,
-        linkAId,
-        linkBId,
-        anchorLocalA,
-        {
-          x: anchorLocalBVector.x,
-          y: anchorLocalBVector.y,
-          z: anchorLocalBVector.z,
-        },
-        {
-          x: anchorWorldVector.x,
-          y: anchorWorldVector.y,
-          z: anchorWorldVector.z,
-        },
-        {
-          format: 'mjcf',
-          body1Name: constraint.body1,
-          body2Name: constraint.body2,
-        },
-      ),
-    ];
-  });
-
-  const tendonClosedLoopConstraints =
-    buildTendonDistanceClosedLoopConstraints(robot, tendonMap, worldBody) ?? [];
-  const closedLoopConstraints = [...connectClosedLoopConstraints, ...tendonClosedLoopConstraints];
-
-  return closedLoopConstraints.length > 0 ? closedLoopConstraints : undefined;
-}
-
 function applyJointEqualityMimics(
   robot: Pick<RobotState, 'joints'>,
   jointEqualityConstraints: MJCFModelJointEqualityConstraint[],
@@ -987,179 +588,6 @@ function applyJointEqualityMimics(
       multiplier,
       offset,
     };
-  });
-}
-
-type MJCFQposJointKind = 'free' | 'ball' | 'scalar';
-
-interface MJCFQposJointBinding {
-  jointName: string;
-  kind: MJCFQposJointKind;
-  qposAddress: number;
-  qposSize: number;
-}
-
-function getJointQposSize(joint: MJCFJointDef): number {
-  switch (joint.type.toLowerCase()) {
-    case 'free':
-      return 7;
-    case 'ball':
-      return 4;
-    case 'hinge':
-    case 'slide':
-      return 1;
-    default:
-      return 0;
-  }
-}
-
-function getQposJointKind(joint: MJCFJointDef): MJCFQposJointKind {
-  switch (joint.type.toLowerCase()) {
-    case 'free':
-      return 'free';
-    case 'ball':
-      return 'ball';
-    default:
-      return 'scalar';
-  }
-}
-
-function collectQposJointBindings(
-  body: MJCFBody,
-  bindings: MJCFQposJointBinding[] = [],
-  qposCursor = { value: 0 },
-): MJCFQposJointBinding[] {
-  body.joints.forEach((joint) => {
-    const qposSize = getJointQposSize(joint);
-    if (qposSize <= 0) {
-      return;
-    }
-
-    bindings.push({
-      jointName: joint.name,
-      kind: getQposJointKind(joint),
-      qposAddress: qposCursor.value,
-      qposSize,
-    });
-    qposCursor.value += qposSize;
-  });
-
-  body.children.forEach((child) => collectQposJointBindings(child, bindings, qposCursor));
-  return bindings;
-}
-
-function getExpectedQposLength(bindings: MJCFQposJointBinding[]): number {
-  return bindings.reduce(
-    (length, binding) => Math.max(length, binding.qposAddress + binding.qposSize),
-    0,
-  );
-}
-
-function selectInitialPoseKeyframe(
-  keyframes: MJCFModelKeyframe[],
-  expectedQposLength: number,
-): MJCFModelKeyframe | null {
-  if (expectedQposLength <= 0) {
-    return null;
-  }
-
-  const usableKeyframes = keyframes.filter((keyframe) => {
-    return keyframe.qpos && keyframe.qpos.length >= expectedQposLength;
-  });
-  return (
-    usableKeyframes.find((keyframe) => keyframe.name?.trim().toLowerCase() === 'home') ??
-    usableKeyframes[0] ??
-    null
-  );
-}
-
-function readFiniteQposValue(qpos: number[], index: number): number | null {
-  const value = qpos[index];
-  return Number.isFinite(value) ? value! : null;
-}
-
-function readFiniteQposQuaternion(
-  qpos: number[],
-  address: number,
-): { w: number; x: number; y: number; z: number } | null {
-  const w = readFiniteQposValue(qpos, address);
-  const x = readFiniteQposValue(qpos, address + 1);
-  const y = readFiniteQposValue(qpos, address + 2);
-  const z = readFiniteQposValue(qpos, address + 3);
-  if (w == null || x == null || y == null || z == null) {
-    return null;
-  }
-
-  const length = Math.hypot(w, x, y, z);
-  if (length <= 1e-12) {
-    return null;
-  }
-
-  return {
-    w: w / length,
-    x: x / length,
-    y: y / length,
-    z: z / length,
-  };
-}
-
-function applyInitialPoseKeyframe(
-  robot: Pick<RobotState, 'joints'>,
-  worldBody: MJCFBody,
-  keyframes: MJCFModelKeyframe[],
-): void {
-  if (keyframes.length === 0) {
-    return;
-  }
-
-  const qposBindings = collectQposJointBindings(worldBody);
-  const keyframe = selectInitialPoseKeyframe(keyframes, getExpectedQposLength(qposBindings));
-  const qpos = keyframe?.qpos;
-  if (!qpos) {
-    return;
-  }
-
-  qposBindings.forEach((binding) => {
-    const joint = robot.joints[binding.jointName];
-    if (!joint) {
-      return;
-    }
-
-    if (binding.kind === 'free') {
-      const x = readFiniteQposValue(qpos, binding.qposAddress);
-      const y = readFiniteQposValue(qpos, binding.qposAddress + 1);
-      const z = readFiniteQposValue(qpos, binding.qposAddress + 2);
-      const quaternion = readFiniteQposQuaternion(qpos, binding.qposAddress + 3);
-      if (x == null || y == null || z == null || !quaternion) {
-        return;
-      }
-
-      joint.origin = {
-        xyz: { x, y, z },
-        rpy: toRPYObjectFromQuat(quaternion) ?? joint.origin.rpy,
-      };
-      return;
-    }
-
-    if (binding.kind === 'ball') {
-      const quaternion = readFiniteQposQuaternion(qpos, binding.qposAddress);
-      if (!quaternion) {
-        return;
-      }
-
-      joint.quaternion = {
-        x: quaternion.x,
-        y: quaternion.y,
-        z: quaternion.z,
-        w: quaternion.w,
-      };
-      return;
-    }
-
-    const value = readFiniteQposValue(qpos, binding.qposAddress);
-    if (value != null) {
-      joint.angle = value;
-    }
   });
 }
 

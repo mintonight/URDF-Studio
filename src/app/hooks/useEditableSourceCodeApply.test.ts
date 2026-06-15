@@ -173,7 +173,7 @@ test('commitEditableSourceApply skips xacro URDF baseline refresh for unsupporte
   });
 
   assert.deepEqual(events, ['sync', 'original', 'robot']);
-  assert.equal(resolvedUrdfContent, null);
+  assert.equal(resolvedUrdfContent, '');
 });
 
 test('shouldAttemptEditableSourceIncrementalPatch only attempts selected source edits and skips closed-loop MJCF robots', () => {

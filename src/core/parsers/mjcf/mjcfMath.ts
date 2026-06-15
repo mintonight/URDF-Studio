@@ -219,3 +219,107 @@ export function diagonalizeMjcfSymmetric3x3(
     quat: mjcfQuatTupleFromQuaternion(quaternion, { precision: options.precision }),
   };
 }
+
+// --- Pose / position / quaternion conversion helpers (moved from mjcfParser.ts) ---
+
+const tempRPYQuaternion = new THREE.Quaternion();
+const tempRPYEuler = new THREE.Euler(0, 0, 0, 'ZYX');
+
+export function toPositionObject(tuple: [number, number, number] | undefined): {
+  x: number;
+  y: number;
+  z: number;
+} {
+  return {
+    x: tuple?.[0] ?? 0,
+    y: tuple?.[1] ?? 0,
+    z: tuple?.[2] ?? 0,
+  };
+}
+
+export function toQuatObject(
+  tuple: [number, number, number, number] | undefined,
+): { w: number; x: number; y: number; z: number } | undefined {
+  if (!tuple) {
+    return undefined;
+  }
+
+  return {
+    w: tuple[0],
+    x: tuple[1],
+    y: tuple[2],
+    z: tuple[3],
+  };
+}
+
+export function toRPYObjectFromQuat(
+  quat: { w: number; x: number; y: number; z: number } | undefined,
+): { r: number; p: number; y: number } | undefined {
+  if (!quat) {
+    return undefined;
+  }
+
+  tempRPYQuaternion.set(quat.x, quat.y, quat.z, quat.w).normalize();
+  tempRPYEuler.setFromQuaternion(tempRPYQuaternion, 'ZYX');
+
+  return {
+    r: tempRPYEuler.x,
+    p: tempRPYEuler.y,
+    y: tempRPYEuler.z,
+  };
+}
+
+export function isNonZeroPosition(
+  position: { x: number; y: number; z: number } | undefined,
+): boolean {
+  if (!position) {
+    return false;
+  }
+
+  return Math.abs(position.x) > 1e-9 || Math.abs(position.y) > 1e-9 || Math.abs(position.z) > 1e-9;
+}
+
+export function subtractLocalOffset(
+  position: { x: number; y: number; z: number } | undefined,
+  localOffset: { x: number; y: number; z: number } | null,
+): { x: number; y: number; z: number } | undefined {
+  if (!position) {
+    return undefined;
+  }
+
+  if (!localOffset) {
+    return position;
+  }
+
+  return {
+    x: position.x - localOffset.x,
+    y: position.y - localOffset.y,
+    z: position.z - localOffset.z,
+  };
+}
+
+export function rotateLocalOffsetToParentFrame(
+  localOffset: { x: number; y: number; z: number } | null,
+  rotation: { r: number; p: number; y: number } | undefined,
+): { x: number; y: number; z: number } | null {
+  if (!localOffset) {
+    return null;
+  }
+
+  if (!rotation) {
+    return localOffset;
+  }
+
+  const quaternion = new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(rotation.r, rotation.p, rotation.y, 'ZYX'),
+  );
+  const rotated = new THREE.Vector3(localOffset.x, localOffset.y, localOffset.z).applyQuaternion(
+    quaternion,
+  );
+
+  return {
+    x: rotated.x,
+    y: rotated.y,
+    z: rotated.z,
+  };
+}

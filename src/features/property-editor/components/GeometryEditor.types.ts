@@ -14,6 +14,7 @@ export interface GeometryEditorProps {
   onUpdate: (d: UrdfLink) => void;
   assets: Record<string, string>;
   onUploadAsset: (file: File) => void;
+  onDeleteAsset?: (path: string) => void;
   t: GeometryEditorTranslations;
   lang: Language;
   isTabbed?: boolean;

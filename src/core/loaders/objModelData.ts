@@ -11,6 +11,12 @@ import {
     type Material,
     type Object3D,
 } from 'three';
+import {
+    durationMs,
+    markMainThreadBuildPerformance,
+    type MeshLoadPerformanceEntry,
+    readHighResolutionEpochMs,
+} from './meshLoadPerformance';
 
 export const GENERATED_OBJ_MATERIAL_USER_DATA_KEY = '__urdfStudioGeneratedObjMaterial';
 
@@ -55,6 +61,7 @@ export interface SerializedObjNodeData {
 
 export interface SerializedObjModelData {
     children: SerializedObjNodeData[];
+    loadPerformance?: MeshLoadPerformanceEntry;
     materialLibraries: string[];
 }
 
@@ -176,6 +183,7 @@ function createObjectFromSerializedObjNode(node: SerializedObjNodeData): Object3
 }
 
 export function createObjectFromSerializedObjData(data: SerializedObjModelData): Group {
+    const startedAt = readHighResolutionEpochMs();
     const container = new Group() as Group & { materialLibraries?: string[] };
     container.materialLibraries = [...data.materialLibraries];
 
@@ -183,6 +191,13 @@ export function createObjectFromSerializedObjData(data: SerializedObjModelData):
         container.add(createObjectFromSerializedObjNode(child));
     });
 
+    markMainThreadBuildPerformance(data.loadPerformance, durationMs(startedAt));
+    if (data.loadPerformance) {
+        container.userData = {
+            ...(container.userData ?? {}),
+            meshLoadPerformance: data.loadPerformance,
+        };
+    }
     return container;
 }
 
@@ -190,6 +205,7 @@ export async function createObjectFromSerializedObjDataAsync(
     data: SerializedObjModelData,
     options: CreateObjectFromSerializedObjDataAsyncOptions = {},
 ): Promise<Group> {
+    const startedAt = readHighResolutionEpochMs();
     const container = new Group() as Group & { materialLibraries?: string[] };
     const yieldIfNeeded = options.yieldIfNeeded;
     const nodeYieldInterval = Math.max(
@@ -208,6 +224,13 @@ export async function createObjectFromSerializedObjDataAsync(
     }
 
     await yieldIfNeeded?.();
+    markMainThreadBuildPerformance(data.loadPerformance, durationMs(startedAt));
+    if (data.loadPerformance) {
+        container.userData = {
+            ...(container.userData ?? {}),
+            meshLoadPerformance: data.loadPerformance,
+        };
+    }
     return container;
 }
 

@@ -4,6 +4,7 @@ import test from 'node:test';
 import { createAttachedChildLink } from '@/core/robot';
 import type { InteractionSelection, UrdfJoint, UrdfLink } from '@/types';
 
+import { resolveIkToolLinkOptions } from '../hooks/useIkToolController';
 import { resolveIkToolSelectionState } from './ikToolSelectionState';
 
 const links: Record<string, UrdfLink> = {
@@ -133,5 +134,16 @@ test('resolveIkToolSelectionState flags fixed-only links as having no variable c
       currentLinkId: 'fixed_link',
       selectedLinkId: null,
     },
+  );
+});
+
+test('resolveIkToolLinkOptions only lists Links with variable parent chains', () => {
+  assert.deepEqual(
+    resolveIkToolLinkOptions({
+      robotLinks: links,
+      robotJoints: joints,
+      rootLinkId: 'base_link',
+    }),
+    [{ value: 'tool_link', label: 'tool_link' }],
   );
 });

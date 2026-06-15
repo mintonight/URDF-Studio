@@ -5,26 +5,28 @@ import {
   createSceneFromSerializedColladaData,
   type SerializedColladaSceneData,
 } from './colladaWorkerSceneData';
-import type {
-  ColladaParseWorkerResponse,
-  ParseColladaWorkerRequest,
-} from './colladaParseWorkerProtocol';
 import {
-  createWorkerPoolClient,
-  resolveDefaultWorkerCount,
-  type WorkerLike,
-} from '@/core/workers/workerPoolClient';
+  createDefaultMeshParseWorker,
+  createMeshParseWorkerPoolClient,
+  resolveDefaultMeshParseWorkerCount,
+  sharedMeshParseWorkerPoolClient,
+  type MeshParseWorkerPoolClient,
+  type MeshParseWorkerPoolDiagnostics,
+} from './meshParseWorkerBridge';
+import { type WorkerLike } from '@/core/workers/workerPoolClient';
 
 interface CreateColladaParseWorkerPoolClientOptions {
   cacheLimit?: number;
   canUseWorker?: () => boolean;
   createWorker?: () => WorkerLike;
   getWorkerCount?: () => number;
+  meshClient?: MeshParseWorkerPoolClient;
 }
 
 interface ColladaParseWorkerPoolClient {
   clearCache: () => void;
   dispose: (rejectPendingWith?: unknown) => void;
+  getDiagnostics: () => MeshParseWorkerPoolDiagnostics;
   load: (assetUrl: string, manager: THREE.LoadingManager) => Promise<THREE.Object3D>;
   loadSerialized: (assetUrl: string) => Promise<SerializedColladaSceneData>;
 }
@@ -35,24 +37,37 @@ const FAILURE_CACHE_LIMIT = 200;
 export function createColladaParseWorkerPoolClient({
   cacheLimit = DEFAULT_CACHE_LIMIT,
   canUseWorker = () => typeof Worker !== 'undefined',
-  createWorker = () =>
-    new Worker(new URL('./workers/colladaParse.worker.ts', import.meta.url), { type: 'module' }),
-  getWorkerCount = resolveDefaultWorkerCount,
-}: CreateColladaParseWorkerPoolClientOptions = {}): ColladaParseWorkerPoolClient {
-  const client = createWorkerPoolClient<ColladaParseWorkerResponse, SerializedColladaSceneData>({
+  createWorker = createDefaultMeshParseWorker,
+  getWorkerCount = resolveDefaultMeshParseWorkerCount,
+  meshClient = createMeshParseWorkerPoolClient({
     label: 'Collada parse',
-    createWorker,
     canUseWorker,
-    poolSize: getWorkerCount,
-    cacheLimit,
-    getRequestId: (response) => response.requestId,
-    isError: (response) => response.type === 'parse-collada-error',
-    getError: (response) => (response as { error?: string }).error || 'Collada parse worker failed',
-    getResult: (response) => (response as { result: SerializedColladaSceneData }).result,
-  });
-
+    createWorker,
+    getWorkerCount,
+  }),
+}: CreateColladaParseWorkerPoolClientOptions = {}): ColladaParseWorkerPoolClient {
   const pendingLoads = new Map<string, Promise<SerializedColladaSceneData>>();
   const failureCache = new Map<string, unknown>();
+  const resolvedCache = cacheLimit > 0 ? new Map<string, SerializedColladaSceneData>() : null;
+
+  const getCached = (assetUrl: string): SerializedColladaSceneData | undefined => {
+    return resolvedCache?.get(assetUrl);
+  };
+
+  const setCached = (assetUrl: string, result: SerializedColladaSceneData): void => {
+    if (!resolvedCache) return;
+
+    if (resolvedCache.has(assetUrl)) {
+      resolvedCache.delete(assetUrl);
+    }
+    resolvedCache.set(assetUrl, result);
+
+    while (resolvedCache.size > cacheLimit) {
+      const oldestKey = resolvedCache.keys().next().value;
+      if (oldestKey === undefined) return;
+      resolvedCache.delete(oldestKey);
+    }
+  };
 
   const rememberFailure = (assetUrl: string, error: unknown): void => {
     if (failureCache.size >= FAILURE_CACHE_LIMIT) {
@@ -63,7 +78,7 @@ export function createColladaParseWorkerPoolClient({
   };
 
   const loadSerialized = async (assetUrl: string): Promise<SerializedColladaSceneData> => {
-    const cachedResult = client.getCached(assetUrl);
+    const cachedResult = getCached(assetUrl);
     if (cachedResult) {
       return cachedResult;
     }
@@ -77,10 +92,10 @@ export function createColladaParseWorkerPoolClient({
       return await pendingLoad;
     }
 
-    const nextLoad = client
-      .dispatch({ type: 'parse-collada', assetUrl })
+    const nextLoad = meshClient
+      .dispatchCollada(assetUrl)
       .then((workerResult) => {
-        client.setCached(assetUrl, workerResult);
+        setCached(assetUrl, workerResult);
         return workerResult;
       })
       .catch((error) => {
@@ -102,16 +117,19 @@ export function createColladaParseWorkerPoolClient({
 
   return {
     clearCache: () => {
-      client.clearCache();
+      resolvedCache?.clear();
       failureCache.clear();
     },
-    dispose: (rejectPendingWith) => client.dispose(rejectPendingWith),
+    dispose: (rejectPendingWith) => meshClient.dispose(rejectPendingWith),
+    getDiagnostics: () => meshClient.getDiagnostics(),
     load,
     loadSerialized,
   };
 }
 
-const sharedColladaParseWorkerPoolClient = createColladaParseWorkerPoolClient();
+const sharedColladaParseWorkerPoolClient = createColladaParseWorkerPoolClient({
+  meshClient: sharedMeshParseWorkerPoolClient,
+});
 
 export async function loadColladaScene(
   assetUrl: string,

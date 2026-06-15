@@ -105,6 +105,60 @@ test('createViewerRobotLoadInputSignature ignores patchable joint origin edits',
   assert.equal(baseline, edited);
 });
 
+test('createViewerRobotLoadInputSignature ignores patchable joint property edits', () => {
+  const links = createLinks();
+  const baselineJoints = createJoints();
+  const editedJoints = createJoints();
+  editedJoints.shoulder_joint.name = 'renamed_joint';
+  editedJoints.shoulder_joint.type = JointType.PRISMATIC;
+  editedJoints.shoulder_joint.axis = { x: 1, y: 0, z: 0 };
+  editedJoints.shoulder_joint.limit = { lower: -2, upper: 2, effort: 20, velocity: 10 };
+  editedJoints.shoulder_joint.dynamics = { damping: 1.5, friction: 0.25 };
+  editedJoints.shoulder_joint.hardware = {
+    armature: 0.1,
+    motorType: 'custom',
+    motorId: 'm1',
+    motorDirection: -1,
+  };
+
+  const baseline = createViewerRobotLoadInputSignature({
+    urdfContent: '<robot name="demo" />',
+    robotLinks: links,
+    robotJoints: baselineJoints,
+    hasStructuredRobotState: true,
+  });
+  const edited = createViewerRobotLoadInputSignature({
+    urdfContent: '<robot name="demo" />',
+    robotLinks: links,
+    robotJoints: editedJoints,
+    hasStructuredRobotState: true,
+  });
+
+  assert.equal(baseline, edited);
+});
+
+test('createViewerRobotLoadInputSignature detects structural joint topology edits', () => {
+  const links = createLinks();
+  const baselineJoints = createJoints();
+  const editedJoints = createJoints();
+  editedJoints.shoulder_joint.childLinkId = 'other_link';
+
+  const baseline = createViewerRobotLoadInputSignature({
+    urdfContent: '<robot name="demo" />',
+    robotLinks: links,
+    robotJoints: baselineJoints,
+    hasStructuredRobotState: true,
+  });
+  const edited = createViewerRobotLoadInputSignature({
+    urdfContent: '<robot name="demo" />',
+    robotLinks: links,
+    robotJoints: editedJoints,
+    hasStructuredRobotState: true,
+  });
+
+  assert.notEqual(baseline, edited);
+});
+
 test('createViewerRobotLoadInputSignature detects structured geometry edits', () => {
   const joints = createJoints();
   const baselineLinks = createLinks();

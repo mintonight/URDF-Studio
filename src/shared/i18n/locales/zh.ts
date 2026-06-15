@@ -410,7 +410,9 @@ export const zh: TranslationKeys = {
   aiConversationDesc: '围绕模型修改与优化路径进行对话。',
   measureToolboxDesc: '打开可移动测量面板，在 3D 视图中按可选锚点测量 link 之间的距离',
   ikToolboxDesc:
-    '点击视图里可拖动的非根 Link 即可挂上变换控制器，再点别的 Link 时 gizmo 会直接切过去。',
+    '可在面板选择可拖动 Link，也可直接点击视图里的 Link，然后用 XYZ Transform Controller 拖动 IK 目标。',
+  ikToolSelectLink: '选择 Link',
+  ikToolSelectPlaceholder: '选择可拖动 Link...',
   ikToolSelectedLink: '当前选中 Link',
   ikToolNoSelection: '还没有选中 IK Link。',
   ikToolRootLinkNotDraggable: '根 Link 或基座 Link 不能直接进行 IK 拖动。',
@@ -683,7 +685,7 @@ export const zh: TranslationKeys = {
   // About Modal
   aboutDescription:
     '专业的机器人 URDF 设计与可视化工作站，支持快速编辑，碰撞优化，参数配置，AI审阅和实用工具。',
-  aboutCopyright: '© 2025-2026 OpenLegged.',
+  aboutCopyright: '© 2025-2026 enkeebot.',
   aboutOpenSource: '基于 Apache License 2.0 协议开源。',
   aboutMotphysTagline: '超越物理，进化不止',
   aboutDRoboticsName: '地瓜机器人',
