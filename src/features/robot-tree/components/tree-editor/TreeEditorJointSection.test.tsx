@@ -610,6 +610,81 @@ test('TreeEditor joint reset restores imported joints without authored angles to
   dom.window.close();
 });
 
+test('TreeEditor joint reset immediately updates the slider while a committed drag is pending', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const jointAngleChanges: Array<{ jointName: string; angle: number }> = [];
+
+  useUIStore.setState({
+    panelSections: {},
+    panelLayout: {
+      ...useUIStore.getState().panelLayout,
+      treeJointPanelHeight: 132,
+      treePanelHeightMode: 'custom',
+    },
+  });
+
+  await act(async () => {
+    root.render(
+      <TreeEditor
+        robot={createRobotStateWithJointAngle(0)}
+        onSelect={() => {}}
+        onAddChild={() => {}}
+        onAddCollisionBody={() => {}}
+        onDelete={() => {}}
+        onNameChange={() => {}}
+        onUpdate={() => {}}
+        showVisual
+        setShowVisual={() => {}}
+        mode="editor"
+        lang="en"
+        theme="light"
+        collapsed={false}
+        onToggle={() => {}}
+        showJointPanel
+        onJointAngleChange={(jointName, angle) => {
+          jointAngleChanges.push({ jointName, angle });
+        }}
+      />,
+    );
+  });
+
+  const rangeInput = container.querySelector<HTMLInputElement>('input[type="range"]');
+  assert.ok(rangeInput, 'joint slider input should render');
+
+  await act(async () => {
+    rangeInput.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    rangeInput.value = '0.5';
+    rangeInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise<void>((resolve) => {
+      dom.window.requestAnimationFrame(() => resolve());
+    });
+  });
+
+  await act(async () => {
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+  });
+
+  assert.equal(Number(rangeInput.value), 0.5);
+  assert.deepEqual(jointAngleChanges.at(-1), { jointName: 'joint_1', angle: 0.5 });
+
+  const resetButton = container.querySelector<HTMLButtonElement>('button[title="Reset joints"]');
+  assert.ok(resetButton, 'joint reset button should render');
+
+  await act(async () => {
+    resetButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+
+  const resetRange = container.querySelector<HTMLInputElement>('input[type="range"]');
+  assert.ok(resetRange, 'joint slider input should still render after reset');
+  assert.equal(Number(resetRange.value), 0);
+  assert.deepEqual(jointAngleChanges.at(-1), { jointName: 'joint_1', angle: 0 });
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
 test('TreeEditor joint slider sends live preview during drag and commits on release', async () => {
   const { dom, container, root } = createComponentRoot();
   const previewAngles: Array<{ jointName: string; angle: number }> = [];

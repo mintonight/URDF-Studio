@@ -232,14 +232,23 @@ export function TreeEditorJointSection({
   }, [robot.joints, robot.selection.id, robot.selection.type]);
 
   const handleResetJoints = React.useCallback(() => {
+    const resetAngles: Record<string, number> = {};
+
     jointEntries.forEach(([jointId, joint]) => {
       const initialAngle =
         initialJointAnglesRef.current[jointId] ??
         (typeof joint.name === 'string' ? initialJointAnglesRef.current[joint.name] : undefined);
-      const nextAngle = initialAngle ?? 0;
+      resetAngles[jointId] = initialAngle ?? 0;
+    });
+
+    const normalizedResetAngles = patchLocalJointAngles(resetAngles);
+    pendingCommittedJointAnglesRef.current = normalizedResetAngles;
+    pendingCommittedJointAnglesScopeRef.current = resetScopeKey;
+
+    Object.entries(normalizedResetAngles).forEach(([jointId, nextAngle]) => {
       onJointAngleChange?.(jointId, nextAngle);
     });
-  }, [jointEntries, onJointAngleChange]);
+  }, [jointEntries, onJointAngleChange, patchLocalJointAngles, resetScopeKey]);
 
   if (!shouldShow) {
     return null;

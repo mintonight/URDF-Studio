@@ -883,6 +883,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       jointAxisSize,
       modelOpacity,
       robotLinks: runtimeRobotLinks,
+      robotMaterials: backendRobotData?.materials,
       robotJoints: effectiveRobotJoints,
       selection,
       highlightGeometry,

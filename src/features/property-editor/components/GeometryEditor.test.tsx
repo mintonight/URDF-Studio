@@ -452,6 +452,7 @@ async function renderGeometryEditor(
   options: {
     assets?: Record<string, string>;
     onUploadAsset?: (file: File) => void;
+    onDeleteAsset?: (path: string) => void;
     sourceFilePath?: string;
   } = {},
 ) {
@@ -464,6 +465,7 @@ async function renderGeometryEditor(
         onUpdate,
         assets: options.assets ?? {},
         onUploadAsset: options.onUploadAsset ?? (() => {}),
+        onDeleteAsset: options.onDeleteAsset ?? (() => {}),
         onLinkNameChange: () => {},
         t: translations.en,
         lang: 'en',
@@ -1893,6 +1895,52 @@ test('GeometryEditor keeps showing the applied texture image inside the material
       container.querySelector('img[src="blob:applied-texture"]'),
       'applied textures should continue rendering their preview image in the material properties',
     );
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('GeometryEditor deletes texture library assets and clears the applied visual texture', async () => {
+  const { dom, container, root } = createComponentRoot();
+  try {
+    const link = createLink('#00ff00');
+    link.visual = {
+      ...link.visual,
+      authoredMaterials: [{ color: '#00ff00', texture: 'textures/applied.png' }],
+    };
+    const robot = createRobot(link);
+    robot.selection.objectIndex = 0;
+
+    const updates: UrdfLink[] = [];
+    const deletedAssets: string[] = [];
+    await renderGeometryEditor(
+      root,
+      link,
+      (nextLink) => {
+        updates.push(nextLink);
+      },
+      robot,
+      'visual',
+      {
+        assets: {
+          'textures/applied.png': 'blob:applied-texture',
+        },
+        onDeleteAsset: (path) => {
+          deletedAssets.push(path);
+        },
+      },
+    );
+
+    const deleteButton = container.querySelector(
+      `button[aria-label="${translations.en.removeFromLibrary}: applied.png"]`,
+    );
+    assert.ok(deleteButton, 'texture library item should expose a delete button');
+    await clickElement(deleteButton);
+
+    assert.deepEqual(deletedAssets, ['textures/applied.png']);
+    const nextLink = updates.at(-1);
+    assert.ok(nextLink, 'deleting the applied texture should emit an updated link');
+    assert.deepEqual(nextLink.visual.authoredMaterials, [{ color: '#00ff00' }]);
   } finally {
     await destroyComponentRoot(dom, root);
   }

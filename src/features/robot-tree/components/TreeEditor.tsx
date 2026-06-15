@@ -119,7 +119,10 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
   sourceFilePath,
   assemblyState,
   onAddComponent,
+  onDeleteLibraryFile,
+  onDeleteLibraryFolder,
   onRenameLibraryFolder,
+  onDeleteAllLibraryFiles,
   onExportLibraryFile,
   onCreateBridge,
   onRenameAssembly,
@@ -175,6 +178,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     y: number;
     target: LibraryDeleteTarget;
   } | null>(null);
+  const [isDeleteAllLibraryDialogOpen, setIsDeleteAllLibraryDialogOpen] = useState(false);
   const [pendingLoadRobotFile, setPendingLoadRobotFile] = useState<RobotFile | null>(null);
   const [isLoadRobotDialogOpen, setIsLoadRobotDialogOpen] = useState(false);
   const [isLoadRobotPending, setIsLoadRobotPending] = useState(false);
@@ -279,6 +283,12 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
   }, [topLevelLibraryFoldersKey]);
 
   useEffect(() => {
+    if (availableFiles.length === 0) {
+      setIsDeleteAllLibraryDialogOpen(false);
+    }
+  }, [availableFiles.length]);
+
+  useEffect(() => {
     if (!editingFolderPath) return;
 
     const id = window.requestAnimationFrame(() => {
@@ -339,7 +349,10 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
       const supportsExport = Boolean(
         onExportLibraryFile && isLibraryRobotExportableFormat(file.format),
       );
-      const actionCount = (canAddToAssembly ? 1 : 0) + (supportsExport ? 1 : 0);
+      const actionCount =
+        (canAddToAssembly ? 1 : 0) +
+        (supportsExport ? 1 : 0) +
+        (onDeleteLibraryFile ? 1 : 0);
       if (actionCount === 0) return;
 
       const menuWidth = 180;
@@ -353,7 +366,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
         y: Math.min(event.clientY, maxY),
       });
     },
-    [onAddComponent, onExportLibraryFile],
+    [onAddComponent, onDeleteLibraryFile, onExportLibraryFile],
   );
 
   const handleFolderContextMenu = useCallback(
@@ -361,12 +374,13 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
       event.preventDefault();
       event.stopPropagation();
 
-      if (!onRenameLibraryFolder) {
+      const actionCount = (onRenameLibraryFolder ? 1 : 0) + (onDeleteLibraryFolder ? 1 : 0);
+      if (actionCount === 0) {
         return;
       }
 
       const menuWidth = 180;
-      const menuHeight = 40;
+      const menuHeight = actionCount * 32 + 8;
       const maxX = Math.max(8, window.innerWidth - menuWidth - 8);
       const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
 
@@ -376,7 +390,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
         y: Math.min(event.clientY, maxY),
       });
     },
-    [onRenameLibraryFolder],
+    [onDeleteLibraryFolder, onRenameLibraryFolder],
   );
 
   const handleStartFolderRename = useCallback((folderPath: string) => {
@@ -445,6 +459,26 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
     if (!fileContextMenu || fileContextMenu.target.type !== 'folder') return;
     handleStartFolderRename(fileContextMenu.target.path);
   }, [fileContextMenu, handleStartFolderRename]);
+
+  const handleDeleteFromLibrary = useCallback(
+    (target: LibraryDeleteTarget) => {
+      if (target.type === 'file') {
+        onDeleteLibraryFile?.(target.file);
+      } else {
+        onDeleteLibraryFolder?.(target.path);
+      }
+
+      setFileContextMenu(null);
+    },
+    [onDeleteLibraryFile, onDeleteLibraryFolder],
+  );
+
+  const handleConfirmDeleteAllLibraryFiles = useCallback(() => {
+    if (!onDeleteAllLibraryFiles || availableFiles.length === 0) return;
+
+    onDeleteAllLibraryFiles();
+    setIsDeleteAllLibraryDialogOpen(false);
+  }, [availableFiles.length, onDeleteAllLibraryFiles]);
 
   const handleRequestLibraryRobotLoad = useCallback(
     async (file: RobotFile, intent: LibraryRobotLoadIntent = 'direct') => {
@@ -523,6 +557,7 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
 
   const actualWidth = collapsed ? 0 : width;
   const shouldFileBrowserFillSpace = false;
+  const canDeleteAllLibraryFiles = Boolean(onDeleteAllLibraryFiles && availableFiles.length > 0);
 
   return (
     <div
@@ -556,13 +591,21 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
             editingFolderPath={editingFolderPath}
             folderRenameDraft={folderRenameDraft}
             folderRenameInputRef={folderRenameInputRef}
+            canDeleteAllLibraryFiles={canDeleteAllLibraryFiles}
             t={t}
             onToggleOpen={handleToggleFileBrowserOpen}
+            onDeleteAll={() => {
+              setFileContextMenu(null);
+              setIsDeleteAllLibraryDialogOpen(true);
+            }}
             onFolderRenameDraftChange={setFolderRenameDraft}
             onCommitFolderRename={handleCommitFolderRename}
             onCancelFolderRename={handleCancelFolderRename}
             onLoadRobot={handleFileBrowserPrimaryAction}
             onAddComponent={handleAddComponentFromLibrary}
+            onDeleteFromLibrary={
+              onDeleteLibraryFile || onDeleteLibraryFolder ? handleDeleteFromLibrary : undefined
+            }
             onFileContextMenu={handleFileContextMenu}
             onFolderContextMenu={handleFolderContextMenu}
             toggleFolder={toggleFolder}
@@ -658,9 +701,15 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
         addLabel={t.addComponent}
         renameLabel={t.rename}
         exportLabel={t.export}
+        deleteLabel={t.removeFromLibrary}
         onAdd={handleAddFileToAssembly}
         onRename={handleRenameFolderFromMenu}
         onExport={handleExportLibraryFile}
+        onDelete={() => {
+          if (fileContextMenu?.target) {
+            handleDeleteFromLibrary(fileContextMenu.target);
+          }
+        }}
         showAddAction={Boolean(
           onAddComponent &&
           fileContextMenu?.target.type === 'file' &&
@@ -674,7 +723,36 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
           Boolean(onExportLibraryFile) &&
           isLibraryRobotExportableFormat(fileContextMenu.target.file.format)
         }
+        showDeleteAction={Boolean(
+          (fileContextMenu?.target.type === 'folder' && onDeleteLibraryFolder) ||
+          (fileContextMenu?.target.type === 'file' && onDeleteLibraryFile),
+        )}
       />
+
+      <Dialog
+        isOpen={isDeleteAllLibraryDialogOpen}
+        onClose={() => setIsDeleteAllLibraryDialogOpen(false)}
+        title={t.deleteAllLibraryFilesConfirmTitle}
+        width="w-[420px]"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setIsDeleteAllLibraryDialogOpen(false)}
+            >
+              {t.cancel}
+            </Button>
+            <Button type="button" variant="danger" onClick={handleConfirmDeleteAllLibraryFiles}>
+              {t.confirm}
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm leading-6 text-text-secondary">
+          {t.deleteAllLibraryFilesConfirmMessage}
+        </p>
+      </Dialog>
 
       <Dialog
         isOpen={isLoadRobotDialogOpen}

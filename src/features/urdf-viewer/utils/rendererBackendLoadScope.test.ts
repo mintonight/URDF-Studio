@@ -230,10 +230,7 @@ test('createMemoizedRendererBackendLoadScopeKey recomputes for structural joint 
       ...robotData.joints,
       shoulder: {
         ...robotData.joints.shoulder,
-        limit: {
-          ...robotData.joints.shoulder.limit!,
-          upper: 2,
-        },
+        childLinkId: 'missing_child_link',
       },
     },
   };
@@ -250,11 +247,9 @@ test('createMemoizedRendererBackendLoadScopeKey recomputes for structural joint 
   assert.notEqual(secondKey, firstKey);
 });
 
-test('createRendererBackendLoadScopeKey stays stable for patchable joint origin edits', () => {
+test('createRendererBackendLoadScopeKey stays stable for joint type edits', () => {
   const baselineRobotData = createRobotData(0);
   const editedRobotData = createRobotData(0);
-  // A joint *type* change is structural: detectJointPatches cannot patch it
-  // in place, so it must invalidate the load scope and force a full rebuild.
   editedRobotData.joints.shoulder.type = JointType.PRISMATIC;
 
   const firstKey = createRendererBackendLoadScopeKey({
@@ -409,6 +404,320 @@ test('createRendererBackendLoadScopeKey stays stable for geometry visibility edi
     reloadToken: 0,
     robotData: editedRobotData,
   });
+
+  assert.equal(secondKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey reuses key for MJCF collision origin source patches', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const assets: Record<string, string> = {};
+  const baselineRobotData = createRobotData(0);
+  baselineRobotData.links.base.collision.origin.xyz.x = 0.1;
+  const mjcfSource: RobotFile = {
+    name: 'robot.xml',
+    format: 'mjcf',
+    content: '<mujoco><worldbody><body name="base"><geom pos="0.1 0 0" /></body></worldbody></mujoco>',
+  };
+
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: mjcfSource,
+      availableFiles: [mjcfSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+
+  const editedRobotData = structuredClone(baselineRobotData);
+  editedRobotData.links.base.collision.origin.xyz.x = 0.2;
+  const patchedMjcfSource: RobotFile = {
+    ...mjcfSource,
+    content: '<mujoco><worldbody><body name="base"><geom pos="0.2 0 0" /></body></worldbody></mujoco>',
+  };
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: patchedMjcfSource,
+      availableFiles: [patchedMjcfSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.equal(secondKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey reuses key for MJCF visual dimension source patches', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const assets: Record<string, string> = {};
+  const baselineRobotData = createRobotData(0);
+  baselineRobotData.links.base.visual.dimensions = { x: 1, y: 1, z: 1 };
+  const mjcfSource: RobotFile = {
+    name: 'robot.xml',
+    format: 'mjcf',
+    content: '<mujoco><worldbody><body name="base"><geom type="box" size="0.5 0.5 0.5" /></body></worldbody></mujoco>',
+  };
+
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: mjcfSource,
+      availableFiles: [mjcfSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+
+  const editedRobotData = structuredClone(baselineRobotData);
+  editedRobotData.links.base.visual.dimensions = { x: 2, y: 1, z: 1 };
+  const patchedMjcfSource: RobotFile = {
+    ...mjcfSource,
+    content: '<mujoco><worldbody><body name="base"><geom type="box" size="1 0.5 0.5" /></body></worldbody></mujoco>',
+  };
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: patchedMjcfSource,
+      availableFiles: [patchedMjcfSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.equal(secondKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey recomputes for multiple geometry edits', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const assets: Record<string, string> = {};
+  const baselineRobotData = createRobotData(0);
+  const mjcfSource: RobotFile = {
+    name: 'robot.xml',
+    format: 'mjcf',
+    content: '<mujoco model="demo" />',
+  };
+
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: mjcfSource,
+      availableFiles: [mjcfSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+
+  const editedRobotData = structuredClone(baselineRobotData);
+  editedRobotData.links.base.collision.origin.xyz.x = 0.2;
+  editedRobotData.links.arm.collision.origin.xyz.x = 0.3;
+  const patchedMjcfSource: RobotFile = {
+    ...mjcfSource,
+    content: '<mujoco model="demo_patched" />',
+  };
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: patchedMjcfSource,
+      availableFiles: [patchedMjcfSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.notEqual(secondKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey recomputes when non-source file content changes with a geometry edit', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const assets: Record<string, string> = {};
+  const baselineRobotData = createRobotData(0);
+  baselineRobotData.links.base.collision.origin.xyz.x = 0.1;
+  const mjcfSource: RobotFile = {
+    name: 'robot.xml',
+    format: 'mjcf',
+    content: '<mujoco><worldbody><body name="base"><geom pos="0.1 0 0" /></body></worldbody></mujoco>',
+  };
+  const meshSource: RobotFile = {
+    name: 'meshes/part.obj',
+    format: 'mesh',
+    content: 'v 0 0 0',
+  };
+
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: mjcfSource,
+      availableFiles: [mjcfSource, meshSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+
+  const editedRobotData = structuredClone(baselineRobotData);
+  editedRobotData.links.base.collision.origin.xyz.x = 0.2;
+  const patchedMjcfSource: RobotFile = {
+    ...mjcfSource,
+    content: '<mujoco><worldbody><body name="base"><geom pos="0.2 0 0" /></body></worldbody></mujoco>',
+  };
+  const patchedMeshSource: RobotFile = {
+    ...meshSource,
+    content: 'v 1 0 0',
+  };
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: patchedMjcfSource,
+      availableFiles: [patchedMjcfSource, patchedMeshSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.notEqual(secondKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey reuses key for MJCF joint limit source patches', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const assets: Record<string, string> = {};
+  const baselineRobotData = createRobotData(0);
+  baselineRobotData.joints.shoulder.limit = {
+    lower: -1,
+    upper: 1,
+    effort: 10,
+    velocity: 5,
+  };
+  const mjcfSource: RobotFile = {
+    name: 'robot.xml',
+    format: 'mjcf',
+    content: '<mujoco><worldbody><body name="base"><joint name="shoulder" range="-1 1" /></body></worldbody></mujoco>',
+  };
+
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: mjcfSource,
+      availableFiles: [mjcfSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+
+  const editedRobotData = structuredClone(baselineRobotData);
+  editedRobotData.joints.shoulder.limit = {
+    lower: -2,
+    upper: 2,
+    effort: 10,
+    velocity: 5,
+  };
+  const patchedMjcfSource: RobotFile = {
+    ...mjcfSource,
+    content: '<mujoco><worldbody><body name="base"><joint name="shoulder" range="-2 2" /></body></worldbody></mujoco>',
+  };
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: patchedMjcfSource,
+      availableFiles: [patchedMjcfSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.equal(secondKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey reuses key for MJCF joint type source patches', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const assets: Record<string, string> = {};
+  const baselineRobotData = createRobotData(0);
+  baselineRobotData.joints.shoulder.type = JointType.REVOLUTE;
+  const mjcfSource: RobotFile = {
+    name: 'robot.xml',
+    format: 'mjcf',
+    content: '<mujoco><worldbody><body name="base"><joint name="shoulder" type="hinge" /></body></worldbody></mujoco>',
+  };
+
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: mjcfSource,
+      availableFiles: [mjcfSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+
+  const editedRobotData = structuredClone(baselineRobotData);
+  editedRobotData.joints.shoulder.type = JointType.PRISMATIC;
+  editedRobotData.joints.shoulder.axis = { x: 1, y: 0, z: 0 };
+  const patchedMjcfSource: RobotFile = {
+    ...mjcfSource,
+    content: '<mujoco><worldbody><body name="base"><joint name="shoulder" type="slide" /></body></worldbody></mujoco>',
+  };
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: patchedMjcfSource,
+      availableFiles: [patchedMjcfSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
+
+  assert.equal(secondKey, firstKey);
+});
+
+test('createMemoizedRendererBackendLoadScopeKey reuses key for inertial edits with source patches', () => {
+  const memo: RendererBackendLoadScopeKeyMemo = {};
+  const assets: Record<string, string> = {};
+  const baselineRobotData = createRobotData(0);
+  baselineRobotData.links.base.inertial!.mass = 1;
+  const mjcfSource: RobotFile = {
+    name: 'robot.xml',
+    format: 'mjcf',
+    content: '<mujoco><worldbody><body name="base" mass="1" /></worldbody></mujoco>',
+  };
+
+  const firstKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: mjcfSource,
+      availableFiles: [mjcfSource],
+      assets,
+      reloadToken: 0,
+      robotData: baselineRobotData,
+    },
+    memo,
+  );
+
+  const editedRobotData = structuredClone(baselineRobotData);
+  editedRobotData.links.base.inertial!.mass = 2;
+  const patchedMjcfSource: RobotFile = {
+    ...mjcfSource,
+    content: '<mujoco><worldbody><body name="base" mass="2" /></worldbody></mujoco>',
+  };
+  const secondKey = createMemoizedRendererBackendLoadScopeKey(
+    {
+      sourceFile: patchedMjcfSource,
+      availableFiles: [patchedMjcfSource],
+      assets,
+      reloadToken: 0,
+      robotData: editedRobotData,
+    },
+    memo,
+  );
 
   assert.equal(secondKey, firstKey);
 });
