@@ -29,6 +29,163 @@ interface HeaderActionsProps {
   t: HeaderTranslations;
 }
 
+interface InlineActionButtonProps {
+  action?: HeaderAction;
+  show: boolean;
+  showLabel: boolean;
+}
+
+function InlineActionButton({ action, show, showLabel }: InlineActionButtonProps) {
+  const ActionIcon = action?.icon;
+
+  if (!show || !action || !ActionIcon) {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={action.onClick}
+      className="flex items-center justify-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium text-system-blue dark:text-white hover:bg-system-blue-solid hover:text-white dark:hover:bg-system-blue-solid transition-colors hidden sm:flex"
+      title={action.title ?? action.label}
+      aria-label={action.title ?? action.label}
+    >
+      <ActionIcon className="w-4 h-4" />
+      {showLabel ? <span>{action.label}</span> : null}
+    </button>
+  );
+}
+
+function SnapshotButton({
+  show,
+  onSnapshot,
+  label,
+}: {
+  show: boolean;
+  onSnapshot: () => void;
+  label: string;
+}) {
+  if (!show) {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onSnapshot}
+      className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
+      title={label}
+      aria-label={label}
+    >
+      <Camera className="w-4 h-4" />
+    </button>
+  );
+}
+
+function LanguageButton({
+  show,
+  lang,
+  setLang,
+  label,
+}: {
+  show: boolean;
+  lang: 'en' | 'zh';
+  setLang: (lang: 'en' | 'zh') => void;
+  label: string;
+}) {
+  if (!show) {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}
+      className="flex items-center justify-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
+      title={label}
+      aria-label={label}
+    >
+      <Globe className="w-3.5 h-3.5" />
+      <span className="text-[10px] font-semibold">{lang === 'en' ? 'EN' : '中'}</span>
+    </button>
+  );
+}
+
+function resolveNextTheme(theme: Theme): Theme {
+  if (theme === 'system') {
+    const isSystemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return isSystemDark ? 'light' : 'dark';
+  }
+
+  return theme === 'dark' ? 'light' : 'dark';
+}
+
+function ThemeIcon({ theme }: { theme: Theme }) {
+  if (theme === 'system') {
+    return <Monitor className="w-4 h-4" />;
+  }
+
+  return theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />;
+}
+
+function ThemeButton({
+  show,
+  theme,
+  setTheme,
+  label,
+}: {
+  show: boolean;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+  label: string;
+}) {
+  if (!show) {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setTheme(resolveNextTheme(theme))}
+      className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
+      title={label}
+      aria-label={label}
+    >
+      <ThemeIcon theme={theme} />
+    </button>
+  );
+}
+
+function HeaderDivider({ show }: { show: boolean }) {
+  return show ? <div className="w-px h-5 bg-border-black mx-1 hidden sm:block" /> : null;
+}
+
+function SettingsButton({
+  show,
+  onOpenSettings,
+  label,
+}: {
+  show: boolean;
+  onOpenSettings: () => void;
+  label: string;
+}) {
+  if (!show) {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onOpenSettings}
+      className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
+      title={label}
+      aria-label={label}
+    >
+      <Settings className="w-4 h-4" />
+    </button>
+  );
+}
+
 export function HeaderActions({
   responsive,
   lang,
@@ -60,77 +217,28 @@ export function HeaderActions({
     showSecondaryActionLabel,
     showDesktopOverflow,
   } = responsive;
-  const QuickActionIcon = quickAction?.icon;
-  const SecondaryActionIcon = secondaryAction?.icon;
 
   return (
     <div className="flex items-center gap-0.5 shrink-0 justify-self-end">
-      {showQuickActionInline && quickAction && QuickActionIcon && (
-        <button
-          type="button"
-          onClick={quickAction.onClick}
-          className="flex items-center justify-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium text-system-blue dark:text-white hover:bg-system-blue-solid hover:text-white dark:hover:bg-system-blue-solid transition-colors hidden sm:flex"
-          title={quickAction.title ?? quickAction.label}
-          aria-label={quickAction.title ?? quickAction.label}
-        >
-          <QuickActionIcon className="w-4 h-4" />
-          {showQuickActionLabel && <span>{quickAction.label}</span>}
-        </button>
-      )}
-
-      {showSnapshotInline && (
-        <button
-          type="button"
-          onClick={onSnapshot}
-          className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
-          title={t.snapshot}
-          aria-label={t.snapshot}
-        >
-          <Camera className="w-4 h-4" />
-        </button>
-      )}
-
-      {showLanguageInline && (
-        <button
-          type="button"
-          onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}
-          className="flex items-center justify-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
-          title={t.switchLanguage}
-          aria-label={t.switchLanguage}
-        >
-          <Globe className="w-3.5 h-3.5" />
-          <span className="text-[10px] font-semibold">{lang === 'en' ? 'EN' : '中'}</span>
-        </button>
-      )}
-
-      {showThemeInline && (
-        <button
-          type="button"
-          onClick={() => {
-            if (theme === 'system') {
-              const isSystemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-              setTheme(isSystemDark ? 'light' : 'dark');
-            } else {
-              setTheme(theme === 'dark' ? 'light' : 'dark');
-            }
-          }}
-          className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
-          title={t.toggleTheme}
-          aria-label={t.toggleTheme}
-        >
-          {theme === 'system' ? (
-            <Monitor className="w-4 h-4" />
-          ) : theme === 'dark' ? (
-            <Sun className="w-4 h-4" />
-          ) : (
-            <Moon className="w-4 h-4" />
-          )}
-        </button>
-      )}
-
-      {(showThemeInline || showDesktopOverflow) && (
-        <div className="w-px h-5 bg-border-black mx-1 hidden sm:block" />
-      )}
+      <InlineActionButton
+        action={quickAction}
+        show={showQuickActionInline}
+        showLabel={showQuickActionLabel}
+      />
+      <SnapshotButton show={showSnapshotInline} onSnapshot={onSnapshot} label={t.snapshot} />
+      <LanguageButton
+        show={showLanguageInline}
+        lang={lang}
+        setLang={setLang}
+        label={t.switchLanguage}
+      />
+      <ThemeButton
+        show={showThemeInline}
+        theme={theme}
+        setTheme={setTheme}
+        label={t.toggleTheme}
+      />
+      <HeaderDivider show={showThemeInline || showDesktopOverflow} />
 
       {showDesktopOverflow && (
         <HeaderOverflowMenu
@@ -163,30 +271,13 @@ export function HeaderActions({
         />
       )}
 
-      {showSecondaryActionInline && secondaryAction && SecondaryActionIcon && (
-        <button
-          type="button"
-          onClick={secondaryAction.onClick}
-          className="flex items-center justify-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium text-system-blue dark:text-white hover:bg-system-blue-solid hover:text-white dark:hover:bg-system-blue-solid transition-colors hidden sm:flex"
-          title={secondaryAction.title ?? secondaryAction.label}
-          aria-label={secondaryAction.title ?? secondaryAction.label}
-        >
-          <SecondaryActionIcon className="w-4 h-4" />
-          {showSecondaryActionLabel && <span>{secondaryAction.label}</span>}
-        </button>
-      )}
+      <InlineActionButton
+        action={secondaryAction}
+        show={showSecondaryActionInline}
+        showLabel={showSecondaryActionLabel}
+      />
 
-      {showSettingsInline && (
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="flex items-center justify-center w-7 h-7 rounded-md text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-element-bg hover:text-slate-700 dark:hover:text-slate-200 transition-colors hidden sm:flex"
-          title={t.settings}
-          aria-label={t.settings}
-        >
-          <Settings className="w-4 h-4" />
-        </button>
-      )}
+      <SettingsButton show={showSettingsInline} onOpenSettings={onOpenSettings} label={t.settings} />
 
       <HeaderOverflowMenu
         className="sm:hidden"

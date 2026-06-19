@@ -22,9 +22,15 @@
 ## 3. 当前存量例外（禁止扩散）
 
 运行时代码：
-- `src/shared/hooks/useTheme.ts` -> `@/store/uiStore`
-- `src/shared/components/Panel/JointControlItem.tsx` -> `@/store/robotStore`
-- `src/features/ai-assistant/utils/pdfExport.ts` -> `@/features/file-io/components/InspectionReportTemplate`
+- `src/features/editor/index.ts` -> `src/features/urdf-viewer/index.ts`（Editor facade）
+- `src/features/editor/viewerPanelModule.ts` -> `src/features/urdf-viewer/components/ViewerPanels.tsx`
+- `src/features/editor/viewerPanelModule.ts` -> `src/features/urdf-viewer/hooks/useResponsivePanelLayout.ts`
+- `src/features/editor/viewerPanelModule.ts` -> `src/features/urdf-viewer/hooks/useViewerController.ts`
+- `src/lib/components/RobotCanvas.tsx` -> `src/features/urdf-viewer/components/ViewerCanvas.tsx`
+- `src/lib/components/RobotCanvas.tsx` -> `src/features/urdf-viewer/components/JointInteraction.tsx`
+- `src/lib/components/RobotCanvas.tsx` -> `src/features/urdf-viewer/components/RobotModel.tsx`
+
+上述例外由 `scripts/tools/dependency_boundaries.mjs` 按 importer + specifier + resolved target 精确匹配，禁止扩大为整层或整 feature 例外。
 
 测试期例外（不作为运行时先例）：
 - `src/features/file-io/utils/usdFloatingRoundtrip.test.ts` -> `urdf-viewer` runtime/utils
@@ -35,6 +41,7 @@
 - `editor`：统一 Editor 公开入口，通过 `src/features/editor/index.ts` 暴露
 - `urdf-viewer`：Editor 实现子目录，通过 `src/features/urdf-viewer/index.ts` 暴露
 - `file-io`：导入导出入口，通过 `src/features/file-io/index.ts` 暴露
+- `app` 层新增对 `src/features/<feature>/...` 子路径的 deep import 必须先收敛到 feature 公开入口；存量 deep import 只保留在 `dependency_boundaries_baseline.json` 的 `knownFeatureDeepImports` ratchet 中，按 `importer -> specifier` 精确计数，修掉后删除对应 baseline 项。
 
 ## 5. Canonical Data Sources
 
@@ -99,14 +106,14 @@
 
 ## 10. 依赖检查命令
 
-分层红线与 import 循环由 `scripts/tools/dependency_boundaries.mjs` 机器化把关（零依赖，复用 `@/* -> src/*` alias）：
+分层红线、`app` feature deep import surface 与 import 循环由 `scripts/tools/dependency_boundaries.mjs` 机器化把关（零依赖，复用 `@/* -> src/*` alias）：
 
 ```bash
-npm run deps:audit   # 报告越层 import 与循环依赖
-npm run deps:check    # CI 阻断门（存量循环走 dependency_boundaries_baseline.json grandfather，仅挡净新增）
+npm run deps:audit   # 报告越层 import、app feature deep import 与循环依赖
+npm run deps:check    # CI 阻断门（cycles/deep imports 走 dependency_boundaries_baseline.json grandfather，仅挡净新增与 stale baseline）
 ```
 
-该脚本编码 §1 的方向（core 禁 React/越层、features 禁互相 import、shared/store/lib 禁向上），§3 的存量例外与 editor->urdf-viewer facade、lib RobotCanvas 包装关系已 allowlist。`npm run lint` 已串联 `deps:check`。下列 `rg` 命令仅作快速人工排查备用：
+该脚本编码 §1 的方向（core 禁 React/越层、features 禁互相 import、shared/store/lib 禁向上），§3 的存量例外只按精确 importer/specifier/target allowlist。`app` 对 feature 子路径的存量 deep import 单独报告为 `knownFeatureDeepImports`，新增或 baseline stale 都会让 `--check` 失败；import cycles 维持既有 grandfather 机制。`npm run lint` 已串联 `deps:check`。下列 `rg` 命令仅作快速人工排查备用：
 
 ```bash
 # 检查潜在反向依赖（core/shared/store 对 features 的引用）
@@ -134,4 +141,3 @@ rg -n "#0088FF|#0088ff" src | rg -v "Slider.tsx|styles/index.css"
 - **手写 C-ABI emscripten 源**：`src/core/loaders/wasm/collada_mesh_parser.cpp`、`src/core/loaders/wasm/obj_parser.cpp`。它们是**单翻译单元（single TU）**设计——单 `.cpp` + `-flto` + 匿名 `namespace` 内部链接，所有 helper 文件本地。拆成多 TU/头文件**运行时零收益、只增 header 边界摩擦**，故有意保留单文件；要可读性用 section banner 注释而非物理拆分。注意：构建是 **C-ABI `EXPORTED_FUNCTIONS`** 模式（手动 `HEAPU8` marshalling via `*_get_result_ptr` / `*_get_result_size`），**不是 embind**（无 `emscripten/bind.h` / `EMSCRIPTEN_BINDINGS` / `--bind`）。.cpp 风格由 `.clang-format` 固定。
 - **生成产物**：`public/wasm/**`（emscripten JS glue + `.wasm` 二进制，由 `scripts/build/rebuild-*-wasm.sh` 生成，**勿手改**，改 `.cpp` 重跑脚本）、`**/*.generated.*`（ESLint 与 audit 一致跳过）。
 - **vendored 源**：`third_party/**`（魔改版 OpenUSD）、`src/features/urdf-viewer/runtime/**`（USD WASM runtime）。
-

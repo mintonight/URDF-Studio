@@ -131,6 +131,11 @@ export interface UsdMeshCountsEntry {
   visualMeshCount?: number;
   collisionMeshCount?: number;
   collisionPrimitiveCounts?: Record<string, number | undefined>;
+  collisionPrimitiveGeometries?: Array<{
+    primitiveType?: string | null;
+    dimensions?: ArrayLike<number> | null;
+    originXyz?: ArrayLike<number> | null;
+  }>;
 }
 
 export interface UsdJointCatalogEntry {
@@ -141,6 +146,7 @@ export interface UsdJointCatalogEntry {
   jointName?: string | null;
   jointType?: string | null;
   jointTypeName?: string | null;
+  usdPhysicsJointTypeName?: string | null;
   axisToken?: string | null;
   axisLocal?: ArrayLike<number> | null;
   lowerLimitDeg?: number | null;
@@ -148,6 +154,18 @@ export interface UsdJointCatalogEntry {
   angleDeg?: number | null;
   driveDamping?: number | null;
   driveMaxForce?: number | null;
+  usdLimitAxes?: Record<string, { low?: number | null; high?: number | null }> | null;
+  usdDriveAxes?: Record<
+    string,
+    {
+      type?: string | null;
+      stiffness?: number | null;
+      damping?: number | null;
+      maxForce?: number | null;
+      targetPosition?: number | null;
+      targetVelocity?: number | null;
+    }
+  > | null;
   localPos0?: ArrayLike<number> | null;
   localRot0Wxyz?: ArrayLike<number> | null;
   localPivotInLink?: ArrayLike<number> | null;

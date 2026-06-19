@@ -25,8 +25,8 @@ import { setRegressionViewerResourceScope } from '@/shared/debug/regressionState
 import {
   buildViewerRobotLinksScopeSignature,
   type ViewerResourceScope,
-} from '@/features/urdf-viewer/utils/viewerResourceScope';
-import type { ToolMode } from '@/features/urdf-viewer/types';
+} from '@/features/editor';
+import type { ToolMode } from '@/features/editor';
 
 import type { FilePreviewState } from './types';
 

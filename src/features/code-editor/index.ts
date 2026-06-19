@@ -12,6 +12,10 @@ export type {
   SourceCodeEditorDocument,
   SourceCodeEditorProps,
 } from './components/SourceCodeEditor';
+export type {
+  SourceCodeDirtyRange,
+  SourceCodeEditorApplyRequest,
+} from './utils/sourceCodeEditorSession';
 
 // App-facing runtime helpers
 export { preloadMonacoEditor, preloadMonacoEditorWorker } from './utils/monacoLoader';

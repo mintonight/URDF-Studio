@@ -5,7 +5,7 @@ import type {
   AIConversationLaunchContext,
   AIConversationMode,
   AIConversationSelection,
-} from '@/features/ai-assistant/types';
+} from '@/features/ai-assistant';
 
 export function cloneAISnapshot<T>(value: T): T {
   if (typeof structuredClone === 'function') {

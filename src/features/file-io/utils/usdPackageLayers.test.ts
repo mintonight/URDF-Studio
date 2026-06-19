@@ -201,6 +201,7 @@ test('usd package layers serialize root and sensor configuration prims', () => {
   const sensorLayer = buildUsdSensorLayerContent('demo_robot_description');
 
   assert.match(rootLayer, /defaultPrim = "demo_robot_description"/);
+  assert.match(rootLayer, /string "urdfStudio:roundtripMetadata" = "1"/);
   assert.match(rootLayer, /prepend references = @configuration\/demo_robot_description_base\.usd@/);
   assert.match(rootLayer, /prepend payload = @configuration\/demo_robot_description_physics\.usd@/);
   assert.match(rootLayer, /prepend payload = @configuration\/demo_robot_description_sensor\.usd@/);
@@ -221,6 +222,7 @@ test('isaacsim usd package layers add a Robot variant and robot sidecar referenc
   });
 
   assert.match(rootLayer, /string Robot = "Robot"/);
+  assert.match(rootLayer, /string "urdfStudio:roundtripMetadata" = "1"/);
   assert.match(rootLayer, /prepend variantSets = \["Physics", "Sensor", "Robot"\]/);
   assert.match(rootLayer, /prepend payload = @configuration\/demo_robot_robot\.usda@/);
   assert.match(robotLayer, /prepend apiSchemas = \["IsaacRobotAPI"\]/);
@@ -264,6 +266,57 @@ test('usd package layers serialize articulation, joint paths, and mesh collision
   );
   assert.match(physicsLayer, /bool physics:collisionEnabled = true/);
   assert.match(physicsLayer, /uniform token physics:approximation = "convexHull"/);
+});
+
+test('usd package layers preserve authored generic UsdPhysics D6 joints without fixed-joint fallback', () => {
+  const robot = createLayeredRobot();
+  robot.joints.child_joint = {
+    ...robot.joints.child_joint,
+    id: 'd6_joint',
+    name: 'D6',
+    type: JointType.FLOATING,
+    usdPhysics: {
+      jointTypeName: 'PhysicsJoint',
+      limitAxes: {
+        rotX: { low: -180, high: 180 },
+        rotY: { low: 0, high: 0 },
+        rotZ: { low: 0, high: 0 },
+        transX: { low: 0, high: 0 },
+        transY: { low: 0, high: 0 },
+        transZ: { low: 0, high: 0 },
+      },
+      driveAxes: {
+        rotX: {
+          type: 'force',
+          stiffness: 0.04,
+          damping: 0.002,
+          targetPosition: 0,
+          targetVelocity: 0,
+        },
+      },
+    },
+  };
+  const pathMaps = buildUsdLinkPathMaps(robot, 'demo_robot_description');
+  const physicsLayer = buildUsdPhysicsLayerContent(
+    robot,
+    pathMaps,
+    'demo_robot_description',
+    'demo_robot_description',
+  );
+
+  assert.match(physicsLayer, /def PhysicsJoint "d6_joint"/);
+  assert.doesNotMatch(physicsLayer, /def PhysicsFixedJoint "d6_joint"/);
+  assert.match(
+    physicsLayer,
+    /prepend apiSchemas = \["PhysicsLimitAPI:transX", "PhysicsLimitAPI:transY", "PhysicsLimitAPI:transZ", "PhysicsLimitAPI:rotX", "PhysicsLimitAPI:rotY", "PhysicsLimitAPI:rotZ", "PhysicsDriveAPI:rotX"\]/,
+  );
+  assert.match(physicsLayer, /float limit:rotX:physics:low = -180/);
+  assert.match(physicsLayer, /float limit:rotX:physics:high = 180/);
+  assert.match(physicsLayer, /float limit:transZ:physics:low = 0/);
+  assert.match(physicsLayer, /float limit:transZ:physics:high = 0/);
+  assert.match(physicsLayer, /uniform token drive:rotX:physics:type = "force"/);
+  assert.match(physicsLayer, /float drive:rotX:physics:stiffness = 0\.04/);
+  assert.match(physicsLayer, /float drive:rotX:physics:damping = 0\.002/);
 });
 
 test('isaacsim usd package layers flatten link prim paths for physics bodies', () => {

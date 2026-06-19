@@ -1,4 +1,4 @@
-import type { SourceCodeDirtyRange } from '@/features/code-editor/utils/sourceCodeEditorSession';
+import type { SourceCodeDirtyRange } from '@/features/code-editor';
 import type { RobotState } from '@/types';
 import type { EditableSourceIncrementalPatch } from './editableSourceIncrementalPatch';
 import {

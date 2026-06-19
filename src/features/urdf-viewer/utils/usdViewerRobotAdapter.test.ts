@@ -314,6 +314,106 @@ test('maps authored USD physics schema joint type names back onto URDF joint typ
   assert.equal(joint.type, JointType.FIXED);
 });
 
+test('maps unsupported generic UsdPhysics joint type names to floating joints', () => {
+  for (const jointTypeName of [
+    'PhysicsJoint',
+    'UsdPhysicsJoint',
+    'PhysicsD6Joint',
+    'D6Joint',
+    'PhysicsDistanceJoint',
+  ]) {
+    const result = adaptUsdViewerSnapshotToRobotData(
+      {
+        stageSourcePath: `/robots/newton/${jointTypeName}.usd`,
+        stage: {
+          defaultPrimPath: '/Robot',
+        },
+        robotTree: {
+          linkParentPairs: [
+            ['/Robot/base_link', null],
+            ['/Robot/body_link', '/Robot/base_link'],
+          ],
+          rootLinkPaths: ['/Robot/base_link'],
+        },
+        robotMetadataSnapshot: {
+          stageSourcePath: `/robots/newton/${jointTypeName}.usd`,
+          linkParentPairs: [
+            ['/Robot/base_link', null],
+            ['/Robot/body_link', '/Robot/base_link'],
+          ],
+          jointCatalogEntries: [
+            {
+              linkPath: '/Robot/body_link',
+              parentLinkPath: '/Robot/base_link',
+              jointName: `joint_${jointTypeName}`,
+              jointTypeName,
+              axisToken: 'X',
+              originXyz: [0, 0, 0],
+              originQuatWxyz: [1, 0, 0, 0],
+              ...(jointTypeName === 'PhysicsJoint'
+                ? {
+                    usdPhysicsJointTypeName: 'PhysicsJoint',
+                    usdLimitAxes: {
+                      rotX: { low: -180, high: 180 },
+                      rotY: { low: 0, high: 0 },
+                      rotZ: { low: 0, high: 0 },
+                      transX: { low: 0, high: 0 },
+                      transY: { low: 0, high: 0 },
+                      transZ: { low: 0, high: 0 },
+                    },
+                    usdDriveAxes: {
+                      rotX: {
+                        type: 'force',
+                        stiffness: 0.04,
+                        damping: 0.002,
+                        targetPosition: 0,
+                        targetVelocity: 0,
+                      },
+                    },
+                  }
+                : {}),
+            },
+          ],
+          meshCountsByLinkPath: {
+            '/Robot/base_link': {
+              visualMeshCount: 1,
+              collisionMeshCount: 0,
+              collisionPrimitiveCounts: {},
+            },
+            '/Robot/body_link': {
+              visualMeshCount: 1,
+              collisionMeshCount: 0,
+              collisionPrimitiveCounts: {},
+            },
+          },
+        },
+      },
+      {
+        fileName: `${jointTypeName}.usd`,
+      },
+    );
+
+    assert.ok(result);
+
+    const joint = Object.values(result.robotData.joints).find(
+      (candidate) => candidate.name === `joint_${jointTypeName}`,
+    );
+    assert.ok(joint, `expected ${jointTypeName} joint to import`);
+    assert.equal(joint.type, JointType.FLOATING);
+
+    if (jointTypeName === 'PhysicsJoint') {
+      assert.equal(joint.usdPhysics?.jointTypeName, 'PhysicsJoint');
+      assert.deepEqual(joint.usdPhysics?.limitAxes?.rotX, { low: -180, high: 180 });
+      assert.deepEqual(joint.usdPhysics?.limitAxes?.transZ, { low: 0, high: 0 });
+      assert.equal(joint.usdPhysics?.driveAxes?.rotX?.type, 'force');
+      assert.equal(joint.usdPhysics?.driveAxes?.rotX?.stiffness, 0.04);
+      assert.equal(joint.usdPhysics?.driveAxes?.rotX?.damping, 0.002);
+      assert.equal(joint.usdPhysics?.driveAxes?.rotX?.targetPosition, 0);
+      assert.equal(joint.usdPhysics?.driveAxes?.rotX?.targetVelocity, 0);
+    }
+  }
+});
+
 test('preserves USD physics child joint frame rotations for IsaacSim-authored fixed links', () => {
   const childFrame = [Math.SQRT1_2, 0, Math.SQRT1_2, 0];
   const result = adaptUsdViewerSnapshotToRobotData(
@@ -1211,4 +1311,59 @@ test('promotes collision geometry into a visual proxy for collision-only USD sna
     z: 0.15,
   });
   assert.equal(result.robotData.links.base_link.collision.type, GeometryType.BOX);
+});
+
+test('uses direct UsdPhysics primitive geometry metadata when Hydra mesh descriptors are absent', () => {
+  const result = adaptUsdViewerSnapshotToRobotData(
+    {
+      stageSourcePath: '/robots/newton/cartpole.usda',
+      stage: {
+        defaultPrimPath: '/cartPole',
+      },
+      robotTree: {
+        linkParentPairs: [['/cartPole/rail', null]],
+        rootLinkPaths: ['/cartPole/rail'],
+      },
+      robotMetadataSnapshot: {
+        stageSourcePath: '/robots/newton/cartpole.usda',
+        linkParentPairs: [['/cartPole/rail', null]],
+        jointCatalogEntries: [],
+        meshCountsByLinkPath: {
+          '/cartPole/rail': {
+            visualMeshCount: 0,
+            collisionMeshCount: 1,
+            collisionPrimitiveCounts: {
+              box: 1,
+            },
+            collisionPrimitiveGeometries: [
+              {
+                primitiveType: 'cube',
+                dimensions: [0.03, 8, 0.03],
+              },
+            ],
+          },
+        },
+      },
+      render: {
+        meshDescriptors: [],
+      },
+    },
+    {
+      fileName: 'cartpole.usda',
+    },
+  );
+
+  assert.ok(result);
+  assert.equal(result.robotData.links.rail.collision.type, GeometryType.BOX);
+  assert.deepEqual(result.robotData.links.rail.collision.dimensions, {
+    x: 0.03,
+    y: 8,
+    z: 0.03,
+  });
+  assert.equal(result.robotData.links.rail.visual.type, GeometryType.BOX);
+  assert.deepEqual(result.robotData.links.rail.visual.dimensions, {
+    x: 0.03,
+    y: 8,
+    z: 0.03,
+  });
 });

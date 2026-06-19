@@ -26,9 +26,9 @@ import {
   type ViewerJointChangeContext,
   type ViewerJointMotionStateValue,
   type ViewerRobotSourceFormat,
-} from '@/features/urdf-viewer/types';
-import { useViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
-import { resolveDefaultViewerToolMode } from '@/features/urdf-viewer/utils/scopedToolMode';
+} from '@/features/editor';
+import { useViewerController } from '@/features/editor';
+import { resolveDefaultViewerToolMode } from '@/features/editor';
 import { resolveViewerJointScopeKey } from '@/app/utils/viewerJointScopeKey';
 import { resolveUnifiedViewerForcedSessionState } from '@/app/utils/unifiedViewerForcedSessionState';
 import { resolveUnifiedViewerUsageGuideVisibility } from '@/app/utils/unifiedViewerUsageGuide';

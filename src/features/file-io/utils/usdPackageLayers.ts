@@ -198,10 +198,32 @@ const getAxisToken = (axis: THREE.Vector3 | UrdfJoint['axis'] | undefined): 'X' 
 const jointTypeToUsdType = (
   joint: UrdfJoint,
 ):
+  | 'PhysicsJoint'
   | 'PhysicsFixedJoint'
   | 'PhysicsRevoluteJoint'
   | 'PhysicsPrismaticJoint'
-  | 'PhysicsSphericalJoint' => {
+  | 'PhysicsSphericalJoint'
+  | 'PhysicsDistanceJoint' => {
+  const authoredUsdTypeName = String(joint.usdPhysics?.jointTypeName || '').trim();
+  if (/^PhysicsJoint$/i.test(authoredUsdTypeName) || /(?:^|Physics)D6Joint$/i.test(authoredUsdTypeName)) {
+    return 'PhysicsJoint';
+  }
+  if (/^PhysicsFixedJoint$/i.test(authoredUsdTypeName)) {
+    return 'PhysicsFixedJoint';
+  }
+  if (/^PhysicsRevoluteJoint$/i.test(authoredUsdTypeName)) {
+    return 'PhysicsRevoluteJoint';
+  }
+  if (/^PhysicsPrismaticJoint$/i.test(authoredUsdTypeName)) {
+    return 'PhysicsPrismaticJoint';
+  }
+  if (/^PhysicsSphericalJoint$/i.test(authoredUsdTypeName)) {
+    return 'PhysicsSphericalJoint';
+  }
+  if (/^PhysicsDistanceJoint$/i.test(authoredUsdTypeName)) {
+    return 'PhysicsDistanceJoint';
+  }
+
   const type = String(joint.type || '').toLowerCase();
   if (type === 'revolute' || type === 'continuous') {
     return 'PhysicsRevoluteJoint';
@@ -211,6 +233,9 @@ const jointTypeToUsdType = (
   }
   if (type === 'ball' || type === 'spherical') {
     return 'PhysicsSphericalJoint';
+  }
+  if (type === 'floating') {
+    return 'PhysicsJoint';
   }
   return 'PhysicsFixedJoint';
 };
@@ -294,6 +319,31 @@ function resolveUsdPhysicsLocalPos1(joint: UrdfJoint): [number, number, number] 
   return [x, y, z];
 }
 
+const USD_PHYSICS_AXIS_INSTANCE_ORDER = ['transX', 'transY', 'transZ', 'rotX', 'rotY', 'rotZ'];
+
+function sortUsdPhysicsAxisInstances(left: string, right: string): number {
+  const leftIndex = USD_PHYSICS_AXIS_INSTANCE_ORDER.indexOf(left);
+  const rightIndex = USD_PHYSICS_AXIS_INSTANCE_ORDER.indexOf(right);
+  if (leftIndex >= 0 || rightIndex >= 0) {
+    return (leftIndex >= 0 ? leftIndex : Number.MAX_SAFE_INTEGER) -
+      (rightIndex >= 0 ? rightIndex : Number.MAX_SAFE_INTEGER);
+  }
+  return left.localeCompare(right);
+}
+
+function getUsdPhysicsAxisKeys(value: Record<string, unknown> | null | undefined): string[] {
+  if (!value || typeof value !== 'object') {
+    return [];
+  }
+  return Object.keys(value)
+    .filter((key) => /^[A-Za-z0-9_]+$/.test(key))
+    .sort(sortUsdPhysicsAxisInstances);
+}
+
+function formatOptionalUsdNumber(value: number | null | undefined): string | null {
+  return Number.isFinite(Number(value)) ? formatUsdFloat(Number(value)) : null;
+}
+
 const serializeJointDefinition = (
   joint: UrdfJoint,
   linkPaths: Map<string, string>,
@@ -316,6 +366,10 @@ const serializeJointDefinition = (
   const supportsAxis = typeName === 'PhysicsRevoluteJoint' || typeName === 'PhysicsPrismaticJoint';
   const axisToken = getAxisToken(joint.axis);
   const driveInstanceName = getUsdDriveInstanceName(typeName);
+  const usdLimitAxisKeys =
+    typeName === 'PhysicsJoint' ? getUsdPhysicsAxisKeys(joint.usdPhysics?.limitAxes) : [];
+  const usdDriveAxisKeys =
+    typeName === 'PhysicsJoint' ? getUsdPhysicsAxisKeys(joint.usdPhysics?.driveAxes) : [];
   const shouldUseIsaacDefaults = options.layoutProfile === 'isaacsim' && driveInstanceName !== null;
   const sourceDriveStiffness =
     Number.isFinite(joint.dynamics?.stiffness) && Math.abs(Number(joint.dynamics?.stiffness)) > 1e-9
@@ -363,6 +417,12 @@ const serializeJointDefinition = (
   if (options.layoutProfile === 'isaacsim' && driveInstanceName !== null) {
     jointApiSchemas.push(`"PhysicsJointStateAPI:${driveInstanceName}"`, '"PhysxJointAPI"');
   }
+  usdLimitAxisKeys.forEach((axis) => {
+    jointApiSchemas.push(`"PhysicsLimitAPI:${axis}"`);
+  });
+  usdDriveAxisKeys.forEach((axis) => {
+    jointApiSchemas.push(`"PhysicsDriveAPI:${axis}"`);
+  });
   if (shouldEmitDrive) {
     jointApiSchemas.push(`"PhysicsDriveAPI:${driveInstanceName}"`);
   }
@@ -409,6 +469,17 @@ const serializeJointDefinition = (
     lines.push(`${childIndent}float physics:lowerLimit = ${formatUsdFloat(joint.limit.lower)}`);
     lines.push(`${childIndent}float physics:upperLimit = ${formatUsdFloat(joint.limit.upper)}`);
   }
+  usdLimitAxisKeys.forEach((axis) => {
+    const limit = joint.usdPhysics?.limitAxes?.[axis];
+    const low = formatOptionalUsdNumber(limit?.low);
+    const high = formatOptionalUsdNumber(limit?.high);
+    if (low !== null) {
+      lines.push(`${childIndent}float limit:${axis}:physics:low = ${low}`);
+    }
+    if (high !== null) {
+      lines.push(`${childIndent}float limit:${axis}:physics:high = ${high}`);
+    }
+  });
 
   if (shouldEmitDrive) {
     lines.push(`${childIndent}uniform token drive:${driveInstanceName}:physics:type = "force"`);
@@ -431,6 +502,23 @@ const serializeJointDefinition = (
       lines.push(`${childIndent}float drive:${driveInstanceName}:physics:targetPosition = 0`);
     }
   }
+  usdDriveAxisKeys.forEach((axis) => {
+    const drive = joint.usdPhysics?.driveAxes?.[axis];
+    const driveType = String(drive?.type || '').trim();
+    if (driveType) {
+      lines.push(
+        `${childIndent}uniform token drive:${axis}:physics:type = "${escapeUsdString(driveType)}"`,
+      );
+    }
+    (['stiffness', 'damping', 'maxForce', 'targetPosition', 'targetVelocity'] as const).forEach(
+      (propertyName) => {
+        const formatted = formatOptionalUsdNumber(drive?.[propertyName]);
+        if (formatted !== null) {
+          lines.push(`${childIndent}float drive:${axis}:physics:${propertyName} = ${formatted}`);
+        }
+      },
+    );
+  });
 
   if (maxJointVelocity !== null) {
     lines.push(
@@ -815,7 +903,7 @@ export const buildUsdRootLayerContent = (
       '#usda 1.0',
       '(',
       '    customLayerData = {',
-      '        string urdfStudio:roundtripMetadata = "1"',
+      '        string "urdfStudio:roundtripMetadata" = "1"',
       '    }',
       `    defaultPrim = "${rootPrimName}"`,
       '    metersPerUnit = 1',
@@ -877,7 +965,7 @@ export const buildUsdRootLayerContent = (
     '#usda 1.0',
     '(',
     '    customLayerData = {',
-    '        string urdfStudio:roundtripMetadata = "1"',
+    '        string "urdfStudio:roundtripMetadata" = "1"',
     '    }',
     `    defaultPrim = "${rootPrimName}"`,
     '    upAxis = "Z"',

@@ -3,7 +3,7 @@ import { useCallback } from 'react';
 import type {
   LibraryRobotLoadIntent,
   LibraryRobotLoadResult,
-} from '@/features/robot-tree/components/TreeEditor';
+} from '@/features/robot-tree';
 import type { RobotFile } from '@/types';
 import type { AppLayoutProps } from '../appLayoutTypes';
 import { resolveLibraryRobotLoadAction } from '../utils/libraryRobotLoadPolicy';

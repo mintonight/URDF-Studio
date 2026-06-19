@@ -583,12 +583,22 @@ const serializeSceneNode = async (
       ? context.geometryByObject.get(object)
       : undefined;
   const primMetadata: string[] = [];
+  const apiSchemas: string[] = [];
 
   if (materialRecord && materialSubsets.length === 0) {
-    primMetadata.push('prepend apiSchemas = ["MaterialBindingAPI"]');
+    apiSchemas.push('"MaterialBindingAPI"');
+  }
+  if (object.userData?.usdCollision === true && (primitiveType || isUsdMeshObject(object))) {
+    apiSchemas.push('"PhysicsCollisionAPI"');
+    if (isUsdMeshObject(object)) {
+      apiSchemas.push('"PhysicsMeshCollisionAPI"');
+    }
   }
   if (geometryRecord) {
     primMetadata.push(`prepend references = <${geometryRecord.path}>`);
+  }
+  if (apiSchemas.length > 0) {
+    primMetadata.unshift(`prepend apiSchemas = [${Array.from(new Set(apiSchemas)).join(', ')}]`);
   }
 
   serializeUsdPrimSpecWithMetadata(lines, depth, `def ${typeName} "${name}"`, primMetadata);

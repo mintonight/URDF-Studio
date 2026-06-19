@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -90,10 +91,12 @@ const ROTATE_ARC_RADIUS = 0.74;
 const ROTATE_ARC_START = THREE.MathUtils.degToRad(18);
 const ROTATE_ARC_END = THREE.MathUtils.degToRad(112);
 const ROTATE_KNOB_ANGLE = THREE.MathUtils.lerp(ROTATE_ARC_START, ROTATE_ARC_END, 0.58);
-const ROTATE_PICKER_RADIUS_SCALE = 2.35;
 const GUIDE_DASH_SEGMENTS = 26;
 const GUIDE_DASH_DUTY = 0.46;
 const GUIDE_MIN_HALF_LENGTH = 2.5;
+const ROTATE_GUIDE_DASH_SEGMENTS = 52;
+const ROTATE_GUIDE_DASH_DUTY = 0.48;
+const ROTATE_GUIDE_PICKER_RADIUS_SCALE = 2.05;
 
 const AXIS_UNIT: Record<AxisName, THREE.Vector3> = {
   X: new THREE.Vector3(1, 0, 0),
@@ -115,12 +118,14 @@ const createFusionControlState = (mode: FusionOwner): FusionControlState => {
   return state;
 };
 
-const dispatchControlEvent = (
-  control: FusionControlState,
-  type: string,
-  value?: unknown,
-) => {
-  (control.dispatchEvent as (event: { target: FusionControlState; type: string; value?: unknown }) => void)({
+const dispatchControlEvent = (control: FusionControlState, type: string, value?: unknown) => {
+  (
+    control.dispatchEvent as (event: {
+      target: FusionControlState;
+      type: string;
+      value?: unknown;
+    }) => void
+  )({
     type,
     target: control,
     value,
@@ -187,10 +192,7 @@ const createRotateArcGeometry = (axis: AxisName, tubeRadius: number) => {
   for (let index = 0; index < samples; index += 1) {
     const alpha = index / (samples - 1);
     points.push(
-      getRotateArcPoint(
-        axis,
-        THREE.MathUtils.lerp(ROTATE_ARC_START, ROTATE_ARC_END, alpha),
-      ),
+      getRotateArcPoint(axis, THREE.MathUtils.lerp(ROTATE_ARC_START, ROTATE_ARC_END, alpha)),
     );
   }
 
@@ -201,6 +203,32 @@ const createRotateArcGeometry = (axis: AxisName, tubeRadius: number) => {
     12,
     false,
   );
+};
+
+const createRotateRingTubeGeometry = (axis: AxisName, tubeRadius: number) => {
+  const points: THREE.Vector3[] = [];
+  const samples = 96;
+  for (let index = 0; index < samples; index += 1) {
+    points.push(getRotateArcPoint(axis, (index / samples) * Math.PI * 2));
+  }
+
+  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points, true), 128, tubeRadius, 8, true);
+};
+
+const createRotateGuideRingGeometry = (axis: AxisName) => {
+  const positions: number[] = [];
+  for (let index = 0; index < ROTATE_GUIDE_DASH_SEGMENTS; index += 1) {
+    const segmentStart = (index / ROTATE_GUIDE_DASH_SEGMENTS) * Math.PI * 2;
+    const segmentEnd =
+      ((index + ROTATE_GUIDE_DASH_DUTY) / ROTATE_GUIDE_DASH_SEGMENTS) * Math.PI * 2;
+    const start = getRotateArcPoint(axis, segmentStart);
+    const end = getRotateArcPoint(axis, segmentEnd);
+    positions.push(start.x, start.y, start.z, end.x, end.y, end.z);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  return geometry;
 };
 
 const createGuideLineGeometry = (axis: AxisName) => {
@@ -295,6 +323,31 @@ const getTranslateDragPlane = (
 const getRotationDragPlane = (axisWorld: THREE.Vector3, origin: THREE.Vector3) =>
   new THREE.Plane().setFromNormalAndCoplanarPoint(axisWorld.clone().normalize(), origin);
 
+const objectBelongsToHandle = (
+  object: THREE.Object3D | null | undefined,
+  owner: FusionOwner,
+  axis: AxisName,
+) => {
+  let current: THREE.Object3D | null | undefined = object;
+  while (current) {
+    if (current.userData?.urdfOwner === owner && current.userData?.urdfAxis === axis) {
+      return true;
+    }
+    current = current.parent;
+  }
+
+  return false;
+};
+
+const pointerStillHitsHandle = (
+  event: ThreeEvent<PointerEvent>,
+  owner: FusionOwner,
+  axis: AxisName,
+) =>
+  event.intersections?.some((intersection) =>
+    objectBelongsToHandle(intersection.object, owner, axis),
+  ) ?? false;
+
 const getSignedAngleAroundAxis = (
   from: THREE.Vector3,
   to: THREE.Vector3,
@@ -304,10 +357,7 @@ const getSignedAngleAroundAxis = (
   return Math.atan2(axisWorld.dot(cross), THREE.MathUtils.clamp(from.dot(to), -1, 1));
 };
 
-const applyTranslationSnap = (
-  distance: number,
-  snap: number | null | undefined,
-) => {
+const applyTranslationSnap = (distance: number, snap: number | null | undefined) => {
   if (!snap || snap <= 0) return distance;
   return Math.round(distance / snap) * snap;
 };
@@ -325,10 +375,7 @@ const getPickerThicknessScale = (thicknessScale: number) =>
 
 const clampObjectPosition = (
   object: THREE.Object3D,
-  limits: Pick<
-    FusionTransformControlsProps,
-    'maxX' | 'maxY' | 'maxZ' | 'minX' | 'minY' | 'minZ'
-  >,
+  limits: Pick<FusionTransformControlsProps, 'maxX' | 'maxY' | 'maxZ' | 'minX' | 'minY' | 'minZ'>,
 ) => {
   object.position.x = THREE.MathUtils.clamp(
     object.position.x,
@@ -445,7 +492,7 @@ function TranslateAxisHandle({
     onPointerOut: (event: ThreeEvent<PointerEvent>) => onPointerOut(event, 'translate', axis),
     onPointerOver: (event: ThreeEvent<PointerEvent>) => onPointerOver(event, 'translate', axis),
     renderOrder: GIZMO_ARC_RENDER_ORDER + 2,
-    userData: { isGizmo: true, urdfAxis: axis },
+    userData: { isGizmo: true, urdfAxis: axis, urdfOwner: 'translate' },
   };
 
   return (
@@ -508,37 +555,30 @@ function RotateAxisHandle({
     () => createRotateArcGeometry(axis, THICK_ROTATE_ARC_RADIUS * visualThicknessScale),
     [axis, visualThicknessScale],
   );
-  const pickerGeometry = useMemo(
-    () =>
-      createRotateArcGeometry(
-        axis,
-        THICK_ROTATE_ARC_RADIUS * Math.max(ROTATE_PICKER_RADIUS_SCALE, pickerThicknessScale * 1.45),
-      ),
-    [axis, pickerThicknessScale],
-  );
   const knobPosition = useMemo(() => getRotateArcPoint(axis, ROTATE_KNOB_ANGLE), [axis]);
   const knobRadius = 0.082 * visualThicknessScale;
+  const knobPickerRadius = 0.21 * Math.max(1, pickerThicknessScale);
 
-  const handleProps = {
+  const knobHandleProps = {
     onPointerDown: (event: ThreeEvent<PointerEvent>) => onPointerDown(event, 'rotate', axis),
     onPointerOut: (event: ThreeEvent<PointerEvent>) => onPointerOut(event, 'rotate', axis),
     onPointerOver: (event: ThreeEvent<PointerEvent>) => onPointerOver(event, 'rotate', axis),
     renderOrder: GIZMO_ARC_RENDER_ORDER + 5,
-    userData: { isGizmo: true, urdfAxis: axis },
+    userData: { isGizmo: true, urdfAxis: axis, urdfOwner: 'rotate' },
   };
 
   return (
     <group name={`fusion-rotate-${axis.toLowerCase()}`}>
       <mesh
-        {...handleProps}
         frustumCulled={false}
         geometry={arcGeometry}
         name={`rotate-arc-${axis.toLowerCase()}`}
+        raycast={() => null}
       >
         <GizmoMaterial active={active} axis={axis} opacity={active ? 1 : 0.9} />
       </mesh>
       <mesh
-        {...handleProps}
+        {...knobHandleProps}
         frustumCulled={false}
         name={`rotate-knob-${axis.toLowerCase()}`}
         position={knobPosition}
@@ -548,12 +588,13 @@ function RotateAxisHandle({
         <GizmoMaterial active={active} axis={axis} />
       </mesh>
       <mesh
-        {...handleProps}
+        {...knobHandleProps}
         frustumCulled={false}
-        geometry={pickerGeometry}
-        name={`rotate-picker-${axis.toLowerCase()}`}
+        name={`rotate-knob-picker-${axis.toLowerCase()}`}
+        position={knobPosition}
         renderOrder={GIZMO_ARC_RENDER_ORDER + 7}
       >
+        <sphereGeometry args={[knobPickerRadius, 18, 12]} />
         <meshBasicMaterial
           color={AXIS_COLORS[axis]}
           depthTest={false}
@@ -567,7 +608,7 @@ function RotateAxisHandle({
   );
 }
 
-function GuideLine({ axis }: { axis: AxisName }) {
+function TranslateGuideLine({ axis }: { axis: AxisName }) {
   const geometry = useMemo(() => createGuideLineGeometry(axis), [axis]);
 
   return (
@@ -581,6 +622,74 @@ function GuideLine({ axis }: { axis: AxisName }) {
         transparent
       />
     </lineSegments>
+  );
+}
+
+function RotateGuideRing({
+  axis,
+  onPointerDown,
+  onPointerOut,
+  thicknessScale,
+}: {
+  axis: AxisName;
+  onPointerDown: (event: ThreeEvent<PointerEvent>, owner: FusionOwner, axis: AxisName) => void;
+  onPointerOut: (event: ThreeEvent<PointerEvent>, owner: FusionOwner, axis: AxisName) => void;
+  thicknessScale: number;
+}) {
+  const pickerThicknessScale = getPickerThicknessScale(thicknessScale);
+  const guideGeometry = useMemo(() => createRotateGuideRingGeometry(axis), [axis]);
+  const pickerGeometry = useMemo(
+    () =>
+      createRotateRingTubeGeometry(
+        axis,
+        THICK_ROTATE_ARC_RADIUS *
+          Math.max(ROTATE_GUIDE_PICKER_RADIUS_SCALE, pickerThicknessScale * 1.3),
+      ),
+    [axis, pickerThicknessScale],
+  );
+
+  const guideProps = {
+    onPointerDown: (event: ThreeEvent<PointerEvent>) => onPointerDown(event, 'rotate', axis),
+    onPointerOut: (event: ThreeEvent<PointerEvent>) => onPointerOut(event, 'rotate', axis),
+    renderOrder: GIZMO_ARC_RENDER_ORDER + 4,
+    userData: { isGizmo: true, urdfAxis: axis, urdfOwner: 'rotate' },
+  };
+
+  return (
+    <group name={`fusion-rotate-guide-${axis.toLowerCase()}`}>
+      <lineSegments
+        frustumCulled={false}
+        geometry={guideGeometry}
+        name={`rotate-guide-ring-${axis.toLowerCase()}`}
+        raycast={() => null}
+        userData={{ isGizmo: true }}
+      >
+        <lineBasicMaterial
+          color={AXIS_COLORS[axis]}
+          depthTest={false}
+          depthWrite={false}
+          opacity={0.72}
+          toneMapped={false}
+          transparent
+        />
+      </lineSegments>
+      <mesh
+        {...guideProps}
+        frustumCulled={false}
+        geometry={pickerGeometry}
+        name={`rotate-guide-picker-${axis.toLowerCase()}`}
+        renderOrder={GIZMO_ARC_RENDER_ORDER + 8}
+      >
+        <meshBasicMaterial
+          color={AXIS_COLORS[axis]}
+          depthTest={false}
+          depthWrite={false}
+          opacity={0}
+          toneMapped={false}
+          transparent
+        />
+      </mesh>
+    </group>
   );
 }
 
@@ -676,10 +785,12 @@ export const FusionTransformControls = forwardRef<unknown, FusionTransformContro
         dispatchControlEvent(translateControl, 'axis-changed', translateControl.axis);
         dispatchControlEvent(rotateControl, 'axis-changed', rotateControl.axis);
 
-        const root = rootRef.current as (THREE.Group & {
-          axis?: AxisName | null;
-          dragging?: boolean;
-        }) | null;
+        const root = rootRef.current as
+          | (THREE.Group & {
+              axis?: AxisName | null;
+              dragging?: boolean;
+            })
+          | null;
         if (root) {
           root.axis = next?.axis ?? null;
           root.dragging = Boolean(activeDragRef.current);
@@ -861,17 +972,7 @@ export const FusionTransformControls = forwardRef<unknown, FusionTransformContro
         drag.object.updateMatrixWorld(true);
         emitObjectChange(drag.control);
       },
-      [
-        emitObjectChange,
-        maxX,
-        maxY,
-        maxZ,
-        minX,
-        minY,
-        minZ,
-        rotationSnap,
-        translationSnap,
-      ],
+      [emitObjectChange, maxX, maxY, maxZ, minX, minY, minZ, rotationSnap, translationSnap],
     );
 
     const getOwnerObject = useCallback(
@@ -900,12 +1001,7 @@ export const FusionTransformControls = forwardRef<unknown, FusionTransformContro
     );
 
     const beginDrag = useCallback(
-      (
-        owner: FusionOwner,
-        axis: AxisName,
-        ray: THREE.Ray,
-        pointerId: number,
-      ) => {
+      (owner: FusionOwner, axis: AxisName, ray: THREE.Ray, pointerId: number) => {
         if (!isOwnerEnabled(owner)) return;
 
         const objectToTransform = getOwnerObject(owner);
@@ -1001,9 +1097,10 @@ export const FusionTransformControls = forwardRef<unknown, FusionTransformContro
     );
 
     const handlePointerOut = useCallback(
-      (_event: ThreeEvent<PointerEvent>, owner: FusionOwner, axis: AxisName) => {
+      (event: ThreeEvent<PointerEvent>, owner: FusionOwner, axis: AxisName) => {
         const active = activeHandleRef.current;
         if (!active || active.owner !== owner || active.axis !== axis) return;
+        if (pointerStillHitsHandle(event, owner, axis)) return;
         clearActiveHandle();
       },
       [clearActiveHandle],
@@ -1093,22 +1190,27 @@ export const FusionTransformControls = forwardRef<unknown, FusionTransformContro
       };
     }, [finishDrag, restoreDefaultControls]);
 
-    useFrame(() => {
-      if (!canRender || !primaryObject) return;
+    const applyControlLayout = useCallback(() => {
+      const root = rootRef.current as
+        | (THREE.Group & {
+            axis?: AxisName | null;
+            dragging?: boolean;
+          })
+        | null;
+      if (!root) return;
+      if (!canRender || !primaryObject) {
+        root.visible = false;
+        return;
+      }
 
       primaryObject.updateMatrixWorld(true);
-      const root = rootRef.current as (THREE.Group & {
-        axis?: AxisName | null;
-        dragging?: boolean;
-      }) | null;
-      if (!root) return;
+      root.visible = false;
 
       const origin = new THREE.Vector3();
       primaryObject.getWorldPosition(origin);
       root.position.copy(origin);
       root.quaternion.identity();
       root.scale.setScalar(1);
-      root.visible = true;
       root.axis = activeHandleRef.current?.axis ?? null;
       root.dragging = Boolean(activeDragRef.current);
 
@@ -1143,10 +1245,14 @@ export const FusionTransformControls = forwardRef<unknown, FusionTransformContro
           guideGroupRef.current.quaternion.copy(
             active.owner === 'translate' ? translateQuaternion : rotateQuaternion,
           );
-          const cameraPosition = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
-          guideGroupRef.current.scale.setScalar(
-            Math.max(GUIDE_MIN_HALF_LENGTH, origin.distanceTo(cameraPosition) * 1.35),
-          );
+          if (active.owner === 'rotate') {
+            guideGroupRef.current.scale.setScalar(rotateScale);
+          } else {
+            const cameraPosition = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+            guideGroupRef.current.scale.setScalar(
+              Math.max(GUIDE_MIN_HALF_LENGTH, origin.distanceTo(cameraPosition) * 1.35),
+            );
+          }
         }
       }
 
@@ -1155,6 +1261,32 @@ export const FusionTransformControls = forwardRef<unknown, FusionTransformContro
       } else {
         restoreDefaultControls();
       }
+
+      root.visible = true;
+      root.updateMatrixWorld(true);
+    }, [
+      attachedRotateObject,
+      attachedTranslateObject,
+      camera,
+      canRender,
+      mode,
+      primaryObject,
+      restoreDefaultControls,
+      rotateSize,
+      rotateSpace,
+      size,
+      space,
+      suppressDefaultControls,
+      translateSpace,
+    ]);
+
+    useLayoutEffect(() => {
+      applyControlLayout();
+      invalidate();
+    });
+
+    useFrame(() => {
+      applyControlLayout();
     }, 1100);
 
     if (!canRender || mode === 'scale') {
@@ -1165,9 +1297,23 @@ export const FusionTransformControls = forwardRef<unknown, FusionTransformContro
     const activeAxis = activeHandle?.axis ?? 'X';
 
     return (
-      <group ref={rootRef} name="fusion-transform-controls" userData={{ isGizmo: true }}>
+      <group
+        ref={rootRef}
+        name="fusion-transform-controls"
+        visible={false}
+        userData={{ isGizmo: true }}
+      >
         <group ref={guideGroupRef} name="fusion-transform-guide" visible={false}>
-          <GuideLine axis={activeAxis} />
+          {activeHandle?.owner === 'rotate' ? (
+            <RotateGuideRing
+              axis={activeAxis}
+              onPointerDown={handlePointerDown}
+              onPointerOut={handlePointerOut}
+              thicknessScale={displayThicknessScale}
+            />
+          ) : (
+            <TranslateGuideLine axis={activeAxis} />
+          )}
         </group>
 
         <group ref={translateGroupRef} name="fusion-transform-translate">

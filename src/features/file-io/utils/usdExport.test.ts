@@ -811,6 +811,10 @@ test('preserves link transforms and writes physics joints into separate USD laye
   assert.match(baseLayer, /def Sphere "sphere"/);
   assert.match(baseLayer, /def Xform "collisions"/);
   assert.doesNotMatch(baseLayer, /def Xform "colliders"/);
+  assert.match(
+    baseLayer,
+    /def Xform "collisions"[\s\S]*def Cube "box" \(\n\s+prepend apiSchemas = \["PhysicsCollisionAPI"\]\n\s*\)/,
+  );
 
   assert.match(physicsLayer, /over "two_link_robot_description"/);
   assert.match(physicsLayer, /subLayers = \[\n\s+@two_link_robot_description_base\.usd@\n\s+\]/);

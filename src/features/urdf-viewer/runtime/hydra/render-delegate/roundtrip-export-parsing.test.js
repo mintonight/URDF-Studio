@@ -4,6 +4,7 @@ import { Color, MeshPhysicalMaterial, Texture } from 'three';
 
 import * as SharedBasic from './shared-basic.js';
 import {
+    extractJointRecordsFromLayerText,
     parseColliderEntriesFromLayerText,
     parseUrdfMaterialMetadataFromLayerText,
     parseVisualSemanticChildNamesFromLayerText,
@@ -277,6 +278,75 @@ test('parseColliderEntriesFromLayerText finds collider entries across nested lin
 
     assert.deepEqual(result.get('base_link'), [{ entryName: 'collision_0', referencePath: null }]);
     assert.deepEqual(result.get('arm_link'), [{ entryName: 'collision_1', referencePath: null }]);
+});
+
+test('extractJointRecordsFromLayerText preserves Newton D6 UsdPhysics limits and drives', () => {
+    const records = extractJointRecordsFromLayerText(`#usda 1.0
+def Xform "Robot"
+{
+    def Xform "Base"
+    {
+    }
+    def Xform "BodyR"
+    {
+    }
+    def PhysicsJoint "D6" (
+        prepend apiSchemas = ["PhysicsDriveAPI:rotX", "PhysicsLimitAPI:rotX"]
+    )
+    {
+        uniform token drive:rotX:physics:type = "force"
+        float drive:rotX:physics:stiffness = 0.04
+        float drive:rotX:physics:damping = 0.002
+        float drive:rotX:physics:targetPosition = 0
+        float drive:rotX:physics:targetVelocity = 0
+        rel physics:body0 = </Robot/Base>
+        rel physics:body1 = </Robot/BodyR>
+        float limit:rotX:physics:low = -180
+        float limit:rotX:physics:high = 180
+        float limit:rotY:physics:low = 0
+        float limit:rotY:physics:high = 0
+        float limit:rotZ:physics:low = 0
+        float limit:rotZ:physics:high = 0
+        float limit:transX:physics:low = 0
+        float limit:transX:physics:high = 0
+        float limit:transY:physics:low = 0
+        float limit:transY:physics:high = 0
+        float limit:transZ:physics:low = 0
+        float limit:transZ:physics:high = 0
+    }
+}`);
+
+    assert.equal(records.length, 1);
+    assert.equal(records[0].jointName, 'D6');
+    assert.equal(records[0].jointTypeName, 'PhysicsJoint');
+    assert.equal(records[0].usdPhysicsJointTypeName, 'PhysicsJoint');
+    assert.deepEqual(records[0].usdLimitAxes?.rotX, { low: -180, high: 180 });
+    assert.deepEqual(records[0].usdLimitAxes?.transZ, { low: 0, high: 0 });
+    assert.equal(records[0].usdDriveAxes?.rotX?.type, 'force');
+    assert.equal(records[0].usdDriveAxes?.rotX?.stiffness, 0.04);
+    assert.equal(records[0].usdDriveAxes?.rotX?.damping, 0.002);
+    assert.equal(records[0].usdDriveAxes?.rotX?.targetPosition, 0);
+    assert.equal(records[0].usdDriveAxes?.rotX?.targetVelocity, 0);
+});
+
+test('extractJointRecordsFromLayerText treats bare USD None relationship targets as world anchors', () => {
+    const records = extractJointRecordsFromLayerText(`#usda 1.0
+def Xform "Robot"
+{
+    def Xform "Base"
+    {
+    }
+    def PhysicsFixedJoint "FixedJoint"
+    {
+        rel physics:body0 = None
+        rel physics:body1 = </Robot/Base>
+    }
+}`);
+
+    assert.equal(records.length, 1);
+    assert.equal(records[0].jointName, 'FixedJoint');
+    assert.equal(records[0].body0Path, null);
+    assert.equal(records[0].body1Path, '/Robot/Base');
 });
 
 test('parseUrdfMaterialMetadataFromLayerText extracts URDF export material metadata for nested visual prims', () => {

@@ -1,5 +1,5 @@
 import type { RobotImportProgress } from '@/core/parsers/importRobotFile';
-import type { ViewerDocumentLoadEvent } from '@/features/urdf-viewer/types';
+import type { ViewerDocumentLoadEvent } from '@/features/editor';
 import type { DocumentLoadState } from '@/store/assetsStore';
 
 type DocumentLoadTrackedFormat = DocumentLoadState['format'];

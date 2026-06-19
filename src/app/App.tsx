@@ -70,7 +70,7 @@ import type {
   AIConversationLaunchContext,
   AIConversationMode,
   AIConversationSelection,
-} from '@/features/ai-assistant/types';
+} from '@/features/ai-assistant';
 import type { ExportTarget } from './hooks/file-export/types';
 import {
   createConversationLaunchContext,

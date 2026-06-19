@@ -1,7 +1,7 @@
 import { useCallback, useEffect, type MutableRefObject } from 'react';
 import { useJointInteractionPreviewStore } from '@/store';
 import { resolveClosedLoopDrivenJointMotion, resolveJointKey } from '@/core/robot';
-import type { ViewerJointChangeContext, ViewerJointMotionStateValue } from '@/features/urdf-viewer/types';
+import type { ViewerJointChangeContext, ViewerJointMotionStateValue } from '@/features/editor';
 import type { JointQuaternion, RobotData } from '@/types';
 
 const TREE_PANEL_JOINT_PREVIEW_SESSION_ID = 'tree-panel-joint-slider';

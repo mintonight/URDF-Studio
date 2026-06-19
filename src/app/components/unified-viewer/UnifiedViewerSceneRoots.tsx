@@ -7,9 +7,9 @@ import type {
   ViewerDocumentLoadEvent,
   ViewerHelperKind,
   ViewerRobotSourceFormat,
-} from '@/features/urdf-viewer/types';
-import type { useViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
-import type { ViewerResourceScope } from '@/features/urdf-viewer/utils/viewerResourceScope';
+} from '@/features/editor';
+import type { useViewerController } from '@/features/editor';
+import type { ViewerResourceScope } from '@/features/editor';
 
 import { LazyViewerSceneConnector } from './modeModuleLoaders';
 import type { FilePreviewState } from './types';

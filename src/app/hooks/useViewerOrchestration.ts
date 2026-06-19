@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { resolveLinkKey } from '@/core/robot';
 import { useSelectionStore, useUIStore } from '@/store';
 import type { DetailLinkTab, InteractionSelection, RobotState } from '@/types';
-import type { ViewerHelperKind } from '@/features/urdf-viewer/types';
+import type { ViewerHelperKind } from '@/features/editor';
 
 const EMPTY_SELECTION: InteractionSelection = { type: null, id: null };
 type ViewerSelectionRobotContext = Pick<RobotState, 'links' | 'joints'>;

@@ -11,7 +11,7 @@
 
 面向 `URDF`、`MJCF`、`USD`、`Xacro`、`SDF` 和 `.usp` 项目工作流的机器人设计、组装、可视化与导出工作台。支持快速编辑、碰撞优化、模块化组装、参数配置、AI 生成与多格式导出。
 
-**在线体验：** [urdf.d-robotics.cc](https://urdf.d-robotics.cc/)
+**在线体验：** [urdf.enkeebot.com](https://urdf.enkeebot.com/)
 
 [English](./README.md) | [中文](./README_CN.md)
 

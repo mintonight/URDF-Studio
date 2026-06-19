@@ -133,10 +133,35 @@ export function createLinkFromViewerMetadata(
 ): UrdfLink {
   const visualCount = Number(meshCounts.visualMeshCount || 0);
   const collisionCount = Number(meshCounts.collisionMeshCount || 0);
+  const collisionPrimitiveGeometries = Array.isArray(meshCounts.collisionPrimitiveGeometries)
+    ? meshCounts.collisionPrimitiveGeometries
+    : [];
   const collisionType =
     collisionCount > 0
       ? geometryTypeFromCollisionPrimitive(meshCounts.collisionPrimitiveCounts)
       : GeometryType.NONE;
+  const createCollisionVisual = (index: number) => {
+    const primitiveGeometry = collisionPrimitiveGeometries[index];
+    const primitiveType = String(primitiveGeometry?.primitiveType || '').trim().toLowerCase();
+    const typedCollisionType = primitiveType
+      ? geometryTypeFromCollisionPrimitive({ [primitiveType]: 1 })
+      : collisionType;
+    const visual = createPlaceholderVisual(typedCollisionType, DEFAULT_LINK.collision.color);
+    return {
+      ...visual,
+      dimensions:
+        primitiveGeometry?.dimensions && typeof primitiveGeometry.dimensions.length === 'number'
+          ? toVector3(primitiveGeometry.dimensions, visual.dimensions)
+          : visual.dimensions,
+      origin: {
+        ...visual.origin,
+        xyz:
+          primitiveGeometry?.originXyz && typeof primitiveGeometry.originXyz.length === 'number'
+            ? toVector3(primitiveGeometry.originXyz, visual.origin.xyz)
+            : visual.origin.xyz,
+      },
+    };
+  };
 
   return {
     ...DEFAULT_LINK,
@@ -151,13 +176,11 @@ export function createLinkFromViewerMetadata(
         : createPlaceholderVisual(GeometryType.NONE, DEFAULT_LINK.visual.color),
     collision:
       collisionCount > 0
-        ? createPlaceholderVisual(collisionType, DEFAULT_LINK.collision.color)
+        ? createCollisionVisual(0)
         : createPlaceholderVisual(GeometryType.NONE, DEFAULT_LINK.collision.color),
     collisionBodies:
       collisionCount > 1
-        ? Array.from({ length: collisionCount - 1 }, () =>
-            createPlaceholderVisual(collisionType, DEFAULT_LINK.collision.color),
-          )
+        ? Array.from({ length: collisionCount - 1 }, (_, index) => createCollisionVisual(index + 1))
         : [],
     inertial: {
       ...DEFAULT_LINK.inertial,

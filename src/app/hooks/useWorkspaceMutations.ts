@@ -13,7 +13,7 @@ import {
 } from '@/core/robot';
 import { cloneAssemblyTransform } from '@/core/robot/assemblyTransforms';
 import { useRobotStore } from '@/store';
-import type { ViewerJointChangeContext } from '@/features/urdf-viewer/types';
+import type { ViewerJointChangeContext } from '@/features/editor';
 import type {
   AssemblyTransform,
   RobotMjcfInspectionTendonSummary,

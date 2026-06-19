@@ -3,8 +3,8 @@ import React from 'react';
 import type { Language } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
 import { JointsPanel } from '@/shared/components/Panel/JointsPanel';
-import type { ViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
-import { useResponsivePanelLayout } from '@/features/urdf-viewer/hooks/useResponsivePanelLayout';
+import type { ViewerController } from '@/features/editor';
+import { useResponsivePanelLayout } from '@/features/editor';
 
 export function ViewerJointsPanel({
   controller,

@@ -18,7 +18,7 @@ import type {
   AIConversationFocusedIssue,
   AIConversationLaunchContext,
   AIConversationSelection,
-} from '@/features/ai-assistant/types';
+} from '@/features/ai-assistant';
 import type { ExportDialogConfig, ExportProgressState } from '@/features/file-io';
 import type { InspectionReport, RobotState } from '@/types';
 import type { Language } from '@/shared/i18n';

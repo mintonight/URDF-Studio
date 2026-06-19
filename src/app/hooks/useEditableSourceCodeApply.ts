@@ -3,7 +3,7 @@ import { generateURDF } from '@/core/parsers';
 import { rewriteRobotMeshPathsForSource } from '@/core/parsers/meshPathUtils';
 import { canGenerateUrdf } from '@/core/parsers/urdf/urdfExportSupport';
 import type { RobotData, RobotFile, RobotState } from '@/types';
-import type { SourceCodeEditorApplyRequest } from '@/features/code-editor/utils/sourceCodeEditorSession';
+import type { SourceCodeEditorApplyRequest } from '@/features/code-editor';
 import { useAssetsStore, useRobotStore } from '@/store';
 import { applyEditableSourceIncrementalPatch } from '@/app/utils/editableSourceIncrementalPatch';
 import type { EditableSourceIncrementalPatchDiagnostics } from '@/app/utils/editableSourceIncrementalPatchDetection';

@@ -1,5 +1,6 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef } from 'react';
 import { MeasureTool } from './MeasureTool';
+import { AssemblyJointPickLayer } from './AssemblyJointPickLayer';
 import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
 import { setRegressionRuntimeRobot } from '@/shared/debug/regressionState';
 import { isRegressionDebugEnabled } from '@/shared/debug/regressionDebugEnabled';
@@ -222,6 +223,12 @@ export const ViewerScene = ({
         measureTargetResolverRef={measureTargetResolverRef}
         robotLinks={robotLinks}
         t={t}
+      />
+
+      <AssemblyJointPickLayer
+        robot={controller.robot}
+        assemblyState={assemblyState ?? null}
+        hidden={snapshotRenderActive}
       />
 
       <Suspense fallback={null}>

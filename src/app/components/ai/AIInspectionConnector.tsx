@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { AIInspectionModal } from '@/features/ai-assistant/components/AIInspectionModal';
+import { AIInspectionModal } from '@/features/ai-assistant';
 import type {
   AIConversationFocusedIssue,
   AIConversationSelection,
-} from '@/features/ai-assistant/types';
+} from '@/features/ai-assistant';
 import { useRobotStore, useSelectionStore } from '@/store';
 import type { InspectionReport, RobotState } from '@/types';
 import type { Language } from '@/shared/i18n';

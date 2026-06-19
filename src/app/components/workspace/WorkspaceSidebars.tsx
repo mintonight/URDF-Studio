@@ -1,8 +1,8 @@
 import type { ComponentProps } from 'react';
 
 import { FilePreviewWindow } from '../FilePreviewWindow';
-import { PropertyEditor } from '@/features/property-editor/components/PropertyEditor';
-import { TreeEditor } from '@/features/robot-tree/components/TreeEditor';
+import { PropertyEditor } from '@/features/property-editor';
+import { TreeEditor } from '@/features/robot-tree';
 
 interface WorkspaceSidebarsProps {
   leftSidebarClassName: string;

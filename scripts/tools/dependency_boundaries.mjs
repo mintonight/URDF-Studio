@@ -15,24 +15,58 @@ const SRC = 'src';
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 const IGNORED_DIRS = new Set(['node_modules', 'runtime']); // urdf-viewer/runtime is vendored
 
-// Documented existing exceptions (docs/architecture.md §3-4) — allowed, not violations.
-// editor -> urdf-viewer is the documented facade relationship and is handled in
-// checkBoundary; lib/RobotCanvas wrapping the viewer is the package's whole purpose.
+// Documented existing exceptions (docs/architecture.md §3-4) — exact importer,
+// specifier, and resolved target only. Do not widen these to feature/layer-level
+// exceptions; use the baseline ratchets below for grandfathered surfaces.
 const ALLOWLIST = [
-  { importer: 'src/shared/hooks/useTheme.ts', target: 'store' },
-  { importer: 'src/shared/components/Panel/JointControlItem.tsx', target: 'store' },
-  { importer: 'src/features/ai-assistant/utils/pdfExport.ts', target: 'feature:file-io' },
-  { importer: 'src/lib/components/RobotCanvas.tsx', target: 'feature:urdf-viewer' },
+  {
+    importer: 'src/features/editor/index.ts',
+    specifier: '../urdf-viewer',
+    resolved: 'src/features/urdf-viewer/index.ts',
+  },
+  {
+    importer: 'src/features/editor/viewerPanelModule.ts',
+    specifier: '../urdf-viewer/components/ViewerPanels',
+    resolved: 'src/features/urdf-viewer/components/ViewerPanels.tsx',
+  },
+  {
+    importer: 'src/features/editor/viewerPanelModule.ts',
+    specifier: '../urdf-viewer/hooks/useResponsivePanelLayout',
+    resolved: 'src/features/urdf-viewer/hooks/useResponsivePanelLayout.ts',
+  },
+  {
+    importer: 'src/features/editor/viewerPanelModule.ts',
+    specifier: '../urdf-viewer/hooks/useViewerController',
+    resolved: 'src/features/urdf-viewer/hooks/useViewerController.ts',
+  },
+  {
+    importer: 'src/lib/components/RobotCanvas.tsx',
+    specifier: '../../features/urdf-viewer/components/ViewerCanvas',
+    resolved: 'src/features/urdf-viewer/components/ViewerCanvas.tsx',
+  },
+  {
+    importer: 'src/lib/components/RobotCanvas.tsx',
+    specifier: '../../features/urdf-viewer/components/JointInteraction',
+    resolved: 'src/features/urdf-viewer/components/JointInteraction.tsx',
+  },
+  {
+    importer: 'src/lib/components/RobotCanvas.tsx',
+    specifier: '../../features/urdf-viewer/components/RobotModel',
+    resolved: 'src/features/urdf-viewer/components/RobotModel.tsx',
+  },
 ];
 
 const BASELINE_PATH = 'scripts/tools/dependency_boundaries_baseline.json';
 
 const options = parseArgs(process.argv.slice(2));
-const knownCycles = await readKnownCycles();
+const baseline = await readBaseline();
+const knownCycles = new Set(baseline.knownCycles || []);
+const knownFeatureDeepImportKeys = new Set(baseline.knownFeatureDeepImports || []);
 const files = await collectSourceFiles(SRC);
 const fileSet = new Set(files);
 
 const boundaryViolations = [];
+const observedFeatureDeepImports = new Map(); // importer -> specifier key -> entry
 const graph = new Map(); // importerRel -> Set<targetRel>
 
 for (const relPath of files) {
@@ -46,7 +80,12 @@ for (const relPath of files) {
     if (!targetLayer) {
       continue;
     }
-    const violation = checkBoundary(relPath, importerLayer, targetLayer, spec);
+    const deepImport = getAppFeatureDeepImport(relPath, importerLayer, resolvedRel, spec);
+    if (deepImport) {
+      observedFeatureDeepImports.set(deepImport.key, deepImport);
+    }
+
+    const violation = checkBoundary(relPath, importerLayer, targetLayer, spec, resolvedRel);
     if (violation) {
       boundaryViolations.push(violation);
     }
@@ -60,20 +99,49 @@ for (const relPath of files) {
 const allCycles = findCycles(graph).map((cycle) => ({ cycle, signature: cycleSignature(cycle) }));
 const newCycles = allCycles.filter((entry) => !knownCycles.has(entry.signature));
 const knownCycleCount = allCycles.length - newCycles.length;
+const featureDeepImportEntries = [...observedFeatureDeepImports.values()].sort((a, b) =>
+  a.key.localeCompare(b.key),
+);
+const knownFeatureDeepImports = featureDeepImportEntries.filter((entry) =>
+  knownFeatureDeepImportKeys.has(entry.key),
+);
+const newFeatureDeepImports = featureDeepImportEntries.filter(
+  (entry) => !knownFeatureDeepImportKeys.has(entry.key),
+);
+const staleFeatureDeepImports = [...knownFeatureDeepImportKeys]
+  .filter((key) => !observedFeatureDeepImports.has(key))
+  .sort();
 const report = {
   boundaryViolations,
+  featureDeepImports: {
+    known: knownFeatureDeepImports,
+    new: newFeatureDeepImports,
+    stale: staleFeatureDeepImports,
+  },
   newCycles: newCycles.map((entry) => entry.cycle),
   knownCycleCount,
   scannedFiles: files.length,
 };
 
 if (options.json) {
-  console.log(JSON.stringify({ ...report, allCycleSignatures: allCycles.map((entry) => entry.signature) }, null, 2));
+  console.log(
+    JSON.stringify(
+      { ...report, allCycleSignatures: allCycles.map((entry) => entry.signature) },
+      null,
+      2,
+    ),
+  );
 } else {
   printReport(report);
 }
 
-if (options.check && (boundaryViolations.length > 0 || newCycles.length > 0)) {
+if (
+  options.check &&
+  (boundaryViolations.length > 0 ||
+    newFeatureDeepImports.length > 0 ||
+    staleFeatureDeepImports.length > 0 ||
+    newCycles.length > 0)
+) {
   process.exitCode = 1;
 }
 
@@ -93,14 +161,19 @@ function parseArgs(args) {
   return parsed;
 }
 
-async function readKnownCycles() {
+async function readBaseline() {
   try {
     const raw = await readFile(path.join(ROOT, BASELINE_PATH), 'utf8');
     const parsed = JSON.parse(raw);
-    return new Set(parsed.knownCycles || []);
+    return {
+      knownCycles: Array.isArray(parsed.knownCycles) ? parsed.knownCycles : [],
+      knownFeatureDeepImports: Array.isArray(parsed.knownFeatureDeepImports)
+        ? parsed.knownFeatureDeepImports
+        : [],
+    };
   } catch (error) {
     if (error && error.code === 'ENOENT') {
-      return new Set();
+      return { knownCycles: [], knownFeatureDeepImports: [] };
     }
     throw error;
   }
@@ -215,11 +288,11 @@ function classifyExternal(spec) {
   return 'external';
 }
 
-function checkBoundary(importerRel, importerLayer, targetLayer, spec) {
+function checkBoundary(importerRel, importerLayer, targetLayer, spec, resolvedRel) {
   if (!importerLayer || targetLayer === 'external' || targetLayer === 'types') {
     return null;
   }
-  if (isAllowlisted(importerRel, targetLayer)) {
+  if (isAllowlisted(importerRel, spec, resolvedRel)) {
     return null;
   }
 
@@ -236,12 +309,7 @@ function checkBoundary(importerRel, importerLayer, targetLayer, spec) {
   } else if (importerFeature) {
     if (targetLayer === 'app') {
       reason = 'feature must not import app (app orchestrates features, not the reverse)';
-    } else if (
-      targetFeature &&
-      targetFeature !== importerFeature &&
-      targetFeature !== 'editor' &&
-      !(importerFeature === 'editor' && targetFeature === 'urdf-viewer')
-    ) {
+    } else if (targetFeature && targetFeature !== importerFeature) {
       reason = `cross-feature import: features talk via store, not feature:${targetFeature}`;
     }
   } else if (importerLayer === 'shared') {
@@ -264,8 +332,31 @@ function checkBoundary(importerRel, importerLayer, targetLayer, spec) {
   return { importer: importerRel, importerLayer, target: spec, targetLayer, reason };
 }
 
-function isAllowlisted(importerRel, targetLayer) {
-  return ALLOWLIST.some((entry) => importerRel === entry.importer && targetLayer === entry.target);
+function isAllowlisted(importerRel, spec, resolvedRel) {
+  return ALLOWLIST.some(
+    (entry) =>
+      importerRel === entry.importer && spec === entry.specifier && resolvedRel === entry.resolved,
+  );
+}
+
+function getAppFeatureDeepImport(importerRel, importerLayer, resolvedRel, spec) {
+  if (importerLayer !== 'app' || !resolvedRel) {
+    return null;
+  }
+  const match = /^src\/features\/([^/]+)\/(.+)$/.exec(resolvedRel);
+  if (!match) {
+    return null;
+  }
+  if (/^index\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(match[2])) {
+    return null;
+  }
+  const feature = match[1];
+  const key = featureDeepImportKey(importerRel, spec);
+  return { key, importer: importerRel, specifier: spec, feature, resolved: resolvedRel };
+}
+
+function featureDeepImportKey(importerRel, spec) {
+  return `${importerRel} -> ${spec}`;
 }
 
 function findCycles(adjacency) {
@@ -313,20 +404,57 @@ function printReport(report) {
   console.log(`Scanned files: ${report.scannedFiles}`);
   console.log('');
 
-  console.log(`[${report.boundaryViolations.length === 0 ? 'OK' : 'FAIL'}] layer boundaries: ${report.boundaryViolations.length} violation(s)`);
+  console.log(
+    `[${report.boundaryViolations.length === 0 ? 'OK' : 'FAIL'}] layer boundaries: ${report.boundaryViolations.length} violation(s)`,
+  );
   for (const v of report.boundaryViolations.slice(0, 30)) {
     console.log(`  ${v.importer} -> ${v.target}`);
     console.log(`    ${v.reason}`);
   }
 
-  console.log(`[${report.newCycles.length === 0 ? 'OK' : 'FAIL'}] import cycles: ${report.newCycles.length} new, ${report.knownCycleCount} grandfathered`);
+  const featureDeepImports = report.featureDeepImports;
+  const featureDeepImportFailed =
+    featureDeepImports.new.length > 0 || featureDeepImports.stale.length > 0;
+  console.log(
+    `[${featureDeepImportFailed ? 'FAIL' : 'OK'}] app feature deep imports: ${featureDeepImports.new.length} new, ${featureDeepImports.known.length} grandfathered, ${featureDeepImports.stale.length} stale`,
+  );
+  if (featureDeepImports.new.length > 0) {
+    console.log('  New app feature deep imports:');
+    for (const entry of featureDeepImports.new.slice(0, 30)) {
+      console.log(`    ${entry.key}`);
+      console.log(`      resolves to ${entry.resolved}`);
+    }
+  }
+  if (featureDeepImports.known.length > 0) {
+    console.log('  Known app feature deep imports:');
+    for (const entry of featureDeepImports.known.slice(0, 30)) {
+      console.log(`    ${entry.key}`);
+    }
+    if (featureDeepImports.known.length > 30) {
+      console.log(`    ... ${featureDeepImports.known.length - 30} more`);
+    }
+  }
+  if (featureDeepImports.stale.length > 0) {
+    console.log('  Stale app feature deep import baseline entries:');
+    for (const key of featureDeepImports.stale.slice(0, 30)) {
+      console.log(`    ${key}`);
+    }
+  }
+
+  console.log(
+    `[${report.newCycles.length === 0 ? 'OK' : 'FAIL'}] import cycles: ${report.newCycles.length} new, ${report.knownCycleCount} grandfathered`,
+  );
   for (const cycle of report.newCycles.slice(0, 15)) {
     console.log(`  ${cycle.join(' -> ')}`);
   }
 
-  if (report.boundaryViolations.length > 0 || report.newCycles.length > 0) {
+  if (
+    report.boundaryViolations.length > 0 ||
+    featureDeepImportFailed ||
+    report.newCycles.length > 0
+  ) {
     console.log('');
-    console.log('Architecture redline broken. See docs/architecture.md §1-3.');
+    console.log('Architecture redline broken. See docs/architecture.md §1-4.');
   }
 }
 

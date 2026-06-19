@@ -4,6 +4,8 @@ export function normalizeUsdPathToken(path) {
     const normalized = path.trim().replace(/[<>]/g, "");
     if (!normalized)
         return "";
+    if (normalized.toLowerCase() === "none")
+        return "";
     if (normalized.startsWith("/"))
         return normalized;
     return `/${normalized}`;
@@ -239,59 +241,99 @@ export function parseGuideCollisionReferencesFromLayerText(layerText) {
     return linkToGuideEntries;
 }
 export function parseColliderEntriesFromLayerText(layerText) {
-    const collidersText = extractScopeBodyText(layerText, "colliders");
-    if (!collidersText)
-        return new Map();
     const linkToColliderEntries = new Map();
-    const stack = [];
-    let pendingContextName = null;
     const allowedGeometryNames = new Set(["mesh", "box", "cube", "sphere", "cylinder", "capsule"]);
-    const addColliderEntry = (linkName, entryName) => {
+    const collisionScopeNames = new Set(["collider", "colliders", "collision", "collisions"]);
+    const normalizeCollisionPrimitiveType = (value) => {
+        const normalized = String(value || "").trim().toLowerCase();
+        return allowedGeometryNames.has(normalized) ? normalized : null;
+    };
+    const hasPhysicsCollisionApi = (text) => /apiSchemas\s*=\s*\[[^\]]*PhysicsCollisionAPI[^\]]*\]/i.test(String(text || ""));
+    const addColliderEntry = (linkName, entryName, primitiveType = null) => {
         const normalizedLinkName = String(linkName || "").trim();
         const normalizedEntryName = String(entryName || "").trim();
+        const normalizedPrimitiveType = normalizeCollisionPrimitiveType(primitiveType);
         if (!normalizedLinkName || !normalizedEntryName)
             return;
         if (normalizedLinkName === "colliders")
             return;
         const existingEntries = linkToColliderEntries.get(normalizedLinkName) || [];
-        const duplicate = existingEntries.some((entry) => entry.entryName === normalizedEntryName);
+        const duplicate = existingEntries.some((entry) => entry.entryName === normalizedEntryName
+            && (entry.primitiveType || null) === normalizedPrimitiveType);
         if (!duplicate) {
-            existingEntries.push({ entryName: normalizedEntryName, referencePath: null });
+            existingEntries.push({
+                entryName: normalizedEntryName,
+                referencePath: null,
+                ...(normalizedPrimitiveType ? { primitiveType: normalizedPrimitiveType } : {}),
+            });
             linkToColliderEntries.set(normalizedLinkName, existingEntries);
         }
     };
-    const lines = collidersText.split(/\r?\n/);
-    for (const line of lines) {
-        const trimmed = line.trim();
-        const primMatch = trimmed.match(/^(?:def|over|class)(?:\s+\w+)?\s+"([^"]+)"/);
-        if (primMatch) {
-            pendingContextName = String(primMatch[1] || "");
-        }
-        for (const character of line) {
-            if (character === "{") {
-                const contextName = pendingContextName || "";
-                pendingContextName = null;
-                stack.push({ name: contextName });
-                const hierarchy = stack
-                    .map((context) => String(context?.name || "").trim())
-                    .filter((name) => !!name);
-                if (hierarchy.length < 4)
-                    continue;
-                if (String(hierarchy[0] || "").toLowerCase() !== "colliders")
-                    continue;
-                const geometryName = String(hierarchy[hierarchy.length - 1] || "").toLowerCase();
-                if (!allowedGeometryNames.has(geometryName))
-                    continue;
-                const entryName = hierarchy[hierarchy.length - 2];
-                const linkName = hierarchy[hierarchy.length - 3];
-                addColliderEntry(linkName, entryName);
+    const walkNamedPrimBlocks = (source, parentSegments = []) => {
+        if (!source || typeof source !== "string")
+            return;
+        const headerRegex = /^\s*(?:def|over|class)(?:\s+(\w+))?\s+"([^"]+)"/gm;
+        let match = null;
+        while ((match = headerRegex.exec(source))) {
+            const primType = String(match[1] || "").trim();
+            const primName = String(match[2] || "").trim();
+            if (!primName)
+                continue;
+            const openingBraceIndex = source.indexOf("{", headerRegex.lastIndex);
+            if (openingBraceIndex < 0)
+                continue;
+            const closingBraceIndex = findMatchingClosingBraceIndex(source, openingBraceIndex);
+            if (closingBraceIndex < 0)
+                continue;
+            const pathSegments = parentSegments.concat(primName);
+            const primText = source.slice(match.index, closingBraceIndex + 1);
+            const primitiveType = normalizeCollisionPrimitiveType(primType);
+            const isScopedCollisionPath = pathSegments.some((segment) => collisionScopeNames.has(String(segment || "").trim().toLowerCase()));
+            if (primitiveType && !isScopedCollisionPath && hasPhysicsCollisionApi(primText) && pathSegments.length >= 2) {
+                addColliderEntry(pathSegments[pathSegments.length - 2], primName, primitiveType);
             }
-            else if (character === "}") {
-                if (stack.length > 0)
-                    stack.pop();
+            walkNamedPrimBlocks(source.slice(openingBraceIndex + 1, closingBraceIndex), pathSegments);
+            headerRegex.lastIndex = closingBraceIndex + 1;
+        }
+    };
+    const collidersText = extractScopeBodyText(layerText, "colliders");
+    if (collidersText) {
+        const stack = [];
+        let pendingContextName = null;
+        const lines = collidersText.split(/\r?\n/);
+        for (const line of lines) {
+            const trimmed = line.trim();
+            const primMatch = trimmed.match(/^(?:def|over|class)(?:\s+\w+)?\s+"([^"]+)"/);
+            if (primMatch) {
+                pendingContextName = String(primMatch[1] || "");
+            }
+            for (const character of line) {
+                if (character === "{") {
+                    const contextName = pendingContextName || "";
+                    pendingContextName = null;
+                    stack.push({ name: contextName });
+                    const hierarchy = stack
+                        .map((context) => String(context?.name || "").trim())
+                        .filter((name) => !!name);
+                    if (hierarchy.length < 4)
+                        continue;
+                    if (String(hierarchy[0] || "").toLowerCase() !== "colliders")
+                        continue;
+                    const geometryName = String(hierarchy[hierarchy.length - 1] || "").toLowerCase();
+                    if (!allowedGeometryNames.has(geometryName))
+                        continue;
+                    const entryName = hierarchy[hierarchy.length - 2];
+                    const linkName = hierarchy[hierarchy.length - 3];
+                    addColliderEntry(linkName, entryName, geometryName);
+                }
+                else if (character === "}") {
+                    if (stack.length > 0)
+                        stack.pop();
+                }
             }
         }
     }
+    walkNamedPrimBlocks(layerText);
     return linkToColliderEntries;
 }
 function parseVector3FromTupleLiteral(tupleLiteral) {
@@ -370,6 +412,48 @@ function normalizeAxisToken(value) {
         return "Z";
     return "X";
 }
+function normalizeUsdPhysicsAxisInstance(value) {
+    return String(value || "").trim();
+}
+function parseUsdPhysicsLimitAxes(body) {
+    const limitsByAxis = {};
+    const limitRegex = /\blimit:([A-Za-z0-9_]+):physics:(low|high)\s*=\s*([-+0-9.eE]+)/g;
+    let match = null;
+    while ((match = limitRegex.exec(String(body || "")))) {
+        const axis = normalizeUsdPhysicsAxisInstance(match[1]);
+        const key = String(match[2] || "").trim();
+        const value = toFiniteNumberLocal(match[3]);
+        if (!axis || !key || value === undefined)
+            continue;
+        const existing = limitsByAxis[axis] || {};
+        existing[key] = value;
+        limitsByAxis[axis] = existing;
+    }
+    return Object.keys(limitsByAxis).length > 0 ? limitsByAxis : null;
+}
+function parseUsdPhysicsDriveAxes(body) {
+    const drivesByAxis = {};
+    const driveRegex = /\b(?:(?:uniform\s+)?token|float)\s+drive:([A-Za-z0-9_]+):physics:(type|stiffness|damping|maxForce|targetPosition|targetVelocity)\s*=\s*(?:"([^"]+)"|([-+0-9.eE]+))/g;
+    let match = null;
+    while ((match = driveRegex.exec(String(body || "")))) {
+        const axis = normalizeUsdPhysicsAxisInstance(match[1]);
+        const propertyName = String(match[2] || "").trim();
+        if (!axis || !propertyName)
+            continue;
+        const existing = drivesByAxis[axis] || {};
+        if (propertyName === "type") {
+            existing.type = String(match[3] || "").trim() || null;
+        }
+        else {
+            const value = toFiniteNumberLocal(match[4]);
+            if (value === undefined)
+                continue;
+            existing[propertyName] = value;
+        }
+        drivesByAxis[axis] = existing;
+    }
+    return Object.keys(drivesByAxis).length > 0 ? drivesByAxis : null;
+}
 export function extractJointRecordsFromLayerText(layerText) {
     if (!layerText || typeof layerText !== "string")
         return [];
@@ -395,6 +479,8 @@ export function extractJointRecordsFromLayerText(layerText) {
         const upperLimitDeg = toFiniteNumberLocal(body.match(/physics:upperLimit\s*=\s*([-+0-9.eE]+)/i)?.[1]);
         const driveDamping = toFiniteNumberLocal(body.match(/drive:[A-Za-z0-9_]+:physics:damping\s*=\s*([-+0-9.eE]+)/i)?.[1]);
         const driveMaxForce = toFiniteNumberLocal(body.match(/drive:[A-Za-z0-9_]+:physics:maxForce\s*=\s*([-+0-9.eE]+)/i)?.[1]);
+        const usdLimitAxes = parseUsdPhysicsLimitAxes(body);
+        const usdDriveAxes = parseUsdPhysicsDriveAxes(body);
         const axisLocal = parseVector3FromTupleLiteral(body.match(/urdf:axisLocal\s*=\s*\(([^)]+)\)/i)?.[1] || "");
         const closedLoopId = String(body.match(/urdf:closedLoopId\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
         const closedLoopType = String(body.match(/urdf:closedLoopType\s*=\s*"([^"]+)"/i)?.[1] || "").trim();
@@ -411,6 +497,7 @@ export function extractJointRecordsFromLayerText(layerText) {
         const originQuatWxyz = deriveJointOriginQuatWxyzTuple(authoredOriginQuatWxyz, localRot0Wxyz, localRot1Wxyz);
         records.push({
             jointTypeName: urdfJointType || jointTypeName,
+            usdPhysicsJointTypeName: jointTypeName,
             jointName,
             body0Path,
             body1Path,
@@ -420,6 +507,8 @@ export function extractJointRecordsFromLayerText(layerText) {
             upperLimitDeg: upperLimitDeg === undefined ? null : upperLimitDeg,
             driveDamping: driveDamping === undefined ? null : driveDamping,
             driveMaxForce: driveMaxForce === undefined ? null : driveMaxForce,
+            usdLimitAxes,
+            usdDriveAxes,
             closedLoopId: closedLoopId || null,
             closedLoopType: closedLoopType || null,
             anchorWorld,

@@ -14,3 +14,12 @@ export { ViewerPanels } from './components/ViewerPanels';
 export * from './types';
 export { useViewerController, useResponsivePanelLayout } from './hooks';
 export type { ViewerController } from './hooks';
+export { resolveDefaultViewerToolMode } from './utils/scopedToolMode';
+export type { ScopedToolModeState } from './utils/scopedToolMode';
+export { buildViewerSceneProps } from './utils/viewerSceneProps';
+export type { ViewerSceneBaseProps } from './utils/viewerSceneProps';
+export {
+  buildViewerRobotLinksScopeSignature,
+  createStableViewerResourceScope,
+} from './utils/viewerResourceScope';
+export type { ViewerResourceScope } from './utils/viewerResourceScope';

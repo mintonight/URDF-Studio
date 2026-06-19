@@ -32,6 +32,7 @@ export type {
   InspectionIssue,
   AIConversationMode,
   AIConversationMessage,
+  AIConversationFocusedIssue,
   AIConversationSelection,
   AIConversationLaunchContext,
   AIConversationTurnResult,

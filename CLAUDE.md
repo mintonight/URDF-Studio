@@ -150,6 +150,8 @@ node test/usd-viewer/scripts/cleanup-headless.cjs  # 清理自动化残留浏览
 
 单元测试继续邻近源码放置：`src/**/*.test.*` / `src/**/*.spec.*`。不要把普通单元测试搬到统一 `tests/` 目录。
 
+完整测试金字塔、命令选择和新增测试落点见 [docs/testing.md](docs/testing.md)。浏览器测试体系修复的历史交接与剩余事项见 [docs/testing-rebuild-handoff.md](docs/testing-rebuild-handoff.md)。
+
 给 Codex / Claude 等 agent 选择命令时按以下优先级：
 
 | 场景                                  | 命令                                                                              |
@@ -181,13 +183,15 @@ node test/usd-viewer/scripts/cleanup-headless.cjs  # 清理自动化残留浏览
 
 ## 文档导航
 
-| 任务                                  | 文档                                                 |
-| ------------------------------------- | ---------------------------------------------------- |
-| Editor / 3D / Viewer / USD runtime    | [docs/viewer.md](docs/viewer.md)                     |
-| 导入导出 / Workspace / 组装           | [docs/file-io.md](docs/file-io.md)                   |
-| UI 样式 / 颜色 / 主题 / 可访问性      | [docs/style-guide.md](docs/style-guide.md)           |
-| AI 助手 / 审阅 / skill 路由           | [docs/ai-features.md](docs/ai-features.md)           |
-| 架构边界 / 依赖方向 / 例外 / 设计哲学 | [docs/architecture.md](docs/architecture.md)         |
-| 验收清单 / 测试样本 / 回归命令        | [docs/update-rules.md](docs/update-rules.md)         |
-| react-robot-canvas 对外库             | [docs/robot-canvas-lib.md](docs/robot-canvas-lib.md) |
-| 完整文档索引                          | [docs/CATALOG.md](docs/CATALOG.md)                   |
+| 任务                                  | 文档                                                               |
+| ------------------------------------- | ------------------------------------------------------------------ |
+| Editor / 3D / Viewer / USD runtime    | [docs/viewer.md](docs/viewer.md)                                   |
+| 导入导出 / Workspace / 组装           | [docs/file-io.md](docs/file-io.md)                                 |
+| UI 样式 / 颜色 / 主题 / 可访问性      | [docs/style-guide.md](docs/style-guide.md)                         |
+| AI 助手 / 审阅 / skill 路由           | [docs/ai-features.md](docs/ai-features.md)                         |
+| 架构边界 / 依赖方向 / 例外 / 设计哲学 | [docs/architecture.md](docs/architecture.md)                       |
+| 测试金字塔 / 命令选择 / 新增测试落点  | [docs/testing.md](docs/testing.md)                                 |
+| 浏览器测试体系修复交接                | [docs/testing-rebuild-handoff.md](docs/testing-rebuild-handoff.md) |
+| 验收清单 / 测试样本 / 回归命令        | [docs/update-rules.md](docs/update-rules.md)                       |
+| react-robot-canvas 对外库             | [docs/robot-canvas-lib.md](docs/robot-canvas-lib.md)               |
+| 完整文档索引                          | [docs/CATALOG.md](docs/CATALOG.md)                                 |

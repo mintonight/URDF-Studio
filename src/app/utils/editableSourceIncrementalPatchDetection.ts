@@ -2,7 +2,7 @@ import { parseMJCF } from '@/core/parsers/mjcf/mjcfParser';
 import { parseJoints } from '@/core/parsers/urdf/parser/jointParser';
 import { parseLinks } from '@/core/parsers/urdf/parser/linkParser';
 import { parseMaterials } from '@/core/parsers/urdf/parser/materialParser';
-import type { SourceCodeDirtyRange } from '@/features/code-editor/utils/sourceCodeEditorSession';
+import type { SourceCodeDirtyRange } from '@/features/code-editor';
 import type { RobotFile, RobotState, UrdfJoint, UrdfLink } from '@/types';
 import type { EditableSourceIncrementalPatch } from './editableSourceIncrementalPatch';
 

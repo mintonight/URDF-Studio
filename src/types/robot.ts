@@ -101,12 +101,29 @@ export interface UrdfJointSafetyController {
 
 export type UsdPhysicsQuaternionWxyz = [number, number, number, number];
 
+export interface UrdfJointUsdPhysicsAxisLimit {
+  low?: number | null;
+  high?: number | null;
+}
+
+export interface UrdfJointUsdPhysicsAxisDrive {
+  type?: string | null;
+  stiffness?: number | null;
+  damping?: number | null;
+  maxForce?: number | null;
+  targetPosition?: number | null;
+  targetVelocity?: number | null;
+}
+
 export interface UrdfJointUsdPhysicsFrame {
+  jointTypeName?: string;
   axisToken?: string;
   localPos0?: Vector3;
   localRot0Wxyz?: UsdPhysicsQuaternionWxyz;
   localPos1?: Vector3;
   localRot1Wxyz?: UsdPhysicsQuaternionWxyz;
+  limitAxes?: Record<string, UrdfJointUsdPhysicsAxisLimit>;
+  driveAxes?: Record<string, UrdfJointUsdPhysicsAxisDrive>;
 }
 
 export interface UrdfJoint {

@@ -15,7 +15,7 @@ import {
 } from '@/app/hooks/workspaceViewerDetailPreferences';
 import { getViewerSourceFile } from '@/app/hooks/workspaceSourceSyncUtils';
 import { resolveStandaloneViewerSourceFormat } from '@/app/hooks/workspace-source-sync/mjcfViewerRuntimePolicy';
-import type { ViewerJointMotionStateValue } from '@/features/urdf-viewer/types';
+import type { ViewerJointMotionStateValue } from '@/features/editor';
 import type { Language } from '@/store';
 import type { DocumentLoadLifecycleState, DocumentLoadState } from '@/store/assetsStore';
 import type { RobotFile, RobotState, Theme } from '@/types';

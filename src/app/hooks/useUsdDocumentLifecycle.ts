@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
-import type { ViewerDocumentLoadEvent } from '@/features/urdf-viewer/types';
+import type { ViewerDocumentLoadEvent } from '@/features/editor';
 import { useAssetsStore, useRobotStore, useSelectionStore } from '@/store';
 import type { DocumentLoadState, DocumentLoadStatus } from '@/store/assetsStore';
 import type { InteractionSelection, RobotData, RobotFile } from '@/types';

@@ -11,7 +11,7 @@
 
 Professional URDF design and visualization workstation. Supports rapid editing, collision optimization, modular assembly, parameter configuration, AI generation, and multi-format export.
 
-**Live demo:** [urdf.d-robotics.cc](https://urdf.d-robotics.cc/)
+**Live demo:** [urdf.enkeebot.com](https://urdf.enkeebot.com/)
 
 [English](./README.md) | [中文](./README_CN.md)
 

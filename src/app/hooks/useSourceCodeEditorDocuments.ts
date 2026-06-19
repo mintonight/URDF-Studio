@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 
 import { markUnsavedChangesBaselineSaved } from '../utils/unsavedChangesBaseline';
 import type { SourceCodeEditorDocument } from '@/features/code-editor';
-import type { SourceCodeEditorApplyRequest } from '@/features/code-editor/utils/sourceCodeEditorSession';
+import type { SourceCodeEditorApplyRequest } from '@/features/code-editor';
 import type {
   SourceCodeDocumentChangeTarget,
   SourceCodeDocumentDescriptor,

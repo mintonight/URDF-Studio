@@ -1,6 +1,6 @@
 {
   "generatedAt": "2026-06-05",
-  "note": "Grandfathered import cycles (2-node sibling/barrel cycles). Ratchet down only; remove a signature when its cycle is broken. New cycles fail dependency_boundaries.mjs --check.",
+  "note": "Grandfathered import cycles and app feature deep imports. Ratchet down only; remove entries when fixed. New cycles and new/stale feature deep imports fail dependency_boundaries.mjs --check.",
   "knownCycles": [
     "src/types/robot.ts|src/types/usd.ts",
     "src/core/parsers/filePreview.ts|src/core/parsers/index.ts",
@@ -9,5 +9,32 @@
     "src/shared/utils/robot/closedLoopMotionPreview.ts|src/shared/utils/robot/closedLoopMotionPreviewWorkerBridge.ts",
     "src/app/utils/unifiedViewerMountState.ts|src/app/utils/unifiedViewerSceneMode.ts",
     "src/app/utils/exportArchiveAssets.ts|src/app/utils/exportArchiveAssetsWorker.ts"
+  ],
+  "knownFeatureDeepImports": [
+    "src/app/components/unified-viewer/modeModuleLoaders.ts -> @/features/editor/viewerPanelModule",
+    "src/app/hooks/useCollisionOptimizationWorkflow.ts -> @/features/property-editor/utils/collisionOptimization",
+    "src/app/hooks/useUsdDocumentLifecycle.ts -> @/features/urdf-viewer/utils/usdExportBundle",
+    "src/app/utils/ikToolSelectionState.ts -> @/features/urdf-viewer/utils/selectedIkDragLink",
+    "src/app/utils/importPreparation.ts -> @/features/file-io/utils/libraryImportPathCollisions",
+    "src/app/utils/overlayLoaders.ts -> @/features/assembly/components/BridgeCreateModal",
+    "src/app/utils/overlayLoaders.ts -> @/features/property-editor/components/CollisionOptimizationDialog",
+    "src/app/utils/sourceCodeDocuments.ts -> @/features/urdf-viewer/utils/usdPreloadSources.ts",
+    "src/app/utils/usdBinaryArchive.ts -> @/features/urdf-viewer/utils/usdWasmRuntime",
+    "src/app/utils/usdExportContext.ts -> @/features/urdf-viewer/utils/usdExportBundle",
+    "src/app/utils/usdHydrationPersistence.ts -> @/features/urdf-viewer/utils/viewerRobotData",
+    "src/app/utils/usdHydrationWorkerEvents.ts -> @/features/urdf-viewer/utils/usdOffscreenViewerProtocol",
+    "src/app/utils/usdRobotStateHydration.ts -> @/features/urdf-viewer/utils/usdExportBundle",
+    "src/app/utils/usdRobotStateHydration.ts -> @/features/urdf-viewer/utils/usdOffscreenViewerProtocol",
+    "src/app/utils/usdRobotStateHydration.ts -> @/features/urdf-viewer/utils/usdOffscreenViewerWorkerClient",
+    "src/app/utils/usdRobotStateHydration.ts -> @/features/urdf-viewer/utils/usdPreparedExportCacheWorkerBridge",
+    "src/app/utils/usdRobotStateHydration.ts -> @/features/urdf-viewer/utils/usdPreparedExportCacheWorkerTransfer",
+    "src/app/utils/usdRobotStateHydration.ts -> @/features/urdf-viewer/utils/viewerRobotData",
+    "src/app/utils/usdRuntimeStartupPrewarm.ts -> @/features/urdf-viewer/utils/usdOffscreenViewerWorkerClient",
+    "src/app/utils/usdRuntimeStartupPrewarm.ts -> @/features/urdf-viewer/utils/usdWasmRuntime",
+    "src/app/utils/usdSelectionPrewarm.ts -> @/features/urdf-viewer/utils/preparedUsdStageOpenCache",
+    "src/app/utils/usdSelectionPrewarm.ts -> @/features/urdf-viewer/utils/usdBlobBackedUsda",
+    "src/app/utils/usdSelectionPrewarm.ts -> @/features/urdf-viewer/utils/usdOffscreenViewerWorkerClient",
+    "src/app/utils/usdSelectionPrewarm.ts -> @/features/urdf-viewer/utils/usdWasmRuntime",
+    "src/app/workers/usdBinaryArchive.worker.ts -> @/features/urdf-viewer/utils/usdBindingsAssetPaths.ts"
   ]
 }

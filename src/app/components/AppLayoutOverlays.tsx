@@ -12,7 +12,7 @@ import type {
   CollisionOptimizationOperation,
   CollisionOptimizationSource,
   CollisionTargetRef,
-} from '@/features/property-editor/utils';
+} from '@/features/property-editor';
 import type { SourceCodeEditorDocument } from '@/features/code-editor';
 
 const SourceCodeEditor = lazy(() =>

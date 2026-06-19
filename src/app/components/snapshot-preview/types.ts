@@ -1,7 +1,7 @@
 import type {
   ViewerJointMotionStateValue,
   ViewerRobotSourceFormat,
-} from '@/features/urdf-viewer/types';
+} from '@/features/editor';
 import type { WorkspaceCameraSnapshot } from '@/shared/components/3d';
 import type { RobotData, RobotFile } from '@/types';
 import type { Theme } from '@/types';

@@ -8,7 +8,7 @@ import { AppLayoutView } from './components/AppLayoutView';
 import { resolveSnapshotCaptureAction } from './components/snapshot-preview/resolveSnapshotCaptureAction';
 import { preloadSourceCodeEditorRuntime } from './utils/sourceCodeEditorLoader';
 import { setOptionsPanelVisibility } from './components/header/viewMenuState.js';
-import type { ToolMode } from '@/features/urdf-viewer/types';
+import type { ToolMode } from '@/features/editor';
 import type { AppLayoutProps, ProModeRoundtripSession } from './appLayoutTypes';
 import { useAppLayoutEffects } from './hooks/useAppLayoutEffects';
 import { useAppLayoutStoreSlices } from './hooks/useAppLayoutStoreSlices';

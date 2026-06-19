@@ -175,6 +175,17 @@ test('setViewOption persists world-origin axes and usage-guide preferences', asy
   dom.window.close();
 });
 
+test('setLang does not expose SEO language paths in the user URL', async () => {
+  const { dom, useUIStore } = await loadUIStore();
+
+  useUIStore.getState().setLang('zh');
+
+  assert.equal(useUIStore.getState().lang, 'zh');
+  assert.equal(dom.window.location.pathname, '/');
+
+  dom.window.close();
+});
+
 test('migration resets legacy MJCF world-link visibility to visible default', async () => {
   const { dom, useUIStore } = await loadUIStore(
     {

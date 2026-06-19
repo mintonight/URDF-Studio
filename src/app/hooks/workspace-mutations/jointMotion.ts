@@ -1,6 +1,6 @@
 import { resolveJointKey } from '@/core/robot';
 import { useRobotStore } from '@/store';
-import type { ViewerJointChangeContext } from '@/features/urdf-viewer/types';
+import type { ViewerJointChangeContext } from '@/features/editor';
 import type { JointQuaternion, UrdfJoint } from '@/types';
 
 export interface ResolvedJointMotion {

@@ -41,6 +41,7 @@ import {
 } from './bridgeCreateModalUtils';
 import { useBridgeCreateDraft } from './useBridgeCreateDraft';
 import { useBridgeCreateSelectionSync } from './useBridgeCreateSelectionSync';
+import { useJointPickController } from './useJointPickController';
 
 export type { BridgeCreateModalProps } from './bridgeCreateModalTypes';
 
@@ -145,6 +146,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
 
   const {
     applyEulerRotation,
+    applyPickedOrigin,
     applyQuaternionRotation,
     applySuggestedOrigin,
     axisX,
@@ -572,6 +574,30 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     setPickTarget,
   });
 
+  const jointPick = useJointPickController({
+    isOpen,
+    parentComponentId: parentCompId,
+    parentLinkId,
+    childComponentId: childCompId,
+    childLinkId,
+    applyPickedOrigin,
+  });
+  const canPickJointOrigin = Boolean(
+    parentCompId && childCompId && parentLinkId && childLinkId && parentCompId !== childCompId,
+  );
+  const jointPickHintLabel =
+    lang === 'zh'
+      ? jointPick.active
+        ? jointPick.side === 'parent'
+          ? '在父组件上单击拾取联接点'
+          : '在子组件上单击拾取联接点'
+        : '拾取联接点后自动对齐'
+      : jointPick.active
+        ? jointPick.side === 'parent'
+          ? 'Click the parent component to place the joint origin'
+          : 'Click the child component to place the joint origin'
+        : 'Pick joint origins to auto-align';
+
   const namePlaceholder = suggestedBridgeName || t.bridgeJointNamePlaceholder;
 
   useEffect(() => {
@@ -896,6 +922,53 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
           <div className="min-h-0 space-y-2" data-bridge-section-content>
             <div data-bridge-section-panel="transform" className={transformPanelClassName}>
               <BridgeSection title={t.originRelativeParent}>
+                <div className="mb-1.5 space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      type="button"
+                      variant={
+                        jointPick.active && jointPick.side === 'parent' ? 'primary' : 'secondary'
+                      }
+                      size="sm"
+                      disabled={!canPickJointOrigin}
+                      onClick={() => jointPick.startPick('parent')}
+                      className="flex-1"
+                    >
+                      {jointPick.parentSnap
+                        ? lang === 'zh'
+                          ? '父侧 ✓'
+                          : 'Parent ✓'
+                        : lang === 'zh'
+                          ? '拾取父侧'
+                          : 'Pick parent'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={
+                        jointPick.active && jointPick.side === 'child' ? 'primary' : 'secondary'
+                      }
+                      size="sm"
+                      disabled={!canPickJointOrigin}
+                      onClick={() => jointPick.startPick('child')}
+                      className="flex-1"
+                    >
+                      {jointPick.childSnap
+                        ? lang === 'zh'
+                          ? '子侧 ✓'
+                          : 'Child ✓'
+                        : lang === 'zh'
+                          ? '拾取子侧'
+                          : 'Pick child'}
+                    </Button>
+                  </div>
+                  <p className="text-[10px] leading-tight text-text-tertiary">
+                    {canPickJointOrigin
+                      ? jointPickHintLabel
+                      : lang === 'zh'
+                        ? '先选择父/子组件与 Link'
+                        : 'Select parent/child components and links first'}
+                  </p>
+                </div>
                 <div data-bridge-row="origin" className={xyzStackClassName}>
                   <BridgeAxisSpinnerField
                     axis="x"

@@ -1,5 +1,5 @@
-import { AIConversationModal } from '@/features/ai-assistant/components/AIConversationModal';
-import type { AIConversationLaunchContext } from '@/features/ai-assistant/types';
+import { AIConversationModal } from '@/features/ai-assistant';
+import type { AIConversationLaunchContext } from '@/features/ai-assistant';
 import type { Language } from '@/shared/i18n';
 
 interface AIConversationConnectorProps {

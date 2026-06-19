@@ -104,6 +104,22 @@ export function useBridgeCreateDraft({
     setOriginZ(nextOrigin.z);
   }, []);
 
+  // Joint-origin picking writes both position and orientation at once. Marking
+  // the origin dirty stops the visual-contact auto-suggest from overwriting it.
+  const applyPickedOrigin = useCallback(
+    (
+      position: { x: number; y: number; z: number },
+      rotationDeg: { r: number; p: number; y: number },
+    ) => {
+      originDirtyRef.current = true;
+      setOriginX(position.x);
+      setOriginY(position.y);
+      setOriginZ(position.z);
+      applyEulerRotation(rotationDeg);
+    },
+    [applyEulerRotation],
+  );
+
   const handleOriginXChange = useCallback((value: number) => {
     originDirtyRef.current = true;
     setOriginX(value);
@@ -153,6 +169,7 @@ export function useBridgeCreateDraft({
 
   return {
     applyEulerRotation,
+    applyPickedOrigin,
     applyQuaternionRotation,
     applySuggestedOrigin,
     axisX,

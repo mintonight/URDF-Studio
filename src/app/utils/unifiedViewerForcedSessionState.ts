@@ -1,4 +1,4 @@
-import type { ToolMode } from '@/features/urdf-viewer/types';
+import type { ToolMode } from '@/features/editor';
 
 interface ResolveUnifiedViewerForcedSessionStateArgs {
   forcedViewerSession: boolean;

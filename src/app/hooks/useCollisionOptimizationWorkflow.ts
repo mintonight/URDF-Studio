@@ -6,7 +6,7 @@ import type {
   CollisionOptimizationOperation,
   CollisionOptimizationSource,
   CollisionTargetRef,
-} from '@/features/property-editor/utils';
+} from '@/features/property-editor';
 
 interface SelectionPayload {
   type: 'link';

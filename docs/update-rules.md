@@ -1,7 +1,7 @@
 # 代码变更 → 文档更新 & 验证映射
 
 > 最后更新：2026-05-26 | 覆盖范围：变更工作流、验证命令、测试样本索引
-> 交叉引用：[architecture.md](architecture.md)、[viewer.md](viewer.md)、[file-io.md](file-io.md)
+> 交叉引用：[architecture.md](architecture.md)、[viewer.md](viewer.md)、[file-io.md](file-io.md)、[testing.md](testing.md)
 
 ## 1. 代码变更工作流
 
@@ -18,6 +18,7 @@
 允许单文件：仅限小改动（文案、样式微调、局部 bug 修复）且不引入新职责。
 
 必须拆分的场景：
+
 - 同时引入"状态 + 视图 + 业务逻辑"
 - 新增可复用逻辑（优先抽为 hook/utils）
 - 文件已明显过大且继续修改会降低可维护性
@@ -42,6 +43,8 @@
 ## 4. 增量命令
 
 基础命令（dev / lint / typecheck:quality / typecheck 债务检查 / test / build / verify:fast / verify:full）见 [CLAUDE.md](../CLAUDE.md) §常用命令。本节只列项目特有的回归与构建命令：
+
+测试分层、日常命令选择和新增测试落点见 [testing.md](testing.md)。浏览器测试体系修复交接见 [testing-rebuild-handoff.md](testing-rebuild-handoff.md)。
 
 ```bash
 # AI / agent 优先入口
@@ -80,41 +83,41 @@ npm run build:package:react-robot-canvas
 
 ### USD / worker / roundtrip 主样本（`test/unitree_model/`）
 
-| 样本 | 用途 |
-|------|------|
-| `Go2/usd/go2.usd` | 四足基准：USD stage open、worker metadata、hydration |
-| `Go2W/usd/go2w.usd` | 轮足变体：资产命名差异与 roundtrip 稳定性 |
-| `B2/usd/b2.usd` | 更大体量四足：folded fixed link、复杂结构 |
-| `H1-2/h1_2/h1_2.usd` | Humanoid：双足/人形链路与 viewer hydration |
-| `H1-2/h1_2_handless/h1_2_handless.usd` | Handless 变体：资产差异下的 runtime 行为 |
-| `*.viewer_roundtrip.usd` | 导出后 diff、回归对照与 roundtrip 验证 |
+| 样本                                   | 用途                                                 |
+| -------------------------------------- | ---------------------------------------------------- |
+| `Go2/usd/go2.usd`                      | 四足基准：USD stage open、worker metadata、hydration |
+| `Go2W/usd/go2w.usd`                    | 轮足变体：资产命名差异与 roundtrip 稳定性            |
+| `B2/usd/b2.usd`                        | 更大体量四足：folded fixed link、复杂结构            |
+| `H1-2/h1_2/h1_2.usd`                   | Humanoid：双足/人形链路与 viewer hydration           |
+| `H1-2/h1_2_handless/h1_2_handless.usd` | Handless 变体：资产差异下的 runtime 行为             |
+| `*.viewer_roundtrip.usd`               | 导出后 diff、回归对照与 roundtrip 验证               |
 
 ### SDF / Gazebo 样本（`test/gazebo_models/`）
 
-| 样本 | 用途 |
-|------|------|
-| `camera/model.sdf` | 轻量 smoke |
-| `cordless_drill/model.sdf` | DAE + STL + texture 混合 |
-| `bus_stop/model.sdf` | 多 mesh + 贴图 + 混合格式 |
-| `apartment/model.sdf` | 大场景：纹理 + viewer 性能 |
-| `camera/model-1_2.sdf` 等 | 版本化 SDF 兼容性 |
+| 样本                       | 用途                       |
+| -------------------------- | -------------------------- |
+| `camera/model.sdf`         | 轻量 smoke                 |
+| `cordless_drill/model.sdf` | DAE + STL + texture 混合   |
+| `bus_stop/model.sdf`       | 多 mesh + 贴图 + 混合格式  |
+| `apartment/model.sdf`      | 大场景：纹理 + viewer 性能 |
+| `camera/model-1_2.sdf` 等  | 版本化 SDF 兼容性          |
 
 ### URDF 样本（`test/awesome_robot_descriptions_repos/`）
 
-| 样本 | 用途 |
-|------|------|
-| `anymal_c_simple_description/urdf/anymal.urdf` | 纹理 + DAE 完整四足 |
-| `mini_cheetah_urdf/urdf/mini_cheetah.urdf` | OBJ/STL 混合资产 |
-| `cassie_description/urdf/cassie_v4.urdf` | 双足复杂关节层级 |
-| `fanuc_m760ic_description/urdf/m710ic70.urdf` | 工业机械臂 |
+| 样本                                                 | 用途                  |
+| ---------------------------------------------------- | --------------------- |
+| `anymal_c_simple_description/urdf/anymal.urdf`       | 纹理 + DAE 完整四足   |
+| `mini_cheetah_urdf/urdf/mini_cheetah.urdf`           | OBJ/STL 混合资产      |
+| `cassie_description/urdf/cassie_v4.urdf`             | 双足复杂关节层级      |
+| `fanuc_m760ic_description/urdf/m710ic70.urdf`        | 工业机械臂            |
 | `models/franka_description/urdf/panda_arm_hand.urdf` | gltf + ktx2 + png/bin |
 
 ### MJCF 样本（`test/awesome_robot_descriptions_repos/mujoco_menagerie/`）
 
-| 样本 | 用途 |
-|------|------|
-| `unitree_go2/go2.xml` | 标准 MuJoCo menagerie 样本 |
-| `unitree_go2/scene.xml` | 带 scene 包装的 MJCF |
+| 样本                    | 用途                       |
+| ----------------------- | -------------------------- |
+| `unitree_go2/go2.xml`   | 标准 MuJoCo menagerie 样本 |
+| `unitree_go2/scene.xml` | 带 scene 包装的 MJCF       |
 
 ### 样本选择建议
 
@@ -137,12 +140,14 @@ npm run build:package:react-robot-canvas
 
 ## 7. 文档更新映射
 
-| 变更范围 | 应更新文档 |
-|----------|-----------|
-| 新增 feature / 拆分 feature 目录 | `CLAUDE.md` §src 目录结构、`architecture.md` §4 |
-| 新增 store | `CLAUDE.md` §状态管理、`architecture.md` |
-| 修改 USD worker / runtime 链路 | `viewer.md` §6-7、`update-rules.md` §5 |
-| 修改导入导出流程 | `file-io.md` §2 |
-| 修改 UI 样式 / 新增语义色 token | `style-guide.md` §3 |
-| 新增架构例外 | `architecture.md` §3 |
-| 新增长期稳定测试样本 | `update-rules.md` §5 |
+| 变更范围                         | 应更新文档                                          |
+| -------------------------------- | --------------------------------------------------- |
+| 新增 feature / 拆分 feature 目录 | `CLAUDE.md` §src 目录结构、`architecture.md` §4     |
+| 新增 store                       | `CLAUDE.md` §状态管理、`architecture.md`            |
+| 修改 USD worker / runtime 链路   | `viewer.md` §6-7、`update-rules.md` §5              |
+| 修改导入导出流程                 | `file-io.md` §2                                     |
+| 修改 UI 样式 / 新增语义色 token  | `style-guide.md` §3                                 |
+| 新增架构例外                     | `architecture.md` §3                                |
+| 新增长期稳定测试样本             | `update-rules.md` §5                                |
+| 新增测试入口 / 调整测试分层      | `testing.md`、`CLAUDE.md` §测试分层与 AI 选命令规则 |
+| 浏览器测试体系修复交接状态变化   | `testing-rebuild-handoff.md`、`testing.md`          |

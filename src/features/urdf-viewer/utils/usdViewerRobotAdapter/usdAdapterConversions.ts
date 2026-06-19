@@ -330,7 +330,9 @@ export function toQuaternionWxyz(
 export function resolveUsdPhysicsFrameFromViewerEntry(
   entry: JointCatalogEntry,
 ): UrdfJointUsdPhysicsFrame | undefined {
-  const jointTypeName = String(entry.jointTypeName || entry.jointType || '').trim();
+  const jointTypeName = String(
+    entry.usdPhysicsJointTypeName || entry.jointTypeName || entry.jointType || '',
+  ).trim();
   const isUsdPhysicsJointEntry = /Physics[A-Za-z]*Joint/i.test(jointTypeName);
   const axisToken = String(entry.axisToken || '').trim();
   const localPos0 =
@@ -339,17 +341,37 @@ export function resolveUsdPhysicsFrameFromViewerEntry(
   const localRot0Wxyz = toQuaternionWxyz(entry.localRot0Wxyz);
   const localPos1 = toOptionalVector3(entry.localPos1);
   const localRot1Wxyz = toQuaternionWxyz(entry.localRot1Wxyz);
+  const limitAxes =
+    entry.usdLimitAxes && typeof entry.usdLimitAxes === 'object'
+      ? structuredClone(entry.usdLimitAxes)
+      : undefined;
+  const driveAxes =
+    entry.usdDriveAxes && typeof entry.usdDriveAxes === 'object'
+      ? structuredClone(entry.usdDriveAxes)
+      : undefined;
 
-  if (!localPos0 && !localRot0Wxyz && !localPos1 && !localRot1Wxyz && !axisToken) {
+  if (
+    !jointTypeName &&
+    !localPos0 &&
+    !localRot0Wxyz &&
+    !localPos1 &&
+    !localRot1Wxyz &&
+    !axisToken &&
+    !limitAxes &&
+    !driveAxes
+  ) {
     return undefined;
   }
 
   return {
+    ...(jointTypeName ? { jointTypeName } : {}),
     ...(axisToken ? { axisToken } : {}),
     ...(localPos0 ? { localPos0 } : {}),
     ...(localRot0Wxyz ? { localRot0Wxyz } : {}),
     ...(localPos1 ? { localPos1 } : {}),
     ...(localRot1Wxyz ? { localRot1Wxyz } : {}),
+    ...(limitAxes ? { limitAxes } : {}),
+    ...(driveAxes ? { driveAxes } : {}),
   };
 }
 
@@ -439,6 +461,20 @@ export function jointTypeFromViewerValue(value: string | null | undefined): Join
     return JointType.PLANAR;
   }
   if (normalized === 'floating' || normalized.includes('floating')) {
+    return JointType.FLOATING;
+  }
+  if (
+    normalized === 'joint' ||
+    normalized === 'physicsjoint' ||
+    normalized === 'usdphysicsjoint' ||
+    normalized === 'free' ||
+    normalized.includes('d6') ||
+    normalized.includes('6dof') ||
+    normalized.includes('sixdof') ||
+    normalized.includes('generic') ||
+    normalized.includes('freejoint') ||
+    normalized.includes('distance')
+  ) {
     return JointType.FLOATING;
   }
 

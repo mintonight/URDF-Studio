@@ -514,6 +514,233 @@ test('buildRobotMetadataSnapshotForStage backfills missing joint origins from ph
     }
 });
 
+test('buildRobotMetadataSnapshotForStage maps generic UsdPhysics driver joint records to floating metadata', () => {
+    const previousWindow = globalThis.window;
+    globalThis.window = {
+        driver: {
+            GetRobotMetadataSnapshot(sortedLinkPaths, stageSourcePath) {
+                assert.deepEqual(sortedLinkPaths, [
+                    '/Robot/base_link',
+                    '/Robot/base_link/link1',
+                ]);
+                assert.equal(stageSourcePath, '/robots/two_link_robot.usd');
+                return {
+                    stageSourcePath,
+                    source: 'usd-stage-cpp',
+                    linkParentPairs: [],
+                    jointCatalogEntries: [],
+                    linkDynamicsEntries: [],
+                };
+            },
+            GetPhysicsJointRecords() {
+                return [
+                    {
+                        jointPath: '/Robot/joints/joint_link1',
+                        jointName: 'joint_link1',
+                        jointTypeName: 'PhysicsJoint',
+                        body0Path: '/Robot/base_link',
+                        body1Path: '/Robot/base_link/link1',
+                        axisToken: 'X',
+                    },
+                ];
+            },
+        },
+    };
+
+    try {
+        const delegate = createFallbackMetadataDelegate();
+        const snapshot = delegate.buildRobotMetadataSnapshotForStage('/robots/two_link_robot.usd', null);
+        assert.ok(snapshot);
+        assert.deepEqual(snapshot.linkParentPairs, [
+            ['/Robot/base_link/link1', '/Robot/base_link'],
+        ]);
+        assert.equal(snapshot.jointCatalogEntries.length, 1);
+
+        const joint = snapshot.jointCatalogEntries[0];
+        assert.equal(joint.jointType, 'floating');
+        assert.equal(joint.jointTypeName, 'PhysicsJoint');
+        assert.equal(joint.lowerLimitDeg, 0);
+        assert.equal(joint.upperLimitDeg, 0);
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});
+
+test('buildRobotMetadataSnapshotForStage recovers Newton direct physics collision primitives without Hydra meshes', () => {
+    const previousWindow = globalThis.window;
+    const newtonCartpoleLayerText = `#usda 1.0
+(
+    defaultPrim = "cartPole"
+)
+
+def Xform "cartPole"
+{
+    def Xform "rail" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI"]
+    )
+    {
+        def Cube "rail" (
+            prepend apiSchemas = ["PhysicsCollisionAPI"]
+        )
+        {
+            double size = 1
+            float3 xformOp:scale = (0.03, 8, 0.03)
+        }
+    }
+
+    def Xform "cart" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        float3 xformOp:scale = (0.2, 0.25, 0.2)
+
+        def Cube "cart" (
+            prepend apiSchemas = ["PhysicsCollisionAPI"]
+        )
+        {
+            double size = 1
+        }
+    }
+
+    def Xform "pole1" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        float3 xformOp:scale = (0.04, 0.06, 1)
+
+        def Cube "pole1" (
+            prepend apiSchemas = ["PhysicsCollisionAPI"]
+        )
+        {
+            double size = 1
+        }
+    }
+}
+`;
+    globalThis.window = {
+        driver: {
+            GetRobotMetadataSnapshot(sortedLinkPaths, stageSourcePath) {
+                assert.ok(sortedLinkPaths.includes('/cartPole/rail'));
+                assert.ok(sortedLinkPaths.includes('/cartPole/cart'));
+                assert.ok(sortedLinkPaths.includes('/cartPole/pole1'));
+                assert.equal(stageSourcePath, '/robots/newton/cartpole.usda');
+                return {
+                    stageSourcePath,
+                    source: 'usd-stage-cpp',
+                    linkParentPairs: [
+                        ['/cartPole/rail', null],
+                        ['/cartPole/cart', '/cartPole/rail'],
+                        ['/cartPole/pole1', '/cartPole/cart'],
+                    ],
+                    jointCatalogEntries: [
+                        {
+                            linkPath: '/cartPole/cart',
+                            parentLinkPath: '/cartPole/rail',
+                            jointName: 'railCartJoint',
+                            jointTypeName: 'PhysicsPrismaticJoint',
+                            axisToken: 'Y',
+                        },
+                        {
+                            linkPath: '/cartPole/pole1',
+                            parentLinkPath: '/cartPole/cart',
+                            jointName: 'cartPoleJoint',
+                            jointTypeName: 'PhysicsRevoluteJoint',
+                            axisToken: 'X',
+                        },
+                    ],
+                    linkDynamicsEntries: [],
+                };
+            },
+            GetPhysicsJointRecords() {
+                return [
+                    {
+                        jointPath: '/cartPole/rootJoint',
+                        jointName: 'rootJoint',
+                        jointTypeName: 'PhysicsFixedJoint',
+                        body1Path: '/cartPole/rail',
+                    },
+                    {
+                        jointPath: '/cartPole/railCartJoint',
+                        jointName: 'railCartJoint',
+                        jointTypeName: 'PhysicsPrismaticJoint',
+                        body0Path: '/cartPole/rail',
+                        body1Path: '/cartPole/cart',
+                    },
+                    {
+                        jointPath: '/cartPole/cartPoleJoint',
+                        jointName: 'cartPoleJoint',
+                        jointTypeName: 'PhysicsRevoluteJoint',
+                        body0Path: '/cartPole/cart',
+                        body1Path: '/cartPole/pole1',
+                    },
+                ];
+            },
+        },
+    };
+
+    try {
+        const delegate = Object.create(ThreeRenderDelegateCore.prototype);
+        delegate.meshes = {};
+        delegate._protoMeshMetadataByMeshId = new Map();
+        delegate._robotMetadataSnapshotByStageSource = new Map();
+        delegate._robotMetadataBuildPromisesByStageSource = new Map();
+        delegate._nowPerfMs = () => 1234;
+        delegate.getNormalizedStageSourcePath = () => '/robots/newton/cartpole.usda';
+        delegate.getStage = () => ({
+            GetRootLayer() {
+                return createLayer(newtonCartpoleLayerText);
+            },
+            GetUsedLayers() {
+                return [];
+            },
+        });
+
+        const snapshot = delegate.buildRobotMetadataSnapshotForStage('/robots/newton/cartpole.usda', null);
+
+        assert.ok(snapshot);
+        assert.equal(snapshot.source, 'usd-stage-cpp');
+        assert.deepEqual(snapshot.meshCountsByLinkPath, {
+            '/cartPole/cart': {
+                visualMeshCount: 0,
+                collisionMeshCount: 1,
+                collisionPrimitiveCounts: { box: 1 },
+                collisionPrimitiveGeometries: [
+                    {
+                        primitiveType: 'cube',
+                        dimensions: [0.2, 0.25, 0.2],
+                    },
+                ],
+            },
+            '/cartPole/pole1': {
+                visualMeshCount: 0,
+                collisionMeshCount: 1,
+                collisionPrimitiveCounts: { box: 1 },
+                collisionPrimitiveGeometries: [
+                    {
+                        primitiveType: 'cube',
+                        dimensions: [0.04, 0.06, 1],
+                    },
+                ],
+            },
+            '/cartPole/rail': {
+                visualMeshCount: 0,
+                collisionMeshCount: 1,
+                collisionPrimitiveCounts: { box: 1 },
+                collisionPrimitiveGeometries: [
+                    {
+                        primitiveType: 'cube',
+                        dimensions: [0.03, 8, 0.03],
+                    },
+                ],
+            },
+        });
+    }
+    finally {
+        globalThis.window = previousWindow;
+    }
+});
+
 test('buildRobotMetadataSnapshotForStage derives joint origin quaternions from localRot0/localRot1 when authored USD origin data is missing', () => {
     const previousWindow = globalThis.window;
     globalThis.window = {

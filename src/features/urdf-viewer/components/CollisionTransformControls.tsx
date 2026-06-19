@@ -8,9 +8,10 @@ import { useCollisionTransformDragLifecycle } from '../hooks/useCollisionTransfo
 import { getObjectRPY } from '../utils/collisionTransformMath';
 import { resolveCurrentCollisionDraggingControls } from '../utils/collisionTransformControlsShared';
 
-const COLLISION_TRANSLATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE;
-const COLLISION_ROTATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE * 0.84;
-const COLLISION_GIZMO_THICKNESS_SCALE = 1.9;
+const COLLISION_TRANSLATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE * 0.56;
+const COLLISION_ROTATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE * 0.46;
+const COLLISION_GIZMO_THICKNESS_SCALE = 1.28;
+const COLLISION_COMMITTED_TRANSFORM_EPSILON = 1e-6;
 
 export const CollisionTransformControls: React.FC<CollisionTransformControlsProps> = ({
   robot,
@@ -40,6 +41,19 @@ export const CollisionTransformControls: React.FC<CollisionTransformControlsProp
   const proxyWorldPositionRef = useRef(new THREE.Vector3());
   const proxyLocalPositionRef = useRef(new THREE.Vector3());
   const proxyParentQuaternionRef = useRef(new THREE.Quaternion());
+  const queuedPreviewFrameRef = useRef<number | null>(null);
+  const queuedPreviewRef = useRef<{
+    id: string;
+    objectIndex?: number;
+    position: { x: number; y: number; z: number };
+    rotation: { r: number; p: number; y: number };
+  } | null>(null);
+  const lastCommittedTransformRef = useRef<{
+    id: string;
+    objectIndex: number;
+    position: THREE.Vector3;
+    quaternion: THREE.Quaternion;
+  } | null>(null);
 
   const resolveSelectionLinkId = useCallback(
     (identity: string | null | undefined) => {
@@ -151,33 +165,108 @@ export const CollisionTransformControls: React.FC<CollisionTransformControlsProp
       activeSelection.objectIndex,
     );
 
+    lastCommittedTransformRef.current = {
+      id: activeSelection.id,
+      objectIndex: activeSelection.objectIndex ?? 0,
+      position: activeTargetObject.position.clone(),
+      quaternion: activeTargetObject.quaternion.clone(),
+    };
     originalPositionRef.current.copy(activeTargetObject.position);
     originalRotationRef.current.copy(activeTargetObject.rotation);
     originalQuaternionRef.current.copy(activeTargetObject.quaternion);
     return true;
   }, []);
 
-  const emitTransformPreview = useCallback((object: THREE.Object3D) => {
-    const activeSelection = activeSelectionRef.current;
+  const reconcileCommittedTransform = useCallback(
+    (object: THREE.Object3D, selectionId: string, objectIndex: number) => {
+      const committed = lastCommittedTransformRef.current;
+      if (!committed) {
+        return;
+      }
+
+      if (committed.id !== selectionId || committed.objectIndex !== objectIndex) {
+        lastCommittedTransformRef.current = null;
+        return;
+      }
+
+      const positionMatches =
+        object.position.distanceToSquared(committed.position) <=
+        COLLISION_COMMITTED_TRANSFORM_EPSILON * COLLISION_COMMITTED_TRANSFORM_EPSILON;
+      const rotationMatches =
+        object.quaternion.angleTo(committed.quaternion) <= COLLISION_COMMITTED_TRANSFORM_EPSILON;
+
+      if (positionMatches && rotationMatches) {
+        lastCommittedTransformRef.current = null;
+        return;
+      }
+
+      object.position.copy(committed.position);
+      object.quaternion.copy(committed.quaternion);
+      object.updateMatrixWorld(true);
+    },
+    [],
+  );
+
+  const cancelQueuedTransformPreview = useCallback(() => {
+    if (
+      queuedPreviewFrameRef.current !== null &&
+      typeof window !== 'undefined' &&
+      typeof window.cancelAnimationFrame === 'function'
+    ) {
+      window.cancelAnimationFrame(queuedPreviewFrameRef.current);
+    }
+
+    queuedPreviewFrameRef.current = null;
+    queuedPreviewRef.current = null;
+  }, []);
+
+  const flushQueuedTransformPreview = useCallback(() => {
+    queuedPreviewFrameRef.current = null;
+    const preview = queuedPreviewRef.current;
+    queuedPreviewRef.current = null;
     const handleTransformChange = onTransformChangeRef.current;
-    if (!activeSelection?.id || !handleTransformChange) {
+    if (!preview || !handleTransformChange) {
       return;
     }
 
-    object.updateMatrixWorld(true);
-    const position = object.position;
-    const rotation = getObjectRPY(object);
-
-    handleTransformChange(
-      activeSelection.id,
-      { x: position.x, y: position.y, z: position.z },
-      rotation,
-      activeSelection.objectIndex,
-    );
+    handleTransformChange(preview.id, preview.position, preview.rotation, preview.objectIndex);
   }, []);
+
+  const queueTransformPreview = useCallback(
+    (object: THREE.Object3D) => {
+      const activeSelection = activeSelectionRef.current;
+      if (!activeSelection?.id || !onTransformChangeRef.current) {
+        return;
+      }
+
+      object.updateMatrixWorld(true);
+      const position = object.position;
+      const rotation = getObjectRPY(object);
+
+      queuedPreviewRef.current = {
+        id: activeSelection.id,
+        objectIndex: activeSelection.objectIndex,
+        position: { x: position.x, y: position.y, z: position.z },
+        rotation,
+      };
+
+      if (queuedPreviewFrameRef.current !== null) {
+        return;
+      }
+
+      if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+        flushQueuedTransformPreview();
+        return;
+      }
+
+      queuedPreviewFrameRef.current = window.requestAnimationFrame(flushQueuedTransformPreview);
+    },
+    [flushQueuedTransformPreview],
+  );
 
   const handleCancelDrag = useCallback(() => {
     const activeTargetObject = targetObjectRef.current;
+    cancelQueuedTransformPreview();
 
     if (activeTargetObject) {
       activeTargetObject.position.copy(originalPositionRef.current);
@@ -185,10 +274,11 @@ export const CollisionTransformControls: React.FC<CollisionTransformControlsProp
       activeTargetObject.updateMatrixWorld(true);
       syncTranslateProxy(translateProxyRef.current, activeTargetObject);
     }
-  }, [syncTranslateProxy]);
+  }, [cancelQueuedTransformPreview, syncTranslateProxy]);
 
   const handleFinishDrag = useCallback(() => {
     const activeTargetObject = targetObjectRef.current;
+    cancelQueuedTransformPreview();
     if (!activeTargetObject) {
       return;
     }
@@ -198,7 +288,7 @@ export const CollisionTransformControls: React.FC<CollisionTransformControlsProp
     }
 
     syncTranslateProxy(translateProxyRef.current, activeTargetObject);
-  }, [commitTransform, hasTransformChanged, syncTranslateProxy]);
+  }, [cancelQueuedTransformPreview, commitTransform, hasTransformChanged, syncTranslateProxy]);
 
   const handleBeginDrag = useCallback(() => {
     const activeTargetObject = targetObjectRef.current;
@@ -250,10 +340,12 @@ export const CollisionTransformControls: React.FC<CollisionTransformControlsProp
       }
 
       if (activeTargetObject && isDragging) {
-        emitTransformPreview(activeTargetObject);
+        queueTransformPreview(activeTargetObject);
       }
     },
   });
+
+  useEffect(() => cancelQueuedTransformPreview, [cancelQueuedTransformPreview]);
 
   useEffect(() => {
     // While a drag is in flight, transform previews can churn the `selection`
@@ -324,6 +416,8 @@ export const CollisionTransformControls: React.FC<CollisionTransformControlsProp
     }
 
     const isSameTarget = targetObjectRef.current === collisionGroup;
+    const resolvedSelectionId = resolveSelectionLinkId(selection.id) ?? selection.id;
+    reconcileCommittedTransform(collisionGroup, resolvedSelectionId, selection.objectIndex ?? 0);
 
     if (isDraggingRef.current && targetObjectRef.current && !isSameTarget) {
       cancelActiveDrag();
@@ -337,7 +431,16 @@ export const CollisionTransformControls: React.FC<CollisionTransformControlsProp
       originalRotationRef.current.copy(collisionGroup.rotation);
       originalQuaternionRef.current.copy(collisionGroup.quaternion);
     }
-  }, [cancelActiveDrag, robot, robotLinks, robotVersion, selection, transformMode]);
+  }, [
+    cancelActiveDrag,
+    reconcileCommittedTransform,
+    resolveSelectionLinkId,
+    robot,
+    robotLinks,
+    robotVersion,
+    selection,
+    transformMode,
+  ]);
 
   useEffect(() => {
     if (!isDraggingRef.current) {

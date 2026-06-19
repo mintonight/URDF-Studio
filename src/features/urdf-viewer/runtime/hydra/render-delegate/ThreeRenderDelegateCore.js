@@ -928,6 +928,10 @@ export class ThreeRenderDelegateCore {
         const hasDriverPhysicsAccess = !!activeDriver
             && (typeof activeDriver.GetPhysicsJointRecords === 'function'
                 || typeof activeDriver.GetPhysicsLinkDynamicsRecords === 'function');
+        const hasRuntimeMeshInventory = Object.keys(this.meshes || {}).length > 0;
+        const shouldReadStageDataWithDriver = hasDriverPhysicsAccess
+            && !hasRuntimeMeshInventory
+            && this.disableStageLayerTextFallbacks !== true;
         if (!truth && normalizedStagePath) {
             const cachedSnapshot = this._robotMetadataSnapshotByStageSource?.get?.(normalizedStagePath) || null;
             if (cachedSnapshot && !hasDriverPhysicsAccess) {
@@ -935,7 +939,8 @@ export class ThreeRenderDelegateCore {
             }
         }
         const shouldReadStageDataInJs = truth
-            || (!hasDriverPhysicsAccess && this.disableStageLayerTextFallbacks !== true);
+            || (!hasDriverPhysicsAccess && this.disableStageLayerTextFallbacks !== true)
+            || shouldReadStageDataWithDriver;
         let resolvedStage = null;
         let resolvedStageInitialized = false;
         const getStageForMetadataFallback = () => {
@@ -987,7 +992,7 @@ export class ThreeRenderDelegateCore {
                 registerMetadataErrorFlag('root-layer-text-unavailable');
             }
         }
-        if (!truth && !hasDriverPhysicsAccess && shouldReadStageDataInJs) {
+        if (!truth && shouldReadStageDataInJs) {
             const stage = getStageForMetadataFallback();
             let rootLayerText = '';
             try {
@@ -996,7 +1001,7 @@ export class ThreeRenderDelegateCore {
             catch {
                 registerMetadataErrorFlag('root-layer-text-unavailable');
             }
-            if (shouldRecoverStageMetadataFromLayerText(rootLayerText)) {
+            if (shouldReadStageDataWithDriver || shouldRecoverStageMetadataFromLayerText(rootLayerText)) {
                 try {
                     const stageLayerTexts = this.getStageMetadataLayerTexts?.(stage, normalizedStagePath) || [];
                     if (Array.isArray(stageLayerTexts) && stageLayerTexts.length > 0) {
@@ -1094,7 +1099,7 @@ export class ThreeRenderDelegateCore {
                 targetMap.set(normalizedLinkName, existingNames);
             }
         };
-        const incrementMeshCountsForLinkPath = (linkPath, sectionName, protoType) => {
+        const incrementMeshCountsForLinkPath = (linkPath, sectionName, protoType, primitiveGeometry = null) => {
             if (!linkPath)
                 return;
             if (!meshCountsByLinkPath[linkPath]) {
@@ -1111,9 +1116,38 @@ export class ThreeRenderDelegateCore {
                 if (primitiveType) {
                     counts.collisionPrimitiveCounts[primitiveType] = Number(counts.collisionPrimitiveCounts[primitiveType] || 0) + 1;
                 }
+                if (primitiveGeometry && typeof primitiveGeometry === 'object') {
+                    if (!Array.isArray(counts.collisionPrimitiveGeometries)) {
+                        counts.collisionPrimitiveGeometries = [];
+                    }
+                    counts.collisionPrimitiveGeometries.push(primitiveGeometry);
+                }
             }
             else if (sectionName === 'visuals') {
                 counts.visualMeshCount += 1;
+            }
+        };
+        const mergeColliderFallbackCounts = (collisionMap) => {
+            if (!(collisionMap instanceof Map))
+                return;
+            for (const [linkName, entries] of collisionMap.entries()) {
+                const normalizedLinkName = String(linkName || '').trim();
+                if (!normalizedLinkName || !Array.isArray(entries) || entries.length <= 0)
+                    continue;
+                const linkPath = resolveKnownLinkPathByEquivalentBasename(normalizedLinkName);
+                if (!linkPath)
+                    continue;
+                const existingCounts = meshCountsByLinkPath[linkPath];
+                if (Number(existingCounts?.collisionMeshCount || 0) > 0)
+                    continue;
+                for (const entry of entries) {
+                    incrementMeshCountsForLinkPath(
+                        linkPath,
+                        'collisions',
+                        String(entry?.primitiveType || entry?.primType || 'mesh'),
+                        entry?.primitiveGeometry || entry?.geometry || null,
+                    );
+                }
             }
         };
         const normalizeVector3 = (value, fallback = [0, 0, 0]) => {
@@ -1282,8 +1316,12 @@ export class ThreeRenderDelegateCore {
                 return 'distance';
             if (normalized === 'spherical' || normalized.includes('spherical') || normalized.includes('ball'))
                 return 'spherical';
-            if (normalized === 'd6' || normalized.includes('d6'))
-                return 'd6';
+            if (normalized === 'd6' || normalized.includes('d6') || normalized.includes('6dof') || normalized.includes('sixdof'))
+                return 'floating';
+            if (normalized === 'floating' || normalized.includes('floating') || normalized === 'free' || normalized.includes('freejoint'))
+                return 'floating';
+            if (normalized === 'joint' || normalized === 'physicsjoint' || normalized === 'usdphysicsjoint' || normalized.includes('generic'))
+                return 'floating';
             return raw || 'joint';
         };
         const isControllableStageJointType = (jointTypeName) => {
@@ -1291,7 +1329,7 @@ export class ThreeRenderDelegateCore {
         };
         const isNonRotationalStageJointType = (jointTypeName) => {
             const type = normalizeStageJointType(jointTypeName);
-            return type === 'fixed' || type === 'prismatic' || type === 'distance';
+            return type === 'fixed' || type === 'prismatic' || type === 'distance' || type === 'floating';
         };
         const normalizeStageJointLimits = (jointTypeName, lowerLimitDeg, upperLimitDeg) => {
             const lower = Number(lowerLimitDeg);
@@ -1438,6 +1476,7 @@ export class ThreeRenderDelegateCore {
             ]) {
                 if (!(collisionMap instanceof Map))
                     continue;
+                mergeColliderFallbackCounts(collisionMap);
                 for (const linkName of collisionMap.keys()) {
                     const normalizedLinkName = String(linkName || '').trim();
                     if (normalizedLinkName) {

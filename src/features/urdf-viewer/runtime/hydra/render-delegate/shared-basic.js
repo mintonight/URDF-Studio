@@ -558,6 +558,7 @@ export function extractScopeBodyText(layerText, scopeName) {
 const USD_PRIM_HEADER_REGEX = /^\s*(?:def|over|class)(?:\s+(\w+))?\s+"([^"]+)"/gm;
 const VISUAL_SCOPE_NAMES = new Set(['visuals']);
 const COLLISION_SCOPE_NAMES = new Set(['collider', 'colliders', 'collision', 'collisions']);
+const COLLISION_PRIMITIVE_TYPES = new Set(['cube', 'box', 'sphere', 'cylinder', 'capsule', 'mesh']);
 function buildUsdPathFromSegments(segments) {
     if (!Array.isArray(segments) || segments.length === 0) {
         return '';
@@ -649,20 +650,87 @@ function parseScopedLinkEntryPath(primPath, scopeNames) {
     }
     return null;
 }
-function addScopedEntry(targetMap, linkName, entryName, referencePath = null) {
+function normalizeCollisionPrimitiveType(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return COLLISION_PRIMITIVE_TYPES.has(normalized) ? normalized : null;
+}
+function hasPhysicsCollisionApi(text) {
+    return /apiSchemas\s*=\s*\[[^\]]*PhysicsCollisionAPI[^\]]*\]/i.test(String(text || ''));
+}
+function parseUsdTupleLiteral(value) {
+    const numbers = String(value || '').match(/[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g)
+        ?.map((entry) => Number(entry))
+        .filter((entry) => Number.isFinite(entry)) || [];
+    return numbers.length >= 3 ? [numbers[0], numbers[1], numbers[2]] : null;
+}
+function parseImmediateUsdVectorProperty(metadataText, propertyName) {
+    const escapedPropertyName = String(propertyName || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = String(metadataText || '').match(new RegExp(`${escapedPropertyName}\\s*=\\s*\\(([^)]*)\\)`, 'i'));
+    return parseUsdTupleLiteral(match?.[1] || '');
+}
+function parseImmediateUsdNumberProperty(metadataText, propertyName) {
+    const escapedPropertyName = String(propertyName || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = String(metadataText || '').match(new RegExp(`${escapedPropertyName}\\s*=\\s*([-+0-9.eE]+)`, 'i'));
+    const value = Number(match?.[1]);
+    return Number.isFinite(value) ? value : null;
+}
+function multiplyVector3Tuples(left, right) {
+    return [
+        Number(left?.[0] ?? 1) * Number(right?.[0] ?? 1),
+        Number(left?.[1] ?? 1) * Number(right?.[1] ?? 1),
+        Number(left?.[2] ?? 1) * Number(right?.[2] ?? 1),
+    ];
+}
+function buildCollisionPrimitiveGeometry(primitiveType, metadataText, cumulativeScale, localTranslate) {
+    const normalizedPrimitiveType = normalizeCollisionPrimitiveType(primitiveType);
+    if (!normalizedPrimitiveType || normalizedPrimitiveType === 'mesh') {
+        return null;
+    }
+    const scale = Array.isArray(cumulativeScale) && cumulativeScale.length >= 3
+        ? cumulativeScale.map((value) => Math.abs(Number(value) || 0))
+        : [1, 1, 1];
+    let dimensions = null;
+    if (normalizedPrimitiveType === 'cube' || normalizedPrimitiveType === 'box') {
+        const size = parseImmediateUsdNumberProperty(metadataText, 'size') ?? 1;
+        dimensions = [scale[0] * size, scale[1] * size, scale[2] * size];
+    }
+    else if (normalizedPrimitiveType === 'sphere') {
+        const radius = parseImmediateUsdNumberProperty(metadataText, 'radius') ?? 1;
+        dimensions = [scale[0] * radius * 2, scale[1] * radius * 2, scale[2] * radius * 2];
+    }
+    else if (normalizedPrimitiveType === 'cylinder' || normalizedPrimitiveType === 'capsule') {
+        const radius = parseImmediateUsdNumberProperty(metadataText, 'radius') ?? 1;
+        const height = parseImmediateUsdNumberProperty(metadataText, 'height') ?? 2;
+        dimensions = [scale[0] * radius * 2, scale[1] * radius * 2, scale[2] * height];
+    }
+    if (!dimensions) {
+        return null;
+    }
+    return {
+        primitiveType: normalizedPrimitiveType,
+        dimensions,
+        ...(Array.isArray(localTranslate) ? { originXyz: localTranslate.slice(0, 3) } : {}),
+    };
+}
+function addScopedEntry(targetMap, linkName, entryName, referencePath = null, primitiveType = null, primitiveGeometry = null) {
     const normalizedLinkName = String(linkName || '').trim();
     const normalizedEntryName = String(entryName || '').trim();
     const normalizedReferencePath = referencePath ? normalizeUsdPathToken(referencePath) : null;
+    const normalizedPrimitiveType = normalizeCollisionPrimitiveType(primitiveType);
     if (!normalizedLinkName || !normalizedEntryName) {
         return;
     }
     const existingEntries = targetMap.get(normalizedLinkName) || [];
-    if (existingEntries.some((entry) => entry.entryName === normalizedEntryName && entry.referencePath === normalizedReferencePath)) {
+    if (existingEntries.some((entry) => entry.entryName === normalizedEntryName
+        && entry.referencePath === normalizedReferencePath
+        && (entry.primitiveType || null) === normalizedPrimitiveType)) {
         return;
     }
     existingEntries.push({
         entryName: normalizedEntryName,
         referencePath: normalizedReferencePath,
+        ...(normalizedPrimitiveType ? { primitiveType: normalizedPrimitiveType } : {}),
+        ...(primitiveGeometry ? { primitiveGeometry } : {}),
     });
     targetMap.set(normalizedLinkName, existingEntries);
 }
@@ -808,12 +876,43 @@ export function parseGuideCollisionReferencesFromLayerText(layerText) {
 }
 export function parseColliderEntriesFromLayerText(layerText) {
     const linkToColliderEntries = new Map();
-    walkUsdNamedPrimBlocks(layerText, ({ path }) => {
+    const cumulativeScaleByPrimPath = new Map();
+    walkUsdNamedPrimBlocks(layerText, ({ name, path, pathSegments, primType, text, body }) => {
+        const parentPath = buildUsdPathFromSegments(pathSegments.slice(0, -1));
+        const parentScale = cumulativeScaleByPrimPath.get(parentPath) || [1, 1, 1];
+        const openingBraceIndex = text.indexOf('{');
+        const headerText = openingBraceIndex >= 0 ? text.slice(0, openingBraceIndex) : text;
+        const immediateProperties = extractImmediatePropertyTextFromPrimBody(body);
+        const metadataText = `${headerText}\n${immediateProperties}`;
+        const localScale = parseImmediateUsdVectorProperty(metadataText, 'xformOp:scale') || [1, 1, 1];
+        const localTranslate = parseImmediateUsdVectorProperty(metadataText, 'xformOp:translate');
+        const cumulativeScale = multiplyVector3Tuples(parentScale, localScale);
+        cumulativeScaleByPrimPath.set(path, cumulativeScale);
         const scopedPath = parseScopedLinkEntryPath(path, COLLISION_SCOPE_NAMES);
         if (!scopedPath?.linkName || !scopedPath.entryName || scopedPath.normalizedPath !== scopedPath.entryPath) {
+            const primitiveType = normalizeCollisionPrimitiveType(primType);
+            if (!primitiveType || !hasPhysicsCollisionApi(text) || !Array.isArray(pathSegments) || pathSegments.length < 2) {
+                return;
+            }
+            const linkName = String(pathSegments[pathSegments.length - 2] || '').trim();
+            addScopedEntry(
+                linkToColliderEntries,
+                linkName,
+                name,
+                null,
+                primitiveType,
+                buildCollisionPrimitiveGeometry(primitiveType, metadataText, cumulativeScale, localTranslate),
+            );
             return;
         }
-        addScopedEntry(linkToColliderEntries, scopedPath.linkName, scopedPath.entryName, null);
+        addScopedEntry(
+            linkToColliderEntries,
+            scopedPath.linkName,
+            scopedPath.entryName,
+            null,
+            normalizeCollisionPrimitiveType(primType),
+            buildCollisionPrimitiveGeometry(primType, metadataText, cumulativeScale, localTranslate),
+        );
     });
     return linkToColliderEntries;
 }

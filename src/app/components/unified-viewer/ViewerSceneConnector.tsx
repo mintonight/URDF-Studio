@@ -11,10 +11,10 @@ import type {
   ViewerDocumentLoadEvent,
   ViewerHelperKind,
   ViewerRobotSourceFormat,
-} from '@/features/urdf-viewer/types';
-import type { ViewerController } from '@/features/urdf-viewer/hooks/useViewerController';
-import type { ViewerResourceScope } from '@/features/urdf-viewer/utils/viewerResourceScope';
-import { ViewerScene } from '@/features/urdf-viewer/components/ViewerScene';
+} from '@/features/editor';
+import type { ViewerController } from '@/features/editor';
+import type { ViewerResourceScope } from '@/features/editor';
+import { ViewerScene } from '@/features/editor';
 import { useSelectionStore } from '@/store/selectionStore';
 import type { AssemblySelection } from '@/store/assemblySelectionStore';
 

@@ -60,6 +60,13 @@ const layerRanks = new Map([
   ['app', 5],
 ]);
 
+const siblingFeatureImportAllowlist = new Set([
+  'src/features/editor/index.ts -> ../urdf-viewer',
+  'src/features/editor/viewerPanelModule.ts -> ../urdf-viewer/components/ViewerPanels',
+  'src/features/editor/viewerPanelModule.ts -> ../urdf-viewer/hooks/useResponsivePanelLayout',
+  'src/features/editor/viewerPanelModule.ts -> ../urdf-viewer/hooks/useViewerController',
+]);
+
 function getLayerName(repoPath: string): string | null {
   const match = /^src\/([^/]+)/.exec(repoPath);
   const layerName = match?.[1] ?? null;
@@ -138,7 +145,7 @@ test('features do not import sibling feature internals', () => {
         continue;
       }
 
-      if (importerFeature === 'editor' && targetFeature === 'urdf-viewer') {
+      if (siblingFeatureImportAllowlist.has(`${importer} -> ${specifier}`)) {
         continue;
       }
 
