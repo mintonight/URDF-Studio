@@ -4,10 +4,27 @@ import * as THREE from 'three';
 
 import type { AssemblyState } from '@/types';
 
-import { resolveJointSnapFromHit } from './jointSnapResolver.ts';
+import { chooseSnapCandidate, resolveJointSnapFromHit, type ResolvedJointSnapCandidate } from './jointSnapResolver.ts';
 
 function assertVecNearlyEqual(actual: THREE.Vector3, expected: THREE.Vector3, message?: string) {
   assert.ok(actual.distanceTo(expected) < 1e-4, message ?? `${actual.toArray()} !== ${expected.toArray()}`);
+}
+
+function candidate(kind: ResolvedJointSnapCandidate['kind'], pointWorld: THREE.Vector3): ResolvedJointSnapCandidate {
+  return {
+    kind,
+    pointWorld,
+    poseWorld: new THREE.Matrix4().setPosition(pointWorld),
+  };
+}
+
+function buildCamera(): THREE.OrthographicCamera {
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+  camera.position.set(0, 0, 5);
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+  return camera;
 }
 
 function buildRuntime(): { robot: THREE.Group; mesh: THREE.Mesh; orphan: THREE.Mesh } {
@@ -72,7 +89,7 @@ test('resolveJointSnapFromHit maps a hit back to its component link and world fr
   assertVecNearlyEqual(faceCenter!.pointWorld, new THREE.Vector3(10 + 2 / 3, 2 / 3, 0));
 });
 
-test('resolveJointSnapFromHit chooses the candidate closest to the cursor hit', () => {
+test('resolveJointSnapFromHit prefers smart face candidates over raw surface hits', () => {
   const { mesh } = buildRuntime();
 
   const result = resolveJointSnapFromHit(
@@ -81,8 +98,39 @@ test('resolveJointSnapFromHit chooses the candidate closest to the cursor hit', 
     ['surface', 'faceCenter'],
   );
 
-  assert.equal(result!.chosen.kind, 'surface');
-  assertVecNearlyEqual(result!.chosen.pointWorld, new THREE.Vector3(10.5, 0.3, 0));
+  assert.equal(result!.chosen.kind, 'faceCenter');
+  assertVecNearlyEqual(result!.chosen.pointWorld, new THREE.Vector3(10 + 2 / 3, 2 / 3, 0));
+});
+
+test('chooseSnapCandidate uses screen radius and priority while ignoring surface as an active snap', () => {
+  const camera = buildCamera();
+  const hitPoint = new THREE.Vector3(0, 0, 0);
+  const chosen = chooseSnapCandidate(
+    [
+      candidate('surface', hitPoint.clone()),
+      candidate('bboxCenter', new THREE.Vector3(0.2, 0, 0)),
+      candidate('faceCenter', new THREE.Vector3(0.05, 0, 0)),
+    ],
+    hitPoint,
+    { camera, domSize: { width: 1000, height: 1000 } },
+  );
+
+  assert.equal(chosen.kind, 'faceCenter');
+});
+
+test('chooseSnapCandidate can override to a free surface point', () => {
+  const hitPoint = new THREE.Vector3(0, 0, 0);
+  const chosen = chooseSnapCandidate(
+    [
+      candidate('surface', hitPoint.clone()),
+      candidate('faceCenter', new THREE.Vector3(0.05, 0, 0)),
+    ],
+    hitPoint,
+    { freePointOverride: true },
+  );
+
+  assert.equal(chosen.kind, 'surface');
+  assertVecNearlyEqual(chosen.pointWorld, hitPoint);
 });
 
 test('resolveJointSnapFromHit returns null for hits without a link ancestor or face', () => {

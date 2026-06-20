@@ -6,6 +6,7 @@ import * as THREE from 'three';
  * - `surface`: raw raycast hit point on the mesh surface.
  * - `faceCenter`: centroid of the hit triangle.
  * - `bboxCenter`: bounding box center of the whole geometry object.
+ * - `circleCenter`: fitted center of a coplanar circular face region.
  * - `vertex`: nearest mesh vertex.
  * - `edgeMidpoint`: midpoint of the nearest triangle edge.
  *
@@ -13,7 +14,13 @@ import * as THREE from 'three';
  * caller is responsible for transforming results to world space with the
  * object's `matrixWorld`.
  */
-export type SnapPointKind = 'surface' | 'faceCenter' | 'bboxCenter' | 'vertex' | 'edgeMidpoint';
+export type SnapPointKind =
+  | 'surface'
+  | 'faceCenter'
+  | 'bboxCenter'
+  | 'circleCenter'
+  | 'vertex'
+  | 'edgeMidpoint';
 
 export interface LocalSnapPoint {
   kind: SnapPointKind;

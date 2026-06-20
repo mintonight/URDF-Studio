@@ -160,6 +160,13 @@ export const AssemblyJointPickLayer = memo(
             { object: hit.object, point: hit.point, faceIndex: hit.faceIndex },
             ctx.assemblyState,
             ctx.snapFilter,
+            {
+              camera,
+              domSize: {
+                width: domElement.clientWidth,
+                height: domElement.clientHeight,
+              },
+            },
           );
           if (snap) {
             const componentMatches =

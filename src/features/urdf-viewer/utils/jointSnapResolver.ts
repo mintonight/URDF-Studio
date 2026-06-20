@@ -23,6 +23,12 @@ export interface ResolvedJointSnap {
   chosen: ResolvedJointSnapCandidate;
 }
 
+export interface JointSnapResolveOptions {
+  camera?: THREE.Camera;
+  domSize?: { width: number; height: number };
+  freePointOverride?: boolean;
+}
+
 /** Minimal structural view of a raycast hit (decoupled from THREE.Intersection for testability). */
 export interface JointSnapHit {
   object: THREE.Object3D;
@@ -31,6 +37,30 @@ export interface JointSnapHit {
 }
 
 type MaybeUrdfLink = THREE.Object3D & { isURDFLink?: boolean };
+
+interface WorldPoseInput {
+  pointWorld: THREE.Vector3;
+  normalLocal?: THREE.Vector3;
+  normalMatrix: THREE.Matrix3;
+  matrixWorld: THREE.Matrix4;
+  hintTangentWorld: THREE.Vector3;
+}
+
+interface ScreenDistanceInput {
+  a: THREE.Vector3;
+  b: THREE.Vector3;
+  camera: THREE.Camera;
+  domSize: { width: number; height: number };
+}
+
+const SNAP_PROFILE: Record<SnapPointKind, { priority: number; radiusPx: number }> = {
+  circleCenter: { priority: 100, radiusPx: 80 },
+  faceCenter: { priority: 60, radiusPx: 40 },
+  vertex: { priority: 55, radiusPx: 16 },
+  edgeMidpoint: { priority: 50, radiusPx: 16 },
+  bboxCenter: { priority: 45, radiusPx: 200 },
+  surface: { priority: 0, radiusPx: 0 },
+};
 
 function findLinkAncestor(object: THREE.Object3D): THREE.Object3D | null {
   let current: THREE.Object3D | null = object;
@@ -67,19 +97,76 @@ function resolveComponentAndLink(
   return null;
 }
 
-function toWorldPose(
-  pointWorld: THREE.Vector3,
-  normalLocal: THREE.Vector3 | undefined,
-  normalMatrix: THREE.Matrix3,
-  matrixWorld: THREE.Matrix4,
-  hintTangentWorld: THREE.Vector3,
-): THREE.Matrix4 {
+function toWorldPose(input: WorldPoseInput): THREE.Matrix4 {
+  const { pointWorld, normalLocal, normalMatrix, matrixWorld, hintTangentWorld } = input;
   // Surface normals must use the inverse-transpose so non-uniform mesh scale
   // does not skew the snap frame orientation.
   const normalWorld = normalLocal
     ? normalLocal.clone().applyMatrix3(normalMatrix).normalize()
     : new THREE.Vector3(0, 0, 1).transformDirection(matrixWorld);
   return makeFrameFromPointAndNormal(pointWorld, normalWorld, hintTangentWorld);
+}
+
+function screenDistancePx(input: ScreenDistanceInput): number {
+  const { a, b, camera, domSize } = input;
+  const aNdc = a.clone().project(camera);
+  const bNdc = b.clone().project(camera);
+  const ax = (aNdc.x * 0.5 + 0.5) * domSize.width;
+  const ay = (-aNdc.y * 0.5 + 0.5) * domSize.height;
+  const bx = (bNdc.x * 0.5 + 0.5) * domSize.width;
+  const by = (-bNdc.y * 0.5 + 0.5) * domSize.height;
+  return Math.hypot(ax - bx, ay - by);
+}
+
+export function chooseSnapCandidate(
+  candidates: ResolvedJointSnapCandidate[],
+  hitPoint: THREE.Vector3,
+  options: JointSnapResolveOptions = {},
+): ResolvedJointSnapCandidate {
+  const surface = candidates.find((candidate) => candidate.kind === 'surface');
+  if (options.freePointOverride) {
+    return surface ?? candidates[0];
+  }
+
+  const hasScreenMetric =
+    Boolean(options.camera) &&
+    Boolean(options.domSize) &&
+    (options.domSize?.width ?? 0) > 0 &&
+    (options.domSize?.height ?? 0) > 0;
+  const eligible = candidates
+    .map((candidate) => {
+      const profile = SNAP_PROFILE[candidate.kind];
+      if (profile.radiusPx <= 0) {
+        return null;
+      }
+      const distance = hasScreenMetric
+        ? screenDistancePx({
+            a: candidate.pointWorld,
+            b: hitPoint,
+            camera: options.camera!,
+            domSize: options.domSize!,
+          })
+        : candidate.pointWorld.distanceTo(hitPoint);
+      if (hasScreenMetric && distance > profile.radiusPx) {
+        return null;
+      }
+      return { candidate, distance, profile };
+    })
+    .filter((entry): entry is {
+      candidate: ResolvedJointSnapCandidate;
+      distance: number;
+      profile: { priority: number; radiusPx: number };
+    } => entry !== null);
+
+  if (eligible.length === 0) {
+    return surface ?? candidates[0];
+  }
+
+  eligible.sort((a, b) => {
+    const priorityDelta = b.profile.priority - a.profile.priority;
+    return priorityDelta || a.distance - b.distance;
+  });
+  return eligible[0].candidate;
 }
 
 /**
@@ -91,6 +178,7 @@ export function resolveJointSnapFromHit(
   hit: JointSnapHit,
   assemblyState: AssemblyState,
   snapFilter: SnapPointKind[] | null,
+  options: JointSnapResolveOptions = {},
 ): ResolvedJointSnap | null {
   const mesh = hit.object as THREE.Mesh;
   const geometry = mesh.geometry as THREE.BufferGeometry | undefined;
@@ -120,13 +208,13 @@ export function resolveJointSnapFromHit(
     return {
       kind: candidate.kind,
       pointWorld,
-      poseWorld: toWorldPose(
+      poseWorld: toWorldPose({
         pointWorld,
-        candidate.normalLocal,
+        normalLocal: candidate.normalLocal,
         normalMatrix,
         matrixWorld,
         hintTangentWorld,
-      ),
+      }),
     };
   });
 
@@ -136,7 +224,13 @@ export function resolveJointSnapFromHit(
     candidates.push({
       kind: 'bboxCenter',
       pointWorld: center,
-      poseWorld: toWorldPose(center, faceNormalLocal, normalMatrix, matrixWorld, hintTangentWorld),
+      poseWorld: toWorldPose({
+        pointWorld: center,
+        normalLocal: faceNormalLocal,
+        normalMatrix,
+        matrixWorld,
+        hintTangentWorld,
+      }),
     });
   }
 
@@ -144,16 +238,7 @@ export function resolveJointSnapFromHit(
     return null;
   }
 
-  // Choose the candidate closest to the raw cursor hit so snapping feels direct.
-  let chosen = candidates[0];
-  let chosenDistance = chosen.pointWorld.distanceToSquared(hit.point);
-  for (let i = 1; i < candidates.length; i += 1) {
-    const distance = candidates[i].pointWorld.distanceToSquared(hit.point);
-    if (distance < chosenDistance) {
-      chosen = candidates[i];
-      chosenDistance = distance;
-    }
-  }
+  const chosen = chooseSnapCandidate(candidates, hit.point, options);
 
   return {
     componentId: resolved.componentId,
