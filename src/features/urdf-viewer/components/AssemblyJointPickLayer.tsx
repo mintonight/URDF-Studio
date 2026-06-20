@@ -30,6 +30,10 @@ const SNAP_TONE = {
   child: '#10b981',
 } as const;
 
+function isFreePointOverride(event: MouseEvent): boolean {
+  return event.ctrlKey || event.metaKey;
+}
+
 interface AssemblyJointPickLayerProps {
   robot: THREE.Object3D | null;
   assemblyState: AssemblyState | null;
@@ -145,7 +149,7 @@ export const AssemblyJointPickLayer = memo(
         return true;
       };
 
-      const raycastSnap = (): { snap: ResolvedJointSnap; valid: boolean } | null => {
+      const raycastSnap = (freePointOverride = false): { snap: ResolvedJointSnap; valid: boolean } | null => {
         const ctx = ctxRef.current;
         if (!ctx.robot || !ctx.assemblyState) {
           return null;
@@ -166,6 +170,7 @@ export const AssemblyJointPickLayer = memo(
                 width: domElement.clientWidth,
                 height: domElement.clientHeight,
               },
+              freePointOverride,
             },
           );
           if (snap) {
@@ -191,7 +196,7 @@ export const AssemblyJointPickLayer = memo(
           setHover(null);
           return;
         }
-        const result = raycastSnap();
+        const result = raycastSnap(isFreePointOverride(event));
         if (!result) {
           setHover(null);
           return;
@@ -230,7 +235,7 @@ export const AssemblyJointPickLayer = memo(
         if (!updatePointer(event)) {
           return;
         }
-        const result = raycastSnap();
+        const result = raycastSnap(isFreePointOverride(event));
         if (!result || !result.valid) {
           return;
         }

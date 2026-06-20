@@ -16,7 +16,6 @@ import {
   waitForReady, getAssemblyState, findAvailableFile, getProjectedInteractionTargets,
   clickCanvasTarget, store, writeReport, printSummary,
 } from './helpers/base-helpers.mjs';
-import { importModel as importUrdf } from './helpers/urdf-helpers.mjs';
 
 const PICK_PARENT = ['Pick parent', '拾取父侧'];
 const PICK_CHILD = ['Pick child', '拾取子侧'];
@@ -24,12 +23,128 @@ const PARENT_DONE = ['Parent ✓', '父侧 ✓'];
 const CHILD_DONE = ['Child ✓', '子侧 ✓'];
 const CONFIRM = ['Confirm', '确认'];
 const CREATE_BRIDGE = ['Create Bridge', '创建拼接'];
+const CYLINDER_FILE = 'joint_pick_cylinder.urdf';
+const BOX_FILE = 'joint_pick_box.urdf';
+const MODIFIER_KEY = process.platform === 'darwin' ? 'Meta' : 'Control';
+
+const CYLINDER_URDF = `<?xml version="1.0"?>
+<robot name="joint_pick_cylinder">
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.6" length="0.4"/>
+      </geometry>
+      <material name="cyan"><color rgba="0.1 0.7 0.9 1"/></material>
+    </visual>
+  </link>
+</robot>`;
+
+const BOX_URDF = `<?xml version="1.0"?>
+<robot name="joint_pick_box">
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.6 0.6 0.6"/>
+      </geometry>
+      <material name="green"><color rgba="0.1 0.8 0.3 1"/></material>
+    </visual>
+  </link>
+</robot>`;
 
 async function selectionOf(page) {
   return page.evaluate(() => {
     const snap = window.__URDF_STUDIO_DEBUG__?.getRegressionSnapshot?.();
     return snap?.interaction?.selection ?? null;
   });
+}
+
+async function seedJointPickFixtures(page) {
+  await page.waitForFunction(
+    () => Boolean(
+      window.__URDF_STUDIO_DEBUG__?.resetFixtureFiles
+        && window.__URDF_STUDIO_DEBUG__?.seedFixtureFile
+        && window.__URDF_STUDIO_DEBUG__?.loadRobotByName,
+    ),
+    { timeout: 30_000 },
+  );
+  await page.evaluate(
+    ({ cylinderFile, cylinderUrdf, boxFile, boxUrdf }) => {
+      const api = window.__URDF_STUDIO_DEBUG__;
+      api.resetFixtureFiles();
+      api.seedFixtureFile({
+        name: cylinderFile,
+        content: cylinderUrdf,
+        format: 'urdf',
+        addFileContent: true,
+      });
+      api.seedFixtureFile({
+        name: boxFile,
+        content: boxUrdf,
+        format: 'urdf',
+        addFileContent: true,
+      });
+    },
+    {
+      cylinderFile: CYLINDER_FILE,
+      cylinderUrdf: CYLINDER_URDF,
+      boxFile: BOX_FILE,
+      boxUrdf: BOX_URDF,
+    },
+  );
+  await page.evaluate(async (fileName) => {
+    await window.__URDF_STUDIO_DEBUG__.loadRobotByName(fileName);
+  }, CYLINDER_FILE);
+}
+
+async function jointPickSession(page) {
+  return page.evaluate(() => {
+    const state = window.__URDF_STUDIO_DEBUG__?.__jointPickSessionStore__?.getState?.();
+    return state
+      ? {
+          active: state.active,
+          side: state.side,
+          parentSnap: state.parentSnap,
+          childSnap: state.childSnap,
+        }
+      : null;
+  });
+}
+
+async function waitForSnapKind(page, side, kind, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  const key = side === 'parent' ? 'parentSnap' : 'childSnap';
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await jointPickSession(page);
+    if (last?.[key]?.kind === kind) return last[key];
+    await delay(150);
+  }
+  throw new Error(`Timed out waiting for ${side} snap kind ${kind}; last=${JSON.stringify(last)}`);
+}
+
+function offsetWithinTarget(target) {
+  const dx = Math.max(6, Math.min(24, Number(target.projectedWidth ?? 0) * 0.2));
+  const dy = Math.max(6, Math.min(24, Number(target.projectedHeight ?? 0) * 0.15));
+  return {
+    ...target,
+    clientX: target.clientX + dx,
+    clientY: target.clientY + dy,
+  };
+}
+
+async function clickCanvasTargetWithModifier(page, target) {
+  const point = { x: target.clientX, y: target.clientY };
+  await page.mouse.move(point.x, point.y);
+  await page.keyboard.down(MODIFIER_KEY);
+  try {
+    await page.mouse.down();
+    await page.mouse.up();
+  } finally {
+    await page.keyboard.up(MODIFIER_KEY);
+  }
+  return point;
 }
 
 // Click an empty canvas spot to clear any pre-existing selection so the bridge
@@ -133,14 +248,15 @@ async function main() {
   const modalSafeMaxX = viewportWidth - 640;
 
   try {
-    // ── Two-component assembly (same robot twice, child shifted aside) ──
-    await importUrdf(page, 'a1_description', 'a1.urdf');
+    // ── Two-component assembly with controlled primitive snap surfaces ──
+    await seedJointPickFixtures(page);
     await waitForReady(page);
 
     await store.initAssembly(page, 'joint_pick_asm'); await delay(300);
-    const file = await findAvailableFile(page, 'a1.urdf');
-    const compA = await store.addComponent(page, file); await delay(500);
-    const compB = await store.addComponent(page, file); await delay(800);
+    const cylinderFile = await findAvailableFile(page, CYLINDER_FILE);
+    const boxFile = await findAvailableFile(page, BOX_FILE);
+    const compA = await store.addComponent(page, cylinderFile); await delay(500);
+    const compB = await store.addComponent(page, boxFile); await delay(800);
     assert(suite, compA.ok && compB.ok, 'two components added');
     assertEqual(suite, (await getAssemblyState(page)).componentCount, 2, '2 components');
     const allIds = [compA.id, compB.id];
@@ -148,7 +264,7 @@ async function main() {
     // Separate the child sideways so both render fully (no occlusion) and stay
     // left of the top-right modal.
     await store.updateComponentTransform(page, compB.id, {
-      position: { x: -1.5, y: 0, z: 0 }, rotation: { r: 0, p: 0, y: 0 },
+      position: { x: -1.2, y: 0, z: 0 }, rotation: { r: 0, p: 0, y: 0 },
     });
     await delay(1000);
 
@@ -160,8 +276,8 @@ async function main() {
 
     // ── Set the relation by clicking each component's link in the canvas ──
     // Wait for both components to finish projecting so target sampling is stable.
-    await waitForComponentTargets(page, compA.id, allIds, modalSafeMaxX, 6);
-    await waitForComponentTargets(page, compB.id, allIds, modalSafeMaxX, 6);
+    await waitForComponentTargets(page, compA.id, allIds, modalSafeMaxX, 1);
+    await waitForComponentTargets(page, compB.id, allIds, modalSafeMaxX, 1);
     const parentTargets = await targetsForComponent(page, compA.id, allIds, modalSafeMaxX);
     const childTargets = await targetsForComponent(page, compB.id, allIds, modalSafeMaxX);
     assertGreaterThan(suite, parentTargets.length, 0, 'parent link targets projected');
@@ -186,6 +302,8 @@ async function main() {
     const parentPick = (await targetById(page, relParentLinkId)) ?? parentTarget;
     await clickCanvasTarget(page, parentPick); await delay(900);
     assert(suite, await waitForButton(page, PARENT_DONE, 5000), 'parent snap committed (raycast→resolve→commit)');
+    const parentSnap = await waitForSnapKind(page, 'parent', 'circleCenter');
+    assertEqual(suite, parentSnap.kind, 'circleCenter', 'cylinder cap pick snaps to circle center');
 
     // ── Pick the child joint origin ──
     assert(suite, await clickButton(page, PICK_CHILD), 'activate child pick');
@@ -193,6 +311,16 @@ async function main() {
     const childPick = (await targetById(page, relChildLinkId)) ?? childTarget;
     await clickCanvasTarget(page, childPick); await delay(1000);
     assert(suite, await waitForButton(page, CHILD_DONE, 5000), 'child snap committed');
+    const childSnap = await waitForSnapKind(page, 'child', 'faceCenter');
+    assertEqual(suite, childSnap.kind, 'faceCenter', 'box face pick snaps to face center');
+
+    // ── Ctrl/Cmd override: same box surface can be committed as a raw surface point ──
+    assert(suite, await clickButton(page, CHILD_DONE), 'reactivate child pick for free-point override');
+    await delay(500);
+    const freePointPick = offsetWithinTarget((await targetById(page, relChildLinkId)) ?? childPick);
+    await clickCanvasTargetWithModifier(page, freePointPick); await delay(1000);
+    const freePointSnap = await waitForSnapKind(page, 'child', 'surface');
+    assertEqual(suite, freePointSnap.kind, 'surface', 'Ctrl/Cmd pick commits a free surface point');
 
     // ── Confirm → bridge created + child auto-aligned by the picked snaps ──
     const beforeChild = (await getAssemblyState(page)).components.find((c) => c.id === compB.id);

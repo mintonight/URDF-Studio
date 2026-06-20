@@ -5,6 +5,7 @@ import {
   useSelectionStore,
   useUIStore,
 } from '@/store';
+import { useJointPickSessionStore } from '@/store/jointPickSessionStore';
 import type { RobotFile } from '@/types';
 import { setRegressionBeforeUnloadPromptSuppressed } from '@/shared/debug/regressionPromptSuppression';
 import {
@@ -44,10 +45,12 @@ export function useRegressionDebugApi(loadRobotByNameRef: LoadRobotByNameRef): v
           __store__?: typeof useRobotStore;
           __uiStore__?: typeof useUIStore;
           __assetsStore__?: typeof useAssetsStore;
+          __jointPickSessionStore__?: typeof useJointPickSessionStore;
         };
         regressionApi.__store__ = useRobotStore;
         regressionApi.__uiStore__ = useUIStore;
         regressionApi.__assetsStore__ = useAssetsStore;
+        regressionApi.__jointPickSessionStore__ = useJointPickSessionStore;
 
         setRegressionAppHandlers({
           getAvailableFiles: () => useAssetsStore.getState().availableFiles,

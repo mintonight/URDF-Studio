@@ -91,6 +91,11 @@ export const en: TranslationKeys = {
   bridgePickHint: 'Click a link in the 3D view to fill the active side.',
   bridgePickParent: 'Pick Parent',
   bridgePickChild: 'Pick Child',
+  bridgeSnapHintSmart: 'Hover snaps to circle, face, or object center.',
+  bridgeSnapHintFreePoint: 'Hold Ctrl/Cmd to pick any point on the face.',
+  bridgeSnapKindCircleCenter: 'Circle Center',
+  bridgeSnapKindObjectCenter: 'Object Center',
+  bridgeSnapKindFaceCenter: 'Face Center',
   add: 'Add',
   bridgedComponent: 'Connected',
   bridgedComponentLockedHint:

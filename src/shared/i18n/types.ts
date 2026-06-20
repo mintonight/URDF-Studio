@@ -80,6 +80,11 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   bridgePickHint: string;
   bridgePickParent: string;
   bridgePickChild: string;
+  bridgeSnapHintSmart: string;
+  bridgeSnapHintFreePoint: string;
+  bridgeSnapKindCircleCenter: string;
+  bridgeSnapKindObjectCenter: string;
+  bridgeSnapKindFaceCenter: string;
   add: string;
   bridgedComponent: string;
   bridgedComponentLockedHint: string;
