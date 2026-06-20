@@ -3,6 +3,7 @@ import test from 'node:test';
 import * as THREE from 'three';
 
 import type { AssemblyState } from '@/types';
+import { getFaceCenter, getFaceNormal } from '@/core/geometry/meshSnapPoints';
 
 import { chooseSnapCandidate, resolveJointSnapFromHit, type ResolvedJointSnapCandidate } from './jointSnapResolver.ts';
 
@@ -49,6 +50,40 @@ function buildRuntime(): { robot: THREE.Group; mesh: THREE.Mesh; orphan: THREE.M
 
   robot.updateMatrixWorld(true);
   return { robot, mesh, orphan };
+}
+
+function findFaceIndex(
+  geometry: THREE.BufferGeometry,
+  predicate: (normal: THREE.Vector3, center: THREE.Vector3) => boolean,
+): number {
+  const faceCount = (geometry.getIndex()?.count ?? 0) / 3;
+  for (let faceIndex = 0; faceIndex < faceCount; faceIndex += 1) {
+    const normal = getFaceNormal(geometry, faceIndex);
+    const center = getFaceCenter(geometry, faceIndex);
+    if (normal && center && predicate(normal, center)) {
+      return faceIndex;
+    }
+  }
+  assert.fail('No matching face found');
+}
+
+function buildCylinderRuntime(): { mesh: THREE.Mesh; topFace: number } {
+  const robot = new THREE.Group();
+  const link = new THREE.Group();
+  (link as THREE.Object3D & { isURDFLink?: boolean }).isURDFLink = true;
+  link.name = 'comp_a_base_link';
+  link.position.set(10, 0, 0);
+
+  const geometry = new THREE.CylinderGeometry(1, 1, 2, 32);
+  const topFace = findFaceIndex(
+    geometry,
+    (normal, center) => Math.abs(normal.y) > 0.9 && center.y > 0.5,
+  );
+  const mesh = new THREE.Mesh(geometry);
+  link.add(mesh);
+  robot.add(link);
+  robot.updateMatrixWorld(true);
+  return { mesh, topFace };
 }
 
 const ASSEMBLY_STATE = {
@@ -131,6 +166,21 @@ test('chooseSnapCandidate can override to a free surface point', () => {
 
   assert.equal(chosen.kind, 'surface');
   assertVecNearlyEqual(chosen.pointWorld, hitPoint);
+});
+
+test('resolveJointSnapFromHit adds and chooses circle center candidates', () => {
+  const { mesh, topFace } = buildCylinderRuntime();
+
+  const result = resolveJointSnapFromHit(
+    { object: mesh, faceIndex: topFace, point: new THREE.Vector3(10.6, 1, 0.2) },
+    ASSEMBLY_STATE,
+    null,
+  );
+
+  assert.ok(result);
+  assert.equal(result!.chosen.kind, 'circleCenter');
+  assert.ok(result!.candidates.some((candidate) => candidate.kind === 'circleCenter'));
+  assertVecNearlyEqual(result!.chosen.pointWorld, new THREE.Vector3(10, 1, 0));
 });
 
 test('resolveJointSnapFromHit returns null for hits without a link ancestor or face', () => {

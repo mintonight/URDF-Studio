@@ -5,6 +5,7 @@ import {
   collectSnapCandidatesFromFace,
   type SnapPointKind,
 } from '@/core/geometry/meshSnapPoints';
+import { detectCircleFaceFromHit } from '@/core/geometry/circleFaceDetect';
 import { makeFrameFromPointAndNormal } from '@/core/geometry/snapGeometry';
 
 import { getObjectWorldCenter, getObjectWorldPoseMatrix } from './measurements.ts';
@@ -203,6 +204,16 @@ export function resolveJointSnapFromHit(
   const hintTangentWorld = new THREE.Vector3(1, 0, 0).transformDirection(matrixWorld);
 
   const localCandidates = collectSnapCandidatesFromFace(geometry, hit.faceIndex, localHit, snapFilter);
+  if (!snapFilter || snapFilter.includes('circleCenter')) {
+    const circleFit = detectCircleFaceFromHit(geometry, hit.faceIndex);
+    if (circleFit) {
+      localCandidates.push({
+        kind: 'circleCenter',
+        pointLocal: circleFit.center,
+        normalLocal: circleFit.normal,
+      });
+    }
+  }
   const candidates: ResolvedJointSnapCandidate[] = localCandidates.map((candidate) => {
     const pointWorld = candidate.pointLocal.clone().applyMatrix4(matrixWorld);
     return {
