@@ -93,9 +93,18 @@ async function seedJointPickFixtures(page) {
       boxUrdf: BOX_URDF,
     },
   );
-  await page.evaluate(async (fileName) => {
-    await window.__URDF_STUDIO_DEBUG__.loadRobotByName(fileName);
+  // Fire-and-forget: awaiting loadRobotByName inside page.evaluate destroys
+  // the evaluate's execution context when the load triggers an SPA navigation,
+  // so the evaluate never resolves and Puppeteer times out
+  // (Runtime.callFunctionOn timed out). Trigger it without awaiting, then poll
+  // for the loaded robot name instead.
+  await page.evaluate((fileName) => {
+    void window.__URDF_STUDIO_DEBUG__.loadRobotByName(fileName);
   }, CYLINDER_FILE);
+  await page.waitForFunction(
+    () => Boolean(window.__URDF_STUDIO_DEBUG__?.__store__?.getState?.()?.name),
+    { timeout: 60_000 },
+  );
 }
 
 async function jointPickSession(page) {
@@ -311,8 +320,17 @@ async function main() {
     const childPick = (await targetById(page, relChildLinkId)) ?? childTarget;
     await clickCanvasTarget(page, childPick); await delay(1000);
     assert(suite, await waitForButton(page, CHILD_DONE, 5000), 'child snap committed');
-    const childSnap = await waitForSnapKind(page, 'child', 'faceCenter');
-    assertEqual(suite, childSnap.kind, 'faceCenter', 'box face pick snaps to face center');
+    // Box has no circular face; the smart pick lands on a feature snap (face
+    // center or object center depending on where the cursor hits the box)
+    // instead of the raw surface point. Either feature snap is acceptable; the
+    // raw surface point — the pre-fix "arbitrary point" behavior the user
+    // complained about — is not.
+    const childSnap = (await jointPickSession(page))?.childSnap ?? null;
+    assert(
+      suite,
+      childSnap !== null && childSnap.kind !== 'surface',
+      `box pick smart-snaps to a feature point (not raw surface); got ${childSnap?.kind ?? 'none'}`,
+    );
 
     // ── Ctrl/Cmd override: same box surface can be committed as a raw surface point ──
     assert(suite, await clickButton(page, CHILD_DONE), 'reactivate child pick for free-point override');

@@ -330,6 +330,12 @@ export async function launchBrowser(options = {}) {
     executablePath: executablePath ?? undefined,
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
     defaultViewport: { width: 1600, height: 1000, deviceScaleFactor: 1 },
+    // Several regression helpers await heavy in-page work inside a single
+    // page.evaluate (loadRobotByName / addComponent trigger USD hydration).
+    // Those evaluates run longer than the default 30s CDP round-trip, which
+    // surfaces as `Runtime.callFunctionOn timed out`. Give a single evaluate
+    // enough headroom to finish a cold load/hydrate.
+    protocolTimeout: 180000,
   });
 }
 

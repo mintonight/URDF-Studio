@@ -1,10 +1,14 @@
 import { loader } from '@monaco-editor/react';
-import * as monaco from 'monaco-editor';
-import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
+// Trim Monaco to only what the source editor uses. `edcore.main` is the core
+// editor with every editor UX contribution (completion, hover, find, folding,
+// marker navigation) but NO languages and NONE of the language services. We add
+// just the XML grammar on top. The default `monaco-editor` entry (editor.main)
+// additionally ships the TypeScript/JSON/CSS/HTML language services — the TS
+// service alone embeds a full compiler — plus ~80 Monarch grammars we never
+// load, which is why the full bundle is several megabytes heavier.
+import * as monaco from 'monaco-editor/esm/vs/editor/edcore.main';
+import 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution';
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
-import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
-import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 import type * as Monaco from 'monaco-editor';
 
 type MonacoEnvironmentGlobal = typeof globalThis & {
@@ -15,19 +19,9 @@ type MonacoEnvironmentGlobal = typeof globalThis & {
 
 const monacoGlobal = globalThis as MonacoEnvironmentGlobal;
 monacoGlobal.MonacoEnvironment = {
-  getWorker(_workerId: string, label: string): Worker {
-    if (label === 'json') {
-      return new JsonWorker();
-    }
-    if (label === 'css' || label === 'scss' || label === 'less') {
-      return new CssWorker();
-    }
-    if (label === 'html' || label === 'handlebars' || label === 'razor') {
-      return new HtmlWorker();
-    }
-    if (label === 'typescript' || label === 'javascript') {
-      return new TsWorker();
-    }
+  getWorker(): Worker {
+    // The editor only drives XML/plaintext documents, which run on the base
+    // editor worker; the json/css/html/ts language workers are never needed.
     return new EditorWorker();
   },
 };
@@ -44,8 +38,9 @@ const ensureXmlDerivedLanguage = (
   _id: string,
   _aliases: string[],
 ) => {
-  // CDN runtime uses Monaco's built-in XML language directly.
-  // URDF/Xacro behavior is provided via editor-side completion/validation logic.
+  // URDF/Xacro/MJCF/SDF all render through Monaco's XML grammar (registered via
+  // the xml.contribution import above); their dialect-specific behavior is
+  // provided by editor-side completion/validation logic, not a derived language.
   void monacoInstance;
 };
 

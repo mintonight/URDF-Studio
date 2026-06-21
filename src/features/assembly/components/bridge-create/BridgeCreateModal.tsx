@@ -585,18 +585,11 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   const canPickJointOrigin = Boolean(
     parentCompId && childCompId && parentLinkId && childLinkId && parentCompId !== childCompId,
   );
-  const jointPickHintLabel =
-    lang === 'zh'
-      ? jointPick.active
-        ? jointPick.side === 'parent'
-          ? '在父组件上单击拾取联接点'
-          : '在子组件上单击拾取联接点'
-        : '拾取联接点后自动对齐'
-      : jointPick.active
-        ? jointPick.side === 'parent'
-          ? 'Click the parent component to place the joint origin'
-          : 'Click the child component to place the joint origin'
-        : 'Pick joint origins to auto-align';
+  const jointPickHintLabel = jointPick.active
+    ? jointPick.side === 'parent'
+      ? t.bridgePickActiveParent
+      : t.bridgePickActiveChild
+    : t.bridgeSnapHintSmart;
 
   const namePlaceholder = suggestedBridgeName || t.bridgeJointNamePlaceholder;
 
@@ -962,12 +955,13 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                     </Button>
                   </div>
                   <p className="text-[10px] leading-tight text-text-tertiary">
-                    {canPickJointOrigin
-                      ? jointPickHintLabel
-                      : lang === 'zh'
-                        ? '先选择父/子组件与 Link'
-                        : 'Select parent/child components and links first'}
+                    {canPickJointOrigin ? jointPickHintLabel : t.bridgeSelectRelationFirst}
                   </p>
+                  {canPickJointOrigin ? (
+                    <p className="text-[10px] leading-tight text-text-tertiary">
+                      {t.bridgeSnapHintFreePoint}
+                    </p>
+                  ) : null}
                 </div>
                 <div data-bridge-row="origin" className={xyzStackClassName}>
                   <BridgeAxisSpinnerField

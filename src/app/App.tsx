@@ -29,6 +29,7 @@ import {
 import { peekPreResolvedRobotImport } from './utils/preResolvedRobotImportCache';
 import { prewarmUsdSelectionInBackground } from './utils/usdSelectionPrewarm';
 import { scheduleUsdRuntimeStartupIdlePrewarm } from './utils/usdRuntimeStartupPrewarm';
+import { scheduleSourceCodeEditorStartupIdlePrewarm } from './utils/sourceCodeEditorStartupPrewarm';
 import { commitResolvedRobotLoad } from './utils/commitResolvedRobotLoad';
 import { resolveUsdViewerRoundtripSelection } from './utils/usdViewerRoundtripSelection';
 import { resolveAppModeAfterRobotContentChange } from './utils/contentChangeAppMode';
@@ -537,6 +538,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
   loadRobotByNameRef.current = loadRobotFile;
 
   useEffect(() => scheduleUsdRuntimeStartupIdlePrewarm(), []);
+  useEffect(() => scheduleSourceCodeEditorStartupIdlePrewarm(), []);
 
   useRegressionDebugApi(loadRobotByNameRef);
 

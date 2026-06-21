@@ -96,6 +96,9 @@ export const en: TranslationKeys = {
   bridgeSnapKindCircleCenter: 'Circle Center',
   bridgeSnapKindObjectCenter: 'Object Center',
   bridgeSnapKindFaceCenter: 'Face Center',
+  bridgePickActiveParent: 'Click the parent component to place the joint origin',
+  bridgePickActiveChild: 'Click the child component to place the joint origin',
+  bridgeSelectRelationFirst: 'Select parent/child components and links first',
   add: 'Add',
   bridgedComponent: 'Connected',
   bridgedComponentLockedHint:

@@ -55,7 +55,13 @@ interface ScreenDistanceInput {
 }
 
 const SNAP_PROFILE: Record<SnapPointKind, { priority: number; radiusPx: number }> = {
-  circleCenter: { priority: 100, radiusPx: 80 },
+  // Circle center uses an unbounded radius: a circular face only produces this
+  // candidate when detectCircleFaceFromHit already confirmed the hit face is on
+  // a coplanar circular region, so anywhere on that face should snap to the
+  // center (Fusion 360 behavior). A finite pixel radius wrongly drops it when a
+  // large cylinder fills the viewport and the cursor sits far (in px) from the
+  // center.
+  circleCenter: { priority: 100, radiusPx: Number.POSITIVE_INFINITY },
   faceCenter: { priority: 60, radiusPx: 40 },
   vertex: { priority: 55, radiusPx: 16 },
   edgeMidpoint: { priority: 50, radiusPx: 16 },
