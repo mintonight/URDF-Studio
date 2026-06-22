@@ -3,14 +3,14 @@ import { useAssemblySelectionStore } from '@/store/assemblySelectionStore';
 import { useSelectionStore } from '@/store/selectionStore';
 import type { AssemblyState, BridgeJoint } from '@/types';
 import {
-  isAssemblySelectionAllowedForBridge,
+  resolveBridgePickAssignment,
   resolveAssemblySelection,
   type BridgePickTarget,
 } from '../../utils/bridgeSelection';
 
 interface UseBridgeCreateSelectionSyncOptions {
   assemblyState: AssemblyState;
-  blockedComponentId: string | null;
+  parentCompId: string;
   childCompId: string;
   childLinkId: string;
   handleClose: () => void;
@@ -26,7 +26,7 @@ interface UseBridgeCreateSelectionSyncOptions {
 
 export function useBridgeCreateSelectionSync({
   assemblyState,
-  blockedComponentId,
+  parentCompId,
   childCompId,
   childLinkId,
   handleClose,
@@ -87,9 +87,25 @@ export function useBridgeCreateSelectionSync({
       return undefined;
     }
 
-    setInteractionGuard((nextSelection) =>
-      isAssemblySelectionAllowedForBridge(assemblyState, nextSelection, blockedComponentId),
-    );
+    setInteractionGuard((nextSelection) => {
+      if (!nextSelection.id || !nextSelection.type) {
+        return true;
+      }
+
+      const resolvedSelection = resolveAssemblySelection(assemblyState, nextSelection);
+      if (!resolvedSelection) {
+        return false;
+      }
+
+      return Boolean(
+        resolveBridgePickAssignment({
+          selectedComponentId: resolvedSelection.componentId,
+          parentComponentId: parentCompId,
+          childComponentId: childCompId,
+          preferredTarget: pickTarget,
+        }),
+      );
+    });
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -102,7 +118,15 @@ export function useBridgeCreateSelectionSync({
       setInteractionGuard(null);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [assemblyState, blockedComponentId, handleClose, isOpen, setInteractionGuard]);
+  }, [
+    assemblyState,
+    childCompId,
+    handleClose,
+    isOpen,
+    parentCompId,
+    pickTarget,
+    setInteractionGuard,
+  ]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -114,11 +138,17 @@ export function useBridgeCreateSelectionSync({
       return;
     }
 
-    if (!isAssemblySelectionAllowedForBridge(assemblyState, selection, blockedComponentId)) {
+    const assignmentTarget = resolveBridgePickAssignment({
+      selectedComponentId: resolvedSelection.componentId,
+      parentComponentId: parentCompId,
+      childComponentId: childCompId,
+      preferredTarget: pickTarget,
+    });
+    if (!assignmentTarget) {
       return;
     }
 
-    const selectionSignature = `${pickTarget}:${selection.type}:${selection.id}:${selection.subType ?? ''}:${selection.objectIndex ?? ''}`;
+    const selectionSignature = `${assignmentTarget}:${selection.type}:${selection.id}:${selection.subType ?? ''}:${selection.objectIndex ?? ''}`;
     const initialSelectionSignature = ignoredInitialSelectionSignatureRef.current;
     if (
       initialSelectionSignature &&
@@ -135,7 +165,7 @@ export function useBridgeCreateSelectionSync({
 
     lastAppliedSelectionRef.current = selectionSignature;
 
-    if (pickTarget === 'parent') {
+    if (assignmentTarget === 'parent') {
       setParentCompId(resolvedSelection.componentId);
       setParentLinkId(resolvedSelection.linkId);
       if (!childCompId || !childLinkId) {
@@ -146,12 +176,15 @@ export function useBridgeCreateSelectionSync({
 
     setChildCompId(resolvedSelection.componentId);
     setChildLinkId(resolvedSelection.linkId);
+    if (!parentCompId) {
+      setPickTarget('parent');
+    }
   }, [
     assemblyState,
-    blockedComponentId,
     childCompId,
     childLinkId,
     isOpen,
+    parentCompId,
     pickTarget,
     selection,
     setChildCompId,

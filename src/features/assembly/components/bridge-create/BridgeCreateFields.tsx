@@ -16,14 +16,12 @@ import {
   BRIDGE_INSPECTOR_FIELD_ROW_CLASS,
   BRIDGE_NUMBER_FIELD_SHELL_CLASS,
   BRIDGE_NUMBER_INPUT_CLASS,
-  BRIDGE_PICK_BUTTON_CLASS,
+  BRIDGE_PANEL_SELECT_CLASS,
   BRIDGE_QUICK_ROTATE_BUTTON_CLASS,
   BRIDGE_QUICK_ROTATE_BUTTON_GROUP_CLASS,
   BRIDGE_RELATION_CONNECTOR_LINE_CLASS,
   BRIDGE_SECTION_CLASS,
   BRIDGE_SECTION_TITLE_CLASS,
-  BRIDGE_SELECT_CLASS,
-  BRIDGE_SIDE_CARD_ACTIONS_CLASS,
   BRIDGE_SIDE_CARD_HEADER_ROW_CLASS,
   BRIDGE_STEPPER_BUTTON_CLASS,
   BRIDGE_STEPPER_RAIL_CLASS,
@@ -488,16 +486,13 @@ export function BridgeAxisSpinnerField({
 
 interface BridgeSideCardProps {
   side: BridgePickTarget;
-  isActive: boolean;
   title: string;
-  pickLabel: string;
   componentLabel: string;
   linkLabel: string;
   componentValue: string;
   linkValue: string;
   componentSummary: string;
   linkSummary: string;
-  onActivate: () => void;
   onComponentChange: (value: string) => void;
   onLinkChange: (value: string) => void;
   componentOptions: SelectOption[];
@@ -537,16 +532,13 @@ export function BridgeRelationConnector({
 
 export function BridgeSideCard({
   side,
-  isActive,
   title,
-  pickLabel,
   componentLabel,
   linkLabel,
   componentValue,
   linkValue,
   componentSummary,
   linkSummary,
-  onActivate,
   onComponentChange,
   onLinkChange,
   componentOptions,
@@ -557,44 +549,18 @@ export function BridgeSideCard({
       data-bridge-side={side}
       data-bridge-component-summary={componentSummary}
       data-bridge-link-summary={linkSummary}
-      onFocusCapture={onActivate}
-      className={`flex h-full flex-col rounded-lg border p-2 transition-[border-color,background-color,box-shadow] ${
-        isActive
-          ? 'border-system-blue/45 bg-system-blue/5 ring-1 ring-system-blue/20'
-          : 'border-border-black/70 bg-element-bg/40'
-      }`}
+      className="flex h-full flex-col rounded-lg border border-border-black/70 bg-element-bg/40 p-2 transition-[border-color,box-shadow] focus-within:border-system-blue/35 focus-within:ring-1 focus-within:ring-system-blue/15"
     >
       <div data-bridge-side-header={side} className={BRIDGE_SIDE_CARD_HEADER_ROW_CLASS}>
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <span
-              className={`inline-flex items-center rounded-md border px-1.5 py-px text-[8px] font-semibold uppercase tracking-[0.12em] ${
-                isActive
-                  ? 'border-system-blue/30 bg-system-blue/12 text-system-blue'
-                  : 'border-border-black bg-panel-bg text-text-secondary'
-              }`}
+              className="inline-flex items-center rounded-md border border-border-black bg-panel-bg px-1.5 py-px text-[8px] font-semibold uppercase tracking-[0.12em] text-text-secondary"
             >
               {title}
             </span>
             <div className="h-px flex-1 bg-border-black/80" />
           </div>
-        </div>
-        <div
-          data-bridge-side-actions={side}
-          className={`${BRIDGE_SIDE_CARD_ACTIONS_CLASS} self-start`}
-        >
-          <button
-            type="button"
-            aria-pressed={isActive}
-            onClick={onActivate}
-            className={`${BRIDGE_PICK_BUTTON_CLASS} border ${
-              isActive
-                ? 'border-system-blue/25 bg-system-blue/15 text-system-blue'
-                : 'border-border-black bg-panel-bg text-text-tertiary hover:bg-element-hover hover:text-text-primary'
-            }`}
-          >
-            {pickLabel}
-          </button>
         </div>
       </div>
 
@@ -609,8 +575,7 @@ export function BridgeSideCard({
             options={componentOptions}
             value={componentValue}
             onChange={(event) => onComponentChange(event.target.value)}
-            onFocus={onActivate}
-            className={BRIDGE_SELECT_CLASS}
+            className={BRIDGE_PANEL_SELECT_CLASS}
           />
         </div>
 
@@ -624,8 +589,7 @@ export function BridgeSideCard({
             options={linkOptions}
             value={linkValue}
             onChange={(event) => onLinkChange(event.target.value)}
-            onFocus={onActivate}
-            className={BRIDGE_SELECT_CLASS}
+            className={BRIDGE_PANEL_SELECT_CLASS}
           />
         </div>
       </div>
@@ -696,10 +660,8 @@ export function BridgeSection({
 }
 
 interface BridgeCompactRelationRowProps {
-  parentPickLabel: string;
-  childPickLabel: string;
-  parentIsActive: boolean;
-  childIsActive: boolean;
+  parentTitle: string;
+  childTitle: string;
   parentComponentValue: string;
   parentLinkValue: string;
   childComponentValue: string;
@@ -712,8 +674,6 @@ interface BridgeCompactRelationRowProps {
   parentLinkLabel: string;
   childComponentLabel: string;
   childLinkLabel: string;
-  onParentActivate: () => void;
-  onChildActivate: () => void;
   onParentComponentChange: (value: string) => void;
   onParentLinkChange: (value: string) => void;
   onChildComponentChange: (value: string) => void;
@@ -721,10 +681,8 @@ interface BridgeCompactRelationRowProps {
 }
 
 export function BridgeCompactRelationRow({
-  parentPickLabel,
-  childPickLabel,
-  parentIsActive,
-  childIsActive,
+  parentTitle,
+  childTitle,
   parentComponentValue,
   parentLinkValue,
   childComponentValue,
@@ -737,8 +695,6 @@ export function BridgeCompactRelationRow({
   parentLinkLabel,
   childComponentLabel,
   childLinkLabel,
-  onParentActivate,
-  onChildActivate,
   onParentComponentChange,
   onParentLinkChange,
   onChildComponentChange,
@@ -746,26 +702,19 @@ export function BridgeCompactRelationRow({
 }: BridgeCompactRelationRowProps) {
   return (
     <div className={BRIDGE_COMPACT_RELATION_GRID_CLASS}>
-      <button
-        type="button"
-        aria-pressed={parentIsActive}
-        onClick={onParentActivate}
-        className={`${BRIDGE_COMPACT_PICK_BUTTON_CLASS} border ${
-          parentIsActive
-            ? 'border-danger-border bg-danger-soft text-danger'
-            : 'border-border-black bg-panel-bg text-text-tertiary hover:bg-element-hover hover:text-text-primary'
-        }`}
+      <div
+        data-bridge-endpoint-label="parent"
+        className={`${BRIDGE_COMPACT_PICK_BUTTON_CLASS} border border-border-black bg-panel-bg text-text-secondary`}
       >
-        {parentPickLabel}
-      </button>
+        {parentTitle}
+      </div>
       <PanelSelect
         variant="property"
         aria-label={parentComponentLabel}
         options={parentComponentOptions}
         value={parentComponentValue}
         onChange={(event) => onParentComponentChange(event.target.value)}
-        onFocus={onParentActivate}
-        className={BRIDGE_SELECT_CLASS}
+        className={BRIDGE_PANEL_SELECT_CLASS}
       />
       <PanelSelect
         variant="property"
@@ -773,34 +722,26 @@ export function BridgeCompactRelationRow({
         options={parentLinkOptions}
         value={parentLinkValue}
         onChange={(event) => onParentLinkChange(event.target.value)}
-        onFocus={onParentActivate}
-        className={BRIDGE_SELECT_CLASS}
+        className={BRIDGE_PANEL_SELECT_CLASS}
       />
 
       <div className="flex items-center justify-center px-0.5 text-text-tertiary">
         <Link2 className="h-3.5 w-3.5" />
       </div>
 
-      <button
-        type="button"
-        aria-pressed={childIsActive}
-        onClick={onChildActivate}
-        className={`${BRIDGE_COMPACT_PICK_BUTTON_CLASS} border ${
-          childIsActive
-            ? 'border-system-blue/25 bg-system-blue/10 text-system-blue'
-            : 'border-border-black bg-panel-bg text-text-tertiary hover:bg-element-hover hover:text-text-primary'
-        }`}
+      <div
+        data-bridge-endpoint-label="child"
+        className={`${BRIDGE_COMPACT_PICK_BUTTON_CLASS} border border-border-black bg-panel-bg text-text-secondary`}
       >
-        {childPickLabel}
-      </button>
+        {childTitle}
+      </div>
       <PanelSelect
         variant="property"
         aria-label={childComponentLabel}
         options={childComponentOptions}
         value={childComponentValue}
         onChange={(event) => onChildComponentChange(event.target.value)}
-        onFocus={onChildActivate}
-        className={BRIDGE_SELECT_CLASS}
+        className={BRIDGE_PANEL_SELECT_CLASS}
       />
       <PanelSelect
         variant="property"
@@ -808,8 +749,7 @@ export function BridgeCompactRelationRow({
         options={childLinkOptions}
         value={childLinkValue}
         onChange={(event) => onChildLinkChange(event.target.value)}
-        onFocus={onChildActivate}
-        className={BRIDGE_SELECT_CLASS}
+        className={BRIDGE_PANEL_SELECT_CLASS}
       />
     </div>
   );

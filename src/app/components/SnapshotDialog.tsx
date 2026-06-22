@@ -393,7 +393,7 @@ export function SnapshotDialog({
     ? 'grid grid-cols-1 gap-y-1.5'
     : 'grid grid-cols-2 gap-x-3 gap-y-1.5';
   const previewCardClassName = `rounded-xl border border-border-black bg-element-bg px-3 py-2 shadow-sm ${
-    isCompactLayout ? 'flex min-h-[220px] shrink-0 flex-col' : 'flex min-h-[260px] shrink-0 flex-col'
+    isCompactLayout ? 'flex min-h-[220px] flex-1 flex-col' : 'flex min-h-[260px] flex-1 flex-col'
   }`;
   const previewStatusText =
     effectivePreviewState.status === 'loading' || effectivePreviewState.status === 'idle'
@@ -630,7 +630,17 @@ export function SnapshotDialog({
                   className="w-full overflow-hidden rounded-lg border border-border-black bg-panel-bg"
                   style={{ aspectRatio: String(previewAspectRatio) }}
                 >
-                  {effectivePreviewState.imageUrl ? (
+                  {previewSession && !previewState ? (
+                    <SnapshotPreviewRenderer
+                      isOpen={isOpen}
+                      lang={lang}
+                      session={previewSession}
+                      options={resolvedOptions}
+                      onStateChange={setInternalPreviewState}
+                      onCaptureActionChange={onPreviewCaptureActionChange}
+                      className="h-full w-full"
+                    />
+                  ) : effectivePreviewState.imageUrl ? (
                     // The previous render stays visible while a new one is computed;
                     // the top-right status chip already signals "refreshing", so no
                     // on-image overlay is needed (it just clutters the preview).
@@ -697,16 +707,6 @@ export function SnapshotDialog({
           </div>
         </div>
       </div>
-      {!previewState && previewSession ? (
-        <SnapshotPreviewRenderer
-          isOpen={isOpen}
-          lang={lang}
-          session={previewSession}
-          options={resolvedOptions}
-          onStateChange={setInternalPreviewState}
-          onCaptureActionChange={onPreviewCaptureActionChange}
-        />
-      ) : null}
     </DraggableWindow>
   );
 }

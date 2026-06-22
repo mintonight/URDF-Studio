@@ -258,16 +258,6 @@ function setFormControlValue(
   element.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
 }
 
-function expectFieldGroup(container: ParentNode, fieldKey: string, controlTag: 'input' | 'select') {
-  const row = container.querySelector<HTMLElement>(`[data-bridge-field="${fieldKey}"]`);
-  assert.ok(row, `expected field group "${fieldKey}" to exist`);
-  assert.ok(row.querySelector('label'), `expected field group "${fieldKey}" to keep its label`);
-  assert.ok(
-    row.querySelector(controlTag),
-    `expected field group "${fieldKey}" to contain a ${controlTag}`,
-  );
-}
-
 function expectInlineFieldRow(
   container: ParentNode,
   fieldKey: string,
@@ -290,6 +280,66 @@ function expectSelectSlot(container: ParentNode, fieldKey: string) {
   assert.ok(row, `expected select slot "${fieldKey}" to exist`);
   assert.ok(row.querySelector('select'), `expected select slot "${fieldKey}" to contain a select`);
 }
+
+test('bridge create modal auto-fills parent and child from direct link picks', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const originalConsoleError = console.error;
+
+  useSelectionStore.setState({
+    selection: { type: null, id: null },
+    interactionGuard: null,
+  });
+
+  console.error = (...args: unknown[]) => {
+    if (args.some((arg) => typeof arg === 'string' && arg.includes('not wrapped in act'))) {
+      return;
+    }
+
+    originalConsoleError(...args);
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(BridgeCreateModal, {
+          isOpen: true,
+          onClose: () => {},
+          onCreate: () => {},
+          onPreviewChange: () => {},
+          assemblyState: createAssemblyState(),
+          lang: 'zh',
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
+      await Promise.resolve();
+    });
+
+    const parentCard = container.querySelector<HTMLElement>('[data-bridge-side="parent"]');
+    const childCard = container.querySelector<HTMLElement>('[data-bridge-side="child"]');
+    assert.ok(parentCard, 'parent side card should render');
+    assert.ok(childCard, 'child side card should render');
+    assert.equal(parentCard.dataset.bridgeComponentSummary, 'Component A');
+    assert.equal(parentCard.dataset.bridgeLinkSummary, 'tool_link');
+    assert.equal(childCard.dataset.bridgeComponentSummary, 'Component B');
+    assert.equal(childCard.dataset.bridgeLinkSummary, 'base_link');
+  } finally {
+    useSelectionStore.setState({
+      selection: { type: null, id: null },
+      interactionGuard: null,
+    });
+    await destroyComponentRoot(dom, root);
+    console.error = originalConsoleError;
+  }
+});
 
 test('bridge create modal opens as a compact single-page editor with stacked XYZ controls', async () => {
   const { dom, container, root } = createComponentRoot();
@@ -406,8 +456,8 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
     );
     assert.ok(parentHeader, 'parent side header should render');
     assert.match(parentHeader.className, /grid/);
-    assert.match(parentHeader.textContent ?? '', /父侧/);
-    assert.match(parentHeader.textContent ?? '', /选择父侧/);
+    assert.match(parentHeader.textContent ?? '', /基准 Link/);
+    assert.doesNotMatch(parentHeader.textContent ?? '', /选择父侧/);
     assert.doesNotMatch(parentHeader.textContent ?? '', /父组件/);
     assert.doesNotMatch(parentHeader.textContent ?? '', /父连杆/);
     assert.doesNotMatch(parentHeader.textContent ?? '', /Component A/);
@@ -415,8 +465,7 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
     const parentActions = parentCard.querySelector<HTMLElement>(
       '[data-bridge-side-actions="parent"]',
     );
-    assert.ok(parentActions, 'parent side actions should render');
-    assert.match(parentActions.className, /justify-self-end/);
+    assert.equal(parentActions, null, 'parent side should not render an active-side picker');
     const parentLabelRow = parentCard.querySelector<HTMLElement>(
       '[data-bridge-side-labels="parent"]',
     );
@@ -477,16 +526,6 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
       /_3rem_/,
       'relation grid should not reserve an oversized fixed connector column',
     );
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.focus();
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
@@ -499,15 +538,14 @@ test('bridge create modal keeps the compact grouped layout and removes legacy hi
     assert.doesNotMatch(childCard.textContent ?? '', /--\s*\/\s*--/);
     const childHeader = childCard.querySelector<HTMLElement>('[data-bridge-side-header="child"]');
     assert.ok(childHeader, 'child side header should render');
-    assert.match(childHeader.textContent ?? '', /子侧/);
-    assert.match(childHeader.textContent ?? '', /选择子侧/);
+    assert.match(childHeader.textContent ?? '', /连接 Link/);
+    assert.doesNotMatch(childHeader.textContent ?? '', /选择子侧/);
     assert.doesNotMatch(childHeader.textContent ?? '', /子组件/);
     assert.doesNotMatch(childHeader.textContent ?? '', /子连杆/);
     assert.doesNotMatch(childHeader.textContent ?? '', /Component B/);
     assert.doesNotMatch(childHeader.textContent ?? '', /base_link/);
     const childActions = childCard.querySelector<HTMLElement>('[data-bridge-side-actions="child"]');
-    assert.ok(childActions, 'child side actions should render');
-    assert.match(childActions.className, /justify-self-end/);
+    assert.equal(childActions, null, 'child side should not render an active-side picker');
     const childLabelRow = childCard.querySelector<HTMLElement>('[data-bridge-side-labels="child"]');
     assert.equal(
       childLabelRow,
@@ -650,15 +688,6 @@ test('bridge create modal keeps joint type compact and omits extra explanation c
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
       await Promise.resolve();
     });
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
@@ -725,15 +754,6 @@ test('bridge create modal keeps zh hardware interface labels Chinese-only and pr
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
       await Promise.resolve();
     });
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
@@ -817,28 +837,10 @@ test('bridge create modal lets users switch back to the parent side and repick i
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
       await Promise.resolve();
     });
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
     });
-
-    const parentButton = findButtonByText(container, '选择父侧');
-    assert.ok(parentButton, 'parent side picker button should render');
-
-    await act(async () => {
-      parentButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/base_link' });
       await Promise.resolve();
@@ -897,15 +899,6 @@ test('bridge create modal adds compact +/-90 degree rotation shortcuts for each 
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
       await Promise.resolve();
     });
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
@@ -984,15 +977,6 @@ test('bridge create modal maps X/Y/Z keyboard shortcuts to Euler flip steps', as
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
       await Promise.resolve();
     });
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
@@ -1254,15 +1238,6 @@ test('bridge create modal suggests a default bridge name and auto-uses it on con
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
       await Promise.resolve();
     });
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
@@ -1361,15 +1336,6 @@ test('bridge create modal closes before committing a bridge so heavy assemblies 
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
       await Promise.resolve();
     });
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
@@ -1465,15 +1431,6 @@ test('bridge create modal increments the generated bridge name when the default 
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
       await Promise.resolve();
     });
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
@@ -1531,15 +1488,6 @@ test('bridge create modal updates the preview immediately when origin steppers c
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
       await Promise.resolve();
     });
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
@@ -1606,15 +1554,6 @@ test('bridge create modal keeps incrementing origin steppers while the + button 
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
       await Promise.resolve();
     });
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
@@ -1688,15 +1627,6 @@ test('bridge create modal wires press-and-hold handlers onto the quick +90 rotat
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
       await Promise.resolve();
     });
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
@@ -1768,15 +1698,6 @@ test('bridge create modal submits configurable limits for non-fixed joints', asy
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
       await Promise.resolve();
     });
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
@@ -1880,15 +1801,6 @@ test('bridge create modal disables confirm when the lower limit exceeds the uppe
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/tool_link' });
       await Promise.resolve();
     });
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
@@ -1982,15 +1894,6 @@ test('bridge create modal disables confirm for a non-fixed bridge that would clo
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_b/base_link' });
       await Promise.resolve();
     });
-
-    const childButton = findButtonByText(container, '选择子侧');
-    assert.ok(childButton, 'child side picker button should render');
-
-    await act(async () => {
-      childButton.click();
-      await Promise.resolve();
-    });
-
     await act(async () => {
       useSelectionStore.getState().setSelection({ type: 'link', id: 'component_a/base_link' });
       await Promise.resolve();

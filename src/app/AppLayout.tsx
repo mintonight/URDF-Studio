@@ -754,22 +754,25 @@ export function AppLayout({
 
   const handleCaptureSnapshot = useCallback(
     async (options: SnapshotCaptureOptions) => {
-      const captureAction = resolveSnapshotCaptureAction({
+      const resolvedCaptureAction = resolveSnapshotCaptureAction({
         liveCaptureAction: snapshotActionRef.current,
         frozenPreviewCaptureAction: snapshotPreviewCaptureActionRef.current,
         preferFrozenPreviewCapture: Boolean(snapshotPreviewSession),
       });
 
-      if (!captureAction) {
+      if (!resolvedCaptureAction) {
         showToast(t.snapshotFailed, 'info');
         return;
       }
 
       try {
         setIsSnapshotCapturing(true);
-        await captureAction({
+        await resolvedCaptureAction.action({
           ...options,
-          cameraSnapshot: snapshotPreviewSession?.cameraSnapshot ?? null,
+          cameraSnapshot:
+            resolvedCaptureAction.source === 'live'
+              ? (snapshotPreviewSession?.cameraSnapshot ?? null)
+              : null,
         });
       } catch (error) {
         logRegressionError('Snapshot failed:', error);

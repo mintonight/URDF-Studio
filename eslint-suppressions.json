@@ -416,11 +416,6 @@
       "count": 3
     }
   },
-  "src/features/assembly/components/BridgeCreateModal.test.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/features/assembly/components/bridge-create/BridgeCreateModal.tsx": {
     "react-hooks/exhaustive-deps": {
       "count": 5

@@ -11,7 +11,6 @@ import {
   useJointPickSessionStore,
   type JointPickSide,
 } from '@/store/jointPickSessionStore';
-import { useSelectionStore } from '@/store/selectionStore';
 
 export type JointAlignMode = 'smartAlign' | 'pointCoincident';
 
@@ -23,6 +22,11 @@ interface UseJointPickControllerOptions {
   childLinkId: string;
   alignment?: JointAlignmentDelta;
   alignMode?: JointAlignMode;
+  setParentCompId: (value: string) => void;
+  setParentLinkId: (value: string) => void;
+  setChildCompId: (value: string) => void;
+  setChildLinkId: (value: string) => void;
+  setPickTarget: (value: JointPickSide) => void;
   applyPickedOrigin: (
     position: { x: number; y: number; z: number },
     rotationDeg: { r: number; p: number; y: number },
@@ -46,6 +50,11 @@ export function useJointPickController({
   childLinkId,
   alignment,
   alignMode = 'smartAlign',
+  setParentCompId,
+  setParentLinkId,
+  setChildCompId,
+  setChildLinkId,
+  setPickTarget,
   applyPickedOrigin,
 }: UseJointPickControllerOptions) {
   const active = useJointPickSessionStore((state) => state.active);
@@ -62,10 +71,8 @@ export function useJointPickController({
   const clearSideAction = useJointPickSessionStore((state) => state.clearSide);
   const reset = useJointPickSessionStore((state) => state.reset);
 
-  const setInteractionGuard = useSelectionStore((state) => state.setInteractionGuard);
-
-  // Mirror the chosen relation so the pick layer can reject hits on the wrong
-  // component/link, and so changing the relation drops now-stale snaps.
+  // Mirror the chosen relation so the pick layer can auto-route clicks to the
+  // parent or child side and drop snaps only when they no longer match.
   useEffect(() => {
     if (!isOpen) {
       return;
@@ -86,15 +93,64 @@ export function useJointPickController({
     reset();
   }, [isOpen, reset]);
 
-  // While a snap pick is in progress, suppress normal viewer selection so a
-  // click captures a snap point instead of re-selecting/altering the relation.
   useEffect(() => {
-    if (!isOpen || !active) {
-      return undefined;
+    if (!isOpen) {
+      return;
     }
-    setInteractionGuard(() => false);
-    return () => setInteractionGuard(null);
-  }, [isOpen, active, setInteractionGuard]);
+    setActive(true);
+  }, [isOpen, setActive]);
+
+  useEffect(() => {
+    if (!isOpen || !parentSnap) {
+      return;
+    }
+
+    if (parentSnap.componentId !== parentComponentId) {
+      setParentCompId(parentSnap.componentId);
+    }
+    if (parentSnap.linkId !== parentLinkId) {
+      setParentLinkId(parentSnap.linkId);
+    }
+    if (!childComponentId || !childLinkId) {
+      setPickTarget('child');
+    }
+  }, [
+    childComponentId,
+    childLinkId,
+    isOpen,
+    parentComponentId,
+    parentLinkId,
+    parentSnap,
+    setParentCompId,
+    setParentLinkId,
+    setPickTarget,
+  ]);
+
+  useEffect(() => {
+    if (!isOpen || !childSnap) {
+      return;
+    }
+
+    if (childSnap.componentId !== childComponentId) {
+      setChildCompId(childSnap.componentId);
+    }
+    if (childSnap.linkId !== childLinkId) {
+      setChildLinkId(childSnap.linkId);
+    }
+    if (!parentComponentId || !parentLinkId) {
+      setPickTarget('parent');
+    }
+  }, [
+    childComponentId,
+    childLinkId,
+    childSnap,
+    isOpen,
+    parentComponentId,
+    parentLinkId,
+    setChildCompId,
+    setChildLinkId,
+    setPickTarget,
+  ]);
 
   // Derive the joint origin whenever both sides have a committed snap.
   useEffect(() => {

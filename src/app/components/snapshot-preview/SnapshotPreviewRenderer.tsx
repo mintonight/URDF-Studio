@@ -1,21 +1,19 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   STUDIO_ENVIRONMENT_INTENSITY,
   WORKSPACE_CANVAS_BACKGROUND,
   WorkspaceCanvas,
   type SnapshotCaptureAction,
   type SnapshotCaptureOptions,
-  type SnapshotPreviewAction,
+  SnapshotExportLook,
   useWorkspaceCanvasTheme,
 } from '@/shared/components/3d';
 import { translations, type Language } from '@/shared/i18n';
 import { useViewerController } from '@/features/editor';
 import { resolveDefaultViewerToolMode } from '@/features/editor';
 import { buildUnifiedViewerResourceScopes } from '@/app/utils/unifiedViewerResourceScopes';
-import { resolveSnapshotPreviewSurfaceSize } from '@/shared/components/3d';
 import { ViewerSceneConnector } from '../unified-viewer/ViewerSceneConnector';
-import { toSnapshotPreviewActionState } from './previewActionState';
-import { logRegressionError } from '@/shared/debug/consoleDiagnostics';
+import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
 import { subscribeRobotGroundPlaneInvalidation } from '@/store/robotGroundPlaneInvalidation';
 
 import type { SnapshotDialogPreviewState, SnapshotPreviewSession } from './types';
@@ -27,6 +25,45 @@ interface SnapshotPreviewRendererProps {
   options: SnapshotCaptureOptions;
   onStateChange: (state: SnapshotDialogPreviewState) => void;
   onCaptureActionChange?: (action: SnapshotCaptureAction | null) => void;
+  className?: string;
+}
+
+const SNAPSHOT_PREVIEW_BACKGROUND: Record<
+  Exclude<SnapshotCaptureOptions['backgroundStyle'], 'viewport'>,
+  { light: string; dark: string }
+> = {
+  studio: { light: '#f7f9fc', dark: '#dfe7f1' },
+  sky: { light: '#dbeafe', dark: '#dbeafe' },
+  dark: { light: '#111827', dark: '#111827' },
+  transparent: { light: '#f8fafc', dark: '#111827' },
+};
+
+function resolvePreviewBackground(backgroundStyle: SnapshotCaptureOptions['backgroundStyle']) {
+  return backgroundStyle === 'viewport'
+    ? WORKSPACE_CANVAS_BACKGROUND
+    : SNAPSHOT_PREVIEW_BACKGROUND[backgroundStyle];
+}
+
+function SnapshotPreviewLook({
+  options,
+  session,
+}: {
+  options: SnapshotCaptureOptions;
+  session: SnapshotPreviewSession;
+}) {
+  const snapshotRenderActive = useSnapshotRenderActive();
+
+  if (snapshotRenderActive) {
+    return null;
+  }
+
+  return (
+    <SnapshotExportLook
+      options={options}
+      theme={session.theme}
+      groundOffset={session.groundPlaneOffset}
+    />
+  );
 }
 
 export function SnapshotPreviewRenderer({
@@ -36,29 +73,37 @@ export function SnapshotPreviewRenderer({
   options,
   onStateChange,
   onCaptureActionChange,
+  className = 'relative h-full w-full',
 }: SnapshotPreviewRendererProps) {
   const t = translations[lang];
   const previousViewerResourceScopeRef = useRef<
     ReturnType<typeof buildUnifiedViewerResourceScopes>['viewerResourceScope'] | null
   >(null);
-  const previewRequestIdRef = useRef(0);
-  const previewTimerRef = useRef<number | null>(null);
-  const previewUrlRef = useRef<string | null>(null);
-  const previewInFlightRef = useRef(false);
-  const queuedPreviewRef = useRef<{
-    requestId: number;
-    options: SnapshotCaptureOptions;
-    aspectRatio: number;
-  } | null>(null);
-  const [previewAction, setPreviewAction] = useState<SnapshotPreviewAction | null>(null);
   const effectiveTheme = useWorkspaceCanvasTheme(session?.theme ?? 'light');
-  const surfaceSize = useMemo(
-    () => resolveSnapshotPreviewSurfaceSize(session?.viewportAspectRatio ?? 16 / 9),
-    [session?.viewportAspectRatio],
+  const previewBackground = useMemo(
+    () => resolvePreviewBackground(options.backgroundStyle),
+    [options.backgroundStyle],
   );
-  const handlePreviewActionChange = useCallback((nextAction: SnapshotPreviewAction | null) => {
-    setPreviewAction(toSnapshotPreviewActionState(nextAction));
-  }, []);
+  const previewEnvironment = options.environmentPreset === 'viewport' ? 'studio' : 'none';
+  const emitState = useCallback(
+    (status: SnapshotDialogPreviewState['status']) => {
+      onStateChange({
+        status,
+        imageUrl: null,
+        aspectRatio: session?.viewportAspectRatio ?? 16 / 9,
+      });
+    },
+    [onStateChange, session?.viewportAspectRatio],
+  );
+  const handleCaptureActionChange = useCallback(
+    (action: SnapshotCaptureAction | null) => {
+      onCaptureActionChange?.(action);
+      if (action) {
+        emitState('ready');
+      }
+    },
+    [emitState, onCaptureActionChange],
+  );
 
   const controller = useViewerController({
     active: false,
@@ -99,98 +144,8 @@ export function SnapshotPreviewRenderer({
   ]);
 
   useEffect(() => {
-    return () => {
-      previewRequestIdRef.current += 1;
-      if (previewTimerRef.current !== null) {
-        window.clearTimeout(previewTimerRef.current);
-        previewTimerRef.current = null;
-      }
-      if (previewUrlRef.current) {
-        URL.revokeObjectURL(previewUrlRef.current);
-        previewUrlRef.current = null;
-      }
-      queuedPreviewRef.current = null;
-      previewInFlightRef.current = false;
-    };
-  }, []);
-
-  const executePreviewRequest = useCallback(
-    (requestId: number, nextOptions: SnapshotCaptureOptions, aspectRatio: number) => {
-      if (!previewAction) {
-        return;
-      }
-
-      if (previewInFlightRef.current) {
-        queuedPreviewRef.current = {
-          requestId,
-          options: nextOptions,
-          aspectRatio,
-        };
-        return;
-      }
-
-      previewInFlightRef.current = true;
-      previewAction(nextOptions)
-        .then((result) => {
-          if (requestId !== previewRequestIdRef.current) {
-            return;
-          }
-
-          const nextUrl = URL.createObjectURL(result.blob);
-          const previousUrl = previewUrlRef.current;
-          previewUrlRef.current = nextUrl;
-          if (previousUrl) {
-            URL.revokeObjectURL(previousUrl);
-          }
-          onStateChange({
-            status: 'ready',
-            imageUrl: nextUrl,
-            aspectRatio: result.width / Math.max(1, result.height),
-          });
-        })
-        .catch((error) => {
-          logRegressionError('[SnapshotPreviewRenderer] Failed to refresh preview.', error);
-          if (requestId !== previewRequestIdRef.current) {
-            return;
-          }
-          onStateChange({
-            status: 'error',
-            imageUrl: previewUrlRef.current,
-            aspectRatio,
-          });
-        })
-        .finally(() => {
-          previewInFlightRef.current = false;
-          const queuedPreview = queuedPreviewRef.current;
-          if (!queuedPreview) {
-            return;
-          }
-
-          queuedPreviewRef.current = null;
-          if (queuedPreview.requestId === previewRequestIdRef.current) {
-            executePreviewRequest(
-              queuedPreview.requestId,
-              queuedPreview.options,
-              queuedPreview.aspectRatio,
-            );
-          }
-        });
-    },
-    [onStateChange, previewAction],
-  );
-
-  useEffect(() => {
     if (!isOpen || !session) {
-      previewRequestIdRef.current += 1;
-      queuedPreviewRef.current = null;
-      if (previewTimerRef.current !== null) {
-        window.clearTimeout(previewTimerRef.current);
-        previewTimerRef.current = null;
-      }
-      if (previewUrlRef.current) {
-        URL.revokeObjectURL(previewUrlRef.current);
-        previewUrlRef.current = null;
-      }
+      onCaptureActionChange?.(null);
       onStateChange({
         status: 'idle',
         imageUrl: null,
@@ -199,60 +154,38 @@ export function SnapshotPreviewRenderer({
       return;
     }
 
-    if (!previewAction) {
-      return;
-    }
-
-    const nextRequestId = ++previewRequestIdRef.current;
-    const previousImageUrl = previewUrlRef.current;
-    onStateChange({
-      status: previousImageUrl ? 'refreshing' : 'loading',
-      imageUrl: previousImageUrl,
-      aspectRatio: session.viewportAspectRatio,
-    });
-
-    if (previewTimerRef.current !== null) {
-      window.clearTimeout(previewTimerRef.current);
-    }
-
-    previewTimerRef.current = window.setTimeout(() => {
-      previewTimerRef.current = null;
-      executePreviewRequest(nextRequestId, options, session.viewportAspectRatio);
-    }, 300);
-  }, [executePreviewRequest, isOpen, onStateChange, options, previewAction, session]);
+    emitState('loading');
+  }, [emitState, isOpen, onCaptureActionChange, onStateChange, session]);
 
   if (!isOpen || !session) {
     return null;
   }
 
   return (
-    <div
-      aria-hidden="true"
-      className="pointer-events-none fixed left-[-20000px] top-0 z-[-1] overflow-hidden opacity-0"
-      style={{ width: surfaceSize.width, height: surfaceSize.height }}
-    >
+    <div className={className} data-testid="snapshot-preview-canvas">
       <WorkspaceCanvas
         theme={session.theme}
         lang={lang}
         className="relative h-full w-full"
         robotName={session.robotName}
-        onSnapshotActionChange={onCaptureActionChange}
-        onPreviewActionChange={handlePreviewActionChange}
+        onSnapshotActionChange={handleCaptureActionChange}
         renderKey={`snapshot-preview:${session.viewerReloadKey}`}
-        environment="studio"
+        environment={previewEnvironment}
         environmentIntensity={STUDIO_ENVIRONMENT_INTENSITY.viewer[effectiveTheme]}
-        background={WORKSPACE_CANVAS_BACKGROUND}
+        background={previewBackground}
         cameraFollowPrimary
         showWorldOriginAxes={false}
         showUsageGuide={false}
+        showGroundPlane={!options.hideGrid}
         groundOffset={session.groundPlaneOffset}
         subscribeGroundPlaneInvalidation={subscribeRobotGroundPlaneInvalidation}
         initialCameraSnapshot={session.cameraSnapshot}
         orbitControlsProps={{
-          enabled: false,
+          enabled: true,
         }}
         contextLostMessage={t.webglContextRestoring}
       >
+        <SnapshotPreviewLook options={options} session={session} />
         <group visible>
           <React.Suspense fallback={null}>
             <ViewerSceneConnector

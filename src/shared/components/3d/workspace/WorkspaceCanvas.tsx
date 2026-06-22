@@ -84,6 +84,7 @@ interface WorkspaceCanvasProps {
   contextLostMessage?: string;
   showWorldOriginAxes?: boolean;
   showUsageGuide?: boolean;
+  showGroundPlane?: boolean;
   renderKey?: string;
   initialCameraSnapshot?: WorkspaceCameraSnapshot | null;
   gizmoMargin?: WorkspaceOverlayGizmoMargin;
@@ -169,6 +170,7 @@ export const WorkspaceCanvas = ({
   background = WORKSPACE_CANVAS_BACKGROUND,
   showWorldOriginAxes = true,
   showUsageGuide = true,
+  showGroundPlane = true,
   renderKey = 'default',
   initialCameraSnapshot = null,
   gizmoMargin = DEFAULT_WORKSPACE_OVERLAY_GIZMO_MARGIN,
@@ -562,12 +564,14 @@ export const WorkspaceCanvas = ({
                   groundOffset={groundOffset}
                 />
                 <Suspense fallback={null}>{children}</Suspense>
-                <AdaptiveGroundPlane
-                  theme={effectiveTheme}
-                  groundOffset={groundOffset}
-                  showShadow
-                  subscribeInvalidation={subscribeGroundPlaneInvalidation}
-                />
+                {showGroundPlane ? (
+                  <AdaptiveGroundPlane
+                    theme={effectiveTheme}
+                    groundOffset={groundOffset}
+                    showShadow
+                    subscribeInvalidation={subscribeGroundPlaneInvalidation}
+                  />
+                ) : null}
                 {showWorldOriginAxes && !snapshotRenderActive && <WorldOriginAxes />}
                 <WorkspaceOrbitControls
                   key={`orbit-${controlLayerKey}`}

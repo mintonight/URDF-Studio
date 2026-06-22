@@ -121,9 +121,19 @@ export const useJointPickSessionStore = create<JointPickSessionState>()((set) =>
       // Drop a committed snap whose side relation changed; it would otherwise
       // align against a stale component/link.
       const parentChanged =
-        state.parentComponentId !== parentComponentId || state.parentLinkId !== parentLinkId;
+        (state.parentComponentId !== parentComponentId || state.parentLinkId !== parentLinkId) &&
+        !(
+          state.parentSnap &&
+          state.parentSnap.componentId === parentComponentId &&
+          state.parentSnap.linkId === parentLinkId
+        );
       const childChanged =
-        state.childComponentId !== childComponentId || state.childLinkId !== childLinkId;
+        (state.childComponentId !== childComponentId || state.childLinkId !== childLinkId) &&
+        !(
+          state.childSnap &&
+          state.childSnap.componentId === childComponentId &&
+          state.childSnap.linkId === childLinkId
+        );
 
       return {
         parentComponentId,
@@ -140,8 +150,20 @@ export const useJointPickSessionStore = create<JointPickSessionState>()((set) =>
   commitSnap: (frame) =>
     set(
       frame.side === 'parent'
-        ? { parentSnap: cloneSnapFrame(frame), pending: [] }
-        : { childSnap: cloneSnapFrame(frame), pending: [] },
+        ? {
+            parentComponentId: frame.componentId,
+            parentLinkId: frame.linkId,
+            parentSnap: cloneSnapFrame(frame),
+            side: 'child',
+            pending: [],
+          }
+        : {
+            childComponentId: frame.componentId,
+            childLinkId: frame.linkId,
+            childSnap: cloneSnapFrame(frame),
+            side: 'parent',
+            pending: [],
+          },
     ),
   clearSide: (side) =>
     set(side === 'parent' ? { parentSnap: null, pending: [] } : { childSnap: null, pending: [] }),

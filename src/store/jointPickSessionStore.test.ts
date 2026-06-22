@@ -39,10 +39,16 @@ test('jointPickSessionStore commitSnap stores by side and clears pending', () =>
 
   store.getState().commitSnap(makeFrame('parent'));
   assert.equal(store.getState().parentSnap?.componentId, 'comp_parent');
+  assert.equal(store.getState().parentComponentId, 'comp_parent');
+  assert.equal(store.getState().parentLinkId, 'base_link');
   assert.equal(store.getState().childSnap, null);
+  assert.equal(store.getState().side, 'child');
 
   store.getState().commitSnap(makeFrame('child'));
   assert.equal(store.getState().childSnap?.componentId, 'comp_child');
+  assert.equal(store.getState().childComponentId, 'comp_child');
+  assert.equal(store.getState().childLinkId, 'base_link');
+  assert.equal(store.getState().side, 'parent');
 
   store.getState().clearSide('parent');
   assert.equal(store.getState().parentSnap, null);
@@ -50,6 +56,20 @@ test('jointPickSessionStore commitSnap stores by side and clears pending', () =>
 
   store.getState().reset();
   assert.equal(store.getState().childSnap, null);
+});
+
+test('jointPickSessionStore preserves a snap when relation sync catches up to it', () => {
+  const store = useJointPickSessionStore;
+  store.getState().reset();
+
+  store.getState().commitSnap(makeFrame('parent'));
+  store.getState().setRelation('comp_parent', 'base_link', null, null);
+  assert.equal(store.getState().parentSnap?.componentId, 'comp_parent');
+
+  store.getState().setRelation('comp_other', 'base_link', null, null);
+  assert.equal(store.getState().parentSnap, null);
+
+  store.getState().reset();
 });
 
 test('jointPickSessionStore setMode resets pending picks', () => {

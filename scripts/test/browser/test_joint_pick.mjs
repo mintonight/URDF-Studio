@@ -4,10 +4,9 @@
  * Joint-origin Pick browser regression test (Fusion 360 style "Joint").
  *
  * Drives the real interactive flow that the debug-API assembly tests skip:
- * open the bridge modal, set the relation by clicking links in the canvas,
- * activate "Pick parent"/"Pick child", click the components in the 3D view, and
- * confirm. Verifies the raycast -> snap resolve -> commit -> auto-align pipeline
- * end to end in a real browser.
+ * open the bridge modal, click hovered snap/link targets directly in the canvas
+ * to fill parent and child, then confirm. Verifies the raycast -> snap resolve
+ * -> relation sync -> auto-align pipeline end to end in a real browser.
  */
 
 import { setTimeout as delay } from 'node:timers/promises';
@@ -17,10 +16,6 @@ import {
   clickCanvasTarget, store, writeReport, printSummary,
 } from './helpers/base-helpers.mjs';
 
-const PICK_PARENT = ['Pick parent', '拾取父侧'];
-const PICK_CHILD = ['Pick child', '拾取子侧'];
-const PARENT_DONE = ['Parent ✓', '父侧 ✓'];
-const CHILD_DONE = ['Child ✓', '子侧 ✓'];
 const CONFIRM = ['Confirm', '确认'];
 const CREATE_BRIDGE = ['Create Bridge', '创建拼接'];
 const CYLINDER_FILE = 'joint_pick_cylinder.urdf';
@@ -133,16 +128,6 @@ async function waitForSnapKind(page, side, kind, timeoutMs = 5000) {
   throw new Error(`Timed out waiting for ${side} snap kind ${kind}; last=${JSON.stringify(last)}`);
 }
 
-function offsetWithinTarget(target) {
-  const dx = Math.max(6, Math.min(24, Number(target.projectedWidth ?? 0) * 0.2));
-  const dy = Math.max(6, Math.min(24, Number(target.projectedHeight ?? 0) * 0.15));
-  return {
-    ...target,
-    clientX: target.clientX + dx,
-    clientY: target.clientY + dy,
-  };
-}
-
 async function clickCanvasTargetWithModifier(page, target) {
   const point = { x: target.clientX, y: target.clientY };
   await page.mouse.move(point.x, point.y);
@@ -184,16 +169,6 @@ async function clickByTitle(page, titles) {
   }, titles);
 }
 
-async function findButton(page, texts) {
-  return page.evaluate((wanted) => {
-    const button = Array.from(document.querySelectorAll('button')).find(
-      (element) => wanted.includes(element.textContent?.trim()),
-    );
-    if (!button) return { exists: false, disabled: false };
-    return { exists: true, disabled: button.disabled };
-  }, texts);
-}
-
 async function clickButton(page, texts) {
   return page.evaluate((wanted) => {
     const button = Array.from(document.querySelectorAll('button')).find(
@@ -204,13 +179,13 @@ async function clickButton(page, texts) {
   }, texts);
 }
 
-async function waitForButton(page, texts, timeoutMs = 8000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if ((await findButton(page, texts)).exists) return true;
-    await delay(150);
+async function waitForBridgeModal(page, timeoutMs = 8000) {
+  try {
+    await page.waitForSelector('[data-bridge-section-panel="relation"]', { timeout: timeoutMs });
+    return true;
+  } catch {
+    return false;
   }
-  return false;
 }
 
 // Attribute a link target to a component by LONGEST component-id prefix, so a
@@ -280,10 +255,17 @@ async function main() {
     // ── Clear selection, then open the bridge modal ──
     await clearViewerSelection(page);
     assert(suite, await clickByTitle(page, CREATE_BRIDGE), 'create-bridge button clicked');
-    assert(suite, await waitForButton(page, PICK_PARENT, 10000), 'bridge modal open with pick UI');
-    assert(suite, (await findButton(page, PICK_PARENT)).disabled, 'pick disabled before relation');
+    assert(suite, await waitForBridgeModal(page, 10000), 'bridge modal open with link UI');
+    const hasOldSidePickers = await page.evaluate(() =>
+      ['Pick parent', 'Pick child', '拾取父侧', '拾取子侧'].some((text) =>
+        document.body.textContent?.includes(text),
+      ),
+    );
+    assert(suite, !hasOldSidePickers, 'old parent/child pick buttons are not rendered');
+    const initialJointPick = await jointPickSession(page);
+    assert(suite, initialJointPick?.active === true, 'snap hover session active immediately');
 
-    // ── Set the relation by clicking each component's link in the canvas ──
+    // ── Pick each component directly; the snap click also fills relation sides ──
     // Wait for both components to finish projecting so target sampling is stable.
     await waitForComponentTargets(page, compA.id, allIds, modalSafeMaxX, 1);
     await waitForComponentTargets(page, compB.id, allIds, modalSafeMaxX, 1);
@@ -294,32 +276,16 @@ async function main() {
     const parentTarget = parentTargets[0];
     const childTarget = childTargets[0];
 
-    // Capture the link each relation click actually selected; the joint pick must
-    // land on that same link (the layer validates both component AND link).
     await clickCanvasTarget(page, parentTarget); await delay(700);
-    const relParentLinkId = (await selectionOf(page))?.id;
-    await clickCanvasTarget(page, childTarget); await delay(800);
-    const relChildLinkId = (await selectionOf(page))?.id;
-
-    const enabled = (await waitForButton(page, PICK_PARENT, 4000))
-      && !(await findButton(page, PICK_PARENT)).disabled;
-    assert(suite, enabled, 'pick enabled after relation');
-
-    // ── Pick the parent joint origin (re-fetch the link's current point) ──
-    assert(suite, await clickButton(page, PICK_PARENT), 'activate parent pick');
-    await delay(500);
-    const parentPick = (await targetById(page, relParentLinkId)) ?? parentTarget;
-    await clickCanvasTarget(page, parentPick); await delay(900);
-    assert(suite, await waitForButton(page, PARENT_DONE, 5000), 'parent snap committed (raycast→resolve→commit)');
     const parentSnap = await waitForSnapKind(page, 'parent', 'circleCenter');
+    assert(suite, Boolean(parentSnap), 'parent snap committed by first canvas click');
     assertEqual(suite, parentSnap.kind, 'circleCenter', 'cylinder cap pick snaps to circle center');
-
-    // ── Pick the child joint origin ──
-    assert(suite, await clickButton(page, PICK_CHILD), 'activate child pick');
-    await delay(500);
-    const childPick = (await targetById(page, relChildLinkId)) ?? childTarget;
-    await clickCanvasTarget(page, childPick); await delay(1000);
-    assert(suite, await waitForButton(page, CHILD_DONE, 5000), 'child snap committed');
+    await clickCanvasTarget(page, childTarget); await delay(800);
+    await page.waitForFunction(
+      () => Boolean(window.__URDF_STUDIO_DEBUG__?.__jointPickSessionStore__?.getState?.()?.childSnap),
+      { timeout: 5000 },
+    );
+    assert(suite, Boolean((await jointPickSession(page))?.childSnap), 'child snap committed');
     // Box has no circular face; the smart pick lands on a feature snap (face
     // center or object center depending on where the cursor hits the box)
     // instead of the raw surface point. Either feature snap is acceptable; the
@@ -331,11 +297,12 @@ async function main() {
       childSnap !== null && childSnap.kind !== 'surface',
       `box pick smart-snaps to a feature point (not raw surface); got ${childSnap?.kind ?? 'none'}`,
     );
+    const relChildLinkId = childSnap.linkId;
+    const childPick = (await targetById(page, relChildLinkId)) ?? childTarget;
 
     // ── Ctrl/Cmd override: same box surface can be committed as a raw surface point ──
-    assert(suite, await clickButton(page, CHILD_DONE), 'reactivate child pick for free-point override');
     await delay(500);
-    const freePointPick = offsetWithinTarget((await targetById(page, relChildLinkId)) ?? childPick);
+    const freePointPick = (await targetById(page, relChildLinkId)) ?? childPick;
     await clickCanvasTargetWithModifier(page, freePointPick); await delay(1000);
     const freePointSnap = await waitForSnapKind(page, 'child', 'surface');
     assertEqual(suite, freePointSnap.kind, 'surface', 'Ctrl/Cmd pick commits a free surface point');

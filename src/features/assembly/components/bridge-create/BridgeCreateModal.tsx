@@ -11,10 +11,7 @@ import { wouldBridgeCreateUnsupportedAssemblyCycle } from '@/core/robot/assembly
 import { degToRad, radToDeg } from '@/core/robot/transforms';
 import { DEFAULT_JOINT, JointType, type JointHardwareInterface } from '@/types';
 import { translations } from '@/shared/i18n';
-import {
-  filterSelectableBridgeComponents,
-  resolveBlockedBridgeComponentId,
-} from '../../utils/bridgeSelection';
+import { filterSelectableBridgeComponents } from '../../utils/bridgeSelection';
 import { buildBridgeJointFromDraft, buildBridgePreview } from '../../utils/bridgePreview';
 import {
   BridgeAxisSpinnerField,
@@ -28,6 +25,7 @@ import {
 } from './BridgeCreateFields';
 import {
   BRIDGE_EMPTY_SELECT_OPTION,
+  BRIDGE_PANEL_SELECT_CLASS,
   BRIDGE_RELATION_GRID_CLASS,
   BRIDGE_ROTATION_SHORTCUT_DEGREES,
   BRIDGE_SELECT_CLASS,
@@ -78,8 +76,10 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
 }) => {
   const t = translations[lang];
   const sideCardTitle =
-    lang === 'zh' ? { parent: '父侧', child: '子侧' } : { parent: 'Parent', child: 'Child' };
-  const relationSectionTitle = lang === 'zh' ? '拼接关系' : 'Joint Relation';
+    lang === 'zh'
+      ? { parent: '基准 Link', child: '连接 Link' }
+      : { parent: 'Base Link', child: 'Attach Link' };
+  const relationSectionTitle = lang === 'zh' ? '连接对象' : 'Links';
   const compactLabelWidthClassName = lang === 'zh' ? 'w-[30px]' : 'w-[44px]';
   const fullRowLabelClassName = 'w-auto whitespace-nowrap';
   const axisLabelWidthClassName = 'w-4 justify-center';
@@ -207,15 +207,6 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
 
   const parentComp = parentCompId ? assemblyState.components[parentCompId] : null;
   const childComp = childCompId ? assemblyState.components[childCompId] : null;
-  const blockedComponentId = useMemo(
-    () =>
-      resolveBlockedBridgeComponentId({
-        pickTarget,
-        parentComponentId: parentCompId,
-        childComponentId: childCompId,
-      }),
-    [childCompId, parentCompId, pickTarget],
-  );
   const parentComponentOptions = useMemo(
     () => filterSelectableBridgeComponents(comps, childCompId || null),
     [childCompId, comps],
@@ -560,7 +551,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
 
   useBridgeCreateSelectionSync({
     assemblyState,
-    blockedComponentId,
+    parentCompId,
     childCompId,
     childLinkId,
     handleClose,
@@ -580,16 +571,17 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
     parentLinkId,
     childComponentId: childCompId,
     childLinkId,
+    setParentCompId,
+    setParentLinkId,
+    setChildCompId,
+    setChildLinkId,
+    setPickTarget,
     applyPickedOrigin,
   });
-  const canPickJointOrigin = Boolean(
-    parentCompId && childCompId && parentLinkId && childLinkId && parentCompId !== childCompId,
-  );
-  const jointPickHintLabel = jointPick.active
-    ? jointPick.side === 'parent'
-      ? t.bridgePickActiveParent
-      : t.bridgePickActiveChild
-    : t.bridgeSnapHintSmart;
+  const canPickJointOrigin = comps.length >= 2;
+  const jointPickHintLabel = canPickJointOrigin
+    ? t.bridgeSnapHintSmart
+    : t.bridgeSelectRelationFirst;
 
   const namePlaceholder = suggestedBridgeName || t.bridgeJointNamePlaceholder;
 
@@ -776,7 +768,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                 options={jointTypeSelectOptions}
                 value={jointType}
                 onChange={(event) => setJointType(event.target.value as JointType)}
-                className={BRIDGE_SELECT_CLASS}
+                className={BRIDGE_PANEL_SELECT_CLASS}
               />
             </BridgeInlineFieldRow>
             {jointSupportsAxisAndLimits ? (
@@ -794,7 +786,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                   onChange={(event) =>
                     setHardwareInterface(event.target.value as JointHardwareInterface)
                   }
-                  className={BRIDGE_SELECT_CLASS}
+                  className={BRIDGE_PANEL_SELECT_CLASS}
                 />
               </BridgeInlineFieldRow>
             ) : null}
@@ -817,10 +809,8 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
             <BridgeSection title={relationSectionTitle}>
               {usesCadInspectorLayout ? (
                 <BridgeCompactRelationRow
-                  parentPickLabel={t.bridgePickParent}
-                  childPickLabel={t.bridgePickChild}
-                  parentIsActive={pickTarget === 'parent'}
-                  childIsActive={pickTarget === 'child'}
+                  parentTitle={sideCardTitle.parent}
+                  childTitle={sideCardTitle.child}
                   parentComponentValue={parentCompId}
                   parentLinkValue={parentLinkId}
                   childComponentValue={childCompId}
@@ -833,8 +823,6 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                   parentLinkLabel={t.parentLink}
                   childComponentLabel={t.childComponent}
                   childLinkLabel={t.childLink}
-                  onParentActivate={() => setPickTarget('parent')}
-                  onChildActivate={() => setPickTarget('child')}
                   onParentComponentChange={(value) => {
                     setPickTarget('parent');
                     setParentCompId(value);
@@ -858,16 +846,13 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
                 <div className={relationGridClassName}>
                   <BridgeSideCard
                     side="parent"
-                    isActive={pickTarget === 'parent'}
                     title={sideCardTitle.parent}
-                    pickLabel={t.bridgePickParent}
                     componentLabel={t.parentComponent}
                     linkLabel={t.parentLink}
                     componentValue={parentCompId}
                     linkValue={parentLinkId}
                     componentSummary={parentSummary}
                     linkSummary={parentLinkSummary}
-                    onActivate={() => setPickTarget('parent')}
                     onComponentChange={(value) => {
                       setPickTarget('parent');
                       setParentCompId(value);
@@ -885,16 +870,13 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
 
                   <BridgeSideCard
                     side="child"
-                    isActive={pickTarget === 'child'}
                     title={sideCardTitle.child}
-                    pickLabel={t.bridgePickChild}
                     componentLabel={t.childComponent}
                     linkLabel={t.childLink}
                     componentValue={childCompId}
                     linkValue={childLinkId}
                     componentSummary={childSummary}
                     linkSummary={childLinkSummary}
-                    onActivate={() => setPickTarget('child')}
                     onComponentChange={(value) => {
                       setPickTarget('child');
                       setChildCompId(value);
@@ -916,43 +898,35 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
             <div data-bridge-section-panel="transform" className={transformPanelClassName}>
               <BridgeSection title={t.originRelativeParent}>
                 <div className="mb-1.5 space-y-1">
-                  <div className="flex items-center gap-1.5">
-                    <Button
-                      type="button"
-                      variant={
-                        jointPick.active && jointPick.side === 'parent' ? 'primary' : 'secondary'
-                      }
-                      size="sm"
-                      disabled={!canPickJointOrigin}
-                      onClick={() => jointPick.startPick('parent')}
-                      className="flex-1"
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div
+                      data-bridge-snap-status="parent"
+                      className={`flex h-6 items-center justify-center rounded-md border text-[10px] font-medium ${
+                        jointPick.parentSnap
+                          ? 'border-system-blue/30 bg-system-blue/12 text-system-blue'
+                          : 'border-border-black bg-panel-bg text-text-tertiary'
+                      }`}
                     >
                       {jointPick.parentSnap
                         ? lang === 'zh'
-                          ? '父侧 ✓'
-                          : 'Parent ✓'
-                        : lang === 'zh'
-                          ? '拾取父侧'
-                          : 'Pick parent'}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={
-                        jointPick.active && jointPick.side === 'child' ? 'primary' : 'secondary'
-                      }
-                      size="sm"
-                      disabled={!canPickJointOrigin}
-                      onClick={() => jointPick.startPick('child')}
-                      className="flex-1"
+                          ? '基准 ✓'
+                          : 'Base ✓'
+                        : sideCardTitle.parent}
+                    </div>
+                    <div
+                      data-bridge-snap-status="child"
+                      className={`flex h-6 items-center justify-center rounded-md border text-[10px] font-medium ${
+                        jointPick.childSnap
+                          ? 'border-success/30 bg-success/10 text-success'
+                          : 'border-border-black bg-panel-bg text-text-tertiary'
+                      }`}
                     >
                       {jointPick.childSnap
                         ? lang === 'zh'
-                          ? '子侧 ✓'
-                          : 'Child ✓'
-                        : lang === 'zh'
-                          ? '拾取子侧'
-                          : 'Pick child'}
-                    </Button>
+                          ? '连接 ✓'
+                          : 'Attach ✓'
+                        : sideCardTitle.child}
+                    </div>
                   </div>
                   <p className="text-[10px] leading-tight text-text-tertiary">
                     {canPickJointOrigin ? jointPickHintLabel : t.bridgeSelectRelationFirst}

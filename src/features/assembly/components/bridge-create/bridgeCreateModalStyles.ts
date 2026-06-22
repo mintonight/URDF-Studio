@@ -15,6 +15,7 @@ export const BRIDGE_INLINE_FIELD_LABEL_CLASS =
 export const BRIDGE_INLINE_FIELD_LABEL_WIDTH_CLASS = 'w-[88px]';
 export const BRIDGE_SELECT_CLASS =
   '!h-[22px] !w-full min-w-0 rounded-md border border-border-strong bg-input-bg !px-1.5 !pr-6 !text-[10px] !leading-4 text-text-primary shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_18%,transparent)] outline-none transition-colors focus:border-system-blue focus:ring-2 focus:ring-system-blue/25';
+export const BRIDGE_PANEL_SELECT_CLASS = `${BRIDGE_SELECT_CLASS} !flex`;
 export const BRIDGE_NUMBER_FIELD_SHELL_CLASS =
   'flex h-[22px] w-full items-stretch overflow-hidden rounded-md border border-border-strong bg-input-bg text-text-primary shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-border-black)_18%,transparent)] transition-colors focus-within:border-system-blue focus-within:ring-2 focus:ring-system-blue/25';
 export const BRIDGE_NUMBER_INPUT_CLASS =

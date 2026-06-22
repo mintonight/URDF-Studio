@@ -6,10 +6,23 @@ interface ResolveSnapshotCaptureActionOptions {
   preferFrozenPreviewCapture: boolean;
 }
 
+export type ResolvedSnapshotCaptureSource = 'live' | 'preview';
+
+export interface ResolvedSnapshotCaptureAction {
+  action: SnapshotCaptureAction;
+  source: ResolvedSnapshotCaptureSource;
+}
+
 export function resolveSnapshotCaptureAction({
   liveCaptureAction,
   frozenPreviewCaptureAction,
   preferFrozenPreviewCapture,
-}: ResolveSnapshotCaptureActionOptions): SnapshotCaptureAction | null {
-  return preferFrozenPreviewCapture ? frozenPreviewCaptureAction : liveCaptureAction;
+}: ResolveSnapshotCaptureActionOptions): ResolvedSnapshotCaptureAction | null {
+  if (preferFrozenPreviewCapture) {
+    return frozenPreviewCaptureAction
+      ? { action: frozenPreviewCaptureAction, source: 'preview' }
+      : null;
+  }
+
+  return liveCaptureAction ? { action: liveCaptureAction, source: 'live' } : null;
 }

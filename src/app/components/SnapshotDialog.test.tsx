@@ -5,7 +5,10 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
+import { DEFAULT_LINK } from '@/types/constants';
+import type { RobotData } from '@/types';
 import { SnapshotDialog } from './SnapshotDialog';
+import type { SnapshotPreviewSession } from './snapshot-preview/types';
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -17,6 +20,14 @@ function installDom() {
   (globalThis as { document?: Document }).document = dom.window.document;
   Object.defineProperty(globalThis, 'navigator', {
     value: dom.window.navigator,
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: dom.window.localStorage,
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    value: dom.window.sessionStorage,
     configurable: true,
   });
 
@@ -35,6 +46,39 @@ function installDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
   return dom;
+}
+
+function createPreviewRobot(): RobotData {
+  return {
+    name: 'preview_bot',
+    rootLinkId: 'base_link',
+    materials: {},
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+      },
+    },
+    joints: {},
+  };
+}
+
+function createPreviewSession(): SnapshotPreviewSession {
+  return {
+    theme: 'light',
+    cameraSnapshot: null,
+    viewportAspectRatio: 16 / 9,
+    robotName: 'preview_bot',
+    robot: createPreviewRobot(),
+    assets: {},
+    availableFiles: [],
+    urdfContent: '',
+    showVisual: true,
+    isMeshPreview: false,
+    viewerReloadKey: 1,
+    groundPlaneOffset: 0,
+  };
 }
 
 test('SnapshotDialog reuses the segmented surface tone for AA choices', async () => {
@@ -89,7 +133,7 @@ test('SnapshotDialog reuses the segmented surface tone for AA choices', async ()
   }
 });
 
-test('SnapshotDialog opens with a narrower default width so the shell does not feel oversized', async () => {
+test('SnapshotDialog opens wide enough for the interactive preview canvas', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
   assert.ok(container, 'root container should exist');
@@ -113,8 +157,8 @@ test('SnapshotDialog opens with a narrower default width so the shell does not f
     assert.ok(windowRoot, 'snapshot dialog should render a draggable window root');
     assert.equal(
       windowRoot.style.width,
-      '560px',
-      'snapshot dialog should default to a narrower width that does not over-stretch the shell',
+      '600px',
+      'snapshot dialog should default to a width that leaves enough room to orbit the preview',
     );
   } finally {
     await act(async () => {
@@ -228,6 +272,47 @@ test('SnapshotDialog renders the live preview state without the frozen-view hint
   }
 });
 
+test('SnapshotDialog renders an interactive preview canvas when a preview session is available', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: false,
+          lang: 'en',
+          onClose: () => {},
+          onCapture: () => {},
+          previewSession: createPreviewSession(),
+        }),
+      );
+    });
+
+    const previewCanvasContainer = container.querySelector(
+      '[data-testid="snapshot-preview-canvas"]',
+    );
+    assert.ok(
+      previewCanvasContainer,
+      'snapshot dialog should render the interactive preview canvas container',
+    );
+    assert.equal(
+      container.querySelector('img[alt="Snapshot live preview"]'),
+      null,
+      'snapshot dialog should not use a static preview image when a live session is available',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('SnapshotDialog keeps the live preview inside the scrollable content area', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');
@@ -317,8 +402,8 @@ test('SnapshotDialog keeps the live preview inside an adaptive shell instead of 
     assert.ok(previewShell, 'snapshot dialog should render the preview frame shell');
     assert.equal(
       previewShell.style.maxWidth,
-      '360px',
-      'default snapshot dialog width should keep the preview inside a conservative adaptive cap',
+      '544px',
+      'default snapshot dialog width should let the preview use the available interactive area',
     );
 
     const previewFrame = container.querySelector(
@@ -632,7 +717,7 @@ test('SnapshotDialog shrinks the preview cap further on narrow layouts so the se
     assert.ok(previewShell, 'snapshot dialog should render the compact preview shell');
     assert.equal(
       previewShell.style.maxWidth,
-      '300px',
+      '350px',
       'narrow layouts should reduce the preview cap so the preview does not overwhelm the dialog',
     );
   } finally {

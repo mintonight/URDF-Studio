@@ -4,8 +4,13 @@ import { Line } from '@react-three/drei';
 import * as THREE from 'three';
 
 import type { AssemblyState } from '@/types';
-import { useJointPickSessionStore, type PickedSnapFrame } from '@/store/jointPickSessionStore';
+import {
+  useJointPickSessionStore,
+  type JointPickSide,
+  type PickedSnapFrame,
+} from '@/store/jointPickSessionStore';
 import { CoordinateAxes } from '@/shared/components/3d/helpers/CoordinateAxes';
+import { resolveBridgePickAssignment } from '@/shared/utils/assembly/bridgePickAssignment';
 import { throttle } from '@/shared/utils';
 
 import { resolveJointSnapFromHit, type ResolvedJointSnap } from '../utils/jointSnapResolver';
@@ -24,7 +29,6 @@ const PICK_RENDER_ORDER = 2500;
 const FRAME_SIZE = 0.05;
 
 const SNAP_TONE = {
-  valid: '#22d3ee',
   invalid: '#94a3b8',
   parent: '#0ea5e9',
   child: '#10b981',
@@ -42,6 +46,7 @@ interface AssemblyJointPickLayerProps {
 
 interface HoverSnap {
   valid: boolean;
+  side: JointPickSide | null;
   point: THREE.Vector3;
   pose: THREE.Matrix4 | null;
 }
@@ -107,23 +112,18 @@ export const AssemblyJointPickLayer = memo(
     const side = useJointPickSessionStore((state) => state.side);
     const snapFilter = useJointPickSessionStore((state) => state.snapFilter);
     const parentComponentId = useJointPickSessionStore((state) => state.parentComponentId);
-    const parentLinkId = useJointPickSessionStore((state) => state.parentLinkId);
     const childComponentId = useJointPickSessionStore((state) => state.childComponentId);
-    const childLinkId = useJointPickSessionStore((state) => state.childLinkId);
     const parentSnap = useJointPickSessionStore((state) => state.parentSnap);
     const childSnap = useJointPickSessionStore((state) => state.childSnap);
     const commitSnap = useJointPickSessionStore((state) => state.commitSnap);
 
     const [hover, setHover] = useState<HoverSnap | null>(null);
 
-    const expectedComponentId = side === 'parent' ? parentComponentId : childComponentId;
-    const expectedLinkId = side === 'parent' ? parentLinkId : childLinkId;
-
     // Latest values for the throttled DOM handlers (avoids stale closures).
-    const ctxRef = useRef({ side, snapFilter, expectedComponentId, expectedLinkId, assemblyState, robot });
+    const ctxRef = useRef({ side, snapFilter, parentComponentId, childComponentId, assemblyState, robot });
     useEffect(() => {
-      ctxRef.current = { side, snapFilter, expectedComponentId, expectedLinkId, assemblyState, robot };
-    }, [side, snapFilter, expectedComponentId, expectedLinkId, assemblyState, robot]);
+      ctxRef.current = { side, snapFilter, parentComponentId, childComponentId, assemblyState, robot };
+    }, [side, snapFilter, parentComponentId, childComponentId, assemblyState, robot]);
 
     useEffect(() => {
       if (!active || hidden || !robot || !assemblyState) {
@@ -149,7 +149,9 @@ export const AssemblyJointPickLayer = memo(
         return true;
       };
 
-      const raycastSnap = (freePointOverride = false): { snap: ResolvedJointSnap; valid: boolean } | null => {
+      const raycastSnap = (
+        freePointOverride = false,
+      ): { snap: ResolvedJointSnap; valid: boolean; side: JointPickSide | null } | null => {
         const ctx = ctxRef.current;
         if (!ctx.robot || !ctx.assemblyState) {
           return null;
@@ -174,10 +176,13 @@ export const AssemblyJointPickLayer = memo(
             },
           );
           if (snap) {
-            const componentMatches =
-              !ctx.expectedComponentId || snap.componentId === ctx.expectedComponentId;
-            const linkMatches = !ctx.expectedLinkId || snap.linkId === ctx.expectedLinkId;
-            return { snap, valid: componentMatches && linkMatches };
+            const targetSide = resolveBridgePickAssignment({
+              selectedComponentId: snap.componentId,
+              parentComponentId: ctx.parentComponentId,
+              childComponentId: ctx.childComponentId,
+              preferredTarget: ctx.side,
+            });
+            return { snap, valid: Boolean(targetSide), side: targetSide };
           }
         }
         return null;
@@ -203,6 +208,7 @@ export const AssemblyJointPickLayer = memo(
         }
         setHover({
           valid: result.valid,
+          side: result.side,
           point: result.snap.chosen.pointWorld.clone(),
           pose: result.valid ? result.snap.chosen.poseWorld.clone() : null,
         });
@@ -236,12 +242,12 @@ export const AssemblyJointPickLayer = memo(
           return;
         }
         const result = raycastSnap(isFreePointOverride(event));
-        if (!result || !result.valid) {
+        if (!result || !result.valid || !result.side) {
           return;
         }
         const { snap } = result;
         commitSnap({
-          side: ctxRef.current.side,
+          side: result.side,
           componentId: snap.componentId,
           linkId: snap.linkId,
           kind: snap.chosen.kind,
@@ -287,7 +293,14 @@ export const AssemblyJointPickLayer = memo(
       <group>
         {hover ? (
           <>
-            <SnapDot point={hover.point} tone={hover.valid ? SNAP_TONE.valid : SNAP_TONE.invalid} />
+            <SnapDot
+              point={hover.point}
+              tone={
+                hover.valid && hover.side
+                  ? SNAP_TONE[hover.side]
+                  : SNAP_TONE.invalid
+              }
+            />
             {hover.valid && hover.pose ? <FrameAxes matrix={hover.pose} /> : null}
           </>
         ) : null}

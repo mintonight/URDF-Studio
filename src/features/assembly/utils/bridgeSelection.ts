@@ -1,8 +1,10 @@
 import type { AssemblyComponent, AssemblyState } from '@/types';
 import type { Selection } from '@/store/selectionStore';
+import type { BridgePickTarget } from '@/shared/utils/assembly/bridgePickAssignment';
 import { resolveAssemblyRootComponentSelection } from '@/shared/utils/assembly/transformSelection';
 
-export type BridgePickTarget = 'parent' | 'child';
+export type { BridgePickTarget };
+export { resolveBridgePickAssignment } from '@/shared/utils/assembly/bridgePickAssignment';
 
 export interface ResolvedAssemblySelection {
   componentId: string;
