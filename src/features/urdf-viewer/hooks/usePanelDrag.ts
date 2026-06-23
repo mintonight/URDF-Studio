@@ -4,7 +4,7 @@ import {
   WORKSPACE_OVERLAY_RIGHT_INSET_VAR,
 } from '@/shared/components/3d/scene/viewerOverlaySafeArea';
 
-type PanelType = 'options' | 'joints' | 'measure';
+type PanelType = 'options' | 'joints' | 'measure' | 'paint';
 type PanelPosition = { x: number; y: number };
 
 interface DragStart {
@@ -18,6 +18,7 @@ interface PositionMap {
   options: PanelPosition | null;
   joints: PanelPosition | null;
   measure: PanelPosition | null;
+  paint: PanelPosition | null;
 }
 
 const PANEL_EDGE_PADDING = 2;
@@ -42,7 +43,8 @@ export function usePanelDrag(
   containerRef: React.RefObject<HTMLDivElement | null>,
   optionsPanelRef: React.RefObject<HTMLDivElement | null>,
   jointPanelRef: React.RefObject<HTMLDivElement | null>,
-  measurePanelRef: React.RefObject<HTMLDivElement | null>
+  measurePanelRef: React.RefObject<HTMLDivElement | null>,
+  paintPanelRef: React.RefObject<HTMLDivElement | null>
 ) {
   const [dragging, setDragging] = useState<PanelType | null>(null);
   const dragStartRef = useRef<DragStart | null>(null);
@@ -56,17 +58,20 @@ export function usePanelDrag(
     options: null,
     joints: null,
     measure: null,
+    paint: null,
   });
 
   const [optionsPanelPos, setOptionsPanelPos] = useState<PanelPosition | null>(null);
   const [jointPanelPos, setJointPanelPos] = useState<PanelPosition | null>(null);
   const [measurePanelPos, setMeasurePanelPos] = useState<PanelPosition | null>(null);
+  const [paintPanelPos, setPaintPanelPos] = useState<PanelPosition | null>(null);
 
   const getPanelRef = useCallback((panel: PanelType) => {
     if (panel === 'options') return optionsPanelRef;
     if (panel === 'joints') return jointPanelRef;
+    if (panel === 'paint') return paintPanelRef;
     return measurePanelRef;
-  }, [jointPanelRef, measurePanelRef, optionsPanelRef]);
+  }, [jointPanelRef, measurePanelRef, optionsPanelRef, paintPanelRef]);
 
   const getCommittedPosition = useCallback((panel: PanelType) => {
     return positionsRef.current[panel];
@@ -82,6 +87,11 @@ export function usePanelDrag(
 
     if (panel === 'joints') {
       setJointPanelPos(position);
+      return;
+    }
+
+    if (panel === 'paint') {
+      setPaintPanelPos(position);
       return;
     }
 
@@ -112,7 +122,7 @@ export function usePanelDrag(
         : Math.min(PANEL_EDGE_PADDING, MIN_VISIBLE_PANEL_WIDTH - panelRect.width);
     const maxX = Math.max(
       overlayInsets.left + PANEL_EDGE_PADDING,
-      containerRect.width - overlayInsets.right - MIN_VISIBLE_PANEL_WIDTH,
+      containerRect.width - overlayInsets.right - panelRect.width - PANEL_EDGE_PADDING,
     );
     const minY = PANEL_EDGE_PADDING;
     // Ensure title bar stays visible: maxY should keep at least MIN_VISIBLE_PANEL_HEADER_HEIGHT of the panel visible at the bottom
@@ -168,6 +178,9 @@ export function usePanelDrag(
     const nextMeasure = positionsRef.current.measure
       ? clampPositionFullyVisible(positionsRef.current.measure, measurePanelRef)
       : null;
+    const nextPaint = positionsRef.current.paint
+      ? clampPositionFullyVisible(positionsRef.current.paint, paintPanelRef)
+      : null;
 
     if (
       nextOptions &&
@@ -193,6 +206,14 @@ export function usePanelDrag(
     ) {
       commitPanelPosition('measure', nextMeasure);
     }
+    if (
+      nextPaint &&
+      positionsRef.current.paint &&
+      (nextPaint.x !== positionsRef.current.paint.x ||
+        nextPaint.y !== positionsRef.current.paint.y)
+    ) {
+      commitPanelPosition('paint', nextPaint);
+    }
   }, [
     clampPositionFullyVisible,
     commitPanelPosition,
@@ -200,6 +221,7 @@ export function usePanelDrag(
     jointPanelRef,
     measurePanelRef,
     optionsPanelRef,
+    paintPanelRef,
   ]);
 
   const updatePositionFromPointer = useCallback((clientX: number, clientY: number) => {
@@ -359,6 +381,7 @@ export function usePanelDrag(
     optionsPanelPos,
     jointPanelPos,
     measurePanelPos,
+    paintPanelPos,
     dragging,
     handleMouseDown,
     handleMouseMove,

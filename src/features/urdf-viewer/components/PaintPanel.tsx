@@ -23,6 +23,9 @@ interface PaintPanelProps {
   paintStatus: ViewerPaintStatus | null;
   supported: boolean;
   onClose: () => void;
+  paintPanelRef?: React.RefObject<HTMLDivElement | null>;
+  paintPanelPos?: { x: number; y: number } | null;
+  onMouseDown?: (e: React.MouseEvent) => void;
 }
 
 function normalizeHexColor(value: string): string | null {
@@ -98,6 +101,9 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({
   paintStatus,
   supported,
   onClose,
+  paintPanelRef,
+  paintPanelPos,
+  onMouseDown,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [hexInputValue, setHexInputValue] = useState(paintColor);
@@ -136,6 +142,9 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({
       expandText={t.expand}
       collapseText={t.collapse}
       closeText={t.close}
+      panelRef={paintPanelRef}
+      position={paintPanelPos}
+      onMouseDown={onMouseDown}
     >
       <div className="space-y-3 p-[10px]">
         <p className="text-[10px] leading-4 text-text-secondary">{t.paintToolHint}</p>

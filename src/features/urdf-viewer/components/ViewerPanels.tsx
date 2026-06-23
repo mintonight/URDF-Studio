@@ -164,6 +164,9 @@ export const ViewerPanels = ({
         paintStatus={controller.paintStatus}
         supported={paintModeSupported}
         onClose={controller.handleClosePaintTool}
+        paintPanelRef={controller.paintPanelRef}
+        paintPanelPos={controller.paintPanelPos}
+        onMouseDown={(event) => controller.handleMouseDown('paint', event)}
       />
     </>
   );

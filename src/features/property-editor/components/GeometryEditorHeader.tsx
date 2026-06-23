@@ -57,24 +57,6 @@ export const GeometryEditorHeader = ({
           spellCheck={false}
         />
       </div>
-    ) : category === 'collision' ? (
-      <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        <span
-          className={`${PROPERTY_EDITOR_INLINE_FIELD_LABEL_CLASS} min-w-0 shrink whitespace-nowrap`}
-        >
-          {t.name}
-        </span>
-        <input
-          type="text"
-          value={geometryNameValue}
-          onChange={(event) => {
-            const nextName = event.target.value.trim();
-            onGeometryNameChange(nextName || undefined);
-          }}
-          className={`${PROPERTY_EDITOR_INPUT_CLASS} min-w-0 flex-1`}
-          spellCheck={false}
-        />
-      </div>
     ) : null}
     <div className="flex min-w-0 flex-1 items-center gap-1.5">
       <span
