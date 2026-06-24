@@ -191,9 +191,9 @@ export function useViewerSettings(): ViewerSettings {
   const [jointAxisSize, setJointAxisSize] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('urdf_viewer_joint_axis_size');
-      return saved ? Math.min(parseFloat(saved), 2.0) : 0.1;
+      return saved ? Math.min(parseFloat(saved), 2.0) : 0.5;
     }
-    return 0.1;
+    return 0.5;
   });
 
   const [highlightMode, setHighlightMode] = useState<'link' | 'collision'>('link');
