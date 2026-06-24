@@ -1139,6 +1139,17 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
           dirtyRangesRef.current = accumulateSourceCodeDirtyRanges(dirtyRangesRef.current, changes);
         }) ?? null;
 
+      const domNode = (editor as { getDomNode?: () => HTMLElement | null }).getDomNode?.();
+      if (domNode) {
+        const styleId = 'source-code-editor-transparent-bg';
+        if (!domNode.querySelector(`#${styleId}`)) {
+          const style = document.createElement('style');
+          style.id = styleId;
+          style.textContent = `.monaco-editor, .monaco-editor-background, .monaco-editor .margin { background-color: transparent !important; }`;
+          domNode.appendChild(style);
+        }
+      }
+
       setIsEditorReady(true);
       requestAnimationFrame(() => {
         if (editorMountVersionRef.current === mountVersion && editorRef.current) {
@@ -1245,7 +1256,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
           </Tooltip>
         </div>
       }
-      className={`fixed z-[220] flex flex-col overflow-hidden rounded-lg border border-border-black bg-panel-bg text-text-primary shadow-2xl ${
+      className={`fixed z-[220] flex flex-col overflow-hidden rounded-lg border border-border-black bg-panel-bg/60 text-text-primary shadow-2xl ${
         isMaximized ? 'inset-0 !h-full !w-full !transform-none rounded-none' : ''
       }`}
       headerClassName="flex h-10 items-center justify-between gap-3 border-b border-border-black bg-element-bg px-3 select-none"
