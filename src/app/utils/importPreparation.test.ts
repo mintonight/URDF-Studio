@@ -283,6 +283,106 @@ test('prepareImportPayload imports all loose folder mesh assets like the legacy 
   assert.deepEqual(result.deferredAssetFiles, []);
 });
 
+test('prepareImportPayload keeps loose OBJ material sidecars and their textures', async () => {
+  const files = [
+    createLooseFile(
+      'body.obj',
+      [
+        'mtllib body.mtl',
+        'usemtl Painted',
+        'o Body',
+      ].join('\n'),
+      'robot/assets/body.obj',
+    ),
+    createLooseFile(
+      'body.mtl',
+      [
+        'newmtl Painted',
+        'Kd 1 0 0',
+        'map_Kd textures/body.png',
+      ].join('\n'),
+      'robot/assets/body.mtl',
+    ),
+    createLooseFile(
+      'body.png',
+      new Uint8Array([137, 80, 78, 71]),
+      'robot/assets/textures/body.png',
+    ),
+  ];
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.equal(result.preferredFileName, 'robot/assets/body.obj');
+  assert.deepEqual(
+    result.assetFiles.map((file) => file.name).sort(),
+    [
+      'robot/assets/body.mtl',
+      'robot/assets/body.obj',
+      'robot/assets/textures/body.png',
+    ],
+  );
+  assert.deepEqual(result.textFiles, [
+    {
+      path: 'robot/assets/body.mtl',
+      content: [
+        'newmtl Painted',
+        'Kd 1 0 0',
+        'map_Kd textures/body.png',
+      ].join('\n'),
+    },
+  ]);
+});
+
+test('prepareImportPayload keeps loose URDF referenced OBJ material sidecars', async () => {
+  const files = [
+    createLooseFile(
+      'robot.urdf',
+      [
+        '<?xml version="1.0"?>',
+        '<robot name="demo">',
+        '  <link name="base_link">',
+        '    <visual>',
+        '      <geometry>',
+        '        <mesh filename="assets/body.obj" />',
+        '      </geometry>',
+        '    </visual>',
+        '  </link>',
+        '</robot>',
+      ].join('\n'),
+      'robot/robot.urdf',
+    ),
+    createLooseFile(
+      'body.obj',
+      [
+        'mtllib body.mtl',
+        'usemtl Painted',
+        'o Body',
+      ].join('\n'),
+      'robot/assets/body.obj',
+    ),
+    createLooseFile('body.mtl', 'newmtl Painted\nKd 1 0 0', 'robot/assets/body.mtl'),
+  ];
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.equal(result.preferredFileName, 'robot/robot.urdf');
+  assert.ok(
+    result.assetFiles.some((file) => file.name === 'robot/assets/body.mtl'),
+    'expected OBJ material sidecar to be available as a renderable asset',
+  );
+  assert.deepEqual(result.textFiles, [
+    { path: 'robot/assets/body.mtl', content: 'newmtl Painted\nKd 1 0 0' },
+  ]);
+});
+
 test('prepareImportPayload keeps all loose USD source blobs like the legacy folder flow', async () => {
   const files = [
     createLooseFile(

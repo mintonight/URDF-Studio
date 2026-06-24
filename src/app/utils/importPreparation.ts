@@ -23,6 +23,7 @@ import {
 } from '@/shared/utils/robotFileSupport';
 import { pickPreferredImportFile } from '@/app/hooks/importPreferredFile';
 import { buildPreResolvedImportContentSignature } from './preResolvedImportSignature.ts';
+import { extractStandaloneImportAssetReferences } from './importPackageAssetReferences.ts';
 import {
   peekPreResolvedRobotImport,
   primePreResolvedRobotImports,
@@ -251,6 +252,10 @@ function normalizeResolvedImportAssetPath(
   return normalizeImportPath(resolveImportedAssetPath(assetPath, sourceFilePath));
 }
 
+function isObjImportPath(path: string): boolean {
+  return path.toLowerCase().endsWith('.obj');
+}
+
 function parseObjMaterialLibraryPaths(meshPath: string, content: string): string[] {
   const materialLibraryPaths = new Set<string>();
   const matches = content.matchAll(/^[ \t]*mtllib[ \t]+(.+)$/gim);
@@ -261,15 +266,59 @@ function parseObjMaterialLibraryPaths(meshPath: string, content: string): string
       continue;
     }
 
-    const resolvedPath = normalizeResolvedImportAssetPath(rawValue, meshPath);
-    if (!resolvedPath) {
-      continue;
-    }
+    rawValue.split(/\s+/).forEach((materialLibraryPath) => {
+      const resolvedPath = normalizeResolvedImportAssetPath(materialLibraryPath, meshPath);
+      if (!resolvedPath) {
+        return;
+      }
 
-    materialLibraryPaths.add(resolvedPath);
+      materialLibraryPaths.add(resolvedPath);
+    });
   }
 
   return [...materialLibraryPaths];
+}
+
+function collectPreferredObjMaterialMeshPaths(
+  robotFiles: readonly RobotFile[],
+  preResolvePreferredImport: boolean,
+): Set<string> {
+  const visibleRobotFiles = robotFiles.filter(isVisibleLibraryEntry);
+  const preferredFile =
+    preResolvePreferredImport !== false
+      ? pickPreferredImportFile(visibleRobotFiles, [...robotFiles])
+      : pickFastPreparedPreferredFile([...visibleRobotFiles], [...robotFiles]);
+  const objMeshPaths = new Set<string>();
+
+  if (!preferredFile) {
+    return objMeshPaths;
+  }
+
+  if (preferredFile.format === 'mesh') {
+    if (isObjImportPath(preferredFile.name)) {
+      objMeshPaths.add(normalizeImportPath(preferredFile.name));
+    }
+    return objMeshPaths;
+  }
+
+  if (preferredFile.format !== 'urdf' && preferredFile.format !== 'sdf') {
+    return objMeshPaths;
+  }
+
+  extractStandaloneImportAssetReferences(preferredFile, {
+    sourcePath: preferredFile.name,
+  }).forEach((assetPath) => {
+    if (!isObjImportPath(assetPath)) {
+      return;
+    }
+
+    const resolvedPath = normalizeResolvedImportAssetPath(assetPath, preferredFile.name);
+    if (resolvedPath) {
+      objMeshPaths.add(resolvedPath);
+    }
+  });
+
+  return objMeshPaths;
 }
 
 type MjcfScopedCompilerDirectories = {
@@ -577,6 +626,69 @@ function appendPreparedImportBlobFileIfMissing(
   }
 
   target.push(nextFile);
+}
+
+async function appendObjMaterialSidecarsFromLooseFiles(
+  payload: CollectedImportPayload,
+  mirroredTextMeshFiles: readonly { path: string; file: File }[],
+  auxiliaryTextFiles: readonly { path: string; file: File }[],
+  targetObjPaths: ReadonlySet<string>,
+): Promise<void> {
+  if (
+    targetObjPaths.size === 0 ||
+    mirroredTextMeshFiles.length === 0 ||
+    auxiliaryTextFiles.length === 0
+  ) {
+    return;
+  }
+
+  const materialFilesByPath = new Map(
+    auxiliaryTextFiles.map((file) => [normalizeImportPath(file.path), file] as const),
+  );
+  const targetedObjFiles = mirroredTextMeshFiles.filter(
+    ({ path }) => isObjImportPath(path) && targetObjPaths.has(normalizeImportPath(path)),
+  );
+  if (targetedObjFiles.length === 0) {
+    return;
+  }
+
+  const materialSidecars: Array<{ path: string; file: File }> = [];
+  const queuedMaterialPaths = new Set<string>();
+
+  await processWithConcurrency(
+    targetedObjFiles,
+    resolveImportPreparationConcurrency(),
+    async ({ path, file }) => {
+      const content = await file.text();
+      parseObjMaterialLibraryPaths(path, content).forEach((materialPath) => {
+        if (queuedMaterialPaths.has(materialPath)) {
+          return;
+        }
+
+        const materialFile = materialFilesByPath.get(materialPath);
+        if (!materialFile) {
+          return;
+        }
+
+        queuedMaterialPaths.add(materialPath);
+        materialSidecars.push(materialFile);
+      });
+    },
+  );
+
+  if (materialSidecars.length === 0) {
+    return;
+  }
+
+  await processWithConcurrency(
+    materialSidecars,
+    resolveImportPreparationConcurrency(),
+    async ({ path, file }) => {
+      const content = await file.text();
+      appendPreparedImportTextFileIfMissing(payload.textFiles, { path, content });
+      appendPreparedImportBlobFileIfMissing(payload.assetFiles, { name: path, blob: file });
+    },
+  );
 }
 
 function renameCollectedImportPayload(
@@ -1069,6 +1181,10 @@ async function collectImportPayloadFromLooseFiles(
     payload.robotFiles,
     options.preResolvePreferredImport !== false,
   );
+  const preferredObjMaterialMeshPaths = collectPreferredObjMaterialMeshPaths(
+    payload.robotFiles,
+    options.preResolvePreferredImport !== false,
+  );
 
   if (referencedTextMeshPaths.size > 0 && mirroredTextMeshFiles.length > 0) {
     const targetedMirroredTextMeshFiles = mirroredTextMeshFiles.filter(({ path }) =>
@@ -1114,6 +1230,13 @@ async function collectImportPayloadFromLooseFiles(
       }
     }
   }
+
+  await appendObjMaterialSidecarsFromLooseFiles(
+    payload,
+    mirroredTextMeshFiles,
+    auxiliaryTextFiles,
+    preferredObjMaterialMeshPaths,
+  );
 
   emitProgress({
     phase: 'finalizing-import',
