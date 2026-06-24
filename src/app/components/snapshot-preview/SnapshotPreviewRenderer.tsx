@@ -17,6 +17,7 @@ import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRe
 import { subscribeRobotGroundPlaneInvalidation } from '@/store/robotGroundPlaneInvalidation';
 
 import type { SnapshotDialogPreviewState, SnapshotPreviewSession } from './types';
+import type { WorkspaceCameraSnapshot } from '@/shared/components/3d';
 
 interface SnapshotPreviewRendererProps {
   isOpen: boolean;
@@ -85,6 +86,16 @@ export function SnapshotPreviewRenderer({
     [options.backgroundStyle],
   );
   const previewEnvironment = options.environmentPreset === 'viewport' ? 'studio' : 'none';
+  const previewCameraSnapshot = useMemo<WorkspaceCameraSnapshot | null>(() => {
+    if (!session?.cameraSnapshot) {
+      return null;
+    }
+
+    return {
+      ...session.cameraSnapshot,
+      aspectRatio: session.viewportAspectRatio,
+    };
+  }, [session?.cameraSnapshot, session?.viewportAspectRatio]);
   const emitState = useCallback(
     (status: SnapshotDialogPreviewState['status']) => {
       onStateChange({
@@ -179,7 +190,7 @@ export function SnapshotPreviewRenderer({
         showGroundPlane={!options.hideGrid}
         groundOffset={session.groundPlaneOffset}
         subscribeGroundPlaneInvalidation={subscribeRobotGroundPlaneInvalidation}
-        initialCameraSnapshot={session.cameraSnapshot}
+        initialCameraSnapshot={previewCameraSnapshot}
         orbitControlsProps={{
           enabled: true,
         }}
