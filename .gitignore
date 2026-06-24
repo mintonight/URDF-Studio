@@ -2,6 +2,7 @@ node_modules/
 .worktrees/
 .omc/
 .omx/
+.mimocode/
 .env.local
 .env
 *.log
