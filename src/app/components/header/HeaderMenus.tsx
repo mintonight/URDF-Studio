@@ -272,6 +272,11 @@ export function HeaderMenus({
                 label={t.viewOptions}
                 onClick={handleToggleOptionsPanel}
               />
+              <ViewMenuItem
+                checked={viewConfig.showStructureGraph}
+                label={t.structureGraphTitle}
+                onClick={() => handleToggleViewPanel('showStructureGraph')}
+              />
             </div>
           </>
         )}

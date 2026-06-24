@@ -1079,7 +1079,7 @@ export function TreeStructureGraphDialog({
           </button>
         </div>
       }
-      className="z-[240] overflow-hidden rounded-2xl border border-border-black bg-panel-bg text-text-primary shadow-xl pointer-events-auto"
+      className="z-[240] overflow-hidden rounded-2xl border border-border-black bg-panel-bg/60 text-text-primary shadow-xl pointer-events-auto"
       headerClassName="flex h-10 items-center justify-between border-b border-border-black bg-element-bg px-3"
       interactionClassName="select-none"
       controlButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-panel-bg hover:text-text-primary"
@@ -1099,11 +1099,11 @@ export function TreeStructureGraphDialog({
       }
       closeTitle={t.close}
     >
-      <div className="flex h-[calc(100%-40px)] min-h-0 flex-col overflow-hidden bg-panel-bg">
+      <div className="flex h-[calc(100%-40px)] min-h-0 flex-col overflow-hidden">
         <div
           ref={graphSurfaceRef}
           data-testid="structure-graph-surface"
-          className={`min-h-0 flex-1 touch-none overflow-hidden overscroll-contain bg-element-bg ${
+          className={`min-h-0 flex-1 touch-none overflow-hidden overscroll-contain ${
             isPanning ? 'cursor-grabbing' : 'cursor-default'
           }`}
           onMouseDown={handleGraphMouseDown}

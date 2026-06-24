@@ -91,6 +91,8 @@ export interface TreeEditorProps {
     | 'blocked';
   isReadOnly?: boolean;
   showJointPanel?: boolean;
+  showStructureGraph?: boolean;
+  onCloseStructureGraph?: () => void;
   onJointAnglePreview?: (jointName: string, angle: number) => void;
   onJointAngleChange?: (jointName: string, angle: number) => void;
 }
@@ -131,6 +133,8 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
   onRenameComponent,
   isReadOnly = false,
   showJointPanel = false,
+  showStructureGraph = false,
+  onCloseStructureGraph,
   onJointAnglePreview,
   onJointAngleChange,
 }) => {
@@ -646,6 +650,8 @@ export const TreeEditor: React.FC<TreeEditorProps> = ({
             <TreeEditorStructureSection
               isOpen={isStructureOpen}
               isAssemblyView={showAssemblyTools}
+              showStructureGraph={showStructureGraph}
+              onCloseStructureGraph={onCloseStructureGraph}
               structureTreeShowGeometryDetails={structureTreeShowGeometryDetails}
               showVisual={showVisual}
               showStructureFilePath={!showAssemblyTools && showStructureFilePath}

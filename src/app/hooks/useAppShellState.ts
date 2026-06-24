@@ -11,6 +11,7 @@ export interface AppToastState {
 export interface AppViewConfig {
   showOptionsPanel: boolean;
   showJointPanel: boolean;
+  showStructureGraph: boolean;
 }
 
 export type AILaunchMode = 'inspection' | 'conversation' | null;
@@ -24,6 +25,7 @@ const DEFAULT_TOAST_STATE: AppToastState = {
 const DEFAULT_VIEW_CONFIG: AppViewConfig = {
   showOptionsPanel: true,
   showJointPanel: true,
+  showStructureGraph: false,
 };
 
 export function useAppShellState() {

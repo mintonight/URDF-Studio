@@ -190,6 +190,7 @@ function WorkspaceViewerSection({
   lang,
   theme,
   viewConfig,
+  setViewConfig,
   shouldSuppressDocumentLoadingOverlay,
 }: AppLayoutViewContentProps) {
   return (
@@ -301,6 +302,7 @@ function WorkspaceSidebarsSection({
   handleRequestSwitchTreeEditorToStructure,
   isPreviewingWorkspaceSource,
   viewConfig,
+  setViewConfig,
   handleJointPreview,
   handleJointChange,
   previewFile,
@@ -357,6 +359,8 @@ function WorkspaceSidebarsSection({
         onRequestSwitchToStructure: handleRequestSwitchTreeEditorToStructure,
         isReadOnly: isPreviewingWorkspaceSource,
         showJointPanel: viewConfig.showJointPanel,
+        showStructureGraph: viewConfig.showStructureGraph,
+        onCloseStructureGraph: () => setViewConfig((prev) => ({ ...prev, showStructureGraph: false })),
         onJointAnglePreview: handleJointPreview,
         onJointAngleChange: handleJointChange,
       }}

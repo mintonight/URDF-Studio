@@ -39,6 +39,7 @@ interface HeaderProps {
   viewConfig: {
     showOptionsPanel: boolean;
     showJointPanel: boolean;
+    showStructureGraph: boolean;
   };
   viewAvailability?: HeaderViewAvailability;
   setViewConfig: React.Dispatch<React.SetStateAction<HeaderViewConfig>>;

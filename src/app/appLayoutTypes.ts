@@ -12,6 +12,7 @@ export interface ProModeRoundtripSession {
 export interface AppLayoutViewConfig {
   showOptionsPanel: boolean;
   showJointPanel: boolean;
+  showStructureGraph: boolean;
 }
 
 export interface AppLayoutExposedActions {

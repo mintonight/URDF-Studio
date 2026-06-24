@@ -22,6 +22,7 @@ type TreeEditorTranslations = typeof translations.en;
 interface TreeEditorStructureSectionProps {
   isOpen: boolean;
   isAssemblyView: boolean;
+  showStructureGraph?: boolean;
   structureTreeShowGeometryDetails: boolean;
   showVisual: boolean;
   showStructureFilePath: boolean;
@@ -58,11 +59,13 @@ interface TreeEditorStructureSectionProps {
   onCreateBridge?: () => void;
   onToggleComponentVisibility: (componentId: string) => void;
   isReadOnly?: boolean;
+  onCloseStructureGraph?: () => void;
 }
 
 export function TreeEditorStructureSection({
   isOpen,
   isAssemblyView,
+  showStructureGraph = false,
   structureTreeShowGeometryDetails,
   showVisual,
   showStructureFilePath,
@@ -93,12 +96,17 @@ export function TreeEditorStructureSection({
   onCreateBridge,
   onToggleComponentVisibility,
   isReadOnly = false,
+  onCloseStructureGraph,
 }: TreeEditorStructureSectionProps) {
   const useStoreDrivenTree = !isAssemblyView && !isReadOnly;
   const [isEditingRobotName, setIsEditingRobotName] = useState(false);
   const [robotNameDraft, setRobotNameDraft] = useState('');
   const [isStructureGraphOpen, setIsStructureGraphOpen] = useState(false);
   const robotNameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setIsStructureGraphOpen(showStructureGraph);
+  }, [showStructureGraph]);
   const robotNamePlaceholder = t.enterRobotName;
   const currentRobotName = robot.name;
   const handleHeaderKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -389,7 +397,10 @@ export function TreeEditorStructureSection({
         treeRootLinkIds={treeRootLinkIds}
         childJointsByParent={childJointsByParent}
         t={t}
-        onClose={() => setIsStructureGraphOpen(false)}
+        onClose={() => {
+          setIsStructureGraphOpen(false);
+          onCloseStructureGraph?.();
+        }}
         onSelect={onSelect}
         onFocus={onFocus}
       />

@@ -21,6 +21,7 @@ export type HeaderMenuKey = 'file' | 'edit' | 'toolbox' | 'view' | 'more' | null
 export interface HeaderViewConfig {
   showOptionsPanel: boolean;
   showJointPanel: boolean;
+  showStructureGraph: boolean;
 }
 
 export interface HeaderViewAvailability {
