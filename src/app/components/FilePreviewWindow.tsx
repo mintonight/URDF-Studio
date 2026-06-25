@@ -152,7 +152,7 @@ export function FilePreviewWindow({
     defaultSize: { width: 700, height: 500 },
     minSize: { width: 420, height: 320 },
     centerOnMount: true,
-    enableMinimize: true,
+    enableMinimize: false,
     enableMaximize: true,
     clampResizeToViewport: false,
     dragBounds: {
@@ -274,10 +274,10 @@ export function FilePreviewWindow({
       className="z-[110] flex flex-col overflow-hidden rounded-lg border border-border-black bg-panel-bg shadow-2xl"
       headerClassName="flex h-11 items-center justify-between border-b border-border-black bg-element-bg px-3"
       showResizeHandles
+      showMinimizeButton={false}
       closeTitle={t.closePreview}
       maximizeTitle={t.expand}
       restoreTitle={t.collapse}
-      minimizeTitle={t.minimize}
     >
       <div className="relative flex-1 min-h-0 bg-google-light-bg dark:bg-black">
         {canRender3dPreview && previewState && previewRobot && previewLifecycleState ? (
