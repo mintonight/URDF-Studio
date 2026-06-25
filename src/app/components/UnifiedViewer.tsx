@@ -103,6 +103,7 @@ interface UnifiedViewerProps {
   setShowOptionsPanel?: (show: boolean) => void;
   showJointPanel?: boolean;
   setShowJointPanel?: (show: boolean) => void;
+  showToolbar?: boolean;
   availableFiles: RobotFile[];
   urdfContent: string;
   viewerSourceFormat?: ViewerRobotSourceFormat;
@@ -195,6 +196,7 @@ export const UnifiedViewer = React.memo(
     setShowOptionsPanel,
     showJointPanel = true,
     setShowJointPanel,
+    showToolbar = true,
     availableFiles,
     urdfContent,
     viewerSourceFormat,
@@ -630,6 +632,7 @@ export const UnifiedViewer = React.memo(
             setShowOptionsPanel={setShowOptionsPanel}
             showJointPanel={showJointPanel}
             setShowJointPanel={setShowJointPanel}
+            showToolbar={showToolbar}
           />
         }
       >

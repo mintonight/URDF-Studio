@@ -304,6 +304,7 @@ export function FilePreviewWindow({
               jointMotionState={previewJointMotionState}
               showOptionsPanel={false}
               showJointPanel={false}
+              showToolbar={false}
               availableFiles={availableFiles}
               urdfContent={previewState.urdfContent}
               viewerSourceFormat={previewViewerConfig?.viewerSourceFormat}

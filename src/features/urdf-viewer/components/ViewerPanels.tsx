@@ -22,6 +22,7 @@ interface ViewerPanelsProps {
   setShowJointPanel?: (show: boolean) => void;
   preferEdgeDockedOptionsPanel?: boolean;
   paintModeSupported?: boolean;
+  showToolbar?: boolean;
 }
 
 export const ViewerPanels = ({
@@ -35,6 +36,7 @@ export const ViewerPanels = ({
   setShowJointPanel,
   preferEdgeDockedOptionsPanel = false,
   paintModeSupported = true,
+  showToolbar = true,
 }: ViewerPanelsProps) => {
   const t = translations[lang];
   const { optionsDefaultPosition, jointsDefaultPosition, jointsPanelMaxHeight } =
@@ -49,11 +51,13 @@ export const ViewerPanels = ({
 
   return (
     <>
-      <ViewerToolbar
-        activeMode={controller.toolMode}
-        setMode={controller.handleToolModeChange}
-        lang={lang}
-      />
+      {showToolbar ? (
+        <ViewerToolbar
+          activeMode={controller.toolMode}
+          setMode={controller.handleToolModeChange}
+          lang={lang}
+        />
+      ) : null}
 
       <ViewerOptionsPanel
         showOptionsPanel={showOptionsPanel}

@@ -17,6 +17,7 @@ interface UnifiedViewerOverlaysProps {
   setShowOptionsPanel?: (show: boolean) => void;
   showJointPanel?: boolean;
   setShowJointPanel?: (show: boolean) => void;
+  showToolbar?: boolean;
 }
 
 export function UnifiedViewerOverlays({
@@ -29,6 +30,7 @@ export function UnifiedViewerOverlays({
   setShowOptionsPanel,
   showJointPanel,
   setShowJointPanel,
+  showToolbar,
 }: UnifiedViewerOverlaysProps) {
   if (activePreview) {
     return (
@@ -53,6 +55,7 @@ export function UnifiedViewerOverlays({
           showOptionsPanel={showOptionsPanel}
           setShowOptionsPanel={setShowOptionsPanel}
           showJointPanel={false}
+          showToolbar={showToolbar}
           preferEdgeDockedOptionsPanel={true}
         />
       </React.Suspense>
