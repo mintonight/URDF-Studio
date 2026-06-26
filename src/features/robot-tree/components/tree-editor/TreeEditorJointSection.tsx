@@ -5,9 +5,10 @@ import { translations } from '@/shared/i18n';
 import { JointPanelControls, JointPanelList } from '@/shared/components/Panel/JointPanelContent';
 import { createJointPanelStore } from '@/shared/utils/jointPanelStore';
 import { normalizeViewerJointAngleState } from '@/shared/utils/jointPanelState';
-import { getSingleDofJointEntries, isSingleDofJoint } from '@/shared/utils/jointTypes';
+import { getSingleDofJointEntries } from '@/shared/utils/jointTypes';
 import type { Language } from '@/store';
 import { hasJointInteractionPreview, useJointInteractionPreviewStore, useUIStore } from '@/store';
+import { resolveActiveViewerJointKeyFromSelection } from '@/features/urdf-viewer/utils/activeJointSelection';
 
 const TREE_EDITOR_JOINT_SECTION_KEY = 'tree_editor_joint_panel';
 
@@ -219,16 +220,14 @@ export function TreeEditorJointSection({
   );
 
   React.useEffect(() => {
-    const selectedJointId =
-      robot.selection.type === 'joint' && robot.selection.id
-        ? resolveJointKey(robot.joints, robot.selection.id)
-        : null;
-    const selectedJoint =
-      selectedJointId && isSingleDofJoint(robot.joints[selectedJointId]) ? selectedJointId : null;
-    const autoScroll = selectedJoint !== null && previousActiveJointRef.current !== selectedJoint;
+    const nextActiveJoint = resolveActiveViewerJointKeyFromSelection(robot.joints, {
+      type: robot.selection.type as 'link' | 'joint' | null,
+      id: robot.selection.id,
+    });
+    const autoScroll = nextActiveJoint !== null && previousActiveJointRef.current !== nextActiveJoint;
 
-    jointPanelStoreRef.current.setActiveJoint(selectedJoint, { autoScroll });
-    previousActiveJointRef.current = selectedJoint;
+    jointPanelStoreRef.current.setActiveJoint(nextActiveJoint, { autoScroll });
+    previousActiveJointRef.current = nextActiveJoint;
   }, [robot.joints, robot.selection.id, robot.selection.type]);
 
   const handleResetJoints = React.useCallback(() => {
