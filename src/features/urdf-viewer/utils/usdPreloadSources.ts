@@ -232,6 +232,8 @@ export function collectUsdStageOpenRelevantVirtualPaths(
   const pendingPaths = [rootPath, ...buildCriticalUsdDependencyPaths(rootPath)];
   const visitedPaths = new Set<string>();
   const orderedPaths: string[] = [];
+  const rootFile = fileIndex.get(rootPath) ?? sourceFile;
+  const canTraceRootLayerText = hasInlineUsdLayerTextContent(rootFile);
 
   while (pendingPaths.length > 0) {
     const currentPath = pendingPaths.shift()!;
@@ -253,6 +255,20 @@ export function collectUsdStageOpenRelevantVirtualPaths(
         return;
       }
       pendingPaths.push(resolvedPath);
+    });
+  }
+
+  if (!canTraceRootLayerText) {
+    const bundleDirectory = inferUsdBundleVirtualDirectory(sourceFile.name);
+    const bundledLayerPaths = Array.from(fileIndex.keys())
+      .filter((virtualPath) => isUsdPathWithinBundleDirectory(virtualPath, bundleDirectory))
+      .sort((left, right) => left.localeCompare(right));
+
+    bundledLayerPaths.forEach((virtualPath) => {
+      if (!visitedPaths.has(virtualPath)) {
+        visitedPaths.add(virtualPath);
+        orderedPaths.push(virtualPath);
+      }
     });
   }
 

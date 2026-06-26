@@ -22,6 +22,162 @@ const parseLimitAttribute = (limitEl: Element | null, attribute: string): number
   return parseFloatSafe(rawValue, Number.NaN);
 };
 
+const findOriginElement = (jointEl: Element): Element | null => {
+  const queryResult = jointEl.querySelector('origin');
+  if (queryResult) {
+    return queryResult;
+  }
+
+  // Fallbacks keep parsing robust for XML DOMs with partial selector support.
+  for (let index = 0; index < jointEl.children.length; index += 1) {
+    const child = jointEl.children[index];
+    if (child.tagName === 'origin') {
+      return child;
+    }
+  }
+
+  for (let index = 0; index < jointEl.childNodes.length; index += 1) {
+    const node = jointEl.childNodes[index];
+    if (node.nodeType === 1 && (node as Element).tagName === 'origin') {
+      return node as Element;
+    }
+  }
+
+  return null;
+};
+
+const parseJointHardware = (hardwareEl: Element | null): UrdfJoint['hardware'] => {
+  if (!hardwareEl) {
+    return {
+      armature: 0,
+      brand: '',
+      motorType: 'None',
+      motorId: '',
+      motorDirection: 1,
+      hardwareInterface: undefined,
+    };
+  }
+
+  return {
+    brand: hardwareEl.querySelector('brand')?.textContent || '',
+    motorType: hardwareEl.querySelector('motorType')?.textContent || 'None',
+    motorId: hardwareEl.querySelector('motorId')?.textContent || '',
+    motorDirection: parseInt(hardwareEl.querySelector('motorDirection')?.textContent || '1') as
+      | 1
+      | -1,
+    armature: parseFloat(hardwareEl.querySelector('armature')?.textContent || '0'),
+    hardwareInterface:
+      (hardwareEl.querySelector('hardwareInterface')?.textContent as JointHardwareInterface | null) ||
+      undefined,
+  };
+};
+
+const parseJointLimit = (
+  jointType: JointType,
+  limitEl: Element | null,
+): UrdfJoint['limit'] | undefined => {
+  if (!LIMIT_IMPORT_TYPES.has(jointType) || !limitEl) {
+    return undefined;
+  }
+
+  return {
+    lower: parseLimitAttribute(limitEl, 'lower'),
+    upper: parseLimitAttribute(limitEl, 'upper'),
+    effort: parseLimitAttribute(limitEl, 'effort'),
+    velocity: parseLimitAttribute(limitEl, 'velocity'),
+  };
+};
+
+const parseJointCalibration = (
+  calibrationEl: Element | null,
+): {
+  calibration?: UrdfJoint['calibration'];
+  referencePosition?: number;
+} => {
+  const referencePosition = parseFloatSafe(
+    calibrationEl?.getAttribute('reference_position'),
+    Number.NaN,
+  );
+  if (!calibrationEl) {
+    return Number.isFinite(referencePosition) ? { referencePosition } : {};
+  }
+
+  const calibration = {
+    ...(Number.isFinite(referencePosition) ? { referencePosition } : {}),
+    ...(calibrationEl.hasAttribute('rising')
+      ? { rising: parseFloatSafe(calibrationEl.getAttribute('rising'), Number.NaN) }
+      : {}),
+    ...(calibrationEl.hasAttribute('falling')
+      ? { falling: parseFloatSafe(calibrationEl.getAttribute('falling'), Number.NaN) }
+      : {}),
+  };
+
+  return {
+    ...(Object.keys(calibration).length > 0 ? { calibration } : {}),
+    ...(Number.isFinite(referencePosition) ? { referencePosition } : {}),
+  };
+};
+
+const parseJointSafetyController = (
+  safetyControllerEl: Element | null,
+): UrdfJoint['safetyController'] | undefined => {
+  if (!safetyControllerEl) {
+    return undefined;
+  }
+
+  const safetyController = {
+    ...(safetyControllerEl.hasAttribute('soft_lower_limit')
+      ? {
+          softLowerLimit: parseFloatSafe(
+            safetyControllerEl.getAttribute('soft_lower_limit'),
+            Number.NaN,
+          ),
+        }
+      : {}),
+    ...(safetyControllerEl.hasAttribute('soft_upper_limit')
+      ? {
+          softUpperLimit: parseFloatSafe(
+            safetyControllerEl.getAttribute('soft_upper_limit'),
+            Number.NaN,
+          ),
+        }
+      : {}),
+    ...(safetyControllerEl.hasAttribute('k_position')
+      ? {
+          kPosition: parseFloatSafe(safetyControllerEl.getAttribute('k_position'), Number.NaN),
+        }
+      : {}),
+    ...(safetyControllerEl.hasAttribute('k_velocity')
+      ? {
+          kVelocity: parseFloatSafe(safetyControllerEl.getAttribute('k_velocity'), Number.NaN),
+        }
+      : {}),
+  };
+
+  return Object.keys(safetyController).length > 0 ? safetyController : undefined;
+};
+
+const parseJointMimic = (mimicEl: Element | null): UrdfJoint['mimic'] | undefined => {
+  if (!mimicEl) {
+    return undefined;
+  }
+
+  const mimicJoint = mimicEl.getAttribute('joint');
+  if (!mimicJoint) {
+    return undefined;
+  }
+
+  return {
+    joint: mimicJoint,
+    ...(mimicEl.hasAttribute('multiplier')
+      ? { multiplier: parseFloatSafe(mimicEl.getAttribute('multiplier'), 1) }
+      : {}),
+    ...(mimicEl.hasAttribute('offset')
+      ? { offset: parseFloatSafe(mimicEl.getAttribute('offset'), 0) }
+      : {}),
+  };
+};
+
 export const parseJoints = (robotEl: Element): Record<string, UrdfJoint> => {
   const joints: Record<string, UrdfJoint> = {};
 
@@ -34,31 +190,7 @@ export const parseJoints = (robotEl: Element): Record<string, UrdfJoint> => {
 
     const parentEl = jointEl.querySelector('parent');
     const childEl = jointEl.querySelector('child');
-    let originEl = jointEl.querySelector('origin');
-
-    // Fallback: iterate children if querySelector fails (robustness for some XML parsers)
-    if (!originEl) {
-      // Try children collection first
-      if (jointEl.children && jointEl.children.length > 0) {
-        for (let i = 0; i < jointEl.children.length; i++) {
-          if (jointEl.children[i].tagName === 'origin') {
-            originEl = jointEl.children[i];
-            break;
-          }
-        }
-      }
-      // Fallback to childNodes (for parsers that might not support children on Elements)
-      if (!originEl && jointEl.childNodes) {
-        for (let i = 0; i < jointEl.childNodes.length; i++) {
-          const node = jointEl.childNodes[i];
-          if (node.nodeType === 1 && (node as Element).tagName === 'origin') {
-            // Node.ELEMENT_NODE
-            originEl = node as Element;
-            break;
-          }
-        }
-      }
-    }
+    const originEl = findOriginElement(jointEl);
 
     const axisEl = jointEl.querySelector('axis');
     const calibrationEl = jointEl.querySelector('calibration');
@@ -68,94 +200,13 @@ export const parseJoints = (robotEl: Element): Record<string, UrdfJoint> => {
     const hardwareEl = jointEl.querySelector('hardware');
     const mimicEl = jointEl.querySelector('mimic');
 
-    let hardware: UrdfJoint['hardware'] = {
-      armature: 0,
-      brand: '',
-      motorType: 'None',
-      motorId: '',
-      motorDirection: 1 as 1 | -1,
-      hardwareInterface: undefined,
-    };
-
-    if (hardwareEl) {
-      hardware = {
-        brand: hardwareEl.querySelector('brand')?.textContent || '',
-        motorType: hardwareEl.querySelector('motorType')?.textContent || 'None',
-        motorId: hardwareEl.querySelector('motorId')?.textContent || '',
-        motorDirection: parseInt(hardwareEl.querySelector('motorDirection')?.textContent || '1') as
-          | 1
-          | -1,
-        armature: parseFloat(hardwareEl.querySelector('armature')?.textContent || '0'),
-        hardwareInterface:
-          (hardwareEl.querySelector('hardwareInterface')
-            ?.textContent as JointHardwareInterface | null) || undefined,
-      };
-    }
-
     const jointType = (jointEl.getAttribute('type') as JointType) || JointType.REVOLUTE;
     const axis = AXIS_IMPORT_TYPES.has(jointType)
-      ? parseVec3(axisEl?.getAttribute('xyz') || '0 0 1')
+      ? parseVec3(axisEl?.getAttribute('xyz') || '1 0 0')
       : undefined;
-    const limit =
-      LIMIT_IMPORT_TYPES.has(jointType) && limitEl
-        ? {
-            lower: parseLimitAttribute(limitEl, 'lower'),
-            upper: parseLimitAttribute(limitEl, 'upper'),
-            effort: parseLimitAttribute(limitEl, 'effort'),
-            velocity: parseLimitAttribute(limitEl, 'velocity'),
-          }
-        : undefined;
-    const referencePosition = parseFloatSafe(
-      calibrationEl?.getAttribute('reference_position'),
-      Number.NaN,
-    );
-    const calibration = calibrationEl
-      ? {
-          ...(Number.isFinite(referencePosition) ? { referencePosition } : {}),
-          ...(calibrationEl.hasAttribute('rising')
-            ? { rising: parseFloatSafe(calibrationEl.getAttribute('rising'), Number.NaN) }
-            : {}),
-          ...(calibrationEl.hasAttribute('falling')
-            ? { falling: parseFloatSafe(calibrationEl.getAttribute('falling'), Number.NaN) }
-            : {}),
-        }
-      : undefined;
-    const safetyController = safetyControllerEl
-      ? {
-          ...(safetyControllerEl.hasAttribute('soft_lower_limit')
-            ? {
-                softLowerLimit: parseFloatSafe(
-                  safetyControllerEl.getAttribute('soft_lower_limit'),
-                  Number.NaN,
-                ),
-              }
-            : {}),
-          ...(safetyControllerEl.hasAttribute('soft_upper_limit')
-            ? {
-                softUpperLimit: parseFloatSafe(
-                  safetyControllerEl.getAttribute('soft_upper_limit'),
-                  Number.NaN,
-                ),
-              }
-            : {}),
-          ...(safetyControllerEl.hasAttribute('k_position')
-            ? {
-                kPosition: parseFloatSafe(
-                  safetyControllerEl.getAttribute('k_position'),
-                  Number.NaN,
-                ),
-              }
-            : {}),
-          ...(safetyControllerEl.hasAttribute('k_velocity')
-            ? {
-                kVelocity: parseFloatSafe(
-                  safetyControllerEl.getAttribute('k_velocity'),
-                  Number.NaN,
-                ),
-              }
-            : {}),
-        }
-      : undefined;
+    const limit = parseJointLimit(jointType, limitEl);
+    const { calibration, referencePosition } = parseJointCalibration(calibrationEl);
+    const safetyController = parseJointSafetyController(safetyControllerEl);
 
     joints[id] = {
       id,
@@ -170,21 +221,11 @@ export const parseJoints = (robotEl: Element): Record<string, UrdfJoint> => {
         damping: parseFloatSafe(dynamicsEl?.getAttribute('damping'), 0),
         friction: parseFloatSafe(dynamicsEl?.getAttribute('friction'), 0),
       },
-      hardware: hardware,
-      ...(calibration && Object.keys(calibration).length > 0 ? { calibration } : {}),
-      ...(safetyController && Object.keys(safetyController).length > 0 ? { safetyController } : {}),
-      ...(Number.isFinite(referencePosition) ? { referencePosition } : {}),
-      mimic: mimicEl?.getAttribute('joint')
-        ? {
-            joint: mimicEl.getAttribute('joint') || '',
-            ...(mimicEl.hasAttribute('multiplier')
-              ? { multiplier: parseFloatSafe(mimicEl.getAttribute('multiplier'), 1) }
-              : {}),
-            ...(mimicEl.hasAttribute('offset')
-              ? { offset: parseFloatSafe(mimicEl.getAttribute('offset'), 0) }
-              : {}),
-          }
-        : undefined,
+      hardware: parseJointHardware(hardwareEl),
+      ...(calibration ? { calibration } : {}),
+      ...(safetyController ? { safetyController } : {}),
+      ...(referencePosition !== undefined ? { referencePosition } : {}),
+      mimic: parseJointMimic(mimicEl),
     };
   });
 

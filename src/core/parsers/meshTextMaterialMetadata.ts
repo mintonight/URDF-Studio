@@ -360,6 +360,8 @@ function parseColladaAuthoredMaterials(
     });
 
     return authoredMaterials;
+  } catch {
+    return [];
   } finally {
     disposeTransientObject3D(root);
   }

@@ -13,7 +13,13 @@ function browserLinkPose(linkName, position = [0, 0, 0], quaternion = [0, 0, 0, 
   };
 }
 
-function browserReport(links, joints = [], nativeJoints = [], linkPoses = undefined) {
+function browserReport(
+  links,
+  joints = [],
+  nativeJoints = [],
+  linkPoses = undefined,
+  options = {},
+) {
   const resolvedLinkPoses = linkPoses ?? links.map((link) => browserLinkPose(link.name ?? link.id));
   return {
     results: [
@@ -26,6 +32,7 @@ function browserReport(links, joints = [], nativeJoints = [], linkPoses = undefi
             links,
             joints,
           },
+          ...(options.snapshotRuntime ? { runtime: options.snapshotRuntime } : {}),
         },
         selectedUsdSceneSummary: {
           robotMetadata: {
@@ -36,7 +43,14 @@ function browserReport(links, joints = [], nativeJoints = [], linkPoses = undefi
             storeLinkCount: resolvedLinkPoses.length,
             storeLinks: resolvedLinkPoses,
           },
+          ...(options.collisionSummary ? { collisionSummary: options.collisionSummary } : {}),
         },
+        ...(options.selectedUsdVisualMaterialSummary
+          ? { selectedUsdVisualMaterialSummary: options.selectedUsdVisualMaterialSummary }
+          : {}),
+        ...(options.runtimeSceneTransforms
+          ? { runtimeSceneTransforms: options.runtimeSceneTransforms }
+          : {}),
       },
     ],
   };
@@ -115,6 +129,12 @@ function truthReport(rigidBodies, joints = {}) {
   };
 }
 
+function materialTruthReport(stage) {
+  return {
+    'test/unitree_ros_usda/go2_description/urdf/go2_description.usda': stage,
+  };
+}
+
 function truthBody(
   name,
   mass,
@@ -122,6 +142,7 @@ function truthBody(
   diagonalInertia = [0, 0, 0],
   worldPosition = [0, 0, 0],
   worldOrientationWxyz = [1, 0, 0, 0],
+  collisionCount = 0,
 ) {
   return {
     fullPath: `/go2_description/${name}`,
@@ -134,6 +155,7 @@ function truthBody(
     centerOfMass,
     diagonalInertia,
     principalAxes: [1, 0, 0, 0],
+    collisionCount,
   };
 }
 
@@ -181,6 +203,331 @@ test('compareUnitreeRosUsdaBrowserPhysics passes exact mass, COM, inertia and jo
   assert.equal(comparison.summary.linkOrientationMismatches, 0);
   assert.equal(comparison.summary.jointFrameMismatches, 0);
   assert.equal(comparison.summary.nativeJointFrameMismatches, 0);
+});
+
+test('compareUnitreeRosUsdaBrowserPhysics compares collision counts per rigid body name', () => {
+  const comparison = compareUnitreeRosUsdaBrowserPhysics({
+    browserReport: browserReport(
+      [browserLink('base', 1)],
+      [],
+      [],
+      undefined,
+      {
+        collisionSummary: {
+          totalDescriptorCount: 2,
+          linkCount: 1,
+          links: [
+            {
+              linkPath: '/go2_description/base',
+              linkName: 'base',
+              descriptorCount: 2,
+              primitiveTypes: {
+                mesh: 2,
+              },
+            },
+          ],
+        },
+      },
+    ),
+    truthReport: truthReport({
+      '/base': truthBody('base', 1, [0, 0, 0], [0, 0, 0], [0, 0, 0], [1, 0, 0, 0], 2),
+    }),
+  });
+
+  assert.equal(comparison.pass, true);
+  assert.equal(comparison.summary.browserCollisions, 2);
+  assert.equal(comparison.summary.truthCollisions, 2);
+  assert.equal(comparison.summary.collisionCountMismatches, 0);
+});
+
+test('compareUnitreeRosUsdaBrowserPhysics prefers store collision counts over descriptors', () => {
+  const link = browserLink('base', 1);
+  link.collisionCount = 2;
+  const comparison = compareUnitreeRosUsdaBrowserPhysics({
+    browserReport: browserReport(
+      [link],
+      [],
+      [],
+      undefined,
+      {
+        collisionSummary: {
+          totalDescriptorCount: 0,
+          linkCount: 0,
+          links: [],
+        },
+      },
+    ),
+    truthReport: truthReport({
+      '/base': truthBody('base', 1, [0, 0, 0], [0, 0, 0], [0, 0, 0], [1, 0, 0, 0], 2),
+    }),
+  });
+
+  assert.equal(comparison.pass, true);
+  assert.equal(comparison.summary.browserCollisions, 2);
+  assert.equal(comparison.summary.collisionCountMismatches, 0);
+});
+
+test('compareUnitreeRosUsdaBrowserPhysics fails on collision count mismatch', () => {
+  const comparison = compareUnitreeRosUsdaBrowserPhysics({
+    browserReport: browserReport(
+      [browserLink('base', 1)],
+      [],
+      [],
+      undefined,
+      {
+        collisionSummary: {
+          totalDescriptorCount: 1,
+          linkCount: 1,
+          links: [
+            {
+              linkPath: '/go2_description/base',
+              linkName: 'base',
+              descriptorCount: 1,
+              primitiveTypes: {
+                mesh: 1,
+              },
+            },
+          ],
+        },
+      },
+    ),
+    truthReport: truthReport({
+      '/base': truthBody('base', 1, [0, 0, 0], [0, 0, 0], [0, 0, 0], [1, 0, 0, 0], 2),
+    }),
+  });
+
+  assert.equal(comparison.pass, false);
+  assert.equal(comparison.summary.collisionCountMismatches, 1);
+  assert.equal(comparison.failures[0]?.type, 'collision-count-mismatch');
+});
+
+test('compareUnitreeRosUsdaBrowserPhysics compares visible material appearance signatures', () => {
+  const comparison = compareUnitreeRosUsdaBrowserPhysics({
+    browserReport: browserReport(
+      [browserLink('base', 1)],
+      [],
+      [],
+      undefined,
+      {
+        selectedUsdVisualMaterialSummary: {
+          meshes: [
+            {
+              meshId: '/go2_description/base/visuals.proto_mesh_id0',
+              linkPath: '/go2_description/base',
+              materials: [
+                {
+                  materialId: '/Looks/Base',
+                  colorTuple: [0.1, 0.2, 0.3],
+                  textured: true,
+                  textureCount: 1,
+                  texturePaths: ['textures/base.png'],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ),
+    truthReport: truthReport({
+      '/base': truthBody('base', 1),
+    }),
+    materialTruthReport: materialTruthReport({
+      open_ok: true,
+      visibleAppearanceSignatures: [
+        {
+          color: [0.1005, 0.2005, 0.3005],
+          textured: true,
+        },
+      ],
+    }),
+  });
+
+  assert.equal(comparison.pass, true);
+  assert.equal(comparison.summary.browserMaterialAppearances, 1);
+  assert.equal(comparison.summary.truthMaterialAppearances, 1);
+  assert.equal(comparison.summary.materialAppearanceMismatches, 0);
+});
+
+test('compareUnitreeRosUsdaBrowserPhysics falls back to runtime visual material signatures', () => {
+  const comparison = compareUnitreeRosUsdaBrowserPhysics({
+    browserReport: browserReport(
+      [browserLink('base', 1)],
+      [],
+      [],
+      undefined,
+      {
+        snapshotRuntime: {
+          visualMeshes: [
+            {
+              link: 'base',
+              materials: [
+                {
+                  color: '#ffffff',
+                  hasTexture: true,
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ),
+    truthReport: truthReport({
+      '/base': truthBody('base', 1),
+    }),
+    materialTruthReport: materialTruthReport({
+      open_ok: true,
+      visibleAppearanceSignatures: [{ color: [1, 1, 1], textured: true }],
+    }),
+  });
+
+  assert.equal(comparison.pass, true);
+  assert.equal(comparison.summary.browserTexturedMaterialAppearances, 1);
+  assert.equal(comparison.summary.materialAppearanceMismatches, 0);
+});
+
+test('compareUnitreeRosUsdaBrowserPhysics fails on material texture flag mismatch', () => {
+  const comparison = compareUnitreeRosUsdaBrowserPhysics({
+    browserReport: browserReport(
+      [browserLink('base', 1)],
+      [],
+      [],
+      undefined,
+      {
+        selectedUsdVisualMaterialSummary: {
+          meshes: [
+            {
+              meshId: '/go2_description/base/visuals.proto_mesh_id0',
+              linkPath: '/go2_description/base',
+              materials: [
+                {
+                  materialId: '/Looks/Base',
+                  colorTuple: [0.1, 0.2, 0.3],
+                  textured: false,
+                  textureCount: 0,
+                  texturePaths: [],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ),
+    truthReport: truthReport({
+      '/base': truthBody('base', 1),
+    }),
+    materialTruthReport: materialTruthReport({
+      open_ok: true,
+      visibleAppearanceSignatures: [
+        {
+          color: [0.1, 0.2, 0.3],
+          textured: true,
+        },
+      ],
+    }),
+  });
+
+  assert.equal(comparison.pass, false);
+  assert.equal(comparison.summary.materialAppearanceMismatches, 2);
+  assert.equal(comparison.failures[0]?.type, 'material-appearance-mismatch');
+});
+
+test('compareUnitreeRosUsdaBrowserPhysics removes runtime viewer offset before world-position compare', () => {
+  const comparison = compareUnitreeRosUsdaBrowserPhysics({
+    browserReport: browserReport(
+      [browserLink('base', 1)],
+      [],
+      [],
+      [browserLinkPose('base', [0, 0, 0])],
+      {
+        runtimeSceneTransforms: {
+          links: [
+            {
+              name: 'base',
+              position: [0, 0, 0.5],
+            },
+          ],
+        },
+      },
+    ),
+    truthReport: truthReport({
+      '/base': truthBody('base', 1, [0, 0, 0], [0, 0, 0], [0, 0, 0]),
+    }),
+  });
+
+  assert.equal(comparison.pass, true);
+  assert.deepEqual(comparison.perModel[0]?.runtimeWorldPositionOffset, [0, 0, 0.5]);
+  assert.equal(comparison.summary.worldPositionMismatches, 0);
+});
+
+test('compareUnitreeRosUsdaBrowserPhysics skips parentless root fixed joints missing from store/native', () => {
+  const rootJoint = truthJoint('rootJoint');
+  rootJoint.type = 'PhysicsFixedJoint';
+  rootJoint.body0Path = null;
+  rootJoint.body0FullPath = null;
+  rootJoint.body1Path = '/base';
+
+  const comparison = compareUnitreeRosUsdaBrowserPhysics({
+    browserReport: browserReport([browserLink('base', 1)]),
+    truthReport: truthReport(
+      {
+        '/base': truthBody('base', 1),
+      },
+      {
+        '/joints/rootJoint': rootJoint,
+      },
+    ),
+  });
+
+  assert.equal(comparison.pass, true);
+  assert.equal(comparison.summary.skippedBrowserRootJoints, 1);
+  assert.equal(comparison.summary.skippedNativeRootJoints, 1);
+  assert.equal(comparison.summary.missingBrowserJoints, 0);
+  assert.equal(comparison.summary.missingNativeJoints, 0);
+});
+
+test('compareUnitreeRosUsdaBrowserPhysics skips root joints anchored to one body', () => {
+  const rootJoint = truthJoint('rootJoint');
+  rootJoint.type = 'PhysicsJoint';
+  rootJoint.body0Path = '/base';
+  rootJoint.body0FullPath = '/robot/base';
+  rootJoint.body1Path = null;
+  rootJoint.body1FullPath = null;
+
+  const comparison = compareUnitreeRosUsdaBrowserPhysics({
+    browserReport: browserReport([browserLink('base', 1)]),
+    truthReport: truthReport(
+      {
+        '/base': truthBody('base', 1),
+      },
+      {
+        '/joints/rootJoint': rootJoint,
+      },
+    ),
+  });
+
+  assert.equal(comparison.pass, true);
+  assert.equal(comparison.summary.skippedBrowserRootJoints, 1);
+  assert.equal(comparison.summary.skippedNativeRootJoints, 1);
+  assert.equal(comparison.summary.missingBrowserJoints, 0);
+  assert.equal(comparison.summary.missingNativeJoints, 0);
+});
+
+test('compareUnitreeRosUsdaBrowserPhysics skips synthetic visual-only browser links', () => {
+  const comparison = compareUnitreeRosUsdaBrowserPhysics({
+    browserReport: browserReport([
+      browserLink('base', 1),
+      browserLink('visuals_proto_mesh_id1', 0, [0, 0, 0], [0.1, 0.1, 0.1]),
+      browserLink('base__robot_visuals_mesh_1', 0, [0, 0, 0], [0.1, 0.1, 0.1]),
+      browserLink('world', 0, [0, 0, 0], [0.1, 0.1, 0.1]),
+    ]),
+    truthReport: truthReport({
+      '/base': truthBody('base', 1),
+    }),
+  });
+
+  assert.equal(comparison.pass, true);
+  assert.equal(comparison.summary.extraLinks, 0);
+  assert.equal(comparison.summary.skippedExtraVisualLinks, 3);
 });
 
 test('compareUnitreeRosUsdaBrowserPhysics fails when meshless physics links are missing', () => {

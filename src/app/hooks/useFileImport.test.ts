@@ -849,6 +849,11 @@ test('useFileImport does not warn when an archive already contains deferred MJCF
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
   const workerMock = installRobotImportWorkerMock();
+  const originalConsoleWarn = console.warn;
+  const warnCalls: string[] = [];
+  console.warn = (...args: unknown[]) => {
+    warnCalls.push(args.map((arg) => String(arg)).join(' '));
+  };
 
   const zip = new JSZip();
   zip.file(
@@ -896,7 +901,12 @@ test('useFileImport does not warn when an archive already contains deferred MJCF
           ),
       ),
     );
+    assert.doesNotMatch(
+      warnCalls.join('\n'),
+      /Import the full folder or archive so meshes and textures are available/i,
+    );
   } finally {
+    console.warn = originalConsoleWarn;
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 20));
     workerMock.restore();

@@ -199,6 +199,12 @@ test('regression debug API summarizes USD visual materials from stored scene sna
               ],
             },
           },
+          {
+            meshId: '/Robot/base_link/collisions.proto_box_id0',
+            resolvedPrimPath: '/Robot/base_link/collisions/box_0',
+            sectionName: 'collisions',
+            primType: 'cube',
+          },
         ],
         materials: [
           {
@@ -230,6 +236,7 @@ test('regression debug API summarizes USD visual materials from stored scene sna
             colorSource: 'authored',
             authoredColor: [0.671705, 0.692426, 0.77427],
             authoredColorSpace: 'srgb',
+            mapPath: 'textures/leg_shell.png',
           },
         ],
       },
@@ -278,18 +285,28 @@ test('regression debug API summarizes USD visual materials from stored scene sna
             name: 'material_______023',
             type: 'UsdPreviewSurface',
             color: '#000000',
+            colorTuple: [0, 0, 0],
             colorSource: 'authored',
             authoredColor: '#000000',
+            authoredColorTuple: [0, 0, 0],
             emissive: null,
+            textured: false,
+            textureCount: 0,
+            texturePaths: [],
           },
           {
             materialId: '/Robot/Looks/DarkGray',
             name: 'material_______024',
             type: 'UsdPreviewSurface',
             color: '#353535',
+            colorTuple: [0.035, 0.035, 0.035],
             colorSource: 'authored',
             authoredColor: '#353535',
+            authoredColorTuple: [0.035, 0.035, 0.035],
             emissive: null,
+            textured: false,
+            textureCount: 0,
+            texturePaths: [],
           },
         ],
       },
@@ -304,19 +321,42 @@ test('regression debug API summarizes USD visual materials from stored scene sna
             name: 'material_____________001',
             type: 'UsdPreviewSurface',
             color: '#d6d9e4',
+            colorTuple: [0.671705, 0.692426, 0.77427],
             colorSource: 'authored',
             authoredColor: '#d6d9e4',
+            authoredColorTuple: [0.671705, 0.692426, 0.77427],
             emissive: null,
+            textured: true,
+            textureCount: 1,
+            texturePaths: ['textures/leg_shell.png'],
           },
         ],
       },
     ],
   });
 
+  assert.deepEqual(
+    targetWindow.__URDF_STUDIO_DEBUG__?.getSelectedUsdSceneSummary?.()?.collisionSummary,
+    {
+      totalDescriptorCount: 1,
+      linkCount: 1,
+      links: [
+        {
+          linkPath: '/Robot/base_link',
+          linkName: 'base_link',
+          descriptorCount: 1,
+          primitiveTypes: {
+            cube: 1,
+          },
+        },
+      ],
+    },
+  );
+
   assert.deepEqual(targetWindow.__URDF_STUDIO_DEBUG__?.getSelectedUsdNormalDiagnostics?.(), {
     available: true,
     fileName: 'robots/demo/demo.usd',
-    meshDescriptorCount: 2,
+    meshDescriptorCount: 3,
     diagnosticsCount: 1,
     meshes: [
       {

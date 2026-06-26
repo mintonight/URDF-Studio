@@ -18,6 +18,7 @@ import { isSingleDofJoint } from '@/shared/utils/jointTypes';
 import {
   collectGizmoRaycastTargets,
   isGizmoObject,
+  shouldBlockBackgroundInteractionForGizmoHit,
   shouldPreserveSelectionForGizmoPointerDown,
 } from '../utils/raycast';
 import {
@@ -527,7 +528,7 @@ export function useMouseInteraction({
         // The TransformControls picker meshes extend far beyond the visible
         // handles; blocking orbit for those would prevent camera rotation in
         // a large area around the gizmo.
-        if (shouldPreserveSelectionForGizmoPointerDown(nearestSceneHit.object)) {
+        if (shouldBlockBackgroundInteractionForGizmoHit(nearestSceneHit.object)) {
           return true;
         }
       }

@@ -3,8 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { JSDOM } from 'jsdom';
 
-import { isSyntheticWorldRoot } from '@/core/robot';
-import { GeometryType } from '@/types';
+import {
+  getTreeDisplayRootLinkIds,
+  getTreeRenderRootLinkIds,
+  isSyntheticWorldRoot,
+  isTransparentDisplayLink,
+} from '@/core/robot';
+import { GeometryType, IMPORTED_EXTERNAL_FRAME_LINK_TYPE } from '@/types';
 import { parseURDF } from './index.ts';
 import { generateURDF } from '../urdfGenerator.ts';
 
@@ -34,6 +39,132 @@ test('parseURDF preserves missing inertial and floating joint optional fields', 
   assert.equal(robot.links.world?.inertial, undefined);
   assert.equal(robot.joints.floating_base_joint?.axis, undefined);
   assert.equal(robot.joints.floating_base_joint?.limit, undefined);
+});
+
+test('parseURDF uses the URDF default axis for movable joints with omitted axis tags', () => {
+  const robot = parseURDF(`<?xml version="1.0"?>
+<robot name="default_axis">
+  <link name="base_link" />
+  <link name="wheel_link" />
+  <joint name="wheel_joint" type="continuous">
+    <parent link="base_link" />
+    <child link="wheel_link" />
+  </joint>
+</robot>`);
+
+  assert.ok(robot);
+  assert.deepEqual(robot.joints.wheel_joint?.axis, { x: 1, y: 0, z: 0 });
+});
+
+test('parseURDF synthesizes undeclared external world parents as transparent roots', () => {
+  const robot = parseURDF(`<?xml version="1.0"?>
+<robot name="undeclared_world_parent">
+  <joint name="world_joint" type="fixed">
+    <parent link="world" />
+    <child link="base_link" />
+    <origin xyz="1 2 3" rpy="0.1 0.2 0.3" />
+  </joint>
+  <link name="base_link" />
+</robot>`);
+
+  assert.ok(robot);
+  assert.equal(robot.rootLinkId, 'world');
+  assert.equal(robot.links.world?.type, IMPORTED_EXTERNAL_FRAME_LINK_TYPE);
+  assert.equal(isSyntheticWorldRoot(robot, robot.rootLinkId), true);
+  assert.deepEqual(getTreeRenderRootLinkIds(robot), ['world']);
+  assert.deepEqual(getTreeDisplayRootLinkIds(robot), ['base_link']);
+  assert.deepEqual(robot.joints.world_joint?.origin.xyz, { x: 1, y: 2, z: 3 });
+  assert.deepEqual(robot.joints.world_joint?.origin.rpy, { r: 0.1, p: 0.2, y: 0.3 });
+});
+
+test('parseURDF treats any undeclared external parent as a generic transparent frame root', () => {
+  const robot = parseURDF(`<?xml version="1.0"?>
+<robot name="undeclared_map_parent">
+  <link name="orphan_marker" />
+  <joint name="map_to_base" type="fixed">
+    <parent link="map" />
+    <child link="base_link" />
+  </joint>
+  <link name="base_link" />
+  <joint name="tool_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="tool_link" />
+  </joint>
+  <link name="tool_link" />
+</robot>`);
+
+  assert.ok(robot);
+  assert.equal(robot.rootLinkId, 'map');
+  assert.equal(robot.links.map?.type, IMPORTED_EXTERNAL_FRAME_LINK_TYPE);
+  assert.equal(isSyntheticWorldRoot(robot, robot.rootLinkId), false);
+  assert.equal(isTransparentDisplayLink(robot, robot.rootLinkId), true);
+  assert.deepEqual(getTreeRenderRootLinkIds(robot), ['map']);
+  assert.deepEqual(getTreeDisplayRootLinkIds(robot), ['base_link']);
+});
+
+test('parseURDF tolerates undeclared namespace-prefixed extension tags and attributes', () => {
+  const robot = parseURDF(`<?xml version="1.0"?>
+<robot name="gazebo_sensor_namespace">
+  <link name="base_link" />
+  <gazebo reference="base_link">
+    <sensor:camera custom:enabled="true" name="rgb">
+      <imageFormat>R8G8B8</imageFormat>
+    </sensor:camera>
+  </gazebo>
+</robot>`);
+
+  assert.ok(robot);
+  assert.equal(robot.rootLinkId, 'base_link');
+});
+
+test('parseURDF records URDF diagnostics for later AI inspection without blocking import', () => {
+  const robot = parseURDF(`<?xml version="1.0"?>
+<robot name="diagnostic_fixture">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 bad 0" />
+      <mass value="0" />
+      <inertia ixx="0" ixy="0" ixz="0" iyy="1" iyz="0" izz="1" />
+    </inertial>
+    <visual>
+      <origin xyz="1 bad 1" />
+      <geometry><box size="1 0 1" /></geometry>
+    </visual>
+    <collision>
+      <origin rpy="0 nope 0" />
+      <geometry><mesh /></geometry>
+    </collision>
+  </link>
+  <link name="tip_link" />
+  <joint name="elbow_joint" type="revolute">
+    <parent link="base_link" />
+    <child link="tip_link" />
+    <origin rpy="0 broken 0" />
+    <axis xyz="0 0 0" />
+  </joint>
+</robot>`);
+
+  assert.ok(robot);
+  assert.equal(robot.inspectionContext?.sourceFormat, 'urdf');
+  assert.equal(robot.inspectionContext?.urdf?.facts.linkCount, 2);
+  assert.equal(robot.inspectionContext?.urdf?.facts.jointCount, 1);
+  assert.equal(robot.inspectionContext?.urdf?.facts.visualCount, 1);
+  assert.equal(robot.inspectionContext?.urdf?.facts.collisionCount, 1);
+  assert.equal(robot.inspectionContext?.urdf?.facts.inertialCount, 1);
+
+  const diagnosticCodes = new Set(
+    robot.inspectionContext?.urdf?.diagnostics.map((diagnostic) => diagnostic.code),
+  );
+  assert.equal(diagnosticCodes.has('inertial_mass_nonpositive'), true);
+  assert.equal(diagnosticCodes.has('inertial_origin_xyz_invalid'), true);
+  assert.equal(diagnosticCodes.has('inertia_diagonal_nonpositive'), true);
+  assert.equal(diagnosticCodes.has('visual_origin_xyz_invalid'), true);
+  assert.equal(diagnosticCodes.has('visual_box_size_invalid'), true);
+  assert.equal(diagnosticCodes.has('collision_origin_rpy_invalid'), true);
+  assert.equal(diagnosticCodes.has('collision_mesh_filename_missing'), true);
+  assert.equal(diagnosticCodes.has('joint_origin_rpy_invalid'), true);
+  assert.equal(diagnosticCodes.has('movable_joint_missing_limit'), true);
+  assert.equal(diagnosticCodes.has('joint_axis_invalid'), true);
 });
 
 test('generateURDF does not synthesize inertial or limit tags for absent source fields', () => {

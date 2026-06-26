@@ -601,19 +601,37 @@ export function useFileImport(options: UseFileImportOptions = {}) {
           ...Object.fromEntries(renamedTextFiles.map((file) => [file.path, file.content])),
         };
 
-        const contextualPreResolvedImports = shouldBuildContextualPreResolvedImports({
-          availableFiles: assetsState.availableFiles,
-          assets: assetsState.assets,
-          allFileContents: assetsState.allFileContents,
-        })
-          ? await buildContextualPreResolvedImports(renamedRobotFilesWithSources, {
-              availableFiles: mergedFiles,
-              assets: mergedResolutionAssets,
-              allFileContents: mergedAllFileContents,
-            })
+        const shouldPreResolveWithImportContext =
+          renamedDeferredAssetFiles.length > 0 ||
+          shouldBuildContextualPreResolvedImports({
+            availableFiles: assetsState.availableFiles,
+            assets: assetsState.assets,
+            allFileContents: assetsState.allFileContents,
+          });
+        const contextualPreResolvedImports = shouldPreResolveWithImportContext
+          ? await buildContextualPreResolvedImports(
+              renamedRobotFilesWithSources,
+              {
+                availableFiles: mergedFiles,
+                assets: mergedResolutionAssets,
+                allFileContents: mergedAllFileContents,
+              },
+              {
+                preferredFileName:
+                  renamedDeferredAssetFiles.length > 0 ? preferredFileName : null,
+              },
+            )
           : [];
 
-        const resolvedImports = [...preResolvedImports, ...contextualPreResolvedImports];
+        const preResolvedImportKeys = new Set(
+          preResolvedImports.map((entry) => `${entry.format}:${entry.fileName}`),
+        );
+        const resolvedImports = [
+          ...preResolvedImports,
+          ...contextualPreResolvedImports.filter(
+            (entry) => !preResolvedImportKeys.has(`${entry.format}:${entry.fileName}`),
+          ),
+        ];
         primePreResolvedRobotImports(resolvedImports);
 
         if (
@@ -647,7 +665,7 @@ export function useFileImport(options: UseFileImportOptions = {}) {
           const fileForStandaloneImportWarnings = preferredFile;
           const fileForStandaloneImportOpen = preferredFile;
           const importedAssetPathsForWarning = collectStandaloneImportSupportAssetPaths(
-            mergedAssets,
+            mergedResolutionAssets,
             mergedFiles,
           );
 

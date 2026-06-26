@@ -9,6 +9,7 @@ import {
 } from './meshLoadPerformance';
 import { parseObjModelDataFromBytes } from './objWasmParser';
 import { getSourceFileDirectory, resolveImportedAssetPath } from '@/core/parsers/meshPathUtils';
+import { isRegressionDebugEnabled } from '@/core/utils/runtimeDiagnostics';
 import type { UrdfVisualMaterial } from '@/types';
 
 export interface ObjMaterialMetadata {
@@ -124,19 +125,20 @@ function findBestLookupPath(
   return samePackageCandidate ?? candidates[0] ?? null;
 }
 
-function resolveMtlTextureRequestUrl(
-  texturePath: string,
-  materialFilePath: string,
-  manager: THREE.LoadingManager,
-): string {
-  const resolvedTexturePath = resolveImportedAssetPath(texturePath, materialFilePath);
-  return manager.resolveURL(resolvedTexturePath || texturePath);
+function resolveMtlTextureRewritePath(texturePath: string, materialFilePath: string): string {
+  // Resolve the texture path relative to its MTL so the LoadingManager can later map it to a
+  // blob URL. We deliberately do NOT call manager.resolveURL() here: for imported assets that
+  // returns an extensionless blob: URL, which hides the file extension from
+  // manager.getHandler() and makes .tga/.hdr textures skip their registered decoders (they
+  // then fall back to TextureLoader and render white). Keeping the resolved *path* with its
+  // extension lets getHandler pick the right loader, which resolves the URL via the manager
+  // itself at load time.
+  return resolveImportedAssetPath(texturePath, materialFilePath) || texturePath;
 }
 
 export function rewriteMtlTextureReferencesForManager(
   materialText: string,
   materialFilePath: string,
-  manager: THREE.LoadingManager,
 ): string {
   return materialText
     .split(/\r?\n/)
@@ -157,13 +159,9 @@ export function rewriteMtlTextureReferencesForManager(
         return line;
       }
 
-      const resolvedRequestUrl = resolveMtlTextureRequestUrl(
-        texturePath,
-        materialFilePath,
-        manager,
-      );
+      const resolvedTexturePath = resolveMtlTextureRewritePath(texturePath, materialFilePath);
 
-      return `${directiveMatch[1]}${value.slice(0, textureStart)}${resolvedRequestUrl}${value.slice(
+      return `${directiveMatch[1]}${value.slice(0, textureStart)}${resolvedTexturePath}${value.slice(
         textureStart + texturePath.length,
       )}`;
     })
@@ -427,17 +425,35 @@ async function loadObjMaterialCreator(
       const rewrittenMaterialText = rewriteMtlTextureReferencesForManager(
         materialText,
         resolvedMaterialPath || materialLibrary,
-        manager,
       );
       rewrittenMaterialTexts.push(rewrittenMaterialText);
-    } catch {
+    } catch (error) {
       // Treat referenced material libraries as optional. Missing MTLs (or missing
       // texture sidecars inside them) should not prevent bare OBJ geometry from loading.
-      continue;
+      // Surface per-library failures only under regression debugging to avoid noise
+      // from OBJs that legitimately reference optional MTLs.
+      if (isRegressionDebugEnabled()) {
+        console.warn('[ObjMaterial] Failed to load MTL library', {
+          materialLibrary,
+          resolvedMaterialPath: resolvedMaterialPath || materialLibrary,
+          error,
+        });
+      }
     }
   }
 
   if (rewrittenMaterialTexts.length === 0) {
+    // High-signal diagnostic for the "imported model is all white" symptom: the OBJ
+    // declared material libraries but none of them could be loaded, so it falls back
+    // to bare/vertex-color materials.
+    if (materialLibraries.length > 0) {
+      console.warn(
+        `[ObjMaterial] OBJ declared ${materialLibraries.length} material ` +
+          `${materialLibraries.length === 1 ? 'library' : 'libraries'} but none could be loaded; ` +
+          'falling back to bare/vertex-color material (mesh may render white). ' +
+          `Libraries: ${materialLibraries.join(', ')}`,
+      );
+    }
     return null;
   }
 
@@ -514,27 +530,98 @@ function cloneMtlMaterialForRenderable(
   return sourceMaterial.clone();
 }
 
+interface MtlMaterialNameLookup {
+  exactNames: Set<string>;
+  normalizedNameToOriginal: Map<string, string>;
+  soleMaterialName: string | null;
+}
+
+function buildMtlMaterialNameLookup(
+  materialCreator: ReturnType<MTLLoader['parse']>,
+): MtlMaterialNameLookup {
+  const materialNames = Object.keys(materialCreator.materialsInfo ?? {});
+  const normalizedNameToOriginal = new Map<string, string>();
+  for (const materialName of materialNames) {
+    const normalizedName = materialName.trim().toLowerCase();
+    if (normalizedName && !normalizedNameToOriginal.has(normalizedName)) {
+      normalizedNameToOriginal.set(normalizedName, materialName);
+    }
+  }
+
+  return {
+    exactNames: new Set(materialNames),
+    normalizedNameToOriginal,
+    soleMaterialName: materialNames.length === 1 ? (materialNames[0] ?? null) : null,
+  };
+}
+
+function renderableHasVertexColors(
+  renderable: THREE.Mesh | THREE.LineSegments | THREE.Points,
+): boolean {
+  return Boolean(renderable.geometry?.getAttribute('color'));
+}
+
+// Match an OBJ `usemtl` group name against the MTL `newmtl` definitions, tolerating
+// the common real-world mismatches that otherwise leave models rendering white:
+// exact name, then trimmed/case-insensitive, then a single-material fallback for OBJs
+// exported without a usable `usemtl` (or with a name the MTL does not declare).
+function resolveMtlMaterialInfoName(
+  generatedName: string | undefined,
+  lookup: MtlMaterialNameLookup,
+  options: { allowSoleMaterialFallback: boolean },
+): string | null {
+  const trimmedName = generatedName?.trim() ?? '';
+  if (trimmedName && lookup.exactNames.has(trimmedName)) {
+    return trimmedName;
+  }
+
+  if (trimmedName) {
+    const normalizedMatch = lookup.normalizedNameToOriginal.get(trimmedName.toLowerCase());
+    if (normalizedMatch) {
+      return normalizedMatch;
+    }
+  }
+
+  if (options.allowSoleMaterialFallback && lookup.soleMaterialName) {
+    return lookup.soleMaterialName;
+  }
+
+  return null;
+}
+
 function createMtlMaterialForGeneratedMaterial(
   materialCreator: ReturnType<MTLLoader['parse']>,
   generatedMaterial: THREE.Material,
   renderable: THREE.Mesh | THREE.LineSegments | THREE.Points,
+  lookup: MtlMaterialNameLookup,
 ): THREE.Material | null {
-  const materialName = generatedMaterial.name?.trim();
-  if (!materialName || !Object.prototype.hasOwnProperty.call(materialCreator.materialsInfo, materialName)) {
+  const resolvedMaterialName = resolveMtlMaterialInfoName(generatedMaterial.name, lookup, {
+    // Vertex-colored meshes intentionally fall through to normalizeObjVertexColorMaterials,
+    // so never force a single-material MTL onto them.
+    allowSoleMaterialFallback: !renderableHasVertexColors(renderable),
+  });
+  if (!resolvedMaterialName) {
     return null;
   }
 
-  const sourceMaterial = materialCreator.create(materialName);
+  const sourceMaterial = materialCreator.create(resolvedMaterialName);
   if (!sourceMaterial) {
     return null;
   }
 
-  return cloneMtlMaterialForRenderable(sourceMaterial, renderable);
+  const renderableMaterial = cloneMtlMaterialForRenderable(sourceMaterial, renderable);
+  // Preserve the OBJ-assigned name so later name-based lookups stay stable even when we
+  // matched via the case-insensitive or single-material fallback path.
+  if (generatedMaterial.name) {
+    renderableMaterial.name = generatedMaterial.name;
+  }
+  return renderableMaterial;
 }
 
 function applyMtlMaterialsToRenderable(
   renderable: THREE.Mesh | THREE.LineSegments | THREE.Points,
   materialCreator: ReturnType<MTLLoader['parse']>,
+  lookup: MtlMaterialNameLookup,
 ): void {
   const originalMaterials = Array.isArray(renderable.material)
     ? renderable.material
@@ -546,6 +633,7 @@ function applyMtlMaterialsToRenderable(
       materialCreator,
       material,
       renderable,
+      lookup,
     );
     if (!nextMaterial) {
       return material;
@@ -582,6 +670,7 @@ export async function applyObjMaterialLibrariesToObject(
     return;
   }
 
+  const materialNameLookup = buildMtlMaterialNameLookup(materialCreator);
   await options.yieldIfNeeded?.();
   root.traverse((child) => {
     const renderable = child as THREE.Mesh | THREE.LineSegments | THREE.Points;
@@ -589,7 +678,7 @@ export async function applyObjMaterialLibrariesToObject(
       return;
     }
 
-    applyMtlMaterialsToRenderable(renderable, materialCreator);
+    applyMtlMaterialsToRenderable(renderable, materialCreator, materialNameLookup);
   });
 
   normalizeObjVertexColorMaterials(root);

@@ -536,10 +536,10 @@ export const patchVisiblePointerDownFallback = (controls: any) => {
         controls.axis = visibleAxis;
         cacheVisibleAxisHit(controls, pointer, visibleAxis);
       } else if (controls.axis === null) {
-        // The visible hit test failed but the stock raycaster (called by
-        // the onPointerDown -> pointerHover chain just before this
-        // pointerDown) may have already set a valid axis. Keep it so the
-        // original pointerDown can still initiate the drag.
+        // No visible handle is under the pointer and the stock raycaster did
+        // not already select an axis, so do not let the hidden picker start a
+        // drag from stale cached state.
+        return;
       }
     }
 

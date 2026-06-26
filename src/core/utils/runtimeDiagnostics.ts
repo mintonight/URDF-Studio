@@ -11,6 +11,15 @@ export function isDevelopmentBuild(): boolean {
   return false;
 }
 
+export function isRegressionDebugEnabled(): boolean {
+  try {
+    const search = (globalThis as { location?: { search?: string } }).location?.search ?? '';
+    return new URLSearchParams(search).get('regressionDebug') === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function normalizeRuntimeError(error: unknown, fallbackMessage: string): Error {
   if (error instanceof Error) {
     return error;

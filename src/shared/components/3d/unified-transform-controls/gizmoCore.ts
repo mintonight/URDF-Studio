@@ -11,7 +11,7 @@ export type UnifiedTransformMode = 'translate' | 'rotate' | 'scale' | 'universal
 export type UnifiedTransformHoverStyle = 'stock' | 'single-axis';
 export type UnifiedTransformDisplayStyle = 'stock' | 'thick-primary';
 
-export const VISUALIZER_UNIFIED_GIZMO_SIZE = 0.96;
+export const VISUALIZER_UNIFIED_GIZMO_SIZE = 0.78;
 export const DEFAULT_DISPLAY_THICKNESS_SCALE = 1;
 
 export interface UnifiedTransformControlsProps extends Omit<
@@ -28,7 +28,7 @@ export interface UnifiedTransformControlsProps extends Omit<
   rotateSpace?: DreiTransformControlsProps['space'];
   rotateEnabled?: boolean;
   onRotateChange?: DreiTransformControlsProps['onChange'];
-  onDraggingChanged?: (event: { value: boolean }) => void;
+  onDraggingChanged?: (event: { target?: unknown; value: boolean }) => void;
   enableUniversalPriority?: boolean;
   hoverStyle?: UnifiedTransformHoverStyle;
   displayStyle?: UnifiedTransformDisplayStyle;
@@ -47,20 +47,20 @@ export type VisibleControlHit = {
 };
 
 export const AXIS_NAMES = new Set(['X', 'Y', 'Z']);
-export const THICK_TRANSLATE_SHAFT_RADIUS = 0.042;
+export const THICK_TRANSLATE_SHAFT_RADIUS = 0.034;
 export const THICK_TRANSLATE_TIP_RADIUS = 0.17;
-export const TRANSLATE_ARROW_BASE_RADIUS = 0.05;
-export const TRANSLATE_ARROW_LENGTH = 0.42;
-export const THICK_ROTATE_ARC_RADIUS = 0.038;
-export const THICK_TRANSLATE_PICKER_RADIUS = 0.115;
-export const THICK_ROTATE_PICKER_ARC_RADIUS = 0.076;
-export const TRANSLATE_CENTER_GAP = 0.18;
+export const TRANSLATE_ARROW_BASE_RADIUS = 0.038;
+export const TRANSLATE_ARROW_LENGTH = 0.32;
+export const THICK_ROTATE_ARC_RADIUS = 0.024;
+export const THICK_TRANSLATE_PICKER_RADIUS = 0.075;
+export const THICK_ROTATE_PICKER_ARC_RADIUS = 0.048;
+export const TRANSLATE_CENTER_GAP = 0.12;
 export const TRANSLATE_RING_INTERSECTION_RADIUS = 0.5;
 export const TRANSLATE_RING_INTERSECTION_GAP = THICK_ROTATE_ARC_RADIUS * 3.6;
 export const MIN_TRANSLATE_SHAFT_SEGMENT_LENGTH = 0.025;
-export const TRANSLATE_ARROW_HANDLE_OFFSET = 1.14;
+export const TRANSLATE_ARROW_HANDLE_OFFSET = 0.94;
 export const TRANSLATE_GAP_BRIDGE_DASH_COUNT = 3;
-export const TRANSLATE_GAP_BRIDGE_RADIUS = 0.026;
+export const TRANSLATE_GAP_BRIDGE_RADIUS = 0.018;
 export const TRANSLATE_GAP_BRIDGE_OPACITY = 0.9;
 export const TRANSLATE_AUXILIARY_NAMES = new Set(['XY', 'YZ', 'XZ', 'XYZ']);
 export const ROTATE_AUXILIARY_NAMES = new Set(['E', 'XYZE']);

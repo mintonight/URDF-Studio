@@ -216,8 +216,52 @@ export interface RobotMjcfInspectionTendonAttachment {
   coef?: number;
 }
 
+export type RobotSourceDiagnosticSeverity = 'info' | 'warning' | 'error';
+
+export type RobotSourceDiagnosticCategory =
+  | 'source'
+  | 'topology'
+  | 'joint'
+  | 'geometry'
+  | 'material'
+  | 'physical'
+  | 'simulation';
+
+export interface RobotSourceDiagnostic {
+  code: string;
+  severity: RobotSourceDiagnosticSeverity;
+  category: RobotSourceDiagnosticCategory;
+  message: string;
+  relatedIds?: string[];
+  source?: {
+    tag?: string;
+    name?: string;
+    attribute?: string;
+  };
+}
+
+export interface RobotUrdfInspectionFacts {
+  linkCount: number;
+  jointCount: number;
+  visualCount: number;
+  collisionCount: number;
+  inertialCount: number;
+  materialCount: number;
+  meshCount: number;
+  syntheticParentLinkCount: number;
+  disconnectedRootCount: number;
+}
+
+export interface RobotUrdfInspectionContext {
+  diagnostics: RobotSourceDiagnostic[];
+  diagnosticCounts: Record<RobotSourceDiagnosticSeverity, number>;
+  facts: RobotUrdfInspectionFacts;
+  omittedDiagnosticCount?: number;
+}
+
 export interface RobotInspectionContext {
   sourceFormat: 'urdf' | 'mjcf' | 'usd' | 'xacro' | 'sdf' | 'mesh';
+  urdf?: RobotUrdfInspectionContext;
   mjcf?: {
     siteCount: number;
     tendonCount: number;

@@ -111,13 +111,13 @@ export function useCollisionTransformDragLifecycle<TControl extends DraggingCont
     return true;
   }, [invalidate]);
 
-  const handleDraggingChanged = useCallback((event?: { value?: boolean }) => {
+  const handleDraggingChanged = useCallback((event?: { target?: TControl | null; value?: boolean }) => {
     const translateControls = transformRef.current;
     const rotateControls = rotateTransformRef.current;
     const draggingControls = resolveActiveCollisionDraggingControls(
       translateControls,
       rotateControls,
-      activeControlsRef.current,
+      event?.target ?? activeControlsRef.current,
     );
 
     if (event?.value) {
@@ -136,13 +136,13 @@ export function useCollisionTransformDragLifecycle<TControl extends DraggingCont
     finishActiveDrag();
   }, [beginActiveDrag, finishActiveDrag, rotateTransformRef, transformRef]);
 
-  const handleObjectChange = useCallback(() => {
+  const handleObjectChange = useCallback((event?: { target?: TControl | null }) => {
     const translateControls = transformRef.current;
     const rotateControls = rotateTransformRef.current;
     const draggingControls = resolveActiveCollisionDraggingControls(
       translateControls,
       rotateControls,
-      null,
+      event?.target ?? null,
     );
 
     if (draggingControls && !isDraggingRef.current) {

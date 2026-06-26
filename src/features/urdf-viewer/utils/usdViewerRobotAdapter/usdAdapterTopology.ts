@@ -30,6 +30,7 @@ import {
 } from './usdAdapterConversions';
 
 const ZERO_INERTIA = { ixx: 0, ixy: 0, ixz: 0, iyy: 0, iyz: 0, izz: 0 } as const;
+const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
 
 export function buildMeshOnlyHierarchyFallback({
   defaultPrimPath,
@@ -207,6 +208,105 @@ export function createLinkFromViewerMetadata(
   };
 }
 
+function toThreeQuaternionWxyz(value: ArrayLike<number> | null | undefined): THREE.Quaternion | null {
+  if (!value || typeof value.length !== 'number' || value.length < 4) {
+    return null;
+  }
+
+  const w = Number(value[0]);
+  const x = Number(value[1]);
+  const y = Number(value[2]);
+  const z = Number(value[3]);
+  if (![w, x, y, z].every((entry) => Number.isFinite(entry))) {
+    return null;
+  }
+
+  const quaternion = new THREE.Quaternion(x, y, z, w);
+  if (quaternion.lengthSq() <= 1e-12) {
+    return new THREE.Quaternion();
+  }
+  return quaternion.normalize();
+}
+
+function toThreeVector3(value: ArrayLike<number> | null | undefined): THREE.Vector3 | null {
+  if (!value || typeof value.length !== 'number' || value.length < 3) {
+    return null;
+  }
+
+  const x = Number(value[0]);
+  const y = Number(value[1]);
+  const z = Number(value[2]);
+  if (![x, y, z].every((entry) => Number.isFinite(entry))) {
+    return null;
+  }
+
+  return new THREE.Vector3(x, y, z);
+}
+
+function composeUsdPhysicsFrameMatrix(
+  position: ArrayLike<number> | null | undefined,
+  rotationWxyz: ArrayLike<number> | null | undefined,
+): THREE.Matrix4 {
+  return new THREE.Matrix4().compose(
+    toThreeVector3(position) ?? new THREE.Vector3(),
+    toThreeQuaternionWxyz(rotationWxyz) ?? new THREE.Quaternion(),
+    UNIT_SCALE,
+  );
+}
+
+function resolveJointOriginFromViewerEntry(entry: JointCatalogEntry): NonNullable<UrdfJoint['origin']> {
+  const hasLocalParentFrame =
+    (entry.localPos0 && typeof entry.localPos0.length === 'number') ||
+    (entry.localRot0Wxyz && typeof entry.localRot0Wxyz.length === 'number');
+  const hasLocalChildFrame =
+    (entry.localPos1 && typeof entry.localPos1.length === 'number') ||
+    (entry.localRot1Wxyz && typeof entry.localRot1Wxyz.length === 'number');
+
+  if (hasLocalParentFrame && hasLocalChildFrame) {
+    const parentFrame = composeUsdPhysicsFrameMatrix(entry.localPos0, entry.localRot0Wxyz);
+    const childFrame = composeUsdPhysicsFrameMatrix(entry.localPos1, entry.localRot1Wxyz);
+    const jointTransform = parentFrame.multiply(childFrame.invert());
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    jointTransform.decompose(position, quaternion, scale);
+
+    return {
+      xyz: {
+        x: position.x,
+        y: position.y,
+        z: position.z,
+      },
+      rpy: quaternionComponentsToEuler(quaternion.x, quaternion.y, quaternion.z, quaternion.w),
+    };
+  }
+
+  const originXyz =
+    entry.originXyz && typeof entry.originXyz.length === 'number'
+      ? toVector3(entry.originXyz)
+      : entry.localPos0 && typeof entry.localPos0.length === 'number'
+        ? toVector3(entry.localPos0)
+        : toVector3(entry.localPivotInLink);
+  const originQuatWxyz =
+    entry.originQuatWxyz && typeof entry.originQuatWxyz.length === 'number'
+      ? Array.from(entry.originQuatWxyz).slice(0, 4)
+      : entry.localRot0Wxyz && typeof entry.localRot0Wxyz.length === 'number'
+        ? Array.from(entry.localRot0Wxyz).slice(0, 4)
+        : null;
+
+  return {
+    xyz: originXyz,
+    rpy: originQuatWxyz
+      ? quaternionComponentsToEuler(
+          originQuatWxyz[1],
+          originQuatWxyz[2],
+          originQuatWxyz[3],
+          originQuatWxyz[0],
+        )
+      : { r: 0, p: 0, y: 0 },
+  };
+}
+
 export function createJointFromViewerEntry(
   entry: JointCatalogEntry,
   linkIdByPath: Map<string, string>,
@@ -236,18 +336,7 @@ export function createJointFromViewerEntry(
     typeof entry.driveMaxForce === 'number' && Number.isFinite(entry.driveMaxForce)
       ? entry.driveMaxForce
       : undefined;
-  const originXyz =
-    entry.originXyz && typeof entry.originXyz.length === 'number'
-      ? toVector3(entry.originXyz)
-      : entry.localPos0 && typeof entry.localPos0.length === 'number'
-        ? toVector3(entry.localPos0)
-        : toVector3(entry.localPivotInLink);
-  const originQuatWxyz =
-    entry.originQuatWxyz && typeof entry.originQuatWxyz.length === 'number'
-      ? Array.from(entry.originQuatWxyz).slice(0, 4)
-      : entry.localRot0Wxyz && typeof entry.localRot0Wxyz.length === 'number'
-        ? Array.from(entry.localRot0Wxyz).slice(0, 4)
-        : null;
+  const origin = resolveJointOriginFromViewerEntry(entry);
   const usdPhysics = resolveUsdPhysicsFrameFromViewerEntry(entry);
 
   return {
@@ -258,17 +347,7 @@ export function createJointFromViewerEntry(
     parentLinkId,
     childLinkId,
     ...(typeof angle === 'number' && Number.isFinite(angle) ? { angle } : {}),
-    origin: {
-      xyz: originXyz,
-      rpy: originQuatWxyz
-        ? quaternionComponentsToEuler(
-            originQuatWxyz[1],
-            originQuatWxyz[2],
-            originQuatWxyz[3],
-            originQuatWxyz[0],
-          )
-        : { r: 0, p: 0, y: 0 },
-    },
+    origin,
     axis: axisFromViewerEntry(entry),
     dynamics: {
       ...DEFAULT_JOINT.dynamics,

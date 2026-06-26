@@ -310,6 +310,19 @@ test('buildStandaloneImportAssetWarning treats nested folder-import asset paths 
   assert.equal(warning, null);
 });
 
+test('buildStandaloneImportAssetWarning matches deep package URIs against imported package-root assets', () => {
+  const warning = buildStandaloneImportAssetWarning(
+    {
+      format: 'urdf',
+      content:
+        '<mesh filename="package://drake/examples/pr2/models/pr2_description/meshes/base_v0/base.stl" />',
+    },
+    ['pr2_description/meshes/base_v0/base.stl'],
+  );
+
+  assert.equal(warning, null);
+});
+
 test('buildStandaloneImportAssetWarning reports URDF mesh references that only exist under mismatched asset folders', () => {
   const warning = buildStandaloneImportAssetWarning(
     {

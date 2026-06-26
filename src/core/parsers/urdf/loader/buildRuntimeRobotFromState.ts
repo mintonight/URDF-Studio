@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { stackCoincidentVisualRoots } from '@/core/loaders/visualMeshStacking';
+import { GENERATED_OBJ_MATERIAL_USER_DATA_KEY } from '@/core/loaders/objModelData';
 import { isImageAssetPath } from '@/core/utils/assetFileTypes';
 import {
   applyVisualMaterialOverrideToObject,
@@ -149,6 +150,7 @@ function loadedObjectShouldPreserveEmbeddedMaterials(object: THREE.Object3D): bo
   const materialNames = new Set<string>();
   let hasMaterialTexture = false;
   let hasMultiMaterialMesh = false;
+  let hasExternalAuthoredMaterial = false;
 
   object.traverse((child) => {
     if (!(child as THREE.Mesh).isMesh) {
@@ -167,13 +169,17 @@ function loadedObjectShouldPreserveEmbeddedMaterials(object: THREE.Object3D): bo
         materialNames.add(materialName);
       }
 
+      if (entry?.userData?.[GENERATED_OBJ_MATERIAL_USER_DATA_KEY] !== true) {
+        hasExternalAuthoredMaterial = true;
+      }
+
       if ('map' in (entry || {}) && (entry as THREE.MeshPhongMaterial).map) {
         hasMaterialTexture = true;
       }
     });
   });
 
-  return hasMaterialTexture || hasMultiMaterialMesh || materialNames.size > 1;
+  return hasExternalAuthoredMaterial || hasMaterialTexture || hasMultiMaterialMesh || materialNames.size > 1;
 }
 
 function shouldAttachLoadedMeshObject(object: THREE.Object3D, isCollisionNode: boolean): boolean {
@@ -767,6 +773,8 @@ export async function buildRuntimeRobotFromState({
         : null);
     const hasExplicitMaterialOverride =
       resolvedMaterialOverride.isExplicit ||
+      Boolean(resolvedMaterialOverride.override) ||
+      Boolean(visualMaterialOverride) ||
       (!resolvedMaterialOverride.override && hasExplicitGeometryMaterialOverride(geometry));
     group.name = runtimeKey;
     group.urdfName = runtimeKey;

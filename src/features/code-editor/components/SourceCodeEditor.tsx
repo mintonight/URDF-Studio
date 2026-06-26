@@ -366,6 +366,8 @@ const resolveCodeEditorFontFamily = (fontFamily: CodeEditorFontFamily): string =
   }
 };
 
+const formatCodeEditorOpacityPercent = (opacity: number) => `${Math.round(opacity * 100)}%`;
+
 const getDocumentMeta = (
   documentFlavor: SourceCodeDocumentFlavor,
   t: (typeof editorTexts)['en'],
@@ -472,6 +474,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
 }) => {
   const codeEditorFontFamily = useUIStore((state) => state.codeEditorFontFamily);
   const codeEditorFontSize = useUIStore((state) => state.codeEditorFontSize);
+  const codeEditorOpacity = useUIStore((state) => state.codeEditorOpacity);
   const t = editorTexts[lang];
   const normalizedDocuments = useMemo(
     () =>
@@ -580,6 +583,13 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
   const { isMaximized, size, toggleMaximize } = windowState;
 
   const contentSizeLabel = useMemo(() => formatContentSize(currentCode), [currentCode]);
+  const opacityStyle = useMemo(
+    () =>
+      ({
+        '--source-code-editor-opacity-percent': formatCodeEditorOpacityPercent(codeEditorOpacity),
+      }) as React.CSSProperties,
+    [codeEditorOpacity],
+  );
   const isActiveDocumentContentLoading =
     shouldLoadActiveDocumentContent || loadingDocumentId === activeDocument.id;
 
@@ -1256,10 +1266,11 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
           </Tooltip>
         </div>
       }
-      className={`fixed z-[220] flex flex-col overflow-hidden rounded-lg border border-border-black bg-panel-bg/60 text-text-primary shadow-2xl ${
+      style={opacityStyle}
+      className={`source-code-editor-window fixed z-[220] flex flex-col overflow-hidden rounded-lg border border-border-black text-text-primary shadow-2xl ${
         isMaximized ? 'inset-0 !h-full !w-full !transform-none rounded-none' : ''
       }`}
-      headerClassName="flex h-10 items-center justify-between gap-3 border-b border-border-black bg-element-bg px-3 select-none"
+      headerClassName="source-code-editor-chrome flex h-10 items-center justify-between gap-3 border-b border-border-black px-3 select-none"
       headerLeftClassName="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden"
       headerRightClassName="flex shrink-0 items-center gap-1"
       showMinimizeButton={false}
@@ -1283,7 +1294,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
     >
       {normalizedDocuments.length > 1 ? (
         shouldUseDocumentSelector ? (
-          <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border-black bg-element-bg px-3 select-none">
+          <div className="source-code-editor-chrome flex h-10 shrink-0 items-center gap-2 border-b border-border-black px-3 select-none">
             <Files className="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
             <Select
               aria-label={t.selectFile}
@@ -1304,7 +1315,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
             </span>
           </div>
         ) : (
-          <div className="custom-scrollbar flex h-10 shrink-0 items-stretch overflow-x-auto border-b border-border-black bg-element-bg select-none">
+          <div className="source-code-editor-chrome custom-scrollbar flex h-10 shrink-0 items-stretch overflow-x-auto border-b border-border-black select-none">
             <div aria-label={t.selectFile} className={SOURCE_CODE_EDITOR_TABS_CLASS} role="tablist">
               {normalizedDocuments.map((document) => {
                 const isActiveDocument = document.id === activeDocument.id;
@@ -1342,7 +1353,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
 
       <div className="relative flex-1 overflow-hidden">
         {!isEditorReady ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-panel-bg">
+          <div className="source-code-editor-panel absolute inset-0 z-10 flex items-center justify-center">
             <div className="flex items-center gap-2 text-sm text-text-secondary">
               <Loader2 className="h-5 w-5 animate-spin text-text-tertiary" />
               <span>{t.loading}</span>
@@ -1350,7 +1361,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
           </div>
         ) : null}
         {isEditorReady && isActiveDocumentContentLoading ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-panel-bg/90">
+          <div className="source-code-editor-overlay absolute inset-0 z-10 flex items-center justify-center">
             <div className="flex items-center gap-2 text-sm text-text-secondary">
               <Loader2 className="h-5 w-5 animate-spin text-text-tertiary" />
               <span>{t.loading}</span>
@@ -1392,7 +1403,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
         </Suspense>
       </div>
 
-      <div className="flex h-7 shrink-0 items-center justify-between gap-3 border-t border-border-black bg-element-bg px-3 text-[10px] select-none">
+      <div className="source-code-editor-chrome flex h-7 shrink-0 items-center justify-between gap-3 border-t border-border-black px-3 text-[10px] select-none">
         <div className="flex min-w-0 items-center gap-3">
           {validationEnabled ? (
             validationErrors.length > 0 ? (

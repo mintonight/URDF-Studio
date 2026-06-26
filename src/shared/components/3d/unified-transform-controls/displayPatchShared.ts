@@ -9,16 +9,48 @@ export const removeHandlesByNames = (group: THREE.Object3D | undefined, names: S
   if (!group) return;
 
   const nodesToRemove: THREE.Object3D[] = [];
+  const removedNodes = new Set<THREE.Object3D>();
   group.traverse((node) => {
     if (node === group) return;
     if (!names.has(node.name)) return;
     if ((node as any).isLine || (node as any).isMesh || (node as any).isObject3D) {
       nodesToRemove.push(node);
+      removedNodes.add(node);
+    }
+  });
+
+  const survivingGeometries = new Set<THREE.BufferGeometry>();
+  const survivingMaterials = new Set<THREE.Material>();
+  group.traverse((node) => {
+    if (removedNodes.has(node)) return;
+    const geometry = (node as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+    const material = (node as THREE.Mesh & { material?: THREE.Material | THREE.Material[] }).material;
+    if (geometry) survivingGeometries.add(geometry);
+    if (Array.isArray(material)) {
+      material.forEach((entry) => {
+        if (entry) survivingMaterials.add(entry);
+      });
+    } else if (material) {
+      survivingMaterials.add(material);
     }
   });
 
   for (const node of nodesToRemove) {
     node.parent?.remove(node);
+    node.traverse((entry) => {
+      const geometry = (entry as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+      const material = (entry as THREE.Mesh & { material?: THREE.Material | THREE.Material[] }).material;
+      if (geometry && !survivingGeometries.has(geometry)) {
+        geometry.dispose();
+      }
+      if (Array.isArray(material)) {
+        material.forEach((item) => {
+          if (item && !survivingMaterials.has(item)) item.dispose();
+        });
+      } else if (material && !survivingMaterials.has(material)) {
+        material.dispose();
+      }
+    });
   }
 };
 

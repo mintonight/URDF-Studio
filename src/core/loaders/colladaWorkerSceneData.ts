@@ -4,6 +4,7 @@ import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
 import { ensureWorkerXmlDomApis } from '@/core/utils/ensureWorkerXmlDomApis';
 
 import { normalizeColladaUpAxis } from './colladaUpAxis';
+import { loadManagedTexture } from './textureLoaderHandlers';
 import {
   durationMs,
   markMainThreadBuildPerformance,
@@ -514,8 +515,13 @@ function createFastColladaTexture(
   }
 
   ensureWorkerXmlDomApis();
-  const texture = new THREE.TextureLoader(manager).load(
+  // Choose the decoder from the original texture path's extension (.tga/.hdr need
+  // dedicated loaders); the resolved request URL may be an extension-less blob URL. This
+  // worker path bypasses manager.getHandler, so registered handlers do not apply here.
+  const texture = loadManagedTexture(
+    texturePath,
     resolveSerializedColladaImageUrl(texturePath, resourcePath, manager),
+    manager,
   );
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;

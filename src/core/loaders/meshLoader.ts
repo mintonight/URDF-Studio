@@ -17,6 +17,7 @@ import { type ColladaRootNormalizationHints } from './colladaRootNormalization';
 import { loadSerializedColladaSceneData } from './colladaParseWorkerBridge';
 import { createSceneFromSerializedColladaData } from './colladaWorkerSceneData';
 import { parseColladaMeshDataWithWasm } from './colladaWasmParser';
+import { registerManagedTextureHandlers } from './textureLoaderHandlers';
 import { cleanFilePath } from './pathNormalization';
 import {
   failFastInDev,
@@ -221,6 +222,7 @@ export const createLoadingManager = (assets: Record<string, string>, urdfDir: st
   const assetIndex = buildAssetIndex(assets, urdfDir);
 
   manager.setURLModifier((url: string) => resolveManagedAssetUrl(url, assetIndex, urdfDir));
+  registerManagedTextureHandlers(manager);
 
   return manager;
 };
@@ -281,11 +283,19 @@ const resolveMeshLoaderExtension = (
   resolvedAssetPath: string = '',
 ): string => {
   const requestedExtension = getPathExtension(requestedPath);
+  const resolvedExtension = getPathExtension(resolvedAssetPath);
+  if (
+    resolvedExtension &&
+    resolvedExtension !== requestedExtension &&
+    SUPPORTED_MESH_EXTENSIONS.has(resolvedExtension)
+  ) {
+    return resolvedExtension;
+  }
+
   if (SUPPORTED_MESH_EXTENSIONS.has(requestedExtension)) {
     return requestedExtension;
   }
 
-  const resolvedExtension = getPathExtension(resolvedAssetPath);
   if (SUPPORTED_MESH_EXTENSIONS.has(resolvedExtension)) {
     return resolvedExtension;
   }
@@ -561,6 +571,7 @@ export const createMeshLoader = (
 
           throw new Error(`Optional OBJ material asset not found: ${url}`);
         });
+        registerManagedTextureHandlers(objManager);
         const materialStartedAt = readHighResolutionEpochMs();
         await applyObjMaterialLibrariesToObject(
           object,

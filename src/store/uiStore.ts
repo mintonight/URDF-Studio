@@ -137,6 +137,8 @@ interface UIState {
   setCodeEditorFontFamily: (fontFamily: CodeEditorFontFamily) => void;
   codeEditorFontSize: number;
   setCodeEditorFontSize: (size: number) => void;
+  codeEditorOpacity: number;
+  setCodeEditorOpacity: (opacity: number) => void;
 
   // Source code editor
   sourceCodeAutoApply: boolean;
@@ -297,6 +299,9 @@ const DEFAULT_CODE_EDITOR_FONT_FAMILY: CodeEditorFontFamily = 'jetbrains-mono';
 const DEFAULT_CODE_EDITOR_FONT_SIZE = 13;
 const MIN_CODE_EDITOR_FONT_SIZE = 11;
 const MAX_CODE_EDITOR_FONT_SIZE = 24;
+export const DEFAULT_CODE_EDITOR_OPACITY = 0.6;
+export const MIN_CODE_EDITOR_OPACITY = 0.35;
+export const MAX_CODE_EDITOR_OPACITY = 1;
 
 const normalizeGlobalFontSize = (value: unknown): GlobalFontSize =>
   value === 'small' || value === 'large' ? value : 'medium';
@@ -319,6 +324,15 @@ const clampCodeEditorFontSize = (value: unknown): number => {
   return Math.round(
     Math.min(MAX_CODE_EDITOR_FONT_SIZE, Math.max(MIN_CODE_EDITOR_FONT_SIZE, parsed)),
   );
+};
+
+const clampCodeEditorOpacity = (value: unknown): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_CODE_EDITOR_OPACITY;
+  }
+
+  return Math.min(MAX_CODE_EDITOR_OPACITY, Math.max(MIN_CODE_EDITOR_OPACITY, parsed));
 };
 
 const applyFontSize = (fontSize: GlobalFontSize) => {
@@ -506,6 +520,9 @@ export const useUIStore = create<UIState>()(
       codeEditorFontSize: DEFAULT_CODE_EDITOR_FONT_SIZE,
       setCodeEditorFontSize: (codeEditorFontSize) =>
         set({ codeEditorFontSize: clampCodeEditorFontSize(codeEditorFontSize) }),
+      codeEditorOpacity: DEFAULT_CODE_EDITOR_OPACITY,
+      setCodeEditorOpacity: (codeEditorOpacity) =>
+        set({ codeEditorOpacity: clampCodeEditorOpacity(codeEditorOpacity) }),
 
       // Source code editor
       sourceCodeAutoApply: false,
@@ -547,6 +564,7 @@ export const useUIStore = create<UIState>()(
           fontSize?: unknown;
           codeEditorFontFamily?: unknown;
           codeEditorFontSize?: unknown;
+          codeEditorOpacity?: unknown;
           massInertiaChangeBehavior?: unknown;
           navigationSensitivity?: unknown;
         };
@@ -610,6 +628,7 @@ export const useUIStore = create<UIState>()(
           fontSize: normalizeGlobalFontSize(state.fontSize),
           codeEditorFontFamily: normalizeCodeEditorFontFamily(state.codeEditorFontFamily),
           codeEditorFontSize: clampCodeEditorFontSize(state.codeEditorFontSize),
+          codeEditorOpacity: clampCodeEditorOpacity(state.codeEditorOpacity),
           massInertiaChangeBehavior: normalizeMassInertiaChangeBehavior(
             state.massInertiaChangeBehavior,
           ),
@@ -628,6 +647,7 @@ export const useUIStore = create<UIState>()(
         fontSize: state.fontSize,
         codeEditorFontFamily: state.codeEditorFontFamily,
         codeEditorFontSize: state.codeEditorFontSize,
+        codeEditorOpacity: state.codeEditorOpacity,
         sourceCodeAutoApply: state.sourceCodeAutoApply,
         rotationDisplayMode: state.rotationDisplayMode,
         massInertiaChangeBehavior: state.massInertiaChangeBehavior,
@@ -651,6 +671,10 @@ export const useUIStore = create<UIState>()(
           const normalizedCodeEditorFontSize = clampCodeEditorFontSize(state.codeEditorFontSize);
           if (state.codeEditorFontSize !== normalizedCodeEditorFontSize) {
             state.setCodeEditorFontSize(normalizedCodeEditorFontSize);
+          }
+          const normalizedCodeEditorOpacity = clampCodeEditorOpacity(state.codeEditorOpacity);
+          if (state.codeEditorOpacity !== normalizedCodeEditorOpacity) {
+            state.setCodeEditorOpacity(normalizedCodeEditorOpacity);
           }
           const normalizedMassInertiaChangeBehavior = normalizeMassInertiaChangeBehavior(
             state.massInertiaChangeBehavior,

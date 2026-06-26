@@ -30,7 +30,7 @@ export function generateEditableRobotSource({
     case 'urdf':
       return generateURDF(robotState, {
         includeHardware,
-        preserveMeshPaths: preserveMeshPaths ?? false,
+        preserveMeshPaths: preserveMeshPaths ?? true,
       });
     case 'xacro':
       return generateURDF(robotState, {

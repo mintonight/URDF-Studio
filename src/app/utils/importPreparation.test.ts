@@ -383,6 +383,75 @@ test('prepareImportPayload keeps loose URDF referenced OBJ material sidecars', a
   ]);
 });
 
+test('prepareImportPayload keeps archived URDF referenced OBJ material sidecars', async () => {
+  const zip = new JSZip();
+  zip.file(
+    'robot/robot.urdf',
+    [
+      '<?xml version="1.0"?>',
+      '<robot name="demo">',
+      '  <link name="base_link">',
+      '    <visual>',
+      '      <geometry>',
+      '        <mesh filename="assets/body.obj" />',
+      '      </geometry>',
+      '    </visual>',
+      '  </link>',
+      '</robot>',
+    ].join('\n'),
+  );
+  zip.file(
+    'robot/assets/body.obj',
+    [
+      'mtllib body.mtl',
+      'usemtl Painted',
+      'o Body',
+    ].join('\n'),
+  );
+  zip.file(
+    'robot/assets/body.mtl',
+    [
+      'newmtl Painted',
+      'Kd 1 0 0',
+      'map_Kd ../materials/textures/cardboard_box.png',
+    ].join('\n'),
+  );
+  zip.file('robot/materials/textures/cardboard_box.png', new Uint8Array([137, 80, 78, 71]));
+
+  const zipBytes = await zip.generateAsync({ type: 'uint8array' });
+  const zipFile = new File([zipBytes], 'bundle.zip', { type: 'application/zip' });
+
+  const result = await prepareImportPayload({
+    files: [zipFile],
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.equal(result.preferredFileName, 'robot/robot.urdf');
+  assert.ok(
+    result.assetFiles.some((file) => file.name === 'robot/assets/body.obj'),
+    'expected OBJ mesh to be hydrated as a renderable asset',
+  );
+  assert.ok(
+    result.assetFiles.some((file) => file.name === 'robot/assets/body.mtl'),
+    'expected OBJ material sidecar to be hydrated as a renderable asset',
+  );
+  assert.ok(
+    result.assetFiles.some((file) => file.name === 'robot/materials/textures/cardboard_box.png'),
+    'expected OBJ material texture sidecar to be hydrated as a renderable asset',
+  );
+  assert.deepEqual(result.textFiles, [
+    {
+      path: 'robot/assets/body.mtl',
+      content: [
+        'newmtl Painted',
+        'Kd 1 0 0',
+        'map_Kd ../materials/textures/cardboard_box.png',
+      ].join('\n'),
+    },
+  ]);
+});
+
 test('prepareImportPayload keeps all loose USD source blobs like the legacy folder flow', async () => {
   const files = [
     createLooseFile(
@@ -1453,6 +1522,9 @@ test('prepareImportPayload synthesizes a bundle root for rootless gazebo zip bun
   ]);
   assert.deepEqual([...result.textFiles].map((file) => file.path).sort(), [
     'NUS_SEDS_OMNIDIRECTIONAL_GROUND_VEHICLE_VISUALS_ONLY/materials/scripts/demo.material',
+    // The SDF-referenced DAE is mirrored as text so authored Collada materials can be
+    // extracted from it (parseColladaAuthoredMaterials reads allFileContents).
+    'NUS_SEDS_OMNIDIRECTIONAL_GROUND_VEHICLE_VISUALS_ONLY/meshes/base_link.dae',
   ]);
   assert.equal(
     result.preferredFileName,
@@ -1752,6 +1824,56 @@ map_Kd ambulance.png`,
   assert.deepEqual(
     result.deferredAssetFiles.map((file) => file.name),
     ['ambulance/docs/preview.png'],
+  );
+});
+
+test('prepareImportPayload eagerly hydrates DAE external textures referenced by the preferred model', async () => {
+  const zip = new JSZip();
+  zip.file(
+    'robot/model.urdf',
+    `<?xml version="1.0"?>
+<robot name="r">
+  <link name="base_link">
+    <visual>
+      <geometry><mesh filename="meshes/base.dae" /></geometry>
+    </visual>
+  </link>
+</robot>`,
+  );
+  zip.file(
+    'robot/meshes/base.dae',
+    `<?xml version="1.0" encoding="utf-8"?>
+<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1">
+  <library_images>
+    <image id="tex0" name="tex0"><init_from>../textures/base_color.png</init_from></image>
+  </library_images>
+  <library_effects>
+    <effect id="fx0"><profile_COMMON>
+      <newparam sid="s0"><surface type="2D"><init_from>tex0</init_from></surface></newparam>
+    </profile_COMMON></effect>
+  </library_effects>
+</COLLADA>`,
+  );
+  zip.file('robot/textures/base_color.png', new Uint8Array([137, 80, 78, 71]));
+  zip.file('robot/docs/unused.png', new Uint8Array([137, 80, 78, 71]));
+
+  const zipBytes = await zip.generateAsync({ type: 'uint8array' });
+  const zipFile = new File([zipBytes], 'robot.zip', { type: 'application/zip' });
+
+  const result = await prepareImportPayload({
+    files: [zipFile],
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.ok(
+    result.assetFiles.some((file) => file.name === 'robot/textures/base_color.png'),
+    'expected the DAE-referenced texture to be hydrated into assetFiles',
+  );
+  assert.equal(
+    result.assetFiles.some((file) => file.name === 'robot/docs/unused.png'),
+    false,
+    'an unreferenced image should remain deferred',
   );
 });
 

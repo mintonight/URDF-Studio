@@ -110,6 +110,7 @@ export interface AppLayoutViewProps {
   focusTarget: ViewerProps['focusTarget'];
   selectedFile: RobotFile | null;
   handleWorkspaceTransformPendingChange: ViewerProps['onTransformPendingChange'];
+  handleCollisionTransformPreview: ViewerProps['onCollisionTransformPreview'];
   handleCollisionTransform: ViewerProps['onCollisionTransform'];
   normalizedAssemblyState: AppLayoutOverlaysProps['assemblyState'];
   shouldRenderAssembly: boolean;

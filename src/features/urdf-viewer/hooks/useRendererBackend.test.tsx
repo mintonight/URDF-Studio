@@ -152,6 +152,7 @@ function createCollisionOriginRobotData(collisionX: number): RobotData {
         collision: {
           type: GeometryType.BOX,
           dimensions: { x: 0.2, y: 0.2, z: 0.2 },
+          color: DEFAULT_LINK.collision.color,
           origin: {
             xyz: { x: collisionX, y: 0, z: 0 },
             rpy: { r: 0, p: 0, y: 0 },

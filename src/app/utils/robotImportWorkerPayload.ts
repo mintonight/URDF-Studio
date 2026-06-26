@@ -142,16 +142,25 @@ export function buildResolveRobotImportWorkerDispatch(
 ): PreparedRobotImportWorkerDispatch<ResolveRobotFileDataOptions> {
   switch (file.format) {
     case 'urdf': {
-      const contextSnapshot = buildMissingUrdfSourceContextSnapshot(file, options);
+      const sourceContextSnapshot = buildMissingUrdfSourceContextSnapshot(file, options);
+      const contextSnapshot: RobotImportWorkerContextSnapshot = {
+        ...(sourceContextSnapshot ?? {}),
+        ...(options.assets && Object.keys(options.assets).length > 0 ? { assets: options.assets } : {}),
+        ...(options.allFileContents && Object.keys(options.allFileContents).length > 0
+          ? { allFileContents: options.allFileContents }
+          : {}),
+      };
+      const hasContext = hasContextSnapshotContent(contextSnapshot);
       return {
         options: {},
-        contextCacheKey: contextSnapshot
+        contextCacheKey: hasContext
           ? buildContextCacheKey('resolve', file, {
-              availableFiles: options.availableFiles,
+              availableFiles: contextSnapshot.availableFiles,
+              assets: options.assets,
               allFileContents: options.allFileContents,
             })
           : null,
-        contextSnapshot,
+        contextSnapshot: hasContext ? contextSnapshot : null,
       };
     }
     case 'mesh':

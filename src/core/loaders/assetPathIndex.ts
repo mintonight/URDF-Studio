@@ -207,21 +207,25 @@ function selectBestAssetMatch(
 
   let bestPath: string | null = null;
   let bestScore = Number.NEGATIVE_INFINITY;
+  let secondBestScore = Number.NEGATIVE_INFINITY;
 
   for (const candidatePath of candidatePaths) {
     const cleanedCandidate = cleanFilePath(candidatePath);
     const score = scoreAssetCandidatePath(cleanedCandidate, references, urdfDir);
 
-    if (
-      score > bestScore ||
-      (score === bestScore && bestPath !== null && cleanedCandidate < bestPath)
-    ) {
+    if (score > bestScore) {
+      secondBestScore = bestScore;
       bestPath = cleanedCandidate;
       bestScore = score;
+      continue;
+    }
+
+    if (score > secondBestScore) {
+      secondBestScore = score;
     }
   }
 
-  if (!bestPath) {
+  if (!bestPath || bestScore <= secondBestScore) {
     return null;
   }
 
@@ -293,6 +297,7 @@ export const SUPPORTED_MESH_EXTENSIONS = new Set([
 ]);
 const APPROXIMATE_EXTENSION_ALIASES: Record<string, string[]> = {
   '.mesh': ['.mesh', '.dae', '.obj', '.stl', '.gltf', '.glb', '.ply'],
+  '.obj': ['.obj', '.stl'],
 };
 
 export const getPathExtension = (value: string): string => {

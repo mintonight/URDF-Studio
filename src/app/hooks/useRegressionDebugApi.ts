@@ -1,6 +1,7 @@
 import { useEffect, type MutableRefObject } from 'react';
 import {
   useAssetsStore,
+  useAssemblySelectionStore,
   useRobotStore,
   useSelectionStore,
   useUIStore,
@@ -45,11 +46,15 @@ export function useRegressionDebugApi(loadRobotByNameRef: LoadRobotByNameRef): v
           __store__?: typeof useRobotStore;
           __uiStore__?: typeof useUIStore;
           __assetsStore__?: typeof useAssetsStore;
+          __assemblySelectionStore__?: typeof useAssemblySelectionStore;
+          __selectionStore__?: typeof useSelectionStore;
           __jointPickSessionStore__?: typeof useJointPickSessionStore;
         };
         regressionApi.__store__ = useRobotStore;
         regressionApi.__uiStore__ = useUIStore;
         regressionApi.__assetsStore__ = useAssetsStore;
+        regressionApi.__assemblySelectionStore__ = useAssemblySelectionStore;
+        regressionApi.__selectionStore__ = useSelectionStore;
         regressionApi.__jointPickSessionStore__ = useJointPickSessionStore;
 
         setRegressionAppHandlers({

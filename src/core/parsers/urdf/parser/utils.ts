@@ -6,6 +6,46 @@ export interface ParsedUrdfColorDefinition {
   colorRgba: [number, number, number, number];
 }
 
+const XML_PREFIX_NAME = '[A-Za-z_][\\w.-]*';
+const NAMESPACE_PREFIX_PATTERN = new RegExp(
+  `(?:<\\s*\\/?\\s*(${XML_PREFIX_NAME}):${XML_PREFIX_NAME}\\b|\\s(${XML_PREFIX_NAME}):${XML_PREFIX_NAME}\\s*=)`,
+  'g',
+);
+const NAMESPACE_DECLARATION_PATTERN = new RegExp(`\\sxmlns:(${XML_PREFIX_NAME})\\s*=`, 'g');
+
+function findNamespacePrefixes(content: string, pattern: RegExp): Set<string> {
+  const prefixes = new Set<string>();
+  pattern.lastIndex = 0;
+
+  for (const match of content.matchAll(pattern)) {
+    const prefix = match[1] || match[2];
+    if (prefix && prefix !== 'xml' && prefix !== 'xmlns') {
+      prefixes.add(prefix);
+    }
+  }
+
+  return prefixes;
+}
+
+function addMissingNamespaceDeclarations(content: string): string {
+  const usedPrefixes = findNamespacePrefixes(content, NAMESPACE_PREFIX_PATTERN);
+  if (usedPrefixes.size === 0) {
+    return content;
+  }
+
+  const declaredPrefixes = findNamespacePrefixes(content, NAMESPACE_DECLARATION_PATTERN);
+  const missingPrefixes = [...usedPrefixes].filter((prefix) => !declaredPrefixes.has(prefix));
+  if (missingPrefixes.length === 0) {
+    return content;
+  }
+
+  const declarations = missingPrefixes
+    .map((prefix) => ` xmlns:${prefix}="urn:urdf-studio:auto-namespace:${prefix}"`)
+    .join('');
+
+  return content.replace(/<robot\b([^>]*)>/, `<robot$1${declarations}>`);
+}
+
 /**
  * Preprocess XML content to fix common issues
  */
@@ -22,6 +62,8 @@ export function preprocessXML(content: string): string {
       content = xmlDeclMatch[1] + '\n' + content;
     }
   }
+
+  content = addMissingNamespaceDeclarations(content);
 
   // Remove <transmission> blocks to prevent parsing errors or duplicates if needed
   // But for the pure parser we might want to keep them if we ever support transmission parsing

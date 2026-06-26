@@ -4,6 +4,7 @@ import {
   buildMeshLookupCandidates,
   normalizeMeshPathForExport,
 } from '@/core/parsers/meshPathUtils';
+import { registerManagedTextureHandlers } from '@/core/loaders/textureLoaderHandlers';
 
 export type UsdAssetRegistry = {
   direct: Map<string, string>;
@@ -85,5 +86,6 @@ export const resolveUsdAssetUrl = (path: string, registry: UsdAssetRegistry): st
 export const createUsdTextureLoadingManager = (registry: UsdAssetRegistry): THREE.LoadingManager => {
   const manager = new THREE.LoadingManager();
   manager.setURLModifier((url) => resolveUsdAssetUrl(url, registry) ?? url);
+  registerManagedTextureHandlers(manager);
   return manager;
 };

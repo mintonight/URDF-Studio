@@ -24,6 +24,7 @@ export const DEFAULT_COLLISION_COLOR = '#ef4444';
 export const DEFAULT_MESH_PREVIEW_COLOR = '#6b9bd2';
 export const DEFAULT_PAINT_COLOR = '#ff6c0a';
 export const UI_ACCENT_COLOR = '#007aff';
+export const IMPORTED_EXTERNAL_FRAME_LINK_TYPE = 'imported_external_frame';
 
 export const DEFAULT_LINK: DefaultLink = {
   id: '',

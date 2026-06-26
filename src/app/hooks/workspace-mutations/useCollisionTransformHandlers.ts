@@ -56,7 +56,6 @@ export function useCollisionTransformHandlers({
           });
           return;
         }
-        return;
       }
 
       const latestLinks = useRobotStore.getState().links;

@@ -1,4 +1,9 @@
-import { GeometryType, type RobotState, type UrdfLink } from '@/types';
+import {
+  GeometryType,
+  IMPORTED_EXTERNAL_FRAME_LINK_TYPE,
+  type RobotState,
+  type UrdfLink,
+} from '@/types';
 import { getVisualGeometryEntries } from './visualBodies';
 
 const SYNTHETIC_JOINT_STAGE_MARKER = '__joint_stage_';
@@ -61,17 +66,38 @@ export function isSyntheticWorldRoot(robot: RobotState, linkId: string): boolean
   return Object.values(robot.joints).some((joint) => joint.parentLinkId === linkId);
 }
 
+function isImportedExternalFrameRoot(robot: RobotState, linkId: string): boolean {
+  if (robot.rootLinkId !== linkId) {
+    return false;
+  }
+
+  const link = robot.links[linkId];
+  if (!link || link.type !== IMPORTED_EXTERNAL_FRAME_LINK_TYPE) {
+    return false;
+  }
+
+  if ((link.inertial?.mass || 0) > 0 || hasRenderableGeometry(link)) {
+    return false;
+  }
+
+  return Object.values(robot.joints).some((joint) => joint.parentLinkId === linkId);
+}
+
+function isTransparentRootFrame(robot: RobotState, linkId: string): boolean {
+  return isSyntheticWorldRoot(robot, linkId) || isImportedExternalFrameRoot(robot, linkId);
+}
+
 export function isTransparentDisplayLink(robot: RobotState, linkId: string): boolean {
   const link = robot.links[linkId];
   if (!link) {
     return false;
   }
 
-  return isSyntheticWorldRoot(robot, linkId) || isSyntheticJointStageLink(link);
+  return isTransparentRootFrame(robot, linkId) || isSyntheticJointStageLink(link);
 }
 
 export function getTreeDisplayRootLinkIds(robot: RobotState): string[] {
-  if (!isSyntheticWorldRoot(robot, robot.rootLinkId)) {
+  if (!isTransparentRootFrame(robot, robot.rootLinkId)) {
     return robot.links[robot.rootLinkId] ? [robot.rootLinkId] : [];
   }
 
@@ -88,7 +114,7 @@ export function getPrimaryTreeDisplayRootLinkId(robot: RobotState): string | nul
 }
 
 export function getTreeRenderRootLinkIds(robot: RobotState): string[] {
-  if (isSyntheticWorldRoot(robot, robot.rootLinkId)) {
+  if (isTransparentRootFrame(robot, robot.rootLinkId)) {
     return robot.links[robot.rootLinkId] ? [robot.rootLinkId] : [];
   }
 

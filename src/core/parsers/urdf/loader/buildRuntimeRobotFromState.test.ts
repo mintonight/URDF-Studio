@@ -741,6 +741,47 @@ test('buildRuntimeRobotFromState applies mesh scale and visual color overrides o
   assert.deepEqual(toFixedColorArray(material.color), toFixedColorArray(parsedColor.color));
 });
 
+test('buildRuntimeRobotFromState preserves single MTL-authored mesh materials without URDF overrides', async () => {
+  const robot = await buildRuntimeRobotFromState({
+    robotName: 'obj_mtl_robot',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          meshPath: 'meshes/body.obj',
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: undefined,
+        },
+        collision: {
+          ...DEFAULT_LINK.collision,
+          type: GeometryType.NONE,
+          dimensions: { x: 0, y: 0, z: 0 },
+        },
+      },
+    },
+    joints: {},
+    manager: new THREE.LoadingManager(),
+    loadMeshCb: (_path, _manager, done) => {
+      const material = new THREE.MeshPhongMaterial({ color: new THREE.Color('#ff0000') });
+      material.name = 'PaintedRed';
+      done(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material));
+    },
+  });
+
+  const visualGroup = robot.links.base_link.children.find(isUrdfVisualGroup);
+  assert.ok(visualGroup, 'expected visual group');
+
+  const mesh = visualGroup.children[0] as THREE.Mesh;
+  assert.ok(mesh.isMesh, 'expected loaded mesh');
+  const material = mesh.material as THREE.MeshPhongMaterial;
+  assert.equal(material.name, 'PaintedRed');
+  assert.deepEqual(toFixedColorArray(material.color), [1, 0, 0]);
+});
+
 test('buildRuntimeRobotFromState applies visual material alpha from colorRgba', async () => {
   const robot = await buildRuntimeRobotFromState({
     robotName: 'transparent_state_robot',

@@ -58,7 +58,15 @@ test('disposeObjPreviewClone releases clone-owned OBJ resources without disposin
   sharedMaterial.dispose();
 });
 
-test('shouldOverrideObjPreviewMesh keeps textured OBJ meshes overrideable but preserves vertex-colored meshes', () => {
+test('shouldOverrideObjPreviewMesh only overrides generated OBJ materials', () => {
+  const generatedMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: 0xffffff }),
+  );
+  (generatedMesh.material as THREE.Material).userData = {
+    ...((generatedMesh.material as THREE.Material).userData ?? {}),
+    [GENERATED_OBJ_MATERIAL_USER_DATA_KEY]: true,
+  };
   const texturedMesh = new THREE.Mesh(
     new THREE.BoxGeometry(1, 1, 1),
     new THREE.MeshStandardMaterial({
@@ -80,10 +88,13 @@ test('shouldOverrideObjPreviewMesh keeps textured OBJ meshes overrideable but pr
   );
 
   try {
-    assert.equal(shouldOverrideObjPreviewMesh(texturedMesh), true);
+    assert.equal(shouldOverrideObjPreviewMesh(generatedMesh), true);
+    assert.equal(shouldOverrideObjPreviewMesh(texturedMesh), false);
     assert.equal(shouldOverrideObjPreviewMesh(vertexColorMesh), false);
     assert.equal(shouldOverrideObjPreviewMesh(texturedMesh, true), false);
   } finally {
+    generatedMesh.geometry.dispose();
+    (generatedMesh.material as THREE.Material).dispose();
     texturedMesh.geometry.dispose();
     (texturedMesh.material as THREE.Material).dispose();
     vertexColorGeometry.dispose();

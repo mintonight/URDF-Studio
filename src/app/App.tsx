@@ -240,6 +240,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         assets: liveAssetsState.assets,
         allFileContents: liveAssetsState.allFileContents,
       });
+      const preResolvedImportResult = peekPreResolvedRobotImport(file);
       if (
         shouldSkipRedundantRobotReload({
           forceReload: options?.forceReload,
@@ -258,19 +259,21 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         return;
       }
 
-      const importedAssetPaths = collectStandaloneImportSupportAssetPaths(
-        liveAssetsState.assets,
-        liveAssetsState.availableFiles,
-      );
-      const standaloneImportAssetWarning = buildStandaloneImportAssetWarning(
-        file,
-        importedAssetPaths,
-        {
-          allFileContents: liveAssetsState.allFileContents,
-          availableFiles: liveAssetsState.availableFiles,
-          sourcePath: file.name,
-        },
-      );
+      const standaloneImportAssetWarning =
+        preResolvedImportResult?.status === 'ready'
+          ? null
+          : buildStandaloneImportAssetWarning(
+              file,
+              collectStandaloneImportSupportAssetPaths(
+                liveAssetsState.assets,
+                liveAssetsState.availableFiles,
+              ),
+              {
+                allFileContents: liveAssetsState.allFileContents,
+                availableFiles: liveAssetsState.availableFiles,
+                sourcePath: file.name,
+              },
+            );
       if (standaloneImportAssetWarning) {
         const assetLabel =
           standaloneImportAssetWarning.missingAssetPaths.length > 3
@@ -337,7 +340,6 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
 
       prewarmUsdSelectionInBackground(file, liveAssetsState.availableFiles, liveAssetsState.assets);
 
-      const preResolvedImportResult = peekPreResolvedRobotImport(file);
       if (preResolvedImportResult) {
         await waitForNextPaint();
         if (requestId !== loadRequestIdRef.current) {

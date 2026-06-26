@@ -20,7 +20,11 @@ import type {
   RuntimeRobotObject,
 } from '@/shared/components/3d/runtimeRobotTypes';
 import { getLatestUsdStageLoadDebugEntry } from './usdStageLoadDebug';
-import { regressionDebugState } from './regressionState';
+import {
+  getRegressionTransformGizmoSummaries,
+  regressionDebugState,
+  type RegressionTransformGizmoSummary,
+} from './regressionState';
 import { setRegressionBeforeUnloadPromptSuppressed } from './regressionPromptSuppression';
 export {
   isRegressionBeforeUnloadPromptSuppressed,
@@ -326,6 +330,19 @@ interface RegressionSelectedUsdNormalDiagnosticsSummary {
   meshes: RegressionUsdMeshNormalDiagnosticSummary[];
 }
 
+interface RegressionUsdCollisionLinkSummary {
+  linkPath: string | null;
+  linkName: string | null;
+  descriptorCount: number;
+  primitiveTypes: Record<string, number>;
+}
+
+interface RegressionUsdCollisionSummary {
+  totalDescriptorCount: number;
+  linkCount: number;
+  links: RegressionUsdCollisionLinkSummary[];
+}
+
 export interface RegressionSelectedUsdSceneSummary {
   available: boolean;
   fileName: string | null;
@@ -345,6 +362,7 @@ export interface RegressionSelectedUsdSceneSummary {
   robotMetadata?: RegressionUsdRobotMetadataSummary;
   linkPoses: RegressionUsdLinkPoseCollectionSummary;
   bindingSummary: RegressionUsdBindingSummary;
+  collisionSummary: RegressionUsdCollisionSummary;
   baseLink: {
     found: boolean;
     linkPath: string | null;
@@ -380,9 +398,14 @@ interface RegressionSelectedUsdVisualMaterialSummary {
       name: string | null;
       type: string | null;
       color: string | null;
+      colorTuple: [number, number, number] | null;
       colorSource: string | null;
       authoredColor: string | null;
+      authoredColorTuple: [number, number, number] | null;
       emissive: string | null;
+      textured: boolean;
+      textureCount: number;
+      texturePaths: string[];
     }>;
   }>;
 }
@@ -392,6 +415,7 @@ export interface RegressionDebugApi {
   getRegressionSnapshot: () => RegressionSnapshot;
   getDocumentLoadState: () => RegressionDocumentLoadState | null;
   getProjectedInteractionTargets: () => RegressionProjectedInteractionTarget[];
+  getTransformGizmoSummary: () => RegressionTransformGizmoSummary[];
   getAssetDebugState: () => RegressionAssetDebugState;
   getSelectedUsdSceneSummary: () => RegressionSelectedUsdSceneSummary | null;
   getSelectedUsdVisualMaterialSummary: () => RegressionSelectedUsdVisualMaterialSummary | null;
@@ -578,6 +602,79 @@ function getUsdVisualDescriptorLinkPath(descriptor: UsdSceneMeshDescriptor): str
   return null;
 }
 
+function getUsdCollisionDescriptorLinkPath(descriptor: UsdSceneMeshDescriptor): string | null {
+  const collisionPathMarkers = [
+    '/collisions/',
+    '/collision/',
+    '/colliders/',
+    '/collider/',
+    '/collisions.',
+    '/collision.',
+    '/colliders.',
+    '/collider.',
+  ];
+  for (const candidatePath of getUsdDescriptorCandidatePaths(descriptor)) {
+    for (const marker of collisionPathMarkers) {
+      const markerIndex = candidatePath.indexOf(marker);
+      if (markerIndex > 0) {
+        return candidatePath.slice(0, markerIndex);
+      }
+    }
+
+    if (getUsdDescriptorSectionName(descriptor).startsWith('collision')) {
+      const parentIndex = candidatePath.lastIndexOf('/');
+      if (parentIndex > 0) {
+        return candidatePath.slice(0, parentIndex);
+      }
+    }
+  }
+
+  return null;
+}
+
+function getUsdDescriptorPrimitiveType(descriptor: UsdSceneMeshDescriptor): string {
+  return (
+    String(descriptor.primType || '').trim().toLowerCase() ||
+    String(descriptor.geometry?.topologyMode || '').trim().toLowerCase() ||
+    'mesh'
+  );
+}
+
+function summarizeUsdCollisionDescriptors(
+  descriptors: UsdSceneMeshDescriptor[],
+): RegressionUsdCollisionSummary {
+  const linkMap = new Map<string, RegressionUsdCollisionLinkSummary>();
+
+  descriptors.filter(isUsdCollisionDescriptor).forEach((descriptor) => {
+    const linkPath = getUsdCollisionDescriptorLinkPath(descriptor);
+    const key = linkPath || '__unknown__';
+    let entry = linkMap.get(key);
+    if (!entry) {
+      entry = {
+        linkPath,
+        linkName: linkPath ? getUsdPathBasename(linkPath) || null : null,
+        descriptorCount: 0,
+        primitiveTypes: {},
+      };
+      linkMap.set(key, entry);
+    }
+
+    entry.descriptorCount += 1;
+    const primitiveType = getUsdDescriptorPrimitiveType(descriptor);
+    entry.primitiveTypes[primitiveType] = (entry.primitiveTypes[primitiveType] || 0) + 1;
+  });
+
+  const links = Array.from(linkMap.values()).sort((left, right) =>
+    String(left.linkPath || '').localeCompare(String(right.linkPath || '')),
+  );
+
+  return {
+    totalDescriptorCount: links.reduce((sum, entry) => sum + entry.descriptorCount, 0),
+    linkCount: links.length,
+    links,
+  };
+}
+
 function colorArrayToRegressionHex(
   source: ArrayLike<number> | null | undefined,
   opacityOverride?: number | null,
@@ -633,6 +730,57 @@ function colorArrayToRegressionHex(
   return `#${rgb.join('')}`;
 }
 
+function getRegressionUsdMaterialTexturePaths(material: UsdSceneMaterialRecord): string[] {
+  const textureKeys: Array<keyof UsdSceneMaterialRecord> = [
+    'mapPath',
+    'emissiveMapPath',
+    'roughnessMapPath',
+    'metalnessMapPath',
+    'normalMapPath',
+    'aoMapPath',
+    'alphaMapPath',
+    'clearcoatMapPath',
+    'clearcoatRoughnessMapPath',
+    'clearcoatNormalMapPath',
+    'specularColorMapPath',
+    'specularIntensityMapPath',
+    'transmissionMapPath',
+    'thicknessMapPath',
+    'sheenColorMapPath',
+    'sheenRoughnessMapPath',
+    'anisotropyMapPath',
+    'iridescenceMapPath',
+    'iridescenceThicknessMapPath',
+  ];
+
+  return Array.from(
+    new Set(
+      textureKeys
+        .map((key) => String(material[key] || '').trim())
+        .filter((value) => value.length > 0),
+    ),
+  ).sort((left, right) => left.localeCompare(right));
+}
+
+function colorArrayToRegressionTuple(
+  source: ArrayLike<number> | null | undefined,
+): [number, number, number] | null {
+  if (!source || typeof source.length !== 'number' || source.length < 3) {
+    return null;
+  }
+
+  const tuple: [number, number, number] = [
+    Number(source[0]),
+    Number(source[1]),
+    Number(source[2]),
+  ];
+  if (!tuple.every(Number.isFinite)) {
+    return null;
+  }
+
+  return tuple.map((entry) => Number(entry.toFixed(6))) as [number, number, number];
+}
+
 function summarizeRegressionUsdMaterial(
   material: UsdSceneMaterialRecord | null | undefined,
   materialId?: string | null,
@@ -641,9 +789,14 @@ function summarizeRegressionUsdMaterial(
   name: string | null;
   type: string | null;
   color: string | null;
+  colorTuple: [number, number, number] | null;
   colorSource: string | null;
   authoredColor: string | null;
+  authoredColorTuple: [number, number, number] | null;
   emissive: string | null;
+  textured: boolean;
+  textureCount: number;
+  texturePaths: string[];
 } | null {
   if (!material) {
     return null;
@@ -677,16 +830,28 @@ function summarizeRegressionUsdMaterial(
   const emissiveMaterialColorSpace =
     colorSource === 'authored' ? 'linear' : material.emissiveColorSpace;
   const color = colorArrayToRegressionHex(material.color, material.opacity, materialColorSpace);
+  const colorTuple = colorArrayToRegressionTuple(material.color);
   const authoredColor = colorArrayToRegressionHex(
     material.authoredColor,
     material.opacity,
     authoredMaterialColorSpace,
   );
+  const authoredColorTuple = colorArrayToRegressionTuple(material.authoredColor);
   const emissive = emissiveEnabled
     ? colorArrayToRegressionHex(material.emissive, null, emissiveMaterialColorSpace)
     : null;
+  const texturePaths = getRegressionUsdMaterialTexturePaths(material);
 
-  if (!normalizedMaterialId && !name && !type && !color && !colorSource && !authoredColor && !emissive) {
+  if (
+    !normalizedMaterialId &&
+    !name &&
+    !type &&
+    !color &&
+    !colorSource &&
+    !authoredColor &&
+    !emissive &&
+    texturePaths.length === 0
+  ) {
     return null;
   }
 
@@ -695,9 +860,14 @@ function summarizeRegressionUsdMaterial(
     name,
     type,
     color,
+    colorTuple,
     colorSource,
     authoredColor,
+    authoredColorTuple,
     emissive,
+    textured: texturePaths.length > 0,
+    textureCount: texturePaths.length,
+    texturePaths,
   };
 }
 
@@ -1125,6 +1295,7 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
       materialCount: 0,
       linkPoses: summarizeStoreLinkPoses(robotState),
       bindingSummary: summarizeUsdDescriptorBindings([]),
+      collisionSummary: summarizeUsdCollisionDescriptors([]),
       baseLink: {
         found: false,
         linkPath: null,
@@ -1157,6 +1328,7 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
     meshRangeCount: Object.keys(snapshot.buffers?.rangesByMeshId || {}).length,
   };
   const allBindingSummary = summarizeUsdDescriptorBindings(descriptors);
+  const collisionSummary = summarizeUsdCollisionDescriptors(descriptors);
   const normalizedDefaultPrimPath =
     normalizeUsdDebugPathWithLeadingSlash(snapshot.stage?.defaultPrimPath) || null;
   const rootLinkCandidates = new Set<string>();
@@ -1259,6 +1431,7 @@ function summarizeSelectedUsdScene(): RegressionSelectedUsdSceneSummary | null {
     robotMetadata: summarizeUsdRobotMetadata(snapshot),
     linkPoses,
     bindingSummary: allBindingSummary,
+    collisionSummary,
     baseLink: {
       found:
         visualBaseLinkDescriptors.length > 0 ||
@@ -2235,6 +2408,7 @@ export function installRegressionDebugApi(targetWindow: Window): void {
         : null;
     },
     getProjectedInteractionTargets: () => regressionDebugState.projectedInteractionTargetsProvider?.() ?? [],
+    getTransformGizmoSummary: () => getRegressionTransformGizmoSummaries(),
     getAssetDebugState: () => {
       const appAssetDebugState = regressionDebugState.appHandlers?.getAssetDebugState?.() ?? {
         appAssetKeys: [],

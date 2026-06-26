@@ -482,6 +482,7 @@ export function AppLayout({
   const {
     handleNameChange,
     handleUpdate,
+    handleCollisionTransformPreview,
     handleCollisionTransform,
     handleAssemblyTransform,
     handleComponentTransform,
@@ -917,6 +918,7 @@ export function AppLayout({
       focusTarget={focusTarget}
       selectedFile={selectedFile}
       handleWorkspaceTransformPendingChange={handleWorkspaceTransformPendingChange}
+      handleCollisionTransformPreview={handleCollisionTransformPreview}
       handleCollisionTransform={handleCollisionTransform}
       normalizedAssemblyState={normalizedAssemblyState}
       shouldRenderAssembly={shouldRenderAssembly}

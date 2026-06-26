@@ -63,6 +63,7 @@ export interface DraggableWindowProps {
   role?: React.AriaRole;
   ariaLabel?: string;
   ariaModal?: boolean | 'true' | 'false';
+  style?: React.CSSProperties;
 }
 
 const DEFAULT_CONTROL_BUTTON_CLASS = 'p-1.5 hover:bg-element-hover rounded-md transition-colors';
@@ -125,6 +126,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   role,
   ariaLabel,
   ariaModal,
+  style,
 }) => {
   const { activateHoverBlock, deactivateHoverBlock } = useOverlayHoverBlock();
   const {
@@ -194,7 +196,7 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   return (
     <div
       ref={containerRef}
-      style={windowStyle}
+      style={style ? { ...windowStyle, ...style } : windowStyle}
       className={rootClassName}
       role={role}
       aria-label={ariaLabel}
