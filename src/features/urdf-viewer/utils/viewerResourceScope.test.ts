@@ -148,6 +148,41 @@ test('createStableViewerResourceScope keeps texture assets referenced by merged 
   });
 });
 
+test('createStableViewerResourceScope includes textures referenced by scoped OBJ MTL sidecars', () => {
+  const materialContent = [
+    'newmtl CardboardBoxes',
+    'Kd 1 1 1',
+    'map_Kd ../materials/textures/cardboard_box.png',
+  ].join('\n');
+
+  const scoped = createStableViewerResourceScope(null, {
+    assets: {
+      'obj_mtl_regression/meshes/body.obj': 'blob:body-obj',
+      'obj_mtl_regression/materials/textures/cardboard_box.png': 'blob:cardboard-texture',
+      'other/materials/textures/cardboard_box.png': 'blob:other-texture',
+    },
+    allFileContents: {
+      'obj_mtl_regression/meshes/body.mtl': materialContent,
+    },
+    availableFiles: [],
+    sourceFile: {
+      name: 'obj_mtl_regression/robot.urdf',
+      content: '<robot name="obj_mtl_regression" />',
+      format: 'urdf',
+    },
+    sourceFilePath: 'obj_mtl_regression/robot.urdf',
+    robotLinks: {
+      base_link: createMeshLink('obj_mtl_regression/meshes/body.obj'),
+    },
+  });
+
+  assert.deepEqual(scoped.assets, {
+    'obj_mtl_regression/meshes/body.obj': 'blob:body-obj',
+    'obj_mtl_regression/meshes/body.mtl': encodeTextAssetAsDataUrl(materialContent),
+    'obj_mtl_regression/materials/textures/cardboard_box.png': 'blob:cardboard-texture',
+  });
+});
+
 test('createStableViewerResourceScope reuses the previous USD scope when unrelated bundle files are added', () => {
   const sourceFile: RobotFile = {
     name: 'robots/go2/usd/go2.usd',

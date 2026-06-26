@@ -481,6 +481,36 @@ html[data-lang='zh'] {
   --color-google-light-surface: var(--color-panel-bg);
 }
 
+.source-code-editor-window {
+  --source-code-editor-opacity-percent: 60%;
+
+  background-color: color-mix(
+    in srgb,
+    var(--color-panel-bg) var(--source-code-editor-opacity-percent),
+    transparent
+  );
+}
+
+.source-code-editor-chrome {
+  background-color: color-mix(
+    in srgb,
+    var(--color-element-bg) var(--source-code-editor-opacity-percent),
+    transparent
+  );
+}
+
+.source-code-editor-panel {
+  background-color: color-mix(
+    in srgb,
+    var(--color-panel-bg) var(--source-code-editor-opacity-percent),
+    transparent
+  );
+}
+
+.source-code-editor-overlay {
+  background-color: color-mix(in srgb, var(--color-panel-bg) 90%, transparent);
+}
+
 body {
   font-family:
     system-ui,

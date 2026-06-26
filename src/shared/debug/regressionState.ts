@@ -101,6 +101,20 @@ export interface RegressionViewerResourceScopeState {
   signature: string | null;
 }
 
+export interface RegressionTransformGizmoSummary {
+  active?: boolean;
+  axis: string | null;
+  clientX: number;
+  clientY: number;
+  kind: string;
+  name: string;
+  owner: string | null;
+  screenRadius: number;
+  visible: boolean;
+  worldPosition: { x: number; y: number; z: number };
+  worldRadius: number;
+}
+
 export interface RegressionEditableSourceApplyResult {
   mode: 'incremental-patch' | 'full-parse';
   dirtyRangeCount: number;
@@ -118,6 +132,7 @@ export const regressionDebugState: {
   runtimeRobot: RuntimeRobotObject | null;
   runtimeRevision: number;
   projectedInteractionTargetsProvider: (() => RegressionProjectedInteractionTarget[]) | null;
+  transformGizmoSummaryProviders: Set<() => RegressionTransformGizmoSummary[]>;
 } = {
   appHandlers: null,
   viewerHandlers: null,
@@ -126,6 +141,7 @@ export const regressionDebugState: {
   runtimeRobot: null,
   runtimeRevision: 0,
   projectedInteractionTargetsProvider: null,
+  transformGizmoSummaryProviders: new Set(),
 };
 
 export function setRegressionAppHandlers(handlers: AppRegressionHandlers | null): void {
@@ -161,4 +177,19 @@ export function setRegressionProjectedInteractionTargetsProvider(
   provider: (() => RegressionProjectedInteractionTarget[]) | null,
 ): void {
   regressionDebugState.projectedInteractionTargetsProvider = provider;
+}
+
+export function registerRegressionTransformGizmoSummaryProvider(
+  provider: () => RegressionTransformGizmoSummary[],
+): () => void {
+  regressionDebugState.transformGizmoSummaryProviders.add(provider);
+  return () => {
+    regressionDebugState.transformGizmoSummaryProviders.delete(provider);
+  };
+}
+
+export function getRegressionTransformGizmoSummaries(): RegressionTransformGizmoSummary[] {
+  return Array.from(regressionDebugState.transformGizmoSummaryProviders).flatMap((provider) =>
+    provider(),
+  );
 }

@@ -94,6 +94,41 @@ test('generateEditableRobotSource round-trips URDF output', () => {
   assertRoundTrip('urdf', content, /<robot\b/i);
 });
 
+test('generateEditableRobotSource preserves URDF mesh paths by default', () => {
+  const robotState: RobotState = {
+    name: 'pr2',
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          meshPath: 'pr2_description/meshes/base_v0/base.stl',
+        },
+        collision: {
+          ...DEFAULT_LINK.collision,
+          type: GeometryType.MESH,
+          meshPath: 'pr2_description/meshes/base_v0/base_L.stl',
+        },
+      },
+    },
+    joints: {},
+    selection: { type: null, id: null },
+  };
+
+  const content = generateEditableRobotSource({
+    format: 'urdf',
+    robotState,
+  });
+
+  assert.match(content, /filename="pr2_description\/meshes\/base_v0\/base\.stl"/);
+  assert.match(content, /filename="pr2_description\/meshes\/base_v0\/base_L\.stl"/);
+  assert.doesNotMatch(content, /package:\/\/pr2\/meshes\/pr2_description\//);
+});
+
 test('generateEditableRobotSource emits paint material colors for mesh material groups', () => {
   const robotState: RobotState = {
     name: 'paint_demo',

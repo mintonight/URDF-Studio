@@ -45,9 +45,14 @@ export function shouldOverrideObjPreviewMesh(
     return false;
   }
 
-  // Preserve authored texture maps unless the caller explicitly asked for an override.
-  // Vertex-colored meshes still opt out because they encode baked per-vertex shading.
-  return !mesh.geometry?.getAttribute?.('color');
+  if (mesh.geometry?.getAttribute?.('color')) {
+    return false;
+  }
+
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  return materials.every((material) => (
+    material?.userData?.[GENERATED_OBJ_MATERIAL_USER_DATA_KEY] === true
+  ));
 }
 
 function cloneObjPreviewMaterial(material: THREE.Material): THREE.Material {

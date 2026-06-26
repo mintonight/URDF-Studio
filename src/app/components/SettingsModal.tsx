@@ -34,6 +34,9 @@ import {
   useUIStore,
   NAVIGATION_SENSITIVITY_MIN,
   NAVIGATION_SENSITIVITY_MAX,
+  DEFAULT_CODE_EDITOR_OPACITY,
+  MIN_CODE_EDITOR_OPACITY,
+  MAX_CODE_EDITOR_OPACITY,
   type CodeEditorFontFamily,
   type NavigationSensitivity,
 } from '@/store';
@@ -61,6 +64,12 @@ const NAVIGATION_SENSITIVITY_MARKS = [
 ];
 
 const formatSensitivityPercent = (value: number) => `${Math.round(value * 100)}%`;
+
+const CODE_EDITOR_OPACITY_MARKS = [
+  { value: MIN_CODE_EDITOR_OPACITY, label: formatSensitivityPercent(MIN_CODE_EDITOR_OPACITY) },
+  { value: DEFAULT_CODE_EDITOR_OPACITY, label: formatSensitivityPercent(DEFAULT_CODE_EDITOR_OPACITY) },
+  { value: MAX_CODE_EDITOR_OPACITY, label: formatSensitivityPercent(MAX_CODE_EDITOR_OPACITY) },
+];
 
 const parseSensitivityPercent = (input: string): number | null => {
   const numeric = Number.parseFloat(input.replace(/[^0-9.+-]/g, ''));
@@ -287,13 +296,22 @@ function CodePreviewLine({ number, children }: CodePreviewLineProps) {
 function SettingsCodePreview({
   codeEditorFontFamily,
   codeEditorFontSize,
+  codeEditorOpacity,
 }: {
   codeEditorFontFamily: CodeEditorFontFamily;
   codeEditorFontSize: number;
+  codeEditorOpacity: number;
 }) {
   return (
-    <div className="overflow-hidden rounded-[10px] border border-border-black bg-panel-bg">
-      <div className="flex items-center justify-between border-b border-border-black bg-settings-muted px-2.5 py-1.5">
+    <div
+      className="source-code-editor-window overflow-hidden rounded-[10px] border border-border-black"
+      style={
+        {
+          '--source-code-editor-opacity-percent': formatSensitivityPercent(codeEditorOpacity),
+        } as React.CSSProperties
+      }
+    >
+      <div className="source-code-editor-chrome flex items-center justify-between border-b border-border-black px-2.5 py-1.5">
         <div className="flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-text-tertiary/70" />
           <span className="text-[10px] font-medium text-text-secondary">preview.urdf</span>
@@ -301,7 +319,7 @@ function SettingsCodePreview({
         <span className="text-[10px] text-text-tertiary">XML</span>
       </div>
       <pre
-        className="overflow-x-auto bg-panel-bg p-2.5 text-text-secondary"
+        className="source-code-editor-panel overflow-x-auto p-2.5 text-text-secondary"
         style={{
           fontFamily: resolveCodeEditorFontFamilyCss(codeEditorFontFamily),
           fontSize: `${codeEditorFontSize}px`,
@@ -372,6 +390,8 @@ export function SettingsModal() {
     setCodeEditorFontFamily,
     codeEditorFontSize,
     setCodeEditorFontSize,
+    codeEditorOpacity,
+    setCodeEditorOpacity,
     navigationSensitivity,
     setNavigationSensitivity,
   } = useUIStore(
@@ -398,6 +418,8 @@ export function SettingsModal() {
       setCodeEditorFontFamily: state.setCodeEditorFontFamily,
       codeEditorFontSize: state.codeEditorFontSize,
       setCodeEditorFontSize: state.setCodeEditorFontSize,
+      codeEditorOpacity: state.codeEditorOpacity,
+      setCodeEditorOpacity: state.setCodeEditorOpacity,
       navigationSensitivity: state.navigationSensitivity,
       setNavigationSensitivity: state.setNavigationSensitivity,
     })),
@@ -635,6 +657,21 @@ export function SettingsModal() {
                   increaseTestId="settings-code-editor-font-size-increase"
                 />
               </SettingsRow>
+              <SettingsRow stacked label={t.opacity}>
+                <div data-testid="settings-code-editor-opacity">
+                  <Slider
+                    value={codeEditorOpacity}
+                    min={MIN_CODE_EDITOR_OPACITY}
+                    max={MAX_CODE_EDITOR_OPACITY}
+                    step={0.05}
+                    marks={CODE_EDITOR_OPACITY_MARKS}
+                    formatValue={formatSensitivityPercent}
+                    parseValue={parseSensitivityPercent}
+                    onChange={setCodeEditorOpacity}
+                    compactThumb
+                  />
+                </div>
+              </SettingsRow>
             </SettingsSection>
 
             <SettingsSection
@@ -645,6 +682,7 @@ export function SettingsModal() {
                 <SettingsCodePreview
                   codeEditorFontFamily={codeEditorFontFamily}
                   codeEditorFontSize={codeEditorFontSize}
+                  codeEditorOpacity={codeEditorOpacity}
                 />
               </SettingsRow>
             </SettingsSection>

@@ -349,10 +349,40 @@ function assetPathMatchesBundleRoot(assetPath: string, bundleRoot: string): bool
   return false;
 }
 
-function assetPathMatchesReferencePath(assetPath: string, referencePath: string): boolean {
-  const normalizedAssetSegments = normalizeRootSegments(assetPath);
-  const normalizedReferenceSegments = normalizeRootSegments(referencePath);
+function buildReferenceSegmentCandidates(referenceSegments: readonly string[]): string[][] {
+  const candidateKeys = new Set<string>();
+  const candidates: string[][] = [];
+  const addCandidate = (segments: readonly string[]) => {
+    if (segments.length === 0) {
+      return;
+    }
+    const key = segments.join('/');
+    if (candidateKeys.has(key)) {
+      return;
+    }
+    candidateKeys.add(key);
+    candidates.push([...segments]);
+  };
 
+  addCandidate(referenceSegments);
+
+  referenceSegments.forEach((segment, index) => {
+    if (!PACKAGE_ROOT_BOUNDARY_SEGMENTS.has(segment.toLowerCase())) {
+      return;
+    }
+
+    for (let startIndex = 1; startIndex <= index; startIndex += 1) {
+      addCandidate(referenceSegments.slice(startIndex));
+    }
+  });
+
+  return candidates;
+}
+
+function assetPathContainsReferenceSegments(
+  normalizedAssetSegments: readonly string[],
+  normalizedReferenceSegments: readonly string[],
+): boolean {
   if (
     normalizedAssetSegments.length === 0 ||
     normalizedReferenceSegments.length === 0 ||
@@ -398,6 +428,15 @@ function assetPathMatchesReferencePath(assetPath: string, referencePath: string)
   }
 
   return false;
+}
+
+function assetPathMatchesReferencePath(assetPath: string, referencePath: string): boolean {
+  const normalizedAssetSegments = normalizeRootSegments(assetPath);
+  const normalizedReferenceSegments = normalizeRootSegments(referencePath);
+
+  return buildReferenceSegmentCandidates(normalizedReferenceSegments).some((candidateSegments) =>
+    assetPathContainsReferenceSegments(normalizedAssetSegments, candidateSegments),
+  );
 }
 
 function commonRootPrefix(roots: readonly string[]): string | null {

@@ -4,6 +4,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 import { loadColladaScene } from '@/core/loaders/colladaParseWorkerBridge';
 import { postProcessColladaScene } from '@/core/loaders';
+import { registerManagedTextureHandlers } from '@/core/loaders/textureLoaderHandlers';
 import {
   createObjectFromSerializedObjData,
   loadSerializedObjModelData,
@@ -160,7 +161,7 @@ const loadCachedMJCFMeshAsset = async (
 
     if (extension === 'dae') {
       const scene = finalizeLoadedMJCFColladaScene(
-        await loadColladaScene(assetUrl, new THREE.LoadingManager()),
+        await loadColladaScene(assetUrl, registerManagedTextureHandlers(new THREE.LoadingManager())),
       );
       if (abortSignal?.aborted) {
         disposeTransientObject3D(scene);

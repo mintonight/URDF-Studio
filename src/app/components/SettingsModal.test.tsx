@@ -194,6 +194,7 @@ test('SettingsModal updates source code editor typography preferences', async ()
       settingsPos: { x: 48, y: 64 },
       codeEditorFontFamily: 'jetbrains-mono',
       codeEditorFontSize: 13,
+      codeEditorOpacity: 0.6,
     });
 
     await act(async () => {
@@ -233,8 +234,19 @@ test('SettingsModal updates source code editor typography preferences', async ()
       increaseButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     });
 
+    const opacityInput = container.querySelector(
+      '[data-testid="settings-code-editor-opacity"] [data-testid="ui-slider-input"]',
+    ) as HTMLInputElement | null;
+    assert.ok(opacityInput, 'source code settings should render an opacity slider');
+
+    await act(async () => {
+      opacityInput.value = '0.85';
+      opacityInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    });
+
     assert.equal(useUIStore.getState().codeEditorFontFamily, 'fira-code');
     assert.equal(useUIStore.getState().codeEditorFontSize, 14);
+    assert.equal(useUIStore.getState().codeEditorOpacity, 0.85);
   } finally {
     await act(async () => {
       root.unmount();

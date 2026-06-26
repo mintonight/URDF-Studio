@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as THREE from 'three';
 
+import { computeLinkWorldMatrices } from '@/core/robot/kinematics';
 import { DEFAULT_LINK, GeometryType, JointType } from '../../../types/index.ts';
 import { adaptUsdViewerSnapshotToRobotData } from './usdViewerRobotAdapter';
 
@@ -579,6 +581,60 @@ test('uses native USD Physics localPos0 as the joint origin when originXyz is ab
   assert.ok(joint);
   assert.deepEqual(joint.origin.xyz, { x: 0.0039635, y: 0, z: -0.044 });
   assert.deepEqual(joint.usdPhysics?.localPos0, { x: 0.0039635, y: 0, z: -0.044 });
+});
+
+test('uses USD Physics child joint frame when deriving store joint origin', () => {
+  const result = adaptUsdViewerSnapshotToRobotData(
+    {
+      stageSourcePath: '/robots/universal_robots/ur10_instanceable.usd',
+      stage: {
+        defaultPrimPath: '/ur10',
+      },
+      robotTree: {
+        linkParentPairs: [
+          ['/ur10/wrist_3_link', null],
+          ['/ur10/ee_link', '/ur10/wrist_3_link'],
+        ],
+        rootLinkPaths: ['/ur10/wrist_3_link'],
+      },
+      robotMetadataSnapshot: {
+        stageSourcePath: '/robots/universal_robots/ur10_instanceable.usd',
+        linkParentPairs: [
+          ['/ur10/wrist_3_link', null],
+          ['/ur10/ee_link', '/ur10/wrist_3_link'],
+        ],
+        jointCatalogEntries: [
+          {
+            linkPath: '/ur10/ee_link',
+            parentLinkPath: '/ur10/wrist_3_link',
+            jointName: 'ee_fixed_joint',
+            jointTypeName: 'PhysicsFixedJoint',
+            axisToken: 'X',
+            axisLocal: [1, 0, 0],
+            localPos0: [0, 0, 0],
+            localRot0Wxyz: [1, 0, 0, 0],
+            localPos1: [-0.09219998866319656, 0, 0],
+            localRot1Wxyz: [-0.5, 0.5, 0.5, 0.5],
+          },
+        ],
+        meshCountsByLinkPath: {},
+      },
+    },
+    {
+      fileName: 'ur10_instanceable.usd',
+    },
+  );
+
+  assert.ok(result);
+  const joint = Object.values(result.robotData.joints).find(
+    (candidate) => candidate.name === 'ee_fixed_joint',
+  );
+  assert.ok(joint);
+  assert.deepEqual(joint.usdPhysics?.localPos1, { x: -0.09219998866319656, y: 0, z: 0 });
+
+  const matrices = computeLinkWorldMatrices(result.robotData);
+  const eePosition = new THREE.Vector3().setFromMatrixPosition(matrices.ee_link);
+  assert.ok(Math.abs(eePosition.y - 0.09219998866319656) < 1e-9);
 });
 
 test('ignores USDA internal mesh libraries when robot link metadata is present', () => {

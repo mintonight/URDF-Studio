@@ -7,6 +7,10 @@ import type { RobotFile } from '@/types';
 import type { PreResolvedImportEntry } from './importPreparation';
 import { buildPreResolvedImportContentSignature } from './preResolvedImportSignature.ts';
 
+interface BuildContextualPreResolvedImportsOptions {
+  preferredFileName?: string | null;
+}
+
 export function shouldBuildContextualPreResolvedImports(
   options: Pick<ResolveRobotFileDataOptions, 'availableFiles' | 'assets' | 'allFileContents'>,
 ): boolean {
@@ -46,12 +50,31 @@ function pickPreferredContextualXacroFile(robotFiles: readonly RobotFile[]): Rob
   return [...candidates].sort(compareContextualXacroPathPreference)[0] ?? null;
 }
 
+function pickPreferredContextualRobotFile(
+  robotFiles: readonly RobotFile[],
+  preferredFileName?: string | null,
+): RobotFile | null {
+  if (preferredFileName) {
+    const preferredFile =
+      robotFiles.find((file) => file.name === preferredFileName && file.format !== 'mesh') ?? null;
+    if (preferredFile) {
+      return preferredFile;
+    }
+  }
+
+  return pickPreferredContextualXacroFile(robotFiles);
+}
+
 export async function buildContextualPreResolvedImports(
   robotFiles: readonly RobotFile[],
   options: Pick<ResolveRobotFileDataOptions, 'availableFiles' | 'assets' | 'allFileContents'>,
+  buildOptions: BuildContextualPreResolvedImportsOptions = {},
 ): Promise<PreResolvedImportEntry[]> {
-  const preferredFile = pickPreferredContextualXacroFile(robotFiles);
-  if (!preferredFile || preferredFile.format !== 'xacro') {
+  const preferredFile = pickPreferredContextualRobotFile(
+    robotFiles,
+    buildOptions.preferredFileName,
+  );
+  if (!preferredFile) {
     return [];
   }
 

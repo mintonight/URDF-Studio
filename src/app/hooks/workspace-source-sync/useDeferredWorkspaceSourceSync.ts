@@ -71,7 +71,7 @@ function buildDeferredWorkspaceSourceSyncTask(
       format,
       robotState: sourceRobotState,
       includeHardware: 'auto',
-      preserveMeshPaths: format === 'xacro',
+      preserveMeshPaths: true,
     },
   };
 }
@@ -125,7 +125,27 @@ export function useDeferredWorkspaceSourceSync({
     const deferredSourceSyncTasks: DeferredWorkspaceSourceSyncTask[] = [];
     let immediateSourceSyncTask: DeferredWorkspaceSourceSyncTask | null = null;
 
+    // Count how many assembly components share each imported source file. A single
+    // editable source file cannot represent multiple namespaced instances of the
+    // same import, so generating each instance's source and writing it back into
+    // the one shared library slot (selectedFile/availableFiles/allFileContents)
+    // makes the deferred sync ping-pong between instances on every render and trip
+    // React's "Maximum update depth exceeded". Skip write-back entirely for source
+    // files referenced by more than one component and leave the imported source as
+    // the canonical template.
+    const componentCountBySourceFile = new Map<string, number>();
     Object.values(assemblyState.components).forEach((component) => {
+      componentCountBySourceFile.set(
+        component.sourceFile,
+        (componentCountBySourceFile.get(component.sourceFile) ?? 0) + 1,
+      );
+    });
+
+    Object.values(assemblyState.components).forEach((component) => {
+      if ((componentCountBySourceFile.get(component.sourceFile) ?? 0) > 1) {
+        return;
+      }
+
       const sourceFile = availableFiles.find((file) => file.name === component.sourceFile);
       if (!sourceFile) {
         return;

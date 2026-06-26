@@ -78,6 +78,15 @@ function requireExisting(files, suiteName) {
   return files;
 }
 
+function expandExplicitPath(filePath) {
+  const normalizedPath = toPosixPath(filePath);
+  const absolutePath = path.resolve(REPO_ROOT, normalizedPath);
+  if (fs.existsSync(absolutePath) && fs.statSync(absolutePath).isDirectory()) {
+    return collectTestFiles(normalizedPath);
+  }
+  return [normalizedPath];
+}
+
 const suiteDefinitions = {
   fast: {
     description: 'Fast repo-contained smoke lane used by npm test and verify:fast.',
@@ -175,7 +184,7 @@ function resolveFiles(positional) {
   return {
     label: 'explicit-files',
     files: requireExisting(
-      positional.map((filePath) => toPosixPath(filePath)),
+      dedupeAndSort(positional.flatMap(expandExplicitPath)),
       'explicit-files',
     ),
   };

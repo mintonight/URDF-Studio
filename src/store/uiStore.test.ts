@@ -325,3 +325,32 @@ test('source code auto-apply restores from persisted settings and writes updates
 
   dom.window.close();
 });
+
+test('code editor opacity restores, clamps, and persists updates', async () => {
+  const { dom, useUIStore } = await loadUIStore({
+    codeEditorOpacity: 0.45,
+  });
+
+  assert.equal(useUIStore.getState().codeEditorOpacity, 0.45);
+
+  useUIStore.getState().setCodeEditorOpacity(9);
+  assert.equal(useUIStore.getState().codeEditorOpacity, 1);
+
+  useUIStore.getState().setCodeEditorOpacity(0);
+  assert.equal(useUIStore.getState().codeEditorOpacity, 0.35);
+
+  useUIStore.getState().setCodeEditorOpacity(0.8);
+
+  const raw = dom.window.localStorage.getItem('urdf-studio-ui');
+  assert.ok(raw, 'persisted ui store payload should be written');
+
+  const persisted = JSON.parse(raw) as {
+    state?: {
+      codeEditorOpacity?: number;
+    };
+  };
+
+  assert.equal(persisted.state?.codeEditorOpacity, 0.8);
+
+  dom.window.close();
+});

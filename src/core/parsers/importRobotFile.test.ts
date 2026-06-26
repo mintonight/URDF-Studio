@@ -623,6 +623,60 @@ test('resolveRobotFileData does not hide malformed URDF inline content behind co
   assert.equal(result.reason, 'parse_failed');
 });
 
+test('resolveRobotFileData keeps malformed linkless URDF documents as parse failures', () => {
+  const result = resolveRobotFileData({
+    name: 'robots/demo/malformed_linkless.urdf',
+    content: '<robot name="broken"><joint name="dangling"></robot>',
+    format: 'urdf',
+  });
+
+  assert.equal(result.status, 'error');
+  if (result.status !== 'error') {
+    assert.fail('Expected malformed linkless URDF import result to be an error');
+  }
+  assert.equal(result.reason, 'parse_failed');
+});
+
+test('resolveRobotFileData classifies linkless URDF documents with unresolved xacro calls as source-only previews', () => {
+  const result = resolveRobotFileData({
+    name: 'robots/val_description/model/robots/imu_test.urdf',
+    content: `<?xml version="1.0" ?>
+<robot name="valkyrie" xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:make_pelvis/>
+  <xacro:include_multisense_hw/>
+  <xacro:v1_pelvis_middle_sensors_usb sensor_api_tag="val_imu_kvh_1750_interface/ImuKVHInterface"/>
+</robot>`,
+    format: 'urdf',
+  });
+
+  assert.equal(result.status, 'error');
+  if (result.status !== 'error') {
+    assert.fail('Expected linkless URDF xacro residual import result to be an error');
+  }
+  assert.equal(result.reason, 'source_only_fragment');
+});
+
+test('resolveRobotFileData classifies transmission-only URDF documents as source-only previews', () => {
+  const result = resolveRobotFileData({
+    name: 'robots/val_description/model/robots/test_bench.urdf',
+    content: `<?xml version="1.0" ?>
+<robot name="valkyrie" xmlns:xacro="http://ros.org/wiki/xacro">
+  <transmission name="testbenchTransmission">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="testbenchJoint" />
+    <actuator name="testbenchActuator" />
+  </transmission>
+</robot>`,
+    format: 'urdf',
+  });
+
+  assert.equal(result.status, 'error');
+  if (result.status !== 'error') {
+    assert.fail('Expected transmission-only URDF import result to be an error');
+  }
+  assert.equal(result.reason, 'source_only_fragment');
+});
+
 test('resolveRobotFileData returns an error result for unsupported formats', () => {
   const result = resolveRobotFileData({
     name: 'robots/demo/invalid.txt',
@@ -1116,6 +1170,37 @@ test('resolveRobotFileData backfills URDF mesh-authored Collada colors into link
     result.robotData.materials?.base_link?.color,
     result.robotData.links.base_link?.visual.color,
   );
+});
+
+test('resolveRobotFileData keeps URDF import ready when Collada material metadata is malformed', () => {
+  const file: RobotFile = {
+    name: 'robots/demo/demo.urdf',
+    content: `<robot name="demo_urdf">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="meshes/broken.dae" />
+      </geometry>
+    </visual>
+  </link>
+</robot>`,
+    format: 'urdf',
+  };
+
+  const result = resolveRobotFileData(file, {
+    availableFiles: [file],
+    allFileContents: {
+      'robots/demo/meshes/broken.dae': '<COLLADA><library_geometries><bad',
+    },
+  });
+
+  assert.equal(result.status, 'ready');
+  if (result.status !== 'ready') {
+    assert.fail('Expected URDF import result to be ready');
+  }
+
+  assert.equal(result.robotData.links.base_link?.visual.meshPath, 'robots/demo/meshes/broken.dae');
+  assert.equal(result.robotData.links.base_link?.visual.authoredMaterials, undefined);
 });
 
 test('resolveRobotFileData backfills MJCF OBJ material colors through mtl sidecars', () => {

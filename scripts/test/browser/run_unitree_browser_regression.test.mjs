@@ -79,12 +79,13 @@ test('summarizePostReadyHistoryDelta handles unchanged capped histories without 
   );
 });
 
-test('isIgnorableBrowserConsoleWarning only suppresses WebGL ReadPixels performance noise', () => {
+test('isIgnorableBrowserConsoleWarning suppresses known browser/loader noise only', () => {
   assert.equal(
     isIgnorableBrowserConsoleWarning(
       '[.WebGL-0x20ec02ce3600]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels',
     ),
     true,
   );
+  assert.equal(isIgnorableBrowserConsoleWarning('RGBELoader has been deprecated.'), true);
   assert.equal(isIgnorableBrowserConsoleWarning('USD parser warning: missing material'), false);
 });

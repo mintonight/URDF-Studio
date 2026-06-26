@@ -344,9 +344,10 @@ async function openRegressionPage(options) {
 export function isIgnorableBrowserConsoleWarning(text) {
   const message = String(text || '');
   return (
-    message.includes('GL Driver Message') &&
-    message.includes('Performance') &&
-    message.includes('ReadPixels')
+    (message.includes('GL Driver Message') &&
+      message.includes('Performance') &&
+      message.includes('ReadPixels')) ||
+    message.includes('RGBELoader has been deprecated')
   );
 }
 
@@ -1184,6 +1185,27 @@ function sanitizeSelectedUsdSceneSummary(sceneSummary) {
     robotMetadata: sanitizeRobotMetadataSummary(sceneSummary.robotMetadata),
     linkPoses: sanitizeLinkPoseSummary(sceneSummary.linkPoses),
     bindingSummary: sanitizeBindingSummary(sceneSummary.bindingSummary),
+    collisionSummary: sceneSummary.collisionSummary
+      ? {
+          totalDescriptorCount: Number(sceneSummary.collisionSummary.totalDescriptorCount ?? 0),
+          linkCount: Number(sceneSummary.collisionSummary.linkCount ?? 0),
+          links: Array.isArray(sceneSummary.collisionSummary.links)
+            ? sceneSummary.collisionSummary.links.slice(0, 256).map((entry) => ({
+                linkPath: entry?.linkPath ?? null,
+                linkName: entry?.linkName ?? null,
+                descriptorCount: Number(entry?.descriptorCount ?? 0),
+                primitiveTypes:
+                  entry?.primitiveTypes && typeof entry.primitiveTypes === 'object'
+                    ? Object.fromEntries(
+                        Object.entries(entry.primitiveTypes)
+                          .slice(0, 32)
+                          .map(([key, value]) => [key, Number(value ?? 0)]),
+                      )
+                    : {},
+              }))
+            : [],
+        }
+      : null,
     baseLink: sceneSummary.baseLink
       ? {
           found: sceneSummary.baseLink.found === true,
@@ -1270,9 +1292,20 @@ function sanitizeSelectedUsdVisualMaterialSummary(summary) {
                 name: material?.name ?? null,
                 type: material?.type ?? null,
                 color: material?.color ?? null,
+                colorTuple: Array.isArray(material?.colorTuple)
+                  ? material.colorTuple.slice(0, 3).map((entry) => Number(entry))
+                  : null,
                 colorSource: material?.colorSource ?? null,
                 authoredColor: material?.authoredColor ?? null,
+                authoredColorTuple: Array.isArray(material?.authoredColorTuple)
+                  ? material.authoredColorTuple.slice(0, 3).map((entry) => Number(entry))
+                  : null,
                 emissive: material?.emissive ?? null,
+                textured: material?.textured === true,
+                textureCount: Number(material?.textureCount ?? 0),
+                texturePaths: Array.isArray(material?.texturePaths)
+                  ? material.texturePaths.slice(0, 16)
+                  : [],
               }))
             : [],
         }))
@@ -1510,10 +1543,24 @@ async function collectLoadEvaluation(page) {
     }
 
     const snapshot = api.getRegressionSnapshot?.() ?? null;
+    const isAuthoredCollisionGeometry = (geometry) => {
+      const type = String(geometry?.type ?? '').trim().toLowerCase();
+      return Boolean(type && type !== 'none');
+    };
+    const summarizeStoreCollisionCount = (link) => {
+      let count = isAuthoredCollisionGeometry(link?.collision) ? 1 : 0;
+      if (Array.isArray(link?.collisionBodies)) {
+        count += link.collisionBodies.filter((entry) =>
+          isAuthoredCollisionGeometry(entry?.geometry ?? entry),
+        ).length;
+      }
+      return count;
+    };
     const summarizeStoreLinkPhysics = (link) => ({
       id: link?.id ?? null,
       name: link?.name ?? link?.id ?? null,
       mass: Number(link?.mass ?? 0),
+      collisionCount: summarizeStoreCollisionCount(link),
       centerOfMass: link?.centerOfMass
         ? {
             xyz: {
@@ -1582,6 +1629,28 @@ async function collectLoadEvaluation(page) {
           }
         : null,
     });
+    const summarizeRuntimeMaterial = (material) => ({
+      type: material?.type ?? null,
+      name: material?.name ?? null,
+      color: material?.color ?? null,
+      hasTexture: material?.hasTexture === true,
+      transparent: material?.transparent === true,
+      opacity:
+        typeof material?.opacity === 'number' && Number.isFinite(material.opacity)
+          ? Number(material.opacity)
+          : null,
+    });
+    const summarizeRuntimeVisualMesh = (mesh) => ({
+      link: mesh?.link ?? null,
+      name: mesh?.name ?? null,
+      visible: mesh?.visible !== false,
+      effectiveVisible: mesh?.effectiveVisible !== false,
+      isPlaceholder: mesh?.isPlaceholder === true,
+      missingMeshPath: mesh?.missingMeshPath ?? null,
+      materials: Array.isArray(mesh?.materials)
+        ? mesh.materials.slice(0, 32).map(summarizeRuntimeMaterial)
+        : [],
+    });
     const storeJointList = Array.isArray(snapshot?.store?.joints)
       ? snapshot.store.joints
       : snapshot?.store?.joints && typeof snapshot.store.joints === 'object'
@@ -1627,6 +1696,9 @@ async function collectLoadEvaluation(page) {
                 jointCount:
                   snapshot.runtime.jointCount ??
                   (Array.isArray(snapshot.runtime.joints) ? snapshot.runtime.joints.length : null),
+                visualMeshes: Array.isArray(snapshot.runtime.visualMeshes)
+                  ? snapshot.runtime.visualMeshes.slice(0, 256).map(summarizeRuntimeVisualMesh)
+                  : [],
               }
             : null,
         }
@@ -2067,7 +2139,16 @@ function hasPreparedRobotStateCache(result) {
     result?.assetDebugState?.preparedUsdCacheKeysByFile?.[result?.selectedFileName] ??
     result?.assetDebugState?.preparedUsdCacheKeysByFile?.[result?.targetFileName] ??
     null;
-  return Array.isArray(preparedCacheKeys) && preparedCacheKeys.length > 0;
+  if (!Array.isArray(preparedCacheKeys)) {
+    return false;
+  }
+  if (preparedCacheKeys.length > 0) {
+    return true;
+  }
+
+  const meshDescriptorCount = Number(result?.selectedUsdSceneSummary?.meshDescriptorCount ?? 0);
+  const storeLinkCount = Number(result?.snapshot?.store?.linkCount ?? 0);
+  return meshDescriptorCount === 0 && storeLinkCount > 0;
 }
 
 function isRobotStateHarnessPass(result) {

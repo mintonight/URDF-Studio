@@ -22,6 +22,7 @@ export const DEFAULT_JOINT_FRAME_TOLERANCE = 1e-6;
 export const DEFAULT_LINK_POSITION_TOLERANCE = 1e-5;
 export const DEFAULT_LINK_ORIENTATION_TOLERANCE = 2e-4;
 export const DEFAULT_WORLD_POSITION_TOLERANCE = DEFAULT_LINK_POSITION_TOLERANCE;
+export const DEFAULT_MATERIAL_COLOR_TOLERANCE = 0.002;
 
 const UNITREE_USDA_PREFIX = 'test/unitree_ros_usda/';
 
@@ -115,6 +116,19 @@ function quaternionWxyzOrIdentity(value) {
 
 function vectorDistance(left, right) {
   return Math.hypot(left[0] - right[0], left[1] - right[1], left[2] - right[2]);
+}
+
+function subtractVector3(left, right) {
+  return [left[0] - right[0], left[1] - right[1], left[2] - right[2]];
+}
+
+function median(values) {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
 }
 
 function quaternionDistanceWxyz(left, right) {
@@ -211,6 +225,42 @@ function getTruthJointName(joint) {
     lastPathSegment(joint?.fullPath) ||
     lastPathSegment(joint?.path) ||
     lastPathSegment(joint?.jointPath)
+  );
+}
+
+function isParentlessRootFixedJoint(joint) {
+  const body0Path = String(joint?.body0Path || joint?.body0FullPath || '').trim();
+  const body1Path = String(joint?.body1Path || joint?.body1FullPath || '').trim();
+  const parentLinkPath = String(joint?.parentLinkPath || joint?.parentBodyPath || '').trim();
+  const childLinkPath = String(joint?.childLinkPath || joint?.childBodyPath || '').trim();
+  const type = String(joint?.type || joint?.jointType || joint?.jointTypeName || '').toLowerCase();
+  const normalizedName = getTruthJointName(joint).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const hasParentSide = Boolean(body0Path || parentLinkPath);
+  const hasChildSide = Boolean(body1Path || childLinkPath);
+  const isRootNamedJoint = normalizedName === 'root' || normalizedName === 'rootjoint';
+
+  if (hasParentSide && hasChildSide) {
+    return false;
+  }
+
+  return (!hasParentSide && type.includes('fixed')) || isRootNamedJoint;
+}
+
+function isSyntheticBrowserVisualLink(link) {
+  const linkName = getBrowserLinkName(link);
+  const normalizedName = linkName.toLowerCase();
+  const inertiallyEmpty =
+    Math.abs(finiteNumberOrZero(link?.mass)) <= 1e-12 &&
+    vectorDistance(getBrowserLinkCenterOfMass(link), [0, 0, 0]) <= 1e-12;
+
+  if (!inertiallyEmpty) {
+    return false;
+  }
+
+  return (
+    normalizedName === 'world' ||
+    /^visuals_proto_(?:mesh|box|sphere|capsule|cylinder)_id\d+$/.test(normalizedName) ||
+    /__.*_visuals_(?:mesh|box|sphere|capsule|cylinder)_\d+$/.test(normalizedName)
   );
 }
 
@@ -328,6 +378,58 @@ function getTruthBodyWorldPosition(body) {
   return vector3OrNull(body?.worldPosition) ?? vector3OrNull(body?.worldPose?.position);
 }
 
+function getGeometryType(value) {
+  return String(value?.type || '').trim().toLowerCase();
+}
+
+function isAuthoredCollisionGeometry(value) {
+  const type = getGeometryType(value);
+  return Boolean(type && type !== 'none');
+}
+
+function getBrowserLinkCollisionCount(link) {
+  if (link?.collisionCount != null && Number.isFinite(Number(link.collisionCount))) {
+    return Math.max(0, Number(link.collisionCount));
+  }
+
+  let count = isAuthoredCollisionGeometry(link?.collision) ? 1 : 0;
+  if (Array.isArray(link?.collisionBodies)) {
+    count += link.collisionBodies.filter((entry) => isAuthoredCollisionGeometry(entry?.geometry || entry)).length;
+  }
+  return count;
+}
+
+function buildBrowserCollisionCountByName(result, browserLinks) {
+  const map = new Map();
+  const hasStoreCollisionCounts = browserLinks.some(
+    (link) => link?.collisionCount != null && Number.isFinite(Number(link.collisionCount)),
+  );
+  const collisionSummaryLinks = Array.isArray(result?.selectedUsdSceneSummary?.collisionSummary?.links)
+    ? result.selectedUsdSceneSummary.collisionSummary.links
+    : [];
+
+  if (!hasStoreCollisionCounts && collisionSummaryLinks.length > 0) {
+    for (const entry of collisionSummaryLinks) {
+      const linkName = String(entry?.linkName || lastPathSegment(entry?.linkPath) || '').trim();
+      if (!linkName) {
+        continue;
+      }
+      map.set(linkName, (map.get(linkName) || 0) + Math.max(0, Number(entry?.descriptorCount) || 0));
+    }
+    return map;
+  }
+
+  for (const link of browserLinks) {
+    const linkName = getBrowserLinkName(link);
+    if (!linkName) {
+      continue;
+    }
+    map.set(linkName, getBrowserLinkCollisionCount(link));
+  }
+
+  return map;
+}
+
 function getResultModelKey(result) {
   return String(result?.modelKey || result?.targetFileName || result?.selectedFileName || '');
 }
@@ -385,6 +487,214 @@ function buildUniqueNameMap(entries, getName) {
   return { duplicates: [...duplicates].sort(), map };
 }
 
+function normalizeColorTuple(value) {
+  if (Array.isArray(value) && value.length >= 3) {
+    const tuple = [Number(value[0]), Number(value[1]), Number(value[2])];
+    return tuple.every(Number.isFinite) ? tuple : null;
+  }
+
+  if (value && typeof value === 'object') {
+    const tuple = [Number(value.r ?? value.x), Number(value.g ?? value.y), Number(value.b ?? value.z)];
+    return tuple.every(Number.isFinite) ? tuple : null;
+  }
+
+  if (typeof value === 'string') {
+    const match = value.trim().match(/^#?([0-9a-f]{6})(?:[0-9a-f]{2})?$/i);
+    if (!match) {
+      return null;
+    }
+    return [0, 2, 4].map((offset) => Number.parseInt(match[1].slice(offset, offset + 2), 16) / 255);
+  }
+
+  return null;
+}
+
+function colorMaxChannelDistance(left, right) {
+  if (!left && !right) {
+    return 0;
+  }
+  if (!left || !right) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Math.max(
+    Math.abs(left[0] - right[0]),
+    Math.abs(left[1] - right[1]),
+    Math.abs(left[2] - right[2]),
+  );
+}
+
+function materialSignatureDistance(left, right) {
+  if (left.textured !== right.textured) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return colorMaxChannelDistance(left.color, right.color);
+}
+
+function materialSignatureKey(signature) {
+  const colorKey = signature.color
+    ? signature.color.map((entry) => Number(entry).toFixed(6)).join(',')
+    : 'none';
+  return `${signature.textured ? 1 : 0}:${colorKey}`;
+}
+
+function uniqueMaterialSignatures(signatures) {
+  const map = new Map();
+  for (const signature of signatures) {
+    map.set(materialSignatureKey(signature), signature);
+  }
+  return [...map.values()];
+}
+
+function normalizeTruthMaterialSignature(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  return {
+    color: normalizeColorTuple(value.color),
+    textured:
+      typeof value.textured === 'boolean'
+        ? value.textured
+        : String(value.source || '').toLowerCase().includes('texture'),
+  };
+}
+
+function getTruthMaterialSignatures(materialStage) {
+  const visibleAppearanceSignatures = Array.isArray(materialStage?.visibleAppearanceSignatures)
+    ? materialStage.visibleAppearanceSignatures
+    : null;
+  if (visibleAppearanceSignatures) {
+    return uniqueMaterialSignatures(
+      visibleAppearanceSignatures
+        .map(normalizeTruthMaterialSignature)
+        .filter((entry) => Boolean(entry)),
+    );
+  }
+
+  const colors = Array.isArray(materialStage?.visibleMaterialColors)
+    ? materialStage.visibleMaterialColors
+    : [];
+  return uniqueMaterialSignatures(
+    colors
+      .map((entry) => normalizeColorTuple(entry))
+      .filter((entry) => Boolean(entry))
+      .map((color) => ({ color, textured: false })),
+  );
+}
+
+function normalizeBrowserMaterialSignature(material) {
+  if (!material || typeof material !== 'object') {
+    return null;
+  }
+  const color =
+    normalizeColorTuple(material.colorTuple) ||
+    normalizeColorTuple(material.authoredColorTuple) ||
+    normalizeColorTuple(material.color) ||
+    normalizeColorTuple(material.authoredColor);
+  const textured =
+    material.textured === true ||
+    material.hasTexture === true ||
+    Number(material.textureCount || 0) > 0 ||
+    (Array.isArray(material.texturePaths) && material.texturePaths.length > 0);
+  if (!color && !textured) {
+    return null;
+  }
+  return { color, textured };
+}
+
+function isInformativeRuntimeMaterial(material) {
+  if (!material || typeof material !== 'object') {
+    return false;
+  }
+  return (
+    String(material.name || '').trim().length > 0 ||
+    material.hasTexture === true ||
+    material.textured === true ||
+    Number(material.textureCount || 0) > 0 ||
+    (Array.isArray(material.texturePaths) && material.texturePaths.length > 0)
+  );
+}
+
+function getBrowserMaterialSignatures(result) {
+  const meshes = Array.isArray(result?.selectedUsdVisualMaterialSummary?.meshes)
+    ? result.selectedUsdVisualMaterialSummary.meshes
+    : [];
+  const stageSignatures = uniqueMaterialSignatures(
+    meshes.flatMap((mesh) =>
+      (Array.isArray(mesh?.materials) ? mesh.materials : [])
+        .map(normalizeBrowserMaterialSignature)
+        .filter((entry) => Boolean(entry)),
+    ),
+  );
+  if (stageSignatures.length > 0) {
+    return stageSignatures;
+  }
+
+  const runtimeMeshes = Array.isArray(result?.snapshot?.runtime?.visualMeshes)
+    ? result.snapshot.runtime.visualMeshes
+    : [];
+  return uniqueMaterialSignatures(
+    runtimeMeshes.flatMap((mesh) =>
+      (Array.isArray(mesh?.materials) ? mesh.materials : [])
+        .filter((material) => isInformativeRuntimeMaterial(material))
+        .map(normalizeBrowserMaterialSignature)
+        .filter((entry) => Boolean(entry)),
+    ),
+  );
+}
+
+function compareMaterialSignatures(browserSignatures, truthSignatures, tolerance) {
+  const remainingTruth = [...truthSignatures];
+  const unmatchedBrowser = [];
+
+  for (const browserSignature of browserSignatures) {
+    let bestIndex = -1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    remainingTruth.forEach((truthSignature, index) => {
+      const distance = materialSignatureDistance(browserSignature, truthSignature);
+      if (distance < bestDistance) {
+        bestIndex = index;
+        bestDistance = distance;
+      }
+    });
+
+    if (bestIndex >= 0 && bestDistance <= tolerance) {
+      remainingTruth.splice(bestIndex, 1);
+    } else {
+      unmatchedBrowser.push(browserSignature);
+    }
+  }
+
+  return {
+    unmatchedBrowser,
+    unmatchedTruth: remainingTruth,
+  };
+}
+
+function estimateRuntimeWorldPositionOffset(truthBodies, browserRuntimeNameMap) {
+  const deltas = [];
+  for (const truthBody of truthBodies) {
+    const linkName = getTruthBodyName(truthBody);
+    const browserRuntimeLink = browserRuntimeNameMap.map.get(linkName);
+    const browserPosition = getBrowserRuntimeLinkWorldPosition(browserRuntimeLink);
+    const truthPosition = getTruthBodyWorldPosition(truthBody);
+    if (browserPosition && truthPosition) {
+      deltas.push(subtractVector3(browserPosition, truthPosition));
+    }
+  }
+
+  if (deltas.length === 0) {
+    return {
+      offset: [0, 0, 0],
+      sampleCount: 0,
+    };
+  }
+
+  return {
+    offset: [0, 1, 2].map((index) => median(deltas.map((entry) => entry[index]))),
+    sampleCount: deltas.length,
+  };
+}
+
 function normalizeModelFilters(modelFilters) {
   return new Set((modelFilters || []).map((entry) => stripUnitreePrefix(entry)));
 }
@@ -401,6 +711,7 @@ function shouldIncludeResult(result, modelFilterSet) {
 export function compareUnitreeRosUsdaBrowserPhysics({
   browserReport,
   truthReport,
+  materialTruthReport = null,
   massTolerance = DEFAULT_MASS_TOLERANCE,
   comTolerance = DEFAULT_COM_TOLERANCE,
   inertiaTolerance = DEFAULT_INERTIA_TOLERANCE,
@@ -409,12 +720,14 @@ export function compareUnitreeRosUsdaBrowserPhysics({
   linkPositionTolerance = DEFAULT_LINK_POSITION_TOLERANCE,
   linkOrientationTolerance = DEFAULT_LINK_ORIENTATION_TOLERANCE,
   worldPositionTolerance,
+  materialColorTolerance = DEFAULT_MATERIAL_COLOR_TOLERANCE,
   modelFilters = [],
   maxFailureSamples = 32,
 } = {}) {
   const resolvedWorldPositionTolerance = worldPositionTolerance ?? linkPositionTolerance;
   const results = Array.isArray(browserReport?.results) ? browserReport.results : [];
   const truthIndex = buildTruthStageIndex(truthReport);
+  const materialTruthIndex = materialTruthReport ? buildTruthStageIndex(materialTruthReport) : null;
   const modelFilterSet = normalizeModelFilters(modelFilters);
   const perModel = [];
   const failures = [];
@@ -431,6 +744,13 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     matchedLinkPoses: 0,
     browserRuntimeLinks: 0,
     matchedRuntimeLinkPositions: 0,
+    browserCollisions: 0,
+    truthCollisions: 0,
+    matchedCollisionBodies: 0,
+    browserMaterialAppearances: 0,
+    truthMaterialAppearances: 0,
+    browserTexturedMaterialAppearances: 0,
+    truthTexturedMaterialAppearances: 0,
     maxMassErr: 0,
     maxComErr: 0,
     maxInertiaErr: 0,
@@ -440,6 +760,7 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     maxLinkPositionErr: 0,
     maxLinkOrientationErr: 0,
     maxWorldPositionErr: 0,
+    maxCollisionCountDelta: 0,
     missingLinks: 0,
     extraLinks: 0,
     missingBrowserLinkPoses: 0,
@@ -447,6 +768,10 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     missingTruthWorldPositions: 0,
     missingBrowserJoints: 0,
     missingNativeJoints: 0,
+    skippedExtraVisualLinks: 0,
+    skippedBrowserRootJoints: 0,
+    skippedNativeRootJoints: 0,
+    missingMaterialTruthStages: 0,
     massMismatches: 0,
     comMismatches: 0,
     inertiaMismatches: 0,
@@ -454,6 +779,8 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     linkPositionMismatches: 0,
     linkOrientationMismatches: 0,
     worldPositionMismatches: 0,
+    collisionCountMismatches: 0,
+    materialAppearanceMismatches: 0,
     jointFrameMismatches: 0,
     nativeJointFrameMismatches: 0,
     duplicateBrowserNames: 0,
@@ -471,6 +798,8 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     worstLinkPosition: null,
     worstLinkOrientation: null,
     worstWorldPosition: null,
+    worstCollisionCount: null,
+    worstMaterialAppearance: null,
     worstJointFrame: null,
     worstNativeJointFrame: null,
   };
@@ -512,6 +841,15 @@ export function compareUnitreeRosUsdaBrowserPhysics({
         matchedLinkPoses: 0,
         browserRuntimeLinks: 0,
         matchedRuntimeLinkPositions: 0,
+        runtimeWorldPositionOffset: [0, 0, 0],
+        runtimeWorldPositionOffsetSampleCount: 0,
+        browserCollisions: 0,
+        truthCollisions: 0,
+        matchedCollisionBodies: 0,
+        browserMaterialAppearances: 0,
+        truthMaterialAppearances: 0,
+        browserTexturedMaterialAppearances: 0,
+        truthTexturedMaterialAppearances: 0,
         missingLinks: 0,
         extraLinks: 0,
         missingBrowserLinkPoses: 0,
@@ -519,6 +857,10 @@ export function compareUnitreeRosUsdaBrowserPhysics({
         missingTruthWorldPositions: 0,
         missingBrowserJoints: 0,
         missingNativeJoints: 0,
+        skippedExtraVisualLinks: 0,
+        skippedBrowserRootJoints: 0,
+        skippedNativeRootJoints: 0,
+        missingMaterialTruthStages: 0,
         maxMassErr: 0,
         maxComErr: 0,
         maxInertiaErr: 0,
@@ -528,6 +870,9 @@ export function compareUnitreeRosUsdaBrowserPhysics({
         maxLinkPositionErr: 0,
         maxLinkOrientationErr: 0,
         maxWorldPositionErr: 0,
+        maxCollisionCountDelta: 0,
+        collisionCountMismatches: 0,
+        materialAppearanceMismatches: 0,
       });
       continue;
     }
@@ -579,6 +924,15 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       truthJoints: truthJoints.length,
       browserLinkPoses: browserLinkPoses.length,
       browserRuntimeLinks: browserRuntimeLinks.length,
+      runtimeWorldPositionOffset: [0, 0, 0],
+      runtimeWorldPositionOffsetSampleCount: 0,
+      browserCollisions: 0,
+      truthCollisions: 0,
+      matchedCollisionBodies: 0,
+      browserMaterialAppearances: 0,
+      truthMaterialAppearances: 0,
+      browserTexturedMaterialAppearances: 0,
+      truthTexturedMaterialAppearances: 0,
       matchedLinks: 0,
       matchedJoints: 0,
       matchedLinkPoses: 0,
@@ -590,6 +944,10 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       missingTruthWorldPositions: 0,
       missingBrowserJoints: 0,
       missingNativeJoints: 0,
+      skippedExtraVisualLinks: 0,
+      skippedBrowserRootJoints: 0,
+      skippedNativeRootJoints: 0,
+      missingMaterialTruthStages: 0,
       massMismatches: 0,
       comMismatches: 0,
       inertiaMismatches: 0,
@@ -597,6 +955,8 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       linkPositionMismatches: 0,
       linkOrientationMismatches: 0,
       worldPositionMismatches: 0,
+      collisionCountMismatches: 0,
+      materialAppearanceMismatches: 0,
       jointFrameMismatches: 0,
       nativeJointFrameMismatches: 0,
       duplicateBrowserNames: browserNameMap.duplicates.length,
@@ -615,6 +975,7 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       maxLinkPositionErr: 0,
       maxLinkOrientationErr: 0,
       maxWorldPositionErr: 0,
+      maxCollisionCountDelta: 0,
       worstMass: null,
       worstCom: null,
       worstInertia: null,
@@ -622,9 +983,44 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       worstLinkPosition: null,
       worstLinkOrientation: null,
       worstWorldPosition: null,
+      worstCollisionCount: null,
+      worstMaterialAppearance: null,
       worstJointFrame: null,
       worstNativeJointFrame: null,
     };
+
+    const browserCollisionCountByName = buildBrowserCollisionCountByName(result, browserLinks);
+    modelStats.browserCollisions = Array.from(browserCollisionCountByName.values()).reduce(
+      (sum, value) => sum + value,
+      0,
+    );
+    modelStats.truthCollisions = truthBodies.reduce(
+      (sum, body) => sum + Math.max(0, Number(body?.collisionCount) || 0),
+      0,
+    );
+    const runtimeOffsetEstimate = estimateRuntimeWorldPositionOffset(
+      truthBodies,
+      browserRuntimeNameMap,
+    );
+    modelStats.runtimeWorldPositionOffset = runtimeOffsetEstimate.offset;
+    modelStats.runtimeWorldPositionOffsetSampleCount = runtimeOffsetEstimate.sampleCount;
+
+    let materialTruthStage = null;
+    if (materialTruthIndex) {
+      const materialTruthEntry = getTruthCandidatesForResult(result)
+        .map((candidate) => materialTruthIndex.get(candidate))
+        .find(Boolean);
+      if (materialTruthEntry?.stage) {
+        materialTruthStage = materialTruthEntry.stage;
+      } else {
+        modelStats.missingMaterialTruthStages += 1;
+        addFailure({
+          type: 'missing-material-truth-stage',
+          model: modelKey,
+          candidates: getTruthCandidatesForResult(result),
+        });
+      }
+    }
 
     for (const duplicateName of browserNameMap.duplicates) {
       addFailure({ type: 'duplicate-browser-link-name', model: modelKey, link: duplicateName });
@@ -652,6 +1048,40 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       addFailure({ type: 'duplicate-truth-joint-name', model: modelKey, joint: duplicateName });
     }
 
+    if (materialTruthStage) {
+      const browserMaterialSignatures = getBrowserMaterialSignatures(result);
+      const truthMaterialSignatures = getTruthMaterialSignatures(materialTruthStage);
+      modelStats.browserMaterialAppearances = browserMaterialSignatures.length;
+      modelStats.truthMaterialAppearances = truthMaterialSignatures.length;
+      modelStats.browserTexturedMaterialAppearances = browserMaterialSignatures.filter(
+        (signature) => signature.textured,
+      ).length;
+      modelStats.truthTexturedMaterialAppearances = truthMaterialSignatures.filter(
+        (signature) => signature.textured,
+      ).length;
+
+      const materialComparison = compareMaterialSignatures(
+        browserMaterialSignatures,
+        truthMaterialSignatures,
+        materialColorTolerance,
+      );
+      const materialMismatchCount =
+        materialComparison.unmatchedBrowser.length + materialComparison.unmatchedTruth.length;
+      if (materialMismatchCount > 0) {
+        modelStats.materialAppearanceMismatches = materialMismatchCount;
+        modelStats.worstMaterialAppearance = materialComparison;
+        addFailure({
+          type: 'material-appearance-mismatch',
+          model: modelKey,
+          browserMaterialAppearances: browserMaterialSignatures,
+          truthMaterialAppearances: truthMaterialSignatures,
+          unmatchedBrowser: materialComparison.unmatchedBrowser,
+          unmatchedTruth: materialComparison.unmatchedTruth,
+          tolerance: materialColorTolerance,
+        });
+      }
+    }
+
     for (const truthBody of truthBodies) {
       const linkName = getTruthBodyName(truthBody);
       const browserLink = browserNameMap.map.get(linkName);
@@ -669,6 +1099,30 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       }
 
       modelStats.matchedLinks += 1;
+      modelStats.matchedCollisionBodies += 1;
+      const browserCollisionCount = browserCollisionCountByName.get(linkName) || 0;
+      const truthCollisionCount = Math.max(0, Number(truthBody?.collisionCount) || 0);
+      const collisionCountDelta = Math.abs(browserCollisionCount - truthCollisionCount);
+      if (collisionCountDelta > modelStats.maxCollisionCountDelta) {
+        modelStats.maxCollisionCountDelta = collisionCountDelta;
+        modelStats.worstCollisionCount = {
+          link: linkName,
+          browserCollisionCount,
+          truthCollisionCount,
+          collisionCountDelta,
+        };
+      }
+      if (collisionCountDelta > 0) {
+        modelStats.collisionCountMismatches += 1;
+        addFailure({
+          type: 'collision-count-mismatch',
+          model: modelKey,
+          link: linkName,
+          browserCollisionCount,
+          truthCollisionCount,
+        });
+      }
+
       const browserLinkPose = browserLinkPoseNameMap.map.get(linkName);
       const truthWorldPose = getTruthBodyWorldPose(truthBody);
       if (!browserLinkPose) {
@@ -764,13 +1218,22 @@ export function compareUnitreeRosUsdaBrowserPhysics({
             });
           } else {
             modelStats.matchedRuntimeLinkPositions += 1;
-            const worldPositionErr = vectorDistance(browserWorldPosition, truthWorldPosition);
+            const adjustedBrowserWorldPosition = subtractVector3(
+              browserWorldPosition,
+              modelStats.runtimeWorldPositionOffset,
+            );
+            const worldPositionErr = vectorDistance(
+              adjustedBrowserWorldPosition,
+              truthWorldPosition,
+            );
             if (worldPositionErr > modelStats.maxWorldPositionErr) {
               modelStats.maxWorldPositionErr = worldPositionErr;
               modelStats.worstWorldPosition = {
                 link: linkName,
                 browserWorldPosition,
+                adjustedBrowserWorldPosition,
                 truthWorldPosition,
+                runtimeWorldPositionOffset: modelStats.runtimeWorldPositionOffset,
                 worldPositionErr,
               };
             }
@@ -781,11 +1244,13 @@ export function compareUnitreeRosUsdaBrowserPhysics({
                 model: modelKey,
                 link: linkName,
                 browserWorldPosition,
+                adjustedBrowserWorldPosition,
                 truthWorldPosition,
+                runtimeWorldPositionOffset: modelStats.runtimeWorldPositionOffset,
                 worldPositionErr,
-                browserHeight: browserWorldPosition[2],
+                browserHeight: adjustedBrowserWorldPosition[2],
                 truthHeight: truthWorldPosition[2],
-                heightErr: Math.abs(browserWorldPosition[2] - truthWorldPosition[2]),
+                heightErr: Math.abs(adjustedBrowserWorldPosition[2] - truthWorldPosition[2]),
                 tolerance: resolvedWorldPositionTolerance,
               });
             }
@@ -897,6 +1362,10 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     for (const browserLink of browserLinks) {
       const linkName = getBrowserLinkName(browserLink);
       if (!truthNameMap.map.has(linkName)) {
+        if (isSyntheticBrowserVisualLink(browserLink)) {
+          modelStats.skippedExtraVisualLinks += 1;
+          continue;
+        }
         modelStats.extraLinks += 1;
         addFailure({
           type: 'extra-browser-link',
@@ -919,14 +1388,18 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       const truthFrame = getTruthJointFrame(truthJoint);
 
       if (!browserJoint) {
-        modelStats.missingBrowserJoints += 1;
-        addFailure({
-          type: 'missing-browser-joint',
-          model: modelKey,
-          joint: jointName,
-          truthFullPath: truthJoint.fullPath ?? null,
-          truthFrame,
-        });
+        if (isParentlessRootFixedJoint(truthJoint)) {
+          modelStats.skippedBrowserRootJoints += 1;
+        } else {
+          modelStats.missingBrowserJoints += 1;
+          addFailure({
+            type: 'missing-browser-joint',
+            model: modelKey,
+            joint: jointName,
+            truthFullPath: truthJoint.fullPath ?? null,
+            truthFrame,
+          });
+        }
       } else {
         modelStats.matchedJoints += 1;
         compareJointFrame({
@@ -945,14 +1418,18 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       }
 
       if (!nativeJoint) {
-        modelStats.missingNativeJoints += 1;
-        addFailure({
-          type: 'missing-native-joint',
-          model: modelKey,
-          joint: jointName,
-          truthFullPath: truthJoint.fullPath ?? null,
-          truthFrame,
-        });
+        if (isParentlessRootFixedJoint(truthJoint)) {
+          modelStats.skippedNativeRootJoints += 1;
+        } else {
+          modelStats.missingNativeJoints += 1;
+          addFailure({
+            type: 'missing-native-joint',
+            model: modelKey,
+            joint: jointName,
+            truthFullPath: truthJoint.fullPath ?? null,
+            truthFrame,
+          });
+        }
       } else {
         compareJointFrame({
           addFailure,
@@ -976,6 +1453,7 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       modelStats.missingBrowserLinkPoses === 0 &&
       modelStats.missingBrowserJoints === 0 &&
       modelStats.missingNativeJoints === 0 &&
+      modelStats.missingMaterialTruthStages === 0 &&
       modelStats.massMismatches === 0 &&
       modelStats.comMismatches === 0 &&
       modelStats.inertiaMismatches === 0 &&
@@ -983,6 +1461,8 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       modelStats.linkPositionMismatches === 0 &&
       modelStats.linkOrientationMismatches === 0 &&
       modelStats.worldPositionMismatches === 0 &&
+      modelStats.collisionCountMismatches === 0 &&
+      modelStats.materialAppearanceMismatches === 0 &&
       modelStats.missingBrowserWorldPositions === 0 &&
       modelStats.missingTruthWorldPositions === 0 &&
       modelStats.jointFrameMismatches === 0 &&
@@ -1003,6 +1483,13 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     summary.matchedLinkPoses += modelStats.matchedLinkPoses;
     summary.browserRuntimeLinks += modelStats.browserRuntimeLinks;
     summary.matchedRuntimeLinkPositions += modelStats.matchedRuntimeLinkPositions;
+    summary.browserCollisions += modelStats.browserCollisions;
+    summary.truthCollisions += modelStats.truthCollisions;
+    summary.matchedCollisionBodies += modelStats.matchedCollisionBodies;
+    summary.browserMaterialAppearances += modelStats.browserMaterialAppearances;
+    summary.truthMaterialAppearances += modelStats.truthMaterialAppearances;
+    summary.browserTexturedMaterialAppearances += modelStats.browserTexturedMaterialAppearances;
+    summary.truthTexturedMaterialAppearances += modelStats.truthTexturedMaterialAppearances;
     summary.browserJoints += modelStats.browserJoints;
     summary.nativeJoints += modelStats.nativeJoints;
     summary.truthJoints += modelStats.truthJoints;
@@ -1014,6 +1501,10 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     summary.missingTruthWorldPositions += modelStats.missingTruthWorldPositions;
     summary.missingBrowserJoints += modelStats.missingBrowserJoints;
     summary.missingNativeJoints += modelStats.missingNativeJoints;
+    summary.skippedExtraVisualLinks += modelStats.skippedExtraVisualLinks;
+    summary.skippedBrowserRootJoints += modelStats.skippedBrowserRootJoints;
+    summary.skippedNativeRootJoints += modelStats.skippedNativeRootJoints;
+    summary.missingMaterialTruthStages += modelStats.missingMaterialTruthStages;
     summary.massMismatches += modelStats.massMismatches;
     summary.comMismatches += modelStats.comMismatches;
     summary.inertiaMismatches += modelStats.inertiaMismatches;
@@ -1021,6 +1512,8 @@ export function compareUnitreeRosUsdaBrowserPhysics({
     summary.linkPositionMismatches += modelStats.linkPositionMismatches;
     summary.linkOrientationMismatches += modelStats.linkOrientationMismatches;
     summary.worldPositionMismatches += modelStats.worldPositionMismatches;
+    summary.collisionCountMismatches += modelStats.collisionCountMismatches;
+    summary.materialAppearanceMismatches += modelStats.materialAppearanceMismatches;
     summary.jointFrameMismatches += modelStats.jointFrameMismatches;
     summary.nativeJointFrameMismatches += modelStats.nativeJointFrameMismatches;
     summary.duplicateBrowserNames += modelStats.duplicateBrowserNames;
@@ -1070,6 +1563,18 @@ export function compareUnitreeRosUsdaBrowserPhysics({
         ? { model: modelKey, ...modelStats.worstWorldPosition }
         : null;
     }
+    if (modelStats.maxCollisionCountDelta > summary.maxCollisionCountDelta) {
+      summary.maxCollisionCountDelta = modelStats.maxCollisionCountDelta;
+      summary.worstCollisionCount = modelStats.worstCollisionCount
+        ? { model: modelKey, ...modelStats.worstCollisionCount }
+        : null;
+    }
+    if (!summary.worstMaterialAppearance && modelStats.worstMaterialAppearance) {
+      summary.worstMaterialAppearance = {
+        model: modelKey,
+        ...modelStats.worstMaterialAppearance,
+      };
+    }
     if (modelStats.maxJointFrameErr > summary.maxJointFrameErr) {
       summary.maxJointFrameErr = modelStats.maxJointFrameErr;
       summary.worstJointFrame = modelStats.worstJointFrame
@@ -1108,6 +1613,7 @@ export function compareUnitreeRosUsdaBrowserPhysics({
       linkPositionTolerance,
       linkOrientationTolerance,
       worldPositionTolerance: resolvedWorldPositionTolerance,
+      materialColorTolerance,
     },
     perModel,
     failures: failures.slice(0, maxFailureSamples),
@@ -1122,6 +1628,7 @@ function printUsage() {
 Options:
   --browser-report <path>  Browser regression JSON. Default: ${DEFAULT_BROWSER_REPORT_PATH}
   --truth <path>           IsaacLab/IsaacSim physics JSON. Default: ${DEFAULT_TRUTH_PATH}
+  --material-truth <path>  Optional IsaacLab/IsaacSim material JSON.
   --output <path>          Comparison JSON output. Default: ${DEFAULT_OUTPUT_PATH}
   --model <filter>         Restrict to a model path. Repeatable.
   --mass-tolerance <n>     Absolute mass tolerance. Default: ${DEFAULT_MASS_TOLERANCE}
@@ -1137,6 +1644,8 @@ Options:
                            Store link world-orientation quaternion tolerance. Default: ${DEFAULT_LINK_ORIENTATION_TOLERANCE}
   --world-position-tolerance <n>
                            Runtime link world-position tolerance. Default: ${DEFAULT_WORLD_POSITION_TOLERANCE}
+  --material-color-tolerance <n>
+                           RGB max-channel material tolerance. Default: ${DEFAULT_MATERIAL_COLOR_TOLERANCE}
   --max-failures <n>       Failure samples to include in output. Default: 32
   --help                   Show this help message.
 `);
@@ -1146,6 +1655,7 @@ function parseArgs(argv) {
   const options = {
     browserReportPath: DEFAULT_BROWSER_REPORT_PATH,
     truthPath: DEFAULT_TRUTH_PATH,
+    materialTruthPath: null,
     outputPath: DEFAULT_OUTPUT_PATH,
     massTolerance: DEFAULT_MASS_TOLERANCE,
     comTolerance: DEFAULT_COM_TOLERANCE,
@@ -1155,6 +1665,7 @@ function parseArgs(argv) {
     linkPositionTolerance: DEFAULT_LINK_POSITION_TOLERANCE,
     linkOrientationTolerance: DEFAULT_LINK_ORIENTATION_TOLERANCE,
     worldPositionTolerance: DEFAULT_WORLD_POSITION_TOLERANCE,
+    materialColorTolerance: DEFAULT_MATERIAL_COLOR_TOLERANCE,
     maxFailureSamples: 32,
     modelFilters: [],
     help: false,
@@ -1176,6 +1687,9 @@ function parseArgs(argv) {
         break;
       case '--truth':
         options.truthPath = path.resolve(next());
+        break;
+      case '--material-truth':
+        options.materialTruthPath = path.resolve(next());
         break;
       case '--output':
         options.outputPath = path.resolve(next());
@@ -1206,6 +1720,9 @@ function parseArgs(argv) {
         break;
       case '--world-position-tolerance':
         options.worldPositionTolerance = Number(next());
+        break;
+      case '--material-color-tolerance':
+        options.materialColorTolerance = Number(next());
         break;
       case '--max-failures':
         options.maxFailureSamples = Number.parseInt(next(), 10);
@@ -1243,6 +1760,9 @@ function parseArgs(argv) {
   if (!Number.isFinite(options.worldPositionTolerance) || options.worldPositionTolerance < 0) {
     throw new Error(`Invalid --world-position-tolerance: ${options.worldPositionTolerance}`);
   }
+  if (!Number.isFinite(options.materialColorTolerance) || options.materialColorTolerance < 0) {
+    throw new Error(`Invalid --material-color-tolerance: ${options.materialColorTolerance}`);
+  }
   if (!Number.isInteger(options.maxFailureSamples) || options.maxFailureSamples < 1) {
     throw new Error(`Invalid --max-failures: ${options.maxFailureSamples}`);
   }
@@ -1261,13 +1781,15 @@ async function main() {
     return;
   }
 
-  const [browserReport, truthReport] = await Promise.all([
+  const [browserReport, truthReport, materialTruthReport] = await Promise.all([
     readJson(options.browserReportPath),
     readJson(options.truthPath),
+    options.materialTruthPath ? readJson(options.materialTruthPath) : Promise.resolve(null),
   ]);
   const comparison = compareUnitreeRosUsdaBrowserPhysics({
     browserReport,
     truthReport,
+    materialTruthReport,
     massTolerance: options.massTolerance,
     comTolerance: options.comTolerance,
     inertiaTolerance: options.inertiaTolerance,
@@ -1276,6 +1798,7 @@ async function main() {
     linkPositionTolerance: options.linkPositionTolerance,
     linkOrientationTolerance: options.linkOrientationTolerance,
     worldPositionTolerance: options.worldPositionTolerance,
+    materialColorTolerance: options.materialColorTolerance,
     modelFilters: options.modelFilters,
     maxFailureSamples: options.maxFailureSamples,
   });

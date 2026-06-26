@@ -620,6 +620,7 @@ export function useWorkspaceSourceSync({
             format: 'urdf' as const,
             robotState: currentRobotSourceState,
             includeHardware: 'auto' as const,
+            preserveMeshPaths: true,
           }
         : null,
     [currentRobotSourceState, isSelectedUsdHydrating, selectedFile?.format, shouldRenderAssembly],

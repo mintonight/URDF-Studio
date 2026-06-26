@@ -7,7 +7,13 @@ import { JSDOM } from 'jsdom';
 
 import type { GenerateEditableRobotSourceOptions } from '@/app/utils/generateEditableRobotSource';
 import type { RobotImportWorkerResponse } from '@/app/utils/robotImportWorker';
-import { DEFAULT_LINK, type AssemblyState, type RobotFile, type RobotState } from '@/types';
+import {
+  DEFAULT_LINK,
+  GeometryType,
+  type AssemblyState,
+  type RobotFile,
+  type RobotState,
+} from '@/types';
 
 import { disposeRobotImportWorker } from '../robotImportWorkerBridge';
 import { useGeneratedRobotSource } from './useGeneratedRobotSource';
@@ -375,6 +381,116 @@ test('useDeferredWorkspaceSourceSync ignores late immediate results after the wo
   }
 });
 
+test('useDeferredWorkspaceSourceSync preserves URDF mesh paths for component sources', async () => {
+  const { dom, root } = createComponentRoot();
+  const workerEnv = createFakeWorkerEnvironment();
+  const syncCalls: Array<{ fileName: string; content: string }> = [];
+  const selectedFile = {
+    name: 'pr2_description/urdf/pr2_simplified.urdf',
+    format: 'urdf',
+    content: '<robot name="pr2" />',
+  } as const satisfies RobotFile;
+  const componentRobot: RobotState = {
+    name: 'pr2',
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        ...DEFAULT_LINK,
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          ...DEFAULT_LINK.visual,
+          type: GeometryType.MESH,
+          meshPath: 'pr2_description/meshes/base_v0/base.stl',
+        },
+      },
+    },
+    joints: {},
+    selection: { type: null, id: null },
+  };
+  const assemblyState: AssemblyState = {
+    name: 'pr2_assembly',
+    components: {
+      pr2: {
+        id: 'pr2',
+        name: 'pr2',
+        sourceFile: selectedFile.name,
+        robot: componentRobot,
+        visible: true,
+      },
+    },
+    bridges: {},
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(DeferredHookHarness, {
+          shouldRenderAssembly: true,
+          assemblyState,
+          isCodeViewerOpen: true,
+          selectedFile,
+          availableFiles: [selectedFile],
+          allFileContents: {
+            [selectedFile.name]: selectedFile.content,
+          },
+          generatedSourceCache: new Map<string, string>(),
+          syncTextFileContent: (fileName, content) => {
+            syncCalls.push({ fileName, content });
+          },
+          setSelectedFile: () => {
+            assert.fail('immediate sync should use syncTextFileContent for the selected file');
+          },
+          setAvailableFiles: () => {
+            assert.fail('immediate sync should use syncTextFileContent for available files');
+          },
+          setAllFileContents: () => {
+            assert.fail('immediate sync should use syncTextFileContent for cached file content');
+          },
+        }),
+      );
+    });
+
+    const worker = workerEnv.instances[0];
+    assert.ok(worker, 'expected worker to be created');
+    assert.equal(worker.postedMessages.length, 1);
+    const request = worker.postedMessages[0] as {
+      requestId: number;
+      type: string;
+      options: GenerateEditableRobotSourceOptions;
+    };
+    assert.equal(request.type, 'generate-editable-robot-source');
+    assert.equal(request.options.format, 'urdf');
+    assert.equal(request.options.preserveMeshPaths, true);
+    assert.equal(
+      request.options.robotState.links.base_link?.visual.meshPath,
+      'pr2_description/meshes/base_v0/base.stl',
+    );
+
+    await act(async () => {
+      worker.emitMessage({
+        type: 'generate-editable-robot-source-result',
+        requestId: request.requestId,
+        result: '<robot name="pr2" />',
+      });
+      await Promise.resolve();
+    });
+
+    assert.deepEqual(syncCalls, [
+      {
+        fileName: selectedFile.name,
+        content: '<robot name="pr2" />',
+      },
+    ]);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    workerEnv.restore();
+    dom.window.close();
+  }
+});
+
 test('useDeferredWorkspaceSourceSync does not overwrite SDF component sources', async () => {
   const { dom, root } = createComponentRoot();
   const workerEnv = createFakeWorkerEnvironment();
@@ -436,6 +552,82 @@ test('useDeferredWorkspaceSourceSync does not overwrite SDF component sources', 
           },
           setAllFileContents: () => {
             assert.fail('SDF text cache should not be overwritten');
+          },
+        }),
+      );
+      await wait(30);
+    });
+
+    assert.equal(workerEnv.instances.length, 0);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    workerEnv.restore();
+    dom.window.close();
+  }
+});
+
+test('useDeferredWorkspaceSourceSync skips source files shared by multiple components', async () => {
+  // Regression: importing two instances of the same robot (e.g. several KUKA
+  // kr16) yields two assembly components that share one imported source file but
+  // hold differently namespaced robot data. Generating each instance's editable
+  // source and writing it back into the single shared library slot used to
+  // ping-pong between instances every render and trip React's "Maximum update
+  // depth exceeded", blanking the whole app. The shared source file must be left
+  // untouched (no generation, no write-back).
+  const { dom, root } = createComponentRoot();
+  const workerEnv = createFakeWorkerEnvironment();
+  const selectedFile = {
+    name: 'kuka_kr16_support/urdf/kr16_2.urdf',
+    format: 'urdf',
+    content: '<robot name="kuka_kr16_2" />',
+  } as const satisfies RobotFile;
+  const assemblyState: AssemblyState = {
+    name: 'kuka_assembly',
+    components: {
+      kuka_kr16_2: {
+        id: 'kuka_kr16_2',
+        name: 'kuka_kr16_2',
+        sourceFile: selectedFile.name,
+        robot: createRobotState('kuka_kr16_2'),
+        visible: true,
+      },
+      kuka_kr16_2_1: {
+        id: 'kuka_kr16_2_1',
+        name: 'kuka_kr16_2_1',
+        sourceFile: selectedFile.name,
+        robot: createRobotState('kuka_kr16_2_1'),
+        visible: true,
+      },
+    },
+    bridges: {},
+  };
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(DeferredHookHarness, {
+          shouldRenderAssembly: true,
+          assemblyState,
+          isCodeViewerOpen: false,
+          selectedFile,
+          availableFiles: [selectedFile],
+          allFileContents: {
+            [selectedFile.name]: selectedFile.content,
+          },
+          generatedSourceCache: new Map<string, string>(),
+          syncTextFileContent: () => {
+            assert.fail('source files shared by multiple components should not be synced');
+          },
+          setSelectedFile: () => {
+            assert.fail('shared component source file should not be overwritten');
+          },
+          setAvailableFiles: () => {
+            assert.fail('shared component source file should not be overwritten');
+          },
+          setAllFileContents: () => {
+            assert.fail('shared component source file should not be overwritten');
           },
         }),
       );

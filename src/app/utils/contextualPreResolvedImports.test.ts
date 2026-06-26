@@ -176,6 +176,55 @@ test('buildContextualPreResolvedImports ignores non-xacro files', async () => {
   }
 });
 
+test('buildContextualPreResolvedImports pre-resolves an explicit URDF preferred file with deferred asset paths', async () => {
+  const workerMock = installRobotImportWorkerMock();
+  const robotFiles: RobotFile[] = [
+    {
+      name: 'pr2_description/urdf/pr2_simplified.urdf',
+      format: 'urdf',
+      content: `<robot name="pr2">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://drake/examples/pr2/models/pr2_description/meshes/base_v0/base.stl" />
+      </geometry>
+    </visual>
+  </link>
+</robot>`,
+    },
+  ];
+
+  try {
+    const result = await buildContextualPreResolvedImports(
+      robotFiles,
+      {
+        availableFiles: robotFiles,
+        allFileContents: {},
+        assets: {
+          'pr2_description/meshes/base_v0/base.stl': 'deferred-asset-path-hint',
+        },
+      },
+      {
+        preferredFileName: 'pr2_description/urdf/pr2_simplified.urdf',
+      },
+    );
+
+    assert.equal(result.length, 1);
+    assert.equal(result[0]?.fileName, 'pr2_description/urdf/pr2_simplified.urdf');
+    assert.equal(result[0]?.format, 'urdf');
+    assert.equal(result[0]?.result.status, 'ready');
+    if (result[0]?.result.status !== 'ready') {
+      assert.fail('Expected preferred URDF result to be ready');
+    }
+    assert.equal(
+      result[0].result.robotData.links.base_link?.visual.meshPath,
+      'pr2_description/meshes/base_v0/base.stl',
+    );
+  } finally {
+    workerMock.restore();
+  }
+});
+
 test('buildContextualPreResolvedImports resolves xacro context through the import worker path when Worker is available', async () => {
   const workerMock = installRobotImportWorkerMock();
 

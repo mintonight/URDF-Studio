@@ -1,4 +1,14 @@
-const IMAGE_ASSET_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'bmp', 'tga', 'tiff', 'tif', 'webp']);
+const IMAGE_ASSET_EXTENSIONS = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'bmp',
+  'tga',
+  'tiff',
+  'tif',
+  'webp',
+  'hdr',
+]);
 
 export function getAssetFileExtension(path: string): string {
   const normalizedPath = String(path || '')

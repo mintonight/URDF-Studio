@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as THREE from 'three';
 
 import { buildAssetIndex, resolveManagedAssetUrl } from '@/core/loaders';
+import { registerManagedTextureHandlers } from '@/core/loaders/textureLoaderHandlers';
 import { loadColladaScene } from '@/core/loaders/colladaParseWorkerBridge';
 import { loadObjScene } from '@/core/loaders/objMaterialUtils';
 import { loadSerializedStlGeometryData } from '@/core/loaders/stlParseWorkerBridge';
@@ -25,6 +26,7 @@ function createManagedLoadingManager(
   const assetIndex = buildAssetIndex(assets, assetBaseDir);
 
   manager.setURLModifier((url) => resolveManagedAssetUrl(url, assetIndex, assetBaseDir));
+  registerManagedTextureHandlers(manager);
 
   return manager;
 }

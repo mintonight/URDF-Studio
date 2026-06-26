@@ -460,6 +460,54 @@ test('createMeshLoader reuses parsed STL assets for concurrent duplicate request
   }
 });
 
+test('createMeshLoader parses same-stem STL fallback assets using the resolved asset extension', async () => {
+  const stlContent = [
+    'solid r_clav',
+    'facet normal 0 0 1',
+    ' outer loop',
+    '  vertex 0 0 0',
+    '  vertex 1 0 0',
+    '  vertex 0 1 0',
+    ' endloop',
+    'endfacet',
+    'endsolid r_clav',
+  ].join('\n');
+  const stlDataUrl = `data:model/stl;base64,${Buffer.from(stlContent).toString('base64')}`;
+  const manager = new THREE.LoadingManager();
+  const originalWorker = (globalThis as { Worker?: typeof Worker }).Worker;
+  const loadMesh = createMeshLoader(
+    {
+      'urdf/meshes/r_clav.stl': stlDataUrl,
+    },
+    manager,
+    'urdf/',
+  );
+
+  disposeStlParseWorkerPoolClient();
+  delete (globalThis as { Worker?: typeof Worker }).Worker;
+
+  try {
+    const loadedObject = await new Promise<THREE.Object3D>((resolve, reject) => {
+      loadMesh('package://Atlas/urdf/meshes/r_clav.obj', manager, (result, err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        resolve(result!);
+      });
+    });
+
+    assert.ok(loadedObject instanceof THREE.Mesh);
+    assert.ok((loadedObject as THREE.Mesh).geometry.getAttribute('position'));
+  } finally {
+    disposeStlParseWorkerPoolClient();
+    if (originalWorker) {
+      (globalThis as { Worker?: typeof Worker }).Worker = originalWorker;
+    }
+  }
+});
+
 test('createMeshLoader honors a custom yield controller without forcing animation-frame yields', async () => {
   const stlContent = [
     'solid triangle',
@@ -1605,6 +1653,18 @@ test('findAssetByIndex approximates legacy filename stems when the repo only con
   );
 });
 
+test('findAssetByIndex falls back from missing OBJ references to same-stem STL assets', () => {
+  const assets = {
+    'urdf/meshes/r_clav.stl': 'blob:r-clav-stl',
+  };
+  const index = buildAssetIndex(assets, 'urdf/');
+
+  assert.equal(
+    findAssetByIndex('package://Atlas/urdf/meshes/r_clav.obj', index, 'urdf/'),
+    'blob:r-clav-stl',
+  );
+});
+
 test('findAssetByIndex strips visual and collision filename suffix aliases when the canonical mesh exists', () => {
   const assets = {
     'onshape-to-robot-examples/quadruped_sdf/doubleu.stl': 'blob:doubleu',
@@ -1658,6 +1718,16 @@ test('findAssetByIndex leaves ambiguous approximate filename matches unresolved'
     ),
     null,
   );
+});
+
+test('findAssetByIndex leaves ambiguous OBJ to STL fallback matches unresolved', () => {
+  const assets = {
+    'left/meshes/cover.stl': 'blob:left-cover',
+    'right/meshes/cover.stl': 'blob:right-cover',
+  };
+  const index = buildAssetIndex(assets, 'robot/urdf/');
+
+  assert.equal(findAssetByIndex('package://robot/meshes/cover.obj', index, 'robot/urdf/'), null);
 });
 
 test('createMeshLoader loads Romeo local .mesh references through imported visual DAE aliases', async () => {

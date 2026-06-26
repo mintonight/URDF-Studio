@@ -12,6 +12,18 @@ function isBlockingGizmoNode(object: THREE.Object3D | null): boolean {
   return !isSelectableHelperNode(object);
 }
 
+function resolveVisibleHandleAxis(object: THREE.Object3D | null): string | null {
+  let current: THREE.Object3D | null = object;
+  while (current) {
+    if (current.userData?.urdfVisibleHandleTarget === true) {
+      const axis = current.userData?.urdfAxis;
+      return typeof axis === 'string' && axis.length > 0 ? axis : null;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
 export function isGizmoObject(object: THREE.Object3D | null): boolean {
   let current: THREE.Object3D | null = object;
   while (current) {
@@ -46,6 +58,11 @@ export function collectGizmoRaycastTargets(scene: THREE.Object3D): THREE.Object3
  * handle is being hovered.
  */
 export function resolveGizmoHoverAxis(gizmoHitObject: THREE.Object3D): string | null {
+  const visibleHandleAxis = resolveVisibleHandleAxis(gizmoHitObject);
+  if (visibleHandleAxis) {
+    return visibleHandleAxis;
+  }
+
   let current: THREE.Object3D | null = gizmoHitObject;
   while (current) {
     if (typeof (current as any).dragging === 'boolean' && 'axis' in current) {

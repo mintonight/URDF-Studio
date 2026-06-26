@@ -196,6 +196,73 @@ test('prepareUsdStageOpenDataCore materializes preload blobs and keeps optional 
   }
 });
 
+test('prepareUsdStageOpenDataCore preloads bundle USD layers when binary root references are opaque', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchCalls: string[] = [];
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    fetchCalls.push(url);
+
+    return new Response(new Blob([url], { type: 'application/octet-stream' }), {
+      status: 200,
+    });
+  }) as typeof fetch;
+
+  try {
+    const result = await prepareUsdStageOpenDataCore(
+      {
+        name: 'FrankaEmika/panda_instanceable.usd',
+        content: '',
+        blobUrl: 'blob:panda-root',
+      },
+      [
+        {
+          name: 'FrankaEmika/panda_instanceable.usd',
+          content: '',
+          blobUrl: 'blob:panda-root',
+          format: 'usd',
+        },
+        {
+          name: 'FrankaEmika/Props/panda_link0.usd',
+          content: '',
+          blobUrl: 'blob:panda-link0',
+          format: 'usd',
+        },
+        {
+          name: 'FrankaEmika/Props/instanceable_collision_meshes.usd',
+          content: '',
+          blobUrl: 'blob:panda-collisions',
+          format: 'usd',
+        },
+        {
+          name: 'OtherRobot/Props/not-a-dependency.usd',
+          content: '',
+          blobUrl: 'blob:other-layer',
+          format: 'usd',
+        },
+      ],
+      {},
+    );
+
+    assert.deepEqual(
+      result.preloadFiles.map((entry) => entry.path),
+      [
+        '/FrankaEmika/Props/instanceable_collision_meshes.usd',
+        '/FrankaEmika/Props/panda_link0.usd',
+        '/FrankaEmika/panda_instanceable.usd',
+      ],
+    );
+    assert.deepEqual(fetchCalls.sort(), [
+      'blob:panda-collisions',
+      'blob:panda-link0',
+      'blob:panda-root',
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('prepareUsdStageOpenDataCore keeps Isaac-style USDA sidecars as critical dependencies', async () => {
   const result = await prepareUsdStageOpenDataCore(
     {

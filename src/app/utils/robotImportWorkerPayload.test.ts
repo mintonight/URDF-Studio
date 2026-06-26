@@ -171,6 +171,27 @@ test('buildResolveRobotImportWorkerDispatch forwards exact URDF source context o
   );
   assert.deepEqual(result.contextSnapshot?.allFileContents, {
     '/robots/demo/urdf/demo.urdf': '<robot name="text"><link name="base_link" /></robot>',
+    'robots/demo/materials/demo.material': 'material Demo {}',
+  });
+});
+
+test('buildResolveRobotImportWorkerDispatch preserves URDF asset path context for inline sources', () => {
+  const result = buildResolveRobotImportWorkerDispatch(demoUrdfFile, {
+    assets: {
+      'robots/demo/meshes/base.stl': 'blob:base',
+    },
+    allFileContents: {
+      'robots/demo/meshes/base.obj': 'o Base',
+    },
+  });
+
+  assert.deepEqual(result.options, {});
+  assert.equal(typeof result.contextCacheKey, 'string');
+  assert.deepEqual(result.contextSnapshot?.assets, {
+    'robots/demo/meshes/base.stl': 'blob:base',
+  });
+  assert.deepEqual(result.contextSnapshot?.allFileContents, {
+    'robots/demo/meshes/base.obj': 'o Base',
   });
 });
 

@@ -518,8 +518,29 @@ export function findStandaloneXacroTruthFile(
   return candidateTruthFiles.length === 1 ? candidateTruthFiles[0] : null;
 }
 
+function isClosedRobotDocument(content: string): boolean {
+  return /<robot\b[^>]*>[\s\S]*<\/robot>/i.test(content) || /<robot\b[^>]*\/>/i.test(content);
+}
+
+function isWellFormedXmlDocument(content: string): boolean {
+  if (typeof DOMParser === 'undefined') {
+    return isClosedRobotDocument(content);
+  }
+
+  const document = new DOMParser().parseFromString(content, 'text/xml');
+  return document.querySelector('parsererror') === null;
+}
+
+export function isSourceOnlyRobotDocument(urdfContent: string): boolean {
+  return (
+    isClosedRobotDocument(urdfContent) &&
+    isWellFormedXmlDocument(urdfContent) &&
+    !/<\s*link\b/i.test(urdfContent)
+  );
+}
+
 export function isSourceOnlyXacroDocument(urdfContent: string): boolean {
-  return /<robot\b/i.test(urdfContent) && !/<link\b/i.test(urdfContent);
+  return isSourceOnlyRobotDocument(urdfContent);
 }
 
 function shouldValidateMJCFExternalAssets(
@@ -602,10 +623,13 @@ export function resolveRobotFileData(
               ...(meshTextMaterialAssetPaths ? { assetPaths: meshTextMaterialAssetPaths } : {}),
             };
         if (!parsed) {
+          const isSourceOnlyFragment = isSourceOnlyRobotDocument(resolvedUrdfSource.content);
           return createErrorImportResult(
             file,
-            'parse_failed',
-            buildImportFailureMessage(file, buildImportFailureDetail(file, parsePhase)),
+            isSourceOnlyFragment ? 'source_only_fragment' : 'parse_failed',
+            isSourceOnlyFragment
+              ? undefined
+              : buildImportFailureMessage(file, buildImportFailureDetail(file, parsePhase)),
           );
         }
 

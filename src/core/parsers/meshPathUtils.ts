@@ -42,6 +42,27 @@ const TEXTURE_EXPORT_ROOT_SEGMENTS = new Set([
   'images',
 ]);
 
+const PACKAGE_ASSET_ROOT_SEGMENTS = new Set([
+  ...MESH_EXPORT_ROOT_SEGMENTS,
+  ...TEXTURE_EXPORT_ROOT_SEGMENTS,
+  'image',
+  'images',
+  'media',
+  'thumbnail',
+  'thumbnails',
+]);
+
+const SOURCE_LAYOUT_DIRECTORIES = new Set([
+  'urdf',
+  'xacro',
+  'sdf',
+  'mjcf',
+  'usd',
+  'xml',
+  'robots',
+  'models',
+]);
+
 function slicePathFromKnownRoot(
   normalizedPath: string,
   rootSegments: ReadonlySet<string>,
@@ -160,7 +181,8 @@ function resolvePackageAssetPathFromCandidates(
     return null;
   }
 
-  const suffixMatches: string[] = [];
+  const packageAssetReferencePaths = buildPackageAssetReferencePaths(normalizedPackageAssetPath);
+  const suffixMatches: Array<{ path: string; score: number }> = [];
 
   for (const candidatePath of candidateAssetPaths) {
     const normalizedCandidatePath = normalizeAssetPathForComparison(candidatePath);
@@ -168,21 +190,29 @@ function resolvePackageAssetPathFromCandidates(
       continue;
     }
 
-    if (normalizedCandidatePath === normalizedPackageAssetPath) {
-      return normalizedCandidatePath;
-    }
-
-    if (normalizedCandidatePath.endsWith(`/${normalizedPackageAssetPath}`)) {
-      suffixMatches.push(normalizedCandidatePath);
-    }
+    packageAssetReferencePaths.forEach((referencePath) => {
+      if (
+        normalizedCandidatePath === referencePath ||
+        normalizedCandidatePath.endsWith(`/${referencePath}`)
+      ) {
+        suffixMatches.push({
+          path: normalizedCandidatePath,
+          score: referencePath.split('/').length,
+        });
+      }
+    });
   }
 
   if (suffixMatches.length === 0) {
     return null;
   }
 
-  if (suffixMatches.length === 1) {
-    return suffixMatches[0];
+  const bestReferenceScore = Math.max(...suffixMatches.map((match) => match.score));
+  const bestReferenceMatches = suffixMatches.filter((match) => match.score === bestReferenceScore);
+  const uniqueMatches = Array.from(new Set(bestReferenceMatches.map((match) => match.path)));
+
+  if (uniqueMatches.length === 1) {
+    return uniqueMatches[0];
   }
 
   const normalizedSourcePath = normalizeAssetPathForComparison(sourceFilePath ?? '');
@@ -194,7 +224,7 @@ function resolvePackageAssetPathFromCandidates(
   let bestScore = 0;
   let isAmbiguous = false;
 
-  suffixMatches.forEach((candidatePath) => {
+  uniqueMatches.forEach((candidatePath) => {
     const score = countCommonLeadingSegments(candidatePath, normalizedSourcePath);
     if (score > bestScore) {
       bestMatch = candidatePath;
@@ -211,6 +241,26 @@ function resolvePackageAssetPathFromCandidates(
   return bestMatch && bestScore > 0 && !isAmbiguous ? bestMatch : null;
 }
 
+function buildPackageAssetReferencePaths(normalizedPackageAssetPath: string): string[] {
+  const segments = normalizedPackageAssetPath.split('/').filter(Boolean);
+  const referencePaths = new Set<string>([normalizedPackageAssetPath]);
+
+  segments.forEach((segment, index) => {
+    if (!PACKAGE_ASSET_ROOT_SEGMENTS.has(segment.toLowerCase())) {
+      return;
+    }
+
+    for (let startIndex = 1; startIndex <= index; startIndex += 1) {
+      const suffix = segments.slice(startIndex).join('/');
+      if (suffix) {
+        referencePaths.add(suffix);
+      }
+    }
+  });
+
+  return [...referencePaths];
+}
+
 /**
  * Directory of the source robot file, always with forward slashes and a trailing slash.
  */
@@ -223,6 +273,49 @@ export const getSourceFileDirectory = (sourceFilePath?: string | null): string =
 
   return normalized.slice(0, lastSlash + 1);
 };
+
+function getSourceBundleRootSegments(sourceFilePath?: string | null): string[] {
+  const normalizedSourcePath = normalizeAssetPathForComparison(sourceFilePath ?? '');
+  if (!normalizedSourcePath) {
+    return [];
+  }
+
+  const sourceSegments = normalizedSourcePath.split('/').filter(Boolean);
+  if (sourceSegments.length <= 1) {
+    return [];
+  }
+
+  const layoutDirectoryIndex = sourceSegments.findIndex(
+    (segment, index) => index > 0 && SOURCE_LAYOUT_DIRECTORIES.has(segment.toLowerCase()),
+  );
+  if (layoutDirectoryIndex > 0) {
+    return sourceSegments.slice(0, layoutDirectoryIndex);
+  }
+
+  return [sourceSegments[0]];
+}
+
+function isBundleRootedAssetPath(
+  normalizedAssetPath: string,
+  sourceFilePath?: string | null,
+): boolean {
+  const assetSegments = normalizeRelativePath(normalizedAssetPath).split('/').filter(Boolean);
+  const sourceRootSegments = getSourceBundleRootSegments(sourceFilePath);
+  if (sourceRootSegments.length === 0 || assetSegments.length <= sourceRootSegments.length) {
+    return false;
+  }
+
+  const startsWithSourceRoot = sourceRootSegments.every(
+    (segment, index) => assetSegments[index] === segment,
+  );
+  if (!startsWithSourceRoot) {
+    return false;
+  }
+
+  return assetSegments
+    .slice(sourceRootSegments.length)
+    .some((segment) => PACKAGE_ASSET_ROOT_SEGMENTS.has(segment.toLowerCase()));
+}
 
 /**
  * Resolve an imported asset path against the directory of its source robot file.
@@ -262,22 +355,14 @@ export const resolveImportedAssetPath = (
   if (!normalized) return raw;
   if (!sourceDir) return normalizeRelativePath(normalized);
   if (normalized.startsWith(sourceDir)) return normalizeRelativePath(normalized);
+  if (isBundleRootedAssetPath(normalized, sourceFilePath)) {
+    return normalizeRelativePath(normalized);
+  }
 
   return normalizeRelativePath(`${sourceDir}${normalized}`);
 };
 
 type RobotWithLinks = RobotData | RobotState;
-
-const SOURCE_LAYOUT_DIRECTORIES = new Set([
-  'urdf',
-  'xacro',
-  'sdf',
-  'mjcf',
-  'usd',
-  'xml',
-  'robots',
-  'models',
-]);
 
 const IMPORTED_ASSET_DIRECTORY_HINTS = new Set([
   'materials',

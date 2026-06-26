@@ -137,3 +137,71 @@ test('buildInspectionPromptNotes rewrites generated MJCF body and site names int
   assert.doesNotMatch(notes, /world_body_0/);
   assert.doesNotMatch(notes, /site_0/);
 });
+
+test('buildInspectionPromptNotes emits URDF diagnostic evidence for AI review', () => {
+  const robot: RobotState = {
+    name: 'urdf-diagnostics-fixture',
+    rootLinkId: 'base_link',
+    links: {
+      base_link: {
+        id: 'base_link',
+        name: 'base_link',
+        visual: {
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#ffffff',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collision: {
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#000000',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+      },
+    },
+    joints: {},
+    inspectionContext: {
+      sourceFormat: 'urdf',
+      urdf: {
+        diagnosticCounts: { error: 1, warning: 2, info: 0 },
+        facts: {
+          linkCount: 1,
+          jointCount: 0,
+          visualCount: 1,
+          collisionCount: 1,
+          inertialCount: 0,
+          materialCount: 0,
+          meshCount: 0,
+          syntheticParentLinkCount: 0,
+          disconnectedRootCount: 1,
+        },
+        diagnostics: [
+          {
+            code: 'movable_joint_missing_limit',
+            severity: 'error',
+            category: 'joint',
+            message: 'Joint "elbow_joint" has no <limit> element.',
+            relatedIds: ['elbow_joint'],
+          },
+          {
+            code: 'inertial_mass_nonpositive',
+            severity: 'warning',
+            category: 'physical',
+            message: 'Link "base_link" has missing or non-positive inertial mass.',
+            relatedIds: ['base_link'],
+          },
+        ],
+      },
+    },
+    selection: { type: 'link', id: 'base_link' },
+  };
+
+  const notes = buildInspectionPromptNotes(robot, undefined, 'zh');
+
+  assert.match(notes, /URDF 摘要/);
+  assert.match(notes, /诊断计数：1 个 error，2 个 warning，0 个 info/);
+  assert.match(notes, /movable_joint_missing_limit/);
+  assert.match(notes, /elbow_joint/);
+  assert.match(notes, /inertial_mass_nonpositive/);
+});

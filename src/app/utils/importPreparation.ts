@@ -4,6 +4,7 @@ import {
   type RobotImportResult,
 } from '@/core/parsers/importRobotFile';
 import { resolveImportedAssetPath } from '@/core/parsers/meshPathUtils';
+import { isImageAssetPath } from '@/core/utils/assetFileTypes';
 import {
   MJCF_SOURCE_FILE_SCOPE_ATTR,
   resolveMJCFSource,
@@ -256,6 +257,66 @@ function isObjImportPath(path: string): boolean {
   return path.toLowerCase().endsWith('.obj');
 }
 
+function isDaeImportPath(path: string): boolean {
+  return path.toLowerCase().endsWith('.dae');
+}
+
+// Extract the external texture file paths a COLLADA (.dae) references from its
+// <library_images>. Handles both COLLADA 1.4.x (<init_from>path</init_from>) and 1.5.0
+// (<init_from><ref>file://path</ref></init_from>), and ignores image-id references found
+// in sampler/surface bindings (those have no file extension).
+function parseDaeTextureReferencePaths(daePath: string, content: string): string[] {
+  let doc: Document;
+  try {
+    doc = new DOMParser().parseFromString(content, 'text/xml');
+  } catch {
+    return [];
+  }
+  if (doc.querySelector('parsererror')) {
+    return [];
+  }
+
+  const texturePaths = new Set<string>();
+  doc.querySelectorAll('library_images image').forEach((imageElement) => {
+    const initFrom = imageElement.querySelector('init_from');
+    if (!initFrom) {
+      return;
+    }
+
+    const refElement = initFrom.querySelector('ref');
+    const rawValue = (refElement?.textContent ?? initFrom.textContent ?? '').trim();
+    if (!rawValue) {
+      return;
+    }
+
+    const cleanedValue = decodeDaeImageReference(rawValue);
+    // Only accept values that look like image files; this skips bare image-id references.
+    if (!isImageAssetPath(cleanedValue)) {
+      return;
+    }
+
+    const resolvedPath = normalizeResolvedImportAssetPath(cleanedValue, daePath);
+    if (resolvedPath) {
+      texturePaths.add(resolvedPath);
+    }
+  });
+
+  return [...texturePaths];
+}
+
+function decodeDaeImageReference(value: string): string {
+  let result = value.trim();
+  if (result.toLowerCase().startsWith('file://')) {
+    result = result.slice('file://'.length);
+  }
+  try {
+    result = decodeURIComponent(result);
+  } catch {
+    // Keep the raw value when it is not valid percent-encoding.
+  }
+  return result;
+}
+
 function parseObjMaterialLibraryPaths(meshPath: string, content: string): string[] {
   const materialLibraryPaths = new Set<string>();
   const matches = content.matchAll(/^[ \t]*mtllib[ \t]+(.+)$/gim);
@@ -279,46 +340,198 @@ function parseObjMaterialLibraryPaths(meshPath: string, content: string): string
   return [...materialLibraryPaths];
 }
 
-function collectPreferredObjMaterialMeshPaths(
+function parseMtlTexturePath(line: string): string | null {
+  const tokens = line.trim().split(/\s+/).slice(1);
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  for (let index = tokens.length - 1; index >= 0; index -= 1) {
+    const token = tokens[index]?.trim();
+    if (!token || token.startsWith('-')) {
+      continue;
+    }
+    return token;
+  }
+
+  return null;
+}
+
+function parseMtlTextureReferencePaths(materialPath: string, content: string): string[] {
+  const texturePaths = new Set<string>();
+
+  content.split(/\r?\n/).forEach((line) => {
+    if (!/^[ \t]*(?:map_|bump|disp|decal|refl)[^\s]*\b/i.test(line)) {
+      return;
+    }
+
+    const texturePath = parseMtlTexturePath(line);
+    if (!texturePath) {
+      return;
+    }
+
+    const resolvedPath = normalizeResolvedImportAssetPath(texturePath, materialPath);
+    if (resolvedPath) {
+      texturePaths.add(resolvedPath);
+    }
+  });
+
+  return [...texturePaths];
+}
+
+type DeferredImageAssetIndex = {
+  byNormalizedName: Map<string, PreparedDeferredImportAssetFile>;
+  byBasename: Map<string, PreparedDeferredImportAssetFile[]>;
+};
+
+// Index deferred image assets for texture-sidecar resolution. Unlike resolveMeshAssetUrl,
+// this only ever resolves to image files, so an MTL/DAE texture reference can never be
+// mismatched to a neighbouring mesh that happens to share its stem (e.g. foo.png -> foo.obj,
+// which resolveMeshAssetUrl does on purpose for mesh-format fallbacks).
+function indexDeferredImageAssets(
+  deferredAssetFiles: readonly PreparedDeferredImportAssetFile[],
+): DeferredImageAssetIndex {
+  const byNormalizedName = new Map<string, PreparedDeferredImportAssetFile>();
+  const byBasename = new Map<string, PreparedDeferredImportAssetFile[]>();
+
+  for (const file of deferredAssetFiles) {
+    if (!isImageAssetPath(file.name)) {
+      continue;
+    }
+
+    const normalizedName = normalizeImportPath(file.name);
+    if (!byNormalizedName.has(normalizedName)) {
+      byNormalizedName.set(normalizedName, file);
+    }
+
+    const basename = normalizedName.split('/').pop() ?? '';
+    if (!basename) {
+      continue;
+    }
+
+    const existing = byBasename.get(basename);
+    if (existing) {
+      existing.push(file);
+    } else {
+      byBasename.set(basename, [file]);
+    }
+  }
+
+  return { byNormalizedName, byBasename };
+}
+
+function resolveDeferredTextureAsset(
+  texturePath: string,
+  index: DeferredImageAssetIndex,
+): PreparedDeferredImportAssetFile | null {
+  const normalizedTexturePath = normalizeImportPath(texturePath);
+  const exactMatch = index.byNormalizedName.get(normalizedTexturePath);
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const basename = normalizedTexturePath.split('/').pop() ?? '';
+  if (!basename) {
+    return null;
+  }
+
+  const candidates = index.byBasename.get(basename);
+  if (!candidates || candidates.length === 0) {
+    return null;
+  }
+  if (candidates.length === 1) {
+    return candidates[0] ?? null;
+  }
+
+  // Multiple images share this basename — prefer the candidate whose path shares the most
+  // trailing segments with the referenced path (a full relative-path match scores highest).
+  // This avoids hydrating an unrelated same-named texture from a different directory.
+  let bestMatch = candidates[0] ?? null;
+  let bestScore = -1;
+  for (const candidate of candidates) {
+    const score = countCommonTrailingPathSegments(
+      normalizeImportPath(candidate.name),
+      normalizedTexturePath,
+    );
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = candidate;
+    }
+  }
+  return bestMatch;
+}
+
+function countCommonTrailingPathSegments(left: string, right: string): number {
+  const leftSegments = left.split('/');
+  const rightSegments = right.split('/');
+  let count = 0;
+  let leftIndex = leftSegments.length - 1;
+  let rightIndex = rightSegments.length - 1;
+  while (leftIndex >= 0 && rightIndex >= 0 && leftSegments[leftIndex] === rightSegments[rightIndex]) {
+    count += 1;
+    leftIndex -= 1;
+    rightIndex -= 1;
+  }
+  return count;
+}
+
+// Collect every text-mesh (OBJ or DAE) whose material/texture sidecars should be hydrated
+// during import. Unlike the earlier "preferred file only" logic, this scans the references
+// of *every* URDF/SDF definition (not just the preferred one), so multi-robot bundles and
+// meshes referenced by non-preferred definitions still get their materials. It deliberately
+// does NOT pull in loose meshes that no definition references — the malformed-XML import
+// guards rely on this — except for a direct standalone mesh import.
+function collectReferencedSidecarMeshPaths(
   robotFiles: readonly RobotFile[],
   preResolvePreferredImport: boolean,
+  matchesMeshExtension: (path: string) => boolean,
 ): Set<string> {
+  const meshPaths = new Set<string>();
+
+  for (const robotFile of robotFiles) {
+    if (robotFile.format !== 'urdf' && robotFile.format !== 'sdf') {
+      continue;
+    }
+
+    extractStandaloneImportAssetReferences(robotFile, {
+      sourcePath: robotFile.name,
+    }).forEach((assetPath) => {
+      if (!matchesMeshExtension(assetPath)) {
+        return;
+      }
+
+      const resolvedPath = normalizeResolvedImportAssetPath(assetPath, robotFile.name);
+      if (resolvedPath) {
+        meshPaths.add(resolvedPath);
+      }
+    });
+  }
+
+  // Direct standalone mesh import (a bare mesh with no referencing robot definition).
   const visibleRobotFiles = robotFiles.filter(isVisibleLibraryEntry);
   const preferredFile =
     preResolvePreferredImport !== false
       ? pickPreferredImportFile(visibleRobotFiles, [...robotFiles])
       : pickFastPreparedPreferredFile([...visibleRobotFiles], [...robotFiles]);
-  const objMeshPaths = new Set<string>();
-
-  if (!preferredFile) {
-    return objMeshPaths;
+  if (preferredFile?.format === 'mesh' && matchesMeshExtension(preferredFile.name)) {
+    meshPaths.add(normalizeImportPath(preferredFile.name));
   }
 
-  if (preferredFile.format === 'mesh') {
-    if (isObjImportPath(preferredFile.name)) {
-      objMeshPaths.add(normalizeImportPath(preferredFile.name));
-    }
-    return objMeshPaths;
-  }
+  return meshPaths;
+}
 
-  if (preferredFile.format !== 'urdf' && preferredFile.format !== 'sdf') {
-    return objMeshPaths;
-  }
+function collectAllObjMaterialMeshPaths(
+  robotFiles: readonly RobotFile[],
+  preResolvePreferredImport: boolean,
+): Set<string> {
+  return collectReferencedSidecarMeshPaths(robotFiles, preResolvePreferredImport, isObjImportPath);
+}
 
-  extractStandaloneImportAssetReferences(preferredFile, {
-    sourcePath: preferredFile.name,
-  }).forEach((assetPath) => {
-    if (!isObjImportPath(assetPath)) {
-      return;
-    }
-
-    const resolvedPath = normalizeResolvedImportAssetPath(assetPath, preferredFile.name);
-    if (resolvedPath) {
-      objMeshPaths.add(resolvedPath);
-    }
-  });
-
-  return objMeshPaths;
+function collectAllDaeTextureMeshPaths(
+  robotFiles: readonly RobotFile[],
+  preResolvePreferredImport: boolean,
+): Set<string> {
+  return collectReferencedSidecarMeshPaths(robotFiles, preResolvePreferredImport, isDaeImportPath);
 }
 
 type MjcfScopedCompilerDirectories = {
@@ -630,13 +843,13 @@ function appendPreparedImportBlobFileIfMissing(
 
 async function appendObjMaterialSidecarsFromLooseFiles(
   payload: CollectedImportPayload,
-  mirroredTextMeshFiles: readonly { path: string; file: File }[],
+  looseTextMeshFilesByPath: ReadonlyMap<string, File>,
   auxiliaryTextFiles: readonly { path: string; file: File }[],
   targetObjPaths: ReadonlySet<string>,
 ): Promise<void> {
   if (
     targetObjPaths.size === 0 ||
-    mirroredTextMeshFiles.length === 0 ||
+    looseTextMeshFilesByPath.size === 0 ||
     auxiliaryTextFiles.length === 0
   ) {
     return;
@@ -645,9 +858,15 @@ async function appendObjMaterialSidecarsFromLooseFiles(
   const materialFilesByPath = new Map(
     auxiliaryTextFiles.map((file) => [normalizeImportPath(file.path), file] as const),
   );
-  const targetedObjFiles = mirroredTextMeshFiles.filter(
-    ({ path }) => isObjImportPath(path) && targetObjPaths.has(normalizeImportPath(path)),
-  );
+  // Resolve targets from an ungated map (not the 8 MiB-capped mirrored list) so a large OBJ
+  // still gets its MTL sidecar.
+  const targetedObjFiles: Array<{ path: string; file: File }> = [];
+  for (const objPath of targetObjPaths) {
+    const file = looseTextMeshFilesByPath.get(objPath);
+    if (file) {
+      targetedObjFiles.push({ path: objPath, file });
+    }
+  }
   if (targetedObjFiles.length === 0) {
     return;
   }
@@ -687,8 +906,163 @@ async function appendObjMaterialSidecarsFromLooseFiles(
       const content = await file.text();
       appendPreparedImportTextFileIfMissing(payload.textFiles, { path, content });
       appendPreparedImportBlobFileIfMissing(payload.assetFiles, { name: path, blob: file });
+      // The textures an MTL references are images, which loose imports already keep eagerly
+      // (every isRobotImportAssetPath blob is pushed to assetFiles), so no extra hydration
+      // is needed here — only archive imports (deferred assets) need explicit texture pickup.
     },
   );
+}
+
+type ArchiveSidecarContext = {
+  archiveSession: ArchiveImportSession;
+  auxiliaryTextEntries: readonly ArchiveImportEntry[];
+  concurrency: number;
+};
+
+async function appendObjMaterialSidecarsFromArchiveEntries(
+  payload: CollectedImportPayload,
+  context: ArchiveSidecarContext,
+  targetObjPaths: ReadonlySet<string>,
+): Promise<void> {
+  const { archiveSession, auxiliaryTextEntries, concurrency } = context;
+  if (targetObjPaths.size === 0 || auxiliaryTextEntries.length === 0) {
+    return;
+  }
+
+  const materialEntriesByPath = new Map(
+    auxiliaryTextEntries.map((entry) => [normalizeImportPath(entry.path), entry] as const),
+  );
+  const deferredImageAssetIndex = indexDeferredImageAssets(payload.deferredAssetFiles);
+  const deferredAssetFilesBySourcePath = new Map(
+    payload.deferredAssetFiles.map((file) => [normalizeImportPath(file.sourcePath), file] as const),
+  );
+  // Scan all archive entries, not the 8 MiB-capped mirrored list, so large referenced OBJs
+  // still get their MTL sidecars hydrated. targetObjPaths already limits this to OBJs a
+  // robot definition actually references.
+  const targetedObjEntries = archiveSession.entries.filter(
+    (entry) => isObjImportPath(entry.path) && targetObjPaths.has(normalizeImportPath(entry.path)),
+  );
+  if (targetedObjEntries.length === 0) {
+    return;
+  }
+
+  const extractedObjEntries = await archiveSession.extractEntries(
+    targetedObjEntries.map((entry) => entry.path),
+  );
+  const materialPaths = new Set<string>();
+
+  await processWithConcurrency(extractedObjEntries, concurrency, async ({ path, file }) => {
+    const content = await file.text();
+    parseObjMaterialLibraryPaths(path, content).forEach((materialPath) => {
+      if (materialEntriesByPath.has(materialPath)) {
+        materialPaths.add(materialPath);
+      }
+    });
+  });
+
+  if (materialPaths.size === 0) {
+    return;
+  }
+
+  const materialEntries = [...materialPaths]
+    .sort((left, right) => left.localeCompare(right))
+    .map((materialPath) => materialEntriesByPath.get(materialPath))
+    .filter((entry): entry is ArchiveImportEntry => Boolean(entry));
+  if (materialEntries.length === 0) {
+    return;
+  }
+
+  const extractedMaterialEntries = await archiveSession.extractEntries(
+    materialEntries.map((entry) => entry.path),
+  );
+  const textureSourcePaths = new Set<string>();
+
+  await processWithConcurrency(extractedMaterialEntries, concurrency, async ({ path, file }) => {
+    const content = await file.text();
+    appendPreparedImportTextFileIfMissing(payload.textFiles, {
+      path,
+      content,
+    });
+    appendPreparedImportBlobFileIfMissing(payload.assetFiles, {
+      name: path,
+      blob: file,
+    });
+
+    parseMtlTextureReferencePaths(path, content).forEach((texturePath) => {
+      const assetFile = resolveDeferredTextureAsset(texturePath, deferredImageAssetIndex);
+      if (assetFile) {
+        textureSourcePaths.add(assetFile.sourcePath);
+      }
+    });
+  });
+
+  if (textureSourcePaths.size === 0) {
+    return;
+  }
+
+  const extractedTextureEntries = await archiveSession.extractEntries([...textureSourcePaths]);
+  await processWithConcurrency(extractedTextureEntries, concurrency, async ({ path, file }) => {
+    const assetFile = deferredAssetFilesBySourcePath.get(normalizeImportPath(path));
+    appendPreparedImportBlobFileIfMissing(payload.assetFiles, {
+      name: assetFile?.name ?? path,
+      blob: file,
+    });
+  });
+}
+
+// Collect the external textures a DAE references (archive import). Archive assets are
+// deferred, so a DAE's textures would otherwise be dropped unless independently critical.
+async function appendDaeTextureSidecarsFromArchiveEntries(
+  payload: CollectedImportPayload,
+  context: ArchiveSidecarContext,
+  targetDaePaths: ReadonlySet<string>,
+): Promise<void> {
+  const { archiveSession, concurrency } = context;
+  if (targetDaePaths.size === 0) {
+    return;
+  }
+
+  // Scan all archive entries (not the 8 MiB-capped mirrored list) so large referenced DAEs
+  // still get their external textures hydrated.
+  const targetedDaeEntries = archiveSession.entries.filter(
+    (entry) => isDaeImportPath(entry.path) && targetDaePaths.has(normalizeImportPath(entry.path)),
+  );
+  if (targetedDaeEntries.length === 0) {
+    return;
+  }
+
+  const deferredImageAssetIndex = indexDeferredImageAssets(payload.deferredAssetFiles);
+  const deferredAssetFilesBySourcePath = new Map(
+    payload.deferredAssetFiles.map((file) => [normalizeImportPath(file.sourcePath), file] as const),
+  );
+
+  const extractedDaeEntries = await archiveSession.extractEntries(
+    targetedDaeEntries.map((entry) => entry.path),
+  );
+  const textureSourcePaths = new Set<string>();
+
+  await processWithConcurrency(extractedDaeEntries, concurrency, async ({ path, file }) => {
+    const content = await file.text();
+    parseDaeTextureReferencePaths(path, content).forEach((texturePath) => {
+      const assetFile = resolveDeferredTextureAsset(texturePath, deferredImageAssetIndex);
+      if (assetFile) {
+        textureSourcePaths.add(assetFile.sourcePath);
+      }
+    });
+  });
+
+  if (textureSourcePaths.size === 0) {
+    return;
+  }
+
+  const extractedTextureEntries = await archiveSession.extractEntries([...textureSourcePaths]);
+  await processWithConcurrency(extractedTextureEntries, concurrency, async ({ path, file }) => {
+    const assetFile = deferredAssetFilesBySourcePath.get(normalizeImportPath(path));
+    appendPreparedImportBlobFileIfMissing(payload.assetFiles, {
+      name: assetFile?.name ?? path,
+      blob: file,
+    });
+  });
 }
 
 function renameCollectedImportPayload(
@@ -897,6 +1271,14 @@ async function collectImportPayloadFromArchiveSession(
     payload.robotFiles,
     options.preResolvePreferredImport !== false,
   );
+  const objMaterialMeshPaths = collectAllObjMaterialMeshPaths(
+    payload.robotFiles,
+    options.preResolvePreferredImport !== false,
+  );
+  const daeTextureMeshPaths = collectAllDaeTextureMeshPaths(
+    payload.robotFiles,
+    options.preResolvePreferredImport !== false,
+  );
 
   const auxiliaryTextEntriesToLoad = auxiliaryTextEntries.filter((entry) => {
     const lowerPath = entry.path.toLowerCase();
@@ -970,6 +1352,22 @@ async function collectImportPayloadFromArchiveSession(
       }
     }
   }
+
+  const archiveSidecarContext: ArchiveSidecarContext = {
+    archiveSession,
+    auxiliaryTextEntries,
+    concurrency,
+  };
+  await appendObjMaterialSidecarsFromArchiveEntries(
+    payload,
+    archiveSidecarContext,
+    objMaterialMeshPaths,
+  );
+  await appendDaeTextureSidecarsFromArchiveEntries(
+    payload,
+    archiveSidecarContext,
+    daeTextureMeshPaths,
+  );
 
   emitProgress({
     phase: 'finalizing-import',
@@ -1076,6 +1474,10 @@ async function collectImportPayloadFromLooseFiles(
   const emitProgress = createImportProgressEmitter(onProgress);
   const auxiliaryTextFiles: Array<{ path: string; file: File }> = [];
   const mirroredTextMeshFiles: Array<{ path: string; file: File }> = [];
+  // Every loose OBJ/DAE file by normalized path, NOT size-gated — used for sidecar scanning
+  // so large meshes still get their MTL/texture sidecars (mirroredTextMeshFiles caps at 8 MiB
+  // because it eagerly keeps text content; sidecar scanning only needs to read on demand).
+  const looseTextMeshFilesByPath = new Map<string, File>();
   const candidateFiles = files.filter((input) =>
     isRobotImportCandidatePath(resolveImportInputPath(input)),
   );
@@ -1137,11 +1539,11 @@ async function collectImportPayloadFromLooseFiles(
       } else if (isAuxiliaryTextImportPath(lowerPath)) {
         auxiliaryTextFiles.push({ path, file });
       } else if (isRobotImportAssetPath(path)) {
-        if (
-          shouldMirrorTextMeshAssetContent(lowerPath) &&
-          file.size <= MAX_EAGER_TEXT_MESH_ASSET_BYTES
-        ) {
-          mirroredTextMeshFiles.push({ path, file });
+        if (shouldMirrorTextMeshAssetContent(lowerPath)) {
+          looseTextMeshFilesByPath.set(normalizeImportPath(path), file);
+          if (file.size <= MAX_EAGER_TEXT_MESH_ASSET_BYTES) {
+            mirroredTextMeshFiles.push({ path, file });
+          }
         }
         payload.assetFiles.push({ name: path, blob: file });
         const visibleAssetFile = createVisibleImportedAssetFile(path);
@@ -1181,7 +1583,7 @@ async function collectImportPayloadFromLooseFiles(
     payload.robotFiles,
     options.preResolvePreferredImport !== false,
   );
-  const preferredObjMaterialMeshPaths = collectPreferredObjMaterialMeshPaths(
+  const objMaterialMeshPaths = collectAllObjMaterialMeshPaths(
     payload.robotFiles,
     options.preResolvePreferredImport !== false,
   );
@@ -1233,9 +1635,9 @@ async function collectImportPayloadFromLooseFiles(
 
   await appendObjMaterialSidecarsFromLooseFiles(
     payload,
-    mirroredTextMeshFiles,
+    looseTextMeshFilesByPath,
     auxiliaryTextFiles,
-    preferredObjMaterialMeshPaths,
+    objMaterialMeshPaths,
   );
 
   emitProgress({
@@ -1356,9 +1758,16 @@ export async function prepareImportPayload({
           : undefined,
       );
 
+      // Sidecar collection may already have eagerly added some of these assets (e.g. an
+      // OBJ texture that is also a critical deferred asset), so dedup by name on merge.
+      const mergedAssetFiles = [...preparedPayload.assetFiles];
+      criticalAssetFiles.forEach((file) =>
+        appendPreparedImportBlobFileIfMissing(mergedAssetFiles, file),
+      );
+
       return {
         ...preparedPayload,
-        assetFiles: [...preparedPayload.assetFiles, ...criticalAssetFiles],
+        assetFiles: mergedAssetFiles,
         deferredAssetFiles: remainingDeferredAssetFiles,
       };
     });

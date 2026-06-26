@@ -15,7 +15,7 @@ import { resolveJointInteractionControlMode } from '../utils/jointInteractionCon
 
 const JOINT_TRANSLATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE;
 const JOINT_ROTATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE * 0.84;
-const JOINT_GIZMO_THICKNESS_SCALE = 1.6;
+const JOINT_GIZMO_THICKNESS_SCALE = 1.15;
 
 export const JointInteraction: React.FC<JointInteractionProps> = ({
   joint,

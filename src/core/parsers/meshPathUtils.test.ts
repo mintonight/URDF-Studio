@@ -22,6 +22,38 @@ test('resolveImportedAssetPath keeps package assets rooted at the package name',
   );
 });
 
+test('resolveImportedAssetPath maps deep package URIs to imported package-root candidates', () => {
+  assert.equal(
+    resolveImportedAssetPath(
+      'package://drake/examples/pr2/models/pr2_description/meshes/base_v0/base.stl',
+      'pr2_description/urdf/pr2_simplified.urdf',
+      {
+        candidateAssetPaths: [
+          'pr2_description/urdf/pr2_simplified.urdf',
+          'pr2_description/meshes/base_v0/base.stl',
+        ],
+      },
+    ),
+    'pr2_description/meshes/base_v0/base.stl',
+  );
+});
+
+test('resolveImportedAssetPath uses source context to disambiguate deep package URI suffix matches', () => {
+  assert.equal(
+    resolveImportedAssetPath(
+      'package://vendor/shared/pr2_description/meshes/base_v0/base.stl',
+      'robots/right/pr2_description/urdf/pr2.urdf',
+      {
+        candidateAssetPaths: [
+          'robots/left/pr2_description/meshes/base_v0/base.stl',
+          'robots/right/pr2_description/meshes/base_v0/base.stl',
+        ],
+      },
+    ),
+    'robots/right/pr2_description/meshes/base_v0/base.stl',
+  );
+});
+
 test('resolveImportedAssetPath keeps sdf model assets rooted at the model name', () => {
   assert.equal(
     resolveImportedAssetPath('model://bus_stop/meshes/base_link.dae', 'bus_stop/model.sdf'),
@@ -33,6 +65,21 @@ test('resolveImportedAssetPath still resolves relative mesh paths against the so
   assert.equal(
     resolveImportedAssetPath('meshes/wheel.dae', 'scout_description/urdf/scout_mini.urdf'),
     'scout_description/urdf/meshes/wheel.dae',
+  );
+});
+
+test('resolveImportedAssetPath preserves bundle-rooted asset paths beside source directories', () => {
+  assert.equal(
+    resolveImportedAssetPath(
+      'pr2_description/meshes/base_v0/base.stl',
+      'pr2_description/urdf/pr2_simplified.urdf',
+    ),
+    'pr2_description/meshes/base_v0/base.stl',
+  );
+
+  assert.equal(
+    resolveImportedAssetPath('robots/demo/meshes/base.stl', 'robots/demo/urdf/demo.urdf'),
+    'robots/demo/meshes/base.stl',
   );
 });
 

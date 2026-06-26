@@ -39,7 +39,7 @@ function originsRoughlyEqual(
     Math.abs(a.rpy.y - b.rpy.y) <= ORIGIN_CONVERGENCE_EPSILON
   );
 }
-const ORIGIN_GIZMO_THICKNESS_SCALE = 1.9;
+const ORIGIN_GIZMO_THICKNESS_SCALE = 1.2;
 
 interface OriginTransformControlsProps {
   robot: THREE.Object3D | null;

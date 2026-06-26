@@ -219,6 +219,45 @@ function collectReferencedTexturePaths(
   return referencedPaths;
 }
 
+function parseMtlTexturePath(line: string): string | null {
+  const tokens = line.trim().split(/\s+/).slice(1);
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  for (let index = tokens.length - 1; index >= 0; index -= 1) {
+    const token = tokens[index]?.trim();
+    if (!token || token.startsWith('-')) {
+      continue;
+    }
+    return token;
+  }
+
+  return null;
+}
+
+function parseMtlTextureReferencePaths(materialPath: string, content: string): string[] {
+  const texturePaths = new Set<string>();
+
+  content.split(/\r?\n/).forEach((line) => {
+    if (!/^[ \t]*(?:map_|bump|disp|decal|refl)[^\s]*\b/i.test(line)) {
+      return;
+    }
+
+    const texturePath = parseMtlTexturePath(line);
+    if (!texturePath) {
+      return;
+    }
+
+    const resolvedPath = resolveImportedAssetPath(texturePath, materialPath);
+    if (resolvedPath) {
+      texturePaths.add(resolvedPath);
+    }
+  });
+
+  return [...texturePaths];
+}
+
 type MjcfAssetFileRef = {
   tag: 'mesh' | 'texture' | 'hfield';
   file: string;
@@ -533,6 +572,63 @@ function buildAssetKeysByUrl(assetEntries: AssetEntries): Map<string, string[]> 
   return keysByUrl;
 }
 
+function collectScopedMtlTextureAssetKeys(options: {
+  allFileContents: Record<string, string>;
+  assets: Record<string, string>;
+  assetEntries: AssetEntries;
+  allowGlobalAssetIndex: boolean;
+  assetKeysByUrl: Map<string, string[]>;
+}): Set<string> {
+  const { allFileContents, assets, assetEntries, allowGlobalAssetIndex, assetKeysByUrl } = options;
+  const assetKeys = new Set<string>();
+  const assetIndexByDirectory = new Map<string, ReturnType<typeof buildAssetIndex>>();
+
+  Object.entries(allFileContents).forEach(([materialPath, content]) => {
+    const normalizedMaterialPath = normalizePath(materialPath);
+    if (!normalizedMaterialPath.toLowerCase().endsWith('.mtl')) {
+      return;
+    }
+
+    const materialDirectory = getParentDirectory(normalizedMaterialPath);
+    const getMaterialAssetIndex = () => {
+      let index = assetIndexByDirectory.get(materialDirectory);
+      if (!index) {
+        index = buildAssetIndex(assets, materialDirectory);
+        assetIndexByDirectory.set(materialDirectory, index);
+      }
+      return index;
+    };
+
+    parseMtlTextureReferencePaths(normalizedMaterialPath, content).forEach((texturePath) => {
+      const matchedAssetKeys = collectMatchingAssetKeys(
+        texturePath,
+        assetEntries,
+        normalizedMaterialPath,
+      );
+      matchedAssetKeys.forEach((assetKey) => assetKeys.add(assetKey));
+
+      if (matchedAssetKeys.size > 0 || !allowGlobalAssetIndex) {
+        return;
+      }
+
+      const resolvedAssetUrl = findAssetByIndex(
+        texturePath,
+        getMaterialAssetIndex(),
+        materialDirectory,
+      );
+      if (!resolvedAssetUrl) {
+        return;
+      }
+
+      (assetKeysByUrl.get(resolvedAssetUrl) || []).forEach((assetKey) => {
+        assetKeys.add(assetKey);
+      });
+    });
+  });
+
+  return assetKeys;
+}
+
 function buildScopedAssets(options: {
   assets: Record<string, string>;
   allFileContents?: Record<string, string>;
@@ -722,7 +818,24 @@ function buildScopedAssets(options: {
     }),
   );
 
-  return mergeTextMeshSidecarAssets(Object.fromEntries(scopedEntries), scopedTextAssetContents);
+  const mergedAssets = mergeTextMeshSidecarAssets(
+    Object.fromEntries(scopedEntries),
+    scopedTextAssetContents,
+  );
+  collectScopedMtlTextureAssetKeys({
+    allFileContents: scopedTextAssetContents,
+    assets,
+    assetEntries,
+    allowGlobalAssetIndex,
+    assetKeysByUrl,
+  }).forEach((assetKey) => {
+    const assetUrl = assets[assetKey];
+    if (assetUrl) {
+      mergedAssets[assetKey] = assetUrl;
+    }
+  });
+
+  return mergedAssets;
 }
 
 function buildScopedAvailableFiles(options: {
