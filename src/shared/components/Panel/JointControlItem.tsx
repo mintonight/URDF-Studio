@@ -607,7 +607,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
   const renderValueDisplay = () => (
     <div className="flex h-full shrink-0 items-center justify-end gap-0.5 whitespace-nowrap">
       <div
-        className={`${mainValueFieldWidthClassName} text-right`}
+        className={`flex items-center justify-end ${mainValueFieldWidthClassName}`}
         onClick={(e) => {
           e.stopPropagation();
           setIsEditingValue(true);
@@ -654,7 +654,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
           </button>
         )}
       </div>
-      <span className="min-w-[1.1rem] text-left text-[9px] leading-none text-text-tertiary">
+      <span className="inline-flex h-3.5 min-w-[1.1rem] items-center text-left text-[9px] leading-none text-text-tertiary">
         {displayUnit}
       </span>
     </div>
@@ -784,7 +784,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
 
       <div className="grid grid-cols-[max-content_minmax(0,1fr)_max-content] items-center gap-1">
         <div
-          className={`relative h-4 ${limitFieldColumnWidthClassName}`}
+          className={`relative h-4 flex justify-end items-center ${limitFieldColumnWidthClassName}`}
           onClick={(e) => {
             if (!hasFiniteLimits) return;
             e.stopPropagation();
@@ -934,7 +934,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
         </div>
 
         <div
-          className={`relative h-4 ${limitFieldColumnWidthClassName}`}
+          className={`relative h-4 flex justify-start items-center ${limitFieldColumnWidthClassName}`}
           onClick={(e) => {
             if (!hasFiniteLimits) return;
             e.stopPropagation();
@@ -970,21 +970,21 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
           ) : hasFiniteLimits ? (
             <button
               type="button"
-              className="ml-auto block border-0 bg-transparent p-0"
+              className="border-0 bg-transparent p-0"
               onClick={(e) => {
                 e.stopPropagation();
                 setIsEditingUpper(true);
               }}
             >
               <div
-                className={`${limitFieldBaseClassName} ml-auto w-fit cursor-text justify-start border-transparent text-left text-text-tertiary hover:border-border-strong/70 hover:text-system-blue`}
+                className={`${limitFieldBaseClassName} w-fit cursor-text justify-start border-transparent text-left text-text-tertiary hover:border-border-strong/70 hover:text-system-blue`}
               >
                 {displayMax.toFixed(2)}
               </div>
             </button>
           ) : (
             <div
-              className={`${limitFieldBaseClassName} ml-auto w-fit cursor-text justify-start border-transparent text-left text-text-tertiary hover:border-border-strong/70 hover:text-system-blue`}
+              className={`${limitFieldBaseClassName} w-fit cursor-text justify-start border-transparent text-left text-text-tertiary hover:border-border-strong/70 hover:text-system-blue`}
             >
               ∞
             </div>
