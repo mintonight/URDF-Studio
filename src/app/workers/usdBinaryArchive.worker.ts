@@ -98,6 +98,18 @@ async function loadBinaryUsdRuntime(): Promise<BinaryReadyUsdRuntime> {
   return binaryUsdRuntimePromise;
 }
 
+// A WASM trap (e.g. "memory access out of bounds" RuntimeError) corrupts the
+// Emscripten heap irrecoverably. Even when the synchronous throw is caught and
+// reported back to the main thread, the cached `binaryUsdRuntimePromise` still
+// points at the broken module instance. Any subsequent request reuses that
+// instance and either hangs or traps again silently — which manifests as the
+// UI freezing on the second export click.
+//
+// After a conversion failure we (1) drop the cached runtime promise so the next
+// worker that loads this module rebuilds a clean WASM instance, and (2) close
+// the worker thread so the main-thread bridge is forced to spawn a fresh worker
+// rather than reusing a worker whose runtime state is now indeterminate.
+
 workerScope.addEventListener(
   'message',
   (event: MessageEvent<ConvertUsdArchiveFilesToBinaryWorkerRequest>) => {
@@ -107,6 +119,7 @@ workerScope.addEventListener(
     }
 
     void (async () => {
+      let caughtError: unknown = null;
       try {
         const archiveFiles = hydrateUsdBinaryArchiveFilesFromWorker(message.archiveFiles);
         const result = await convertUsdArchiveFilesToBinaryCore(archiveFiles, {
@@ -130,13 +143,30 @@ workerScope.addEventListener(
         };
         workerScope.postMessage(response, serialized.transferables);
       } catch (error) {
+        caughtError = error;
         const response: UsdBinaryArchiveWorkerResponse = {
           type: 'convert-usd-archive-files-to-binary-error',
           requestId: message.requestId,
           error: error instanceof Error ? error.message : 'USD binary archive worker failed',
         };
+        // postMessage is queued synchronously before we close the worker below,
+        // so the error response still reaches the main thread.
         workerScope.postMessage(response);
       }
+
+      if (caughtError === null) {
+        return;
+      }
+
+      // Poisoned runtime — never let a subsequent request reuse it.
+      binaryUsdRuntimePromise = null;
+
+      // Conservatively terminate this worker thread after any conversion
+      // failure: the WASM heap / module state is indeterminate, and a fresh
+      // worker is cheap insurance against reusing a corrupted runtime. For WASM
+      // traps this is essential (the heap is unrecoverable); for ordinary
+      // errors it is harmless. postMessage above is already queued.
+      workerScope.close?.();
     })();
   },
 );

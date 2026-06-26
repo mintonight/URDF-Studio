@@ -27,6 +27,10 @@ interface PendingWorkerRequest {
 interface CreateUsdBinaryArchiveWorkerClientOptions {
   canUseWorker?: () => boolean;
   createWorker?: () => WorkerLike;
+  /** Per-request timeout in ms. If the worker goes silent (e.g. a WASM trap
+   * that kills the worker thread without dispatching an error event), the
+   * pending request is rejected so the UI never hangs forever. */
+  requestTimeoutMs?: number;
 }
 
 interface ConvertUsdArchiveFilesToBinaryWithWorkerOptions {
@@ -45,6 +49,12 @@ interface UsdBinaryArchiveWorkerClient {
   ) => Promise<Map<string, Blob>>;
 }
 
+// 5 minutes. USD crate conversion for large models (e.g. go2 with multi-MB
+// DAE sublayers) can take a while, but never this long under healthy
+// conditions. If we exceed it the worker is presumed dead (silent WASM trap)
+// and we tear it down so the next export attempt can rebuild a fresh worker.
+const DEFAULT_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+
 function createWorkerError(event: ErrorEvent | { error?: unknown; message?: string }): Error {
   if (event.error instanceof Error) {
     return event.error;
@@ -60,6 +70,7 @@ export function createUsdBinaryArchiveWorkerClient(
       new URL('../workers/usdBinaryArchive.worker.ts', import.meta.url),
       { type: 'module' },
     ),
+    requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   }: CreateUsdBinaryArchiveWorkerClientOptions = {},
 ): UsdBinaryArchiveWorkerClient {
   const pendingRequests = new Map<number, PendingWorkerRequest>();
@@ -116,7 +127,14 @@ export function createUsdBinaryArchiveWorkerClient(
     clearPendingRequest(message.requestId);
 
     if (message.type === 'convert-usd-archive-files-to-binary-error') {
-      pendingRequest.reject(new Error(message.error || 'USD binary archive worker failed'));
+      // The worker reports a conversion error. Because the worker side closes
+      // itself after any conversion failure (its WASM runtime is poisoned), we
+      // must tear the worker down here too — otherwise the next convert() would
+      // reuse a worker whose thread is already gone and hang forever. This is
+      // the primary fix for the "second export click freezes the UI" symptom.
+      const workerError = new Error(message.error || 'USD binary archive worker failed');
+      pendingRequest.reject(workerError);
+      disposeSharedWorker();
       return;
     }
 
@@ -124,12 +142,20 @@ export function createUsdBinaryArchiveWorkerClient(
   };
 
   const handleSharedWorkerError = (event: ErrorEvent): void => {
+    // Mark unavailable so the in-flight request can reject, and tear down the
+    // dead worker. We do NOT treat this as permanent: ensureSharedWorker clears
+    // the flag once sharedWorker is null again, so the next convert() builds a
+    // fresh worker instead of failing forever.
     workerUnavailable = true;
     disposeSharedWorker(createWorkerError(event));
   };
 
   const ensureSharedWorker = (): WorkerLike => {
     if (!sharedWorker) {
+      // Previous worker was terminated (post-error or post-timeout). A fresh
+      // worker means a fresh WASM runtime, so the previous unavailability no
+      // longer applies.
+      workerUnavailable = false;
       sharedWorker = createWorker();
       sharedWorker.addEventListener('message', handleSharedWorkerMessage as EventListener);
       sharedWorker.addEventListener('error', handleSharedWorkerError as EventListener);
@@ -142,12 +168,14 @@ export function createUsdBinaryArchiveWorkerClient(
     archiveFiles: Map<string, Blob>,
     options: ConvertUsdArchiveFilesToBinaryWithWorkerOptions = {},
   ): Promise<Map<string, Blob>> => {
-    if (workerUnavailable) {
-      throw new Error('USD binary archive worker is unavailable');
-    }
-
     if (!canUseWorker()) {
       throw new Error('Web Worker is not available in this environment');
+    }
+
+    // If a worker is mid-teardown (sharedWorker still set but flagged
+    // unavailable), force disposal first so ensureSharedWorker can rebuild.
+    if (workerUnavailable) {
+      disposeSharedWorker(new Error('USD binary archive worker reset before retry'));
     }
 
     const serialized = await serializeUsdBinaryArchiveFilesForWorker(archiveFiles);
@@ -164,6 +192,45 @@ export function createUsdBinaryArchiveWorkerClient(
         return;
       }
 
+      // Watchdog: if the worker neither resolves, rejects, nor errors within
+      // the timeout (e.g. a WASM trap silently killed the thread), reject and
+      // tear down so the caller isn't pinned forever. This is the last line of
+      // defense against the "second click freezes the UI" failure mode.
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      const registerTimeout = (): void => {
+        if (!requestTimeoutMs || !Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0) {
+          return;
+        }
+        timeoutId = setTimeout(() => {
+          const timeoutError = new Error(
+            'USD binary archive worker did not respond within the timeout '
+              + `(likely a WASM crash). Request id: ${requestId}.`,
+          );
+          // clearPendingRequest returns null if already settled, in which case
+          // the resolve/reject already fired and we must not touch the promise.
+          const stillPending = clearPendingRequest(requestId);
+          if (!stillPending) return;
+          // Force worker teardown so the next attempt starts clean.
+          disposeSharedWorker(timeoutError);
+          rejectRequest(timeoutError);
+        }, requestTimeoutMs);
+      };
+      const cancelTimeout = (): void => {
+        if (timeoutId !== undefined) {
+          clearTimeout(timeoutId);
+          timeoutId = undefined;
+        }
+      };
+
+      const wrappedResolve = (value: Map<string, Blob>): void => {
+        cancelTimeout();
+        resolveRequest(value);
+      };
+      const wrappedReject = (error: unknown): void => {
+        cancelTimeout();
+        rejectRequest(error);
+      };
+
       const request: ConvertUsdArchiveFilesToBinaryWorkerRequest = {
         type: 'convert-usd-archive-files-to-binary',
         requestId,
@@ -171,15 +238,16 @@ export function createUsdBinaryArchiveWorkerClient(
       };
 
       pendingRequests.set(requestId, {
-        resolve: resolveRequest,
-        reject: rejectRequest,
+        resolve: wrappedResolve,
+        reject: wrappedReject,
         onProgress: options.onProgress,
       });
+      registerTimeout();
 
       try {
         worker.postMessage(request, serialized.transferables);
       } catch (error) {
-        workerUnavailable = true;
+        cancelTimeout();
         clearPendingRequest(requestId);
         disposeSharedWorker(error);
         rejectRequest(error);
