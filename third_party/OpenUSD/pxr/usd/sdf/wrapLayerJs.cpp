@@ -79,6 +79,20 @@ _ExtractFileFormatArguments(
     return true;
 }
 
+bool Export(
+    pxr::SdfLayer& self,
+    const std::string& fileName,
+    const std::string& comment,
+    const emscripten::val& dict)
+{
+    SdfLayer::FileFormatArguments args;
+    if (!_ExtractFileFormatArguments(dict, &args)) {
+        return false;
+    }
+
+    return self.Export(fileName, comment, args);
+}
+
 // Should this return a ref pointer instead?
 // The layer handle is a weak pointer, so a layer could
 // get destroyed while a reference is still kept to it
@@ -102,6 +116,19 @@ _Find(
     const std::string& identifier)
 {
   return _Find(identifier, emscripten::val::object());
+}
+
+static SdfLayerRefPtr
+_FindOrOpen(
+    const std::string& identifier,
+    const emscripten::val& dict)
+{
+    SdfLayer::FileFormatArguments args;
+    if (!_ExtractFileFormatArguments(dict, &args)) {
+        return SdfLayerRefPtr();
+    }
+
+    return SdfLayer::FindOrOpen(identifier, args);
 }
 
 static SdfLayerRefPtr
@@ -166,6 +193,7 @@ static val _GetPropertyAtPath(const SdfLayerHandle& layer, const SdfPath& path) 
 EMSCRIPTEN_BINDINGS(SdfLayer) {
   class_<pxr::SdfLayer>("SdfLayer")
     .function("ExportToString", &ExportToString)
+    .function("Export", &Export)
     .function("GetDisplayName", &pxr::SdfLayer::GetDisplayName)
     .function("GetPrimAtPath", &pxr::SdfLayer::GetPrimAtPath)
     .function("GetPropertyAtPath", /*&pxr::SdfLayer::GetPropertyAtPath*/ &_GetPropertyAtPath, allow_raw_pointer<ret_val>())
@@ -173,6 +201,7 @@ EMSCRIPTEN_BINDINGS(SdfLayer) {
     .function("Traverse", &traverse)
     .class_function("Find", emscripten::select_overload<SdfLayerHandle(const std::string&)>(&_Find))
     .class_function("Find", emscripten::select_overload<SdfLayerHandle(const std::string&, const emscripten::val&)>(&_Find))
+    .class_function("FindOrOpen", &_FindOrOpen)
     .class_function("CreateAnonymous", emscripten::select_overload<SdfLayerRefPtr(const std::string&)>(&_CreateAnonymous))
     .class_function("CreateAnonymous", emscripten::select_overload<SdfLayerRefPtr(const std::string&, const emscripten::val&)>(&_CreateAnonymous))
     .property("identifier", &pxr::SdfLayer::GetIdentifier, &pxr::SdfLayer::SetIdentifier)

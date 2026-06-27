@@ -1,16 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { UnifiedTransformControls, VISUALIZER_UNIFIED_GIZMO_SIZE } from '@/shared/components/3d';
+import { UnifiedTransformControls } from '@/shared/components/3d';
 import { resolveLinkKey } from '@/core/robot';
 import type { CollisionTransformControlsProps } from '../types';
 import { useCollisionTransformDragLifecycle } from '../hooks/useCollisionTransformDragLifecycle';
 import { getObjectRPY } from '../utils/collisionTransformMath';
 import { resolveCurrentCollisionDraggingControls } from '../utils/collisionTransformControlsShared';
+import { resolveLocalTransformGizmoSizing } from '../utils/localTransformGizmoSizing';
 
-const COLLISION_TRANSLATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE * 0.56;
-const COLLISION_ROTATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE * 0.46;
-const COLLISION_GIZMO_THICKNESS_SCALE = 1.05;
+const COLLISION_GIZMO_SIZING = resolveLocalTransformGizmoSizing('collision');
+const COLLISION_TRANSLATE_GIZMO_SIZE = COLLISION_GIZMO_SIZING.translateSize;
+const COLLISION_ROTATE_GIZMO_SIZE = COLLISION_GIZMO_SIZING.rotateSize;
+const COLLISION_GIZMO_THICKNESS_SCALE = COLLISION_GIZMO_SIZING.thicknessScale;
 const COLLISION_COMMITTED_TRANSFORM_EPSILON = 1e-6;
 
 export const CollisionTransformControls: React.FC<CollisionTransformControlsProps> = ({

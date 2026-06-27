@@ -33,6 +33,13 @@ export interface UnifiedTransformControlsProps extends Omit<
   hoverStyle?: UnifiedTransformHoverStyle;
   displayStyle?: UnifiedTransformDisplayStyle;
   displayThicknessScale?: number;
+  /**
+   * Whether to render the free-rotate handles (screen-space E-ring + trackball)
+   * in rotate mode. Defaults to true. Single-DOF joints pass false: a joint can
+   * only rotate about its fixed axis, so these handles are meaningless and —
+   * being the largest rings — visually swamp small robots.
+   */
+  showRotateFreeHandles?: boolean;
 }
 
 export type UniversalOwner = 'translate' | 'rotate' | null;

@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { UnifiedTransformControls, VISUALIZER_UNIFIED_GIZMO_SIZE } from '@/shared/components/3d';
+import { UnifiedTransformControls } from '@/shared/components/3d';
 import { getObjectRPY } from '../utils/collisionTransformMath';
 import { useCollisionTransformDragLifecycle } from '../hooks/useCollisionTransformDragLifecycle';
 import {
   canRenderCollisionTransformControls,
   resolveCurrentCollisionDraggingControls,
 } from '../utils/collisionTransformControlsShared';
+import { resolveLocalTransformGizmoSizing } from '../utils/localTransformGizmoSizing';
 import {
   applyOriginToRuntimeJoint,
   extractRuntimeJointOrigin,
@@ -19,8 +20,12 @@ import type { RobotModelProps } from '../types';
 import type { JointQuaternion, RobotState, UrdfJoint } from '@/types';
 import type { URDFJoint as RuntimeURDFJoint } from '@/core/parsers/urdf/loader';
 
-const ORIGIN_TRANSLATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE;
-const ORIGIN_ROTATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE * 0.84;
+const ORIGIN_GIZMO_SIZING = resolveLocalTransformGizmoSizing('origin');
+const ORIGIN_TRANSLATE_GIZMO_SIZE = ORIGIN_GIZMO_SIZING.translateSize;
+const ORIGIN_ROTATE_GIZMO_SIZE = ORIGIN_GIZMO_SIZING.rotateSize;
+const ORIGIN_GIZMO_THICKNESS_SCALE = ORIGIN_GIZMO_SIZING.thicknessScale;
+const ORIGIN_GIZMO_SHOW_ROTATE_FREE_HANDLES =
+  ORIGIN_GIZMO_SIZING.showRotateFreeHandles;
 const ORIGIN_CONVERGENCE_EPSILON = 1e-6;
 
 function originsRoughlyEqual(
@@ -39,7 +44,6 @@ function originsRoughlyEqual(
     Math.abs(a.rpy.y - b.rpy.y) <= ORIGIN_CONVERGENCE_EPSILON
   );
 }
-const ORIGIN_GIZMO_THICKNESS_SCALE = 1.2;
 
 interface OriginTransformControlsProps {
   robot: THREE.Object3D | null;
@@ -470,6 +474,7 @@ export const OriginTransformControls: React.FC<OriginTransformControlsProps> = (
       hoverStyle="single-axis"
       displayStyle="thick-primary"
       displayThicknessScale={ORIGIN_GIZMO_THICKNESS_SCALE}
+      showRotateFreeHandles={ORIGIN_GIZMO_SHOW_ROTATE_FREE_HANDLES}
       onObjectChange={handleObjectChange}
       onDraggingChanged={handleDraggingChanged}
     />

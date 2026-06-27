@@ -102,14 +102,13 @@ async function loadBinaryUsdRuntime(): Promise<BinaryReadyUsdRuntime> {
 // Emscripten heap irrecoverably. Even when the synchronous throw is caught and
 // reported back to the main thread, the cached `binaryUsdRuntimePromise` still
 // points at the broken module instance. Any subsequent request reuses that
-// instance and either hangs or traps again silently — which manifests as the
+// instance and either hangs or traps again silently, which manifests as the
 // UI freezing on the second export click.
 //
 // After a conversion failure we (1) drop the cached runtime promise so the next
 // worker that loads this module rebuilds a clean WASM instance, and (2) close
 // the worker thread so the main-thread bridge is forced to spawn a fresh worker
 // rather than reusing a worker whose runtime state is now indeterminate.
-
 workerScope.addEventListener(
   'message',
   (event: MessageEvent<ConvertUsdArchiveFilesToBinaryWorkerRequest>) => {
@@ -158,7 +157,7 @@ workerScope.addEventListener(
         return;
       }
 
-      // Poisoned runtime — never let a subsequent request reuse it.
+      // Poisoned runtime: never let a subsequent request reuse it.
       binaryUsdRuntimePromise = null;
 
       // Conservatively terminate this worker thread after any conversion

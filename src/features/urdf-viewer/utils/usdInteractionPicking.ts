@@ -2,9 +2,17 @@ import * as THREE from 'three';
 
 import type { ViewerHelperKind, ViewerInteractiveLayer } from '../types';
 import type { ViewerRobotDataResolution } from './viewerRobotData';
-import { hasPickableMaterial, isSelectableHelperObject, isVisibleInHierarchy } from './pickFilter';
+import {
+  hasOverlayPresentation,
+  hasPickableMaterial,
+  isPickOnlyMesh,
+  isSelectableHelperObject,
+  isVisibleInHierarchy,
+} from './pickFilter';
 
 export type UsdInteractiveGeometryRole = 'visual' | 'collision';
+
+const HIDDEN_HELPER_DISTANCE_EPSILON = 1e-3;
 
 export interface ResolvedUsdHelperHit {
   type: 'link' | 'joint';
@@ -182,7 +190,11 @@ function getEffectiveRenderOrder(object: THREE.Object3D | null): number {
   let renderOrder = 0;
 
   while (current) {
-    if (typeof current.renderOrder === 'number' && current.renderOrder > renderOrder) {
+    if (
+      !isPickOnlyMesh(current) &&
+      typeof current.renderOrder === 'number' &&
+      current.renderOrder > renderOrder
+    ) {
       renderOrder = current.renderOrder;
     }
 
@@ -190,28 +202,6 @@ function getEffectiveRenderOrder(object: THREE.Object3D | null): number {
   }
 
   return renderOrder;
-}
-
-function hasOverlayPresentation(object: THREE.Object3D | null): boolean {
-  let current: THREE.Object3D | null = object;
-
-  while (current) {
-    if (typeof current.renderOrder === 'number' && current.renderOrder > 0) {
-      return true;
-    }
-
-    if ((current as THREE.Mesh).isMesh) {
-      const material = (current as THREE.Mesh).material;
-      const materials = Array.isArray(material) ? material : [material];
-      if (materials.some((entry) => entry && entry.depthTest === false)) {
-        return true;
-      }
-    }
-
-    current = current.parent;
-  }
-
-  return false;
 }
 
 function getInteractionLayerPriorityScore(
@@ -244,11 +234,59 @@ function getInteractionScore<TMeta>(
   return layerPriorityScore + helperBias + overlayBias + getEffectiveRenderOrder(candidate.object);
 }
 
+function isHelperCandidate<TMeta>(
+  candidate: UsdInteractionCandidate<TMeta>,
+): candidate is UsdHelperInteractionCandidate {
+  return candidate.kind === 'helper';
+}
+
+function shouldPreferDirectManipulationHelper(
+  helperCandidate: UsdHelperInteractionCandidate,
+): boolean {
+  if (
+    helperCandidate.selection.helperKind !== 'origin-axes' &&
+    helperCandidate.selection.helperKind !== 'joint-axis'
+  ) {
+    return false;
+  }
+
+  return !isPickOnlyMesh(helperCandidate.object);
+}
+
+function shouldYieldHelperToGeometry<TMeta>(
+  helperCandidate: UsdHelperInteractionCandidate,
+  geometryCandidate: UsdGeometryInteractionCandidate<TMeta>,
+): boolean {
+  if (shouldPreferDirectManipulationHelper(helperCandidate)) {
+    return false;
+  }
+
+  if (hasOverlayPresentation(helperCandidate.object)) {
+    return false;
+  }
+
+  return geometryCandidate.distance + HIDDEN_HELPER_DISTANCE_EPSILON < helperCandidate.distance;
+}
+
 export function sortUsdInteractionCandidates<TMeta>(
   candidates: readonly UsdInteractionCandidate<TMeta>[],
   interactionLayerPriority: readonly ViewerInteractiveLayer[] | undefined,
 ): UsdInteractionCandidate<TMeta>[] {
   return [...candidates].sort((left, right) => {
+    if (isHelperCandidate(left) && !isHelperCandidate(right)) {
+      if (shouldYieldHelperToGeometry(left, right)) {
+        return 1;
+      }
+      return -1;
+    }
+
+    if (!isHelperCandidate(left) && isHelperCandidate(right)) {
+      if (shouldYieldHelperToGeometry(right, left)) {
+        return -1;
+      }
+      return 1;
+    }
+
     const leftScore = getInteractionScore(left, interactionLayerPriority);
     const rightScore = getInteractionScore(right, interactionLayerPriority);
 

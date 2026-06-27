@@ -27,9 +27,10 @@ interface PendingWorkerRequest {
 interface CreateUsdBinaryArchiveWorkerClientOptions {
   canUseWorker?: () => boolean;
   createWorker?: () => WorkerLike;
-  /** Per-request timeout in ms. If the worker goes silent (e.g. a WASM trap
-   * that kills the worker thread without dispatching an error event), the
-   * pending request is rejected so the UI never hangs forever. */
+  /**
+   * Per-request timeout in ms. If the worker goes silent, the pending request
+   * is rejected so the UI never hangs forever.
+   */
   requestTimeoutMs?: number;
 }
 
@@ -97,7 +98,7 @@ export function createUsdBinaryArchiveWorkerClient(
     }
 
     if (rejectPendingWith !== undefined) {
-      pendingRequests.forEach((request, requestId) => {
+      Array.from(pendingRequests.entries()).forEach(([requestId, request]) => {
         clearPendingRequest(requestId);
         request.reject(rejectPendingWith);
       });
@@ -128,13 +129,12 @@ export function createUsdBinaryArchiveWorkerClient(
 
     if (message.type === 'convert-usd-archive-files-to-binary-error') {
       // The worker reports a conversion error. Because the worker side closes
-      // itself after any conversion failure (its WASM runtime is poisoned), we
-      // must tear the worker down here too — otherwise the next convert() would
-      // reuse a worker whose thread is already gone and hang forever. This is
-      // the primary fix for the "second export click freezes the UI" symptom.
+      // itself after any conversion failure, we must tear it down here too.
+      // Otherwise the next convert() would reuse a worker whose thread is
+      // already gone and hang forever.
       const workerError = new Error(message.error || 'USD binary archive worker failed');
       pendingRequest.reject(workerError);
-      disposeSharedWorker();
+      disposeSharedWorker(workerError);
       return;
     }
 
@@ -193,10 +193,22 @@ export function createUsdBinaryArchiveWorkerClient(
       }
 
       // Watchdog: if the worker neither resolves, rejects, nor errors within
-      // the timeout (e.g. a WASM trap silently killed the thread), reject and
-      // tear down so the caller isn't pinned forever. This is the last line of
-      // defense against the "second click freezes the UI" failure mode.
+      // the timeout, reject and tear down so the caller is not pinned forever.
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      const cancelTimeout = (): void => {
+        if (timeoutId !== undefined) {
+          clearTimeout(timeoutId);
+          timeoutId = undefined;
+        }
+      };
+      const wrappedResolve = (value: Map<string, Blob>): void => {
+        cancelTimeout();
+        resolveRequest(value);
+      };
+      const wrappedReject = (error: unknown): void => {
+        cancelTimeout();
+        rejectRequest(error);
+      };
       const registerTimeout = (): void => {
         if (!requestTimeoutMs || !Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0) {
           return;
@@ -206,29 +218,11 @@ export function createUsdBinaryArchiveWorkerClient(
             'USD binary archive worker did not respond within the timeout '
               + `(likely a WASM crash). Request id: ${requestId}.`,
           );
-          // clearPendingRequest returns null if already settled, in which case
-          // the resolve/reject already fired and we must not touch the promise.
           const stillPending = clearPendingRequest(requestId);
           if (!stillPending) return;
-          // Force worker teardown so the next attempt starts clean.
           disposeSharedWorker(timeoutError);
-          rejectRequest(timeoutError);
+          stillPending.reject(timeoutError);
         }, requestTimeoutMs);
-      };
-      const cancelTimeout = (): void => {
-        if (timeoutId !== undefined) {
-          clearTimeout(timeoutId);
-          timeoutId = undefined;
-        }
-      };
-
-      const wrappedResolve = (value: Map<string, Blob>): void => {
-        cancelTimeout();
-        resolveRequest(value);
-      };
-      const wrappedReject = (error: unknown): void => {
-        cancelTimeout();
-        rejectRequest(error);
       };
 
       const request: ConvertUsdArchiveFilesToBinaryWorkerRequest = {

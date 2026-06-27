@@ -1809,6 +1809,7 @@ export const FusionTransformControls = forwardRef<unknown, FusionTransformContro
       rotateSize,
       rotateSpace,
       rotationSnap,
+      showRotateFreeHandles = true,
       showX,
       showY,
       showZ,
@@ -2669,8 +2670,11 @@ export const FusionTransformControls = forwardRef<unknown, FusionTransformContro
     const showTranslatePlanes = mode === 'translate';
     const showTranslateCenter = mode === 'translate';
     const showRotateAxes = mode === 'rotate' || mode === 'universal';
-    const showRotateScreenRing = mode === 'rotate';
-    const showRotateTrackball = mode === 'rotate';
+    // Single-DOF joints disable the free-rotate handles (screen-space E-ring +
+    // trackball): a joint can only rotate about its fixed axis, so these handles
+    // are meaningless and — being the largest rings — visually swamp small robots.
+    const showRotateScreenRing = mode === 'rotate' && showRotateFreeHandles;
+    const showRotateTrackball = mode === 'rotate' && showRotateFreeHandles;
 
     return (
       <group

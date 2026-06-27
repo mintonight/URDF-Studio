@@ -244,6 +244,12 @@ function installDom() {
       configurable: true,
     });
   }
+  if (!('scrollIntoView' in dom.window.HTMLElement.prototype)) {
+    Object.defineProperty(dom.window.HTMLElement.prototype, 'scrollIntoView', {
+      value: () => {},
+      configurable: true,
+    });
+  }
 
   return dom;
 }
@@ -489,6 +495,27 @@ test('TreeEditor joint section follows viewer joint drag previews without waitin
     assert.equal(Number(resetRange.value), 0);
   } finally {
     useJointInteractionPreviewStore.getState().clearPreview();
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('TreeEditor joint section highlights the corresponding joint when a child link is selected', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const robot = {
+    ...createRobotState(),
+    selection: { type: 'link' as const, id: 'child_link' },
+  };
+
+  try {
+    await renderTreeEditorWithRobot(root, robot);
+
+    const jointCard = container.querySelector<HTMLElement>('[data-panel-hovered]');
+    assert.ok(jointCard, 'joint section should render a joint card');
+    assert.match(jointCard.className, /\bbg-system-blue\/10\b/);
+  } finally {
     await act(async () => {
       root.unmount();
     });

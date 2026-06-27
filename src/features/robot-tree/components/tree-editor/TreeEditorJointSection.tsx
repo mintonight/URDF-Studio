@@ -3,12 +3,12 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { resolveJointKey } from '@/core/robot';
 import { translations } from '@/shared/i18n';
 import { JointPanelControls, JointPanelList } from '@/shared/components/Panel/JointPanelContent';
+import { resolveActiveViewerJointKeyFromSelection } from '@/shared/utils/active_joint_selection';
 import { createJointPanelStore } from '@/shared/utils/jointPanelStore';
 import { normalizeViewerJointAngleState } from '@/shared/utils/jointPanelState';
 import { getSingleDofJointEntries } from '@/shared/utils/jointTypes';
 import type { Language } from '@/store';
 import { hasJointInteractionPreview, useJointInteractionPreviewStore, useUIStore } from '@/store';
-import { resolveActiveViewerJointKeyFromSelection } from '@/features/urdf-viewer/utils/activeJointSelection';
 
 const TREE_EDITOR_JOINT_SECTION_KEY = 'tree_editor_joint_panel';
 
@@ -221,7 +221,7 @@ export function TreeEditorJointSection({
 
   React.useEffect(() => {
     const nextActiveJoint = resolveActiveViewerJointKeyFromSelection(robot.joints, {
-      type: robot.selection.type as 'link' | 'joint' | null,
+      type: robot.selection.type as 'link' | 'joint' | 'tendon' | null,
       id: robot.selection.id,
     });
     const autoScroll = nextActiveJoint !== null && previousActiveJointRef.current !== nextActiveJoint;

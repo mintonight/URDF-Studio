@@ -2,11 +2,6 @@ import { ensureUsdWasmRuntime } from '@/features/urdf-viewer/utils/usdWasmRuntim
 
 type BinaryReadyUsdLayer = {
   Export?: (...args: unknown[]) => unknown;
-};
-
-type BinaryReadyUsdStage = {
-  Export?: (...args: unknown[]) => unknown;
-  GetRootLayer?: () => BinaryReadyUsdLayer | null;
   delete?: () => void;
 };
 
@@ -17,8 +12,8 @@ type BinaryReadyUsdModule = Awaited<ReturnType<typeof ensureUsdWasmRuntime>>['US
     data: string | ArrayLike<number> | ArrayBufferView,
     opts?: { flags?: string },
   ) => void;
-  UsdStage?: {
-    Open?: (path: string) => BinaryReadyUsdStage | null;
+  SdfLayer?: {
+    FindOrOpen?: (path: string, args?: Record<string, string>) => BinaryReadyUsdLayer | null;
   };
 };
 
@@ -104,65 +99,38 @@ function describeExportAttemptFailure(label: string, error: unknown): string {
 
 function exportUsdLayerAsCrate(
   module: BinaryReadyUsdModule,
-  stage: BinaryReadyUsdStage,
+  sourceFsPath: string,
   targetFsPath: string,
 ): void {
-  const rootLayer = stage.GetRootLayer?.();
   const failedAttempts: string[] = [];
+  const layer = module.SdfLayer?.FindOrOpen?.(sourceFsPath, {});
 
-  if (rootLayer && typeof rootLayer.Export === 'function') {
-    const rootLayerAttempts: Array<{ label: string; args: unknown[] }> = [
-      {
-        label: 'root layer Export(path, "", { format: "usdc" })',
-        args: [targetFsPath, '', USDC_FILE_FORMAT_ARGS],
-      },
-      {
-        label: 'root layer Export(path, { format: "usdc" })',
-        args: [targetFsPath, USDC_FILE_FORMAT_ARGS],
-      },
-    ];
-
-    for (const { label, args } of rootLayerAttempts) {
-      try {
-        rootLayer.Export(...args);
-      } catch (error) {
-        failedAttempts.push(describeExportAttemptFailure(label, error));
-        continue;
-      }
-
-      if (isUsdCrateFile(readUsdFileFromFs(module, targetFsPath))) {
-        return;
-      }
-      failedAttempts.push(`${label}: did not produce a binary USD crate`);
-    }
+  if (!layer || typeof layer.Export !== 'function') {
+    throw new Error(`USD runtime does not expose SdfLayer.FindOrOpen/Export: ${sourceFsPath}`);
   }
 
-  if (typeof stage.Export === 'function') {
-    const stageExportAttempts: Array<{ label: string; args: unknown[] }> = [
-      {
-        label: 'stage Export(path, false, { format: "usdc" })',
-        args: [targetFsPath, false, USDC_FILE_FORMAT_ARGS],
-      },
-      {
-        label: 'stage Export(path, false)',
-        args: [targetFsPath, false],
-      },
-    ];
-
-    for (const { label, args } of stageExportAttempts) {
-      try {
-        stage.Export(...args);
-      } catch (error) {
-        failedAttempts.push(describeExportAttemptFailure(label, error));
-        continue;
-      }
-
-      if (isUsdCrateFile(readUsdFileFromFs(module, targetFsPath))) {
-        return;
-      }
-      failedAttempts.push(`${label}: did not produce a binary USD crate`);
+  try {
+    const result = layer.Export(targetFsPath, '', USDC_FILE_FORMAT_ARGS);
+    if (result === false) {
+      failedAttempts.push('SdfLayer Export(path, "", { format: "usdc" }): returned false');
     }
+  } catch (error) {
+    failedAttempts.push(
+      describeExportAttemptFailure('SdfLayer Export(path, "", { format: "usdc" })', error),
+    );
+  } finally {
+    if (typeof layer.delete === 'function') {
+      layer.delete();
+    }
+    module.flushPendingDeletes?.();
   }
+
+  if (isUsdCrateFile(readUsdFileFromFs(module, targetFsPath))) {
+    return;
+  }
+  failedAttempts.push(
+    'SdfLayer Export(path, "", { format: "usdc" }): did not produce a binary USD crate',
+  );
 
   const attemptDetail =
     failedAttempts.length > 0 ? ` Attempts failed: ${failedAttempts.join('; ')}` : '';
@@ -184,7 +152,7 @@ export async function convertUsdArchiveFilesToBinaryCore(
     typeof USD.FS_createPath !== 'function' ||
     typeof USD.FS_writeFile !== 'function' ||
     typeof USD.FS_readFile !== 'function' ||
-    typeof USD.UsdStage?.Open !== 'function'
+    typeof USD.SdfLayer?.FindOrOpen !== 'function'
   ) {
     throw new Error('USD binary export runtime is unavailable.');
   }
@@ -222,21 +190,9 @@ export async function convertUsdArchiveFilesToBinaryCore(
       const targetFsPath = joinFsPath(targetRoot, relativePath);
       ensureVirtualDirectory(USD, dirname(targetFsPath));
 
-      const stage = USD.UsdStage.Open(sourceFsPath);
-      if (!stage) {
-        throw new Error(`Failed to open authored USD layer: ${relativePath}`);
-      }
-
-      try {
-        // Prefer exporting the authored root layer directly so referenced layer
-        // structure stays intact instead of flattening the composed stage.
-        exportUsdLayerAsCrate(USD, stage, targetFsPath);
-      } finally {
-        if (typeof stage.delete === 'function') {
-          stage.delete();
-        }
-        USD.flushPendingDeletes?.();
-      }
+      // Convert the authored SdfLayer directly. Using UsdStage.Export composes
+      // references/sublayers and can balloon small layer files into huge crates.
+      exportUsdLayerAsCrate(USD, sourceFsPath, targetFsPath);
 
       const binaryData = USD.FS_readFile(targetFsPath);
       if (!(binaryData instanceof Uint8Array) && typeof binaryData !== 'string') {

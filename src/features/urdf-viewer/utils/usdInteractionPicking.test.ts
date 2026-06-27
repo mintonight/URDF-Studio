@@ -177,6 +177,51 @@ test('sortUsdInteractionCandidates respects explicit visual-over-collision prior
   assert.equal(sorted[0]?.layer, 'visual');
 });
 
+test('sortUsdInteractionCandidates keeps foreground geometry ahead of depth-tested inertia helpers', () => {
+  const visualMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshBasicMaterial({ color: 0x3366ff }),
+  );
+  const inertiaMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshBasicMaterial({
+      color: 0x00d4ff,
+      transparent: true,
+      opacity: 0.25,
+      depthTest: true,
+      depthWrite: false,
+    }),
+  );
+  inertiaMesh.renderOrder = 10001;
+
+  const candidates: UsdInteractionCandidate<{ id: string }>[] = [
+    {
+      kind: 'helper',
+      distance: 2,
+      layer: 'inertia',
+      object: inertiaMesh,
+      selection: {
+        type: 'link',
+        id: 'base_link',
+        helperKind: 'inertia',
+        layer: 'inertia',
+      },
+    },
+    {
+      kind: 'geometry',
+      distance: 1,
+      layer: 'visual',
+      meta: { id: 'visual' },
+      object: visualMesh,
+    },
+  ];
+
+  const sorted = sortUsdInteractionCandidates(candidates, ['inertia', 'visual']);
+
+  assert.equal(sorted[0]?.kind, 'geometry');
+  assert.equal(sorted[0]?.layer, 'visual');
+});
+
 test('resolvePreferredUsdGeometryRole skips helper layers and picks the top visible geometry layer', () => {
   assert.equal(resolvePreferredUsdGeometryRole({
     interactionLayerPriority: ['origin-axes', 'collision', 'visual'],
