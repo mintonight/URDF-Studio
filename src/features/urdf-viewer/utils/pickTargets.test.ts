@@ -180,7 +180,9 @@ test('findPickIntersections includes selectable helpers that are not in pickTarg
   helperGroup.name = '__origin_axes__';
   helperGroup.userData = { isGizmo: true, isSelectableHelper: true };
 
-  const helperMesh = createBoxMesh(new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+  const helperMesh = createBoxMesh(
+    new THREE.MeshBasicMaterial({ color: 0xff0000, depthTest: false }),
+  );
   helperMesh.position.set(0, 0, -1);
   helperMesh.userData = { isGizmo: true, isSelectableHelper: true };
   helperGroup.add(helperMesh);
@@ -211,7 +213,9 @@ test('findPickIntersections prefers selectable helper overlays over nearer colli
   helperGroup.name = '__joint_axis__';
   helperGroup.userData = { isGizmo: true, isSelectableHelper: true };
 
-  const helperMesh = createBoxMesh(new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+  const helperMesh = createBoxMesh(
+    new THREE.MeshBasicMaterial({ color: 0xff0000, depthTest: false }),
+  );
   helperMesh.position.set(0, 0, -2);
   helperMesh.userData = { isGizmo: true, isSelectableHelper: true };
   helperMesh.renderOrder = 10020;
@@ -318,6 +322,48 @@ test('findPickIntersections keeps nearer geometry ahead of a non-overlay helper 
   assert.equal(hits[0]?.object, visualMesh);
   assert.ok(hits.some((hit) => hit.object === helperMesh));
   assert.ok(hits.some((hit) => hit.object === visualMesh));
+});
+
+test('findPickIntersections keeps foreground geometry ahead of depth-tested inertia helpers', () => {
+  const robot = new THREE.Group();
+
+  const visualMesh = createBoxMesh(new THREE.MeshBasicMaterial({ color: 0x3366ff }));
+  visualMesh.position.set(0, 0, -1);
+  visualMesh.userData.parentLinkName = 'visual_link';
+  visualMesh.userData.isVisualMesh = true;
+  robot.add(visualMesh);
+
+  const helperGroup = new THREE.Group();
+  helperGroup.name = '__inertia_box__';
+  helperGroup.userData = { isGizmo: true, isSelectableHelper: true };
+
+  const helperMesh = createBoxMesh(
+    new THREE.MeshBasicMaterial({
+      color: 0x00d4ff,
+      transparent: true,
+      opacity: 0.25,
+      depthTest: true,
+      depthWrite: false,
+    }),
+  );
+  helperMesh.position.set(0, 0, -1.5);
+  helperMesh.renderOrder = 10001;
+  helperMesh.userData = { isGizmo: true, isSelectableHelper: true };
+  helperGroup.add(helperMesh);
+  robot.add(helperGroup);
+
+  robot.updateMatrixWorld(true);
+
+  const raycaster = new THREE.Raycaster(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1));
+
+  const hits = findPickIntersections(robot, raycaster, [visualMesh], 'all', false, [
+    'inertia',
+    'visual',
+  ]);
+
+  assert.equal(hits.length >= 2, true);
+  assert.equal(hits[0]?.object, visualMesh);
+  assert.ok(hits.some((hit) => hit.object === helperMesh));
 });
 
 test('findPickIntersections honors explicit layer priority over legacy collision ordering', () => {

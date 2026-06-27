@@ -224,6 +224,23 @@ test('resolveHoverInteractionResolution lets nearer geometry beat a non-overlay 
   assert.equal(result.primaryInteraction?.subType, 'visual');
 });
 
+test('resolveHoverInteractionResolution keeps inertia behind foreground geometry despite renderOrder', () => {
+  const candidates = [
+    createLinkCandidate('visual_link', 0.2, 'visual', createMesh()),
+    createHelperCandidate(
+      'base_link',
+      0.3,
+      'inertia',
+      createMesh({ renderOrder: 10001, depthTest: true }),
+    ),
+  ];
+
+  const result = resolveHoverInteractionResolution(candidates, ['inertia', 'visual']);
+
+  assert.equal(result.primaryInteraction?.id, 'visual_link');
+  assert.equal(result.primaryInteraction?.subType, 'visual');
+});
+
 test('resolveHoverInteractionResolution lets screen-space overlay CoM beat collision geometry behind it', () => {
   const comObject = createMesh({ renderOrder: 10001, depthTest: false });
   const candidates = [

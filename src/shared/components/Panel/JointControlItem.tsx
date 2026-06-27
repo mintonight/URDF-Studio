@@ -784,7 +784,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
 
       <div className="grid grid-cols-[max-content_minmax(0,1fr)_max-content] items-center gap-1">
         <div
-          className={`relative h-4 flex justify-end items-center ${limitFieldColumnWidthClassName}`}
+          className={`relative flex h-4 items-center justify-end ${limitFieldColumnWidthClassName}`}
           onClick={(e) => {
             if (!hasFiniteLimits) return;
             e.stopPropagation();
@@ -934,7 +934,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
         </div>
 
         <div
-          className={`relative h-4 flex justify-start items-center ${limitFieldColumnWidthClassName}`}
+          className={`relative flex h-4 items-center justify-start ${limitFieldColumnWidthClassName}`}
           onClick={(e) => {
             if (!hasFiniteLimits) return;
             e.stopPropagation();

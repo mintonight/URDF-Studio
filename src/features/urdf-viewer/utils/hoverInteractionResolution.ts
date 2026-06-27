@@ -2,6 +2,7 @@ import type * as THREE from 'three';
 
 import type { ViewerInteractiveLayer } from '../types';
 import type { ResolvedInteractionSelectionHit } from './selectionTargets';
+import { hasOverlayPresentation, isPickOnlyMesh } from './pickFilter';
 import { isHoverSupportSurface } from '@/shared/utils/three/hoverSupportSurface';
 
 export interface ResolvedHoverInteractionCandidate extends ResolvedInteractionSelectionHit {
@@ -17,7 +18,6 @@ const SUPPORT_SURFACE_HOVER_PENALTY = 10_000_000;
 const SUPPORT_SURFACE_FOREGROUND_DISTANCE_EPSILON = 1e-3;
 const GEOMETRY_DISTANCE_TIE_EPSILON = 1e-3;
 const HIDDEN_HELPER_DISTANCE_EPSILON = 1e-3;
-const MIN_VISIBLE_MATERIAL_OPACITY = 1e-3;
 
 function resolveCandidateLayer(
   candidate: ResolvedHoverInteractionCandidate,
@@ -58,27 +58,6 @@ function getStableObjectId(candidate: ResolvedHoverInteractionCandidate): number
   return getCandidateObject(candidate)?.id ?? 0;
 }
 
-function isPickOnlyMesh(object: THREE.Object3D | null): boolean {
-  if (!(object as THREE.Mesh | null)?.isMesh) {
-    return false;
-  }
-
-  const material = (object as THREE.Mesh).material;
-  const materials = Array.isArray(material) ? material : [material];
-  if (materials.length === 0) {
-    return false;
-  }
-
-  return materials.every((entry) => {
-    if (!entry || entry.visible === false) {
-      return true;
-    }
-
-    const opacity = typeof entry.opacity === 'number' ? entry.opacity : 1;
-    return entry.colorWrite === false || opacity <= MIN_VISIBLE_MATERIAL_OPACITY;
-  });
-}
-
 function getEffectiveRenderOrder(object: THREE.Object3D | null): number {
   let current: THREE.Object3D | null = object;
   let renderOrder = 0;
@@ -96,32 +75,6 @@ function getEffectiveRenderOrder(object: THREE.Object3D | null): number {
   }
 
   return renderOrder;
-}
-
-function hasOverlayPresentation(object: THREE.Object3D | null): boolean {
-  let current: THREE.Object3D | null = object;
-
-  while (current) {
-    if (
-      !isPickOnlyMesh(current) &&
-      typeof current.renderOrder === 'number' &&
-      current.renderOrder > 0
-    ) {
-      return true;
-    }
-
-    if ((current as THREE.Mesh).isMesh && !isPickOnlyMesh(current)) {
-      const material = (current as THREE.Mesh).material;
-      const materials = Array.isArray(material) ? material : [material];
-      if (materials.some((entry) => entry && entry.depthTest === false)) {
-        return true;
-      }
-    }
-
-    current = current.parent;
-  }
-
-  return false;
 }
 
 function getInteractionLayerPriorityScore(

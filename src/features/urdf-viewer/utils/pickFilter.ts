@@ -57,6 +57,58 @@ export function isSelectableHelperObject(object: THREE.Object3D | null): boolean
   return false;
 }
 
+export function isPickOnlyMesh(object: THREE.Object3D | null): boolean {
+  if (!(object as THREE.Mesh | null)?.isMesh) {
+    return false;
+  }
+
+  const material = (object as THREE.Mesh).material;
+  const materials = Array.isArray(material) ? material : [material];
+  if (materials.length === 0) {
+    return false;
+  }
+
+  return materials.every((entry) => {
+    if (!entry || entry.visible === false) {
+      return true;
+    }
+
+    const opacity = typeof entry.opacity === 'number' ? entry.opacity : 1;
+    return entry.colorWrite === false || opacity <= MIN_PICKABLE_OPACITY;
+  });
+}
+
+export function hasVisibleDepthTestDisabledMaterial(object: THREE.Object3D | null): boolean {
+  const material = (object as { material?: THREE.Material | THREE.Material[] } | null)?.material;
+  if (!material) {
+    return false;
+  }
+
+  const materials = Array.isArray(material) ? material : [material];
+  return materials.some((entry) => {
+    if (!entry || entry.visible === false || entry.colorWrite === false) {
+      return false;
+    }
+
+    const opacity = typeof entry.opacity === 'number' ? entry.opacity : 1;
+    return entry.depthTest === false && opacity > MIN_PICKABLE_OPACITY;
+  });
+}
+
+export function hasOverlayPresentation(object: THREE.Object3D | null): boolean {
+  let current: THREE.Object3D | null = object;
+
+  while (current) {
+    if (!isPickOnlyMesh(current) && hasVisibleDepthTestDisabledMaterial(current)) {
+      return true;
+    }
+
+    current = current.parent;
+  }
+
+  return false;
+}
+
 export function isInternalHelperObject(object: THREE.Object3D | null): boolean {
   let current: THREE.Object3D | null = object;
 

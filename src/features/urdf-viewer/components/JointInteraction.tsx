@@ -1,7 +1,7 @@
 import React, { useRef, useState, useMemo, useEffect, useCallback } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { UnifiedTransformControls, VISUALIZER_UNIFIED_GIZMO_SIZE } from '@/shared/components/3d';
+import { UnifiedTransformControls } from '@/shared/components/3d';
 import { useSnapshotRenderActive } from '@/shared/components/3d/scene/SnapshotRenderContext';
 import { hasEffectivelyFiniteJointLimits } from '@/shared/utils/jointUnits';
 import {
@@ -12,10 +12,18 @@ import {
 } from '@/core/robot';
 import type { JointInteractionProps } from '../types';
 import { resolveJointInteractionControlMode } from '../utils/jointInteractionControlsShared';
+import { resolveLocalTransformGizmoSizing } from '../utils/localTransformGizmoSizing';
 
-const JOINT_TRANSLATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE;
-const JOINT_ROTATE_GIZMO_SIZE = VISUALIZER_UNIFIED_GIZMO_SIZE * 0.84;
-const JOINT_GIZMO_THICKNESS_SCALE = 1.15;
+// A joint is single-DOF, so its gizmo only needs to frame the joint axis — not
+// the whole robot. Keep it well below the visualizer baseline so it sits around
+// the joint instead of swallowing small models (it previously rendered several
+// times the robot's size). The free-rotate E-ring/trackball are disabled too
+// (showRotateFreeHandles=false), since a joint can only turn about its axis.
+const JOINT_GIZMO_SIZING = resolveLocalTransformGizmoSizing('joint');
+const JOINT_TRANSLATE_GIZMO_SIZE = JOINT_GIZMO_SIZING.translateSize;
+const JOINT_ROTATE_GIZMO_SIZE = JOINT_GIZMO_SIZING.rotateSize;
+const JOINT_GIZMO_THICKNESS_SCALE = JOINT_GIZMO_SIZING.thicknessScale;
+const JOINT_GIZMO_SHOW_ROTATE_FREE_HANDLES = JOINT_GIZMO_SIZING.showRotateFreeHandles;
 
 export const JointInteraction: React.FC<JointInteractionProps> = ({
   joint,
@@ -249,6 +257,7 @@ export const JointInteraction: React.FC<JointInteractionProps> = ({
         hoverStyle="single-axis"
         displayStyle="thick-primary"
         displayThicknessScale={JOINT_GIZMO_THICKNESS_SCALE}
+        showRotateFreeHandles={JOINT_GIZMO_SHOW_ROTATE_FREE_HANDLES}
         onMouseDown={() => {
           isDragging.current = true;
           lockInteraction();
