@@ -82,3 +82,19 @@ export const WORKSPACE_CANVAS_BACKGROUND = {
 export const WORKSPACE_DEFAULT_CAMERA_POSITION: [number, number, number] = [2.6, -2.6, 4.6];
 export const WORKSPACE_DEFAULT_CAMERA_UP: [number, number, number] = [0, 0, 1];
 export const WORKSPACE_DEFAULT_CAMERA_FOV = 68;
+
+// Orthographic projection defaults. R3F's <Canvas camera> prop always creates
+// a PerspectiveCamera, so the orthographic camera is provided by drei's
+// <OrthographicCamera makeDefault> inside the canvas. drei sizes the camera
+// frustum to the viewport pixel dimensions, and `zoom` is the world-unit
+// scale: at zoom Z, one world unit spans Z pixels. The perspective default
+// camera ends up ~1.4 m from the framed target with FOV 68, exposing roughly
+// ±0.9 m vertically; matching that on a ~720px-tall viewport needs zoom ≈
+// 360/0.9 ≈ 400. Users refine framing with orbit zoom afterwards.
+export const WORKSPACE_DEFAULT_CAMERA_ORTHOGRAPHIC_ZOOM = 400;
+export const WORKSPACE_DEFAULT_CAMERA_ORTHOGRAPHIC_FRUSTUM = {
+  left: -10,
+  right: 10,
+  top: 10,
+  bottom: -10,
+} as const;

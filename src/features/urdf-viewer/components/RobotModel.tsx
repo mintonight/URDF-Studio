@@ -243,6 +243,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
     const { gl, invalidate } = useThree();
     const snapshotRenderActive = useSnapshotRenderActive();
     const showMjcfWorldLink = useUIStore((state) => state.viewOptions.showMjcfWorldLink);
+    const cameraProjection = useUIStore((state) => state.viewOptions.cameraProjection);
     const setHoverFrozen = useSelectionStore((state) => state.setHoverFrozen);
     const autoFrameScopeFallbackRef = useRef<string | null>(null);
     const [sourceSceneComponentRoot, setSourceSceneComponentRoot] = useState<Group | null>(null);
@@ -293,6 +294,11 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       reloadToken,
       fallbackScopeKey: autoFrameScopeFallbackRef.current,
     });
+    // Include the camera projection so switching perspective <-> orthographic
+    // (which remounts the canvas and resets the camera) re-triggers auto-framing.
+    // Without this, the scope key is unchanged and the post-switch perspective
+    // view stays at the default (far) camera position, leaving the robot tiny.
+    const autoFrameScopeKey = `${autoFrameLoadScopeKey}:proj:${cameraProjection}`;
 
     // Keep ref for setIsDragging to avoid stale closures
     const setIsDraggingRef = useRef(setIsDragging);
@@ -634,7 +640,7 @@ export const RobotModel: React.FC<RobotModelProps> = memo(
       selection,
       mode,
       autoFrameOnRobotChange: active && !focusTarget && !isLoading,
-      autoFrameScopeKey: autoFrameLoadScopeKey,
+      autoFrameScopeKey,
       active,
     });
 

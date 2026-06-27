@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
 type UIStoreModule = typeof import('./uiStore.ts');
-const UI_STORE_PERSIST_VERSION = 20;
+const UI_STORE_PERSIST_VERSION = 21;
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {

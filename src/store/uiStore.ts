@@ -22,6 +22,12 @@ export interface ViewConfig {
   showJointPanel: boolean;
 }
 
+// Camera projection mode for the 3D workspace canvas.
+// - 'perspective': default wide-angle perspective (current behavior).
+// - 'orthographic': orthographic projection, gives true CAD-style three-view
+//   snapshots when clicking the gizmo axes (ground plane collapses to a line).
+export type CameraProjectionMode = 'perspective' | 'orthographic';
+
 // View options for 3D visualization
 export interface ViewOptions {
   showGrid: boolean;
@@ -34,6 +40,7 @@ export interface ViewOptions {
   showCenterOfMass: boolean;
   showCollision: boolean;
   modelOpacity: number;
+  cameraProjection: CameraProjectionMode;
 }
 
 // Camera navigation sensitivity multipliers (1 = 100% = default feel).
@@ -178,6 +185,7 @@ const defaultViewOptions: ViewOptions = {
   showCenterOfMass: false,
   showCollision: false,
   modelOpacity: 1,
+  cameraProjection: 'perspective',
 };
 
 export const NAVIGATION_SENSITIVITY_MIN = 0.25;
@@ -551,7 +559,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'urdf-studio-ui',
-      version: 20,
+      version: 21,
       migrate: (persistedState: unknown, persistedVersion) => {
         if (!persistedState || typeof persistedState !== 'object') {
           return persistedState;

@@ -263,6 +263,10 @@ export interface TranslationKeys extends TranslationWorkflowKeys {
   showIkHandles: string;
   hideUsageGuide: string;
   showUsageGuide: string;
+  cameraProjection: string;
+  cameraProjectionPerspective: string;
+  cameraProjectionOrthographic: string;
+  cameraProjectionHint: string;
   viewerNavigation: string;
   zoomSensitivity: string;
   rotateSensitivity: string;

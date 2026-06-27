@@ -1,6 +1,6 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, type RootState, useThree } from '@react-three/fiber';
-import { Environment, GizmoHelper, GizmoViewport } from '@react-three/drei';
+import { Environment, GizmoHelper, GizmoViewport, OrthographicCamera } from '@react-three/drei';
 import * as THREE from 'three';
 
 import type { Theme } from '@/types';
@@ -29,6 +29,8 @@ import {
   WorkspaceOrbitControls,
   WORKSPACE_CANVAS_BACKGROUND,
   WORKSPACE_DEFAULT_CAMERA_FOV,
+  WORKSPACE_DEFAULT_CAMERA_ORTHOGRAPHIC_FRUSTUM,
+  WORKSPACE_DEFAULT_CAMERA_ORTHOGRAPHIC_ZOOM,
   WORKSPACE_DEFAULT_CAMERA_POSITION,
   WORKSPACE_DEFAULT_CAMERA_UP,
 } from '../scene';
@@ -85,6 +87,7 @@ interface WorkspaceCanvasProps {
   showWorldOriginAxes?: boolean;
   showUsageGuide?: boolean;
   showGroundPlane?: boolean;
+  cameraProjection?: 'perspective' | 'orthographic';
   renderKey?: string;
   initialCameraSnapshot?: WorkspaceCameraSnapshot | null;
   gizmoMargin?: WorkspaceOverlayGizmoMargin;
@@ -171,6 +174,7 @@ export const WorkspaceCanvas = ({
   showWorldOriginAxes = true,
   showUsageGuide = true,
   showGroundPlane = true,
+  cameraProjection = 'perspective',
   renderKey = 'default',
   initialCameraSnapshot = null,
   gizmoMargin = DEFAULT_WORKSPACE_OVERLAY_GIZMO_MARGIN,
@@ -191,8 +195,14 @@ export const WorkspaceCanvas = ({
     useAdaptiveInteractionQuality();
 
   // Render content changes should only invalidate the current frame. Only a real WebGL context
-  // loss should force a full canvas/renderer rebuild.
-  const canvasResetKey = useMemo(() => `context:${contextEpoch}`, [contextEpoch]);
+  // loss should force a full canvas/renderer rebuild. A change in camera projection also
+  // forces a remount because R3F's <Canvas> only reads the `camera` prop at init — switching
+  // between PerspectiveCamera and OrthographicCamera requires a fresh canvas, which also
+  // resets the view (intended: ortho three-views should start from a neutral framing).
+  const canvasResetKey = useMemo(
+    () => `context:${contextEpoch}:proj:${cameraProjection}`,
+    [contextEpoch, cameraProjection],
+  );
   const failureResetKey = useMemo(() => `${renderKey}:${contextEpoch}`, [renderKey, contextEpoch]);
   const activeBackgroundColor = effectiveTheme === 'light' ? background.light : background.dark;
 
@@ -221,6 +231,11 @@ export const WorkspaceCanvas = ({
     }),
     [beginInteraction, endInteraction, orbitControlsProps],
   );
+  // R3F's <Canvas camera> prop always creates a PerspectiveCamera regardless
+  // of which keys are present, so switching to an OrthographicCamera must be
+  // done via a drei <OrthographicCamera makeDefault> rendered inside the canvas.
+  // The projection type is only read at canvas init, so a projection change is
+  // handled by remounting (see canvasResetKey above) rather than swapping live.
   const canvasCamera = useMemo(
     () => ({
       position: WORKSPACE_DEFAULT_CAMERA_POSITION,
@@ -532,6 +547,16 @@ export const WorkspaceCanvas = ({
               >
                 <CanvasRenderKeyInvalidator renderKey={renderKey} />
                 <CanvasResizeSync />
+                {cameraProjection === 'orthographic' && (
+                  <OrthographicCamera
+                    makeDefault
+                    position={WORKSPACE_DEFAULT_CAMERA_POSITION}
+                    up={WORKSPACE_DEFAULT_CAMERA_UP}
+                    zoom={WORKSPACE_DEFAULT_CAMERA_ORTHOGRAPHIC_ZOOM}
+                    near={0.1}
+                    far={1000}
+                  />
+                )}
                 <color attach="background" args={[activeBackgroundColor]} />
                 <Suspense fallback={null}>
                   {environment === 'hdr' && (
