@@ -267,13 +267,20 @@ export function createAssemblySlice(
         sourceFile: file.name,
         robot: namespacedRobot,
         renderableBounds: preparedComponent?.renderableBounds ?? undefined,
-        transform: preparedComponent?.suggestedTransform
-          ? cloneAssemblyTransform(preparedComponent.suggestedTransform)
-          : buildDefaultAssemblyComponentPlacementTransform({
-              robot: namespacedRobot,
-              renderableBounds: preparedComponent?.renderableBounds ?? null,
-              existingComponents: Object.values(assemblyState?.components ?? {}),
-            }),
+        // ponytail: recompute placement against the live assemblyState at commit
+        // time. The worker's preparedComponent.suggestedTransform is derived from
+        // a stale snapshot of existing components (captured when the add began,
+        // before any concurrent in-flight adds commit), so trusting it makes two
+        // rapid "加载到工作空间" clicks stack both components at the same offset.
+        // buildDefaultAssemblyComponentPlacementTransform is the same function the
+        // worker used; calling it here with fresh existingComponents + the
+        // worker-resolved renderableBounds gives identical placement for a single
+        // add and correct, non-overlapping placement under concurrent adds.
+        transform: buildDefaultAssemblyComponentPlacementTransform({
+          robot: namespacedRobot,
+          renderableBounds: preparedComponent?.renderableBounds ?? null,
+          existingComponents: Object.values(assemblyState?.components ?? {}),
+        }),
         visible: true,
       };
 

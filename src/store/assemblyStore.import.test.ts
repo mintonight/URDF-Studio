@@ -761,7 +761,7 @@ test('addComponent falls back to collision grounding for mesh-only links when pr
   );
 });
 
-test('addComponent reuses a worker-suggested transform from the prepared component payload', () => {
+test('addComponent recomputes placement against live state, ignoring a stale worker suggestion', () => {
   resetAssemblyStore();
 
   const store = useRobotStore.getState();
@@ -778,9 +778,11 @@ test('addComponent reuses a worker-suggested transform from the prepared compone
     },
   );
 
+  // Stale suggestion that would overlap the anchor at the origin. addComponent
+  // must ignore it and offset the new component past the anchor instead.
   const suggestedTransform = {
-    position: { x: 3.5, y: -0.75, z: 1.25 },
-    rotation: { r: 0, p: 0, y: 0.4 },
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { r: 0, p: 0, y: 0 },
   };
 
   const preparedRobotData = {
@@ -819,9 +821,72 @@ test('addComponent reuses a worker-suggested transform from the prepared compone
 
   assert.ok(anchor, 'anchor component should be created');
   assert.ok(inserted, 'prepared component should be created');
-  assert.deepEqual(
-    inserted?.transform,
+  assert.ok(
+    inserted!.transform.position.x > 0,
+    'prepared component should be offset past the anchor, not placed at the stale suggested x=0',
+  );
+  assert.notDeepEqual(
+    inserted!.transform,
     suggestedTransform,
-    'prepared component should reuse the worker-suggested transform instead of recomputing placement on the main thread',
+    'addComponent must recompute placement from live state, not trust the worker snapshot',
+  );
+});
+
+test('addComponent does not stack two rapid adds carrying stale overlapping suggestions', () => {
+  resetAssemblyStore();
+
+  const store = useRobotStore.getState();
+  store.initAssembly('concurrent-add');
+
+  store.addComponent(
+    {
+      name: 'robots/demo/anchor.urdf',
+      format: 'urdf',
+      content: '<robot name="anchor" />',
+    },
+    { preResolvedImportResult: createReadyImportResult() },
+  );
+
+  // Both workers carry the SAME stale suggestion (origin) — exactly what the
+  // worker produces when two adds race and read the same pre-commit snapshot.
+  const staleSuggestion = {
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { r: 0, p: 0, y: 0 },
+  };
+  const renderableBounds = {
+    min: { x: -0.2, y: -0.2, z: 0 },
+    max: { x: 0.2, y: 0.2, z: 0.8 },
+  };
+
+  const addWorker = (id: string, displayName: string, fileName: string) =>
+    store.addComponent(
+      { name: `robots/demo/${fileName}.urdf`, format: 'urdf', content: `<robot name="${fileName}" />` },
+      {
+        preparedComponent: {
+          componentId: id,
+          displayName,
+          robotData: {
+            name: displayName,
+            rootLinkId: `${id}_base_link`,
+            links: { [`${id}_base_link`]: { ...DEFAULT_LINK, id: `${id}_base_link`, name: displayName, visible: true } },
+            joints: {},
+          },
+          renderableBounds,
+          suggestedTransform: staleSuggestion,
+        },
+      },
+    );
+
+  const first = addWorker('comp_worker_a', 'worker_a', 'worker_a');
+  const second = addWorker('comp_worker_b', 'worker_b', 'worker_b');
+
+  assert.ok(first && second, 'both workers should be added');
+  assert.ok(
+    first!.transform.position.x > 0,
+    'first worker should be offset past the anchor',
+  );
+  assert.ok(
+    second!.transform.position.x > first!.transform.position.x,
+    'second worker must be placed past the first worker, not stacked at the same offset',
   );
 });
