@@ -328,7 +328,7 @@ test('buildEditableSourceChangeWorkerDispatch preserves patch metadata while mov
   );
 });
 
-test('buildPrepareAssemblyComponentWorkerDispatch keeps placement snapshots in the request payload', () => {
+test('buildPrepareAssemblyComponentWorkerDispatch omits placement snapshots from the request payload', () => {
   const result = buildPrepareAssemblyComponentWorkerDispatch(
     {
       name: 'robots/demo/urdf/demo.urdf',
@@ -355,18 +355,6 @@ test('buildPrepareAssemblyComponentWorkerDispatch keeps placement snapshots in t
       allFileContents: {
         '/robots/demo/urdf/demo.urdf': '<robot name="text"><link name="base_link" /></robot>',
       },
-      existingPlacementComponents: [
-        {
-          renderableBounds: {
-            min: { x: -0.5, y: -0.5, z: 0 },
-            max: { x: 0.5, y: 0.5, z: 1 },
-          },
-          transform: {
-            position: { x: 1.25, y: 0, z: 0 },
-            rotation: { r: 0, p: 0, y: 0 },
-          },
-        },
-      ],
     },
   );
 
@@ -390,18 +378,6 @@ test('buildPrepareAssemblyComponentWorkerDispatch keeps placement snapshots in t
     allFileContents: {
       '/robots/demo/urdf/demo.urdf': '<robot name="text"><link name="base_link" /></robot>',
     },
-    existingPlacementComponents: [
-      {
-        renderableBounds: {
-          min: { x: -0.5, y: -0.5, z: 0 },
-          max: { x: 0.5, y: 0.5, z: 1 },
-        },
-        transform: {
-          position: { x: 1.25, y: 0, z: 0 },
-          rotation: { r: 0, p: 0, y: 0 },
-        },
-      },
-    ],
   });
   assert.equal(typeof result.contextCacheKey, 'string');
   assert.deepEqual(result.contextSnapshot?.assets, {

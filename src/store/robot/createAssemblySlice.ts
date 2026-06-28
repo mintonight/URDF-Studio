@@ -267,13 +267,11 @@ export function createAssemblySlice(
         sourceFile: file.name,
         robot: namespacedRobot,
         renderableBounds: preparedComponent?.renderableBounds ?? undefined,
-        transform: preparedComponent?.suggestedTransform
-          ? cloneAssemblyTransform(preparedComponent.suggestedTransform)
-          : buildDefaultAssemblyComponentPlacementTransform({
-              robot: namespacedRobot,
-              renderableBounds: preparedComponent?.renderableBounds ?? null,
-              existingComponents: Object.values(assemblyState?.components ?? {}),
-            }),
+        transform: buildDefaultAssemblyComponentPlacementTransform({
+          robot: namespacedRobot,
+          renderableBounds: preparedComponent?.renderableBounds ?? null,
+          existingComponents: Object.values(assemblyState?.components ?? {}),
+        }),
         visible: true,
       };
 

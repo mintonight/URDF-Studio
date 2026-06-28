@@ -271,9 +271,6 @@ export function buildPrepareAssemblyComponentWorkerDispatch(
         ? { allFileContents: options.allFileContents }
         : {}),
       ...(options.availableFiles?.length ? { availableFiles: options.availableFiles } : {}),
-      ...(options.existingPlacementComponents?.length
-        ? { existingPlacementComponents: options.existingPlacementComponents }
-        : {}),
     },
     contextCacheKey: hasContext
       ? buildContextCacheKey('prepare', file, {

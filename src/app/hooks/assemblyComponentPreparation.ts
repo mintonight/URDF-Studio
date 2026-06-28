@@ -21,7 +21,6 @@ interface PreparedAssemblyComponent {
   displayName: string;
   robotData: RobotData;
   renderableBounds?: import('@/types').RenderableBounds | null;
-  suggestedTransform?: import('@/types').AssemblyTransform | null;
 }
 
 interface UseAssemblyComponentPreparationParams {
@@ -140,20 +139,12 @@ export function useAssemblyComponentPreparation({
           options.existingComponentNames ??
           Object.values(assemblyState?.components ?? {}).map((component) => component.name),
       });
-      const existingPlacementComponents = Object.values(assemblyState?.components ?? {}).map(
-        (component) => ({
-          renderableBounds: component.renderableBounds ?? null,
-          transform: component.transform ?? null,
-          robotData: component.renderableBounds ? null : component.robot,
-        }),
-      );
 
       return prepareAssemblyComponentWithWorker(file, {
         availableFiles,
         assets,
         allFileContents,
         usdRobotData: options.preResolvedRobotData ?? null,
-        existingPlacementComponents,
         componentId: identity.componentId,
         rootName: identity.displayName,
       });

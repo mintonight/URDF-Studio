@@ -108,7 +108,6 @@ export interface AssemblyContext {
     displayName: string;
     robotData: SharedRobotData;
     renderableBounds?: RenderableBounds | null;
-    suggestedTransform?: AssemblyTransform | null;
   } | null;
 }
 

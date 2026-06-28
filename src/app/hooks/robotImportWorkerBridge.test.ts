@@ -444,10 +444,6 @@ test('robot import worker client resolves prepared assembly component responses'
         },
         joints: {},
       },
-      suggestedTransform: {
-        position: { x: 1.5, y: 0, z: 0.25 },
-        rotation: { r: 0, p: 0, y: 0.1 },
-      },
       resolvedUrdfContent: demoUrdfFile.content,
       resolvedUrdfSourceFilePath: demoUrdfFile.name,
     },
@@ -457,10 +453,8 @@ test('robot import worker client resolves prepared assembly component responses'
   assert.equal(result.componentId, 'comp_demo');
   assert.equal(result.displayName, 'demo');
   assert.equal(result.robotData.rootLinkId, 'comp_demo_base_link');
-  assert.deepEqual(result.suggestedTransform, {
-    position: { x: 1.5, y: 0, z: 0.25 },
-    rotation: { r: 0, p: 0, y: 0.1 },
-  });
+  assert.equal(result.resolvedUrdfContent, demoUrdfFile.content);
+  assert.equal(result.resolvedUrdfSourceFilePath, demoUrdfFile.name);
 });
 
 test('robot import worker client syncs mesh assets for prepared assembly components', async () => {

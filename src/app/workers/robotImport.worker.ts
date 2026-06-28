@@ -2,7 +2,6 @@
 
 import { describeRobotImportFailure, resolveRobotFileData } from '@/core/parsers/importRobotFile';
 import { prepareAssemblyRobotData } from '@/core/robot/assemblyComponentPreparation';
-import { buildDefaultAssemblyComponentPlacementTransform } from '@/core/robot/assemblyPlacement';
 import { parseEditableRobotSource } from '@/app/utils/parseEditableRobotSource';
 import { generateEditableRobotSource } from '@/app/utils/generateEditableRobotSource';
 import { applyEditableSourceChange } from '@/app/utils/applyEditableSourceChange';
@@ -135,17 +134,6 @@ async function handleWorkerMessage(event: MessageEvent<RobotImportWorkerRequest>
         resolvedOptions.assets,
         resolvedOptions.allFileContents,
       );
-      const suggestedTransform = buildDefaultAssemblyComponentPlacementTransform({
-        robot: robotData,
-        renderableBounds,
-        existingComponents: (message.options.existingPlacementComponents ?? []).map(
-          (component) => ({
-            robot: component.robotData ?? null,
-            renderableBounds: component.renderableBounds ?? null,
-            transform: component.transform ?? undefined,
-          }),
-        ),
-      });
 
       const response: PrepareAssemblyComponentWorkerResponse = {
         type: 'prepare-assembly-component-result',
@@ -155,7 +143,6 @@ async function handleWorkerMessage(event: MessageEvent<RobotImportWorkerRequest>
           displayName: message.rootName,
           robotData,
           renderableBounds,
-          suggestedTransform,
           resolvedUrdfContent: resolvedImportResult.resolvedUrdfContent,
           resolvedUrdfSourceFilePath: resolvedImportResult.resolvedUrdfSourceFilePath,
         },

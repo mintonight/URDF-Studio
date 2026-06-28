@@ -10,7 +10,7 @@ import type {
   ApplyEditableSourceChangeOptions,
   ApplyEditableSourceChangeResult,
 } from './applyEditableSourceChange';
-import type { AssemblyTransform, RenderableBounds, RobotData, RobotState } from '@/types';
+import type { RenderableBounds, RobotData, RobotState } from '@/types';
 
 export interface RobotImportWorkerContextSnapshot {
   availableFiles?: RobotFile[];
@@ -52,15 +52,7 @@ export interface GenerateEditableRobotSourceWorkerRequest {
   options: GenerateEditableRobotSourceOptions;
 }
 
-export interface AssemblyPlacementWorkerComponent {
-  renderableBounds?: RenderableBounds | null;
-  transform?: AssemblyTransform | null;
-  robotData?: RobotData | null;
-}
-
-export interface PrepareAssemblyComponentWorkerOptions extends ResolveRobotFileDataOptions {
-  existingPlacementComponents?: AssemblyPlacementWorkerComponent[];
-}
+export type PrepareAssemblyComponentWorkerOptions = ResolveRobotFileDataOptions;
 
 export interface PrepareAssemblyComponentWorkerRequest {
   type: 'prepare-assembly-component';
@@ -77,7 +69,6 @@ export interface PreparedAssemblyComponentResult {
   displayName: string;
   robotData: RobotData;
   renderableBounds?: RenderableBounds | null;
-  suggestedTransform?: AssemblyTransform;
   resolvedUrdfContent: string | null;
   resolvedUrdfSourceFilePath: string | null;
 }

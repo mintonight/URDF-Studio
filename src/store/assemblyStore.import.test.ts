@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DEFAULT_JOINT, DEFAULT_LINK, GeometryType, JointType, type RobotFile } from '@/types';
+import {
+  DEFAULT_JOINT,
+  DEFAULT_LINK,
+  GeometryType,
+  JointType,
+  type AssemblyComponent,
+  type RenderableBounds,
+  type RobotFile,
+} from '@/types';
 import type { RobotImportResult } from '@/core/parsers/importRobotFile';
 import { useRobotStore } from './robotStore.ts';
 
@@ -10,6 +18,23 @@ function assertNearlyEqual(actual: number, expected: number, message: string) {
     Math.abs(actual - expected) < 1e-9,
     `${message}: expected ${expected}, received ${actual}`,
   );
+}
+
+function resolveComponentWorldBounds(component: AssemblyComponent): RenderableBounds {
+  assert.ok(component.renderableBounds, 'component should have renderable bounds');
+  assert.ok(component.transform, 'component should have a transform');
+  return {
+    min: {
+      x: component.renderableBounds.min.x + component.transform.position.x,
+      y: component.renderableBounds.min.y + component.transform.position.y,
+      z: component.renderableBounds.min.z + component.transform.position.z,
+    },
+    max: {
+      x: component.renderableBounds.max.x + component.transform.position.x,
+      y: component.renderableBounds.max.y + component.transform.position.y,
+      z: component.renderableBounds.max.z + component.transform.position.z,
+    },
+  };
 }
 
 function resetAssemblyStore() {
@@ -419,6 +444,10 @@ test('addComponent falls back to a fresh identity when a prepared component beco
         },
         joints: {},
       },
+      renderableBounds: {
+        min: { x: -0.2, y: -0.2, z: -0.75 },
+        max: { x: 0.2, y: 0.2, z: 0.25 },
+      },
     },
   });
 
@@ -427,6 +456,16 @@ test('addComponent falls back to a fresh identity when a prepared component beco
   assert.equal(component?.name, 'component_1');
   assert.ok(component?.robot.links.comp_component_1_base_link);
   assert.equal(component?.robot.rootLinkId, 'comp_component_1_base_link');
+  assertNearlyEqual(
+    component?.transform?.position.x ?? Number.NaN,
+    0.37,
+    'stale prepared identity should still use current workspace placement',
+  );
+  assertNearlyEqual(
+    component?.transform?.position.z ?? Number.NaN,
+    0.75,
+    'stale prepared identity should still place prepared bounds on the ground',
+  );
 });
 
 test('addComponent grounds the first component and places later components beside it on the ground', () => {
@@ -761,7 +800,7 @@ test('addComponent falls back to collision grounding for mesh-only links when pr
   );
 });
 
-test('addComponent reuses a worker-suggested transform from the prepared component payload', () => {
+test('addComponent recomputes prepared component placement from current workspace state', () => {
   resetAssemblyStore();
 
   const store = useRobotStore.getState();
@@ -774,14 +813,29 @@ test('addComponent reuses a worker-suggested transform from the prepared compone
       content: '<robot name="anchor" />',
     },
     {
-      preResolvedImportResult: createReadyImportResult(),
+      preparedComponent: {
+        componentId: 'comp_anchor',
+        displayName: 'anchor',
+        robotData: {
+          name: 'anchor',
+          rootLinkId: 'comp_anchor_base_link',
+          links: {
+            comp_anchor_base_link: {
+              ...DEFAULT_LINK,
+              id: 'comp_anchor_base_link',
+              name: 'anchor',
+              visible: true,
+            },
+          },
+          joints: {},
+        },
+        renderableBounds: {
+          min: { x: -0.5, y: -0.25, z: -0.3 },
+          max: { x: 0.5, y: 0.25, z: 0.7 },
+        },
+      },
     },
   );
-
-  const suggestedTransform = {
-    position: { x: 3.5, y: -0.75, z: 1.25 },
-    rotation: { r: 0, p: 0, y: 0.4 },
-  };
 
   const preparedRobotData = {
     name: 'worker_demo',
@@ -812,16 +866,85 @@ test('addComponent reuses a worker-suggested transform from the prepared compone
           min: { x: -0.2, y: -0.2, z: 0 },
           max: { x: 0.2, y: 0.2, z: 0.8 },
         },
-        suggestedTransform,
       },
     },
   );
 
   assert.ok(anchor, 'anchor component should be created');
   assert.ok(inserted, 'prepared component should be created');
-  assert.deepEqual(
-    inserted?.transform,
-    suggestedTransform,
-    'prepared component should reuse the worker-suggested transform instead of recomputing placement on the main thread',
+  assertNearlyEqual(
+    inserted.transform.position.x,
+    0.82,
+    'prepared component should use the latest workspace bounds for x placement',
+  );
+  assertNearlyEqual(
+    inserted.transform.position.z,
+    0,
+    'prepared component should still rest its lowest point on the ground',
+  );
+  assert.deepEqual(inserted.transform.rotation, { r: 0, p: 0, y: 0 });
+});
+
+test('addComponent keeps repeated prepared inserts evenly spaced and grounded', () => {
+  resetAssemblyStore();
+
+  const store = useRobotStore.getState();
+  store.initAssembly('repeated-prepared-grounding');
+
+  const repeatedBounds: RenderableBounds = {
+    min: { x: -0.35, y: -0.2, z: -1.1 },
+    max: { x: 0.45, y: 0.2, z: 0.3 },
+  };
+
+  const components = [0, 1, 2].map((index) =>
+    store.addComponent(
+      {
+        name: 'robots/demo/repeated.urdf',
+        format: 'urdf',
+        content: '<robot name="repeated" />',
+      },
+      {
+        preparedComponent: {
+          componentId: `comp_repeated_${index}`,
+          displayName: `repeated_${index}`,
+          robotData: {
+            name: `repeated_${index}`,
+            rootLinkId: `comp_repeated_${index}_base_link`,
+            links: {
+              [`comp_repeated_${index}_base_link`]: {
+                ...DEFAULT_LINK,
+                id: `comp_repeated_${index}_base_link`,
+                name: `repeated_${index}`,
+                visible: true,
+              },
+            },
+            joints: {},
+          },
+          renderableBounds: repeatedBounds,
+        },
+      },
+    ),
+  );
+
+  components.forEach((component, index) => {
+    assert.ok(component, `component ${index} should be created`);
+  });
+
+  const worldBounds = components.map((component) =>
+    resolveComponentWorldBounds(component as AssemblyComponent),
+  );
+
+  worldBounds.forEach((bounds, index) => {
+    assertNearlyEqual(bounds.min.z, 0, `component ${index} lowest point should touch ground`);
+  });
+  assertNearlyEqual(
+    worldBounds[1]!.min.x - worldBounds[0]!.max.x,
+    0.12,
+    'first repeated insert gap should match the default placement gap',
+  );
+  assertNearlyEqual(
+    worldBounds[2]!.min.x - worldBounds[1]!.max.x,
+    0.12,
+    'second repeated insert gap should match the default placement gap',
   );
 });

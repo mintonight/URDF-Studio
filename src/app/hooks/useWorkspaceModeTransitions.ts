@@ -16,7 +16,6 @@ import { buildGeneratedWorkspaceFileState } from './workspaceGeneratedSourceStat
 import { useAssetsStore, useRobotStore } from '@/store';
 import type {
   AssemblyComponent,
-  AssemblyTransform,
   RenderableBounds,
   RobotData,
   RobotFile,
@@ -148,7 +147,6 @@ interface UseWorkspaceModeTransitionsParams {
         displayName: string;
         robotData: RobotData;
         renderableBounds?: RenderableBounds | null;
-        suggestedTransform?: AssemblyTransform | null;
       } | null;
     },
   ) => AssemblyComponent | null;
