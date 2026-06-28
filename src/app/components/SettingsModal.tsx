@@ -381,6 +381,7 @@ export function SettingsModal() {
     showWorldOriginAxes,
     showMjcfWorldGeometry,
     showUsageGuide,
+    cameraProjection,
     setViewOption,
     fontSize,
     setFontSize,
@@ -409,6 +410,7 @@ export function SettingsModal() {
       showWorldOriginAxes: state.viewOptions.showAxes,
       showMjcfWorldGeometry: state.viewOptions.showMjcfWorldLink,
       showUsageGuide: state.viewOptions.showUsageGuide,
+      cameraProjection: state.viewOptions.cameraProjection,
       setViewOption: state.setViewOption,
       fontSize: state.fontSize,
       setFontSize: state.setFontSize,
@@ -711,6 +713,20 @@ export function SettingsModal() {
                 checked={showUsageGuide}
                 onChange={(checked) => setViewOption('showUsageGuide', checked)}
               />
+              <SettingsRow label={t.cameraProjection}>
+                <PanelSegmentedControl
+                  options={[
+                    { value: 'perspective', label: t.cameraProjectionPerspective },
+                    { value: 'orthographic', label: t.cameraProjectionOrthographic },
+                  ]}
+                  value={cameraProjection}
+                  onChange={(value) =>
+                    setViewOption('cameraProjection', value as 'perspective' | 'orthographic')
+                  }
+                  size="xs"
+                  stretch={false}
+                />
+              </SettingsRow>
             </SettingsSection>
             <SettingsSection
               icon={<Move3d className="h-4 w-4" strokeWidth={SETTINGS_ICON_STROKE_WIDTH} />}

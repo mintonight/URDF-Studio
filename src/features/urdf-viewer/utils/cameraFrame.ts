@@ -101,7 +101,12 @@ export function computeCameraFrame(
 
   return {
     focusTarget: sphere.center.clone(),
-    cameraPosition: sphere.center.clone().add(direction.multiplyScalar(distance * 1.38)),
+    // The framing factor controls how much padding surrounds the model. A
+    // value of 1.0 fits the bounding sphere exactly; larger values pull the
+    // camera back (smaller model). Historically 1.38 left ~28% empty space
+    // which made robots feel small compared to the orthographic default, so
+    // tighten it to 1.1 for a fuller framing.
+    cameraPosition: sphere.center.clone().add(direction.multiplyScalar(distance * 1.1)),
   };
 }
 

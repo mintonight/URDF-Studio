@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import {
   DEFAULT_WORKSPACE_ORBIT_CLIPPING,
-  syncWorkspacePerspectiveClipPlanes,
+  syncWorkspaceClipPlanes,
 } from './workspaceOrbitClipping';
 import {
   resolveWorkspaceOrbitPanSpeed,
@@ -105,7 +105,7 @@ export function WorkspaceOrbitControls({
       // the orbit target remains deeper in the model. Keep the near plane
       // conservative so dense robot geometry does not clip away while
       // zooming.
-      syncWorkspacePerspectiveClipPlanes(camera, controls, {
+      syncWorkspaceClipPlanes(camera, controls, {
         minDistance,
         sceneBounds: clipBounds,
       });

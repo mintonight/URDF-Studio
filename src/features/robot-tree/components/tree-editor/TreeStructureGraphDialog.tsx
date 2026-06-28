@@ -778,6 +778,32 @@ export function TreeStructureGraphDialog({
     layoutKey,
   ]);
 
+  // Re-fit the graph when the window is maximized or restored, mirroring the
+  // initial open behavior. The viewport size is updated asynchronously by the
+  // ResizeObserver, so defer the fit to the next animation frame to read the
+  // post-toggle viewport dimensions.
+  const isMaximized = windowState.isMaximized;
+  const previousIsMaximizedRef = useRef(isMaximized);
+  useEffect(() => {
+    if (!isOpen) return;
+    if (previousIsMaximizedRef.current === isMaximized) return;
+    previousIsMaximizedRef.current = isMaximized;
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      const surface = graphSurfaceRef.current;
+      if (!surface) return;
+      const rect = surface.getBoundingClientRect();
+      applyViewTransform(
+        getFittedViewTransform(
+          layout,
+          Math.max(1, Math.round(rect.width)),
+          Math.max(1, Math.round(rect.height)),
+        ),
+      );
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [applyViewTransform, isOpen, isMaximized, layout]);
+
   useEffect(() => {
     if (!isPanning) return;
 

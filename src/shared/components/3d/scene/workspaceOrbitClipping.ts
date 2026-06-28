@@ -123,3 +123,88 @@ export function syncWorkspacePerspectiveClipPlanes(
   camera.updateProjectionMatrix();
   return true;
 }
+
+/**
+ * Orthographic twin of {@link syncWorkspacePerspectiveClipPlanes}.
+ *
+ * Orthographic cameras still have near/far depth planes, so the same
+ * distance-based near/far strategy keeps dense geometry from clipping without
+ * affecting the orthographic frustum (left/right/top/bottom/zoom), which is
+ * what the user controls via orbit zoom.
+ */
+export function syncWorkspaceOrthographicClipPlanes(
+  camera: THREE.Camera,
+  controls: OrbitTargetLike,
+  options: WorkspaceOrbitClippingOptions = {},
+): boolean {
+  if (!(camera instanceof THREE.OrthographicCamera)) {
+    return false;
+  }
+
+  const config = {
+    ...DEFAULT_WORKSPACE_ORBIT_CLIPPING,
+    ...options,
+  };
+
+  const distance = Math.max(
+    camera.position.distanceTo(controls.target),
+    config.minDistance,
+  );
+  const nextNear = THREE.MathUtils.clamp(
+    distance * config.nearFactor,
+    config.minNear,
+    config.maxNear,
+  );
+  const distanceBasedFar = Math.max(
+    nextNear + 10,
+    THREE.MathUtils.clamp(
+      distance * config.farFactor,
+      config.minFar,
+      config.maxFar,
+    ),
+  );
+  const targetDistanceToSceneBounds = config.sceneBounds
+    ? getMaxDistanceFromTargetToBounds(controls.target, config.sceneBounds)
+    : null;
+  const boundsLimitedFar = targetDistanceToSceneBounds === null
+    ? null
+    : Math.max(
+      nextNear + 10,
+      THREE.MathUtils.clamp(
+        distance + targetDistanceToSceneBounds + Math.max(2, targetDistanceToSceneBounds * 0.08),
+        config.minFar,
+        config.maxFar,
+      ),
+    );
+  const nextFar = boundsLimitedFar === null
+    ? distanceBasedFar
+    : Math.min(distanceBasedFar, boundsLimitedFar);
+
+  if (
+    Math.abs(camera.near - nextNear) < 1e-5
+    && Math.abs(camera.far - nextFar) < 1e-2
+  ) {
+    return false;
+  }
+
+  camera.near = nextNear;
+  camera.far = nextFar;
+  camera.updateProjectionMatrix();
+  return true;
+}
+
+/**
+ * Sync near/far clip planes regardless of camera projection. Dispatches to the
+ * perspective or orthographic implementation so callers (e.g. orbit controls)
+ * stay projection-agnostic.
+ */
+export function syncWorkspaceClipPlanes(
+  camera: THREE.Camera,
+  controls: OrbitTargetLike,
+  options: WorkspaceOrbitClippingOptions = {},
+): boolean {
+  if (camera instanceof THREE.OrthographicCamera) {
+    return syncWorkspaceOrthographicClipPlanes(camera, controls, options);
+  }
+  return syncWorkspacePerspectiveClipPlanes(camera, controls, options);
+}

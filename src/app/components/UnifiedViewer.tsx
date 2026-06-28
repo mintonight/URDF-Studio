@@ -424,6 +424,7 @@ export const UnifiedViewer = React.memo(
     const showWorldOriginAxesPreference = useUIStore((state) => state.viewOptions.showAxes);
     const showUsageGuidePreference = useUIStore((state) => state.viewOptions.showUsageGuide);
     const navigationSensitivity = useUIStore((state) => state.navigationSensitivity);
+    const cameraProjection = useUIStore((state) => state.viewOptions.cameraProjection);
     const showWorldOriginAxes = showWorldOriginAxesPreference && !viewerController.showOrigins;
     const effectiveShowUsageGuide = resolveUnifiedViewerUsageGuideVisibility(
       showUsageGuidePreference,
@@ -605,6 +606,7 @@ export const UnifiedViewer = React.memo(
         controlLayerKey={controlLayerKey}
         gizmoMargin={gizmoMargin}
         showWorldOriginAxes={showWorldOriginAxes}
+        cameraProjection={cameraProjection}
         orbitControlsProps={{
           minDistance: 0.05,
           maxDistance: 2000,
