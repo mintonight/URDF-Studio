@@ -75,6 +75,9 @@ function ToolboxItemCard({
   );
 }
 
+// 安全边距：面板与视口左右边界保留的最小间距（px）。
+const PANEL_VIEWPORT_MARGIN = 8;
+
 export function ToolboxMenu({ t, onClose, items }: ToolboxMenuProps) {
   const [hoveredItemKey, setHoveredItemKey] = React.useState<string | null>(null);
 
@@ -83,10 +86,91 @@ export function ToolboxMenu({ t, onClose, items }: ToolboxMenuProps) {
     [items, hoveredItemKey],
   );
 
+  const panelRef = React.useRef<HTMLDivElement | null>(null);
+  // null 表示沿用默认 CSS 定位；否则切到 position:fixed 用视口坐标直接定位。
+  const [fixedPosition, setFixedPosition] = React.useState<{ left: number; top: number } | null>(
+    null,
+  );
+
+  React.useLayoutEffect(() => {
+    const panel = panelRef.current;
+
+    if (!panel) {
+      return;
+    }
+
+    // 触发按钮位于面板父级（relative 容器）内，是其唯一的按钮。
+    const trigger = panel.parentElement?.querySelector('button');
+
+    if (!trigger) {
+      return;
+    }
+
+    const measure = () => {
+      const triggerRect = trigger.getBoundingClientRect();
+      // 先把面板重置回默认布局以读取其自然宽度（不受上一次 fixed 定位影响）。
+      const panelRect = panel.getBoundingClientRect();
+
+      // jsdom 等无真实布局环境下尺寸为 0，保持默认 CSS 定位，不产生错误偏移。
+      if (panelRect.width === 0 || triggerRect.width === 0) {
+        setFixedPosition(null);
+        return;
+      }
+
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const maxLeft = viewportWidth - panelRect.width - PANEL_VIEWPORT_MARGIN;
+      // 居中对齐触发按钮时的视口左边界。
+      const centeredLeft = triggerRect.left + (triggerRect.width - panelRect.width) / 2;
+
+      let nextLeft = centeredLeft;
+      // 左溢出：贴齐视口左边安全边距。
+      if (nextLeft < PANEL_VIEWPORT_MARGIN) {
+        nextLeft = PANEL_VIEWPORT_MARGIN;
+      }
+      // 右溢出：贴齐视口右边安全边距。
+      if (nextLeft > maxLeft) {
+        nextLeft = Math.max(PANEL_VIEWPORT_MARGIN, maxLeft);
+      }
+
+      // 用 fixed 定位直接控制视口坐标，避免 absolute 定位上下文歧义。
+      setFixedPosition({ left: Math.round(nextLeft), top: Math.round(triggerRect.bottom + 4) });
+    };
+
+    measure();
+
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+
+    const handleWindowResize = () => measure();
+    window.addEventListener('resize', handleWindowResize);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', handleWindowResize);
+    };
+  }, []);
+
+  // fixedPosition 命中时用 position:fixed + 视口坐标覆盖默认 absolute 定位，
+  // 此时必须清除所有冲突的 Tailwind 定位类（top-full/left-*/translate），
+  // 否则它们会与 inline style 互相覆盖，导致位置错误。
+  const panelStyle = fixedPosition
+    ? { position: 'fixed' as const, left: `${fixedPosition.left}px`, top: `${fixedPosition.top}px` }
+    : undefined;
+  const panelPositionClassName = fixedPosition
+    ? 'z-50'
+    : 'absolute top-full left-0 z-50 mt-1 sm:left-1/2 sm:-translate-x-1/2';
+
   return (
     <>
       <HeaderMenuOverlay onClose={onClose} label={t.close} />
-      <div className="absolute top-full left-0 z-50 mt-1 w-[23rem] max-w-[calc(100vw-1rem)] rounded-2xl border border-border-black bg-panel-bg p-2 shadow-xl dark:shadow-black sm:left-1/2 sm:-translate-x-1/2">
+      <div
+        ref={panelRef}
+        style={panelStyle}
+        className={`${panelPositionClassName} w-[23rem] max-w-[calc(100vw-1rem)] rounded-2xl border border-border-black bg-panel-bg p-2 shadow-xl dark:shadow-black`}>
         <div className="grid grid-cols-4 gap-x-0.5 gap-y-0.5">
           {items.map((item) => (
             <ToolboxItemCard
