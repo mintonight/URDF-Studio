@@ -85,7 +85,7 @@ Versioning policy:
 - **3D**: Three.js 0.181, React Three Fiber 9, @react-three/drei 10
 - **State**: Zustand 5
 - **Styling**: Tailwind CSS 4.1
-- **Parsing / Export**: Custom URDF, MJCF, USD, Xacro, SDF, and mesh pipelines under `src/core`
+- **Parsing / Export**: Custom URDF, MJCF, USD, Xacro, SDF, mesh, image compression, and STL pipelines under `src/core`
 - **Packaging**: JSZip, jsPDF, libarchive.js
 - **AI**: OpenAI SDK, custom inspection criteria and prompt template generation
 - **Package workspace**: `packages/react-robot-canvas`
@@ -107,7 +107,7 @@ src/
     └── urdf-viewer/          Editor implementation: topology/geometry/collision + USD runtime
   store/                Zustand stores (robot, ui, selection, assets, assembly, etc.)
   shared/               Shared components, 3D infrastructure, hooks, i18n, debug helpers
-  core/                 Pure logic: parsers, robot core, mesh loaders, diagnostics
+  core/                 Pure logic: parsers, robot core, mesh loaders, image/STL compressors, diagnostics
   lib/                  Reusable RobotCanvas wrapper for external consumption
   styles/               Global styles and semantic tokens
   types/                Cross-module type definitions
@@ -116,7 +116,7 @@ packages/react-robot-canvas/
 docs/
   Architecture notes, viewer docs, file-io docs, style guide, AI features
 scripts/
-  Build, codegen, testing (browser/truth/benchmark/e2e), IsaacSim tools, version scripts
+  build/, generate/, test/ (browser/e2e/fixtures/truth/benchmark), tools/, release/
 public/
   Static assets, Monaco editor, USD WASM bindings, sample robots
 test/

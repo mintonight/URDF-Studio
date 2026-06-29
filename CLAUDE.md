@@ -47,6 +47,7 @@ src/
 │   └── workers/    共享 worker
 ├── core/           纯逻辑：解析器、robot core、mesh loaders、parse workers、runtime diagnostics
 │   ├── geometry/       几何计算
+│   ├── image-compressor/ 图像压缩逻辑
 │   ├── loaders/        mesh / 资源加载
 │   ├── parsers/        URDF / MJCF / SDF / USD 等解析
 │   ├── robot/          robot core 与拓扑逻辑
