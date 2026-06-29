@@ -1,6 +1,6 @@
 # URDF Studio Agent Guide
 
-> 最后更新：2026-05-31 | 技术栈：React 19.2 + TypeScript 5.8 + Three.js/R3F + Vite 6.2 + Tailwind CSS 4.1 + Zustand 5
+> 最后更新：2026-06-29 | 技术栈：React 19.2 + TypeScript 5.8 + Three.js/R3F + Vite 6.2 + Tailwind CSS 4.1 + Zustand 5
 > 完整文档索引：[docs/CATALOG.md](docs/CATALOG.md)
 
 URDF Studio 是机器人设计、装配、可视化与导出工作台。核心能力：单模式 Editor 编辑、多 URDF 组装与桥接关节、多格式导入导出（URDF / MJCF / SDF / USD / Xacro / ZIP / .usp）、AI 生成与审阅、PDF/CSV 报告、可复用 react-robot-canvas 画布封装。
@@ -129,6 +129,12 @@ scripts/
 | `jointInteractionPreviewStore` | 跨 viewer 关节交互预览                                                |
 
 跨 store 协调优先放 `app/hooks/*`；USD 中间态优先落在 `assetsStore` 或 `app/utils/*`。
+
+## 开发服务器访问
+
+`npm run dev` 默认绑定 `127.0.0.1`，用于本机 IPv4 回环访问，避免 Windows + Node 18+ 下 `localhost` 被解析到仅 IPv6 `::1` 后浏览器走 IPv4 访问失败。
+
+需要远程开发端口转发、容器或局域网访问时，显式运行 `URDF_STUDIO_DEV_HOST=0.0.0.0 npm run dev`。如果预览 / 隧道域名被 Vite host check 拒绝，再按需设置 `URDF_STUDIO_DEV_ALLOWED_HOSTS=preview.example.test,.tunnel.example.test npm run dev`。
 
 ## 常用命令
 
