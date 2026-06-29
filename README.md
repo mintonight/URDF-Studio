@@ -188,8 +188,8 @@ Open:
 - `http://127.0.0.1:3000`
 - your editor or remote-dev port-forward URL
 
-The Vite dev server listens on `0.0.0.0` by default so remote-dev port forwarding can reach it, and serves the cross-origin isolation headers required by the USD WASM runtime.
-To restrict it to local loopback only, run `URDF_STUDIO_DEV_HOST=127.0.0.1 npm run dev`.
+The Vite dev server listens on `127.0.0.1` by default for local IPv4 loopback access and serves the cross-origin isolation headers required by the USD WASM runtime.
+For remote-dev port forwarding, containers, or LAN access, run `URDF_STUDIO_DEV_HOST=0.0.0.0 npm run dev`.
 If a preview/tunnel hostname is rejected by Vite's host check, set a comma-separated allow-list with `URDF_STUDIO_DEV_ALLOWED_HOSTS=preview.example.test,.tunnel.example.test npm run dev`.
 
 ## USD Runtime Requirements

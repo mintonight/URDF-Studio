@@ -116,13 +116,13 @@ async function reserveFreePort(): Promise<number> {
   return address.port;
 }
 
-test('dev server listens on localhost by default and supports a host override', async () => {
+test('dev server listens on IPv4 loopback by default and supports host overrides', async () => {
   const defaultConfig = await loadViteConfigWithDevServerEnv({
     URDF_STUDIO_DEV_HOST: undefined,
     URDF_STUDIO_DEV_ALLOWED_HOSTS: undefined,
   });
 
-  assert.equal(defaultConfig.server?.host, 'localhost');
+  assert.equal(defaultConfig.server?.host, '127.0.0.1');
 
   const overriddenConfig = await loadViteConfigWithDevServerEnv({
     URDF_STUDIO_DEV_HOST: '127.0.0.1',
@@ -130,6 +130,13 @@ test('dev server listens on localhost by default and supports a host override', 
   });
 
   assert.equal(overriddenConfig.server?.host, '127.0.0.1');
+
+  const remoteDevConfig = await loadViteConfigWithDevServerEnv({
+    URDF_STUDIO_DEV_HOST: '0.0.0.0',
+    URDF_STUDIO_DEV_ALLOWED_HOSTS: undefined,
+  });
+
+  assert.equal(remoteDevConfig.server?.host, '0.0.0.0');
 });
 
 test('dev server accepts a comma-separated preview host allow-list', async () => {

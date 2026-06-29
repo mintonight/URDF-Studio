@@ -45,14 +45,23 @@ export async function warmupSceneCompile(
   scene: Object3D,
   camera: Camera,
 ): Promise<SceneCompileWarmupMode> {
-  if (typeof renderer.compileAsync === 'function') {
-    await renderer.compileAsync(scene, camera);
-    return 'async';
-  }
-
+  // ponytail: prefer synchronous compile() over compileAsync(). compileAsync's
+  // internal readiness poll inside THREE.WebGLRenderer cannot be
+  // cancelled and is not guarded against materials being disposed mid-poll.
+  // During rapid file switching the old robot's materials are torn down while
+  // that poll is still running, so it throws
+  // "Cannot read properties of undefined (reading 'isReady')" as an uncaught
+  // async poll error (not a promise rejection, so callers can't catch it). Synchronous
+  // compile() has no dangling poll and finishes within a single task, so the
+  // scene-graph swap cannot interleave. compile() always exists on WebGLRenderer.
   if (typeof renderer.compile === 'function') {
     renderer.compile(scene, camera);
     return 'sync';
+  }
+
+  if (typeof renderer.compileAsync === 'function') {
+    await renderer.compileAsync(scene, camera);
+    return 'async';
   }
 
   return 'unsupported';

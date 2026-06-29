@@ -7,7 +7,7 @@ import {
   warmupSceneCompile,
 } from './SceneCompileWarmup.ts';
 
-test('warmupSceneCompile prefers async compilation when available', async () => {
+test('warmupSceneCompile prefers sync compilation to avoid the async-poll race', async () => {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
   let asyncCalls = 0;
@@ -28,9 +28,31 @@ test('warmupSceneCompile prefers async compilation when available', async () => 
 
   const mode = await warmupSceneCompile(renderer, scene, camera);
 
+  // Sync compile wins even when compileAsync is available: compileAsync's
+  // readiness poll races with material disposal on rapid file switches.
+  assert.equal(mode, 'sync');
+  assert.equal(syncCalls, 1);
+  assert.equal(asyncCalls, 0);
+});
+
+test('warmupSceneCompile falls back to async when sync compile is unavailable', async () => {
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+  let asyncCalls = 0;
+
+  const renderer = {
+    async compileAsync(sceneArg: THREE.Object3D, cameraArg: THREE.Camera) {
+      asyncCalls += 1;
+      assert.equal(sceneArg, scene);
+      assert.equal(cameraArg, camera);
+      return sceneArg;
+    },
+  };
+
+  const mode = await warmupSceneCompile(renderer, scene, camera);
+
   assert.equal(mode, 'async');
   assert.equal(asyncCalls, 1);
-  assert.equal(syncCalls, 0);
 });
 
 test('warmupSceneCompile falls back to sync compilation', async () => {

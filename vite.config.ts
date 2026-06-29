@@ -170,7 +170,9 @@ const OPTIMIZE_DEPS_INCLUDE = [
 
 function resolveDevServerHost(env: Record<string, string | undefined>): string {
   const configuredHost = env.URDF_STUDIO_DEV_HOST?.trim();
-  return configuredHost || 'localhost';
+  // 默认 127.0.0.1：仅本机 IPv4，无 Network URL 噪声、无局域网暴露。不用
+  // 'localhost'（Windows + Node 18+ 会解析为仅 IPv6 [::1]，浏览器走 IPv4 时连不上）。
+  return configuredHost || '127.0.0.1';
 }
 
 function resolveDevServerAllowedHosts(

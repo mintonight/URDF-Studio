@@ -188,8 +188,8 @@ npm run dev
 - `http://127.0.0.1:3000`
 - 编辑器或远程开发环境提供的端口转发 URL
 
-当前 Vite dev server 默认监听 `0.0.0.0`，便于远程开发端口转发访问，并返回 USD WASM runtime 所需的 cross-origin isolation headers。
-如需只允许本机回环访问，运行 `URDF_STUDIO_DEV_HOST=127.0.0.1 npm run dev`。
+当前 Vite dev server 默认监听 `127.0.0.1`，用于本机 IPv4 回环访问，并返回 USD WASM runtime 所需的 cross-origin isolation headers。
+如需远程开发端口转发、容器或局域网访问，运行 `URDF_STUDIO_DEV_HOST=0.0.0.0 npm run dev`。
 如果预览 / 隧道域名被 Vite host check 拒绝，可以用逗号分隔的 allow-list：`URDF_STUDIO_DEV_ALLOWED_HOSTS=preview.example.test,.tunnel.example.test npm run dev`。
 
 ## USD 运行时要求

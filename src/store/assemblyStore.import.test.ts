@@ -800,7 +800,7 @@ test('addComponent falls back to collision grounding for mesh-only links when pr
   );
 });
 
-test('addComponent recomputes prepared component placement from current workspace state', () => {
+test('addComponent recomputes placement against live state, ignoring a stale worker suggestion', () => {
   resetAssemblyStore();
 
   const store = useRobotStore.getState();
@@ -837,6 +837,13 @@ test('addComponent recomputes prepared component placement from current workspac
     },
   );
 
+  // Stale suggestion that would overlap the anchor at the origin. addComponent
+  // must ignore it and offset the new component past the anchor instead.
+  const suggestedTransform = {
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { r: 0, p: 0, y: 0 },
+  };
+
   const preparedRobotData = {
     name: 'worker_demo',
     rootLinkId: 'comp_worker_demo_base_link',
@@ -866,23 +873,31 @@ test('addComponent recomputes prepared component placement from current workspac
           min: { x: -0.2, y: -0.2, z: 0 },
           max: { x: 0.2, y: 0.2, z: 0.8 },
         },
+        suggestedTransform,
       },
     },
   );
 
   assert.ok(anchor, 'anchor component should be created');
   assert.ok(inserted, 'prepared component should be created');
+  const insertedTransform = inserted.transform;
+  assert.ok(insertedTransform, 'prepared component should have a transform');
   assertNearlyEqual(
-    inserted.transform.position.x,
+    insertedTransform.position.x,
     0.82,
     'prepared component should use the latest workspace bounds for x placement',
   );
   assertNearlyEqual(
-    inserted.transform.position.z,
+    insertedTransform.position.z,
     0,
     'prepared component should still rest its lowest point on the ground',
   );
-  assert.deepEqual(inserted.transform.rotation, { r: 0, p: 0, y: 0 });
+  assert.deepEqual(insertedTransform.rotation, { r: 0, p: 0, y: 0 });
+  assert.notDeepEqual(
+    insertedTransform,
+    suggestedTransform,
+    'addComponent must recompute placement from live state, not trust the worker snapshot',
+  );
 });
 
 test('addComponent keeps repeated prepared inserts evenly spaced and grounded', () => {
@@ -930,9 +945,8 @@ test('addComponent keeps repeated prepared inserts evenly spaced and grounded', 
     assert.ok(component, `component ${index} should be created`);
   });
 
-  const worldBounds = components.map((component) =>
-    resolveComponentWorldBounds(component as AssemblyComponent),
-  );
+  const createdComponents = components.map((component) => component as AssemblyComponent);
+  const worldBounds = createdComponents.map(resolveComponentWorldBounds);
 
   worldBounds.forEach((bounds, index) => {
     assertNearlyEqual(bounds.min.z, 0, `component ${index} lowest point should touch ground`);
@@ -946,5 +960,79 @@ test('addComponent keeps repeated prepared inserts evenly spaced and grounded', 
     worldBounds[2]!.min.x - worldBounds[1]!.max.x,
     0.12,
     'second repeated insert gap should match the default placement gap',
+  );
+});
+
+test('addComponent does not stack two rapid adds carrying stale overlapping suggestions', () => {
+  resetAssemblyStore();
+
+  const store = useRobotStore.getState();
+  store.initAssembly('concurrent-add');
+
+  store.addComponent(
+    {
+      name: 'robots/demo/anchor.urdf',
+      format: 'urdf',
+      content: '<robot name="anchor" />',
+    },
+    { preResolvedImportResult: createReadyImportResult() },
+  );
+
+  // Both workers carry the SAME stale suggestion (origin) — exactly what the
+  // worker produces when two adds race and read the same pre-commit snapshot.
+  const staleSuggestion = {
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { r: 0, p: 0, y: 0 },
+  };
+  const renderableBounds = {
+    min: { x: -0.2, y: -0.2, z: 0 },
+    max: { x: 0.2, y: 0.2, z: 0.8 },
+  };
+
+  const addWorker = (id: string, displayName: string, fileName: string) =>
+    store.addComponent(
+      {
+        name: `robots/demo/${fileName}.urdf`,
+        format: 'urdf',
+        content: `<robot name="${fileName}" />`,
+      },
+      {
+        preparedComponent: {
+          componentId: id,
+          displayName,
+          robotData: {
+            name: displayName,
+            rootLinkId: `${id}_base_link`,
+            links: {
+              [`${id}_base_link`]: {
+                ...DEFAULT_LINK,
+                id: `${id}_base_link`,
+                name: displayName,
+                visible: true,
+              },
+            },
+            joints: {},
+          },
+          renderableBounds,
+          suggestedTransform: staleSuggestion,
+        },
+      },
+    );
+
+  const first = addWorker('comp_worker_a', 'worker_a', 'worker_a');
+  const second = addWorker('comp_worker_b', 'worker_b', 'worker_b');
+
+  assert.ok(first && second, 'both workers should be added');
+  const firstTransform = first.transform;
+  const secondTransform = second.transform;
+  assert.ok(firstTransform, 'first worker should have a transform');
+  assert.ok(secondTransform, 'second worker should have a transform');
+  assert.ok(
+    firstTransform.position.x > 0,
+    'first worker should be offset past the anchor',
+  );
+  assert.ok(
+    secondTransform.position.x > firstTransform.position.x,
+    'second worker must be placed past the first worker, not stacked at the same offset',
   );
 });
