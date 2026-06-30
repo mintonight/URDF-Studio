@@ -897,7 +897,7 @@ export function SettingsModal() {
     <div
       ref={panelRef}
       style={{ left: settingsPos.x, top: settingsPos.y }}
-      className="pointer-events-auto fixed z-[100]"
+      className="pointer-events-auto fixed z-[230]"
       role="toolbar"
       aria-label={t.settings}
       tabIndex={-1}
