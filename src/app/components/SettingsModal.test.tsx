@@ -6,7 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { SettingsModal } from './SettingsModal';
-import { useUIStore } from '@/store';
+import { DEFAULT_MANAGED_WINDOW_ORDER, useUIStore } from '@/store';
 
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -179,6 +179,52 @@ test('SettingsModal removes drag listeners when unmounted mid-drag', async () =>
     document.removeEventListener = originalDocumentRemove;
     window.addEventListener = originalWindowAdd;
     window.removeEventListener = originalWindowRemove;
+    useUIStore.setState(initialState);
+    dom.window.close();
+  }
+});
+
+test('SettingsModal moves to the front when activated', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const initialState = useUIStore.getState();
+
+  try {
+    useUIStore.setState({
+      isSettingsOpen: true,
+      settingsPos: { x: 48, y: 64 },
+      managedWindowOrder: [...DEFAULT_MANAGED_WINDOW_ORDER],
+    });
+
+    await act(async () => {
+      root.render(React.createElement(SettingsModal));
+    });
+
+    const panel = container.firstElementChild as HTMLDivElement | null;
+    assert.ok(panel, 'settings modal should render');
+    assert.equal(panel.className.includes('z-[100]'), false);
+    assert.ok(
+      useUIStore.getState().getManagedWindowZIndex('sourceCode') >
+        useUIStore.getState().getManagedWindowZIndex('settings'),
+      'source code should start above settings in the default order',
+    );
+
+    await act(async () => {
+      panel.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+    });
+
+    assert.ok(
+      useUIStore.getState().getManagedWindowZIndex('settings') >
+        useUIStore.getState().getManagedWindowZIndex('sourceCode'),
+      'activated settings modal should move above source code',
+    );
+    assert.equal(
+      panel.style.zIndex,
+      String(useUIStore.getState().getManagedWindowZIndex('settings')),
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
     useUIStore.setState(initialState);
     dom.window.close();
   }

@@ -3,6 +3,7 @@ import { Upload, Package, FileCode, Layers, Lock, Braces, Loader2 } from 'lucide
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { translations } from '@/shared/i18n';
+import { useManagedWindowLayer } from '@/store';
 import type { ExportProgressState } from '../../types';
 import type { MjcfActuatorType } from '@/core/parsers/mjcf/mjcfGenerator';
 import { ExportProgressView } from '../ExportProgressView';
@@ -57,6 +58,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   defaultFormat = DEFAULT_CONFIG.format,
 }) => {
   const t = translations[lang];
+  const exportDialogWindowLayer = useManagedWindowLayer('exportDialog');
   const initialFormat = defaultFormat === 'project' ? DEFAULT_CONFIG.format : defaultFormat;
   const [config, setConfig] = useState<ExportDialogConfig>(() => ({
     ...DEFAULT_CONFIG,
@@ -230,7 +232,9 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
             <span className="text-xs font-semibold text-text-primary">{t.exportDialog}</span>
           </div>
         }
-        className="z-[100] bg-panel-bg flex flex-col text-text-primary overflow-hidden rounded-2xl shadow-xl border border-border-black"
+        className="bg-panel-bg flex flex-col text-text-primary overflow-hidden rounded-2xl shadow-xl border border-border-black"
+        zIndex={exportDialogWindowLayer.zIndex}
+        onActivate={exportDialogWindowLayer.onActivate}
         headerClassName="h-10 border-b border-border-black flex items-center justify-between px-3 bg-element-bg shrink-0"
         interactionClassName="select-none"
         showMinimizeButton={false}

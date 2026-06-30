@@ -11,6 +11,7 @@ import { wouldBridgeCreateUnsupportedAssemblyCycle } from '@/core/robot/assembly
 import { degToRad, radToDeg } from '@/core/robot/transforms';
 import { DEFAULT_JOINT, JointType, type JointHardwareInterface } from '@/types';
 import { translations } from '@/shared/i18n';
+import { useManagedWindowLayer } from '@/store';
 import { filterSelectableBridgeComponents } from '../../utils/bridgeSelection';
 import { buildBridgeJointFromDraft, buildBridgePreview } from '../../utils/bridgePreview';
 import {
@@ -75,6 +76,7 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
   lang,
 }) => {
   const t = translations[lang];
+  const bridgeCreateWindowLayer = useManagedWindowLayer('bridgeCreate');
   const sideCardTitle =
     lang === 'zh'
       ? { parent: '基准 Link', child: '连接 Link' }
@@ -713,7 +715,9 @@ export const BridgeCreateModal: React.FC<BridgeCreateModalProps> = ({
           </div>
         </div>
       }
-      className="fixed z-[300] flex flex-col overflow-hidden rounded-xl border border-border-black bg-panel-bg text-text-primary shadow-2xl"
+      className="flex flex-col overflow-hidden rounded-xl border border-border-black bg-panel-bg text-text-primary shadow-2xl"
+      zIndex={bridgeCreateWindowLayer.zIndex}
+      onActivate={bridgeCreateWindowLayer.onActivate}
       headerClassName="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border-black bg-element-bg px-2.5"
       headerLeftClassName="flex min-w-0 flex-1 items-center gap-2"
       headerRightClassName="flex shrink-0 items-center gap-1"

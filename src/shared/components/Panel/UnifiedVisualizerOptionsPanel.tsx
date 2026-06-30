@@ -45,6 +45,8 @@ interface UnifiedVisualizerOptionsPanelProps {
   onAutoFitGround?: () => void;
   groundPlaneOffset: number;
   setGroundPlaneOffset: (value: number) => void;
+  zIndex?: number;
+  onActivate?: () => void;
 }
 
 interface OverlayToggleButtonProps {
@@ -110,6 +112,8 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
       onResetPosition,
       onClose,
       optionsPanelPos,
+      zIndex = 40,
+      onActivate,
     },
     ref,
   ) => {
@@ -122,12 +126,14 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
     return (
       <div
         ref={ref}
-        className="absolute z-40 pointer-events-auto"
+        className="absolute pointer-events-auto"
         style={
           optionsPanelPos
-            ? { left: optionsPanelPos.x, top: optionsPanelPos.y, right: 'auto' }
-            : { top: '16px', right: WORKSPACE_OVERLAY_RIGHT_EDGE_GAP }
+            ? { left: optionsPanelPos.x, top: optionsPanelPos.y, right: 'auto', zIndex }
+            : { top: '16px', right: WORKSPACE_OVERLAY_RIGHT_EDGE_GAP, zIndex }
         }
+        onPointerDownCapture={onActivate}
+        onFocusCapture={onActivate}
       >
         <OptionsPanelContainer
           width="10rem"

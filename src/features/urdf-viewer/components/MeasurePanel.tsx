@@ -47,6 +47,8 @@ interface MeasurePanelProps {
   measurePoseRepresentation: MeasurePoseRepresentation;
   setMeasurePoseRepresentation: React.Dispatch<React.SetStateAction<MeasurePoseRepresentation>>;
   lang: Language;
+  zIndex?: number;
+  onActivate?: () => void;
 }
 
 function formatPointCoords(point: THREE.Vector3): string {
@@ -190,6 +192,8 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
   measurePoseRepresentation,
   setMeasurePoseRepresentation,
   lang,
+  zIndex = 50,
+  onActivate,
 }) => {
   const t = translations[lang];
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -261,8 +265,9 @@ export const MeasurePanel: React.FC<MeasurePanelProps> = ({
       onMouseDown={onMouseDown}
       width="15rem"
       maxHeight={460}
-      zIndex={50}
+      zIndex={zIndex}
       panelClassName="measure-panel"
+      onActivate={onActivate}
       expandText={t.expand}
       collapseText={t.collapse}
       closeText={t.close}

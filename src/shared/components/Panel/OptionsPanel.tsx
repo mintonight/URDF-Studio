@@ -875,6 +875,7 @@ interface OptionsPanelProps {
   panelClassName?: string;
   onMouseEnter?: React.MouseEventHandler<HTMLDivElement>;
   onMouseLeave?: React.MouseEventHandler<HTMLDivElement>;
+  onActivate?: () => void;
   expandText?: string;
   collapseText?: string;
   closeText?: string;
@@ -902,6 +903,7 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
   panelClassName = '',
   onMouseEnter,
   onMouseLeave,
+  onActivate,
   expandText,
   collapseText,
   closeText,
@@ -911,9 +913,13 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
 
   // When position is set (dragged), use pixel positioning without transform
   // When using defaultPosition, preserve all CSS properties including transform
-  const style = position
+  const baseStyle = position
     ? { left: position.x, top: position.y, right: 'auto', bottom: 'auto', transform: 'none' }
     : defaultPosition;
+  const style = {
+    ...(baseStyle as React.CSSProperties),
+    ...(typeof zIndex === 'number' ? { zIndex } : {}),
+  };
 
   const stopPanelEventPropagation = (event: React.SyntheticEvent) => {
     event.stopPropagation();
@@ -924,6 +930,7 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
     if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
       return;
     }
+    onActivate?.();
     activateHoverBlock();
   };
 
@@ -948,8 +955,8 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
   return (
     <div
       ref={panelRef}
-      className={`absolute z-${zIndex} pointer-events-auto ${panelClassName}`.trim()}
-      style={style as React.CSSProperties}
+      className={`absolute pointer-events-auto ${panelClassName}`.trim()}
+      style={style}
       onClick={stopPanelEventPropagation}
       onContextMenu={stopPanelEventPropagation}
       onDoubleClick={stopPanelEventPropagation}
@@ -958,6 +965,7 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
       onMouseLeave={handleMouseLeave}
       onFocus={handlePanelFocus}
       onBlur={handlePanelBlur}
+      onPointerDownCapture={onActivate}
       onPointerDown={stopPanelEventPropagation}
       onWheel={stopPanelEventPropagation}
       role="toolbar"

@@ -4,6 +4,7 @@ import { PaintPanel } from './PaintPanel';
 import { ViewerOptionsPanel } from './ViewerOptionsPanel';
 import { ViewerToolbar } from './ViewerToolbar';
 import { translations, type Language } from '@/shared/i18n';
+import { useManagedWindowLayer } from '@/store';
 import type { ViewerController } from '../hooks/useViewerController';
 import { useResponsivePanelLayout } from '../hooks/useResponsivePanelLayout';
 
@@ -39,6 +40,10 @@ export const ViewerPanels = ({
   showToolbar = true,
 }: ViewerPanelsProps) => {
   const t = translations[lang];
+  const viewerOptionsLayer = useManagedWindowLayer('viewerOptions');
+  const viewerJointsLayer = useManagedWindowLayer('viewerJoints');
+  const measureToolLayer = useManagedWindowLayer('measureTool');
+  const paintToolLayer = useManagedWindowLayer('paintTool');
   const { optionsDefaultPosition, jointsDefaultPosition, jointsPanelMaxHeight } =
     useResponsivePanelLayout({
       containerRef: controller.containerRef,
@@ -106,6 +111,8 @@ export const ViewerPanels = ({
         groundPlaneOffset={controller.groundPlaneOffset}
         groundPlaneOffsetReadOnly={controller.groundPlaneOffsetReadOnly}
         setGroundPlaneOffset={controller.setGroundPlaneOffset}
+        zIndex={viewerOptionsLayer.zIndex}
+        onActivate={viewerOptionsLayer.onActivate}
       />
 
       {showJointPanel ? (
@@ -133,6 +140,8 @@ export const ViewerPanels = ({
             onSelect={controller.handleSelectWrapper}
             onHover={controller.handleHoverWrapper}
             onUpdate={onUpdate}
+            zIndex={viewerJointsLayer.zIndex}
+            onActivate={viewerJointsLayer.onActivate}
           />
         </React.Suspense>
       ) : null}
@@ -154,6 +163,8 @@ export const ViewerPanels = ({
         measurePoseRepresentation={controller.measurePoseRepresentation}
         setMeasurePoseRepresentation={controller.setMeasurePoseRepresentation}
         lang={lang}
+        zIndex={measureToolLayer.zIndex}
+        onActivate={measureToolLayer.onActivate}
       />
 
       <PaintPanel
@@ -171,6 +182,8 @@ export const ViewerPanels = ({
         paintPanelRef={controller.paintPanelRef}
         paintPanelPos={controller.paintPanelPos}
         onMouseDown={(event) => controller.handleMouseDown('paint', event)}
+        zIndex={paintToolLayer.zIndex}
+        onActivate={paintToolLayer.onActivate}
       />
     </>
   );

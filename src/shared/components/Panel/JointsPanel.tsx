@@ -46,6 +46,8 @@ interface JointsPanelProps {
     subType?: 'visual' | 'collision',
   ) => void;
   onUpdate?: (type: 'link' | 'joint', id: string, data: unknown) => void;
+  zIndex?: number;
+  onActivate?: () => void;
 }
 
 export const JointsPanel: React.FC<JointsPanelProps> = ({
@@ -71,6 +73,8 @@ export const JointsPanel: React.FC<JointsPanelProps> = ({
   onSelect,
   onHover,
   onUpdate,
+  zIndex = 40,
+  onActivate,
 }) => {
   const [isAdvanced, setIsAdvanced] = useState(false);
   const onHoverRef = useRef(onHover);
@@ -136,9 +140,10 @@ export const JointsPanel: React.FC<JointsPanelProps> = ({
       height={resolvedPanelHeight}
       maxHeight={maxHeight}
       additionalControls={additionalControls}
-      zIndex={40}
+      zIndex={zIndex}
       resizeTitle={t.resize}
       panelClassName="urdf-joint-panel"
+      onActivate={onActivate}
       onMouseEnter={clearGlobalHover}
       onMouseLeave={clearGlobalHover}
     >

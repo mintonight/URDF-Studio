@@ -170,3 +170,56 @@ test('OptionsPanel uses a slightly smaller shared corner radius by default', asy
     dom.window.close();
   }
 });
+
+test('OptionsPanel applies dynamic z-index and activates on pointer or keyboard focus', async () => {
+  resetSelectionStore();
+
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const panelRef = createRef<HTMLDivElement>();
+  let activateCount = 0;
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(OptionsPanel, {
+          title: 'Options',
+          show: true,
+          isCollapsed: false,
+          onToggleCollapse: () => {},
+          panelRef,
+          zIndex: 231,
+          onActivate: () => {
+            activateCount += 1;
+          },
+          children: React.createElement('button', { type: 'button' }, 'Focusable'),
+        }),
+      );
+    });
+
+    const panelRoot = container.firstElementChild as HTMLDivElement | null;
+    assert.ok(panelRoot, 'options panel should render');
+    assert.equal(panelRoot.style.zIndex, '231');
+    assert.equal(panelRoot.className.includes('z-231'), false);
+
+    await act(async () => {
+      panelRoot.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+    });
+    assert.equal(activateCount, 1);
+
+    const button = container.querySelector('button[type="button"]');
+    assert.ok(button, 'focusable child should render');
+    await act(async () => {
+      button.dispatchEvent(new dom.window.Event('focusin', { bubbles: true }));
+    });
+    assert.equal(activateCount, 2);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});

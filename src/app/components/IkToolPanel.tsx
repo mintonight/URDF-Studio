@@ -3,6 +3,7 @@ import React from 'react';
 import { OptionsPanel } from '@/shared/components/Panel/OptionsPanel';
 import { Select, type SelectOption } from '@/shared/components/ui/Select';
 import type { TranslationKeys } from '@/shared/i18n/types';
+import { useManagedWindowLayer } from '@/store';
 
 import type { IkToolSelectionStatus } from '../utils/ikToolSelectionState';
 
@@ -128,6 +129,7 @@ export const IkToolPanel: React.FC<IkToolPanelProps> = ({
   onClose,
 }) => {
   const [isCollapsed, setIsCollapsed] = React.useState(false);
+  const ikToolLayer = useManagedWindowLayer('ikTool');
   const { panelRef, position, handleMouseDown } = useIkToolPanelDrag(show);
   const hasLinkOptions = linkOptions.length > 0;
   const selectOptions = React.useMemo(
@@ -177,6 +179,8 @@ export const IkToolPanel: React.FC<IkToolPanelProps> = ({
       onMouseDown={handleMouseDown}
       panelRef={panelRef}
       width="14rem"
+      zIndex={ikToolLayer.zIndex}
+      onActivate={ikToolLayer.onActivate}
       panelClassName="ik-tool-panel fixed z-50"
       expandText={t.expand}
       collapseText={t.collapse}

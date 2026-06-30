@@ -19,6 +19,7 @@ import {
   type SnapshotCaptureOptions,
 } from '@/shared/components/3d/scene/snapshotConfig';
 import { translations, type Language } from '@/shared/i18n';
+import { useManagedWindowLayer } from '@/store';
 import { SnapshotPreviewRenderer } from './snapshot-preview/SnapshotPreviewRenderer';
 import type { SnapshotDialogPreviewState, SnapshotPreviewSession } from './snapshot-preview/types';
 
@@ -124,6 +125,7 @@ export function SnapshotDialog({
   onPreviewCaptureActionChange,
 }: SnapshotDialogProps) {
   const t = translations[lang];
+  const snapshotWindowLayer = useManagedWindowLayer('snapshot');
   const [resolutionPreset, setResolutionPreset] = useState(
     String(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.longEdgePx),
   );
@@ -479,7 +481,9 @@ export function SnapshotDialog({
           </div>
         </div>
       }
-      className="z-[95] overflow-hidden rounded-2xl border border-border-black bg-panel-bg text-text-primary shadow-xl pointer-events-auto"
+      className="overflow-hidden rounded-2xl border border-border-black bg-panel-bg text-text-primary shadow-xl pointer-events-auto"
+      zIndex={snapshotWindowLayer.zIndex}
+      onActivate={snapshotWindowLayer.onActivate}
       headerClassName="flex h-10 items-center justify-between border-b border-border-black bg-element-bg px-3"
       interactionClassName="select-none"
       controlButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-panel-bg hover:text-text-primary"

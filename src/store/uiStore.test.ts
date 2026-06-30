@@ -102,6 +102,50 @@ test('MJCF world visibility defaults to visible for fresh sessions', async () =>
   dom.window.close();
 });
 
+test('managed workbench windows move the activated window to the front without persisting order', async () => {
+  const { dom, useUIStore } = await loadUIStore();
+
+  const initialState = useUIStore.getState();
+  assert.ok(
+    initialState.getManagedWindowZIndex('sourceCode') >
+      initialState.getManagedWindowZIndex('settings'),
+    'source code should keep its historical default layer above settings',
+  );
+
+  initialState.bringWindowToFront('settings');
+  const settingsFrontState = useUIStore.getState();
+  assert.ok(
+    settingsFrontState.getManagedWindowZIndex('settings') >
+      settingsFrontState.getManagedWindowZIndex('sourceCode'),
+    'activated settings window should move above source code',
+  );
+  assert.ok(
+    settingsFrontState.getManagedWindowZIndex('settings') >
+      settingsFrontState.getManagedWindowZIndex('structureGraph'),
+    'activated settings window should move above structure graph',
+  );
+
+  settingsFrontState.bringWindowToFront('sourceCode');
+  const sourceFrontState = useUIStore.getState();
+  assert.ok(
+    sourceFrontState.getManagedWindowZIndex('sourceCode') >
+      sourceFrontState.getManagedWindowZIndex('settings'),
+    'last activated source code window should move above settings',
+  );
+
+  const raw = dom.window.localStorage.getItem('urdf-studio-ui');
+  assert.ok(raw, 'persisted ui store payload should be written');
+  const persisted = JSON.parse(raw) as {
+    state?: {
+      managedWindowOrder?: unknown;
+    };
+  };
+
+  assert.equal(persisted.state?.managedWindowOrder, undefined);
+
+  dom.window.close();
+});
+
 test('legacy default tree panel heights migrate to balanced sizing', async () => {
   const { dom, useUIStore } = await loadUIStore(
     {

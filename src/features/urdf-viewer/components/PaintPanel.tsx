@@ -26,6 +26,8 @@ interface PaintPanelProps {
   paintPanelRef?: React.RefObject<HTMLDivElement | null>;
   paintPanelPos?: { x: number; y: number } | null;
   onMouseDown?: (e: React.MouseEvent) => void;
+  zIndex?: number;
+  onActivate?: () => void;
 }
 
 function normalizeHexColor(value: string): string | null {
@@ -104,6 +106,8 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({
   paintPanelRef,
   paintPanelPos,
   onMouseDown,
+  zIndex = 50,
+  onActivate,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [hexInputValue, setHexInputValue] = useState(paintColor);
@@ -137,8 +141,9 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({
       defaultPosition={{ right: WORKSPACE_OVERLAY_RIGHT_EDGE_GAP, bottom: '16px' }}
       width="14rem"
       maxHeight={320}
-      zIndex={50}
+      zIndex={zIndex}
       panelClassName="paint-panel"
+      onActivate={onActivate}
       expandText={t.expand}
       collapseText={t.collapse}
       closeText={t.close}

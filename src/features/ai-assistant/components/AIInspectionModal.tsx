@@ -9,6 +9,7 @@ import { Button } from '@/shared/components/ui/Button';
 import { Dialog } from '@/shared/components/ui/Dialog';
 import { SegmentedControl } from '@/shared/components/ui/SegmentedControl';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
+import { useManagedWindowLayer } from '@/store';
 import { runRobotInspection } from '../services/aiService';
 import { INSPECTION_CRITERIA } from '../utils/inspectionCriteria';
 import {
@@ -64,6 +65,7 @@ export function AIInspectionModal({
   onOpenConversationWithReport,
 }: AIInspectionModalProps) {
   const t = translations[lang];
+  const inspectionWindowLayer = useManagedWindowLayer('aiInspection');
   const windowState = useDraggableWindow({
     isOpen,
     defaultSize: { width: 1080, height: 720 },
@@ -610,7 +612,9 @@ export function AIInspectionModal({
             </>
           )
         }
-        className="z-[100] flex flex-col overflow-hidden rounded-2xl border border-border-black bg-panel-bg text-text-primary shadow-xl select-none dark:bg-panel-bg"
+        className="flex flex-col overflow-hidden rounded-2xl border border-border-black bg-panel-bg text-text-primary shadow-xl select-none dark:bg-panel-bg"
+        zIndex={inspectionWindowLayer.zIndex}
+        onActivate={inspectionWindowLayer.onActivate}
         headerClassName="relative h-12 border-b border-border-black flex items-center justify-between px-4 bg-element-bg shrink-0"
         headerLeftClassName={isSetupView ? 'flex min-w-0 items-center' : 'flex items-center gap-3'}
         headerRightClassName={

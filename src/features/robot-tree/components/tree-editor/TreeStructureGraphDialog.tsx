@@ -14,6 +14,7 @@ import { getTreeRenderRootLinkIds } from '@/core/robot';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import type { TranslationKeys } from '@/shared/i18n';
+import { useManagedWindowLayer } from '@/store';
 import { matchesSelection, useSelectionStore } from '@/store/selectionStore';
 import { useAssemblySelectionStore } from '@/store/assemblySelectionStore';
 import type { AssemblyState, RobotData, RobotState } from '@/types';
@@ -644,6 +645,7 @@ export function TreeStructureGraphDialog({
   );
   const [isPanning, setIsPanning] = useState(false);
   const [hoveredNodeUid, setHoveredNodeUid] = useState<string | null>(null);
+  const structureGraphWindowLayer = useManagedWindowLayer('structureGraph');
   const graphSurfaceRef = useRef<HTMLDivElement | null>(null);
   const viewTransformRef = useRef(viewTransform);
   const hasAutoFitOpenViewRef = useRef(false);
@@ -1105,7 +1107,9 @@ export function TreeStructureGraphDialog({
           </button>
         </div>
       }
-      className="z-[240] overflow-hidden rounded-2xl border border-border-black bg-panel-bg/60 text-text-primary shadow-xl pointer-events-auto"
+      className="overflow-hidden rounded-2xl border border-border-black bg-panel-bg/60 text-text-primary shadow-xl pointer-events-auto"
+      zIndex={structureGraphWindowLayer.zIndex}
+      onActivate={structureGraphWindowLayer.onActivate}
       headerClassName="flex h-10 items-center justify-between border-b border-border-black bg-element-bg px-3"
       interactionClassName="select-none"
       controlButtonClassName="rounded-md p-1 text-text-tertiary transition-colors hover:bg-panel-bg hover:text-text-primary"

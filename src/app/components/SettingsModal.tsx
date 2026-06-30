@@ -31,6 +31,7 @@ import {
 } from '@/shared/components/ui';
 import { translations } from '@/shared/i18n';
 import {
+  useManagedWindowLayer,
   useUIStore,
   NAVIGATION_SENSITIVITY_MIN,
   NAVIGATION_SENSITIVITY_MAX,
@@ -427,6 +428,7 @@ export function SettingsModal() {
     })),
   );
 
+  const settingsWindowLayer = useManagedWindowLayer('settings');
   const [activePage, setActivePage] = React.useState<SettingsPage>('general');
   const t = translations[lang];
   const panelRef = React.useRef<HTMLDivElement>(null);
@@ -896,8 +898,8 @@ export function SettingsModal() {
   return (
     <div
       ref={panelRef}
-      style={{ left: settingsPos.x, top: settingsPos.y }}
-      className="pointer-events-auto fixed z-[230]"
+      style={{ left: settingsPos.x, top: settingsPos.y, zIndex: settingsWindowLayer.zIndex }}
+      className="pointer-events-auto fixed"
       role="toolbar"
       aria-label={t.settings}
       tabIndex={-1}
@@ -905,6 +907,8 @@ export function SettingsModal() {
       onContextMenu={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
+      onPointerDownCapture={settingsWindowLayer.onActivate}
+      onFocusCapture={settingsWindowLayer.onActivate}
       onPointerDown={(event) => event.stopPropagation()}
       onWheel={(event) => event.stopPropagation()}
     >

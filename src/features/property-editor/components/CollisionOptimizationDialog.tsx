@@ -13,6 +13,7 @@ import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { CompactSwitch } from '@/shared/components/ui';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { translations } from '@/shared/i18n';
+import { useManagedWindowLayer } from '@/store';
 import { GeometryType, type InteractionSelection } from '@/types';
 import type {
   CollisionOptimizationAnalysis,
@@ -245,6 +246,7 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
   onSelectTarget,
 }) => {
   const t = translations[lang];
+  const collisionOptimizationWindowLayer = useManagedWindowLayer('collisionOptimization');
   const copy = {
     title: t.collisionOptimizerDialog,
     scope: t.collisionOptimizerScope,
@@ -1170,7 +1172,9 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
           </div>
         </div>
       }
-      className="z-[110] flex flex-col overflow-hidden rounded-lg border border-border-black bg-panel-bg text-text-primary shadow-lg"
+      className="flex flex-col overflow-hidden rounded-lg border border-border-black bg-panel-bg text-text-primary shadow-lg"
+      zIndex={collisionOptimizationWindowLayer.zIndex}
+      onActivate={collisionOptimizationWindowLayer.onActivate}
       headerClassName="flex h-10 shrink-0 items-center justify-between border-b border-border-black bg-element-bg px-2"
       interactionClassName="select-none"
       showMinimizeButton={false}

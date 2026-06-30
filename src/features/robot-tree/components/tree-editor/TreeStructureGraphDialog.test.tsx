@@ -416,7 +416,8 @@ test('TreeStructureGraphDialog exposes maximize and only uses grab cursor while 
       `[role="dialog"][aria-label="${translations.en.structureGraphTitle}"]`,
     );
     assert.equal(dialog.parentElement, dom.window.document.body);
-    assert.match(dialog.className, /z-\[240\]/);
+    assert.equal(dialog.className.includes('z-[240]'), false);
+    assert.notEqual(dialog.style.zIndex, '');
     assert.equal(dialog.style.width, '100%');
     assert.equal(dialog.style.height, '100%');
 

@@ -28,7 +28,12 @@ import {
   X,
 } from 'lucide-react';
 import type { Theme } from '@/types';
-import { useUIStore, type CodeEditorFontFamily, type Language } from '@/store';
+import {
+  useManagedWindowLayer,
+  useUIStore,
+  type CodeEditorFontFamily,
+  type Language,
+} from '@/store';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { Select, Tooltip } from '@/shared/components/ui';
@@ -475,6 +480,7 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
   const codeEditorFontFamily = useUIStore((state) => state.codeEditorFontFamily);
   const codeEditorFontSize = useUIStore((state) => state.codeEditorFontSize);
   const codeEditorOpacity = useUIStore((state) => state.codeEditorOpacity);
+  const sourceCodeWindowLayer = useManagedWindowLayer('sourceCode');
   const t = editorTexts[lang];
   const normalizedDocuments = useMemo(
     () =>
@@ -1267,9 +1273,11 @@ export const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
         </div>
       }
       style={opacityStyle}
-      className={`source-code-editor-window fixed z-[220] flex flex-col overflow-hidden rounded-lg border border-border-black text-text-primary shadow-2xl ${
+      className={`source-code-editor-window flex flex-col overflow-hidden rounded-lg border border-border-black text-text-primary shadow-2xl ${
         isMaximized ? 'inset-0 !h-full !w-full !transform-none rounded-none' : ''
       }`}
+      zIndex={sourceCodeWindowLayer.zIndex}
+      onActivate={sourceCodeWindowLayer.onActivate}
       headerClassName="source-code-editor-chrome flex h-10 items-center justify-between gap-3 border-b border-border-black px-3 select-none"
       headerLeftClassName="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden"
       headerRightClassName="flex shrink-0 items-center gap-1"

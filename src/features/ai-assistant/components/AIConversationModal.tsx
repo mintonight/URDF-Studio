@@ -16,6 +16,7 @@ import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import { Button } from '@/shared/components/ui/Button';
 import { Dialog } from '@/shared/components/ui/Dialog';
+import { useManagedWindowLayer } from '@/store';
 import {
   sendConversationTurnStream,
   type ConversationHistoryTurn,
@@ -136,6 +137,7 @@ export function AIConversationModal({
   onStartNewConversation,
 }: AIConversationModalProps) {
   const t = translations[lang];
+  const conversationWindowLayer = useManagedWindowLayer('aiConversation');
   const windowState = useDraggableWindow({
     isOpen,
     defaultSize: { width: 760, height: 620 },
@@ -540,7 +542,9 @@ export function AIConversationModal({
             </button>
           </div>
         }
-        className="z-[110] flex flex-col overflow-hidden rounded-2xl border border-border-black bg-panel-bg text-text-primary shadow-xl dark:bg-panel-bg"
+        className="flex flex-col overflow-hidden rounded-2xl border border-border-black bg-panel-bg text-text-primary shadow-xl dark:bg-panel-bg"
+        zIndex={conversationWindowLayer.zIndex}
+        onActivate={conversationWindowLayer.onActivate}
         headerClassName="h-12 border-b border-border-black flex items-center justify-between px-4 bg-element-bg shrink-0"
         interactionClassName="select-none"
         minimizeTitle={t.minimize}

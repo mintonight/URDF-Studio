@@ -63,6 +63,8 @@ interface ViewerOptionsPanelProps {
   groundPlaneOffset: number;
   groundPlaneOffsetReadOnly?: boolean;
   setGroundPlaneOffset: (value: number) => void;
+  zIndex?: number;
+  onActivate?: () => void;
 }
 
 interface OverlayToggleButtonProps {
@@ -201,6 +203,8 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
   setShowInertia,
   showInertiaOverlay,
   setShowInertiaOverlay,
+  zIndex,
+  onActivate,
 }) => {
   const { activateHoverBlock, deactivateHoverBlock } = useOverlayHoverBlock();
   const detailOptionIconClassName = 'w-3 h-3 text-slate-500';
@@ -215,6 +219,7 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
     if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
       return;
     }
+    onActivate?.();
     activateHoverBlock();
   };
   const handlePanelBlur = (event: React.FocusEvent<HTMLDivElement>) => {
@@ -228,7 +233,7 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
   return (
     <div
       ref={optionsPanelRef}
-      className="urdf-options-panel absolute z-40 pointer-events-auto"
+      className="urdf-options-panel absolute pointer-events-auto"
       style={
         optionsPanelPos
           ? {
@@ -237,8 +242,12 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
               right: 'auto',
               bottom: 'auto',
               transform: 'none',
+              zIndex,
             }
-          : (defaultPosition ?? { top: '16px', right: WORKSPACE_OVERLAY_RIGHT_EDGE_GAP })
+          : {
+              ...(defaultPosition ?? { top: '16px', right: WORKSPACE_OVERLAY_RIGHT_EDGE_GAP }),
+              zIndex,
+            }
       }
       onClick={stopPanelEventPropagation}
       onContextMenu={stopPanelEventPropagation}
@@ -248,6 +257,7 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
       onMouseLeave={deactivateHoverBlock}
       onFocus={handlePanelFocus}
       onBlur={handlePanelBlur}
+      onPointerDownCapture={onActivate}
       onPointerDown={stopPanelEventPropagation}
       onWheel={stopPanelEventPropagation}
       role="toolbar"

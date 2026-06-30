@@ -5,6 +5,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
+import { DEFAULT_MANAGED_WINDOW_ORDER, useUIStore } from '@/store';
 import { GeometryType, JointType, type RobotState } from '@/types';
 import type { AIConversationLaunchContext } from '../types';
 import { buildConversationPromptSuggestions } from '../utils/conversationPromptSuggestions';
@@ -152,6 +153,65 @@ const clickButton = async (button: HTMLButtonElement) => {
     button.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   });
 };
+
+test('AIConversationModal moves to the front when activated', async () => {
+  const previousApiKey = process.env.API_KEY;
+  process.env.API_KEY = '';
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const { AIConversationModal } = await import('./AIConversationModal.tsx');
+  const root = createRoot(container);
+  const initialState = useUIStore.getState();
+
+  try {
+    useUIStore.setState({
+      managedWindowOrder: [...DEFAULT_MANAGED_WINDOW_ORDER],
+    });
+
+    await act(async () => {
+      root.render(
+        <AIConversationModal
+          isOpen
+          onClose={() => {}}
+          lang="en"
+          launchContext={createLaunchContext()}
+          onStartNewConversation={() => {}}
+        />,
+      );
+    });
+
+    const initialZIndex = String(useUIStore.getState().getManagedWindowZIndex('aiConversation'));
+    const windowRoot = Array.from(container.querySelectorAll<HTMLDivElement>('div')).find(
+      (element) => element.style.zIndex === initialZIndex,
+    );
+    assert.ok(windowRoot, 'conversation window should render with dynamic z-index');
+    assert.equal(windowRoot.className.includes('z-[110]'), false);
+    assert.ok(
+      useUIStore.getState().getManagedWindowZIndex('sourceCode') >
+        useUIStore.getState().getManagedWindowZIndex('aiConversation'),
+      'source code should start above AI conversation in the default order',
+    );
+
+    await act(async () => {
+      windowRoot.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+    });
+
+    assert.ok(
+      useUIStore.getState().getManagedWindowZIndex('aiConversation') >
+        useUIStore.getState().getManagedWindowZIndex('sourceCode'),
+      'activated AI conversation window should move above source code',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    useUIStore.setState(initialState);
+    process.env.API_KEY = previousApiKey;
+    dom.window.close();
+  }
+});
 
 test('new conversation requires confirmation, preserves history, and inserts a divider', async () => {
   const previousApiKey = process.env.API_KEY;

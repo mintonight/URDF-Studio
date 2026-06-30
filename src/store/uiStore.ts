@@ -15,6 +15,84 @@ export type GlobalFontSize = 'small' | 'medium' | 'large';
 export type CodeEditorFontFamily = 'jetbrains-mono' | 'fira-code' | 'system-mono';
 export type MassInertiaChangeBehavior = 'ask' | 'preserve' | 'reestimate';
 export type TreePanelHeightMode = 'balanced' | 'custom';
+export type ManagedWindowId =
+  | 'snapshot'
+  | 'settings'
+  | 'exportDialog'
+  | 'exportProgress'
+  | 'aiInspection'
+  | 'aiConversation'
+  | 'filePreview'
+  | 'collisionOptimization'
+  | 'sourceCode'
+  | 'structureGraph'
+  | 'bridgeCreate'
+  | 'viewerOptions'
+  | 'viewerJoints'
+  | 'measureTool'
+  | 'paintTool'
+  | 'ikTool';
+
+export const MANAGED_WINDOW_Z_INDEX_BASE = 220;
+
+export const DEFAULT_MANAGED_WINDOW_ORDER: readonly ManagedWindowId[] = [
+  'snapshot',
+  'settings',
+  'exportDialog',
+  'exportProgress',
+  'aiInspection',
+  'aiConversation',
+  'filePreview',
+  'collisionOptimization',
+  'sourceCode',
+  'structureGraph',
+  'bridgeCreate',
+  'viewerOptions',
+  'viewerJoints',
+  'measureTool',
+  'paintTool',
+  'ikTool',
+];
+
+const managedWindowIdSet = new Set<ManagedWindowId>(DEFAULT_MANAGED_WINDOW_ORDER);
+
+const areManagedWindowOrdersEqual = (
+  first: readonly ManagedWindowId[],
+  second: readonly ManagedWindowId[],
+) => first.length === second.length && first.every((id, index) => id === second[index]);
+
+export const normalizeManagedWindowOrder = (
+  order: readonly ManagedWindowId[] | null | undefined,
+): ManagedWindowId[] => {
+  const normalized = (order ?? []).filter((id): id is ManagedWindowId =>
+    managedWindowIdSet.has(id),
+  );
+  DEFAULT_MANAGED_WINDOW_ORDER.forEach((id) => {
+    if (!normalized.includes(id)) {
+      normalized.push(id);
+    }
+  });
+  return normalized;
+};
+
+export const bringManagedWindowToFront = (
+  order: readonly ManagedWindowId[] | null | undefined,
+  windowId: ManagedWindowId,
+): ManagedWindowId[] => {
+  const normalized = normalizeManagedWindowOrder(order);
+  const nextOrder = normalized.filter((id) => id !== windowId);
+  nextOrder.push(windowId);
+  return nextOrder;
+};
+
+export const getManagedWindowZIndex = (
+  order: readonly ManagedWindowId[] | null | undefined,
+  windowId: ManagedWindowId,
+): number => {
+  const normalized = normalizeManagedWindowOrder(order);
+  const index = normalized.indexOf(windowId);
+  return MANAGED_WINDOW_Z_INDEX_BASE + Math.max(0, index);
+};
 
 // View configuration for different modes
 export interface ViewConfig {
@@ -150,6 +228,11 @@ interface UIState {
   // Source code editor
   sourceCodeAutoApply: boolean;
   setSourceCodeAutoApply: (enabled: boolean) => void;
+
+  // Floating workbench window z-order. Session-only; intentionally not persisted.
+  managedWindowOrder: ManagedWindowId[];
+  bringWindowToFront: (windowId: ManagedWindowId) => void;
+  getManagedWindowZIndex: (windowId: ManagedWindowId) => number;
 
   // Property editor rotation format
   rotationDisplayMode: RotationDisplayMode;
@@ -379,7 +462,7 @@ const applyTheme = (theme: Theme) => {
 
 export const useUIStore = create<UIState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       // App mode
       appMode: normalizeMergedAppMode('editor'),
       setAppMode: (mode) => set({ appMode: normalizeMergedAppMode(mode) }),
@@ -535,6 +618,18 @@ export const useUIStore = create<UIState>()(
       // Source code editor
       sourceCodeAutoApply: false,
       setSourceCodeAutoApply: (sourceCodeAutoApply) => set({ sourceCodeAutoApply }),
+
+      // Floating workbench windows
+      managedWindowOrder: [...DEFAULT_MANAGED_WINDOW_ORDER],
+      bringWindowToFront: (windowId) =>
+        set((state) => {
+          const nextOrder = bringManagedWindowToFront(state.managedWindowOrder, windowId);
+          return areManagedWindowOrdersEqual(state.managedWindowOrder, nextOrder)
+            ? state
+            : { managedWindowOrder: nextOrder };
+        }),
+      getManagedWindowZIndex: (windowId) =>
+        getManagedWindowZIndex(get().managedWindowOrder, windowId),
 
       // Property editor rotation format
       rotationDisplayMode: 'euler_deg',

@@ -11,7 +11,13 @@ export {
   DEFAULT_CODE_EDITOR_OPACITY,
   MIN_CODE_EDITOR_OPACITY,
   MAX_CODE_EDITOR_OPACITY,
+  DEFAULT_MANAGED_WINDOW_ORDER,
+  MANAGED_WINDOW_Z_INDEX_BASE,
+  bringManagedWindowToFront,
+  getManagedWindowZIndex,
+  normalizeManagedWindowOrder,
 } from './uiStore';
+export { useManagedWindowLayer } from './useManagedWindowLayer';
 export type {
   Language,
   ViewConfig,
@@ -23,6 +29,7 @@ export type {
   CodeEditorFontFamily,
   RotationDisplayMode,
   MassInertiaChangeBehavior,
+  ManagedWindowId,
 } from './uiStore';
 
 // Selection Store - link/joint selection and hover state

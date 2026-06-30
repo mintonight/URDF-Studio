@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { translations } from '@/shared/i18n';
+import { DEFAULT_MANAGED_WINDOW_ORDER, useUIStore } from '@/store';
 import {
   __setPdfCanvasFactoryForTests,
   __setPdfGenerationDepsLoaderForTests,
@@ -183,6 +184,63 @@ test('transparent AI inspection backdrop does not intercept pointer events', asy
     await act(async () => {
       root.unmount();
     });
+    dom.window.close();
+  }
+});
+
+test('AIInspectionModal moves to the front when activated', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const { AIInspectionModal } = await import('./AIInspectionModal.tsx');
+  const root = createRoot(container);
+  const initialState = useUIStore.getState();
+
+  try {
+    useUIStore.setState({
+      managedWindowOrder: [...DEFAULT_MANAGED_WINDOW_ORDER],
+    });
+
+    await act(async () => {
+      root.render(
+        <AIInspectionModal
+          isOpen
+          onClose={() => {}}
+          robot={createRobotFixture()}
+          lang="en"
+          onSelectItem={() => {}}
+          onOpenConversationWithReport={() => {}}
+        />,
+      );
+    });
+
+    const initialZIndex = String(useUIStore.getState().getManagedWindowZIndex('aiInspection'));
+    const windowRoot = Array.from(container.querySelectorAll<HTMLDivElement>('div')).find(
+      (element) => element.style.zIndex === initialZIndex,
+    );
+    assert.ok(windowRoot, 'inspection window should render with dynamic z-index');
+    assert.equal(windowRoot.className.includes('z-[100]'), false);
+    assert.ok(
+      useUIStore.getState().getManagedWindowZIndex('sourceCode') >
+        useUIStore.getState().getManagedWindowZIndex('aiInspection'),
+      'source code should start above AI inspection in the default order',
+    );
+
+    await act(async () => {
+      windowRoot.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+    });
+
+    assert.ok(
+      useUIStore.getState().getManagedWindowZIndex('aiInspection') >
+        useUIStore.getState().getManagedWindowZIndex('sourceCode'),
+      'activated AI inspection window should move above source code',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    useUIStore.setState(initialState);
     dom.window.close();
   }
 });

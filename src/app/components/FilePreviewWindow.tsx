@@ -16,7 +16,7 @@ import {
 import { getViewerSourceFile } from '@/app/hooks/workspaceSourceSyncUtils';
 import { resolveStandaloneViewerSourceFormat } from '@/app/hooks/workspace-source-sync/mjcfViewerRuntimePolicy';
 import type { ViewerJointMotionStateValue } from '@/features/editor';
-import type { Language } from '@/store';
+import { useManagedWindowLayer, type Language } from '@/store';
 import type { DocumentLoadLifecycleState, DocumentLoadState } from '@/store/assetsStore';
 import type { RobotFile, RobotState, Theme } from '@/types';
 
@@ -145,6 +145,7 @@ export function FilePreviewWindow({
   onAddComponent,
 }: FilePreviewWindowProps) {
   const t = translations[lang];
+  const filePreviewWindowLayer = useManagedWindowLayer('filePreview');
   const isOpen = Boolean(file);
   const windowState = useDraggableWindow({
     isOpen,
@@ -271,7 +272,9 @@ export function FilePreviewWindow({
           </button>
         ) : null
       }
-      className="z-[110] flex flex-col overflow-hidden rounded-lg border border-border-black bg-panel-bg shadow-2xl"
+      className="flex flex-col overflow-hidden rounded-lg border border-border-black bg-panel-bg shadow-2xl"
+      zIndex={filePreviewWindowLayer.zIndex}
+      onActivate={filePreviewWindowLayer.onActivate}
       headerClassName="flex h-11 items-center justify-between border-b border-border-black bg-element-bg px-3"
       showResizeHandles
       showMinimizeButton={false}

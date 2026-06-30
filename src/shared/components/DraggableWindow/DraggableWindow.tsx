@@ -64,6 +64,8 @@ export interface DraggableWindowProps {
   ariaLabel?: string;
   ariaModal?: boolean | 'true' | 'false';
   style?: React.CSSProperties;
+  zIndex?: number;
+  onActivate?: () => void;
 }
 
 const DEFAULT_CONTROL_BUTTON_CLASS = 'p-1.5 hover:bg-element-hover rounded-md transition-colors';
@@ -127,6 +129,8 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   ariaLabel,
   ariaModal,
   style,
+  zIndex,
+  onActivate,
 }) => {
   const { activateHoverBlock, deactivateHoverBlock } = useOverlayHoverBlock();
   const {
@@ -163,6 +167,14 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   const restoreIcon = controlIcons?.restore ?? <Minimize2 className="w-4 h-4 text-text-tertiary" />;
   const closeIcon = controlIcons?.close ?? <X className="w-4 h-4" />;
   const headerAriaLabel = typeof title === 'string' ? title : ariaLabel;
+  const rootStyle = React.useMemo(() => {
+    const mergedStyle = style ? { ...windowStyle, ...style } : windowStyle;
+    return typeof zIndex === 'number' ? { ...mergedStyle, zIndex } : mergedStyle;
+  }, [style, windowStyle, zIndex]);
+
+  const handleActivate = React.useCallback(() => {
+    onActivate?.();
+  }, [onActivate]);
 
   React.useEffect(() => {
     const element = containerRef.current;
@@ -196,11 +208,13 @@ export const DraggableWindow: React.FC<DraggableWindowProps> = ({
   return (
     <div
       ref={containerRef}
-      style={style ? { ...windowStyle, ...style } : windowStyle}
+      style={rootStyle}
       className={rootClassName}
       role={role}
       aria-label={ariaLabel}
       aria-modal={ariaModal}
+      onPointerDownCapture={handleActivate}
+      onFocusCapture={handleActivate}
     >
       {shouldRenderResizeHandles && (
         <>

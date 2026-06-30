@@ -192,3 +192,62 @@ test('DraggableWindow renders thin visual resize affordances inside wider hit ta
     dom.window.close();
   }
 });
+
+test('DraggableWindow applies dynamic z-index and activates on pointer or keyboard focus', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const windowRef = createRef<HTMLDivElement>();
+  let activateCount = 0;
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(DraggableWindow, {
+          window: {
+            isMaximized: false,
+            isMinimized: false,
+            isDragging: false,
+            isResizing: false,
+            containerRef: windowRef,
+            handleDragStart: () => {},
+            handleResizeStart: () => {},
+            toggleMaximize: () => {},
+            toggleMinimize: () => {},
+            windowStyle: {},
+          },
+          zIndex: 237,
+          onActivate: () => {
+            activateCount += 1;
+          },
+          onClose: () => {},
+          title: 'Layered',
+          children: React.createElement('button', { type: 'button' }, 'Focusable'),
+        }),
+      );
+    });
+
+    const windowRoot = container.firstElementChild as HTMLDivElement | null;
+    assert.ok(windowRoot, 'draggable window should render');
+    assert.equal(windowRoot.style.zIndex, '237');
+
+    await act(async () => {
+      windowRoot.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+    });
+    assert.equal(activateCount, 1);
+
+    const button = container.querySelector('button[type="button"]');
+    assert.ok(button, 'focusable child should render');
+    await act(async () => {
+      button.dispatchEvent(new dom.window.Event('focusin', { bubbles: true }));
+    });
+    assert.equal(activateCount, 2);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
