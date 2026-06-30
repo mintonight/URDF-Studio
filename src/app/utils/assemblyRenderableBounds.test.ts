@@ -76,13 +76,17 @@ function createMeshFallbackRobot(): RobotData {
   };
 }
 
-test('computeRobotRenderableBoundsFromAssets fails fast when a mesh visual cannot resolve', async () => {
-  await assert.rejects(
-    computeRobotRenderableBoundsFromAssets(createMeshFallbackRobot(), {
-      'robots/demo/placeholder.txt': 'data:text/plain,noop',
-    }),
-    /Mesh asset could not be resolved/i,
-  );
+test('computeRobotRenderableBoundsFromAssets tolerates unresolved mesh visuals and falls back to collision bounds', async () => {
+  // Mesh visuals whose asset cannot be resolved (e.g. USD inline meshes whose
+  // virtual .obj paths are never present in the asset pool) must not abort the
+  // whole bounds computation. The unresolved visual is skipped, and bounds are
+  // still derived from remaining geometry (here: base_link's box visual and
+  // foot_link's box collision).
+  const bounds = await computeRobotRenderableBoundsFromAssets(createMeshFallbackRobot(), {
+    'robots/demo/placeholder.txt': 'data:text/plain,noop',
+  });
+  assert.ok(bounds, 'expected fallback bounds despite the unresolved mesh visual');
+  assert.ok(bounds.min.x <= 0 && bounds.max.x >= 0, 'bounds should cover the base link');
 });
 
 test('computeRobotRenderableBoundsFromAssets resolves OBJ sidecar materials from text content when blob assets are incomplete', async () => {

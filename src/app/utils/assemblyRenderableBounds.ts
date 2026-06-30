@@ -171,11 +171,16 @@ async function loadMeshGeometryBounds(
   meshLoader: ReturnType<typeof createMeshLoader>,
   colladaRootNormalizationHints: ColladaRootNormalizationHints | null,
 ): Promise<THREE.Box3 | null> {
-  return await new Promise<THREE.Box3 | null>((resolve, reject) => {
+  return await new Promise<THREE.Box3 | null>((resolve) => {
     const meshPath = geometry.meshPath ?? '';
     void meshLoader(meshPath, manager, (object, error) => {
       if (error) {
-        reject(error);
+        // Mesh resolution failures (e.g. USD inline meshes whose virtual
+        // .obj paths are never present in the asset pool) must not abort the
+        // whole renderable-bounds computation. The meshLoader already logs
+        // the failure via logRuntimeFailure; treat the geometry as having
+        // no bounds so the component can still be inserted.
+        resolve(null);
         return;
       }
 
