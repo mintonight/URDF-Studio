@@ -1,4 +1,4 @@
-import { resolveSelectedIkDragLinkId } from '@/features/urdf-viewer/utils/selectedIkDragLink';
+import { resolveSelectedIkDragLinkId } from '@/features/editor/ik_selection';
 import type { InteractionSelection, UrdfJoint, UrdfLink } from '@/types';
 
 export type IkToolSelectionStatus =

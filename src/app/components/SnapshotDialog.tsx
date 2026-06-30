@@ -12,7 +12,10 @@ import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { useDraggableWindow } from '@/shared/hooks/useDraggableWindow';
 import {
   DEFAULT_SNAPSHOT_CAPTURE_OPTIONS,
+  SNAPSHOT_ASPECT_RATIO_PRESETS,
+  resolveSnapshotAspectRatio,
   type SnapshotCaptureAction,
+  type SnapshotAspectRatioPreset,
   type SnapshotCaptureOptions,
 } from '@/shared/components/3d/scene/snapshotConfig';
 import { translations, type Language } from '@/shared/i18n';
@@ -124,6 +127,9 @@ export function SnapshotDialog({
   const [resolutionPreset, setResolutionPreset] = useState(
     String(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.longEdgePx),
   );
+  const [aspectRatioPreset, setAspectRatioPreset] = useState(
+    DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.aspectRatioPreset,
+  );
   const [imageFormat, setImageFormat] = useState(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.imageFormat);
   const [imageQuality, setImageQuality] = useState(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.imageQuality);
   const [detailLevel, setDetailLevel] = useState(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.detailLevel);
@@ -170,6 +176,7 @@ export function SnapshotDialog({
     }
 
     setResolutionPreset(String(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.longEdgePx));
+    setAspectRatioPreset(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.aspectRatioPreset);
     setImageFormat(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.imageFormat);
     setImageQuality(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.imageQuality);
     setDetailLevel(DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.detailLevel);
@@ -209,6 +216,7 @@ export function SnapshotDialog({
       currentSize.height === nextHeight ? currentSize : { ...currentSize, height: nextHeight },
     );
   }, [
+    aspectRatioPreset,
     isOpen,
     lang,
     internalPreviewState.aspectRatio,
@@ -236,6 +244,7 @@ export function SnapshotDialog({
   const resolvedOptions = useMemo<SnapshotCaptureOptions>(
     () => ({
       longEdgePx: Number(resolutionPreset),
+      aspectRatioPreset,
       imageFormat,
       imageQuality,
       detailLevel,
@@ -249,6 +258,7 @@ export function SnapshotDialog({
     }),
     [
       backgroundStyle,
+      aspectRatioPreset,
       detailLevel,
       dofMode,
       environmentPreset,
@@ -278,6 +288,19 @@ export function SnapshotDialog({
       { value: 'webp', label: t.snapshotFormatWebp },
     ],
     [t],
+  );
+  const aspectRatioOptions = useMemo<SelectOption[]>(
+    () =>
+      SNAPSHOT_ASPECT_RATIO_PRESETS.map((preset) => ({
+        value: preset,
+        label:
+          preset === 'viewport'
+            ? lang === 'zh'
+              ? '当前画布'
+              : 'Viewport'
+            : preset,
+      })),
+    [lang],
   );
   const environmentOptions = useMemo<SelectOption[]>(
     () => [
@@ -361,6 +384,7 @@ export function SnapshotDialog({
       output: lang === 'zh' ? '输出' : 'Output',
       scene: lang === 'zh' ? '场景' : 'Scene',
       resolution: lang === 'zh' ? '分辨率' : 'Resolution',
+      aspect: lang === 'zh' ? '画幅' : 'Aspect',
       format: lang === 'zh' ? '格式' : 'Format',
       aa: 'AA',
       quality: lang === 'zh' ? '压缩' : 'Compression',
@@ -378,8 +402,12 @@ export function SnapshotDialog({
   const selectedResolutionLabel =
     SNAPSHOT_RESOLUTION_OPTIONS.find((option) => option.value === resolutionPreset)?.label ??
     `${resolutionPreset}px`;
+  const selectedAspectRatioLabel =
+    aspectRatioOptions.find((option) => option.value === aspectRatioPreset)?.label ??
+    aspectRatioPreset;
   const captureSummary = [
     selectedResolutionLabel,
+    selectedAspectRatioLabel,
     imageFormat.toUpperCase(),
     selectedAntialiasOption.label,
   ].join(' · ');
@@ -403,8 +431,12 @@ export function SnapshotDialog({
         : effectivePreviewState.status === 'error'
           ? t.snapshotPreviewFailed
           : t.snapshotPreviewReady;
+  const selectedPreviewAspectRatio = previewSession
+    ? resolveSnapshotAspectRatio(aspectRatioPreset, previewSession.viewportAspectRatio)
+    : null;
   const previewAspectRatio =
-    effectivePreviewState.aspectRatio > 0 ? effectivePreviewState.aspectRatio : 16 / 9;
+    selectedPreviewAspectRatio ??
+    (effectivePreviewState.aspectRatio > 0 ? effectivePreviewState.aspectRatio : 16 / 9);
   const previewAvailableWidth = Math.max(
     SNAPSHOT_PREVIEW_MIN_WIDTH,
     windowState.size.width - SNAPSHOT_PREVIEW_WIDTH_GUTTER,
@@ -479,6 +511,17 @@ export function SnapshotDialog({
                   options={resolutionOptions}
                   disabled={isCapturing}
                   onChange={(event) => setResolutionPreset(event.target.value)}
+                />
+              </SnapshotField>
+              <SnapshotField label={compactLabels.aspect}>
+                <PanelSelect
+                  variant="snapshot"
+                  value={aspectRatioPreset}
+                  options={aspectRatioOptions}
+                  disabled={isCapturing}
+                  onChange={(event) =>
+                    setAspectRatioPreset(event.target.value as SnapshotAspectRatioPreset)
+                  }
                 />
               </SnapshotField>
               <SnapshotField label={compactLabels.format}>

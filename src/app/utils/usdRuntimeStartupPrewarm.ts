@@ -1,5 +1,5 @@
 import { logRuntimeFailure } from '@/core/utils/runtimeDiagnostics';
-import { getUsdRuntimeEnvironmentError } from '@/features/urdf-viewer/utils/usdWasmRuntime';
+import { getUsdRuntimeEnvironmentError } from '@/features/editor/usd_runtime';
 import { scheduleUsdPostReadyBackgroundTask } from './usdPostReadyBackgroundTask';
 import type { UsdPostReadyBackgroundTaskScheduler } from './usdPostReadyBackgroundTask';
 
@@ -89,8 +89,8 @@ export function createUsdRuntimeStartupBackgroundPrewarm({
 }
 
 const prewarmUsdViewerRuntimesInBackgroundImpl = createUsdRuntimeStartupBackgroundPrewarm({
-  loadMainThreadRuntime: () => import('@/features/urdf-viewer/utils/usdWasmRuntime'),
-  loadOffscreenRuntime: () => import('@/features/urdf-viewer/utils/usdOffscreenViewerWorkerClient'),
+  loadMainThreadRuntime: () => import('@/features/editor/usd_runtime'),
+  loadOffscreenRuntime: () => import('@/features/editor/usd_offscreen_runtime'),
 });
 
 export function prewarmUsdViewerRuntimesInBackground(): void {

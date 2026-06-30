@@ -25,19 +25,79 @@ const ALLOWLIST = [
     resolved: 'src/features/urdf-viewer/index.ts',
   },
   {
-    importer: 'src/features/editor/viewerPanelModule.ts',
+    importer: 'src/features/editor/ik_selection.ts',
+    specifier: '../urdf-viewer/utils/selectedIkDragLink',
+    resolved: 'src/features/urdf-viewer/utils/selectedIkDragLink.ts',
+  },
+  {
+    importer: 'src/features/editor/panels.ts',
     specifier: '../urdf-viewer/components/ViewerPanels',
     resolved: 'src/features/urdf-viewer/components/ViewerPanels.tsx',
   },
   {
-    importer: 'src/features/editor/viewerPanelModule.ts',
+    importer: 'src/features/editor/panels.ts',
     specifier: '../urdf-viewer/hooks/useResponsivePanelLayout',
     resolved: 'src/features/urdf-viewer/hooks/useResponsivePanelLayout.ts',
   },
   {
-    importer: 'src/features/editor/viewerPanelModule.ts',
+    importer: 'src/features/editor/panels.ts',
     specifier: '../urdf-viewer/hooks/useViewerController',
     resolved: 'src/features/urdf-viewer/hooks/useViewerController.ts',
+  },
+  {
+    importer: 'src/features/editor/usd_bindings.ts',
+    specifier: '../urdf-viewer/utils/usdBindingsAssetPaths',
+    resolved: 'src/features/urdf-viewer/utils/usdBindingsAssetPaths.ts',
+  },
+  {
+    importer: 'src/features/editor/usd_documents.ts',
+    specifier: '../urdf-viewer/utils/usdPreloadSources',
+    resolved: 'src/features/urdf-viewer/utils/usdPreloadSources.ts',
+  },
+  {
+    importer: 'src/features/editor/usd_export.ts',
+    specifier: '../urdf-viewer/utils/usdExportBundle',
+    resolved: 'src/features/urdf-viewer/utils/usdExportBundle.ts',
+  },
+  {
+    importer: 'src/features/editor/usd_hydration.ts',
+    specifier: '../urdf-viewer/utils/usdOffscreenViewerProtocol',
+    resolved: 'src/features/urdf-viewer/utils/usdOffscreenViewerProtocol.ts',
+  },
+  {
+    importer: 'src/features/editor/usd_hydration.ts',
+    specifier: '../urdf-viewer/utils/usdPreparedExportCacheWorkerBridge',
+    resolved: 'src/features/urdf-viewer/utils/usdPreparedExportCacheWorkerBridge.ts',
+  },
+  {
+    importer: 'src/features/editor/usd_hydration.ts',
+    specifier: '../urdf-viewer/utils/usdPreparedExportCacheWorkerTransfer',
+    resolved: 'src/features/urdf-viewer/utils/usdPreparedExportCacheWorkerTransfer.ts',
+  },
+  {
+    importer: 'src/features/editor/usd_hydration.ts',
+    specifier: '../urdf-viewer/utils/viewerRobotData',
+    resolved: 'src/features/urdf-viewer/utils/viewerRobotData.ts',
+  },
+  {
+    importer: 'src/features/editor/usd_offscreen_runtime.ts',
+    specifier: '../urdf-viewer/utils/usdOffscreenViewerWorkerClient',
+    resolved: 'src/features/urdf-viewer/utils/usdOffscreenViewerWorkerClient.ts',
+  },
+  {
+    importer: 'src/features/editor/usd_prewarm.ts',
+    specifier: '../urdf-viewer/utils/preparedUsdStageOpenCache',
+    resolved: 'src/features/urdf-viewer/utils/preparedUsdStageOpenCache.ts',
+  },
+  {
+    importer: 'src/features/editor/usd_prewarm.ts',
+    specifier: '../urdf-viewer/utils/usdBlobBackedUsda',
+    resolved: 'src/features/urdf-viewer/utils/usdBlobBackedUsda.ts',
+  },
+  {
+    importer: 'src/features/editor/usd_runtime.ts',
+    specifier: '../urdf-viewer/utils/usdWasmRuntime',
+    resolved: 'src/features/urdf-viewer/utils/usdWasmRuntime.ts',
   },
   {
     importer: 'src/lib/components/RobotCanvas.tsx',
@@ -55,6 +115,22 @@ const ALLOWLIST = [
     resolved: 'src/features/urdf-viewer/components/RobotModel.tsx',
   },
 ];
+
+const PUBLIC_APP_FEATURE_FACADES = new Set([
+  'src/features/assembly/bridge_create_modal.ts',
+  'src/features/editor/ik_selection.ts',
+  'src/features/editor/panels.ts',
+  'src/features/editor/usd_bindings.ts',
+  'src/features/editor/usd_documents.ts',
+  'src/features/editor/usd_export.ts',
+  'src/features/editor/usd_hydration.ts',
+  'src/features/editor/usd_offscreen_runtime.ts',
+  'src/features/editor/usd_prewarm.ts',
+  'src/features/editor/usd_runtime.ts',
+  'src/features/file-io/import_path_collisions.ts',
+  'src/features/property-editor/collision_optimization.ts',
+  'src/features/property-editor/collision_optimization_dialog.ts',
+]);
 
 const BASELINE_PATH = 'scripts/tools/dependency_boundaries_baseline.json';
 
@@ -347,12 +423,19 @@ function getAppFeatureDeepImport(importerRel, importerLayer, resolvedRel, spec) 
   if (!match) {
     return null;
   }
-  if (/^index\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(match[2])) {
+  if (isPublicAppFeatureEntrypoint(resolvedRel, match[2])) {
     return null;
   }
   const feature = match[1];
   const key = featureDeepImportKey(importerRel, spec);
   return { key, importer: importerRel, specifier: spec, feature, resolved: resolvedRel };
+}
+
+function isPublicAppFeatureEntrypoint(resolvedRel, featurePath) {
+  return (
+    /^index\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(featurePath) ||
+    PUBLIC_APP_FEATURE_FACADES.has(resolvedRel)
+  );
 }
 
 function featureDeepImportKey(importerRel, spec) {

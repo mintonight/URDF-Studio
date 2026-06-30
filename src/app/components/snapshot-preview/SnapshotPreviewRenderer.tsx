@@ -8,6 +8,7 @@ import {
   SnapshotExportLook,
   useWorkspaceCanvasTheme,
 } from '@/shared/components/3d';
+import { resolveSnapshotAspectRatio } from '@/shared/components/3d/scene/snapshotConfig';
 import { translations, type Language } from '@/shared/i18n';
 import { useViewerController } from '@/features/editor';
 import { resolveDefaultViewerToolMode } from '@/features/editor';
@@ -86,6 +87,10 @@ export function SnapshotPreviewRenderer({
     [options.backgroundStyle],
   );
   const previewEnvironment = options.environmentPreset === 'viewport' ? 'studio' : 'none';
+  const previewAspectRatio = useMemo(
+    () => resolveSnapshotAspectRatio(options.aspectRatioPreset, session?.viewportAspectRatio),
+    [options.aspectRatioPreset, session?.viewportAspectRatio],
+  );
   const previewCameraSnapshot = useMemo<WorkspaceCameraSnapshot | null>(() => {
     if (!session?.cameraSnapshot) {
       return null;
@@ -93,18 +98,20 @@ export function SnapshotPreviewRenderer({
 
     return {
       ...session.cameraSnapshot,
-      aspectRatio: session.viewportAspectRatio,
+      aspectRatio: previewAspectRatio,
+      visibleViewport:
+        options.aspectRatioPreset === 'viewport' ? session.cameraSnapshot.visibleViewport : null,
     };
-  }, [session?.cameraSnapshot, session?.viewportAspectRatio]);
+  }, [options.aspectRatioPreset, previewAspectRatio, session?.cameraSnapshot]);
   const emitState = useCallback(
     (status: SnapshotDialogPreviewState['status']) => {
       onStateChange({
         status,
         imageUrl: null,
-        aspectRatio: session?.viewportAspectRatio ?? 16 / 9,
+        aspectRatio: previewAspectRatio,
       });
     },
-    [onStateChange, session?.viewportAspectRatio],
+    [onStateChange, previewAspectRatio],
   );
   const handleCaptureActionChange = useCallback(
     (action: SnapshotCaptureAction | null) => {
@@ -188,6 +195,7 @@ export function SnapshotPreviewRenderer({
         showWorldOriginAxes={false}
         showUsageGuide={false}
         showGroundPlane={!options.hideGrid}
+        showViewportGizmo={false}
         groundOffset={session.groundPlaneOffset}
         subscribeGroundPlaneInvalidation={subscribeRobotGroundPlaneInvalidation}
         initialCameraSnapshot={previewCameraSnapshot}
@@ -209,6 +217,8 @@ export function SnapshotPreviewRenderer({
               effectiveSourceFormat={session.viewerSourceFormat}
               mode="editor"
               robot={session.robot}
+              showCollision={false}
+              showCollisionAlwaysOnTop={false}
               isMeshPreview={session.isMeshPreview}
               viewerReloadKey={session.viewerReloadKey}
               t={t}

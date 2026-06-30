@@ -225,6 +225,67 @@ test('SnapshotDialog defaults the grid toggle to enabled with the visible Grid l
   }
 });
 
+test('SnapshotDialog exposes aspect ratio choices and submits the selected preset', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  let capturedAspectRatioPreset: string | null = null;
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(SnapshotDialog, {
+          isOpen: true,
+          isCapturing: false,
+          lang: 'en',
+          onClose: () => {},
+          onCapture: (options) => {
+            capturedAspectRatioPreset = options.aspectRatioPreset;
+          },
+        }),
+      );
+    });
+
+    const aspectSelect = Array.from(container.querySelectorAll('select')).find((select) =>
+      Array.from(select.options).some((option) => option.value === '9:16'),
+    ) as HTMLSelectElement | undefined;
+    assert.ok(aspectSelect, 'snapshot dialog should render an aspect ratio select');
+    assert.equal(aspectSelect.value, 'viewport');
+    assert.deepEqual(
+      Array.from(aspectSelect.options).map((option) => option.value),
+      ['viewport', '16:9', '4:3', '1:1', '3:4', '9:16'],
+    );
+
+    await act(async () => {
+      aspectSelect.value = '1:1';
+      aspectSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    });
+
+    const captureButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Export Snapshot'),
+    ) as HTMLButtonElement | undefined;
+    assert.ok(captureButton, 'snapshot dialog should render the export button');
+
+    await act(async () => {
+      captureButton.click();
+    });
+
+    assert.equal(capturedAspectRatioPreset, '1:1');
+    assert.match(
+      container.textContent ?? '',
+      /4K · 1:1 · PNG · 2x/,
+      'capture summary should include the selected aspect ratio',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
 test('SnapshotDialog renders the live preview state without the frozen-view hint copy', async () => {
   const dom = installDom();
   const container = dom.window.document.getElementById('root');

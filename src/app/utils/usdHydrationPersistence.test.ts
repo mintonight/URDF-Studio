@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { prepareUsdExportCacheFromSnapshot } from '@/features/urdf-viewer/utils/usdExportBundle';
-import type { ViewerRobotDataResolution } from '@/features/urdf-viewer/utils/viewerRobotData';
+import { prepareUsdExportCacheFromSnapshot } from '@/features/editor/usd_export';
+import type { ViewerRobotDataResolution } from '@/features/editor/usd_hydration';
 import { DEFAULT_LINK, GeometryType } from '@/types';
 
 import {

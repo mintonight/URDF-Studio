@@ -4,7 +4,7 @@ import {
   buildUsdExportBundleFromSnapshot,
   resolveUsdExportSceneSnapshot,
   type UsdExportBundle,
-} from '@/features/urdf-viewer/utils/usdExportBundle';
+} from '@/features/editor/usd_export';
 
 type ResolveUsdExportSceneSnapshotOptions = NonNullable<
   Parameters<typeof resolveUsdExportSceneSnapshot>[0]

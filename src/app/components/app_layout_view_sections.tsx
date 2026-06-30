@@ -21,58 +21,64 @@ interface AppLayoutViewContentProps extends AppLayoutViewProps {
 }
 
 export function AppLayoutViewContent(props: AppLayoutViewContentProps) {
-  const { dragHandlers, workspaceLayoutClassNames } = props;
+  const { drag, workspaceChrome } = props;
 
   return (
     <div
       className="flex flex-col h-screen font-sans bg-google-light-bg dark:bg-app-bg text-slate-800 dark:text-slate-200"
-      onDragEnter={dragHandlers.onDragEnter}
-      onDragOver={dragHandlers.onDragOver}
-      onDragLeave={dragHandlers.onDragLeave}
-      onDrop={dragHandlers.onDrop}
+      onDragEnter={drag.handlers.onDragEnter}
+      onDragOver={drag.handlers.onDragOver}
+      onDragLeave={drag.handlers.onDragLeave}
+      onDrop={drag.handlers.onDrop}
     >
-      <AppLayoutDropOverlay {...props} />
-      <AppLayoutImportInputs {...props} />
-      <AppLayoutHeaderSection {...props} />
-      <AppLayoutIkPanelSection {...props} />
+      <AppLayoutDropOverlay drag={props.drag} />
+      <AppLayoutImportInputs importInputs={props.importInputs} />
+      <AppLayoutHeaderSection importInputs={props.importInputs} header={props.header} />
+      <AppLayoutIkPanelSection ikPanel={props.ikPanel} />
 
-      <div className={workspaceLayoutClassNames.root}>
-        <WorkspaceViewerSection {...props} />
-        <WorkspaceSidebarsSection {...props} />
+      <div className={workspaceChrome.classNames.root}>
+        <WorkspaceViewerSection
+          workspaceChrome={props.workspaceChrome}
+          viewer={props.viewer}
+          shouldSuppressDocumentLoadingOverlay={props.shouldSuppressDocumentLoadingOverlay}
+        />
+        <WorkspaceSidebarsSection
+          workspaceChrome={props.workspaceChrome}
+          sidebars={props.sidebars}
+        />
       </div>
 
-      <SnapshotDialogSection {...props} />
-      <AssemblyPreparationOverlaySection {...props} />
-      <AppLayoutOverlaysSection {...props} />
+      <SnapshotDialogSection snapshot={props.snapshot} />
+      <AssemblyPreparationOverlaySection assemblyPreparation={props.assemblyPreparation} />
+      <AppLayoutOverlaysSection overlays={props.overlays} />
     </div>
   );
 }
 
-function AppLayoutDropOverlay({ isFileDragActive, t }: AppLayoutViewProps) {
+function AppLayoutDropOverlay({ drag }: Pick<AppLayoutViewProps, 'drag'>) {
   return (
     <FileDropOverlay
-      visible={isFileDragActive}
-      title={t.dropFilesToImport}
-      hint={t.dropFilesToImportHint}
+      visible={drag.isFileDragActive}
+      title={drag.t.dropFilesToImport}
+      hint={drag.t.dropFilesToImportHint}
     />
   );
 }
 
 function AppLayoutImportInputs({
-  importInputRef,
-  importFolderInputRef,
-}: AppLayoutViewProps) {
+  importInputs,
+}: Pick<AppLayoutViewProps, 'importInputs'>) {
   return (
     <>
       <input
         type="file"
         accept={ROBOT_IMPORT_ACCEPT_ATTRIBUTE}
-        ref={importInputRef}
+        ref={importInputs.importInputRef}
         className="hidden"
       />
       <input
         type="file"
-        ref={importFolderInputRef}
+        ref={importInputs.importFolderInputRef}
         className="hidden"
         {...({ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>)}
       />
@@ -81,422 +87,275 @@ function AppLayoutImportInputs({
 }
 
 function AppLayoutHeaderSection({
-  importInputRef,
-  importFolderInputRef,
-  onOpenExport,
-  onExportProject,
-  onOpenSettings,
-  headerQuickAction,
-  headerSecondaryAction,
-  viewConfig,
-  setViewConfig,
-  toolboxItems,
-  handleOpenCodeViewer,
-  handlePrefetchCodeViewer,
-  handleSnapshot,
-}: AppLayoutViewProps) {
+  importInputs,
+  header,
+}: Pick<AppLayoutViewProps, 'importInputs' | 'header'>) {
   return (
     <Header
-      onImportFile={() => importInputRef.current?.click()}
-      onImportFolder={() => importFolderInputRef.current?.click()}
-      onOpenExport={onOpenExport}
-      onExportProject={onExportProject}
-      toolboxItems={toolboxItems}
-      onOpenCodeViewer={handleOpenCodeViewer}
-      onPrefetchCodeViewer={handlePrefetchCodeViewer}
-      onOpenSettings={onOpenSettings}
-      quickAction={headerQuickAction}
-      secondaryAction={headerSecondaryAction}
-      onSnapshot={handleSnapshot}
-      viewConfig={viewConfig}
+      onImportFile={() => importInputs.importInputRef.current?.click()}
+      onImportFolder={() => importInputs.importFolderInputRef.current?.click()}
+      onOpenExport={header.onOpenExport}
+      onExportProject={header.onExportProject}
+      toolboxItems={header.toolboxItems}
+      onOpenCodeViewer={header.handleOpenCodeViewer}
+      onPrefetchCodeViewer={header.handlePrefetchCodeViewer}
+      onOpenSettings={header.onOpenSettings}
+      quickAction={header.headerQuickAction}
+      secondaryAction={header.headerSecondaryAction}
+      onSnapshot={header.handleSnapshot}
+      viewConfig={header.viewConfig}
       viewAvailability={{ jointPanel: true }}
-      setViewConfig={setViewConfig}
+      setViewConfig={header.setViewConfig}
     />
   );
 }
 
-function AppLayoutIkPanelSection({
-  isIkToolPanelOpen,
-  t,
-  ikLinkOptions,
-  selectedIkLinkId,
-  selectedIkLinkLabel,
-  currentIkLinkLabel,
-  ikToolSelectionStatus,
-  onSelectIkLink,
-  onIkToolClose,
-}: AppLayoutViewProps) {
+function AppLayoutIkPanelSection({ ikPanel }: Pick<AppLayoutViewProps, 'ikPanel'>) {
   return (
     <IkToolPanel
-      show={isIkToolPanelOpen}
-      t={t}
-      linkOptions={ikLinkOptions}
-      selectedLinkId={selectedIkLinkId}
-      selectedLinkLabel={selectedIkLinkLabel}
-      currentLinkLabel={currentIkLinkLabel}
-      selectionStatus={ikToolSelectionStatus}
-      onSelectLink={onSelectIkLink}
-      onClose={onIkToolClose}
+      show={ikPanel.isOpen}
+      t={ikPanel.t}
+      linkOptions={ikPanel.ikLinkOptions}
+      selectedLinkId={ikPanel.selectedIkLinkId}
+      selectedLinkLabel={ikPanel.selectedIkLinkLabel}
+      currentLinkLabel={ikPanel.currentIkLinkLabel}
+      selectionStatus={ikPanel.ikToolSelectionStatus}
+      onSelectLink={ikPanel.onSelectIkLink}
+      onClose={ikPanel.onClose}
     />
   );
 }
 
 function WorkspaceViewerSection({
-  workspaceLayoutClassNames,
-  workspaceOverlaySafeAreaStyle,
-  workspaceOverlayGizmoMargin,
-  viewerRobot,
-  editorRobot,
-  mergedAppMode,
-  handleViewerSelectWithBridgePreview,
-  handleViewerMeshSelectWithAssemblyClear,
-  handleHover,
-  handleUpdate,
-  viewerAssets,
-  allFileContents,
-  showVisual,
-  handleSetShowVisual,
-  handleSetDetailOptionsPanelVisibility,
-  snapshotActionRef,
-  viewerCanvasStateRef,
-  availableFiles,
-  urdfContentForViewer,
-  viewerSourceFormat,
-  viewerSourceFilePath,
-  viewerSourceFile,
-  viewerDocumentLifecycleCallbacks,
-  jointAngleState,
-  jointMotionState,
-  handleJointChange,
-  selection,
-  focusTarget,
-  selectedFile,
-  handleWorkspaceTransformPendingChange,
-  handleCollisionTransformPreview,
-  handleCollisionTransform,
-  normalizedAssemblyState,
-  shouldRenderAssembly,
-  assemblySelection,
-  sourceSceneAssemblyComponentId,
-  handleAssemblyTransform,
-  handleComponentTransform,
-  handleBridgeTransform,
-  ikDragActive,
-  pendingViewerToolMode,
-  setPendingViewerToolMode,
-  viewerReloadKey,
-  documentLoadLifecycleState,
-  documentLoadState,
-  importPreparationOverlay,
-  lang,
-  theme,
-  viewConfig,
+  workspaceChrome,
+  viewer,
   shouldSuppressDocumentLoadingOverlay,
-}: AppLayoutViewContentProps) {
+}: Pick<AppLayoutViewContentProps, 'workspaceChrome' | 'viewer' | 'shouldSuppressDocumentLoadingOverlay'>) {
   return (
     <WorkspaceViewerLayer
-      className={workspaceLayoutClassNames.viewerLayer}
-      style={workspaceOverlaySafeAreaStyle}
+      className={workspaceChrome.classNames.viewerLayer}
+      style={workspaceChrome.overlaySafeAreaStyle}
       viewerProps={{
-        robot: viewerRobot,
-        editorRobot,
-        mode: mergedAppMode,
-        onSelect: handleViewerSelectWithBridgePreview,
-        onMeshSelect: handleViewerMeshSelectWithAssemblyClear,
-        onHover: handleHover,
-        onUpdate: handleUpdate,
-        assets: viewerAssets,
-        allFileContents,
-        lang,
-        theme,
-        showVisual,
-        setShowVisual: handleSetShowVisual,
-        snapshotAction: snapshotActionRef,
+        robot: viewer.viewerRobot,
+        editorRobot: viewer.editorRobot,
+        mode: viewer.mergedAppMode,
+        onSelect: viewer.handleViewerSelectWithBridgePreview,
+        onMeshSelect: viewer.handleViewerMeshSelectWithAssemblyClear,
+        onHover: viewer.handleHover,
+        onUpdate: viewer.handleUpdate,
+        assets: viewer.viewerAssets,
+        allFileContents: viewer.allFileContents,
+        lang: viewer.lang,
+        theme: viewer.theme,
+        showVisual: viewer.showVisual,
+        setShowVisual: viewer.handleSetShowVisual,
+        snapshotAction: viewer.snapshotActionRef,
         onCanvasCreated: (state) => {
-          viewerCanvasStateRef.current = state;
+          viewer.viewerCanvasStateRef.current = state;
         },
-        showOptionsPanel: viewConfig.showOptionsPanel,
-        setShowOptionsPanel: handleSetDetailOptionsPanelVisibility,
+        showOptionsPanel: viewer.viewConfig.showOptionsPanel,
+        setShowOptionsPanel: viewer.handleSetDetailOptionsPanelVisibility,
         showJointPanel: false,
-        availableFiles,
-        urdfContent: urdfContentForViewer,
-        viewerSourceFormat,
-        sourceFilePath: viewerSourceFilePath,
-        sourceFile: viewerSourceFile,
-        onDocumentLoadEvent: viewerDocumentLifecycleCallbacks.onDocumentLoadEvent,
-        onRuntimeRobotLoaded: viewerDocumentLifecycleCallbacks.onRuntimeRobotLoaded,
+        availableFiles: viewer.availableFiles,
+        urdfContent: viewer.urdfContentForViewer,
+        viewerSourceFormat: viewer.viewerSourceFormat,
+        sourceFilePath: viewer.viewerSourceFilePath,
+        sourceFile: viewer.viewerSourceFile,
+        onDocumentLoadEvent: viewer.viewerDocumentLifecycleCallbacks.onDocumentLoadEvent,
+        onRuntimeRobotLoaded: viewer.viewerDocumentLifecycleCallbacks.onRuntimeRobotLoaded,
         onRuntimeSceneReadyForDisplay:
-          viewerDocumentLifecycleCallbacks.onRuntimeSceneReadyForDisplay,
-        jointAngleState,
-        jointMotionState,
-        onJointChange: handleJointChange,
+          viewer.viewerDocumentLifecycleCallbacks.onRuntimeSceneReadyForDisplay,
+        jointAngleState: viewer.jointAngleState,
+        jointMotionState: viewer.jointMotionState,
+        onJointChange: viewer.handleJointChange,
         syncJointChangesToApp: true,
-        selection,
-        focusTarget,
-        isMeshPreview: selectedFile?.format === 'mesh',
-        onTransformPendingChange: handleWorkspaceTransformPendingChange,
-        onCollisionTransformPreview: handleCollisionTransformPreview,
-        onCollisionTransform: handleCollisionTransform,
-        assemblyState: normalizedAssemblyState,
-        assemblyWorkspaceActive: shouldRenderAssembly,
-        assemblySelection,
-        sourceSceneAssemblyComponentId,
-        onAssemblyTransform: handleAssemblyTransform,
-        onComponentTransform: handleComponentTransform,
-        onBridgeTransform: handleBridgeTransform,
-        ikDragActive,
-        pendingViewerToolMode,
-        onConsumePendingViewerToolMode: () => setPendingViewerToolMode(null),
-        viewerReloadKey,
-        documentLoadState: documentLoadLifecycleState,
-        gizmoMargin: workspaceOverlayGizmoMargin,
+        selection: viewer.selection,
+        focusTarget: viewer.focusTarget,
+        isMeshPreview: viewer.selectedFile?.format === 'mesh',
+        onTransformPendingChange: viewer.handleWorkspaceTransformPendingChange,
+        onCollisionTransformPreview: viewer.handleCollisionTransformPreview,
+        onCollisionTransform: viewer.handleCollisionTransform,
+        assemblyState: viewer.normalizedAssemblyState,
+        assemblyWorkspaceActive: viewer.shouldRenderAssembly,
+        assemblySelection: viewer.assemblySelection,
+        sourceSceneAssemblyComponentId: viewer.sourceSceneAssemblyComponentId,
+        onAssemblyTransform: viewer.handleAssemblyTransform,
+        onComponentTransform: viewer.handleComponentTransform,
+        onBridgeTransform: viewer.handleBridgeTransform,
+        ikDragActive: viewer.ikDragActive,
+        pendingViewerToolMode: viewer.pendingViewerToolMode,
+        onConsumePendingViewerToolMode: () => viewer.setPendingViewerToolMode(null),
+        viewerReloadKey: viewer.viewerReloadKey,
+        documentLoadState: viewer.documentLoadLifecycleState,
+        gizmoMargin: workspaceChrome.overlayGizmoMargin,
       }}
-      documentLoadingOverlayLang={lang}
+      documentLoadingOverlayLang={viewer.lang}
       documentLoadingOverlayTargetFileName={resolveDocumentLoadingOverlayTargetFileName({
         previewFileName: null,
-        selectedFileName: selectedFile?.name ?? null,
+        selectedFileName: viewer.selectedFile?.name ?? null,
         suppressDocumentLoadingOverlay: shouldSuppressDocumentLoadingOverlay,
-        documentLoadState,
+        documentLoadState: viewer.documentLoadState,
       })}
-      importPreparationOverlay={importPreparationOverlay}
+      importPreparationOverlay={viewer.importPreparationOverlay}
     />
   );
 }
 
 function WorkspaceSidebarsSection({
-  workspaceLayoutClassNames,
-  previewContextRobot,
-  handleSelectWithAssemblyClear,
-  handleSelectGeometryWithAssemblyClear,
-  handleFocus,
-  handleAddChild,
-  handleAddCollisionBody,
-  handleDelete,
-  handleNameChange,
-  handleUpdate,
-  showVisual,
-  handleSetShowVisual,
-  mergedAppMode,
-  lang,
-  theme,
-  leftSidebarCollapsed,
-  rightSidebarCollapsed,
-  onToggleLeftSidebar,
-  onToggleRightSidebar,
-  availableFiles,
-  handlePreviewFileWithFeedback,
-  handleRequestLoadRobot,
-  selectedFile,
-  viewerSourceFilePath,
-  normalizedAssemblyState,
-  handleAddComponent,
-  handleDeleteLibraryFile,
-  handleDeleteLibraryFolder,
-  handleRenameLibraryFolder,
-  handleDeleteAllLibraryFiles,
-  handleExportLibraryFile,
-  handleCreateBridge,
-  removeComponent,
-  removeBridge,
-  handleRenameComponent,
-  handleSwitchTreeEditorToProMode,
-  handleRequestSwitchTreeEditorToStructure,
-  isPreviewingWorkspaceSource,
-  viewConfig,
-  setViewConfig,
-  handleJointPreview,
-  handleJointChange,
-  previewFile,
-  previewRobot,
-  filePreview,
-  viewerAssets,
-  allFileContents,
-  documentLoadState,
-  handleClosePreview,
-  propertyEditorSelectionContext,
-  handleHover,
-  handleUploadAsset,
-  motorLibrary,
-  t,
-}: AppLayoutViewProps) {
+  workspaceChrome,
+  sidebars,
+}: Pick<AppLayoutViewProps, 'workspaceChrome' | 'sidebars'>) {
   return (
     <WorkspaceSidebars
-      leftSidebarClassName={workspaceLayoutClassNames.leftSidebarLayer}
-      rightSidebarClassName={workspaceLayoutClassNames.rightSidebarLayer}
+      leftSidebarClassName={workspaceChrome.classNames.leftSidebarLayer}
+      rightSidebarClassName={workspaceChrome.classNames.rightSidebarLayer}
       treeEditorProps={{
-        robot: previewContextRobot,
-        onSelect: handleSelectWithAssemblyClear,
-        onSelectGeometry: handleSelectGeometryWithAssemblyClear,
-        onFocus: handleFocus,
-        onAddChild: handleAddChild,
-        onAddCollisionBody: handleAddCollisionBody,
-        onDelete: handleDelete,
-        onNameChange: handleNameChange,
-        onUpdate: handleUpdate,
-        showVisual,
-        setShowVisual: handleSetShowVisual,
-        mode: mergedAppMode,
-        lang,
-        theme,
-        collapsed: leftSidebarCollapsed,
-        onToggle: onToggleLeftSidebar,
-        availableFiles,
-        onLoadRobot: handlePreviewFileWithFeedback,
-        onRequestLoadRobot: handleRequestLoadRobot,
-        currentFileName: selectedFile?.name,
-        sourceFilePath: viewerSourceFilePath,
-        assemblyState: normalizedAssemblyState,
-        onAddComponent: handleAddComponent,
-        onDeleteLibraryFile: handleDeleteLibraryFile,
-        onDeleteLibraryFolder: handleDeleteLibraryFolder,
-        onRenameLibraryFolder: handleRenameLibraryFolder,
-        onDeleteAllLibraryFiles: handleDeleteAllLibraryFiles,
-        onExportLibraryFile: handleExportLibraryFile,
-        onCreateBridge: handleCreateBridge,
-        onRemoveComponent: removeComponent,
-        onRemoveBridge: removeBridge,
-        onRenameComponent: handleRenameComponent,
-        onSwitchToProMode: handleSwitchTreeEditorToProMode,
-        onRequestSwitchToStructure: handleRequestSwitchTreeEditorToStructure,
-        isReadOnly: isPreviewingWorkspaceSource,
-        showJointPanel: viewConfig.showJointPanel,
-        showStructureGraph: viewConfig.showStructureGraph,
-        onCloseStructureGraph: () => setViewConfig((prev) => ({ ...prev, showStructureGraph: false })),
-        onJointAnglePreview: handleJointPreview,
-        onJointAngleChange: handleJointChange,
+        robot: sidebars.previewContextRobot,
+        onSelect: sidebars.handleSelectWithAssemblyClear,
+        onSelectGeometry: sidebars.handleSelectGeometryWithAssemblyClear,
+        onFocus: sidebars.handleFocus,
+        onAddChild: sidebars.handleAddChild,
+        onAddCollisionBody: sidebars.handleAddCollisionBody,
+        onDelete: sidebars.handleDelete,
+        onNameChange: sidebars.handleNameChange,
+        onUpdate: sidebars.handleUpdate,
+        showVisual: sidebars.showVisual,
+        setShowVisual: sidebars.handleSetShowVisual,
+        mode: sidebars.mergedAppMode,
+        lang: sidebars.lang,
+        theme: sidebars.theme,
+        collapsed: sidebars.leftSidebarCollapsed,
+        onToggle: sidebars.onToggleLeftSidebar,
+        availableFiles: sidebars.availableFiles,
+        onLoadRobot: sidebars.handlePreviewFileWithFeedback,
+        onRequestLoadRobot: sidebars.handleRequestLoadRobot,
+        currentFileName: sidebars.selectedFile?.name,
+        sourceFilePath: sidebars.viewerSourceFilePath,
+        assemblyState: sidebars.normalizedAssemblyState,
+        onAddComponent: sidebars.handleAddComponent,
+        onDeleteLibraryFile: sidebars.handleDeleteLibraryFile,
+        onDeleteLibraryFolder: sidebars.handleDeleteLibraryFolder,
+        onRenameLibraryFolder: sidebars.handleRenameLibraryFolder,
+        onDeleteAllLibraryFiles: sidebars.handleDeleteAllLibraryFiles,
+        onExportLibraryFile: sidebars.handleExportLibraryFile,
+        onCreateBridge: sidebars.handleCreateBridge,
+        onRemoveComponent: sidebars.removeComponent,
+        onRemoveBridge: sidebars.removeBridge,
+        onRenameComponent: sidebars.handleRenameComponent,
+        onSwitchToProMode: sidebars.handleSwitchTreeEditorToProMode,
+        onRequestSwitchToStructure: sidebars.handleRequestSwitchTreeEditorToStructure,
+        isReadOnly: sidebars.isPreviewingWorkspaceSource,
+        showJointPanel: sidebars.viewConfig.showJointPanel,
+        showStructureGraph: sidebars.viewConfig.showStructureGraph,
+        onCloseStructureGraph: () =>
+          sidebars.setViewConfig((prev) => ({ ...prev, showStructureGraph: false })),
+        onJointAnglePreview: sidebars.handleJointPreview,
+        onJointAngleChange: sidebars.handleJointChange,
       }}
       filePreviewWindowProps={{
-        file: previewFile,
-        previewRobot,
-        previewState: filePreview,
-        assets: viewerAssets,
-        allFileContents,
-        availableFiles,
-        documentLoadState,
-        lang,
-        theme,
-        showVisual,
-        onClose: handleClosePreview,
-        onAddComponent: handleAddComponent,
+        file: sidebars.previewFile,
+        previewRobot: sidebars.previewRobot,
+        previewState: sidebars.filePreview,
+        assets: sidebars.viewerAssets,
+        allFileContents: sidebars.allFileContents,
+        availableFiles: sidebars.availableFiles,
+        documentLoadState: sidebars.documentLoadState,
+        lang: sidebars.lang,
+        theme: sidebars.theme,
+        showVisual: sidebars.showVisual,
+        onClose: sidebars.handleClosePreview,
+        onAddComponent: sidebars.handleAddComponent,
       }}
       propertyEditorProps={{
-        robot: propertyEditorSelectionContext.robot,
-        onUpdate: handleUpdate,
-        onSelect: handleSelectWithAssemblyClear,
-        onSelectGeometry: handleSelectGeometryWithAssemblyClear,
-        onAddCollisionBody: handleAddCollisionBody,
-        onHover: handleHover,
-        mode: mergedAppMode,
-        assets: viewerAssets,
-        onUploadAsset: handleUploadAsset,
-        motorLibrary,
-        lang,
-        theme,
-        collapsed: rightSidebarCollapsed,
-        onToggle: onToggleRightSidebar,
-        readOnlyMessage: isPreviewingWorkspaceSource ? t.previewReadOnlyHint : undefined,
-        jointTypeLocked: Boolean(propertyEditorSelectionContext.selectedClosedLoopBridge),
-        sourceFilePath: viewerSourceFilePath,
+        robot: sidebars.propertyEditorSelectionContext.robot,
+        onUpdate: sidebars.handleUpdate,
+        onSelect: sidebars.handleSelectWithAssemblyClear,
+        onSelectGeometry: sidebars.handleSelectGeometryWithAssemblyClear,
+        onAddCollisionBody: sidebars.handleAddCollisionBody,
+        onHover: sidebars.handleHover,
+        mode: sidebars.mergedAppMode,
+        assets: sidebars.viewerAssets,
+        onUploadAsset: sidebars.handleUploadAsset,
+        motorLibrary: sidebars.motorLibrary,
+        lang: sidebars.lang,
+        theme: sidebars.theme,
+        collapsed: sidebars.rightSidebarCollapsed,
+        onToggle: sidebars.onToggleRightSidebar,
+        readOnlyMessage: sidebars.isPreviewingWorkspaceSource
+          ? sidebars.t.previewReadOnlyHint
+          : undefined,
+        jointTypeLocked: Boolean(sidebars.propertyEditorSelectionContext.selectedClosedLoopBridge),
+        sourceFilePath: sidebars.viewerSourceFilePath,
       }}
     />
   );
 }
 
-function SnapshotDialogSection({
-  isSnapshotDialogOpen,
-  isSnapshotCapturing,
-  lang,
-  snapshotPreviewSession,
-  handleSnapshotPreviewCaptureActionChange,
-  handleCloseSnapshotDialog,
-  handleCaptureSnapshot,
-  t,
-}: AppLayoutViewProps) {
-  if (!isSnapshotDialogOpen) {
+function SnapshotDialogSection({ snapshot }: Pick<AppLayoutViewProps, 'snapshot'>) {
+  if (!snapshot.isOpen) {
     return null;
   }
 
   return (
-    <Suspense fallback={<LazyOverlayFallback label={t.loadingPanel} />}>
+    <Suspense fallback={<LazyOverlayFallback label={snapshot.loadingLabel} />}>
       <SnapshotDialog
-        isOpen={isSnapshotDialogOpen}
-        isCapturing={isSnapshotCapturing}
-        lang={lang}
-        previewSession={snapshotPreviewSession}
-        onPreviewCaptureActionChange={handleSnapshotPreviewCaptureActionChange}
-        onClose={handleCloseSnapshotDialog}
-        onCapture={handleCaptureSnapshot}
+        isOpen={snapshot.isOpen}
+        isCapturing={snapshot.isCapturing}
+        lang={snapshot.lang}
+        previewSession={snapshot.previewSession}
+        onPreviewCaptureActionChange={snapshot.onPreviewCaptureActionChange}
+        onClose={snapshot.onClose}
+        onCapture={snapshot.onCapture}
       />
     </Suspense>
   );
 }
 
 function AssemblyPreparationOverlaySection({
-  assemblyComponentPreparationOverlay,
-}: AppLayoutViewProps) {
-  if (!assemblyComponentPreparationOverlay) {
+  assemblyPreparation,
+}: Pick<AppLayoutViewProps, 'assemblyPreparation'>) {
+  const { overlay } = assemblyPreparation;
+  if (!overlay) {
     return null;
   }
 
   return (
     <ImportPreparationOverlay
-      label={assemblyComponentPreparationOverlay.label}
-      detail={assemblyComponentPreparationOverlay.detail}
-      progress={assemblyComponentPreparationOverlay.progress}
-      statusLabel={assemblyComponentPreparationOverlay.statusLabel}
-      stageLabel={assemblyComponentPreparationOverlay.stageLabel}
+      label={overlay.label}
+      detail={overlay.detail}
+      progress={overlay.progress}
+      statusLabel={overlay.statusLabel}
+      stageLabel={overlay.stageLabel}
     />
   );
 }
 
-function AppLayoutOverlaysSection({
-  isCodeViewerOpen,
-  sourceCodeEditorDocuments,
-  sourceCodeAutoApply,
-  setIsCodeViewerOpen,
-  theme,
-  lang,
-  t,
-  isCollisionOptimizerOpen,
-  setIsCollisionOptimizerOpen,
-  collisionOptimizationSource,
-  viewerAssets,
-  viewerSourceFilePath,
-  selection,
-  handlePreviewCollisionOptimizationTarget,
-  handleApplyCollisionOptimization,
-  normalizedAssemblyState,
-  shouldRenderBridgeModal,
-  isBridgeModalOpen,
-  handleCloseBridgeModal,
-  handleCreateBridgeCommit,
-  handleBridgePreviewChange,
-}: AppLayoutViewProps) {
+function AppLayoutOverlaysSection({ overlays }: Pick<AppLayoutViewProps, 'overlays'>) {
   return (
     <AppLayoutOverlays
-      isCodeViewerOpen={isCodeViewerOpen}
-      sourceCodeDocuments={sourceCodeEditorDocuments}
-      autoApplyEnabled={sourceCodeAutoApply}
-      onCloseCodeViewer={() => setIsCodeViewerOpen(false)}
-      theme={theme}
-      lang={lang}
-      loadingEditorLabel={t.loadingEditor}
-      isCollisionOptimizerOpen={isCollisionOptimizerOpen}
-      loadingOptimizerLabel={t.loadingOptimizer}
-      collisionOptimizationSource={collisionOptimizationSource}
-      assets={viewerAssets}
-      sourceFilePath={viewerSourceFilePath}
-      selection={selection}
-      onCloseCollisionOptimizer={() => setIsCollisionOptimizerOpen(false)}
-      onSelectCollisionTarget={handlePreviewCollisionOptimizationTarget}
-      onApplyCollisionOptimization={handleApplyCollisionOptimization}
-      assemblyState={normalizedAssemblyState}
-      shouldRenderBridgeModal={shouldRenderBridgeModal}
-      loadingBridgeDialogLabel={t.loadingBridgeDialog}
-      isBridgeModalOpen={isBridgeModalOpen}
-      onCloseBridgeModal={handleCloseBridgeModal}
-      onCreateBridge={handleCreateBridgeCommit}
-      onPreviewBridgeChange={handleBridgePreviewChange}
+      isCodeViewerOpen={overlays.isCodeViewerOpen}
+      sourceCodeDocuments={overlays.sourceCodeEditorDocuments}
+      autoApplyEnabled={overlays.sourceCodeAutoApply}
+      onCloseCodeViewer={() => overlays.setIsCodeViewerOpen(false)}
+      theme={overlays.theme}
+      lang={overlays.lang}
+      loadingEditorLabel={overlays.labels.loadingEditor}
+      isCollisionOptimizerOpen={overlays.isCollisionOptimizerOpen}
+      loadingOptimizerLabel={overlays.labels.loadingOptimizer}
+      collisionOptimizationSource={overlays.collisionOptimizationSource}
+      assets={overlays.viewerAssets}
+      sourceFilePath={overlays.viewerSourceFilePath}
+      selection={overlays.selection}
+      onCloseCollisionOptimizer={() => overlays.setIsCollisionOptimizerOpen(false)}
+      onSelectCollisionTarget={overlays.handlePreviewCollisionOptimizationTarget}
+      onApplyCollisionOptimization={overlays.handleApplyCollisionOptimization}
+      assemblyState={overlays.normalizedAssemblyState}
+      shouldRenderBridgeModal={overlays.shouldRenderBridgeModal}
+      loadingBridgeDialogLabel={overlays.labels.loadingBridgeDialog}
+      isBridgeModalOpen={overlays.isBridgeModalOpen}
+      onCloseBridgeModal={overlays.handleCloseBridgeModal}
+      onCreateBridge={overlays.handleCreateBridgeCommit}
+      onPreviewBridgeChange={overlays.handleBridgePreviewChange}
     />
   );
 }

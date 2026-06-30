@@ -13,7 +13,7 @@ import { parseMJCFXmlDocument } from '@/core/parsers/mjcf/mjcfUtils';
 import {
   createImportPathCollisionMap,
   remapImportedPath,
-} from '@/features/file-io/utils/libraryImportPathCollisions';
+} from '@/features/file-io/import_path_collisions';
 import { isMotorLibraryDataFilePath } from '@/shared/data/motorLibrary';
 import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 import {

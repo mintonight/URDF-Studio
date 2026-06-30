@@ -79,6 +79,8 @@ export const ViewerScene = ({
   robotLinks,
   robotJoints,
   robotData,
+  showCollision = controller.showCollision,
+  showCollisionAlwaysOnTop = controller.showCollisionAlwaysOnTop,
   focusTarget,
   onCollisionTransformPreview,
   onCollisionTransform,
@@ -246,11 +248,11 @@ export const ViewerScene = ({
           onRobotLoaded={handleRobotLoaded}
           onDocumentLoadEvent={onDocumentLoadEvent}
           runtimeBridge={runtimeBridge}
-          showCollision={controller.showCollision}
+          showCollision={showCollision}
           showVisual={controller.showVisual}
           showIkHandles={controller.showIkHandles}
           showIkHandlesAlwaysOnTop={controller.showIkHandlesAlwaysOnTop}
-          showCollisionAlwaysOnTop={controller.showCollisionAlwaysOnTop}
+          showCollisionAlwaysOnTop={showCollisionAlwaysOnTop}
           onSelect={controller.handleSelectWrapper}
           onHover={onHover}
           onMeshSelect={onMeshSelect}

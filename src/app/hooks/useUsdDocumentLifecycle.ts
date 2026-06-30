@@ -13,7 +13,7 @@ import {
 import {
   resolveUsdPreparedCacheRobotStateUpdate,
 } from '../utils/usdPreparedCacheRobotState';
-import { buildUsdExportBundleFromPreparedCache } from '@/features/urdf-viewer/utils/usdExportBundle';
+import { buildUsdExportBundleFromPreparedCache } from '@/features/editor/usd_export';
 import { startUsdRobotStateHydration } from '../utils/usdRobotStateHydration';
 import { handleUsdHydrationWorkerEvent } from '../utils/usdHydrationWorkerEvents';
 import { mapViewerDocumentLoadEventToDocumentLoadPercent } from '../utils/documentLoadProgress';

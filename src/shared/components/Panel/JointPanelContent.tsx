@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw, Settings } from 'lucide-react';
 import { JointControlItem } from './JointControlItem';
+import type { JointControlItemJoint } from './jointControlItemTypes';
 import { getSingleDofJointEntries } from '@/shared/utils/jointTypes';
 import { resolveViewerJointAngleValue } from '@/shared/utils/jointPanelState';
 import {
@@ -8,12 +9,61 @@ import {
   getMjcfLinkDisplayName,
 } from '@/shared/utils/robot/mjcfDisplayNames';
 import type { JointPanelActiveJointOptions, JointPanelStore } from '@/shared/utils/jointPanelStore';
+import type { TranslationKeys } from '@/shared/i18n';
+import type { RobotInspectionContext, UrdfJoint, UrdfLink } from '@/types';
+
+export type JointPanelAngleUnit = 'rad' | 'deg';
+
+export type JointPanelTranslations = Partial<
+  Pick<
+    TranslationKeys,
+    | 'advanced'
+    | 'collapse'
+    | 'close'
+    | 'expand'
+    | 'joints'
+    | 'reset'
+    | 'resetJoints'
+    | 'resize'
+    | 'switchUnit'
+  >
+>;
+
+export interface JointPanelJoint extends JointControlItemJoint {
+  angle?: number;
+  childLinkId?: string;
+  dynamics?: UrdfJoint['dynamics'];
+  hardware?: UrdfJoint['hardware'];
+  jointValue?: number | number[] | null;
+  origin?: UrdfJoint['origin'];
+  parentLinkId?: string;
+  urdfName?: string;
+}
+
+export interface JointPanelLink {
+  id?: string | number;
+  name?: string;
+  urdfName?: string;
+  userData?: Record<string, unknown>;
+  visual?: UrdfLink['visual'];
+  visualBodies?: UrdfLink['visualBodies'];
+  collision?: UrdfLink['collision'];
+  collisionBodies?: UrdfLink['collisionBodies'];
+}
+
+export interface JointPanelRobot {
+  links?: Record<string, JointPanelLink>;
+  joints?: Record<string, JointPanelJoint>;
+  inspectionContext?: {
+    sourceFormat?: RobotInspectionContext['sourceFormat'] | string | null;
+  } | null;
+}
 
 interface JointPanelItemBindingProps {
   name: string;
-  joint: any;
+  joint: JointPanelJoint;
   displayName?: string;
-  angleUnit: 'rad' | 'deg';
+  angleUnit: JointPanelAngleUnit;
   jointPanelStore: JointPanelStore;
   setActiveJoint: (name: string | null, options?: JointPanelActiveJointOptions) => void;
   handleJointAngleChange: (name: string, angle: number) => void;
@@ -32,9 +82,9 @@ interface JointPanelItemSnapshot {
 }
 
 export interface JointPanelControlsProps {
-  t: any;
-  angleUnit: 'rad' | 'deg';
-  setAngleUnit: (unit: 'rad' | 'deg') => void;
+  t: JointPanelTranslations;
+  angleUnit: JointPanelAngleUnit;
+  setAngleUnit: (unit: JointPanelAngleUnit) => void;
   isAdvanced: boolean;
   setIsAdvanced: React.Dispatch<React.SetStateAction<boolean>>;
   onReset?: () => void;
@@ -42,8 +92,8 @@ export interface JointPanelControlsProps {
 }
 
 export interface JointPanelListProps {
-  robot: any;
-  angleUnit: 'rad' | 'deg';
+  robot: JointPanelRobot | null | undefined;
+  angleUnit: JointPanelAngleUnit;
   jointPanelStore: JointPanelStore;
   setActiveJoint: (name: string | null, options?: JointPanelActiveJointOptions) => void;
   handleJointAngleChange: (name: string, angle: number) => void;
@@ -70,18 +120,27 @@ function areJointPanelItemSnapshotsEqual(a: JointPanelItemSnapshot, b: JointPane
 function resolveJointPanelItemSnapshot(
   jointPanelStore: JointPanelStore,
   name: string,
-  joint: any,
+  joint: JointPanelJoint,
 ): JointPanelItemSnapshot {
   const snapshot = jointPanelStore.getSnapshot();
 
   return {
-    value: resolveViewerJointAngleValue(snapshot.jointAngles, name, joint, 0),
+    value: resolveViewerJointAngleValue(
+      snapshot.jointAngles,
+      name,
+      getJointAngleLike(joint),
+      0,
+    ),
     isActive: snapshot.activeJoint === name,
     shouldAutoScroll: snapshot.activeJoint === name && snapshot.activeJointAutoScroll,
   };
 }
 
-function useJointPanelItemSnapshot(jointPanelStore: JointPanelStore, name: string, joint: any) {
+function useJointPanelItemSnapshot(
+  jointPanelStore: JointPanelStore,
+  name: string,
+  joint: JointPanelJoint,
+) {
   const getSnapshot = useCallback(
     () => resolveJointPanelItemSnapshot(jointPanelStore, name, joint),
     [jointPanelStore, joint, name],
@@ -104,6 +163,92 @@ function useJointPanelItemSnapshot(jointPanelStore: JointPanelStore, name: strin
   }, [getSnapshot, jointPanelStore]);
 
   return itemSnapshot;
+}
+
+function getJointAngleLike(joint: JointPanelJoint) {
+  const rawJointValue = Array.isArray(joint.jointValue) ? joint.jointValue[0] : joint.jointValue;
+  return {
+    angle: joint.angle,
+    jointValue: rawJointValue ?? undefined,
+    name: joint.name,
+  };
+}
+
+function getStringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function getNumericIdValue(value: unknown): string | null {
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : null;
+}
+
+function resolveJointPanelLinkId(link: JointPanelLink, fallbackId: string): string {
+  return (
+    getStringValue(link.userData?.linkId) ??
+    getStringValue(link.id) ??
+    getStringValue(link.urdfName) ??
+    getStringValue(link.name) ??
+    getNumericIdValue(link.id) ??
+    fallbackId
+  );
+}
+
+function resolveJointPanelLinkDisplayName(
+  link: JointPanelLink,
+  fallbackId: string,
+  isMjcfSource: boolean,
+): string {
+  if (isMjcfSource && isUrdfLink(link)) {
+    return getMjcfLinkDisplayName(link);
+  }
+
+  return (
+    getStringValue(link.userData?.displayName) ??
+    getStringValue(link.name) ??
+    getStringValue(link.urdfName) ??
+    fallbackId
+  );
+}
+
+function resolveJointPanelJointDisplayName(
+  name: string,
+  joint: JointPanelJoint,
+  linkDisplayNames: Record<string, string>,
+  isMjcfSource: boolean,
+): string {
+  if (isMjcfSource && isUrdfJoint(joint)) {
+    return getMjcfJointDisplayName(
+      joint,
+      linkDisplayNames[joint.parentLinkId] || joint.parentLinkId,
+      linkDisplayNames[joint.childLinkId] || joint.childLinkId,
+    );
+  }
+
+  return getStringValue(joint.name) ?? getStringValue(joint.urdfName) ?? name;
+}
+
+function isUrdfLink(link: JointPanelLink): link is UrdfLink {
+  return (
+    typeof link.id === 'string' &&
+    typeof link.name === 'string' &&
+    link.visual !== undefined &&
+    link.collision !== undefined
+  );
+}
+
+function isUrdfJoint(joint: JointPanelJoint): joint is UrdfJoint {
+  return (
+    typeof joint.id === 'string' &&
+    typeof joint.name === 'string' &&
+    typeof joint.parentLinkId === 'string' &&
+    typeof joint.childLinkId === 'string' &&
+    typeof joint.origin === 'object' &&
+    joint.origin !== null &&
+    typeof joint.dynamics === 'object' &&
+    joint.dynamics !== null &&
+    typeof joint.hardware === 'object' &&
+    joint.hardware !== null
+  );
 }
 
 const JointPanelItemBinding = React.memo(function JointPanelItemBinding({
@@ -225,16 +370,16 @@ export function JointPanelList({
 }: JointPanelListProps) {
   const onHoverRef = useRef(onHover);
   const jointEntries = useMemo(() => getSingleDofJointEntries(robot?.joints), [robot?.joints]);
-  const sourceFormat = robot?.inspectionContext?.sourceFormat;
+  const isMjcfSource = robot?.inspectionContext?.sourceFormat === 'mjcf';
   const linkDisplayNames = useMemo<Record<string, string>>(
     () =>
       Object.fromEntries(
-        Object.values(robot?.links ?? {}).map((link: any) => [
-          link.id,
-          sourceFormat === 'mjcf' ? getMjcfLinkDisplayName(link) : link.name || link.id,
-        ]),
+        Object.entries(robot?.links ?? {}).map(([linkKey, link]) => {
+          const linkId = resolveJointPanelLinkId(link, linkKey);
+          return [linkId, resolveJointPanelLinkDisplayName(link, linkId, isMjcfSource)];
+        }),
       ),
-    [robot?.links, sourceFormat],
+    [isMjcfSource, robot?.links],
   );
 
   useEffect(() => {
@@ -257,20 +402,17 @@ export function JointPanelList({
       onMouseEnter={clearGlobalHover}
       onMouseLeave={clearGlobalHover}
     >
-      {jointEntries.map(([name, joint]: [string, any]) => (
+      {jointEntries.map(([name, joint]) => (
         <JointPanelItemBinding
           key={name}
           name={name}
           joint={joint}
-          displayName={
-            sourceFormat === 'mjcf'
-              ? getMjcfJointDisplayName(
-                  joint,
-                  linkDisplayNames[joint.parentLinkId] || joint.parentLinkId,
-                  linkDisplayNames[joint.childLinkId] || joint.childLinkId,
-                )
-              : joint.name || name
-          }
+          displayName={resolveJointPanelJointDisplayName(
+            name,
+            joint,
+            linkDisplayNames,
+            isMjcfSource,
+          )}
           angleUnit={angleUnit}
           jointPanelStore={jointPanelStore}
           setActiveJoint={setActiveJoint}

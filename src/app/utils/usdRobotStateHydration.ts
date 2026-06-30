@@ -1,15 +1,15 @@
 import {
   disposeUsdOffscreenViewerWorker,
   prepareSharedUsdOffscreenViewerStageOpenDispatch,
-} from '@/features/urdf-viewer/utils/usdOffscreenViewerWorkerClient';
-import { prepareUsdPreparedExportCacheWithWorker } from '@/features/urdf-viewer/utils/usdPreparedExportCacheWorkerBridge';
-import type {
-  UsdOffscreenViewerCompletionMode,
-  UsdOffscreenViewerWorkerResponse,
-} from '@/features/urdf-viewer/utils/usdOffscreenViewerProtocol';
-import type { PreparedUsdExportCacheResult } from '@/features/urdf-viewer/utils/usdExportBundle';
-import { hydratePreparedUsdExportCacheFromWorker } from '@/features/urdf-viewer/utils/usdPreparedExportCacheWorkerTransfer';
-import type { ViewerRobotDataResolution } from '@/features/urdf-viewer/utils/viewerRobotData';
+} from '@/features/editor/usd_offscreen_runtime';
+import {
+  hydratePreparedUsdExportCacheFromWorker,
+  prepareUsdPreparedExportCacheWithWorker,
+  type UsdOffscreenViewerCompletionMode,
+  type UsdOffscreenViewerWorkerResponse,
+  type ViewerRobotDataResolution,
+} from '@/features/editor/usd_hydration';
+import type { PreparedUsdExportCacheResult } from '@/features/editor/usd_export';
 import type { RobotData, RobotFile, UsdBakedScene, UsdSceneSnapshot } from '@/types';
 import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 

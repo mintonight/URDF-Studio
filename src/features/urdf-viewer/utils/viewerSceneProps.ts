@@ -31,6 +31,8 @@ interface BuildViewerScenePropsArgs {
   robotLinks?: ViewerProps['robotLinks'];
   robotJoints?: ViewerProps['robotJoints'];
   robotData?: ViewerProps['robotData'];
+  showCollision?: boolean;
+  showCollisionAlwaysOnTop?: boolean;
   focusTarget?: ViewerProps['focusTarget'];
   onCollisionTransformPreview?: ViewerProps['onCollisionTransformPreview'];
   onCollisionTransform?: ViewerProps['onCollisionTransform'];
@@ -81,6 +83,8 @@ export function buildViewerSceneProps({
   robotLinks,
   robotJoints,
   robotData,
+  showCollision,
+  showCollisionAlwaysOnTop,
   focusTarget,
   onCollisionTransformPreview,
   onCollisionTransform,
@@ -123,6 +127,8 @@ export function buildViewerSceneProps({
     robotLinks,
     robotJoints,
     robotData,
+    showCollision,
+    showCollisionAlwaysOnTop,
     focusTarget,
     onCollisionTransformPreview,
     onCollisionTransform,

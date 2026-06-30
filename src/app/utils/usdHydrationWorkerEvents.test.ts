@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { UsdOffscreenViewerWorkerResponse } from '@/features/urdf-viewer/utils/usdOffscreenViewerProtocol.ts';
+import type { UsdOffscreenViewerWorkerResponse } from '@/features/editor/usd_hydration';
 import { getUsdStageLoadDebugHistoryForFile } from '@/shared/debug/usdStageLoadDebug.ts';
 import { handleUsdHydrationWorkerEvent } from './usdHydrationWorkerEvents.ts';
 

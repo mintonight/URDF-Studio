@@ -2,10 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { DEFAULT_LINK, GeometryType, type RobotData, type RobotFile, type UsdSceneSnapshot } from '@/types';
-import type { PreparedUsdExportCacheResult } from '@/features/urdf-viewer/utils/usdExportBundle.ts';
-import type { UsdOffscreenViewerWorkerRequest, UsdOffscreenViewerWorkerResponse } from '@/features/urdf-viewer/utils/usdOffscreenViewerProtocol.ts';
-import { serializePreparedUsdExportCacheForWorker } from '@/features/urdf-viewer/utils/usdPreparedExportCacheWorkerTransfer.ts';
-import type { ViewerRobotDataResolution } from '@/features/urdf-viewer/utils/viewerRobotData.ts';
+import type { PreparedUsdExportCacheResult } from '@/features/editor/usd_export';
+import {
+  serializePreparedUsdExportCacheForWorker,
+  type UsdOffscreenViewerWorkerRequest,
+  type UsdOffscreenViewerWorkerResponse,
+  type ViewerRobotDataResolution,
+} from '@/features/editor/usd_hydration';
 
 import {
   startUsdRobotStateHydration,

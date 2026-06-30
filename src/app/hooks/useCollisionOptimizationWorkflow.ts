@@ -94,7 +94,7 @@ export function useCollisionOptimizationWorkflow({
       }
 
       const { applyCollisionOptimizationOperationsToLinks } = await import(
-        '@/features/property-editor/utils/collisionOptimization'
+        '@/features/property-editor/collision_optimization'
       );
 
       if (assemblyState) {

@@ -117,7 +117,7 @@ const JointControlItemComponent: React.FC<JointControlItemProps> = ({
         }
       }
 
-      const jointId = name || joint.id;
+      const jointId = name || (joint.id == null ? '' : String(joint.id));
       if (jointId) {
         onUpdate?.('joint', jointId, {
           limit: newLimits,
