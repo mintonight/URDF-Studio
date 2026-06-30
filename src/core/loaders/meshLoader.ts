@@ -569,7 +569,16 @@ export const createMeshLoader = (
             return resolvedUrl;
           }
 
-          throw new Error(`Optional OBJ material asset not found: ${url}`);
+          const baseDir = objAssetBaseDir ? objAssetBaseDir.replace(/\/?$/, '/') : '.';
+          const normalizedUrl = url.replace(/^\.?\//, '');
+          const lookupPath =
+            objAssetBaseDir &&
+            !/^(?:[a-z]+:)?\/\//i.test(url) &&
+            !url.startsWith('/') &&
+            !normalizedUrl.startsWith(baseDir)
+              ? `${baseDir}${normalizedUrl}`
+              : url;
+          throw new Error(`Asset lookup failed for "${lookupPath}" under "${baseDir}".`);
         });
         registerManagedTextureHandlers(objManager);
         const materialStartedAt = readHighResolutionEpochMs();

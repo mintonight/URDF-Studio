@@ -189,13 +189,21 @@ function resolveTextureLoader(manager?: THREE.LoadingManager): THREE.TextureLoad
   return manager ? new THREE.TextureLoader(manager) : new THREE.TextureLoader();
 }
 
-function createPaletteMaterial(
-  template: THREE.Material,
-  descriptor: UrdfVisualMaterial | undefined,
-  textureLoader: THREE.TextureLoader | null,
-  textureCache: Map<string, THREE.Texture>,
-  slotIndex: number,
-): THREE.Material {
+interface CreatePaletteMaterialOptions {
+  descriptor: UrdfVisualMaterial | undefined;
+  slotIndex: number;
+  template: THREE.Material;
+  textureCache: Map<string, THREE.Texture>;
+  textureLoader: THREE.TextureLoader | null;
+}
+
+function createPaletteMaterial({
+  descriptor,
+  slotIndex,
+  template,
+  textureCache,
+  textureLoader,
+}: CreatePaletteMaterialOptions): THREE.Material {
   const nextMaterial =
     typeof template.clone === 'function'
       ? template.clone()
@@ -345,13 +353,13 @@ export function applyVisualMeshMaterialGroupsToObject(
       });
 
     if (meshGroups.length === 0) {
-      const nextBaseMaterial = createPaletteMaterial(
-        templateMaterial,
-        authoredMaterials[0],
-        textureLoader,
+      const nextBaseMaterial = createPaletteMaterial({
+        descriptor: authoredMaterials[0],
+        slotIndex: 0,
+        template: templateMaterial,
         textureCache,
-        0,
-      );
+        textureLoader,
+      });
       const previousMaterial = mesh.material as THREE.Material | THREE.Material[] | undefined;
       mesh.geometry.clearGroups();
       mesh.material = nextBaseMaterial;
@@ -369,13 +377,13 @@ export function applyVisualMeshMaterialGroupsToObject(
       0,
     );
     const nextMaterials = Array.from({ length: maxMaterialIndex + 1 }, (_, materialIndex) =>
-      createPaletteMaterial(
-        templateMaterial,
-        authoredMaterials[materialIndex],
-        textureLoader,
+      createPaletteMaterial({
+        descriptor: authoredMaterials[materialIndex],
+        slotIndex: materialIndex,
+        template: templateMaterial,
         textureCache,
-        materialIndex,
-      ),
+        textureLoader,
+      }),
     );
     const previousMaterial = mesh.material as THREE.Material | THREE.Material[] | undefined;
     mesh.geometry.clearGroups();

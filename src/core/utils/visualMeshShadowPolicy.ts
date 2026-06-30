@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+const MAX_SHADOW_TRIANGLE_COUNT = 60000;
+
 export function getVisualMeshTriangleCount(mesh: THREE.Mesh): number {
   const geometry = mesh.geometry;
   if (!geometry) {
@@ -20,14 +22,15 @@ export function getVisualMeshTriangleCount(mesh: THREE.Mesh): number {
 }
 
 export function shouldVisualMeshParticipateInShadows(mesh: THREE.Mesh): boolean {
-  void mesh;
-  return true;
+  return getVisualMeshTriangleCount(mesh) <= MAX_SHADOW_TRIANGLE_COUNT;
 }
 
 export function applyVisualMeshShadowPolicy(mesh: THREE.Mesh): boolean {
-  const changed = mesh.castShadow !== true || mesh.receiveShadow !== true;
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
+  const shouldParticipate = shouldVisualMeshParticipateInShadows(mesh);
+  const changed =
+    mesh.castShadow !== shouldParticipate || mesh.receiveShadow !== shouldParticipate;
+  mesh.castShadow = shouldParticipate;
+  mesh.receiveShadow = shouldParticipate;
   return changed;
 }
 

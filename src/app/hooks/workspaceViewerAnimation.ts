@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 
+import { computeLinkWorldMatrices } from '@/core/robot';
 import type { RobotData, UrdfJoint } from '@/types';
 import {
   WORKSPACE_VIEWER_COMPONENT_ROOT_JOINT_PREFIX,
@@ -98,6 +99,34 @@ function collectWorkspaceViewerSyntheticRootJointIds(robot: RobotData | null): s
     .sort();
 }
 
+function getWorkspaceViewerComponentIdFromSyntheticRootJointId(jointId: string): string | null {
+  return jointId.startsWith(WORKSPACE_VIEWER_COMPONENT_ROOT_JOINT_PREFIX)
+    ? jointId.slice(WORKSPACE_VIEWER_COMPONENT_ROOT_JOINT_PREFIX.length)
+    : null;
+}
+
+function findWorkspaceViewerBridgeJointForComponent(
+  robot: RobotData,
+  componentId: string,
+): UrdfJoint | null {
+  const componentLinkPrefix = `${componentId}_`;
+
+  for (const joint of Object.values(robot.joints)) {
+    if (
+      joint.parentLinkId === WORKSPACE_VIEWER_WORLD_ROOT_ID ||
+      joint.id.startsWith(WORKSPACE_VIEWER_COMPONENT_ROOT_JOINT_PREFIX)
+    ) {
+      continue;
+    }
+
+    if (joint.childLinkId.startsWith(componentLinkPrefix)) {
+      return joint;
+    }
+  }
+
+  return null;
+}
+
 function haveSameSyntheticRootJointSet(
   fromRobot: RobotData,
   toRobot: RobotData,
@@ -120,9 +149,38 @@ function haveSameSyntheticRootJointSet(
       fromJoint
       && toJoint
       && fromJoint.type === toJoint.type
-      && fromJoint.parentLinkId === toJoint.parentLinkId
-      && fromJoint.childLinkId === toJoint.childLinkId,
+      && fromJoint.parentLinkId === toJoint.parentLinkId,
     );
+  });
+}
+
+function hasAnimatableSyntheticRootOrBridgeTransition(
+  fromRobot: RobotData,
+  toRobot: RobotData,
+): boolean {
+  const fromIds = collectWorkspaceViewerSyntheticRootJointIds(fromRobot);
+  const toIds = collectWorkspaceViewerSyntheticRootJointIds(toRobot);
+
+  if (fromIds.length === 0 || toIds.length > fromIds.length) {
+    return false;
+  }
+
+  return fromIds.every((jointId) => {
+    const fromJoint = fromRobot.joints[jointId];
+    if (!fromJoint) {
+      return false;
+    }
+
+    const toJoint = toRobot.joints[jointId];
+    if (toJoint) {
+      return (
+        fromJoint.type === toJoint.type &&
+        fromJoint.parentLinkId === toJoint.parentLinkId
+      );
+    }
+
+    const componentId = getWorkspaceViewerComponentIdFromSyntheticRootJointId(jointId);
+    return Boolean(componentId && findWorkspaceViewerBridgeJointForComponent(toRobot, componentId));
   });
 }
 
@@ -149,7 +207,10 @@ export function canAnimateWorkspaceViewerRobotTransition(
     return false;
   }
 
-  return haveSameSyntheticRootJointSet(fromRobot, toRobot);
+  return (
+    haveSameSyntheticRootJointSet(fromRobot, toRobot) ||
+    hasAnimatableSyntheticRootOrBridgeTransition(fromRobot, toRobot)
+  );
 }
 
 export function hasWorkspaceViewerRobotTransitionDiff(
@@ -219,6 +280,46 @@ export function buildWorkspaceViewerRobotTransitionFrame({
 
     joints[jointId] = {
       ...toJoint,
+      origin: buildJointOriginFromPose(nextPose),
+    };
+    hasAnimatedJoint = true;
+  });
+
+  const fromWorldMatrices = computeLinkWorldMatrices(fromRobot);
+  const toWorldMatrices = computeLinkWorldMatrices(toRobot);
+  collectWorkspaceViewerSyntheticRootJointIds(fromRobot).forEach((jointId) => {
+    if (toRobot.joints[jointId]) {
+      return;
+    }
+
+    const componentId = getWorkspaceViewerComponentIdFromSyntheticRootJointId(jointId);
+    const bridgeJoint = componentId
+      ? findWorkspaceViewerBridgeJointForComponent(toRobot, componentId)
+      : null;
+    if (!bridgeJoint) {
+      return;
+    }
+
+    const fromChildWorldMatrix = fromWorldMatrices[bridgeJoint.childLinkId];
+    const toParentWorldMatrix = toWorldMatrices[bridgeJoint.parentLinkId];
+    if (!fromChildWorldMatrix || !toParentWorldMatrix) {
+      return;
+    }
+
+    const startLocalMatrix = toParentWorldMatrix.clone().invert().multiply(fromChildWorldMatrix);
+    const startPosition = new THREE.Vector3();
+    const startQuaternion = new THREE.Quaternion();
+    const startScale = new THREE.Vector3();
+    startLocalMatrix.decompose(startPosition, startQuaternion, startScale);
+
+    const targetPose = resolveWorkspaceViewerJointPose(bridgeJoint);
+    const nextPose: JointPose = {
+      position: startPosition.lerp(targetPose.position, clampedAlpha),
+      quaternion: startQuaternion.slerp(targetPose.quaternion, clampedAlpha),
+    };
+
+    joints[bridgeJoint.id] = {
+      ...bridgeJoint,
       origin: buildJointOriginFromPose(nextPose),
     };
     hasAnimatedJoint = true;

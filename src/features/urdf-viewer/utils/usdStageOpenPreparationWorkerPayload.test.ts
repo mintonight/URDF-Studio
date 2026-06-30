@@ -7,13 +7,15 @@ test('buildUsdStageOpenPreparationWorkerDispatch keeps USD layer candidates for 
   const dispatch = buildUsdStageOpenPreparationWorkerDispatch(
     {
       name: 'robots/go2/root.usda',
-      content: '#usda 1.0\n',
+      content:
+        '#usda 1.0\n(\n  subLayers = [@configuration/base.usda@, @../../shared/common_layers/materials.usda@]\n)\n',
       blobUrl: 'blob:root',
     },
     [
       {
         name: 'robots/go2/root.usda',
-        content: '#usda 1.0\n',
+        content:
+          '#usda 1.0\n(\n  subLayers = [@configuration/base.usda@, @../../shared/common_layers/materials.usda@]\n)\n',
         blobUrl: 'blob:root',
         format: 'usd',
       },

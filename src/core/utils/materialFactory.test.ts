@@ -54,6 +54,19 @@ test('createMatteMaterial still softens authored near-white colors to keep viewe
   assert.ok(material.envMapIntensity < MATERIAL_CONFIG.envMapIntensity);
 });
 
+test('createMatteMaterial preserves texture-backed neutral white bases', () => {
+  const texture = new THREE.Texture();
+  const material = createMatteMaterial({
+    color: 0xffffff,
+    map: texture,
+    preserveExactColor: true,
+  });
+
+  assertColorClose(material.color, new THREE.Color(0xffffff));
+  assert.equal(material.map, texture);
+  assert.equal(material.toneMapped, false);
+});
+
 test('createMatteMaterial uses a softer high-roughness preset for rubber-like material names', () => {
   const material = createMatteMaterial({
     color: '#1f1f1f',

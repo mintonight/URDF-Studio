@@ -16,6 +16,19 @@ type TestRoot = {
   root: Root;
 };
 
+type MockRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+type ResizeObserverMockInstance = {
+  callback: ResizeObserverCallback;
+  observedTargets: Element[];
+  disconnectCount: number;
+};
+
 function installDom() {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'http://localhost/',
@@ -58,6 +71,14 @@ function installDom() {
     dom.window.requestAnimationFrame.bind(dom.window);
   (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame =
     dom.window.cancelAnimationFrame.bind(dom.window);
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    value: undefined,
+    configurable: true,
+  });
+  Object.defineProperty(dom.window, 'ResizeObserver', {
+    value: undefined,
+    configurable: true,
+  });
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
   return dom;
@@ -96,6 +117,131 @@ function makeTestItems(overrides?: {
   ];
 }
 
+function makeDomRect(dom: JSDOM, rect: MockRect): DOMRect {
+  const right = rect.left + rect.width;
+  const bottom = rect.top + rect.height;
+
+  return {
+    x: rect.left,
+    y: rect.top,
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height,
+    right,
+    bottom,
+    toJSON: () => ({ ...rect, right, bottom }),
+  } as DOMRect;
+}
+
+function setViewportWidth(dom: JSDOM, width: number) {
+  Object.defineProperty(dom.window, 'innerWidth', {
+    value: width,
+    configurable: true,
+  });
+  Object.defineProperty(dom.window.document.documentElement, 'clientWidth', {
+    value: width,
+    configurable: true,
+  });
+}
+
+function installToolboxLayoutMock(
+  dom: JSDOM,
+  layout: {
+    panel: MockRect;
+    trigger: MockRect;
+  },
+) {
+  Object.defineProperty(dom.window.HTMLElement.prototype, 'getBoundingClientRect', {
+    configurable: true,
+    value(this: HTMLElement) {
+      if (this.dataset.testid === 'toolbox-trigger') {
+        return makeDomRect(dom, layout.trigger);
+      }
+
+      if (typeof this.className === 'string' && this.className.includes('w-[23rem]')) {
+        return makeDomRect(dom, layout.panel);
+      }
+
+      return makeDomRect(dom, { left: 0, top: 0, width: 0, height: 0 });
+    },
+  });
+}
+
+function installResizeObserverMock(dom: JSDOM) {
+  const instances: ResizeObserverMockInstance[] = [];
+
+  class TestResizeObserver {
+    readonly callback: ResizeObserverCallback;
+    readonly observedTargets: Element[] = [];
+    disconnectCount = 0;
+
+    constructor(callback: ResizeObserverCallback) {
+      this.callback = callback;
+      instances.push(this);
+    }
+
+    observe(target: Element) {
+      this.observedTargets.push(target);
+    }
+
+    unobserve(target: Element) {
+      const index = this.observedTargets.indexOf(target);
+
+      if (index >= 0) {
+        this.observedTargets.splice(index, 1);
+      }
+    }
+
+    disconnect() {
+      this.disconnectCount += 1;
+    }
+  }
+
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    value: TestResizeObserver,
+    configurable: true,
+  });
+  Object.defineProperty(dom.window, 'ResizeObserver', {
+    value: TestResizeObserver,
+    configurable: true,
+  });
+
+  const notifyTarget = (target: Element) => {
+    for (const instance of instances) {
+      if (!instance.observedTargets.includes(target)) {
+        continue;
+      }
+
+      instance.callback([], instance as unknown as ResizeObserver);
+    }
+  };
+
+  return { instances, notifyTarget };
+}
+
+function getToolboxPanel(container: HTMLElement): HTMLDivElement {
+  const panel = Array.from(container.querySelectorAll<HTMLDivElement>('div')).find((element) =>
+    element.className.includes('w-[23rem]'),
+  );
+
+  assert.ok(panel, 'toolbox panel should render');
+  return panel;
+}
+
+async function renderPositionedToolboxMenu(root: Root) {
+  await act(async () => {
+    root.render(
+      <div>
+        <button type="button" data-testid="toolbox-trigger">
+          Toolbox
+        </button>
+        <ToolboxMenu t={translations.en} onClose={() => {}} items={makeTestItems()} />
+      </div>,
+    );
+  });
+}
+
 test('Toolbox menu triggers a supplied primary action and closes', async () => {
   const { dom, container, root } = createComponentRoot();
   let closed = false;
@@ -130,6 +276,113 @@ test('Toolbox menu triggers a supplied primary action and closes', async () => {
 
   assert.equal(opened, true);
   assert.equal(closed, true);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('Toolbox menu clamps the dropdown inside a narrow left viewport', async () => {
+  const { dom, container, root } = createComponentRoot();
+  installResizeObserverMock(dom);
+  setViewportWidth(dom, 380);
+  installToolboxLayoutMock(dom, {
+    trigger: { left: 125, top: 9, width: 34, height: 22 },
+    panel: { left: 0, top: 35, width: 364, height: 269 },
+  });
+
+  await renderPositionedToolboxMenu(root);
+
+  const panel = getToolboxPanel(container);
+  assert.equal(panel.style.position, 'fixed');
+  assert.equal(panel.style.left, '8px');
+  assert.equal(panel.style.top, '35px');
+  assert.doesNotMatch(panel.className, /\babsolute\b/);
+  assert.doesNotMatch(panel.className, /\btranslate-x-1\/2\b/);
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('Toolbox menu clamps the dropdown inside a right viewport edge', async () => {
+  const { dom, container, root } = createComponentRoot();
+  installResizeObserverMock(dom);
+  setViewportWidth(dom, 760);
+  installToolboxLayoutMock(dom, {
+    trigger: { left: 700, top: 9, width: 52, height: 22 },
+    panel: { left: 0, top: 35, width: 368, height: 269 },
+  });
+
+  await renderPositionedToolboxMenu(root);
+
+  const panel = getToolboxPanel(container);
+  assert.equal(panel.style.position, 'fixed');
+  assert.equal(panel.style.left, '384px');
+  assert.equal(panel.style.top, '35px');
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('Toolbox menu observes trigger layout changes and recenters after responsive resize', async () => {
+  const { dom, container, root } = createComponentRoot();
+  const resizeObserver = installResizeObserverMock(dom);
+  const layout = {
+    trigger: { left: 125, top: 9, width: 34, height: 22 },
+    panel: { left: 0, top: 35, width: 364, height: 269 },
+  };
+  setViewportWidth(dom, 380);
+  installToolboxLayoutMock(dom, layout);
+
+  await renderPositionedToolboxMenu(root);
+
+  const panel = getToolboxPanel(container);
+  const trigger = container.querySelector<HTMLButtonElement>('[data-testid="toolbox-trigger"]');
+  assert.ok(trigger, 'toolbox trigger should render');
+  assert.equal(panel.style.left, '8px');
+  assert.ok(
+    resizeObserver.instances.some((instance) => instance.observedTargets.includes(trigger)),
+    'trigger should be observed so responsive header relayouts recompute menu position',
+  );
+
+  setViewportWidth(dom, 1280);
+  layout.trigger = { left: 214, top: 8, width: 101, height: 23 };
+  layout.panel = { left: 8, top: 35, width: 368, height: 269 };
+
+  await act(async () => {
+    resizeObserver.notifyTarget(trigger);
+    await new Promise<void>((resolve) => {
+      dom.window.requestAnimationFrame(() => resolve());
+    });
+  });
+
+  assert.equal(panel.style.left, '81px');
+
+  await act(async () => {
+    root.unmount();
+  });
+  dom.window.close();
+});
+
+test('Toolbox menu keeps default CSS positioning when layout measurements are unavailable', async () => {
+  const { dom, container, root } = createComponentRoot();
+  setViewportWidth(dom, 380);
+  installToolboxLayoutMock(dom, {
+    trigger: { left: 0, top: 0, width: 0, height: 0 },
+    panel: { left: 0, top: 0, width: 0, height: 0 },
+  });
+
+  await renderPositionedToolboxMenu(root);
+
+  const panel = getToolboxPanel(container);
+  assert.equal(panel.style.position, '');
+  assert.match(panel.className, /\babsolute\b/);
+  assert.match(panel.className, /\btop-full\b/);
 
   await act(async () => {
     root.unmount();

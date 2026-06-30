@@ -191,7 +191,6 @@ function WorkspaceViewerSection({
   lang,
   theme,
   viewConfig,
-  setViewConfig,
   shouldSuppressDocumentLoadingOverlay,
 }: AppLayoutViewContentProps) {
   return (

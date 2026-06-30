@@ -109,6 +109,7 @@ export interface TranslationFeatureConvergenceKeys {
   examples: string;
   sendOnEnterHint: string;
   conversationSuggestionsHint: string;
+  conversationSuggestionGeneralRisks: string;
   conversationSuggestionGeneralSelectedEntity: string;
   conversationSuggestionGeneralSelectedEntityFallback: string;
   conversationSuggestionGeneralSimulation: string;

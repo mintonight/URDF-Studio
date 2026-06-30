@@ -471,7 +471,7 @@ export const zh: TranslationKeys = {
   dropFilesToImportHint:
     '支持 URDF、MJCF、USD、Xacro、ZIP/RAR/7Z/TAR 压缩包、文件夹、3D 模型和图片',
   simpleMode: '当前模型',
-  proMode: '装配',
+  proMode: '高级模式',
   structureTree: '结构树',
   structureGraphTitle: '结构图',
   openStructureGraph: '打开结构图',
@@ -528,11 +528,11 @@ export const zh: TranslationKeys = {
   generateWorkspaceUrdf: '生成 URDF',
   generateWorkspaceUrdfConfirmTitle: '从工作空间生成 URDF？',
   generateWorkspaceUrdfConfirmMessage:
-    '装配工作空间有改动。是否先生成一个 URDF 到素材库，再回到当前模型视图？',
+    '高级模式工作空间有改动。是否先生成一个 URDF 到素材库，再回到当前模型视图？',
   generateWorkspaceUrdfSuccess: '已生成 {name}',
   generateWorkspaceUrdfUnavailable: '当前工作空间没有可生成的内容。',
   generateWorkspaceUrdfDisconnected:
-    '当前工作空间包含未拼接的组件。请完成连接后，再生成单个 URDF。',
+    '当前高级模式工作空间包含未拼接的组件。请完成连接后，再生成单个 URDF。',
   generateAndSwitchToSimpleMode: '生成并打开',
   switchToSimpleWithoutGenerate: '显示当前模型',
 

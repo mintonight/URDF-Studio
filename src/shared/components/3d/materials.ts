@@ -463,7 +463,10 @@ export const enhanceSingleMaterial = (
   const existingPolygonOffsetUnits = material.polygonOffsetUnits ?? 0;
 
   const preserveExactColor =
-    Boolean(material.userData.urdfColorApplied) || usesVertexColors || Boolean(existingMap);
+    Boolean(material.userData.urdfColorApplied) ||
+    Boolean(material.userData.urdfTextureApplied) ||
+    usesVertexColors ||
+    Boolean(existingMap);
 
   // Route all final visual materials through the shared matte material factory so
   // USD and URDF/MJCF land on the same shading defaults and color normalization.
@@ -491,6 +494,11 @@ export const enhanceSingleMaterial = (
   newMat.polygonOffset = existingPolygonOffset;
   newMat.polygonOffsetFactor = existingPolygonOffsetFactor;
   newMat.polygonOffsetUnits = existingPolygonOffsetUnits;
+
+  if (material.userData.urdfTextureApplied && !material.userData.urdfColorApplied) {
+    newMat.color.set('#ffffff');
+    newMat.userData.originalColor = newMat.color.clone();
+  }
 
   if (usesVertexColors) {
     newMat.vertexColors = true;

@@ -403,6 +403,8 @@ const useDisposableGeometry = <T extends THREE.BufferGeometry>(
   createGeometry: () => T,
   deps: React.DependencyList,
 ) => {
+  // Call sites provide explicit dependencies; this wrapper centralizes geometry disposal.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const geometry = useMemo(createGeometry, deps);
   useEffect(() => () => geometry.dispose(), [geometry]);
   return geometry;

@@ -7,7 +7,11 @@ import { handleUsdHydrationWorkerEvent } from './usdHydrationWorkerEvents.ts';
 
 test('handleUsdHydrationWorkerEvent records worker load-debug entries', () => {
   const previousWindow = globalThis.window;
-  const targetWindow = {} as Window;
+  const targetWindow = {
+    location: {
+      search: '?regressionDebug=1',
+    },
+  } as Window;
   Object.defineProperty(globalThis, 'window', {
     value: targetWindow,
     configurable: true,

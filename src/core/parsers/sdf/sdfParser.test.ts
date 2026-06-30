@@ -105,7 +105,7 @@ test('parseSDF keeps mesh visuals without explicit material colors uncolored so 
 
   assert.ok(robot);
   assert.equal(robot?.links.body.visual.type, GeometryType.MESH);
-  assert.equal(robot?.links.body.visual.color, undefined);
+  assert.equal(robot?.links.body.visual.color, '');
 });
 
 test('parseSDF preserves inline material alpha from diffuse RGBA values', () => {

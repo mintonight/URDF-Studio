@@ -29,7 +29,6 @@ import {
   WorkspaceOrbitControls,
   WORKSPACE_CANVAS_BACKGROUND,
   WORKSPACE_DEFAULT_CAMERA_FOV,
-  WORKSPACE_DEFAULT_CAMERA_ORTHOGRAPHIC_FRUSTUM,
   WORKSPACE_DEFAULT_CAMERA_ORTHOGRAPHIC_ZOOM,
   WORKSPACE_DEFAULT_CAMERA_POSITION,
   WORKSPACE_DEFAULT_CAMERA_UP,
@@ -87,6 +86,7 @@ interface WorkspaceCanvasProps {
   showWorldOriginAxes?: boolean;
   showUsageGuide?: boolean;
   showGroundPlane?: boolean;
+  showViewportGizmo?: boolean;
   cameraProjection?: 'perspective' | 'orthographic';
   renderKey?: string;
   initialCameraSnapshot?: WorkspaceCameraSnapshot | null;
@@ -174,6 +174,7 @@ export const WorkspaceCanvas = ({
   showWorldOriginAxes = true,
   showUsageGuide = true,
   showGroundPlane = true,
+  showViewportGizmo = true,
   cameraProjection = 'perspective',
   renderKey = 'default',
   initialCameraSnapshot = null,
@@ -603,7 +604,7 @@ export const WorkspaceCanvas = ({
                   initialCameraSnapshot={initialCameraSnapshot}
                   {...finalOrbitControlsProps}
                 />
-                {!snapshotRenderActive && (
+                {showViewportGizmo && !snapshotRenderActive && (
                   <GizmoHelper
                     key={`gizmo-${controlLayerKey}`}
                     alignment="bottom-right"

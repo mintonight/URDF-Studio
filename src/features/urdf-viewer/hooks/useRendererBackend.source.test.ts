@@ -14,6 +14,9 @@ test('renderer backend path forwards URDF XML fallback policy to backend.load', 
   assert.match(robotModelSource, /allowUrdfXmlFallback\s*=\s*false/);
   assert.match(robotModelSource, /useRendererBackend\(\{[\s\S]*allowUrdfXmlFallback,/);
   assert.match(hookSource, /allowUrdfXmlFallback\s*=\s*false/);
-  assert.match(hookSource, /createRendererBackendLoadScopeKey\(\{[\s\S]*allowUrdfXmlFallback,/);
+  assert.match(
+    hookSource,
+    /createMemoizedRendererBackendLoadScopeKey\([\s\S]*\{[\s\S]*allowUrdfXmlFallback,/,
+  );
   assert.match(hookSource, /latestScenePropsRef\.current\s*=\s*\{[\s\S]*allowUrdfXmlFallback,/);
 });

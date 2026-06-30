@@ -919,6 +919,12 @@ async function applyMaterialAssetToMesh(
       if (mode === 'update' && existingMaterial) {
         if (!updatedSharedMaterials.has(existingMaterial)) {
           existingMaterial.map = resolvedTexture;
+          if (resolvedTexture) {
+            const textureBaseColor = createThreeColorFromSRGB(r, g, b);
+            existingMaterial.color.copy(textureBaseColor);
+            existingMaterial.userData.originalColor = textureBaseColor.clone();
+            existingMaterial.toneMapped = false;
+          }
           existingMaterial.needsUpdate = true;
           updatedSharedMaterials.add(existingMaterial);
         }

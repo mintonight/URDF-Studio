@@ -124,6 +124,8 @@ export const enWorkflow: TranslationWorkflowKeys = {
   examples: 'Examples',
   sendOnEnterHint: 'Press Enter to send, Shift+Enter for newline',
   conversationSuggestionsHint: 'Click a suggestion to ask it instantly.',
+  conversationSuggestionGeneralRisks:
+    'What are the top 3 modeling risks in this robot right now?',
   conversationSuggestionGeneralSelectedEntity:
     'Explain what "{name}" controls and which parameters I should verify first.',
   conversationSuggestionGeneralSelectedEntityFallback:

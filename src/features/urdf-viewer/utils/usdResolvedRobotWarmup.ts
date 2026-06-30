@@ -1,4 +1,4 @@
-import { scheduleFailFastInDev } from '@/core/utils/runtimeDiagnostics';
+import { logRuntimeFailure } from '@/core/utils/runtimeDiagnostics';
 
 export interface ScheduleUsdResolvedRobotRepublishOptions {
   isActive: () => boolean;
@@ -22,7 +22,7 @@ export function scheduleUsdResolvedRobotRepublishAfterWarmup({
     try {
       warmupCandidates = Array.from(startWarmups() || []);
     } catch (error) {
-      scheduleFailFastInDev(
+      logRuntimeFailure(
         'UsdResolvedRobotWarmup:startWarmups',
         new Error('Failed to start USD resolved robot warmups.', { cause: error }),
       );

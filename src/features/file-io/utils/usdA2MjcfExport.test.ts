@@ -87,7 +87,7 @@ test('single A2 MJCF workspace USD export keeps original names and authored colo
   assert.doesNotMatch(baseLayer, /\bcomp_a2_/);
   assert.match(baseLayer, /def Xform "base_link"/);
   assert.match(baseLayer, /rel material:binding = <\/a2\/Looks\/Material_\d+>/);
-  assert.match(baseLayer, /color3f inputs:diffuseColor = \(0\.79216, 0\.81961, 0\.933334\)/);
-  assert.match(baseLayer, /color3f inputs:diffuseColor = \(0\.898041, 0\.917648, 0\.929413\)/);
-  assert.match(baseLayer, /color3f inputs:diffuseColor = \(0\.698043, 0\.698043, 0\.698043\)/);
+  assert.match(baseLayer, /color3f inputs:diffuseColor = \(0\.792157, 0\.819608, 0\.933333\)/);
+  assert.match(baseLayer, /color3f inputs:diffuseColor = \(0\.898039, 0\.917647, 0\.929412\)/);
+  assert.match(baseLayer, /color3f inputs:diffuseColor = \(0\.698039, 0\.698039, 0\.698039\)/);
 });

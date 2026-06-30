@@ -108,7 +108,6 @@ export function ToolboxMenu({ t, onClose, items }: ToolboxMenuProps) {
 
     const measure = () => {
       const triggerRect = trigger.getBoundingClientRect();
-      // 先把面板重置回默认布局以读取其自然宽度（不受上一次 fixed 定位影响）。
       const panelRect = panel.getBoundingClientRect();
 
       // jsdom 等无真实布局环境下尺寸为 0，保持默认 CSS 定位，不产生错误偏移。
@@ -136,20 +135,41 @@ export function ToolboxMenu({ t, onClose, items }: ToolboxMenuProps) {
       setFixedPosition({ left: Math.round(nextLeft), top: Math.round(triggerRect.bottom + 4) });
     };
 
+    let frameId: number | null = null;
+    const scheduleMeasure = () => {
+      measure();
+
+      if (typeof window.requestAnimationFrame !== 'function') {
+        return;
+      }
+
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        measure();
+      });
+    };
+
     measure();
 
-    if (typeof ResizeObserver === 'undefined') {
-      return;
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(scheduleMeasure);
+      observer.observe(panel);
+      observer.observe(trigger);
     }
 
-    const observer = new ResizeObserver(measure);
-    observer.observe(panel);
-
-    const handleWindowResize = () => measure();
+    const handleWindowResize = () => scheduleMeasure();
     window.addEventListener('resize', handleWindowResize);
 
     return () => {
-      observer.disconnect();
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      observer?.disconnect();
       window.removeEventListener('resize', handleWindowResize);
     };
   }, []);

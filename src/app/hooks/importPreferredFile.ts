@@ -385,6 +385,31 @@ function isDerivedVariantUrdfForMjcf(urdfFile: RobotFile, mjcfFile: RobotFile): 
   return urdfStem.startsWith(`${mjcfStem}_`) || urdfStem.startsWith(`${mjcfStem}-`);
 }
 
+function hasDofQualifiedImportStem(file: RobotFile): boolean {
+  return tokenizeImportIdentity(getImportFileStem(file.name)).some((token) => /^\d+dof$/.test(token));
+}
+
+function isAccessoryVariantForDofQualifiedBaseFile(
+  variantFile: RobotFile,
+  baseFile: RobotFile,
+): boolean {
+  if (!hasDofQualifiedImportStem(baseFile)) {
+    return false;
+  }
+
+  const variantStem = getImportFileStem(variantFile.name);
+  const baseStem = getImportFileStem(baseFile.name);
+  if (
+    !variantStem ||
+    !baseStem ||
+    (!variantStem.startsWith(`${baseStem}_`) && !variantStem.startsWith(`${baseStem}-`))
+  ) {
+    return false;
+  }
+
+  return scoreUrdfVariantPenalty(variantFile.name) > scoreUrdfVariantPenalty(baseFile.name);
+}
+
 function compareRankedUrdfCandidates(
   left: RankedUrdfCandidate,
   right: RankedUrdfCandidate,
@@ -614,6 +639,25 @@ function compareReadyMjcfSceneRichness(
   return left.file.name.localeCompare(right.file.name);
 }
 
+function hasComparableRobotGeometry(
+  candidate: ResolvedRobotRichness | null,
+  baseline: ResolvedRobotRichness | null,
+): boolean {
+  if (!candidate || !baseline) {
+    return false;
+  }
+
+  return (
+    candidate.visualGeometryCount >= baseline.visualGeometryCount &&
+    candidate.meshGeometryCount >= baseline.meshGeometryCount &&
+    candidate.collisionGeometryCount >= baseline.collisionGeometryCount
+  );
+}
+
+function shouldEvaluateMjcfCandidateAfterReadyCandidate(candidate: RankedMjcfCandidate): boolean {
+  return hasSubstantialMjcfSceneStructure(candidate.structure);
+}
+
 export function pickPreferredMjcfImportFile(
   files: RobotFile[],
   filePool: RobotFile[] = files,
@@ -647,6 +691,10 @@ export function pickPreferredMjcfImportFile(
   const readyCandidates: ReadyMjcfCandidate[] = [];
 
   for (const candidate of rankedCandidates) {
+    if (firstReadyCandidate && !shouldEvaluateMjcfCandidateAfterReadyCandidate(candidate)) {
+      continue;
+    }
+
     try {
       const richness = summarizeResolvedRobotRichness(candidate.file, cachedResolveRobotImport);
       if (richness) {
@@ -716,16 +764,21 @@ export function pickPreferredImportFile(
     preferredUrdf && preferredMjcf && preferredUrdfIsSelfContained
       ? summarizeResolvedRobotRichness(preferredMjcf, cachedResolveRobotImport)
       : null;
+  const preferredMjcfIsAccessoryVariantOfDofBase =
+    preferredUrdf !== null &&
+    preferredMjcf !== null &&
+    isAccessoryVariantForDofQualifiedBaseFile(preferredMjcf, preferredUrdf);
 
   const shouldPreferMjcfOverUrdf =
     preferredUrdf !== null &&
     preferredMjcf !== null &&
     (!preferredUrdfIsSelfContained ||
-      isMateriallyRicherRobotCandidate(preferredMjcfRichness, preferredUrdfRichness) ||
+      (!preferredMjcfIsAccessoryVariantOfDofBase &&
+        isMateriallyRicherRobotCandidate(preferredMjcfRichness, preferredUrdfRichness)) ||
       (preferredUrdfRichness !== null &&
         preferredMjcfRichness !== null &&
         isDerivedVariantUrdfForMjcf(preferredUrdf, preferredMjcf) &&
-        compareResolvedRobotRichness(preferredMjcfRichness, preferredUrdfRichness) <= 0));
+        hasComparableRobotGeometry(preferredMjcfRichness, preferredUrdfRichness)));
 
   if (shouldPreferMjcfOverUrdf && preferredMjcf) {
     return preferredMjcf;

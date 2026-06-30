@@ -104,6 +104,39 @@ test('applyVisualMaterialOverrideToObject applies PBR parameters to generated ma
   assert.ok(Math.abs(appliedMaterial.emissiveIntensity - 0.9) <= 1e-6);
 });
 
+test('applyVisualMaterialOverrideToObject preserves near-white texture base colors', () => {
+  const originalTextureLoad = THREE.TextureLoader.prototype.load;
+  THREE.TextureLoader.prototype.load = function mockTextureLoad(
+    _url: string,
+    onLoad?: (texture: THREE.Texture<HTMLImageElement>) => void,
+  ) {
+    const texture = new THREE.Texture() as THREE.Texture<HTMLImageElement>;
+    onLoad?.(texture);
+    return texture;
+  };
+
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: '#444444' }),
+  );
+  const root = new THREE.Group();
+  root.add(mesh);
+
+  try {
+    applyVisualMaterialOverrideToObject(root, {
+      color: '#ffffff',
+      texture: 'textures/body.png',
+    });
+  } finally {
+    THREE.TextureLoader.prototype.load = originalTextureLoad;
+  }
+
+  const appliedMaterial = mesh.material as THREE.MeshStandardMaterial;
+  assert.equal(appliedMaterial.color.getHexString(), 'ffffff');
+  assert.equal(appliedMaterial.userData.urdfTextureApplied, true);
+  assert.equal(appliedMaterial.userData.urdfTexturePath, 'textures/body.png');
+});
+
 test('applyVisualMaterialOverrideToObject logs when a texture override has no mesh materials to update', () => {
   const root = new THREE.Group();
   const originalConsoleWarn = console.warn;

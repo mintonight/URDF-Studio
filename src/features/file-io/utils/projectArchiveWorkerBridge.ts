@@ -75,7 +75,18 @@ export function createProjectArchiveWorkerClient({
       compressionLevel: options.compressionLevel,
     };
 
-    return client.dispatch(request, serialized.transferables, options.onProgress as any);
+    try {
+      return await client.dispatch(request, serialized.transferables, options.onProgress as any);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /Project archive worker is not available in this environment/i.test(error.message)
+      ) {
+        throw new Error('Web Worker is not available in this environment', { cause: error });
+      }
+
+      throw error;
+    }
   };
 
   return {

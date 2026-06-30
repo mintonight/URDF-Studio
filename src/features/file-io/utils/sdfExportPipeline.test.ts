@@ -170,7 +170,7 @@ test('Aloha MJCF export to SDF preserves visual material and mesh scale on re-im
   const robot = toRobotState(importResult.robotData);
   const sdfContent = generateSDF(robot, { packageName: 'aloha' });
 
-  assert.match(sdfContent, /<diffuse>0\.14902353 0\.14902353 0\.14902353 1\.00000000<\/diffuse>/);
+  assert.match(sdfContent, /<diffuse>0\.15000000 0\.15000000 0\.15000000 1\.00000000<\/diffuse>/);
   assert.match(sdfContent, /<scale>0\.001 0\.001 0\.001<\/scale>/);
 
   const roundTrip = resolveRobotFileData({
@@ -187,6 +187,9 @@ test('Aloha MJCF export to SDF preserves visual material and mesh scale on re-im
   const baseLink = roundTrip.robotData.links['left/base_link'];
   assert.ok(baseLink, 'expected left/base_link to survive SDF round-trip');
   assert.equal(baseLink.visual.color, '#262626');
-  assert.deepEqual(roundTrip.robotData.materials?.['left/base_link'], { color: '#262626' });
+  assert.deepEqual(roundTrip.robotData.materials?.['left/base_link'], {
+    color: '#262626',
+    colorRgba: [0.15, 0.15, 0.15, 1],
+  });
   assert.deepEqual(baseLink.visual.dimensions, { x: 0.001, y: 0.001, z: 0.001 });
 });

@@ -49,6 +49,10 @@ function isImplicitDefaultVisualColor(value: string | undefined): boolean {
   );
 }
 
+function isNearWhiteTextureBaseColor(color: THREE.Color | null): boolean {
+  return Boolean(color && color.r > 0.95 && color.g > 0.95 && color.b > 0.95);
+}
+
 function disposeTransientMaterial(material: THREE.Material | undefined): void {
   if (!material) {
     return;
@@ -249,6 +253,9 @@ export function applyVisualMaterialOverrideToObject(
         nextMaterial.color.set('#ffffff');
         nextMaterial.userData.originalColor = new THREE.Color('#ffffff');
         nextMaterial.toneMapped = false;
+      } else if (texturePath && isNearWhiteTextureBaseColor(nextColor)) {
+        nextMaterial.color.copy(nextColor!);
+        nextMaterial.userData.originalColor = nextMaterial.color.clone();
       }
 
       if (parsedColor) {

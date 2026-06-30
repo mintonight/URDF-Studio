@@ -22,10 +22,6 @@ if (!globalThis.XMLSerializer) {
   globalThis.XMLSerializer = window.XMLSerializer as typeof XMLSerializer;
 }
 
-function readFixture(relativePath: string): string {
-  return fs.readFileSync(path.join(process.cwd(), relativePath), 'utf8');
-}
-
 function createRobotFile(name: string, format: RobotFile['format'], content = ''): RobotFile {
   return {
     name,
@@ -66,29 +62,11 @@ function loadImportableRobotFilesFromDirectory(relativeDir: string): RobotFile[]
 }
 
 test('pickPreferredImportFile prefers MJCF for mixed mujoco bundles with mismatched URDF package roots', () => {
-  const urdfFile = createRobotFile(
-    'b2_description_mujoco/xml/b2_description.urdf',
-    'urdf',
-    readFixture('test/unitree_ros/robots/b2_description_mujoco/xml/b2_description.urdf'),
-  );
-  const mjcfFile = createRobotFile(
-    'b2_description_mujoco/xml/b2.xml',
-    'mjcf',
-    readFixture('test/unitree_ros/robots/b2_description_mujoco/xml/b2.xml'),
-  );
-  const sceneFile = createRobotFile(
-    'b2_description_mujoco/xml/scene.xml',
-    'mjcf',
-    readFixture('test/unitree_ros/robots/b2_description_mujoco/xml/scene.xml'),
-  );
-  const meshFile = createRobotFile('b2_description_mujoco/meshes/base_link.obj', 'mesh');
+  const files = loadImportableRobotFilesFromDirectory('test/unitree_ros/robots/b2_description_mujoco');
 
-  const preferredFile = pickPreferredImportFile(
-    [urdfFile, mjcfFile, sceneFile, meshFile],
-    [urdfFile, mjcfFile, sceneFile, meshFile],
-  );
+  const preferredFile = pickPreferredImportFile(files, files);
 
-  assert.equal(preferredFile?.name, 'b2_description_mujoco/xml/b2.xml');
+  assert.equal(preferredFile?.name, 'test/unitree_ros/robots/b2_description_mujoco/xml/b2.xml');
 });
 
 test('pickPreferredImportFile keeps URDF first for self-contained mixed bundles', () => {

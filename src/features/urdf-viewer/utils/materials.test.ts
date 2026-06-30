@@ -77,7 +77,23 @@ test('enhanceSingleMaterial keeps textured materials in exact-color mode', () =>
 
   assert.equal(enhancedMaterial instanceof THREE.MeshStandardMaterial, true);
   assert.equal(enhancedMaterial.map, texture);
-  assert.equal(enhancedMaterial.toneMapped, true);
+  assert.equal(enhancedMaterial.color.getHexString(), 'ffffff');
+  assert.equal(enhancedMaterial.toneMapped, false);
+});
+
+test('enhanceSingleMaterial keeps pending texture override bases neutral white', () => {
+  const sourceMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+  });
+  sourceMaterial.userData.urdfTextureApplied = true;
+  sourceMaterial.userData.urdfTexturePath = 'assets/cassie-texture.png';
+
+  const enhancedMaterial = enhanceSingleMaterial(sourceMaterial) as THREE.MeshStandardMaterial;
+
+  assert.equal(enhancedMaterial instanceof THREE.MeshStandardMaterial, true);
+  assert.equal(enhancedMaterial.map, null);
+  assert.equal(enhancedMaterial.color.getHexString(), 'ffffff');
+  assert.equal(enhancedMaterial.userData.urdfTextureApplied, true);
 });
 
 test('enhanceSingleMaterial tolerates serialized URDF colors stored as strings', () => {

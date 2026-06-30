@@ -39,7 +39,7 @@ test('LinkAxesController reuses shared origin axes visuals for USD overlays', ()
 
   const originAxes = axesGroup.children[0];
   assert.equal(originAxes.name, 'origin:/Robot/base_link');
-  assert.equal(originAxes.children.length, 6);
+  assert.equal(originAxes.children.length, 3);
   assert.equal(originAxes.matrix.elements[12], 1.25);
   assert.equal(originAxes.matrix.elements[13], -0.5);
   assert.equal(originAxes.matrix.elements[14], 2.75);
@@ -49,13 +49,10 @@ test('LinkAxesController reuses shared origin axes visuals for USD overlays', ()
     approxEqual(position.x, 0.25) && approxEqual(position.y, 0) && approxEqual(position.z, 0)
   )));
   assert.ok(childPositions.some((position) => (
-    approxEqual(position.x, 0.5) && approxEqual(position.y, 0) && approxEqual(position.z, 0)
-  )));
-  assert.ok(childPositions.some((position) => (
     approxEqual(position.x, 0) && approxEqual(position.y, 0.25) && approxEqual(position.z, 0)
   )));
   assert.ok(childPositions.some((position) => (
-    approxEqual(position.x, 0) && approxEqual(position.y, 0) && approxEqual(position.z, 0.5)
+    approxEqual(position.x, 0) && approxEqual(position.y, 0) && approxEqual(position.z, 0.25)
   )));
 
   originAxes.traverse((child) => {

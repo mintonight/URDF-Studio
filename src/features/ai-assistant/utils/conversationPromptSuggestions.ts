@@ -34,6 +34,7 @@ export const buildConversationPromptSuggestions = ({
   }
 
   return [
+    t.conversationSuggestionGeneralRisks,
     selectedEntityName
       ? t.conversationSuggestionGeneralSelectedEntity.replace('{name}', selectedEntityName)
       : t.conversationSuggestionGeneralSelectedEntityFallback,

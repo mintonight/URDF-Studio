@@ -9,7 +9,6 @@ import {
 } from './URDFClasses';
 import { stackCoincidentVisualRoots } from '@/core/loaders/visualMeshStacking';
 import { setThreeColorFromSRGB } from '@/core/utils/color.ts';
-import { getCollisionBoxDisplayCylinderTransform } from '@/core/utils/collisionBoxDisplay';
 import { createMainThreadYieldController } from '@/core/utils/yieldToMainThread';
 
 const tempQuaternion = new THREE.Quaternion();
@@ -394,19 +393,8 @@ export class URDFLoader {
             primitive.material = material;
 
             const size = processTuple(n.children[0].getAttribute('size'));
-            if (isCollisionNode) {
-              primitive.geometry = new THREE.CylinderGeometry(1, 1, 1, 30);
-              const { scale, rotation } = getCollisionBoxDisplayCylinderTransform({
-                x: size[0],
-                y: size[1],
-                z: size[2],
-              });
-              primitive.scale.set(...scale);
-              primitive.rotation.set(...rotation);
-            } else {
-              primitive.geometry = new THREE.BoxGeometry(1, 1, 1);
-              primitive.scale.set(size[0], size[1], size[2]);
-            }
+            primitive.geometry = new THREE.BoxGeometry(1, 1, 1);
+            primitive.scale.set(size[0], size[1], size[2]);
             group.add(primitive);
           } else if (geoType === 'sphere') {
             const primitive = new THREE.Mesh();
@@ -810,19 +798,8 @@ export class URDFLoader {
             primitive.material = material;
 
             const size = processTuple(n.children[0].getAttribute('size'));
-            if (isCollisionNode) {
-              primitive.geometry = new THREE.CylinderGeometry(1, 1, 1, 30);
-              const { scale, rotation } = getCollisionBoxDisplayCylinderTransform({
-                x: size[0],
-                y: size[1],
-                z: size[2],
-              });
-              primitive.scale.set(...scale);
-              primitive.rotation.set(...rotation);
-            } else {
-              primitive.geometry = new THREE.BoxGeometry(1, 1, 1);
-              primitive.scale.set(size[0], size[1], size[2]);
-            }
+            primitive.geometry = new THREE.BoxGeometry(1, 1, 1);
+            primitive.scale.set(size[0], size[1], size[2]);
             group.add(primitive);
           } else if (geoType === 'sphere') {
             const primitive = new THREE.Mesh();

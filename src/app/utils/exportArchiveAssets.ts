@@ -5,7 +5,9 @@ import type { RobotState } from '@/types';
 import type {
   PreparedExportArchiveAssetFile,
   PrepareExportArchiveAssetsProgress,
+  PrepareExportArchiveAssetsResult,
 } from './exportArchiveAssetsWorker.ts';
+import { prepareExportArchiveAssets } from './exportArchiveAssetsWorker.ts';
 import { prepareExportArchiveAssetsWithWorker } from './exportArchiveAssetsWorkerBridge.ts';
 
 export { collectRobotAssetReferences } from './exportArchiveAssetReferences.ts';
@@ -82,14 +84,28 @@ function createWorkerProgressForwarder(
 export async function addRobotAssetsToZip(
   options: AddRobotAssetsToZipOptions,
 ): Promise<AddRobotAssetsToZipResult> {
-  const result = await prepareExportArchiveAssetsWithWorker({
+  const args = {
     robot: options.robot,
     assets: options.assets,
     compressOptions: options.compressOptions,
     extraMeshFiles: options.extraMeshFiles,
     skipMeshPaths: options.skipMeshPaths,
     onProgress: createWorkerProgressForwarder(options.onProgress),
-  });
+  };
+  let result: PrepareExportArchiveAssetsResult;
+
+  try {
+    result = await prepareExportArchiveAssetsWithWorker(args);
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      !/Web Worker is not available in this environment/i.test(error.message)
+    ) {
+      throw error;
+    }
+
+    result = await prepareExportArchiveAssets(args);
+  }
 
   addPreparedAssetFilesToZip(options.zip, result.files);
 

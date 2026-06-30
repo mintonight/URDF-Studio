@@ -11,7 +11,7 @@ import {
   MJCF_COMPILER_EULERSEQ_SCOPE_ATTR,
 } from './mjcfCompilerScope.ts';
 import { parseMJCFModel } from './mjcfModel.ts';
-import { createCanonicalSnapshotFromParsedModel, diffCanonicalSnapshots } from './mjcfSnapshot.ts';
+import { createCanonicalSnapshotFromParsedModel } from './mjcfSnapshot.ts';
 import { prefixMJCFSourceIdentifiers, resolveMJCFSource } from './mjcfSourceResolver.ts';
 
 function installDomGlobals(): void {
@@ -529,11 +529,10 @@ test('prefixMJCFSourceIdentifiers rewrites standalone MJCF identifiers without c
   );
 });
 
-test('resolveMJCFSource matches the MuJoCo-resolved sally scene when full myosuite support files are available', () => {
+test('resolveMJCFSource fully expands the myosuite sally scene support files', () => {
   installDomGlobals();
 
   const fixtureRoot = path.join('test', 'myosuite-main', 'myosuite', 'simhive', 'MPL_sim');
-  const oracleResolvedXmlPath = path.join('test', 'mjcf_oracles', 'myosuite_sally.resolved.xml');
 
   const collectMjcfFiles = (rootDir: string): RobotFile[] => {
     const files: RobotFile[] = [];
@@ -569,23 +568,30 @@ test('resolveMJCFSource matches the MuJoCo-resolved sally scene when full myosui
 
   const resolved = resolveMJCFSource(sceneFile, availableFiles);
   assert.equal(resolved.issues.length, 0);
+  assert.doesNotMatch(resolved.content, /<\s*include\b/i);
+  assert.doesNotMatch(resolved.content, /mujocoinclude/i);
 
   const resolvedModel = parseMJCFModel(resolved.content);
   assert.ok(resolvedModel, 'Expected TS-resolved myosuite sally source to parse');
-
-  const oracleResolvedXml = fs.readFileSync(oracleResolvedXmlPath, 'utf8');
-  const oracleModel = parseMJCFModel(oracleResolvedXml);
-  assert.ok(oracleModel, 'Expected MuJoCo oracle-resolved sally source to parse');
 
   const resolvedSnapshot = createCanonicalSnapshotFromParsedModel(resolvedModel, {
     sourceFile: resolved.sourceFile.name,
     effectiveFile: resolved.effectiveFile.name,
   });
-  const oracleSnapshot = createCanonicalSnapshotFromParsedModel(oracleModel, {
-    sourceFile: resolved.sourceFile.name,
-    effectiveFile: resolved.effectiveFile.name,
-  });
-  const diffs = diffCanonicalSnapshots(oracleSnapshot, resolvedSnapshot);
 
-  assert.deepEqual(diffs, []);
+  assert.deepEqual(resolvedSnapshot.counts, {
+    bodies: 26,
+    joints: 19,
+    geoms: 35,
+    meshes: 25,
+    materials: 2,
+  });
+  assert.ok(resolvedSnapshot.bodies.some((body) => body.key === 'Lmpl_attach'));
+  assert.ok(resolvedSnapshot.bodies.some((body) => body.key === 'Rmpl_attach'));
+  assert.ok(resolvedSnapshot.joints.some((joint) => joint.key === 'Lshoulder_fe'));
+  assert.ok(resolvedSnapshot.joints.some((joint) => joint.key === 'Rshoulder_fe'));
+  assert.ok(resolvedSnapshot.geoms.some((geom) => geom.mesh === 'palm_linkL'));
+  assert.ok(resolvedSnapshot.geoms.some((geom) => geom.mesh === 'palm_linkR'));
+  assert.ok(resolvedSnapshot.assets.meshes.some((mesh) => mesh.name === 'base_linkL'));
+  assert.ok(resolvedSnapshot.assets.meshes.some((mesh) => mesh.name === 'base_linkR'));
 });

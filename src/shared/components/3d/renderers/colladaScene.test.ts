@@ -95,18 +95,15 @@ test('cloneColladaScenePreservingRootTransform applies shared coplanar shell fix
   assert.ok(Array.isArray(firstMesh.material));
   const materials = firstMesh.material as THREE.Material[];
 
+  assert.equal(materials.length, 4);
   assert.equal(materials[0]?.name, '磨砂铝合金.011');
   assert.equal(materials[1]?.name, 'logo.001');
   assert.equal(materials[2]?.name, '材质.023');
   assert.equal(materials[3]?.name, '材质.024');
-  assert.equal(materials[4]?.name, '材质.023');
-  assert.equal(materials[5]?.name, '材质.023');
   assert.equal(isCoplanarOffsetMaterial(materials[0]), false);
   assert.equal(isCoplanarOffsetMaterial(materials[1]), true);
-  assert.equal(isCoplanarOffsetMaterial(materials[2]), false);
+  assert.equal(isCoplanarOffsetMaterial(materials[2]), true);
   assert.equal(isCoplanarOffsetMaterial(materials[3]), true);
-  assert.equal(isCoplanarOffsetMaterial(materials[4]), true);
-  assert.equal(isCoplanarOffsetMaterial(materials[5]), true);
 });
 
 test('cloneColladaScenePreservingRootTransform skips override mesh collection when preserving authored materials', () => {

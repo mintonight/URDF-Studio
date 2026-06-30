@@ -58,10 +58,10 @@ export const zhWorkflow: TranslationWorkflowKeys = {
   exportDoExportProject: '导出 .usp',
   exportProjectWorkspaceSummary: '导出当前工作区工程',
   exportProjectWorkspaceSummaryDesc:
-    '会打包当前 workspace 的组件、桥接关系、源文件、资源文件、历史状态以及恢复工程所需的元数据，方便完整恢复工作空间继续编辑。',
+    '会打包当前高级模式 workspace 的组件、桥接关系、源文件、资源文件、历史状态以及恢复工程所需的元数据，方便完整恢复工作空间继续编辑。',
   disconnectedWorkspaceUrdfExportTitle: '导出多个 URDF？',
   disconnectedWorkspaceUrdfExportMessage:
-    '当前工作空间包含 {componentCount} 个组件，分布在 {connectedGroupCount} 个未连接的组里。直接导出单个 URDF 语义不明确。你可以改为把每个组件分别打包成独立 URDF，或者继续编辑。',
+    '当前高级模式工作空间包含 {componentCount} 个组件，分布在 {connectedGroupCount} 个未连接的组里。直接导出单个 URDF 语义不明确。你可以改为把每个组件分别打包成独立 URDF，或者继续编辑。',
   exportMultipleUrdfs: '导出多个 URDF',
   continueEditing: '继续编辑',
   exportFooterProjectArchive: '.usp 工程包',
@@ -120,6 +120,7 @@ export const zhWorkflow: TranslationWorkflowKeys = {
   examples: '常用示例',
   sendOnEnterHint: '按 Enter 发送，Shift+Enter 换行',
   conversationSuggestionsHint: '点击一个推荐问题即可直接发起对话。',
+  conversationSuggestionGeneralRisks: '当前机器人最值得注意的 3 个建模风险是什么？',
   conversationSuggestionGeneralSelectedEntity:
     '解释一下“{name}”的作用，并告诉我应该优先检查哪些参数。',
   conversationSuggestionGeneralSelectedEntityFallback:

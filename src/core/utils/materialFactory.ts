@@ -146,10 +146,11 @@ export function createMatteMaterial(options: CreateMaterialOptions): THREE.MeshS
   const envMapIntensity = isNearWhite
     ? preset.envMapIntensity * MATERIAL_CONFIG.whiteEnvMapIntensityMultiplier
     : preset.envMapIntensity;
-  const shouldPreserveExactColorAppearance = preserveExactColor;
+  const shouldPreserveExactColorAppearance = preserveExactColor && (!isNearWhite || Boolean(map));
 
   if (
     !shouldPreserveExactColorAppearance &&
+    !map &&
     finalColor.r > 0.95 &&
     finalColor.g > 0.95 &&
     finalColor.b > 0.95

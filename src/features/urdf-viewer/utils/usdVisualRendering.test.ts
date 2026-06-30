@@ -39,7 +39,7 @@ test('prepareUsdVisualMesh enables the same shadow participation as the URDF vie
   assert.equal(mesh.userData.__usdVisualMeshPrepared, true);
 });
 
-test('prepareUsdVisualMesh keeps extremely dense meshes in the shared shadow pass', () => {
+test('prepareUsdVisualMesh applies the shared dense-mesh shadow cutoff', () => {
   const mesh = createIndexedTriangleMesh(86240);
 
   mesh.castShadow = true;
@@ -47,8 +47,8 @@ test('prepareUsdVisualMesh keeps extremely dense meshes in the shared shadow pas
 
   prepareUsdVisualMesh(mesh);
 
-  assert.equal(mesh.castShadow, true);
-  assert.equal(mesh.receiveShadow, true);
+  assert.equal(mesh.castShadow, false);
+  assert.equal(mesh.receiveShadow, false);
   assert.equal(mesh.userData.__usdVisualMeshPrepared, true);
 });
 

@@ -37,6 +37,7 @@ const WORLD_FRAME = 'world';
 const XML_DECLARATION_PATTERN = /<\?xml[^>]*\?>/gi;
 const XML_COMMENT_PATTERN = /<!--[\s\S]*?-->/g;
 const BARE_XML_ATTRIBUTE_PATTERN = /(\s[\w:.-]+)=([^\s"'=<>`]+)/g;
+const UNAUTHORED_VISUAL_COLOR = '';
 
 const GAZEBO_COLORS: Record<string, string> = {
   'Gazebo/Black': '#000000',
@@ -1059,13 +1060,16 @@ function selectTreeJointsAndClosedLoops(graph: ParsedSdfGraph): {
 }
 
 function applyVisualToLink(link: UrdfLink, visual: ParsedSdfVisual): UrdfLink {
+  const fallbackColor =
+    visual.geometry.type === GeometryType.MESH ? UNAUTHORED_VISUAL_COLOR : DEFAULT_LINK.visual.color;
+
   return {
     ...link,
     visual: {
       ...DEFAULT_LINK.visual,
       ...visual.geometry,
       origin: visual.pose,
-      color: visual.color ?? DEFAULT_LINK.visual.color,
+      color: visual.color ?? fallbackColor,
       materialSource: visual.materialSource,
       authoredMaterials: visual.authoredMaterials,
     },
@@ -1435,7 +1439,11 @@ function parseSdfModel(
         ...DEFAULT_LINK.visual,
         ...visual.geometry,
         origin: visual.pose,
-        color: visual.color ?? DEFAULT_LINK.visual.color,
+        color:
+          visual.color ??
+          (visual.geometry.type === GeometryType.MESH
+            ? UNAUTHORED_VISUAL_COLOR
+            : DEFAULT_LINK.visual.color),
         materialSource: visual.materialSource,
         authoredMaterials: visual.authoredMaterials,
       }));

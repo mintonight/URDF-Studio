@@ -115,6 +115,7 @@ function parseArgs(argv: string[]): Options {
       case '-h':
         printUsage();
         process.exit(0);
+        break;
       case '--limit':
         options.limit = parsePositiveInteger(nextValue(), '--limit');
         break;
