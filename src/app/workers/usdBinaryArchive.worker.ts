@@ -4,7 +4,7 @@ import {
   USD_BINDINGS_CACHE_KEY,
   buildUsdBindingsAssetPath,
   buildUsdBindingsScriptUrl,
-} from '@/features/urdf-viewer/utils/usdBindingsAssetPaths.ts';
+} from '@/features/editor/usd_bindings';
 import {
   convertUsdArchiveFilesToBinaryCore,
   type BinaryReadyUsdRuntime,

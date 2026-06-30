@@ -3,6 +3,7 @@ export { CanvasResizeSync } from './CanvasResizeSync';
 export { SnapshotManager } from './SnapshotManager';
 export {
   DEFAULT_SNAPSHOT_CAPTURE_OPTIONS,
+  SNAPSHOT_ASPECT_RATIO_PRESETS,
   SNAPSHOT_BACKGROUND_STYLES,
   SNAPSHOT_DOF_MODES,
   SNAPSHOT_DETAIL_LEVELS,
@@ -15,9 +16,13 @@ export {
   SNAPSHOT_LONG_EDGE_INPUT_STEP,
   SNAPSHOT_MAX_LONG_EDGE_INPUT,
   SNAPSHOT_SHADOW_STYLES,
+  resolveSnapshotAspectRatio,
+  resolveSnapshotLongEdgeDimensions,
   normalizeSnapshotCaptureOptions,
+  normalizeSnapshotAspectRatioPreset,
   normalizeSnapshotImageQuality,
   normalizeSnapshotLongEdgePx,
+  type SnapshotAspectRatioPreset,
   type SnapshotPreviewAction,
   type SnapshotPreviewResult,
   type SnapshotBackgroundStyle,

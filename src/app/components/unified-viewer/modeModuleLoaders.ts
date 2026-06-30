@@ -1,7 +1,7 @@
 import React from 'react';
 
 const loadViewerSceneConnectorModule = () => import('./ViewerSceneConnector');
-const loadViewerPanelsModule = () => import('@/features/editor/viewerPanelModule');
+const loadViewerPanelsModule = () => import('@/features/editor/panels');
 const loadViewerJointsPanelModule = () => import('./ViewerJointsPanel');
 
 export const LazyViewerSceneConnector = React.lazy(async () => ({

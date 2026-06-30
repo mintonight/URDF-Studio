@@ -8,6 +8,8 @@ import {
   getSnapshotFileExtension,
   getSnapshotMimeType,
   normalizeSnapshotCaptureOptions,
+  resolveSnapshotAspectRatio,
+  resolveSnapshotLongEdgeDimensions,
   SNAPSHOT_DETAIL_SUPERSAMPLE_SCALE,
   type SnapshotCaptureAction,
   type SnapshotCaptureOptions,
@@ -201,15 +203,23 @@ export const SnapshotManager = ({
     const resolveSnapshotSize = (
       longEdgePx: number,
       visibleViewport?: WorkspaceCameraVisibleViewport | null,
+      targetAspectRatio?: number | null,
     ) => {
       const drawingBufferSize = gl.getDrawingBufferSize(new THREE.Vector2());
       const pixelRatio = gl.getPixelRatio();
-      const baseWidth = visibleViewport
-        ? Math.max(1, Math.round(visibleViewport.width * pixelRatio))
-        : Math.max(1, Math.round(drawingBufferSize.x || 1));
-      const baseHeight = visibleViewport
-        ? Math.max(1, Math.round(visibleViewport.height * pixelRatio))
-        : Math.max(1, Math.round(drawingBufferSize.y || 1));
+      const fixedAspectDimensions = targetAspectRatio
+        ? resolveSnapshotLongEdgeDimensions(longEdgePx, targetAspectRatio)
+        : null;
+      const baseWidth = fixedAspectDimensions
+        ? fixedAspectDimensions.width
+        : visibleViewport
+          ? Math.max(1, Math.round(visibleViewport.width * pixelRatio))
+          : Math.max(1, Math.round(drawingBufferSize.x || 1));
+      const baseHeight = fixedAspectDimensions
+        ? fixedAspectDimensions.height
+        : visibleViewport
+          ? Math.max(1, Math.round(visibleViewport.height * pixelRatio))
+          : Math.max(1, Math.round(drawingBufferSize.y || 1));
       const context = gl.getContext();
 
       return resolveSnapshotRenderPlan({
@@ -543,13 +553,30 @@ export const SnapshotManager = ({
       snapshotOptions: SnapshotCaptureOptions,
       frozenCamera?: THREE.Camera,
     ) => {
-      const visibleViewport = snapshotOptions.cameraSnapshot?.visibleViewport ?? null;
-      const outputPlan = resolveSnapshotSize(snapshotOptions.longEdgePx, visibleViewport);
+      const viewportAspectRatio =
+        snapshotOptions.cameraSnapshot?.visibleViewport?.aspectRatio ??
+        snapshotOptions.cameraSnapshot?.aspectRatio ??
+        null;
+      const outputAspectRatio = resolveSnapshotAspectRatio(
+        snapshotOptions.aspectRatioPreset,
+        viewportAspectRatio,
+      );
+      const usesViewportAspectRatio = snapshotOptions.aspectRatioPreset === 'viewport';
+      const visibleViewport = usesViewportAspectRatio
+        ? (snapshotOptions.cameraSnapshot?.visibleViewport ?? null)
+        : null;
+      const fixedAspectRatio = usesViewportAspectRatio ? null : outputAspectRatio;
+      const outputPlan = resolveSnapshotSize(
+        snapshotOptions.longEdgePx,
+        visibleViewport,
+        fixedAspectRatio,
+      );
       const supersampleScale = SNAPSHOT_DETAIL_SUPERSAMPLE_SCALE[snapshotOptions.detailLevel];
       const renderPlan = clampSnapshotRenderPlanToPixelBudget(
         resolveSnapshotSize(
           Math.round(snapshotOptions.longEdgePx * supersampleScale),
           visibleViewport,
+          fixedAspectRatio,
         ),
         resolveSnapshotRenderPixelBudget(snapshotOptions),
       );
@@ -565,6 +592,10 @@ export const SnapshotManager = ({
         const captureCamera = frozenCamera ?? cloneSnapshotCamera(liveCamera);
         if (snapshotOptions.cameraSnapshot) {
           applyWorkspaceCameraSnapshot(captureCamera, undefined, snapshotOptions.cameraSnapshot);
+        }
+        if (!usesViewportAspectRatio && captureCamera instanceof THREE.PerspectiveCamera) {
+          captureCamera.aspect = outputAspectRatio;
+          captureCamera.updateProjectionMatrix();
         }
         const backgroundState = applySnapshotBackgroundStyle(
           latestScene,

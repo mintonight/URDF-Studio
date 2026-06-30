@@ -23,9 +23,7 @@
 
 运行时代码：
 - `src/features/editor/index.ts` -> `src/features/urdf-viewer/index.ts`（Editor facade）
-- `src/features/editor/viewerPanelModule.ts` -> `src/features/urdf-viewer/components/ViewerPanels.tsx`
-- `src/features/editor/viewerPanelModule.ts` -> `src/features/urdf-viewer/hooks/useResponsivePanelLayout.ts`
-- `src/features/editor/viewerPanelModule.ts` -> `src/features/urdf-viewer/hooks/useViewerController.ts`
+- `src/features/editor/{ik_selection,panels,usd_bindings,usd_documents,usd_export,usd_hydration,usd_offscreen_runtime,usd_prewarm,usd_runtime}.ts` -> `src/features/urdf-viewer/...`（Editor 窄 facade；精确 importer / specifier / target 以 `dependency_boundaries.mjs` allowlist 为准）
 - `src/lib/components/RobotCanvas.tsx` -> `src/features/urdf-viewer/components/ViewerCanvas.tsx`
 - `src/lib/components/RobotCanvas.tsx` -> `src/features/urdf-viewer/components/JointInteraction.tsx`
 - `src/lib/components/RobotCanvas.tsx` -> `src/features/urdf-viewer/components/RobotModel.tsx`
@@ -38,7 +36,7 @@
 
 ## 4. Feature Public APIs
 
-- `editor`：统一 Editor 公开入口，通过 `src/features/editor/index.ts` 暴露
+- `editor`：统一 Editor 公开入口通过 `src/features/editor/index.ts` 暴露；高成本 / 延迟加载 / app 编排专用能力可通过 `src/features/<feature>/*.ts` 窄 facade 暴露，允许清单由 `dependency_boundaries.mjs` 精确维护
 - `urdf-viewer`：Editor 实现子目录，通过 `src/features/urdf-viewer/index.ts` 暴露
 - `file-io`：导入导出入口，通过 `src/features/file-io/index.ts` 暴露
 - `app` 层新增对 `src/features/<feature>/...` 子路径的 deep import 必须先收敛到 feature 公开入口；存量 deep import 只保留在 `dependency_boundaries_baseline.json` 的 `knownFeatureDeepImports` ratchet 中，按 `importer -> specifier` 精确计数，修掉后删除对应 baseline 项。

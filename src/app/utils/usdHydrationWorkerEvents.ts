@@ -1,4 +1,4 @@
-import type { UsdOffscreenViewerWorkerResponse } from '@/features/urdf-viewer/utils/usdOffscreenViewerProtocol';
+import type { UsdOffscreenViewerWorkerResponse } from '@/features/editor/usd_hydration';
 import type { ViewerDocumentLoadEvent } from '@/features/editor';
 import { recordUsdStageLoadDebug } from '@/shared/debug/usdStageLoadDebug';
 

@@ -44,6 +44,27 @@ export const SNAPSHOT_BACKGROUND_STYLES = [
 ] as const;
 export type SnapshotBackgroundStyle = (typeof SNAPSHOT_BACKGROUND_STYLES)[number];
 
+export const SNAPSHOT_ASPECT_RATIO_PRESETS = [
+  'viewport',
+  '16:9',
+  '4:3',
+  '1:1',
+  '3:4',
+  '9:16',
+] as const;
+export type SnapshotAspectRatioPreset = (typeof SNAPSHOT_ASPECT_RATIO_PRESETS)[number];
+
+export const SNAPSHOT_FIXED_ASPECT_RATIOS: Record<
+  Exclude<SnapshotAspectRatioPreset, 'viewport'>,
+  number
+> = {
+  '16:9': 16 / 9,
+  '4:3': 4 / 3,
+  '1:1': 1,
+  '3:4': 3 / 4,
+  '9:16': 9 / 16,
+};
+
 export interface SnapshotCaptureOptions {
   longEdgePx: number;
   imageFormat: SnapshotImageFormat;
@@ -55,6 +76,7 @@ export interface SnapshotCaptureOptions {
   dofMode: SnapshotDofMode;
   backgroundStyle: SnapshotBackgroundStyle;
   hideGrid: boolean;
+  aspectRatioPreset: SnapshotAspectRatioPreset;
   /** oxipng effort tier applied to PNG exports (lossless). Ignored for JPEG/WebP. */
   pngOptimizeLevel: PngOptimizeLevel;
   cameraSnapshot?: WorkspaceCameraSnapshot | null;
@@ -83,6 +105,7 @@ export const DEFAULT_SNAPSHOT_CAPTURE_OPTIONS: SnapshotCaptureOptions = {
   dofMode: 'off',
   backgroundStyle: 'studio',
   hideGrid: false,
+  aspectRatioPreset: 'viewport',
   pngOptimizeLevel: SNAPSHOT_DEFAULT_PNG_OPTIMIZE_LEVEL,
 };
 
@@ -137,6 +160,46 @@ export function normalizeSnapshotPngOptimizeLevel(
   return (SNAPSHOT_PNG_OPTIMIZE_LEVELS as readonly number[]).includes(rounded)
     ? (rounded as PngOptimizeLevel)
     : fallback;
+}
+
+export function normalizeSnapshotAspectRatioPreset(
+  value: string | null | undefined,
+): SnapshotAspectRatioPreset {
+  return SNAPSHOT_ASPECT_RATIO_PRESETS.includes(value as SnapshotAspectRatioPreset)
+    ? (value as SnapshotAspectRatioPreset)
+    : DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.aspectRatioPreset;
+}
+
+export function resolveSnapshotAspectRatio(
+  preset: SnapshotAspectRatioPreset,
+  viewportAspectRatio: number | null | undefined,
+) {
+  if (preset !== 'viewport') {
+    return SNAPSHOT_FIXED_ASPECT_RATIOS[preset];
+  }
+
+  return typeof viewportAspectRatio === 'number' &&
+    Number.isFinite(viewportAspectRatio) &&
+    viewportAspectRatio > 0
+    ? viewportAspectRatio
+    : 16 / 9;
+}
+
+export function resolveSnapshotLongEdgeDimensions(longEdgePx: number, aspectRatio: number) {
+  const safeLongEdge = normalizeSnapshotLongEdgePx(longEdgePx);
+  const safeAspectRatio = Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 16 / 9;
+
+  if (safeAspectRatio >= 1) {
+    return {
+      width: safeLongEdge,
+      height: Math.max(1, Math.round(safeLongEdge / safeAspectRatio)),
+    };
+  }
+
+  return {
+    width: Math.max(1, Math.round(safeLongEdge * safeAspectRatio)),
+    height: safeLongEdge,
+  };
 }
 
 export function normalizeSnapshotCaptureOptions(
@@ -194,6 +257,7 @@ export function normalizeSnapshotCaptureOptions(
     dofMode,
     backgroundStyle,
     hideGrid: options?.hideGrid ?? DEFAULT_SNAPSHOT_CAPTURE_OPTIONS.hideGrid,
+    aspectRatioPreset: normalizeSnapshotAspectRatioPreset(options?.aspectRatioPreset),
     pngOptimizeLevel: normalizeSnapshotPngOptimizeLevel(options?.pngOptimizeLevel),
     cameraSnapshot: options?.cameraSnapshot ?? null,
   };

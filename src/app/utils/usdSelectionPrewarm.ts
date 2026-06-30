@@ -1,5 +1,5 @@
 import { logRuntimeFailure } from '@/core/utils/runtimeDiagnostics';
-import { getUsdRuntimeEnvironmentError } from '@/features/urdf-viewer/utils/usdWasmRuntime';
+import { getUsdRuntimeEnvironmentError } from '@/features/editor/usd_runtime';
 import type { RobotFile } from '@/types';
 
 type StageOpenSourceFile = Pick<RobotFile, 'name' | 'content' | 'blobUrl' | 'format'>;
@@ -64,17 +64,16 @@ let usdSelectionPrewarmHandlerPromise: Promise<
 function loadUsdSelectionPrewarmHandler() {
   if (!usdSelectionPrewarmHandlerPromise) {
     usdSelectionPrewarmHandlerPromise = Promise.all([
-      import('@/features/urdf-viewer/utils/usdBlobBackedUsda'),
-      import('@/features/urdf-viewer/utils/preparedUsdStageOpenCache'),
-      import('@/features/urdf-viewer/utils/usdOffscreenViewerWorkerClient'),
-      import('@/features/urdf-viewer/utils/usdWasmRuntime'),
+      import('@/features/editor/usd_prewarm'),
+      import('@/features/editor/usd_offscreen_runtime'),
+      import('@/features/editor/usd_runtime'),
     ])
-      .then(([blobBackedUsda, preparedStageOpenCache, offscreenRuntime, mainThreadRuntime]) =>
+      .then(([usdPrewarm, offscreenRuntime, mainThreadRuntime]) =>
         createUsdSelectionPrewarmHandler({
-          hasBlobBackedLargeUsdaInStageScope: blobBackedUsda.hasBlobBackedLargeUsdaInStageScope,
+          hasBlobBackedLargeUsdaInStageScope: usdPrewarm.hasBlobBackedLargeUsdaInStageScope,
           prewarmMainThreadRuntime: mainThreadRuntime.prewarmUsdWasmRuntimeInBackground,
           prewarmOffscreenRuntime: offscreenRuntime.prewarmUsdOffscreenViewerRuntimeInBackground,
-          prewarmStageOpen: preparedStageOpenCache.prewarmPreparedUsdStageOpenDataInBackground,
+          prewarmStageOpen: usdPrewarm.prewarmPreparedUsdStageOpenDataInBackground,
         }),
       )
       .catch((error) => {

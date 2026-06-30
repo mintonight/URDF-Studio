@@ -4,7 +4,7 @@ import { detectImportFormat } from './import-preparation/formatDetection.ts';
 import {
   extractUsdLayerReferencesFromText,
   resolveUsdLayerReferencePath,
-} from '@/features/urdf-viewer/utils/usdPreloadSources.ts';
+} from '@/features/editor/usd_documents';
 import { getSourceCodeDocumentFlavor, isSourceCodeDocumentReadOnly } from './sourceCodeDisplay.ts';
 
 type SourceFileFormat = RobotFile['format'] | null;

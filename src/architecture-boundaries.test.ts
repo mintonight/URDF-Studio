@@ -62,9 +62,21 @@ const layerRanks = new Map([
 
 const siblingFeatureImportAllowlist = new Set([
   'src/features/editor/index.ts -> ../urdf-viewer',
-  'src/features/editor/viewerPanelModule.ts -> ../urdf-viewer/components/ViewerPanels',
-  'src/features/editor/viewerPanelModule.ts -> ../urdf-viewer/hooks/useResponsivePanelLayout',
-  'src/features/editor/viewerPanelModule.ts -> ../urdf-viewer/hooks/useViewerController',
+  'src/features/editor/ik_selection.ts -> ../urdf-viewer/utils/selectedIkDragLink',
+  'src/features/editor/panels.ts -> ../urdf-viewer/components/ViewerPanels',
+  'src/features/editor/panels.ts -> ../urdf-viewer/hooks/useResponsivePanelLayout',
+  'src/features/editor/panels.ts -> ../urdf-viewer/hooks/useViewerController',
+  'src/features/editor/usd_bindings.ts -> ../urdf-viewer/utils/usdBindingsAssetPaths',
+  'src/features/editor/usd_documents.ts -> ../urdf-viewer/utils/usdPreloadSources',
+  'src/features/editor/usd_export.ts -> ../urdf-viewer/utils/usdExportBundle',
+  'src/features/editor/usd_hydration.ts -> ../urdf-viewer/utils/usdOffscreenViewerProtocol',
+  'src/features/editor/usd_hydration.ts -> ../urdf-viewer/utils/usdPreparedExportCacheWorkerBridge',
+  'src/features/editor/usd_hydration.ts -> ../urdf-viewer/utils/usdPreparedExportCacheWorkerTransfer',
+  'src/features/editor/usd_hydration.ts -> ../urdf-viewer/utils/viewerRobotData',
+  'src/features/editor/usd_offscreen_runtime.ts -> ../urdf-viewer/utils/usdOffscreenViewerWorkerClient',
+  'src/features/editor/usd_prewarm.ts -> ../urdf-viewer/utils/preparedUsdStageOpenCache',
+  'src/features/editor/usd_prewarm.ts -> ../urdf-viewer/utils/usdBlobBackedUsda',
+  'src/features/editor/usd_runtime.ts -> ../urdf-viewer/utils/usdWasmRuntime',
 ]);
 
 function getLayerName(repoPath: string): string | null {

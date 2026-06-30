@@ -3,6 +3,11 @@ import { OptionsPanel } from './OptionsPanel';
 import { getSingleDofJointEntries } from '@/shared/utils/jointTypes';
 import type { JointPanelActiveJointOptions, JointPanelStore } from '@/shared/utils/jointPanelStore';
 import { JointPanelControls, JointPanelList } from './JointPanelContent';
+import type {
+  JointPanelAngleUnit,
+  JointPanelRobot,
+  JointPanelTranslations,
+} from './JointPanelContent';
 
 const JOINT_PANEL_HEADER_ESTIMATED_HEIGHT = 52;
 const JOINT_PANEL_COMPACT_ITEM_ESTIMATED_HEIGHT = 52;
@@ -10,7 +15,7 @@ const JOINT_PANEL_COMPACT_ADVANCED_ITEM_ESTIMATED_HEIGHT = 70;
 
 interface JointsPanelProps {
   showJointPanel: boolean;
-  robot: any;
+  robot: JointPanelRobot | null | undefined;
   jointPanelRef: React.RefObject<HTMLDivElement | null>;
   jointPanelPos: { x: number; y: number } | null;
   defaultPosition?: {
@@ -22,10 +27,10 @@ interface JointsPanelProps {
   };
   maxHeight?: number;
   onMouseDown: (e: React.MouseEvent) => void;
-  t: any;
+  t: JointPanelTranslations;
   handleResetJoints: () => void;
-  angleUnit: 'rad' | 'deg';
-  setAngleUnit: (unit: 'rad' | 'deg') => void;
+  angleUnit: JointPanelAngleUnit;
+  setAngleUnit: (unit: JointPanelAngleUnit) => void;
   isJointsCollapsed: boolean;
   toggleJointsCollapsed: () => void;
   setShowJointPanel?: (show: boolean) => void;

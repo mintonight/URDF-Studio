@@ -4,7 +4,7 @@ import type { JointDragSyncMode } from '@/shared/utils/jointDragStoreSync';
 export const JOINT_PANEL_STORE_SYNC_INTERVAL_MS = 33;
 
 export interface JointControlItemJoint {
-  id?: string;
+  id?: string | number;
   name?: string;
   jointType?: unknown;
   type?: unknown;

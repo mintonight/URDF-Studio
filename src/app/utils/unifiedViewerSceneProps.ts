@@ -14,12 +14,7 @@ export const EMPTY_VIEWER_SELECTION = {
   id: null,
 } satisfies NonNullable<ViewerProps['selection']>;
 
-interface BuildUnifiedViewerScenePropsArgs {
-  controller: ViewerController;
-  active: boolean;
-  hasActivePreview: boolean;
-  modelInteractionEnabled?: boolean;
-  hoveredSelection?: ViewerProps['hoveredSelection'];
+export interface UnifiedViewerSceneDocumentInput {
   viewerResourceScope: ViewerResourceScope;
   retainedRobot?: ThreeObject3D | null;
   effectiveSourceFile: RobotFile | null | undefined;
@@ -29,18 +24,30 @@ interface BuildUnifiedViewerScenePropsArgs {
   onDocumentLoadEvent?: (event: ViewerDocumentLoadEvent) => void;
   onSceneReadyForDisplay?: () => void;
   onRuntimeRobotLoaded?: (robot: ThreeObject3D) => void;
+}
+
+export interface UnifiedViewerSceneInteractionInput {
+  active: boolean;
+  hasActivePreview: boolean;
+  modelInteractionEnabled?: boolean;
+  hoveredSelection?: ViewerProps['hoveredSelection'];
   mode: 'editor';
   selection?: ViewerProps['selection'];
   onHover?: ViewerProps['onHover'];
   onMeshSelect?: ViewerProps['onMeshSelect'];
   onUpdate?: ViewerProps['onUpdate'];
   robot: RobotData;
+  showCollision?: boolean;
+  showCollisionAlwaysOnTop?: boolean;
   focusTarget?: string | null;
   onCollisionTransformPreview?: ViewerProps['onCollisionTransformPreview'];
   onCollisionTransform?: ViewerProps['onCollisionTransform'];
   isMeshPreview?: boolean;
   ikDragActive?: boolean;
   viewerReloadKey?: number;
+}
+
+export interface UnifiedViewerSceneAssemblyInput {
   assemblyState?: AssemblyState | null;
   assemblySelection?: AssemblySelection;
   onAssemblyTransform?: ViewerProps['onAssemblyTransform'];
@@ -55,43 +62,61 @@ interface BuildUnifiedViewerScenePropsArgs {
   ) => void;
 }
 
+interface BuildUnifiedViewerScenePropsArgs {
+  controller: ViewerController;
+  document: UnifiedViewerSceneDocumentInput;
+  interaction: UnifiedViewerSceneInteractionInput;
+  assembly?: UnifiedViewerSceneAssemblyInput;
+}
+
 export function buildUnifiedViewerSceneProps({
   controller,
-  active,
-  hasActivePreview,
-  modelInteractionEnabled = true,
-  hoveredSelection,
-  viewerResourceScope,
-  retainedRobot,
-  effectiveSourceFile,
-  effectiveSourceFilePath,
-  effectiveUrdfContent,
-  effectiveSourceFormat,
-  onDocumentLoadEvent,
-  onSceneReadyForDisplay,
-  onRuntimeRobotLoaded,
-  mode,
-  selection,
-  onHover,
-  onMeshSelect,
-  onUpdate,
-  robot,
-  focusTarget,
-  onCollisionTransformPreview,
-  onCollisionTransform,
-  isMeshPreview = false,
-  ikDragActive = false,
-  viewerReloadKey = 0,
-  assemblyState,
-  assemblySelection,
-  onAssemblyTransform,
-  onComponentTransform,
-  onBridgeTransform,
-  sourceSceneAssemblyComponentId,
-  sourceSceneAssemblyComponentTransform,
-  showSourceSceneAssemblyComponentControls = false,
-  onSourceSceneAssemblyComponentTransform,
+  document,
+  interaction,
+  assembly = {},
 }: BuildUnifiedViewerScenePropsArgs): ViewerSceneBaseProps {
+  const {
+    viewerResourceScope,
+    retainedRobot,
+    effectiveSourceFile,
+    effectiveSourceFilePath,
+    effectiveUrdfContent,
+    effectiveSourceFormat,
+    onDocumentLoadEvent,
+    onSceneReadyForDisplay,
+    onRuntimeRobotLoaded,
+  } = document;
+  const {
+    active,
+    hasActivePreview,
+    modelInteractionEnabled = true,
+    hoveredSelection,
+    mode,
+    selection,
+    onHover,
+    onMeshSelect,
+    onUpdate,
+    robot,
+    showCollision,
+    showCollisionAlwaysOnTop,
+    focusTarget,
+    onCollisionTransformPreview,
+    onCollisionTransform,
+    isMeshPreview = false,
+    ikDragActive = false,
+    viewerReloadKey = 0,
+  } = interaction;
+  const {
+    assemblyState,
+    assemblySelection,
+    onAssemblyTransform,
+    onComponentTransform,
+    onBridgeTransform,
+    sourceSceneAssemblyComponentId,
+    sourceSceneAssemblyComponentTransform,
+    showSourceSceneAssemblyComponentControls = false,
+    onSourceSceneAssemblyComponentTransform,
+  } = assembly;
   const blocksReadOnlyModelInteraction = hasActivePreview || !modelInteractionEnabled;
   const previewBlocksInteraction = blocksReadOnlyModelInteraction || !active;
   const shouldRenderFromStructuredRobotState = !hasActivePreview;
@@ -120,6 +145,8 @@ export function buildUnifiedViewerSceneProps({
     robotLinks: shouldRenderFromStructuredRobotState ? robot.links : undefined,
     robotJoints: shouldRenderFromStructuredRobotState ? robot.joints : undefined,
     robotData: shouldRenderFromStructuredRobotState ? robot : null,
+    showCollision,
+    showCollisionAlwaysOnTop,
     focusTarget: blocksReadOnlyModelInteraction ? undefined : focusTarget,
     onCollisionTransformPreview: blocksReadOnlyModelInteraction
       ? undefined

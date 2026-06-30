@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   normalizeSnapshotCaptureOptions,
+  normalizeSnapshotAspectRatioPreset,
   normalizeSnapshotPngOptimizeLevel,
+  resolveSnapshotAspectRatio,
+  resolveSnapshotLongEdgeDimensions,
 } from './snapshotConfig.ts';
 import type { WorkspaceCameraSnapshot } from '../workspace/workspaceCameraSnapshot';
 
@@ -18,6 +21,7 @@ test('normalizeSnapshotCaptureOptions defaults the export background to studio',
   assert.equal(options.groundStyle, 'shadow');
   assert.equal(options.dofMode, 'off');
   assert.equal(options.hideGrid, false);
+  assert.equal(options.aspectRatioPreset, 'viewport');
 });
 
 test('normalizeSnapshotCaptureOptions keeps transparent backgrounds for alpha-capable formats', () => {
@@ -77,6 +81,44 @@ test('normalizeSnapshotPngOptimizeLevel rounds into the exposed tiers', () => {
   assert.equal(normalizeSnapshotPngOptimizeLevel(2.4), 2);
   assert.equal(normalizeSnapshotPngOptimizeLevel(Number.NaN), 2);
   assert.equal(normalizeSnapshotPngOptimizeLevel(99), 2);
+});
+
+test('normalizeSnapshotCaptureOptions preserves supported aspect ratio presets', () => {
+  assert.equal(
+    normalizeSnapshotCaptureOptions({ aspectRatioPreset: '1:1' }).aspectRatioPreset,
+    '1:1',
+  );
+  assert.equal(
+    normalizeSnapshotCaptureOptions({ aspectRatioPreset: '9:16' }).aspectRatioPreset,
+    '9:16',
+  );
+  assert.equal(
+    normalizeSnapshotCaptureOptions({ aspectRatioPreset: 'bogus' as never }).aspectRatioPreset,
+    'viewport',
+  );
+  assert.equal(normalizeSnapshotAspectRatioPreset(undefined), 'viewport');
+});
+
+test('resolveSnapshotAspectRatio maps fixed presets and falls back to the viewport ratio', () => {
+  assert.equal(resolveSnapshotAspectRatio('viewport', 1.25), 1.25);
+  assert.equal(resolveSnapshotAspectRatio('viewport', 0), 16 / 9);
+  assert.equal(resolveSnapshotAspectRatio('4:3', 2), 4 / 3);
+  assert.equal(resolveSnapshotAspectRatio('9:16', 2), 9 / 16);
+});
+
+test('resolveSnapshotLongEdgeDimensions derives dimensions from a fixed aspect ratio', () => {
+  assert.deepEqual(resolveSnapshotLongEdgeDimensions(3840, 16 / 9), {
+    width: 3840,
+    height: 2160,
+  });
+  assert.deepEqual(resolveSnapshotLongEdgeDimensions(3840, 9 / 16), {
+    width: 2160,
+    height: 3840,
+  });
+  assert.deepEqual(resolveSnapshotLongEdgeDimensions(1920, 1), {
+    width: 1920,
+    height: 1920,
+  });
 });
 
 test('normalizeSnapshotCaptureOptions preserves a frozen camera snapshot for export', () => {

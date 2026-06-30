@@ -5,7 +5,6 @@
 import { useRef, useCallback, useEffect, useMemo, useState } from 'react';
 import type { RootState } from '@react-three/fiber';
 import { AppLayoutView } from './components/AppLayoutView';
-import { resolveSnapshotCaptureAction } from './components/snapshot-preview/resolveSnapshotCaptureAction';
 import { preloadSourceCodeEditorRuntime } from './utils/sourceCodeEditorLoader';
 import { setOptionsPanelVisibility } from './components/header/viewMenuState.js';
 import type { ToolMode } from '@/features/editor';
@@ -23,7 +22,9 @@ import { usePreparedUsdViewerAssets } from './hooks/usePreparedUsdViewerAssets';
 import { useResponsiveSidebarCollapse } from './hooks/useResponsiveSidebarCollapse';
 import { useSourceCodeEditorWarmup } from './hooks/useSourceCodeEditorWarmup';
 import { useIkToolController } from './hooks/useIkToolController';
+import { useIkDragPanelActions } from './hooks/use_ik_drag_panel_actions';
 import { useSnapshotDialogController } from './hooks/useSnapshotDialogController';
+import { useSnapshotCaptureRequest } from './hooks/use_snapshot_capture_request';
 import { useToolItems } from './hooks/useToolItems';
 import {
   useTreePanelJointPreview,
@@ -53,8 +54,6 @@ import type {
 } from '@/shared/components/3d/scene/snapshotConfig';
 import { resolveViewerDocumentLifecycleCallbacks } from './utils/viewerDocumentLifecycleCallbacks';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
-import { isIkDragToolEnabled } from '@/shared/utils/ikDragFeatureGate';
-import { clearIkDragHelperSelection } from './utils/ikDragSession';
 import { resolveAssemblyRootComponentSelectionAvailability } from './utils/assemblyRootComponentSelection';
 import type { SnapshotPreviewSession } from './components/snapshot-preview/types';
 import { logRegressionError } from '@/shared/debug/consoleDiagnostics';
@@ -182,7 +181,6 @@ export function AppLayout({
   const proModeRoundtripSessionRef = useRef<ProModeRoundtripSession | null>(null);
   const pendingTreePanelJointCommitRef = useRef<TreePanelJointCommitSnapshot | null>(null);
   const [pendingViewerToolMode, setPendingViewerToolMode] = useState<ToolMode | null>(null);
-  const [ikDragActive, setIkDragActive] = useState(false);
   const [workspaceTransformPending, setWorkspaceTransformPending] = useState(false);
   const [isBridgeModalOpen, setIsBridgeModalOpen] = useState(false);
   const [isCollisionOptimizerOpen, setIsCollisionOptimizerOpen] = useState(false);
@@ -191,7 +189,6 @@ export function AppLayout({
   const [snapshotPreviewSession, setSnapshotPreviewSession] =
     useState<SnapshotPreviewSession | null>(null);
   const snapshotPreviewCaptureActionRef = useRef<SnapshotCaptureAction | null>(null);
-  const [isIkToolPanelOpen, setIsIkToolPanelOpen] = useState(false);
   const [shouldRenderBridgeModal, setShouldRenderBridgeModal] = useState(false);
   const [bridgePreview, setBridgePreview] = useState<BridgeJoint | null>(null);
   const clearSelection = useCallback(() => {
@@ -396,6 +393,16 @@ export function AppLayout({
   // through AppLayout forces the tree and property sidebars into high-frequency re-render.
   const previewContextRobot = robot;
   const isPreviewingWorkspaceSource = false;
+  const {
+    ikDragActive,
+    isIkToolPanelOpen,
+    handleIkDragActiveChange,
+    handleOpenIkTool,
+  } = useIkDragPanelActions({
+    selection,
+    setSelection,
+    setViewOption,
+  });
   const {
     ikToolSelectionState,
     ikLinkOptions,
@@ -693,35 +700,6 @@ export function AppLayout({
     setSnapshotPreviewSession,
   });
 
-  const handleSetIkDragActive = useCallback(
-    (active: boolean) => {
-      setIkDragActive(active);
-
-      if (active) {
-        setViewOption('showIkHandles', true);
-        return;
-      }
-
-      setViewOption('showIkHandles', false);
-      setIsIkToolPanelOpen(false);
-      const clearedSelection = clearIkDragHelperSelection(selection);
-      if (clearedSelection) {
-        setSelection(clearedSelection);
-      }
-    },
-    [selection, setSelection, setViewOption],
-  );
-
-  const handleOpenIkTool = useCallback(() => {
-    if (!isIkDragToolEnabled()) {
-      handleSetIkDragActive(false);
-      return;
-    }
-
-    handleSetIkDragActive(true);
-    setIsIkToolPanelOpen(true);
-  }, [handleSetIkDragActive]);
-
   const { items: toolboxItems, openTool } = useToolItems({
     t,
     openAIInspection: onOpenAIInspection,
@@ -746,44 +724,14 @@ export function AppLayout({
     [setViewConfig],
   );
 
-  const handleIkDragActiveChange = useCallback(
-    (active: boolean) => {
-      handleSetIkDragActive(active);
-    },
-    [handleSetIkDragActive],
-  );
-
-  const handleCaptureSnapshot = useCallback(
-    async (options: SnapshotCaptureOptions) => {
-      const resolvedCaptureAction = resolveSnapshotCaptureAction({
-        liveCaptureAction: snapshotActionRef.current,
-        frozenPreviewCaptureAction: snapshotPreviewCaptureActionRef.current,
-        preferFrozenPreviewCapture: Boolean(snapshotPreviewSession),
-      });
-
-      if (!resolvedCaptureAction) {
-        showToast(t.snapshotFailed, 'info');
-        return;
-      }
-
-      try {
-        setIsSnapshotCapturing(true);
-        await resolvedCaptureAction.action({
-          ...options,
-          cameraSnapshot:
-            resolvedCaptureAction.source === 'live'
-              ? (snapshotPreviewSession?.cameraSnapshot ?? null)
-              : null,
-        });
-      } catch (error) {
-        logRegressionError('Snapshot failed:', error);
-        showToast(t.snapshotFailed, 'info');
-      } finally {
-        setIsSnapshotCapturing(false);
-      }
-    },
-    [handleCloseSnapshotDialog, showToast, snapshotPreviewSession, t],
-  );
+  const handleCaptureSnapshot = useSnapshotCaptureRequest({
+    liveCaptureActionRef: snapshotActionRef,
+    frozenPreviewCaptureActionRef: snapshotPreviewCaptureActionRef,
+    snapshotPreviewSession,
+    setIsSnapshotCapturing,
+    showToast,
+    snapshotFailedMessage: t.snapshotFailed,
+  });
 
   const {
     isFileDragActive,
@@ -855,139 +803,192 @@ export function AppLayout({
 
   return (
     <AppLayoutView
-      importInputRef={importInputRef}
-      importFolderInputRef={importFolderInputRef}
-      onOpenExport={onOpenExport}
-      onExportProject={onExportProject}
-      onOpenSettings={onOpenSettings}
-      headerQuickAction={headerQuickAction}
-      headerSecondaryAction={headerSecondaryAction}
-      viewConfig={viewConfig}
-      setViewConfig={setViewConfig}
-      isCodeViewerOpen={isCodeViewerOpen}
-      setIsCodeViewerOpen={setIsCodeViewerOpen}
-      dragHandlers={{
-        onDragEnter: handleDragEnter,
-        onDragOver: handleDragOver,
-        onDragLeave: handleDragLeave,
-        onDrop: handleDrop,
+      drag={{
+        handlers: {
+          onDragEnter: handleDragEnter,
+          onDragOver: handleDragOver,
+          onDragLeave: handleDragLeave,
+          onDrop: handleDrop,
+        },
+        isFileDragActive,
+        t,
       }}
-      isFileDragActive={isFileDragActive}
-      t={t}
-      lang={lang}
-      theme={theme}
-      toolboxItems={toolboxItems}
-      handleOpenCodeViewer={handleOpenCodeViewer}
-      handlePrefetchCodeViewer={handlePrefetchCodeViewer}
-      handleSnapshot={handleSnapshot}
-      isIkToolPanelOpen={isIkToolPanelOpen}
-      ikLinkOptions={ikLinkOptions}
-      selectedIkLinkId={selectedIkLinkId}
-      selectedIkLinkLabel={selectedIkLinkLabel}
-      currentIkLinkLabel={currentIkLinkLabel}
-      ikToolSelectionStatus={ikToolSelectionState.status}
-      onSelectIkLink={selectIkLink}
-      onIkToolClose={() => handleIkDragActiveChange(false)}
-      workspaceLayoutClassNames={workspaceLayoutClassNames}
-      workspaceOverlaySafeAreaStyle={workspaceOverlaySafeAreaStyle}
-      workspaceOverlayGizmoMargin={workspaceOverlayGizmoMargin}
-      viewerRobot={viewerRobot}
-      editorRobot={robot}
-      mergedAppMode={mergedAppMode}
-      handleViewerSelectWithBridgePreview={handleViewerSelectWithBridgePreview}
-      handleViewerMeshSelectWithAssemblyClear={handleViewerMeshSelectWithAssemblyClear}
-      handleHover={handleHover}
-      handleUpdate={handleUpdate}
-      viewerAssets={viewerAssets}
-      allFileContents={allFileContents}
-      showVisual={showVisual}
-      handleSetShowVisual={handleSetShowVisual}
-      handleSetDetailOptionsPanelVisibility={handleSetDetailOptionsPanelVisibility}
-      snapshotActionRef={snapshotActionRef}
-      viewerCanvasStateRef={viewerCanvasStateRef}
-      availableFiles={availableFiles}
-      urdfContentForViewer={urdfContentForViewer}
-      viewerSourceFormat={viewerSourceFormat}
-      viewerSourceFilePath={viewerSourceFilePath}
-      viewerSourceFile={viewerSourceFile}
-      viewerDocumentLifecycleCallbacks={viewerDocumentLifecycleCallbacks}
-      jointAngleState={jointAngleState}
-      jointMotionState={jointMotionState}
-      handleJointChange={handleJointChange}
-      selection={selection}
-      focusTarget={focusTarget}
-      selectedFile={selectedFile}
-      handleWorkspaceTransformPendingChange={handleWorkspaceTransformPendingChange}
-      handleCollisionTransformPreview={handleCollisionTransformPreview}
-      handleCollisionTransform={handleCollisionTransform}
-      normalizedAssemblyState={normalizedAssemblyState}
-      shouldRenderAssembly={shouldRenderAssembly}
-      assemblySelection={assemblySelection}
-      sourceSceneAssemblyComponentId={sourceSceneAssemblyComponentId}
-      handleAssemblyTransform={handleAssemblyTransform}
-      handleComponentTransform={handleComponentTransform}
-      handleBridgeTransform={handleBridgeTransform}
-      ikDragActive={ikDragActive}
-      pendingViewerToolMode={pendingViewerToolMode}
-      setPendingViewerToolMode={setPendingViewerToolMode}
-      viewerReloadKey={viewerReloadKey}
-      documentLoadLifecycleState={documentLoadLifecycleState}
-      documentLoadState={documentLoadState}
-      importPreparationOverlay={importPreparationOverlay}
-      assemblyComponentPreparationOverlay={assemblyComponentPreparationOverlay}
-      previewContextRobot={previewContextRobot}
-      handleSelectWithAssemblyClear={handleSelectWithAssemblyClear}
-      handleSelectGeometryWithAssemblyClear={handleSelectGeometryWithAssemblyClear}
-      handleFocus={handleFocus}
-      handleAddChild={handleAddChild}
-      handleAddCollisionBody={handleAddCollisionBody}
-      handleDelete={handleDelete}
-      handleNameChange={handleNameChange}
-      leftSidebarCollapsed={sidebar.leftCollapsed}
-      rightSidebarCollapsed={sidebar.rightCollapsed}
-      onToggleLeftSidebar={() => toggleSidebar('left')}
-      onToggleRightSidebar={() => toggleSidebar('right')}
-      handlePreviewFileWithFeedback={handlePreviewFileWithFeedback}
-      handleRequestLoadRobot={handleRequestLoadRobot}
-      handleAddComponent={handleAddComponent}
-      handleDeleteLibraryFile={handleDeleteLibraryFile}
-      handleDeleteLibraryFolder={handleDeleteLibraryFolder}
-      handleRenameLibraryFolder={handleRenameLibraryFolder}
-      handleDeleteAllLibraryFiles={handleDeleteAllLibraryFiles}
-      handleExportLibraryFile={handleExportLibraryFile}
-      handleCreateBridge={handleCreateBridge}
-      removeComponent={removeComponent}
-      removeBridge={removeBridge}
-      handleRenameComponent={handleRenameComponent}
-      handleSwitchTreeEditorToProMode={handleSwitchTreeEditorToProMode}
-      handleRequestSwitchTreeEditorToStructure={handleRequestSwitchTreeEditorToStructure}
-      isPreviewingWorkspaceSource={isPreviewingWorkspaceSource}
-      handleJointPreview={handleJointPreview}
-      previewFile={previewFile}
-      previewRobot={previewRobot}
-      filePreview={filePreview}
-      handleClosePreview={handleClosePreview}
-      propertyEditorSelectionContext={propertyEditorSelectionContext}
-      handleUploadAsset={handleUploadAsset}
-      motorLibrary={motorLibrary}
-      sourceCodeEditorDocuments={sourceCodeEditorDocuments}
-      sourceCodeAutoApply={sourceCodeAutoApply}
-      isCollisionOptimizerOpen={isCollisionOptimizerOpen}
-      setIsCollisionOptimizerOpen={setIsCollisionOptimizerOpen}
-      collisionOptimizationSource={collisionOptimizationSource}
-      handlePreviewCollisionOptimizationTarget={handlePreviewCollisionOptimizationTarget}
-      handleApplyCollisionOptimization={handleApplyCollisionOptimization}
-      shouldRenderBridgeModal={shouldRenderBridgeModal}
-      isBridgeModalOpen={isBridgeModalOpen}
-      handleCloseBridgeModal={handleCloseBridgeModal}
-      handleCreateBridgeCommit={handleCreateBridgeCommit}
-      handleBridgePreviewChange={handleBridgePreviewChange}
-      isSnapshotDialogOpen={isSnapshotDialogOpen}
-      isSnapshotCapturing={isSnapshotCapturing}
-      snapshotPreviewSession={snapshotPreviewSession}
-      handleSnapshotPreviewCaptureActionChange={handleSnapshotPreviewCaptureActionChange}
-      handleCloseSnapshotDialog={handleCloseSnapshotDialog}
-      handleCaptureSnapshot={handleCaptureSnapshot}
+      importInputs={{
+        importInputRef,
+        importFolderInputRef,
+      }}
+      header={{
+        onOpenExport,
+        onExportProject,
+        onOpenSettings,
+        headerQuickAction,
+        headerSecondaryAction,
+        viewConfig,
+        setViewConfig,
+        toolboxItems,
+        handleOpenCodeViewer,
+        handlePrefetchCodeViewer,
+        handleSnapshot,
+      }}
+      ikPanel={{
+        isOpen: isIkToolPanelOpen,
+        t,
+        ikLinkOptions,
+        selectedIkLinkId,
+        selectedIkLinkLabel,
+        currentIkLinkLabel,
+        ikToolSelectionStatus: ikToolSelectionState.status,
+        onSelectIkLink: selectIkLink,
+        onClose: () => handleIkDragActiveChange(false),
+      }}
+      workspaceChrome={{
+        classNames: workspaceLayoutClassNames,
+        overlaySafeAreaStyle: workspaceOverlaySafeAreaStyle,
+        overlayGizmoMargin: workspaceOverlayGizmoMargin,
+      }}
+      viewer={{
+        viewerRobot,
+        editorRobot: robot,
+        mergedAppMode,
+        handleViewerSelectWithBridgePreview,
+        handleViewerMeshSelectWithAssemblyClear,
+        handleHover,
+        handleUpdate,
+        viewerAssets,
+        allFileContents,
+        showVisual,
+        handleSetShowVisual,
+        handleSetDetailOptionsPanelVisibility,
+        snapshotActionRef,
+        viewerCanvasStateRef,
+        availableFiles,
+        urdfContentForViewer,
+        viewerSourceFormat,
+        viewerSourceFilePath,
+        viewerSourceFile,
+        viewerDocumentLifecycleCallbacks,
+        jointAngleState,
+        jointMotionState,
+        handleJointChange,
+        selection,
+        focusTarget,
+        selectedFile,
+        handleWorkspaceTransformPendingChange,
+        handleCollisionTransformPreview,
+        handleCollisionTransform,
+        normalizedAssemblyState,
+        shouldRenderAssembly,
+        assemblySelection,
+        sourceSceneAssemblyComponentId,
+        handleAssemblyTransform,
+        handleComponentTransform,
+        handleBridgeTransform,
+        ikDragActive,
+        pendingViewerToolMode,
+        setPendingViewerToolMode,
+        viewerReloadKey,
+        documentLoadLifecycleState,
+        documentLoadState,
+        importPreparationOverlay,
+        lang,
+        theme,
+        viewConfig,
+      }}
+      sidebars={{
+        previewContextRobot,
+        handleSelectWithAssemblyClear,
+        handleSelectGeometryWithAssemblyClear,
+        handleFocus,
+        handleAddChild,
+        handleAddCollisionBody,
+        handleDelete,
+        handleNameChange,
+        handleUpdate,
+        showVisual,
+        handleSetShowVisual,
+        mergedAppMode,
+        lang,
+        theme,
+        leftSidebarCollapsed: sidebar.leftCollapsed,
+        rightSidebarCollapsed: sidebar.rightCollapsed,
+        onToggleLeftSidebar: () => toggleSidebar('left'),
+        onToggleRightSidebar: () => toggleSidebar('right'),
+        availableFiles,
+        handlePreviewFileWithFeedback,
+        handleRequestLoadRobot,
+        selectedFile,
+        viewerSourceFilePath,
+        normalizedAssemblyState,
+        handleAddComponent,
+        handleDeleteLibraryFile,
+        handleDeleteLibraryFolder,
+        handleRenameLibraryFolder,
+        handleDeleteAllLibraryFiles,
+        handleExportLibraryFile,
+        handleCreateBridge,
+        removeComponent,
+        removeBridge,
+        handleRenameComponent,
+        handleSwitchTreeEditorToProMode,
+        handleRequestSwitchTreeEditorToStructure,
+        isPreviewingWorkspaceSource,
+        viewConfig,
+        setViewConfig,
+        handleJointPreview,
+        handleJointChange,
+        previewFile,
+        previewRobot,
+        filePreview,
+        viewerAssets,
+        allFileContents,
+        documentLoadState,
+        handleClosePreview,
+        propertyEditorSelectionContext,
+        handleHover,
+        handleUploadAsset,
+        motorLibrary,
+        t,
+      }}
+      snapshot={{
+        isOpen: isSnapshotDialogOpen,
+        isCapturing: isSnapshotCapturing,
+        lang,
+        previewSession: snapshotPreviewSession,
+        onPreviewCaptureActionChange: handleSnapshotPreviewCaptureActionChange,
+        onClose: handleCloseSnapshotDialog,
+        onCapture: handleCaptureSnapshot,
+        loadingLabel: t.loadingPanel,
+      }}
+      assemblyPreparation={{
+        overlay: assemblyComponentPreparationOverlay,
+      }}
+      overlays={{
+        isCodeViewerOpen,
+        sourceCodeEditorDocuments,
+        sourceCodeAutoApply,
+        setIsCodeViewerOpen,
+        theme,
+        lang,
+        labels: {
+          loadingEditor: t.loadingEditor,
+          loadingOptimizer: t.loadingOptimizer,
+          loadingBridgeDialog: t.loadingBridgeDialog,
+        },
+        isCollisionOptimizerOpen,
+        setIsCollisionOptimizerOpen,
+        collisionOptimizationSource,
+        viewerAssets,
+        viewerSourceFilePath,
+        selection,
+        handlePreviewCollisionOptimizationTarget,
+        handleApplyCollisionOptimization,
+        normalizedAssemblyState,
+        shouldRenderBridgeModal,
+        isBridgeModalOpen,
+        handleCloseBridgeModal,
+        handleCreateBridgeCommit,
+        handleBridgePreviewChange,
+      }}
     />
   );
 }

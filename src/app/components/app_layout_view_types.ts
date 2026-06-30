@@ -10,6 +10,7 @@ import type { WorkspaceSidebars } from './workspace/WorkspaceSidebars';
 import type { WorkspaceViewerLayer } from './workspace/WorkspaceViewerLayer';
 import type { SnapshotPreviewSession } from './snapshot-preview/types';
 import type { AppLayoutProps } from '../appLayoutTypes';
+import type { PropertyEditorSelectionContext } from '../utils/propertyEditorSelectionContext';
 import type { ToolMode } from '@/features/editor';
 import type {
   SnapshotCaptureAction,
@@ -36,11 +37,6 @@ interface WorkspaceLayoutClassNames {
   rightSidebarLayer: string;
 }
 
-interface PropertyEditorSelectionContextView {
-  robot: PropertyEditorProps['robot'];
-  selectedClosedLoopBridge: unknown;
-}
-
 interface AppLayoutDragHandlers {
   onDragEnter: React.DragEventHandler<HTMLDivElement>;
   onDragOver: React.DragEventHandler<HTMLDivElement>;
@@ -48,9 +44,18 @@ interface AppLayoutDragHandlers {
   onDrop: React.DragEventHandler<HTMLDivElement>;
 }
 
-export interface AppLayoutViewProps {
+export interface AppLayoutDragProps {
+  handlers: AppLayoutDragHandlers;
+  isFileDragActive: boolean;
+  t: TranslationKeys;
+}
+
+export interface AppLayoutImportInputProps {
   importInputRef: AppLayoutProps['importInputRef'];
   importFolderInputRef: AppLayoutProps['importFolderInputRef'];
+}
+
+export interface AppLayoutHeaderSectionProps {
   onOpenExport: AppLayoutProps['onOpenExport'];
   onExportProject: AppLayoutProps['onExportProject'];
   onOpenSettings: AppLayoutProps['onOpenSettings'];
@@ -58,28 +63,31 @@ export interface AppLayoutViewProps {
   headerSecondaryAction: AppLayoutProps['headerSecondaryAction'];
   viewConfig: AppLayoutProps['viewConfig'];
   setViewConfig: AppLayoutProps['setViewConfig'];
-  isCodeViewerOpen: boolean;
-  setIsCodeViewerOpen: AppLayoutProps['setIsCodeViewerOpen'];
-  dragHandlers: AppLayoutDragHandlers;
-  isFileDragActive: boolean;
-  t: TranslationKeys;
-  lang: Language;
-  theme: ViewerProps['theme'];
   toolboxItems: HeaderProps['toolboxItems'];
   handleOpenCodeViewer: HeaderProps['onOpenCodeViewer'];
   handlePrefetchCodeViewer: HeaderProps['onPrefetchCodeViewer'];
   handleSnapshot: HeaderProps['onSnapshot'];
-  isIkToolPanelOpen: boolean;
+}
+
+export interface AppLayoutIkPanelProps {
+  isOpen: boolean;
+  t: TranslationKeys;
   ikLinkOptions: IkToolPanelProps['linkOptions'];
   selectedIkLinkId: IkToolPanelProps['selectedLinkId'];
   selectedIkLinkLabel: IkToolPanelProps['selectedLinkLabel'];
   currentIkLinkLabel: IkToolPanelProps['currentLinkLabel'];
   ikToolSelectionStatus: IkToolPanelProps['selectionStatus'];
   onSelectIkLink: IkToolPanelProps['onSelectLink'];
-  onIkToolClose: () => void;
-  workspaceLayoutClassNames: WorkspaceLayoutClassNames;
-  workspaceOverlaySafeAreaStyle: CSSProperties | undefined;
-  workspaceOverlayGizmoMargin: ViewerProps['gizmoMargin'];
+  onClose: () => void;
+}
+
+export interface AppLayoutWorkspaceChromeProps {
+  classNames: WorkspaceLayoutClassNames;
+  overlaySafeAreaStyle: CSSProperties | undefined;
+  overlayGizmoMargin: ViewerProps['gizmoMargin'];
+}
+
+export interface AppLayoutViewerSectionProps {
   viewerRobot: ViewerProps['robot'];
   editorRobot: ViewerProps['editorRobot'];
   mergedAppMode: ViewerProps['mode'];
@@ -126,7 +134,12 @@ export interface AppLayoutViewProps {
   documentLoadLifecycleState: ViewerProps['documentLoadState'];
   documentLoadState: FilePreviewWindowProps['documentLoadState'];
   importPreparationOverlay: WorkspaceViewerLayerProps['importPreparationOverlay'];
-  assemblyComponentPreparationOverlay: ImportPreparationOverlayProps | null;
+  lang: Language;
+  theme: ViewerProps['theme'];
+  viewConfig: AppLayoutProps['viewConfig'];
+}
+
+export interface AppLayoutSidebarsProps {
   previewContextRobot: TreeEditorProps['robot'];
   handleSelectWithAssemblyClear: TreeEditorProps['onSelect'] & PropertyEditorProps['onSelect'];
   handleSelectGeometryWithAssemblyClear: TreeEditorProps['onSelectGeometry'] &
@@ -136,12 +149,22 @@ export interface AppLayoutViewProps {
   handleAddCollisionBody: TreeEditorProps['onAddCollisionBody'];
   handleDelete: TreeEditorProps['onDelete'];
   handleNameChange: TreeEditorProps['onNameChange'];
+  handleUpdate: ViewerProps['onUpdate'] & TreeEditorProps['onUpdate'] & PropertyEditorProps['onUpdate'];
+  showVisual: TreeEditorProps['showVisual'];
+  handleSetShowVisual: TreeEditorProps['setShowVisual'];
+  mergedAppMode: ViewerProps['mode'];
+  lang: Language;
+  theme: ViewerProps['theme'];
   leftSidebarCollapsed: boolean;
   rightSidebarCollapsed: boolean;
   onToggleLeftSidebar: () => void;
   onToggleRightSidebar: () => void;
+  availableFiles: ViewerProps['availableFiles'];
   handlePreviewFileWithFeedback: TreeEditorProps['onLoadRobot'];
   handleRequestLoadRobot: TreeEditorProps['onRequestLoadRobot'];
+  selectedFile: RobotFile | null;
+  viewerSourceFilePath: ViewerProps['sourceFilePath'];
+  normalizedAssemblyState: AppLayoutOverlaysProps['assemblyState'];
   handleAddComponent: TreeEditorProps['onAddComponent'];
   handleDeleteLibraryFile: TreeEditorProps['onDeleteLibraryFile'];
   handleDeleteLibraryFolder: TreeEditorProps['onDeleteLibraryFolder'];
@@ -155,30 +178,76 @@ export interface AppLayoutViewProps {
   handleSwitchTreeEditorToProMode: TreeEditorProps['onSwitchToProMode'];
   handleRequestSwitchTreeEditorToStructure: TreeEditorProps['onRequestSwitchToStructure'];
   isPreviewingWorkspaceSource: boolean;
+  viewConfig: AppLayoutProps['viewConfig'];
+  setViewConfig: AppLayoutProps['setViewConfig'];
   handleJointPreview: TreeEditorProps['onJointAnglePreview'];
+  handleJointChange: ViewerProps['onJointChange'];
   previewFile: FilePreviewWindowProps['file'];
   previewRobot: FilePreviewWindowProps['previewRobot'];
   filePreview: FilePreviewWindowProps['previewState'];
+  viewerAssets: ViewerProps['assets'];
+  allFileContents: ViewerProps['allFileContents'];
+  documentLoadState: FilePreviewWindowProps['documentLoadState'];
   handleClosePreview: FilePreviewWindowProps['onClose'];
-  propertyEditorSelectionContext: PropertyEditorSelectionContextView;
+  propertyEditorSelectionContext: PropertyEditorSelectionContext;
+  handleHover: ViewerProps['onHover'] & PropertyEditorProps['onHover'];
   handleUploadAsset: PropertyEditorProps['onUploadAsset'];
   motorLibrary: PropertyEditorProps['motorLibrary'];
+  t: TranslationKeys;
+}
+
+export interface AppLayoutSnapshotSectionProps {
+  isOpen: boolean;
+  isCapturing: boolean;
+  lang: Language;
+  previewSession: SnapshotPreviewSession | null;
+  onPreviewCaptureActionChange: (action: SnapshotCaptureAction | null) => void;
+  onClose: () => void;
+  onCapture: (options: SnapshotCaptureOptions) => Promise<void>;
+  loadingLabel: string;
+}
+
+export interface AppLayoutAssemblyPreparationProps {
+  overlay: ImportPreparationOverlayProps | null;
+}
+
+export interface AppLayoutOverlaysSectionProps {
+  isCodeViewerOpen: boolean;
   sourceCodeEditorDocuments: AppLayoutOverlaysProps['sourceCodeDocuments'];
   sourceCodeAutoApply: AppLayoutOverlaysProps['autoApplyEnabled'];
+  setIsCodeViewerOpen: AppLayoutProps['setIsCodeViewerOpen'];
+  theme: ViewerProps['theme'];
+  lang: Language;
+  labels: {
+    loadingEditor: string;
+    loadingOptimizer: string;
+    loadingBridgeDialog: string;
+  };
   isCollisionOptimizerOpen: boolean;
   setIsCollisionOptimizerOpen: React.Dispatch<React.SetStateAction<boolean>>;
   collisionOptimizationSource: AppLayoutOverlaysProps['collisionOptimizationSource'];
+  viewerAssets: ViewerProps['assets'];
+  viewerSourceFilePath: ViewerProps['sourceFilePath'];
+  selection: AppLayoutOverlaysProps['selection'];
   handlePreviewCollisionOptimizationTarget: AppLayoutOverlaysProps['onSelectCollisionTarget'];
   handleApplyCollisionOptimization: AppLayoutOverlaysProps['onApplyCollisionOptimization'];
+  normalizedAssemblyState: AppLayoutOverlaysProps['assemblyState'];
   shouldRenderBridgeModal: AppLayoutOverlaysProps['shouldRenderBridgeModal'];
   isBridgeModalOpen: AppLayoutOverlaysProps['isBridgeModalOpen'];
   handleCloseBridgeModal: AppLayoutOverlaysProps['onCloseBridgeModal'];
   handleCreateBridgeCommit: AppLayoutOverlaysProps['onCreateBridge'];
   handleBridgePreviewChange: AppLayoutOverlaysProps['onPreviewBridgeChange'];
-  isSnapshotDialogOpen: boolean;
-  isSnapshotCapturing: boolean;
-  snapshotPreviewSession: SnapshotPreviewSession | null;
-  handleSnapshotPreviewCaptureActionChange: (action: SnapshotCaptureAction | null) => void;
-  handleCloseSnapshotDialog: () => void;
-  handleCaptureSnapshot: (options: SnapshotCaptureOptions) => Promise<void>;
+}
+
+export interface AppLayoutViewProps {
+  drag: AppLayoutDragProps;
+  importInputs: AppLayoutImportInputProps;
+  header: AppLayoutHeaderSectionProps;
+  ikPanel: AppLayoutIkPanelProps;
+  workspaceChrome: AppLayoutWorkspaceChromeProps;
+  viewer: AppLayoutViewerSectionProps;
+  sidebars: AppLayoutSidebarsProps;
+  snapshot: AppLayoutSnapshotSectionProps;
+  assemblyPreparation: AppLayoutAssemblyPreparationProps;
+  overlays: AppLayoutOverlaysSectionProps;
 }
