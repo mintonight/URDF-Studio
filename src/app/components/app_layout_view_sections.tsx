@@ -51,6 +51,13 @@ export function AppLayoutViewContent(props: AppLayoutViewContentProps) {
       <SnapshotDialogSection snapshot={props.snapshot} />
       <AssemblyPreparationOverlaySection assemblyPreparation={props.assemblyPreparation} />
       <AppLayoutOverlaysSection overlays={props.overlays} />
+
+      {/* Narrow-screen dock for the 3D viewer toolbar (phones, <640px).
+          The ViewerToolbar portals a touch-friendly copy here; hidden on sm+. */}
+      <div
+        id="viewer-toolbar-bottom-dock"
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-30 sm:hidden"
+      />
     </div>
   );
 }

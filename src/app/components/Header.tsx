@@ -110,7 +110,7 @@ export function Header({
     >
       {/* Left Section - Logo & Menus */}
       <div className="flex items-center gap-1 min-w-0">
-        <div className="mr-1 flex shrink-0 items-center gap-2 border-r border-border-black pr-2.5">
+        <div className="mr-1 hidden shrink-0 items-center gap-2 border-r border-border-black pr-2.5 min-[400px]:flex">
           <img
             src="/logos/logo.png"
             alt="Logo"
@@ -146,7 +146,7 @@ export function Header({
 
       <div
         id="viewer-toolbar-dock-slot"
-        className="pointer-events-none flex h-full min-w-0 items-center justify-center justify-self-center px-2 sm:px-3"
+        className="pointer-events-none hidden h-full min-w-0 items-center justify-center justify-self-center px-2 sm:flex sm:px-3"
       />
 
       <HeaderActions
