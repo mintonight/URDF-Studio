@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { clearPreparedUsdStageOpenCache } from '@/features/editor/usd_prewarm';
 import type { TranslationKeys } from '@/shared/i18n';
 import { isLibraryRobotExportableFormat } from '@/shared/utils';
 import type { RenameRobotFolderResult } from '@/store/assetsStore';
@@ -79,6 +80,9 @@ export function useLibraryFileActions({
         : [];
 
       removeRobotFile(file.name);
+      if (file.format === 'usd') {
+        clearPreparedUsdStageOpenCache();
+      }
       relatedComponentIds.forEach((componentId) => removeComponent(componentId));
       if (isCurrentModel) {
         clearLoadedModel();
@@ -111,8 +115,14 @@ export function useLibraryFileActions({
             .filter((component) => isPathInFolder(component.sourceFile, normalizedFolder))
             .map((component) => component.id)
         : [];
+      const removedFiles = availableFiles.filter((file) =>
+        isPathInFolder(file.name, normalizedFolder),
+      );
 
       removeRobotFolder(normalizedFolder);
+      if (removedFiles.some((file) => file.format === 'usd')) {
+        clearPreparedUsdStageOpenCache();
+      }
       relatedComponentIds.forEach((componentId) => removeComponent(componentId));
       if (isCurrentModel) {
         clearLoadedModel();
@@ -122,6 +132,7 @@ export function useLibraryFileActions({
     },
     [
       assemblyState,
+      availableFiles,
       clearLoadedModel,
       isPathInFolder,
       removeComponent,
@@ -189,6 +200,9 @@ export function useLibraryFileActions({
     }
 
     clearRobotLibrary();
+    if (availableFiles.some((file) => file.format === 'usd')) {
+      clearPreparedUsdStageOpenCache();
+    }
 
     showToast(
       t.deletedAllLibraryFiles.replace('{count}', String(availableFiles.length)),

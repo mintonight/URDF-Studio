@@ -2104,6 +2104,11 @@ test('GeometryEditor forwards sourceFilePath to mesh analysis worker requests', 
       workerRequest.tasks[0]?.sourceFilePath,
       'unitree_model/B2/usd/b2.viewer_roundtrip.usd',
     );
+
+    emitMeshAnalysisResult(fakeWorker);
+    await act(async () => {
+      await Promise.resolve();
+    });
   } finally {
     Object.defineProperty(globalThis, 'Worker', {
       configurable: true,

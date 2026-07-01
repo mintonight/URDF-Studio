@@ -16,11 +16,13 @@ interface WorkerLike {
 interface PendingWorkerRequest {
   resolve: (value: ImportResult) => void;
   reject: (error: unknown) => void;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 interface CreateProjectImportWorkerClientOptions {
   canUseWorker?: () => boolean;
   createWorker?: () => WorkerLike;
+  requestTimeoutMs?: number;
 }
 
 interface ProjectImportWorkerClient {
@@ -36,12 +38,22 @@ function createWorkerError(event: ErrorEvent | { error?: unknown; message?: stri
   return new Error(event.message || 'Project import worker failed');
 }
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+
+function createWorkerTimeoutError(requestId: number, timeoutMs: number): Error {
+  return new Error(
+    'Project import worker did not respond within the timeout '
+      + `(likely a worker crash). Request id: ${requestId}. Timeout: ${timeoutMs} ms.`,
+  );
+}
+
 export function createProjectImportWorkerClient({
   canUseWorker = () => typeof Worker !== 'undefined',
   createWorker = () =>
     new Worker(new URL('../workers/projectImport.worker.ts', import.meta.url), {
       type: 'module',
     }),
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
 }: CreateProjectImportWorkerClientOptions = {}): ProjectImportWorkerClient {
   const pendingRequests = new Map<number, PendingWorkerRequest>();
   let requestIdCounter = 0;
@@ -55,23 +67,40 @@ export function createProjectImportWorkerClient({
     }
 
     pendingRequests.delete(requestId);
+    if (pendingRequest.timeoutId !== undefined) {
+      clearTimeout(pendingRequest.timeoutId);
+      pendingRequest.timeoutId = undefined;
+    }
     return pendingRequest;
   };
 
   const disposeSharedWorker = (rejectPendingWith?: unknown): void => {
+    const rejectionReason = rejectPendingWith ?? new Error('Project import worker disposed');
+
     if (sharedWorker) {
       sharedWorker.removeEventListener('message', handleSharedWorkerMessage as EventListener);
       sharedWorker.removeEventListener('error', handleSharedWorkerError as EventListener);
+      sharedWorker.removeEventListener('messageerror', handleSharedWorkerMessageError as EventListener);
       sharedWorker.terminate();
       sharedWorker = null;
     }
 
-    if (rejectPendingWith !== undefined) {
-      pendingRequests.forEach((request, requestId) => {
+    if (pendingRequests.size > 0) {
+      Array.from(pendingRequests.entries()).forEach(([requestId, request]) => {
         clearPendingRequest(requestId);
-        request.reject(rejectPendingWith);
+        request.reject(rejectionReason);
       });
     }
+  };
+
+  const registerRequestTimeout = (requestId: number, request: PendingWorkerRequest): void => {
+    if (!requestTimeoutMs || !Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0) {
+      return;
+    }
+
+    request.timeoutId = setTimeout(() => {
+      disposeSharedWorker(createWorkerTimeoutError(requestId, requestTimeoutMs));
+    }, requestTimeoutMs);
   };
 
   const handleSharedWorkerMessage = (event: MessageEvent<ProjectImportWorkerResponse>): void => {
@@ -102,18 +131,25 @@ export function createProjectImportWorkerClient({
     disposeSharedWorker(createWorkerError(event));
   };
 
+  const handleSharedWorkerMessageError = (): void => {
+    workerUnavailable = true;
+    disposeSharedWorker(new Error('Project import worker message transfer failed'));
+  };
+
   const ensureSharedWorker = (): WorkerLike => {
     if (!sharedWorker) {
+      workerUnavailable = false;
       sharedWorker = createWorker();
       sharedWorker.addEventListener('message', handleSharedWorkerMessage as EventListener);
       sharedWorker.addEventListener('error', handleSharedWorkerError as EventListener);
+      sharedWorker.addEventListener('messageerror', handleSharedWorkerMessageError as EventListener);
     }
 
     return sharedWorker;
   };
 
   const importProjectArchive = async (file: File, lang: Language = 'en'): Promise<ImportResult> => {
-    if (workerUnavailable) {
+    if (workerUnavailable && sharedWorker) {
       throw new Error('Project import worker is unavailable');
     }
 
@@ -140,10 +176,12 @@ export function createProjectImportWorkerClient({
         lang,
       };
 
-      pendingRequests.set(requestId, {
+      const pendingRequest: PendingWorkerRequest = {
         resolve: resolveRequest,
         reject: rejectRequest,
-      });
+      };
+      pendingRequests.set(requestId, pendingRequest);
+      registerRequestTimeout(requestId, pendingRequest);
 
       try {
         worker.postMessage(request);

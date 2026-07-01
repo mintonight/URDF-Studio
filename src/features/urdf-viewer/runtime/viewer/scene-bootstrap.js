@@ -213,7 +213,18 @@ export async function initializeViewerScene(options) {
             scene.environment = null;
         }
         renderer.domElement.remove();
-        renderer.dispose();
+        try {
+            renderer.renderLists?.dispose?.();
+        }
+        catch { }
+        try {
+            renderer.dispose();
+        }
+        catch { }
+        try {
+            renderer.forceContextLoss?.();
+        }
+        catch { }
     };
 }
 export function resizeViewerScene() {

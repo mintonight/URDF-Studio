@@ -77,6 +77,7 @@ export function createUsdOffscreenViewerWorkerClient({
         new Error(message.error || 'USD offscreen viewer worker reported a fatal error.'),
         'warn',
       );
+      shutdownSharedWorker();
     }
   };
   const handleSharedWorkerError: EventListener = (event): void => {
@@ -95,6 +96,37 @@ export function createUsdOffscreenViewerWorkerClient({
     );
   };
 
+  const clearSyncedContextCache = (): void => {
+    syncedContextKeys.clear();
+    syncedContextKeyOrder.splice(0, syncedContextKeyOrder.length);
+  };
+
+  const shutdownSharedWorker = (): void => {
+    if (!sharedWorker) {
+      return;
+    }
+
+    sharedWorker.removeEventListener('message', handleSharedWorkerMessage);
+    sharedWorker.removeEventListener('error', handleSharedWorkerError);
+    sharedWorker.removeEventListener('messageerror', handleSharedWorkerError);
+
+    try {
+      sharedWorker.postMessage({ type: 'dispose' });
+    } catch (error) {
+      logRuntimeFailure(
+        'disposeUsdOffscreenViewerWorker',
+        error instanceof Error
+          ? error
+          : new Error('Failed to dispose the shared USD offscreen viewer worker.'),
+        'warn',
+      );
+    }
+
+    sharedWorker.terminate();
+    sharedWorker = null;
+    clearSyncedContextCache();
+  };
+
   const getWorker = (): WorkerLike => {
     const runtimeEnvironmentError = resolveRuntimeEnvironmentError();
     if (runtimeEnvironmentError) {
@@ -106,8 +138,7 @@ export function createUsdOffscreenViewerWorkerClient({
     }
 
     if (!sharedWorker) {
-      syncedContextKeys.clear();
-      syncedContextKeyOrder.splice(0, syncedContextKeyOrder.length);
+      clearSyncedContextCache();
       sharedWorker = createWorker();
       sharedWorker.addEventListener('message', handleSharedWorkerMessage);
       sharedWorker.addEventListener('error', handleSharedWorkerError);
@@ -221,30 +252,7 @@ export function createUsdOffscreenViewerWorkerClient({
       }
     },
     shutdown: () => {
-      if (!sharedWorker) {
-        return;
-      }
-
-      sharedWorker.removeEventListener('message', handleSharedWorkerMessage);
-      sharedWorker.removeEventListener('error', handleSharedWorkerError);
-      sharedWorker.removeEventListener('messageerror', handleSharedWorkerError);
-
-      try {
-        sharedWorker.postMessage({ type: 'dispose' });
-      } catch (error) {
-        logRuntimeFailure(
-          'disposeUsdOffscreenViewerWorker',
-          error instanceof Error
-            ? error
-            : new Error('Failed to dispose the shared USD offscreen viewer worker.'),
-          'warn',
-        );
-      }
-
-      sharedWorker.terminate();
-      sharedWorker = null;
-      syncedContextKeys.clear();
-      syncedContextKeyOrder.splice(0, syncedContextKeyOrder.length);
+      shutdownSharedWorker();
     },
   };
 }

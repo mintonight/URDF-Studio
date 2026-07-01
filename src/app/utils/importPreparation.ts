@@ -50,6 +50,7 @@ import {
   determineCriticalDeferredAssetNames,
   collectRobotAssetPaths,
 } from './import-preparation/criticalDeferredAssets.ts';
+import { assertDeferredImportAssetsWithinLimits, assertImportEntriesWithinLimits, assertLooseImportFilesWithinLimits } from './import-preparation/import_limits.ts';
 import {
   createVisibleImportedAssetFile,
   isAuxiliaryTextImportPath,
@@ -224,14 +225,9 @@ const MAX_EAGER_TEXT_MESH_ASSET_BYTES = 8 * 1024 * 1024;
 
 export { detectImportFormat };
 
-function shouldSkipImportPath(path: string): boolean {
-  const pathParts = path.split('/');
-  return pathParts.some((part) => part.startsWith('.'));
-}
+function shouldSkipImportPath(path: string): boolean { return path.split('/').some((part) => part.startsWith('.')); }
 
-function resolveImportInputFile(input: ImportPreparationFileInput): File {
-  return input instanceof File ? input : input.file;
-}
+function resolveImportInputFile(input: ImportPreparationFileInput): File { return input instanceof File ? input : input.file; }
 
 function resolveImportInputPath(input: ImportPreparationFileInput): string {
   if (!(input instanceof File) && input.relativePath) {
@@ -1183,6 +1179,7 @@ async function collectImportPayloadFromArchiveSession(
   const processableEntries = archiveSession.entries.filter(
     (entry) => !shouldSkipImportPath(entry.path),
   );
+  assertImportEntriesWithinLimits(processableEntries, 'Archive import');
   const auxiliaryTextEntries: ArchiveImportEntry[] = [];
   const mirroredTextMeshAssetEntries: ArchiveImportEntry[] = [];
   const usdEntries: ArchiveImportEntry[] = [];
@@ -1409,6 +1406,7 @@ async function hydrateDeferredImportAssetsFromArchiveSession(
     return [];
   }
 
+  assertDeferredImportAssetsWithinLimits(archiveSession.entries, assetFiles);
   const assetFileLookup = new Map(assetFiles.map((file) => [file.sourcePath, file] as const));
   const extractedAssetFiles = await archiveSession.extractEntries(
     assetFiles.map((file) => file.sourcePath),
@@ -1481,6 +1479,7 @@ async function collectImportPayloadFromLooseFiles(
   const candidateFiles = files.filter((input) =>
     isRobotImportCandidatePath(resolveImportInputPath(input)),
   );
+  assertLooseImportFilesWithinLimits(candidateFiles);
   const totalEntries = candidateFiles.length;
   const totalBytes = candidateFiles.reduce(
     (sum, input) => sum + resolveImportInputFile(input).size,

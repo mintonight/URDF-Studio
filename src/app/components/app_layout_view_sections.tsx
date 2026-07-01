@@ -96,6 +96,7 @@ function AppLayoutHeaderSection({
       onImportFolder={() => importInputs.importFolderInputRef.current?.click()}
       onOpenExport={header.onOpenExport}
       onExportProject={header.onExportProject}
+      isExportingProject={header.isExportingProject}
       toolboxItems={header.toolboxItems}
       onOpenCodeViewer={header.handleOpenCodeViewer}
       onPrefetchCodeViewer={header.handlePrefetchCodeViewer}

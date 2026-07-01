@@ -25,6 +25,8 @@ class FakeHydrationWorker {
     transfer?: Transferable[];
   }> = [];
 
+  public postMessageError: Error | null = null;
+
   addEventListener(type: string, handler: WorkerEventHandler): void {
     const handlers = this.listeners.get(type) ?? new Set<WorkerEventHandler>();
     handlers.add(handler);
@@ -36,6 +38,9 @@ class FakeHydrationWorker {
   }
 
   postMessage(message: UsdOffscreenViewerWorkerRequest, transfer?: Transferable[]): void {
+    if (this.postMessageError) {
+      throw this.postMessageError;
+    }
     this.postedMessages.push({ message, transfer });
   }
 
@@ -622,5 +627,44 @@ test('startUsdRobotStateHydration complete mode waits for worker cache and scene
   assert.equal(result.bakedScene, sceneSnapshot);
   assert.equal(result.sceneSnapshot, sceneSnapshot);
   assert.deepEqual(deferredSnapshots, [sceneSnapshot]);
+  assert.equal(client.shutdownCalls, 1);
+});
+
+test('startUsdRobotStateHydration rejects and cleans up when the worker stays silent', async () => {
+  const worker = new FakeHydrationWorker();
+  const client = createFakeHydrationClient(worker);
+
+  const hydration = startUsdRobotStateHydration({
+    sourceFile,
+    availableFiles,
+    assets: {},
+    createCanvas: fakeCanvas,
+    workerClient: client,
+    hydrationTimeoutMs: 10,
+  });
+
+  await assert.rejects(hydration.promise, /did not respond within 10 ms/i);
+  assert.equal(worker.listenerCount('message'), 0);
+  assert.equal(client.shutdownCalls, 1);
+});
+
+test('startUsdRobotStateHydration rejects init transfer failures without committing context', async () => {
+  const worker = new FakeHydrationWorker();
+  const client = createFakeHydrationClient(worker);
+  worker.postMessageError = new Error('cannot transfer offscreen canvas');
+
+  const hydration = startUsdRobotStateHydration({
+    sourceFile,
+    availableFiles,
+    assets: {},
+    createCanvas: fakeCanvas,
+    workerClient: client,
+    hydrationTimeoutMs: 10,
+  });
+
+  await assert.rejects(hydration.promise, /cannot transfer offscreen canvas/i);
+  assert.equal(worker.postedMessages.length, 0);
+  assert.equal(client.commitCalls, 0);
+  assert.equal(worker.listenerCount('message'), 0);
   assert.equal(client.shutdownCalls, 1);
 });

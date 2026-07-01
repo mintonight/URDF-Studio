@@ -18,11 +18,13 @@ interface PendingWorkerRequest {
   resolve: (value: PrepareExportArchiveAssetsResult) => void;
   reject: (error: unknown) => void;
   onProgress?: (progress: PrepareExportArchiveAssetsProgress) => void;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 interface CreateExportArchiveAssetsWorkerClientOptions {
   canUseWorker?: () => boolean;
   createWorker?: () => WorkerLike;
+  requestTimeoutMs?: number;
 }
 
 export interface ExportArchiveAssetsWorkerClient {
@@ -36,6 +38,15 @@ function createWorkerError(event: ErrorEvent | { error?: unknown; message?: stri
   }
 
   return new Error(event.message || 'Export archive assets worker failed');
+}
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+
+function createWorkerTimeoutError(requestId: number, timeoutMs: number): Error {
+  return new Error(
+    'Export archive assets worker did not respond within the timeout '
+      + `(likely a worker crash). Request id: ${requestId}. Timeout: ${timeoutMs} ms.`,
+  );
 }
 
 function serializePrepareExportArchiveAssetsArgsForWorker(
@@ -60,6 +71,7 @@ export function createExportArchiveAssetsWorkerClient(
       new URL('../workers/exportArchiveAssets.worker.ts', import.meta.url),
       { type: 'module' },
     ),
+    requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   }: CreateExportArchiveAssetsWorkerClientOptions = {},
 ): ExportArchiveAssetsWorkerClient {
   const pendingRequests = new Map<number, PendingWorkerRequest>();
@@ -74,10 +86,16 @@ export function createExportArchiveAssetsWorkerClient(
     }
 
     pendingRequests.delete(requestId);
+    if (pendingRequest.timeoutId !== undefined) {
+      clearTimeout(pendingRequest.timeoutId);
+      pendingRequest.timeoutId = undefined;
+    }
     return pendingRequest;
   };
 
   const disposeSharedWorker = (rejectPendingWith?: unknown): void => {
+    const rejectionReason = rejectPendingWith ?? new Error('Export archive assets worker disposed');
+
     if (sharedWorker) {
       sharedWorker.removeEventListener('message', handleSharedWorkerMessage as EventListener);
       sharedWorker.removeEventListener('error', handleSharedWorkerError as EventListener);
@@ -86,12 +104,23 @@ export function createExportArchiveAssetsWorkerClient(
       sharedWorker = null;
     }
 
-    if (rejectPendingWith !== undefined) {
-      pendingRequests.forEach((request, requestId) => {
+    if (pendingRequests.size > 0) {
+      Array.from(pendingRequests.entries()).forEach(([requestId, request]) => {
         clearPendingRequest(requestId);
-        request.reject(rejectPendingWith);
+        request.reject(rejectionReason);
       });
     }
+  };
+
+  const registerRequestTimeout = (requestId: number, request: PendingWorkerRequest): void => {
+    if (!requestTimeoutMs || !Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0) {
+      return;
+    }
+
+    request.timeoutId = setTimeout(() => {
+      const timeoutError = createWorkerTimeoutError(requestId, requestTimeoutMs);
+      disposeSharedWorker(timeoutError);
+    }, requestTimeoutMs);
   };
 
   const handleSharedWorkerMessage = (
@@ -134,6 +163,7 @@ export function createExportArchiveAssetsWorkerClient(
 
   const ensureSharedWorker = (): WorkerLike => {
     if (!sharedWorker) {
+      workerUnavailable = false;
       sharedWorker = createWorker();
       sharedWorker.addEventListener('message', handleSharedWorkerMessage as EventListener);
       sharedWorker.addEventListener('error', handleSharedWorkerError as EventListener);
@@ -146,7 +176,7 @@ export function createExportArchiveAssetsWorkerClient(
   const prepare = async (
     args: PrepareExportArchiveAssetsArgs,
   ): Promise<PrepareExportArchiveAssetsResult> => {
-    if (workerUnavailable) {
+    if (workerUnavailable && sharedWorker) {
       throw new Error('Export archive assets worker is unavailable');
     }
 
@@ -174,11 +204,13 @@ export function createExportArchiveAssetsWorkerClient(
         payload,
       };
 
-      pendingRequests.set(requestId, {
+      const pendingRequest: PendingWorkerRequest = {
         resolve: resolveRequest,
         reject: rejectRequest,
         onProgress: args.onProgress,
-      });
+      };
+      pendingRequests.set(requestId, pendingRequest);
+      registerRequestTimeout(requestId, pendingRequest);
 
       try {
         worker.postMessage(request);

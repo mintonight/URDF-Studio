@@ -21,6 +21,7 @@ interface StlParseWorkerPoolClient {
 
 const DEFAULT_CACHE_LIMIT = 300;
 const FAILURE_CACHE_LIMIT = 200;
+const DEFAULT_STL_PARSE_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 
 async function loadSerializedStlGeometryDataInline(
   assetUrl: string,
@@ -56,6 +57,7 @@ export function createStlParseWorkerPoolClient({
     canUseWorker,
     poolSize: getWorkerCount,
     cacheLimit,
+    requestTimeoutMs: DEFAULT_STL_PARSE_REQUEST_TIMEOUT_MS,
     getRequestId: (response) => response.requestId,
     isError: (response) => response.type === 'parse-stl-error',
     getError: (response) => (response as { error?: string }).error || 'STL parse worker failed',

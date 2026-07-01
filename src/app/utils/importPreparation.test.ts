@@ -2647,3 +2647,21 @@ test('prepareImportPayload drops unsupported loose files from the visible asset 
   assert.equal(result.preResolvedImports.length, 1);
   assert.equal(result.preResolvedImports[0]?.fileName, 'robot/demo.urdf');
 });
+
+test('prepareImportPayload rejects loose imports with too many files before parsing', async () => {
+  const files = Array.from({ length: 2001 }, (_, index) =>
+    createLooseFile(
+      `mesh-${index}.stl`,
+      '',
+      `robot/meshes/mesh-${index}.stl`,
+    ),
+  );
+
+  await assert.rejects(
+    prepareImportPayload({
+      files,
+      existingPaths: [],
+    }),
+    /Import contains too many files \(2001\)\. Maximum: 2000\./i,
+  );
+});

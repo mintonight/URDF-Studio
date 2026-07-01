@@ -43,6 +43,7 @@ export interface MeshParseWorkerPoolClient {
 }
 
 const DEFAULT_MESH_PARSE_WORKER_LIMIT = 12;
+const DEFAULT_MESH_PARSE_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 
 export function resolveDefaultMeshParseWorkerCount(): number {
   if (typeof navigator === 'undefined') {
@@ -88,14 +89,9 @@ function getMeshParseResult(response: MeshParseWorkerResponse): MeshParseWorkerR
 
 function assertWorkerAvailable(client: {
   canUseWorker: boolean;
-  unavailable: boolean;
 }, label: string): void {
   if (!client.canUseWorker) {
     throw new Error(`${label} worker is not available in this environment`);
-  }
-
-  if (client.unavailable) {
-    throw new Error(`${label} worker is unavailable in this environment`);
   }
 }
 
@@ -110,6 +106,7 @@ export function createMeshParseWorkerPoolClient({
     createWorker,
     canUseWorker,
     poolSize: getWorkerCount,
+    requestTimeoutMs: DEFAULT_MESH_PARSE_REQUEST_TIMEOUT_MS,
     getRequestId: getMeshParseRequestId,
     isError: isMeshParseError,
     getError: getMeshParseError,

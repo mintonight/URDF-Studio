@@ -90,19 +90,23 @@ export function createUsdBinaryArchiveWorkerClient(
   };
 
   const disposeSharedWorker = (rejectPendingWith?: unknown): void => {
+    const rejectionReason = rejectPendingWith ?? new Error('USD binary archive worker disposed');
+
     if (sharedWorker) {
       sharedWorker.removeEventListener('message', handleSharedWorkerMessage as EventListener);
       sharedWorker.removeEventListener('error', handleSharedWorkerError as EventListener);
+      sharedWorker.removeEventListener(
+        'messageerror',
+        handleSharedWorkerMessageError as EventListener,
+      );
       sharedWorker.terminate();
       sharedWorker = null;
     }
 
-    if (rejectPendingWith !== undefined) {
-      Array.from(pendingRequests.entries()).forEach(([requestId, request]) => {
-        clearPendingRequest(requestId);
-        request.reject(rejectPendingWith);
-      });
-    }
+    Array.from(pendingRequests.entries()).forEach(([requestId, request]) => {
+      clearPendingRequest(requestId);
+      request.reject(rejectionReason);
+    });
   };
 
   const handleSharedWorkerMessage = (event: MessageEvent<UsdBinaryArchiveWorkerResponse>): void => {
@@ -150,6 +154,11 @@ export function createUsdBinaryArchiveWorkerClient(
     disposeSharedWorker(createWorkerError(event));
   };
 
+  const handleSharedWorkerMessageError = (): void => {
+    workerUnavailable = true;
+    disposeSharedWorker(new Error('USD binary archive worker message transfer failed'));
+  };
+
   const ensureSharedWorker = (): WorkerLike => {
     if (!sharedWorker) {
       // Previous worker was terminated (post-error or post-timeout). A fresh
@@ -159,6 +168,7 @@ export function createUsdBinaryArchiveWorkerClient(
       sharedWorker = createWorker();
       sharedWorker.addEventListener('message', handleSharedWorkerMessage as EventListener);
       sharedWorker.addEventListener('error', handleSharedWorkerError as EventListener);
+      sharedWorker.addEventListener('messageerror', handleSharedWorkerMessageError as EventListener);
     }
 
     return sharedWorker;

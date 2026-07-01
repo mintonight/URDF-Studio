@@ -66,6 +66,12 @@ class FakeWorker {
       handler({ error, message: error.message });
     });
   }
+
+  emitMessageError(error: Error): void {
+    this.listeners.get('messageerror')?.forEach((handler) => {
+      handler({ error, message: error.message });
+    });
+  }
 }
 
 test('robot import worker client resolves successful worker responses', async () => {
@@ -75,6 +81,7 @@ test('robot import worker client resolves successful worker responses', async ()
     canUseWorker: () => true,
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
+    requestTimeoutMs: 0,
   });
 
   const resultPromise = client.resolve(demoUrdfFile);
@@ -103,6 +110,7 @@ test('robot import worker client forwards resolve progress events before complet
     canUseWorker: () => true,
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
+    requestTimeoutMs: 0,
   });
   const progressEvents: RobotImportProgress[] = [];
 
@@ -187,24 +195,92 @@ test('resolveRobotFileDataWithWorker reports pre-resolved imports as finalizing 
   }
 });
 
-test('robot import worker client rejects after worker errors and marks worker unavailable', async () => {
+test('robot import worker client rejects after worker errors and recovers with a fresh worker', async () => {
+  const createdWorkers: FakeWorker[] = [];
+  const client = createRobotImportWorkerClient({
+    canUseWorker: () => true,
+    createWorker: () => {
+      const worker = new FakeWorker();
+      createdWorkers.push(worker);
+      return worker as unknown as Worker;
+    },
+    getWorkerCount: () => 1,
+  });
+
+  const firstResultPromise = client.resolve(demoUrdfFile);
+  assert.equal(createdWorkers.length, 1);
+  assert.equal(createdWorkers[0].postedMessages.length, 1);
+
+  createdWorkers[0].emitError(new Error('worker exploded'));
+
+  await assert.rejects(firstResultPromise, /worker exploded/i);
+  assert.equal(createdWorkers[0].terminated, true);
+
+  const secondResultPromise = client.resolve(demoUrdfFile);
+  assert.equal(createdWorkers.length, 2);
+  assert.notEqual(createdWorkers[1], createdWorkers[0]);
+
+  createdWorkers[1].emitMessage({
+    type: 'resolve-robot-file-result',
+    requestId: (createdWorkers[1].postedMessages[0] as { requestId: number }).requestId,
+    result: resolveRobotFileData(demoUrdfFile),
+  });
+
+  const secondResult = await secondResultPromise;
+  assert.equal(secondResult.status, 'ready');
+});
+
+test('robot import worker client rejects timed-out requests and recovers with a fresh worker', async () => {
+  const createdWorkers: FakeWorker[] = [];
+  const client = createRobotImportWorkerClient({
+    canUseWorker: () => true,
+    createWorker: () => {
+      const worker = new FakeWorker();
+      createdWorkers.push(worker);
+      return worker as unknown as Worker;
+    },
+    getWorkerCount: () => 1,
+    requestTimeoutMs: 10,
+  });
+
+  const firstResultPromise = client.resolve(demoUrdfFile);
+  assert.equal(createdWorkers.length, 1);
+  assert.equal(createdWorkers[0].postedMessages.length, 1);
+
+  await assert.rejects(firstResultPromise, /did not respond within the timeout/i);
+  assert.equal(createdWorkers[0].terminated, true);
+
+  const secondResultPromise = client.resolve(demoUrdfFile);
+  assert.equal(createdWorkers.length, 2);
+  assert.notEqual(createdWorkers[1], createdWorkers[0]);
+  assert.equal(createdWorkers[1].postedMessages.length, 1);
+
+  createdWorkers[1].emitMessage({
+    type: 'resolve-robot-file-result',
+    requestId: (createdWorkers[1].postedMessages[0] as { requestId: number }).requestId,
+    result: resolveRobotFileData(demoUrdfFile),
+  });
+
+  const secondResult = await secondResultPromise;
+  assert.equal(secondResult.status, 'ready');
+});
+
+test('robot import worker client rejects after worker message transfer failures', async () => {
   const fakeWorker = new FakeWorker();
   const client = createRobotImportWorkerClient({
     canUseWorker: () => true,
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
+    requestTimeoutMs: 0,
   });
 
-  const firstResultPromise = client.resolve(demoUrdfFile);
+  const resultPromise = client.resolve(demoUrdfFile);
   assert.equal(fakeWorker.postedMessages.length, 1);
 
-  fakeWorker.emitError(new Error('worker exploded'));
+  fakeWorker.emitMessageError(new Error('structured clone failed'));
 
-  await assert.rejects(firstResultPromise, /worker exploded/i);
+  await assert.rejects(resultPromise, /message transfer failed/i);
   assert.equal(fakeWorker.terminated, true);
-
-  await assert.rejects(client.resolve(demoUrdfFile), /worker is unavailable/i);
-  assert.equal(fakeWorker.postedMessages.length, 1);
 });
 
 test('robot import worker client keeps the pool alive after request-level resolve failures', async () => {
@@ -213,6 +289,7 @@ test('robot import worker client keeps the pool alive after request-level resolv
     canUseWorker: () => true,
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
+    requestTimeoutMs: 0,
   });
 
   const firstResultPromise = client.resolve(demoUrdfFile);
@@ -246,6 +323,7 @@ test('robot import worker client resolves editable source parse responses', asyn
     canUseWorker: () => true,
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
+    requestTimeoutMs: 0,
   });
 
   const resultPromise = client.parseEditableSource({
@@ -286,6 +364,7 @@ test('robot import worker client resolves editable source change patch responses
     canUseWorker: () => true,
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
+    requestTimeoutMs: 0,
   });
 
   const nextContent = demoUrdfFile.content.replace('base_link', 'base_link');
@@ -357,6 +436,7 @@ test('robot import worker client resolves editable source generation responses',
     canUseWorker: () => true,
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
+    requestTimeoutMs: 0,
   });
 
   const resolvedRobot = resolveRobotFileData(demoUrdfFile);
@@ -397,6 +477,7 @@ test('robot import worker client resolves prepared assembly component responses'
     canUseWorker: () => true,
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
+    requestTimeoutMs: 0,
   });
 
   const resultPromise = client.prepareAssemblyComponent(demoUrdfFile, {
@@ -463,6 +544,7 @@ test('robot import worker client syncs mesh assets for prepared assembly compone
     canUseWorker: () => true,
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
+    requestTimeoutMs: 0,
   });
 
   void client
@@ -507,6 +589,7 @@ test('robot import worker client keeps MJCF text context on prepare assembly req
     canUseWorker: () => true,
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
+    requestTimeoutMs: 0,
   });
 
   void client
@@ -563,6 +646,7 @@ test('robot import worker client rejects editable source parse errors', async ()
     canUseWorker: () => true,
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
+    requestTimeoutMs: 0,
   });
 
   const resultPromise = client.parseEditableSource({
@@ -739,6 +823,7 @@ test('robot import worker client prunes unused resolve payload fields before pos
     canUseWorker: () => true,
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
+    requestTimeoutMs: 0,
   });
 
   const usdRobotData = {
@@ -796,6 +881,7 @@ test('robot import worker client prunes editable parse payload to source-relevan
     canUseWorker: () => true,
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
+    requestTimeoutMs: 0,
   });
 
   void client
@@ -872,6 +958,7 @@ test('robot import worker client reuses synced worker context for repeated xacro
     canUseWorker: () => true,
     createWorker: () => fakeWorker as unknown as Worker,
     getWorkerCount: () => 1,
+    requestTimeoutMs: 0,
   });
 
   const requestOptions = {

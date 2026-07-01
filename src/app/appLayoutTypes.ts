@@ -28,6 +28,7 @@ export interface AppLayoutProps {
   onOpenExport: () => void;
   onOpenLibraryExport: (file: RobotFile) => void;
   onExportProject: () => void;
+  isExportingProject?: boolean;
   showToast: (message: string, type?: 'info' | 'success' | 'error') => void;
   onOpenAIInspection: () => void;
   onOpenAIConversation: () => void;

@@ -158,10 +158,14 @@ function installDomEnvironment() {
 function renderFileMenu({
   onImportFile = () => {},
   onImportFolder = () => {},
+  onExportProject = () => {},
+  isExportingProject = false,
   setActiveMenu = () => {},
 }: {
   onImportFile?: () => void;
   onImportFolder?: () => void;
+  onExportProject?: () => void;
+  isExportingProject?: boolean;
   setActiveMenu?: (menu: import('./types').HeaderMenuKey) => void;
 }) {
   const container = document.createElement('div');
@@ -189,7 +193,8 @@ function renderFileMenu({
         onImportFile,
         onImportFolder,
         onOpenExport: () => {},
-        onExportProject: () => {},
+        onExportProject,
+        isExportingProject,
         toolboxItems: noopToolboxItems,
         onOpenCodeViewer: () => {},
         onPrefetchCodeViewer: () => {},
@@ -272,6 +277,38 @@ test('file menu opens the folder picker synchronously from the menu item click',
     );
 
     assert.equal(importFolderCallCount, 1);
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    domEnvironment.restore();
+  }
+});
+
+test('file menu disables project export while an export is already running', async () => {
+  const domEnvironment = installDomEnvironment();
+  let exportCallCount = 0;
+  const rendered = renderFileMenu({
+    isExportingProject: true,
+    onExportProject: () => {
+      exportCallCount += 1;
+    },
+  });
+
+  try {
+    const exportProjectButton = Array.from(document.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Export Project'),
+    );
+    assert.ok(exportProjectButton, 'expected export project menu item');
+    assert.equal(exportProjectButton.hasAttribute('disabled'), true);
+
+    exportProjectButton.dispatchEvent(
+      new domEnvironment.dom.window.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    assert.equal(exportCallCount, 0);
   } finally {
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 20));

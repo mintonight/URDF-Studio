@@ -37,11 +37,11 @@ import type { RobotState } from '@/types';
 
 interface WorkerLike {
   addEventListener: (
-    type: 'message' | 'error',
+    type: 'message' | 'error' | 'messageerror',
     listener: EventListenerOrEventListenerObject,
   ) => void;
   removeEventListener: (
-    type: 'message' | 'error',
+    type: 'message' | 'error' | 'messageerror',
     listener: EventListenerOrEventListenerObject,
   ) => void;
   postMessage: (message: RobotImportWorkerRequest) => void;
@@ -53,30 +53,35 @@ interface PendingRobotImportWorkerRequest {
   resolve: (value: RobotImportResult) => void;
   reject: (error: unknown) => void;
   workerEntry: WorkerPoolEntry;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 interface PendingEditableParseWorkerRequest {
   resolve: (value: RobotState | null) => void;
   reject: (error: unknown) => void;
   workerEntry: WorkerPoolEntry;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 interface PendingEditableSourceChangeWorkerRequest {
   resolve: (value: ApplyEditableSourceChangeResult) => void;
   reject: (error: unknown) => void;
   workerEntry: WorkerPoolEntry;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 interface PendingEditableSourceGenerationWorkerRequest {
   resolve: (value: string) => void;
   reject: (error: unknown) => void;
   workerEntry: WorkerPoolEntry;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 interface PendingPreparedAssemblyComponentWorkerRequest {
   resolve: (value: PreparedAssemblyComponentResult) => void;
   reject: (error: unknown) => void;
   workerEntry: WorkerPoolEntry;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 interface WorkerPoolEntry {
@@ -89,6 +94,7 @@ interface CreateRobotImportWorkerClientOptions {
   canUseWorker?: () => boolean;
   createWorker?: () => WorkerLike;
   getWorkerCount?: () => number;
+  requestTimeoutMs?: number;
 }
 
 export interface RobotImportWorkerClient {
@@ -129,11 +135,25 @@ function resolveDefaultWorkerCount(): number {
   return Math.max(1, Math.min(10, hardwareConcurrency - 1));
 }
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+
+function createWorkerTimeoutError(requestId: number, timeoutMs: number): Error {
+  return new Error(
+    'Robot import worker did not respond within the timeout '
+      + `(likely a worker crash). Request id: ${requestId}. Timeout: ${timeoutMs} ms.`,
+  );
+}
+
+function decrementWorkerPendingCount(workerEntry: WorkerPoolEntry): void {
+  workerEntry.pendingCount = Math.max(0, workerEntry.pendingCount - 1);
+}
+
 export function createRobotImportWorkerClient({
   canUseWorker = () => typeof Worker !== 'undefined',
   createWorker = () =>
     new Worker(new URL('../workers/robotImport.worker.ts', import.meta.url), { type: 'module' }),
   getWorkerCount = resolveDefaultWorkerCount,
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
 }: CreateRobotImportWorkerClientOptions = {}): RobotImportWorkerClient {
   const pendingRobotImportRequests = new Map<number, PendingRobotImportWorkerRequest>();
   const pendingEditableParseRequests = new Map<number, PendingEditableParseWorkerRequest>();
@@ -155,6 +175,13 @@ export function createRobotImportWorkerClient({
   let workerUnavailable = false;
   let maxWorkerCount: number | null = null;
 
+  const clearRequestTimeout = (pendingRequest: { timeoutId?: ReturnType<typeof setTimeout> }): void => {
+    if (pendingRequest.timeoutId !== undefined) {
+      clearTimeout(pendingRequest.timeoutId);
+      pendingRequest.timeoutId = undefined;
+    }
+  };
+
   const clearPendingRobotImportRequest = (
     requestId: number,
   ): PendingRobotImportWorkerRequest | null => {
@@ -164,10 +191,8 @@ export function createRobotImportWorkerClient({
     }
 
     pendingRobotImportRequests.delete(requestId);
-    pendingRequest.workerEntry.pendingCount = Math.max(
-      0,
-      pendingRequest.workerEntry.pendingCount - 1,
-    );
+    clearRequestTimeout(pendingRequest);
+    decrementWorkerPendingCount(pendingRequest.workerEntry);
     return pendingRequest;
   };
 
@@ -180,10 +205,8 @@ export function createRobotImportWorkerClient({
     }
 
     pendingEditableParseRequests.delete(requestId);
-    pendingRequest.workerEntry.pendingCount = Math.max(
-      0,
-      pendingRequest.workerEntry.pendingCount - 1,
-    );
+    clearRequestTimeout(pendingRequest);
+    decrementWorkerPendingCount(pendingRequest.workerEntry);
     return pendingRequest;
   };
 
@@ -196,10 +219,8 @@ export function createRobotImportWorkerClient({
     }
 
     pendingEditableSourceChangeRequests.delete(requestId);
-    pendingRequest.workerEntry.pendingCount = Math.max(
-      0,
-      pendingRequest.workerEntry.pendingCount - 1,
-    );
+    clearRequestTimeout(pendingRequest);
+    decrementWorkerPendingCount(pendingRequest.workerEntry);
     return pendingRequest;
   };
 
@@ -212,10 +233,8 @@ export function createRobotImportWorkerClient({
     }
 
     pendingEditableSourceGenerationRequests.delete(requestId);
-    pendingRequest.workerEntry.pendingCount = Math.max(
-      0,
-      pendingRequest.workerEntry.pendingCount - 1,
-    );
+    clearRequestTimeout(pendingRequest);
+    decrementWorkerPendingCount(pendingRequest.workerEntry);
     return pendingRequest;
   };
 
@@ -228,10 +247,8 @@ export function createRobotImportWorkerClient({
     }
 
     pendingPreparedAssemblyComponentRequests.delete(requestId);
-    pendingRequest.workerEntry.pendingCount = Math.max(
-      0,
-      pendingRequest.workerEntry.pendingCount - 1,
-    );
+    clearRequestTimeout(pendingRequest);
+    decrementWorkerPendingCount(pendingRequest.workerEntry);
     return pendingRequest;
   };
 
@@ -374,37 +391,81 @@ export function createRobotImportWorkerClient({
     disposeWorkerPool(createWorkerError(event));
   };
 
+  const handleSharedWorkerMessageError = (): void => {
+    workerUnavailable = true;
+    disposeWorkerPool(new Error('Robot import worker message transfer failed'));
+  };
+
+  const rejectPendingRequests = <T extends { reject: (error: unknown) => void }>(
+    requests: Map<number, T>,
+    clearRequest: (requestId: number) => T | null,
+    rejectionReason: unknown,
+  ): void => {
+    Array.from(requests.entries()).forEach(([requestId, request]) => {
+      clearRequest(requestId);
+      request.reject(rejectionReason);
+    });
+  };
+
   const disposeWorkerPool = (rejectPendingWith?: unknown): void => {
+    const rejectionReason = rejectPendingWith ?? new Error('Robot import worker disposed');
+
     workerPool.forEach((entry) => {
       entry.worker.removeEventListener('message', handleSharedWorkerMessage as EventListener);
       entry.worker.removeEventListener('error', handleSharedWorkerError as EventListener);
+      entry.worker.removeEventListener(
+        'messageerror',
+        handleSharedWorkerMessageError as EventListener,
+      );
       entry.worker.terminate();
       entry.syncedContextIdsByCacheKey.clear();
+      entry.pendingCount = 0;
     });
     workerPool.length = 0;
 
-    if (rejectPendingWith !== undefined) {
-      pendingRobotImportRequests.forEach((request, requestId) => {
-        clearPendingRobotImportRequest(requestId);
-        request.reject(rejectPendingWith);
-      });
-      pendingEditableParseRequests.forEach((request, requestId) => {
-        clearPendingEditableParseRequest(requestId);
-        request.reject(rejectPendingWith);
-      });
-      pendingEditableSourceChangeRequests.forEach((request, requestId) => {
-        clearPendingEditableSourceChangeRequest(requestId);
-        request.reject(rejectPendingWith);
-      });
-      pendingEditableSourceGenerationRequests.forEach((request, requestId) => {
-        clearPendingEditableSourceGenerationRequest(requestId);
-        request.reject(rejectPendingWith);
-      });
-      pendingPreparedAssemblyComponentRequests.forEach((request, requestId) => {
-        clearPendingPreparedAssemblyComponentRequest(requestId);
-        request.reject(rejectPendingWith);
-      });
+    rejectPendingRequests(
+      pendingRobotImportRequests,
+      clearPendingRobotImportRequest,
+      rejectionReason,
+    );
+    rejectPendingRequests(
+      pendingEditableParseRequests,
+      clearPendingEditableParseRequest,
+      rejectionReason,
+    );
+    rejectPendingRequests(
+      pendingEditableSourceChangeRequests,
+      clearPendingEditableSourceChangeRequest,
+      rejectionReason,
+    );
+    rejectPendingRequests(
+      pendingEditableSourceGenerationRequests,
+      clearPendingEditableSourceGenerationRequest,
+      rejectionReason,
+    );
+    rejectPendingRequests(
+      pendingPreparedAssemblyComponentRequests,
+      clearPendingPreparedAssemblyComponentRequest,
+      rejectionReason,
+    );
+  };
+
+  const registerRequestTimeout = (
+    requestId: number,
+    request:
+      | PendingRobotImportWorkerRequest
+      | PendingEditableParseWorkerRequest
+      | PendingEditableSourceChangeWorkerRequest
+      | PendingEditableSourceGenerationWorkerRequest
+      | PendingPreparedAssemblyComponentWorkerRequest,
+  ): void => {
+    if (!requestTimeoutMs || !Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0) {
+      return;
     }
+
+    request.timeoutId = setTimeout(() => {
+      disposeWorkerPool(createWorkerTimeoutError(requestId, requestTimeoutMs));
+    }, requestTimeoutMs);
   };
 
   const resolveMaxWorkerCount = (): number => {
@@ -415,9 +476,11 @@ export function createRobotImportWorkerClient({
   };
 
   const createWorkerPoolEntry = (): WorkerPoolEntry => {
+    workerUnavailable = false;
     const worker = createWorker();
     worker.addEventListener('message', handleSharedWorkerMessage as EventListener);
     worker.addEventListener('error', handleSharedWorkerError as EventListener);
+    worker.addEventListener('messageerror', handleSharedWorkerMessageError as EventListener);
     const entry: WorkerPoolEntry = {
       worker,
       pendingCount: 0,
@@ -490,7 +553,7 @@ export function createRobotImportWorkerClient({
     options: ResolveRobotFileDataOptions = {},
     callbacks?: { onProgress?: (progress: RobotImportProgress) => void },
   ): Promise<RobotImportResult> => {
-    if (workerUnavailable) {
+    if (workerUnavailable && workerPool.length > 0) {
       throw new Error('Robot import worker is unavailable');
     }
 
@@ -530,13 +593,15 @@ export function createRobotImportWorkerClient({
         contextId,
       };
 
-      pendingRobotImportRequests.set(requestId, {
+      const pendingRequest: PendingRobotImportWorkerRequest = {
         onProgress: callbacks?.onProgress,
         resolve: resolveRequest,
         reject: rejectRequest,
         workerEntry,
-      });
+      };
+      pendingRobotImportRequests.set(requestId, pendingRequest);
       workerEntry.pendingCount += 1;
+      registerRequestTimeout(requestId, pendingRequest);
 
       try {
         workerEntry.worker.postMessage(request);
@@ -552,7 +617,7 @@ export function createRobotImportWorkerClient({
   const parseEditableSource = async (
     options: ParseEditableRobotSourceOptions,
   ): Promise<RobotState | null> => {
-    if (workerUnavailable) {
+    if (workerUnavailable && workerPool.length > 0) {
       throw new Error('Robot import worker is unavailable');
     }
 
@@ -591,12 +656,14 @@ export function createRobotImportWorkerClient({
         contextId,
       };
 
-      pendingEditableParseRequests.set(requestId, {
+      const pendingRequest: PendingEditableParseWorkerRequest = {
         resolve: resolveRequest,
         reject: rejectRequest,
         workerEntry,
-      });
+      };
+      pendingEditableParseRequests.set(requestId, pendingRequest);
       workerEntry.pendingCount += 1;
+      registerRequestTimeout(requestId, pendingRequest);
 
       try {
         workerEntry.worker.postMessage(request);
@@ -612,7 +679,7 @@ export function createRobotImportWorkerClient({
   const applyEditableSourceChange = async (
     options: ApplyEditableSourceChangeOptions,
   ): Promise<ApplyEditableSourceChangeResult> => {
-    if (workerUnavailable) {
+    if (workerUnavailable && workerPool.length > 0) {
       throw new Error('Robot import worker is unavailable');
     }
 
@@ -651,12 +718,14 @@ export function createRobotImportWorkerClient({
         contextId,
       };
 
-      pendingEditableSourceChangeRequests.set(requestId, {
+      const pendingRequest: PendingEditableSourceChangeWorkerRequest = {
         resolve: resolveRequest,
         reject: rejectRequest,
         workerEntry,
-      });
+      };
+      pendingEditableSourceChangeRequests.set(requestId, pendingRequest);
       workerEntry.pendingCount += 1;
+      registerRequestTimeout(requestId, pendingRequest);
 
       try {
         workerEntry.worker.postMessage(request);
@@ -672,7 +741,7 @@ export function createRobotImportWorkerClient({
   const generateEditableSource = async (
     options: GenerateEditableRobotSourceOptions,
   ): Promise<string> => {
-    if (workerUnavailable) {
+    if (workerUnavailable && workerPool.length > 0) {
       throw new Error('Robot import worker is unavailable');
     }
 
@@ -698,12 +767,14 @@ export function createRobotImportWorkerClient({
         options,
       };
 
-      pendingEditableSourceGenerationRequests.set(requestId, {
+      const pendingRequest: PendingEditableSourceGenerationWorkerRequest = {
         resolve: resolveRequest,
         reject: rejectRequest,
         workerEntry,
-      });
+      };
+      pendingEditableSourceGenerationRequests.set(requestId, pendingRequest);
       workerEntry.pendingCount += 1;
+      registerRequestTimeout(requestId, pendingRequest);
 
       try {
         workerEntry.worker.postMessage(request);
@@ -723,7 +794,7 @@ export function createRobotImportWorkerClient({
       rootName: string;
     },
   ): Promise<PreparedAssemblyComponentResult> => {
-    if (workerUnavailable) {
+    if (workerUnavailable && workerPool.length > 0) {
       throw new Error('Robot import worker is unavailable');
     }
 
@@ -765,12 +836,14 @@ export function createRobotImportWorkerClient({
         contextId,
       };
 
-      pendingPreparedAssemblyComponentRequests.set(requestId, {
+      const pendingRequest: PendingPreparedAssemblyComponentWorkerRequest = {
         resolve: resolveRequest,
         reject: rejectRequest,
         workerEntry,
-      });
+      };
+      pendingPreparedAssemblyComponentRequests.set(requestId, pendingRequest);
       workerEntry.pendingCount += 1;
+      registerRequestTimeout(requestId, pendingRequest);
 
       try {
         workerEntry.worker.postMessage(request);

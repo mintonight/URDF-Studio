@@ -25,6 +25,7 @@ interface MshParseWorkerPoolClient {
 
 const DEFAULT_CACHE_LIMIT = 300;
 const FAILURE_CACHE_LIMIT = 200;
+const DEFAULT_MSH_PARSE_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 
 async function loadSerializedMshGeometryDataInline(
   assetUrl: string,
@@ -50,6 +51,7 @@ export function createMshParseWorkerPoolClient({
     canUseWorker,
     poolSize: getWorkerCount,
     cacheLimit,
+    requestTimeoutMs: DEFAULT_MSH_PARSE_REQUEST_TIMEOUT_MS,
     getRequestId: (response) => response.requestId,
     isError: (response) => response.type === 'parse-msh-error',
     getError: (response) => (response as { error?: string }).error || 'MSH parse worker failed',

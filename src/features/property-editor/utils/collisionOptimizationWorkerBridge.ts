@@ -12,6 +12,7 @@ interface CreateCollisionOptimizationWorkerClientOptions {
   canUseWorker?: () => boolean;
   createWorker?: () => WorkerLike;
   fallbackToInline?: boolean;
+  requestTimeoutMs?: number;
   runInlineAnalysis?: (
     args: CollisionOptimizationInlineAnalyzeArgs,
   ) => Promise<CollisionOptimizationAnalysis>;
@@ -29,10 +30,19 @@ interface PendingRequest {
   reject: (error: unknown) => void;
   resolve: (analysis: CollisionOptimizationAnalysis) => void;
   abortHandler?: () => void;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
+
+const DEFAULT_COLLISION_OPTIMIZATION_REQUEST_TIMEOUT_MS = 2 * 60 * 1000;
 
 function createAbortError(): DOMException {
   return new DOMException('Collision optimization analysis aborted', 'AbortError');
+}
+
+function createWorkerTimeoutError(requestId: number, timeoutMs: number): Error {
+  return new Error(
+    `Collision optimization worker did not respond within ${timeoutMs} ms. Request id: ${requestId}.`,
+  );
 }
 
 function normalizeWorkerError(message: string, name?: string): Error | DOMException {
@@ -52,6 +62,7 @@ export function createCollisionOptimizationWorkerClient({
       type: 'module',
     }),
   fallbackToInline = true,
+  requestTimeoutMs = DEFAULT_COLLISION_OPTIMIZATION_REQUEST_TIMEOUT_MS,
   runInlineAnalysis = analyzeCollisionOptimizationInline,
 }: CreateCollisionOptimizationWorkerClientOptions = {}): CollisionOptimizationWorkerClient {
   const pendingRequests = new Map<number, PendingRequest>();
@@ -66,6 +77,10 @@ export function createCollisionOptimizationWorkerClient({
     }
 
     pendingRequests.delete(requestId);
+    if (pendingRequest.timeoutId !== undefined) {
+      clearTimeout(pendingRequest.timeoutId);
+      pendingRequest.timeoutId = undefined;
+    }
     if (pendingRequest.abortHandler) {
       pendingRequest.args.signal?.removeEventListener('abort', pendingRequest.abortHandler);
     }
@@ -81,20 +96,25 @@ export function createCollisionOptimizationWorkerClient({
       requestId,
     });
 
-  const dispose = (rejectPendingWith?: unknown): void => {
+  const disposeWorkerOnly = (): void => {
     if (sharedWorker) {
       sharedWorker.removeEventListener('message', handleWorkerMessage as EventListener);
       sharedWorker.removeEventListener('error', handleWorkerError as EventListener);
+      sharedWorker.removeEventListener('messageerror', handleWorkerMessageError as EventListener);
       sharedWorker.terminate();
       sharedWorker = null;
     }
+  };
 
-    if (rejectPendingWith !== undefined) {
-      pendingRequests.forEach((request, requestId) => {
-        clearPendingRequest(requestId);
-        request.reject(rejectPendingWith);
-      });
-    }
+  const dispose = (rejectPendingWith?: unknown): void => {
+    const rejectionReason =
+      rejectPendingWith ?? new Error('Collision optimization worker disposed');
+    disposeWorkerOnly();
+
+    Array.from(pendingRequests.entries()).forEach(([requestId, request]) => {
+      clearPendingRequest(requestId);
+      request.reject(rejectionReason);
+    });
   };
 
   const fallbackPendingRequestInline = (requestId: number, pendingRequest: PendingRequest): void => {
@@ -102,6 +122,31 @@ export function createCollisionOptimizationWorkerClient({
       pendingRequest.resolve,
       pendingRequest.reject,
     );
+  };
+
+  const handleWorkerFailure = (error: unknown): void => {
+    workerUnavailable = true;
+    const pendingEntries = Array.from(pendingRequests.entries());
+    disposeWorkerOnly();
+
+    pendingEntries.forEach(([requestId, pendingRequest]) => {
+      clearPendingRequest(requestId);
+      if (fallbackToInline && !pendingRequest.args.signal?.aborted) {
+        fallbackPendingRequestInline(requestId, pendingRequest);
+        return;
+      }
+      pendingRequest.reject(error);
+    });
+  };
+
+  const registerRequestTimeout = (requestId: number, pendingRequest: PendingRequest): void => {
+    if (!requestTimeoutMs || !Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0) {
+      return;
+    }
+
+    pendingRequest.timeoutId = setTimeout(() => {
+      handleWorkerFailure(createWorkerTimeoutError(requestId, requestTimeoutMs));
+    }, requestTimeoutMs);
   };
 
   function handleWorkerMessage(event: MessageEvent<CollisionOptimizationWorkerResponse>): void {
@@ -140,29 +185,25 @@ export function createCollisionOptimizationWorkerClient({
   }
 
   function handleWorkerError(event: ErrorEvent | { error?: unknown; message?: string }): void {
-    workerUnavailable = true;
     const error =
       event.error instanceof Error
         ? event.error
         : new Error(event.message || 'Collision optimization worker failed');
-    const pendingEntries = Array.from(pendingRequests.entries());
-    dispose();
+    handleWorkerFailure(error);
+  }
 
-    pendingEntries.forEach(([requestId, pendingRequest]) => {
-      clearPendingRequest(requestId);
-      if (fallbackToInline && !pendingRequest.args.signal?.aborted) {
-        fallbackPendingRequestInline(requestId, pendingRequest);
-        return;
-      }
-      pendingRequest.reject(error);
-    });
+  function handleWorkerMessageError(): void {
+    handleWorkerFailure(new Error('Collision optimization worker message transfer failed'));
   }
 
   const ensureWorker = (): WorkerLike => {
     if (!sharedWorker) {
-      sharedWorker = createWorker();
-      sharedWorker.addEventListener('message', handleWorkerMessage as EventListener);
-      sharedWorker.addEventListener('error', handleWorkerError as EventListener);
+      const worker = createWorker();
+      worker.addEventListener('message', handleWorkerMessage as EventListener);
+      worker.addEventListener('error', handleWorkerError as EventListener);
+      worker.addEventListener('messageerror', handleWorkerMessageError as EventListener);
+      sharedWorker = worker;
+      workerUnavailable = false;
     }
 
     return sharedWorker;
@@ -177,7 +218,7 @@ export function createCollisionOptimizationWorkerClient({
       throw createAbortError();
     }
 
-    if (!canUseWorker() || workerUnavailable) {
+    if (!canUseWorker() || (workerUnavailable && sharedWorker)) {
       return await runInline(requestId, args);
     }
 
@@ -214,12 +255,14 @@ export function createCollisionOptimizationWorkerClient({
         reject(createAbortError());
       };
       args.signal?.addEventListener('abort', abortHandler, { once: true });
-      pendingRequests.set(requestId, {
+      const pendingRequest: PendingRequest = {
         args,
         resolve,
         reject,
         abortHandler,
-      });
+      };
+      pendingRequests.set(requestId, pendingRequest);
+      registerRequestTimeout(requestId, pendingRequest);
 
       try {
         worker.postMessage({
@@ -231,14 +274,7 @@ export function createCollisionOptimizationWorkerClient({
           options: args.options,
         } satisfies CollisionOptimizationWorkerRequest);
       } catch (error) {
-        clearPendingRequest(requestId);
-        workerUnavailable = true;
-        dispose(error);
-        if (fallbackToInline && !args.signal?.aborted) {
-          void runInline(requestId, args).then(resolve, reject);
-          return;
-        }
-        reject(error);
+        handleWorkerFailure(error);
       }
     });
   };

@@ -40,6 +40,135 @@ type ProjectHistorySnapshot<T> = {
 
 const MAX_HISTORY = 50;
 const MAX_ACTIVITY_LOG = 200;
+const MAX_PROJECT_ARCHIVE_BYTES = 512 * 1024 * 1024;
+const MAX_PROJECT_ARCHIVE_ENTRIES = 10_000;
+const MAX_PROJECT_ARCHIVE_EXTRACTED_BYTES = 1024 * 1024 * 1024;
+const MAX_PROJECT_ARCHIVE_SINGLE_ENTRY_BYTES = 512 * 1024 * 1024;
+const MAX_PROJECT_MANIFEST_PATH_DEPTH = 32;
+
+function resolveInputByteLength(file: File | Blob | ArrayBuffer | Uint8Array): number {
+  if (file instanceof Blob) {
+    return file.size;
+  }
+
+  return file.byteLength;
+}
+
+function resolveZipEntrySize(entry: JSZip.JSZipObject): number {
+  const metadata = entry as JSZip.JSZipObject & {
+    _data?: {
+      uncompressedSize?: number;
+    };
+  };
+  return Number(metadata._data?.uncompressedSize ?? 0);
+}
+
+function assertProjectArchiveWithinLimits(
+  file: File | Blob | ArrayBuffer | Uint8Array,
+  zip?: JSZip,
+): void {
+  const inputBytes = resolveInputByteLength(file);
+  if (inputBytes > MAX_PROJECT_ARCHIVE_BYTES) {
+    throw new Error(
+      `Project archive is too large (${inputBytes} bytes). `
+        + `Maximum: ${MAX_PROJECT_ARCHIVE_BYTES} bytes.`,
+    );
+  }
+
+  if (!zip) {
+    return;
+  }
+
+  const entries = Object.values(zip.files).filter((entry) => !entry.dir);
+  if (entries.length > MAX_PROJECT_ARCHIVE_ENTRIES) {
+    throw new Error(
+      `Project archive contains too many files (${entries.length}). `
+        + `Maximum: ${MAX_PROJECT_ARCHIVE_ENTRIES}.`,
+    );
+  }
+
+  let extractedBytes = 0;
+  for (const entry of entries) {
+    const entrySize = resolveZipEntrySize(entry);
+    extractedBytes += entrySize;
+    if (entrySize > MAX_PROJECT_ARCHIVE_SINGLE_ENTRY_BYTES) {
+      throw new Error(
+        `Project archive entry "${entry.name}" is too large (${entrySize} bytes). `
+          + `Maximum: ${MAX_PROJECT_ARCHIVE_SINGLE_ENTRY_BYTES} bytes.`,
+      );
+    }
+  }
+
+  if (extractedBytes > MAX_PROJECT_ARCHIVE_EXTRACTED_BYTES) {
+    throw new Error(
+      `Project archive expands to too much data (${extractedBytes} bytes). `
+        + `Maximum: ${MAX_PROJECT_ARCHIVE_EXTRACTED_BYTES} bytes.`,
+    );
+  }
+}
+
+function assertProjectManifestEntryCount(count: number, label: string): void {
+  if (count > MAX_PROJECT_ARCHIVE_ENTRIES) {
+    throw new Error(
+      `Project manifest contains too many ${label} (${count}). `
+        + `Maximum: ${MAX_PROJECT_ARCHIVE_ENTRIES}.`,
+    );
+  }
+}
+
+function assertProjectManifestPathWithinLimits(path: string, label: string): void {
+  const normalizedPath = path.replace(/\\/g, '/').replace(/^\/+/, '');
+  const parts = normalizedPath.split('/');
+  if (
+    !normalizedPath ||
+    parts.some((part) => !part || part === '..' || part.startsWith('.')) ||
+    parts.length > MAX_PROJECT_MANIFEST_PATH_DEPTH
+  ) {
+    throw new Error(
+      `Project manifest ${label} path "${path}" is invalid or nested too deeply. `
+        + `Maximum depth: ${MAX_PROJECT_MANIFEST_PATH_DEPTH}.`,
+    );
+  }
+}
+
+function assertOptionalProjectManifestPath(path: string | null | undefined, label: string): void {
+  if (path == null || path === '') {
+    return;
+  }
+
+  assertProjectManifestPathWithinLimits(path, label);
+}
+
+function assertProjectManifestWithinLimits(manifest: ProjectManifest): void {
+  const availableFiles = manifest.assets?.availableFiles ?? [];
+  const assetEntries = manifest.assets?.assetEntries ?? [];
+  assertProjectManifestEntryCount(availableFiles.length, 'library files');
+  assertProjectManifestEntryCount(assetEntries.length, 'asset entries');
+
+  availableFiles.forEach((fileInfo) =>
+    assertProjectManifestPathWithinLimits(fileInfo.name, 'library file'),
+  );
+  assetEntries.forEach((entry) => {
+    assertProjectManifestPathWithinLimits(entry.logicalPath, 'asset logical');
+    assertProjectManifestPathWithinLimits(entry.archivePath, 'asset archive');
+  });
+
+  assertOptionalProjectManifestPath(manifest.workspace?.selectedFile, 'selected file');
+  assertOptionalProjectManifestPath(manifest.assets?.allFileContentsFile, 'all file contents');
+  assertOptionalProjectManifestPath(manifest.assets?.motorLibraryFile, 'motor library');
+  assertOptionalProjectManifestPath(manifest.assets?.originalUrdfContentFile, 'original source');
+  assertOptionalProjectManifestPath(manifest.history?.robotFile, 'robot history');
+  assertOptionalProjectManifestPath(manifest.history?.assemblyFile, 'assembly history');
+  Object.values(manifest.assembly?.components ?? {}).forEach((component) =>
+    assertProjectManifestPathWithinLimits(component.sourceFile, 'assembly component source'),
+  );
+}
+
+function assertAllFileContentsWithinLimits(allFileContents: Record<string, string>): void {
+  const paths = Object.keys(allFileContents);
+  assertProjectManifestEntryCount(paths.length, 'file content records');
+  paths.forEach((path) => assertProjectManifestPathWithinLimits(path, 'file content'));
+}
 
 const clampHistoryEntries = <T>(entries: T[] | undefined): T[] =>
   (entries ?? []).slice(-MAX_HISTORY);
@@ -248,18 +377,31 @@ const loadPackedAssetFiles = async (
   if (!assetEntriesFromManifest || assetEntriesFromManifest.length === 0) {
     return [];
   }
+  if (assetEntriesFromManifest.length > MAX_PROJECT_ARCHIVE_ENTRIES) {
+    throw new Error(
+      `Project archive asset manifest contains too many files (${assetEntriesFromManifest.length}). `
+        + `Maximum: ${MAX_PROJECT_ARCHIVE_ENTRIES}.`,
+    );
+  }
 
   const assetFiles: AssetFile[] = [];
-  await Promise.all(
-    assetEntriesFromManifest.map(async (entry) => {
-      const blob = await getRequiredArchiveEntry(
-        zip,
-        entry.archivePath,
-        `packed asset "${entry.logicalPath}"`,
-      ).async('blob');
-      assetFiles.push({ name: entry.logicalPath, blob });
-    }),
-  );
+  for (const entry of assetEntriesFromManifest) {
+    const archiveEntry = getRequiredArchiveEntry(
+      zip,
+      entry.archivePath,
+      `packed asset "${entry.logicalPath}"`,
+    );
+    const entrySize = resolveZipEntrySize(archiveEntry);
+    if (entrySize > MAX_PROJECT_ARCHIVE_SINGLE_ENTRY_BYTES) {
+      throw new Error(
+        `Project archive asset "${entry.logicalPath}" is too large (${entrySize} bytes). `
+          + `Maximum: ${MAX_PROJECT_ARCHIVE_SINGLE_ENTRY_BYTES} bytes.`,
+      );
+    }
+
+    const blob = await archiveEntry.async('blob');
+    assetFiles.push({ name: entry.logicalPath, blob });
+  }
 
   return assetFiles;
 };
@@ -361,7 +503,9 @@ export async function readImportedProjectArchive(
   lang: Language = 'en',
 ): Promise<ImportedProjectArchiveData> {
   const t = translations[lang];
+  assertProjectArchiveWithinLimits(file);
   const zip = await JSZip.loadAsync(file);
+  assertProjectArchiveWithinLimits(file, zip);
 
   const manifestContent = await zip.file('project.json')?.async('string');
   if (!manifestContent) {
@@ -369,6 +513,7 @@ export async function readImportedProjectArchive(
   }
 
   const manifest = JSON.parse(manifestContent) as ProjectManifest;
+  assertProjectManifestWithinLimits(manifest);
   const assetFiles = await loadPackedAssetFiles(zip, manifest);
   const assetPaths = new Set(assetFiles.map((assetFile) => assetFile.name));
   const availableFiles = await loadLibraryFiles(zip, manifest, assetPaths);
@@ -379,6 +524,7 @@ export async function readImportedProjectArchive(
     manifest.assets.allFileContentsFile ?? PROJECT_ALL_FILE_CONTENTS_FILE,
     'all file contents record',
   );
+  assertAllFileContentsWithinLimits(allFileContents);
 
   const motorLibrary = await loadRequiredJsonRecord<Record<string, MotorSpec[]>>(
     zip,

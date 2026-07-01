@@ -21,6 +21,8 @@ interface UsdExportWorkerClient {
   export: (options: ExportRobotToUsdOptions) => Promise<ExportRobotToUsdPayload>;
 }
 
+const DEFAULT_USD_EXPORT_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+
 export function createUsdExportWorkerClient({
   canUseWorker = () => typeof Worker !== 'undefined',
   createWorker = () =>
@@ -34,6 +36,7 @@ export function createUsdExportWorkerClient({
     label: 'USD export',
     createWorker,
     canUseWorker,
+    requestTimeoutMs: DEFAULT_USD_EXPORT_REQUEST_TIMEOUT_MS,
     getRequestId: (response) => response.requestId,
     isError: (response) => response.type === 'export-robot-to-usd-error',
     getError: (response) => (response as { error?: string }).error || 'USD export worker failed',

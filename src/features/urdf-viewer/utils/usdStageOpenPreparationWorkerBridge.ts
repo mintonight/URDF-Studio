@@ -14,8 +14,14 @@ import {
 } from './usdStageOpenPreparationWorkerPayload.ts';
 
 interface WorkerLike {
-  addEventListener: (type: 'message' | 'error', listener: EventListenerOrEventListenerObject) => void;
-  removeEventListener: (type: 'message' | 'error', listener: EventListenerOrEventListenerObject) => void;
+  addEventListener: (
+    type: 'message' | 'error' | 'messageerror',
+    listener: EventListenerOrEventListenerObject,
+  ) => void;
+  removeEventListener: (
+    type: 'message' | 'error' | 'messageerror',
+    listener: EventListenerOrEventListenerObject,
+  ) => void;
   postMessage: (message: UsdStageOpenPreparationWorkerRequest) => void;
   terminate: () => void;
 }
@@ -23,11 +29,13 @@ interface WorkerLike {
 interface PendingWorkerRequest {
   resolve: (value: PreparedUsdStageOpenData) => void;
   reject: (error: unknown) => void;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 interface CreateUsdStageOpenPreparationWorkerClientOptions {
   canUseWorker?: () => boolean;
   createWorker?: () => WorkerLike;
+  requestTimeoutMs?: number;
 }
 
 const EMPTY_PREPARED_USD_STAGE_OPEN_DATA: PreparedUsdStageOpenData = {
@@ -53,6 +61,15 @@ function createWorkerError(event: ErrorEvent | { error?: unknown; message?: stri
   return new Error(event.message || 'USD stage preparation worker failed');
 }
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+
+function createWorkerTimeoutError(requestId: number, timeoutMs: number): Error {
+  return new Error(
+    'USD stage preparation worker did not respond within the timeout '
+      + `(likely a worker crash). Request id: ${requestId}. Timeout: ${timeoutMs} ms.`,
+  );
+}
+
 export function createUsdStageOpenPreparationWorkerClient(
   {
     canUseWorker = () => typeof Worker !== 'undefined',
@@ -60,6 +77,7 @@ export function createUsdStageOpenPreparationWorkerClient(
       new URL('../workers/usdStageOpenPreparation.worker.ts', import.meta.url),
       { type: 'module' },
     ),
+    requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   }: CreateUsdStageOpenPreparationWorkerClientOptions = {},
 ): UsdStageOpenPreparationWorkerClient {
   const pendingRequests = new Map<number, PendingWorkerRequest>();
@@ -76,25 +94,46 @@ export function createUsdStageOpenPreparationWorkerClient(
     }
 
     pendingRequests.delete(requestId);
+    if (pendingRequest.timeoutId !== undefined) {
+      clearTimeout(pendingRequest.timeoutId);
+      pendingRequest.timeoutId = undefined;
+    }
     return pendingRequest;
   };
 
   const disposeSharedWorker = (rejectPendingWith?: unknown): void => {
+    const rejectionReason = rejectPendingWith ?? new Error('USD stage preparation worker disposed');
+
     if (sharedWorker) {
       sharedWorker.removeEventListener('message', handleSharedWorkerMessage as EventListener);
       sharedWorker.removeEventListener('error', handleSharedWorkerError as EventListener);
+      sharedWorker.removeEventListener(
+        'messageerror',
+        handleSharedWorkerMessageError as EventListener,
+      );
       sharedWorker.terminate();
       sharedWorker = null;
     }
 
     syncedContextIdsByCacheKey.clear();
 
-    if (rejectPendingWith !== undefined) {
-      pendingRequests.forEach((request, requestId) => {
+    if (pendingRequests.size > 0) {
+      Array.from(pendingRequests.entries()).forEach(([requestId, request]) => {
         clearPendingRequest(requestId);
-        request.reject(rejectPendingWith);
+        request.reject(rejectionReason);
       });
     }
+  };
+
+  const registerRequestTimeout = (requestId: number, request: PendingWorkerRequest): void => {
+    if (!requestTimeoutMs || !Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0) {
+      return;
+    }
+
+    request.timeoutId = setTimeout(() => {
+      const timeoutError = createWorkerTimeoutError(requestId, requestTimeoutMs);
+      disposeSharedWorker(timeoutError);
+    }, requestTimeoutMs);
   };
 
   const handleSharedWorkerMessage = (event: MessageEvent<UsdStageOpenPreparationWorkerResponse>): void => {
@@ -125,11 +164,18 @@ export function createUsdStageOpenPreparationWorkerClient(
     disposeSharedWorker(createWorkerError(event));
   };
 
+  const handleSharedWorkerMessageError = (): void => {
+    workerUnavailable = true;
+    disposeSharedWorker(new Error('USD stage preparation worker message transfer failed'));
+  };
+
   const ensureSharedWorker = (): WorkerLike => {
     if (!sharedWorker) {
+      workerUnavailable = false;
       sharedWorker = createWorker();
       sharedWorker.addEventListener('message', handleSharedWorkerMessage as EventListener);
       sharedWorker.addEventListener('error', handleSharedWorkerError as EventListener);
+      sharedWorker.addEventListener('messageerror', handleSharedWorkerMessageError as EventListener);
     }
 
     return sharedWorker;
@@ -173,7 +219,7 @@ export function createUsdStageOpenPreparationWorkerClient(
     availableFiles: Array<Pick<RobotFile, 'name' | 'content' | 'blobUrl' | 'format'>>,
     assets: Record<string, string>,
   ): Promise<PreparedUsdStageOpenData> => {
-    if (workerUnavailable) {
+    if (workerUnavailable && sharedWorker) {
       throw new Error('USD stage preparation worker is unavailable');
     }
 
@@ -206,10 +252,12 @@ export function createUsdStageOpenPreparationWorkerClient(
         contextId,
       };
 
-      pendingRequests.set(requestId, {
+      const pendingRequest: PendingWorkerRequest = {
         resolve: resolveRequest,
         reject: rejectRequest,
-      });
+      };
+      pendingRequests.set(requestId, pendingRequest);
+      registerRequestTimeout(requestId, pendingRequest);
 
       try {
         worker.postMessage(request);

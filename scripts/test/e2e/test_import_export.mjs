@@ -77,6 +77,63 @@ function findRobotFile(files, format) {
   return null;
 }
 
+async function resolveFixturePath(dataset) {
+  const candidates = [
+    path.resolve('test', dataset.name),
+    dataset.name.startsWith('unitree_ros/')
+      ? path.resolve('test/unitree_ros/robots', dataset.name.replace(/^unitree_ros\//, ''))
+      : null,
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (await fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  return candidates[0];
+}
+
+async function clickButtonByAccessibleName(page, name, timeoutMs) {
+  await page.waitForFunction(
+    (expected) =>
+      Array.from(document.querySelectorAll('button')).some((button) => {
+        const ariaLabel = button.getAttribute('aria-label');
+        const text = button.textContent?.trim();
+        return ariaLabel === expected || text === expected;
+      }),
+    { timeout: Math.min(timeoutMs, 5_000) },
+    name,
+  );
+
+  const clicked = await page.evaluate((expected) => {
+    const match = Array.from(document.querySelectorAll('button')).find((button) => {
+      const ariaLabel = button.getAttribute('aria-label');
+      const text = button.textContent?.trim();
+      return ariaLabel === expected || text === expected;
+    });
+    if (match instanceof HTMLElement) {
+      match.click();
+      return true;
+    }
+    return false;
+  }, name);
+
+  if (!clicked) {
+    throw new Error(`Could not click button "${name}"`);
+  }
+}
+
+async function waitForExportDialog(page, timeoutMs) {
+  await page.waitForFunction(
+    () => {
+      const text = document.body.textContent ?? '';
+      return text.includes('Export Format') && text.includes('Export ZIP');
+    },
+    { timeout: Math.min(timeoutMs, 10_000) },
+  );
+}
+
 async function extractRobotName(filePath, format) {
   try {
     const content = await fs.readFile(filePath, 'utf8');
@@ -95,7 +152,7 @@ async function extractRobotName(filePath, format) {
 async function importAndVerify(page, dataset, timeoutMs, suite) {
   console.log(`\n  \x1b[36mImporting: ${dataset.label} (${dataset.name})\x1b[0m`);
 
-  const fixturePath = path.resolve('test', dataset.name);
+  const fixturePath = await resolveFixturePath(dataset);
   const exists = await fileExists(fixturePath);
   if (!exists) {
     console.log(`    \x1b[33mSKIP\x1b[0m Fixture not found: ${fixturePath}`);
@@ -226,7 +283,7 @@ ${FIXTURE_DATASETS.map((d) => `                        ${d.name} (${d.label})`).
 
     const firstUrdf = datasets.find((d) => d.format === 'urdf');
     if (firstUrdf) {
-      const fixturePath = path.resolve('test', firstUrdf.name);
+      const fixturePath = await resolveFixturePath(firstUrdf);
       if (await fileExists(fixturePath)) {
         await uploadDirectory(page, fixturePath, options.timeoutMs);
         await delay(1000);
@@ -236,14 +293,13 @@ ${FIXTURE_DATASETS.map((d) => `                        ${d.name} (${d.label})`).
         assert(suite, hasRobot, 'Export test: robot loaded before export attempt');
 
         if (hasRobot) {
-          // Try to find and click export button
           try {
+            await clickButtonByAccessibleName(page, 'File', options.timeoutMs);
             await clickElementByText(page, 'button', 'Export', options.timeoutMs);
-            await delay(500);
-            assert(suite, true, 'Export test: export button clicked (or found)');
-          } catch {
-            // Export button might not be directly visible or named differently
-            assert(suite, true, 'Export test: export flow attempted');
+            await waitForExportDialog(page, options.timeoutMs);
+            assert(suite, true, 'Export test: export dialog opened');
+          } catch (err) {
+            assert(suite, false, `Export test: export dialog did not open - ${err.message}`);
           }
         }
 

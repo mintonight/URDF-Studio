@@ -39,6 +39,12 @@ class FakeWorker {
       handler({ data: message });
     });
   }
+
+  emitMessageError(error: Error): void {
+    this.listeners.get('messageerror')?.forEach((handler) => {
+      handler({ error, message: error.message });
+    });
+  }
 }
 
 test('USD stage open preparation worker client resolves successful worker responses', async () => {
@@ -85,6 +91,31 @@ test('USD stage open preparation worker client resolves successful worker respon
     Array.from(new Uint8Array(await result.preloadFiles[0]!.blob!.arrayBuffer())),
     Array.from(new TextEncoder().encode('go2-root')),
   );
+});
+
+test('USD stage open preparation worker client rejects pending work when message transfer fails', async () => {
+  const fakeWorker = new FakeWorker();
+  const client = createUsdStageOpenPreparationWorkerClient({
+    canUseWorker: () => true,
+    createWorker: () => fakeWorker as unknown as Worker,
+    requestTimeoutMs: 0,
+  });
+
+  const resultPromise = client.prepare(
+    {
+      name: 'robots/go2/usd/go2.usd',
+      content: '#usda 1.0',
+      blobUrl: undefined,
+    },
+    [],
+    {},
+  );
+
+  assert.equal(fakeWorker.postedMessages.length, 1);
+  fakeWorker.emitMessageError(new Error('structured clone failed'));
+
+  await assert.rejects(resultPromise, /message transfer failed/i);
+  assert.equal(fakeWorker.terminated, true);
 });
 
 test('USD stage open preparation worker client syncs pruned context once and reuses the context id', async () => {
@@ -258,4 +289,60 @@ test('USD stage open preparation worker client strips blob-backed large USDA tex
 
   const result = await resultPromise;
   assert.equal(result.stageSourcePath, '/robots/go2/usd/go2_description.usda');
+});
+
+test('USD stage open preparation worker client times out silent workers and recovers with a fresh worker', async () => {
+  const createdWorkers: FakeWorker[] = [];
+  const client = createUsdStageOpenPreparationWorkerClient({
+    canUseWorker: () => true,
+    createWorker: () => {
+      const worker = new FakeWorker();
+      createdWorkers.push(worker);
+      return worker as unknown as Worker;
+    },
+    requestTimeoutMs: 10,
+  });
+
+  await assert.rejects(
+    client.prepare(
+      {
+        name: 'robots/go2/usd/go2.usd',
+        content: '#usda 1.0',
+        blobUrl: undefined,
+      },
+      [],
+      {},
+    ),
+    /did not respond within the timeout/i,
+  );
+
+  assert.equal(createdWorkers.length, 1);
+  assert.equal(createdWorkers[0].terminated, true);
+
+  const recoveredPromise = client.prepare(
+    {
+      name: 'robots/go2/usd/go2.usd',
+      content: '#usda 1.0',
+      blobUrl: undefined,
+    },
+    [],
+    {},
+  );
+
+  assert.equal(createdWorkers.length, 2);
+  assert.notEqual(createdWorkers[1], createdWorkers[0]);
+
+  const postedRequest = createdWorkers[1].postedMessages[0] as { requestId: number };
+  createdWorkers[1].emitMessage({
+    type: 'prepare-usd-stage-open-result',
+    requestId: postedRequest.requestId,
+    result: {
+      stageSourcePath: '/robots/go2/usd/go2.usd',
+      criticalDependencyPaths: [],
+      preloadFiles: [],
+    },
+  });
+
+  const result = await recoveredPromise;
+  assert.equal(result.stageSourcePath, '/robots/go2/usd/go2.usd');
 });

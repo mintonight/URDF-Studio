@@ -37,6 +37,8 @@ type ProgressPayload = {
   label?: string;
 };
 
+const DEFAULT_PROJECT_ARCHIVE_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+
 export function createProjectArchiveWorkerClient({
   canUseWorker = () => typeof Worker !== 'undefined',
   createWorker = () =>
@@ -46,6 +48,7 @@ export function createProjectArchiveWorkerClient({
     label: 'Project archive',
     createWorker,
     canUseWorker,
+    requestTimeoutMs: DEFAULT_PROJECT_ARCHIVE_REQUEST_TIMEOUT_MS,
     getRequestId: (response) => response.requestId,
     isError: (response) => response.type === 'build-project-archive-error',
     getError: (response) =>

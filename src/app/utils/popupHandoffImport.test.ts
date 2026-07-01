@@ -8,6 +8,10 @@ import {
   resolvePopupHandoffImport,
   stripPopupHandoffQueryParam,
 } from './popupHandoffImport.ts';
+import {
+  isAllowedHandoffOrigin,
+  normalizeHandoffOrigin,
+} from '@/shared/utils/popupHandoffProtocol.ts';
 
 test('readPopupHandoffId returns null when the query is absent', () => {
   assert.equal(readPopupHandoffId('?foo=bar'), null);
@@ -19,6 +23,12 @@ test('readPopupHandoffId returns the handoff query value', () => {
 
 test('stripPopupHandoffQueryParam removes only the handoff query key', () => {
   assert.equal(stripPopupHandoffQueryParam('/?handoff=abc123&foo=bar#hash'), '/?foo=bar#hash');
+});
+
+test('handoff origin validation rejects userinfo host confusion', () => {
+  assert.equal(normalizeHandoffOrigin('http://localhost:80@evil.example'), null);
+  assert.equal(isAllowedHandoffOrigin('http://localhost:80@evil.example'), false);
+  assert.equal(isAllowedHandoffOrigin('http://localhost:5173'), true);
 });
 
 test('resolvePopupHandoffImport returns ready when a stored archive exists', async () => {

@@ -41,6 +41,7 @@ interface HeaderMenusProps {
   onImportFolder: () => void;
   onOpenExport: () => void;
   onExportProject: () => void;
+  isExportingProject?: boolean;
   toolboxItems: ToolboxItem[];
   onOpenCodeViewer: () => void;
   onPrefetchCodeViewer: () => void;
@@ -65,6 +66,7 @@ export function HeaderMenus({
   onImportFolder,
   onOpenExport,
   onExportProject,
+  isExportingProject = false,
   toolboxItems,
   onOpenCodeViewer,
   onPrefetchCodeViewer,
@@ -147,7 +149,11 @@ export function HeaderMenus({
               </HeaderMenuItem>
               <HeaderMenuItem
                 icon={Briefcase}
+                disabled={isExportingProject}
                 onClick={() => {
+                  if (isExportingProject) {
+                    return;
+                  }
                   setActiveMenu(null);
                   onExportProject();
                 }}

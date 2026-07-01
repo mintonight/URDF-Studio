@@ -104,6 +104,7 @@ class TextureRegistry {
         this.allPaths = config.paths;
         this.textures = [];
         this._disposed = false;
+        this._pendingBlobObjectUrls = new Set();
         this.loader = new TextureLoader();
         this.tgaLoader = new TGALoader();
         this.exrLoader = new EXRLoader();
@@ -127,6 +128,17 @@ class TextureRegistry {
         if (this._disposed === true)
             return;
         this._disposed = true;
+        if (this._pendingBlobObjectUrls instanceof Set) {
+            this._pendingBlobObjectUrls.forEach((url) => {
+                try {
+                    URL.revokeObjectURL(url);
+                }
+                catch {
+                    // best-effort cleanup, never block texture lifecycle
+                }
+            });
+            this._pendingBlobObjectUrls.clear();
+        }
         const managedEntries = Array.isArray(this.textures)
             ? Object.values(this.textures)
             : [];
@@ -227,6 +239,7 @@ class TextureRegistry {
                     createdBlob = new Blob([_loadedFile.slice(0)], { type: filetype });
                     url = URL.createObjectURL(createdBlob);
                     createdBlobObjectUrl = true;
+                    this._pendingBlobObjectUrls?.add?.(url);
                 }
                 else {
                     if (baseUrl)
@@ -241,7 +254,10 @@ class TextureRegistry {
                 let loadFinished = false;
                 let blobUrlReleased = false;
                 const releaseBlobObjectUrl = () => {
-                    if (blobUrlReleased || !createdBlobObjectUrl || !url)
+                    if (!createdBlobObjectUrl || !url)
+                        return;
+                    this._pendingBlobObjectUrls?.delete?.(url);
+                    if (blobUrlReleased)
                         return;
                     blobUrlReleased = true;
                     try {

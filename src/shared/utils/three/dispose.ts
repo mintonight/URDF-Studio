@@ -1,5 +1,11 @@
 import * as THREE from 'three';
 
+type DisposableObject3D = THREE.Object3D & {
+  geometry?: { dispose?: () => void };
+  material?: THREE.Material | THREE.Material[];
+  skeleton?: THREE.Skeleton;
+};
+
 function closeTextureImageIfNeeded(texture: THREE.Texture): void {
   const image = (texture as THREE.Texture & { image?: unknown }).image as
     | { close?: () => void }
@@ -61,12 +67,13 @@ export function disposeObject3D(
   if (!object) return;
   const disposedSkeletons = new Set<THREE.Skeleton>();
 
-  object.traverse((child: any) => {
-    if (child.geometry) {
-      child.geometry.dispose();
+  object.traverse((child) => {
+    const disposableChild = child as DisposableObject3D;
+    if (disposableChild.geometry) {
+      disposableChild.geometry.dispose?.();
     }
 
-    const skeleton = child.skeleton;
+    const skeleton = disposableChild.skeleton;
     if (
       skeleton instanceof THREE.Skeleton &&
       !disposedSkeletons.has(skeleton) &&
@@ -76,8 +83,35 @@ export function disposeObject3D(
       skeleton.dispose();
     }
 
-    if (child.material) {
-      disposeMaterial(child.material, disposeTextures, excludeMaterials);
+    if (disposableChild.material) {
+      disposeMaterial(disposableChild.material, disposeTextures, excludeMaterials);
+    }
+
+    releaseKnownObjectReferences(child as THREE.Object3D & Record<string, unknown>);
+  });
+
+  releaseKnownObjectReferences(object as THREE.Object3D & Record<string, unknown>);
+  object.clear();
+
+  if (object.parent) {
+    object.parent.remove(object);
+  }
+}
+
+export function disposeObject3DGraph(object: THREE.Object3D | null): void {
+  if (!object) return;
+  const disposedSkeletons = new Set<THREE.Skeleton>();
+
+  object.traverse((child) => {
+    const disposableChild = child as DisposableObject3D;
+    const skeleton = disposableChild.skeleton;
+    if (
+      skeleton instanceof THREE.Skeleton &&
+      !disposedSkeletons.has(skeleton) &&
+      typeof skeleton.dispose === 'function'
+    ) {
+      disposedSkeletons.add(skeleton);
+      skeleton.dispose();
     }
 
     releaseKnownObjectReferences(child as THREE.Object3D & Record<string, unknown>);
@@ -142,7 +176,7 @@ export function disposeTexturesFromMaterial(material: THREE.Material): void {
   const visitedTextures = new Set<THREE.Texture>();
 
   for (const prop of textureProperties) {
-    const texture = (material as any)[prop];
+    const texture = (material as unknown as Record<string, unknown>)[prop];
     if (texture && texture instanceof THREE.Texture && !visitedTextures.has(texture)) {
       visitedTextures.add(texture);
       closeTextureImageIfNeeded(texture);
