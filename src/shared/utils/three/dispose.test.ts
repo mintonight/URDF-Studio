@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import * as THREE from 'three';
 
-import { disposeObject3D, disposeWebGLRenderer } from './dispose.ts';
+import { disposeObject3D, disposeObject3DGraph, disposeWebGLRenderer } from './dispose.ts';
 
 test('disposeObject3D disposes shared skeletons once and clears the object tree', () => {
   const root = new THREE.Group();
@@ -47,6 +47,44 @@ test('disposeObject3D disposes shared skeletons once and clears the object tree'
   assert.equal(root.children.length, 0);
   assert.deepEqual((root as THREE.Group & { links?: Record<string, THREE.Object3D> }).links, {});
   assert.deepEqual((root as THREE.Group & { joints?: Record<string, THREE.Object3D> }).joints, {});
+});
+
+test('disposeObject3DGraph clears primitive clones without disposing shared geometry or material', () => {
+  const root = new THREE.Group();
+  const geometry = new THREE.BufferGeometry();
+  const material = new THREE.MeshBasicMaterial();
+  const bone = new THREE.Bone();
+  const skeleton = new THREE.Skeleton([bone]);
+  let skeletonDisposeCount = 0;
+  let geometryDisposeCount = 0;
+  let materialDisposeCount = 0;
+  const originalSkeletonDispose = skeleton.dispose.bind(skeleton);
+  const originalGeometryDispose = geometry.dispose.bind(geometry);
+  const originalMaterialDispose = material.dispose.bind(material);
+  skeleton.dispose = () => {
+    skeletonDisposeCount += 1;
+    originalSkeletonDispose();
+  };
+  geometry.dispose = () => {
+    geometryDisposeCount += 1;
+    originalGeometryDispose();
+  };
+  material.dispose = () => {
+    materialDisposeCount += 1;
+    originalMaterialDispose();
+  };
+
+  const mesh = new THREE.SkinnedMesh(geometry, material);
+  mesh.add(bone);
+  mesh.bind(skeleton);
+  root.add(mesh);
+
+  disposeObject3DGraph(root);
+
+  assert.equal(skeletonDisposeCount, 1);
+  assert.equal(geometryDisposeCount, 0);
+  assert.equal(materialDisposeCount, 0);
+  assert.equal(root.children.length, 0);
 });
 
 test('disposeWebGLRenderer releases renderer caches without forcing context loss by default', () => {

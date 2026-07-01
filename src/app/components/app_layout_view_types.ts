@@ -58,6 +58,7 @@ export interface AppLayoutImportInputProps {
 export interface AppLayoutHeaderSectionProps {
   onOpenExport: AppLayoutProps['onOpenExport'];
   onExportProject: AppLayoutProps['onExportProject'];
+  isExportingProject: NonNullable<AppLayoutProps['isExportingProject']>;
   onOpenSettings: AppLayoutProps['onOpenSettings'];
   headerQuickAction: AppLayoutProps['headerQuickAction'];
   headerSecondaryAction: AppLayoutProps['headerSecondaryAction'];

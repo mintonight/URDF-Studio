@@ -34,6 +34,18 @@ class FakeWorker {
       handler({ data });
     });
   }
+
+  emitError(error: unknown): void {
+    this.listeners.get('error')?.forEach((handler) => {
+      handler({ error, message: error instanceof Error ? error.message : String(error) });
+    });
+  }
+
+  emitMessageError(): void {
+    this.listeners.get('messageerror')?.forEach((handler) => {
+      handler({ message: 'message transfer failed' });
+    });
+  }
 }
 
 function emitMeshParseResults(workers: FakeWorker[]): void {
@@ -126,6 +138,58 @@ test('shared mesh parse worker pool grows to the configured budget for OBJ tasks
 
   emitMeshParseResults(workers);
   await Promise.all(loads);
+  assert.equal(meshClient.getDiagnostics().pendingCount, 0);
+});
+
+test('shared mesh parse worker pool recovers after a worker crash', async () => {
+  const workers: FakeWorker[] = [];
+  const meshClient = createMeshParseWorkerPoolClient({
+    canUseWorker: () => true,
+    createWorker: () => {
+      const worker = new FakeWorker();
+      workers.push(worker);
+      return worker as unknown as WorkerLike;
+    },
+    getWorkerCount: () => 1,
+  });
+  const objClient = createObjParseWorkerPoolClient({ meshClient });
+
+  const failedLoad = objClient.load('/bad.obj');
+  assert.equal(workers.length, 1);
+  workers[0].emitError(new Error('worker crashed'));
+  await assert.rejects(failedLoad, /worker crashed/i);
+  assert.equal(meshClient.getDiagnostics().workerCount, 0);
+
+  const recoveredLoad = objClient.load('/good.obj');
+  assert.equal(workers.length, 2);
+  emitMeshParseResults([workers[1]]);
+  await recoveredLoad;
+  assert.equal(meshClient.getDiagnostics().pendingCount, 0);
+});
+
+test('shared mesh parse worker pool recovers after message transfer failure', async () => {
+  const workers: FakeWorker[] = [];
+  const meshClient = createMeshParseWorkerPoolClient({
+    canUseWorker: () => true,
+    createWorker: () => {
+      const worker = new FakeWorker();
+      workers.push(worker);
+      return worker as unknown as WorkerLike;
+    },
+    getWorkerCount: () => 1,
+  });
+  const colladaClient = createColladaParseWorkerPoolClient({ meshClient });
+
+  const failedLoad = colladaClient.loadSerialized('/bad.dae');
+  assert.equal(workers.length, 1);
+  workers[0].emitMessageError();
+  await assert.rejects(failedLoad, /message transfer failed/i);
+  assert.equal(meshClient.getDiagnostics().workerCount, 0);
+
+  const recoveredLoad = colladaClient.loadSerialized('/good.dae');
+  assert.equal(workers.length, 2);
+  emitMeshParseResults([workers[1]]);
+  await recoveredLoad;
   assert.equal(meshClient.getDiagnostics().pendingCount, 0);
 });
 

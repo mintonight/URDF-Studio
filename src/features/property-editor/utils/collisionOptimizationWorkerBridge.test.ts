@@ -49,6 +49,12 @@ class FakeWorker {
       handler({ error, message: error.message });
     });
   }
+
+  emitMessageError(error: Error): void {
+    this.listeners.get('messageerror')?.forEach((handler) => {
+      handler({ error, message: error.message });
+    });
+  }
 }
 
 function createGeometry(type: GeometryType, dimensions = { x: 0.1, y: 0.1, z: 1 }): UrdfVisual {
@@ -237,6 +243,57 @@ test('collision optimization worker client falls back inline after worker startu
   });
 
   fakeWorker.emitError(new Error('worker module failed to load'));
+
+  assert.equal(await resultPromise, analysis);
+  assert.equal(inlineCalled, true);
+  assert.equal(fakeWorker.terminated, true);
+});
+
+test('collision optimization worker client falls back inline after request timeout', async () => {
+  const fakeWorker = new FakeWorker();
+  const analysis = createAnalysis();
+  let inlineRequestId: number | null = null;
+  const client = createCollisionOptimizationWorkerClient({
+    canUseWorker: () => true,
+    createWorker: () => fakeWorker as unknown as Worker,
+    requestTimeoutMs: 10,
+    runInlineAnalysis: async (args) => {
+      inlineRequestId = args.requestId;
+      return analysis;
+    },
+  });
+
+  const result = await client.analyze({
+    source: { kind: 'robot', robot: createRobot() },
+    assets: {},
+    settings: createSettings(),
+  });
+
+  assert.equal(result, analysis);
+  assert.equal(inlineRequestId, 1);
+  assert.equal(fakeWorker.terminated, true);
+});
+
+test('collision optimization worker client falls back inline after message transfer failures', async () => {
+  const fakeWorker = new FakeWorker();
+  const analysis = createAnalysis();
+  let inlineCalled = false;
+  const client = createCollisionOptimizationWorkerClient({
+    canUseWorker: () => true,
+    createWorker: () => fakeWorker as unknown as Worker,
+    runInlineAnalysis: async () => {
+      inlineCalled = true;
+      return analysis;
+    },
+  });
+
+  const resultPromise = client.analyze({
+    source: { kind: 'robot', robot: createRobot() },
+    assets: {},
+    settings: createSettings(),
+  });
+
+  fakeWorker.emitMessageError(new Error('structured clone failed'));
 
   assert.equal(await resultPromise, analysis);
   assert.equal(inlineCalled, true);

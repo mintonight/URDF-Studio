@@ -4,6 +4,7 @@ import {
   HANDOFF_BROADCAST_TIMEOUT_MS,
   type HandoffBroadcastMessage,
   isAllowedHandoffOrigin,
+  normalizeHandoffOrigin,
   readImportParamsFromUrl,
   stripImportParamsFromUrl,
 } from '@/shared/utils/popupHandoffProtocol';
@@ -60,7 +61,7 @@ function stopTitleBlink() {
   }
 }
 
-interface FileDownloadInfo {
+export interface FileDownloadInfo {
   path: string;
   url: string;
 }
@@ -74,6 +75,10 @@ interface AssetDownloadResponse {
     urdfFile?: string;
   };
 }
+
+const MAX_REMOTE_IMPORT_FILE_COUNT = 2_000;
+const MAX_REMOTE_IMPORT_TOTAL_BYTES = 512 * 1024 * 1024;
+const MAX_REMOTE_IMPORT_SINGLE_FILE_BYTES = 512 * 1024 * 1024;
 
 export interface ImportFromUrlProgress {
   /** Current file index (1-based) */
@@ -97,6 +102,71 @@ type UseAssetImportFromUrlOptions = {
   handleImport: (files: readonly File[]) => Promise<{ status: 'completed' | 'skipped' | 'failed' }>;
   onImportComplete?: (success: boolean) => void;
 };
+
+export function resolveAllowedRemoteImportOrigin(fromOrigin: string): string | null {
+  const normalizedOrigin = normalizeHandoffOrigin(fromOrigin);
+  if (!normalizedOrigin || !isAllowedHandoffOrigin(normalizedOrigin)) {
+    return null;
+  }
+
+  return normalizedOrigin;
+}
+
+export function assertRemoteImportFileListWithinLimits(files: readonly FileDownloadInfo[]): void {
+  if (files.length > MAX_REMOTE_IMPORT_FILE_COUNT) {
+    throw new Error(
+      `Remote import contains too many files (${files.length}). `
+        + `Maximum: ${MAX_REMOTE_IMPORT_FILE_COUNT}.`,
+    );
+  }
+}
+
+export function resolveRemoteImportFileUrl(rawUrl: string, expectedOrigin: string): URL {
+  const url = new URL(rawUrl);
+  if (url.origin !== expectedOrigin) {
+    throw new Error(`Unexpected asset download origin: ${url.origin}`);
+  }
+
+  return url;
+}
+
+export function assertRemoteImportContentLengthWithinLimits(
+  response: Response,
+  currentTotalBytes: number,
+): void {
+  const contentLength = Number(response.headers.get('content-length') ?? 0);
+  if (!Number.isFinite(contentLength) || contentLength <= 0) {
+    return;
+  }
+
+  if (contentLength > MAX_REMOTE_IMPORT_SINGLE_FILE_BYTES) {
+    throw new Error(
+      `Remote file is too large (${contentLength} bytes). `
+        + `Maximum: ${MAX_REMOTE_IMPORT_SINGLE_FILE_BYTES} bytes.`,
+    );
+  }
+  if (currentTotalBytes + contentLength > MAX_REMOTE_IMPORT_TOTAL_BYTES) {
+    throw new Error(
+      `Remote import is too large (${currentTotalBytes + contentLength} bytes). `
+        + `Maximum: ${MAX_REMOTE_IMPORT_TOTAL_BYTES} bytes.`,
+    );
+  }
+}
+
+export function assertRemoteImportBlobWithinLimits(blob: Blob, nextTotalBytes: number): void {
+  if (blob.size > MAX_REMOTE_IMPORT_SINGLE_FILE_BYTES) {
+    throw new Error(
+      `Remote file is too large (${blob.size} bytes). `
+        + `Maximum: ${MAX_REMOTE_IMPORT_SINGLE_FILE_BYTES} bytes.`,
+    );
+  }
+  if (nextTotalBytes > MAX_REMOTE_IMPORT_TOTAL_BYTES) {
+    throw new Error(
+      `Remote import is too large (${nextTotalBytes} bytes). `
+        + `Maximum: ${MAX_REMOTE_IMPORT_TOTAL_BYTES} bytes.`,
+    );
+  }
+}
 
 /**
  * Hook to import assets from BOT-World via URL parameters.
@@ -124,7 +194,8 @@ export function useAssetImportFromUrl(options: UseAssetImportFromUrlOptions) {
   //  Core import logic (shared by self-import and delegated import)
   // -----------------------------------------------------------------------
   const importAssetFromBotWorld = useCallback(async (assetId: string, fromOrigin: string) => {
-    if (!isAllowedHandoffOrigin(fromOrigin)) {
+    const remoteImportOrigin = resolveAllowedRemoteImportOrigin(fromOrigin);
+    if (!remoteImportOrigin) {
       setState({
         isImporting: false,
         error: `Unauthorized origin: ${fromOrigin}`,
@@ -138,14 +209,13 @@ export function useAssetImportFromUrl(options: UseAssetImportFromUrlOptions) {
     setState({ isImporting: true, error: null, phase: 'fetching', progress: null });
 
     try {
-      const apiUrl = new URL('/api/download-asset', fromOrigin);
-      const token = import.meta.env.VITE_API_TOKEN;
+      const apiUrl = new URL('/api/download-asset', remoteImportOrigin);
 
       const response = await fetch(apiUrl.toString(), {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ assetId }),
       });
@@ -160,6 +230,7 @@ export function useAssetImportFromUrl(options: UseAssetImportFromUrlOptions) {
       }
 
       const { files, rootFolderName } = result.data;
+      assertRemoteImportFileListWithinLimits(files);
 
       setState({
         isImporting: true,
@@ -173,6 +244,7 @@ export function useAssetImportFromUrl(options: UseAssetImportFromUrlOptions) {
       });
 
       const downloadedFiles: File[] = [];
+      let totalDownloadedBytes = 0;
       for (let i = 0; i < files.length; i++) {
         const fileInfo = files[i];
         setState((prev) => ({
@@ -184,12 +256,16 @@ export function useAssetImportFromUrl(options: UseAssetImportFromUrlOptions) {
           },
         }));
 
-        const fileResp = await fetch(fileInfo.url);
+        const fileUrl = resolveRemoteImportFileUrl(fileInfo.url, remoteImportOrigin);
+        const fileResp = await fetch(fileUrl.toString(), { credentials: 'include' });
         if (!fileResp.ok) {
           throw new Error(`Failed to download ${fileInfo.path}: ${fileResp.statusText}`);
         }
+        assertRemoteImportContentLengthWithinLimits(fileResp, totalDownloadedBytes);
 
         const blob = await fileResp.blob();
+        totalDownloadedBytes += blob.size;
+        assertRemoteImportBlobWithinLimits(blob, totalDownloadedBytes);
         const fileName = fileInfo.path.split('/').pop() || fileInfo.path;
         const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
 

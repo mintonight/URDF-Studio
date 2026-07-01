@@ -70,6 +70,7 @@ export interface StartUsdRobotStateHydrationOptions {
   ) => void;
   onPreparedCacheError?: (error: Error, stageSourcePath: string | null) => void;
   onEvent?: (event: UsdOffscreenViewerWorkerResponse) => void;
+  hydrationTimeoutMs?: number;
 }
 
 const defaultWorkerClient: UsdRobotStateHydrationWorkerClient = {
@@ -78,6 +79,7 @@ const defaultWorkerClient: UsdRobotStateHydrationWorkerClient = {
 };
 
 const POST_RESOLVE_WORKER_GRACE_MS = 60_000;
+const DEFAULT_USD_ROBOT_STATE_HYDRATION_TIMEOUT_MS = 5 * 60 * 1000;
 
 function createDefaultOffscreenCanvas(): OffscreenCanvas {
   if (typeof OffscreenCanvas === 'undefined') {
@@ -132,6 +134,7 @@ export function startUsdRobotStateHydration({
   onPreparedCache,
   onPreparedCacheError,
   onEvent,
+  hydrationTimeoutMs = DEFAULT_USD_ROBOT_STATE_HYDRATION_TIMEOUT_MS,
 }: StartUsdRobotStateHydrationOptions): UsdRobotStateHydrationHandle {
   const normalizedSourceFileName = normalizeHydrationPath(sourceFile.name);
   let settled = false;
@@ -144,6 +147,7 @@ export function startUsdRobotStateHydration({
   let deferredSceneSnapshotPending = false;
   let rejectPromise: (reason?: unknown) => void = () => {};
   let deferredSceneSnapshotShutdownTimer: ReturnType<typeof setTimeout> | null = null;
+  let hydrationTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
   const stageDispatch = workerClient.prepareStageOpenDispatch(sourceFile, availableFiles, assets);
   const worker = stageDispatch.worker;
@@ -156,6 +160,14 @@ export function startUsdRobotStateHydration({
     signal?.removeEventListener('abort', handleAbort);
   };
 
+  const clearHydrationTimeout = () => {
+    if (!hydrationTimeoutTimer) {
+      return;
+    }
+    clearTimeout(hydrationTimeoutTimer);
+    hydrationTimeoutTimer = null;
+  };
+
   const shutdown = () => {
     if (cleanedUp) {
       return;
@@ -165,6 +177,7 @@ export function startUsdRobotStateHydration({
       clearTimeout(deferredSceneSnapshotShutdownTimer);
       deferredSceneSnapshotShutdownTimer = null;
     }
+    clearHydrationTimeout();
     cleanupListeners();
     workerClient.shutdown();
   };
@@ -176,6 +189,20 @@ export function startUsdRobotStateHydration({
     settled = true;
     shutdown();
     rejectPromise(reason);
+  };
+
+  const startHydrationTimeout = () => {
+    if (!hydrationTimeoutMs || !Number.isFinite(hydrationTimeoutMs) || hydrationTimeoutMs <= 0) {
+      return;
+    }
+
+    hydrationTimeoutTimer = setTimeout(() => {
+      rejectOnce(
+        new Error(
+          `USD RobotState hydration for "${sourceFile.name}" did not respond within ${hydrationTimeoutMs} ms.`,
+        ),
+      );
+    }, hydrationTimeoutMs);
   };
 
   const shouldKeepWorkerAliveAfterResolve = () =>
@@ -232,6 +259,7 @@ export function startUsdRobotStateHydration({
         const robotData = resolvedRobotData ?? resolution.robotData;
         const isPreparedCachePending = preparedCachePending;
         settled = true;
+        clearHydrationTimeout();
         if (shouldKeepWorkerAliveAfterResolve()) {
           schedulePostResolveShutdown();
         } else {
@@ -275,6 +303,7 @@ export function startUsdRobotStateHydration({
       );
 
       settled = true;
+      clearHydrationTimeout();
       if (shouldWaitForDeferredSceneSnapshot) {
         schedulePostResolveShutdown();
       } else {
@@ -293,6 +322,7 @@ export function startUsdRobotStateHydration({
         return;
       }
       settled = true;
+      clearHydrationTimeout();
       shutdown();
       reject(error);
     }
@@ -439,32 +469,38 @@ export function startUsdRobotStateHydration({
     };
   }
 
-  worker.postMessage(
-    {
-      type: 'init',
-      canvas,
-      width: 1,
-      height: 1,
-      devicePixelRatio: 1,
-      theme: 'light',
-      active: false,
-      groundPlaneOffset: 0,
-      showVisual: true,
-      showCollision: true,
-      showCollisionAlwaysOnTop: true,
-      showOrigins: false,
-      showOriginsOverlay: false,
-      originSize: 0.2,
-      sourceFile: stageDispatch.sourceFile,
-      completionMode,
-      stageOpenContextKey: stageDispatch.stageOpenContextKey,
-      stageOpenContext: stageDispatch.stageOpenContext as never,
-      stageOpenContextCacheHit: stageDispatch.stageOpenContextCacheHit,
-      initialInteractionState: null,
-    },
-    [canvas],
-  );
-  stageDispatch.commitStageOpenContext();
+  startHydrationTimeout();
+
+  try {
+    worker.postMessage(
+      {
+        type: 'init',
+        canvas,
+        width: 1,
+        height: 1,
+        devicePixelRatio: 1,
+        theme: 'light',
+        active: false,
+        groundPlaneOffset: 0,
+        showVisual: true,
+        showCollision: true,
+        showCollisionAlwaysOnTop: true,
+        showOrigins: false,
+        showOriginsOverlay: false,
+        originSize: 0.2,
+        sourceFile: stageDispatch.sourceFile,
+        completionMode,
+        stageOpenContextKey: stageDispatch.stageOpenContextKey,
+        stageOpenContext: stageDispatch.stageOpenContext as never,
+        stageOpenContextCacheHit: stageDispatch.stageOpenContextCacheHit,
+        initialInteractionState: null,
+      },
+      [canvas],
+    );
+    stageDispatch.commitStageOpenContext();
+  } catch (error) {
+    rejectOnce(error);
+  }
 
   return {
     promise,

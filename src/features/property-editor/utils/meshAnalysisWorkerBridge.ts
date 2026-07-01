@@ -32,6 +32,7 @@ interface MeshAnalysisWorkerClientDependencies {
   canUseWorker?: () => boolean;
   createWorker?: () => Worker;
   getWorkerCount?: () => number;
+  requestTimeoutMs?: number;
 }
 
 interface WorkerPoolEntry {
@@ -46,10 +47,12 @@ interface PendingWorkerRequest {
   reject: (error: unknown) => void;
   abortHandler?: () => void;
   signal?: AbortSignal;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 const MAX_MESH_ANALYSIS_CACHE_SIZE = 256;
 const MAX_MESH_ANALYSIS_WORKER_COUNT = 4;
+const DEFAULT_MESH_ANALYSIS_REQUEST_TIMEOUT_MS = 2 * 60 * 1000;
 
 function createOptionsCacheKey(options?: MeshAnalysisOptions): string {
   return JSON.stringify({
@@ -66,6 +69,12 @@ function createRequestCacheKey(cacheKey: string, options?: MeshAnalysisOptions):
 
 function createAbortError(): DOMException {
   return new DOMException('Mesh analysis aborted', 'AbortError');
+}
+
+function createWorkerTimeoutError(requestId: number, timeoutMs: number): Error {
+  return new Error(
+    `Mesh analysis worker did not respond within ${timeoutMs} ms. Request id: ${requestId}.`,
+  );
 }
 
 function resolveDefaultWorkerCount(): number {
@@ -130,6 +139,7 @@ export function createMeshAnalysisWorkerClient({
   createWorker = () =>
     new Worker(new URL('../workers/meshAnalysis.worker.ts', import.meta.url), { type: 'module' }),
   getWorkerCount = resolveDefaultWorkerCount,
+  requestTimeoutMs = DEFAULT_MESH_ANALYSIS_REQUEST_TIMEOUT_MS,
 }: MeshAnalysisWorkerClientDependencies = {}) {
   const meshAnalysisCache = new Map<string, MeshAnalysis | null>();
   const pendingWorkerRequests = new Map<number, PendingWorkerRequest>();
@@ -162,6 +172,10 @@ export function createMeshAnalysisWorkerClient({
     }
 
     pendingWorkerRequests.delete(requestId);
+    if (pendingRequest.timeoutId !== undefined) {
+      clearTimeout(pendingRequest.timeoutId);
+      pendingRequest.timeoutId = undefined;
+    }
     pendingRequest.workerEntry.pendingCount = Math.max(
       0,
       pendingRequest.workerEntry.pendingCount - 1,
@@ -197,27 +211,58 @@ export function createMeshAnalysisWorkerClient({
     pendingRequest.resolve();
   };
 
-  const disposeWorkerPool = (rejectPendingWith?: unknown): void => {
-    workerPool.forEach((entry) => {
-      entry.worker.removeEventListener('message', handleSharedWorkerMessage as EventListener);
-      entry.worker.removeEventListener('error', handleSharedWorkerError as EventListener);
-      entry.worker.terminate();
-      entry.pendingCount = 0;
-    });
-    workerPool.length = 0;
-
-    if (rejectPendingWith !== undefined) {
-      pendingWorkerRequests.forEach((request, requestId) => {
-        clearPendingWorkerRequest(requestId);
-        request.reject(rejectPendingWith);
-      });
+  const detachWorkerEntry = (entry: WorkerPoolEntry): void => {
+    entry.worker.removeEventListener('message', handleSharedWorkerMessage as EventListener);
+    entry.worker.removeEventListener('error', handleSharedWorkerError as EventListener);
+    entry.worker.removeEventListener(
+      'messageerror',
+      handleSharedWorkerMessageError as EventListener,
+    );
+    entry.worker.terminate();
+    entry.pendingCount = 0;
+    const entryIndex = workerPool.indexOf(entry);
+    if (entryIndex >= 0) {
+      workerPool.splice(entryIndex, 1);
     }
+  };
+
+  const disposeWorkerEntry = (
+    entry: WorkerPoolEntry,
+    rejectPendingWith = new Error('Mesh analysis worker disposed'),
+  ): void => {
+    detachWorkerEntry(entry);
+
+    Array.from(pendingWorkerRequests.entries()).forEach(([requestId, request]) => {
+      if (request.workerEntry !== entry) {
+        return;
+      }
+
+      clearPendingWorkerRequest(requestId);
+      request.reject(rejectPendingWith);
+    });
+  };
+
+  const disposeWorkerPool = (rejectPendingWith?: unknown): void => {
+    const rejectionReason = rejectPendingWith ?? new Error('Mesh analysis worker disposed');
+
+    [...workerPool].forEach((entry) => {
+      detachWorkerEntry(entry);
+    });
+    Array.from(pendingWorkerRequests.entries()).forEach(([requestId, request]) => {
+      clearPendingWorkerRequest(requestId);
+      request.reject(rejectionReason);
+    });
   };
 
   const handleSharedWorkerError = (event: ErrorEvent): void => {
     workerUnavailable = true;
     const error = event.error ?? new Error(event.message || 'Mesh analysis worker failed');
     disposeWorkerPool(error);
+  };
+
+  const handleSharedWorkerMessageError = (): void => {
+    workerUnavailable = true;
+    disposeWorkerPool(new Error('Mesh analysis worker message transfer failed'));
   };
 
   const resolveMaxWorkerCount = (): number => {
@@ -231,12 +276,29 @@ export function createMeshAnalysisWorkerClient({
     const worker = createWorker();
     worker.addEventListener('message', handleSharedWorkerMessage as EventListener);
     worker.addEventListener('error', handleSharedWorkerError as EventListener);
+    worker.addEventListener('messageerror', handleSharedWorkerMessageError as EventListener);
     const entry: WorkerPoolEntry = {
       worker,
       pendingCount: 0,
     };
     workerPool.push(entry);
+    workerUnavailable = false;
     return entry;
+  };
+
+  const registerRequestTimeout = (
+    requestId: number,
+    pendingRequest: PendingWorkerRequest,
+  ): void => {
+    if (!requestTimeoutMs || !Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0) {
+      return;
+    }
+
+    pendingRequest.timeoutId = setTimeout(() => {
+      const timeoutError = createWorkerTimeoutError(requestId, requestTimeoutMs);
+      workerUnavailable = true;
+      disposeWorkerPool(timeoutError);
+    }, requestTimeoutMs);
   };
 
   const ensureWorkerPool = (minimumWorkerCount = 1): WorkerPoolEntry[] => {
@@ -287,6 +349,7 @@ export function createMeshAnalysisWorkerClient({
         workerEntry = pickWorkerEntry();
       } catch (error) {
         workerUnavailable = true;
+        disposeWorkerPool(error);
         reject(error);
         return;
       }
@@ -295,30 +358,38 @@ export function createMeshAnalysisWorkerClient({
       workerEntry.pendingCount += 1;
 
       const handleAbort = () => {
-        const pendingRequest = clearPendingWorkerRequest(requestId);
-        if (!pendingRequest) {
+        if (!pendingWorkerRequests.has(requestId)) {
           return;
         }
-        pendingRequest.reject(createAbortError());
+        disposeWorkerEntry(workerEntry, createAbortError());
       };
 
-      pendingWorkerRequests.set(requestId, {
+      const pendingRequest: PendingWorkerRequest = {
         workerEntry,
         results,
         resolve,
         reject,
         abortHandler: handleAbort,
         signal,
-      });
+      };
+      pendingWorkerRequests.set(requestId, pendingRequest);
       signal?.addEventListener('abort', handleAbort, { once: true });
+      registerRequestTimeout(requestId, pendingRequest);
 
-      workerEntry.worker.postMessage({
-        type: 'analyze-batch',
-        requestId,
-        assets,
-        tasks,
-        options,
-      });
+      try {
+        workerEntry.worker.postMessage({
+          type: 'analyze-batch',
+          requestId,
+          assets,
+          tasks,
+          options,
+        });
+      } catch (error) {
+        workerUnavailable = true;
+        clearPendingWorkerRequest(requestId);
+        disposeWorkerPool(error);
+        reject(error);
+      }
     });
   };
 
@@ -328,7 +399,7 @@ export function createMeshAnalysisWorkerClient({
     options,
     signal,
   }: AnalyzeMeshBatchArgs): Promise<Record<string, MeshAnalysis | null>> => {
-    if (workerUnavailable) {
+    if (workerUnavailable && workerPool.length > 0) {
       throw new Error('Mesh analysis worker is unavailable');
     }
 

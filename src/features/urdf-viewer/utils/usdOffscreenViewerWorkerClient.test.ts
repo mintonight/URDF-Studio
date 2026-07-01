@@ -211,6 +211,41 @@ test('USD offscreen viewer worker client surfaces worker error and messageerror 
   );
 });
 
+test('USD offscreen viewer worker client tears down shared worker after fatal responses', () => {
+  const workers: FakeWorker[] = [];
+  const client = createUsdOffscreenViewerWorkerClient({
+    canUseWorker: () => true,
+    createWorker: () => {
+      const worker = new FakeWorker();
+      workers.push(worker);
+      return worker as unknown as Worker;
+    },
+  });
+  const originalConsoleWarn = console.warn;
+  console.warn = () => {};
+
+  try {
+    const firstWorker = client.getWorker();
+    workers[0]!.dispatch('message', {
+      data: {
+        type: 'fatal-error',
+        error: 'runtime crashed',
+      },
+    });
+
+    assert.equal(firstWorker, workers[0]);
+    assert.equal(workers[0]!.terminated, true);
+    assert.deepEqual(workers[0]!.postedMessages.at(-1), { type: 'dispose' });
+
+    const secondWorker = client.getWorker();
+    assert.equal(workers.length, 2);
+    assert.equal(secondWorker, workers[1]);
+  } finally {
+    console.warn = originalConsoleWarn;
+    client.shutdown();
+  }
+});
+
 test('USD offscreen viewer worker client logs dispose failures during shutdown instead of swallowing them', () => {
   const fakeWorker = new FakeWorker();
   const client = createUsdOffscreenViewerWorkerClient({

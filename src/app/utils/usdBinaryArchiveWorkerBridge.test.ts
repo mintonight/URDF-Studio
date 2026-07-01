@@ -47,6 +47,12 @@ class FakeWorker {
       handler({ error, message: error.message });
     });
   }
+
+  emitMessageError(error: Error): void {
+    this.listeners.get('messageerror')?.forEach((handler) => {
+      handler({ error, message: error.message });
+    });
+  }
 }
 
 test('USD binary archive worker client resolves successful worker responses and forwards progress', async () => {
@@ -136,6 +142,30 @@ test('USD binary archive worker client rejects with timeout and tears down when 
   );
 
   // The dead worker must be terminated so the next attempt starts clean.
+  assert.equal(fakeWorker.terminated, true);
+});
+
+test('USD binary archive worker client rejects when message transfer fails', async () => {
+  const fakeWorker = new FakeWorker();
+  const client = createUsdBinaryArchiveWorkerClient({
+    canUseWorker: () => true,
+    createWorker: () => fakeWorker as unknown as Worker,
+    requestTimeoutMs: 0,
+  });
+
+  const archiveFiles = new Map<string, Blob>([
+    ['robot.usd', new Blob(['#usda 1.0\n'])],
+  ]);
+  const resultPromise = client.convert(archiveFiles);
+
+  for (let attempt = 0; attempt < 10 && fakeWorker.postedMessages.length === 0; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  assert.equal(fakeWorker.postedMessages.length, 1);
+
+  fakeWorker.emitMessageError(new Error('structured clone failed'));
+
+  await assert.rejects(resultPromise, /message transfer failed/i);
   assert.equal(fakeWorker.terminated, true);
 });
 

@@ -29,13 +29,100 @@ export const ALLOWED_HANDOFF_ORIGINS: ReadonlyArray<string> = (
   .map((s: string) => s.trim())
   .filter(Boolean);
 
+interface ParsedHandoffOrigin {
+  hostname: string;
+  port: string;
+  protocol: string;
+}
+
+interface ParsedHandoffOriginPattern extends ParsedHandoffOrigin {
+  hostnamePattern: string;
+  portPattern: string;
+}
+
+function parseHandoffOrigin(value: string): ParsedHandoffOrigin | null {
+  try {
+    const url = new URL(value);
+    if (url.username || url.password || url.search || url.hash) {
+      return null;
+    }
+    if (url.pathname && url.pathname !== '/') {
+      return null;
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null;
+    }
+
+    return {
+      hostname: url.hostname.toLowerCase(),
+      port: url.port,
+      protocol: url.protocol,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseHandoffOriginPattern(pattern: string): ParsedHandoffOriginPattern | null {
+  const match = pattern.match(/^(https?):\/\/(\[[^\]]+\]|[^/?#@:]+)(?::(\*|\d+))?$/i);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    hostname: match[2].toLowerCase(),
+    hostnamePattern: match[2].toLowerCase(),
+    port: match[3] ?? '',
+    portPattern: match[3] ?? '',
+    protocol: `${match[1].toLowerCase()}:`,
+  };
+}
+
+function wildcardPatternMatches(value: string, pattern: string): boolean {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp('^' + escaped.replace(/\*/g, '[^.]*') + '$', 'i');
+  return regex.test(value);
+}
+
+function handoffOriginMatchesPattern(
+  origin: ParsedHandoffOrigin,
+  pattern: ParsedHandoffOriginPattern,
+): boolean {
+  if (origin.protocol !== pattern.protocol) {
+    return false;
+  }
+
+  if (
+    pattern.hostnamePattern.includes('*')
+      ? !wildcardPatternMatches(origin.hostname, pattern.hostnamePattern)
+      : origin.hostname !== pattern.hostname
+  ) {
+    return false;
+  }
+
+  return pattern.portPattern === '*' || origin.port === pattern.portPattern;
+}
+
+export function normalizeHandoffOrigin(origin: string): string | null {
+  const parsed = parseHandoffOrigin(origin);
+  if (!parsed) {
+    return null;
+  }
+
+  const port = parsed.port ? `:${parsed.port}` : '';
+  return `${parsed.protocol}//${parsed.hostname}${port}`;
+}
+
 /** Check whether an origin matches any allowed pattern (with `*` wildcard support). */
 export function isAllowedHandoffOrigin(origin: string): boolean {
+  const parsedOrigin = parseHandoffOrigin(origin);
+  if (!parsedOrigin) {
+    return false;
+  }
+
   return ALLOWED_HANDOFF_ORIGINS.some((pattern) => {
-    if (!pattern.includes('*')) return pattern === origin;
-    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp('^' + escaped.replace(/\*/g, '.*') + '$');
-    return regex.test(origin);
+    const parsedPattern = parseHandoffOriginPattern(pattern);
+    return parsedPattern ? handoffOriginMatchesPattern(parsedOrigin, parsedPattern) : false;
   });
 }
 

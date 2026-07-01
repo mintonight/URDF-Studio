@@ -29,6 +29,23 @@ interface MeshAssetNodeProps {
 }
 
 const DEFAULT_COLOR = '#ffffff';
+const imageTextureUrlRefCounts = new Map<string, number>();
+
+function retainImageTextureUrl(url: string): void {
+  imageTextureUrlRefCounts.set(url, (imageTextureUrlRefCounts.get(url) ?? 0) + 1);
+}
+
+function releaseImageTextureUrl(url: string, texture: THREE.Texture): void {
+  const nextCount = (imageTextureUrlRefCounts.get(url) ?? 1) - 1;
+  if (nextCount > 0) {
+    imageTextureUrlRefCounts.set(url, nextCount);
+    return;
+  }
+
+  imageTextureUrlRefCounts.delete(url);
+  useLoader.clear(THREE.TextureLoader, url);
+  texture.dispose();
+}
 
 function resolveImagePlaneScale(
   texture: THREE.Texture,
@@ -64,6 +81,12 @@ function ImageAssetPlane({
   onResolved?: () => void;
 }) {
   const texture = useLoader(THREE.TextureLoader, url);
+
+  useEffect(() => {
+    retainImageTextureUrl(url);
+    return () => releaseImageTextureUrl(url, texture);
+  }, [texture, url]);
+
   const texturedMaterial = useMemo(() => {
     const nextMaterial = material.clone();
 

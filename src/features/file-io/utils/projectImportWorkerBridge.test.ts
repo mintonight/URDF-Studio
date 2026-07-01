@@ -36,6 +36,12 @@ class FakeWorker {
       handler({ data: message });
     });
   }
+
+  emitMessageError(error: Error): void {
+    this.listeners.get('messageerror')?.forEach((handler) => {
+      handler({ error, message: error.message });
+    });
+  }
 }
 
 test('project import worker client hydrates blob-backed library files on successful responses', async () => {
@@ -143,4 +149,21 @@ test('project import worker client rejects immediately when Worker is unavailabl
       value: originalWorker,
     });
   }
+});
+
+test('project import worker client rejects pending imports when message transfer fails', async () => {
+  const fakeWorker = new FakeWorker();
+  const client = createProjectImportWorkerClient({
+    canUseWorker: () => true,
+    createWorker: () => fakeWorker as unknown as Worker,
+    requestTimeoutMs: 0,
+  });
+
+  const resultPromise = client.import(new File(['project'], 'demo.usp'), 'en');
+  assert.equal(fakeWorker.postedMessages.length, 1);
+
+  fakeWorker.emitMessageError(new Error('structured clone failed'));
+
+  await assert.rejects(resultPromise, /message transfer failed/i);
+  assert.equal(fakeWorker.terminated, true);
 });

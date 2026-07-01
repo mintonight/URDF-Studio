@@ -47,6 +47,7 @@ interface PendingRequest {
   resolve: (value: ClosedLoopDrivenJointMotionResult) => void;
   reject: (error: unknown) => void;
   workerEntry: ClosedLoopMotionPreviewWorkerPoolEntry;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 interface ClosedLoopMotionPreviewWorkerPoolEntry {
@@ -58,9 +59,16 @@ interface ClosedLoopMotionPreviewWorkerPoolEntry {
 }
 
 const pendingRequests = new Map<number, PendingRequest>();
+const DEFAULT_CLOSED_LOOP_PREVIEW_REQUEST_TIMEOUT_MS = 30 * 1000;
 let requestIdCounter = 0;
 const workerPool: ClosedLoopMotionPreviewWorkerPoolEntry[] = [];
 let workerUnavailable = false;
+
+function createWorkerTimeoutError(requestId: number): Error {
+  return new Error(
+    `Closed-loop motion preview worker did not respond within ${DEFAULT_CLOSED_LOOP_PREVIEW_REQUEST_TIMEOUT_MS} ms. Request id: ${requestId}.`,
+  );
+}
 
 function clearPendingRequest(requestId: number): PendingRequest | null {
   const pendingRequest = pendingRequests.get(requestId) ?? null;
@@ -69,24 +77,31 @@ function clearPendingRequest(requestId: number): PendingRequest | null {
   }
 
   pendingRequests.delete(requestId);
+  if (pendingRequest.timeoutId !== undefined) {
+    clearTimeout(pendingRequest.timeoutId);
+    pendingRequest.timeoutId = undefined;
+  }
   pendingRequest.workerEntry.pendingCount = Math.max(0, pendingRequest.workerEntry.pendingCount - 1);
   return pendingRequest;
 }
 
 function disposeWorkerPool(rejectPendingWith?: unknown): void {
+  const rejectionReason =
+    rejectPendingWith ?? new Error('Closed-loop motion preview worker disposed');
+
   workerPool.forEach((entry) => {
     entry.worker.removeEventListener('message', handleWorkerMessage);
     entry.worker.removeEventListener('error', handleWorkerError);
+    entry.worker.removeEventListener('messageerror', handleWorkerMessageError);
     entry.worker.terminate();
+    entry.pendingCount = 0;
   });
   workerPool.length = 0;
 
-  if (rejectPendingWith !== undefined) {
-    pendingRequests.forEach((request, requestId) => {
-      clearPendingRequest(requestId);
-      request.reject(rejectPendingWith);
-    });
-  }
+  Array.from(pendingRequests.entries()).forEach(([requestId, request]) => {
+    clearPendingRequest(requestId);
+    request.reject(rejectionReason);
+  });
 }
 
 function handleWorkerMessage(event: MessageEvent<ClosedLoopMotionPreviewWorkerResponse>): void {
@@ -115,6 +130,11 @@ function handleWorkerError(event: ErrorEvent): void {
   disposeWorkerPool(error);
 }
 
+function handleWorkerMessageError(): void {
+  workerUnavailable = true;
+  disposeWorkerPool(new Error('Closed-loop motion preview worker message transfer failed'));
+}
+
 function createPreviewWorker(): Worker {
   const worker = new Worker(
     new URL('../../workers/closedLoopMotionPreview.worker.ts', import.meta.url),
@@ -122,6 +142,7 @@ function createPreviewWorker(): Worker {
   );
   worker.addEventListener('message', handleWorkerMessage);
   worker.addEventListener('error', handleWorkerError);
+  worker.addEventListener('messageerror', handleWorkerMessageError);
   return worker;
 }
 
@@ -139,6 +160,7 @@ function ensureWorkerPool(): ClosedLoopMotionPreviewWorkerPoolEntry {
         baseRobot: null,
       });
     }
+    workerUnavailable = false;
   }
 
   let bestEntry = workerPool[0];
@@ -151,6 +173,13 @@ function ensureWorkerPool(): ClosedLoopMotionPreviewWorkerPoolEntry {
   return bestEntry;
 }
 
+function registerRequestTimeout(requestId: number, pendingRequest: PendingRequest): void {
+  pendingRequest.timeoutId = setTimeout(() => {
+    workerUnavailable = true;
+    disposeWorkerPool(createWorkerTimeoutError(requestId));
+  }, DEFAULT_CLOSED_LOOP_PREVIEW_REQUEST_TIMEOUT_MS);
+}
+
 export async function resolveClosedLoopDrivenJointMotionWithWorker(
   robot: Pick<RobotState, 'links' | 'joints' | 'rootLinkId' | 'closedLoopConstraints'>,
   jointId: string,
@@ -158,7 +187,7 @@ export async function resolveClosedLoopDrivenJointMotionWithWorker(
   options: ClosedLoopMotionPreviewWorkerSolveOptions = {},
   previewState?: ClosedLoopMotionPreviewState,
 ): Promise<ClosedLoopDrivenJointMotionResult> {
-  if (workerUnavailable) {
+  if (workerUnavailable && workerPool.length > 0) {
     throw new Error('Closed-loop motion preview worker is unavailable');
   }
 
@@ -174,6 +203,7 @@ export async function resolveClosedLoopDrivenJointMotionWithWorker(
       workerEntry = ensureWorkerPool();
     } catch (error) {
       workerUnavailable = true;
+      disposeWorkerPool(error);
       reject(error);
       return;
     }
@@ -203,8 +233,10 @@ export async function resolveClosedLoopDrivenJointMotionWithWorker(
       previewState,
     };
 
-    pendingRequests.set(requestId, { resolve, reject, workerEntry });
+    const pendingRequest: PendingRequest = { resolve, reject, workerEntry };
+    pendingRequests.set(requestId, pendingRequest);
     workerEntry.pendingCount += 1;
+    registerRequestTimeout(requestId, pendingRequest);
 
     try {
       workerEntry.worker.postMessage(request);

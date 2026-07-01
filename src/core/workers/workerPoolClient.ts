@@ -4,6 +4,7 @@
  * Provides the shared infrastructure used by all worker bridges:
  * - Worker pool creation and lifecycle (create, terminate, pick least-loaded)
  * - Pending request tracking with cleanup
+ * - Optional per-request watchdog timeouts for silent worker failures
  * - Error normalization
  * - `workerUnavailable` flag management
  * - Optional LRU cache with configurable limit
@@ -16,9 +17,12 @@
 // ---- Types ----
 
 export interface WorkerLike {
-  addEventListener(type: 'message' | 'error', listener: EventListenerOrEventListenerObject): void;
+  addEventListener(
+    type: 'message' | 'error' | 'messageerror',
+    listener: EventListenerOrEventListenerObject,
+  ): void;
   removeEventListener(
-    type: 'message' | 'error',
+    type: 'message' | 'error' | 'messageerror',
     listener: EventListenerOrEventListenerObject,
   ): void;
   postMessage(message: unknown, transfer?: Transferable[]): void;
@@ -35,6 +39,7 @@ export interface PendingRequest<Result, Progress = unknown> {
   reject: (error: unknown) => void;
   workerEntry?: WorkerPoolEntry;
   onProgress?: (progress: Progress) => void;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 export interface WorkerPoolClientConfig<Response, Result, Progress = unknown> {
@@ -48,6 +53,8 @@ export interface WorkerPoolClientConfig<Response, Result, Progress = unknown> {
   poolSize?: number | (() => number);
   /** LRU cache limit; 0 or undefined means no caching */
   cacheLimit?: number;
+  /** Per-request timeout in ms; 0 or undefined disables the watchdog */
+  requestTimeoutMs?: number;
 
   // Response routing
   getRequestId: (response: Response) => number;
@@ -98,6 +105,16 @@ export function createWorkerError(
   return new Error((event as { message?: string }).message || `${label} worker failed`);
 }
 
+function createWorkerDisposedError(label: string): Error {
+  return new Error(`${label} worker disposed`);
+}
+
+function createWorkerTimeoutError(label: string, requestId: number, timeoutMs: number): Error {
+  return new Error(
+    `${label} worker did not respond within ${timeoutMs} ms. Request id: ${requestId}.`,
+  );
+}
+
 export function resolveDefaultWorkerCount(): number {
   if (typeof navigator === 'undefined') {
     return 1;
@@ -107,23 +124,86 @@ export function resolveDefaultWorkerCount(): number {
   return Math.max(1, Math.min(10, hardwareConcurrency - 1));
 }
 
+function touchCacheEntry<Result>(
+  resolvedCache: Map<string, Result> | null,
+  cacheLimit: number,
+  key: string,
+  result: Result,
+): void {
+  if (!resolvedCache) return;
+
+  if (resolvedCache.has(key)) {
+    resolvedCache.delete(key);
+  }
+  resolvedCache.set(key, result);
+
+  while (resolvedCache.size > cacheLimit) {
+    const oldestEntry = resolvedCache.keys().next();
+    if (oldestEntry.done) return;
+    resolvedCache.delete(oldestEntry.value);
+  }
+}
+
+function pickLeastLoadedWorker(workerPool: WorkerPoolEntry[]): WorkerPoolEntry {
+  let best = workerPool[0];
+  for (let i = 1; i < workerPool.length; i += 1) {
+    if (workerPool[i].pendingCount < best.pendingCount) {
+      best = workerPool[i];
+    }
+  }
+  return best;
+}
+
+function rejectPendingRequestsForWorker<Result, Progress>(
+  pendingRequests: Map<number, PendingRequest<Result, Progress>>,
+  entry: WorkerPoolEntry,
+  clearPendingRequest: (requestId: number) => PendingRequest<Result, Progress> | null,
+  rejectPendingWith: unknown,
+): void {
+  Array.from(pendingRequests.entries()).forEach(([requestId, request]) => {
+    if (request.workerEntry !== entry) return;
+
+    clearPendingRequest(requestId);
+    request.reject(rejectPendingWith);
+  });
+}
+
+interface RegisterRequestTimeoutArgs<Result, Progress> {
+  disposeWorkerEntry: (entry: WorkerPoolEntry, rejectPendingWith: unknown) => void;
+  entry: WorkerPoolEntry;
+  label: string;
+  pending: PendingRequest<Result, Progress>;
+  requestId: number;
+  requestTimeoutMs: number;
+}
+
+function registerRequestTimeoutForWorker<Result, Progress>({
+  disposeWorkerEntry,
+  entry,
+  label,
+  pending,
+  requestId,
+  requestTimeoutMs,
+}: RegisterRequestTimeoutArgs<Result, Progress>): void {
+  if (!requestTimeoutMs || !Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0) return;
+
+  pending.timeoutId = setTimeout(() => {
+    const timeoutError = createWorkerTimeoutError(label, requestId, requestTimeoutMs);
+    console.error(`[${label}WorkerBridge] ${label} worker request timed out.`, timeoutError);
+    disposeWorkerEntry(entry, timeoutError);
+  }, requestTimeoutMs);
+}
+
 // ---- Factory ----
 
 export function createWorkerPoolClient<Response, Result, Progress = unknown>(
   config: WorkerPoolClientConfig<Response, Result, Progress>,
 ): WorkerPoolClient<Result> {
-  const {
-    label,
-    createWorker,
-    canUseWorker = () => typeof Worker !== 'undefined',
-    cacheLimit = 0,
-    getRequestId,
-    isError,
-    getError,
-    getResult,
-    isProgress,
-    handleProgress,
-  } = config;
+  const { label, createWorker, getRequestId, isError, getError, getResult } = config;
+  const { isProgress, handleProgress } = config;
+  const canUseWorker = config.canUseWorker ?? (() => typeof Worker !== 'undefined');
+  const cacheLimit = config.cacheLimit ?? 0;
+  const requestTimeoutMs = config.requestTimeoutMs ?? 0;
 
   const poolSize = config.poolSize ?? 1;
   const resolvePoolSize = typeof poolSize === 'function' ? poolSize : () => poolSize;
@@ -134,23 +214,6 @@ export function createWorkerPoolClient<Response, Result, Progress = unknown>(
   let workerUnavailable = false;
   let nextRequestId = 1;
 
-  // ---- LRU Cache ----
-
-  function touchCache(key: string, result: Result): void {
-    if (!resolvedCache) return;
-
-    if (resolvedCache.has(key)) {
-      resolvedCache.delete(key);
-    }
-    resolvedCache.set(key, result);
-
-    while (resolvedCache.size > cacheLimit!) {
-      const oldestEntry = resolvedCache.keys().next();
-      if (oldestEntry.done) return;
-      resolvedCache.delete(oldestEntry.value);
-    }
-  }
-
   // ---- Pending Request Management ----
 
   function clearPendingRequest(requestId: number): PendingRequest<Result, Progress> | null {
@@ -158,6 +221,10 @@ export function createWorkerPoolClient<Response, Result, Progress = unknown>(
     if (!pendingRequest) return null;
 
     pendingRequests.delete(requestId);
+    if (pendingRequest.timeoutId !== undefined) {
+      clearTimeout(pendingRequest.timeoutId);
+      pendingRequest.timeoutId = undefined;
+    }
     if (pendingRequest.workerEntry) {
       pendingRequest.workerEntry.pendingCount = Math.max(
         0,
@@ -170,31 +237,48 @@ export function createWorkerPoolClient<Response, Result, Progress = unknown>(
   // ---- Worker Lifecycle ----
 
   function handleWorkerMessage(event: MessageEvent<Response>): void {
-    const message = event.data;
-    if (!message) return;
+    let requestId: number | null = null;
 
-    const requestId = getRequestId(message);
+    try {
+      const message = event.data;
+      if (!message) return;
 
-    // Progress messages don't clear the pending request
-    if (isProgress?.(message)) {
-      const pendingRequest = pendingRequests.get(requestId);
-      if (pendingRequest) {
-        handleProgress!(message, pendingRequest);
+      requestId = getRequestId(message);
+
+      // Progress messages don't clear the pending request
+      if (isProgress?.(message)) {
+        const pendingRequest = pendingRequests.get(requestId);
+        if (pendingRequest) {
+          handleProgress!(message, pendingRequest);
+        }
+        return;
       }
-      return;
+
+      const pendingRequest = clearPendingRequest(requestId);
+      if (!pendingRequest) return;
+
+      try {
+        if (isError(message)) {
+          const workerError = new Error(getError(message) || `${label} worker failed`);
+          console.error(`[${label}WorkerBridge] Worker returned an error.`, workerError);
+          pendingRequest.reject(workerError);
+          return;
+        }
+
+        pendingRequest.resolve(getResult(message));
+      } catch (error) {
+        pendingRequest.reject(error);
+      }
+    } catch (error) {
+      if (requestId != null) {
+        clearPendingRequest(requestId)?.reject(error);
+        return;
+      }
+
+      console.error(`[${label}WorkerBridge] Failed to process worker response.`, error);
+      workerUnavailable = true;
+      disposePool(error);
     }
-
-    const pendingRequest = clearPendingRequest(requestId);
-    if (!pendingRequest) return;
-
-    if (isError(message)) {
-      const workerError = new Error(getError(message) || `${label} worker failed`);
-      console.error(`[${label}WorkerBridge] Worker returned an error.`, workerError);
-      pendingRequest.reject(workerError);
-      return;
-    }
-
-    pendingRequest.resolve(getResult(message));
   }
 
   function handleWorkerError(event: ErrorEvent): void {
@@ -204,21 +288,33 @@ export function createWorkerPoolClient<Response, Result, Progress = unknown>(
     disposePool(workerError);
   }
 
+  function handleWorkerMessageError(): void {
+    const workerError = new Error(`${label} worker message transfer failed`);
+    console.error(`[${label}WorkerBridge] ${label} worker message transfer failed.`, workerError);
+    workerUnavailable = true;
+    disposePool(workerError);
+  }
+
   function createWorkerEntry(): WorkerPoolEntry {
     const worker = createWorker();
     worker.addEventListener('message', handleWorkerMessage as EventListener);
     worker.addEventListener('error', handleWorkerError as EventListener);
+    worker.addEventListener('messageerror', handleWorkerMessageError as EventListener);
     const entry = { worker, pendingCount: 0 };
     workerPool.push(entry);
     return entry;
   }
 
   function ensureWorker(): WorkerPoolEntry {
+    if (workerUnavailable && workerPool.length === 0) {
+      workerUnavailable = false;
+    }
+
     if (workerPool.length === 0) {
       return createWorkerEntry();
     }
 
-    const best = pickLeastLoaded();
+    const best = pickLeastLoadedWorker(workerPool);
     const count = Math.max(1, resolvePoolSize());
     if (best.pendingCount > 0 && workerPool.length < count) {
       return createWorkerEntry();
@@ -227,30 +323,44 @@ export function createWorkerPoolClient<Response, Result, Progress = unknown>(
     return best;
   }
 
-  function pickLeastLoaded(): WorkerPoolEntry {
-    let best = workerPool[0];
-    for (let i = 1; i < workerPool.length; i += 1) {
-      if (workerPool[i].pendingCount < best.pendingCount) {
-        best = workerPool[i];
-      }
+  function disposeWorkerEntry(entry: WorkerPoolEntry, rejectPendingWith?: unknown): void {
+    const entryIndex = workerPool.indexOf(entry);
+    if (entryIndex >= 0) {
+      workerPool.splice(entryIndex, 1);
     }
-    return best;
+
+    entry.worker.removeEventListener('message', handleWorkerMessage as EventListener);
+    entry.worker.removeEventListener('error', handleWorkerError as EventListener);
+    entry.worker.removeEventListener('messageerror', handleWorkerMessageError as EventListener);
+    entry.worker.terminate();
+    entry.pendingCount = 0;
+
+    if (rejectPendingWith !== undefined) {
+      rejectPendingRequestsForWorker(
+        pendingRequests,
+        entry,
+        clearPendingRequest,
+        rejectPendingWith,
+      );
+    }
   }
 
   function disposePool(rejectPendingWith?: unknown): void {
+    const rejectionReason = rejectPendingWith ?? createWorkerDisposedError(label);
+
     workerPool.forEach((entry) => {
       entry.worker.removeEventListener('message', handleWorkerMessage as EventListener);
       entry.worker.removeEventListener('error', handleWorkerError as EventListener);
+      entry.worker.removeEventListener('messageerror', handleWorkerMessageError as EventListener);
       entry.worker.terminate();
+      entry.pendingCount = 0;
     });
     workerPool.length = 0;
 
-    if (rejectPendingWith !== undefined) {
-      pendingRequests.forEach((request, requestId) => {
-        clearPendingRequest(requestId);
-        request.reject(rejectPendingWith);
-      });
-    }
+    Array.from(pendingRequests.entries()).forEach(([requestId, request]) => {
+      clearPendingRequest(requestId);
+      request.reject(rejectionReason);
+    });
   }
 
   // ---- Dispatch ----
@@ -260,7 +370,7 @@ export function createWorkerPoolClient<Response, Result, Progress = unknown>(
     transfer?: Transferable[],
     onProgress?: (progress: unknown) => void,
   ): Promise<Result> {
-    if (workerUnavailable) {
+    if (workerUnavailable && workerPool.length > 0) {
       throw new Error(`${label} worker is unavailable`);
     }
 
@@ -281,6 +391,14 @@ export function createWorkerPoolClient<Response, Result, Progress = unknown>(
       };
       pendingRequests.set(requestId, pending);
       entry.pendingCount += 1;
+      registerRequestTimeoutForWorker({
+        disposeWorkerEntry,
+        entry,
+        label,
+        pending,
+        requestId,
+        requestTimeoutMs,
+      });
 
       try {
         entry.worker.postMessage({ ...(request as Record<string, unknown>), requestId }, transfer);
@@ -312,6 +430,6 @@ export function createWorkerPoolClient<Response, Result, Progress = unknown>(
     ensureWorker,
     dispatch,
     getCached: (key) => resolvedCache?.get(key),
-    setCached: touchCache,
+    setCached: (key, result) => touchCacheEntry(resolvedCache, cacheLimit, key, result),
   };
 }

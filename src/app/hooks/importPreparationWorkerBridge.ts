@@ -13,8 +13,10 @@ interface PendingWorkerRequest {
   resolve: (value: unknown) => void;
   reject: (error: unknown) => void;
   onProgress?: (progress: PrepareImportProgress) => void;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
+const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 const pendingWorkerRequests = new Map<number, PendingWorkerRequest>();
 let requestIdCounter = 0;
 let sharedWorker: Worker | null = null;
@@ -27,23 +29,43 @@ function clearPendingWorkerRequest(requestId: number): PendingWorkerRequest | nu
   }
 
   pendingWorkerRequests.delete(requestId);
+  if (pendingRequest.timeoutId !== undefined) {
+    clearTimeout(pendingRequest.timeoutId);
+    pendingRequest.timeoutId = undefined;
+  }
   return pendingRequest;
 }
 
 function disposeSharedWorker(rejectPendingWith?: unknown): void {
+  const rejectionReason = rejectPendingWith ?? new Error('Import preparation worker disposed');
+
   if (sharedWorker) {
     sharedWorker.removeEventListener('message', handleSharedWorkerMessage);
     sharedWorker.removeEventListener('error', handleSharedWorkerError);
+    sharedWorker.removeEventListener('messageerror', handleSharedWorkerMessageError);
     sharedWorker.terminate();
     sharedWorker = null;
   }
 
-  if (rejectPendingWith !== undefined) {
-    pendingWorkerRequests.forEach((request, requestId) => {
+  if (pendingWorkerRequests.size > 0) {
+    Array.from(pendingWorkerRequests.entries()).forEach(([requestId, request]) => {
       clearPendingWorkerRequest(requestId);
-      request.reject(rejectPendingWith);
+      request.reject(rejectionReason);
     });
   }
+}
+
+function createWorkerTimeoutError(requestId: number): Error {
+  return new Error(
+    'Import preparation worker did not respond within the timeout '
+      + `(likely a worker crash). Request id: ${requestId}. Timeout: ${REQUEST_TIMEOUT_MS} ms.`,
+  );
+}
+
+function registerRequestTimeout(requestId: number, request: PendingWorkerRequest): void {
+  request.timeoutId = setTimeout(() => {
+    disposeSharedWorker(createWorkerTimeoutError(requestId));
+  }, REQUEST_TIMEOUT_MS);
 }
 
 function handleSharedWorkerMessage(event: MessageEvent<ImportPreparationWorkerResponse>): void {
@@ -101,13 +123,20 @@ function handleSharedWorkerError(event: ErrorEvent): void {
   disposeSharedWorker(error);
 }
 
+function handleSharedWorkerMessageError(): void {
+  workerUnavailable = true;
+  disposeSharedWorker(new Error('Import preparation worker message transfer failed'));
+}
+
 function ensureSharedWorker(): Worker {
   if (!sharedWorker) {
+    workerUnavailable = false;
     sharedWorker = new Worker(new URL('../workers/importPreparation.worker.ts', import.meta.url), {
       type: 'module',
     });
     sharedWorker.addEventListener('message', handleSharedWorkerMessage);
     sharedWorker.addEventListener('error', handleSharedWorkerError);
+    sharedWorker.addEventListener('messageerror', handleSharedWorkerMessageError);
   }
 
   return sharedWorker;
@@ -116,7 +145,7 @@ function ensureSharedWorker(): Worker {
 export async function prepareImportPayloadWithWorker(
   args: PrepareImportPayloadArgs,
 ): Promise<PreparedImportPayload> {
-  if (workerUnavailable) {
+  if (workerUnavailable && sharedWorker) {
     throw new Error('Import preparation worker is unavailable');
   }
 
@@ -157,11 +186,13 @@ export async function prepareImportPayloadWithWorker(
       preResolvePreferredImport: args.preResolvePreferredImport,
     };
 
-    pendingWorkerRequests.set(requestId, {
+    const pendingRequest: PendingWorkerRequest = {
       resolve: (value) => resolve(value as PreparedImportPayload),
       reject,
       onProgress: args.onProgress,
-    });
+    };
+    pendingWorkerRequests.set(requestId, pendingRequest);
+    registerRequestTimeout(requestId, pendingRequest);
 
     try {
       worker.postMessage(request);
@@ -185,7 +216,7 @@ export async function hydrateDeferredImportAssetsWithWorker({
   assetFiles,
   onProgress,
 }: HydrateDeferredImportAssetsWithWorkerArgs): Promise<PreparedImportBlobFile[]> {
-  if (workerUnavailable) {
+  if (workerUnavailable && sharedWorker) {
     throw new Error('Import preparation worker is unavailable');
   }
 
@@ -212,11 +243,13 @@ export async function hydrateDeferredImportAssetsWithWorker({
       assetFiles: [...assetFiles],
     };
 
-    pendingWorkerRequests.set(requestId, {
+    const pendingRequest: PendingWorkerRequest = {
       resolve: (value) => resolve(value as PreparedImportBlobFile[]),
       reject,
       onProgress,
-    });
+    };
+    pendingWorkerRequests.set(requestId, pendingRequest);
+    registerRequestTimeout(requestId, pendingRequest);
 
     try {
       worker.postMessage(request);
@@ -233,5 +266,4 @@ export function disposeImportPreparationWorker(): void {
   workerUnavailable = false;
   requestIdCounter = 0;
   disposeSharedWorker();
-  pendingWorkerRequests.clear();
 }

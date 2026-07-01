@@ -566,8 +566,14 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
     handleExportWithConfig,
     handleExportDisconnectedWorkspaceUrdfBundle,
   } = useFileExport();
+  const projectExportInFlightRef = useRef(false);
 
   const handleExportProject = useCallback(() => {
+    if (projectExportInFlightRef.current || isExporting) {
+      return;
+    }
+
+    projectExportInFlightRef.current = true;
     void (async () => {
       void loadExportProgressDialogModule();
       setIsExporting(true);
@@ -592,9 +598,11 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
       } finally {
         setProjectExportProgress(null);
         setIsExporting(false);
+        projectExportInFlightRef.current = false;
       }
     })();
   }, [
+    isExporting,
     runProjectExport,
     setIsExporting,
     setProjectExportProgress,
@@ -912,6 +920,7 @@ export function AppContent({ extensions, onExposeActions }: AppContentProps = {}
         onOpenExport={handleOpenExportDialog}
         onOpenLibraryExport={handleOpenLibraryExportDialog}
         onExportProject={handleExportProject}
+        isExportingProject={isExporting}
         showToast={showToast}
         onOpenAIInspection={handleOpenAIInspection}
         onOpenAIConversation={handleOpenAIConversation}

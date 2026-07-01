@@ -5,6 +5,7 @@ import { cloneColladaScenePreservingRootTransform } from './colladaScene';
 import { isCoplanarOffsetMaterial, markMaterialAsCoplanarOffset } from '@/core/loaders';
 import { loadColladaScene } from '@/core/loaders/colladaParseWorkerBridge';
 import { applyVisualMeshShadowPolicyToObject } from '@/core/utils/visualMeshShadowPolicy';
+import { disposeObject3DGraph } from '@/shared/utils/three/dispose';
 
 interface ScaleProps {
   x: number;
@@ -117,6 +118,13 @@ export function DAERendererImpl({
   useEffect(() => {
     onResolved?.();
   }, [clone, onResolved]);
+
+  useEffect(
+    () => () => {
+      disposeObject3DGraph(clone);
+    },
+    [clone],
+  );
 
   const scaleArr: [number, number, number] = scale ? [scale.x, scale.y, scale.z] : [1, 1, 1];
 

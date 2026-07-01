@@ -171,3 +171,50 @@ test('exportArchiveAssets worker client rejects pending requests on message tran
   await assert.rejects(resultPromise, /message transfer failed/i);
   assert.equal(fakeWorker.terminated, true);
 });
+
+test('exportArchiveAssets worker client times out silent workers and recovers with a fresh worker', async () => {
+  const createdWorkers: FakeWorker[] = [];
+  const client = createExportArchiveAssetsWorkerClient({
+    canUseWorker: () => true,
+    createWorker: () => {
+      const worker = new FakeWorker();
+      createdWorkers.push(worker);
+      return worker as unknown as Worker;
+    },
+    requestTimeoutMs: 10,
+  });
+
+  await assert.rejects(
+    client.prepare({
+      robot: TEST_ROBOT,
+      assets: {},
+    }),
+    /did not respond within the timeout/i,
+  );
+
+  assert.equal(createdWorkers.length, 1);
+  assert.equal(createdWorkers[0].terminated, true);
+
+  const recoveredPromise = client.prepare({
+    robot: TEST_ROBOT,
+    assets: {},
+  });
+
+  assert.equal(createdWorkers.length, 2);
+  assert.notEqual(createdWorkers[1], createdWorkers[0]);
+
+  const postedRequest = createdWorkers[1].postedMessages[0] as PrepareExportArchiveAssetsWorkerRequest;
+  createdWorkers[1].emitMessage({
+    type: 'prepare-export-archive-assets-result',
+    requestId: postedRequest.requestId,
+    result: {
+      totalTasks: 0,
+      completedTasks: 0,
+      failedAssets: [],
+      files: [],
+    },
+  });
+
+  const result = await recoveredPromise;
+  assert.equal(result.files.length, 0);
+});

@@ -28,6 +28,8 @@ export interface StlCompressionWorkerClient {
   dispose: (rejectPendingWith?: unknown) => void;
 }
 
+const DEFAULT_STL_COMPRESSION_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+
 function hydrateCompressionResult(result: SerializedStlCompressionResult): CompressResult {
   const outputBlob = new Blob([result.outputBuffer], { type: 'application/octet-stream' });
 
@@ -56,6 +58,7 @@ export function createStlCompressionWorkerClient({
     label: 'STL compression',
     createWorker,
     canUseWorker,
+    requestTimeoutMs: DEFAULT_STL_COMPRESSION_REQUEST_TIMEOUT_MS,
     getRequestId: (response) => response.requestId,
     isError: (response) => response.type === 'compress-stl-error',
     getError: (response) =>

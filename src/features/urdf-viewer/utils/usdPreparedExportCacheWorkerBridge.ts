@@ -21,6 +21,8 @@ interface UsdPreparedExportCacheWorkerClient {
   ) => Promise<PreparedUsdExportCacheResult | null>;
 }
 
+const DEFAULT_USD_PREPARED_EXPORT_CACHE_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+
 export function createUsdPreparedExportCacheWorkerClient({
   canUseWorker = () => typeof Worker !== 'undefined',
   createWorker = () =>
@@ -35,6 +37,7 @@ export function createUsdPreparedExportCacheWorkerClient({
     label: 'USD prepared export cache',
     createWorker,
     canUseWorker,
+    requestTimeoutMs: DEFAULT_USD_PREPARED_EXPORT_CACHE_REQUEST_TIMEOUT_MS,
     getRequestId: (response) => response.requestId,
     isError: (response) => response.type === 'prepare-usd-prepared-export-cache-error',
     getError: (response) =>

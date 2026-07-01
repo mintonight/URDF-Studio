@@ -7,7 +7,7 @@ import { DEFAULT_JOINT, DEFAULT_LINK, JointType, type RobotData } from '@/types'
 
 import { buildLibraryArchivePath, PROJECT_ROBOT_HISTORY_FILE } from './projectArchive';
 import { exportProject } from './projectExport';
-import { importProject } from './projectImport';
+import { importProject, readImportedProjectArchive } from './projectImport';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 globalThis.DOMParser = dom.window.DOMParser as typeof DOMParser;
@@ -166,6 +166,45 @@ test('importProject fails fast when robot history is missing', async () => {
   await assert.rejects(
     importProject(await toProjectFile(zip), 'en'),
     /missing required history snapshot/i,
+  );
+});
+
+test('readImportedProjectArchive rejects project archives with too many entries', async () => {
+  const zip = await buildProjectZip();
+  for (let index = 0; index < 10_001; index += 1) {
+    zip.file(`extra/${index}.txt`, '');
+  }
+
+  await assert.rejects(
+    readImportedProjectArchive(await toProjectFile(zip), 'en'),
+    /Project archive contains too many files \(\d+\)\. Maximum: 10000\./i,
+  );
+});
+
+test('readImportedProjectArchive rejects manifests with too many library files', async () => {
+  const zip = await buildProjectZip();
+  const manifest = JSON.parse((await zip.file('project.json')!.async('string')) ?? '{}');
+  manifest.assets.availableFiles = Array.from({ length: 10_001 }, (_, index) => ({
+    name: `robots/demo-${index}.urdf`,
+    format: 'urdf',
+  }));
+  zip.file('project.json', JSON.stringify(manifest));
+
+  await assert.rejects(
+    readImportedProjectArchive(await toProjectFile(zip), 'en'),
+    /Project manifest contains too many library files \(10001\)\. Maximum: 10000\./i,
+  );
+});
+
+test('readImportedProjectArchive rejects deeply nested manifest paths', async () => {
+  const zip = await buildProjectZip();
+  const manifest = JSON.parse((await zip.file('project.json')!.async('string')) ?? '{}');
+  manifest.assets.availableFiles[0].name = `${Array.from({ length: 33 }, () => 'deep').join('/')}.urdf`;
+  zip.file('project.json', JSON.stringify(manifest));
+
+  await assert.rejects(
+    readImportedProjectArchive(await toProjectFile(zip), 'en'),
+    /Project manifest library file path ".+" is invalid or nested too deeply/i,
   );
 });
 

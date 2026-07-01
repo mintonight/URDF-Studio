@@ -62,11 +62,6 @@
       "count": 2
     }
   },
-  "src/app/AppLayout.tsx": {
-    "react-hooks/exhaustive-deps": {
-      "count": 1
-    }
-  },
   "src/app/components/SettingsModal.test.tsx": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -138,16 +133,6 @@
   "src/app/hooks/useFileExport.usd.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 2
-    }
-  },
-  "src/app/hooks/useFileImport.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    }
-  },
-  "src/app/hooks/useFileImport.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
     }
   },
   "src/app/hooks/usePendingHistoryCoordinator.ts": {
@@ -962,16 +947,6 @@
       "count": 2
     }
   },
-  "src/shared/components/Panel/JointPanelContent.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    }
-  },
-  "src/shared/components/Panel/JointsPanel.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    }
-  },
   "src/shared/components/Panel/OptionsPanel.tsx": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
@@ -1010,11 +985,6 @@
   "src/shared/utils/three/dispose.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 3
-    }
-  },
-  "src/shared/utils/three/dispose.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
     }
   },
   "src/store/assemblyStore.import.test.ts": {

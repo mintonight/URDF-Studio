@@ -25,6 +25,7 @@ interface HeaderProps {
   onImportFolder: () => void;
   onOpenExport: () => void;
   onExportProject: () => void;
+  isExportingProject?: boolean;
   // Toolbox items
   toolboxItems: ToolboxItem[];
   // Other actions
@@ -50,6 +51,7 @@ export function Header({
   onImportFolder,
   onOpenExport,
   onExportProject,
+  isExportingProject = false,
   toolboxItems,
   onOpenCodeViewer,
   onPrefetchCodeViewer,
@@ -134,6 +136,7 @@ export function Header({
           onImportFolder={onImportFolder}
           onOpenExport={onOpenExport}
           onExportProject={onExportProject}
+          isExportingProject={isExportingProject}
           toolboxItems={toolboxItems}
           onOpenCodeViewer={onOpenCodeViewer}
           onPrefetchCodeViewer={onPrefetchCodeViewer}

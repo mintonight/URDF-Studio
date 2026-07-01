@@ -23,6 +23,8 @@ export interface PngOptimizerClient {
   dispose: (rejectPendingWith?: unknown) => void;
 }
 
+const DEFAULT_PNG_OPTIMIZE_REQUEST_TIMEOUT_MS = 2 * 60 * 1000;
+
 /**
  * Build a PNG optimizer client backed by a single oxipng worker.
  *
@@ -41,6 +43,7 @@ export function createPngOptimizerClient({
     label: 'PNG optimization',
     createWorker,
     canUseWorker,
+    requestTimeoutMs: DEFAULT_PNG_OPTIMIZE_REQUEST_TIMEOUT_MS,
     getRequestId: (response) => response.requestId,
     isError: (response) => response.type === 'optimize-png-error',
     getError: (response) =>

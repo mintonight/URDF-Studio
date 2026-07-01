@@ -65,6 +65,7 @@ export function AppLayout({
   onOpenExport,
   onOpenLibraryExport,
   onExportProject,
+  isExportingProject = false,
   showToast,
   onOpenAIInspection,
   onOpenAIConversation,
@@ -820,6 +821,7 @@ export function AppLayout({
       header={{
         onOpenExport,
         onExportProject,
+        isExportingProject,
         onOpenSettings,
         headerQuickAction,
         headerSecondaryAction,

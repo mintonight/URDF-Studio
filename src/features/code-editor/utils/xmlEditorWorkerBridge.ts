@@ -9,9 +9,11 @@ import type {
 interface PendingWorkerRequest<T> {
   resolve: (value: T) => void;
   reject: (error: unknown) => void;
+  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 const pendingWorkerRequests = new Map<number, PendingWorkerRequest<unknown>>();
+const DEFAULT_XML_EDITOR_WORKER_REQUEST_TIMEOUT_MS = 30 * 1000;
 
 let requestIdCounter = 0;
 let sharedWorker: Worker | null = null;
@@ -29,27 +31,32 @@ const clearPendingRequest = (requestId: number): PendingWorkerRequest<unknown> |
   }
 
   pendingWorkerRequests.delete(requestId);
+  if (pendingRequest.timeoutId !== undefined) {
+    clearTimeout(pendingRequest.timeoutId);
+    pendingRequest.timeoutId = undefined;
+  }
   return pendingRequest;
 };
 
 const rejectAllPendingRequests = (error: unknown): void => {
-  pendingWorkerRequests.forEach((pendingRequest, requestId) => {
+  Array.from(pendingWorkerRequests.entries()).forEach(([requestId, pendingRequest]) => {
     clearPendingRequest(requestId);
     pendingRequest.reject(error);
   });
 };
 
 const disposeSharedWorker = (rejectPendingWith?: unknown): void => {
+  const rejectionReason = rejectPendingWith ?? new Error('XML editor worker disposed');
+
   if (sharedWorker) {
     sharedWorker.removeEventListener('message', handleSharedWorkerMessage);
     sharedWorker.removeEventListener('error', handleSharedWorkerError);
+    sharedWorker.removeEventListener('messageerror', handleSharedWorkerMessageError);
     sharedWorker.terminate();
     sharedWorker = null;
   }
 
-  if (rejectPendingWith !== undefined) {
-    rejectAllPendingRequests(rejectPendingWith);
-  }
+  rejectAllPendingRequests(rejectionReason);
 };
 
 const ensureSharedWorker = (): Worker => {
@@ -60,9 +67,26 @@ const ensureSharedWorker = (): Worker => {
     );
     sharedWorker.addEventListener('message', handleSharedWorkerMessage);
     sharedWorker.addEventListener('error', handleSharedWorkerError);
+    sharedWorker.addEventListener('messageerror', handleSharedWorkerMessageError);
+    workerUnavailable = false;
   }
 
   return sharedWorker;
+};
+
+const createWorkerTimeoutError = (requestId: number): Error =>
+  new Error(
+    `XML editor worker did not respond within ${DEFAULT_XML_EDITOR_WORKER_REQUEST_TIMEOUT_MS} ms. Request id: ${requestId}.`,
+  );
+
+const registerRequestTimeout = (
+  requestId: number,
+  pendingRequest: PendingWorkerRequest<unknown>,
+): void => {
+  pendingRequest.timeoutId = setTimeout(() => {
+    workerUnavailable = true;
+    disposeSharedWorker(createWorkerTimeoutError(requestId));
+  }, DEFAULT_XML_EDITOR_WORKER_REQUEST_TIMEOUT_MS);
 };
 
 const handleSharedWorkerMessage = (event: MessageEvent<XmlEditorWorkerResponse>): void => {
@@ -100,8 +124,13 @@ const handleSharedWorkerError = (event: ErrorEvent): void => {
   disposeSharedWorker(error);
 };
 
+const handleSharedWorkerMessageError = (): void => {
+  workerUnavailable = true;
+  disposeSharedWorker(new Error('XML editor worker message transfer failed'));
+};
+
 const postRequestToWorker = <TResponse>(request: XmlEditorWorkerRequest): Promise<TResponse> => {
-  if (workerUnavailable) {
+  if (workerUnavailable && sharedWorker) {
     return Promise.reject(new Error('XML editor worker is unavailable'));
   }
 
@@ -120,10 +149,12 @@ const postRequestToWorker = <TResponse>(request: XmlEditorWorkerRequest): Promis
       return;
     }
 
-    pendingWorkerRequests.set(request.requestId, {
+    const pendingRequest: PendingWorkerRequest<unknown> = {
       resolve: (value: unknown) => resolve(value as TResponse),
       reject,
-    });
+    };
+    pendingWorkerRequests.set(request.requestId, pendingRequest);
+    registerRequestTimeout(request.requestId, pendingRequest);
 
     try {
       worker.postMessage(request);

@@ -11,13 +11,19 @@ import JSZip from 'jszip';
 import { useFileImport } from './useFileImport.ts';
 import { disposeImportPreparationWorker } from './importPreparationWorkerBridge.ts';
 import { disposeRobotImportWorker } from './robotImportWorkerBridge.ts';
-import { hydrateDeferredImportAssets, prepareImportPayload } from '@/app/utils/importPreparation';
+import {
+  hydrateDeferredImportAssets,
+  prepareImportPayload,
+  type ImportPreparationFileDescriptor,
+  type PreparedDeferredImportAssetFile,
+} from '@/app/utils/importPreparation';
 import {
   useRobotStore,
   useAssetsStore,
   useSelectionStore,
   useUIStore,
 } from '@/store';
+import type { ProjectImportResult } from '@/features/file-io';
 import { translations } from '@/shared/i18n';
 import { DEFAULT_MOTOR_LIBRARY } from '@/shared/data/motorLibrary';
 import type { RobotFile } from '@/types';
@@ -219,15 +225,94 @@ async function waitForCondition(
   assert.fail('Timed out waiting for condition');
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
+function createProjectImportResult(fileName: string, content: string): ProjectImportResult {
+  return {
+    manifest: {
+      name: 'project',
+      version: '1.0',
+      createdAt: '2026-03-30T00:00:00.000Z',
+      lastModified: '2026-03-30T00:00:00.000Z',
+      assets: {
+        logicalPaths: [],
+        assetEntries: [],
+      },
+      files: [
+        {
+          name: fileName,
+          format: 'urdf',
+        },
+      ],
+      selectedFileName: fileName,
+      ui: {},
+      robotState: null,
+      assemblyState: null,
+    },
+    assets: {},
+    availableFiles: [
+      {
+        name: fileName,
+        format: 'urdf',
+        content,
+      },
+    ],
+    allFileContents: {
+      [fileName]: content,
+    },
+    motorLibrary: DEFAULT_MOTOR_LIBRARY,
+    selectedFileName: fileName,
+    originalUrdfContent: content,
+    originalFileFormat: 'urdf',
+    usdPreparedExportCaches: {},
+    robotState: null,
+    assemblyState: null,
+    robotHistory: { past: [], future: [] },
+    robotActivity: [],
+    assemblyHistory: { past: [], future: [] },
+    assemblyActivity: [],
+  };
+}
+
 type WorkerEventHandler = (event: { data?: unknown; error?: unknown; message?: string }) => void;
 
+type RobotImportWorkerMockMessage = {
+  type?: string;
+  requestId?: number;
+  contextId?: string;
+  context?: {
+    availableFiles?: RobotFile[];
+    assets?: Record<string, string>;
+    allFileContents?: Record<string, string>;
+  };
+  files?: ImportPreparationFileDescriptor[];
+  existingPaths?: string[];
+  preResolvePreferredImport?: boolean;
+  archiveFile?: File;
+  assetFiles?: PreparedDeferredImportAssetFile[];
+  file?: RobotFile;
+  options?: Parameters<typeof resolveRobotFileData>[1];
+};
+
 function installRobotImportWorkerMock(
-  options: { failHydrate?: boolean; deferHydrate?: boolean } = {},
+  options: { failHydrate?: boolean; deferHydrate?: boolean; deferPrepare?: boolean } = {},
 ) {
   const originalWorker = globalThis.Worker;
   let resolveRequestCount = 0;
   let prepareRequestCount = 0;
   let hydrateRequestCount = 0;
+  let prepareReleaseRequested = false;
+  let hydrateReleaseRequested = false;
+  const pendingPrepareResolvers: Array<() => void> = [];
   const pendingHydrateResolvers: Array<() => void> = [];
 
   class FakeRobotImportWorker {
@@ -252,9 +337,11 @@ function installRobotImportWorkerMock(
       this.listeners.get(type)?.delete(handler);
     }
 
-    postMessage(message: any): void {
+    postMessage(message: RobotImportWorkerMockMessage): void {
       if (message?.type === 'sync-context') {
-        this.contextSnapshots.set(message.contextId, message.context ?? {});
+        if (message.contextId) {
+          this.contextSnapshots.set(message.contextId, message.context ?? {});
+        }
         return;
       }
 
@@ -286,6 +373,16 @@ function installRobotImportWorkerMock(
             preResolvePreferredImport: message.preResolvePreferredImport,
           });
 
+          if (options.deferPrepare && !prepareReleaseRequested) {
+            await new Promise<void>((resolve) => {
+              if (prepareReleaseRequested) {
+                resolve();
+              } else {
+                pendingPrepareResolvers.push(resolve);
+              }
+            });
+          }
+
           this.listeners.get('message')?.forEach((handler) => {
             handler({
               data: {
@@ -302,6 +399,16 @@ function installRobotImportWorkerMock(
       if (message?.type === 'hydrate-deferred-import-assets') {
         queueMicrotask(async () => {
           hydrateRequestCount += 1;
+          if (options.deferHydrate && !hydrateReleaseRequested) {
+            await new Promise<void>((resolve) => {
+              if (hydrateReleaseRequested) {
+                resolve();
+              } else {
+                pendingHydrateResolvers.push(resolve);
+              }
+            });
+          }
+
           if (options.failHydrate) {
             this.listeners.get('message')?.forEach((handler) => {
               handler({
@@ -315,15 +422,13 @@ function installRobotImportWorkerMock(
             return;
           }
 
-          if (options.deferHydrate) {
-            await new Promise<void>((resolve) => {
-              pendingHydrateResolvers.push(resolve);
-            });
+          if (!message.archiveFile) {
+            throw new Error('Missing deferred hydration archive file');
           }
 
           const assetFiles = await hydrateDeferredImportAssets(
             message.archiveFile,
-            message.assetFiles,
+            message.assetFiles ?? [],
           );
 
           this.listeners.get('message')?.forEach((handler) => {
@@ -344,6 +449,11 @@ function installRobotImportWorkerMock(
       }
 
       resolveRequestCount += 1;
+      if (!message.file) {
+        return;
+      }
+
+      const file = message.file;
       const context = message.contextId ? this.contextSnapshots.get(message.contextId) : undefined;
       const resolveOptions = {
         ...context,
@@ -354,7 +464,7 @@ function installRobotImportWorkerMock(
       };
 
       queueMicrotask(() => {
-        const result = resolveRobotFileData(message.file, resolveOptions);
+        const result = resolveRobotFileData(file, resolveOptions);
         this.listeners.get('message')?.forEach((handler) => {
           handler({
             data: {
@@ -386,7 +496,13 @@ function installRobotImportWorkerMock(
     get hydrateRequestCount() {
       return hydrateRequestCount;
     },
+    releasePrepare() {
+      prepareReleaseRequested = true;
+      const resolvers = pendingPrepareResolvers.splice(0, pendingPrepareResolvers.length);
+      resolvers.forEach((resolve) => resolve());
+    },
     releaseHydrate() {
+      hydrateReleaseRequested = true;
       const resolvers = pendingHydrateResolvers.splice(0, pendingHydrateResolvers.length);
       resolvers.forEach((resolve) => resolve());
     },
@@ -544,6 +660,120 @@ test('useFileImport prepares broad loose folder imports through the worker', asy
     assert.equal(loadCalls[0]?.name, 'unitree_ros/robots/demo_description/urdf/demo.urdf');
     assert.equal(useAssetsStore.getState().availableFiles.length, 81);
     assert.equal(Object.keys(useAssetsStore.getState().assets).length, 80);
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
+test('useFileImport merges ordinary import results with live library state after async preparation', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock({ deferPrepare: true });
+
+  const staleFile: RobotFile = {
+    name: 'library/stale.urdf',
+    format: 'urdf',
+    content: '<robot name="stale"><link name="base_link" /></robot>',
+  };
+  useAssetsStore.setState({
+    allFileContents: { [staleFile.name]: staleFile.content },
+    assets: { 'library/stale.stl': 'blob:stale' },
+    availableFiles: [staleFile],
+    selectedFile: staleFile,
+  });
+
+  const importedFile = new File(
+    ['<robot name="fresh"><link name="base_link" /></robot>'],
+    'fresh.urdf',
+    { type: 'text/xml' },
+  );
+  const rendered = renderHook();
+
+  try {
+    const importPromise = rendered.hook.handleImport([importedFile] as unknown as FileList);
+    await waitForCondition(() => workerMock.prepareRequestCount === 1);
+
+    useAssetsStore.setState({
+      allFileContents: {},
+      assets: {},
+      availableFiles: [],
+      selectedFile: null,
+    });
+    workerMock.releasePrepare();
+
+    const result = await importPromise;
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(
+      useAssetsStore.getState().availableFiles.map((file) => file.name),
+      ['fresh.urdf'],
+    );
+    assert.equal(useAssetsStore.getState().assets['library/stale.stl'], undefined);
+    assert.equal(useAssetsStore.getState().allFileContents[staleFile.name], undefined);
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
+test('useFileImport ignores stale ordinary imports superseded during preparation', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock({ deferPrepare: true });
+  const loadCalls: RobotFile[] = [];
+  const toastCalls: Array<{ message: string; type?: 'info' | 'success' }> = [];
+
+  const firstFile = new File(
+    ['<robot name="first"><link name="base_link" /></robot>'],
+    'first.urdf',
+    { type: 'text/xml' },
+  );
+  const secondFile = new File(
+    ['<robot name="second"><link name="base_link" /></robot>'],
+    'second.urdf',
+    { type: 'text/xml' },
+  );
+  const rendered = renderHook({
+    onLoadRobot: (file) => {
+      loadCalls.push(file);
+    },
+    onShowToast: (message, type) => {
+      toastCalls.push({ message, type });
+    },
+  });
+
+  try {
+    const firstImportPromise = rendered.hook.handleImport([firstFile] as unknown as FileList);
+    await waitForCondition(() => workerMock.prepareRequestCount === 1);
+
+    const secondImportPromise = rendered.hook.handleImport([secondFile] as unknown as FileList);
+    await waitForCondition(() => workerMock.prepareRequestCount === 2);
+    workerMock.releasePrepare();
+
+    const [firstResult, secondResult] = await Promise.all([
+      firstImportPromise,
+      secondImportPromise,
+    ]);
+
+    assert.equal(firstResult.status, 'skipped');
+    assert.equal(secondResult.status, 'completed');
+    assert.deepEqual(
+      useAssetsStore.getState().availableFiles.map((file) => file.name),
+      ['second.urdf'],
+    );
+    assert.match(useAssetsStore.getState().availableFiles[0]?.content ?? '', /second/i);
+    assert.equal(useAssetsStore.getState().allFileContents['first.urdf'], undefined);
+    assert.deepEqual(
+      loadCalls.map((file) => file.name),
+      ['second.urdf'],
+    );
+    assert.deepEqual(toastCalls, []);
   } finally {
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -984,6 +1214,68 @@ test('useFileImport opens a single archive before background hydration finishes 
   }
 });
 
+test('useFileImport ignores deferred archive hydration after imported files are removed', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock({ deferHydrate: true });
+
+  const zip = new JSZip();
+  zip.file(
+    'demo/demo.xml',
+    `<mujoco model="demo_bundle">
+      <compiler meshdir="assets" texturedir="assets" />
+      <asset>
+        <mesh name="body_mesh" file="body.obj" />
+      </asset>
+      <worldbody>
+        <body name="base_link">
+          <geom type="mesh" mesh="body_mesh" />
+        </body>
+      </worldbody>
+    </mujoco>`,
+  );
+  zip.file('demo/assets/body.obj', 'o Mesh');
+  zip.file('demo/assets/unused.png', new Uint8Array([137, 80, 78, 71]));
+
+  const importedFile = new File([await zip.generateAsync({ type: 'uint8array' })], 'bundle.zip', {
+    type: 'application/zip',
+  });
+
+  const rendered = renderHook({
+    onLoadRobot: () => {},
+  });
+
+  try {
+    let settled = false;
+    const importPromise = rendered.hook
+      .handleImport([importedFile] as unknown as FileList)
+      .then((result) => {
+        settled = true;
+        return result;
+      });
+
+    await waitForCondition(() => settled);
+
+    assert.equal(workerMock.hydrateRequestCount, 1);
+    assert.ok(useAssetsStore.getState().assets['demo/assets/body.obj']);
+    assert.equal(useAssetsStore.getState().assets['demo/assets/unused.png'], undefined);
+
+    useAssetsStore.getState().clearRobotLibrary();
+    workerMock.releaseHydrate();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    assert.equal(useAssetsStore.getState().assets['demo/assets/unused.png'], undefined);
+    const result = await importPromise;
+    assert.equal(result.status, 'completed');
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
 test('useFileImport opens the preferred multi-MJCF archive file without auto-seeding assembly', async () => {
   resetStoresToBaseline();
   const domEnvironment = installDomEnvironment();
@@ -1212,6 +1504,63 @@ test('useFileImport keeps a single archive open when background hydration of non
         type: 'info',
       },
     ]);
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
+test('useFileImport suppresses stale background hydration failure toasts after files are removed', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock({ failHydrate: true });
+  const toastCalls: Array<{ message: string; type?: 'info' | 'success' }> = [];
+
+  const zip = new JSZip();
+  zip.file(
+    'demo/demo.xml',
+    `<mujoco model="demo_bundle">
+      <compiler meshdir="assets" texturedir="assets" />
+      <asset>
+        <mesh name="body_mesh" file="body.obj" />
+        <texture name="body_orm" type="2d" file="body_orm.png" />
+      </asset>
+      <worldbody>
+        <body name="base_link">
+          <geom type="mesh" mesh="body_mesh" />
+        </body>
+      </worldbody>
+    </mujoco>`,
+  );
+  zip.file('demo/assets/body.obj', 'o Mesh');
+  zip.file('demo/assets/body_orm.png', new Uint8Array([137, 80, 78, 71]));
+
+  const importedFile = new File([await zip.generateAsync({ type: 'uint8array' })], 'bundle.zip', {
+    type: 'application/zip',
+  });
+  const rendered = renderHook({
+    onShowToast: (message, type) => {
+      toastCalls.push({ message, type });
+    },
+  });
+
+  try {
+    const result = await rendered.hook.handleImport([importedFile] as unknown as FileList);
+    assert.equal(result.status, 'completed');
+    await waitForCondition(() => workerMock.hydrateRequestCount === 1);
+
+    useAssetsStore.setState({
+      assets: {},
+      availableFiles: [],
+      selectedFile: null,
+    });
+    workerMock.releaseHydrate();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    assert.deepEqual(toastCalls, []);
   } finally {
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1924,48 +2273,10 @@ test('useFileImport keeps editor mode when importing a project archive', async (
     },
     projectImporter: async () => {
       importerCallCount += 1;
-      return {
-        manifest: {
-          name: 'project',
-          version: '1.0',
-          createdAt: '2026-03-30T00:00:00.000Z',
-          lastModified: '2026-03-30T00:00:00.000Z',
-          assets: {
-            logicalPaths: [],
-            assetEntries: [],
-          },
-          files: [
-            {
-              name: 'robots/demo.urdf',
-              format: 'urdf',
-            },
-          ],
-          selectedFileName: 'robots/demo.urdf',
-          ui: {},
-          robotState: null,
-          assemblyState: null,
-        },
-        assets: {},
-        availableFiles: [
-          {
-            name: 'robots/demo.urdf',
-            format: 'urdf',
-            content: '<robot name="demo"><link name="base_link" /></robot>',
-          },
-        ],
-        allFileContents: {},
-        motorLibrary: DEFAULT_MOTOR_LIBRARY,
-        selectedFileName: 'robots/demo.urdf',
-        originalUrdfContent: '<robot name="demo"><link name="base_link" /></robot>',
-        originalFileFormat: 'urdf',
-        usdPreparedExportCaches: {},
-        robotState: null,
-        assemblyState: null,
-        robotHistory: { past: [], future: [] },
-        robotActivity: [],
-        assemblyHistory: { past: [], future: [] },
-        assemblyActivity: [],
-      } as any;
+      return createProjectImportResult(
+        'robots/demo.urdf',
+        '<robot name="demo"><link name="base_link" /></robot>',
+      );
     },
   });
 
@@ -1978,6 +2289,148 @@ test('useFileImport keeps editor mode when importing a project archive', async (
     assert.equal(projectImportSelections.length, 1);
     assert.equal(projectImportSelections[0]?.name, 'robots/demo.urdf');
   } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
+test('useFileImport imports a usp project when harmless sidecar files are selected together', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock();
+  const projectFile = new File(['unused'], 'project.usp', { type: 'application/octet-stream' });
+  const readmeFile = new File(['# Project notes'], 'README.md', { type: 'text/markdown' });
+  const importedFiles: string[] = [];
+  const rendered = renderHook({
+    projectImporter: async (file) => {
+      importedFiles.push(file.name);
+      return createProjectImportResult(
+        'robots/demo.urdf',
+        '<robot name="demo"><link name="base_link" /></robot>',
+      );
+    },
+  });
+
+  try {
+    const result = await rendered.hook.handleImport([
+      projectFile,
+      readmeFile,
+    ] as unknown as FileList);
+
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(importedFiles, ['project.usp']);
+    assert.equal(useAssetsStore.getState().availableFiles[0]?.name, 'robots/demo.urdf');
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
+test('useFileImport prioritizes a usp project over supported sidecar files', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock();
+  const projectFile = new File(['unused'], 'project.usp', { type: 'application/octet-stream' });
+  const previewFile = new File([new Uint8Array([137, 80, 78, 71])], 'preview.png', {
+    type: 'image/png',
+  });
+  const importedFiles: string[] = [];
+  const rendered = renderHook({
+    projectImporter: async (file) => {
+      importedFiles.push(file.name);
+      return createProjectImportResult(
+        'robots/demo.urdf',
+        '<robot name="demo"><link name="base_link" /></robot>',
+      );
+    },
+  });
+
+  try {
+    const result = await rendered.hook.handleImport([
+      projectFile,
+      previewFile,
+    ] as unknown as FileList);
+
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(importedFiles, ['project.usp']);
+    assert.deepEqual(
+      useAssetsStore.getState().availableFiles.map((file) => file.name),
+      ['robots/demo.urdf'],
+    );
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    workerMock.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
+test('useFileImport ignores stale project imports that finish after a newer project import', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+  const workerMock = installRobotImportWorkerMock();
+  const firstProject = new File(['first'], 'first.usp', { type: 'application/octet-stream' });
+  const secondProject = new File(['second'], 'second.usp', { type: 'application/octet-stream' });
+  const firstDeferred = createDeferred<ReturnType<typeof createProjectImportResult>>();
+  const secondDeferred = createDeferred<ReturnType<typeof createProjectImportResult>>();
+  const importerCalls: string[] = [];
+  const importedSelections: Array<string | null> = [];
+  const rendered = renderHook({
+    onProjectImported: (selectedFile) => {
+      importedSelections.push(selectedFile?.name ?? null);
+    },
+    projectImporter: async (file) => {
+      importerCalls.push(file.name);
+      if (file.name === 'first.usp') {
+        return firstDeferred.promise;
+      }
+      if (file.name === 'second.usp') {
+        return secondDeferred.promise;
+      }
+      throw new Error(`Unexpected project import: ${file.name}`);
+    },
+  });
+
+  try {
+    const firstImportPromise = rendered.hook.handleImport([firstProject] as unknown as FileList);
+    await waitForCondition(() => importerCalls.length === 1);
+
+    const secondImportPromise = rendered.hook.handleImport([secondProject] as unknown as FileList);
+    await waitForCondition(() => importerCalls.length === 2);
+
+    secondDeferred.resolve(
+      createProjectImportResult(
+        'robots/second.urdf',
+        '<robot name="second"><link name="base_link" /></robot>',
+      ),
+    );
+    assert.equal((await secondImportPromise).status, 'completed');
+    assert.equal(useAssetsStore.getState().availableFiles[0]?.name, 'robots/second.urdf');
+
+    firstDeferred.resolve(
+      createProjectImportResult(
+        'robots/first.urdf',
+        '<robot name="first"><link name="base_link" /></robot>',
+      ),
+    );
+    assert.equal((await firstImportPromise).status, 'skipped');
+
+    assert.deepEqual(importerCalls, ['first.usp', 'second.usp']);
+    assert.deepEqual(importedSelections, ['robots/second.urdf']);
+    assert.deepEqual(
+      useAssetsStore.getState().availableFiles.map((file) => file.name),
+      ['robots/second.urdf'],
+    );
+  } finally {
+    firstDeferred.reject(new Error('test cleanup'));
+    secondDeferred.reject(new Error('test cleanup'));
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 20));
     workerMock.restore();
@@ -2021,41 +2474,12 @@ test('useFileImport keeps project-import state when usp import fails after mutat
       throw new Error('project imported exploded');
     },
     projectImporter: async () => {
+      const result = createProjectImportResult(
+        'robots/demo.urdf',
+        '<robot name="demo"><link name="base_link" /></robot>',
+      );
       return {
-        manifest: {
-          name: 'project',
-          version: '1.0',
-          createdAt: '2026-03-30T00:00:00.000Z',
-          lastModified: '2026-03-30T00:00:00.000Z',
-          assets: {
-            logicalPaths: [],
-            assetEntries: [],
-          },
-          files: [
-            {
-              name: 'robots/demo.urdf',
-              format: 'urdf',
-            },
-          ],
-          selectedFileName: 'robots/demo.urdf',
-          ui: {},
-          robotState: null,
-          assemblyState: null,
-        },
-        assets: {},
-        availableFiles: [
-          {
-            name: 'robots/demo.urdf',
-            format: 'urdf',
-            content: '<robot name="demo"><link name="base_link" /></robot>',
-          },
-        ],
-        allFileContents: {},
-        motorLibrary: DEFAULT_MOTOR_LIBRARY,
-        selectedFileName: 'robots/demo.urdf',
-        originalUrdfContent: '<robot name="demo"><link name="base_link" /></robot>',
-        originalFileFormat: 'urdf',
-        usdPreparedExportCaches: {},
+        ...result,
         robotState: {
           name: 'imported_robot',
           links: {
@@ -2088,7 +2512,7 @@ test('useFileImport keeps project-import state when usp import fails after mutat
         robotActivity: [],
         assemblyHistory: { past: [], future: [] },
         assemblyActivity: [],
-      } as any;
+      };
     },
   });
 
