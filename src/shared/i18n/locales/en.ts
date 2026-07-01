@@ -489,7 +489,7 @@ export const en: TranslationKeys = {
   copy: 'Copy',
   copied: 'Copied!',
   fileBrowser: 'Asset Library',
-  dropOrImport: 'Drop or import\nfiles',
+  dropOrImport: 'Drop or import files',
   dropFilesToImport: 'Drop files to import',
   dropFilesToImportHint:
     'Supports URDF, MJCF, USD, Xacro, ZIP/RAR/7Z/TAR archives, folders, 3D meshes, and images',

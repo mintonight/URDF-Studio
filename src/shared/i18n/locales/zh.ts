@@ -466,7 +466,7 @@ export const zh: TranslationKeys = {
   copy: '复制',
   copied: '已复制!',
   fileBrowser: '素材库',
-  dropOrImport: '拖放或导入\n文件',
+  dropOrImport: '拖放或导入文件',
   dropFilesToImport: '松开鼠标即可导入文件',
   dropFilesToImportHint:
     '支持 URDF、MJCF、USD、Xacro、ZIP/RAR/7Z/TAR 压缩包、文件夹、3D 模型和图片',

@@ -312,7 +312,7 @@ export function TreeEditorJointSection({
               className="space-y-0.5 px-1 py-1"
             />
           ) : (
-            <div className="flex min-h-0 flex-1 items-center justify-center px-3 py-4 text-center text-[11px] text-text-tertiary">
+            <div className="flex min-h-0 flex-1 items-center justify-center px-3 py-4 text-center text-xs italic text-text-tertiary">
               {t.noJointsYet || 'No joints yet.'}
             </div>
           )}
