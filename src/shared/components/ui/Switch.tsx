@@ -21,20 +21,21 @@ export const Switch: React.FC<SwitchProps> = ({
   className = '',
   labelClassName = '',
 }) => {
-  const hasCommittedRef = React.useRef(false);
   const previousCheckedRef = React.useRef(checked);
+  const pendingUserToggleRef = React.useRef(false);
   const handleToggle = () => {
     if (!disabled) {
+      pendingUserToggleRef.current = true;
       onChange(!checked);
     }
   };
   const shouldAnimateStateChange =
-    hasCommittedRef.current && previousCheckedRef.current !== checked;
+    pendingUserToggleRef.current && previousCheckedRef.current !== checked;
 
   React.useLayoutEffect(() => {
-    hasCommittedRef.current = true;
     previousCheckedRef.current = checked;
-  }, [checked]);
+    pendingUserToggleRef.current = false;
+  });
 
   // Desktop-friendly compact sizes with proper alignment
   const desktopSizes = {

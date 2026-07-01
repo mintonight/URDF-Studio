@@ -61,7 +61,17 @@ function renderControl(root: Root, props: Partial<React.ComponentProps<typeof Sw
   });
 }
 
-test('Switch skips initial checked-state motion and only enables transitions after a real toggle', async () => {
+function SwitchHarness({ initialChecked = true }: { initialChecked?: boolean }) {
+  const [checked, setChecked] = React.useState(initialChecked);
+
+  return React.createElement(Switch, {
+    checked,
+    onChange: setChecked,
+    ariaLabel: 'Import warning',
+  });
+}
+
+test('Switch skips non-interactive checked-state motion', async () => {
   const { dom, container, root } = createComponentRoot();
 
   try {
@@ -89,22 +99,58 @@ test('Switch skips initial checked-state motion and only enables transitions aft
       checked: false,
     });
 
+    assert.match(
+      toggle.className,
+      /\btransition-none\b/,
+      'programmatic checked changes should not animate after mount',
+    );
+    assert.match(
+      thumb.className,
+      /\btransition-none\b/,
+      'programmatic thumb updates should not animate after mount',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('Switch enables transitions after a user toggle', async () => {
+  const { dom, container, root } = createComponentRoot();
+
+  try {
+    await act(async () => {
+      root.render(React.createElement(SwitchHarness));
+    });
+
+    const toggle = container.querySelector('[role="switch"]') as HTMLButtonElement | null;
+    assert.ok(toggle, 'switch should render a toggle button');
+    const thumb = toggle.querySelector('span') as HTMLSpanElement | null;
+    assert.ok(thumb, 'switch should render a thumb');
+
+    await act(async () => {
+      toggle.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    assert.equal(toggle.getAttribute('aria-checked'), 'false');
     assert.doesNotMatch(
       toggle.className,
       /\btransition-none\b/,
-      'real value changes should restore switch transition classes',
+      'user toggles should restore switch transition classes',
     );
     assert.match(
       toggle.className,
       /transition-\[background-color,border-color\]/,
-      'background and border color should animate on real toggles',
+      'background and border color should animate on user toggles',
     );
     assert.doesNotMatch(
       thumb.className,
       /\btransition-none\b/,
-      'thumb transitions should also re-enable on real toggles',
+      'thumb transitions should also re-enable on user toggles',
     );
-    assert.match(thumb.className, /\btransition\b/, 'thumb motion should animate on real toggles');
+    assert.match(thumb.className, /\btransition\b/, 'thumb motion should animate on user toggles');
   } finally {
     await act(async () => {
       root.unmount();
