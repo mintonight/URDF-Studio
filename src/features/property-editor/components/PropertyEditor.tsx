@@ -201,7 +201,7 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
           {/* Content */}
           {!data || isReadOnlyPreview ? (
             <div className="w-full flex-1 flex items-center justify-center p-8 text-text-tertiary text-center">
-              <p className="ui-static-copy-guard text-[11px] leading-5">{emptyStateMessage}</p>
+              <p className="ui-static-copy-guard text-xs italic leading-5">{emptyStateMessage}</p>
             </div>
           ) : (
             <div className="w-full min-h-0 flex-1 overflow-y-auto custom-scrollbar p-1 space-y-1.5">
