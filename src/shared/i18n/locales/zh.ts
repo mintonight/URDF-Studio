@@ -10,6 +10,7 @@ export const zh: TranslationKeys = {
   appName: 'URDF Studio',
   editor: '编辑器',
   aiAssistant: 'AI审阅',
+  aiMenu: 'AI',
   aiInspection: 'AI审阅',
   aiConversation: 'AI 对话',
   file: '文件',

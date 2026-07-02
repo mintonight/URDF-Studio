@@ -10,6 +10,7 @@ export const en: TranslationKeys = {
   appName: 'URDF Studio',
   editor: 'Editor',
   aiAssistant: 'AI Inspector',
+  aiMenu: 'AI',
   aiInspection: 'AI Inspection',
   aiConversation: 'AI Conversation',
   file: 'File',

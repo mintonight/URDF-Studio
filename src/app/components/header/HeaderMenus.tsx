@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   Briefcase,
   ChevronDown,
@@ -6,8 +7,8 @@ import {
   Eye,
   FileText,
   Folder,
-  Pencil,
   Redo,
+  Sparkles,
   Undo,
   Upload,
 } from 'lucide-react';
@@ -91,6 +92,22 @@ export function HeaderMenus({
     setActiveMenu(null);
   };
 
+  // Split toolbox items: AI-assistant items render under the dedicated AI
+  // menu, everything else stays in the toolbox.
+  const AI_MENU_KEYS = new Set(['ai-inspection', 'ai-conversation', 'collision-optimizer']);
+  const { aiItems, toolboxItems: nonAiToolboxItems } = useMemo(() => {
+    const ai: ToolboxItem[] = [];
+    const rest: ToolboxItem[] = [];
+    for (const item of toolboxItems) {
+      if (AI_MENU_KEYS.has(item.key)) {
+        ai.push(item);
+      } else {
+        rest.push(item);
+      }
+    }
+    return { aiItems: ai, toolboxItems: rest };
+  }, [toolboxItems]);
+
   return (
     <div className="flex items-center">
       <div className="relative">
@@ -165,58 +182,54 @@ export function HeaderMenus({
         )}
       </div>
 
-      <div className="relative">
-        <HeaderButton
-          isActive={activeMenu === 'edit'}
-          onClick={() => toggleMenu('edit')}
-          title={t.edit}
-          ariaLabel={t.edit}
-          ariaHaspopup="menu"
-          ariaExpanded={activeMenu === 'edit'}
-        >
-          <Pencil className="w-3.5 h-3.5" />
-          {showMenuLabels && <span>{t.edit}</span>}
-          {showMenuLabels && (
-            <ChevronDown
-              className={`w-3 h-3 opacity-60 transition-transform ${activeMenu === 'edit' ? 'rotate-180' : ''}`}
-            />
-          )}
-        </HeaderButton>
+      {aiItems.length > 0 && (
+        <div className="relative">
+          <HeaderButton
+            isActive={activeMenu === 'ai'}
+            onClick={() => toggleMenu('ai')}
+            title={t.aiMenu}
+            ariaLabel={t.aiMenu}
+            ariaHaspopup="menu"
+            ariaExpanded={activeMenu === 'ai'}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            {showMenuLabels && <span>{t.aiMenu}</span>}
+            {showMenuLabels && (
+              <ChevronDown
+                className={`w-3 h-3 opacity-60 transition-transform ${activeMenu === 'ai' ? 'rotate-180' : ''}`}
+              />
+            )}
+          </HeaderButton>
 
-        {activeMenu === 'edit' && (
-          <>
-            <HeaderMenuOverlay onClose={() => setActiveMenu(null)} label={t.close} />
-            <div
-              className="absolute top-full left-0 mt-1 w-max bg-panel-bg dark:bg-panel-bg rounded-lg shadow-md dark:shadow-xl border border-border-black z-50 overflow-visible py-1"
-              role="menu"
-              aria-label={t.edit}
-            >
-              <HeaderMenuItem
-                icon={Undo}
-                onClick={() => {
-                  undo();
-                  setActiveMenu(null);
-                }}
-                disabled={!canUndo}
-                shortcut="Ctrl+Z"
+          {activeMenu === 'ai' && (
+            <>
+              <HeaderMenuOverlay onClose={() => setActiveMenu(null)} label={t.close} />
+              <div
+                className="absolute top-full left-0 mt-1 w-max bg-panel-bg dark:bg-panel-bg rounded-lg shadow-md dark:shadow-xl border border-border-black z-50 overflow-visible py-1"
+                role="menu"
+                aria-label={t.aiMenu}
               >
-                {t.undo}
-              </HeaderMenuItem>
-              <HeaderMenuItem
-                icon={Redo}
-                onClick={() => {
-                  redo();
-                  setActiveMenu(null);
-                }}
-                disabled={!canRedo}
-                shortcut="Ctrl+Shift+Z"
-              >
-                {t.redo}
-              </HeaderMenuItem>
-            </div>
-          </>
-        )}
-      </div>
+                {aiItems.map((item) => (
+                  <HeaderMenuItem
+                    key={item.key}
+                    onClick={() => {
+                      item.onClick();
+                      setActiveMenu(null);
+                    }}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="flex h-[18px] w-[18px] items-center justify-center">
+                        {item.icon}
+                      </span>
+                      <span>{item.title}</span>
+                    </span>
+                  </HeaderMenuItem>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="relative">
         <HeaderButton
@@ -237,7 +250,7 @@ export function HeaderMenus({
         </HeaderButton>
 
         {activeMenu === 'toolbox' && (
-          <ToolboxMenu t={t} onClose={() => setActiveMenu(null)} items={toolboxItems} />
+          <ToolboxMenu t={t} onClose={() => setActiveMenu(null)} items={nonAiToolboxItems} />
         )}
       </div>
 
