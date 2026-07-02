@@ -178,7 +178,6 @@ export function AIConversationModal({
     : null;
   const focusedIssue = isReportFollowup ? (launchContext?.focusedIssue ?? null) : null;
   const headerTitle = isReportFollowup ? t.discussReportWithAI : t.aiConversation;
-  const headerSubtitle = isReportFollowup ? t.askAboutReport : t.aiConversationDesc;
   const latestTimelineValue = (() => {
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage) {
@@ -510,10 +509,7 @@ export function AIConversationModal({
             <div className="rounded-lg border border-border-black bg-panel-bg p-1.5 text-system-blue dark:bg-element-bg dark:text-system-blue">
               <MessageCircle className="w-4 h-4" />
             </div>
-            <div className="flex flex-col gap-1">
-              <h1 className="text-sm font-semibold text-text-primary">{headerTitle}</h1>
-              {!isMinimized && <p className="text-[10px] text-text-tertiary">{headerSubtitle}</p>}
-            </div>
+            <h1 className="text-sm font-semibold text-text-primary">{headerTitle}</h1>
           </div>
         }
         headerActions={
@@ -547,6 +543,7 @@ export function AIConversationModal({
         onActivate={conversationWindowLayer.onActivate}
         headerClassName="h-12 border-b border-border-black flex items-center justify-between px-4 bg-element-bg shrink-0"
         interactionClassName="select-none"
+        showMinimizeButton={false}
         minimizeTitle={t.minimize}
         maximizeTitle={t.maximize}
         restoreTitle={t.restore}
@@ -571,26 +568,14 @@ export function AIConversationModal({
             >
               {messages.length === 0 ? (
                 <div className="flex h-full min-h-0 flex-col items-center justify-end px-10 text-center">
-                  <div className="rounded-2xl border border-border-black bg-panel-bg p-4 shadow-sm dark:bg-element-bg">
-                    <MessageCircle className="w-8 h-8 text-text-tertiary opacity-40" />
-                  </div>
-                  <div className="mt-4 max-w-2xl space-y-4">
-                    <div className="text-sm font-semibold text-text-primary">{headerTitle}</div>
-                    <p className="text-xs leading-relaxed text-text-tertiary">
-                      {isReportFollowup ? t.askAboutReport : t.aiConversationDesc}
-                    </p>
+                  <div className="mt-4 w-full max-w-2xl">
                     <div className="space-y-3 rounded-2xl border border-border-black bg-panel-bg/80 px-4 py-4 text-left shadow-sm dark:bg-element-bg/70">
-                      <div className="flex items-start gap-3 rounded-xl border border-border-black/60 bg-element-bg/70 px-3 py-3 dark:bg-element-bg">
+                      <div className="flex items-center gap-3 rounded-xl border border-border-black/60 bg-element-bg/70 px-3 py-3 dark:bg-element-bg">
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-system-blue/20 bg-system-blue/10 text-system-blue">
                           <MessageCircle className="h-4 w-4" />
                         </div>
-                        <div className="min-w-0 space-y-1">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text-secondary">
-                            {t.examples}
-                          </div>
-                          <div className="text-[10px] leading-relaxed text-text-tertiary">
-                            {t.conversationSuggestionsHint}
-                          </div>
+                        <div className="text-sm font-semibold uppercase tracking-[0.12em] text-text-secondary">
+                          {t.examples}
                         </div>
                       </div>
                       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -796,7 +781,7 @@ export function AIConversationModal({
         onClose={() => setPendingResetAction(null)}
         title={confirmDialogTitle}
         width="w-[460px]"
-        zIndexClassName="z-[130]"
+        zIndexClassName="z-[260]"
         closeLabel={t.close}
         footer={
           <div className="flex items-center justify-end gap-2">
