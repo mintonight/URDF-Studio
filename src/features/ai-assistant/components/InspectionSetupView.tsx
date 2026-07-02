@@ -184,7 +184,7 @@ export function InspectionSetupView({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
+                    <div className="break-all text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
                       {item.id}
                     </div>
                     <h3 className="mt-1 text-sm font-semibold text-text-primary">{itemName}</h3>

@@ -641,6 +641,7 @@ export function AIInspectionModal({
           ) : undefined
         }
         interactionClassName="select-none"
+        showMinimizeButton={false}
         minimizeTitle={t.minimize}
         maximizeTitle={t.maximize}
         restoreTitle={t.restore}
