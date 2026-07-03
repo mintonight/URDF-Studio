@@ -79,6 +79,9 @@ interface AssetDownloadResponse {
 const MAX_REMOTE_IMPORT_FILE_COUNT = 2_000;
 const MAX_REMOTE_IMPORT_TOTAL_BYTES = 512 * 1024 * 1024;
 const MAX_REMOTE_IMPORT_SINGLE_FILE_BYTES = 512 * 1024 * 1024;
+// 并行下载文件时的最大并发请求数。用 worker pool 限流，避免一次性发起全部请求
+// （资产最多含 MAX_REMOTE_IMPORT_FILE_COUNT 个文件）压垮浏览器与对象存储。
+const REMOTE_IMPORT_DOWNLOAD_CONCURRENCY = 8;
 
 export interface ImportFromUrlProgress {
   /** Current file index (1-based) */
@@ -259,46 +262,70 @@ export function useAssetImportFromUrl(options: UseAssetImportFromUrlOptions) {
         },
       });
 
-      const downloadedFiles: File[] = [];
+      // 并行下载（受 REMOTE_IMPORT_DOWNLOAD_CONCURRENCY 限流的 worker pool）。
+      // 不用 Promise.all(files.map(...))：那会同时发起全部请求，资产含上千文件时会
+      // 压垮浏览器与对象存储。worker pool 保持稳定并发度，并按原始 index 写入
+      // downloadedFiles，保证文件顺序与 files 一致（handleImport / webkitRelativePath
+      // 均依赖此顺序）。任一文件失败 → Promise.all 立即 reject，由外层 catch 兜底。
+      const downloadedFiles: File[] = new Array(files.length);
+      let nextFileIndex = 0;
+      let completedCount = 0;
       let totalDownloadedBytes = 0;
-      for (let i = 0; i < files.length; i++) {
-        const fileInfo = files[i];
-        setState((prev) => ({
-          ...prev,
-          progress: {
-            current: i,
-            total: files.length,
-            currentFileName: fileInfo.path.split('/').pop() || fileInfo.path,
-          },
-        }));
 
-        // 后端返回的文件 URL 自带访问凭证，且来自已鉴权的受信接口；其域名与 API 不同源
-        // 属预期（浏览器直连对象存储拉取文件字节）。切勿在此加 origin 白名单或严格相等
-        // 校验——那会误拒合法下载地址、导致导入失败（曾因该错误假设导致线上导入报错）。
-        // 不带 credentials：URL 自带鉴权、不读 cookie，跨域带凭证反而可能触发 CORS 失败。
-        const fileResp = await fetch(fileInfo.url);
-        if (!fileResp.ok) {
-          throw new Error(`Failed to download ${fileInfo.path}: ${fileResp.statusText}`);
+      const downloadWorker = async () => {
+        while (true) {
+          const index = nextFileIndex++;
+          if (index >= files.length) return;
+          const fileInfo = files[index];
+
+          // 后端返回的文件 URL 自带访问凭证，且来自已鉴权的受信接口；其域名与 API 不同源
+          // 属预期（浏览器直连对象存储拉取文件字节）。切勿在此加 origin 白名单或严格相等
+          // 校验——那会误拒合法下载地址、导致导入失败（曾因该错误假设导致线上导入报错）。
+          // 不带 credentials：URL 自带鉴权、不读 cookie，跨域带凭证反而可能触发 CORS 失败。
+          const fileResp = await fetch(fileInfo.url);
+          if (!fileResp.ok) {
+            throw new Error(`Failed to download ${fileInfo.path}: ${fileResp.statusText}`);
+          }
+
+          const blob = await fileResp.blob();
+          totalDownloadedBytes += blob.size;
+          // 单文件大小检查立即生效；累计上限在并行下为 best-effort（JS 单线程下 += 不丢，
+          // 但多 worker 交错检查会偏松），最终由循环外的汇总校验兜底。不再做 content-length
+          // 预估校验——并行累加竞态明显且该字段常缺失。
+          assertRemoteImportBlobWithinLimits(blob, totalDownloadedBytes);
+
+          const fileName = fileInfo.path.split('/').pop() || fileInfo.path;
+          const file = new File([blob], fileName, {
+            type: blob.type || 'application/octet-stream',
+          });
+          Object.defineProperty(file, 'webkitRelativePath', {
+            value: `${rootFolderName}/${fileInfo.path}`,
+            configurable: true,
+          });
+
+          downloadedFiles[index] = file;
+
+          completedCount++;
+          setState((prev) => ({
+            ...prev,
+            progress: {
+              current: completedCount,
+              total: files.length,
+              currentFileName: fileName,
+            },
+          }));
         }
-        assertRemoteImportContentLengthWithinLimits(fileResp, totalDownloadedBytes);
+      };
 
-        const blob = await fileResp.blob();
-        totalDownloadedBytes += blob.size;
-        assertRemoteImportBlobWithinLimits(blob, totalDownloadedBytes);
-        const fileName = fileInfo.path.split('/').pop() || fileInfo.path;
-        const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
+      const workerCount = Math.min(REMOTE_IMPORT_DOWNLOAD_CONCURRENCY, files.length);
+      await Promise.all(Array.from({ length: workerCount }, () => downloadWorker()));
 
-        Object.defineProperty(file, 'webkitRelativePath', {
-          value: `${rootFolderName}/${fileInfo.path}`,
-          configurable: true,
-        });
-
-        downloadedFiles.push(file);
-
-        setState((prev) => ({
-          ...prev,
-          progress: { current: i + 1, total: files.length, currentFileName: fileName },
-        }));
+      // 并行下累计字节检查是 best-effort，此处对总量做一次确定性兜底。
+      if (totalDownloadedBytes > MAX_REMOTE_IMPORT_TOTAL_BYTES) {
+        throw new Error(
+          `Remote import is too large (${totalDownloadedBytes} bytes). ` +
+            `Maximum: ${MAX_REMOTE_IMPORT_TOTAL_BYTES} bytes.`,
+        );
       }
 
       setState({
