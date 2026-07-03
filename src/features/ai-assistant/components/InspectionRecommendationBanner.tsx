@@ -1,16 +1,27 @@
 import { ChevronDown, ChevronRight, RotateCcw, Sparkles } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import type { TranslationKeys } from '@/shared/i18n'
+import type { Language, TranslationKeys } from '@/shared/i18n'
+import {
+  getInspectionProfileLayerName,
+  getInspectionProfileName,
+} from '../config/inspectionProfiles'
 import type { SelectedInspectionProfiles } from '../utils/inspectionProfileSelection'
 import type { NormalInspectionPlan } from '../utils/inspectionNormalPlan'
-import { buildInspectionSelectionDeviation } from '../utils/inspectionAdvancedScopeViewModel'
+import {
+  buildInspectionLayerSummaries,
+  buildInspectionProfileScopeSummaries,
+  buildInspectionSelectionDeviation,
+} from '../utils/inspectionAdvancedScopeViewModel'
 
 interface InspectionRecommendationBannerProps {
+  lang: Language
   t: TranslationKeys
   plan: NormalInspectionPlan
   selectedProfiles: SelectedInspectionProfiles
   recommendedProfiles: SelectedInspectionProfiles
+  focusedProfileId: string
   totalItemCount: number
+  onFocusProfile: (profileId: string) => void
   onRestoreRecommendation: () => void
 }
 
@@ -38,11 +49,14 @@ function formatRecommendationReason(reason: string, t: TranslationKeys) {
 }
 
 export function InspectionRecommendationBanner({
+  lang,
   t,
   plan,
   selectedProfiles,
   recommendedProfiles,
+  focusedProfileId,
   totalItemCount,
+  onFocusProfile,
   onRestoreRecommendation,
 }: InspectionRecommendationBannerProps) {
   const [isReasonExpanded, setIsReasonExpanded] = useState(false)
@@ -52,12 +66,31 @@ export function InspectionRecommendationBanner({
     [recommendedProfiles, selectedProfiles],
   )
   const reasons = plan.reasons.map((reason) => formatRecommendationReason(reason, t))
-  const reasonSummary =
-    reasons.length > 0 ? reasons.join(' · ') : t.inspectionRecommendedPlanDescription
   const deviationSummary = t.inspectionRecommendationDeviationSummary.replace(
     '{count}',
     String(deviation.totalChangedItemCount),
   )
+  const layerSummaries = useMemo(
+    () => buildInspectionLayerSummaries(selectedProfiles, recommendedProfiles),
+    [recommendedProfiles, selectedProfiles],
+  )
+  const profileSummaries = useMemo(
+    () => buildInspectionProfileScopeSummaries(selectedProfiles, recommendedProfiles),
+    [recommendedProfiles, selectedProfiles],
+  )
+  const visibleProfileSummariesByLayer = useMemo(() => {
+    const byLayer = new Map<string, typeof profileSummaries>()
+
+    profileSummaries
+      .filter((summary) => summary.selectedItemCount > 0 || summary.recommendedItemCount > 0)
+      .forEach((summary) => {
+        const summaries = byLayer.get(summary.layer) ?? []
+        summaries.push(summary)
+        byLayer.set(summary.layer, summaries)
+      })
+
+    return byLayer
+  }, [profileSummaries])
 
   return (
     <section
@@ -73,7 +106,7 @@ export function InspectionRecommendationBanner({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-sm font-semibold text-text-primary">
-                  {t.inspectionRecommendedPlan}
+                  {t.inspectionRecommendationArchitecture}
                 </h2>
                 <span className="rounded-md border border-system-blue/15 bg-panel-bg px-2 py-0.5 text-[10px] font-semibold text-system-blue">
                   {selectedCount}/{totalItemCount}
@@ -87,7 +120,9 @@ export function InspectionRecommendationBanner({
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-[12px] leading-5 text-text-secondary">{reasonSummary}</p>
+              <p className="mt-1 text-[12px] leading-5 text-text-secondary">
+                {t.inspectionRecommendationArchitectureDescription}
+              </p>
             </div>
           </div>
         </div>
@@ -118,6 +153,73 @@ export function InspectionRecommendationBanner({
             {t.inspectionRestoreRecommendation}
           </button>
         </div>
+      </div>
+
+      <div
+        data-inspection-recommendation-architecture="true"
+        className="mt-3 grid gap-2 md:grid-cols-2"
+      >
+        {layerSummaries
+          .filter(
+            (layerSummary) =>
+              layerSummary.selectedItemCount > 0 || layerSummary.recommendedItemCount > 0,
+          )
+          .map((layerSummary) => {
+            const profiles = visibleProfileSummariesByLayer.get(layerSummary.layer) ?? []
+            return (
+              <div
+                key={layerSummary.layer}
+                data-inspection-recommendation-layer={layerSummary.layer}
+                className="rounded-lg border border-border-black bg-panel-bg px-3 py-2.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 text-[11px] font-semibold text-text-primary">
+                    {getInspectionProfileLayerName(layerSummary.layer, lang)}
+                  </div>
+                  <span className="shrink-0 rounded-md border border-border-black bg-element-bg px-1.5 py-0.5 text-[10px] font-semibold text-text-tertiary">
+                    {profiles.filter((profile) => profile.selectedItemCount > 0).length}/
+                    {profiles.length}
+                  </span>
+                </div>
+                <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                  {profiles.map((profile) => {
+                    const isFocused = profile.profileId === focusedProfileId
+                    const isCustom =
+                      profile.relation === 'partial' ||
+                      profile.relation === 'user_added' ||
+                      profile.relation === 'user_removed'
+                    const isSelected = profile.selectedItemCount > 0
+                    return (
+                      <button
+                        key={profile.profileId}
+                        type="button"
+                        data-inspection-recommendation-profile={profile.profileId}
+                        data-inspection-recommendation-profile-custom={
+                          isCustom ? 'true' : undefined
+                        }
+                        onClick={() => onFocusProfile(profile.profileId)}
+                        className={`min-w-0 rounded-lg border px-2 py-1.5 text-left text-[10px] font-medium leading-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
+                          isFocused
+                            ? 'border-system-blue/40 bg-system-blue/10 text-system-blue shadow-sm'
+                            : isSelected
+                              ? 'border-border-black bg-element-bg text-text-secondary hover:border-system-blue/30 hover:text-system-blue'
+                              : 'border-border-black bg-panel-bg text-text-tertiary hover:bg-element-hover'
+                        }`}
+                      >
+                        <span className="block truncate">
+                          {getInspectionProfileName(profile.profileId, lang)}
+                        </span>
+                        <span className="mt-0.5 block text-[9px] text-text-tertiary">
+                          {profile.selectedItemCount}/{profile.totalItemCount}
+                          {isCustom ? ` · ${deviationSummary}` : ''}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
       </div>
 
       {isReasonExpanded && reasons.length > 0 && (

@@ -359,6 +359,30 @@ export const en: TranslationKeys = {
   inspectionRunSummary: 'Run Summary',
   inspectionRunSummaryDescription:
     'Max score is based on selected profile items, with recommended profiles used as the default run scope.',
+  inspectionRunDetails: 'Review Details',
+  inspectionRunDetailsDescription:
+    'Shows the recommended review architecture by default. Select any profile to adjust the checks included in this run.',
+  inspectionArchitectureNavigation: 'Architecture Navigation',
+  inspectionArchitectureNavigationDescription:
+    'Use this to locate profiles and spot custom changes. Detailed adjustments happen on the right.',
+  inspectionRecognitionResult: 'Recognition Result',
+  inspectionRecognitionResultDescription:
+    'These fields only determine how the recommendation baseline is generated; they do not overwrite an edited current plan.',
+  inspectionEditable: 'Editable',
+  inspectionRecommendationBaseline: 'Recommendation Baseline',
+  inspectionRecommendationBaselineDescription:
+    'Read-only recommended scope computed from recognition, used for comparison against the current plan.',
+  inspectionReadOnlyBaseline: 'Read-only',
+  inspectionCurrentPlan: 'Current Plan',
+  inspectionCurrentPlanDescription:
+    'The plan that will actually run. Profile and item edits update this plan only.',
+  inspectionPlanOrchestration: 'Plan Orchestration',
+  inspectionPlanOrchestrationDescription:
+    'The baseline remains read-only while the current plan carries user profile and item adjustments.',
+  inspectionRestoreBaseline: 'Restore baseline',
+  inspectionPlanEditorTitle: 'Edit Current Plan',
+  inspectionPlanLayers: 'Layers',
+  inspectionAdjusted: 'Adjusted',
   inspectionSelectedCategories: 'Selected Profiles',
   inspectionMaxPossibleScore: 'Max Score',
   inspectionWeightedCoverage: 'Weighted Coverage',
@@ -393,6 +417,9 @@ export const en: TranslationKeys = {
   inspectionRecommendedPlan: 'Recommended Plan',
   inspectionRecommendedPlanDescription:
     'The inspector recommends this profile set from the current model shape and source format.',
+  inspectionRecommendationArchitecture: 'Recommended Architecture',
+  inspectionRecommendationArchitectureDescription:
+    'Review recommended profiles by layer, then click a profile to adjust its checks on the right.',
   inspectionRecommendationRobotType: 'Model Type',
   inspectionRecommendationSourceFormat: 'Source Format',
   inspectionRecommendationTarget: 'Target',

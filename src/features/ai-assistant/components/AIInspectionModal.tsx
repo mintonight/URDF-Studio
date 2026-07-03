@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { MessageCircle, PanelLeftClose, PanelLeftOpen, ScanSearch, Square, X } from 'lucide-react';
+import { MessageCircle, ScanSearch, Square, X } from 'lucide-react';
 import type { InspectionReport, RobotState } from '@/types';
 import type { Language, TranslationKeys } from '@/shared/i18n';
 import { translations } from '@/shared/i18n';
-import { useAssemblyStore } from '@/store';
+import { useRobotStore } from '@/store';
 import { DraggableWindow } from '@/shared/components/DraggableWindow';
 import { Button } from '@/shared/components/ui/Button';
 import { Dialog } from '@/shared/components/ui/Dialog';
@@ -44,20 +44,20 @@ import {
   buildInspectionItemAnchorId,
   InspectionReportView,
 } from './InspectionReport';
-import { InspectionRecommendationBanner } from './InspectionRecommendationBanner';
 import { InspectionSidebar } from './InspectionSidebar';
 import { InspectionSetupNormalView } from './InspectionSetupNormalView';
 import { InspectionSetupView } from './InspectionSetupView';
 import {
-  createInitialSelectedItems,
   readStoredInspectionSetupMode,
   recalculateReportMetrics,
+  RUN_INSPECTION_POINTER_DURATION_MS,
   TOTAL_INSPECTION_ITEM_COUNT,
   writeStoredInspectionSetupMode,
   type InspectionRunPointerLayout,
   type InspectionSetupMode,
   type ReportScrollTarget,
   type RetestingItemState,
+  type SetupItemScrollTarget,
 } from './inspectionModalState';
 
 interface AIInspectionModalProps {
@@ -138,7 +138,8 @@ export function AIInspectionModal({
   onOpenConversationWithReport,
 }: AIInspectionModalProps) {
   const t = translations[lang];
-  const assemblyState = useAssemblyStore((state) => state.assemblyState);
+  const inspectionWindowLayer = useManagedWindowLayer('aiInspection');
+  const assemblyState = useRobotStore((state) => state.assemblyState);
   const assemblyWorkflowContext = useMemo(() => {
     if (!assemblyState) {
       return undefined;
@@ -225,7 +226,6 @@ export function AIInspectionModal({
   const [inspectionSetupMode, setInspectionSetupMode] = useState<InspectionSetupMode>(() =>
     readStoredInspectionSetupMode(),
   );
-  const [inspectionSetupSidebarCollapsed, setInspectionSetupSidebarCollapsed] = useState(true);
   const [showRunInspectionPointer, setShowRunInspectionPointer] = useState(false);
   const [runInspectionPointerReplayToken, setRunInspectionPointerReplayToken] = useState(0);
   const [runInspectionPointerLayout, setRunInspectionPointerLayout] =
@@ -306,7 +306,6 @@ export function AIInspectionModal({
     }
 
     setExpandedProfiles(new Set());
-    setInspectionSetupSidebarCollapsed(true);
     setSelectedProfiles(cloneSelectedInspectionProfiles(normalInspectionPlan.selectedProfiles));
     setFocusedProfileId(
       normalInspectionPlan.includedProfileIds[0] ??
@@ -718,7 +717,7 @@ export function AIInspectionModal({
     isSetupView && showRunInspectionPointer && totalSelectedCount > 0 && !isMinimized;
   const runInspectionPointerKey = `${isOpen}:${isSetupView}:${inspectionSetupMode}:${isMinimized}`;
   const inspectionSetupSummary =
-    `${t.inspectionRunSummary}${lang === 'zh' ? '：' : ': '}` +
+    `${t.inspectionRunDetails}${lang === 'zh' ? '：' : ': '}` +
     `${t.inspectionSelectedChecks.replace('{count}', String(totalSelectedCount))} | ` +
     `${t.inspectionSelectedCategories}: ${selectedProfileCount} | ` +
     `${t.inspectionWeightedCoverage}: ${selectedCoveragePercentage}% | ` +
@@ -913,84 +912,36 @@ export function AIInspectionModal({
           <div className="relative flex min-h-0 flex-1 overflow-hidden">
             {isSetupView ? (
               inspectionSetupMode === 'advanced' ? (
-                <>
-                  {inspectionSetupSidebarCollapsed ? (
-                    <div
-                      data-inspection-setup-sidebar-collapsed
-                      className="flex w-12 shrink-0 flex-col items-center border-r border-border-black bg-panel-bg p-2 dark:bg-element-bg"
-                    >
-                      <button
-                        type="button"
-                        aria-label={`${t.expand} ${t.inspectionItems}`}
-                        title={`${t.expand} ${t.inspectionItems}`}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-black bg-element-bg text-text-secondary transition-colors hover:bg-element-hover hover:text-system-blue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
-                        onClick={() => setInspectionSetupSidebarCollapsed(false)}
-                      >
-                        <PanelLeftOpen className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="relative flex shrink-0">
-                      <InspectionSidebar
-                        lang={lang}
+                <div
+                  ref={reportScrollViewportRef}
+                  className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app-bg dark:bg-panel-bg"
+                >
+                  <div className="flex min-h-0 flex-1 flex-col gap-4 p-6">
+                    {inspectionCancellationNotice && (
+                      <DismissibleInspectionCancellationNotice
+                        notice={inspectionCancellationNotice}
                         t={t}
-                        isGeneratingAI={isInspecting}
-                        readOnly={false}
-                        focusedProfileId={focusedProfileId}
-                        expandedProfiles={expandedProfiles}
-                        selectedProfiles={selectedProfiles}
-                        recommendedProfiles={recommendedProfiles}
-                        setExpandedProfiles={setExpandedProfiles}
-                        setSelectedProfiles={setSelectedProfiles}
-                        onFocusProfile={setFocusedProfileId}
-                        onNavigateToSetupItem={handleNavigateToSetupItem}
+                        onDismiss={handleDismissInspectionCancellationNotice}
                       />
-
-                      <button
-                        type="button"
-                        aria-label={t.collapseSidebar}
-                        title={t.collapseSidebar}
-                        className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-lg border border-border-black bg-element-bg text-text-tertiary shadow-sm transition-colors hover:bg-element-hover hover:text-system-blue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30"
-                        onClick={() => setInspectionSetupSidebarCollapsed(true)}
-                      >
-                        <PanelLeftClose className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  )}
-
-                  <div
-                    ref={reportScrollViewportRef}
-                    className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-app-bg dark:bg-panel-bg"
-                  >
-                    <div className="flex flex-1 flex-col gap-4 p-6">
-                      {inspectionCancellationNotice && (
-                        <DismissibleInspectionCancellationNotice
-                          notice={inspectionCancellationNotice}
-                          t={t}
-                          onDismiss={handleDismissInspectionCancellationNotice}
-                        />
-                      )}
-                      <InspectionRecommendationBanner
-                        t={t}
-                        plan={normalInspectionPlan}
-                        selectedProfiles={selectedProfiles}
-                        recommendedProfiles={recommendedProfiles}
-                        totalItemCount={TOTAL_INSPECTION_ITEM_COUNT}
-                        onRestoreRecommendation={handleRestoreRecommendation}
-                      />
-                      <InspectionSetupView
-                        robot={robot}
-                        lang={lang}
-                        t={t}
-                        selectedProfiles={selectedProfiles}
-                        recommendedProfiles={recommendedProfiles}
-                        focusedProfileId={focusedProfileId}
-                        onToggleItem={handleToggleSelectedItem}
-                        onRestoreProfileRecommendation={handleRestoreProfileRecommendation}
-                      />
-                    </div>
+                    )}
+                    <InspectionSetupView
+                      robot={robot}
+                      lang={lang}
+                      t={t}
+                      plan={normalInspectionPlan}
+                      override={normalPlanOverride}
+                      selectedProfiles={selectedProfiles}
+                      recommendedProfiles={recommendedProfiles}
+                      focusedProfileId={focusedProfileId}
+                      onOverrideChange={setNormalPlanOverride}
+                      onSelectedProfilesChange={setSelectedProfiles}
+                      onToggleItem={handleToggleSelectedItem}
+                      onFocusProfile={setFocusedProfileId}
+                      onRestoreRecommendation={handleRestoreRecommendation}
+                      onRestoreProfileRecommendation={handleRestoreProfileRecommendation}
+                    />
                   </div>
-                </>
+                </div>
               ) : (
                 <div
                   ref={reportScrollViewportRef}

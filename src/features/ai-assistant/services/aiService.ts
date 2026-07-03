@@ -5,6 +5,7 @@
 import OpenAI from 'openai'
 import type { RobotState, MotorSpec, InspectionReport } from '@/types'
 import { translations, type Language } from '@/shared/i18n'
+import { logRegressionError } from '@/shared/debug/consoleDiagnostics'
 import type { AIResponse } from '../types'
 import { getEasterEggResponse } from '../config/easterEggs'
 import {

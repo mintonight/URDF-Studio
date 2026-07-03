@@ -18,6 +18,7 @@ interface InspectionSidebarProps {
   t: TranslationKeys;
   isGeneratingAI: boolean;
   readOnly?: boolean;
+  navigationOnly?: boolean;
   focusedProfileId: string;
   expandedProfiles: Set<string>;
   selectedProfiles: SelectedInspectionProfiles;
@@ -43,6 +44,7 @@ export function InspectionSidebar({
   t,
   isGeneratingAI,
   readOnly = false,
+  navigationOnly = false,
   focusedProfileId,
   expandedProfiles,
   selectedProfiles,
@@ -57,6 +59,7 @@ export function InspectionSidebar({
   const [expandedLayers, setExpandedLayers] = useState(
     () => new Set(['base', 'morph', 'format', 'target', 'workflow']),
   );
+  const isNavigationOnly = navigationOnly && !readOnly;
   const isInteractionLocked = isGeneratingAI;
   const isRunningInspection = isGeneratingAI && readOnly;
   const totalItemCount = INSPECTION_PROFILE_DEFINITIONS.reduce(
@@ -164,10 +167,12 @@ export function InspectionSidebar({
       <div className="shrink-0 border-b border-border-black bg-element-bg p-3">
         <div className="min-w-0">
           <h3 className="px-1 text-[10px] font-medium tracking-wide text-text-tertiary">
-            {t.inspectionItems}
+            {isNavigationOnly ? t.inspectionArchitectureNavigation : t.inspectionItems}
           </h3>
           <p className="mt-1 px-1 text-[11px] leading-4 text-text-secondary">
-            {t.inspectionScopeDescription}
+            {isNavigationOnly
+              ? t.inspectionArchitectureNavigationDescription
+              : t.inspectionScopeDescription}
           </p>
         </div>
 
@@ -179,7 +184,7 @@ export function InspectionSidebar({
           }`}
         >
           <div className="flex items-center justify-between text-[10px] font-medium uppercase tracking-[0.08em] text-text-tertiary">
-            <span>{t.runInspection}</span>
+            <span>{isNavigationOnly ? t.inspectionSelectedCategories : t.runInspection}</span>
             <span>
               {selectedProfileCount}/{INSPECTION_PROFILE_DEFINITIONS.length}
             </span>
@@ -276,11 +281,17 @@ export function InspectionSidebar({
                       }`}
                     >
                       <div className="flex items-start gap-2 p-2">
-                        {readOnly ? (
+                        {readOnly || isNavigationOnly ? (
                           <div
                             aria-hidden="true"
                             className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                              someSelected ? 'bg-system-blue' : 'bg-border-strong'
+                              hasProfileDelta
+                                ? 'bg-warning'
+                                : isFocused
+                                  ? 'bg-system-blue shadow-[0_0_0_4px_rgba(0,122,255,0.10)]'
+                                  : someSelected
+                                    ? 'bg-system-blue'
+                                    : 'bg-border-strong'
                             }`}
                           />
                         ) : (
@@ -399,24 +410,26 @@ export function InspectionSidebar({
                           )}
                         </div>
 
-                        <button
-                          type="button"
-                          disabled={isInteractionLocked}
-                          className="rounded-md p-1 transition-colors hover:bg-element-hover disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
-                          onClick={() => {
-                            onFocusProfile(profile.id);
-                            toggleProfileExpand(profile.id);
-                          }}
-                        >
-                          {isExpanded ? (
-                            <ChevronDown className="h-3.5 w-3.5 text-text-tertiary" />
-                          ) : (
-                            <ChevronRight className="h-3.5 w-3.5 text-text-tertiary" />
-                          )}
-                        </button>
+                        {!isNavigationOnly && (
+                          <button
+                            type="button"
+                            disabled={isInteractionLocked}
+                            className="rounded-md p-1 transition-colors hover:bg-element-hover disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
+                            onClick={() => {
+                              onFocusProfile(profile.id);
+                              toggleProfileExpand(profile.id);
+                            }}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="h-3.5 w-3.5 text-text-tertiary" />
+                            ) : (
+                              <ChevronRight className="h-3.5 w-3.5 text-text-tertiary" />
+                            )}
+                          </button>
+                        )}
                       </div>
 
-                      {isExpanded && (
+                      {!isNavigationOnly && isExpanded && (
                         <div
                           data-inspection-sidebar-item-list
                           className="animate-in fade-in slide-in-from-top-1 border-t border-border-black/80 px-2 pb-2 pt-2 duration-200"

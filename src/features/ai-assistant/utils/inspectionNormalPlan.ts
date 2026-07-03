@@ -4,6 +4,7 @@ import { isInspectionItemApplicable, type InspectionApplicabilityStatus } from '
 import {
   buildInspectionProfileRecommendation,
   type InspectionProfileRecommendation,
+  type InspectionRobotType,
   type InspectionTargetPlatform,
   type InspectionWorkflowRecommendationContext,
 } from './inspectionProfileRecommendation'
@@ -19,6 +20,8 @@ export type NormalInspectionPurpose =
 export interface NormalInspectionPlanOverride {
   purpose?: NormalInspectionPurpose
   targetPlatform?: InspectionTargetPlatform
+  sourceFormat?: NonNullable<RobotState['inspectionContext']>['sourceFormat']
+  robotType?: InspectionRobotType
 }
 
 export interface NormalInspectionPlanExcludedProfile {
@@ -137,10 +140,11 @@ const buildReasonCodes = (
   robot: RobotState,
   purpose: NormalInspectionPurpose,
   targetPlatform: InspectionTargetPlatform,
+  override: NormalInspectionPlanOverride | undefined,
   workflowContext?: InspectionWorkflowRecommendationContext,
 ) => {
   const reasons: string[] = []
-  const sourceFormat = robot.inspectionContext?.sourceFormat
+  const sourceFormat = override?.sourceFormat ?? robot.inspectionContext?.sourceFormat
 
   if (sourceFormat) {
     reasons.push(`source_format:${sourceFormat}`)
@@ -181,8 +185,14 @@ export function buildNormalInspectionPlan({
 }: BuildNormalInspectionPlanOptions): NormalInspectionPlan {
   const targetPlatform = override?.targetPlatform ?? inferTargetPlatform(robot, workflowContext)
   const purpose = override?.purpose ?? inferPurpose(robot, workflowContext)
+  const applicabilityOverride = {
+    sourceFormat: override?.sourceFormat,
+    robotTypes: override?.robotType ? [override.robotType] : undefined,
+  }
   const recommendation = buildInspectionProfileRecommendation(robot, {
     targetPlatform,
+    sourceFormat: override?.sourceFormat,
+    robotType: override?.robotType,
     workflowContext,
   })
   const candidateProfileIds = [...recommendation.profileIds]
@@ -194,7 +204,12 @@ export function buildNormalInspectionPlan({
   const excludedProfiles: NormalInspectionPlanExcludedProfile[] = []
 
   INSPECTION_PROFILE_DEFINITIONS.forEach((profile) => {
-    const profileApplicability = isInspectionItemApplicable(robot, profile.id)
+    const profileApplicability = isInspectionItemApplicable(
+      robot,
+      profile.id,
+      undefined,
+      applicabilityOverride,
+    )
     if (profileApplicability !== 'applicable') {
       excludedProfiles.push({
         profileId: profile.id,
@@ -210,7 +225,9 @@ export function buildNormalInspectionPlan({
     }
 
     const selectedItems = profile.items.filter(
-      (item) => isInspectionItemApplicable(robot, profile.id, item.id) === 'applicable',
+      (item) =>
+        isInspectionItemApplicable(robot, profile.id, item.id, applicabilityOverride) ===
+        'applicable',
     )
     if (selectedItems.length > 0) {
       selectedProfiles[profile.id] = new Set(selectedItems.map((item) => item.id))
@@ -226,6 +243,6 @@ export function buildNormalInspectionPlan({
       .filter(([, itemIds]) => itemIds.size > 0)
       .map(([profileId]) => profileId),
     excludedProfiles,
-    reasons: buildReasonCodes(robot, purpose, targetPlatform, workflowContext),
+    reasons: buildReasonCodes(robot, purpose, targetPlatform, override, workflowContext),
   }
 }

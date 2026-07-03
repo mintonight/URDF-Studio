@@ -340,6 +340,30 @@ export const zh: TranslationKeys = {
   inspectionRobotSnapshot: '机器人快照',
   inspectionRunSummary: '本次运行摘要',
   inspectionRunSummaryDescription: '总分上限按已选 Profile item 数计算，推荐 Profile 会作为默认执行范围。',
+  inspectionRunDetails: '本次审阅详情',
+  inspectionRunDetailsDescription:
+    '默认展示系统推荐的审阅架构；点击任一 Profile 后，可在下方调整本次执行的检查项。',
+  inspectionArchitectureNavigation: '架构导航',
+  inspectionArchitectureNavigationDescription:
+    '用于快速定位 Profile、查看偏离推荐；详细调整在右侧完成。',
+  inspectionRecognitionResult: '识别结果',
+  inspectionRecognitionResultDescription:
+    '这些内容只决定如何生成推荐基线；不会直接覆盖已经编辑过的当前方案。',
+  inspectionEditable: '可编辑',
+  inspectionRecommendationBaseline: '推荐基线',
+  inspectionRecommendationBaselineDescription:
+    '系统根据识别结果计算出的只读建议范围，用于和当前方案对照。',
+  inspectionReadOnlyBaseline: '只读',
+  inspectionCurrentPlan: '当前方案',
+  inspectionCurrentPlanDescription:
+    '本次真正会运行的方案。添加、移除或调整检查项只会更新这里。',
+  inspectionPlanOrchestration: '方案编排',
+  inspectionPlanOrchestrationDescription:
+    '推荐基线保持只读；当前方案用于承载用户对 Profile 和检查项的调整。',
+  inspectionRestoreBaseline: '恢复为推荐基线',
+  inspectionPlanEditorTitle: '编辑当前方案',
+  inspectionPlanLayers: '覆盖层级',
+  inspectionAdjusted: '已调整',
   inspectionSelectedCategories: '覆盖 Profile',
   inspectionMaxPossibleScore: '理论最高分',
   inspectionWeightedCoverage: '权重覆盖',
@@ -371,6 +395,9 @@ export const zh: TranslationKeys = {
     '重新生成会关闭当前报告并返回常规模式/专业模式选择页。若需要保留这份报告，请先保存；保存后会留在当前结果页，你也可以直接选择重新生成并返回设置页重新运行审阅。',
   inspectionRecommendedPlan: '推荐方案',
   inspectionRecommendedPlanDescription: '系统会根据当前模型形态和源格式推荐本次审阅的 profile 范围。',
+  inspectionRecommendationArchitecture: '推荐方案架构',
+  inspectionRecommendationArchitectureDescription:
+    '按层查看推荐 Profile，点击任一 Profile 即可在右侧调整检查项。',
   inspectionRecommendationRobotType: '模型类型',
   inspectionRecommendationSourceFormat: '源格式',
   inspectionRecommendationTarget: '目标用途',

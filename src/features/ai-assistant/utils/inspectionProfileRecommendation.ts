@@ -31,7 +31,7 @@ export interface InspectionWorkflowRecommendationContext {
   collisionEdited?: boolean
   inertiaEdited?: boolean
   exportRequested?: boolean
-  exportTargetFormat?: RobotState['inspectionContext']['sourceFormat']
+  exportTargetFormat?: NonNullable<RobotState['inspectionContext']>['sourceFormat']
 }
 
 export interface InspectionProfileRecommendation {
@@ -45,6 +45,8 @@ export interface InspectionProfileRecommendation {
 
 interface InspectionProfileRecommendationOptions {
   targetPlatform?: InspectionTargetPlatform
+  sourceFormat?: NonNullable<RobotState['inspectionContext']>['sourceFormat']
+  robotType?: InspectionRobotType
   workflowContext?: InspectionWorkflowRecommendationContext
 }
 
@@ -272,9 +274,10 @@ export function buildInspectionProfileRecommendation(
   robot: RobotState,
   options: InspectionProfileRecommendationOptions = {},
 ): InspectionProfileRecommendation {
-  const sourceFormat = robot.inspectionContext?.sourceFormat ?? 'urdf'
-  const robotTypes = inferInspectionRobotTypes(robot)
-  const robotType = inferInspectionRobotType(robot)
+  const sourceFormat = options.sourceFormat ?? robot.inspectionContext?.sourceFormat ?? 'urdf'
+  const inferredRobotTypes = inferInspectionRobotTypes(robot)
+  const robotTypes = options.robotType ? [options.robotType] : inferredRobotTypes
+  const robotType = options.robotType ?? inferInspectionRobotType(robot)
   const corpus = buildRobotNameCorpus(robot)
   const profileIds: string[] = []
 

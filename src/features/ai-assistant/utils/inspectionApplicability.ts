@@ -9,6 +9,11 @@ export type InspectionApplicabilityStatus =
   | 'not_applicable'
   | 'insufficient_evidence'
 
+export interface InspectionApplicabilityOverride {
+  sourceFormat?: NonNullable<RobotState['inspectionContext']>['sourceFormat']
+  robotTypes?: InspectionRobotMorphology[]
+}
+
 const PROFILE_ROBOT_TYPES: Record<string, InspectionRobotMorphology> = {
   'morph.humanoid': 'humanoid',
   'morph.biped': 'biped',
@@ -32,17 +37,19 @@ export function isInspectionItemApplicable(
   robot: RobotState,
   profileId: string,
   itemId?: string,
+  override?: InspectionApplicabilityOverride,
 ): InspectionApplicabilityStatus {
   void itemId
 
   const requiredRobotType = PROFILE_ROBOT_TYPES[profileId]
-  if (requiredRobotType && !inferInspectionRobotTypes(robot).includes(requiredRobotType)) {
+  const robotTypes = override?.robotTypes ?? inferInspectionRobotTypes(robot)
+  if (requiredRobotType && !robotTypes.includes(requiredRobotType)) {
     return 'not_applicable'
   }
 
   const requiredSourceFormat = PROFILE_SOURCE_FORMATS[profileId]
   if (requiredSourceFormat) {
-    const sourceFormat = robot.inspectionContext?.sourceFormat
+    const sourceFormat = override?.sourceFormat ?? robot.inspectionContext?.sourceFormat
     if (!sourceFormat && requiredSourceFormat !== 'urdf') {
       return 'insufficient_evidence'
     }

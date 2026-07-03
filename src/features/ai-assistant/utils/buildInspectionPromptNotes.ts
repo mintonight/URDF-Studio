@@ -2,7 +2,7 @@ import {
   getMjcfLinkDisplayName,
   getMjcfRawDisplayName,
 } from '@/shared/utils/robot/mjcfDisplayNames';
-import type { RobotState } from '@/types';
+import type { RobotSourceDiagnostic, RobotState, RobotUrdfInspectionContext } from '@/types';
 import { buildInspectionEvidence, formatInspectionEvidenceForPrompt } from './inspectionEvidence';
 import type { SelectedInspectionProfileMap } from './inspectionProfileSelection';
 
@@ -139,7 +139,7 @@ const formatUrdfDiagnostics = (diagnostics: RobotSourceDiagnostic[]) => {
 };
 
 const formatUrdfInspectionPromptNotes = (
-  urdfContext: UrdfInspectionContext,
+  urdfContext: RobotUrdfInspectionContext,
   sourceFormat: string | undefined,
   lang: 'en' | 'zh',
 ) => {
@@ -265,23 +265,33 @@ const formatMjcfInspectionPromptNotes = (
 
 export const buildInspectionPromptNotes = (
   robot: RobotState,
-  selectedItems: Record<string, string[]> | undefined,
+  selectedItems: SelectedInspectionProfileMap | undefined,
   lang: 'en' | 'zh',
 ) => {
+  const localEvidenceNotes = formatInspectionEvidenceForPrompt(
+    buildInspectionEvidence(robot),
+    selectedItems,
+    lang,
+  );
+  const sourceFormatNotes = buildSourceFormatEvidenceNotes(robot, lang);
+  const noteSections = [sourceFormatNotes, localEvidenceNotes].filter(Boolean);
   const inspectionContext = robot.inspectionContext;
   if (!inspectionContext) {
-    return '';
+    return noteSections.join('\n\n');
   }
 
   const urdfContext = inspectionContext.urdf;
   if (urdfContext) {
-    return formatUrdfInspectionPromptNotes(urdfContext, inspectionContext.sourceFormat, lang);
+    noteSections.unshift(
+      formatUrdfInspectionPromptNotes(urdfContext, inspectionContext.sourceFormat, lang),
+    );
+    return noteSections.join('\n\n');
   }
 
   const mjcfContext = inspectionContext.sourceFormat === 'mjcf' ? inspectionContext.mjcf : undefined;
   if (!mjcfContext) {
-    return '';
+    return noteSections.join('\n\n');
   }
 
-  return formatMjcfInspectionPromptNotes(robot, mjcfContext, selectedItems, lang);
+  return formatMjcfInspectionPromptNotes(robot, selectedItems, lang);
 };
