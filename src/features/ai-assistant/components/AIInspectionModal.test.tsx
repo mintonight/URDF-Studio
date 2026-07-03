@@ -400,6 +400,11 @@ test('inspection report footer uses regenerate confirmation instead of a back bu
     const confirmDialog = dom.window.document.querySelector('[role="dialog"][aria-modal="true"]');
     assert.ok(confirmDialog, 'expected regenerate confirmation dialog to open');
     assert.equal(
+      confirmDialog.className.includes('z-[260]'),
+      true,
+      'expected regenerate confirmation dialog to render above managed windows',
+    );
+    assert.equal(
       confirmDialog.textContent?.includes(t.inspectionRegenerateConfirmTitle),
       true,
       'expected regenerate confirmation title to render',

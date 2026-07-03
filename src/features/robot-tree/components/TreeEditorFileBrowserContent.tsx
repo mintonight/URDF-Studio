@@ -105,7 +105,7 @@ export function TreeEditorFileBrowserContent({
           }}
         >
           {availableFiles.length === 0 ? (
-            <div className="ui-static-copy-guard flex min-h-full items-center justify-center px-3 py-4 text-center text-xs italic whitespace-pre-line text-text-tertiary">
+            <div className="ui-static-copy-guard flex min-h-full items-center justify-center px-3 text-center text-xs italic whitespace-pre-line text-text-tertiary">
               {t.dropOrImport}
             </div>
           ) : (

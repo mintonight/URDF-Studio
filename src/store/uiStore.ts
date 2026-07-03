@@ -561,6 +561,10 @@ export const useUIStore = create<UIState>()(
       openSettings: (pos) =>
         set((state) => {
           let newPos = pos;
+          const nextManagedWindowOrder = bringManagedWindowToFront(
+            state.managedWindowOrder,
+            'settings',
+          );
           // Only calculate center if no pos provided AND current pos is default (0,0)
           if (!newPos && state.settingsPos.x === 0 && state.settingsPos.y === 0) {
             if (typeof window !== 'undefined') {
@@ -577,6 +581,7 @@ export const useUIStore = create<UIState>()(
           return {
             isSettingsOpen: true,
             settingsPos: newPos || state.settingsPos,
+            managedWindowOrder: nextManagedWindowOrder,
           };
         }),
       closeSettings: () => set({ isSettingsOpen: false }),

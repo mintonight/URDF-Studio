@@ -13,6 +13,37 @@ import { HeaderMenus } from './HeaderMenus.tsx';
 
 const noopToolboxItems: import('./types').ToolboxItem[] = [];
 
+const aiToolboxItems: import('./types').ToolboxItem[] = [
+  {
+    key: 'ai-inspection',
+    title: translations.en.aiInspection,
+    description: translations.en.aiInspectionDesc,
+    icon: React.createElement('span'),
+    onClick: () => {},
+  },
+  {
+    key: 'ai-conversation',
+    title: translations.en.aiConversation,
+    description: translations.en.aiConversationDesc,
+    icon: React.createElement('span'),
+    onClick: () => {},
+  },
+  {
+    key: 'collision-optimizer',
+    title: translations.en.collisionOptimizerDialog,
+    description: translations.en.collisionOptimizerToolboxDesc,
+    icon: React.createElement('span'),
+    onClick: () => {},
+  },
+  {
+    key: 'mesh-tools',
+    title: 'Mesh Tools',
+    description: 'Mesh helper tools',
+    icon: React.createElement('span'),
+    onClick: () => {},
+  },
+];
+
 function renderViewMenu({
   showJointPanel = true,
   jointPanelAvailable = true,
@@ -42,6 +73,39 @@ function renderViewMenu({
       onOpenExport: () => {},
       onExportProject: () => {},
       toolboxItems: noopToolboxItems,
+      onOpenCodeViewer: () => {},
+      onPrefetchCodeViewer: () => {},
+      undo: () => {},
+      redo: () => {},
+      canUndo: false,
+      canRedo: false,
+    }),
+  );
+}
+
+function renderHeaderMenusWithToolboxItems(activeMenu: import('./types').HeaderMenuKey) {
+  return renderToStaticMarkup(
+    React.createElement(HeaderMenus, {
+      activeMenu,
+      setActiveMenu: () => {},
+      showMenuLabels: true,
+      showSourceInline: false,
+      showSourceText: false,
+      showUndoRedoInline: false,
+      t: translations.en,
+      viewConfig: {
+        showOptionsPanel: true,
+        showJointPanel: true,
+      },
+      viewAvailability: {
+        jointPanel: true,
+      },
+      setViewConfig: () => {},
+      onImportFile: () => {},
+      onImportFolder: () => {},
+      onOpenExport: () => {},
+      onExportProject: () => {},
+      toolboxItems: aiToolboxItems,
       onOpenCodeViewer: () => {},
       onPrefetchCodeViewer: () => {},
       undo: () => {},
@@ -228,6 +292,21 @@ test('view menu no longer renders a toolbar visibility toggle', () => {
   const toolbarButton = buttons.find((button) => button.textContent?.includes('Toolbar'));
 
   assert.equal(toolbarButton, undefined);
+});
+
+test('AI menu owns AI toolbox items without duplicating them in the toolbox menu', () => {
+  const aiMenuMarkup = renderHeaderMenusWithToolboxItems('ai');
+  const toolboxMarkup = renderHeaderMenusWithToolboxItems('toolbox');
+
+  assert.match(aiMenuMarkup, new RegExp(translations.en.aiInspection));
+  assert.match(aiMenuMarkup, new RegExp(translations.en.aiConversation));
+  assert.match(aiMenuMarkup, new RegExp(translations.en.collisionOptimizerDialog));
+  assert.doesNotMatch(aiMenuMarkup, /Mesh Tools/);
+
+  assert.match(toolboxMarkup, /Mesh Tools/);
+  assert.doesNotMatch(toolboxMarkup, new RegExp(translations.en.aiInspection));
+  assert.doesNotMatch(toolboxMarkup, new RegExp(translations.en.aiConversation));
+  assert.doesNotMatch(toolboxMarkup, new RegExp(translations.en.collisionOptimizerDialog));
 });
 
 test('view menu shows the joints panel item as checked when the panel is available and enabled', () => {

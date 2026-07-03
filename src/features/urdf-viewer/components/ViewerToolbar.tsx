@@ -125,7 +125,11 @@ export const ViewerToolbar: React.FC<ViewerToolbarProps> = ({
     ? createPortal(
         <div
           className="urdf-toolbar pointer-events-auto flex w-full items-center justify-around border-t border-border-black/35 bg-panel-bg/95 px-2 py-1.5 backdrop-blur dark:border-border-black dark:bg-panel-bg/95"
-          style={{ paddingBottom: 'calc(0.375rem + env(safe-area-inset-bottom))' }}
+          style={{
+            paddingBottom: 'calc(0.375rem + env(safe-area-inset-bottom))',
+            paddingLeft: 'calc(0.5rem + env(safe-area-inset-left))',
+            paddingRight: 'calc(0.5rem + env(safe-area-inset-right))',
+          }}
         >
           <ToolbarCluster
             tools={tools}

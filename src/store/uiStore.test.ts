@@ -146,6 +146,31 @@ test('managed workbench windows move the activated window to the front without p
   dom.window.close();
 });
 
+test('opening settings moves it above the source code window immediately', async () => {
+  const { dom, useUIStore } = await loadUIStore();
+
+  const initialState = useUIStore.getState();
+  initialState.bringWindowToFront('sourceCode');
+  assert.ok(
+    useUIStore.getState().getManagedWindowZIndex('sourceCode') >
+      useUIStore.getState().getManagedWindowZIndex('settings'),
+    'source code should be in front before opening settings',
+  );
+
+  useUIStore.getState().openSettings({ x: 24, y: 32 });
+  const settingsOpenState = useUIStore.getState();
+
+  assert.equal(settingsOpenState.isSettingsOpen, true);
+  assert.deepEqual(settingsOpenState.settingsPos, { x: 24, y: 32 });
+  assert.ok(
+    settingsOpenState.getManagedWindowZIndex('settings') >
+      settingsOpenState.getManagedWindowZIndex('sourceCode'),
+    'opened settings window should immediately move above source code',
+  );
+
+  dom.window.close();
+});
+
 test('legacy default tree panel heights migrate to balanced sizing', async () => {
   const { dom, useUIStore } = await loadUIStore(
     {

@@ -16,7 +16,7 @@ export interface ToolboxItem {
   external?: boolean;
   tone?: ToolboxItemTone;
 }
-export type HeaderMenuKey = 'file' | 'edit' | 'ai' | 'toolbox' | 'view' | 'more' | null;
+export type HeaderMenuKey = 'file' | 'ai' | 'toolbox' | 'view' | 'more' | null;
 
 export interface HeaderViewConfig {
   showOptionsPanel: boolean;

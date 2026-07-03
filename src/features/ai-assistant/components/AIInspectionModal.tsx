@@ -922,7 +922,7 @@ export function AIInspectionModal({
         title={t.inspectionRegenerateConfirmTitle}
         width="w-[460px]"
         closeLabel={t.close}
-        zIndexClassName="z-[130]"
+        zIndexClassName="z-[260]"
         footer={
           <div className="flex items-center justify-end gap-2">
             <Button
