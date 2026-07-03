@@ -121,15 +121,6 @@ export function assertRemoteImportFileListWithinLimits(files: readonly FileDownl
   }
 }
 
-export function resolveRemoteImportFileUrl(rawUrl: string, expectedOrigin: string): URL {
-  const url = new URL(rawUrl);
-  if (url.origin !== expectedOrigin) {
-    throw new Error(`Unexpected asset download origin: ${url.origin}`);
-  }
-
-  return url;
-}
-
 export function assertRemoteImportContentLengthWithinLimits(
   response: Response,
   currentTotalBytes: number,
@@ -281,8 +272,11 @@ export function useAssetImportFromUrl(options: UseAssetImportFromUrlOptions) {
           },
         }));
 
-        const fileUrl = resolveRemoteImportFileUrl(fileInfo.url, remoteImportOrigin);
-        const fileResp = await fetch(fileUrl.toString(), { credentials: 'include' });
+        // 后端返回的文件 URL 自带访问凭证，且来自已鉴权的受信接口；其域名与 API 不同源
+        // 属预期（浏览器直连对象存储拉取文件字节）。切勿在此加 origin 白名单或严格相等
+        // 校验——那会误拒合法下载地址、导致导入失败（曾因该错误假设导致线上导入报错）。
+        // 不带 credentials：URL 自带鉴权、不读 cookie，跨域带凭证反而可能触发 CORS 失败。
+        const fileResp = await fetch(fileInfo.url);
         if (!fileResp.ok) {
           throw new Error(`Failed to download ${fileInfo.path}: ${fileResp.statusText}`);
         }
