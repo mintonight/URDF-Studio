@@ -122,7 +122,7 @@ async function renderPanel(
             setShowOrigins: () => {},
             showOriginsOverlay: false,
             setShowOriginsOverlay: () => {},
-            originSize: 0.1,
+            originSize: 0.07,
             setOriginSize: () => {},
             showMjcfSiteToggle: false,
             showMjcfSites: false,
@@ -478,7 +478,7 @@ test('ViewerOptionsPanel wires every detail size slider track click to its sette
   await clickSliderTrackAt(sliderTracks[2], 50);
 
   assert.deepEqual(calls, [
-    ['originSize', 0.26],
+    ['originSize', 0.07],
     ['jointAxisSize', 1],
     ['centerOfMassSize', 0.055],
   ]);

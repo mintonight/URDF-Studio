@@ -73,7 +73,7 @@ function renderPanel(
         setShowVisual: () => {},
         showOrigin: false,
         setShowOrigin: () => {},
-        frameSize: 0.15,
+        frameSize: 0.07,
         setFrameSize: () => {},
         showLabels: false,
         setShowLabels: () => {},

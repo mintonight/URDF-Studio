@@ -35,6 +35,13 @@ interface AppendMJCFBodyCollisionGeomOptions {
   geometry: Pick<UrdfVisual, 'type' | 'dimensions' | 'color' | 'origin' | 'meshPath' | 'assetRef' | 'mjcfHfield'>;
 }
 
+interface MJCFJointLimitSourcePatchOptions {
+  sourceContent: string;
+  jointName: string;
+  jointType: UrdfJoint['type'];
+  limit: NonNullable<UrdfJoint['limit']>;
+}
+
 type EditableCollisionGeom = Pick<UrdfVisual, 'type' | 'dimensions' | 'color' | 'origin' | 'meshPath' | 'assetRef' | 'mjcfHfield'>;
 
 export interface MJCFRenameOperation {
@@ -43,10 +50,12 @@ export interface MJCFRenameOperation {
   nextName: string;
 }
 
-const BODY_TAG_RE = /<\s*(\/?)body\b[^>]*>/gi;
+const ANGLE_ATTR_RE = /\bangle\s*=\s*(["'])(.*?)\1/i;
 const NAME_ATTR_RE = /\bname\s*=\s*(["'])(.*?)\1/i;
+const XML_TAG_OR_COMMENT_RE = /<!--[\s\S]*?-->|<\s*(\/?)([A-Za-z_][\w:.-]*)\b[^>]*>/gi;
 const DEFAULT_INDENT_UNIT = '  ';
 const DEFAULT_COLLISION_RGBA = '0.937255 0.266667 0.266667 1';
+const LOCKED_JOINT_RANGE_EPSILON = 1e-6;
 
 function escapeXmlAttribute(value: string): string {
   return value
@@ -122,6 +131,16 @@ function isZeroRpy(rpy: { r: number; p: number; y: number }): boolean {
     && Math.abs(rpy.y) < 1e-9;
 }
 
+function replaceOutsideXmlComments(
+  sourceContent: string,
+  replaceSegment: (segment: string) => string,
+): string {
+  return sourceContent
+    .split(/(<!--[\s\S]*?-->)/g)
+    .map((segment) => (segment.startsWith('<!--') ? segment : replaceSegment(segment)))
+    .join('');
+}
+
 function resolveMJCFJointType(type: JointType): 'hinge' | 'slide' | 'ball' | null {
   switch (type) {
     case JointType.REVOLUTE:
@@ -145,7 +164,7 @@ function shouldEmitRange(type: JointType): boolean {
 }
 
 function findBodyInsertionPoint(sourceContent: string, targetBodyName: string): BodyInsertionPoint | null {
-  BODY_TAG_RE.lastIndex = 0;
+  XML_TAG_OR_COMMENT_RE.lastIndex = 0;
   const stack: Array<{
     name: string | null;
     openTagStart: number;
@@ -155,8 +174,16 @@ function findBodyInsertionPoint(sourceContent: string, targetBodyName: string): 
   }> = [];
 
   let match: RegExpExecArray | null;
-  while ((match = BODY_TAG_RE.exec(sourceContent)) !== null) {
+  while ((match = XML_TAG_OR_COMMENT_RE.exec(sourceContent)) !== null) {
     const rawTag = match[0];
+    if (rawTag.startsWith('<!--')) {
+      continue;
+    }
+    const matchedTagName = match[2] ?? '';
+    if (matchedTagName.toLowerCase() !== 'body') {
+      continue;
+    }
+
     const isClosing = match[1] === '/';
     if (isClosing) {
       const openTag = stack.pop();
@@ -207,12 +234,19 @@ function findNamedStartTagOccurrence(
   tagName: string,
   targetName: string,
 ): NamedStartTagOccurrence | null {
-  const tagRe = new RegExp(`<\\s*${tagName}\\b[^>]*>`, 'gi');
+  XML_TAG_OR_COMMENT_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
 
-  while ((match = tagRe.exec(sourceContent)) !== null) {
+  while ((match = XML_TAG_OR_COMMENT_RE.exec(sourceContent)) !== null) {
     const rawTag = match[0];
-    if (/^<\s*\//.test(rawTag)) {
+    if (rawTag.startsWith('<!--')) {
+      continue;
+    }
+    const matchedTagName = match[2] ?? '';
+    if (matchedTagName.toLowerCase() !== tagName.toLowerCase()) {
+      continue;
+    }
+    if (match[1] === '/') {
       continue;
     }
 
@@ -229,12 +263,62 @@ function findNamedStartTagOccurrence(
   return null;
 }
 
+function findFirstStartTagOccurrence(
+  sourceContent: string,
+  tagName: string,
+): NamedStartTagOccurrence | null {
+  XML_TAG_OR_COMMENT_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = XML_TAG_OR_COMMENT_RE.exec(sourceContent)) !== null) {
+    const rawTag = match[0];
+    if (rawTag.startsWith('<!--')) {
+      continue;
+    }
+    const matchedTagName = match[2] ?? '';
+    if (matchedTagName.toLowerCase() !== tagName.toLowerCase()) {
+      continue;
+    }
+    if (match[1] === '/') {
+      continue;
+    }
+
+    return {
+      start: match.index,
+      end: match.index + rawTag.length,
+      rawTag,
+    };
+  }
+
+  return null;
+}
+
 function replaceNameAttribute(rawTag: string, nextName: string): string {
   if (!rawTag.match(NAME_ATTR_RE)) {
     throw new Error('Failed to locate name attribute in editable MJCF tag.');
   }
 
   return rawTag.replace(NAME_ATTR_RE, (_match, quote) => `name=${quote}${escapeXmlAttribute(nextName)}${quote}`);
+}
+
+function replaceOrRemoveXmlAttribute(
+  rawTag: string,
+  attributeName: string,
+  nextValue: string | null,
+): string {
+  const attrRe = new RegExp(`\\s+${escapeRegex(attributeName)}\\s*=\\s*(["']).*?\\1`, 'i');
+  if (nextValue == null) {
+    return rawTag.replace(attrRe, '');
+  }
+
+  if (attrRe.test(rawTag)) {
+    return rawTag.replace(
+      new RegExp(`(\\s+${escapeRegex(attributeName)}\\s*=\\s*)(["']).*?\\2`, 'i'),
+      (_match, prefix: string, quote: string) =>
+        `${prefix}${quote}${escapeXmlAttribute(nextValue)}${quote}`,
+    );
+  }
+
+  return rawTag.replace(/(\s*\/?>)$/, ` ${attributeName}="${escapeXmlAttribute(nextValue)}"$1`);
 }
 
 function escapeRegex(value: string): string {
@@ -267,9 +351,11 @@ function replaceAttributeValueOccurrences(
 
   for (const attributeName of attributeNames) {
     const attributeRe = new RegExp(`(\\b${escapeRegex(attributeName)}\\s*=\\s*)(["'])${escapedCurrentValue}\\2`, 'g');
-    nextSource = nextSource.replace(attributeRe, (_match, prefix: string, quote: string) => {
-      return `${prefix}${quote}${nextValue}${quote}`;
-    });
+    nextSource = replaceOutsideXmlComments(nextSource, (segment) =>
+      segment.replace(attributeRe, (_match, prefix: string, quote: string) => {
+        return `${prefix}${quote}${nextValue}${quote}`;
+      }),
+    );
   }
 
   return nextSource;
@@ -286,9 +372,11 @@ function replaceNamedTagOccurrences(
 
   for (const tagName of tagNames) {
     const tagRe = new RegExp(`(<\\s*${escapeRegex(tagName)}\\b[^>]*\\bname\\s*=\\s*)(["'])${escapedCurrentName}\\2`, 'g');
-    nextSource = nextSource.replace(tagRe, (_match, prefix: string, quote: string) => {
-      return `${prefix}${quote}${nextName}${quote}`;
-    });
+    nextSource = replaceOutsideXmlComments(nextSource, (segment) =>
+      segment.replace(tagRe, (_match, prefix: string, quote: string) => {
+        return `${prefix}${quote}${nextName}${quote}`;
+      }),
+    );
   }
 
   return nextSource;
@@ -723,6 +811,96 @@ function buildChildBodySnippet(
   return `${lines.join(newline)}${newline}`;
 }
 
+function resolveMJCFSourceAngleUnit(sourceContent: string): 'radian' | 'degree' {
+  let angleUnit: 'radian' | 'degree' = 'degree';
+  XML_TAG_OR_COMMENT_RE.lastIndex = 0;
+
+  let match: RegExpExecArray | null;
+  while ((match = XML_TAG_OR_COMMENT_RE.exec(sourceContent)) !== null) {
+    const rawTag = match[0];
+    if (rawTag.startsWith('<!--')) {
+      continue;
+    }
+    const matchedTagName = match[2] ?? '';
+    if (matchedTagName.toLowerCase() !== 'compiler') {
+      continue;
+    }
+
+    const rawAngle = rawTag.match(ANGLE_ATTR_RE)?.[2]?.trim().toLowerCase();
+    if (rawAngle) {
+      angleUnit = rawAngle === 'degree' ? 'degree' : 'radian';
+    }
+  }
+
+  return angleUnit;
+}
+
+function formatMJCFJointRangeValue(
+  value: number,
+  jointType: UrdfJoint['type'],
+  angleUnit: 'radian' | 'degree',
+): number {
+  if (jointType === JointType.PRISMATIC || angleUnit === 'radian') {
+    return value;
+  }
+
+  return value * 180 / Math.PI;
+}
+
+function getMujocoJointRange(
+  limit: NonNullable<UrdfJoint['limit']>,
+  jointType: UrdfJoint['type'],
+  angleUnit: 'radian' | 'degree',
+): [number, number] {
+  const lower = Number(limit.lower);
+  const upper = Number(limit.upper);
+  if (!Number.isFinite(lower) || !Number.isFinite(upper)) {
+    throw new Error('Cannot patch MJCF joint range with non-finite limits.');
+  }
+
+  if (upper > lower) {
+    return [
+      formatMJCFJointRangeValue(lower, jointType, angleUnit),
+      formatMJCFJointRangeValue(upper, jointType, angleUnit),
+    ];
+  }
+
+  if (Math.abs(upper - lower) <= LOCKED_JOINT_RANGE_EPSILON) {
+    const halfEpsilon = LOCKED_JOINT_RANGE_EPSILON / 2;
+    return [
+      formatMJCFJointRangeValue(lower - halfEpsilon, jointType, angleUnit),
+      formatMJCFJointRangeValue(upper + halfEpsilon, jointType, angleUnit),
+    ];
+  }
+
+  return [
+    formatMJCFJointRangeValue(lower, jointType, angleUnit),
+    formatMJCFJointRangeValue(upper, jointType, angleUnit),
+  ];
+}
+
+function buildPatchedMJCFJointLimitTag(
+  rawTag: string,
+  jointType: UrdfJoint['type'],
+  limit: NonNullable<UrdfJoint['limit']>,
+  angleUnit: 'radian' | 'degree',
+): string {
+  if (!shouldEmitRange(jointType)) {
+    return replaceOrRemoveXmlAttribute(
+      replaceOrRemoveXmlAttribute(rawTag, 'range', null),
+      'limited',
+      null,
+    );
+  }
+
+  const [lower, upper] = getMujocoJointRange(limit, jointType, angleUnit);
+  return replaceOrRemoveXmlAttribute(
+    replaceOrRemoveXmlAttribute(rawTag, 'limited', 'true'),
+    'range',
+    `${formatScalar(lower) ?? '0'} ${formatScalar(upper) ?? '0'}`,
+  );
+}
+
 export function appendMJCFChildBodyToSource({
   sourceContent,
   parentBodyName,
@@ -935,6 +1113,39 @@ export function renameMJCFJointInSource(
   return renameMJCFEntitiesInSource(sourceContent, [
     { kind: 'joint', currentName, nextName },
   ]);
+}
+
+export function patchMJCFRootModelNameInSource(
+  sourceContent: string,
+  modelName: string,
+): string {
+  const rootOccurrence = findFirstStartTagOccurrence(sourceContent, 'mujoco');
+  if (!rootOccurrence) {
+    throw new Error('Failed to locate MJCF <mujoco> root in editable source.');
+  }
+
+  const nextRawTag = replaceOrRemoveXmlAttribute(rootOccurrence.rawTag, 'model', modelName);
+  return `${sourceContent.slice(0, rootOccurrence.start)}${nextRawTag}${sourceContent.slice(rootOccurrence.end)}`;
+}
+
+export function patchMJCFJointLimitInSource({
+  sourceContent,
+  jointName,
+  jointType,
+  limit,
+}: MJCFJointLimitSourcePatchOptions): string {
+  const occurrence = findNamedStartTagOccurrence(sourceContent, 'joint', jointName);
+  if (!occurrence) {
+    throw new Error(`Failed to locate MJCF <joint name="${jointName}"> in editable source.`);
+  }
+
+  const nextRawTag = buildPatchedMJCFJointLimitTag(
+    occurrence.rawTag,
+    jointType,
+    limit,
+    resolveMJCFSourceAngleUnit(sourceContent),
+  );
+  return `${sourceContent.slice(0, occurrence.start)}${nextRawTag}${sourceContent.slice(occurrence.end)}`;
 }
 
 export function canPatchMJCFEditableSource(file: RobotFile | null | undefined): file is RobotFile {

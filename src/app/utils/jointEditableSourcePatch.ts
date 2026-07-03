@@ -19,26 +19,43 @@ interface XmlElementOccurrence {
 
 const DEFAULT_INDENT_UNIT = '  ';
 const XML_NAME_ATTR_RE = /\bname\s*=\s*(["'])(.*?)\1/i;
-const USD_NUMERIC_VALUE_RE = '[-+]?\\d*\\.?\\d+(?:[eE][-+]?\\d+)?';
+const XML_TAG_OR_COMMENT_RE = /<!--[\s\S]*?-->|<\s*(\/?)([A-Za-z_][\w:.-]*)\b[^>]*>/g;
+const SDF_MANAGED_LIMIT_TAG_NAMES = ['lower', 'upper', 'effort', 'velocity'] as const;
+
+function escapeXmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function buildXmlTagRegExp(tagName: string): RegExp {
-  return new RegExp(`<\\s*(\\/?)${escapeRegExp(tagName)}\\b[^>]*>`, 'gi');
+function buildXmlTagNamesRegExp(tagNames: string[]): RegExp {
+  return new RegExp(
+    `<\\s*(\\/?)(${tagNames.map(escapeRegExp).join('|')})\\b[^>]*>`,
+    'gi',
+  );
 }
 
-function findNamedXmlElement(
+function buildXmlTagRegExp(tagName: string): RegExp {
+  return buildXmlTagNamesRegExp([tagName]);
+}
+
+function findNamedXmlElementByTagNames(
   sourceContent: string,
-  tagName: string,
+  tagNames: string[],
   name: string,
 ): XmlElementOccurrence | null {
-  const tagRe = buildXmlTagRegExp(tagName);
+  const tagRe = buildXmlTagNamesRegExp(tagNames);
   const stack: Array<{
     start: number;
     openEnd: number;
     rawOpenTag: string;
+    tagName: string;
     matchesName: boolean;
   }> = [];
 
@@ -46,9 +63,17 @@ function findNamedXmlElement(
   while ((match = tagRe.exec(sourceContent)) !== null) {
     const rawTag = match[0];
     const isClosingTag = match[1] === '/';
+    const matchedTagName = match[2] ?? '';
 
     if (isClosingTag) {
-      const openTag = stack.pop();
+      let openTagIndex = -1;
+      for (let index = stack.length - 1; index >= 0; index -= 1) {
+        if (stack[index]?.tagName === matchedTagName) {
+          openTagIndex = index;
+          break;
+        }
+      }
+      const openTag = openTagIndex >= 0 ? stack.splice(openTagIndex, 1)[0] : null;
       if (!openTag) {
         continue;
       }
@@ -83,6 +108,7 @@ function findNamedXmlElement(
         start: match.index,
         openEnd: match.index + rawTag.length,
         rawOpenTag: rawTag,
+        tagName: matchedTagName,
         matchesName: matchedName === name,
       });
     }
@@ -91,12 +117,33 @@ function findNamedXmlElement(
   return null;
 }
 
-function findFirstXmlElement(sourceContent: string, tagName: string): XmlElementOccurrence | null {
-  const tagRe = buildXmlTagRegExp(tagName);
+function findNamedXmlElement(
+  sourceContent: string,
+  tagName: string,
+  name: string,
+): XmlElementOccurrence | null {
+  return findNamedXmlElementByTagNames(sourceContent, [tagName], name);
+}
+
+function findFirstXmlElementByTagNames(
+  sourceContent: string,
+  tagNames: string[],
+): XmlElementOccurrence | null {
+  const normalizedTagNames = new Set(tagNames.map((tagName) => tagName.toLowerCase()));
+  XML_TAG_OR_COMMENT_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
 
-  while ((match = tagRe.exec(sourceContent)) !== null) {
+  while ((match = XML_TAG_OR_COMMENT_RE.exec(sourceContent)) !== null) {
     const rawTag = match[0];
+    if (rawTag.startsWith('<!--')) {
+      continue;
+    }
+
+    const matchedTagName = match[2] ?? '';
+    if (!normalizedTagNames.has(matchedTagName.toLowerCase())) {
+      continue;
+    }
+
     if (match[1] === '/') {
       continue;
     }
@@ -115,7 +162,7 @@ function findFirstXmlElement(sourceContent: string, tagName: string): XmlElement
       };
     }
 
-    const closingTag = `</${tagName}>`;
+    const closingTag = `</${matchedTagName}>`;
     const closeStart = sourceContent.indexOf(closingTag, openEnd);
     if (closeStart < 0) {
       return null;
@@ -134,6 +181,10 @@ function findFirstXmlElement(sourceContent: string, tagName: string): XmlElement
   return null;
 }
 
+function findFirstXmlElement(sourceContent: string, tagName: string): XmlElementOccurrence | null {
+  return findFirstXmlElementByTagNames(sourceContent, [tagName]);
+}
+
 function getPreferredNewline(sourceContent: string): string {
   return sourceContent.includes('\r\n') ? '\r\n' : '\n';
 }
@@ -146,6 +197,21 @@ function getLineStart(sourceContent: string, index: number): number {
       break;
     }
     cursor -= 1;
+  }
+  return cursor;
+}
+
+function getLineEndIncludingNewline(sourceContent: string, index: number): number {
+  let cursor = index;
+  while (cursor < sourceContent.length) {
+    const char = sourceContent[cursor];
+    if (char === '\n') {
+      return cursor + 1;
+    }
+    if (char === '\r') {
+      return sourceContent[cursor + 1] === '\n' ? cursor + 2 : cursor + 1;
+    }
+    cursor += 1;
   }
   return cursor;
 }
@@ -170,14 +236,15 @@ function replaceOrRemoveXmlAttribute(
     return rawTag.replace(attrRe, '');
   }
 
+  const escapedNextValue = escapeXmlAttribute(nextValue);
   if (attrRe.test(rawTag)) {
     return rawTag.replace(
       new RegExp(`(\\s+${escapeRegExp(attributeName)}\\s*=\\s*)(["']).*?\\2`, 'i'),
-      `$1"${nextValue}"`,
+      (_match, prefix: string, quote: string) => `${prefix}${quote}${escapedNextValue}${quote}`,
     );
   }
 
-  return rawTag.replace(/(\s*\/?>)$/, ` ${attributeName}="${nextValue}"$1`);
+  return rawTag.replace(/(\s*\/?>)$/, ` ${attributeName}="${escapedNextValue}"$1`);
 }
 
 function shouldEmitUrdfPositionLimits(jointType: UrdfJoint['type']): boolean {
@@ -237,81 +304,247 @@ function buildNewUrdfLimitTag(
   return `<limit ${attributes.join(' ')} />`;
 }
 
-function isAngularJointType(jointType: UrdfJoint['type']): boolean {
-  return jointType === JointType.REVOLUTE || jointType === JointType.CONTINUOUS;
+function shouldEmitSdfPositionLimits(jointType: UrdfJoint['type']): boolean {
+  return jointType === JointType.REVOLUTE || jointType === JointType.PRISMATIC;
 }
 
-function radiansToDegrees(value: number): number {
-  return (value * 180) / Math.PI;
+function shouldEmitSdfEffortVelocityLimits(jointType: UrdfJoint['type']): boolean {
+  return (
+    jointType === JointType.REVOLUTE ||
+    jointType === JointType.PRISMATIC ||
+    jointType === JointType.CONTINUOUS
+  );
 }
 
-function findMatchingUsdBrace(sourceContent: string, openBraceIndex: number): number {
+function buildSdfLimitEntries(
+  jointType: UrdfJoint['type'],
+  limit: NonNullable<UrdfJoint['limit']>,
+): Array<[string, string]> {
+  const entries: Array<[string, string]> = [];
+  if (shouldEmitSdfPositionLimits(jointType)) {
+    entries.push(['lower', formatScalar(limit.lower)]);
+    entries.push(['upper', formatScalar(limit.upper)]);
+  }
+  if (shouldEmitSdfEffortVelocityLimits(jointType)) {
+    entries.push(['effort', formatScalar(limit.effort)]);
+    entries.push(['velocity', formatScalar(limit.velocity)]);
+  }
+  return entries;
+}
+
+function buildSdfLimitBlock(
+  sourceContent: string,
+  insertIndent: string,
+  jointType: UrdfJoint['type'],
+  limit: NonNullable<UrdfJoint['limit']>,
+): string {
+  const entries = buildSdfLimitEntries(jointType, limit);
+  if (entries.length === 0) {
+    return '';
+  }
+
+  const newline = getPreferredNewline(sourceContent);
+  const childIndent = `${insertIndent}${DEFAULT_INDENT_UNIT}`;
+  return [
+    `${insertIndent}<limit>`,
+    ...entries.map(([tagName, value]) => `${childIndent}<${tagName}>${value}</${tagName}>`),
+    `${insertIndent}</limit>`,
+  ].join(newline);
+}
+
+function buildSdfLimitEntry(tagName: string, value: string): string {
+  return `<${tagName}>${value}</${tagName}>`;
+}
+
+function findFirstDirectXmlChildElement(
+  sourceContent: string,
+  parentOccurrence: XmlElementOccurrence,
+  childTagName: string,
+): XmlElementOccurrence | null {
+  XML_TAG_OR_COMMENT_RE.lastIndex = parentOccurrence.openEnd;
   let depth = 0;
-  for (let index = openBraceIndex; index < sourceContent.length; index += 1) {
-    const char = sourceContent[index];
-    if (char === '{') {
-      depth += 1;
+  let match: RegExpExecArray | null;
+
+  while ((match = XML_TAG_OR_COMMENT_RE.exec(sourceContent)) !== null) {
+    if (match.index >= parentOccurrence.closeStart) {
+      break;
+    }
+
+    const rawTag = match[0];
+    if (rawTag.startsWith('<!--')) {
       continue;
     }
-    if (char === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        return index;
+
+    const isClosingTag = match[1] === '/';
+    const matchedTagName = match[2] ?? '';
+    const isSelfClosing = /\/\s*>$/.test(rawTag);
+
+    if (isClosingTag) {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+
+    if (depth === 0 && matchedTagName.toLowerCase() === childTagName.toLowerCase()) {
+      const start = match.index;
+      const openEnd = start + rawTag.length;
+      if (isSelfClosing) {
+        return {
+          start,
+          openEnd,
+          closeStart: openEnd,
+          end: openEnd,
+          selfClosing: true,
+          rawOpenTag: rawTag,
+        };
       }
+
+      const closingTag = `</${matchedTagName}>`;
+      const closeStart = sourceContent.indexOf(closingTag, openEnd);
+      if (closeStart < 0 || closeStart > parentOccurrence.closeStart) {
+        return null;
+      }
+
+      return {
+        start,
+        openEnd,
+        closeStart,
+        end: closeStart + closingTag.length,
+        selfClosing: false,
+        rawOpenTag: rawTag,
+      };
+    }
+
+    if (!isSelfClosing) {
+      depth += 1;
     }
   }
-  return -1;
+
+  return null;
 }
 
-function findUsdJointBlock(
+function replaceXmlElementText(
   sourceContent: string,
-  jointName: string,
-): { start: number; end: number; content: string } | null {
-  const jointBlockRe = new RegExp(
-    `\\b(?:def\\s+[A-Za-z_][\\w:]*|over)\\s+"${escapeRegExp(
-      jointName,
-    )}"(?:\\s*\\([^{}]*?\\))?\\s*\\{`,
-    'g',
+  occurrence: XmlElementOccurrence,
+  tagName: string,
+  value: string,
+): string {
+  if (occurrence.selfClosing) {
+    return (
+      sourceContent.slice(0, occurrence.start) +
+      buildSdfLimitEntry(tagName, value) +
+      sourceContent.slice(occurrence.end)
+    );
+  }
+
+  return (
+    sourceContent.slice(0, occurrence.openEnd) +
+    value +
+    sourceContent.slice(occurrence.closeStart)
   );
-  const match = jointBlockRe.exec(sourceContent);
-  if (!match) {
-    return null;
-  }
-
-  const openBraceIndex = sourceContent.indexOf('{', match.index);
-  if (openBraceIndex < 0) {
-    return null;
-  }
-
-  const closeBraceIndex = findMatchingUsdBrace(sourceContent, openBraceIndex);
-  if (closeBraceIndex < 0) {
-    return null;
-  }
-
-  return {
-    start: match.index,
-    end: closeBraceIndex + 1,
-    content: sourceContent.slice(match.index, closeBraceIndex + 1),
-  };
 }
 
-function replaceUsdNumericProperty(
-  blockContent: string,
-  propertyPattern: string,
-  nextValue: number,
-): { content: string; didChange: boolean } {
-  const propertyRe = new RegExp(
-    `([ \\t]*(?:float|double|half)\\s+${propertyPattern}\\s*=\\s*)(${USD_NUMERIC_VALUE_RE})(\\s*(?:#.*)?)`,
-    'm',
-  );
-  if (!propertyRe.test(blockContent)) {
-    return { content: blockContent, didChange: false };
+function removeXmlElementOccurrence(
+  sourceContent: string,
+  occurrence: XmlElementOccurrence,
+): string {
+  const lineStart = getLineStart(sourceContent, occurrence.start);
+  const lineEnd = getLineEndIncludingNewline(sourceContent, occurrence.end);
+  const beforeElementOnLine = sourceContent.slice(lineStart, occurrence.start);
+  const afterElementOnLine = sourceContent.slice(occurrence.end, lineEnd);
+
+  if (
+    /^[ \t]*$/.test(beforeElementOnLine) &&
+    /^[ \t]*(?:\r\n|\r|\n)?$/.test(afterElementOnLine)
+  ) {
+    return sourceContent.slice(0, lineStart) + sourceContent.slice(lineEnd);
   }
 
-  return {
-    content: blockContent.replace(propertyRe, `$1${formatScalar(nextValue)}$3`),
-    didChange: true,
-  };
+  return sourceContent.slice(0, occurrence.start) + sourceContent.slice(occurrence.end);
+}
+
+function insertSdfLimitEntriesBeforeClose(
+  sourceContent: string,
+  limitOccurrence: XmlElementOccurrence,
+  entries: Array<[string, string]>,
+): string {
+  if (entries.length === 0) {
+    return sourceContent;
+  }
+
+  const newline = getPreferredNewline(sourceContent);
+  const closeLineStart = getLineStart(sourceContent, limitOccurrence.closeStart);
+  const closeLinePrefix = sourceContent.slice(closeLineStart, limitOccurrence.closeStart);
+
+  if (/^[ \t]*$/.test(closeLinePrefix)) {
+    const childIndent = `${closeLinePrefix}${DEFAULT_INDENT_UNIT}`;
+    const insertedLines = entries.map(([tagName, value]) =>
+      `${childIndent}${buildSdfLimitEntry(tagName, value)}`,
+    );
+    return (
+      sourceContent.slice(0, closeLineStart) +
+      `${insertedLines.join(newline)}${newline}` +
+      sourceContent.slice(closeLineStart)
+    );
+  }
+
+  const inlineEntries = entries
+    .map(([tagName, value]) => buildSdfLimitEntry(tagName, value))
+    .join('');
+  return (
+    sourceContent.slice(0, limitOccurrence.closeStart) +
+    inlineEntries +
+    sourceContent.slice(limitOccurrence.closeStart)
+  );
+}
+
+function patchSdfExistingLimitBlock(
+  limitContent: string,
+  jointType: UrdfJoint['type'],
+  limit: NonNullable<UrdfJoint['limit']>,
+): string {
+  const desiredEntries = new Map(buildSdfLimitEntries(jointType, limit));
+  let nextContent = limitContent;
+
+  for (const tagName of SDF_MANAGED_LIMIT_TAG_NAMES) {
+    const nextLimitOccurrence = findFirstXmlElement(nextContent, 'limit');
+    if (!nextLimitOccurrence || nextLimitOccurrence.selfClosing) {
+      break;
+    }
+
+    const childOccurrence = findFirstDirectXmlChildElement(
+      nextContent,
+      nextLimitOccurrence,
+      tagName,
+    );
+    const desiredValue = desiredEntries.get(tagName);
+
+    if (desiredValue == null) {
+      if (childOccurrence) {
+        nextContent = removeXmlElementOccurrence(nextContent, childOccurrence);
+      }
+      continue;
+    }
+
+    if (childOccurrence) {
+      nextContent = replaceXmlElementText(nextContent, childOccurrence, tagName, desiredValue);
+      desiredEntries.delete(tagName);
+    }
+  }
+
+  const missingEntries = SDF_MANAGED_LIMIT_TAG_NAMES.flatMap((tagName) => {
+    const value = desiredEntries.get(tagName);
+    return value == null ? [] : [[tagName, value] as [string, string]];
+  });
+  if (missingEntries.length === 0) {
+    return nextContent;
+  }
+
+  const nextLimitOccurrence = findFirstXmlElement(nextContent, 'limit');
+  if (!nextLimitOccurrence || nextLimitOccurrence.selfClosing) {
+    return nextContent;
+  }
+
+  return insertSdfLimitEntriesBeforeClose(nextContent, nextLimitOccurrence, missingEntries);
 }
 
 export function patchUrdfJointLimitInSource({
@@ -362,60 +595,139 @@ export function patchUrdfJointLimitInSource({
   );
 }
 
-export function patchUsdJointLimitInSource({
+export function patchUrdfRobotNameInSource(sourceContent: string, robotName: string): string {
+  const robotOccurrence = findFirstXmlElementByTagNames(sourceContent, ['robot', 'xacro:robot']);
+  if (!robotOccurrence) {
+    throw new Error('Failed to locate URDF/Xacro <robot> root.');
+  }
+
+  const nextRobotTag = replaceOrRemoveXmlAttribute(
+    robotOccurrence.rawOpenTag,
+    'name',
+    robotName,
+  );
+  return (
+    sourceContent.slice(0, robotOccurrence.start) +
+    nextRobotTag +
+    sourceContent.slice(robotOccurrence.start + robotOccurrence.rawOpenTag.length)
+  );
+}
+
+export function patchSdfModelNameInSource(sourceContent: string, modelName: string): string {
+  const modelOccurrence = findFirstXmlElement(sourceContent, 'model');
+  if (!modelOccurrence) {
+    throw new Error('Failed to locate SDF <model> element.');
+  }
+
+  const nextModelTag = replaceOrRemoveXmlAttribute(
+    modelOccurrence.rawOpenTag,
+    'name',
+    modelName,
+  );
+  return (
+    sourceContent.slice(0, modelOccurrence.start) +
+    nextModelTag +
+    sourceContent.slice(modelOccurrence.start + modelOccurrence.rawOpenTag.length)
+  );
+}
+
+export function patchSdfJointLimitInSource({
   sourceContent,
   jointName,
   jointType,
   limit,
 }: JointLimitSourcePatchOptions): string {
-  const jointBlock = findUsdJointBlock(sourceContent, jointName);
-  if (!jointBlock) {
-    throw new Error(`Failed to locate USD joint block "${jointName}".`);
+  const jointOccurrence = findNamedXmlElement(sourceContent, 'joint', jointName);
+  if (!jointOccurrence) {
+    throw new Error(`Failed to locate SDF <joint name="${jointName}">.`);
   }
 
-  const isAngularJoint = isAngularJointType(jointType);
-  let nextBlockContent = jointBlock.content;
-  let didChange = false;
-
-  const lowerResult = replaceUsdNumericProperty(
-    nextBlockContent,
-    'physics:lowerLimit',
-    isAngularJoint ? radiansToDegrees(limit.lower) : limit.lower,
+  const nextLimitBlock = buildSdfLimitBlock(
+    sourceContent,
+    getIndentAt(sourceContent, jointOccurrence.start) + DEFAULT_INDENT_UNIT.repeat(2),
+    jointType,
+    limit,
   );
-  nextBlockContent = lowerResult.content;
-  didChange = didChange || lowerResult.didChange;
-
-  const upperResult = replaceUsdNumericProperty(
-    nextBlockContent,
-    'physics:upperLimit',
-    isAngularJoint ? radiansToDegrees(limit.upper) : limit.upper,
-  );
-  nextBlockContent = upperResult.content;
-  didChange = didChange || upperResult.didChange;
-
-  const effortResult = replaceUsdNumericProperty(
-    nextBlockContent,
-    'drive:[^=\\s]+:physics:maxForce',
-    limit.effort,
-  );
-  nextBlockContent = effortResult.content;
-  didChange = didChange || effortResult.didChange;
-
-  const velocityResult = replaceUsdNumericProperty(
-    nextBlockContent,
-    'physxJoint:maxJointVelocity',
-    isAngularJoint ? radiansToDegrees(limit.velocity) : limit.velocity,
-  );
-  nextBlockContent = velocityResult.content;
-  didChange = didChange || velocityResult.didChange;
-
-  if (!didChange) {
-    throw new Error(`Failed to patch authored USD joint limits for "${jointName}".`);
+  if (!nextLimitBlock) {
+    return sourceContent;
   }
 
+  const jointContent = sourceContent.slice(jointOccurrence.start, jointOccurrence.end);
+  const axisOccurrence = findFirstXmlElement(jointContent, 'axis');
+  const limitSearchOffset = axisOccurrence?.start ?? 0;
+  const limitSearchContent = axisOccurrence
+    ? jointContent.slice(axisOccurrence.start, axisOccurrence.end)
+    : jointContent;
+  const limitOccurrence = findFirstXmlElement(limitSearchContent, 'limit');
+  if (limitOccurrence) {
+    const limitStart = jointOccurrence.start + limitSearchOffset + limitOccurrence.start;
+    const limitEnd = jointOccurrence.start + limitSearchOffset + limitOccurrence.end;
+    const limitIndent = getIndentAt(sourceContent, limitStart);
+    const rewrittenLimitBlock = limitOccurrence.selfClosing
+      ? buildSdfLimitBlock(sourceContent, limitIndent, jointType, limit)
+      : patchSdfExistingLimitBlock(
+          sourceContent.slice(limitStart, limitEnd),
+          jointType,
+          limit,
+        );
+    return (
+      sourceContent.slice(0, limitStart) +
+      rewrittenLimitBlock +
+      sourceContent.slice(limitEnd)
+    );
+  }
+
+  const newline = getPreferredNewline(sourceContent);
+  if (axisOccurrence) {
+    const axisStart = jointOccurrence.start + axisOccurrence.start;
+    if (axisOccurrence.selfClosing) {
+      const axisIndent = getIndentAt(sourceContent, axisStart);
+      const limitIndent = `${axisIndent}${DEFAULT_INDENT_UNIT}`;
+      const expandedAxisTag = axisOccurrence.rawOpenTag.replace(/\/\s*>$/, '>');
+      return (
+        sourceContent.slice(0, axisStart) +
+        [
+          expandedAxisTag,
+          buildSdfLimitBlock(sourceContent, limitIndent, jointType, limit),
+          `${axisIndent}</axis>`,
+        ].join(newline) +
+        sourceContent.slice(axisStart + axisOccurrence.rawOpenTag.length)
+      );
+    }
+
+    const axisCloseStart = jointOccurrence.start + axisOccurrence.closeStart;
+    const axisCloseLineStart = getLineStart(sourceContent, axisCloseStart);
+    const axisCloseIndent = sourceContent.slice(axisCloseLineStart, axisCloseStart);
+    const limitIndent = `${axisCloseIndent}${DEFAULT_INDENT_UNIT}`;
+    return (
+      sourceContent.slice(0, axisCloseLineStart) +
+      `${buildSdfLimitBlock(sourceContent, limitIndent, jointType, limit)}${newline}${axisCloseIndent}` +
+      sourceContent.slice(axisCloseStart)
+    );
+  }
+
+  if (jointOccurrence.selfClosing) {
+    const jointIndent = getIndentAt(sourceContent, jointOccurrence.start);
+    const limitIndent = `${jointIndent}${DEFAULT_INDENT_UNIT}`;
+    const expandedJointTag = jointOccurrence.rawOpenTag.replace(/\/\s*>$/, '>');
+    return (
+      sourceContent.slice(0, jointOccurrence.start) +
+      `${expandedJointTag}${newline}${buildSdfLimitBlock(
+        sourceContent,
+        limitIndent,
+        jointType,
+        limit,
+      )}${newline}${jointIndent}</joint>` +
+      sourceContent.slice(jointOccurrence.end)
+    );
+  }
+
+  const jointCloseLineStart = getLineStart(sourceContent, jointOccurrence.closeStart);
+  const jointCloseIndent = sourceContent.slice(jointCloseLineStart, jointOccurrence.closeStart);
+  const limitIndent = `${jointCloseIndent}${DEFAULT_INDENT_UNIT}`;
   return (
-    sourceContent.slice(0, jointBlock.start) +
-    nextBlockContent +
-    sourceContent.slice(jointBlock.end)
+    sourceContent.slice(0, jointCloseLineStart) +
+    `${buildSdfLimitBlock(sourceContent, limitIndent, jointType, limit)}${newline}${jointCloseIndent}` +
+    sourceContent.slice(jointOccurrence.closeStart)
   );
 }

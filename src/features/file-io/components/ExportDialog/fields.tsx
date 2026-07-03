@@ -61,8 +61,16 @@ export function Row({
   );
 }
 
-export function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return <CompactSwitch checked={value} onChange={onChange} />;
+export function Toggle({
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  value: boolean;
+  onChange: (v: boolean) => void;
+  ariaLabel?: string;
+}) {
+  return <CompactSwitch checked={value} onChange={onChange} ariaLabel={ariaLabel} />;
 }
 
 export function SelectField({

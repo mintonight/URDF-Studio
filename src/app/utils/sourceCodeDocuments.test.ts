@@ -18,7 +18,8 @@ test('buildSourceCodeDocuments adds xacro include tabs for related source files'
     name: 'robots/demo_pkg/xacro/robot.xacro',
     format: 'xacro',
     content: `<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="demo">
-  <xacro:include filename="parts/link.xacro" />
+  <!-- <xacro:include filename="ignored/commented.xacro" /> -->
+  <xacro:include ns="parts" filename="parts/link.xacro" />
 </robot>`,
   };
 
@@ -28,9 +29,9 @@ test('buildSourceCodeDocuments adds xacro include tabs for related source files'
     sourceCodeDocumentFlavor: 'xacro',
     availableFiles: [activeSourceFile],
     allFileContents: {
-      'robots/demo_pkg/xacro/parts/link.xacro': `<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="parts">
-  <xacro:include filename="../urdf/demo.gazebo" />
-</robot>`,
+      'robots/demo_pkg/xacro/parts/link.xacro': `<xacro:robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="parts">
+  <xacro:include ns="gazebo" filename="../urdf/demo.gazebo" />
+</xacro:robot>`,
       'robots/demo_pkg/urdf/demo.gazebo': `<gazebo reference="base_link">
   <material>Gazebo/Orange</material>
 </gazebo>`,
@@ -94,7 +95,8 @@ test('buildSourceCodeDocuments adds mjcf include tabs only while the source stay
     name: 'robots/demo/scene.xml',
     format: 'mjcf',
     content: `<mujoco model="demo">
-  <include file="parts/body.xml" />
+  <!-- <include file="parts/commented.xml" /> -->
+  <include optional="true" file="parts/body.xml" />
 </mujoco>`,
   };
 

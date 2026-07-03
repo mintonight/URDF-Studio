@@ -289,7 +289,9 @@ function createUrdfExportConfig(
       ...urdfOverrides,
     },
     xacro: {
+      includeGazeboControl: true,
       rosVersion: 'ros2',
+      gazeboBackend: 'classic',
       rosHardwareInterface: 'effort',
       useRelativePaths: true,
       includeMeshes: false,
@@ -335,7 +337,9 @@ function createSdfExportConfig(
       stlQuality: 50,
     },
     xacro: {
+      includeGazeboControl: true,
       rosVersion: 'ros2',
+      gazeboBackend: 'classic',
       rosHardwareInterface: 'effort',
       useRelativePaths: true,
       includeMeshes: false,

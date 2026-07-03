@@ -14,6 +14,7 @@ import {
   type RendererSceneProps,
 } from '@/shared/components/3d/renderers';
 import type { RuntimeRobotObject } from '@/shared/components/3d/runtimeRobotTypes';
+import { copyRobotRootTransform } from '@/shared/components/3d/robotPositioning';
 import { buildColladaRootNormalizationHints } from '@/core/loaders';
 import { getSourceFileDirectory } from '@/core/parsers/meshPathUtils';
 import type { UrdfJoint, UrdfLink } from '@/types';
@@ -500,6 +501,11 @@ export function useRendererBackend(
 
         if (!nextRobot) {
           throw new Error('Renderer backend returned no robot root');
+        }
+
+        const previousRobot = robotRef.current;
+        if (previousRobot && activeBaseLoadScopeKeyRef.current === baseLoadScopeKey) {
+          copyRobotRootTransform(previousRobot, nextRobot);
         }
 
         if (!isMountedRef.current || loadIdRef.current !== loadId) {

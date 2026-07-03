@@ -36,16 +36,95 @@ async function main() {
       'theme detectable from ui store');
 
     // ── 2. Find and click theme toggle button ──
-    const themeToggleFound = await page.evaluate(() => {
+    const themeToggleProbe = await page.evaluate(async () => {
+      const readTransitionSnapshot = () => {
+        const isVisible = (el) => {
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+        const sample = [
+          document.documentElement,
+          document.body,
+          ...[
+            ...document.querySelectorAll(
+              'header, button, [class*="bg-"], [class*="border"], [class*="text-"]',
+            ),
+          ]
+            .filter(isVisible)
+            .slice(0, 20),
+        ];
+        const styles = sample.map((el) => {
+          const computed = getComputedStyle(el);
+          return {
+            duration: computed.transitionDuration,
+            property: computed.transitionProperty,
+            timing: computed.transitionTimingFunction,
+          };
+        });
+        return {
+          rootSwitching: document.documentElement.classList.contains('theme-switching'),
+          sampleCount: sample.length,
+          durationValues: [
+            ...new Set(
+              styles.flatMap((style) => style.duration.split(',').map((value) => value.trim())),
+            ),
+          ],
+          propertyValues: [...new Set(styles.map((style) => style.property))],
+          timingValues: [...new Set(styles.map((style) => style.timing))],
+        };
+      };
+
+      let transitionSnapshot = null;
+      const root = document.documentElement;
+      const observer = new MutationObserver(() => {
+        if (transitionSnapshot === null && root.classList.contains('theme-switching')) {
+          transitionSnapshot = readTransitionSnapshot();
+        }
+      });
+      observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+
       const btn = [...document.querySelectorAll('button')].find((b) =>
         /theme|dark|light|moon|sun/i.test(b.textContent ?? '') ||
         /theme|dark|light/i.test(b.getAttribute('aria-label') ?? '') ||
         b.dataset?.action === 'toggle-theme');
-      btn?.click();
-      return !!btn;
+
+      if (!btn) {
+        observer.disconnect();
+        return { found: false, transitionSnapshot: null };
+      }
+
+      btn.click();
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      if (transitionSnapshot === null && root.classList.contains('theme-switching')) {
+        transitionSnapshot = readTransitionSnapshot();
+      }
+      observer.disconnect();
+
+      return {
+        found: true,
+        transitionSnapshot,
+      };
     });
 
-    if (themeToggleFound) {
+    if (themeToggleProbe.found) {
+      const transitionProbe = themeToggleProbe.transitionSnapshot;
+      assert(suite, transitionProbe !== null, 'root uses synchronized theme transition marker');
+      if (transitionProbe === null) {
+        throw new Error('missing theme transition snapshot');
+      }
+      assert(suite, transitionProbe.sampleCount >= 4, 'theme transition sampled visible UI elements');
+      assert(
+        suite,
+        transitionProbe.durationValues.length === 1 && transitionProbe.durationValues[0] === '0.18s',
+        `theme transition duration is uniform (${transitionProbe.durationValues.join(', ')})`,
+      );
+      assert(
+        suite,
+        transitionProbe.propertyValues.every((value) =>
+          value.includes('background-color') && value.includes('border-color') && value.includes('color')),
+        'theme transition properties are color-focused across sampled elements',
+      );
+
       await delay(300);
 
       // ── 3. Verify theme changed ──

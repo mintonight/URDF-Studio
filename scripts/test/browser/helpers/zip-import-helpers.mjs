@@ -35,10 +35,11 @@ export async function resolveUploadedRobotFileName(page, expectedName, timeoutMs
     const matches = (candidateName, targetName) => {
       const candidate = normalize(candidateName);
       const target = normalize(targetName);
+      const targetIncludesPath = target.includes('/');
       return (
         candidate === target ||
         candidate.endsWith(`/${target}`) ||
-        basename(candidate) === basename(target)
+        (!targetIncludesPath && basename(candidate) === basename(target))
       );
     };
     const api = window.__URDF_STUDIO_DEBUG__;

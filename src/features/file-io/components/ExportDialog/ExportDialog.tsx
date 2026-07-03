@@ -25,6 +25,7 @@ import type {
   ExportDialogConfig,
   ExportDialogProps,
   ExportFormat,
+  GazeboBackend,
   MeshExportFormat,
   RosHwInterface,
   RosVersion,
@@ -39,6 +40,7 @@ export type {
   ExportDialogConfig,
   ExportDialogProps,
   ExportFormat,
+  GazeboBackend,
   MeshExportFormat,
   MjcfExportConfig,
   RosHwInterface,
@@ -122,6 +124,17 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     },
     [],
   );
+
+  const updateXacroRosVersion = useCallback((rosVersion: RosVersion) => {
+    setConfig((prev) => ({
+      ...prev,
+      xacro: {
+        ...prev.xacro,
+        rosVersion,
+        gazeboBackend: rosVersion === 'ros1' ? 'classic' : prev.xacro.gazeboBackend,
+      },
+    }));
+  }, []);
 
   const updateSdf = useCallback(
     <K extends keyof SdfExportConfig>(key: K, value: SdfExportConfig[K]) => {
@@ -218,6 +231,49 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   };
   const compatibleTargets =
     config.format === 'project' ? [] : getExportFormatSupports(config.format);
+  const rosVersionOptions: RosVersion[] = ['ros1', 'ros2'];
+  const gazeboBackendOptions: GazeboBackend[] = ['classic', 'gz'];
+  const getRosVersionLabel = (version: RosVersion) => {
+    switch (version) {
+      case 'ros1':
+        return t.rosVersionRos1;
+      case 'ros2':
+        return t.rosVersionRos2;
+    }
+  };
+  const getRosVersionDescription = (version: RosVersion) => {
+    switch (version) {
+      case 'ros1':
+        return t.rosVersionDescRos1;
+      case 'ros2':
+        return t.rosVersionDescRos2;
+    }
+  };
+  const getGazeboBackendLabel = (backend: GazeboBackend) => {
+    switch (backend) {
+      case 'classic':
+        return t.gazeboBackendClassic;
+      case 'gz':
+        return t.gazeboBackendGz;
+    }
+  };
+  const getGazeboBackendDescription = (backend: GazeboBackend) => {
+    switch (backend) {
+      case 'classic':
+        return t.gazeboBackendDescClassic;
+      case 'gz':
+        return t.gazeboBackendDescGz;
+    }
+  };
+  const xacroRosVersionDescription = getRosVersionDescription(config.xacro.rosVersion);
+  const xacroGazeboBackendDescription =
+    config.xacro.rosVersion === 'ros1'
+      ? t.gazeboBackendDescClassic
+      : getGazeboBackendDescription(config.xacro.gazeboBackend);
+  const xacroHardwareInterfaceHint =
+    config.xacro.rosVersion === 'ros1'
+      ? t.hardwareInterfaceDescRos1
+      : t.hardwareInterfaceDescRos2;
 
   return (
     <>
@@ -474,67 +530,113 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                 <SectionLabel>{t.exportOptionsSection}</SectionLabel>
                 <div className="bg-element-bg rounded-xl border border-border-black px-3 divide-y divide-border-black">
                   <Row
-                    label={t.rosVersion}
-                    hint={`${t.exportXacroStaticHint} ${config.xacro.rosVersion === 'ros1' ? t.rosProfileDescRos1 : t.rosProfileDescRos2}`}
-                    stacked={isCompactLayout}
-                  >
-                    <div
-                      data-xacro-profile-picker
-                      className={`grid gap-1.5 rounded-xl border border-border-black bg-segmented-bg p-1.5 ${
-                        isCompactLayout ? 'grid-cols-1 w-full' : 'min-w-[220px] grid-cols-2'
-                      }`}
-                    >
-                      {(['ros1', 'ros2'] as RosVersion[]).map((v) => {
-                        const isActive = config.xacro.rosVersion === v;
-                        const label = v === 'ros1' ? t.rosProfileRos1 : t.rosProfileRos2;
-                        const description =
-                          v === 'ros1' ? t.rosProfileDescRos1 : t.rosProfileDescRos2;
-
-                        return (
-                          <button
-                            key={v}
-                            type="button"
-                            onClick={() => updateXacro('rosVersion', v)}
-                            title={description}
-                            aria-label={`${label}. ${description}`}
-                            aria-pressed={isActive}
-                            className={`flex min-h-[2.5rem] items-center rounded-lg border px-2.5 py-2 text-left text-[10px] font-semibold leading-tight whitespace-normal transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
-                              isActive
-                                ? 'border-system-blue/30 bg-system-blue/10 text-system-blue shadow-sm'
-                                : 'border-transparent text-text-secondary hover:border-system-blue/20 hover:bg-element-hover hover:text-text-primary'
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </Row>
-                  <Row
-                    label={t.hardwareInterface}
-                    hint={
-                      config.xacro.rosVersion === 'ros1'
-                        ? t.hardwareInterfaceDescRos1
-                        : t.hardwareInterfaceDescRos2
-                    }
+                    label={t.includeGazeboControl}
+                    desc={t.includeGazeboControlDesc}
                     stacked={isStackedLayout}
                   >
-                    <SelectField
-                      value={config.xacro.rosHardwareInterface}
-                      title={
-                        config.xacro.rosVersion === 'ros1'
-                          ? t.hardwareInterfaceDescRos1
-                          : t.hardwareInterfaceDescRos2
-                      }
-                      options={[
-                        { value: 'effort', label: t.hardwareInterfaceEffort },
-                        { value: 'position', label: t.hardwareInterfacePosition },
-                        { value: 'velocity', label: t.hardwareInterfaceVelocity },
-                      ]}
-                      onChange={(v) => updateXacro('rosHardwareInterface', v as RosHwInterface)}
-                      fullWidth={isStackedLayout}
+                    <Toggle
+                      value={config.xacro.includeGazeboControl}
+                      onChange={(v) => updateXacro('includeGazeboControl', v)}
+                      ariaLabel={t.includeGazeboControl}
                     />
                   </Row>
+                  {config.xacro.includeGazeboControl && (
+                    <>
+                      <Row
+                        label={t.rosVersion}
+                        hint={`${t.exportXacroStaticHint} ${xacroRosVersionDescription} ${xacroGazeboBackendDescription}`}
+                        stacked={isCompactLayout}
+                      >
+                        <div
+                          data-xacro-ros-version-picker
+                          className={`grid gap-1.5 rounded-xl border border-border-black bg-segmented-bg p-1.5 ${
+                            isCompactLayout ? 'grid-cols-1 w-full' : 'min-w-[220px] grid-cols-2'
+                          }`}
+                        >
+                          {rosVersionOptions.map((v) => {
+                            const isActive = config.xacro.rosVersion === v;
+                            const label = getRosVersionLabel(v);
+                            const description = getRosVersionDescription(v);
+
+                            return (
+                              <button
+                                key={v}
+                                type="button"
+                                onClick={() => updateXacroRosVersion(v)}
+                                title={description}
+                                aria-label={`${label}. ${description}`}
+                                aria-pressed={isActive}
+                                className={`flex min-h-[2.5rem] w-full items-center rounded-lg border px-2.5 py-2 text-left text-[10px] font-semibold leading-tight whitespace-normal break-words transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
+                                  isActive
+                                    ? 'border-system-blue/30 bg-system-blue/10 text-system-blue shadow-sm'
+                                    : 'border-transparent text-text-secondary hover:border-system-blue/20 hover:bg-element-hover hover:text-text-primary'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </Row>
+                      {config.xacro.rosVersion === 'ros2' && (
+                        <Row
+                          label={t.gazeboBackend}
+                          hint={xacroGazeboBackendDescription}
+                          stacked={isCompactLayout}
+                        >
+                          <div
+                            data-xacro-gazebo-backend-picker
+                            className={`grid gap-1.5 rounded-xl border border-border-black bg-segmented-bg p-1.5 ${
+                              isCompactLayout ? 'grid-cols-1 w-full' : 'min-w-[260px] grid-cols-2'
+                            }`}
+                          >
+                            {gazeboBackendOptions.map((backend) => {
+                              const isActive = config.xacro.gazeboBackend === backend;
+                              const label = getGazeboBackendLabel(backend);
+                              const description = getGazeboBackendDescription(backend);
+
+                              return (
+                                <button
+                                  key={backend}
+                                  type="button"
+                                  onClick={() => updateXacro('gazeboBackend', backend)}
+                                  title={description}
+                                  aria-label={`${label}. ${description}`}
+                                  aria-pressed={isActive}
+                                  className={`flex min-h-[2.5rem] w-full items-center rounded-lg border px-2.5 py-2 text-left text-[10px] font-semibold leading-tight whitespace-normal break-words transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-system-blue/30 ${
+                                    isActive
+                                      ? 'border-system-blue/30 bg-system-blue/10 text-system-blue shadow-sm'
+                                      : 'border-transparent text-text-secondary hover:border-system-blue/20 hover:bg-element-hover hover:text-text-primary'
+                                  }`}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </Row>
+                      )}
+                      <Row
+                        label={t.hardwareInterface}
+                        hint={xacroHardwareInterfaceHint}
+                        stacked={isStackedLayout}
+                      >
+                        <SelectField
+                          value={config.xacro.rosHardwareInterface}
+                          title={xacroHardwareInterfaceHint}
+                          options={[
+                            { value: 'effort', label: t.hardwareInterfaceEffort },
+                            { value: 'position', label: t.hardwareInterfacePosition },
+                            { value: 'velocity', label: t.hardwareInterfaceVelocity },
+                          ]}
+                          onChange={(v) =>
+                            updateXacro('rosHardwareInterface', v as RosHwInterface)
+                          }
+                          fullWidth={isStackedLayout}
+                        />
+                      </Row>
+                    </>
+                  )}
                   <Row
                     label={t.exportRelativePaths}
                     desc={t.exportRelativePathsDesc}

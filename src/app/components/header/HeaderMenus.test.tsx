@@ -294,19 +294,19 @@ test('view menu no longer renders a toolbar visibility toggle', () => {
   assert.equal(toolbarButton, undefined);
 });
 
-test('AI menu owns AI toolbox items without duplicating them in the toolbox menu', () => {
+test('AI menu owns only AI assistant toolbox items without duplicating them in the toolbox menu', () => {
   const aiMenuMarkup = renderHeaderMenusWithToolboxItems('ai');
   const toolboxMarkup = renderHeaderMenusWithToolboxItems('toolbox');
 
   assert.match(aiMenuMarkup, new RegExp(translations.en.aiInspection));
   assert.match(aiMenuMarkup, new RegExp(translations.en.aiConversation));
-  assert.match(aiMenuMarkup, new RegExp(translations.en.collisionOptimizerDialog));
+  assert.doesNotMatch(aiMenuMarkup, new RegExp(translations.en.collisionOptimizerDialog));
   assert.doesNotMatch(aiMenuMarkup, /Mesh Tools/);
 
   assert.match(toolboxMarkup, /Mesh Tools/);
+  assert.match(toolboxMarkup, new RegExp(translations.en.collisionOptimizerDialog));
   assert.doesNotMatch(toolboxMarkup, new RegExp(translations.en.aiInspection));
   assert.doesNotMatch(toolboxMarkup, new RegExp(translations.en.aiConversation));
-  assert.doesNotMatch(toolboxMarkup, new RegExp(translations.en.collisionOptimizerDialog));
 });
 
 test('view menu shows the joints panel item as checked when the panel is available and enabled', () => {

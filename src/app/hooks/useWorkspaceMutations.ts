@@ -66,6 +66,7 @@ export function useWorkspaceMutations({
   patchEditableSourceDeleteCollisionBody,
   patchEditableSourceUpdateCollisionBody,
   patchEditableSourceUpdateJointLimit,
+  patchEditableSourceRobotName,
   patchEditableSourceRenameEntities,
   setSelection,
   setPendingCollisionTransform,
@@ -108,9 +109,10 @@ export function useWorkspaceMutations({
         useRobotStore.getState().setAssembly({ ...assemblyState, name });
       } else {
         setName(name);
+        patchEditableSourceRobotName?.({ name });
       }
     },
-    [assemblyState, setName],
+    [assemblyState, patchEditableSourceRobotName, setName],
   );
 
   const scheduleAssemblyComponentJointSync = useCallback(

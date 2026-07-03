@@ -2,13 +2,14 @@
  * App Providers - Initialization and side effects wrapper
  * Handles theme, language, and other global initializations
  */
-import { useEffect, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useMemo } from 'react';
 import { useUIStore } from '@/store';
 import { useSelectionStore } from '@/store/selectionStore';
 import { useShallow } from 'zustand/react/shallow';
 import { translations } from '@/shared/i18n';
 import { EffectiveThemeProvider, useResolvedTheme } from '@/shared/hooks/useEffectiveTheme';
 import { OverlayHoverBlockProvider } from '@/shared/hooks/useOverlayHoverBlock';
+import { applyDocumentTheme } from '@/shared/utils/theme';
 
 interface ProvidersProps {
   children: React.ReactNode;
@@ -44,32 +45,11 @@ export function Providers({ children }: ProvidersProps) {
     [beginHoverBlock, clearHover, endHoverBlock],
   );
 
-  // Apply theme class to document
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    const applyThemeClass = () => {
-      const isDark = theme === 'dark' || 
-        (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-      
-      if (isDark) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-    };
-    
-    // Apply immediately
-    applyThemeClass();
-    
-    // Listen for system theme changes when theme is 'system'
-    if (theme === 'system') {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      const handleChange = () => applyThemeClass();
-      mediaQuery.addEventListener('change', handleChange);
-      return () => mediaQuery.removeEventListener('change', handleChange);
-    }
-  }, [theme]);
+  useLayoutEffect(() => {
+    applyDocumentTheme(effectiveTheme, {
+      animate: document.documentElement.dataset.theme !== undefined,
+    });
+  }, [effectiveTheme]);
 
   // Update document title based on language
   useEffect(() => {

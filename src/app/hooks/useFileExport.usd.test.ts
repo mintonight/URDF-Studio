@@ -489,7 +489,9 @@ function createUsdExportConfig(
       stlQuality: 50,
     },
     xacro: {
+      includeGazeboControl: true,
       rosVersion: 'ros2',
+      gazeboBackend: 'classic',
       rosHardwareInterface: 'effort',
       useRelativePaths: true,
       includeMeshes: false,

@@ -1,5 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import { useUIStore } from '@/store';
+import {
+  DEFAULT_ORIGIN_AXES_SIZE,
+  normalizeOriginAxesSize,
+} from '@/shared/components/3d/helpers/coordinateAxesSizing';
 import { isIkDragToolEnabled } from '@/shared/utils/ikDragFeatureGate';
 import type { ViewerInteractiveLayer } from '../types';
 import { resolveInteractiveLayerPriority } from '../utils/interactiveLayerPriority';
@@ -180,13 +191,20 @@ export function useViewerSettings(): ViewerSettings {
     return false;
   });
 
-  const [originSize, setOriginSize] = useState(() => {
+  const [originSize, setOriginSizeState] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('urdf_viewer_origin_size');
-      return saved ? Math.min(parseFloat(saved), 0.5) : 0.1;
+      return saved ? normalizeOriginAxesSize(saved) : DEFAULT_ORIGIN_AXES_SIZE;
     }
-    return 0.1;
+    return DEFAULT_ORIGIN_AXES_SIZE;
   });
+  const setOriginSize: Dispatch<SetStateAction<number>> = useCallback((nextValue) => {
+    setOriginSizeState((currentValue) => {
+      const resolvedValue =
+        typeof nextValue === 'function' ? nextValue(currentValue) : nextValue;
+      return normalizeOriginAxesSize(resolvedValue, currentValue);
+    });
+  }, []);
 
   const [jointAxisSize, setJointAxisSize] = useState(() => {
     if (typeof window !== 'undefined') {

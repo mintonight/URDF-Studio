@@ -580,6 +580,37 @@ test('handleAutoFitGround delegates to the active runtime auto-fit handler when 
   assert.equal(callCount, 1);
 });
 
+test('handleRobotLoaded derives origin axes size limits from robot bounds', async () => {
+  const robotState = createSimpleRobotFixture();
+  const runtimeRobot = createRuntimeRobotFixture(robotState);
+  const geometry = new THREE.BoxGeometry(0.5, 0.2, 0.1);
+  const material = new THREE.MeshBasicMaterial();
+  const visualMesh = new THREE.Mesh(geometry, material);
+  visualMesh.userData.isVisualMesh = true;
+  runtimeRobot.add(visualMesh);
+
+  const { dom, root, getHook } = await mountControllerWithProps({ active: false });
+
+  await act(async () => {
+    getHook().setOriginSize(0.2);
+  });
+  assert.equal(getHook().originSize, 0.12);
+
+  await act(async () => {
+    getHook().handleRobotLoaded(runtimeRobot);
+  });
+
+  assert.equal(getHook().originAxesSizeMax, 0.06);
+  assert.equal(getHook().originSize, 0.06);
+
+  await act(async () => {
+    root.unmount();
+  });
+  geometry.dispose();
+  material.dispose();
+  dom.window.close();
+});
+
 test('paint tool state switches back to select when the paint panel closes', async () => {
   const { root, getHook } = await mountControllerWithProps({
     active: false,

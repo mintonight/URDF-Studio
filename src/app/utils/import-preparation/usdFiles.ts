@@ -2,7 +2,7 @@ import type { RobotFile } from '@/types';
 
 const USD_BINARY_MAGIC = new Uint8Array([80, 88, 82, 45, 85, 83, 68, 67]); // "PXR-USDC"
 const usdTextDecoder = new TextDecoder();
-const MAX_EAGER_TEXT_USD_BYTES = 1024 * 1024;
+export const MAX_EAGER_TEXT_USD_BYTES = 1024 * 1024;
 
 function hasBinaryMagic(bytes: Uint8Array, magic: Uint8Array): boolean {
   if (bytes.length < magic.length) return false;

@@ -5,8 +5,13 @@
 
 // URDF Parser
 export { parseURDF } from './urdf/parser';
-export { generateURDF, generateAssemblyURDF, injectGazeboTags } from './urdf/urdfGenerator';
-export type { RosHardwareInterface } from './urdf/urdfGenerator';
+export {
+  ensureXacroNamespace,
+  generateURDF,
+  generateAssemblyURDF,
+  injectGazeboTags,
+} from './urdf/urdfGenerator';
+export type { RosGazeboProfile, RosHardwareInterface } from './urdf/urdfGenerator';
 
 // MJCF Parser (MuJoCo format)
 export { parseMJCF, isMJCF } from './mjcf/mjcfParser';

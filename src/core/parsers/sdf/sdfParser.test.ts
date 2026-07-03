@@ -31,6 +31,37 @@ test('parseSDF converts gazebo jointed models into RobotState data', () => {
   assert.deepEqual(robot?.joints.joint_over_damping.origin.xyz, { x: 0.12, y: 0, z: 0.15 });
 });
 
+test('parseSDF resolves joint axis xyz expressed_in frames into the joint frame', () => {
+  const robot = parseSDF(`<?xml version="1.0"?>
+<sdf version="1.12">
+  <model name="axis_frame_demo">
+    <frame name="axis_frame">
+      <pose>0 0 0 0 0 1.5707963267948966</pose>
+    </frame>
+    <link name="base" />
+    <link name="tip" />
+    <joint name="axis_joint" type="revolute">
+      <parent>base</parent>
+      <child>tip</child>
+      <axis>
+        <xyz expressed_in="axis_frame">1 0 0</xyz>
+        <limit>
+          <lower>-1</lower>
+          <upper>1</upper>
+        </limit>
+      </axis>
+    </joint>
+  </model>
+</sdf>`);
+
+  assert.ok(robot);
+  const axis = robot.joints.axis_joint?.axis;
+  assert.ok(axis);
+  assert.ok(Math.abs(axis.x) < 1e-9);
+  assert.ok(Math.abs(axis.y - 1) < 1e-9);
+  assert.ok(Math.abs(axis.z) < 1e-9);
+});
+
 test('parseSDF preserves additional visuals and collisions on the same link', () => {
   const robot = parseSDF(`<?xml version="1.0"?>
 <sdf version="1.7">

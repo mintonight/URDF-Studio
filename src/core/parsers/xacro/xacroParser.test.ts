@@ -75,6 +75,91 @@ test('processXacro keeps non-robot tags when stripping included robot wrappers',
   assert.match(processed, /<link name="base"/);
 });
 
+test('processXacro accepts xacro-prefixed robot root tags', () => {
+  const processed = processXacro(`
+    <xacro:robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="prefixed_root">
+      <link name="base" />
+    </xacro:robot>
+  `);
+
+  assert.match(processed, /<robot name="prefixed_root">/);
+  assert.match(processed, /<link name="base"/);
+  assert.doesNotMatch(processed, /<xacro:robot/);
+
+  const robot = parseXacro(processed);
+  assert.ok(robot);
+  assert.equal(robot.name, 'prefixed_root');
+  assert.ok(robot.links.base);
+});
+
+test('processXacro strips xacro-prefixed robot wrappers from included files', () => {
+  const fileMap: XacroFileMap = {
+    'fixtures/outer.xacro': `
+      <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="outer">
+        <xacro:include filename="fixtures/inner_prefixed.xacro" />
+      </robot>
+    `,
+    'fixtures/inner_prefixed.xacro': `
+      <xacro:robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="inner">
+        <link name="included_base" />
+      </xacro:robot>
+    `,
+  };
+
+  const processed = processXacro(fileMap['fixtures/outer.xacro'], {}, fileMap, 'fixtures');
+
+  assert.match(processed, /<link name="included_base"/);
+  assert.doesNotMatch(processed, /xacro:robot/);
+  assert.equal((processed.match(/<robot\b/g) ?? []).length, 1);
+});
+
+test('processXacro supports namespaced include macros and simple properties', () => {
+  const fileMap: XacroFileMap = {
+    'fixtures/outer_ns.xacro': `
+      <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="outer">
+        <xacro:include filename="fixtures/inner_ns.xacro" ns="arm" />
+        <xacro:arm.make_link suffix="left" />
+        <link name="\${arm.prefix}_anchor" />
+      </robot>
+    `,
+    'fixtures/inner_ns.xacro': `
+      <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="inner">
+        <xacro:property name="prefix" value="fixture" />
+        <xacro:macro name="make_link" params="suffix">
+          <link name="\${prefix}_\${suffix}" />
+        </xacro:macro>
+      </robot>
+    `,
+  };
+
+  const processed = processXacro(fileMap['fixtures/outer_ns.xacro'], {}, fileMap, 'fixtures');
+
+  assert.match(processed, /<link name="fixture_left"/);
+  assert.match(processed, /<link name="fixture_anchor"/);
+  assert.doesNotMatch(processed, /xacro:arm\.make_link/);
+});
+
+test('processXacro expands self-closing macro calls with slash characters in attributes', () => {
+  const processed = processXacro(`
+    <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="slash_attrs">
+      <xacro:macro name="mesh_link" params="name mesh_path">
+        <link name="\${name}">
+          <visual>
+            <geometry>
+              <mesh filename="\${mesh_path}" />
+            </geometry>
+          </visual>
+        </link>
+      </xacro:macro>
+      <xacro:mesh_link name="base" mesh_path="package://demo_pkg/meshes/base.stl" />
+    </robot>
+  `);
+
+  assert.match(processed, /<link name="base"/);
+  assert.match(processed, /<mesh filename="meshes\/base\.stl"/);
+  assert.doesNotMatch(processed, /xacro:mesh_link/);
+});
+
 test('processXacro reuses include lookup keys while preserving relative package and fuzzy includes', () => {
   const rawFileMap: XacroFileMap = {
     'workspace/pkg/root/parts/arm.xacro': `

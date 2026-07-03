@@ -1,34 +1,30 @@
 import { useState, useEffect } from 'react';
 import type { Theme } from '@/types';
+import { resolveTheme, type ResolvedTheme } from '@/shared/utils/theme';
 
-function getSystemTheme(): 'light' | 'dark' {
-  if (typeof window === 'undefined') return 'light';
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
-export function useResolvedTheme(theme: Theme): 'light' | 'dark' {
-  const [effectiveTheme, setEffectiveTheme] = useState<'light' | 'dark'>(() => {
-    if (theme === 'system') return getSystemTheme();
-    return theme;
-  });
+export function useResolvedTheme(theme: Theme): ResolvedTheme {
+  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => resolveTheme('system'));
 
   useEffect(() => {
     if (theme !== 'system') {
-      setEffectiveTheme(theme);
+      return;
+    }
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      setSystemTheme('light');
       return;
     }
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
-    setEffectiveTheme(mediaQuery.matches ? 'dark' : 'light');
+    setSystemTheme(mediaQuery.matches ? 'dark' : 'light');
 
     const handleChange = (event: MediaQueryListEvent) => {
-      setEffectiveTheme(event.matches ? 'dark' : 'light');
+      setSystemTheme(event.matches ? 'dark' : 'light');
     };
 
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, [theme]);
 
-  return effectiveTheme;
+  return theme === 'system' ? systemTheme : theme;
 }

@@ -11,6 +11,7 @@ import {
 } from '@/features/editor/usd_hydration';
 import type { PreparedUsdExportCacheResult } from '@/features/editor/usd_export';
 import type { RobotData, RobotFile, UsdBakedScene, UsdSceneSnapshot } from '@/types';
+import { DEFAULT_ORIGIN_AXES_SIZE } from '@/shared/components/3d/helpers/coordinateAxesSizing';
 import { normalizeLibraryPathKey } from '@/shared/utils/pathKeys';
 
 export interface UsdRobotStateHydrationWorkerLike {
@@ -487,7 +488,7 @@ export function startUsdRobotStateHydration({
         showCollisionAlwaysOnTop: true,
         showOrigins: false,
         showOriginsOverlay: false,
-        originSize: 0.2,
+        originSize: DEFAULT_ORIGIN_AXES_SIZE,
         sourceFile: stageDispatch.sourceFile,
         completionMode,
         stageOpenContextKey: stageDispatch.stageOpenContextKey,

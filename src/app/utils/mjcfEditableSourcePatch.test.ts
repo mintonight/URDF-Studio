@@ -9,6 +9,8 @@ import {
   removeMJCFBodyCollisionGeomFromSource,
   updateMJCFBodyCollisionGeomInSource,
   removeMJCFBodyFromSource,
+  patchMJCFJointLimitInSource,
+  patchMJCFRootModelNameInSource,
   renameMJCFEntitiesInSource,
   renameMJCFBodyInSource,
   renameMJCFJointInSource,
@@ -119,6 +121,165 @@ test('appendMJCFChildBodyToSource throws when the target body is not present in 
     }),
     /Failed to locate MJCF <body name="missing_link">/,
   );
+});
+
+test('patchMJCFRootModelNameInSource updates only the root model attribute', () => {
+  const source = `<mujoco model="demo" custom="keep">
+  <option impratio="100"/>
+  <worldbody>
+    <body name="base_link"/>
+  </worldbody>
+</mujoco>
+`;
+
+  const patched = patchMJCFRootModelNameInSource(source, 'demo_renamed');
+
+  assert.match(patched, /<mujoco model="demo_renamed" custom="keep">/);
+  assert.match(patched, /<option impratio="100"\/>/);
+  assert.ok(parseMJCF(patched));
+});
+
+test('patchMJCFJointLimitInSource updates only the targeted joint range', () => {
+  const source = `<mujoco model="demo">
+  <compiler angle="radian"/>
+  <worldbody>
+    <body name="base_link">
+      <joint name="hip_joint" type="hinge" axis="0 0 1" range="-1 1" damping="0"/>
+      <joint name="knee_joint" type="hinge" axis="0 1 0" range="-2 2" damping="0"/>
+    </body>
+  </worldbody>
+</mujoco>
+`;
+
+  const patched = patchMJCFJointLimitInSource({
+    sourceContent: source,
+    jointName: 'hip_joint',
+    jointType: JointType.REVOLUTE,
+    limit: { lower: -0.5, upper: 0.8, effort: 25, velocity: 10 },
+  });
+
+  const hipTag = patched.match(/<joint name="hip_joint"[^>]*\/>/)?.[0] ?? '';
+  assert.match(hipTag, /range="-0\.5 0\.8"/);
+  assert.match(hipTag, /limited="true"/);
+  assert.match(hipTag, /damping="0"/);
+  assert.match(
+    patched,
+    /<joint name="knee_joint" type="hinge" axis="0 1 0" range="-2 2" damping="0"\/>/,
+  );
+
+  const parsed = parseMJCF(patched);
+  assert.equal(parsed.joints.hip_joint.limit?.lower, -0.5);
+  assert.equal(parsed.joints.hip_joint.limit?.upper, 0.8);
+});
+
+test('patchMJCFJointLimitInSource writes angular ranges in the source compiler unit', () => {
+  const source = `<mujoco model="demo">
+  <worldbody>
+    <body name="base_link">
+      <joint name="hip_joint" type="hinge" axis="0 0 1" range="-90 90"/>
+    </body>
+  </worldbody>
+</mujoco>
+`;
+
+  const patched = patchMJCFJointLimitInSource({
+    sourceContent: source,
+    jointName: 'hip_joint',
+    jointType: JointType.REVOLUTE,
+    limit: { lower: -Math.PI / 2, upper: Math.PI / 2, effort: 25, velocity: 10 },
+  });
+
+  assert.match(patched, /<joint name="hip_joint"[^>]*range="-90 90"/);
+  assert.equal(parseMJCF(patched).joints.hip_joint.limit?.lower, -Math.PI / 2);
+});
+
+test('patchMJCFJointLimitInSource preserves official non-range joint limit attributes', () => {
+  const source = `<mujoco model="demo">
+  <compiler angle="radian" autolimits="false"/>
+  <worldbody>
+    <body name="base_link">
+      <joint name="hip_joint" type="hinge" axis="0 0 1" range="-1 1" limited="auto" ref="0.1" margin="0.02" solreflimit="0.01 1" solimplimit="0.9 0.95 0.001" actuatorfrcrange="-5 5" actuatorfrclimited="true" stiffness="12"/>
+    </body>
+  </worldbody>
+</mujoco>
+`;
+
+  const patched = patchMJCFJointLimitInSource({
+    sourceContent: source,
+    jointName: 'hip_joint',
+    jointType: JointType.REVOLUTE,
+    limit: { lower: -0.5, upper: 0.8, effort: 25, velocity: 10 },
+  });
+
+  const hipTag = patched.match(/<joint name="hip_joint"[^>]*\/>/)?.[0] ?? '';
+  assert.match(hipTag, /range="-0\.5 0\.8"/);
+  assert.match(hipTag, /limited="true"/);
+  assert.match(hipTag, /ref="0\.1"/);
+  assert.match(hipTag, /margin="0\.02"/);
+  assert.match(hipTag, /solreflimit="0\.01 1"/);
+  assert.match(hipTag, /solimplimit="0\.9 0\.95 0\.001"/);
+  assert.match(hipTag, /actuatorfrcrange="-5 5"/);
+  assert.match(hipTag, /actuatorfrclimited="true"/);
+  assert.match(hipTag, /stiffness="12"/);
+});
+
+test('patchMJCFJointLimitInSource ignores commented compiler and joint tags', () => {
+  const source = `<mujoco model="demo">
+  <!-- <compiler angle="degree"/> -->
+  <compiler angle="radian"/>
+  <worldbody>
+    <!-- <joint name="hip_joint" type="hinge" axis="0 0 1" range="-90 90"/> -->
+    <body name="base_link">
+      <joint name="hip_joint" type="hinge" axis="0 0 1" range="-1 1"/>
+    </body>
+  </worldbody>
+</mujoco>
+`;
+
+  const patched = patchMJCFJointLimitInSource({
+    sourceContent: source,
+    jointName: 'hip_joint',
+    jointType: JointType.REVOLUTE,
+    limit: { lower: -Math.PI / 2, upper: Math.PI / 2, effort: 25, velocity: 10 },
+  });
+
+  assert.match(
+    patched,
+    /<!-- <joint name="hip_joint" type="hinge" axis="0 0 1" range="-90 90"\/> -->/,
+  );
+  const hipTag = patched.match(/\n      (<joint name="hip_joint"[^>]*\/>)/)?.[1] ?? '';
+  assert.match(hipTag, /range="-1\.570796 1\.570796"/);
+});
+
+test('patchMJCFJointLimitInSource inserts a missing range and removes limits for continuous joints', () => {
+  const source = `<mujoco model="demo">
+  <worldbody>
+    <body name="base_link">
+      <joint name="slider_joint" type="slide" axis="1 0 0"/>
+      <joint name="wheel_joint" type="hinge" axis="0 0 1" limited="true" range="-1 1"/>
+    </body>
+  </worldbody>
+</mujoco>
+`;
+
+  const withSliderRange = patchMJCFJointLimitInSource({
+    sourceContent: source,
+    jointName: 'slider_joint',
+    jointType: JointType.PRISMATIC,
+    limit: { lower: 0, upper: 0.25, effort: 10, velocity: 1 },
+  });
+  const sliderTag = withSliderRange.match(/<joint name="slider_joint"[^>]*\/>/)?.[0] ?? '';
+  assert.match(sliderTag, /limited="true"/);
+  assert.match(sliderTag, /range="0 0\.25"/);
+
+  const continuous = patchMJCFJointLimitInSource({
+    sourceContent: withSliderRange,
+    jointName: 'wheel_joint',
+    jointType: JointType.CONTINUOUS,
+    limit: { lower: -1, upper: 1, effort: 10, velocity: 1 },
+  });
+  assert.match(continuous, /<joint name="wheel_joint" type="hinge" axis="0 0 1"\/>/);
+  assert.doesNotMatch(continuous, /wheel_joint"[^>]*(?:range|limited)=/);
 });
 
 test('removeMJCFBodyFromSource removes only the target nested body without rewriting surrounding paths or assets', () => {
@@ -354,6 +515,30 @@ test('renameMJCFJointInSource renames the target joint name and joint references
   assert.match(patched, /joint="elbow_joint"/);
   assert.match(patched, /joint1="elbow_joint"/);
   assert.doesNotMatch(patched, /name="joint_1"/);
+});
+
+test('renameMJCFJointInSource leaves commented joint tags and references untouched', () => {
+  const source = `<mujoco model="demo">
+  <!-- <joint name="joint_1" type="hinge" axis="0 0 1"/> -->
+  <!-- <joint joint1="joint_1" joint2="joint_2"/> -->
+  <equality>
+    <joint joint1="joint_1" joint2="joint_2"/>
+  </equality>
+  <worldbody>
+    <body name="base_link">
+      <joint name="joint_1" type="hinge" axis="0 0 1"/>
+      <joint name="joint_2" type="hinge" axis="0 1 0"/>
+    </body>
+  </worldbody>
+</mujoco>
+`;
+
+  const patched = renameMJCFJointInSource(source, 'joint_1', 'elbow_joint');
+
+  assert.match(patched, /<!-- <joint name="joint_1" type="hinge" axis="0 0 1"\/> -->/);
+  assert.match(patched, /<!-- <joint joint1="joint_1" joint2="joint_2"\/> -->/);
+  assert.match(patched, /<joint name="elbow_joint" type="hinge" axis="0 0 1"\/>/);
+  assert.match(patched, /<joint joint1="elbow_joint" joint2="joint_2"\/>/);
 });
 
 test('renameMJCFEntitiesInSource applies collision-safe batch rename without touching mesh paths', () => {

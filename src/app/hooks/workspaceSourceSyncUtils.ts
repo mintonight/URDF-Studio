@@ -375,20 +375,14 @@ export async function createRobotSourceSnapshotFromUrdfContent(
 interface PreferredMjcfContentOptions {
   sourceContent?: string | null;
   generatedContent?: string | null;
+  hasStoreEdits?: boolean;
   hasViewerEdits: boolean;
 }
 
-export function getPreferredMjcfContent({
-  sourceContent,
-  generatedContent,
-  hasViewerEdits,
-}: PreferredMjcfContentOptions): string | null {
+export function getPreferredMjcfContent(options: PreferredMjcfContentOptions): string | null {
+  const { sourceContent, generatedContent } = options;
   if (sourceContent) {
     return sourceContent;
-  }
-
-  if (hasViewerEdits) {
-    return generatedContent ?? null;
   }
 
   return generatedContent ?? null;
@@ -426,11 +420,11 @@ export function getPreferredUrdfContent(options: PreferredXmlContentOptions): st
 }
 
 export function getPreferredSdfContent(options: PreferredXmlContentOptions): string | null {
-  return getPreferredXmlContent(options);
+  return options.fileContent ?? options.originalContent ?? options.generatedContent ?? null;
 }
 
 export function getPreferredXacroContent(options: PreferredXmlContentOptions): string | null {
-  return getPreferredXmlContent(options);
+  return options.fileContent ?? options.originalContent ?? options.generatedContent ?? null;
 }
 
 export function shouldUseEmptyRobotForUsdHydration({

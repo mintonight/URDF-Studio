@@ -27,6 +27,8 @@ import type {
   ToolboxItem,
 } from './types';
 
+const AI_MENU_KEYS = new Set(['ai-inspection', 'ai-conversation']);
+
 interface HeaderMenusProps {
   activeMenu: HeaderMenuKey;
   setActiveMenu: (menu: HeaderMenuKey) => void;
@@ -94,7 +96,6 @@ export function HeaderMenus({
 
   // Split toolbox items: AI-assistant items render under the dedicated AI
   // menu, everything else stays in the toolbox.
-  const AI_MENU_KEYS = new Set(['ai-inspection', 'ai-conversation', 'collision-optimizer']);
   const { aiItems, toolboxItems: nonAiToolboxItems } = useMemo(() => {
     const ai: ToolboxItem[] = [];
     const rest: ToolboxItem[] = [];

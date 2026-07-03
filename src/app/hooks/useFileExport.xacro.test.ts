@@ -296,7 +296,9 @@ function createExportConfig(
       stlQuality: 50,
     },
     xacro: {
+      includeGazeboControl: true,
       rosVersion: 'ros2',
+      gazeboBackend: 'classic',
       rosHardwareInterface: 'effort',
       useRelativePaths: true,
       includeMeshes: false,
@@ -454,19 +456,18 @@ test('useFileExport packages selected xacro sources as an exportable xacro zip',
 
     const exportedXml = await exportedXacro.async('string');
     assert.match(exportedXml, /xmlns:xacro="http:\/\/www\.ros\.org\/wiki\/xacro"/);
-    assert.match(exportedXml, /<xacro:arg name="ros_profile" default="ros2"\s*\/>/);
-    assert.match(exportedXml, /<xacro:arg name="ros_hardware_interface" default="effort"\s*\/>/);
-    assert.match(
-      exportedXml,
-      /<xacro:if value="\$\{xacro\.arg\('ros_profile'\) == 'ros1' and xacro\.arg\('ros_hardware_interface'\) == 'effort'\}">/,
-    );
-    assert.match(
-      exportedXml,
-      /<xacro:if value="\$\{xacro\.arg\('ros_profile'\) == 'ros2' and xacro\.arg\('ros_hardware_interface'\) == 'effort'\}">/,
-    );
+    assert.doesNotMatch(exportedXml, /ros_profile/);
+    assert.doesNotMatch(exportedXml, /ros_hardware_interface/);
     assert.match(exportedXml, /<box size="0\.5 0\.25 0\.15"\s*\/>/);
     assert.match(exportedXml, /xacro:property name="box_size"/);
     assert.doesNotMatch(exportedXml, /\$\{box_size\}/);
+    assert.match(exportedXml, /<ros2_control name="demo_robot" type="system">/);
+    assert.match(
+      exportedXml,
+      /<plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control\.so">/,
+    );
+    assert.doesNotMatch(exportedXml, /<transmission\b/);
+    assert.doesNotMatch(exportedXml, /gazebo_ros_control/);
 
     const expandedXml = processXacro(exportedXml);
     assert.match(expandedXml, /<ros2_control name="demo_robot" type="system">/);
@@ -478,13 +479,6 @@ test('useFileExport packages selected xacro sources as an exportable xacro zip',
     assert.match(expandedXml, /<robot_param>robot_description<\/robot_param>/);
     assert.match(expandedXml, /<robot_param_node>robot_state_publisher<\/robot_param_node>/);
     assert.doesNotMatch(expandedXml, /<transmission\b/);
-
-    const ros1ExpandedXml = processXacro(exportedXml, { ros_profile: 'ros1' });
-    assert.match(
-      ros1ExpandedXml,
-      /<plugin name="gazebo_ros_control" filename="libgazebo_ros_control\.so">/,
-    );
-    assert.doesNotMatch(ros1ExpandedXml, /<ros2_control\b/);
   } finally {
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -510,6 +504,202 @@ test('useFileExport rejects xacro export when the current robot contains closed-
 
     assert.equal(downloadMocks.clicked, false, 'expected xacro export to abort before downloading');
     assert.equal(downloadMocks.capturedBlob, null, 'expected no zip blob on failed xacro export');
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    downloadMocks.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
+test('useFileExport packages ROS2 modern Gazebo xacro exports with gz_ros2_control metadata', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+
+  useRobotStore.getState().setRobot(
+    {
+      name: 'demo_robot',
+      rootLinkId: 'base_link',
+      links: {
+        base_link: {
+          ...DEFAULT_LINK,
+          id: 'base_link',
+          name: 'base_link',
+        },
+        tip_link: {
+          ...DEFAULT_LINK,
+          id: 'tip_link',
+          name: 'tip_link',
+        },
+      },
+      joints: {
+        shoulder_joint: {
+          ...DEFAULT_JOINT,
+          id: 'shoulder_joint',
+          name: 'shoulder_joint',
+          type: JointType.REVOLUTE,
+          parentLinkId: 'base_link',
+          childLinkId: 'tip_link',
+          origin: {
+            xyz: { x: 0, y: 0, z: 0 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+          axis: { x: 0, y: 0, z: 1 },
+          limit: {
+            lower: -1,
+            upper: 1,
+            effort: 10,
+            velocity: 5,
+          },
+        },
+      },
+    },
+    {
+      skipHistory: true,
+      resetHistory: true,
+      label: 'Load ROS2 modern Gazebo xacro export test robot',
+    },
+  );
+
+  const downloadMocks = installDownloadMocks();
+  const rendered = renderHook();
+
+  try {
+    await rendered.hook.handleExportWithConfig(
+      createExportConfig({
+        rosVersion: 'ros2',
+        gazeboBackend: 'gz',
+        rosHardwareInterface: 'velocity',
+      }),
+    );
+
+    assert.equal(downloadMocks.clicked, true, 'expected the generated archive to be downloaded');
+    assert.ok(downloadMocks.capturedBlob, 'expected a zip blob to be generated');
+
+    const archive = await JSZip.loadAsync(await downloadMocks.capturedBlob.arrayBuffer());
+    const exportedXacroPath = Object.keys(archive.files).find((path) =>
+      path.endsWith('.urdf.xacro'),
+    );
+    assert.ok(exportedXacroPath, 'expected exactly one exported xacro file in the archive');
+    const exportedXacro = archive.file(exportedXacroPath);
+    assert.ok(exportedXacro, 'expected xacro export inside the archive');
+
+    const exportedXml = await exportedXacro.async('string');
+    assert.match(exportedXml, /xmlns:xacro="http:\/\/www\.ros\.org\/wiki\/xacro"/);
+    assert.doesNotMatch(exportedXml, /ros_profile/);
+    assert.doesNotMatch(exportedXml, /ros_hardware_interface/);
+    assert.match(exportedXml, /<ros2_control name="demo_robot" type="system">/);
+    assert.match(exportedXml, /<plugin>gz_ros2_control\/GazeboSimSystem<\/plugin>/);
+    assert.match(exportedXml, /<command_interface name="velocity"\/>/);
+    assert.match(
+      exportedXml,
+      /<plugin filename="libgz_ros2_control-system\.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">/,
+    );
+    assert.doesNotMatch(exportedXml, /<transmission\b/);
+    assert.doesNotMatch(exportedXml, /gazebo_ros2_control/);
+    assert.doesNotMatch(exportedXml, /gazebo_ros_control/);
+
+    const expandedXml = processXacro(exportedXml);
+    assert.match(expandedXml, /<ros2_control name="demo_robot" type="system">/);
+    assert.match(expandedXml, /<plugin>gz_ros2_control\/GazeboSimSystem<\/plugin>/);
+    assert.match(
+      expandedXml,
+      /<plugin filename="libgz_ros2_control-system\.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">/,
+    );
+    assert.doesNotMatch(expandedXml, /<transmission\b/);
+  } finally {
+    rendered.cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    downloadMocks.restore();
+    domEnvironment.restore();
+    resetStoresToBaseline();
+  }
+});
+
+test('useFileExport packages xacro exports without Gazebo control metadata when disabled', async () => {
+  resetStoresToBaseline();
+  const domEnvironment = installDomEnvironment();
+
+  useRobotStore.getState().setRobot(
+    {
+      name: 'plain_xacro_robot',
+      rootLinkId: 'base_link',
+      links: {
+        base_link: {
+          ...DEFAULT_LINK,
+          id: 'base_link',
+          name: 'base_link',
+        },
+        tip_link: {
+          ...DEFAULT_LINK,
+          id: 'tip_link',
+          name: 'tip_link',
+        },
+      },
+      joints: {
+        shoulder_joint: {
+          ...DEFAULT_JOINT,
+          id: 'shoulder_joint',
+          name: 'shoulder_joint',
+          type: JointType.REVOLUTE,
+          parentLinkId: 'base_link',
+          childLinkId: 'tip_link',
+          origin: {
+            xyz: { x: 0, y: 0, z: 0 },
+            rpy: { r: 0, p: 0, y: 0 },
+          },
+          axis: { x: 0, y: 0, z: 1 },
+          limit: {
+            lower: -1,
+            upper: 1,
+            effort: 10,
+            velocity: 5,
+          },
+        },
+      },
+    },
+    {
+      skipHistory: true,
+      resetHistory: true,
+      label: 'Load plain xacro export test robot',
+    },
+  );
+
+  const downloadMocks = installDownloadMocks();
+  const rendered = renderHook();
+
+  try {
+    await rendered.hook.handleExportWithConfig(
+      createExportConfig({
+        includeGazeboControl: false,
+        rosVersion: 'ros2',
+        gazeboBackend: 'gz',
+        rosHardwareInterface: 'velocity',
+      }),
+    );
+
+    assert.equal(downloadMocks.clicked, true, 'expected the generated archive to be downloaded');
+    assert.ok(downloadMocks.capturedBlob, 'expected a zip blob to be generated');
+
+    const archive = await JSZip.loadAsync(await downloadMocks.capturedBlob.arrayBuffer());
+    const exportedXacroPath = Object.keys(archive.files).find((path) =>
+      path.endsWith('.urdf.xacro'),
+    );
+    assert.ok(exportedXacroPath, 'expected exactly one exported xacro file in the archive');
+    const exportedXacro = archive.file(exportedXacroPath);
+    assert.ok(exportedXacro, 'expected xacro export inside the archive');
+
+    const exportedXml = await exportedXacro.async('string');
+    assert.match(exportedXml, /xmlns:xacro="http:\/\/www\.ros\.org\/wiki\/xacro"/);
+    assert.match(exportedXml, /<joint name="shoulder_joint" type="revolute">/);
+    assert.doesNotMatch(exportedXml, /ros_profile/);
+    assert.doesNotMatch(exportedXml, /ros_hardware_interface/);
+    assert.doesNotMatch(exportedXml, /<transmission\b/);
+    assert.doesNotMatch(exportedXml, /<ros2_control\b/);
+    assert.doesNotMatch(exportedXml, /gazebo_ros_control/);
+    assert.doesNotMatch(exportedXml, /gazebo_ros2_control/);
+    assert.doesNotMatch(exportedXml, /gz_ros2_control/);
   } finally {
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -688,12 +878,15 @@ test('useFileExport packages ROS1 xacro exports with gazebo_ros_control metadata
 
     const exportedXml = await exportedXacro.async('string');
     assert.match(exportedXml, /xmlns:xacro="http:\/\/www\.ros\.org\/wiki\/xacro"/);
-    assert.match(exportedXml, /<xacro:arg name="ros_profile" default="ros1"\s*\/>/);
-    assert.match(exportedXml, /<xacro:arg name="ros_hardware_interface" default="effort"\s*\/>/);
+    assert.doesNotMatch(exportedXml, /ros_profile/);
+    assert.doesNotMatch(exportedXml, /ros_hardware_interface/);
+    assert.match(exportedXml, /<transmission name="shoulder_joint_trans">/);
     assert.match(
       exportedXml,
-      /<xacro:if value="\$\{xacro\.arg\('ros_profile'\) == 'ros1' and xacro\.arg\('ros_hardware_interface'\) == 'effort'\}">/,
+      /<plugin name="gazebo_ros_control" filename="libgazebo_ros_control\.so">/,
     );
+    assert.doesNotMatch(exportedXml, /<ros2_control\b/);
+    assert.doesNotMatch(exportedXml, /gazebo_ros2_control/);
 
     const expandedXml = processXacro(exportedXml);
     assert.match(expandedXml, /<transmission name="shoulder_joint_trans">/);
@@ -711,19 +904,6 @@ test('useFileExport packages ROS1 xacro exports with gazebo_ros_control metadata
       /<robotSimType>gazebo_ros_control\/DefaultRobotHWSim<\/robotSimType>/,
     );
     assert.doesNotMatch(expandedXml, /<ros2_control\b/);
-
-    const ros2ExpandedXml = processXacro(exportedXml, {
-      ros_profile: 'ros2',
-      ros_hardware_interface: 'velocity',
-    });
-    assert.match(ros2ExpandedXml, /<command_interface name="velocity"\/>/);
-    assert.doesNotMatch(ros2ExpandedXml, /<state_interface name="effort"\/>/);
-
-    assert.match(ros2ExpandedXml, /<ros2_control name="demo_robot" type="system">/);
-    assert.match(
-      ros2ExpandedXml,
-      /<plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control\.so">/,
-    );
   } finally {
     rendered.cleanup();
     await new Promise((resolve) => setTimeout(resolve, 0));

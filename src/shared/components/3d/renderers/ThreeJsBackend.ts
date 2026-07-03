@@ -12,7 +12,7 @@ import { normalizeLoadingProgress } from '@/shared/components/3d/loadingHudState
 import { disposeObject3D } from '@/shared/utils/three/dispose';
 import {
   alignRobotToGroundBeforeFirstMount,
-  offsetRobotToGround,
+  hasInitialGroundAlignment,
 } from '@/shared/components/3d/robotPositioning';
 import { SHARED_MATERIALS } from '@/shared/components/3d/sharedMaterials';
 import {
@@ -457,8 +457,13 @@ export class ThreeJsBackend implements RobotRendererBackend {
 
       // Finalize after external meshes have attached so picking metadata is complete.
       syncLoadedRobot(robotModel);
-      alignRobotToGroundBeforeFirstMount(robotModel, this.groundPlaneOffset);
-      this.scheduleGroundAlignment(robotModel);
+      const alignedToGround = alignRobotToGroundBeforeFirstMount(
+        robotModel,
+        this.groundPlaneOffset,
+      );
+      if (!alignedToGround) {
+        this.scheduleGroundAlignment(robotModel);
+      }
 
       this.loadingProgress = normalizeLoadingProgress<ViewerDocumentLoadEvent>({
         status: 'ready',
@@ -489,7 +494,7 @@ export class ThreeJsBackend implements RobotRendererBackend {
 
   private scheduleGroundAlignment(loadedRobot: THREE.Object3D): void {
     if (typeof window === 'undefined') {
-      offsetRobotToGround(loadedRobot, this.groundPlaneOffset);
+      alignRobotToGroundBeforeFirstMount(loadedRobot, this.groundPlaneOffset);
       return;
     }
 
@@ -497,7 +502,17 @@ export class ThreeJsBackend implements RobotRendererBackend {
 
     this.groundAlignTimers = [0, 80, 220, 500].map((delay) =>
       window.setTimeout(() => {
-        offsetRobotToGround(loadedRobot, this.groundPlaneOffset);
+        if (hasInitialGroundAlignment(loadedRobot)) {
+          return;
+        }
+
+        const alignedToGround = alignRobotToGroundBeforeFirstMount(
+          loadedRobot,
+          this.groundPlaneOffset,
+        );
+        if (alignedToGround) {
+          this.clearGroundAlignTimers();
+        }
         this.invalidateCallback?.();
       }, delay),
     );

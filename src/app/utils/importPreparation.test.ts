@@ -34,6 +34,14 @@ function createLooseFile(
   return file;
 }
 
+function withReportedFileSize(file: File, size: number): File {
+  Object.defineProperty(file, 'size', {
+    value: size,
+    configurable: true,
+  });
+  return file;
+}
+
 function createFixtureLooseFiles(
   fixtureRoot: string,
   selectedFolderName: string,
@@ -1113,6 +1121,138 @@ def Xform "demo_robot"
   assert.equal(rootFile?.content, rootUsdText);
   assert.equal(largeSidecarFile?.content, '');
   assert.equal(result.usdSourceFiles.length, 2);
+});
+
+test('prepareImportPayload budgets large loose USD layers as blob-backed sources', async () => {
+  const reportedLargeUsdBytes = 300 * 1024 * 1024;
+  const rootUsdText = `#usda 1.0
+(
+    defaultPrim = "demo_robot"
+    subLayers = [
+        @configuration/demo_base_a.usda@,
+        @configuration/demo_base_b.usda@
+    ]
+)
+
+def Xform "demo_robot" {}`;
+  const files = [
+    createLooseFile('demo_robot.usda', rootUsdText, 'unitree_ros_usda/demo/demo_robot.usda'),
+    withReportedFileSize(
+      createLooseFile(
+        'demo_base_a.usda',
+        '#usda 1.0\ndef Scope "demo_base_a" {}',
+        'unitree_ros_usda/demo/configuration/demo_base_a.usda',
+      ),
+      reportedLargeUsdBytes,
+    ),
+    withReportedFileSize(
+      createLooseFile(
+        'demo_base_b.usda',
+        '#usda 1.0\ndef Scope "demo_base_b" {}',
+        'unitree_ros_usda/demo/configuration/demo_base_b.usda',
+      ),
+      reportedLargeUsdBytes,
+    ),
+  ];
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.equal(result.preferredFileName, 'unitree_ros_usda/demo/demo_robot.usda');
+  assert.equal(result.usdSourceFiles.length, 3);
+  assert.deepEqual(
+    result.robotFiles
+      .filter((file) => file.name.includes('/configuration/'))
+      .map((file) => file.content),
+    ['', ''],
+  );
+});
+
+test('prepareImportPayload budgets loose URDF and MJCF mesh assets as blob-backed resources', async () => {
+  const reportedLargeMeshBytes = 300 * 1024 * 1024;
+  const files = [
+    createLooseFile(
+      'demo.urdf',
+      `<?xml version="1.0"?>
+<robot name="demo">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="../meshes/base_a.stl" />
+      </geometry>
+    </visual>
+  </link>
+</robot>`,
+      'robot/urdf/demo.urdf',
+    ),
+    createLooseFile(
+      'demo.xml',
+      `<?xml version="1.0"?>
+<mujoco model="demo">
+  <asset>
+    <mesh name="base_b" file="../meshes/base_b.stl" />
+  </asset>
+  <worldbody>
+    <body name="base_link" />
+  </worldbody>
+</mujoco>`,
+      'robot/mjcf/demo.xml',
+    ),
+    withReportedFileSize(
+      createLooseFile('base_a.stl', 'solid a', 'robot/meshes/base_a.stl'),
+      reportedLargeMeshBytes,
+    ),
+    withReportedFileSize(
+      createLooseFile('base_b.stl', 'solid b', 'robot/meshes/base_b.stl'),
+      reportedLargeMeshBytes,
+    ),
+  ];
+
+  const result = await prepareImportPayload({
+    files,
+    existingPaths: [],
+    preResolvePreferredImport: false,
+  });
+
+  assert.deepEqual(
+    result.assetFiles.map((file) => file.name).sort(),
+    ['robot/meshes/base_a.stl', 'robot/meshes/base_b.stl'],
+  );
+  assert.ok(
+    result.robotFiles.some((file) => file.name === 'robot/urdf/demo.urdf'),
+    'expected URDF definition to stay in the resource library',
+  );
+  assert.ok(
+    result.robotFiles.some((file) => file.name === 'robot/mjcf/demo.xml'),
+    'expected MJCF definition to stay in the resource library',
+  );
+});
+
+test('prepareImportPayload still rejects loose text definitions over the total import budget', async () => {
+  const reportedLargeDefinitionBytes = 300 * 1024 * 1024;
+  const files = [
+    withReportedFileSize(
+      createLooseFile('demo_a.urdf', '<robot name="a" />', 'robot/urdf/demo_a.urdf'),
+      reportedLargeDefinitionBytes,
+    ),
+    withReportedFileSize(
+      createLooseFile('demo_b.urdf', '<robot name="b" />', 'robot/urdf/demo_b.urdf'),
+      reportedLargeDefinitionBytes,
+    ),
+  ];
+
+  await assert.rejects(
+    () =>
+      prepareImportPayload({
+        files,
+        existingPaths: [],
+        preResolvePreferredImport: false,
+      }),
+    /Import is too large/,
+  );
 });
 
 test('prepareImportPayload fast-open mode skips pre-resolving the preferred URDF candidate', async () => {

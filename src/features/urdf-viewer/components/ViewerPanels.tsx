@@ -88,6 +88,7 @@ export const ViewerPanels = ({
         setShowOriginsOverlay={controller.setShowOriginsOverlay}
         originSize={controller.originSize}
         setOriginSize={controller.setOriginSize}
+        originSizeMax={controller.originAxesSizeMax}
         showMjcfSiteToggle={isMjcfSource}
         showMjcfSites={controller.showMjcfSites}
         setShowMjcfSites={controller.setShowMjcfSites}

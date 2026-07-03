@@ -29,7 +29,7 @@ export interface XacroFileMap {
 
 interface XacroContext {
   properties: Map<string, string>;
-  macros: Map<string, { params: string[]; body: string }>;
+  macros: Map<string, { params: string[]; body: string; namespace?: string }>;
   args: XacroArgs;
   fileMap: XacroFileMap;
   includeFileIndex: XacroIncludeFileIndex;
@@ -46,6 +46,12 @@ interface XacroIncludeFileIndex {
   normalizedKeys: XacroIncludeFileKey[];
   byNormalizedPath: Map<string, XacroIncludeFileKey>;
 }
+
+const XACRO_ROBOT_OPEN_TAG_RE = /<\s*xacro:robot\b/gi;
+const XACRO_ROBOT_CLOSE_TAG_RE = /<\s*\/\s*xacro:robot\s*>/gi;
+const ROBOT_OPEN_TAG_RE = /<\s*(?:xacro:)?robot\b/i;
+const ROBOT_WRAPPER_OPEN_TAG_RE = /<\s*(?:xacro:)?robot\b[^>]*>/gi;
+const ROBOT_WRAPPER_CLOSE_TAG_RE = /<\s*\/\s*(?:xacro:)?robot\s*>/gi;
 
 const EXPRESSION_KEYWORDS = new Map<string, string>([
   ['and', '&&'],
@@ -101,6 +107,10 @@ function coerceExpressionTruthy(result: unknown): boolean {
     return !['false', '0', 'none', 'no', 'off', 'null'].includes(normalized);
   }
   return Boolean(result);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function evaluateExpression(expr: string, ctx: XacroContext): unknown | undefined {
@@ -188,6 +198,18 @@ function preprocessXML(content: string): string {
   return content.trim();
 }
 
+function normalizeXacroRobotRootTags(content: string): string {
+  return content
+    .replace(XACRO_ROBOT_OPEN_TAG_RE, '<robot')
+    .replace(XACRO_ROBOT_CLOSE_TAG_RE, '</robot>');
+}
+
+function stripRobotWrapperTags(content: string): string {
+  return content
+    .replace(ROBOT_WRAPPER_OPEN_TAG_RE, '')
+    .replace(ROBOT_WRAPPER_CLOSE_TAG_RE, '');
+}
+
 /**
  * Parse xacro:arg elements to get default values
  */
@@ -208,10 +230,24 @@ function parseXacroArgs(content: string): Map<string, string> {
   return args;
 }
 
+function parseXmlAttributeMap(attrs: string): Map<string, string> {
+  const parsed = new Map<string, string>();
+  const attrRegex = /([A-Za-z_][\w:.-]*)\s*=\s*(["'])(.*?)\2/g;
+  let match: RegExpExecArray | null;
+  while ((match = attrRegex.exec(attrs)) !== null) {
+    parsed.set(match[1], match[3]);
+  }
+  return parsed;
+}
+
 /**
  * Parse xacro:property elements
  */
-function parseProperties(content: string, ctx: XacroContext): void {
+function qualifyXacroSymbol(name: string, namespace = ''): string {
+  return namespace ? `${namespace}.${name}` : name;
+}
+
+function parseProperties(content: string, ctx: XacroContext, namespace = ''): void {
   // Match <xacro:property name="..." value="..."/>
   const propRegex = /<xacro:property\s+name=["']([^"']+)["']\s+value=["']([^"']*)["']\s*\/>/g;
 
@@ -221,7 +257,7 @@ function parseProperties(content: string, ctx: XacroContext): void {
     let value = match[2];
     // Resolve any ${} in the value
     value = substituteVariables(value, ctx);
-    ctx.properties.set(name, value);
+    ctx.properties.set(qualifyXacroSymbol(name, namespace), value);
   }
 
   // Also match block-style properties: <xacro:property name="...">value</xacro:property>
@@ -230,14 +266,14 @@ function parseProperties(content: string, ctx: XacroContext): void {
     const name = match[1];
     let value = match[2].trim();
     value = substituteVariables(value, ctx);
-    ctx.properties.set(name, value);
+    ctx.properties.set(qualifyXacroSymbol(name, namespace), value);
   }
 }
 
 /**
  * Parse xacro:macro definitions
  */
-function parseMacros(content: string, ctx: XacroContext): void {
+function parseMacros(content: string, ctx: XacroContext, namespace = ''): void {
   // Match both parameterized and parameterless macro definitions.
   const macroRegex =
     /<xacro:macro\s+name=["']([^"']+)["'](?:\s+params=["']([^"']*)["'])?\s*>([\s\S]*?)<\/xacro:macro>/g;
@@ -251,7 +287,11 @@ function parseMacros(content: string, ctx: XacroContext): void {
     // Parse params - handle default values like "param:=default"
     const params = paramsStr.split(/\s+/).filter((param) => param.length > 0);
 
-    ctx.macros.set(name, { params, body });
+    ctx.macros.set(qualifyXacroSymbol(name, namespace), {
+      params,
+      body,
+      ...(namespace ? { namespace } : {}),
+    });
   }
 }
 
@@ -417,9 +457,15 @@ function findFileInMap(filename: string, ctx: XacroContext): string | null {
 function processIncludes(content: string, ctx: XacroContext): string {
   // Match both self-closing and block-style include tags.
   const includeRegex =
-    /<xacro:include\s+filename=["']([^"']+)["']\s*(?:\/>|>\s*<\/xacro:include>)/g;
+    /<xacro:include\b([^>]*?)(?:\/>|>\s*<\/xacro:include>)/g;
 
-  return content.replace(includeRegex, (_match, filename) => {
+  return content.replace(includeRegex, (_match, attrsStr) => {
+    const attrs = parseXmlAttributeMap(attrsStr);
+    const filename = attrs.get('filename');
+    if (!filename) {
+      return '<!-- Include ignored: missing filename -->';
+    }
+    const includeNamespace = attrs.get('ns')?.trim() ?? '';
     const resolvedFilename = substituteVariables(filename, ctx);
     const foundPath = findFileInMap(resolvedFilename, ctx);
 
@@ -443,8 +489,8 @@ function processIncludes(content: string, ctx: XacroContext): string {
 
       try {
         // Parse properties and macros from included file
-        parseProperties(includedContent, ctx);
-        parseMacros(includedContent, ctx);
+        parseProperties(includedContent, ctx, includeNamespace);
+        parseMacros(includedContent, ctx, includeNamespace);
 
         // Process nested includes
         includedContent = processIncludes(includedContent, ctx);
@@ -455,9 +501,8 @@ function processIncludes(content: string, ctx: XacroContext): string {
 
       // Remove robot tags from included content to avoid nesting
       includedContent = includedContent
-        .replace(/<\?xml[^?]*\?>/g, '')
-        .replace(/<robot\b[^>]*>/g, '')
-        .replace(/<\/robot>/g, '');
+        .replace(/<\?xml[^?]*\?>/g, '');
+      includedContent = stripRobotWrapperTags(includedContent);
 
       return includedContent;
     }
@@ -474,8 +519,12 @@ function processIncludes(content: string, ctx: XacroContext): string {
 function expandMacros(content: string, ctx: XacroContext): string {
   // Match <xacro:macroname ... /> or <xacro:macroname ...>...</xacro:macroname>
   for (const [macroName, macroDef] of ctx.macros) {
+    const escapedMacroName = escapeRegExp(macroName);
     // Self-closing macro calls
-    const selfClosingRegex = new RegExp(`<xacro:${macroName}(?=[\\s/>])([^/>]*)/>`, 'g');
+    const selfClosingRegex = new RegExp(
+      `<xacro:${escapedMacroName}(?=[\\s/>])((?:[^"'/>]|"[^"]*"|'[^']*')*)/>`,
+      'g',
+    );
 
     content = content.replace(selfClosingRegex, (_match, attrsStr) => {
       return expandMacroCall(macroName, attrsStr, '', macroDef, ctx);
@@ -483,7 +532,7 @@ function expandMacros(content: string, ctx: XacroContext): string {
 
     // Block macro calls
     const blockRegex = new RegExp(
-      `<xacro:${macroName}(?=[\\s>])([^>]*)>([\\s\\S]*?)</xacro:${macroName}>`,
+      `<xacro:${escapedMacroName}(?=[\\s>])([^>]*)>([\\s\\S]*?)</xacro:${escapedMacroName}>`,
       'g',
     );
 
@@ -502,7 +551,7 @@ function expandMacroCall(
   _macroName: string,
   attrsStr: string,
   innerContent: string,
-  macroDef: { params: string[]; body: string },
+  macroDef: { params: string[]; body: string; namespace?: string },
   ctx: XacroContext,
 ): string {
   // Parse attributes
@@ -519,6 +568,14 @@ function expandMacroCall(
     ...ctx,
     properties: new Map(ctx.properties),
   };
+  if (macroDef.namespace) {
+    const namespacePrefix = `${macroDef.namespace}.`;
+    for (const [name, value] of ctx.properties) {
+      if (name.startsWith(namespacePrefix)) {
+        localCtx.properties.set(name.slice(namespacePrefix.length), value);
+      }
+    }
+  }
 
   // Set parameter values
   for (const param of macroDef.params) {
@@ -668,6 +725,7 @@ export function processXacro(
 ): string {
   // Preprocess XML
   content = preprocessXML(content);
+  content = normalizeXacroRobotRootTags(content);
 
   // Initialize context
   const ctx: XacroContext = {
@@ -761,7 +819,7 @@ export function processXacro(
   });
 
   // Ensure proper XML structure
-  if (!content.includes('<robot')) {
+  if (!ROBOT_OPEN_TAG_RE.test(content)) {
     content = `<robot name="xacro_robot">${content}</robot>`;
   }
 

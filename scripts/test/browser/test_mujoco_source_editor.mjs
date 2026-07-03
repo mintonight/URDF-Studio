@@ -11,46 +11,65 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import {
   createSession, createTestSuite, assert, assertEqual, assertGreaterThan,
-  importModel, waitForReady, getTopology, store, writeReport, printSummary,
+  importModel, waitForReady, getTopology, openSourceEditor,
+  store, writeReport, printSummary,
 } from './helpers/mjcf-helpers.mjs';
 
 const MODEL = { dir: 'unitree_go2', file: 'go2.xml' };
 
-async function openSourceEditor(page) {
-  const clicked = await page.evaluate(() => {
-    const buttons = [...document.querySelectorAll('button')];
-    const button = buttons.find((candidate) => {
-      const label = `${candidate.textContent ?? ''} ${candidate.title ?? ''} ${candidate.getAttribute('aria-label') ?? ''}`;
-      return /source\s*code|source|code|xml/i.test(label);
-    });
-    button?.click();
-    return Boolean(button);
-  });
-  if (!clicked) return false;
-
-  return page.waitForFunction(
-    () => Boolean(window.monaco?.editor?.getModels?.().length) || Boolean(document.querySelector('.monaco-editor')),
+async function getSourceEditorDebugText(page) {
+  await page.waitForFunction(
+    () => Boolean(window.__URDF_STUDIO_DEBUG__?.__sourceEditor?.getValue),
     { timeout: 45_000 },
-  ).then(() => true).catch(() => false);
+  );
+  return page.evaluate(() => window.__URDF_STUDIO_DEBUG__.__sourceEditor.getValue());
 }
 
 async function readSourceEditor(page) {
+  const text = await getSourceEditorDebugText(page);
   return page.evaluate(() => {
-    const monacoModel = window.monaco?.editor?.getModels?.()[0] ?? null;
     const monacoEditors = window.monaco?.editor?.getEditors?.() ?? [];
-    const text = monacoModel?.getValue?.() ?? document.querySelector('.monaco-editor')?.textContent ?? '';
     const saveButton = [...document.querySelectorAll('button')].find(
       (candidate) => candidate.textContent?.trim().toLowerCase() === 'save',
     );
     const visibleText = document.body?.innerText ?? '';
     return {
-      hasMonacoModel: Boolean(monacoModel),
+      hasMonacoModel: false,
       hasMonacoEditor: Boolean(monacoEditors.length) || Boolean(document.querySelector('.monaco-editor')),
-      languageId: monacoModel?.getLanguageId?.() ?? null,
-      text,
+      languageId: window.monaco?.editor?.getModels?.()[0]?.getLanguageId?.() ?? null,
       hasMjcfLabel: /MJCF\/XML/i.test(visibleText),
       saveDisabled: saveButton instanceof HTMLButtonElement ? saveButton.disabled : null,
       modifiedVisible: /\bModified\b/i.test(visibleText),
+    };
+  }).then((metadata) => ({ ...metadata, hasMonacoModel: text.length > 0, text }));
+}
+
+async function waitForSourceEditorText(page, expectedText, timeout = 10_000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeout) {
+    const text = await getSourceEditorDebugText(page);
+    if (text.includes(expectedText)) {
+      return;
+    }
+    await delay(100);
+  }
+  throw new Error(`Timed out waiting for source editor text: ${expectedText}`);
+}
+
+async function readSelectedSourceState(page) {
+  return page.evaluate(() => {
+    const assets = window.__URDF_STUDIO_DEBUG__?.__assetsStore__?.getState?.() ?? null;
+    const selectedFile = assets?.selectedFile ?? null;
+    const allFileContents = assets?.allFileContents ?? {};
+    const selectedAvailableFile = assets?.availableFiles?.find?.(
+      (file) => file?.name === selectedFile?.name,
+    ) ?? null;
+
+    return {
+      fileName: selectedFile?.name ?? null,
+      selectedContent: selectedFile?.content ?? '',
+      availableContent: selectedAvailableFile?.content ?? '',
+      allFileContent: selectedFile?.name ? (allFileContents[selectedFile.name] ?? '') : '',
     };
   });
 }
@@ -73,8 +92,8 @@ async function main() {
     assertGreaterThan(suite, baseline.jointCount, 10, 'Go2 MJCF joints loaded');
     assertEqual(suite, baseline.name, 'go2', 'baseline MJCF model name');
 
-    const editorReady = await openSourceEditor(page);
-    assert(suite, editorReady, 'source/code UI opens with Monaco');
+    await openSourceEditor(page);
+    assert(suite, true, 'source/code UI opens with Monaco');
 
     const editor = await readSourceEditor(page);
     report.editor = {
@@ -93,11 +112,58 @@ async function main() {
     assert(suite, editor.text.includes('foot.obj'), 'source contains mesh asset references');
 
     await store.setName(page, 'go2_source_editor_regression');
-    await delay(300);
+    await waitForSourceEditorText(
+      page,
+      '<mujoco model="go2_source_editor_regression"',
+    );
     const renamed = await getTopology(page);
     assertEqual(suite, renamed.name, 'go2_source_editor_regression', 'robot can be edited while source editor is open');
     assertEqual(suite, renamed.linkCount, baseline.linkCount, 'store edit preserves link count');
     assertEqual(suite, renamed.jointCount, baseline.jointCount, 'store edit preserves joint count');
+    const generatedEditor = await readSourceEditor(page);
+    assert(
+      suite,
+      generatedEditor.text.includes('<mujoco model="go2_source_editor_regression"'),
+      'source editor reflects robot-state edits as patched MJCF',
+    );
+    assertEqual(
+      suite,
+      generatedEditor.text.length - editor.text.length,
+      'go2_source_editor_regression'.length - 'go2'.length,
+      'MJCF source rename only changes the root model attribute text',
+    );
+    assert(
+      suite,
+      generatedEditor.text.includes('<compiler angle="radian" meshdir="assets" autolimits="true"/>'),
+      'source editor preserves imported compiler settings while patching',
+    );
+    assert(
+      suite,
+      generatedEditor.text.includes('impratio="100"'),
+      'source editor preserves imported MJCF top-level option while patching',
+    );
+    const sourceState = await readSelectedSourceState(page);
+    report.sourceStateAfterRename = {
+      fileName: sourceState.fileName,
+      selectedLength: sourceState.selectedContent.length,
+      availableLength: sourceState.availableContent.length,
+      allFileLength: sourceState.allFileContent.length,
+    };
+    assert(
+      suite,
+      sourceState.selectedContent.includes('<mujoco model="go2_source_editor_regression"'),
+      'selected MJCF source file reflects robot-state edits',
+    );
+    assert(
+      suite,
+      sourceState.availableContent.includes('<mujoco model="go2_source_editor_regression"'),
+      'availableFiles MJCF source reflects robot-state edits',
+    );
+    assert(
+      suite,
+      sourceState.allFileContent.includes('<mujoco model="go2_source_editor_regression"'),
+      'allFileContents MJCF source reflects robot-state edits',
+    );
 
     await store.undo(page);
     await delay(300);

@@ -26,10 +26,13 @@ export interface UrdfExportConfig {
 }
 
 export type RosVersion = 'ros1' | 'ros2';
+export type GazeboBackend = 'classic' | 'gz';
 export type RosHwInterface = 'effort' | 'position' | 'velocity';
 
 export interface XacroExportConfig {
+  includeGazeboControl: boolean;
   rosVersion: RosVersion;
+  gazeboBackend: GazeboBackend;
   rosHardwareInterface: RosHwInterface;
   useRelativePaths: boolean;
   includeMeshes: boolean;

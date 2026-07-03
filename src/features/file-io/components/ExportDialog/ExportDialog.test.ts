@@ -394,21 +394,47 @@ test('Xacro export moves ROS profile guidance into hover titles instead of inlin
 
     await click(getButtonByText(container, 'Xacro'));
 
-    const xacroProfilePicker = getRequiredElement<HTMLElement>(
+    const gazeboSwitch = getRequiredElement<HTMLButtonElement>(
       container,
-      '[data-xacro-profile-picker]',
-      'xacro profile picker',
+      'button[role="switch"][aria-label="添加 Gazebo 控制标签"]',
+      'Gazebo control toggle',
     );
-    assert.match(xacroProfilePicker.className, /grid-cols-1/);
+    assert.equal(gazeboSwitch.getAttribute('aria-checked'), 'true');
+    assert.match(container.textContent ?? '', /添加 Gazebo 控制标签/);
 
-    const ros2Button = getButtonByText(container, 'ROS2 + gazebo_ros2_control');
+    const xacroRosVersionPicker = getRequiredElement<HTMLElement>(
+      container,
+      '[data-xacro-ros-version-picker]',
+      'xacro ROS version picker',
+    );
+    assert.match(xacroRosVersionPicker.className, /grid-cols-1/);
+
+    const ros2Button = getButtonByText(container, 'ROS2');
     assert.equal(
       ros2Button.getAttribute('title'),
-      '导出 ros2_control 与 gazebo_ros2_control 约定。',
+      '使用 ROS2 ros2_control 约定。',
     );
     assert.equal(ros2Button.getAttribute('aria-pressed'), 'true');
     assert.match(ros2Button.className, /min-h-\[2\.5rem\]/);
     assert.doesNotMatch(ros2Button.className, /min-h-\[3\.15rem\]/);
+
+    const gazeboBackendPicker = getRequiredElement<HTMLElement>(
+      container,
+      '[data-xacro-gazebo-backend-picker]',
+      'xacro Gazebo backend picker',
+    );
+    assert.match(gazeboBackendPicker.className, /grid-cols-1/);
+
+    const classicButton = getButtonByText(container, 'Gazebo Classic');
+    assert.equal(
+      classicButton.getAttribute('title'),
+      '写入 Gazebo Classic 控制插件约定。',
+    );
+    assert.equal(classicButton.getAttribute('aria-pressed'), 'true');
+
+    const gzButton = getButtonByText(container, 'Gazebo Sim (gz_ros2_control)');
+    assert.equal(gzButton.getAttribute('title'), '写入现代 Gazebo / gz_ros2_control 控制插件约定。');
+    assert.equal(gzButton.getAttribute('aria-pressed'), 'false');
 
     const xacroHintButton = Array.from(container.querySelectorAll('button[aria-label]')).find(
       (candidate) => candidate.getAttribute('aria-label')?.includes('导出为真正的 xacro'),
@@ -421,6 +447,61 @@ test('Xacro export moves ROS profile guidance into hover titles instead of inlin
       hardwareSelect?.getAttribute('title'),
       '写入每个 ros2_control joint 条目中的 ROS2 command_interface 名称。',
     );
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('Xacro export can omit Gazebo control tags', async () => {
+  const { dom, container, root } = createComponentRoot();
+  let exportedConfig: ExportDialogConfig | null = null as ExportDialogConfig | null;
+
+  try {
+    await renderExportDialog(root, (config) => {
+      exportedConfig = config;
+    });
+
+    await click(getButtonByText(container, 'Xacro'));
+    await click(
+      getRequiredElement<HTMLButtonElement>(
+        container,
+        'button[role="switch"][aria-label="添加 Gazebo 控制标签"]',
+        'Gazebo control toggle',
+      ),
+    );
+
+    assert.equal(container.querySelector('[data-xacro-ros-version-picker]'), null);
+    assert.equal(container.querySelector('[data-xacro-gazebo-backend-picker]'), null);
+    assert.equal(container.querySelector('select'), null);
+
+    await click(getButtonByText(container, '导出 ZIP'));
+
+    assert.ok(exportedConfig, 'Xacro export should submit a config');
+    assert.equal(exportedConfig.xacro.includeGazeboControl, false);
+    assert.equal(exportedConfig.xacro.rosVersion, 'ros2');
+    assert.equal(exportedConfig.xacro.gazeboBackend, 'classic');
+  } finally {
+    await destroyComponentRoot(dom, root);
+  }
+});
+
+test('Xacro export maps ROS2 Gazebo Sim selection to the gz backend', async () => {
+  const { dom, container, root } = createComponentRoot();
+  let exportedConfig: ExportDialogConfig | null = null as ExportDialogConfig | null;
+
+  try {
+    await renderExportDialog(root, (config) => {
+      exportedConfig = config;
+    });
+
+    await click(getButtonByText(container, 'Xacro'));
+    await click(getButtonByText(container, 'Gazebo Sim (gz_ros2_control)'));
+    await click(getButtonByText(container, '导出 ZIP'));
+
+    assert.ok(exportedConfig, 'Xacro export should submit a config');
+    assert.equal(exportedConfig.xacro.includeGazeboControl, true);
+    assert.equal(exportedConfig.xacro.rosVersion, 'ros2');
+    assert.equal(exportedConfig.xacro.gazeboBackend, 'gz');
   } finally {
     await destroyComponentRoot(dom, root);
   }

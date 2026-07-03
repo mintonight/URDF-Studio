@@ -54,11 +54,11 @@ interface BuildWorkspaceAssemblySourceCodeDocumentsParams {
 }
 
 const XACRO_INCLUDE_REGEX =
-  /<xacro:include\s+filename=["']([^"']+)["']\s*(?:\/>|>\s*<\/xacro:include>)/g;
-const MJCF_INCLUDE_REGEX = /<include\s+file=["']([^"']+)["'][^>]*\/?>/g;
+  /<!--[\s\S]*?-->|<xacro:include\b([^>]*?)(?:\/>|>\s*<\/xacro:include>)/g;
+const MJCF_INCLUDE_REGEX = /<!--[\s\S]*?-->|<include\b([^>]*?)(?:\/>|>\s*<\/include>)/g;
 const SOURCE_ROOT_PATTERNS: Partial<Record<SourceCodeDocumentFlavor, RegExp>> = {
   urdf: /<robot\b/i,
-  xacro: /<robot\b/i,
+  xacro: /<\s*(?:xacro:)?robot\b/i,
   sdf: /<sdf\b/i,
   mjcf: /<mujoco\b/i,
   'equivalent-mjcf': /<mujoco\b/i,
@@ -83,6 +83,29 @@ function getSourceFileName(filePath: string): string {
   const normalizedPath = normalizeSourcePath(filePath);
   const lastSlashIndex = normalizedPath.lastIndexOf('/');
   return lastSlashIndex === -1 ? normalizedPath : normalizedPath.slice(lastSlashIndex + 1);
+}
+
+function parseXmlAttributeMap(attrs: string): Map<string, string> {
+  const parsed = new Map<string, string>();
+  const attrRegex = /([A-Za-z_][\w:.-]*)\s*=\s*(["'])(.*?)\2/g;
+  let match: RegExpExecArray | null;
+  while ((match = attrRegex.exec(attrs)) !== null) {
+    parsed.set(match[1], match[3]);
+  }
+  return parsed;
+}
+
+function extractXmlAttributeReferences(
+  content: string,
+  tagRegex: RegExp,
+  attributeName: string,
+): string[] {
+  return Array.from(content.matchAll(tagRegex), (match) => {
+    if (match[0].startsWith('<!--')) {
+      return null;
+    }
+    return parseXmlAttributeMap(match[1] ?? '').get(attributeName)?.trim() ?? null;
+  }).filter((value): value is string => Boolean(value));
 }
 
 function buildSourceFileIndex(
@@ -125,15 +148,11 @@ function buildSourceFileIndex(
 
 function extractIncludeReferences(format: SourceFileFormat, content: string): string[] {
   if (format === 'xacro') {
-    return Array.from(content.matchAll(XACRO_INCLUDE_REGEX), (match) => match[1]?.trim()).filter(
-      (value): value is string => Boolean(value),
-    );
+    return extractXmlAttributeReferences(content, XACRO_INCLUDE_REGEX, 'filename');
   }
 
   if (format === 'mjcf') {
-    return Array.from(content.matchAll(MJCF_INCLUDE_REGEX), (match) => match[1]?.trim()).filter(
-      (value): value is string => Boolean(value),
-    );
+    return extractXmlAttributeReferences(content, MJCF_INCLUDE_REGEX, 'file');
   }
 
   if (format === 'usd') {

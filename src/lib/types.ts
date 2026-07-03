@@ -2,6 +2,7 @@ import type { CSSProperties, RefObject } from 'react';
 import type { Object3D } from 'three';
 import type { Language } from '../shared/i18n';
 import type { SnapshotCaptureAction } from '../shared/components/3d';
+import { DEFAULT_ORIGIN_AXES_SIZE } from '../shared/components/3d/helpers/coordinateAxesSizing';
 import type { AppMode, Theme, UrdfJoint, UrdfLink } from '../types';
 import type { ToolMode } from '../shared/components/3d/viewerInteractionTypes';
 
@@ -56,7 +57,7 @@ export const DEFAULT_ROBOT_CANVAS_DISPLAY_OPTIONS: RobotCanvasDisplayOptions = {
   centerOfMassSize: 0.01,
   showOrigins: false,
   showOriginsOverlay: true,
-  originSize: 0.1,
+  originSize: DEFAULT_ORIGIN_AXES_SIZE,
   showJointAxes: false,
   showJointAxesOverlay: true,
   jointAxisSize: 0.1,

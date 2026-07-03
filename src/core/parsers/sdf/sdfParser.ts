@@ -1010,6 +1010,23 @@ function parseJointMimic(
   };
 }
 
+function transformDirectionBetweenFrames(
+  direction: Vector3,
+  fromWorldMatrix: THREE.Matrix4,
+  toWorldMatrix: THREE.Matrix4,
+): Vector3 {
+  const fromRotation = new THREE.Quaternion();
+  fromWorldMatrix.decompose(new THREE.Vector3(), fromRotation, new THREE.Vector3());
+
+  const toRotation = new THREE.Quaternion();
+  toWorldMatrix.decompose(new THREE.Vector3(), toRotation, new THREE.Vector3());
+
+  const vector = new THREE.Vector3(direction.x, direction.y, direction.z);
+  vector.applyQuaternion(fromRotation);
+  vector.applyQuaternion(toRotation.invert());
+  return { x: vector.x, y: vector.y, z: vector.z };
+}
+
 function selectTreeJointsAndClosedLoops(graph: ParsedSdfGraph): {
   joints: Record<string, UrdfJoint>;
   closedLoopConstraints?: RobotClosedLoopConstraint[];
@@ -1539,16 +1556,16 @@ function parseSdfModel(
     const mimic = parseJointMimic(axisEl, namespacePrefix);
 
     // Resolve the axis direction.
-    // SDF <use_parent_model_frame> determines whether the xyz vector is
-    // expressed in the model frame (true) or the joint frame (false).
-    // Per the SDF 1.5 spec the default is false (joint frame); models
-    // authored for Gazebo (e.g. cart_soft_suspension) rely on this default.
-    // Our internal representation (like URDF) stores the axis in the joint
-    // frame, so we must transform when the source is the model frame.
+    // Modern SDFormat uses <xyz expressed_in="...">. Older Gazebo models use
+    // <use_parent_model_frame>; keep that fallback for source compatibility.
+    // Our internal representation stores the axis in the joint frame.
     let axis: Vector3 | undefined;
     if (AXIS_IMPORT_TYPES.has(jointType)) {
-      const rawAxis = parseVec3(
-        getFirstDirectChild(axisEl ?? jointEl, 'xyz')?.textContent || '0 0 1',
+      const xyzEl = getFirstDirectChild(axisEl ?? jointEl, 'xyz');
+      const rawAxis = parseVec3(xyzEl?.textContent || '0 0 1');
+      const expressedInFrame = qualifyScopedReference(
+        xyzEl?.getAttribute('expressed_in')?.trim(),
+        namespacePrefix,
       );
       const useParentModelFrameText = axisEl
         ? getFirstDirectChild(axisEl, 'use_parent_model_frame')?.textContent?.trim().toLowerCase()
@@ -1556,14 +1573,18 @@ function parseSdfModel(
       const useParentModelFrame =
         useParentModelFrameText !== undefined ? useParentModelFrameText === 'true' : false; // SDF spec: use_parent_model_frame defaults to false
 
-      if (useParentModelFrame) {
-        // Transform axis from model frame to joint frame:
-        // axis_joint = R(jointWorld)^-1 · axis_model
-        const jointRotation = new THREE.Quaternion();
-        jointWorldMatrix.decompose(new THREE.Vector3(), jointRotation, new THREE.Vector3());
-        const axisVec = new THREE.Vector3(rawAxis.x, rawAxis.y, rawAxis.z);
-        axisVec.applyQuaternion(jointRotation.invert());
-        axis = { x: axisVec.x, y: axisVec.y, z: axisVec.z };
+      if (expressedInFrame) {
+        axis = transformDirectionBetweenFrames(
+          rawAxis,
+          resolveFrameWorldMatrix(expressedInFrame),
+          jointWorldMatrix,
+        );
+      } else if (useParentModelFrame) {
+        axis = transformDirectionBetweenFrames(
+          rawAxis,
+          resolveFrameWorldMatrix(MODEL_FRAME),
+          jointWorldMatrix,
+        );
       } else {
         axis = rawAxis;
       }

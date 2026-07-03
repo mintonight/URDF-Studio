@@ -8,6 +8,11 @@ import {
   ToggleSliderOption,
 } from '@/shared/components/Panel/OptionsPanel';
 import { WORKSPACE_OVERLAY_RIGHT_EDGE_GAP } from '@/shared/components/3d/scene';
+import {
+  ORIGIN_AXES_SIZE_FALLBACK_MAX,
+  ORIGIN_AXES_SIZE_MIN,
+  ORIGIN_AXES_SIZE_STEP,
+} from '@/shared/components/3d/helpers/coordinateAxesSizing';
 import { useOverlayHoverBlock } from '@/shared/hooks/useOverlayHoverBlock';
 
 interface ViewerOptionsPanelProps {
@@ -40,6 +45,7 @@ interface ViewerOptionsPanelProps {
   setShowOriginsOverlay: (show: boolean) => void;
   originSize: number;
   setOriginSize: (size: number) => void;
+  originSizeMax?: number;
   showMjcfSiteToggle?: boolean;
   showMjcfSites: boolean;
   setShowMjcfSites: (show: boolean) => void;
@@ -184,6 +190,7 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
   setShowOriginsOverlay,
   originSize,
   setOriginSize,
+  originSizeMax = ORIGIN_AXES_SIZE_FALLBACK_MAX,
   showMjcfSiteToggle = false,
   showMjcfSites,
   setShowMjcfSites,
@@ -329,9 +336,9 @@ export const ViewerOptionsPanel: React.FC<ViewerOptionsPanelProps> = ({
                 label: t.size,
                 value: originSize,
                 onChange: setOriginSize,
-                min: 0.01,
-                max: 0.5,
-                step: 0.01,
+                min: ORIGIN_AXES_SIZE_MIN,
+                max: originSizeMax,
+                step: ORIGIN_AXES_SIZE_STEP,
               }}
             />
 

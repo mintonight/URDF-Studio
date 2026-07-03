@@ -4,7 +4,7 @@ export const EXPORT_FORMATS: MeshExportFormat[] = ['mjcf', 'urdf', 'xacro', 'sdf
 
 export const MJCF_SUPPORTS = ['MuJoCo', 'Motphys', 'Genesis'];
 export const URDF_SUPPORTS = ['Isaac Sim', 'Isaac Gym', 'Genesis', 'PyBullet', 'ManiSkill', 'Motphys'];
-export const XACRO_SUPPORTS = ['Gazebo', 'ROS1', 'ROS2'];
+export const XACRO_SUPPORTS = ['Gazebo Classic', 'Gazebo Sim', 'ROS1', 'ROS2'];
 export const SDF_SUPPORTS = ['Gazebo', 'Ignition Gazebo', 'sdformat'];
 export const USD_SUPPORTS = ['OpenUSD', 'Isaac Sim', 'Genesis', 'Omniverse'];
 
@@ -31,7 +31,9 @@ export const DEFAULT_CONFIG: ExportDialogConfig = {
     stlQuality: 50,
   },
   xacro: {
+    includeGazeboControl: true,
     rosVersion: 'ros2',
+    gazeboBackend: 'classic',
     rosHardwareInterface: 'effort',
     useRelativePaths: true,
     includeMeshes: true,

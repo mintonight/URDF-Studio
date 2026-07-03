@@ -19,6 +19,7 @@ import type {
   RuntimeObject3D,
   RuntimeRobotObject,
 } from '@/shared/components/3d/runtimeRobotTypes';
+import { DEFAULT_ORIGIN_AXES_SIZE } from '@/shared/components/3d/helpers/coordinateAxesSizing';
 import { getLatestUsdStageLoadDebugEntry } from './usdStageLoadDebug';
 import {
   getRegressionTransformGizmoSummaries,
@@ -459,7 +460,7 @@ const DEFAULT_FLAGS: Required<RegressionViewerFlags> = {
   showInertiaOverlay: true,
   showOrigins: false,
   showOriginsOverlay: true,
-  originSize: 1,
+  originSize: DEFAULT_ORIGIN_AXES_SIZE,
   showJointAxes: false,
   showJointAxesOverlay: true,
   jointAxisSize: 1,

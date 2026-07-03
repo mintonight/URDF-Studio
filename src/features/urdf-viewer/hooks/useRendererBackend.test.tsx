@@ -165,6 +165,60 @@ function createCollisionOriginRobotData(collisionX: number): RobotData {
   };
 }
 
+function createPrismaticGroundRobotData(): RobotData {
+  return {
+    name: 'prismatic_ground_demo',
+    rootLinkId: 'base',
+    links: {
+      base: {
+        ...structuredClone(DEFAULT_LINK),
+        id: 'base',
+        name: 'base',
+        visual: {
+          type: GeometryType.BOX,
+          dimensions: { x: 0.01, y: 0.01, z: 0.01 },
+          color: '#808080',
+          origin: { xyz: { x: 0, y: 0, z: 10 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+      },
+      foot: {
+        ...structuredClone(DEFAULT_LINK),
+        id: 'foot',
+        name: 'foot',
+        visual: {
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#808080',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+        collision: {
+          type: GeometryType.BOX,
+          dimensions: { x: 1, y: 1, z: 1 },
+          color: '#ef4444',
+          origin: { xyz: { x: 0, y: 0, z: 0 }, rpy: { r: 0, p: 0, y: 0 } },
+        },
+      },
+    },
+    joints: {
+      lift_joint: {
+        ...structuredClone(DEFAULT_JOINT),
+        id: 'lift_joint',
+        name: 'lift_joint',
+        type: JointType.PRISMATIC,
+        parentLinkId: 'base',
+        childLinkId: 'foot',
+        origin: {
+          xyz: { x: 0, y: 0, z: 0 },
+          rpy: { r: 0, p: 0, y: 0 },
+        },
+        axis: { x: 0, y: 0, z: 1 },
+        limit: { lower: -1, upper: 1, effort: 100, velocity: 10 },
+      },
+    },
+    materials: {},
+  };
+}
+
 const useR3fStore = create(() => ({
   gl: {
     getContext: () => ({
@@ -218,6 +272,7 @@ function Probe({
   availableFiles,
   showVisual = true,
   showCollision = false,
+  initialJointAngles,
 }: {
   robotData: RobotData;
   onRobotLoaded: (robot: THREE.Object3D) => void;
@@ -225,6 +280,7 @@ function Probe({
   availableFiles?: RobotFile[];
   showVisual?: boolean;
   showCollision?: boolean;
+  initialJointAngles?: Record<string, number>;
 }) {
   useRendererBackend({
     sourceFile: probeSourceFile,
@@ -235,6 +291,7 @@ function Probe({
     showCollisionAlwaysOnTop: true,
     allowUrdfXmlFallback: false,
     robotData,
+    initialJointAngles,
     onRobotLoaded,
   });
 
@@ -250,6 +307,7 @@ function renderProbe(
     availableFiles?: RobotFile[];
     showVisual?: boolean;
     showCollision?: boolean;
+    initialJointAngles?: Record<string, number>;
   } = {},
 ) {
   return root.render(
@@ -311,6 +369,65 @@ test('useRendererBackend patches a link color edit without reloading the backend
 
     assert.equal(loadedRobots.length, 1);
     assert.equal(getMeshHexColor(mesh), '#12ab34');
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('useRendererBackend preserves root height when collision parsing reloads after joint pose changes', async () => {
+  const { dom, root } = createComponentRoot();
+  const loadedRobots: THREE.Object3D[] = [];
+  const robotData = createPrismaticGroundRobotData();
+
+  try {
+    await act(async () => {
+      renderProbe(root, robotData, (robot) => {
+        loadedRobots.push(robot);
+      });
+    });
+    await waitForCondition(
+      () => loadedRobots.length === 1,
+      'expected initial robot load to complete',
+    );
+
+    const initialRootZ = loadedRobots[0].position.z;
+    assert.ok(
+      Math.abs(initialRootZ - 0.5) < 1e-6,
+      `expected initial root z to align visual bottom to ground, got ${initialRootZ}`,
+    );
+
+    await act(async () => {
+      renderProbe(
+        root,
+        robotData,
+        (robot) => {
+          loadedRobots.push(robot);
+        },
+        {
+          showCollision: true,
+          initialJointAngles: {
+            lift_joint: -0.4,
+          },
+        },
+      );
+    });
+    await waitForCondition(
+      () => loadedRobots.length === 2,
+      'expected collision parsing change to reload the runtime robot',
+    );
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
+
+    const reloadedRootZ = loadedRobots[1].position.z;
+    assert.ok(
+      Math.abs(reloadedRootZ - initialRootZ) < 1e-6,
+      `expected reloaded root z ${reloadedRootZ} to preserve ${initialRootZ}`,
+    );
   } finally {
     await act(async () => {
       root.unmount();

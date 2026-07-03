@@ -737,6 +737,12 @@ export const generateURDF = (
 };
 
 export type RosHardwareInterface = 'effort' | 'position' | 'velocity';
+export type RosGazeboProfile = 'ros1' | 'ros2' | 'ros2_gz';
+export type GazeboControlOutputMode = 'parameterized' | 'selected';
+
+export interface InjectGazeboTagsOptions {
+  outputMode?: GazeboControlOutputMode;
+}
 
 /**
  * Generate ROS1 <transmission> tags for non-fixed joints.
@@ -838,6 +844,47 @@ export const generateRos2Control = (
   return xml;
 };
 
+/**
+ * Generate ROS2 ros2_control block + modern Gazebo (gz-sim) plugin tag.
+ */
+export const generateRos2GzControl = (
+  robot: RobotState,
+  hwInterface: RosHardwareInterface = 'effort',
+  robotName?: string,
+): string => {
+  const { joints, name } = robot;
+  const ctrlName = robotName || name || 'robot';
+  const cmdIf =
+    hwInterface === 'position' ? 'position' : hwInterface === 'velocity' ? 'velocity' : 'effort';
+
+  let xml = `  <ros2_control name="${ctrlName}" type="system">\n`;
+  xml += `    <hardware>\n`;
+  xml += `      <plugin>gz_ros2_control/GazeboSimSystem</plugin>\n`;
+  xml += `    </hardware>\n`;
+
+  Object.values(joints).forEach((j) => {
+    const jType = String(j.type).toLowerCase();
+    if (jType === 'fixed') return;
+    xml += `    <joint name="${j.name}">\n`;
+    xml += `      <command_interface name="${cmdIf}"/>\n`;
+    xml += `      <state_interface name="position"/>\n`;
+    xml += `      <state_interface name="velocity"/>\n`;
+    if (cmdIf === 'effort') {
+      xml += `      <state_interface name="effort"/>\n`;
+    }
+    xml += `    </joint>\n`;
+  });
+
+  xml += `  </ros2_control>\n\n`;
+
+  xml += `  <gazebo>\n`;
+  xml += `    <plugin filename="libgz_ros2_control-system.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">\n`;
+  xml += `    </plugin>\n`;
+  xml += `  </gazebo>\n`;
+
+  return xml;
+};
+
 export const ensureXacroNamespace = (xml: string): string => {
   if (/xmlns:xacro\s*=/.test(xml)) {
     return xml;
@@ -858,17 +905,19 @@ function indentXmlBlock(content: string, indent: string): string {
 
 function generateProfileParameterizedXacro(
   robot: RobotState,
-  defaultRosVersion: 'ros1' | 'ros2',
+  defaultRosVersion: RosGazeboProfile,
   hwInterface: RosHardwareInterface = 'effort',
 ): string {
-  const rosVersions: Array<'ros1' | 'ros2'> = ['ros1', 'ros2'];
+  const rosVersions: RosGazeboProfile[] = ['ros1', 'ros2', 'ros2_gz'];
   const hwInterfaces: RosHardwareInterface[] = ['effort', 'position', 'velocity'];
   const branches = rosVersions.flatMap((rosVersion) =>
     hwInterfaces.map((hardwareInterface) => {
       const block =
         rosVersion === 'ros1'
           ? generateRos1Control(robot, hardwareInterface)
-          : generateRos2Control(robot, hardwareInterface);
+          : rosVersion === 'ros2_gz'
+            ? generateRos2GzControl(robot, hardwareInterface)
+            : generateRos2Control(robot, hardwareInterface);
       return [
         `  <xacro:if value="\${xacro.arg('ros_profile') == '${rosVersion}' and xacro.arg('ros_hardware_interface') == '${hardwareInterface}'}">`,
         indentXmlBlock(block, '    '),
@@ -893,9 +942,18 @@ function generateProfileParameterizedXacro(
 export const injectGazeboTags = (
   urdfXml: string,
   robot: RobotState,
-  rosVersion: 'ros1' | 'ros2',
+  rosVersion: RosGazeboProfile,
   hwInterface: RosHardwareInterface = 'effort',
+  options: InjectGazeboTagsOptions = {},
 ): string => {
-  const extra = generateProfileParameterizedXacro(robot, rosVersion, hwInterface);
+  const outputMode = options.outputMode ?? 'parameterized';
+  const extra =
+    outputMode === 'selected'
+      ? rosVersion === 'ros1'
+        ? generateRos1Control(robot, hwInterface)
+        : rosVersion === 'ros2_gz'
+          ? generateRos2GzControl(robot, hwInterface)
+        : generateRos2Control(robot, hwInterface)
+      : generateProfileParameterizedXacro(robot, rosVersion, hwInterface);
   return ensureXacroNamespace(urdfXml).replace(/(<\/robot>)\s*$/, `\n${extra}</robot>`);
 };

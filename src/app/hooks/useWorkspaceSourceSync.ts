@@ -28,6 +28,11 @@ import {
   type SourceCodeDocumentDescriptor,
 } from '@/app/utils/sourceCodeDocuments';
 import {
+  patchSdfModelNameInSource,
+  patchUrdfRobotNameInSource,
+} from '@/app/utils/jointEditableSourcePatch';
+import { patchMJCFRootModelNameInSource } from '@/app/utils/mjcfEditableSourcePatch';
+import {
   areJointSourceCompatible,
   buildVisibleAssemblyState,
 } from './workspace-source-sync/compatibility';
@@ -52,7 +57,6 @@ import {
   createRobotSourceSnapshot,
   getWorkspaceAssemblyRenderFailureReason,
   getPreferredMjcfContent,
-  getPreferredSdfContent,
   getPreferredUrdfContent,
   getWorkspaceAssemblyViewerRobotData,
   getSingleComponentWorkspaceMjcfViewerSource,
@@ -105,6 +109,48 @@ interface UseWorkspaceSourceSyncOptions {
   setAvailableFiles: (files: RobotFile[]) => void;
   setAllFileContents: (contents: Record<string, string>) => void;
   setOriginalUrdfContent: (content: string) => void;
+}
+
+function resolveSelectedSourceRootNamePatch({
+  selectedFile,
+  robotName,
+  shouldRenderAssembly,
+  canPatchWorkspaceSource,
+}: {
+  selectedFile: RobotFile | null;
+  robotName: string;
+  shouldRenderAssembly: boolean;
+  canPatchWorkspaceSource: boolean;
+}): string | null {
+  if (!selectedFile || (shouldRenderAssembly && !canPatchWorkspaceSource)) {
+    return null;
+  }
+
+  try {
+    if (selectedFile.format === 'urdf') {
+      const nextContent = patchUrdfRobotNameInSource(selectedFile.content, robotName);
+      return nextContent === selectedFile.content ? null : nextContent;
+    }
+
+    if (selectedFile.format === 'xacro') {
+      const nextContent = patchUrdfRobotNameInSource(selectedFile.content, robotName);
+      return nextContent === selectedFile.content ? null : nextContent;
+    }
+
+    if (selectedFile.format === 'sdf') {
+      const nextContent = patchSdfModelNameInSource(selectedFile.content, robotName);
+      return nextContent === selectedFile.content ? null : nextContent;
+    }
+
+    if (selectedFile.format === 'mjcf') {
+      const nextContent = patchMJCFRootModelNameInSource(selectedFile.content, robotName);
+      return nextContent === selectedFile.content ? null : nextContent;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 export function useWorkspaceSourceSync({
@@ -242,6 +288,14 @@ export function useWorkspaceSourceSync({
   // a redundant viewer reload before the assembly actually diverges.
   const shouldRenderAssembly =
     isWorkspaceAssembly && hasWorkspaceComponents && !shouldReuseSelectedFileViewerForWorkspace;
+  const isSelectedSingleComponentWorkspaceSource = useMemo(() => {
+    if (!shouldRenderAssembly || !assemblyState || !selectedFile) {
+      return false;
+    }
+
+    const components = Object.values(assemblyState.components);
+    return components.length === 1 && components[0]?.sourceFile === selectedFile.name;
+  }, [assemblyState, selectedFile, shouldRenderAssembly]);
   const hasActiveWorkspaceTransformTarget = useMemo(
     () =>
       isActiveWorkspaceTransformSession({
@@ -650,25 +704,6 @@ export function useWorkspaceSourceSync({
     scope: 'useWorkspaceSourceSync:viewerGeneratedUrdfContent',
   });
 
-  const generatedXacroRequest = useMemo(
-    () =>
-      !shouldRenderAssembly && !isSelectedUsdHydrating && selectedFile?.format === 'xacro'
-        ? {
-            format: 'xacro' as const,
-            robotState: currentRobotSourceState,
-            includeHardware: 'auto' as const,
-            preserveMeshPaths: true,
-          }
-        : null,
-    [currentRobotSourceState, isSelectedUsdHydrating, selectedFile?.format, shouldRenderAssembly],
-  );
-  const generatedXacroContent = useGeneratedRobotSource({
-    cache: generatedSourceCacheRef,
-    cacheKey: generatedXacroRequest ? `xacro:${currentRobotSourceSnapshot}` : null,
-    options: generatedXacroRequest,
-    scope: 'useWorkspaceSourceSync:generatedXacroContent',
-  });
-
   const viewerUrdfContent = useMemo(() => {
     if (
       shouldRenderAssembly ||
@@ -703,10 +738,10 @@ export function useWorkspaceSourceSync({
 
   const generatedMjcfRequest = useMemo(() => {
     const shouldGenerateMjcfSource =
-      !shouldRenderAssembly &&
       !isSelectedUsdHydrating &&
-      (selectedFile?.format === 'mjcf' ||
-        (isCodeViewerOpen && sourceCodeDocumentFlavor === 'equivalent-mjcf'));
+      !shouldRenderAssembly &&
+      isCodeViewerOpen &&
+      sourceCodeDocumentFlavor === 'equivalent-mjcf';
 
     if (!shouldGenerateMjcfSource) {
       return null;
@@ -720,7 +755,6 @@ export function useWorkspaceSourceSync({
     currentRobotSourceState,
     isCodeViewerOpen,
     isSelectedUsdHydrating,
-    selectedFile?.format,
     shouldRenderAssembly,
     sourceCodeDocumentFlavor,
   ]);
@@ -730,23 +764,16 @@ export function useWorkspaceSourceSync({
     options: generatedMjcfRequest,
     scope: 'useWorkspaceSourceSync:generatedMjcfContent',
   });
-
-  const generatedSdfRequest = useMemo(
+  const selectedSourceRootNamePatchContent = useMemo(
     () =>
-      !shouldRenderAssembly && !isSelectedUsdHydrating && selectedFile?.format === 'sdf'
-        ? {
-            format: 'sdf' as const,
-            robotState: currentRobotSourceState,
-          }
-        : null,
-    [currentRobotSourceState, isSelectedUsdHydrating, selectedFile?.format, shouldRenderAssembly],
+      resolveSelectedSourceRootNamePatch({
+        selectedFile,
+        robotName,
+        shouldRenderAssembly,
+        canPatchWorkspaceSource: isSelectedSingleComponentWorkspaceSource,
+      }),
+    [isSelectedSingleComponentWorkspaceSource, robotName, selectedFile, shouldRenderAssembly],
   );
-  const generatedSdfContent = useGeneratedRobotSource({
-    cache: generatedSourceCacheRef,
-    cacheKey: generatedSdfRequest ? `sdf:${currentRobotSourceSnapshot}` : null,
-    options: generatedSdfRequest,
-    scope: 'useWorkspaceSourceSync:generatedSdfContent',
-  });
 
   const resolvedMjcfSource = useMemo(() => {
     if (!selectedFile || selectedFile.format !== 'mjcf') {
@@ -906,32 +933,24 @@ export function useWorkspaceSourceSync({
     }
 
     if (selectedFile.format === 'urdf') {
-      return getPreferredUrdfContent({
-        fileContent: selectedFile.content,
-        originalContent: originalUrdfContent,
-        generatedContent: generatedUrdfContent,
-        hasStoreEdits: hasSourceStoreEdits,
-      });
+      return selectedSourceRootNamePatchContent ?? selectedFile.content;
     }
 
     if (selectedFile.format === 'xacro') {
-      return selectedFile.content;
+      return selectedSourceRootNamePatchContent ?? selectedFile.content;
     }
 
     if (selectedFile.format === 'mjcf' && isCodeViewerOpen) {
       return getPreferredMjcfContent({
-        sourceContent: selectedFile.content,
-        generatedContent: generatedMjcfContent,
+        sourceContent: selectedSourceRootNamePatchContent ?? selectedFile.content,
+        generatedContent: null,
+        hasStoreEdits: hasSourceStoreEdits,
         hasViewerEdits: hasMjcfViewerEdits,
       });
     }
 
     if (selectedFile.format === 'sdf' && isCodeViewerOpen) {
-      return getPreferredSdfContent({
-        fileContent: selectedFile.content,
-        generatedContent: generatedSdfContent,
-        hasStoreEdits: hasSourceStoreEdits,
-      });
+      return selectedSourceRootNamePatchContent ?? selectedFile.content;
     }
 
     if (
@@ -944,15 +963,12 @@ export function useWorkspaceSourceSync({
 
     return null;
   }, [
-    generatedXacroContent,
     generatedMjcfContent,
-    generatedSdfContent,
-    generatedUrdfContent,
     hasMjcfViewerEdits,
     hasSourceStoreEdits,
     isCodeViewerOpen,
-    originalUrdfContent,
     selectedFile,
+    selectedSourceRootNamePatchContent,
     sourceCodeDocumentFlavor,
     shouldRenderAssembly,
   ]);
@@ -1034,28 +1050,13 @@ export function useWorkspaceSourceSync({
     workspaceViewerMjcfSourceFile,
   ]);
 
-  const selectedEditableSourceSyncContent = useMemo(() => {
-    if (!selectedFile || !hasSourceStoreEdits) {
-      return null;
-    }
-
-    switch (selectedFile.format) {
-      case 'urdf':
-        return generatedUrdfContent;
-      case 'sdf':
-        return generatedSdfContent;
-      default:
-        return null;
-    }
-  }, [generatedSdfContent, generatedUrdfContent, hasSourceStoreEdits, selectedFile]);
-
   useEffect(() => {
-    if (!selectedFile || !selectedEditableSourceSyncContent) {
+    if (!selectedFile || !selectedSourceRootNamePatchContent) {
       return;
     }
 
-    syncTextFileContent(selectedFile.name, selectedEditableSourceSyncContent);
-  }, [selectedEditableSourceSyncContent, selectedFile, syncTextFileContent]);
+    syncTextFileContent(selectedFile.name, selectedSourceRootNamePatchContent);
+  }, [selectedFile, selectedSourceRootNamePatchContent, syncTextFileContent]);
 
   useDeferredWorkspaceSourceSync({
     shouldRenderAssembly,
@@ -1099,45 +1100,11 @@ export function useWorkspaceSourceSync({
       forceReadOnly: false,
     });
 
-    if (activeSourceFile?.format !== 'xacro' || !generatedXacroContent || !hasSourceStoreEdits) {
-      return baseDocuments;
-    }
-
-    const rawPrimaryDocument = baseDocuments[0];
-    if (!rawPrimaryDocument) {
-      return baseDocuments;
-    }
-
-    const generatedFileName = rawPrimaryDocument.fileName.replace(
-      /(?:\.urdf)?\.xacro$/i,
-      '.generated.urdf',
-    );
-    const generatedPrimaryDocument: SourceCodeDocumentDescriptor = {
-      ...rawPrimaryDocument,
-      fileName:
-        generatedFileName === rawPrimaryDocument.fileName
-          ? `${rawPrimaryDocument.fileName}.generated.urdf`
-          : generatedFileName,
-      tabLabel: 'Resolved URDF',
-      content: generatedXacroContent,
-      documentFlavor: 'urdf',
-      readOnly: true,
-      validationEnabled: true,
-      changeTarget: undefined,
-    };
-    const rawEditableDocument: SourceCodeDocumentDescriptor = {
-      ...rawPrimaryDocument,
-      id: `source-raw:${activeSourceFile.name}`,
-      tabLabel: `${rawPrimaryDocument.tabLabel ?? rawPrimaryDocument.fileName} (Raw)`,
-    };
-
-    return [generatedPrimaryDocument, rawEditableDocument, ...baseDocuments.slice(1)];
+    return baseDocuments;
   }, [
     activeSourceFile,
     allFileContents,
     availableFiles,
-    generatedXacroContent,
-    hasSourceStoreEdits,
     sourceCodeContent,
     sourceCodeDocumentFlavor,
     shouldRenderAssembly,

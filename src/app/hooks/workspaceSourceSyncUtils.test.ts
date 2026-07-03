@@ -3236,12 +3236,24 @@ test('getPreferredMjcfContent keeps the imported MJCF before viewer edits', () =
   );
 });
 
-test('getPreferredMjcfContent keeps the imported MJCF after viewer edits when source is available', () => {
+test('getPreferredMjcfContent keeps source MJCF after viewer edits', () => {
   assert.equal(
     getPreferredMjcfContent({
       sourceContent: '<mujoco model="cassie-source"/>',
       generatedContent: '<mujoco model="cassie-generated"/>',
       hasViewerEdits: true,
+    }),
+    '<mujoco model="cassie-source"/>',
+  );
+});
+
+test('getPreferredMjcfContent keeps source MJCF after store edits', () => {
+  assert.equal(
+    getPreferredMjcfContent({
+      sourceContent: '<mujoco model="cassie-source"/>',
+      generatedContent: '<mujoco model="cassie-generated"/>',
+      hasStoreEdits: true,
+      hasViewerEdits: false,
     }),
     '<mujoco model="cassie-source"/>',
   );
@@ -3258,14 +3270,14 @@ test('getPreferredSdfContent keeps the imported SDF before store edits', () => {
   );
 });
 
-test('getPreferredSdfContent switches to generated SDF after store edits', () => {
+test('getPreferredSdfContent keeps the imported SDF after store edits', () => {
   assert.equal(
     getPreferredSdfContent({
       fileContent: '<sdf version="1.7"><model name="source"/></sdf>',
       generatedContent: '<sdf version="1.7"><model name="generated"/></sdf>',
       hasStoreEdits: true,
     }),
-    '<sdf version="1.7"><model name="generated"/></sdf>',
+    '<sdf version="1.7"><model name="source"/></sdf>',
   );
 });
 
@@ -3281,7 +3293,7 @@ test('getPreferredXacroContent keeps the imported xacro before store edits', () 
   );
 });
 
-test('getPreferredXacroContent switches to generated XML after store edits', () => {
+test('getPreferredXacroContent keeps imported Xacro after store edits', () => {
   assert.equal(
     getPreferredXacroContent({
       fileContent: '<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="source"/>',
@@ -3289,6 +3301,6 @@ test('getPreferredXacroContent switches to generated XML after store edits', () 
       generatedContent: '<robot name="generated"/>',
       hasStoreEdits: true,
     }),
-    '<robot name="generated"/>',
+    '<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="source"/>',
   );
 });

@@ -1,7 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import { useSelectionStore } from '@/store/selectionStore';
 import { hasJointInteractionPreview, useJointInteractionPreviewStore } from '@/store';
-import { alignObjectLowestPointToZ } from '@/shared/utils';
+import { alignObjectLowestPointToZ, computeVisibleMeshBounds } from '@/shared/utils';
+import {
+  ORIGIN_AXES_SIZE_FALLBACK_MAX,
+  normalizeOriginAxesSize,
+  resolveOriginAxesSizeMax,
+} from '@/shared/components/3d/helpers/coordinateAxesSizing';
 import { createJointPanelStore } from '@/shared/utils/jointPanelStore';
 import type { JointPanelActiveJointOptions } from '@/shared/utils/jointPanelStore';
 import {
@@ -136,7 +149,7 @@ export const useViewerController = ({
     showOriginsOverlay,
     setShowOriginsOverlay,
     originSize,
-    setOriginSize,
+    setOriginSize: setOriginSizePreference,
     showMjcfSites,
     setShowMjcfSites,
     showJointAxes,
@@ -243,6 +256,17 @@ export const useViewerController = ({
   );
   const suppressNextPanelAutoScrollRef = useRef(false);
   const [isDragging, setIsDraggingState] = useState(false);
+  const [originAxesSizeMax, setOriginAxesSizeMax] = useState(ORIGIN_AXES_SIZE_FALLBACK_MAX);
+  const setOriginSize: Dispatch<SetStateAction<number>> = useCallback(
+    (nextValue) => {
+      setOriginSizePreference((currentValue) => {
+        const resolvedValue =
+          typeof nextValue === 'function' ? nextValue(currentValue) : nextValue;
+        return normalizeOriginAxesSize(resolvedValue, currentValue, originAxesSizeMax);
+      });
+    },
+    [originAxesSizeMax, setOriginSizePreference],
+  );
   const isDraggingRef = useRef(false);
   const setIsDragging = useCallback(
     (nextDragging: boolean | ((previousDragging: boolean) => boolean)) => {
@@ -1122,26 +1146,50 @@ export const useViewerController = ({
     ],
   );
 
+  const syncOriginAxesSizeLimit = useCallback(
+    (loadedRobot: RuntimeRobotObject | null) => {
+      const bounds = loadedRobot
+        ? computeVisibleMeshBounds(loadedRobot, { includeInvisible: true })
+        : null;
+      const modelExtent = bounds
+        ? Math.max(
+            bounds.max.x - bounds.min.x,
+            bounds.max.y - bounds.min.y,
+            bounds.max.z - bounds.min.z,
+          )
+        : null;
+      const nextMax = resolveOriginAxesSizeMax(modelExtent);
+
+      setOriginAxesSizeMax(nextMax);
+      setOriginSizePreference((currentValue) =>
+        normalizeOriginAxesSize(currentValue, currentValue, nextMax),
+      );
+    },
+    [setOriginSizePreference],
+  );
+
   const handleRobotLoaded = useCallback(
     (loadedRobot: RuntimeRobotObject) => {
       clearJointInteractionPreview();
       setJointPanelRobot(null);
       setRobot(loadedRobot);
       initializeJointControlState(loadedRobot);
+      syncOriginAxesSizeLimit(loadedRobot);
     },
-    [clearJointInteractionPreview, initializeJointControlState],
+    [clearJointInteractionPreview, initializeJointControlState, syncOriginAxesSizeLimit],
   );
 
   const handleJointPanelRobotLoaded = useCallback(
     (loadedRobot: RuntimeRobotObject | null) => {
       clearJointInteractionPreview();
       setJointPanelRobot(loadedRobot);
+      syncOriginAxesSizeLimit(loadedRobot);
       if (!loadedRobot) {
         return;
       }
       initializeJointControlState(loadedRobot);
     },
-    [clearJointInteractionPreview, initializeJointControlState],
+    [clearJointInteractionPreview, initializeJointControlState, syncOriginAxesSizeLimit],
   );
 
   const handleRuntimeJointAnglesSnapshotChange = useCallback(
@@ -2091,6 +2139,7 @@ export const useViewerController = ({
     showOriginsOverlay,
     setShowOriginsOverlay,
     originSize,
+    originAxesSizeMax,
     setOriginSize,
     showMjcfSites,
     setShowMjcfSites,

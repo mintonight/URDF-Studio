@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
 import {
+  ensureXacroNamespace,
   generateMujocoXML,
   generateSDF,
   generateURDF,
@@ -321,6 +322,190 @@ test('resolveSourcePreservingExportContent patches concrete Xacro elements and k
     parseXacro(result.content, {}, { 'robots/demo.urdf.xacro': result.content }, 'robots')
       ?.joints.tool_joint.limit?.upper,
     4,
+  );
+});
+
+test('resolveSourcePreservingExportContent refreshes selected xacro Gazebo controls', () => {
+  const source = URDF_SOURCE.replace(
+    '<robot name="demo">',
+    `<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="demo">
+  <gazebo reference="base_link">
+    <material>Gazebo/Orange</material>
+  </gazebo>
+  <transmission name="tool_joint_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="tool_joint">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="tool_joint_motor">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <gazebo>
+    <plugin name="gazebo_ros_control" filename="libgazebo_ros_control.so">
+      <robotNamespace>/demo_gazebo</robotNamespace>
+      <robotSimType>gazebo_ros_control/DefaultRobotHWSim</robotSimType>
+    </plugin>
+  </gazebo>`,
+  );
+  const robot = parseXacro(source, {}, { 'robots/demo.urdf.xacro': source }, 'robots');
+  const generatedContent = injectGazeboTags(
+    generateURDF(robot, { preserveMeshPaths: true }),
+    robot,
+    'ros2',
+    'velocity',
+    { outputMode: 'selected' },
+  );
+
+  const result = resolveSourcePreservingExportContent({
+    format: 'xacro',
+    currentRobot: robot,
+    sourceFile: {
+      name: 'robots/demo.urdf.xacro',
+      format: 'xacro',
+      content: source,
+    },
+    availableFiles: [],
+    allFileContents: { 'robots/demo.urdf.xacro': source },
+    generatedContent,
+  });
+
+  assert.equal(result.strategy, 'source-preserved');
+  assert.match(result.content, /<gazebo reference="base_link">/);
+  assert.match(result.content, /<material>Gazebo\/Orange<\/material>/);
+  assert.match(result.content, /<ros2_control name="demo" type="system">/);
+  assert.match(result.content, /<command_interface name="velocity"\/>/);
+  assert.match(
+    result.content,
+    /<plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control\.so">/,
+  );
+  assert.doesNotMatch(result.content, /<transmission name="tool_joint_trans">/);
+  assert.doesNotMatch(result.content, /gazebo_ros_control/);
+  assert.equal(
+    parseXacro(result.content, {}, { 'robots/demo.urdf.xacro': result.content }, 'robots')
+      ?.joints.tool_joint.name,
+    'tool_joint',
+  );
+});
+
+test('resolveSourcePreservingExportContent refreshes selected xacro to modern Gazebo ROS2 controls', () => {
+  const source = URDF_SOURCE.replace(
+    '<robot name="demo">',
+    `<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="demo">
+  <gazebo reference="base_link">
+    <material>Gazebo/Orange</material>
+  </gazebo>
+  <ros2_control name="demo" type="system">
+    <hardware>
+      <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+    </hardware>
+    <joint name="tool_joint">
+      <command_interface name="effort"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </ros2_control>
+  <gazebo>
+    <plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control.so">
+      <robot_param>robot_description</robot_param>
+      <robot_param_node>robot_state_publisher</robot_param_node>
+    </plugin>
+  </gazebo>`,
+  );
+  const robot = parseXacro(source, {}, { 'robots/demo.urdf.xacro': source }, 'robots');
+  const generatedContent = injectGazeboTags(
+    generateURDF(robot, { preserveMeshPaths: true }),
+    robot,
+    'ros2_gz',
+    'position',
+    { outputMode: 'selected' },
+  );
+
+  const result = resolveSourcePreservingExportContent({
+    format: 'xacro',
+    currentRobot: robot,
+    sourceFile: {
+      name: 'robots/demo.urdf.xacro',
+      format: 'xacro',
+      content: source,
+    },
+    availableFiles: [],
+    allFileContents: { 'robots/demo.urdf.xacro': source },
+    generatedContent,
+  });
+
+  assert.equal(result.strategy, 'source-preserved');
+  assert.match(result.content, /<gazebo reference="base_link">/);
+  assert.match(result.content, /<material>Gazebo\/Orange<\/material>/);
+  assert.match(result.content, /<ros2_control name="demo" type="system">/);
+  assert.match(result.content, /<plugin>gz_ros2_control\/GazeboSimSystem<\/plugin>/);
+  assert.match(result.content, /<command_interface name="position"\/>/);
+  assert.match(
+    result.content,
+    /<plugin filename="libgz_ros2_control-system\.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">/,
+  );
+  assert.doesNotMatch(result.content, /gazebo_ros2_control/);
+  assert.doesNotMatch(result.content, /gazebo_ros_control/);
+  assert.equal(
+    parseXacro(result.content, {}, { 'robots/demo.urdf.xacro': result.content }, 'robots')
+      ?.joints.tool_joint.name,
+    'tool_joint',
+  );
+});
+
+test('resolveSourcePreservingExportContent removes managed xacro Gazebo controls when disabled', () => {
+  const source = URDF_SOURCE.replace(
+    '<robot name="demo">',
+    `<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="demo">
+  <gazebo reference="base_link">
+    <material>Gazebo/Orange</material>
+  </gazebo>
+  <transmission name="tool_joint_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="tool_joint">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="tool_joint_motor">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <gazebo>
+    <plugin name="gazebo_ros_control" filename="libgazebo_ros_control.so">
+      <robotNamespace>/demo_gazebo</robotNamespace>
+    </plugin>
+  </gazebo>`,
+  );
+  const robot = parseXacro(source, {}, { 'robots/demo.urdf.xacro': source }, 'robots');
+  const generatedContent = ensureXacroNamespace(generateURDF(robot, { preserveMeshPaths: true }));
+
+  const result = resolveSourcePreservingExportContent({
+    format: 'xacro',
+    currentRobot: robot,
+    sourceFile: {
+      name: 'robots/demo.urdf.xacro',
+      format: 'xacro',
+      content: source,
+    },
+    availableFiles: [],
+    allFileContents: { 'robots/demo.urdf.xacro': source },
+    generatedContent,
+  });
+
+  assert.equal(result.strategy, 'source-preserved');
+  assert.match(result.content, /<gazebo reference="base_link">/);
+  assert.match(result.content, /<material>Gazebo\/Orange<\/material>/);
+  assert.doesNotMatch(result.content, /<transmission\b/);
+  assert.doesNotMatch(result.content, /<ros2_control\b/);
+  assert.doesNotMatch(result.content, /gazebo_ros_control/);
+  assert.doesNotMatch(result.content, /gazebo_ros2_control/);
+  assert.doesNotMatch(result.content, /gz_ros2_control/);
+  assert.equal(
+    parseXacro(result.content, {}, { 'robots/demo.urdf.xacro': result.content }, 'robots')
+      ?.joints.tool_joint.name,
+    'tool_joint',
   );
 });
 

@@ -66,13 +66,30 @@ const PATCHABLE_URDF_LIKE_TAGS = new Set([
   'joint',
   'material',
   'transmission',
+  'ros2_control',
   'gazebo',
   'xacro:arg',
   'xacro:property',
   'xacro:if',
   'xacro:unless',
 ]);
-const URDF_MODEL_TAGS = new Set(['link', 'joint', 'material', 'transmission', 'gazebo']);
+const URDF_MODEL_TAGS = new Set([
+  'link',
+  'joint',
+  'material',
+  'transmission',
+  'ros2_control',
+  'gazebo',
+]);
+const MANAGED_XACRO_CONTROL_ARG_NAMES = new Set([
+  'ros_profile',
+  'ros_hardware_interface',
+]);
+const MANAGED_GAZEBO_CONTROL_PLUGIN_NAMES = new Set([
+  'gazebo_ros_control',
+  'gazebo_ros2_control',
+  'gz_ros2_control::GazeboSimROS2ControlPlugin',
+]);
 const MJCF_MODEL_SECTION_TAGS = new Set([
   'compiler',
   'default',
@@ -305,6 +322,16 @@ function resolveElementKey(
     return `${element.tagName}:reference:${reference}`;
   }
 
+  if (element.tagName === 'gazebo') {
+    const text = xml.slice(element.startOffset, element.endOffset);
+    const pluginName =
+      getFirstNestedPluginAttribute(text, 'name') ||
+      getFirstNestedPluginAttribute(text, 'filename');
+    if (pluginName) {
+      return `${element.tagName}:plugin:${pluginName}`;
+    }
+  }
+
   const value = getAttributeValueFromOpenTag(openTag, 'value');
   if (value && (element.tagName === 'xacro:if' || element.tagName === 'xacro:unless')) {
     return `${element.tagName}:value:${value}`;
@@ -315,6 +342,56 @@ function resolveElementKey(
   }
 
   return `${element.tagName}:index:${fallbackIndex}`;
+}
+
+function getFirstNestedPluginAttribute(elementText: string, attrName: string): string | null {
+  const pluginOpenTag = elementText.match(/<\s*plugin\b[^>]*>/i)?.[0];
+  return pluginOpenTag ? getAttributeValueFromOpenTag(pluginOpenTag, attrName) : null;
+}
+
+function isManagedGazeboControlPlugin(text: string): boolean {
+  const pluginName = getFirstNestedPluginAttribute(text, 'name');
+  const pluginFilename = getFirstNestedPluginAttribute(text, 'filename');
+  return (
+    Boolean(pluginName && MANAGED_GAZEBO_CONTROL_PLUGIN_NAMES.has(pluginName)) ||
+    pluginFilename === 'libgazebo_ros_control.so' ||
+    pluginFilename === 'libgazebo_ros2_control.so' ||
+    pluginFilename === 'libgz_ros2_control-system.so'
+  );
+}
+
+function isManagedXacroControlConditional(text: string): boolean {
+  return (
+    /xacro\.arg\(\s*['"]ros_profile['"]\s*\)/.test(text) &&
+    /xacro\.arg\(\s*['"]ros_hardware_interface['"]\s*\)/.test(text)
+  );
+}
+
+function isManagedXacroControlChild(child: KeyedElement): boolean {
+  if (child.tagName === 'transmission' || child.tagName === 'ros2_control') {
+    return true;
+  }
+
+  if (child.tagName === 'gazebo') {
+    return isManagedGazeboControlPlugin(child.text);
+  }
+
+  if (child.tagName === 'xacro:arg') {
+    return MANAGED_XACRO_CONTROL_ARG_NAMES.has(
+      getAttributeValueFromOpenTag(getOpenTag(child.text, {
+        tagName: child.tagName,
+        startOffset: 0,
+        endOffset: child.text.length,
+        parentTagName: null,
+      }), 'name') ?? '',
+    );
+  }
+
+  if (child.tagName === 'xacro:if' || child.tagName === 'xacro:unless') {
+    return isManagedXacroControlConditional(child.text);
+  }
+
+  return false;
 }
 
 function collectKeyedChildren(
@@ -330,6 +407,95 @@ function collectKeyedChildren(
       bounds: element,
       text: xml.slice(element.startOffset, element.endOffset),
     }));
+}
+
+function shouldDeleteMissingUrdfLikeChild(
+  format: 'urdf' | 'xacro',
+  child: KeyedElement,
+): boolean {
+  if (format !== 'xacro') {
+    return URDF_MODEL_TAGS.has(child.tagName);
+  }
+
+  if (child.tagName === 'gazebo') {
+    return isManagedXacroControlChild(child);
+  }
+
+  if (
+    child.tagName === 'xacro:arg' ||
+    child.tagName === 'xacro:if' ||
+    child.tagName === 'xacro:unless'
+  ) {
+    return isManagedXacroControlChild(child);
+  }
+
+  return URDF_MODEL_TAGS.has(child.tagName);
+}
+
+function collectManagedXacroControlChildren(xml: string): KeyedElement[] {
+  return collectKeyedChildren(xml, 'robot', (tagName) =>
+    PATCHABLE_URDF_LIKE_TAGS.has(tagName),
+  ).filter((child) => isManagedXacroControlChild(child));
+}
+
+function patchMatchingXacroSource(sourceContent: string, generatedContent: string): string {
+  const sourceRoot = findRootElement(sourceContent, 'robot');
+  const generatedRoot = findRootElement(generatedContent, 'robot');
+  if (!sourceRoot || !generatedRoot) {
+    throw new SourcePreservingExportError('Cannot locate <robot> root for xacro export.');
+  }
+
+  const patched = applyRootAttributePatch(
+    sourceContent,
+    sourceRoot,
+    generatedRoot,
+    generatedContent,
+    ['name', 'version', 'xmlns:xacro'],
+  );
+  const patchedRoot = findRootElement(patched, 'robot');
+  if (!patchedRoot) {
+    throw new SourcePreservingExportError('Cannot re-locate <robot> root for xacro export.');
+  }
+
+  const sourceChildren = collectManagedXacroControlChildren(patched);
+  const generatedChildren = collectManagedXacroControlChildren(generatedContent);
+  const sourceChildrenByKey = new Map(sourceChildren.map((child) => [child.key, child]));
+  const generatedChildrenByKey = new Map(generatedChildren.map((child) => [child.key, child]));
+  const replacements: TextReplacement[] = [];
+
+  sourceChildren.forEach((sourceChild) => {
+    const generatedChild = generatedChildrenByKey.get(sourceChild.key);
+    replacements.push({
+      startOffset: sourceChild.bounds.startOffset,
+      endOffset: sourceChild.bounds.endOffset,
+      text: generatedChild
+        ? reindentFragment(
+            generatedChild.text,
+            getIndentAt(patched, sourceChild.bounds.startOffset),
+          )
+        : '',
+    });
+  });
+
+  const missingGeneratedChildren = generatedChildren.filter(
+    (child) => !sourceChildrenByKey.has(child.key),
+  );
+  if (missingGeneratedChildren.length > 0) {
+    const newline = getPreferredNewline(patched);
+    const allRootChildren = collectDirectChildren(patched, 'robot');
+    const insertionIndent = allRootChildren[0]
+      ? getIndentAt(patched, allRootChildren[0].startOffset)
+      : '  ';
+    replacements.push({
+      startOffset: getClosingTagStart(patched, patchedRoot),
+      endOffset: getClosingTagStart(patched, patchedRoot),
+      text: `${newline}${missingGeneratedChildren
+        .map((child) => reindentFragment(child.text, insertionIndent))
+        .join(newline)}${newline}`,
+    });
+  }
+
+  return applyTextReplacements(patched, replacements);
 }
 
 function normalizeForSnapshot(robot: RobotState): RobotState {
@@ -516,10 +682,13 @@ function patchUrdfLikeSource(
   }
 
   const changedKeys = collectChangedUrdfLikeKeys(sourceRobot, generatedRobot);
-  const patched = applyRootAttributePatch(sourceContent, sourceRoot, generatedRoot, generatedContent, [
-    'name',
-    'version',
-  ]);
+  const patched = applyRootAttributePatch(
+    sourceContent,
+    sourceRoot,
+    generatedRoot,
+    generatedContent,
+    format === 'xacro' ? ['name', 'version', 'xmlns:xacro'] : ['name', 'version'],
+  );
   const patchedRoot = findRootElement(patched, 'robot');
   if (!patchedRoot) {
     throw new SourcePreservingExportError(`Cannot re-locate <robot> root for ${format} export.`);
@@ -541,10 +710,10 @@ function patchUrdfLikeSource(
   const replacements: TextReplacement[] = [];
   sourceChildren.forEach((sourceChild) => {
     const generatedChild = generatedChildrenByKey.get(sourceChild.key);
-    const isRobotModelTag = URDF_MODEL_TAGS.has(sourceChild.tagName);
+    const shouldDeleteIfMissing = shouldDeleteMissingUrdfLikeChild(format, sourceChild);
 
     if (!generatedChild) {
-      if (isRobotModelTag) {
+      if (shouldDeleteIfMissing) {
         replacements.push({
           startOffset: sourceChild.bounds.startOffset,
           endOffset: sourceChild.bounds.endOffset,
@@ -554,7 +723,11 @@ function patchUrdfLikeSource(
       return;
     }
 
-    if (!isRobotModelTag || changedKeys.has(sourceChild.key)) {
+    if (
+      !URDF_MODEL_TAGS.has(sourceChild.tagName) ||
+      changedKeys.has(sourceChild.key) ||
+      (format === 'xacro' && isManagedXacroControlChild(sourceChild))
+    ) {
       replacements.push({
         startOffset: sourceChild.bounds.startOffset,
         endOffset: sourceChild.bounds.endOffset,
@@ -806,6 +979,18 @@ export function resolveSourcePreservingExportContent(
   }
 
   if (sourceRobot && buildRobotSnapshot(sourceRobot) === buildRobotSnapshot(generatedRobot)) {
+    if (format === 'xacro') {
+      const patchedContent = patchMatchingXacroSource(
+        sourceFile.content ?? sourceContent,
+        generatedContent,
+      );
+      validatePatchedContent(options, patchedContent);
+      return {
+        content: patchedContent,
+        strategy: 'source-preserved',
+      };
+    }
+
     return {
       content: sourceFile.content ?? sourceContent,
       strategy: 'source-preserved',

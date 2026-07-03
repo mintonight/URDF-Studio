@@ -3,6 +3,11 @@ import { Shapes, Shield } from 'lucide-react';
 import { Language, translations } from '@/shared/i18n';
 import { WORKSPACE_OVERLAY_RIGHT_EDGE_GAP } from '@/shared/components/3d/scene';
 import {
+  ORIGIN_AXES_SIZE_FALLBACK_MAX,
+  ORIGIN_AXES_SIZE_MIN,
+  ORIGIN_AXES_SIZE_STEP,
+} from '@/shared/components/3d/helpers/coordinateAxesSizing';
+import {
   CheckboxOption,
   OptionsPanelContainer,
   OptionsPanelContent,
@@ -18,6 +23,7 @@ interface UnifiedVisualizerOptionsPanelProps {
   setShowOrigin: (show: boolean) => void;
   frameSize: number;
   setFrameSize: (size: number) => void;
+  frameSizeMax?: number;
   showLabels: boolean;
   setShowLabels: (show: boolean) => void;
   labelScale: number;
@@ -90,6 +96,7 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
       setShowOrigin,
       frameSize,
       setFrameSize,
+      frameSizeMax = ORIGIN_AXES_SIZE_FALLBACK_MAX,
       showLabels,
       setShowLabels,
       labelScale,
@@ -196,9 +203,9 @@ export const UnifiedVisualizerOptionsPanel = forwardRef<
                   label: t.frameSize,
                   value: frameSize,
                   onChange: setFrameSize,
-                  min: 0.01,
-                  max: 0.5,
-                  step: 0.01,
+                  min: ORIGIN_AXES_SIZE_MIN,
+                  max: frameSizeMax,
+                  step: ORIGIN_AXES_SIZE_STEP,
                   compact: true,
                   indent: false,
                   labelClassName: englishSliderLabelClassName,

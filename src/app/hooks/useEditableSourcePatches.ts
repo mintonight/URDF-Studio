@@ -5,17 +5,20 @@ import type { RobotFile, UrdfJoint, UrdfLink } from '@/types';
 import {
   buildEditableSourcePatchState,
   resolveEditablePatchTarget,
-  resolveJointLimitEditablePatchTarget,
   type EditableSourcePatchStateResult,
 } from './editableSourcePatchState';
 import {
+  patchSdfJointLimitInSource,
+  patchSdfModelNameInSource,
   patchUrdfJointLimitInSource,
-  patchUsdJointLimitInSource,
+  patchUrdfRobotNameInSource,
 } from '../utils/jointEditableSourcePatch';
 import {
   appendMJCFBodyCollisionGeomToSource,
   appendMJCFChildBodyToSource,
   canPatchMJCFEditableSource,
+  patchMJCFJointLimitInSource,
+  patchMJCFRootModelNameInSource,
   removeMJCFBodyCollisionGeomFromSource,
   removeMJCFBodyFromSource,
   renameMJCFEntitiesInSource,
@@ -282,6 +285,51 @@ export function useEditableSourcePatches({
     [availableFiles, commitNextContent, selectedFile, showToast],
   );
 
+  const patchEditableSourceRobotName = useCallback(
+    ({
+      sourceFileName,
+      name,
+    }: {
+      sourceFileName?: string | null;
+      name: string;
+    }) => {
+      const { targetFileName, targetFile } = resolveEditablePatchTarget({
+        selectedFile,
+        availableFiles,
+        sourceFileName,
+      });
+      if (!targetFileName || !targetFile) {
+        return;
+      }
+
+      try {
+        if (targetFile.format === 'urdf' || targetFile.format === 'xacro') {
+          const nextContent = patchUrdfRobotNameInSource(targetFile.content, name);
+          commitNextContent({ sourceFileName: targetFileName, nextContent });
+          return;
+        }
+
+        if (targetFile.format === 'sdf') {
+          const nextContent = patchSdfModelNameInSource(targetFile.content, name);
+          commitNextContent({ sourceFileName: targetFileName, nextContent });
+          return;
+        }
+
+        if (canPatchMJCFEditableSource(targetFile)) {
+          const nextContent = patchMJCFRootModelNameInSource(targetFile.content, name);
+          commitNextContent({ sourceFileName: targetFileName, nextContent });
+        }
+      } catch (error) {
+        console.error(
+          `Failed to patch robot name in editable source "${targetFileName}".`,
+          error,
+        );
+        showToast(`Failed to patch robot name in ${targetFileName}`, 'info');
+      }
+    },
+    [availableFiles, commitNextContent, selectedFile, showToast],
+  );
+
   const patchEditableSourceRenameEntities = useCallback(
     ({
       sourceFileName,
@@ -330,38 +378,46 @@ export function useEditableSourcePatches({
       jointType: UrdfJoint['type'];
       limit: NonNullable<UrdfJoint['limit']>;
     }) => {
-      const { targetFileName, targetFile } = resolveJointLimitEditablePatchTarget({
+      const { targetFileName, targetFile } = resolveEditablePatchTarget({
         selectedFile,
         availableFiles,
         sourceFileName,
-        jointName,
       });
-      if (!targetFileName || !targetFile) {
+      if (
+        !targetFileName ||
+        !targetFile ||
+        (
+          targetFile.format !== 'urdf' &&
+          targetFile.format !== 'xacro' &&
+          targetFile.format !== 'sdf' &&
+          !canPatchMJCFEditableSource(targetFile)
+        )
+      ) {
         return;
       }
 
       try {
         const nextContent =
-          targetFile.format === 'urdf'
+          targetFile.format === 'urdf' || targetFile.format === 'xacro'
             ? patchUrdfJointLimitInSource({
                 sourceContent: targetFile.content,
                 jointName,
                 jointType,
                 limit,
               })
-            : targetFile.format === 'usd'
-              ? patchUsdJointLimitInSource({
+            : targetFile.format === 'sdf'
+              ? patchSdfJointLimitInSource({
                   sourceContent: targetFile.content,
                   jointName,
                   jointType,
                   limit,
                 })
-              : null;
-
-        if (!nextContent) {
-          return;
-        }
-
+              : patchMJCFJointLimitInSource({
+                  sourceContent: targetFile.content,
+                  jointName,
+                  jointType,
+                  limit,
+                });
         commitNextContent({ sourceFileName: targetFileName, nextContent });
       } catch (error) {
         console.error(
@@ -381,6 +437,7 @@ export function useEditableSourcePatches({
     patchEditableSourceDeleteCollisionBody,
     patchEditableSourceUpdateCollisionBody,
     patchEditableSourceUpdateJointLimit,
+    patchEditableSourceRobotName,
     patchEditableSourceRenameEntities,
   };
 }

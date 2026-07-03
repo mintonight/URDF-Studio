@@ -36,5 +36,8 @@ const GAZEBO_MODELS = path.resolve('test/gazebo_models');
  */
 export async function importModel(page, modelDir, fileName, timeoutMs = 60_000) {
   const dir = path.isAbsolute(modelDir) ? modelDir : path.join(GAZEBO_MODELS, modelDir);
-  return importZippedModel(page, dir, fileName, timeoutMs, 'sdf');
+  const expectedName = fileName.includes('/') || fileName.includes('\\')
+    ? fileName
+    : `${path.basename(dir)}/${fileName}`;
+  return importZippedModel(page, dir, expectedName, timeoutMs, 'sdf');
 }

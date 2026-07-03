@@ -5,7 +5,15 @@ import type {
   PrepareMjcfMeshExportAssetsOptions,
   PreparedMjcfMeshExportAssets,
 } from '@/features/file-io';
-import { generateMujocoXML, generateSDF, generateSdfModelConfig, generateURDF, injectGazeboTags } from '@/core/parsers';
+import {
+  ensureXacroNamespace,
+  generateMujocoXML,
+  generateSDF,
+  generateSdfModelConfig,
+  generateURDF,
+  injectGazeboTags,
+} from '@/core/parsers';
+import type { RosGazeboProfile } from '@/core/parsers';
 import { translations } from '@/shared/i18n';
 import type { RobotFile, RobotState, AssemblyState } from '@/types';
 import type {
@@ -38,6 +46,14 @@ import type {
 } from './types';
 
 type ExportTranslations = typeof translations.en;
+
+function resolveRosGazeboProfile(config: ExportDialogConfig['xacro']): RosGazeboProfile {
+  if (config.rosVersion === 'ros1') {
+    return 'ros1';
+  }
+
+  return config.gazeboBackend === 'gz' ? 'ros2_gz' : 'ros2';
+}
 
 type AddMeshesToZip = (
   robot: RobotState,
@@ -446,7 +462,9 @@ export async function executeConfiguredRobotExport({
 
   if (config.format === 'xacro') {
     const {
+      includeGazeboControl,
       rosVersion,
+      gazeboBackend,
       rosHardwareInterface,
       useRelativePaths,
       includeMeshes,
@@ -474,12 +492,22 @@ export async function executeConfiguredRobotExport({
       boxFaceFallbackWarningLabels,
     );
     const generatedXacroBaseUrdf = generateURDF(exportRobot, generatedUrdfOptions);
-    const generatedXacroContent = injectGazeboTags(
-      generatedXacroBaseUrdf,
-      exportRobot,
+    const rosGazeboProfile = resolveRosGazeboProfile({
+      ...config.xacro,
       rosVersion,
-      rosHardwareInterface,
-    );
+      gazeboBackend,
+    });
+    const generatedXacroContent = includeGazeboControl
+      ? injectGazeboTags(
+          generatedXacroBaseUrdf,
+          exportRobot,
+          rosGazeboProfile,
+          rosHardwareInterface,
+          {
+            outputMode: 'selected',
+          },
+        )
+      : ensureXacroNamespace(generatedXacroBaseUrdf);
     const xacroContent =
       (boxFaceFallbackCount === 0
         ? buildSourcePreservingExportContent('xacro', target, exportRobot, generatedXacroContent, {

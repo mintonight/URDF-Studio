@@ -95,6 +95,10 @@ export interface UseWorkspaceMutationsParams {
     jointType: UrdfJoint['type'];
     limit: NonNullable<UrdfJoint['limit']>;
   }) => void;
+  patchEditableSourceRobotName?: (args: {
+    sourceFileName?: string | null;
+    name: string;
+  }) => void;
   patchEditableSourceRenameEntities?: (args: {
     sourceFileName?: string | null;
     operations: MJCFRenameOperation[];

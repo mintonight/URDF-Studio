@@ -7,6 +7,7 @@ import { persist } from 'zustand/middleware';
 import type { AppMode, DetailLinkTab, Theme } from '@/types';
 import { translations } from '@/shared/i18n';
 import { normalizeMergedAppMode } from '@/shared/utils/appMode';
+import { applyDocumentTheme } from '@/shared/utils/theme';
 
 // Language type
 export type Language = 'en' | 'zh';
@@ -445,21 +446,6 @@ const applyFontSize = (fontSize: GlobalFontSize) => {
   document.documentElement.setAttribute('data-font-size', fontSize);
 };
 
-// Helper to apply theme
-const applyTheme = (theme: Theme) => {
-  if (typeof window === 'undefined') return;
-
-  const isDark =
-    theme === 'dark' ||
-    (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-
-  if (isDark) {
-    document.documentElement.classList.add('dark');
-  } else {
-    document.documentElement.classList.remove('dark');
-  }
-};
-
 export const useUIStore = create<UIState>()(
   persist(
     (set, get) => ({
@@ -469,10 +455,7 @@ export const useUIStore = create<UIState>()(
 
       // Theme
       theme: getSavedTheme(),
-      setTheme: (theme) => {
-        applyTheme(theme);
-        set({ theme });
-      },
+      setTheme: (theme) => set({ theme }),
 
       // Language
       lang: getSystemLang(),
@@ -766,7 +749,7 @@ export const useUIStore = create<UIState>()(
       onRehydrateStorage: () => (state) => {
         // Re-apply theme and font size on hydration
         if (state) {
-          applyTheme(state.theme);
+          applyDocumentTheme(state.theme, { animate: false });
           document.documentElement.style.fontSize = '100%';
           // Re-apply font size
           applyFontSize(normalizeGlobalFontSize(state.fontSize));
