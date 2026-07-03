@@ -109,3 +109,75 @@ test('Select renders a custom listbox while preserving select-compatible change 
     dom.window.close();
   }
 });
+
+test('Select keeps the menu open while scrolling inside the listbox', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+
+  function Wrapper() {
+    const [value, setValue] = React.useState('alpha');
+    return (
+      <Select
+        aria-label="Links"
+        options={Array.from({ length: 20 }, (_, i) => ({
+          value: `link${i}`,
+          label: `Link ${i}`,
+        }))}
+        value={value}
+        onChange={(event) => setValue(event.currentTarget.value)}
+      />
+    );
+  }
+
+  try {
+    await act(async () => {
+      root.render(<Wrapper />);
+    });
+
+    const trigger = container.querySelector('button[role="combobox"]');
+    assert.ok(trigger instanceof dom.window.HTMLButtonElement);
+
+    await act(async () => {
+      trigger.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    });
+
+    const listbox = dom.window.document.querySelector('[role="listbox"]');
+    assert.ok(listbox, 'listbox should be open after clicking the trigger');
+
+    // A scroll that originates from inside the listbox must NOT close the menu,
+    // otherwise the user cannot use the listbox scrollbar. The capture-phase
+    // listener on window still sees the event, so the handler must filter it.
+    await act(async () => {
+      listbox.dispatchEvent(
+        new dom.window.Event('scroll', { bubbles: false, cancelable: false }),
+      );
+    });
+
+    assert.ok(
+      dom.window.document.querySelector('[role="listbox"]'),
+      'listbox should stay open when scrolled from inside',
+    );
+
+    // A scroll of the page itself (target = document) should still close the
+    // menu so it does not detach from its trigger.
+    await act(async () => {
+      dom.window.document.dispatchEvent(
+        new dom.window.Event('scroll', { bubbles: false, cancelable: false }),
+      );
+    });
+
+    assert.equal(
+      dom.window.document.querySelector('[role="listbox"]'),
+      null,
+      'listbox should close when the page scrolls',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});

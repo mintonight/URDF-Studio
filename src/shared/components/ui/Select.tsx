@@ -265,7 +265,23 @@ export const Select: React.FC<SelectProps> = ({
       closeMenu();
     };
 
-    const handleWindowChange = () => {
+    const handleResize = () => {
+      closeMenu();
+    };
+
+    // Close the menu when the *page* scrolls (so it never detaches from its
+    // trigger), but ignore scrolls that originate inside the menu itself —
+    // otherwise dragging the listbox scrollbar immediately closes the menu.
+    // Scroll events do not bubble, but a capture-phase listener on window
+    // receives them from every descendant, so we must filter by target.
+    const handleScroll = (event: Event) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (menuRef.current?.contains(target) || triggerRef.current?.contains(target))
+      ) {
+        return;
+      }
       closeMenu();
     };
 
@@ -278,14 +294,14 @@ export const Select: React.FC<SelectProps> = ({
     };
 
     document.addEventListener('mousedown', handlePointerDown);
-    window.addEventListener('resize', handleWindowChange);
-    window.addEventListener('scroll', handleWindowChange, true);
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('keydown', handleEscape);
 
     return () => {
       document.removeEventListener('mousedown', handlePointerDown);
-      window.removeEventListener('resize', handleWindowChange);
-      window.removeEventListener('scroll', handleWindowChange, true);
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('scroll', handleScroll, true);
       window.removeEventListener('keydown', handleEscape);
     };
   }, [closeMenu, isOpen, usingNativeFallback]);
