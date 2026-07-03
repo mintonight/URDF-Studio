@@ -6,14 +6,22 @@ import path from 'node:path';
 
 import { createServer, loadConfigFromFile, type UserConfig } from 'vite';
 
-const DEV_SERVER_ENV_KEYS = ['URDF_STUDIO_DEV_HOST', 'URDF_STUDIO_DEV_ALLOWED_HOSTS'] as const;
+const CONFIG_ENV_KEYS = [
+  'URDF_STUDIO_DEV_HOST',
+  'URDF_STUDIO_DEV_ALLOWED_HOSTS',
+  'API_KEY',
+  'OPENAI_API_KEY',
+  'GEMINI_API_KEY',
+  'OPENAI_BASE_URL',
+  'OPENAI_MODEL',
+] as const;
 
 async function loadViteConfigWithDevServerEnv(
-  env: Partial<Record<(typeof DEV_SERVER_ENV_KEYS)[number], string | undefined>>,
+  env: Partial<Record<(typeof CONFIG_ENV_KEYS)[number], string | undefined>>,
 ): Promise<UserConfig> {
   const previousEnv = new Map<string, string | undefined>();
 
-  DEV_SERVER_ENV_KEYS.forEach((key) => {
+  CONFIG_ENV_KEYS.forEach((key) => {
     previousEnv.set(key, process.env[key]);
 
     if (Object.prototype.hasOwnProperty.call(env, key)) {
@@ -40,7 +48,7 @@ async function loadViteConfigWithDevServerEnv(
     assert.ok(loaded?.config);
     return loaded.config as UserConfig;
   } finally {
-    DEV_SERVER_ENV_KEYS.forEach((key) => {
+    CONFIG_ENV_KEYS.forEach((key) => {
       const previousValue = previousEnv.get(key);
       if (previousValue === undefined) {
         delete process.env[key];
@@ -49,6 +57,12 @@ async function loadViteConfigWithDevServerEnv(
       }
     });
   }
+}
+
+function readDefinedString(config: UserConfig, key: string): string {
+  const definedValue = config.define?.[key];
+  assert.equal(typeof definedValue, 'string');
+  return JSON.parse(definedValue as string) as string;
 }
 
 function listen(server: net.Server, port: number): Promise<void> {
@@ -146,6 +160,22 @@ test('dev server accepts a comma-separated preview host allow-list', async () =>
   });
 
   assert.deepEqual(config.server?.allowedHosts, ['preview.example.test', '.tunnel.example.test']);
+});
+
+test('vite config injects AI runtime env into browser process env defines', async () => {
+  const config = await loadViteConfigWithDevServerEnv({
+    API_KEY: 'test-primary-key',
+    OPENAI_API_KEY: 'test-openai-key',
+    GEMINI_API_KEY: 'test-gemini-key',
+    OPENAI_BASE_URL: 'https://example.test/v1',
+    OPENAI_MODEL: 'test-model',
+  });
+
+  assert.equal(readDefinedString(config, 'process.env.API_KEY'), 'test-primary-key');
+  assert.equal(readDefinedString(config, 'process.env.OPENAI_API_KEY'), 'test-openai-key');
+  assert.equal(readDefinedString(config, 'process.env.GEMINI_API_KEY'), 'test-gemini-key');
+  assert.equal(readDefinedString(config, 'process.env.OPENAI_BASE_URL'), 'https://example.test/v1');
+  assert.equal(readDefinedString(config, 'process.env.OPENAI_MODEL'), 'test-model');
 });
 
 test('dev server ignores root virtualenv files during watch', async () => {

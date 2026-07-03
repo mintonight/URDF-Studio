@@ -22,6 +22,7 @@ import {
 import { normalizeAIRobotResponse } from '../utils/normalizeRobotData'
 import { processInspectionResults } from '../utils/processInspectionResults'
 import type { SelectedInspectionProfileMap } from '../utils/inspectionProfileSelection'
+import { resolveAiRuntimeEnv } from './aiRuntimeEnv'
 
 export type RobotInspectionStage =
   | 'preparing-context'
@@ -80,8 +81,8 @@ const createOpenAIClient = (): OpenAI => {
   }
 
   return new OpenAI({
-    apiKey: process.env.API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+    apiKey: resolveAiRuntimeEnv().apiKey,
+    baseURL: resolveAiRuntimeEnv().baseUrl,
     dangerouslyAllowBrowser: true,
   })
 }
@@ -94,7 +95,7 @@ export function __setInspectionOpenAIClientFactoryForTests(factory: (() => OpenA
  * Get model name from environment
  */
 const getModelName = (): string => {
-  return process.env.OPENAI_MODEL || 'bce/deepseek-v3.2'
+  return resolveAiRuntimeEnv().model
 }
 
 /**
@@ -228,12 +229,13 @@ export const generateRobotFromPrompt = async (
     return easterEggResponse
   }
 
-  if (!process.env.API_KEY) {
+  const aiRuntimeEnv = resolveAiRuntimeEnv()
+  if (!aiRuntimeEnv.apiKey) {
     logRegressionError('API Key missing')
     logRegressionError('Available env vars:', {
-      API_KEY: process.env.API_KEY ? '***' : 'missing',
-      OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
-      OPENAI_MODEL: process.env.OPENAI_MODEL
+      API_KEY: 'missing',
+      OPENAI_BASE_URL: aiRuntimeEnv.baseUrl,
+      OPENAI_MODEL: aiRuntimeEnv.model
     })
     return {
       explanation: text.apiKeyMissing,
@@ -383,7 +385,7 @@ export const runRobotInspection = async (
   options: RunRobotInspectionOptions = {},
 ): Promise<InspectionReport | null> => {
   const text = getAiServiceTexts(lang)
-  if (!process.env.API_KEY) {
+  if (!resolveAiRuntimeEnv().apiKey) {
     logRegressionError('API Key missing')
     return {
       summary: text.apiKeyMissing,

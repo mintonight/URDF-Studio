@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { translations, type Language } from '@/shared/i18n';
 import { getConversationSystemPrompt, type ConversationMode } from '../config/prompts';
+import { resolveAiRuntimeEnv } from './aiRuntimeEnv';
 
 export interface ConversationHistoryTurn {
   role: 'user' | 'assistant';
@@ -51,20 +52,11 @@ interface ConversationStreamChunkLike {
 const MAX_HISTORY_TURNS = 8;
 
 const getApiKey = (): string => {
-  const candidates = [process.env.API_KEY, process.env.OPENAI_API_KEY, process.env.GEMINI_API_KEY];
-
-  for (const candidate of candidates) {
-    const value = candidate?.trim();
-    if (value) {
-      return value;
-    }
-  }
-
-  return '';
+  return resolveAiRuntimeEnv().apiKey;
 };
 
 const getBaseUrl = (): string => {
-  return process.env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1';
+  return resolveAiRuntimeEnv().baseUrl;
 };
 
 const createOpenAIClient = (apiKey: string): OpenAI => {
@@ -76,7 +68,7 @@ const createOpenAIClient = (apiKey: string): OpenAI => {
 };
 
 const getModelName = (): string => {
-  return process.env.OPENAI_MODEL?.trim() || 'bce/deepseek-v3.2';
+  return resolveAiRuntimeEnv().model;
 };
 
 const getConversationTexts = (lang: Language) => {
