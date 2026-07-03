@@ -58,6 +58,28 @@ test('Header does not reserve empty center dock width when no toolbar is mounted
   assert.doesNotMatch(markup, /min-w-\[240px\]/);
 });
 
+test('Header renders above managed windows so its dropdowns stay clickable', () => {
+  const markup = renderHeader();
+
+  // The header element itself must establish a stacking context above the
+  // managed-window layer (220-235). Without `relative` + a z-index >= 235,
+  // dropdown panels (z-50) are stacked at the document root and get buried
+  // under source-code/AI/settings windows.
+  const headerTag = markup.match(/<header[^>]*>/)?.[0];
+  assert.ok(headerTag, 'expected a <header> element');
+  assert.match(headerTag, /relative/, 'header must be positioned to establish a stacking context');
+  assert.match(
+    headerTag,
+    /z-\[(\d+)\]/,
+    'header must carry an explicit z-index utility to own its layer',
+  );
+  const zIndex = Number(headerTag.match(/z-\[(\d+)\]/)[1]);
+  assert.ok(
+    zIndex > 235,
+    `header z-index (${zIndex}) must exceed the managed-window ceiling (235) so dropdowns render above windows`,
+  );
+});
+
 test('Header uses a slimmer top bar height', () => {
   const markup = renderHeader();
 
