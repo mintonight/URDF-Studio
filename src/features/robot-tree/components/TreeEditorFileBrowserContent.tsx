@@ -63,7 +63,7 @@ export function TreeEditorFileBrowserContent({
       className={`@container flex flex-col bg-white dark:bg-panel-bg border-b border-border-black dark:border-border-black ${shouldFillSpace ? 'flex-1 min-h-0' : 'shrink-0'} ${isDragging ? '' : 'transition-all duration-200'}`}
       style={shouldFillSpace ? undefined : { height: isOpen ? `${height}px` : 'auto' }}
     >
-      <div className="flex items-center gap-2 bg-element-bg px-2.5 py-1.5 dark:bg-element-bg">
+      <div className="flex h-8 items-center gap-2 bg-element-bg px-2.5 dark:bg-element-bg">
         <button
           type="button"
           className="flex min-w-0 flex-1 cursor-pointer select-none items-center justify-between border-0 bg-transparent p-0 text-left"

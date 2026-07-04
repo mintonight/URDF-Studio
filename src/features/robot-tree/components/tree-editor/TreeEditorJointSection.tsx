@@ -258,7 +258,7 @@ export function TreeEditorJointSection({
       className={`relative flex min-h-0 shrink-0 flex-col overflow-hidden border-t border-border-black/60 bg-element-bg dark:bg-element-bg ${isDragging ? '' : 'transition-[height] duration-200 ease-out'}`}
       style={{ height: isCollapsed ? 'auto' : `${height}px` }}
     >
-      <div className="flex items-center justify-between gap-2 px-2.5 py-1 transition-colors hover:bg-element-hover">
+      <div className="flex h-8 items-center justify-between gap-2 px-2.5 transition-colors hover:bg-element-hover">
         <button
           type="button"
           data-testid="tree-editor-joint-section-toggle"

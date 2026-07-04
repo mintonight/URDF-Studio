@@ -1,5 +1,5 @@
 export const PROPERTY_EDITOR_PANEL_EYEBROW_CLASS =
-  'ui-static-copy-guard text-[9px] font-semibold tracking-[0.02em] text-text-tertiary';
+  'ui-static-copy-guard text-[11px] font-semibold tracking-[0.02em] text-text-tertiary';
 export const PROPERTY_EDITOR_PANEL_TITLE_CLASS =
   'ui-static-copy-guard text-[11px] font-semibold leading-4 text-text-primary';
 export const PROPERTY_EDITOR_SECTION_TITLE_CLASS =

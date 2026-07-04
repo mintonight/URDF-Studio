@@ -173,7 +173,7 @@ export const PropertyEditor: React.FC<PropertyEditorProps> = ({
           className="h-full flex flex-col bg-element-bg dark:bg-panel-bg"
         >
           {/* Header */}
-          <div className="w-full flex items-center justify-between px-2 py-1 border-b border-border-black bg-panel-bg shrink-0 relative z-30">
+          <div className="w-full flex h-8 items-center justify-between px-2 border-b border-border-black bg-panel-bg shrink-0 relative z-30">
             <span className={PROPERTY_EDITOR_PANEL_EYEBROW_CLASS}>{t.properties}</span>
             {isReadOnlyPreview && (
               <span className="ui-static-copy-guard ml-1.5 rounded-md border border-system-blue/20 bg-system-blue/10 px-1.5 py-px text-[9px] font-semibold tracking-[0.02em] text-system-blue">
