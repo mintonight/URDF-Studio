@@ -144,6 +144,14 @@ export function AIConversationModal({
     minSize: { width: 560, height: 400 },
     centerOnMount: true,
     enableMinimize: true,
+    // Match the source-code editor: let the window slide off-screen and resize
+    // without being clamped to the viewport.
+    clampResizeToViewport: false,
+    dragBounds: {
+      allowNegativeX: true,
+      minVisibleWidth: 100,
+      bottomMargin: 50,
+    },
   });
   const { isMinimized, size, isResizing } = windowState;
 

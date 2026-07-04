@@ -375,6 +375,14 @@ export const CollisionOptimizationDialog: React.FC<CollisionOptimizationDialogPr
     centerOnMount: true,
     enableMinimize: false,
     enableMaximize: false,
+    // Match the source-code editor: let the window slide off-screen and resize
+    // without being clamped to the viewport.
+    clampResizeToViewport: false,
+    dragBounds: {
+      allowNegativeX: true,
+      minVisibleWidth: 100,
+      bottomMargin: 50,
+    },
   });
   const dialogWidth = windowState.size.width;
   const isStackedLayout = dialogWidth < 960;
