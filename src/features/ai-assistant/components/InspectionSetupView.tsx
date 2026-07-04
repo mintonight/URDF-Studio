@@ -574,7 +574,7 @@ export function InspectionSetupView({
     >
       <section
         data-inspection-recognition-panel="true"
-        className="shrink-0 rounded-2xl border border-border-black bg-panel-bg shadow-sm"
+        className="shrink-0 overflow-hidden rounded-2xl border border-border-black bg-panel-bg shadow-sm"
       >
         <div className="flex flex-col gap-3 border-b border-border-black bg-system-blue/5 px-4 py-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="flex min-w-0 items-start gap-3">
