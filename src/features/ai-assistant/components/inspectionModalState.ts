@@ -31,37 +31,10 @@ export interface InspectionRunPointerLayout {
 
 export type InspectionSetupMode = 'normal' | 'advanced';
 
-const INSPECTION_SETUP_MODE_STORAGE_KEY = 'urdf-studio.ai-inspection.setup-mode';
-
 export const TOTAL_INSPECTION_ITEM_COUNT = getAllInspectionProfileItemCount();
 
 export const RUN_INSPECTION_POINTER_DURATION_MS =
   typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent) ? 300 : 2400;
-
-export function readStoredInspectionSetupMode(): InspectionSetupMode {
-  if (typeof window === 'undefined') {
-    return 'normal';
-  }
-
-  try {
-    const storedMode = window.localStorage.getItem(INSPECTION_SETUP_MODE_STORAGE_KEY);
-    return storedMode === 'normal' || storedMode === 'advanced' ? storedMode : 'normal';
-  } catch {
-    return 'normal';
-  }
-}
-
-export function writeStoredInspectionSetupMode(mode: InspectionSetupMode): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(INSPECTION_SETUP_MODE_STORAGE_KEY, mode);
-  } catch {
-    // Ignore storage write failures and keep the in-memory mode.
-  }
-}
 
 export function createInitialSelectedProfiles(): SelectedInspectionProfiles {
   const initial: SelectedInspectionProfiles = {};

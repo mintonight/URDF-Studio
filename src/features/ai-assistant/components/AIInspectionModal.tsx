@@ -48,11 +48,9 @@ import { InspectionSidebar } from './InspectionSidebar';
 import { InspectionSetupNormalView } from './InspectionSetupNormalView';
 import { InspectionSetupView } from './InspectionSetupView';
 import {
-  readStoredInspectionSetupMode,
   recalculateReportMetrics,
   RUN_INSPECTION_POINTER_DURATION_MS,
   TOTAL_INSPECTION_ITEM_COUNT,
-  writeStoredInspectionSetupMode,
   type InspectionRunPointerLayout,
   type InspectionSetupMode,
   type ReportScrollTarget,
@@ -200,6 +198,14 @@ export function AIInspectionModal({
     minSize: { width: 760, height: 520 },
     centerOnMount: true,
     enableMinimize: true,
+    // Match the source-code editor: let the window slide off-screen and resize
+    // without being clamped to the viewport.
+    clampResizeToViewport: false,
+    dragBounds: {
+      allowNegativeX: true,
+      minVisibleWidth: 100,
+      bottomMargin: 50,
+    },
   });
   const { isMinimized, size, isResizing } = windowState;
 
@@ -223,9 +229,7 @@ export function AIInspectionModal({
   const [selectedProfiles, setSelectedProfiles] = useState<SelectedInspectionProfiles>(() =>
     createSelectedInspectionProfilesForProfileIds(profileRecommendation.profileIds),
   );
-  const [inspectionSetupMode, setInspectionSetupMode] = useState<InspectionSetupMode>(() =>
-    readStoredInspectionSetupMode(),
-  );
+  const [inspectionSetupMode, setInspectionSetupMode] = useState<InspectionSetupMode>('normal');
   const [showRunInspectionPointer, setShowRunInspectionPointer] = useState(false);
   const [runInspectionPointerReplayToken, setRunInspectionPointerReplayToken] = useState(0);
   const [runInspectionPointerLayout, setRunInspectionPointerLayout] =
@@ -276,14 +280,6 @@ export function AIInspectionModal({
       runInspectionPointerTimerRef.current = null;
     }
   }, []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    writeStoredInspectionSetupMode(inspectionSetupMode);
-  }, [inspectionSetupMode]);
 
   useEffect(() => {
     const selectionSyncKey = `${inspectionSetupMode}:${normalInspectionPlanSelectionKey}`;
