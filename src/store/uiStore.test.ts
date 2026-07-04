@@ -171,6 +171,61 @@ test('opening settings moves it above the source code window immediately', async
   dom.window.close();
 });
 
+test('useManagedWindowLayer brings a window to the front when it mounts', async () => {
+  // Import the plain (non-cache-busted) store + hook modules so the hook and
+  // the test observe the same store instance. We reset state manually instead
+  // of going through loadUIStore's query-suffixed module.
+  const dom = installDom();
+  const uiStoreModule = (await import('./uiStore.ts')) as UIStoreModule;
+  const { useManagedWindowLayer } = await import('./useManagedWindowLayer.ts');
+  const React = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  const { act } = (await import('react-dom/test-utils')) as {
+    act: (cb: () => Promise<unknown>) => Promise<void>;
+  };
+
+  const { useUIStore } = uiStoreModule;
+  useUIStore.setState({ managedWindowOrder: [...uiStoreModule.DEFAULT_MANAGED_WINDOW_ORDER] });
+
+  // Start with sourceCode at the front; collisionOptimization sits below it.
+  useUIStore.getState().bringWindowToFront('sourceCode');
+  assert.ok(
+    useUIStore.getState().getManagedWindowZIndex('sourceCode') >
+      useUIStore.getState().getManagedWindowZIndex('collisionOptimization'),
+    'source code should start in front of collision optimization',
+  );
+
+  const container = dom.window.document.createElement('div');
+  dom.window.document.body.appendChild(container);
+  const root = createRoot(container);
+
+  // Rendering a component that uses the hook simulates the collision
+  // optimization window mounting (i.e. being opened).
+  function CollisionProbe() {
+    useManagedWindowLayer('collisionOptimization');
+    return null;
+  }
+
+  try {
+    await act(async () => {
+      root.render(React.createElement(CollisionProbe));
+    });
+
+    assert.ok(
+      useUIStore.getState().getManagedWindowZIndex('collisionOptimization') >
+        useUIStore.getState().getManagedWindowZIndex('sourceCode'),
+      'mounting the collision optimization layer should move it above source code',
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  }
+
+  dom.window.close();
+});
+
 test('legacy default tree panel heights migrate to balanced sizing', async () => {
   const { dom, useUIStore } = await loadUIStore(
     {
