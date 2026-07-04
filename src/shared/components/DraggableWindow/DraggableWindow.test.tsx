@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 import { DraggableWindow } from './DraggableWindow';
+import { APP_HEADER_HEIGHT_PX } from '@/shared/hooks/useDraggableWindow';
 import { useSelectionStore } from '@/store/selectionStore';
 import { OverlayHoverBlockProvider } from '@/shared/hooks/useOverlayHoverBlock';
 
@@ -244,6 +245,68 @@ test('DraggableWindow applies dynamic z-index and activates on pointer or keyboa
       button.dispatchEvent(new dom.window.Event('focusin', { bubbles: true }));
     });
     assert.equal(activateCount, 2);
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    dom.window.close();
+  }
+});
+
+test('DraggableWindow leaves the app header exposed while maximized instead of covering it', async () => {
+  const dom = installDom();
+  const container = dom.window.document.getElementById('root');
+  assert.ok(container, 'root container should exist');
+
+  const root = createRoot(container);
+  const windowRef = createRef<HTMLDivElement>();
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(DraggableWindow, {
+          window: {
+            isMaximized: true,
+            isMinimized: false,
+            isDragging: false,
+            isResizing: false,
+            containerRef: windowRef,
+            handleDragStart: () => {},
+            handleResizeStart: () => {},
+            toggleMaximize: () => {},
+            toggleMinimize: () => {},
+            windowStyle: {
+              position: 'fixed',
+              top: APP_HEADER_HEIGHT_PX,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: '100%',
+              height: `calc(100% - ${APP_HEADER_HEIGHT_PX}px)`,
+              transform: 'none',
+            },
+          },
+          zIndex: 235,
+          onActivate: () => {},
+          onClose: () => {},
+          title: 'Maximized',
+          children: null,
+        }),
+      );
+    });
+
+    const windowRoot = container.firstElementChild as HTMLDivElement | null;
+    assert.ok(windowRoot, 'draggable window should render');
+    assert.equal(
+      windowRoot.style.top,
+      `${APP_HEADER_HEIGHT_PX}px`,
+      'maximized window should start below the fixed app header',
+    );
+    assert.equal(
+      windowRoot.style.height,
+      `calc(100% - ${APP_HEADER_HEIGHT_PX}px)`,
+      'maximized window should fill the viewport below the header',
+    );
   } finally {
     await act(async () => {
       root.unmount();

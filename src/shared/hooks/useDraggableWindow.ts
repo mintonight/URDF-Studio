@@ -3,6 +3,14 @@ import type { CSSProperties, Dispatch, MouseEvent, RefObject, SetStateAction } f
 
 export type ResizeDirection = 'right' | 'bottom' | 'corner' | 'left' | 'e' | 's' | 'se' | 'w';
 
+/**
+ * Height of the fixed application top bar (`h-10` = 40px). A maximized
+ * DraggableWindow insets its top edge by this amount so the header stays
+ * visible and accessible, mirroring how OS-level maximized windows leave the
+ * desktop menu bar exposed.
+ */
+export const APP_HEADER_HEIGHT_PX = 40;
+
 interface Position {
   x: number;
   y: number;
@@ -478,12 +486,16 @@ export const useDraggableWindow = ({
     if (isMaximized) {
       return {
         position: 'fixed',
-        top: 0,
+        // Leave the fixed app header exposed at the top, the way maximized OS
+        // windows leave a menu bar visible.
+        top: APP_HEADER_HEIGHT_PX,
         left: 0,
         right: 0,
         bottom: 0,
         width: '100%',
-        height: '100%',
+        // Fill the viewport below the header without relying on height:100%
+        // (which would be measured from the inset top edge).
+        height: `calc(100% - ${APP_HEADER_HEIGHT_PX}px)`,
         transform: 'none',
       };
     }
